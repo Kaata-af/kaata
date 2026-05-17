@@ -20,11 +20,13 @@ export default function HomeScreen() {
   const [customers, setCustomers] = useState<CustomerWithBalance[]>([]);
   const [sheetFor, setSheetFor] = useState<CustomerWithBalance | null>(null);
   const [confirmDeleteFor, setConfirmDeleteFor] = useState<CustomerWithBalance | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     const [s, list] = await Promise.all([getLocalSelf(), listCustomersWithBalances()]);
     setSelf(s);
     setCustomers(list);
+    setLoaded(true);
   }, []);
 
   useFocusEffect(
@@ -34,6 +36,11 @@ export default function HomeScreen() {
   );
 
   if (forceUpdate) return <Redirect href="/update-prompt" />;
+  // Belt-and-suspenders alongside Stack.initialRouteName: if no local-self user
+  // exists yet, we have to send the user to onboarding. initialRouteName alone
+  // isn't enough — the OS opens the app at "/" which renders this screen
+  // regardless of stack root.
+  if (loaded && !self) return <Redirect href="/onboarding" />;
 
   const totalOwed = customers.reduce((sum, c) => sum + (c.balance < 0 ? -c.balance : 0), 0);
 
@@ -68,7 +75,7 @@ export default function HomeScreen() {
         )}
         ListEmptyComponent={
           <EmptyState
-            title="No khaatas yet"
+            title="No kaatas yet"
             subtitle="Tap + to record your first debt or payment."
           />
         }

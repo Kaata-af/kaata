@@ -97,6 +97,8 @@ export default function NewEntryScreen() {
       }
       await createEntry(customerId, type, intAmount, note.trim().slice(0, 100) || null);
       router.back();
+    } catch (e) {
+      Alert.alert("Couldn't save", e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -119,7 +121,7 @@ export default function NewEntryScreen() {
           <Pressable onPress={() => router.back()}>
             <Text style={styles.cancel}>Cancel</Text>
           </Pressable>
-          <Text style={styles.title}>New khaata entry</Text>
+          <Text style={styles.title}>New kaata entry</Text>
           <View style={{ width: 60 }} />
         </View>
 
@@ -213,7 +215,7 @@ export default function NewEntryScreen() {
         <Pressable onPress={() => router.back()}>
           <Text style={styles.cancel}>Cancel</Text>
         </Pressable>
-        <Text style={styles.title}>New khaata entry</Text>
+        <Text style={styles.title}>New kaata entry</Text>
         <View style={{ width: 60 }} />
       </View>
 
