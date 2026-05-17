@@ -1,0 +1,35 @@
+# dependencies & lockfiles
+node_modules/
+**/node_modules/
+bun.lockb
+**/bun.lockb
+package-lock.json
+**/package-lock.json
+yarn.lock
+**/yarn.lock
+
+# build output
+.next/
+**/.next/
+out/
+**/out/
+dist/
+**/dist/
+build/
+**/build/
+.expo/
+**/.expo/
+web-build/
+**/web-build/
+
+# generated native projects
+mobile/ios/
+mobile/android/
+
+# go (formatted by go fmt, not prettier)
+backend/
+
+# misc
+*.tsbuildinfo
+.env
+.env.*

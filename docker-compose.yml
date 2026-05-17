@@ -1,0 +1,17 @@
+# Production-style Postgres stack. NOT used by `bun dev` — local development
+# runs against a regular Postgres install on the host (see README "Prerequisites").
+# Spin this up only when you need a clean throwaway DB or want to mirror prod.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: kaata
+      POSTGRES_PASSWORD: kaata_dev
+      POSTGRES_DB: kaata
+    ports:
+      - "5432:5432"
+    volumes:
+      - kaata_pg_data:/var/lib/postgresql/data
+
+volumes:
+  kaata_pg_data:
