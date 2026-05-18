@@ -9,12 +9,14 @@ import { checkIn } from "../lib/api";
 import { AppMetaProvider, useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
 import { getAppMeta, getLocalSelf, initDb } from "../lib/db";
+import { useAppFonts } from "../lib/fonts";
 import { ensureInstallId } from "../lib/install-id";
 
 const currentVersion = Application.nativeApplicationVersion || "0.1.0";
 
 export default function RootLayout() {
-  const [ready, setReady] = useState(false);
+  const fontsReady = useAppFonts();
+  const [appReady, setAppReady] = useState(false);
   const [installId, setInstallId] = useState<string | null>(null);
   const [hasOnboarded, setHasOnboarded] = useState(false);
 
@@ -29,22 +31,22 @@ export default function RootLayout() {
       } catch (err) {
         console.warn("[init] failed", err);
       } finally {
-        setReady(true);
+        setAppReady(true);
       }
     })();
   }, []);
 
-  if (!ready) {
+  if (!appReady || !fontsReady) {
     return (
       <View
         style={{
           flex: 1,
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: colors.background,
+          backgroundColor: colors.bgDefault,
         }}
       >
-        <ActivityIndicator />
+        <ActivityIndicator color={colors.textDefault} />
       </View>
     );
   }
@@ -58,7 +60,7 @@ export default function RootLayout() {
           initialRouteName={hasOnboarded ? "index" : "onboarding"}
           screenOptions={{
             headerShown: false,
-            contentStyle: { backgroundColor: colors.background },
+            contentStyle: { backgroundColor: colors.bgDefault },
           }}
         >
           <Stack.Screen name="index" />
@@ -67,8 +69,9 @@ export default function RootLayout() {
             name="update-prompt"
             options={{ presentation: "fullScreenModal", gestureEnabled: false }}
           />
-          <Stack.Screen name="customer/[id]" />
-          <Stack.Screen name="customer/[id]/edit" options={{ presentation: "modal" }} />
+          <Stack.Screen name="person/[id]" />
+          <Stack.Screen name="person/[id]/edit" options={{ presentation: "modal" }} />
+          <Stack.Screen name="person/new" options={{ presentation: "modal" }} />
           <Stack.Screen name="entry/new" options={{ presentation: "modal" }} />
           <Stack.Screen name="entry/[id]/edit" options={{ presentation: "modal" }} />
         </Stack>

@@ -5,6 +5,7 @@ import { Animated, Modal, Pressable, StyleSheet, Text, View } from "react-native
 import type { ComponentProps } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
+import { fonts } from "../lib/fonts";
 
 export type SheetAction = {
   label: string;
@@ -30,11 +31,7 @@ export function BottomSheet(props: {
       setRendered(true);
       requestAnimationFrame(() => {
         Animated.parallel([
-          Animated.timing(opacity, {
-            toValue: 1,
-            duration: 220,
-            useNativeDriver: true,
-          }),
+          Animated.timing(opacity, { toValue: 1, duration: 220, useNativeDriver: true }),
           Animated.spring(translateY, {
             toValue: 0,
             useNativeDriver: true,
@@ -45,16 +42,8 @@ export function BottomSheet(props: {
       });
     } else if (rendered) {
       Animated.parallel([
-        Animated.timing(opacity, {
-          toValue: 0,
-          duration: 160,
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateY, {
-          toValue: OFFSCREEN,
-          duration: 180,
-          useNativeDriver: true,
-        }),
+        Animated.timing(opacity, { toValue: 0, duration: 160, useNativeDriver: true }),
+        Animated.timing(translateY, { toValue: OFFSCREEN, duration: 180, useNativeDriver: true }),
       ]).start(({ finished }) => {
         if (finished) setRendered(false);
       });
@@ -92,7 +81,7 @@ export function BottomSheet(props: {
             <View style={styles.grabber} />
             {props.title ? <Text style={styles.title}>{props.title}</Text> : null}
             {props.actions.map((a, i) => {
-              const color = a.destructive ? colors.debt : colors.textPrimary;
+              const color = a.destructive ? colors.danger : colors.textEmphasis;
               return (
                 <Pressable
                   key={i}
@@ -103,7 +92,7 @@ export function BottomSheet(props: {
                   style={({ pressed }) => [
                     styles.row,
                     i !== props.actions.length - 1 && styles.rowDivider,
-                    pressed && { backgroundColor: colors.background },
+                    pressed && { backgroundColor: colors.bgMuted },
                   ]}
                 >
                   {a.icon ? (
@@ -123,7 +112,7 @@ export function BottomSheet(props: {
 }
 
 const styles = StyleSheet.create({
-  tint: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(245,245,245,0.1)" },
+  tint: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.08)" },
   sheetContainer: {
     position: "absolute",
     left: 0,
@@ -131,29 +120,29 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
   sheetWrap: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.bgDefault,
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderDefault,
   },
   sheet: { paddingTop: 8, paddingBottom: 8 },
   grabber: {
     alignSelf: "center",
-    width: 56,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: "rgba(0,0,0,0.32)",
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.borderEmphasis,
     marginBottom: 8,
   },
   title: {
-    fontSize: 12,
-    color: colors.textSecondary,
+    fontSize: 11,
+    fontFamily: fonts.sansSemi,
+    color: colors.textSubtle,
     paddingHorizontal: 20,
     paddingVertical: 10,
     textTransform: "uppercase",
     letterSpacing: 0.6,
-    fontWeight: "600",
   },
   row: {
     flexDirection: "row",
@@ -162,9 +151,9 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   rowDivider: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSubtle,
   },
   rowIcon: { width: 22, marginRight: 12 },
-  rowText: { fontSize: 16, fontWeight: "500" },
+  rowText: { fontSize: 15, fontFamily: fonts.sansMedium },
 });

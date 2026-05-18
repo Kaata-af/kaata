@@ -1,4 +1,4 @@
-import { DownloadButton } from "@/components/DownloadButton";
+import { DownloadButton } from "../components/DownloadButton";
 
 const STEPS = [
   'Tap "Download APK" below.',
@@ -7,7 +7,7 @@ const STEPS = [
   "Tap Install.",
 ];
 
-export default function DownloadPage() {
+export function Download() {
   return (
     <main className="px-6 py-16 max-w-2xl mx-auto">
       <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-neutral-900">

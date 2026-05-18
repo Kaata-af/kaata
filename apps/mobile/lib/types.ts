@@ -19,6 +19,9 @@ export type ShopProfile = {
   updated_at: number;
 };
 
+// Schema-level relationship context. v1.1 collapses every relationship to
+// 'peer' — the column is kept for Phase 2 (e.g. distinguishing business credit
+// from personal lending) but the UI is direction-agnostic now.
 export type RelationshipContext = "customer" | "supplier" | "peer";
 
 export type Relationship = {
@@ -31,6 +34,11 @@ export type Relationship = {
   archived_at: number | null;
 };
 
+// Entry types stay 'debt' / 'payment' in the DB but are no longer user-visible
+// labels. They now mean:
+//   'debt'    → value flowed from me to them ("I gave"). Balance += amount.
+//   'payment' → value flowed from them to me ("I received"). Balance -= amount.
+// Same semantic regardless of who's currently ahead.
 export type EntryType = "debt" | "payment";
 
 export type Entry = {
@@ -50,47 +58,39 @@ export type Entry = {
   settled_at: number | null;
 };
 
-// View types — what the rest of the app sees. These are derived by joining
-// users + relationships + entry aggregates. Field names match v0 so screens
-// remain unchanged.
+// View types — what the rest of the app sees.
 
-export type Shopkeeper = {
-  id: number; // always 1, from shop_profile
-  shop_name: string;
-  owner_name: string | null;
-  created_at: number;
-};
+// Home-screen tab identifier. Not a property of a person — only a filter
+// over net balance signs.
+export type Direction = "collect" | "pay";
 
-// The local user (always exists once onboarded). Shop name is optional —
-// Kaata supports personal use without a store.
 export type Self = {
   user_id: string;
-  name: string; // user.display_name
-  shop_name: string | null; // null if user didn't set up a store
+  name: string;
+  shop_name: string | null;
 };
 
-export type Customer = {
+export type Person = {
   id: string; // user_id
-  name: string; // user.display_name
-  phone: string | null; // user.phone_e164 (E.164)
+  name: string;
+  phone: string | null;
   created_at: number;
-  archived_at: number | null; // relationship.archived_at
+  archived_at: number | null;
 };
 
-export type CustomerWithBalance = Customer & {
+// `balance` is signed: positive = they owe me, negative = I owe them, zero = settled.
+// Consumers usually display `Math.abs(balance)` and infer direction from the sign.
+export type PersonWithBalance = Person & {
   balance: number;
+  last_entry_at: number | null;
 };
 
-// Result of attempting to create a customer. The phone-collision and
-// phone-invalid cases let the screen render targeted errors instead of
-// silently dropping the phone to NULL.
-export type CreateCustomerResult =
+export type CreatePersonResult =
   | { ok: true; id: string }
   | { ok: false; error: "phone_invalid" }
   | { ok: false; error: "phone_conflict"; existing: { id: string; name: string } };
 
-// Same error shape as create, returned by updateCustomer.
-export type UpdateCustomerResult =
+export type UpdatePersonResult =
   | { ok: true }
   | { ok: false; error: "phone_invalid" }
   | { ok: false; error: "phone_conflict"; existing: { id: string; name: string } };

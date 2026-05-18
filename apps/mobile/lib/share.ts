@@ -2,24 +2,27 @@ import { Linking } from "react-native";
 import { formatAFN } from "./format";
 import type { Self } from "./types";
 
-export async function sharekaataViaWhatsApp(
-  customer: { name: string; phone: string | null },
+// WhatsApp ping. Wording flips by balance sign — a polite reminder to a
+// debtor, a heads-up to a creditor, or a clean "all settled" note.
+export async function shareKaataViaWhatsApp(
+  person: { name: string; phone: string | null },
   balance: number,
   self: Self | null,
 ): Promise<void> {
-  const heading = self?.shop_name
-    ? `Your kaata at ${self.shop_name}`
-    : self?.name
-      ? `Your kaata with ${self.name}`
-      : "Your kaata";
+  const accountWith = self?.shop_name ?? self?.name ?? "Kaata";
+  const lines: string[] = [`Salaam ${person.name}.`, ""];
 
-  const text =
-    `Salaam ${customer.name}.\n\n` +
-    `${heading}:\n` +
-    `Balance: ${formatAFN(balance)}\n\n` +
-    `— Sent via Kaata.af`;
+  if (balance > 0) {
+    lines.push(`Your kaata at ${accountWith}:`, `Balance: ${formatAFN(balance)}`);
+  } else if (balance < 0) {
+    lines.push(`Our kaata with you:`, `I owe you: ${formatAFN(balance)}`);
+  } else {
+    lines.push(`Our kaata with you is fully settled.`);
+  }
+  lines.push("", "— Sent via Kaata.af");
 
-  const phone = customer.phone ? customer.phone.replace(/[^0-9+]/g, "") : "";
+  const text = lines.join("\n");
+  const phone = person.phone ? person.phone.replace(/[^0-9+]/g, "") : "";
   const url = phone
     ? `whatsapp://send?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(text)}`
     : `whatsapp://send?text=${encodeURIComponent(text)}`;

@@ -18,9 +18,8 @@ expo-env.d.ts
 # Metro
 .metro-health-check*
 
-# Next.js
-.next/
-out/
+# Vite (web)
+apps/web/dist/
 
 # Build artifacts
 build/

@@ -2,13 +2,13 @@ import * as Crypto from "expo-crypto";
 import * as SQLite from "expo-sqlite";
 import { normalizePhone } from "./phone";
 import type {
-  CreateCustomerResult,
-  CustomerWithBalance,
+  CreatePersonResult,
+  Direction,
   Entry,
   EntryType,
+  PersonWithBalance,
   Self,
-  Shopkeeper,
-  UpdateCustomerResult,
+  UpdatePersonResult,
 } from "./types";
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
@@ -22,6 +22,7 @@ export function getDb(): Promise<SQLite.SQLiteDatabase> {
 
 const MIGRATION_001 = "001_v0_to_users_relationships";
 const MIGRATION_002 = "002_add_updated_at";
+const MIGRATION_003 = "003_unify_relationships_to_peer";
 
 export async function initDb(): Promise<void> {
   const db = await getDb();
@@ -46,6 +47,9 @@ export async function initDb(): Promise<void> {
   if (!(await hasRunMigration(db, MIGRATION_002))) {
     await runMigration002(db);
   }
+  if (!(await hasRunMigration(db, MIGRATION_003))) {
+    await runMigration003(db);
+  }
 }
 
 async function hasRunMigration(db: SQLite.SQLiteDatabase, name: string): Promise<boolean> {
@@ -69,14 +73,11 @@ async function columnExists(
   table: string,
   column: string,
 ): Promise<boolean> {
-  // PRAGMA doesn't accept bound parameters; table name comes from a const, not user input.
   const rows = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`);
   return rows.some((r) => r.name === column);
 }
 
 // Migration 001: v0 (shopkeeper/customers/entries) -> v1 (users/shop_profile/relationships/entries-new).
-// Atomic via a single transaction. Old data is preserved by migration; `_old_shopkeeper`
-// is retained as a safety copy for one release.
 async function runMigration001(db: SQLite.SQLiteDatabase): Promise<void> {
   const hasV0 = await tableExists(db, "customers");
 
@@ -206,8 +207,6 @@ async function runMigration001(db: SQLite.SQLiteDatabase): Promise<void> {
           }
         }
 
-        // Reuse the v0 customer.id as the new user.id so any retained
-        // reference (deep link, cached route param) still resolves.
         const newUserId = c.id;
         const newRelId = Crypto.randomUUID();
         await db.runAsync(
@@ -234,7 +233,7 @@ async function runMigration001(db: SQLite.SQLiteDatabase): Promise<void> {
 
       for (const e of oldEntries) {
         const relId = customerToRel.get(e.customer_id);
-        if (!relId) continue; // orphan entry — skip
+        if (!relId) continue;
         await db.runAsync(
           "INSERT INTO entries (id, relationship_id, type, amount_afn, note, created_at, updated_at, deleted_at, proposed_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
           e.id,
@@ -249,9 +248,6 @@ async function runMigration001(db: SQLite.SQLiteDatabase): Promise<void> {
         );
       }
 
-      // Persist phone-drop counters for the next check-in to telemetry.
-      // Only write the keys when a count is non-zero so app_meta stays
-      // empty when there's nothing to report.
       if (phonesInvalidCount > 0) {
         await db.runAsync(
           "INSERT INTO app_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -276,24 +272,92 @@ async function runMigration001(db: SQLite.SQLiteDatabase): Promise<void> {
   });
 }
 
-// Migration 002: add `updated_at` to users, shop_profile, relationships, entries.
-// Idempotent — checks each table for the column first, ALTERs only if missing,
-// then backfills updated_at = created_at. Fresh installs (where 001 already
-// created the column) skip the ALTERs and just record the migration.
 async function runMigration002(db: SQLite.SQLiteDatabase): Promise<void> {
   const tables = ["users", "shop_profile", "relationships", "entries"] as const;
   await db.withTransactionAsync(async () => {
     for (const t of tables) {
       if (!(await tableExists(db, t))) continue;
       if (await columnExists(db, t, "updated_at")) continue;
-      // SQLite ALTER TABLE ADD COLUMN with NOT NULL requires a constant default.
-      // We seed with 0 and immediately backfill from created_at.
       await db.execAsync(`ALTER TABLE ${t} ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`);
       await db.execAsync(`UPDATE ${t} SET updated_at = created_at WHERE updated_at = 0`);
     }
     await db.runAsync(
       "INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)",
       MIGRATION_002,
+      Date.now(),
+    );
+  });
+}
+
+// Migration 003: collapse all relationships to 'peer' context.
+//
+// v1 briefly split persons into customer/supplier with direction baked in at
+// creation. v1.1 reverses that — direction is derived from the running net
+// balance, not a property of the person. To get there:
+//
+//   1. For any (user_a, user_b) pair with BOTH a customer AND a supplier
+//      relationship, re-point the supplier entries onto the customer rel
+//      (flipping their type, since the supplier semantic was inverted), then
+//      drop the now-empty supplier rel. This avoids hitting the UNIQUE
+//      (user_a, user_b, context) constraint when we rename to peer.
+//   2. For remaining supplier-only relationships: flip every entry's type
+//      (debt ↔ payment) so the new "I gave"/"I received" semantic is correct.
+//   3. Rename every customer/supplier relationship to context = 'peer'.
+//
+// Entries created under the old supplier semantic had:
+//   debt    = "I took from supplier" → in new model this is "I received" (payment)
+//   payment = "I paid supplier"      → in new model this is "I gave" (debt)
+// So the flip is exact.
+async function runMigration003(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    const now = Date.now();
+
+    // Step 1: dual-context pairs
+    const dual = await db.getAllAsync<{ customer_rel_id: string; supplier_rel_id: string }>(
+      `SELECT c.id AS customer_rel_id, s.id AS supplier_rel_id
+       FROM relationships c
+       INNER JOIN relationships s
+         ON c.user_a_id = s.user_a_id AND c.user_b_id = s.user_b_id
+       WHERE c.context = 'customer' AND s.context = 'supplier'`,
+    );
+    for (const pair of dual) {
+      // Re-point supplier entries to customer rel, flipping their type.
+      await db.runAsync(
+        `UPDATE entries
+         SET relationship_id = ?,
+             type = CASE type WHEN 'debt' THEN 'payment' WHEN 'payment' THEN 'debt' ELSE type END,
+             updated_at = ?
+         WHERE relationship_id = ?`,
+        pair.customer_rel_id,
+        now,
+        pair.supplier_rel_id,
+      );
+      // Drop the supplier rel; its entries now live on the customer rel.
+      await db.runAsync(`DELETE FROM relationships WHERE id = ?`, pair.supplier_rel_id);
+    }
+
+    // Step 2: remaining supplier-only rels — flip entry types in place.
+    await db.runAsync(
+      `UPDATE entries
+       SET type = CASE type WHEN 'debt' THEN 'payment' WHEN 'payment' THEN 'debt' ELSE type END,
+           updated_at = ?
+       WHERE relationship_id IN (
+         SELECT id FROM relationships WHERE context = 'supplier'
+       )`,
+      now,
+    );
+
+    // Step 3: rename all surviving customer + supplier rels to peer.
+    await db.runAsync(
+      `UPDATE relationships
+       SET context = 'peer', updated_at = ?
+       WHERE context IN ('customer', 'supplier')`,
+      now,
+    );
+
+    await db.runAsync(
+      "INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)",
+      MIGRATION_003,
       Date.now(),
     );
   });
@@ -334,31 +398,25 @@ async function getLocalSelfUserId(db: SQLite.SQLiteDatabase): Promise<string | n
   return row?.id ?? null;
 }
 
-async function findRelationshipIdForCustomer(
+async function findRelationshipIdForPerson(
   db: SQLite.SQLiteDatabase,
-  customerUserId: string,
+  personId: string,
 ): Promise<string | null> {
+  // After migration_003 every active relationship is 'peer'. We don't filter by
+  // context here so any straggler (customer/supplier rel that somehow survived)
+  // still works — the migration is exhaustive but this query stays robust.
   const row = await db.getFirstAsync<{ id: string }>(
     `SELECT id FROM relationships
-     WHERE user_b_id = ? AND context = 'customer'
+     WHERE user_b_id = ? AND archived_at IS NULL
+     ORDER BY created_at DESC
      LIMIT 1`,
-    customerUserId,
+    personId,
   );
   return row?.id ?? null;
 }
 
-// --- public API (signatures preserved from v0) ---
+// --- public API ---
 
-export async function getShopkeeper(): Promise<Shopkeeper | null> {
-  const db = await getDb();
-  const row = await db.getFirstAsync<Shopkeeper>(
-    "SELECT id, shop_name, owner_name, created_at FROM shop_profile WHERE id = 1",
-  );
-  return row ?? null;
-}
-
-// The local user's identity (always present once onboarded). Shop is optional —
-// when the user didn't enter a store name, shop_name is null.
 export async function getLocalSelf(): Promise<Self | null> {
   const db = await getDb();
   const row = await db.getFirstAsync<Self>(
@@ -373,8 +431,6 @@ export async function getLocalSelf(): Promise<Self | null> {
   return row ?? null;
 }
 
-// Creates the local user (name required) and optionally a shop_profile
-// (only when shopName is provided).
 export async function createSelfProfile(name: string, shopName: string | null): Promise<void> {
   const db = await getDb();
   const now = Date.now();
@@ -400,13 +456,12 @@ export async function createSelfProfile(name: string, shopName: string | null): 
   });
 }
 
-// Returns a discriminated result so the screen can surface targeted errors
-// for unparseable phones and phone collisions instead of silently dropping
-// the phone to NULL.
-export async function createCustomer(
+// Creates a person with a single 'peer' relationship — no direction needed.
+// The balance and tab placement emerge from entries added later.
+export async function createPerson(
   name: string,
   phone: string | null,
-): Promise<CreateCustomerResult> {
+): Promise<CreatePersonResult> {
   const db = await getDb();
   const localSelf = await getLocalSelfUserId(db);
   if (!localSelf) throw new Error("local user not yet created");
@@ -417,15 +472,15 @@ export async function createCustomer(
     if (!np) {
       return { ok: false, error: "phone_invalid" };
     }
-    const conflict = await db.getFirstAsync<{ id: string; display_name: string }>(
+    const existing = await db.getFirstAsync<{ id: string; display_name: string }>(
       "SELECT id, display_name FROM users WHERE phone_e164 = ?",
       np,
     );
-    if (conflict) {
+    if (existing) {
       return {
         ok: false,
         error: "phone_conflict",
-        existing: { id: conflict.id, name: conflict.display_name },
+        existing: { id: existing.id, name: existing.display_name },
       };
     }
     phoneE164 = np;
@@ -445,7 +500,7 @@ export async function createCustomer(
     );
     await db.runAsync(
       `INSERT INTO relationships (id, user_a_id, user_b_id, context, created_at, updated_at)
-       VALUES (?, ?, ?, 'customer', ?, ?)`,
+       VALUES (?, ?, ?, 'peer', ?, ?)`,
       relId,
       localSelf,
       id,
@@ -456,92 +511,122 @@ export async function createCustomer(
   return { ok: true, id };
 }
 
-export async function listCustomersWithBalances(): Promise<CustomerWithBalance[]> {
-  const db = await getDb();
-  return db.getAllAsync<CustomerWithBalance>(`
-    SELECT u.id            AS id,
-           u.display_name  AS name,
-           u.phone_e164    AS phone,
-           u.created_at    AS created_at,
-           r.archived_at   AS archived_at,
-           COALESCE(SUM(CASE
-             WHEN e.deleted_at IS NULL AND e.type = 'debt' THEN -e.amount_afn
-             WHEN e.deleted_at IS NULL AND e.type = 'payment' THEN e.amount_afn
-             ELSE 0
-           END), 0) AS balance
-    FROM relationships r
-    INNER JOIN users u ON u.id = r.user_b_id
-    LEFT JOIN entries e ON e.relationship_id = r.id
-    WHERE r.context = 'customer' AND r.archived_at IS NULL
-    GROUP BY u.id
-    ORDER BY balance ASC, u.display_name ASC
-  `);
-}
-
-// `id` is the user_id (what screens think of as the customer id).
-export async function getCustomer(id: string): Promise<CustomerWithBalance | null> {
-  const db = await getDb();
-  const row = await db.getFirstAsync<CustomerWithBalance>(
+async function selectAllPeopleRaw(db: SQLite.SQLiteDatabase): Promise<PersonWithBalance[]> {
+  return db.getAllAsync<PersonWithBalance>(
     `SELECT u.id            AS id,
             u.display_name  AS name,
             u.phone_e164    AS phone,
             u.created_at    AS created_at,
             r.archived_at   AS archived_at,
             COALESCE(SUM(CASE
-              WHEN e.deleted_at IS NULL AND e.type = 'debt' THEN -e.amount_afn
-              WHEN e.deleted_at IS NULL AND e.type = 'payment' THEN e.amount_afn
+              WHEN e.deleted_at IS NULL AND e.type = 'debt' THEN e.amount_afn
+              WHEN e.deleted_at IS NULL AND e.type = 'payment' THEN -e.amount_afn
               ELSE 0
-            END), 0) AS balance
+            END), 0) AS balance,
+            MAX(CASE WHEN e.deleted_at IS NULL THEN e.created_at END) AS last_entry_at
      FROM relationships r
      INNER JOIN users u ON u.id = r.user_b_id
      LEFT JOIN entries e ON e.relationship_id = r.id
-     WHERE r.context = 'customer' AND u.id = ?
+     WHERE r.archived_at IS NULL
      GROUP BY u.id`,
+  );
+}
+
+// Returns every person with their signed net balance, filtered to one
+// direction of the ledger.
+//   balance > 0 → they owe me (To collect tab)
+//   balance < 0 → I owe them   (To pay tab)
+//   balance == 0 → settled or brand new — shown in collect by default so they're findable.
+export async function listPeople(direction: Direction): Promise<PersonWithBalance[]> {
+  const db = await getDb();
+  const rows = await selectAllPeopleRaw(db);
+  if (direction === "collect") {
+    return rows
+      .filter((p) => p.balance >= 0)
+      .sort((a, b) => b.balance - a.balance || a.name.localeCompare(b.name));
+  }
+  return rows
+    .filter((p) => p.balance < 0)
+    .sort((a, b) => a.balance - b.balance || a.name.localeCompare(b.name));
+}
+
+// Returns every active person, regardless of which tab they'd land in.
+// Used by the search-or-create flow where direction doesn't matter — the user
+// just wants to find or add a contact. Sorted most-recently-active first so
+// the quick-switcher pre-populates with familiar names.
+export async function listAllPeople(): Promise<PersonWithBalance[]> {
+  const db = await getDb();
+  const rows = await selectAllPeopleRaw(db);
+  rows.sort((a, b) => {
+    const at = a.last_entry_at ?? 0;
+    const bt = b.last_entry_at ?? 0;
+    if (at !== bt) return bt - at;
+    return a.name.localeCompare(b.name);
+  });
+  return rows;
+}
+
+export async function getPerson(id: string): Promise<PersonWithBalance | null> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<PersonWithBalance>(
+    `SELECT u.id            AS id,
+            u.display_name  AS name,
+            u.phone_e164    AS phone,
+            u.created_at    AS created_at,
+            r.archived_at   AS archived_at,
+            COALESCE(SUM(CASE
+              WHEN e.deleted_at IS NULL AND e.type = 'debt' THEN e.amount_afn
+              WHEN e.deleted_at IS NULL AND e.type = 'payment' THEN -e.amount_afn
+              ELSE 0
+            END), 0) AS balance,
+            MAX(CASE WHEN e.deleted_at IS NULL THEN e.created_at END) AS last_entry_at
+     FROM relationships r
+     INNER JOIN users u ON u.id = r.user_b_id
+     LEFT JOIN entries e ON e.relationship_id = r.id
+     WHERE u.id = ? AND r.archived_at IS NULL
+     GROUP BY u.id
+     LIMIT 1`,
     id,
   );
   return row ?? null;
 }
 
-// Archives the relationship (not the user), since a user may have multiple
-// relationships in Phase 2+.
-export async function archiveCustomer(id: string): Promise<void> {
+// Archives every active relationship for the person. Their entries stay on
+// disk (soft delete elsewhere) but they vanish from both tabs.
+export async function archivePerson(id: string): Promise<void> {
   const db = await getDb();
-  const relId = await findRelationshipIdForCustomer(db, id);
-  if (!relId) return;
   const now = Date.now();
   await db.runAsync(
-    "UPDATE relationships SET archived_at = ?, updated_at = ? WHERE id = ?",
+    "UPDATE relationships SET archived_at = ?, updated_at = ? WHERE user_b_id = ? AND archived_at IS NULL",
     now,
     now,
-    relId,
+    id,
   );
 }
 
-// `customerId` is the user_id (the "customer id" from the screen's perspective).
-export async function listEntries(customerId: string): Promise<Entry[]> {
+export async function listEntries(personId: string): Promise<Entry[]> {
   const db = await getDb();
   return db.getAllAsync<Entry>(
     `SELECT e.id, e.relationship_id, e.type, e.amount_afn, e.note,
-            e.created_at, e.deleted_at, e.proposed_by_user_id,
+            e.created_at, e.updated_at, e.deleted_at, e.proposed_by_user_id,
             e.accepted_at, e.disputed_at, e.disputed_reason, e.settled_at
      FROM entries e
      INNER JOIN relationships r ON r.id = e.relationship_id
-     WHERE r.user_b_id = ? AND r.context = 'customer' AND e.deleted_at IS NULL
+     WHERE r.user_b_id = ? AND r.archived_at IS NULL AND e.deleted_at IS NULL
      ORDER BY e.created_at DESC`,
-    customerId,
+    personId,
   );
 }
 
-// Generates a fresh entry id internally. `customerId` is the user_id.
 export async function createEntry(
-  customerId: string,
+  personId: string,
   type: EntryType,
   amountAfn: number,
   note: string | null,
 ): Promise<string> {
   const db = await getDb();
-  const relId = await findRelationshipIdForCustomer(db, customerId);
-  if (!relId) throw new Error(`no relationship for customer ${customerId}`);
+  const relId = await findRelationshipIdForPerson(db, personId);
+  if (!relId) throw new Error(`no active relationship for person ${personId}`);
   const localSelf = await getLocalSelfUserId(db);
   const id = Crypto.randomUUID();
   const now = Date.now();
@@ -560,8 +645,6 @@ export async function createEntry(
   return id;
 }
 
-// Edits an existing entry's amount and/or note. Type cannot change — wrong
-// type means delete and recreate.
 export async function updateEntry(
   id: string,
   amountAfn: number,
@@ -595,13 +678,11 @@ export async function softDeleteEntry(id: string): Promise<void> {
   await db.runAsync("UPDATE entries SET deleted_at = ?, updated_at = ? WHERE id = ?", now, now, id);
 }
 
-// Edits a customer's name and/or phone. Returns the same Result shape as
-// createCustomer so the screen can render the same phone errors.
-export async function updateCustomer(
+export async function updatePerson(
   id: string,
   name: string,
   phone: string | null,
-): Promise<UpdateCustomerResult> {
+): Promise<UpdatePersonResult> {
   const db = await getDb();
 
   let phoneE164: string | null = null;

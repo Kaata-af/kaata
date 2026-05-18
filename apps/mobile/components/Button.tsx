@@ -1,7 +1,8 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text } from "react-native";
 import { colors } from "../lib/colors";
+import { fonts } from "../lib/fonts";
 
-type Variant = "primary" | "debt" | "payment" | "ghost";
+type Variant = "primary" | "secondary" | "danger";
 
 export function Button(props: {
   label: string;
@@ -12,16 +13,11 @@ export function Button(props: {
 }) {
   const { label, onPress, variant = "primary", disabled, loading } = props;
 
-  const bg =
-    variant === "debt"
-      ? colors.debt
-      : variant === "payment"
-        ? colors.payment
-        : variant === "ghost"
-          ? "transparent"
-          : colors.primaryAction;
-  const fg = variant === "ghost" ? colors.textPrimary : "#FFFFFF";
-  const borderColor = variant === "ghost" ? colors.border : "transparent";
+  const isPrimary = variant === "primary";
+  const isDanger = variant === "danger";
+  const bg = isPrimary ? colors.bgInverted : isDanger ? colors.danger : colors.bgDefault;
+  const fg = isPrimary || isDanger ? colors.textInverted : colors.textEmphasis;
+  const borderColor = isPrimary || isDanger ? "transparent" : colors.borderDefault;
 
   return (
     <Pressable
@@ -29,7 +25,11 @@ export function Button(props: {
       disabled={disabled || loading}
       style={({ pressed }) => [
         styles.btn,
-        { backgroundColor: bg, borderColor, opacity: pressed ? 0.85 : 1 },
+        {
+          backgroundColor: bg,
+          borderColor,
+          opacity: pressed ? 0.85 : 1,
+        },
         (disabled || loading) && { opacity: 0.5 },
       ]}
     >
@@ -44,12 +44,12 @@ export function Button(props: {
 
 const styles = StyleSheet.create({
   btn: {
-    minHeight: 52,
+    minHeight: 44,
     paddingHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 8,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  text: { fontSize: 16, fontWeight: "600" },
+  text: { fontSize: 15, fontFamily: fonts.sansSemi },
 });

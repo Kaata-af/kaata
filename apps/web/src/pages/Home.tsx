@@ -1,11 +1,11 @@
-import Link from "next/link";
-import { FeatureSection } from "@/components/FeatureSection";
-import { Hero } from "@/components/Hero";
-import { PhoneMockupOffline, PhoneMockupWhatsApp } from "@/components/PhoneMockups";
+import { Link } from "react-router-dom";
+import { FeatureSection } from "../components/FeatureSection";
+import { Hero } from "../components/Hero";
+import { PhoneMockupOffline, PhoneMockupWhatsApp } from "../components/PhoneMockups";
 
 const WHATSAPP_URL = "https://wa.me/93781696644";
 
-export default function HomePage() {
+export function Home() {
   return (
     <main>
       <Hero />
@@ -40,7 +40,7 @@ export default function HomePage() {
             Free forever. No account, no card, no setup.
           </p>
           <Link
-            href="/download"
+            to="/download"
             className="mt-10 inline-block bg-neutral-900 text-white font-semibold px-10 py-4 rounded-md hover:bg-neutral-800 transition-colors text-base"
           >
             Download for Android
@@ -57,12 +57,12 @@ export default function HomePage() {
             <p className="mt-1">Built in Kabul. © 2026.</p>
           </div>
           <nav className="flex gap-8">
-            <Link href="/download" className="hover:text-neutral-900 transition-colors">
+            <Link to="/download" className="hover:text-neutral-900 transition-colors">
               Download
             </Link>
-            <Link href="#how" className="hover:text-neutral-900 transition-colors">
+            <a href="#how" className="hover:text-neutral-900 transition-colors">
               How it works
-            </Link>
+            </a>
             <a
               href={WHATSAPP_URL}
               target="_blank"

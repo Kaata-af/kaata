@@ -1,31 +1,47 @@
+import { Ionicons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
-import { formatAFN, formatDate } from "../lib/format";
+import { fonts } from "../lib/fonts";
+import { formatAmount, formatRelative } from "../lib/format";
 import type { Entry } from "../lib/types";
 
+// type='debt'    → value left my hand  → "I gave"   → up arrow
+// type='payment' → value came to me    → "I received" → down arrow
+// Same in both directions; the row doesn't need to know which tab it lives in.
 export function EntryRow(props: { entry: Entry; onLongPress: () => void }) {
   const { entry } = props;
-  const isDebt = entry.type === "debt";
-  const color = isDebt ? colors.debt : colors.payment;
+  const isGave = entry.type === "debt";
+  const icon = isGave ? "arrow-up-outline" : "arrow-down-outline";
+  const verb = isGave ? "I gave" : "I received";
 
   return (
     <Pressable
       onLongPress={props.onLongPress}
-      style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}
+      delayLongPress={350}
+      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.bgMuted }]}
     >
-      <View style={[styles.bullet, { backgroundColor: color }]} />
+      <View style={styles.iconWrap}>
+        <Ionicons name={icon} size={16} color={colors.textDefault} />
+      </View>
       <View style={styles.middle}>
         <View style={styles.amountRow}>
-          <Text style={[styles.kind, { color }]}>{isDebt ? "DEBT" : "PAYMENT"}</Text>
-          <Text style={[styles.amount, { color }]}>{formatAFN(entry.amount_afn)}</Text>
+          <Text style={styles.amount}>{formatAmount(entry.amount_afn)}</Text>
+          <Text style={styles.afn}>AFN</Text>
         </View>
-        {entry.note ? (
-          <Text style={styles.note} numberOfLines={2}>
-            {entry.note}
-          </Text>
-        ) : null}
+        <View style={styles.metaRow}>
+          <Text style={styles.verb}>{verb}</Text>
+          <Text style={styles.dot}>·</Text>
+          <Text style={styles.when}>{formatRelative(entry.created_at)}</Text>
+          {entry.note ? (
+            <>
+              <Text style={styles.dot}>·</Text>
+              <Text style={styles.note} numberOfLines={1}>
+                {entry.note}
+              </Text>
+            </>
+          ) : null}
+        </View>
       </View>
-      <Text style={styles.date}>{formatDate(entry.created_at)}</Text>
     </Pressable>
   );
 }
@@ -34,17 +50,57 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: colors.surface,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: colors.bgDefault,
   },
-  bullet: { width: 6, height: 36, borderRadius: 3, marginRight: 12 },
+  iconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: colors.bgSubtle,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
   middle: { flex: 1 },
-  amountRow: { flexDirection: "row", alignItems: "baseline", gap: 8 },
-  kind: { fontSize: 11, fontWeight: "700", letterSpacing: 0.5 },
-  amount: { fontSize: 16, fontWeight: "700" },
-  note: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
-  date: { fontSize: 12, color: colors.textSecondary, marginLeft: 12 },
+  amountRow: { flexDirection: "row", alignItems: "baseline", gap: 4 },
+  amount: {
+    fontSize: 15,
+    fontFamily: fonts.monoSemi,
+    color: colors.textEmphasis,
+  },
+  afn: {
+    fontSize: 11,
+    fontFamily: fonts.sansMedium,
+    color: colors.textMuted,
+  },
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 2,
+    flexWrap: "wrap",
+  },
+  verb: {
+    fontSize: 12,
+    fontFamily: fonts.sansMedium,
+    color: colors.textDefault,
+  },
+  dot: {
+    fontSize: 12,
+    fontFamily: fonts.sansRegular,
+    color: colors.textMuted,
+    marginHorizontal: 5,
+  },
+  when: {
+    fontSize: 12,
+    fontFamily: fonts.sansRegular,
+    color: colors.textSubtle,
+  },
+  note: {
+    flex: 1,
+    fontSize: 12,
+    fontFamily: fonts.sansRegular,
+    color: colors.textSubtle,
+  },
 });

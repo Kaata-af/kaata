@@ -2,17 +2,26 @@ import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
 import { setAppMeta } from "../lib/db";
+import { fonts } from "../lib/fonts";
 
+// Both banner variants share the same monochrome chassis. The update banner
+// reverses to bgInverted so it asks for attention without breaking the palette;
+// announcements stay light + bordered.
 export function UpdateBanner() {
   const { update, announcement, refresh } = useAppMeta();
 
   if (update) {
     return (
-      <View style={[styles.banner, { backgroundColor: colors.primaryAction }]}>
+      <View style={[styles.banner, styles.bannerInverted]}>
         <View style={styles.body}>
-          <Text style={styles.title}>Update available — v{update.version}</Text>
+          <Text style={[styles.title, { color: colors.textInverted }]}>
+            Update available · v{update.version}
+          </Text>
           {update.release_notes ? (
-            <Text style={styles.note} numberOfLines={2}>
+            <Text
+              style={[styles.note, { color: colors.textInverted, opacity: 0.85 }]}
+              numberOfLines={2}
+            >
               {update.release_notes}
             </Text>
           ) : null}
@@ -22,9 +31,9 @@ export function UpdateBanner() {
             const url = update.apk_url || update.play_store_url;
             if (url) Linking.openURL(url);
           }}
-          style={styles.cta}
+          style={[styles.cta, styles.ctaInverted]}
         >
-          <Text style={styles.ctaText}>Update</Text>
+          <Text style={[styles.ctaText, { color: colors.textEmphasis }]}>Update</Text>
         </Pressable>
         <Pressable
           onPress={async () => {
@@ -34,7 +43,7 @@ export function UpdateBanner() {
           style={styles.dismiss}
           hitSlop={8}
         >
-          <Text style={styles.dismissText}>×</Text>
+          <Text style={[styles.dismissText, { color: colors.textInverted }]}>×</Text>
         </Pressable>
       </View>
     );
@@ -42,16 +51,18 @@ export function UpdateBanner() {
 
   if (announcement) {
     return (
-      <View style={[styles.banner, { backgroundColor: colors.accent }]}>
+      <View style={[styles.banner, styles.bannerLight]}>
         <View style={styles.body}>
-          <Text style={styles.title}>{announcement.title}</Text>
-          <Text style={styles.note} numberOfLines={3}>
+          <Text style={[styles.title, { color: colors.textEmphasis }]}>{announcement.title}</Text>
+          <Text style={[styles.note, { color: colors.textSubtle }]} numberOfLines={3}>
             {announcement.body}
           </Text>
         </View>
         {announcement.cta_url ? (
           <Pressable onPress={() => Linking.openURL(announcement.cta_url!)} style={styles.cta}>
-            <Text style={styles.ctaText}>{announcement.cta_label || "Learn more"}</Text>
+            <Text style={[styles.ctaText, { color: colors.textEmphasis }]}>
+              {announcement.cta_label || "Learn more"}
+            </Text>
           </Pressable>
         ) : null}
         <Pressable
@@ -62,7 +73,7 @@ export function UpdateBanner() {
           style={styles.dismiss}
           hitSlop={8}
         >
-          <Text style={styles.dismissText}>×</Text>
+          <Text style={[styles.dismissText, { color: colors.textSubtle }]}>×</Text>
         </Pressable>
       </View>
     );
@@ -79,17 +90,31 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginBottom: 12,
     borderRadius: 12,
+    borderWidth: 1,
+  },
+  bannerInverted: {
+    backgroundColor: colors.bgInverted,
+    borderColor: colors.bgInverted,
+  },
+  bannerLight: {
+    backgroundColor: colors.bgMuted,
+    borderColor: colors.borderDefault,
   },
   body: { flex: 1, marginRight: 12 },
-  title: { color: "#fff", fontWeight: "700", fontSize: 14 },
-  note: { color: "#fff", fontSize: 12, marginTop: 2, opacity: 0.9 },
+  title: { fontFamily: fonts.sansSemi, fontSize: 13 },
+  note: { fontSize: 12, fontFamily: fonts.sansRegular, marginTop: 2 },
   cta: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    borderRadius: 8,
+    backgroundColor: colors.bgDefault,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
   },
-  ctaText: { color: "#fff", fontWeight: "600", fontSize: 13 },
-  dismiss: { marginLeft: 8, width: 28, height: 28, alignItems: "center", justifyContent: "center" },
-  dismissText: { color: "#fff", fontSize: 22, lineHeight: 22 },
+  ctaInverted: {
+    borderColor: colors.bgDefault,
+  },
+  ctaText: { fontFamily: fonts.sansSemi, fontSize: 12 },
+  dismiss: { marginLeft: 6, width: 24, height: 24, alignItems: "center", justifyContent: "center" },
+  dismissText: { fontSize: 20, lineHeight: 22, fontFamily: fonts.sansRegular },
 });

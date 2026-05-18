@@ -6,12 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-- `bun dev` — backend (Go), web (Next.js), mobile (Expo) running concurrently via `concurrently`. **Does not start Postgres** — a local Postgres on `:5432` is a prerequisite (see README "Prerequisites").
+- `bun dev` — backend (Go), web (Vite + React), mobile (Expo) running concurrently via `concurrently`. **Does not start Postgres** — a local Postgres on `:5432` is a prerequisite (see README "Prerequisites").
 - `bun format` — Prettier on JS/TS + `go fmt` on backend.
 - Per-app:
   - `cd apps/backend && go run ./cmd/server` — backend only
   - `cd apps/backend && go build ./...` — compile check
-  - `cd apps/web && bun run dev` — web only (web uses Bun)
+  - `cd apps/web && bun run dev` — web only (Vite dev server on :3000, web uses Bun)
+  - `cd apps/web && bun run build` — web prod build (outputs `apps/web/dist/`)
   - `cd apps/mobile && npm run start` — mobile only (**mobile uses npm**, not Bun — match what the root `dev` script does)
   - `cd apps/mobile && npx tsc --noEmit` — mobile typecheck
   - `cd apps/web && ./node_modules/.bin/tsc --noEmit` — web typecheck (plain `npx tsc` fails to resolve TypeScript installed by Bun; call the local binary directly)

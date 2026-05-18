@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
+import { fonts } from "../lib/fonts";
 
 export function EmptyState(props: { title: string; subtitle?: string }) {
   return (
@@ -11,7 +12,18 @@ export function EmptyState(props: { title: string; subtitle?: string }) {
 }
 
 const styles = StyleSheet.create({
-  container: { paddingVertical: 48, paddingHorizontal: 24, alignItems: "center" },
-  title: { fontSize: 18, fontWeight: "600", color: colors.textPrimary, marginBottom: 4 },
-  subtitle: { fontSize: 14, color: colors.textSecondary, textAlign: "center" },
+  container: { paddingVertical: 56, paddingHorizontal: 24, alignItems: "center" },
+  title: {
+    fontSize: 15,
+    fontFamily: fonts.sansSemi,
+    color: colors.textEmphasis,
+    marginBottom: 4,
+  },
+  subtitle: {
+    fontSize: 13,
+    fontFamily: fonts.sansRegular,
+    color: colors.textSubtle,
+    textAlign: "center",
+    lineHeight: 19,
+  },
 });

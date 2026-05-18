@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../../components/Button";
 import { colors } from "../../../lib/colors";
 import { getEntry, updateEntry } from "../../../lib/db";
+import { fonts } from "../../../lib/fonts";
 import type { EntryType } from "../../../lib/types";
 
 export default function EditEntryScreen() {
@@ -58,23 +59,22 @@ export default function EditEntryScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.fillCenter}>
-          <ActivityIndicator />
+          <ActivityIndicator color={colors.textDefault} />
         </View>
       </SafeAreaView>
     );
   }
 
-  const isDebt = type === "debt";
+  const verb = type === "debt" ? "I gave" : "I received";
+  const otherVerb = type === "debt" ? "I received" : "I gave";
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()}>
+        <Pressable onPress={() => router.back()} hitSlop={8}>
           <Text style={styles.cancel}>Cancel</Text>
         </Pressable>
-        <Text style={[styles.title, { color: isDebt ? colors.debt : colors.payment }]}>
-          Edit {isDebt ? "debt" : "payment"}
-        </Text>
+        <Text style={styles.title}>Edit · {verb}</Text>
         <View style={{ width: 60 }} />
       </View>
       <KeyboardAvoidingView
@@ -82,48 +82,47 @@ export default function EditEntryScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <Text style={styles.hint}>
-          Entry type can't be changed. To convert this {isDebt ? "debt" : "payment"} into a{" "}
-          {isDebt ? "payment" : "debt"}, delete this entry and add a new one.
+          Direction can&apos;t be changed. To turn this into &ldquo;{otherVerb}&rdquo;, delete this
+          entry and add a new one.
         </Text>
 
         <View style={styles.field}>
-          <Text style={styles.label}>Amount (AFN)</Text>
+          <Text style={styles.label}>
+            Amount (AFN) <Text style={styles.required}>*</Text>
+          </Text>
           <TextInput
             style={styles.amountInput}
             value={amount}
             onChangeText={setAmount}
             placeholder="0"
-            placeholderTextColor={colors.textSecondary}
+            placeholderTextColor={colors.textMuted}
             keyboardType="number-pad"
             autoFocus
             selectTextOnFocus
           />
         </View>
         <View style={styles.field}>
-          <Text style={styles.label}>Note (optional)</Text>
+          <Text style={styles.label}>Note</Text>
           <TextInput
             style={styles.input}
             value={note}
             onChangeText={setNote}
             placeholder="آرد و چای"
-            placeholderTextColor={colors.textSecondary}
+            placeholderTextColor={colors.textMuted}
             maxLength={100}
+            returnKeyType="done"
+            onSubmitEditing={onSave}
           />
         </View>
         <View style={{ height: 24 }} />
-        <Button
-          label="Save changes"
-          onPress={onSave}
-          variant={isDebt ? "debt" : "payment"}
-          loading={busy}
-        />
+        <Button label="Save changes" onPress={onSave} loading={busy} />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.bgDefault },
   fillCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
   header: {
     flexDirection: "row",
@@ -131,35 +130,48 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderDefault,
   },
-  cancel: { fontSize: 16, color: colors.textSecondary, minWidth: 60 },
-  title: { fontSize: 16, fontWeight: "600" },
-  body: { flex: 1, padding: 24 },
-  hint: { fontSize: 13, color: colors.textSecondary, marginBottom: 24, lineHeight: 18 },
-  field: { marginBottom: 16 },
-  label: { fontSize: 14, color: colors.textSecondary, marginBottom: 6 },
+  cancel: { fontSize: 15, fontFamily: fonts.sansMedium, color: colors.textSubtle, minWidth: 60 },
+  title: { fontSize: 15, fontFamily: fonts.sansSemi, color: colors.textEmphasis },
+  body: { flex: 1, padding: 16, paddingTop: 20 },
+  hint: {
+    fontSize: 12,
+    fontFamily: fonts.sansRegular,
+    color: colors.textSubtle,
+    marginBottom: 20,
+    lineHeight: 18,
+  },
+  field: { marginBottom: 20 },
+  label: {
+    fontSize: 13,
+    fontFamily: fonts.sansMedium,
+    color: colors.textDefault,
+    marginBottom: 8,
+  },
+  required: { color: colors.danger },
   input: {
-    minHeight: 52,
+    minHeight: 44,
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    fontSize: 16,
-    color: colors.textPrimary,
-    backgroundColor: colors.surface,
+    borderColor: colors.borderDefault,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    fontFamily: fonts.sansRegular,
+    color: colors.textEmphasis,
+    backgroundColor: colors.bgDefault,
   },
   amountInput: {
-    minHeight: 80,
+    minHeight: 72,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.borderDefault,
     borderRadius: 12,
     paddingHorizontal: 16,
-    fontSize: 40,
-    fontWeight: "700",
-    color: colors.textPrimary,
-    backgroundColor: colors.surface,
+    fontSize: 36,
+    fontFamily: fonts.monoBold,
+    color: colors.textEmphasis,
+    backgroundColor: colors.bgDefault,
     textAlign: "center",
   },
 });

@@ -6,7 +6,7 @@ This monorepo contains:
 
 - **`apps/mobile/`** — Expo React Native app. The shopkeeper's tool. v0 ledger is fully offline (SQLite); a single non-blocking phone-home on launch checks for updates and announcements.
 - **`apps/backend/`** — Go API server. Single endpoint in v0: `POST /v1/check-in`. Records anonymous installs and serves update + announcement metadata.
-- **`apps/web/`** — Next.js 15 landing page + APK download page (`/` and `/download`).
+- **`apps/web/`** — Vite + React SPA. Landing page, APK download page, and `/v/:token` customer-facing kaata view (stub). Single static bundle, no Node runtime at deploy.
 - **`docs/`** — Operations manual (release/announcement publishing, version comparison, force-update flow).
 
 ## Quickstart

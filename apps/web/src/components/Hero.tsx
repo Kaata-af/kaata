@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "react-router-dom";
 import { PhoneMockupHome } from "./PhoneMockups";
 
 export function Hero() {
@@ -33,17 +33,17 @@ export function Hero() {
 
         <div className="mt-10 flex flex-col sm:flex-row gap-3 justify-center items-stretch sm:items-center">
           <Link
-            href="/download"
+            to="/download"
             className="bg-neutral-900 text-white font-semibold px-8 py-3.5 rounded-md hover:bg-neutral-800 transition-colors text-base"
           >
             Download for Android
           </Link>
-          <Link
+          <a
             href="#how"
             className="text-neutral-600 hover:text-neutral-900 transition-colors px-4 py-3.5 text-base"
           >
             See how it works ↓
-          </Link>
+          </a>
         </div>
       </div>
 
