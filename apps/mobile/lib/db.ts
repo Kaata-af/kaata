@@ -508,6 +508,7 @@ export async function createPerson(
       now,
     );
   });
+  await bumpUsageCounter("customers_added");
   return { ok: true, id };
 }
 
@@ -642,6 +643,7 @@ export async function createEntry(
     now,
     localSelf,
   );
+  await bumpUsageCounter("entries_created");
   return id;
 }
 
@@ -712,6 +714,63 @@ export async function updatePerson(
     id,
   );
   return { ok: true };
+}
+
+// --- usage counters ---
+//
+// Local, lifetime-of-pending counts of things the user has done. Mobile
+// increments these on every action; on each successful check-in the values
+// are sent as DELTAS and then decremented by the snapshot that was sent.
+// Subtracting (rather than zeroing) means a concurrent increment between
+// the read and the clear isn't lost — it just rides the next check-in.
+
+export type UsageCounter = "entries_created" | "customers_added" | "shares_sent";
+
+const usageKey = (k: UsageCounter) => `usage_pending_${k}`;
+
+export async function bumpUsageCounter(k: UsageCounter): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `INSERT INTO app_meta (key, value) VALUES (?, '1')
+     ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)`,
+    usageKey(k),
+  );
+}
+
+export type PendingUsage = Record<UsageCounter, number>;
+
+export async function readPendingUsage(): Promise<PendingUsage> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{ key: string; value: string }>(
+    `SELECT key, value FROM app_meta WHERE key IN (?, ?, ?)`,
+    usageKey("entries_created"),
+    usageKey("customers_added"),
+    usageKey("shares_sent"),
+  );
+  const get = (k: UsageCounter): number => {
+    const r = rows.find((x) => x.key === usageKey(k));
+    return r ? Number(r.value) || 0 : 0;
+  };
+  return {
+    entries_created: get("entries_created"),
+    customers_added: get("customers_added"),
+    shares_sent: get("shares_sent"),
+  };
+}
+
+export async function decrementPendingUsage(snapshot: PendingUsage): Promise<void> {
+  const db = await getDb();
+  await db.withTransactionAsync(async () => {
+    for (const k of ["entries_created", "customers_added", "shares_sent"] as const) {
+      const n = snapshot[k];
+      if (n <= 0) continue;
+      await db.runAsync(
+        `UPDATE app_meta SET value = CAST(MAX(0, CAST(value AS INTEGER) - ?) AS TEXT) WHERE key = ?`,
+        n,
+        usageKey(k),
+      );
+    }
+  });
 }
 
 export async function getAppMeta(key: string): Promise<string | null> {

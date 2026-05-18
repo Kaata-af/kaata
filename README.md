@@ -1,6 +1,6 @@
 # Kaata
 
-Track customer credit (kaata / نسیه) for Afghan shopkeepers. The shopkeeper opens the app, adds a customer, records what they took on credit, marks payments as they come in — and that's it. No paper notebook to lose, no disputes about what's owed.
+A digital kaata book (نسیه) for Afghan shopkeepers. Track what people owe you and what you owe them, then ping them over WhatsApp when it's time to settle. No paper notebook to lose, no disputes about what's owed.
 
 This monorepo contains:
 
@@ -28,7 +28,7 @@ The repo also ships a `docker-compose.yml`, but that's a **production-style** st
 bun dev
 ```
 
-This runs the backend (Go), web (Next.js), and mobile (Expo) via `concurrently`. To run a single app instead, see below.
+This runs the backend (Go), web (Vite + React), and mobile (Expo) via `concurrently`. To run a single app instead, see below.
 
 ### Backend only
 
@@ -85,4 +85,4 @@ See [docs/architecture.md](docs/architecture.md) for the full operations manual:
 
 ## Status
 
-v0 — local-first ledger + minimal backend phone-home. Customer-view web page, sync, and analytics are deferred to v1.
+v1 — local-first bidirectional ledger ("To collect" / "To pay" tabs derived from a signed net balance per person) + minimal backend phone-home. Customer-view web page, sync, and analytics are deferred to v2.

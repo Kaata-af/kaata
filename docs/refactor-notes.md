@@ -2,6 +2,8 @@
 
 A purely structural refactor. No user-visible behavior changes; all v0 acceptance criteria still pass. The goal was to land the schema that Phase 2 (mutual ledger, dispute flows, multi-role identity) needs _without_ shipping any Phase 2 features yet — so future work becomes migrations instead of refactors.
 
+> **v1.1 follow-up (later in the same release cycle).** A second pass added migration `003_unify_relationships_to_peer` and renamed the v1 view layer to drop the "customer" framing entirely. The historical narrative below describes the v0→v1 step as it happened; references to `createCustomer` / `getCustomer` / `archiveCustomer` / `updateCustomer` / `listCustomersWithBalances` are now `createPerson` / `getPerson` / `archivePerson` / `updatePerson` / `listPeople`. `CustomerWithBalance` is now `PersonWithBalance` (with a _signed_ `balance` — positive = they owe me, negative = I owe them). `Customer` and `Shopkeeper` view types were removed; `Self` covers the local user. Direction (To collect / To pay) is derived from balance sign, not stored. See "v1.1 update" at the bottom.
+
 ## What changed
 
 ### SQLite schema
@@ -73,4 +75,46 @@ Function signatures match v0 exactly — every screen's call sites are unchanged
 
 ## When this can be cleaned up
 
-After at least one release on v1 with no migration regressions reported, drop `_old_shopkeeper` in a follow-up migration `002_drop_old_shopkeeper.sql`. Don't do it sooner — that's the only direct backup of the shop's identity row.
+After at least one release on v1 with no migration regressions reported, drop `_old_shopkeeper` in a follow-up migration. Don't do it sooner — that's the only direct backup of the shop's identity row. (Migration 002 was used for `updated_at` columns; migration 003 unified relationship contexts to `peer`. A future `004_drop_old_shopkeeper` would be the cleanup.)
+
+---
+
+## v1.1 update — Direction-free model
+
+After v1 shipped, the customer/supplier-at-create model felt artificial: at the moment of adding a contact, you often don't know which side will end up ahead. v1.1 collapses both directions into one neutral relationship and derives tab placement from the running balance instead.
+
+### Migration 003 — `003_unify_relationships_to_peer`
+
+For every `(user_a, user_b)` pair with both a `customer` and a `supplier` relationship, the supplier's entries are re-pointed onto the customer relationship with their `type` flipped (`debt` ↔ `payment`) — the supplier-side `debt`/`payment` semantics were inverted in v1, and the flip cancels that out. The now-empty supplier rel is deleted. For remaining supplier-only relationships, entries are flipped in place. Finally every surviving `customer` / `supplier` rel is renamed to `peer`. Net effect: every active relationship is `peer`, and every entry's `debt`/`payment` meaning is uniform (`debt` = "I gave", `payment` = "I received").
+
+### Renames
+
+| v1                                             | v1.1                                                                        |
+| ---------------------------------------------- | --------------------------------------------------------------------------- |
+| `createCustomer(name, phone)`                  | `createPerson(name, phone)` — no direction arg, always creates a `peer` rel |
+| `getCustomer(id, direction)`                   | `getPerson(id)` — direction comes from the result's `balance` sign          |
+| `listCustomersWithBalances()`                  | `listPeople(direction)` — direction is a _filter_, not a property           |
+| `archiveCustomer(id, direction)`               | `archivePerson(id)` — archives every active rel for that user               |
+| `updateCustomer(...)`                          | `updatePerson(...)`                                                         |
+| `listEntries(personId, direction)`             | `listEntries(personId)`                                                     |
+| `createEntry(personId, direction, ...)`        | `createEntry(personId, type, amount, note)`                                 |
+| `CustomerWithBalance` (unsigned `outstanding`) | `PersonWithBalance` (_signed_ `balance`)                                    |
+| `Customer`, `Shopkeeper` view types            | removed — `Self` covers the local user; everyone else is a `Person`         |
+| `Direction` baked into URLs (`?d=collect`)     | removed from URLs — derived from balance at render time                     |
+
+### Routes
+
+- `/customer/[id]` → `/person/[id]`
+- `/customer/[id]/edit` → `/person/[id]/edit`
+- `/person/new` is now a hybrid **search-or-create** flow with live fuzzy matching (`lib/search.ts`). The WhatsApp number field appears inline when no exact match exists, so phone is collected at creation rather than deferred to the edit screen.
+
+### Entry semantics (the unifying simplification)
+
+`entries.type` enum is unchanged at the DB level, but the user-facing vocabulary is universal:
+
+| DB `type` | UI verb      | Effect on balance   |
+| --------- | ------------ | ------------------- |
+| `debt`    | "I gave"     | `balance += amount` |
+| `payment` | "I received" | `balance -= amount` |
+
+Same two verbs work whether the person is currently your debtor (positive net) or your creditor (negative net). This is what made the customer/supplier split obsolete.

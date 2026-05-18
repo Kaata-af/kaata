@@ -27,7 +27,7 @@ No test files exist in the repo yet.
 
 ### Mobile-first, backend is a thin phone-home
 
-The mobile app is local-first: every ledger feature (customers, entries, balances, WhatsApp share) hits only SQLite. **Ledger data never leaves the device** in v0. The only network call is `POST /v1/check-in` on every launch, non-blocking, 5-second timeout — used solely to:
+The mobile app is local-first: every ledger feature (people, entries, balances, WhatsApp share) hits only SQLite. **Ledger data never leaves the device** in v1. The only network call is `POST /v1/check-in` on every launch, non-blocking, 5-second timeout — used solely to:
 
 1. Record an anonymous install (UUID generated locally on first run, persisted in `app_meta.install_id` forever)
 2. Receive update + announcement metadata for the banner
@@ -43,7 +43,14 @@ The two schemas have nothing in common. Ledger data lives only on mobile; the ba
 
 ### "users + relationships" data model (mobile)
 
-Post–migration-001, every entity — shopkeeper, customer, future supplier — is a `users` row. `relationships` rows bind two users with a `context` (`'customer' | 'supplier' | 'peer'`). `entries` reference `relationships`, not customers directly. This is the foundation for Phase 2 (mutual ledger / disputes / netting). Do not add a `customer_id` column on `entries` — that's the v0 model the migration is escaping from. View types `Customer` / `CustomerWithBalance` / `Shopkeeper` in `apps/mobile/lib/types.ts` keep v0-shaped field names so screens don't need to know about the underlying join.
+Every entity — shopkeeper (the local self), a person they owe / are owed by — is a `users` row. `relationships` rows bind two users with a `context` enum (`'customer' | 'supplier' | 'peer'`) — the column still exists for forward compatibility, but **migration 003 collapsed every active relationship to `'peer'`**. The UI is direction-free: there's no "customer flow" or "supplier flow"; every new contact gets a single `peer` relationship and the direction (To collect vs To pay) is derived from the running net balance per person, not stored. `entries` reference `relationships`, not people directly. Do not add a `customer_id` column on `entries` — that was the v0 model. View types are `Person` / `PersonWithBalance` (signed `balance`) / `Self` in `apps/mobile/lib/types.ts`.
+
+Entry semantics: `entries.type` is still `'debt' | 'payment'` in the DB, but UI-wise:
+
+- `'debt'` → "I gave" → balance += amount
+- `'payment'` → "I received" → balance -= amount
+
+The same vocabulary works whether the person is currently your debtor or your creditor.
 
 ### Update / announcement delivery without push
 
@@ -56,9 +63,26 @@ Workflow for shipping an update:
 
 Same flow for `announcements`. To switch distribution channels (e.g. APK link → Play Store) just insert a new row with the URL in the new column. The full ops playbook is `docs/architecture.md`.
 
+### Backend URL soft-migration (`next_backend_url`)
+
+The mobile app's backend URL is **not** hard-baked into the APK in a way that locks you in. Resolution at runtime is: `app_meta.backend_url_override` (if set) → `EXPO_PUBLIC_BACKEND_URL` (build-time default from `apps/mobile/eas.json`). The override is populated by the backend itself:
+
+- Backend has env var `NEXT_BACKEND_URL`. When non-empty, every check-in response includes `next_backend_url: "<that value>"`.
+- Mobile sees it on the response, calls `setAppMeta("backend_url_override", value)`, and the _next_ check-in goes to the new URL.
+- Send `""` (empty string) to explicitly clear an existing override on clients. Omit the field (nil) to leave the client's current setting alone.
+
+To change the backend's domain in production: deploy the new backend at the new URL, set `NEXT_BACKEND_URL=https://new-host` on the _old_ backend's env in Dokploy, watch installs migrate, then tear down the old backend after a migration window. **No mobile rebuild required.**
+
+### Env vars (one place per concern)
+
+- **`apps/backend/.env.example`** — `POSTGRES_URL`, `BACKEND_PORT`, `NEXT_BACKEND_URL` (optional, soft-migration).
+- **`apps/mobile/.env.example`** — `EXPO_PUBLIC_BACKEND_URL` (first-launch fallback only; documented above).
+- **`apps/mobile/eas.json`** — `env` blocks on `preview` / `production` profiles set `EXPO_PUBLIC_BACKEND_URL` at build time.
+- **`apps/web/.env.example`** — `VITE_BACKEND_URL`, `VITE_WHATSAPP_CONTACT_URL`, `VITE_APK_VERSION`, `VITE_APK_DOWNLOAD_URL`. All read from `apps/web/src/env.ts` with safe defaults.
+
 ### Phone is canonical identity
 
-`apps/mobile/lib/phone.ts` normalizes any reasonable Afghan-mobile input to E.164 `+937XXXXXXXX`. `users.phone_e164` has a UNIQUE constraint. `createCustomer` and `updateCustomer` return discriminated `CreateCustomerResult` / `UpdateCustomerResult` unions so the new-customer screen surfaces `phone_invalid` and `phone_conflict` errors with the conflicting user's name. **Do not add a code path that catches the constraint violation and silently writes NULL** — that's the v0-style behavior we explicitly moved away from. Migration-001 records `phones_invalid_count` / `phones_conflict_count` to `app_meta` and the next check-in sends them as optional fields; the backend stores them on the `installs` row.
+`apps/mobile/lib/phone.ts` normalizes any reasonable Afghan-mobile input to E.164 `+937XXXXXXXX`. `users.phone_e164` has a UNIQUE constraint. `createPerson` and `updatePerson` return discriminated `CreatePersonResult` / `UpdatePersonResult` unions so the search-or-create flow (`apps/mobile/app/person/new.tsx`) surfaces `phone_invalid` and `phone_conflict` errors with the conflicting user's name. **Do not add a code path that catches the constraint violation and silently writes NULL** — that's the v0-style behavior we explicitly moved away from. Migration-001 records `phones_invalid_count` / `phones_conflict_count` to `app_meta` and the next check-in sends them as optional fields; the backend stores them on the `installs` row.
 
 ### Routing
 

@@ -1,4 +1,5 @@
 import { DownloadButton } from "../components/DownloadButton";
+import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 
 const STEPS = [
   'Tap "Download APK" below.',
@@ -9,27 +10,34 @@ const STEPS = [
 
 export function Download() {
   return (
-    <main className="px-6 py-16 max-w-2xl mx-auto">
-      <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-neutral-900">
-        Install Kaata
-      </h1>
+    <main>
+      <SiteHeader />
 
-      <ol className="mt-12 space-y-6">
-        {STEPS.map((step, i) => (
-          <li key={i} className="flex gap-4">
-            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gold text-black font-semibold flex items-center justify-center">
-              {i + 1}
-            </div>
-            <p className="pt-1 text-neutral-700 leading-relaxed">{step}</p>
-          </li>
-        ))}
-      </ol>
+      <section className="px-6 py-16 md:py-20 max-w-2xl mx-auto">
+        <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-neutral-900">
+          Install Kaata
+        </h1>
+        <p className="mt-4 text-base text-neutral-600 leading-relaxed">
+          Side-load the APK directly. Coming soon to the Play Store.
+        </p>
 
-      <div className="mt-12">
-        <DownloadButton />
-      </div>
+        <ol className="mt-10 space-y-5">
+          {STEPS.map((step, i) => (
+            <li key={i} className="flex gap-4 items-start">
+              <div className="flex-shrink-0 w-7 h-7 rounded-full border border-neutral-300 bg-white text-neutral-700 font-semibold flex items-center justify-center text-xs font-mono mt-0.5">
+                {i + 1}
+              </div>
+              <p className="pt-0.5 text-neutral-700 leading-relaxed">{step}</p>
+            </li>
+          ))}
+        </ol>
 
-      <p className="mt-6 text-sm text-neutral-500 text-center">Coming soon to Play Store</p>
+        <div className="mt-12">
+          <DownloadButton />
+        </div>
+      </section>
+
+      <SiteFooter />
     </main>
   );
 }

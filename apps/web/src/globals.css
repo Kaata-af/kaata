@@ -4,16 +4,23 @@
 
 html,
 body {
-  background: #fafafa;
-  color: #1a1a1a;
-  font-family: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Inter, Roboto, sans-serif;
+  background: #ffffff;
+  color: #171717;
+  font-family:
+    "Inter",
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
+/* Neutral selection — matches the monochrome chrome */
 ::selection {
-  background: rgba(196, 154, 60, 0.28);
-  color: #1a1a1a;
+  background: rgba(23, 23, 23, 0.12);
+  color: #171717;
 }
 
 html {

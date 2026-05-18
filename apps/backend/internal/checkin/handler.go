@@ -31,7 +31,7 @@ func (h *Handler) CheckIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.svc.Handle(r.Context(), req)
+	resp, err := h.svc.Handle(r.Context(), req, httpx.ClientIP(r))
 	if err != nil {
 		httpx.Error(w, http.StatusInternalServerError, "check-in failed")
 		return

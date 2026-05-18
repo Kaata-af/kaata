@@ -2,6 +2,7 @@ import { useRouter } from "expo-router";
 import { useRef, useState } from "react";
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -43,6 +44,7 @@ export default function OnboardingScreen() {
         style={styles.inner}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
+        <Image source={require("../assets/logo.png")} style={styles.logo} />
         <Text style={styles.wordmark}>kaata.</Text>
         <Text style={styles.subtitle}>A quiet ledger between you and the people you trust.</Text>
 
@@ -89,6 +91,7 @@ export default function OnboardingScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
   inner: { flex: 1, padding: 24, justifyContent: "center" },
+  logo: { width: 72, height: 72, marginBottom: 20 },
   wordmark: {
     fontSize: 36,
     fontFamily: fonts.sansBold,

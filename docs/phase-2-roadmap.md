@@ -2,7 +2,7 @@
 
 ## Phase 1 (current): Private notebook with WhatsApp ping
 
-Shopkeeper records customer credit privately. "Ping" button opens WhatsApp on the shopkeeper's phone with a pre-filled professional message including kaata details and "Sent via Kaata.af" branding. Customer never installs anything. No backend ledger sync.
+Shopkeeper records what they're owed AND what they owe — direction is derived from the running net balance per person, not assigned at creation. "Ping" button opens WhatsApp on the shopkeeper's phone with a pre-filled message: receiver-perspective signed amount, a red 🔴 / green 🟢 indicator, a polite action line, and "— Sent via Kaata.af" branding. The other party never installs anything. No backend ledger sync.
 
 ## Phase 2: Mutual ledger (when customer-side app launches)
 
@@ -32,7 +32,7 @@ A single shopkeeper may eventually run more than one shop and want to keep each 
 
 v0 explicitly forbids this with `shop_profile CHECK (id = 1)`. The migration path when we ship multi-shop:
 
-- Rename `shop_profile` → `shops`; drop the single-row check; add an `archived_at` column for the same reason customers have one.
+- Rename `shop_profile` → `shops`; drop the single-row check; add an `archived_at` column for the same reason `relationships` and `users` have one.
 - Add `shop_id TEXT NOT NULL REFERENCES shops(id)` to `relationships`. Backfill with the existing single shop's id for every existing row. Drop the implicit "scoped via `user_a_id = local_self`" model — `shop_id` becomes the canonical scope key.
 - Add `active_shop_id` to `app_meta`. The UI's shop-switcher writes to this; every query reads it.
 - Update list/get/create functions in `lib/db.ts` to filter by the active shop. `listCustomersWithBalances()` joins `relationships` and now filters on `shop_id = ?`.

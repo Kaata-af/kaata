@@ -95,7 +95,6 @@ export type UpdatePersonResult =
   | { ok: false; error: "phone_invalid" }
   | { ok: false; error: "phone_conflict"; existing: { id: string; name: string } };
 
-// Backend check-in response — unchanged.
 export type CheckInResponse = {
   server_time: string;
   latest_version: string;
@@ -113,4 +112,8 @@ export type CheckInResponse = {
     cta_label: string | null;
     cta_url: string | null;
   } | null;
+  // When set (string, including ""), mobile persists to `app_meta.backend_url_override`
+  // and uses it for the next check-in. Empty string clears any prior override
+  // (return to env default). Omitted/null leaves the current setting alone.
+  next_backend_url?: string | null;
 };

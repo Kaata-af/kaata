@@ -3,7 +3,7 @@
 # Spin this up only when you need a clean throwaway DB or want to mirror prod.
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: kaata
       POSTGRES_PASSWORD: kaata_dev

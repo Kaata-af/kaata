@@ -1,32 +1,65 @@
 import type { ReactNode } from "react";
 
-export function PhoneFrame({ children }: { children: ReactNode }) {
+// Visual mockups of the mobile app shown on the landing page. Mirrors the
+// production UI as closely as a static render can: same wordmark, same
+// monochrome palette, same Inter + JetBrains Mono treatment of amounts.
+
+function PhoneFrame({ children }: { children: ReactNode }) {
   return (
-    <div className="relative">
-      <div
-        aria-hidden
-        className="absolute -inset-12 -z-10 rounded-full opacity-50 blur-3xl"
-        style={{
-          background: "radial-gradient(circle, rgba(196,154,60,0.18), transparent 70%)",
-        }}
-      />
-      <div className="w-[280px] aspect-[280/580] bg-white rounded-[2.5rem] border-[10px] border-neutral-900 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.25)] overflow-hidden flex flex-col">
-        {/* iPhone-like notch */}
-        <div className="h-7 bg-neutral-900 mx-auto w-32 rounded-b-2xl shrink-0 mb-3" />
-        <div className="px-5 pb-7 flex-1 flex flex-col">{children}</div>
+    <div className="relative w-[284px] aspect-[284/580] bg-white rounded-[2.25rem] border-[7px] border-neutral-900 shadow-[0_20px_50px_-15px_rgba(0,0,0,0.18)] overflow-hidden flex flex-col">
+      {/* Pill notch — purely decorative */}
+      <div className="h-5 bg-neutral-900 mx-auto w-28 rounded-b-2xl shrink-0" />
+      {children}
+    </div>
+  );
+}
+
+function WhatsAppGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
+      <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.76.46 3.45 1.32 4.95L2.05 22l5.25-1.38a9.9 9.9 0 0 0 4.74 1.21h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.84 9.84 0 0 0 12.04 2zm0 18.15h-.01a8.23 8.23 0 0 1-4.2-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.24 8.24 0 0 1-1.26-4.38c0-4.54 3.7-8.24 8.25-8.24 2.2 0 4.27.86 5.83 2.42a8.22 8.22 0 0 1 2.41 5.83c0 4.55-3.7 8.23-8.23 8.23zm4.52-6.16c-.25-.12-1.47-.72-1.7-.81-.23-.08-.39-.12-.56.12-.16.25-.64.81-.78.97-.14.17-.29.19-.54.06-.25-.12-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.02-.39.11-.51.11-.11.25-.29.37-.43.12-.14.16-.25.25-.41.08-.17.04-.31-.02-.44-.06-.12-.56-1.34-.76-1.84-.2-.48-.41-.42-.56-.43h-.48c-.17 0-.43.06-.66.31-.23.25-.86.85-.86 2.07s.88 2.4 1.01 2.57c.12.16 1.74 2.66 4.21 3.73.59.25 1.05.4 1.41.52.59.19 1.13.16 1.55.1.47-.07 1.47-.6 1.67-1.18.21-.58.21-1.07.15-1.18-.06-.1-.22-.16-.47-.28z" />
+    </svg>
+  );
+}
+
+function ListRow(props: { name: string; amount: number; sub: string }) {
+  return (
+    <div className="flex items-center justify-between px-3 py-2.5 border-b border-neutral-200 last:border-0">
+      <div className="min-w-0 mr-2">
+        <p className="text-[12px] font-semibold text-neutral-900 truncate">{props.name}</p>
+        <p className="text-[10px] text-neutral-500 mt-0.5">{props.sub}</p>
+      </div>
+      <div className="flex items-baseline gap-1 shrink-0">
+        <span className="text-[12px] font-semibold font-mono text-neutral-900">
+          {props.amount.toLocaleString("en-US")}
+        </span>
+        <span className="text-[9px] font-medium text-neutral-400">AFN</span>
       </div>
     </div>
   );
 }
 
-function CustomerRow({ name, balance }: { name: string; balance: number }) {
-  const color = balance < 0 ? "text-red-600" : balance > 0 ? "text-green-700" : "text-neutral-400";
+function Tabs({ active }: { active: "collect" | "pay" }) {
   return (
-    <div className="flex items-center justify-between py-2.5 border-b border-neutral-200 last:border-0">
-      <span className="text-[13px] font-medium text-neutral-900">{name}</span>
-      <span className={`text-[13px] font-semibold ${color}`}>
-        {balance.toLocaleString("en-US")} AFN
-      </span>
+    <div className="flex p-[3px] bg-neutral-50 border border-neutral-200 rounded-[10px]">
+      <div
+        className={`flex-1 py-1.5 rounded-[7px] text-[11px] text-center ${
+          active === "collect"
+            ? "bg-neutral-900 text-white font-semibold"
+            : "text-neutral-700 font-medium"
+        }`}
+      >
+        To collect
+      </div>
+      <div
+        className={`flex-1 py-1.5 rounded-[7px] text-[11px] text-center ${
+          active === "pay"
+            ? "bg-neutral-900 text-white font-semibold"
+            : "text-neutral-700 font-medium"
+        }`}
+      >
+        To pay
+      </div>
     </div>
   );
 }
@@ -34,26 +67,38 @@ function CustomerRow({ name, balance }: { name: string; balance: number }) {
 export function PhoneMockupHome() {
   return (
     <PhoneFrame>
-      <p className="text-[10px] font-semibold text-neutral-500 mt-1">Sultan Shop</p>
-      <p className="text-[10px] font-medium text-neutral-500 uppercase tracking-wider mt-4">
-        Owed to you
-      </p>
-      <p className="text-[34px] font-bold text-neutral-900 mt-0.5 leading-none">
-        12,400 <span className="text-sm text-neutral-500 font-normal">AFN</span>
-      </p>
+      <div className="px-4 pt-3 pb-4 flex-1 flex flex-col">
+        <p className="text-[18px] font-bold text-neutral-900 -tracking-tight">kaata.</p>
+        <p className="text-[10px] text-neutral-500 mt-0.5">Sultan · Shop Sultan</p>
 
-      <div className="mt-7">
-        <CustomerRow name="Mahmood" balance={-3800} />
-        <CustomerRow name="Ahmad" balance={-1250} />
-        <CustomerRow name="Sultan" balance={-750} />
-        <CustomerRow name="Karim" balance={200} />
-        <CustomerRow name="Reza" balance={0} />
-        <CustomerRow name="Wahid" balance={-420} />
-      </div>
+        <div className="mt-4">
+          <Tabs active="collect" />
+        </div>
 
-      <div className="mt-auto flex justify-end pt-4">
-        <div className="w-11 h-11 bg-neutral-900 rounded-full flex items-center justify-center text-white text-xl font-light shadow-md">
-          +
+        <div className="mt-4">
+          <p className="text-[9px] font-semibold uppercase tracking-wider text-neutral-500">
+            To collect
+          </p>
+          <div className="flex items-baseline gap-1.5 mt-1">
+            <p className="text-[32px] font-bold font-mono text-neutral-900 leading-none -tracking-tight">
+              12,400
+            </p>
+            <p className="text-[11px] text-neutral-400 font-medium">AFN</p>
+          </div>
+          <p className="text-[10px] text-neutral-500 mt-1">from 4 people</p>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-neutral-200 overflow-hidden bg-white">
+          <ListRow name="Mahmood" amount={3800} sub="2d ago" />
+          <ListRow name="Ahmad" amount={1250} sub="yesterday" />
+          <ListRow name="Sultan" amount={750} sub="3d ago" />
+          <ListRow name="Wahid" amount={420} sub="1w ago" />
+        </div>
+
+        <div className="mt-auto flex justify-end pt-3">
+          <div className="w-11 h-11 bg-neutral-900 rounded-full flex items-center justify-center text-white text-2xl font-light leading-none">
+            +
+          </div>
         </div>
       </div>
     </PhoneFrame>
@@ -63,41 +108,55 @@ export function PhoneMockupHome() {
 export function PhoneMockupWhatsApp() {
   return (
     <PhoneFrame>
-      <div className="flex items-center gap-2 mt-1 pb-3 border-b border-neutral-200">
-        <div className="w-7 h-7 rounded-full bg-neutral-300 flex items-center justify-center text-[10px] font-semibold text-neutral-600">
-          A
-        </div>
-        <div>
-          <p className="text-[13px] font-semibold text-neutral-900 leading-tight">Ahmad</p>
-          <p className="text-[10px] text-neutral-500">+93 70 123 4567</p>
-        </div>
-      </div>
-
-      <div className="mt-5 space-y-3 flex-1">
-        <div className="ml-auto max-w-[88%] bg-[#dcf8c6] rounded-2xl rounded-br-sm px-3 py-2.5 text-[12px] text-neutral-900 leading-relaxed">
-          Salaam Ahmad.
-          <br />
-          <br />
-          Your kaata at Sultan Shop:
-          <br />
-          Balance: −1,250 AFN
-          <br />
-          <br />
-          <span className="text-neutral-500">— Sent via Kaata.af</span>
-          <div className="mt-1 text-right text-[9px] text-neutral-500">
-            10:23 AM <span className="text-sky-600">✓✓</span>
+      <div className="px-4 pt-3 pb-3 flex-1 flex flex-col bg-[#efeae2]">
+        {/* WhatsApp header */}
+        <div className="flex items-center gap-2 pb-3 border-b border-neutral-300/60">
+          <div className="w-7 h-7 rounded-full bg-neutral-300 flex items-center justify-center text-[11px] font-semibold text-neutral-700">
+            A
+          </div>
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold text-neutral-900 leading-tight truncate">
+              Ahmad
+            </p>
+            <p className="text-[10px] text-neutral-500 truncate">+93 70 123 4567</p>
           </div>
         </div>
 
-        <div className="mr-auto max-w-[60%] bg-white border border-neutral-200 rounded-2xl rounded-bl-sm px-3 py-2 text-[12px] text-neutral-900 shadow-sm">
-          Thank you for the reminder.
-          <div className="mt-0.5 text-right text-[9px] text-neutral-500">10:31 AM</div>
-        </div>
-      </div>
+        {/* Outgoing message (the Kaata-pinged message) */}
+        <div className="mt-4 flex-1 space-y-2.5">
+          <div className="ml-auto max-w-[88%] bg-[#d9fdd3] rounded-2xl rounded-br-sm px-3 py-2.5 text-[12px] text-neutral-900 leading-relaxed shadow-[0_1px_0_rgba(0,0,0,0.04)]">
+            Salaam Ahmad.
+            <br />
+            <br />
+            Your kaata at Shop Sultan:
+            <br />
+            🔴 You owe: <span className="font-mono font-semibold">−1,250 AFN</span>
+            <br />
+            <br />
+            Please settle when you can.
+            <br />
+            <br />
+            <span className="text-neutral-500">— Sent via Kaata.af</span>
+            <div className="mt-1 text-right text-[9px] text-neutral-500">
+              10:23 AM <span className="text-sky-600">✓✓</span>
+            </div>
+          </div>
 
-      <div className="mt-3 flex items-center gap-2 bg-neutral-100 rounded-full px-3 py-2">
-        <span className="text-[11px] text-neutral-400 flex-1">Reply…</span>
-        <div className="w-6 h-6 rounded-full bg-emerald-500" />
+          <div className="mr-auto max-w-[60%] bg-white rounded-2xl rounded-bl-sm px-3 py-2 text-[12px] text-neutral-900 shadow-[0_1px_0_rgba(0,0,0,0.04)]">
+            Thanks, will pay tomorrow inshaAllah.
+            <div className="mt-0.5 text-right text-[9px] text-neutral-500">10:31 AM</div>
+          </div>
+        </div>
+
+        {/* Reply field */}
+        <div className="mt-3 flex items-center gap-2">
+          <div className="flex-1 bg-white rounded-full px-3 py-2">
+            <span className="text-[11px] text-neutral-400">Message</span>
+          </div>
+          <div className="w-9 h-9 rounded-full bg-[#00a884] flex items-center justify-center text-white">
+            <WhatsAppGlyph className="w-4 h-4" />
+          </div>
+        </div>
       </div>
     </PhoneFrame>
   );
@@ -106,33 +165,49 @@ export function PhoneMockupWhatsApp() {
 export function PhoneMockupOffline() {
   return (
     <PhoneFrame>
-      <div className="flex items-center justify-between mt-1">
-        <p className="text-[10px] font-semibold text-neutral-500">Sultan Shop</p>
-        <div className="flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-neutral-400" />
-          <span className="text-[9px] text-neutral-500 uppercase tracking-wider">Offline</span>
+      <div className="px-4 pt-3 pb-4 flex-1 flex flex-col">
+        <div className="flex items-center justify-between">
+          <p className="text-[18px] font-bold text-neutral-900 -tracking-tight">kaata.</p>
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-neutral-100 border border-neutral-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-neutral-400" />
+            <span className="text-[9px] uppercase tracking-wider text-neutral-600 font-semibold">
+              Offline
+            </span>
+          </div>
         </div>
-      </div>
+        <p className="text-[10px] text-neutral-500 mt-0.5">Sultan · Shop Sultan</p>
 
-      <p className="text-[10px] font-medium text-neutral-500 uppercase tracking-wider mt-5">
-        Owed to you
-      </p>
-      <p className="text-[34px] font-bold text-neutral-900 mt-0.5 leading-none">
-        12,400 <span className="text-sm text-neutral-500 font-normal">AFN</span>
-      </p>
+        <div className="mt-4">
+          <Tabs active="collect" />
+        </div>
 
-      <div className="mt-6">
-        <CustomerRow name="Ahmad" balance={-1250} />
-        <CustomerRow name="Mahmood" balance={-3800} />
-        <CustomerRow name="Sultan" balance={-750} />
-        <CustomerRow name="Karim" balance={200} />
-      </div>
+        <div className="mt-4">
+          <p className="text-[9px] font-semibold uppercase tracking-wider text-neutral-500">
+            To collect
+          </p>
+          <div className="flex items-baseline gap-1.5 mt-1">
+            <p className="text-[32px] font-bold font-mono text-neutral-900 leading-none -tracking-tight">
+              12,400
+            </p>
+            <p className="text-[11px] text-neutral-400 font-medium">AFN</p>
+          </div>
+          <p className="text-[10px] text-neutral-500 mt-1">from 4 people</p>
+        </div>
 
-      <div className="mt-auto rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5">
-        <p className="text-[10px] font-medium text-neutral-700 leading-tight">New debt recorded.</p>
-        <p className="text-[10px] text-neutral-500 leading-tight mt-0.5">
-          Saved on this device. No internet needed.
-        </p>
+        <div className="mt-4 rounded-xl border border-neutral-200 overflow-hidden bg-white">
+          <ListRow name="Mahmood" amount={3800} sub="2d ago" />
+          <ListRow name="Ahmad" amount={1250} sub="yesterday" />
+          <ListRow name="Sultan" amount={750} sub="3d ago" />
+        </div>
+
+        <div className="mt-auto rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5">
+          <p className="text-[10px] font-semibold text-neutral-900 leading-tight">
+            New entry saved.
+          </p>
+          <p className="text-[10px] text-neutral-500 leading-tight mt-0.5">
+            On this device. No internet needed.
+          </p>
+        </div>
       </div>
     </PhoneFrame>
   );

@@ -1,0 +1,15 @@
+# Container-internal Caddyfile. Dokploy's outer proxy handles the kaata.af
+# domain binding and TLS termination — this just serves the static bundle
+# on :80 with SPA fallback so /v/:token and any other future client-side
+# routes resolve to index.html.
+
+:80 {
+	root * /srv
+	encode gzip
+	try_files {path} /index.html
+	file_server
+
+	# Aggressive cache for hashed asset files (Vite emits content-hashed names).
+	@hashed_assets path /assets/*
+	header @hashed_assets Cache-Control "public, max-age=31536000, immutable"
+}

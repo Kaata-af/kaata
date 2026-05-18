@@ -12,6 +12,7 @@ import (
 	"github.com/matee/kaata-backend/internal/config"
 	"github.com/matee/kaata-backend/internal/db"
 	"github.com/matee/kaata-backend/internal/httpx"
+	"github.com/matee/kaata-backend/internal/visit"
 )
 
 func main() {
@@ -28,8 +29,11 @@ func main() {
 		log.Fatalf("migrate: %v", err)
 	}
 
-	svc := checkin.NewService(pool)
-	h := checkin.NewHandler(svc)
+	checkinSvc := checkin.NewService(pool, cfg.NextBackendURL)
+	checkinH := checkin.NewHandler(checkinSvc)
+
+	visitSvc := visit.NewService(pool, cfg.APKDownloadURL)
+	visitH := visit.NewHandler(visitSvc)
 
 	r := chi.NewRouter()
 	r.Use(httpx.Logger)
@@ -39,7 +43,9 @@ func main() {
 	r.Get("/v1/health", func(w http.ResponseWriter, _ *http.Request) {
 		httpx.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
-	r.Post("/v1/check-in", h.CheckIn)
+	r.Post("/v1/check-in", checkinH.CheckIn)
+	r.Post("/v1/visit", visitH.Visit)
+	r.Get("/v1/download", visitH.Download)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.BackendPort,

@@ -1,0 +1,8 @@
+bin
+server
+server.exe
+*.log
+.env
+.env.local
+.git
+.gitignore

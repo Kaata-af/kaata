@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -12,12 +13,19 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// maxInstalledAtFutureSkew clamps a device-supplied installed_at that's
+// further in the future than this. Phones with badly-set clocks are
+// common; without clamping, "installed_at = year 2099" would poison the
+// admin dashboard's "N days ago" math.
+const maxInstalledAtFutureSkew = 5 * time.Minute
+
 type Service struct {
-	pool *pgxpool.Pool
+	pool           *pgxpool.Pool
+	nextBackendURL string
 }
 
-func NewService(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool}
+func NewService(pool *pgxpool.Pool, nextBackendURL string) *Service {
+	return &Service{pool: pool, nextBackendURL: nextBackendURL}
 }
 
 type Request struct {
@@ -26,12 +34,31 @@ type Request struct {
 	Platform     string `json:"platform"`
 	DeviceLocale string `json:"device_locale"`
 
+	// Wall-clock device timestamp from the moment the install_id was first
+	// minted. Sent on every check-in; backend stores once on INSERT, never
+	// overwrites. Lets us know "installed N days ago" for an install that
+	// was offline at install time and only came online much later.
+	InstalledAtUnixMS *int64 `json:"installed_at_unix_ms,omitempty"`
+
+	// True once the user has created a shop profile (users.is_local_self).
+	// Sent every check-in so we can flip it the first time they finish
+	// onboarding without needing a "did onboard" event.
+	HasOnboarded *bool `json:"has_onboarded,omitempty"`
+
 	// Optional telemetry from the mobile v0 -> v1 migration. Mobile sends
 	// these whenever the app_meta counters are present (set once when the
 	// migration runs); they're stable across check-ins, so we COALESCE on
 	// UPSERT instead of overwriting with NULL.
 	PhonesInvalidCount  *int `json:"phones_invalid_count,omitempty"`
 	PhonesConflictCount *int `json:"phones_conflict_count,omitempty"`
+
+	// Usage counters. DELTAS since the previous successful check-in (mobile
+	// resets its local counters on receiving a 2xx). Backend ADDS — never
+	// overwrites — so a dropped response that triggers a retry double-counts
+	// at worst by one batch, never silently loses events.
+	UsageEntriesCreated *int `json:"usage_entries_created,omitempty"`
+	UsageCustomersAdded *int `json:"usage_customers_added,omitempty"`
+	UsageSharesSent     *int `json:"usage_shares_sent,omitempty"`
 }
 
 type UpdateInfo struct {
@@ -55,15 +82,46 @@ type Response struct {
 	ForceUpdate   bool          `json:"force_update"`
 	Update        *UpdateInfo   `json:"update"`
 	Announcement  *Announcement `json:"announcement"`
+	// NextBackendURL: when non-nil, mobile persists it and uses it for all
+	// subsequent check-ins. Send an empty string to clear a previously
+	// persisted override on the client. Omit (nil) to leave the client's
+	// current setting alone.
+	NextBackendURL *string `json:"next_backend_url,omitempty"`
 }
 
-func (s *Service) Handle(ctx context.Context, req Request) (Response, error) {
+func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Response, error) {
+	// Clamp installed_at against device clock skew. A timestamp more than
+	// a few minutes in the future is bogus — fall back to NOW() by passing
+	// nil so the SQL's COALESCE picks up the backend time.
+	var installedAt *time.Time
+	if req.InstalledAtUnixMS != nil && *req.InstalledAtUnixMS > 0 {
+		t := time.UnixMilli(*req.InstalledAtUnixMS)
+		if t.Before(time.Now().Add(maxInstalledAtFutureSkew)) {
+			installedAt = &t
+		}
+	}
+
+	// hadUsage drives last_activity_at: only check-ins carrying a non-zero
+	// delta are "activity". Pure liveness pings (app opened, nothing done)
+	// bump last_seen_at but leave last_activity_at alone.
+	hadUsage := nonZero(req.UsageEntriesCreated) ||
+		nonZero(req.UsageCustomersAdded) ||
+		nonZero(req.UsageSharesSent)
+
 	if _, err := s.pool.Exec(ctx, `
 		INSERT INTO installs (
 			install_id, app_version, platform, device_locale, check_in_count,
-			migration_001_phones_invalid, migration_001_phones_conflict
+			migration_001_phones_invalid, migration_001_phones_conflict,
+			usage_entries_created, usage_customers_added, usage_shares_sent,
+			installed_at, has_onboarded, last_activity_at
 		)
-		VALUES ($1, $2, $3, $4, 1, $5, $6)
+		VALUES (
+			$1, $2, $3, $4, 1, $5, $6,
+			COALESCE($7, 0), COALESCE($8, 0), COALESCE($9, 0),
+			COALESCE($10, NOW()),
+			COALESCE($11, FALSE),
+			CASE WHEN $12::boolean THEN NOW() ELSE NULL END
+		)
 		ON CONFLICT (install_id) DO UPDATE
 		SET last_seen_at   = NOW(),
 		    app_version    = EXCLUDED.app_version,
@@ -71,15 +129,71 @@ func (s *Service) Handle(ctx context.Context, req Request) (Response, error) {
 		    device_locale  = EXCLUDED.device_locale,
 		    check_in_count = installs.check_in_count + 1,
 		    migration_001_phones_invalid  = COALESCE(EXCLUDED.migration_001_phones_invalid, installs.migration_001_phones_invalid),
-		    migration_001_phones_conflict = COALESCE(EXCLUDED.migration_001_phones_conflict, installs.migration_001_phones_conflict)
+		    migration_001_phones_conflict = COALESCE(EXCLUDED.migration_001_phones_conflict, installs.migration_001_phones_conflict),
+		    usage_entries_created = installs.usage_entries_created + COALESCE($7, 0),
+		    usage_customers_added = installs.usage_customers_added + COALESCE($8, 0),
+		    usage_shares_sent     = installs.usage_shares_sent     + COALESCE($9, 0),
+		    -- installed_at: COALESCE keeps the original (oldest known) value
+		    -- and only fills if it's currently NULL (legacy install upgrading
+		    -- to this APK for the first time after column was added).
+		    installed_at  = COALESCE(installs.installed_at, EXCLUDED.installed_at),
+		    -- has_onboarded latches true once set; never flips back to false.
+		    has_onboarded = installs.has_onboarded OR COALESCE($11, FALSE),
+		    last_activity_at = CASE
+		      WHEN $12::boolean THEN NOW()
+		      ELSE installs.last_activity_at
+		    END
 	`, req.InstallID, req.AppVersion, req.Platform, req.DeviceLocale,
-		req.PhonesInvalidCount, req.PhonesConflictCount); err != nil {
+		req.PhonesInvalidCount, req.PhonesConflictCount,
+		req.UsageEntriesCreated, req.UsageCustomersAdded, req.UsageSharesSent,
+		installedAt, req.HasOnboarded, hadUsage,
+	); err != nil {
 		return Response{}, err
+	}
+
+	// Deferred-deep-link attribution. On a fresh install (source still NULL),
+	// look for the most recent unclaimed web_visits row from the same client
+	// IP within the last hour and stamp its source onto this install. The
+	// `installs.source IS NULL` guard in the final UPDATE makes this safe to
+	// re-run on every check-in — subsequent calls match nothing and no-op.
+	//
+	// Failure here is non-fatal: a check-in must still succeed even if
+	// attribution glitches, so we log and move on.
+	if clientIP != "" {
+		if _, err := s.pool.Exec(ctx, `
+			WITH already AS (
+				SELECT source FROM installs WHERE install_id = $1
+			), matched AS (
+				SELECT id, source FROM web_visits
+				WHERE ip = $2
+				  AND visited_at > NOW() - INTERVAL '60 minutes'
+				  AND claimed_by_install_id IS NULL
+				  AND source IS NOT NULL
+				  AND (SELECT source FROM already) IS NULL
+				ORDER BY visited_at DESC
+				LIMIT 1
+			), claim AS (
+				UPDATE web_visits
+				SET claimed_by_install_id = $1
+				WHERE id IN (SELECT id FROM matched)
+				RETURNING source
+			)
+			UPDATE installs
+			SET source = c.source, attribution_method = 'ip_match'
+			FROM claim c
+			WHERE install_id = $1
+		`, req.InstallID, clientIP); err != nil {
+			log.Printf("attribution match failed for install %s: %v", req.InstallID, err)
+		}
 	}
 
 	resp := Response{
 		ServerTime:    time.Now().UTC().Format(time.RFC3339),
 		LatestVersion: req.AppVersion,
+	}
+	if s.nextBackendURL != "" {
+		next := s.nextBackendURL
+		resp.NextBackendURL = &next
 	}
 
 	var (
@@ -163,16 +277,17 @@ func nullStr(s sql.NullString) *string {
 	return &s.String
 }
 
+func nonZero(p *int) bool {
+	return p != nil && *p > 0
+}
+
 // cmpSemver compares two dotted version strings numerically.
 // Missing components default to 0. Non-numeric suffixes are ignored.
 func cmpSemver(a, b string) int {
 	aa := strings.Split(a, ".")
 	bb := strings.Split(b, ".")
-	n := len(aa)
-	if len(bb) > n {
-		n = len(bb)
-	}
-	for i := 0; i < n; i++ {
+	n := max(len(aa), len(bb))
+	for i := range n {
 		var ai, bi int
 		if i < len(aa) {
 			ai, _ = strconv.Atoi(stripNonDigits(aa[i]))
