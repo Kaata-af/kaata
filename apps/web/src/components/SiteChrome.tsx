@@ -17,15 +17,17 @@ export function SiteHeader() {
           : "bg-transparent border-transparent"
       }`}
     >
-      <div className="max-w-6xl mx-auto px-6 h-14 grid grid-cols-[1fr_auto_1fr] items-center">
-        {/* Left: logo */}
-        <Link to="/" className="flex items-center gap-2 justify-self-start">
+      {/* Flex on mobile (logo + CTA hug the edges, no awkward empty center).
+          Grid on desktop so the nav stays perfectly centered between the two. */}
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex md:grid md:grid-cols-[1fr_auto_1fr] items-center justify-between">
+        {/* Logo */}
+        <Link to="/" className="flex items-center gap-2 md:justify-self-start">
           <img src="/logo.png" alt="" className="w-6 h-6" />
           <span className="text-base font-bold tracking-tight text-neutral-900">kaata.</span>
         </Link>
 
-        {/* Center: nav links */}
-        <nav className="hidden md:flex items-center gap-7 justify-self-center text-[13px]">
+        {/* Center nav (desktop only) */}
+        <nav className="hidden md:flex md:justify-self-center items-center gap-7 text-[13px]">
           <Link
             to="/#product"
             className="text-neutral-600 hover:text-neutral-900 font-medium transition-colors"
@@ -46,15 +48,13 @@ export function SiteHeader() {
           </Link>
         </nav>
 
-        {/* Right: primary CTA. Dub's signature interaction: ring on hover, not darken. */}
-        <div className="justify-self-end">
-          <Link
-            to="/download"
-            className="bg-neutral-900 text-white font-medium px-3.5 h-8 inline-flex items-center rounded-lg ring-0 ring-neutral-100 hover:ring-4 transition-[box-shadow] text-[13px]"
-          >
-            Get the app
-          </Link>
-        </div>
+        {/* Primary CTA. Dub's signature interaction: ring on hover, not darken. */}
+        <Link
+          to="/download"
+          className="md:justify-self-end bg-neutral-900 text-white font-medium px-3.5 h-8 inline-flex items-center rounded-lg ring-0 ring-neutral-100 hover:ring-4 transition-[box-shadow] text-[13px]"
+        >
+          Get the app
+        </Link>
       </div>
     </header>
   );
