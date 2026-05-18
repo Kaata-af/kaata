@@ -81,7 +81,7 @@ export function PhoneMockupHome() {
           </p>
           <div className="flex items-baseline gap-1.5 mt-1">
             <p className="text-[32px] font-bold font-mono text-neutral-900 leading-none -tracking-tight">
-              12,400
+              6,220
             </p>
             <p className="text-[11px] text-neutral-400 font-medium">AFN</p>
           </div>
@@ -187,11 +187,11 @@ export function PhoneMockupOffline() {
           </p>
           <div className="flex items-baseline gap-1.5 mt-1">
             <p className="text-[32px] font-bold font-mono text-neutral-900 leading-none -tracking-tight">
-              12,400
+              5,800
             </p>
             <p className="text-[11px] text-neutral-400 font-medium">AFN</p>
           </div>
-          <p className="text-[10px] text-neutral-500 mt-1">from 4 people</p>
+          <p className="text-[10px] text-neutral-500 mt-1">from 3 people</p>
         </div>
 
         <div className="mt-4 rounded-xl border border-neutral-200 overflow-hidden bg-white">
