@@ -20,12 +20,12 @@ import (
 const maxInstalledAtFutureSkew = 5 * time.Minute
 
 type Service struct {
-	pool           *pgxpool.Pool
-	nextBackendURL string
+	pool                *pgxpool.Pool
+	migrateToBackendURL string
 }
 
-func NewService(pool *pgxpool.Pool, nextBackendURL string) *Service {
-	return &Service{pool: pool, nextBackendURL: nextBackendURL}
+func NewService(pool *pgxpool.Pool, migrateToBackendURL string) *Service {
+	return &Service{pool: pool, migrateToBackendURL: migrateToBackendURL}
 }
 
 type Request struct {
@@ -82,11 +82,11 @@ type Response struct {
 	ForceUpdate   bool          `json:"force_update"`
 	Update        *UpdateInfo   `json:"update"`
 	Announcement  *Announcement `json:"announcement"`
-	// NextBackendURL: when non-nil, mobile persists it and uses it for all
-	// subsequent check-ins. Send an empty string to clear a previously
+	// MigrateToBackendURL: when non-nil, mobile persists it and uses it for
+	// all subsequent check-ins. Send an empty string to clear a previously
 	// persisted override on the client. Omit (nil) to leave the client's
 	// current setting alone.
-	NextBackendURL *string `json:"next_backend_url,omitempty"`
+	MigrateToBackendURL *string `json:"migrate_to_backend_url,omitempty"`
 }
 
 func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Response, error) {
@@ -191,9 +191,9 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 		ServerTime:    time.Now().UTC().Format(time.RFC3339),
 		LatestVersion: req.AppVersion,
 	}
-	if s.nextBackendURL != "" {
-		next := s.nextBackendURL
-		resp.NextBackendURL = &next
+	if s.migrateToBackendURL != "" {
+		target := s.migrateToBackendURL
+		resp.MigrateToBackendURL = &target
 	}
 
 	var (

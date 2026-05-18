@@ -29,7 +29,7 @@ func main() {
 		log.Fatalf("migrate: %v", err)
 	}
 
-	checkinSvc := checkin.NewService(pool, cfg.NextBackendURL)
+	checkinSvc := checkin.NewService(pool, cfg.MigrateToBackendURL)
 	checkinH := checkin.NewHandler(checkinSvc)
 
 	visitSvc := visit.NewService(pool, cfg.APKDownloadURL)

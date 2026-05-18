@@ -12,4 +12,13 @@
 	# Aggressive cache for hashed asset files (Vite emits content-hashed names).
 	@hashed_assets path /assets/*
 	header @hashed_assets Cache-Control "public, max-age=31536000, immutable"
+
+	# APK downloads: force correct MIME + Content-Disposition so the browser
+	# downloads the file rather than guessing (some browsers render unknown
+	# MIME types as text). Removed once we move distribution off-domain.
+	@apk path *.apk
+	header @apk {
+		Content-Type "application/vnd.android.package-archive"
+		Content-Disposition "attachment"
+	}
 }

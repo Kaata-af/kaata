@@ -82,8 +82,8 @@ export function AppMetaProvider(props: { currentVersion: string; children: React
       // Soft-migration: persist (or clear) the override so the next check-in
       // talks to the new backend. Omitted/null = leave the current setting
       // alone; "" = clear back to env default; any other string = use it.
-      if (resp.next_backend_url != null) {
-        await setAppMeta("backend_url_override", resp.next_backend_url);
+      if (resp.migrate_to_backend_url != null) {
+        await setAppMeta("backend_url_override", resp.migrate_to_backend_url);
       }
       await setAppMeta("last_checkin_at", String(Date.now()));
       setForceUpdate(resp.force_update);

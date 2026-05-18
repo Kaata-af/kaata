@@ -9,10 +9,6 @@ yarn.lock
 **/yarn.lock
 
 # build output
-.next/
-**/.next/
-out/
-**/out/
 dist/
 **/dist/
 build/

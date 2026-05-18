@@ -6,7 +6,7 @@ const TIMEOUT_MS = 5000;
 const OVERRIDE_KEY = "backend_url_override";
 
 // Resolves the backend URL at runtime. Override (set by a prior check-in's
-// `next_backend_url`) wins over the build-time fallback. This is how we
+// `migrate_to_backend_url`) wins over the build-time fallback. This is how we
 // soft-migrate domains without forcing an app reinstall.
 export async function getBackendUrl(): Promise<string> {
   const override = await getAppMeta(OVERRIDE_KEY);

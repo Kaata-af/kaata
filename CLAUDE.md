@@ -63,19 +63,19 @@ Workflow for shipping an update:
 
 Same flow for `announcements`. To switch distribution channels (e.g. APK link → Play Store) just insert a new row with the URL in the new column. The full ops playbook is `docs/architecture.md`.
 
-### Backend URL soft-migration (`next_backend_url`)
+### Backend URL soft-migration (`migrate_to_backend_url`)
 
 The mobile app's backend URL is **not** hard-baked into the APK in a way that locks you in. Resolution at runtime is: `app_meta.backend_url_override` (if set) → `EXPO_PUBLIC_BACKEND_URL` (build-time default from `apps/mobile/eas.json`). The override is populated by the backend itself:
 
-- Backend has env var `NEXT_BACKEND_URL`. When non-empty, every check-in response includes `next_backend_url: "<that value>"`.
+- Backend has env var `MIGRATE_TO_BACKEND_URL`. When non-empty, every check-in response includes `migrate_to_backend_url: "<that value>"`.
 - Mobile sees it on the response, calls `setAppMeta("backend_url_override", value)`, and the _next_ check-in goes to the new URL.
 - Send `""` (empty string) to explicitly clear an existing override on clients. Omit the field (nil) to leave the client's current setting alone.
 
-To change the backend's domain in production: deploy the new backend at the new URL, set `NEXT_BACKEND_URL=https://new-host` on the _old_ backend's env in Dokploy, watch installs migrate, then tear down the old backend after a migration window. **No mobile rebuild required.**
+To change the backend's domain in production: deploy the new backend at the new URL, set `MIGRATE_TO_BACKEND_URL=https://new-host` on the _old_ backend's env in Dokploy, watch installs migrate, then tear down the old backend after a migration window. **No mobile rebuild required.**
 
 ### Env vars (one place per concern)
 
-- **`apps/backend/.env.example`** — `POSTGRES_URL`, `BACKEND_PORT`, `NEXT_BACKEND_URL` (optional, soft-migration).
+- **`apps/backend/.env.example`** — `POSTGRES_URL`, `BACKEND_PORT`, `MIGRATE_TO_BACKEND_URL` (optional, soft-migration).
 - **`apps/mobile/.env.example`** — `EXPO_PUBLIC_BACKEND_URL` (first-launch fallback only; documented above).
 - **`apps/mobile/eas.json`** — `env` blocks on `preview` / `production` profiles set `EXPO_PUBLIC_BACKEND_URL` at build time.
 - **`apps/web/.env.example`** — `VITE_BACKEND_URL`, `VITE_WHATSAPP_CONTACT_URL`, `VITE_APK_VERSION`, `VITE_APK_DOWNLOAD_URL`. All read from `apps/web/src/env.ts` with safe defaults.
@@ -96,6 +96,7 @@ Mobile uses `expo-router` (file-based). `apps/mobile/app/_layout.tsx` is the roo
 
 ### Where future Claude should look first
 
+- `docs/backlog.md` lists known near-term work that's deliberately deferred (manual export/restore, source-tagging admin endpoint, admin dashboard) — check here before building anything that might already be on the list.
 - Multi-shop / vaults support is planned but not built — see `docs/phase-2-roadmap.md` "Multi-shop / vaults" for the migration plan.
 - `docs/refactor-notes.md` documents the v0 → v1 schema move (function signature changes, what stayed, what didn't).
 - `docs/architecture.md` is the backend operations playbook — version comparison rules, release publishing SQL, force-update behavior.

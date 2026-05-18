@@ -115,5 +115,5 @@ export type CheckInResponse = {
   // When set (string, including ""), mobile persists to `app_meta.backend_url_override`
   // and uses it for the next check-in. Empty string clears any prior override
   // (return to env default). Omitted/null leaves the current setting alone.
-  next_backend_url?: string | null;
+  migrate_to_backend_url?: string | null;
 };
