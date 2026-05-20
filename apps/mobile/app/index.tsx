@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect, useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomSheet } from "../components/BottomSheet";
@@ -9,7 +9,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { EmptyState } from "../components/EmptyState";
 import { PersonRow } from "../components/PersonRow";
 import { Tabs } from "../components/Tabs";
-import { useToast } from "../components/Toast";
+import { useToast, useToastOffset } from "../components/Toast";
 import { UpdateBanner } from "../components/UpdateBanner";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
@@ -26,6 +26,7 @@ const TABS = [
 export default function HomeScreen() {
   const router = useRouter();
   const toast = useToast();
+  const toastOffset = useToastOffset();
   const insets = useSafeAreaInsets();
   const { forceUpdate } = useAppMeta();
   const [self, setSelf] = useState<Self | null>(null);
@@ -139,15 +140,20 @@ export default function HomeScreen() {
         </ScrollView>
       </GestureDetector>
 
-      <Pressable
-        onPress={() => router.push("/person/new")}
-        style={({ pressed }) => [
+      <Animated.View
+        style={[
           styles.fab,
-          { bottom: 20 + insets.bottom, opacity: pressed ? 0.85 : 1 },
+          { bottom: 20 + insets.bottom, transform: [{ translateY: toastOffset }] },
         ]}
+        pointerEvents="box-none"
       >
-        <Ionicons name="add" size={26} color={colors.textInverted} />
-      </Pressable>
+        <Pressable
+          onPress={() => router.push("/person/new")}
+          style={({ pressed }) => [styles.fabInner, pressed && { opacity: 0.85 }]}
+        >
+          <Ionicons name="add" size={26} color={colors.textInverted} />
+        </Pressable>
+      </Animated.View>
 
       <BottomSheet
         visible={sheetFor !== null}
@@ -247,6 +253,10 @@ const styles = StyleSheet.create({
   fab: {
     position: "absolute",
     right: 20,
+    width: 52,
+    height: 52,
+  },
+  fabInner: {
     width: 52,
     height: 52,
     borderRadius: 26,

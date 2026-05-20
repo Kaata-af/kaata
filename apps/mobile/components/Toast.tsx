@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import {
   createContext,
   type ReactNode,
@@ -12,13 +13,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
 import { fonts } from "../lib/fonts";
 
-// In-app toast notifications. Used for the small confirmations that don't
-// deserve a full Alert dialog ("Entry saved") and for inline errors that the
-// user shouldn't have to dismiss ("Phone already used by Ahmad").
-//
-// Rendered through React Native's <Modal> so toasts sit above the rest of the
-// app — including modally-presented screens (entry/new, person/new, etc.) so
-// errors inside those modals are still visible.
+// In-app toasts. Calm white card with a single colored icon for state — the
+// rest of the chrome stays monochrome, matching the wider kaata design
+// vocabulary. Renders through React Native's <Modal> so toasts sit above
+// modally-presented screens (entry/new, person/new, etc.) and errors inside
+// those modals stay visible.
 
 type ToastKind = "success" | "error" | "info";
 
@@ -30,11 +29,18 @@ type Toast = {
 
 type ToastContextValue = {
   push: (message: string, kind?: ToastKind) => void;
+  // Number of currently-visible toasts. Components with bottom-anchored UI
+  // (ping bar, FAB) subscribe via useToastOffset() and slide out of the way.
+  visibleCount: number;
 };
 
 const ToastContext = createContext<ToastContextValue | null>(null);
 const DURATION_MS = 2500;
-const ANIM_MS = 220;
+const ANIM_MS = 240;
+// Geometry for useToastOffset() — see notes in the hook for the derivation.
+const VIEWPORT_BOTTOM_MARGIN = 24; // matches the viewport's `bottom: 24 + insets.bottom`
+const TOAST_HEIGHT_SINGLE = 52; // single-line: 14 + 22 + 14 + (1+1) border
+const LIFT_GAP = 8; // breathing room between toast top and lifted UI bottom
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -48,7 +54,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <ToastContext.Provider value={{ push }}>
+    <ToastContext.Provider value={{ push, visibleCount: toasts.length }}>
       {children}
       <ToastViewport toasts={toasts} />
     </ToastContext.Provider>
@@ -61,6 +67,39 @@ export function useToast(): ToastContextValue {
   return ctx;
 }
 
+// Returns an animated translateY value that components with bottom-anchored
+// UI can apply to their transform — slides up when a toast appears, settles
+// back when the queue is empty. Spring physics keep the motion alive.
+//
+// Math:
+//   - Toast viewport sits at bottom = (24 + insets.bottom) from the screen bottom.
+//   - A single-line toast is ~52px tall, so its TOP edge is at
+//     (24 + insets.bottom + 52) = (76 + insets.bottom) from the screen bottom.
+//   - For a lifted UI to clear it with a comfortable gap, its lifted bottom edge
+//     must sit at (76 + insets.bottom + GAP).
+//   - Lifted UI's original bottom is 0, so translateY needs magnitude
+//     (76 + insets.bottom + GAP).
+// Insets-aware (~24-34px on phones with gesture nav / home indicator) so the
+// gap survives the device-to-device variance.
+export function useToastOffset(): Animated.Value {
+  const ctx = useContext(ToastContext);
+  const insets = useSafeAreaInsets();
+  const translateY = useRef(new Animated.Value(0)).current;
+  const visibleCount = ctx?.visibleCount ?? 0;
+  const lift = VIEWPORT_BOTTOM_MARGIN + TOAST_HEIGHT_SINGLE + LIFT_GAP + insets.bottom;
+
+  useEffect(() => {
+    Animated.spring(translateY, {
+      toValue: visibleCount > 0 ? -lift : 0,
+      useNativeDriver: true,
+      friction: 10,
+      tension: 100,
+    }).start();
+  }, [visibleCount, lift, translateY]);
+
+  return translateY;
+}
+
 function ToastViewport({ toasts }: { toasts: Toast[] }) {
   const insets = useSafeAreaInsets();
   if (toasts.length === 0) return null;
@@ -70,8 +109,6 @@ function ToastViewport({ toasts }: { toasts: Toast[] }) {
       visible
       animationType="none"
       statusBarTranslucent
-      // No dismiss handler — the user shouldn't be able to "back" out of a
-      // toast layer. Auto-dismiss after DURATION_MS is the only exit.
       onRequestClose={() => undefined}
     >
       <View pointerEvents="box-none" style={[styles.viewport, { bottom: 24 + insets.bottom }]}>
@@ -83,16 +120,23 @@ function ToastViewport({ toasts }: { toasts: Toast[] }) {
   );
 }
 
+const ICON_FOR_KIND = {
+  success: "checkmark-circle" as const,
+  error: "close-circle" as const,
+  info: "information-circle" as const,
+};
+
 function ToastItem({ toast }: { toast: Toast }) {
   const translateY = useRef(new Animated.Value(40)).current;
   const opacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(translateY, {
+      Animated.spring(translateY, {
         toValue: 0,
-        duration: ANIM_MS,
         useNativeDriver: true,
+        friction: 10,
+        tension: 120,
       }),
       Animated.timing(opacity, {
         toValue: 1,
@@ -102,13 +146,17 @@ function ToastItem({ toast }: { toast: Toast }) {
     ]).start();
   }, [translateY, opacity]);
 
-  const containerStyle =
-    toast.kind === "error" ? styles.error : toast.kind === "success" ? styles.success : styles.info;
-  const textStyle = toast.kind === "error" ? styles.errorText : styles.invertedText;
+  const iconColor =
+    toast.kind === "error"
+      ? colors.danger
+      : toast.kind === "success"
+        ? colors.textEmphasis
+        : colors.textSubtle;
 
   return (
-    <Animated.View style={[styles.toast, containerStyle, { transform: [{ translateY }], opacity }]}>
-      <Text style={textStyle} numberOfLines={2}>
+    <Animated.View style={[styles.toast, { transform: [{ translateY }], opacity }]}>
+      <Ionicons name={ICON_FOR_KIND[toast.kind]} size={22} color={iconColor} />
+      <Text style={styles.message} numberOfLines={2}>
         {toast.message}
       </Text>
     </Animated.View>
@@ -120,45 +168,34 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 16,
     right: 16,
-    gap: 8,
+    gap: 10,
   },
   toast: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingVertical: 14,
+    borderRadius: 14,
     borderWidth: 1,
+    borderColor: colors.borderDefault,
+    backgroundColor: colors.bgDefault,
     ...Platform.select({
       ios: {
         shadowColor: "#000",
-        shadowOpacity: 0.18,
-        shadowRadius: 16,
-        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.22,
+        shadowRadius: 24,
+        shadowOffset: { width: 0, height: 14 },
       },
-      android: { elevation: 6 },
+      android: { elevation: 10 },
     }),
   },
-  success: {
-    backgroundColor: colors.bgInverted,
-    borderColor: colors.bgInverted,
-  },
-  error: {
-    backgroundColor: "#FEF2F2",
-    borderColor: "#FECACA",
-  },
-  info: {
-    backgroundColor: colors.bgDefault,
-    borderColor: colors.borderEmphasis,
-  },
-  invertedText: {
-    color: colors.textInverted,
-    fontFamily: fonts.sansMedium,
+  message: {
+    flex: 1,
+    color: colors.textEmphasis,
+    fontFamily: fonts.sansSemi,
     fontSize: 14,
-    lineHeight: 20,
-  },
-  errorText: {
-    color: "#7F1D1D",
-    fontFamily: fonts.sansMedium,
-    fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 19,
+    letterSpacing: -0.1,
   },
 });

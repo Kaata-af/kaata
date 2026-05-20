@@ -1,14 +1,14 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomSheet } from "../../components/BottomSheet";
 import { Chip } from "../../components/Chip";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { EmptyState } from "../../components/EmptyState";
 import { EntryRow } from "../../components/EntryRow";
-import { useToast } from "../../components/Toast";
+import { useToast, useToastOffset } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { getLocalSelf, getPerson, listEntries, softDeleteEntry } from "../../lib/db";
 import { fonts } from "../../lib/fonts";
@@ -19,6 +19,7 @@ import type { Entry, PersonWithBalance, Self } from "../../lib/types";
 export default function PersonDetailScreen() {
   const router = useRouter();
   const toast = useToast();
+  const toastOffset = useToastOffset();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
 
@@ -151,7 +152,12 @@ export default function PersonDetailScreen() {
       </ScrollView>
 
       {entries.length > 0 ? (
-        <View style={[styles.pingBar, { paddingBottom: 12 + insets.bottom }]}>
+        <Animated.View
+          style={[
+            styles.pingBar,
+            { paddingBottom: 12 + insets.bottom, transform: [{ translateY: toastOffset }] },
+          ]}
+        >
           <Pressable
             onPress={() =>
               shareKaataViaWhatsApp(
@@ -167,7 +173,7 @@ export default function PersonDetailScreen() {
               Ping {person.name} on WhatsApp
             </Text>
           </Pressable>
-        </View>
+        </Animated.View>
       ) : null}
 
       <BottomSheet
