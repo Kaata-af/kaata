@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
+import { CookieConsent } from "./components/CookieConsent";
+import { ToastProvider } from "./components/Toast";
 import { fireVisitOnce, getSource } from "./lib/analytics";
 import { CustomerView } from "./pages/CustomerView";
 import { Download } from "./pages/Download";
@@ -15,14 +17,15 @@ export function App() {
   }, []);
 
   return (
-    <>
+    <ToastProvider>
       <ScrollManager />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/download" element={<Download />} />
         <Route path="/v/:token" element={<CustomerView />} />
       </Routes>
-    </>
+      <CookieConsent />
+    </ToastProvider>
   );
 }
 

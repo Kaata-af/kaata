@@ -456,6 +456,40 @@ export async function createSelfProfile(name: string, shopName: string | null): 
   });
 }
 
+// Updates the local-self user's display name and shop name. Both can be edited
+// independently from /settings after onboarding. Setting shopName to null clears
+// any existing shop_profile row; setting it to a string upserts the row.
+export async function updateSelfProfile(name: string, shopName: string | null): Promise<void> {
+  const db = await getDb();
+  const self = await getLocalSelfUserId(db);
+  if (!self) throw new Error("local user not yet created");
+  const now = Date.now();
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      "UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?",
+      name,
+      now,
+      self,
+    );
+    if (shopName && shopName.length > 0) {
+      await db.runAsync(
+        `INSERT INTO shop_profile (id, user_id, shop_name, owner_name, created_at, updated_at)
+         VALUES (1, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET shop_name = excluded.shop_name,
+                                       owner_name = excluded.owner_name,
+                                       updated_at = excluded.updated_at`,
+        self,
+        shopName,
+        name,
+        now,
+        now,
+      );
+    } else {
+      await db.runAsync("DELETE FROM shop_profile WHERE id = 1");
+    }
+  });
+}
+
 // Creates a person with a single 'peer' relationship — no direction needed.
 // The balance and tab placement emerge from entries added later.
 export async function createPerson(
@@ -592,17 +626,24 @@ export async function getPerson(id: string): Promise<PersonWithBalance | null> {
   return row ?? null;
 }
 
-// Archives every active relationship for the person. Their entries stay on
-// disk (soft delete elsewhere) but they vanish from both tabs.
+// Archives every active relationship for the person and frees their phone
+// number for re-use. We null out users.phone_e164 because of the UNIQUE
+// constraint — without this, a shopkeeper who removes Ahmad and later
+// re-adds him with the same number would hit phone_conflict and be unable
+// to re-add anyone with that number ever again. Entries stay on disk
+// attached to the (now archived) relationship, so the history isn't lost.
 export async function archivePerson(id: string): Promise<void> {
   const db = await getDb();
   const now = Date.now();
-  await db.runAsync(
-    "UPDATE relationships SET archived_at = ?, updated_at = ? WHERE user_b_id = ? AND archived_at IS NULL",
-    now,
-    now,
-    id,
-  );
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      "UPDATE relationships SET archived_at = ?, updated_at = ? WHERE user_b_id = ? AND archived_at IS NULL",
+      now,
+      now,
+      id,
+    );
+    await db.runAsync("UPDATE users SET phone_e164 = NULL, updated_at = ? WHERE id = ?", now, id);
+  });
 }
 
 export async function listEntries(personId: string): Promise<Entry[]> {

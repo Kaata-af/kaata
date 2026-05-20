@@ -3,7 +3,6 @@ import { useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,6 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
+import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { createPerson, listAllPeople } from "../../lib/db";
 import { fonts } from "../../lib/fonts";
@@ -28,6 +28,7 @@ import type { PersonWithBalance } from "../../lib/types";
 // is collected up-front instead of being deferred to the edit screen.
 export default function PersonAddOrFindScreen() {
   const router = useRouter();
+  const toast = useToast();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [people, setPeople] = useState<PersonWithBalance[] | null>(null);
@@ -54,21 +55,15 @@ export default function PersonAddOrFindScreen() {
       const result = await createPerson(trimmed, phone.trim() || null);
       if (!result.ok) {
         if (result.error === "phone_invalid") {
-          Alert.alert(
-            "Couldn't read that phone number",
-            "Leave it blank, or try a format like +93 70 123 4567.",
-          );
+          toast.push("Couldn't read that phone number. Try +93 70 123 4567.", "error");
         } else if (result.error === "phone_conflict") {
-          Alert.alert(
-            "Phone already in use",
-            `${result.existing.name} already has this number. Use a different one, or open ${result.existing.name} from the matches above.`,
-          );
+          toast.push(`Phone already used by ${result.existing.name}`, "error");
         }
         return;
       }
       openPerson(result.id);
-    } catch (e) {
-      Alert.alert("Couldn't add person", e instanceof Error ? e.message : String(e));
+    } catch {
+      toast.push("Couldn't add person. Try again.", "error");
     } finally {
       setBusy(false);
     }

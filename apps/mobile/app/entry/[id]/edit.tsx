@@ -1,8 +1,7 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -13,6 +12,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../../components/Button";
+import { useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
 import { getEntry, updateEntry } from "../../../lib/db";
 import { fonts } from "../../../lib/fonts";
@@ -20,20 +20,27 @@ import type { EntryType } from "../../../lib/types";
 
 export default function EditEntryScreen() {
   const router = useRouter();
+  const toast = useToast();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [loaded, setLoaded] = useState(false);
+  const [found, setFound] = useState(false);
   const [type, setType] = useState<EntryType>("debt");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const noteRef = useRef<TextInput>(null);
 
   useEffect(() => {
-    if (!id) return;
+    if (!id) {
+      setLoaded(true);
+      return;
+    }
     getEntry(id).then((e) => {
       if (e) {
         setType(e.type);
         setAmount(String(e.amount_afn));
         setNote(e.note ?? "");
+        setFound(true);
       }
       setLoaded(true);
     });
@@ -43,13 +50,16 @@ export default function EditEntryScreen() {
     if (!id) return;
     const intAmount = parseInt(amount.replace(/[^0-9]/g, ""), 10);
     if (!intAmount || intAmount <= 0) {
-      Alert.alert("Enter a valid amount");
+      toast.push("Enter a valid amount", "error");
       return;
     }
     setBusy(true);
     try {
       await updateEntry(id, intAmount, note.trim().slice(0, 100) || null);
+      toast.push("Entry updated", "success");
       router.back();
+    } catch {
+      toast.push("Couldn't save. Try again.", "error");
     } finally {
       setBusy(false);
     }
@@ -60,6 +70,23 @@ export default function EditEntryScreen() {
       <SafeAreaView style={styles.container}>
         <View style={styles.fillCenter}>
           <ActivityIndicator color={colors.textDefault} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!found) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} hitSlop={8}>
+            <Text style={styles.cancel}>Back</Text>
+          </Pressable>
+          <Text style={styles.title}>Edit</Text>
+          <View style={{ width: 60 }} />
+        </View>
+        <View style={styles.fillCenter}>
+          <Text style={styles.errorText}>This entry no longer exists.</Text>
         </View>
       </SafeAreaView>
     );
@@ -99,11 +126,15 @@ export default function EditEntryScreen() {
             keyboardType="number-pad"
             autoFocus
             selectTextOnFocus
+            returnKeyType="next"
+            onSubmitEditing={() => noteRef.current?.focus()}
+            submitBehavior="submit"
           />
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>Note</Text>
           <TextInput
+            ref={noteRef}
             style={styles.input}
             value={note}
             onChangeText={setNote}
@@ -124,6 +155,7 @@ export default function EditEntryScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
   fillCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
+  errorText: { fontSize: 14, fontFamily: fonts.sansRegular, color: colors.textSubtle },
   header: {
     flexDirection: "row",
     alignItems: "center",

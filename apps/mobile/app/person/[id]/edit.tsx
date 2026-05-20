@@ -2,7 +2,6 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -13,12 +12,14 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../../components/Button";
+import { useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
 import { getPerson, updatePerson } from "../../../lib/db";
 import { fonts } from "../../../lib/fonts";
 
 export default function EditPersonScreen() {
   const router = useRouter();
+  const toast = useToast();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [loaded, setLoaded] = useState(false);
   const [name, setName] = useState("");
@@ -41,7 +42,7 @@ export default function EditPersonScreen() {
     if (!id) return;
     const trimmed = name.trim();
     if (!trimmed) {
-      Alert.alert("Name required");
+      toast.push("Name required", "error");
       return;
     }
     setBusy(true);
@@ -49,18 +50,13 @@ export default function EditPersonScreen() {
       const result = await updatePerson(id, trimmed, phone.trim() || null);
       if (!result.ok) {
         if (result.error === "phone_invalid") {
-          Alert.alert(
-            "Couldn't read that phone number",
-            "Leave it blank, or try a format like +93 70 123 4567.",
-          );
+          toast.push("Couldn't read that phone number. Try +93 70 123 4567.", "error");
         } else {
-          Alert.alert(
-            "Phone already used",
-            `${result.existing.name} already has this phone number. Use a different one.`,
-          );
+          toast.push(`Phone already used by ${result.existing.name}`, "error");
         }
         return;
       }
+      toast.push("Saved", "success");
       router.back();
     } finally {
       setBusy(false);

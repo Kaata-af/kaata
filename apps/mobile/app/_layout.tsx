@@ -4,7 +4,9 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Platform, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { ToastProvider } from "../components/Toast";
 import { checkIn } from "../lib/api";
 import { AppMetaProvider, useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
@@ -58,31 +60,35 @@ export default function RootLayout() {
   }
 
   return (
-    <SafeAreaProvider>
-      <AppMetaProvider currentVersion={currentVersion}>
-        <StatusBar style="dark" />
-        {installId ? <BackgroundCheckIn installId={installId} /> : null}
-        <Stack
-          initialRouteName={hasOnboarded ? "index" : "onboarding"}
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: colors.bgDefault },
-          }}
-        >
-          <Stack.Screen name="index" />
-          <Stack.Screen name="onboarding" options={{ gestureEnabled: false }} />
-          <Stack.Screen
-            name="update-prompt"
-            options={{ presentation: "fullScreenModal", gestureEnabled: false }}
-          />
-          <Stack.Screen name="person/[id]" />
-          <Stack.Screen name="person/[id]/edit" options={{ presentation: "modal" }} />
-          <Stack.Screen name="person/new" options={{ presentation: "modal" }} />
-          <Stack.Screen name="entry/new" options={{ presentation: "modal" }} />
-          <Stack.Screen name="entry/[id]/edit" options={{ presentation: "modal" }} />
-        </Stack>
-      </AppMetaProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ToastProvider>
+          <AppMetaProvider currentVersion={currentVersion}>
+            <StatusBar style="dark" />
+            {installId ? <BackgroundCheckIn installId={installId} /> : null}
+            <Stack
+              initialRouteName={hasOnboarded ? "index" : "onboarding"}
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: colors.bgDefault },
+              }}
+            >
+              <Stack.Screen name="index" />
+              <Stack.Screen name="onboarding" options={{ gestureEnabled: false }} />
+              <Stack.Screen
+                name="update-prompt"
+                options={{ presentation: "fullScreenModal", gestureEnabled: false }}
+              />
+              <Stack.Screen name="person/[id]" />
+              <Stack.Screen name="person/[id]/edit" options={{ presentation: "modal" }} />
+              <Stack.Screen name="person/new" options={{ presentation: "modal" }} />
+              <Stack.Screen name="entry/new" options={{ presentation: "modal" }} />
+              <Stack.Screen name="entry/[id]/edit" options={{ presentation: "modal" }} />
+            </Stack>
+          </AppMetaProvider>
+        </ToastProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 

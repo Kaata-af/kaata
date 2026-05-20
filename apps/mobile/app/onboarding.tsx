@@ -1,10 +1,10 @@
 import { useRouter } from "expo-router";
 import { useRef, useState } from "react";
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -12,12 +12,14 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../components/Button";
+import { useToast } from "../components/Toast";
 import { colors } from "../lib/colors";
 import { createSelfProfile } from "../lib/db";
 import { fonts } from "../lib/fonts";
 
 export default function OnboardingScreen() {
   const router = useRouter();
+  const toast = useToast();
   const [name, setName] = useState("");
   const [shopName, setShopName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -26,7 +28,7 @@ export default function OnboardingScreen() {
   async function onSubmit() {
     const trimmedName = name.trim();
     if (!trimmedName) {
-      Alert.alert("Name required");
+      toast.push("Name required", "error");
       return;
     }
     setBusy(true);
@@ -41,48 +43,54 @@ export default function OnboardingScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
-        style={styles.inner}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        <Image source={require("../assets/logo.png")} style={styles.logo} />
-        <Text style={styles.wordmark}>kaata.</Text>
-        <Text style={styles.subtitle}>A quiet ledger between you and the people you trust.</Text>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <Image source={require("../assets/logo.png")} style={styles.logo} />
+          <Text style={styles.wordmark}>kaata.</Text>
+          <Text style={styles.subtitle}>A quiet ledger between you and the people you trust.</Text>
 
-        <View style={{ height: 36 }} />
+          <View style={{ height: 36 }} />
 
-        <View style={styles.field}>
-          <Text style={styles.label}>
-            Your name <Text style={styles.required}>*</Text>
-          </Text>
-          <TextInput
-            style={styles.input}
-            value={name}
-            onChangeText={setName}
-            placeholder="Sultan"
-            placeholderTextColor={colors.textMuted}
-            autoFocus
-            returnKeyType="next"
-            onSubmitEditing={() => shopRef.current?.focus()}
-            submitBehavior="submit"
-          />
-        </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>
+              Your name <Text style={styles.required}>*</Text>
+            </Text>
+            <TextInput
+              style={styles.input}
+              value={name}
+              onChangeText={setName}
+              placeholder="Sultan"
+              placeholderTextColor={colors.textMuted}
+              autoFocus
+              returnKeyType="next"
+              onSubmitEditing={() => shopRef.current?.focus()}
+              submitBehavior="submit"
+            />
+          </View>
 
-        <View style={styles.field}>
-          <Text style={styles.label}>Store or business name</Text>
-          <TextInput
-            ref={shopRef}
-            style={styles.input}
-            value={shopName}
-            onChangeText={setShopName}
-            placeholder="Shop Sultan"
-            placeholderTextColor={colors.textMuted}
-            returnKeyType="done"
-            onSubmitEditing={onSubmit}
-          />
-        </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Store or business name</Text>
+            <TextInput
+              ref={shopRef}
+              style={styles.input}
+              value={shopName}
+              onChangeText={setShopName}
+              placeholder="Shop Sultan"
+              placeholderTextColor={colors.textMuted}
+              returnKeyType="done"
+              onSubmitEditing={onSubmit}
+            />
+          </View>
 
-        <View style={{ height: 24 }} />
-        <Button label="Continue" onPress={onSubmit} loading={busy} />
+          <View style={{ height: 24 }} />
+          <Button label="Continue" onPress={onSubmit} loading={busy} />
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -90,7 +98,12 @@ export default function OnboardingScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
-  inner: { flex: 1, padding: 24, justifyContent: "center" },
+  scrollContent: {
+    flexGrow: 1,
+    padding: 24,
+    justifyContent: "center",
+    paddingBottom: 48,
+  },
   logo: { width: 72, height: 72, marginBottom: 20 },
   wordmark: {
     fontSize: 36,

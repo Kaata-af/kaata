@@ -1,12 +1,18 @@
 import { BlurView } from "expo-blur";
 import { useEffect, useRef, useState } from "react";
-import { Animated, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
 import { fonts } from "../lib/fonts";
+
+// shadcn-style confirmation dialog. Left-aligned title + optional description,
+// right-aligned footer with a ghost Cancel and a filled Confirm. Destructive
+// variant paints the Confirm button red on a white card; the rest of the chrome
+// stays calm.
 
 export function ConfirmDialog(props: {
   visible: boolean;
   title: string;
+  description?: string;
   confirmLabel?: string;
   cancelLabel?: string;
   destructive?: boolean;
@@ -15,7 +21,7 @@ export function ConfirmDialog(props: {
 }) {
   const [rendered, setRendered] = useState(false);
   const opacity = useRef(new Animated.Value(0)).current;
-  const scale = useRef(new Animated.Value(0.95)).current;
+  const scale = useRef(new Animated.Value(0.96)).current;
 
   useEffect(() => {
     if (props.visible) {
@@ -34,7 +40,7 @@ export function ConfirmDialog(props: {
     } else if (rendered) {
       Animated.parallel([
         Animated.timing(opacity, { toValue: 0, duration: 140, useNativeDriver: true }),
-        Animated.timing(scale, { toValue: 0.95, duration: 140, useNativeDriver: true }),
+        Animated.timing(scale, { toValue: 0.96, duration: 140, useNativeDriver: true }),
       ]).start(({ finished }) => {
         if (finished) setRendered(false);
       });
@@ -43,6 +49,11 @@ export function ConfirmDialog(props: {
   }, [props.visible]);
 
   if (!rendered) return null;
+
+  const confirmStyle = props.destructive ? styles.confirmDestructive : styles.confirmPrimary;
+  const confirmTextStyle = props.destructive
+    ? styles.confirmDestructiveText
+    : styles.confirmPrimaryText;
 
   return (
     <Modal
@@ -68,31 +79,29 @@ export function ConfirmDialog(props: {
           style={[styles.card, { opacity, transform: [{ scale }] }]}
           onStartShouldSetResponder={() => true}
         >
-          <Text style={styles.title}>{props.title}</Text>
-          <View style={styles.actions}>
+          <View style={styles.body}>
+            <Text style={styles.title}>{props.title}</Text>
+            {props.description ? <Text style={styles.description}>{props.description}</Text> : null}
+          </View>
+
+          <View style={styles.footer}>
             <Pressable
               onPress={props.onCancel}
-              style={({ pressed }) => [styles.btn, pressed && { backgroundColor: colors.bgMuted }]}
+              style={({ pressed }) => [
+                styles.btnGhost,
+                pressed && { backgroundColor: colors.bgMuted },
+              ]}
             >
-              <Text style={styles.btnText}>{props.cancelLabel ?? "Cancel"}</Text>
+              <Text style={styles.btnGhostText}>{props.cancelLabel ?? "Cancel"}</Text>
             </Pressable>
-            <View style={styles.vDivider} />
             <Pressable
               onPress={() => {
                 props.onCancel();
                 props.onConfirm();
               }}
-              style={({ pressed }) => [styles.btn, pressed && { backgroundColor: colors.bgMuted }]}
+              style={({ pressed }) => [confirmStyle, pressed && { opacity: 0.85 }]}
             >
-              <Text
-                style={[
-                  styles.btnText,
-                  { fontFamily: fonts.sansSemi },
-                  props.destructive && { color: colors.danger },
-                ]}
-              >
-                {props.confirmLabel ?? "OK"}
-              </Text>
+              <Text style={confirmTextStyle}>{props.confirmLabel ?? "OK"}</Text>
             </Pressable>
           </View>
         </Animated.View>
@@ -111,28 +120,78 @@ const styles = StyleSheet.create({
   },
   card: {
     width: "100%",
-    maxWidth: 360,
+    maxWidth: 380,
     backgroundColor: colors.bgDefault,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.borderDefault,
     overflow: "hidden",
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOpacity: 0.18,
+        shadowRadius: 24,
+        shadowOffset: { width: 0, height: 12 },
+      },
+      android: { elevation: 12 },
+    }),
+  },
+  body: {
+    paddingHorizontal: 22,
+    paddingTop: 22,
+    paddingBottom: 8,
   },
   title: {
-    fontSize: 15,
+    fontSize: 17,
     fontFamily: fonts.sansSemi,
     color: colors.textEmphasis,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 18,
-    textAlign: "center",
+    letterSpacing: -0.2,
   },
-  actions: {
+  description: {
+    marginTop: 8,
+    fontSize: 13,
+    lineHeight: 19,
+    fontFamily: fonts.sansRegular,
+    color: colors.textSubtle,
+  },
+  footer: {
     flexDirection: "row",
-    borderTopWidth: 1,
-    borderTopColor: colors.borderDefault,
+    justifyContent: "flex-end",
+    gap: 8,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 16,
   },
-  btn: { flex: 1, paddingVertical: 14, alignItems: "center" },
-  btnText: { fontSize: 15, fontFamily: fonts.sansMedium, color: colors.textEmphasis },
-  vDivider: { width: 1, backgroundColor: colors.borderDefault },
+  btnGhost: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 8,
+  },
+  btnGhostText: {
+    fontSize: 14,
+    fontFamily: fonts.sansSemi,
+    color: colors.textDefault,
+  },
+  confirmPrimary: {
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: colors.bgInverted,
+  },
+  confirmPrimaryText: {
+    fontSize: 14,
+    fontFamily: fonts.sansSemi,
+    color: colors.textInverted,
+  },
+  confirmDestructive: {
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: colors.danger,
+  },
+  confirmDestructiveText: {
+    fontSize: 14,
+    fontFamily: fonts.sansSemi,
+    color: "#FFFFFF",
+  },
 });

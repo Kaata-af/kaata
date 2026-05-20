@@ -1,13 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect, useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomSheet } from "../components/BottomSheet";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { EmptyState } from "../components/EmptyState";
 import { PersonRow } from "../components/PersonRow";
 import { Tabs } from "../components/Tabs";
+import { useToast } from "../components/Toast";
 import { UpdateBanner } from "../components/UpdateBanner";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
@@ -23,6 +25,7 @@ const TABS = [
 
 export default function HomeScreen() {
   const router = useRouter();
+  const toast = useToast();
   const insets = useSafeAreaInsets();
   const { forceUpdate } = useAppMeta();
   const [self, setSelf] = useState<Self | null>(null);
@@ -45,6 +48,22 @@ export default function HomeScreen() {
     }, [load]),
   );
 
+  // Horizontal pan switches tabs. activeOffsetX guards against accidental
+  // tab switches on near-vertical drags (the scroll list dominates); failOffsetY
+  // lets clearly-vertical gestures fall through to the ScrollView cleanly.
+  const swipeGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-24, 24])
+        .failOffsetY([-16, 16])
+        .runOnJS(true)
+        .onEnd((e) => {
+          if (e.translationX < -50) setDirection("pay");
+          else if (e.translationX > 50) setDirection("collect");
+        }),
+    [],
+  );
+
   if (forceUpdate) return <Redirect href="/update-prompt" />;
   if (loaded && !self) return <Redirect href="/onboarding" />;
 
@@ -55,61 +74,70 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 96 + insets.bottom }}>
-        <View style={styles.header}>
-          <Text style={styles.wordmark}>kaata.</Text>
-          {self ? (
-            <Text style={styles.identity} numberOfLines={1}>
-              {self.shop_name ?? self.name}
+      <GestureDetector gesture={swipeGesture}>
+        <ScrollView contentContainerStyle={{ paddingBottom: 96 + insets.bottom }}>
+          <View style={styles.header}>
+            <Text style={styles.wordmark}>kaata.</Text>
+            {self ? (
+              <Pressable
+                onPress={() => router.push("/settings")}
+                hitSlop={8}
+                style={({ pressed }) => [styles.identityRow, pressed && { opacity: 0.5 }]}
+              >
+                <Text style={styles.identity} numberOfLines={1}>
+                  {self.shop_name ?? self.name}
+                </Text>
+                <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
+              </Pressable>
+            ) : null}
+          </View>
+
+          <UpdateBanner />
+
+          <View style={styles.tabsWrap}>
+            <Tabs<Direction> tabs={TABS} value={direction} onChange={setDirection} />
+          </View>
+
+          <View style={styles.totalBlock}>
+            <Text style={styles.totalLabel}>{totalLabel}</Text>
+            <View style={styles.totalRow}>
+              <Text style={styles.totalAmount}>{formatAmount(total)}</Text>
+              <Text style={styles.totalAfn}>AFN</Text>
+            </View>
+            <Text style={styles.totalSub}>
+              {active === 0
+                ? people.length === 0
+                  ? "no one here yet"
+                  : "everyone settled"
+                : `from ${active} ${active === 1 ? "person" : "people"}`}
             </Text>
-          ) : null}
-        </View>
-
-        <UpdateBanner />
-
-        <View style={styles.tabsWrap}>
-          <Tabs<Direction> tabs={TABS} value={direction} onChange={setDirection} />
-        </View>
-
-        <View style={styles.totalBlock}>
-          <Text style={styles.totalLabel}>{totalLabel}</Text>
-          <View style={styles.totalRow}>
-            <Text style={styles.totalAmount}>{formatAmount(total)}</Text>
-            <Text style={styles.totalAfn}>AFN</Text>
           </View>
-          <Text style={styles.totalSub}>
-            {active === 0
-              ? people.length === 0
-                ? "no one here yet"
-                : "everyone settled"
-              : `from ${active} ${active === 1 ? "person" : "people"}`}
-          </Text>
-        </View>
 
-        {people.length === 0 ? (
-          <EmptyState
-            title={direction === "collect" ? "Nothing to collect yet" : "You owe no one yet"}
-            subtitle={
-              direction === "collect"
-                ? "Tap the + button to add someone you keep accounts with."
-                : "When you take goods or borrow money, log it from that person's page and they'll appear here."
-            }
-          />
-        ) : (
-          <View style={styles.list}>
-            {people.map((p, i) => (
-              <View key={p.id}>
-                <PersonRow
-                  person={p}
-                  onPress={() => router.push({ pathname: "/person/[id]", params: { id: p.id } })}
-                  onLongPress={() => setSheetFor(p)}
-                />
-                {i < people.length - 1 ? <View style={styles.divider} /> : null}
-              </View>
-            ))}
-          </View>
-        )}
-      </ScrollView>
+          {people.length === 0 ? (
+            <EmptyState
+              title={direction === "collect" ? "Nothing to collect yet" : "You owe no one yet"}
+              subtitle={
+                direction === "collect"
+                  ? "Tap the + button to add someone you keep accounts with."
+                  : "When you take goods or borrow money, log it from that person's page and they'll appear here."
+              }
+            />
+          ) : (
+            <View style={styles.list}>
+              {people.map((p, i) => (
+                <View key={p.id}>
+                  <PersonRow
+                    person={p}
+                    onPress={() => router.push({ pathname: "/person/[id]", params: { id: p.id } })}
+                    onLongPress={() => setSheetFor(p)}
+                  />
+                  {i < people.length - 1 ? <View style={styles.divider} /> : null}
+                </View>
+              ))}
+            </View>
+          )}
+        </ScrollView>
+      </GestureDetector>
 
       <Pressable
         onPress={() => router.push("/person/new")}
@@ -146,12 +174,15 @@ export default function HomeScreen() {
       <ConfirmDialog
         visible={confirmDeleteFor !== null}
         title={`Remove ${confirmDeleteFor?.name ?? ""}?`}
+        description="They'll disappear from your list. Their entries stay on your device."
         confirmLabel="Remove"
         destructive
         onConfirm={async () => {
           if (confirmDeleteFor) {
+            const name = confirmDeleteFor.name;
             await archivePerson(confirmDeleteFor.id);
             await load();
+            toast.push(`${name} removed`, "success");
           }
         }}
         onCancel={() => setConfirmDeleteFor(null)}
@@ -169,11 +200,17 @@ const styles = StyleSheet.create({
     color: colors.textEmphasis,
     letterSpacing: -0.5,
   },
+  identityRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 2,
+    alignSelf: "flex-start",
+  },
   identity: {
     fontSize: 13,
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
-    marginTop: 2,
   },
   tabsWrap: { paddingHorizontal: 16, marginBottom: 16 },
   totalBlock: { paddingHorizontal: 16, marginBottom: 20 },

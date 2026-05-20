@@ -8,6 +8,7 @@ import { Chip } from "../../components/Chip";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { EmptyState } from "../../components/EmptyState";
 import { EntryRow } from "../../components/EntryRow";
+import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { getLocalSelf, getPerson, listEntries, softDeleteEntry } from "../../lib/db";
 import { fonts } from "../../lib/fonts";
@@ -17,6 +18,7 @@ import type { Entry, PersonWithBalance, Self } from "../../lib/types";
 
 export default function PersonDetailScreen() {
   const router = useRouter();
+  const toast = useToast();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
 
@@ -103,21 +105,6 @@ export default function PersonDetailScreen() {
             onPress={() =>
               router.push({
                 pathname: "/entry/new",
-                params: { personId: person.id, type: "debt" },
-              })
-            }
-            style={({ pressed }) => [
-              styles.actionBtn,
-              pressed && { backgroundColor: colors.bgMuted },
-            ]}
-          >
-            <Ionicons name="arrow-up-outline" size={16} color={colors.textEmphasis} />
-            <Text style={styles.actionText}>I gave</Text>
-          </Pressable>
-          <Pressable
-            onPress={() =>
-              router.push({
-                pathname: "/entry/new",
                 params: { personId: person.id, type: "payment" },
               })
             }
@@ -128,6 +115,21 @@ export default function PersonDetailScreen() {
           >
             <Ionicons name="arrow-down-outline" size={16} color={colors.textEmphasis} />
             <Text style={styles.actionText}>I received</Text>
+          </Pressable>
+          <Pressable
+            onPress={() =>
+              router.push({
+                pathname: "/entry/new",
+                params: { personId: person.id, type: "debt" },
+              })
+            }
+            style={({ pressed }) => [
+              styles.actionBtn,
+              pressed && { backgroundColor: colors.bgMuted },
+            ]}
+          >
+            <Ionicons name="arrow-up-outline" size={16} color={colors.textEmphasis} />
+            <Text style={styles.actionText}>I gave</Text>
           </Pressable>
         </View>
 
@@ -193,12 +195,14 @@ export default function PersonDetailScreen() {
       <ConfirmDialog
         visible={confirmDeleteFor !== null}
         title="Delete this entry?"
+        description="The amount stops counting toward this person's balance. You can't undo this from here."
         confirmLabel="Delete"
         destructive
         onConfirm={async () => {
           if (confirmDeleteFor) {
             await softDeleteEntry(confirmDeleteFor.id);
             await load();
+            toast.push("Entry deleted", "success");
           }
         }}
         onCancel={() => setConfirmDeleteFor(null)}

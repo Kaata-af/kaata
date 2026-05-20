@@ -1,8 +1,7 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -13,6 +12,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
+import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { createEntry, getPerson } from "../../lib/db";
 import { fonts } from "../../lib/fonts";
@@ -20,6 +20,7 @@ import type { EntryType, PersonWithBalance } from "../../lib/types";
 
 export default function NewEntryScreen() {
   const router = useRouter();
+  const toast = useToast();
   const params = useLocalSearchParams<{ personId?: string; type?: string }>();
   const personId = params.personId ?? "";
   const type: EntryType = params.type === "payment" ? "payment" : "debt";
@@ -29,6 +30,7 @@ export default function NewEntryScreen() {
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const noteRef = useRef<TextInput>(null);
 
   useEffect(() => {
     if (!personId) {
@@ -45,15 +47,16 @@ export default function NewEntryScreen() {
     if (!personId) return;
     const intAmount = parseInt(amount.replace(/[^0-9]/g, ""), 10);
     if (!intAmount || intAmount <= 0) {
-      Alert.alert("Enter a valid amount");
+      toast.push("Enter a valid amount", "error");
       return;
     }
     setBusy(true);
     try {
       await createEntry(personId, type, intAmount, note.trim().slice(0, 100) || null);
+      toast.push("Entry saved", "success");
       router.back();
-    } catch (e) {
-      Alert.alert("Couldn't save", e instanceof Error ? e.message : String(e));
+    } catch {
+      toast.push("Couldn't save. Try again.", "error");
     } finally {
       setBusy(false);
     }
@@ -112,12 +115,16 @@ export default function NewEntryScreen() {
             placeholderTextColor={colors.textMuted}
             keyboardType="number-pad"
             autoFocus
+            returnKeyType="next"
+            onSubmitEditing={() => noteRef.current?.focus()}
+            submitBehavior="submit"
           />
         </View>
 
         <View style={styles.field}>
           <Text style={styles.label}>Note</Text>
           <TextInput
+            ref={noteRef}
             style={styles.input}
             value={note}
             onChangeText={setNote}
