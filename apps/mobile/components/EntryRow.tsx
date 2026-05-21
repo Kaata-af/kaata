@@ -8,7 +8,7 @@ import type { Entry } from "../lib/types";
 // type='debt'    → value left my hand  → "I gave"   → up arrow
 // type='payment' → value came to me    → "I received" → down arrow
 // Same in both directions; the row doesn't need to know which tab it lives in.
-export function EntryRow(props: { entry: Entry; onLongPress: () => void }) {
+export function EntryRow(props: { entry: Entry; onPress: () => void }) {
   const { entry } = props;
   const isGave = entry.type === "debt";
   const icon = isGave ? "arrow-up-outline" : "arrow-down-outline";
@@ -16,8 +16,13 @@ export function EntryRow(props: { entry: Entry; onLongPress: () => void }) {
 
   return (
     <Pressable
-      onLongPress={props.onLongPress}
-      delayLongPress={350}
+      onPress={props.onPress}
+      // Same handler on long-press with a short delay so a sustained finger
+      // press opens the sheet *while still holding*, not only on release.
+      // Pressable cancels the press if the finger moves enough to start a
+      // scroll, so this doesn't fight the list's vertical scroll gesture.
+      onLongPress={props.onPress}
+      delayLongPress={100}
       style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.bgMuted }]}
     >
       <View style={styles.iconWrap}>

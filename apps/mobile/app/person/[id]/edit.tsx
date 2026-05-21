@@ -25,6 +25,7 @@ export default function EditPersonScreen() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [busy, setBusy] = useState(false);
+  const nameRef = useRef<TextInput>(null);
   const phoneRef = useRef<TextInput>(null);
 
   useEffect(() => {
@@ -37,6 +38,13 @@ export default function EditPersonScreen() {
       setLoaded(true);
     });
   }, [id]);
+
+  // Reliable keyboard pop-up on Android — see entry/[id]/edit for context.
+  useEffect(() => {
+    if (!loaded) return;
+    const t = setTimeout(() => nameRef.current?.focus(), 280);
+    return () => clearTimeout(t);
+  }, [loaded]);
 
   async function onSave() {
     if (!id) return;
@@ -91,12 +99,12 @@ export default function EditPersonScreen() {
             Name <Text style={styles.required}>*</Text>
           </Text>
           <TextInput
+            ref={nameRef}
             style={styles.input}
             value={name}
             onChangeText={setName}
             placeholder="Name"
             placeholderTextColor={colors.textMuted}
-            autoFocus
             autoCapitalize="words"
             returnKeyType="next"
             onSubmitEditing={() => phoneRef.current?.focus()}

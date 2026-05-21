@@ -28,6 +28,7 @@ export default function EditEntryScreen() {
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const amountRef = useRef<TextInput>(null);
   const noteRef = useRef<TextInput>(null);
 
   useEffect(() => {
@@ -45,6 +46,16 @@ export default function EditEntryScreen() {
       setLoaded(true);
     });
   }, [id]);
+
+  // Reliable keyboard pop-up on Android. `autoFocus` on a TextInput inside a
+  // modal-presented screen often fires before the screen is interactive — the
+  // focus call succeeds but the soft keyboard never opens. Deferring with
+  // setTimeout past the modal slide-in (~250ms) makes it land consistently.
+  useEffect(() => {
+    if (!loaded || !found) return;
+    const t = setTimeout(() => amountRef.current?.focus(), 280);
+    return () => clearTimeout(t);
+  }, [loaded, found]);
 
   async function onSave() {
     if (!id) return;
@@ -118,13 +129,13 @@ export default function EditEntryScreen() {
             Amount (AFN) <Text style={styles.required}>*</Text>
           </Text>
           <TextInput
+            ref={amountRef}
             style={styles.amountInput}
             value={amount}
             onChangeText={setAmount}
             placeholder="0"
             placeholderTextColor={colors.textMuted}
             keyboardType="number-pad"
-            autoFocus
             selectTextOnFocus
             returnKeyType="next"
             onSubmitEditing={() => noteRef.current?.focus()}

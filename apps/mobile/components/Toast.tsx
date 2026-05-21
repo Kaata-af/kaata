@@ -8,16 +8,23 @@ import {
   useRef,
   useState,
 } from "react";
-import { Animated, Modal, Platform, StyleSheet, Text, View } from "react-native";
+import { Animated, Platform, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
 import { fonts } from "../lib/fonts";
 
 // In-app toasts. Calm white card with a single colored icon for state — the
 // rest of the chrome stays monochrome, matching the wider kaata design
-// vocabulary. Renders through React Native's <Modal> so toasts sit above
-// modally-presented screens (entry/new, person/new, etc.) and errors inside
-// those modals stay visible.
+// vocabulary.
+//
+// Rendered as a regular absolute-positioned View at the root of the app
+// (not inside a <Modal>) so taps on the rest of the UI still go through.
+// `pointerEvents="box-none"` on the wrapper lets touches outside the toast
+// items fall through to whatever is behind. Trade-off: toasts won't render
+// above natively-presented stack modals (entry/new, person/new) — errors
+// fired from those screens are queued and shown when the user returns to
+// the parent. For now we accept this; if it becomes a problem, the affected
+// in-modal forms can surface validation inline next to the offending field.
 
 type ToastKind = "success" | "error" | "info";
 
@@ -40,7 +47,12 @@ const ANIM_MS = 240;
 // Geometry for useToastOffset() — see notes in the hook for the derivation.
 const VIEWPORT_BOTTOM_MARGIN = 24; // matches the viewport's `bottom: 24 + insets.bottom`
 const TOAST_HEIGHT_SINGLE = 52; // single-line: 14 + 22 + 14 + (1+1) border
-const LIFT_GAP = 8; // breathing room between toast top and lifted UI bottom
+// Distance from the safe-area bottom to the *visible* bottom edge of the lifted
+// UI. Ping bar uses paddingBottom = 20 + insets.bottom; FAB uses
+// bottom = 20 + insets.bottom. Both anchor at the same 20px offset, so a single
+// constant works for both.
+const BUTTON_OFFSET_ABOVE_SAFE_AREA = 20;
+const LIFT_GAP = 16; // breathing room between toast top and lifted UI bottom
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -71,30 +83,40 @@ export function useToast(): ToastContextValue {
 // UI can apply to their transform — slides up when a toast appears, settles
 // back when the queue is empty. Spring physics keep the motion alive.
 //
-// Math:
-//   - Toast viewport sits at bottom = (24 + insets.bottom) from the screen bottom.
-//   - A single-line toast is ~52px tall, so its TOP edge is at
-//     (24 + insets.bottom + 52) = (76 + insets.bottom) from the screen bottom.
-//   - For a lifted UI to clear it with a comfortable gap, its lifted bottom edge
-//     must sit at (76 + insets.bottom + GAP).
-//   - Lifted UI's original bottom is 0, so translateY needs magnitude
-//     (76 + insets.bottom + GAP).
-// Insets-aware (~24-34px on phones with gesture nav / home indicator) so the
-// gap survives the device-to-device variance.
+// Math (insets-bottom cancels out — see below):
+//   - Toast viewport's bottom edge sits at (24 + insets.bottom) above the screen.
+//   - Single-line toast is 52px tall → toast TOP at (76 + insets.bottom) above the screen.
+//   - The consuming UI's visible bottom sits at (12 + insets.bottom) above the
+//     screen (ping bar paddingBottom; the FAB's similar). Same insets term.
+//   - For the lifted bottom to clear the toast top by GAP, we need translateY
+//     such that:
+//         (12 + insets.bottom) + lift  =  (76 + insets.bottom) + GAP
+//     → lift = 64 + GAP. The insets.bottom on each side cancels.
+// This is the bug we had before: an extra insets.bottom term that snuck in
+// added 24-34px of phantom gap depending on device.
+const BASE_LIFT = VIEWPORT_BOTTOM_MARGIN + TOAST_HEIGHT_SINGLE - BUTTON_OFFSET_ABOVE_SAFE_AREA;
+
 export function useToastOffset(): Animated.Value {
   const ctx = useContext(ToastContext);
-  const insets = useSafeAreaInsets();
   const translateY = useRef(new Animated.Value(0)).current;
   const visibleCount = ctx?.visibleCount ?? 0;
-  const lift = VIEWPORT_BOTTOM_MARGIN + TOAST_HEIGHT_SINGLE + LIFT_GAP + insets.bottom;
+  const lift = BASE_LIFT + LIFT_GAP; // constant — no insets dependence
 
   useEffect(() => {
-    Animated.spring(translateY, {
+    // Dampened spring: higher friction prevents overshoot/oscillation that
+    // previously left the button hanging mid-screen when rapid toast pushes
+    // interrupted the animation mid-flight. Cleanup explicitly stops the
+    // in-flight animation before a new one starts, otherwise the native-driver
+    // animation can run concurrently with its successor and the value can
+    // settle anywhere along the path.
+    const animation = Animated.spring(translateY, {
       toValue: visibleCount > 0 ? -lift : 0,
       useNativeDriver: true,
-      friction: 10,
-      tension: 100,
-    }).start();
+      friction: 14, // was 10 — kill the overshoot
+      tension: 110,
+    });
+    animation.start();
+    return () => animation.stop();
   }, [visibleCount, lift, translateY]);
 
   return translateY;
@@ -104,19 +126,11 @@ function ToastViewport({ toasts }: { toasts: Toast[] }) {
   const insets = useSafeAreaInsets();
   if (toasts.length === 0) return null;
   return (
-    <Modal
-      transparent
-      visible
-      animationType="none"
-      statusBarTranslucent
-      onRequestClose={() => undefined}
-    >
-      <View pointerEvents="box-none" style={[styles.viewport, { bottom: 24 + insets.bottom }]}>
-        {toasts.map((t) => (
-          <ToastItem key={t.id} toast={t} />
-        ))}
-      </View>
-    </Modal>
+    <View pointerEvents="box-none" style={[styles.viewport, { bottom: 24 + insets.bottom }]}>
+      {toasts.map((t) => (
+        <ToastItem key={t.id} toast={t} />
+      ))}
+    </View>
   );
 }
 
@@ -169,6 +183,8 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
     gap: 10,
+    zIndex: 100,
+    elevation: 100,
   },
   toast: {
     flexDirection: "row",

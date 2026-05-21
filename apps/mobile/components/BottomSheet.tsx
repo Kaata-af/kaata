@@ -15,6 +15,12 @@ export type SheetAction = {
 };
 
 const OFFSCREEN = 600;
+// Exit animation: timing(translateY, 180ms) + timing(opacity, 160ms). We wait
+// slightly longer than the longest leg so the sheet's <Modal> has unmounted
+// before the action fires — critical for actions that present another Modal
+// (e.g. Edit → router.push to a modal screen). Without this delay, the two
+// Modals overlap mid-frame on Android and the second one renders blank.
+const EXIT_DURATION_MS = 220;
 
 export function BottomSheet(props: {
   visible: boolean;
@@ -87,7 +93,7 @@ export function BottomSheet(props: {
                   key={i}
                   onPress={() => {
                     props.onDismiss();
-                    a.onPress();
+                    setTimeout(a.onPress, EXIT_DURATION_MS);
                   }}
                   style={({ pressed }) => [
                     styles.row,

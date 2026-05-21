@@ -143,7 +143,7 @@ export default function PersonDetailScreen() {
           <View style={styles.list}>
             {entries.map((e, i) => (
               <View key={e.id}>
-                <EntryRow entry={e} onLongPress={() => setSheetFor(e)} />
+                <EntryRow entry={e} onPress={() => setSheetFor(e)} />
                 {i < entries.length - 1 ? <View style={styles.divider} /> : null}
               </View>
             ))}
@@ -155,7 +155,7 @@ export default function PersonDetailScreen() {
         <Animated.View
           style={[
             styles.pingBar,
-            { paddingBottom: 12 + insets.bottom, transform: [{ translateY: toastOffset }] },
+            { paddingBottom: 20 + insets.bottom, transform: [{ translateY: toastOffset }] },
           ]}
         >
           <Pressable
