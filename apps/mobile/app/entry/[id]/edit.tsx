@@ -132,7 +132,9 @@ export default function EditEntryScreen() {
             ref={amountRef}
             style={styles.amountInput}
             value={amount}
-            onChangeText={setAmount}
+            // See entry/new.tsx — strip non-digits at typing time so "150.50"
+            // doesn't get parsed as "15050" on save. AFN is integer-only.
+            onChangeText={(t) => setAmount(t.match(/^\d*/)?.[0] ?? "")}
             placeholder="0"
             placeholderTextColor={colors.textMuted}
             keyboardType="number-pad"

@@ -110,7 +110,12 @@ export default function NewEntryScreen() {
           <TextInput
             style={styles.amountInput}
             value={amount}
-            onChangeText={setAmount}
+            // Keep only the leading run of digits. Anything after the first
+            // non-digit (decimal, comma, space) is treated as fractional /
+            // separator and discarded — AFN is integer-only. Without this,
+            // typing "150.50" used to be parsed as "15050" because the save
+            // path stripped non-digits and joined what remained.
+            onChangeText={(t) => setAmount(t.match(/^\d*/)?.[0] ?? "")}
             placeholder="0"
             placeholderTextColor={colors.textMuted}
             keyboardType="number-pad"
