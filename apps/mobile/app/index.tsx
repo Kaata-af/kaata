@@ -209,6 +209,14 @@ export default function HomeScreen() {
         </Animated.View>
       </GestureDetector>
 
+      {/*
+       * INVARIANT: the + (add) FAB stays on the RIGHT side of the screen
+       * regardless of locale. Same cultural reason as the give/receive row
+       * in person/[id]: actions originate from the right hand. If full RTL
+       * is ever added, the FAB's `right: 20` would otherwise auto-swap to
+       * the left via I18nManager.swapLeftAndRightInRTL — this is the
+       * comment that flags the opt-out requirement.
+       */}
       <Animated.View
         style={[
           styles.fab,

@@ -3,10 +3,29 @@ import * as Network from "expo-network";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Platform, View } from "react-native";
+import { ActivityIndicator, I18nManager, Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ToastProvider } from "../components/Toast";
+
+// Lock the app to LTR. The whole UI was designed for an LTR reading flow
+// (kaata. wordmark on the left, chevrons pointing right, ping bar pinned
+// to the bottom, swipe-tabs "left = next" semantic). Auto-RTL — triggered
+// when the device locale is Persian/Dari/Arabic/Urdu — flips margins,
+// icons, flex directions, and gesture conventions in ways the current
+// design doesn't survive. Full RTL is a separate effort scoped to ship
+// alongside Persian translations (see docs/backlog.md).
+//
+// Effect by platform:
+//   - iOS: applies immediately on this launch.
+//   - Android: forceRTL records the preference at the native level; the
+//     *current* launch on an already-RTL device stays RTL (broken), but
+//     the next launch reads the preference and starts in LTR.
+// Acceptable for v0; if shopkeepers complain about a one-time broken
+// first launch on Persian phones, we'd add an "please reopen" prompt or
+// trigger expo-updates reload here. Not worth the complexity yet.
+I18nManager.allowRTL(false);
+I18nManager.forceRTL(false);
 import { checkIn } from "../lib/api";
 import { AppMetaProvider, useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";

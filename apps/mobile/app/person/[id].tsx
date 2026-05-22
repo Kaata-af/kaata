@@ -101,6 +101,13 @@ export default function PersonDetailScreen() {
           </View>
         </View>
 
+        {/*
+         * INVARIANT: "I gave" is on the RIGHT, "I received" on the LEFT.
+         * Cultural — the right hand is the giving hand. This ordering must
+         * be preserved across locales and must NOT auto-flip if/when full
+         * RTL is added later. If you introduce I18nManager-driven
+         * row-reverse anywhere, this row needs to opt out.
+         */}
         <View style={styles.actions}>
           <Pressable
             onPress={() =>

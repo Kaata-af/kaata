@@ -14,11 +14,13 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
+import { CountryPickerSheet } from "../../components/CountryPickerSheet";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { createPerson, listAllPeople } from "../../lib/db";
 import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
+import { DEFAULT_COUNTRY_CODE, getCountry } from "../../lib/phone";
 import { hasExactMatch, searchPeople } from "../../lib/search";
 import type { PersonWithBalance } from "../../lib/types";
 
@@ -31,9 +33,12 @@ export default function PersonAddOrFindScreen() {
   const toast = useToast();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [countryCode, setCountryCode] = useState(DEFAULT_COUNTRY_CODE);
+  const [pickerVisible, setPickerVisible] = useState(false);
   const [people, setPeople] = useState<PersonWithBalance[] | null>(null);
   const [busy, setBusy] = useState(false);
   const phoneRef = useRef<TextInput>(null);
+  const country = getCountry(countryCode);
 
   useEffect(() => {
     listAllPeople().then(setPeople);
@@ -52,7 +57,7 @@ export default function PersonAddOrFindScreen() {
     if (busy || !trimmed || people === null) return;
     setBusy(true);
     try {
-      const result = await createPerson(trimmed, phone.trim() || null);
+      const result = await createPerson(trimmed, phone.trim() || null, countryCode);
       if (!result.ok) {
         if (result.error === "phone_invalid") {
           toast.push("Couldn't read that phone number. Try +93 70 123 4567.", "error");
@@ -183,17 +188,30 @@ export default function PersonAddOrFindScreen() {
             <>
               <View style={styles.field}>
                 <Text style={styles.label}>WhatsApp number</Text>
-                <TextInput
-                  ref={phoneRef}
-                  style={styles.input}
-                  value={phone}
-                  onChangeText={setPhone}
-                  placeholder="+93..."
-                  placeholderTextColor={colors.textMuted}
-                  keyboardType="phone-pad"
-                  returnKeyType="done"
-                  onSubmitEditing={createAndOpen}
-                />
+                <View style={styles.phoneRow}>
+                  <Pressable
+                    onPress={() => setPickerVisible(true)}
+                    style={({ pressed }) => [
+                      styles.countryBtn,
+                      pressed && { backgroundColor: colors.bgMuted },
+                    ]}
+                  >
+                    <Text style={styles.countryFlag}>{country.flag}</Text>
+                    <Text style={styles.countryDial}>{country.dialCode}</Text>
+                    <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
+                  </Pressable>
+                  <TextInput
+                    ref={phoneRef}
+                    style={styles.phoneInput}
+                    value={phone}
+                    onChangeText={setPhone}
+                    placeholder={country.code === "AF" ? "70 123 4567" : "national number"}
+                    placeholderTextColor={colors.textMuted}
+                    keyboardType="phone-pad"
+                    returnKeyType="done"
+                    onSubmitEditing={createAndOpen}
+                  />
+                </View>
                 <Text style={styles.fieldHint}>Needed to send pings on WhatsApp.</Text>
               </View>
 
@@ -203,6 +221,13 @@ export default function PersonAddOrFindScreen() {
           ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <CountryPickerSheet
+        visible={pickerVisible}
+        selectedCode={countryCode}
+        onSelect={(c) => setCountryCode(c)}
+        onDismiss={() => setPickerVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -259,6 +284,38 @@ const styles = StyleSheet.create({
 
   // Single-line bordered input (matches the rest of the app's text inputs).
   input: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    fontFamily: fonts.sansRegular,
+    color: colors.textEmphasis,
+    backgroundColor: colors.bgDefault,
+  },
+  // Compound phone input: country picker button on the left + national-number
+  // text input on the right, joined into one visual unit.
+  phoneRow: { flexDirection: "row", gap: 8 },
+  countryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 44,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: 8,
+    backgroundColor: colors.bgDefault,
+  },
+  countryFlag: { fontSize: 18 },
+  countryDial: {
+    fontSize: 14,
+    fontFamily: fonts.monoMedium,
+    color: colors.textEmphasis,
+  },
+  phoneInput: {
+    flex: 1,
     minHeight: 44,
     borderWidth: 1,
     borderColor: colors.borderDefault,

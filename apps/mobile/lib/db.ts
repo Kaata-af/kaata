@@ -492,9 +492,12 @@ export async function updateSelfProfile(name: string, shopName: string | null): 
 
 // Creates a person with a single 'peer' relationship — no direction needed.
 // The balance and tab placement emerge from entries added later.
+// `countryCode` disambiguates a national phone number on input; storage is
+// always the resulting E.164 string. See lib/phone.ts.
 export async function createPerson(
   name: string,
   phone: string | null,
+  countryCode?: string,
 ): Promise<CreatePersonResult> {
   const db = await getDb();
   const localSelf = await getLocalSelfUserId(db);
@@ -502,7 +505,7 @@ export async function createPerson(
 
   let phoneE164: string | null = null;
   if (phone && phone.length > 0) {
-    const np = normalizePhone(phone);
+    const np = normalizePhone(phone, countryCode);
     if (!np) {
       return { ok: false, error: "phone_invalid" };
     }
@@ -725,12 +728,13 @@ export async function updatePerson(
   id: string,
   name: string,
   phone: string | null,
+  countryCode?: string,
 ): Promise<UpdatePersonResult> {
   const db = await getDb();
 
   let phoneE164: string | null = null;
   if (phone && phone.length > 0) {
-    const np = normalizePhone(phone);
+    const np = normalizePhone(phone, countryCode);
     if (!np) return { ok: false, error: "phone_invalid" };
     const conflict = await db.getFirstAsync<{ id: string; display_name: string }>(
       "SELECT id, display_name FROM users WHERE phone_e164 = ? AND id != ?",

@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -12,10 +13,12 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../../components/Button";
+import { CountryPickerSheet } from "../../../components/CountryPickerSheet";
 import { useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
 import { getPerson, updatePerson } from "../../../lib/db";
 import { fonts } from "../../../lib/fonts";
+import { DEFAULT_COUNTRY_CODE, getCountry, inferCountryFromE164 } from "../../../lib/phone";
 
 export default function EditPersonScreen() {
   const router = useRouter();
@@ -24,16 +27,28 @@ export default function EditPersonScreen() {
   const [loaded, setLoaded] = useState(false);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [countryCode, setCountryCode] = useState(DEFAULT_COUNTRY_CODE);
+  const [pickerVisible, setPickerVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const nameRef = useRef<TextInput>(null);
   const phoneRef = useRef<TextInput>(null);
+  const country = getCountry(countryCode);
 
   useEffect(() => {
     if (!id) return;
     getPerson(id).then((p) => {
       if (p) {
         setName(p.name);
-        setPhone(p.phone ?? "");
+        if (p.phone) {
+          // Split stored E.164 into (country, national) so the picker shows
+          // the right flag and the input shows just the national digits.
+          const inferred = inferCountryFromE164(p.phone);
+          const dial = getCountry(inferred).dialCode;
+          setCountryCode(inferred);
+          setPhone(p.phone.startsWith(dial) ? p.phone.slice(dial.length) : p.phone);
+        } else {
+          setPhone("");
+        }
       }
       setLoaded(true);
     });
@@ -55,7 +70,7 @@ export default function EditPersonScreen() {
     }
     setBusy(true);
     try {
-      const result = await updatePerson(id, trimmed, phone.trim() || null);
+      const result = await updatePerson(id, trimmed, phone.trim() || null, countryCode);
       if (!result.ok) {
         if (result.error === "phone_invalid") {
           toast.push("Couldn't read that phone number. Try +93 70 123 4567.", "error");
@@ -113,21 +128,41 @@ export default function EditPersonScreen() {
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>WhatsApp number</Text>
-          <TextInput
-            ref={phoneRef}
-            style={styles.input}
-            value={phone}
-            onChangeText={setPhone}
-            placeholder="+93..."
-            placeholderTextColor={colors.textMuted}
-            keyboardType="phone-pad"
-            returnKeyType="done"
-            onSubmitEditing={onSave}
-          />
+          <View style={styles.phoneRow}>
+            <Pressable
+              onPress={() => setPickerVisible(true)}
+              style={({ pressed }) => [
+                styles.countryBtn,
+                pressed && { backgroundColor: colors.bgMuted },
+              ]}
+            >
+              <Text style={styles.countryFlag}>{country.flag}</Text>
+              <Text style={styles.countryDial}>{country.dialCode}</Text>
+              <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
+            </Pressable>
+            <TextInput
+              ref={phoneRef}
+              style={styles.phoneInput}
+              value={phone}
+              onChangeText={setPhone}
+              placeholder={country.code === "AF" ? "70 123 4567" : "national number"}
+              placeholderTextColor={colors.textMuted}
+              keyboardType="phone-pad"
+              returnKeyType="done"
+              onSubmitEditing={onSave}
+            />
+          </View>
         </View>
         <View style={{ height: 24 }} />
         <Button label="Save changes" onPress={onSave} loading={busy} />
       </KeyboardAvoidingView>
+
+      <CountryPickerSheet
+        visible={pickerVisible}
+        selectedCode={countryCode}
+        onSelect={(c) => setCountryCode(c)}
+        onDismiss={() => setPickerVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -156,6 +191,36 @@ const styles = StyleSheet.create({
   },
   required: { color: colors.danger },
   input: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    fontFamily: fonts.sansRegular,
+    color: colors.textEmphasis,
+    backgroundColor: colors.bgDefault,
+  },
+  phoneRow: { flexDirection: "row", gap: 8 },
+  countryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 44,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: 8,
+    backgroundColor: colors.bgDefault,
+  },
+  countryFlag: { fontSize: 18 },
+  countryDial: {
+    fontSize: 14,
+    fontFamily: fonts.monoMedium,
+    color: colors.textEmphasis,
+  },
+  phoneInput: {
+    flex: 1,
     minHeight: 44,
     borderWidth: 1,
     borderColor: colors.borderDefault,
