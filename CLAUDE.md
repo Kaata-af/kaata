@@ -141,7 +141,12 @@ These are coordination patterns that recur across screens and bit us once each. 
    curl -sS -I https://kaata.af/downloads/kaata-<version>.apk
    curl -sSL -o nul -w "%{http_code} -> %{redirect_url}" https://api.kaata.af/v1/download
    ```
-7. **`INSERT INTO app_releases`** via `docker exec -it kaata-database-<suffix> psql -U kaata -d kaata` so existing users see the UpdateBanner on next launch. Without this, only fresh downloads get the new version.
+7. **`INSERT INTO app_releases`** via `docker exec -it kaata-database-<suffix> psql -U kaata -d kaata` so existing users see the UpdateBanner on next launch. Without this, only fresh downloads get the new version. The columns are `platform`, `version`, `min_supported_version`, `apk_url`, `play_store_url`, `release_notes` — there's **no `force_update` column**; force-update is computed at check-in time by comparing the client's version against `min_supported_version`. For a non-forcing release, set `min_supported_version` to a version every existing install is at or above (e.g., `'0.1.0'`):
+   ```sql
+   INSERT INTO app_releases (platform, version, min_supported_version, apk_url, play_store_url, release_notes)
+   VALUES ('android', '0.2.3', '0.1.0', 'https://kaata.af/downloads/kaata-0.2.3.apk', NULL, 'Release notes here.');
+   ```
+   To force-update everyone below a version (only for critical fixes), set `min_supported_version` to that boundary.
 
 ### Analytics queries (Postgres on production)
 
