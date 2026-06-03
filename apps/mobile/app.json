@@ -27,7 +27,17 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["expo-router", "expo-font"],
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-localization",
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Kaata uses your contacts to make adding customers faster — just pick from your phone book instead of typing names and numbers."
+        }
+      ]
+    ],
     "extra": {
       "router": {},
       "eas": {

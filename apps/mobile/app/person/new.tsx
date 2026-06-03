@@ -14,13 +14,14 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
+import { ContactsPickerSheet, type PickedContact } from "../../components/ContactsPickerSheet";
 import { CountryPickerSheet } from "../../components/CountryPickerSheet";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { createPerson, listAllPeople } from "../../lib/db";
 import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
-import { DEFAULT_COUNTRY_CODE, getCountry } from "../../lib/phone";
+import { DEFAULT_COUNTRY_CODE, getCountry, inferCountryFromE164 } from "../../lib/phone";
 import { hasExactMatch, searchPeople } from "../../lib/search";
 import type { PersonWithBalance } from "../../lib/types";
 
@@ -35,10 +36,33 @@ export default function PersonAddOrFindScreen() {
   const [phone, setPhone] = useState("");
   const [countryCode, setCountryCode] = useState(DEFAULT_COUNTRY_CODE);
   const [pickerVisible, setPickerVisible] = useState(false);
+  const [contactsVisible, setContactsVisible] = useState(false);
   const [people, setPeople] = useState<PersonWithBalance[] | null>(null);
   const [busy, setBusy] = useState(false);
   const phoneRef = useRef<TextInput>(null);
   const country = getCountry(countryCode);
+
+  // Pulls a name + phone from the device's contacts picker. If the phone is
+  // E.164-shaped (starts with +), we also infer the country and strip the
+  // dial code so the picker UI is consistent.
+  function onContactPicked(c: PickedContact) {
+    setName(c.name);
+    if (c.phone) {
+      if (c.phone.startsWith("+")) {
+        const inferred = inferCountryFromE164(c.phone);
+        const dial = getCountry(inferred).dialCode;
+        setCountryCode(inferred);
+        setPhone(c.phone.startsWith(dial) ? c.phone.slice(dial.length).trim() : c.phone);
+      } else {
+        // National-format number; leave the user's selected country alone
+        // and just drop the leading 0 if present (Afghan trunk prefix).
+        const cleaned = c.phone.trim().replace(/[^\d]/g, "");
+        setPhone(cleaned.startsWith("0") ? cleaned.slice(1) : cleaned);
+      }
+    } else {
+      setPhone("");
+    }
+  }
 
   useEffect(() => {
     listAllPeople().then(setPeople);
@@ -133,6 +157,18 @@ export default function PersonAddOrFindScreen() {
                 </Pressable>
               ) : null}
             </View>
+            <Pressable
+              onPress={() => setContactsVisible(true)}
+              hitSlop={8}
+              style={({ pressed }) => [
+                styles.pickFromContacts,
+                pressed && { opacity: 0.6 },
+              ]}
+            >
+              <Ionicons name="person-circle-outline" size={16} color={colors.textSubtle} />
+              <Text style={styles.pickFromContactsText}>or pick from your contacts</Text>
+              <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
+            </Pressable>
           </View>
 
           {people === null ? (
@@ -227,6 +263,12 @@ export default function PersonAddOrFindScreen() {
         selectedCode={countryCode}
         onSelect={(c) => setCountryCode(c)}
         onDismiss={() => setPickerVisible(false)}
+      />
+
+      <ContactsPickerSheet
+        visible={contactsVisible}
+        onPick={onContactPicked}
+        onDismiss={() => setContactsVisible(false)}
       />
     </SafeAreaView>
   );
@@ -346,6 +388,19 @@ const styles = StyleSheet.create({
     color: colors.textEmphasis,
   },
   clearBtn: { padding: 6 },
+  pickFromContacts: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 10,
+    paddingVertical: 4,
+    alignSelf: "flex-start",
+  },
+  pickFromContactsText: {
+    fontSize: 13,
+    fontFamily: fonts.sansMedium,
+    color: colors.textSubtle,
+  },
 
   centered: { alignItems: "center", paddingVertical: 16 },
 
