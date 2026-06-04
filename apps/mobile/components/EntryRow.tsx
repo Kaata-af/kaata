@@ -1,18 +1,22 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
+import { getCurrentCurrencySymbol } from "../lib/currency";
+import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { formatAmount, formatRelative } from "../lib/format";
+import { t } from "../lib/i18n";
 import type { Entry } from "../lib/types";
 
 // type='debt'    → value left my hand  → "I gave"   → up arrow
 // type='payment' → value came to me    → "I received" → down arrow
 // Same in both directions; the row doesn't need to know which tab it lives in.
 export function EntryRow(props: { entry: Entry; onPress: () => void }) {
+  const isRTL = useIsRTL();
   const { entry } = props;
   const isGave = entry.type === "debt";
   const icon = isGave ? "arrow-up-outline" : "arrow-down-outline";
-  const verb = isGave ? "I gave" : "I received";
+  const verb = isGave ? t("person.action.iGave") : t("person.action.iReceived");
 
   return (
     <Pressable
@@ -23,24 +27,28 @@ export function EntryRow(props: { entry: Entry; onPress: () => void }) {
       // scroll, so this doesn't fight the list's vertical scroll gesture.
       onLongPress={props.onPress}
       delayLongPress={100}
-      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.bgMuted }]}
+      style={({ pressed }) => [
+        styles.row,
+        rowDir(isRTL),
+        pressed && { backgroundColor: colors.bgMuted },
+      ]}
     >
-      <View style={styles.iconWrap}>
+      <View style={[styles.iconWrap, isRTL ? styles.iconWrapRTL : styles.iconWrapLTR]}>
         <Ionicons name={icon} size={16} color={colors.textDefault} />
       </View>
       <View style={styles.middle}>
-        <View style={styles.amountRow}>
+        <View style={[styles.amountRow, rowDir(isRTL)]}>
           <Text style={styles.amount}>{formatAmount(entry.amount_afn)}</Text>
-          <Text style={styles.afn}>AFN</Text>
+          <Text style={styles.afn}>{getCurrentCurrencySymbol()}</Text>
         </View>
-        <View style={styles.metaRow}>
+        <View style={[styles.metaRow, rowDir(isRTL)]}>
           <Text style={styles.verb}>{verb}</Text>
           <Text style={styles.dot}>·</Text>
           <Text style={styles.when}>{formatRelative(entry.created_at)}</Text>
           {entry.note ? (
             <>
               <Text style={styles.dot}>·</Text>
-              <Text style={styles.note} numberOfLines={1}>
+              <Text style={[styles.note, textDir(isRTL)]} numberOfLines={1}>
                 {entry.note}
               </Text>
             </>
@@ -66,8 +74,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgSubtle,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 12,
   },
+  iconWrapLTR: { marginRight: 12 },
+  iconWrapRTL: { marginLeft: 12 },
   middle: { flex: 1 },
   amountRow: { flexDirection: "row", alignItems: "baseline", gap: 4 },
   amount: {

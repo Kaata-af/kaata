@@ -4,6 +4,7 @@ import { Redirect, useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  BackHandler,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -22,15 +23,22 @@ import { useToast, useToastOffset } from "../components/Toast";
 import { UpdateBanner } from "../components/UpdateBanner";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
+import { getCurrentCurrencySymbol } from "../lib/currency";
 import { archivePerson, getLocalSelf, listAllPeople } from "../lib/db";
+import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { formatAmount } from "../lib/format";
+import { t } from "../lib/i18n";
 import type { Direction, PersonWithBalance, Self } from "../lib/types";
 
-const TABS = [
-  { key: "collect", label: "To collect" },
-  { key: "pay", label: "To pay" },
-] as const;
+// Tab labels are computed at render time so locale changes (after a hot reload
+// during dev) flow through. The keys remain stable identifiers.
+function buildTabs() {
+  return [
+    { key: "collect" as const, label: t("home.tab.collect") },
+    { key: "pay" as const, label: t("home.tab.pay") },
+  ];
+}
 
 // Velocity (px/s) at or above which a "flick" commits the tab switch even with
 // a small drag distance. Standard mobile UX values land around 400-600 px/s.
@@ -49,6 +57,10 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
   const { forceUpdate } = useAppMeta();
+  // Subscribes to locale changes — flipping language in Settings re-renders
+  // this screen (and all its children) without an app restart. Strings via
+  // t() refresh on the same render.
+  const isRTL = useIsRTL();
 
   const [self, setSelf] = useState<Self | null>(null);
   const [direction, setDirection] = useState<Direction>("collect");
@@ -63,6 +75,15 @@ export default function HomeScreen() {
   // on the consumer side.
   const translateX = useRef(new Animated.Value(0)).current;
 
+  // Timestamp of the last hardware back press while home is focused. Lives
+  // OUTSIDE the useFocusEffect callback so it persists across re-subscriptions —
+  // pushing a toast re-renders the ToastProvider, which produces a new context
+  // value object, which invalidates the [toast] dep of the focus effect's
+  // useCallback. Without this ref pinned at the component level the timestamp
+  // would reset to 0 on every back press and the second press would still see
+  // "no recent press" and re-trigger the toast forever.
+  const lastBackPressRef = useRef(0);
+
   const load = useCallback(async () => {
     const [s, list] = await Promise.all([getLocalSelf(), listAllPeople()]);
     setSelf(s);
@@ -74,6 +95,26 @@ export default function HomeScreen() {
     useCallback(() => {
       load();
     }, [load]),
+  );
+
+  // Intercept the Android hardware back button on the home screen so a single
+  // tap doesn't immediately close the app. Requires two presses within 2s —
+  // a familiar "press back again to exit" pattern. Only active while home is
+  // focused; other screens get normal back behavior (pop the stack).
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        const now = Date.now();
+        if (now - lastBackPressRef.current < 2000) {
+          // Second press inside the window → let RN handle (exits the app).
+          return false;
+        }
+        lastBackPressRef.current = now;
+        toast.push(t("home.exit.hint"), "info");
+        return true; // intercept
+      });
+      return () => sub.remove();
+    }, [toast]),
   );
 
   // Filter + sort once per data change. Same rules as listPeople() used to
@@ -164,26 +205,31 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
-      <View style={styles.header}>
-        <Text style={styles.wordmark}>kaata.</Text>
-        {self ? (
-          <Pressable
-            onPress={() => router.push("/settings")}
-            hitSlop={8}
-            style={({ pressed }) => [styles.identityRow, pressed && { opacity: 0.5 }]}
-          >
-            <Text style={styles.identity} numberOfLines={1}>
+      <View style={[styles.header, rowDir(isRTL)]}>
+        {/* Start edge: wordmark on top, store/personal name below. The
+            identity text is no longer a tap target — settings is now a
+            dedicated gear icon on the opposite end. */}
+        <View style={styles.headerStart}>
+          <Text style={[styles.wordmark, textDir(isRTL)]}>{t("brand.wordmark")}</Text>
+          {self ? (
+            <Text style={[styles.identity, textDir(isRTL)]} numberOfLines={1}>
               {self.shop_name ?? self.name}
             </Text>
-            <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
-          </Pressable>
-        ) : null}
+          ) : null}
+        </View>
+        <Pressable
+          onPress={() => router.push("/settings")}
+          hitSlop={8}
+          style={({ pressed }) => [styles.headerSettingsBtn, pressed && { opacity: 0.5 }]}
+        >
+          <Ionicons name="settings-outline" size={22} color={colors.textSubtle} />
+        </Pressable>
       </View>
 
       <UpdateBanner />
 
       <View style={styles.tabsWrap}>
-        <Tabs<Direction> tabs={TABS} value={direction} onChange={setDirection} />
+        <Tabs<Direction> tabs={buildTabs()} value={direction} onChange={setDirection} />
       </View>
 
       <GestureDetector gesture={swipeGesture}>
@@ -210,12 +256,13 @@ export default function HomeScreen() {
       </GestureDetector>
 
       {/*
-       * INVARIANT: the + (add) FAB stays on the RIGHT side of the screen
-       * regardless of locale. Same cultural reason as the give/receive row
-       * in person/[id]: actions originate from the right hand. If full RTL
-       * is ever added, the FAB's `right: 20` would otherwise auto-swap to
-       * the left via I18nManager.swapLeftAndRightInRTL — this is the
-       * comment that flags the opt-out requirement.
+       * INVARIANT: + FAB on the RIGHT side. Same right-hand-is-giving
+       * cultural rule as the give/receive row in person/[id]. The
+       * absolute `right: 20` works only because _layout.tsx neutralizes
+       * I18nManager (allowRTL(false) + swapLeftAndRightInRTL(false))
+       * and ensures the Activity is LTR via the one-shot migration
+       * prompt. If the Activity were RTL, RN would silently reinterpret
+       * `right` as `left` (the v0.2.4 bug).
        */}
       <Animated.View
         style={[
@@ -238,7 +285,7 @@ export default function HomeScreen() {
         onDismiss={() => setSheetFor(null)}
         actions={[
           {
-            label: "Edit",
+            label: t("person.sheet.edit"),
             icon: "create-outline",
             onPress: () => {
               const id = sheetFor?.id;
@@ -246,7 +293,7 @@ export default function HomeScreen() {
             },
           },
           {
-            label: "Remove",
+            label: t("common.remove"),
             icon: "trash-outline",
             destructive: true,
             onPress: () => setConfirmDeleteFor(sheetFor),
@@ -256,16 +303,16 @@ export default function HomeScreen() {
 
       <ConfirmDialog
         visible={confirmDeleteFor !== null}
-        title={`Remove ${confirmDeleteFor?.name ?? ""}?`}
-        description="They'll disappear from your list. Their entries stay on your device."
-        confirmLabel="Remove"
+        title={t("common.remove.title", { name: confirmDeleteFor?.name ?? "" })}
+        description={t("common.remove.description")}
+        confirmLabel={t("common.remove")}
         destructive
         onConfirm={async () => {
           if (confirmDeleteFor) {
             const name = confirmDeleteFor.name;
             await archivePerson(confirmDeleteFor.id);
             await load();
-            toast.push(`${name} removed`, "success");
+            toast.push(t("common.removed", { name }), "success");
           }
         }}
         onCancel={() => setConfirmDeleteFor(null)}
@@ -282,35 +329,41 @@ function TabPage(props: {
   onPersonPress: (id: string) => void;
   onPersonLongPress: (person: PersonWithBalance) => void;
 }) {
+  const isRTL = useIsRTL();
   const total = props.people.reduce((sum, p) => sum + Math.abs(p.balance), 0);
   const active = props.people.filter((p) => p.balance !== 0).length;
-  const totalLabel = props.direction === "collect" ? "To collect" : "To pay";
+  const totalLabel =
+    props.direction === "collect" ? t("home.total.label.collect") : t("home.total.label.pay");
 
   return (
     <View style={{ width: props.width }}>
       <ScrollView contentContainerStyle={{ paddingBottom: props.paddingBottom }}>
         <View style={styles.totalBlock}>
-          <Text style={styles.totalLabel}>{totalLabel}</Text>
-          <View style={styles.totalRow}>
+          <Text style={[styles.totalLabel, textDir(isRTL)]}>{totalLabel}</Text>
+          <View style={[styles.totalRow, rowDir(isRTL)]}>
             <Text style={styles.totalAmount}>{formatAmount(total)}</Text>
-            <Text style={styles.totalAfn}>AFN</Text>
+            <Text style={styles.totalAfn}>{getCurrentCurrencySymbol()}</Text>
           </View>
-          <Text style={styles.totalSub}>
+          <Text style={[styles.totalSub, textDir(isRTL)]}>
             {active === 0
               ? props.people.length === 0
-                ? "no one here yet"
-                : "everyone settled"
-              : `from ${active} ${active === 1 ? "person" : "people"}`}
+                ? t("home.empty.noOneYet")
+                : t("home.empty.allSettled")
+              : t(active === 1 ? "home.from.someone" : "home.from.many", { count: active })}
           </Text>
         </View>
 
         {props.people.length === 0 ? (
           <EmptyState
-            title={props.direction === "collect" ? "Nothing to collect yet" : "You owe no one yet"}
+            title={
+              props.direction === "collect"
+                ? t("home.empty.collect.title")
+                : t("home.empty.pay.title")
+            }
             subtitle={
               props.direction === "collect"
-                ? "Tap the + button to add someone you keep accounts with."
-                : "When you take goods or borrow money, log it from that person's page and they'll appear here."
+                ? t("home.empty.collect.subtitle")
+                : t("home.empty.pay.subtitle")
             }
           />
         ) : (
@@ -334,27 +387,47 @@ function TabPage(props: {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
-  header: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16 },
+  header: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 16,
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+  },
+  headerStart: {
+    // Stacks wordmark on top of identity. Sits on the script's start edge
+    // because the parent header uses rowDir(isRTL) to swap children.
+    flex: 1,
+  },
+  headerSettingsBtn: {
+    // Bumps to sit roughly on the wordmark baseline. Hit area is the
+    // 22px icon + 8px hitSlop, so comfortable to tap.
+    paddingTop: 4,
+  },
   wordmark: {
     fontSize: 24,
     fontFamily: fonts.sansBold,
     color: colors.textEmphasis,
     letterSpacing: -0.5,
   },
-  identityRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 2,
-    alignSelf: "flex-start",
-  },
   identity: {
     fontSize: 13,
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
+    marginTop: 2,
   },
   tabsWrap: { paddingHorizontal: 16, marginBottom: 16 },
-  rail: { flex: 1, flexDirection: "row" },
+  rail: {
+    flex: 1,
+    // Keep collect-tab on the physical left, pay-tab on the physical right.
+    // The swipe gesture's translateX math assumes this layout (translateX 0
+    // = collect visible, translateX -screenWidth = pay visible). Yoga
+    // WOULD auto-reverse `flexDirection: 'row'` children if the Activity
+    // were RTL, breaking the gesture. We avoid that by ensuring the
+    // Activity is LTR via _layout.tsx's I18nManager neutralization + the
+    // one-shot migration prompt — see that file for the full architecture.
+    flexDirection: "row",
+  },
   totalBlock: { paddingHorizontal: 16, marginBottom: 20 },
   totalLabel: {
     fontSize: 11,
@@ -388,6 +461,14 @@ const styles = StyleSheet.create({
   divider: { height: 1, backgroundColor: colors.borderDefault },
   fab: {
     position: "absolute",
+    // INVARIANT: + FAB stays on the physical RIGHT regardless of script.
+    // Relies on the Activity being LTR — _layout.tsx neutralizes
+    // I18nManager (allowRTL(false) + swapLeftAndRightInRTL(false) + a
+    // one-shot forceRTL(false) migration). Once that's persisted, every
+    // future Activity comes up LTR and `right: 20` means physical right.
+    // (If the Activity is RTL, RN's auto-swap would silently reinterpret
+    // `right` as `left`. The migration prompt in _layout.tsx prevents that
+    // case from ever rendering this view.)
     right: 20,
     width: 52,
     height: 52,

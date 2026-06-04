@@ -13,7 +13,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
+import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
+import { t } from "../lib/i18n";
 import { COUNTRIES } from "../lib/phone";
 
 // Slide-up sheet that mirrors BottomSheet's chrome (blur backdrop + tint +
@@ -31,6 +33,7 @@ export function CountryPickerSheet(props: {
 }) {
   const [rendered, setRendered] = useState(false);
   const [query, setQuery] = useState("");
+  const isRTL = useIsRTL();
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(OFFSCREEN)).current;
 
@@ -98,20 +101,20 @@ export function CountryPickerSheet(props: {
         <SafeAreaView edges={["bottom"]} style={styles.sheetWrap}>
           <View style={styles.sheet} onStartShouldSetResponder={() => true}>
             <View style={styles.grabber} />
-            <Text style={styles.title}>Choose country</Text>
+            <Text style={[styles.title, textDir(isRTL)]}>{t("country.title")}</Text>
 
-            <View style={styles.searchWrap}>
+            <View style={[styles.searchWrap, rowDir(isRTL)]}>
               <Ionicons
                 name="search"
                 size={16}
                 color={colors.textMuted}
-                style={styles.searchIcon}
+                style={[styles.searchIcon, isRTL ? styles.searchIconRTL : styles.searchIconLTR]}
               />
               <TextInput
-                style={styles.searchInput}
+                style={[styles.searchInput, textDir(isRTL)]}
                 value={query}
                 onChangeText={setQuery}
-                placeholder="Search by name or code"
+                placeholder={t("country.search")}
                 placeholderTextColor={colors.textMuted}
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -125,7 +128,7 @@ export function CountryPickerSheet(props: {
             >
               {filtered.length === 0 ? (
                 <View style={styles.empty}>
-                  <Text style={styles.emptyText}>No match.</Text>
+                  <Text style={styles.emptyText}>{t("country.noMatch")}</Text>
                 </View>
               ) : (
                 filtered.map((c) => {
@@ -139,14 +142,19 @@ export function CountryPickerSheet(props: {
                       }}
                       style={({ pressed }) => [
                         styles.row,
+                        rowDir(isRTL),
                         pressed && { backgroundColor: colors.bgMuted },
                       ]}
                     >
-                      <Text style={styles.flag}>{c.flag}</Text>
-                      <Text style={styles.name} numberOfLines={1}>
+                      <Text style={[styles.flag, isRTL ? styles.flagRTL : styles.flagLTR]}>
+                        {c.flag}
+                      </Text>
+                      <Text style={[styles.name, textDir(isRTL)]} numberOfLines={1}>
                         {c.name}
                       </Text>
-                      <Text style={styles.dial}>{c.dialCode}</Text>
+                      <Text style={[styles.dial, isRTL ? styles.dialRTL : styles.dialLTR]}>
+                        {c.dialCode}
+                      </Text>
                       {selected ? (
                         <Ionicons
                           name="checkmark"
@@ -216,7 +224,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgDefault,
     paddingLeft: 12,
   },
-  searchIcon: { marginRight: 8 },
+  searchIcon: {},
+  searchIconLTR: { marginRight: 8 },
+  searchIconRTL: { marginLeft: 8 },
   searchInput: {
     flex: 1,
     paddingVertical: 10,
@@ -233,7 +243,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
   },
-  flag: { fontSize: 20, marginRight: 14 },
+  flag: { fontSize: 20 },
+  flagLTR: { marginRight: 14 },
+  flagRTL: { marginLeft: 14 },
   name: {
     flex: 1,
     fontSize: 15,
@@ -244,8 +256,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: fonts.monoMedium,
     color: colors.textSubtle,
-    marginRight: 12,
   },
+  dialLTR: { marginRight: 12 },
+  dialRTL: { marginLeft: 12 },
   check: { width: 18, height: 18 },
   empty: { paddingVertical: 24, alignItems: "center" },
   emptyText: {

@@ -14,12 +14,16 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
+import { getCurrentCurrencySymbol } from "../../lib/currency";
 import { createEntry, getPerson } from "../../lib/db";
+import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
+import { t } from "../../lib/i18n";
 import type { EntryType, PersonWithBalance } from "../../lib/types";
 
 export default function NewEntryScreen() {
   const router = useRouter();
+  const isRTL = useIsRTL();
   const toast = useToast();
   const params = useLocalSearchParams<{ personId?: string; type?: string }>();
   const personId = params.personId ?? "";
@@ -47,16 +51,16 @@ export default function NewEntryScreen() {
     if (!personId) return;
     const intAmount = parseInt(amount.replace(/[^0-9]/g, ""), 10);
     if (!intAmount || intAmount <= 0) {
-      toast.push("Enter a valid amount", "error");
+      toast.push(t("entry.invalidAmount"), "error");
       return;
     }
     setBusy(true);
     try {
       await createEntry(personId, type, intAmount, note.trim().slice(0, 100) || null);
-      toast.push("Entry saved", "success");
+      toast.push(t("entry.saved"), "success");
       router.back();
     } catch {
-      toast.push("Couldn't save. Try again.", "error");
+      toast.push(t("entry.saveFailed"), "error");
     } finally {
       setBusy(false);
     }
@@ -76,19 +80,19 @@ export default function NewEntryScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.fillCenter}>
-          <Text style={styles.errorText}>Person not found.</Text>
+          <Text style={styles.errorText}>{t("personAdd.personNotFound")}</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  const verb = type === "debt" ? "I gave" : "I received";
+  const verb = type === "debt" ? t("person.action.iGave") : t("person.action.iReceived");
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, rowDir(isRTL)]}>
         <Pressable onPress={() => router.back()} hitSlop={8}>
-          <Text style={styles.cancel}>Cancel</Text>
+          <Text style={[styles.cancel, textDir(isRTL)]}>{t("common.cancel")}</Text>
         </Pressable>
         <Text style={styles.title}>{verb}</Text>
         <View style={{ width: 60 }} />
@@ -99,13 +103,16 @@ export default function NewEntryScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={styles.context}>
-          <Text style={styles.contextLabel}>{type === "debt" ? "to" : "from"}</Text>
-          <Text style={styles.contextName}>{person.name}</Text>
+          <Text style={[styles.contextLabel, textDir(isRTL)]}>
+            {type === "debt" ? t("entry.context.to") : t("entry.context.from")}
+          </Text>
+          <Text style={[styles.contextName, textDir(isRTL)]}>{person.name}</Text>
         </View>
 
         <View style={styles.field}>
-          <Text style={styles.label}>
-            Amount (AFN) <Text style={styles.required}>*</Text>
+          <Text style={[styles.label, textDir(isRTL)]}>
+            {t("entry.amount.labelTemplate", { code: getCurrentCurrencySymbol() })}{" "}
+            <Text style={styles.required}>*</Text>
           </Text>
           <TextInput
             style={styles.amountInput}
@@ -115,7 +122,7 @@ export default function NewEntryScreen() {
             // separator and discarded — AFN is integer-only. Without this,
             // typing "150.50" used to be parsed as "15050" because the save
             // path stripped non-digits and joined what remained.
-            onChangeText={(t) => setAmount(t.match(/^\d*/)?.[0] ?? "")}
+            onChangeText={(raw) => setAmount(raw.match(/^\d*/)?.[0] ?? "")}
             placeholder="0"
             placeholderTextColor={colors.textMuted}
             keyboardType="number-pad"
@@ -127,13 +134,13 @@ export default function NewEntryScreen() {
         </View>
 
         <View style={styles.field}>
-          <Text style={styles.label}>Note</Text>
+          <Text style={[styles.label, textDir(isRTL)]}>{t("entry.note.label")}</Text>
           <TextInput
             ref={noteRef}
-            style={styles.input}
+            style={[styles.input, textDir(isRTL)]}
             value={note}
             onChangeText={setNote}
-            placeholder="آرد و چای"
+            placeholder={t("entry.note.placeholder")}
             placeholderTextColor={colors.textMuted}
             maxLength={100}
             returnKeyType="done"
@@ -142,7 +149,7 @@ export default function NewEntryScreen() {
         </View>
 
         <View style={{ height: 24 }} />
-        <Button label="Save" onPress={onSave} loading={busy} />
+        <Button label={t("entry.save")} onPress={onSave} loading={busy} />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

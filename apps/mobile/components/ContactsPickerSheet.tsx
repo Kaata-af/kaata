@@ -16,7 +16,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
+import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
+import { t } from "../lib/i18n";
 
 // Slide-up sheet for picking a contact from the device's phone book. Asks for
 // permission on first open; on grant, lists contacts with names + first phone
@@ -38,6 +40,7 @@ export function ContactsPickerSheet(props: {
 }) {
   const [rendered, setRendered] = useState(false);
   const [query, setQuery] = useState("");
+  const isRTL = useIsRTL();
   const [contacts, setContacts] = useState<Contacts.Contact[] | null>(null);
   const [permission, setPermission] = useState<"unknown" | "granted" | "denied">("unknown");
   const opacity = useRef(new Animated.Value(0)).current;
@@ -132,22 +135,17 @@ export function ContactsPickerSheet(props: {
         <SafeAreaView edges={["bottom"]} style={styles.sheetWrap}>
           <View style={styles.sheet} onStartShouldSetResponder={() => true}>
             <View style={styles.grabber} />
-            <Text style={styles.title}>Pick from contacts</Text>
+            <Text style={[styles.title, textDir(isRTL)]}>{t("contacts.title")}</Text>
 
             {permission === "denied" ? (
               <View style={styles.permissionBlock}>
-                <Text style={styles.permissionTitle}>Contacts access needed</Text>
-                <Text style={styles.permissionBody}>
-                  Open your phone settings and allow Kaata to access contacts to use this shortcut.
-                </Text>
+                <Text style={styles.permissionTitle}>{t("contacts.permission.title")}</Text>
+                <Text style={styles.permissionBody}>{t("contacts.permission.body")}</Text>
                 <Pressable
                   onPress={() => Linking.openSettings()}
-                  style={({ pressed }) => [
-                    styles.permissionBtn,
-                    pressed && { opacity: 0.85 },
-                  ]}
+                  style={({ pressed }) => [styles.permissionBtn, pressed && { opacity: 0.85 }]}
                 >
-                  <Text style={styles.permissionBtnText}>Open settings</Text>
+                  <Text style={styles.permissionBtnText}>{t("contacts.permission.button")}</Text>
                 </Pressable>
               </View>
             ) : contacts === null ? (
@@ -156,18 +154,18 @@ export function ContactsPickerSheet(props: {
               </View>
             ) : (
               <>
-                <View style={styles.searchWrap}>
+                <View style={[styles.searchWrap, rowDir(isRTL)]}>
                   <Ionicons
                     name="search"
                     size={16}
                     color={colors.textMuted}
-                    style={styles.searchIcon}
+                    style={[styles.searchIcon, isRTL ? styles.searchIconRTL : styles.searchIconLTR]}
                   />
                   <TextInput
-                    style={styles.searchInput}
+                    style={[styles.searchInput, textDir(isRTL)]}
                     value={query}
                     onChangeText={setQuery}
-                    placeholder="Search by name"
+                    placeholder={t("contacts.search")}
                     placeholderTextColor={colors.textMuted}
                     autoCapitalize="none"
                     autoCorrect={false}
@@ -183,8 +181,8 @@ export function ContactsPickerSheet(props: {
                     <View style={styles.empty}>
                       <Text style={styles.emptyText}>
                         {contacts.length === 0
-                          ? "No contacts on this phone."
-                          : `No contact matches "${query.trim()}".`}
+                          ? t("contacts.empty.none")
+                          : t("contacts.empty.noMatch", { query: query.trim() })}
                       </Text>
                     </View>
                   ) : (
@@ -196,15 +194,16 @@ export function ContactsPickerSheet(props: {
                           onPress={() => pick(c)}
                           style={({ pressed }) => [
                             styles.row,
+                            rowDir(isRTL),
                             pressed && { backgroundColor: colors.bgMuted },
                           ]}
                         >
                           <View style={styles.rowLeft}>
-                            <Text style={styles.rowName} numberOfLines={1}>
+                            <Text style={[styles.rowName, textDir(isRTL)]} numberOfLines={1}>
                               {c.name ?? "—"}
                             </Text>
-                            <Text style={styles.rowSub} numberOfLines={1}>
-                              {phone ?? "no phone"}
+                            <Text style={[styles.rowSub, textDir(isRTL)]} numberOfLines={1}>
+                              {phone ?? t("contacts.noPhone")}
                             </Text>
                           </View>
                         </Pressable>
@@ -268,7 +267,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgDefault,
     paddingLeft: 12,
   },
-  searchIcon: { marginRight: 8 },
+  searchIcon: {},
+  searchIconLTR: { marginRight: 8 },
+  searchIconRTL: { marginLeft: 8 },
   searchInput: {
     flex: 1,
     paddingVertical: 10,

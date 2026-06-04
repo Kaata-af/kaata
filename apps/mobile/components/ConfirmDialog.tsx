@@ -2,7 +2,9 @@ import { BlurView } from "expo-blur";
 import { useEffect, useRef, useState } from "react";
 import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
+import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
+import { t } from "../lib/i18n";
 
 // shadcn-style confirmation dialog. Left-aligned title + optional description,
 // right-aligned footer with a ghost Cancel and a filled Confirm. Destructive
@@ -20,6 +22,7 @@ export function ConfirmDialog(props: {
   onCancel: () => void;
 }) {
   const [rendered, setRendered] = useState(false);
+  const isRTL = useIsRTL();
   const opacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.96)).current;
 
@@ -80,11 +83,13 @@ export function ConfirmDialog(props: {
           onStartShouldSetResponder={() => true}
         >
           <View style={styles.body}>
-            <Text style={styles.title}>{props.title}</Text>
-            {props.description ? <Text style={styles.description}>{props.description}</Text> : null}
+            <Text style={[styles.title, textDir(isRTL)]}>{props.title}</Text>
+            {props.description ? (
+              <Text style={[styles.description, textDir(isRTL)]}>{props.description}</Text>
+            ) : null}
           </View>
 
-          <View style={styles.footer}>
+          <View style={[styles.footer, rowDir(isRTL)]}>
             <Pressable
               onPress={props.onCancel}
               style={({ pressed }) => [
@@ -92,7 +97,7 @@ export function ConfirmDialog(props: {
                 pressed && { backgroundColor: colors.bgMuted },
               ]}
             >
-              <Text style={styles.btnGhostText}>{props.cancelLabel ?? "Cancel"}</Text>
+              <Text style={styles.btnGhostText}>{props.cancelLabel ?? t("common.cancel")}</Text>
             </Pressable>
             <Pressable
               onPress={() => {

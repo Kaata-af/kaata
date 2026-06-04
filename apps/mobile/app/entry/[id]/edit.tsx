@@ -14,13 +14,17 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../../components/Button";
 import { useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
+import { getCurrentCurrencySymbol } from "../../../lib/currency";
 import { getEntry, updateEntry } from "../../../lib/db";
+import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
 import { fonts } from "../../../lib/fonts";
+import { t } from "../../../lib/i18n";
 import type { EntryType } from "../../../lib/types";
 
 export default function EditEntryScreen() {
   const router = useRouter();
   const toast = useToast();
+  const isRTL = useIsRTL();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [loaded, setLoaded] = useState(false);
   const [found, setFound] = useState(false);
@@ -53,24 +57,24 @@ export default function EditEntryScreen() {
   // setTimeout past the modal slide-in (~250ms) makes it land consistently.
   useEffect(() => {
     if (!loaded || !found) return;
-    const t = setTimeout(() => amountRef.current?.focus(), 280);
-    return () => clearTimeout(t);
+    const focusTimer = setTimeout(() => amountRef.current?.focus(), 280);
+    return () => clearTimeout(focusTimer);
   }, [loaded, found]);
 
   async function onSave() {
     if (!id) return;
     const intAmount = parseInt(amount.replace(/[^0-9]/g, ""), 10);
     if (!intAmount || intAmount <= 0) {
-      toast.push("Enter a valid amount", "error");
+      toast.push(t("entry.invalidAmount"), "error");
       return;
     }
     setBusy(true);
     try {
       await updateEntry(id, intAmount, note.trim().slice(0, 100) || null);
-      toast.push("Entry updated", "success");
+      toast.push(t("entry.updated"), "success");
       router.back();
     } catch {
-      toast.push("Couldn't save. Try again.", "error");
+      toast.push(t("entry.saveFailed"), "error");
     } finally {
       setBusy(false);
     }
@@ -89,44 +93,42 @@ export default function EditEntryScreen() {
   if (!found) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
+        <View style={[styles.header, rowDir(isRTL)]}>
           <Pressable onPress={() => router.back()} hitSlop={8}>
-            <Text style={styles.cancel}>Back</Text>
+            <Text style={[styles.cancel, textDir(isRTL)]}>{t("common.back")}</Text>
           </Pressable>
-          <Text style={styles.title}>Edit</Text>
+          <Text style={styles.title}>{t("personEdit.title")}</Text>
           <View style={{ width: 60 }} />
         </View>
         <View style={styles.fillCenter}>
-          <Text style={styles.errorText}>This entry no longer exists.</Text>
+          <Text style={styles.errorText}>{t("entry.notFound")}</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  const verb = type === "debt" ? "I gave" : "I received";
-  const otherVerb = type === "debt" ? "I received" : "I gave";
+  const verb = type === "debt" ? t("person.action.iGave") : t("person.action.iReceived");
+  const otherVerb = type === "debt" ? t("person.action.iReceived") : t("person.action.iGave");
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, rowDir(isRTL)]}>
         <Pressable onPress={() => router.back()} hitSlop={8}>
-          <Text style={styles.cancel}>Cancel</Text>
+          <Text style={[styles.cancel, textDir(isRTL)]}>{t("common.cancel")}</Text>
         </Pressable>
-        <Text style={styles.title}>Edit · {verb}</Text>
+        <Text style={styles.title}>{t("entry.edit.title", { verb })}</Text>
         <View style={{ width: 60 }} />
       </View>
       <KeyboardAvoidingView
         style={styles.body}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <Text style={styles.hint}>
-          Direction can&apos;t be changed. To turn this into &ldquo;{otherVerb}&rdquo;, delete this
-          entry and add a new one.
-        </Text>
+        <Text style={[styles.hint, textDir(isRTL)]}>{t("entry.edit.hint", { otherVerb })}</Text>
 
         <View style={styles.field}>
-          <Text style={styles.label}>
-            Amount (AFN) <Text style={styles.required}>*</Text>
+          <Text style={[styles.label, textDir(isRTL)]}>
+            {t("entry.amount.labelTemplate", { code: getCurrentCurrencySymbol() })}{" "}
+            <Text style={styles.required}>*</Text>
           </Text>
           <TextInput
             ref={amountRef}
@@ -134,7 +136,7 @@ export default function EditEntryScreen() {
             value={amount}
             // See entry/new.tsx — strip non-digits at typing time so "150.50"
             // doesn't get parsed as "15050" on save. AFN is integer-only.
-            onChangeText={(t) => setAmount(t.match(/^\d*/)?.[0] ?? "")}
+            onChangeText={(raw) => setAmount(raw.match(/^\d*/)?.[0] ?? "")}
             placeholder="0"
             placeholderTextColor={colors.textMuted}
             keyboardType="number-pad"
@@ -145,13 +147,13 @@ export default function EditEntryScreen() {
           />
         </View>
         <View style={styles.field}>
-          <Text style={styles.label}>Note</Text>
+          <Text style={[styles.label, textDir(isRTL)]}>{t("entry.note.label")}</Text>
           <TextInput
             ref={noteRef}
-            style={styles.input}
+            style={[styles.input, textDir(isRTL)]}
             value={note}
             onChangeText={setNote}
-            placeholder="آرد و چای"
+            placeholder={t("entry.note.placeholder")}
             placeholderTextColor={colors.textMuted}
             maxLength={100}
             returnKeyType="done"
@@ -159,7 +161,7 @@ export default function EditEntryScreen() {
           />
         </View>
         <View style={{ height: 24 }} />
-        <Button label="Save changes" onPress={onSave} loading={busy} />
+        <Button label={t("entry.saveChanges")} onPress={onSave} loading={busy} />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

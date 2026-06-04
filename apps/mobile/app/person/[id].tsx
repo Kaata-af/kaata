@@ -10,9 +10,12 @@ import { EmptyState } from "../../components/EmptyState";
 import { EntryRow } from "../../components/EntryRow";
 import { useToast, useToastOffset } from "../../components/Toast";
 import { colors } from "../../lib/colors";
+import { getCurrentCurrencySymbol } from "../../lib/currency";
 import { getLocalSelf, getPerson, listEntries, softDeleteEntry } from "../../lib/db";
+import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
+import { t } from "../../lib/i18n";
 import { shareKaataViaWhatsApp } from "../../lib/share";
 import type { Entry, PersonWithBalance, Self } from "../../lib/types";
 
@@ -22,6 +25,9 @@ export default function PersonDetailScreen() {
   const toastOffset = useToastOffset();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
+  // Subscribes to locale changes — flipping language in Settings re-renders
+  // this screen and all its descendants, so strings via t() refresh too.
+  const isRTL = useIsRTL();
 
   const [person, setPerson] = useState<PersonWithBalance | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -56,19 +62,27 @@ export default function PersonDetailScreen() {
   // person-level property. balance > 0 → they owe me; balance < 0 → I owe them.
   const hasBalance = person.balance !== 0;
   const chipLabel =
-    person.balance > 0 ? "THEY OWE YOU" : person.balance < 0 ? "YOU OWE THEM" : null;
+    person.balance > 0
+      ? t("person.balance.theyOwe")
+      : person.balance < 0
+        ? t("person.balance.youOwe")
+        : null;
   const chipVariant: "collect" | "pay" | null =
     person.balance > 0 ? "collect" : person.balance < 0 ? "pay" : null;
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
-      <View style={styles.headerNav}>
+      <View style={[styles.headerNav, rowDir(isRTL)]}>
         <Pressable
           onPress={() => router.back()}
           hitSlop={8}
           style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.5 }]}
         >
-          <Ionicons name="chevron-back" size={22} color={colors.textEmphasis} />
+          <Ionicons
+            name={isRTL ? "chevron-forward" : "chevron-back"}
+            size={22}
+            color={colors.textEmphasis}
+          />
         </Pressable>
         <Pressable
           onPress={() => router.push({ pathname: "/person/[id]/edit", params: { id: person.id } })}
@@ -85,28 +99,30 @@ export default function PersonDetailScreen() {
         }}
       >
         <View style={styles.info}>
-          <Text style={styles.name}>{person.name}</Text>
-          {person.phone ? <Text style={styles.phone}>{person.phone}</Text> : null}
+          <Text style={[styles.name, textDir(isRTL)]}>{person.name}</Text>
+          {person.phone ? <Text style={[styles.phone, textDir(isRTL)]}>{person.phone}</Text> : null}
           <View style={{ height: 16 }} />
           {chipLabel && chipVariant ? (
             <Chip label={chipLabel} variant={chipVariant} />
           ) : entries.length > 0 ? (
-            <Chip label="SETTLED" variant="neutral" />
+            <Chip label={t("person.balance.settled")} variant="neutral" />
           ) : null}
-          <View style={styles.balanceRow}>
+          <View style={[styles.balanceRow, rowDir(isRTL)]}>
             <Text style={[styles.balance, !hasBalance && { color: colors.textMuted }]}>
               {formatAmount(abs)}
             </Text>
-            <Text style={styles.balanceAfn}>AFN</Text>
+            <Text style={styles.balanceAfn}>{getCurrentCurrencySymbol()}</Text>
           </View>
         </View>
 
         {/*
-         * INVARIANT: "I gave" is on the RIGHT, "I received" on the LEFT.
-         * Cultural — the right hand is the giving hand. This ordering must
-         * be preserved across locales and must NOT auto-flip if/when full
-         * RTL is added later. If you introduce I18nManager-driven
-         * row-reverse anywhere, this row needs to opt out.
+         * INVARIANT: "I gave" on the RIGHT, "I received" on the LEFT.
+         * Right-hand-is-giving cultural rule. The actions style below uses
+         * `flexDirection: "row"` and relies on the Activity being LTR —
+         * that's guaranteed by _layout.tsx's I18nManager neutralization +
+         * one-shot migration prompt. If the Activity were RTL, Yoga would
+         * auto-reverse children and "I gave" would land on the left
+         * (the v0.2.4 bug).
          */}
         <View style={styles.actions}>
           <Pressable
@@ -122,7 +138,7 @@ export default function PersonDetailScreen() {
             ]}
           >
             <Ionicons name="arrow-down-outline" size={16} color={colors.textEmphasis} />
-            <Text style={styles.actionText}>I received</Text>
+            <Text style={styles.actionText}>{t("person.action.iReceived")}</Text>
           </Pressable>
           <Pressable
             onPress={() =>
@@ -137,15 +153,12 @@ export default function PersonDetailScreen() {
             ]}
           >
             <Ionicons name="arrow-up-outline" size={16} color={colors.textEmphasis} />
-            <Text style={styles.actionText}>I gave</Text>
+            <Text style={styles.actionText}>{t("person.action.iGave")}</Text>
           </Pressable>
         </View>
 
         {entries.length === 0 ? (
-          <EmptyState
-            title="No entries yet"
-            subtitle={`Tap "I gave" when money or goods leave your hand, "I received" when they come in.`}
-          />
+          <EmptyState title={t("person.empty.title")} subtitle={t("person.empty.subtitle")} />
         ) : (
           <View style={styles.list}>
             {entries.map((e, i) => (
@@ -177,7 +190,7 @@ export default function PersonDetailScreen() {
           >
             <Ionicons name="logo-whatsapp" size={20} color={colors.textInverted} />
             <Text style={styles.pingButtonLabel} numberOfLines={1}>
-              Ping {person.name} on WhatsApp
+              {t("person.ping", { name: person.name })}
             </Text>
           </Pressable>
         </Animated.View>
@@ -189,7 +202,7 @@ export default function PersonDetailScreen() {
         onDismiss={() => setSheetFor(null)}
         actions={[
           {
-            label: "Edit",
+            label: t("person.sheet.edit"),
             icon: "create-outline",
             onPress: () => {
               const eid = sheetFor?.id;
@@ -197,7 +210,7 @@ export default function PersonDetailScreen() {
             },
           },
           {
-            label: "Delete",
+            label: t("person.sheet.delete"),
             icon: "trash-outline",
             destructive: true,
             onPress: () => setConfirmDeleteFor(sheetFor),
@@ -207,15 +220,15 @@ export default function PersonDetailScreen() {
 
       <ConfirmDialog
         visible={confirmDeleteFor !== null}
-        title="Delete this entry?"
-        description="The amount stops counting toward this person's balance. You can't undo this from here."
-        confirmLabel="Delete"
+        title={t("person.delete.title")}
+        description={t("person.delete.description")}
+        confirmLabel={t("person.delete.confirm")}
         destructive
         onConfirm={async () => {
           if (confirmDeleteFor) {
             await softDeleteEntry(confirmDeleteFor.id);
             await load();
-            toast.push("Entry deleted", "success");
+            toast.push(t("entry.deleted"), "success");
           }
         }}
         onCancel={() => setConfirmDeleteFor(null)}
@@ -257,6 +270,14 @@ const styles = StyleSheet.create({
   },
   balanceAfn: { fontSize: 15, fontFamily: fonts.sansMedium, color: colors.textMuted },
   actions: {
+    // INVARIANT: "I received" stays physical LEFT, "I gave" stays physical
+    // RIGHT. Right-hand-is-giving cultural rule. Yoga WOULD auto-reverse
+    // `flexDirection: 'row'` children if the Activity were RTL — that's
+    // exactly the bug v0.2.4 shipped, with "I gave" landing on the left
+    // for Persian users. We avoid it by ensuring the Activity is LTR via
+    // _layout.tsx's I18nManager neutralization + one-shot migration
+    // prompt. Internal direction (lib/direction.ts) does NOT touch this
+    // row.
     flexDirection: "row",
     paddingHorizontal: 16,
     gap: 10,

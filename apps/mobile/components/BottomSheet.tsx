@@ -5,6 +5,7 @@ import { Animated, Modal, Pressable, StyleSheet, Text, View } from "react-native
 import type { ComponentProps } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
+import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 
 export type SheetAction = {
@@ -29,6 +30,7 @@ export function BottomSheet(props: {
   onDismiss: () => void;
 }) {
   const [rendered, setRendered] = useState(false);
+  const isRTL = useIsRTL();
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(OFFSCREEN)).current;
 
@@ -85,7 +87,7 @@ export function BottomSheet(props: {
         <SafeAreaView edges={["bottom"]} style={styles.sheetWrap}>
           <View style={styles.sheet} onStartShouldSetResponder={() => true}>
             <View style={styles.grabber} />
-            {props.title ? <Text style={styles.title}>{props.title}</Text> : null}
+            {props.title ? <Text style={[styles.title, textDir(isRTL)]}>{props.title}</Text> : null}
             {props.actions.map((a, i) => {
               const color = a.destructive ? colors.danger : colors.textEmphasis;
               return (
@@ -97,16 +99,22 @@ export function BottomSheet(props: {
                   }}
                   style={({ pressed }) => [
                     styles.row,
+                    rowDir(isRTL),
                     i !== props.actions.length - 1 && styles.rowDivider,
                     pressed && { backgroundColor: colors.bgMuted },
                   ]}
                 >
                   {a.icon ? (
-                    <Ionicons name={a.icon} size={18} color={color} style={styles.rowIcon} />
+                    <Ionicons
+                      name={a.icon}
+                      size={18}
+                      color={color}
+                      style={[styles.rowIcon, isRTL ? styles.rowIconRTL : styles.rowIconLTR]}
+                    />
                   ) : (
-                    <View style={styles.rowIcon} />
+                    <View style={[styles.rowIcon, isRTL ? styles.rowIconRTL : styles.rowIconLTR]} />
                   )}
-                  <Text style={[styles.rowText, { color }]}>{a.label}</Text>
+                  <Text style={[styles.rowText, textDir(isRTL), { color }]}>{a.label}</Text>
                 </Pressable>
               );
             })}
@@ -160,6 +168,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.borderSubtle,
   },
-  rowIcon: { width: 22, marginRight: 12 },
+  rowIcon: { width: 22 },
+  rowIconLTR: { marginRight: 12 },
+  rowIconRTL: { marginLeft: 12 },
   rowText: { fontSize: 15, fontFamily: fonts.sansMedium },
 });

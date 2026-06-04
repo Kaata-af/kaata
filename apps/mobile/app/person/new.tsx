@@ -18,9 +18,12 @@ import { ContactsPickerSheet, type PickedContact } from "../../components/Contac
 import { CountryPickerSheet } from "../../components/CountryPickerSheet";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
+import { getCurrentCurrencySymbol } from "../../lib/currency";
 import { createPerson, listAllPeople } from "../../lib/db";
+import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
+import { t } from "../../lib/i18n";
 import { DEFAULT_COUNTRY_CODE, getCountry, inferCountryFromE164 } from "../../lib/phone";
 import { hasExactMatch, searchPeople } from "../../lib/search";
 import type { PersonWithBalance } from "../../lib/types";
@@ -32,6 +35,10 @@ import type { PersonWithBalance } from "../../lib/types";
 export default function PersonAddOrFindScreen() {
   const router = useRouter();
   const toast = useToast();
+  // Subscribes to locale changes — flipping language in Settings live-updates
+  // this screen if it happens to be focused; otherwise the screen mounts
+  // fresh on next nav and picks up the new locale anyway.
+  const isRTL = useIsRTL();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [countryCode, setCountryCode] = useState(DEFAULT_COUNTRY_CODE);
@@ -84,15 +91,15 @@ export default function PersonAddOrFindScreen() {
       const result = await createPerson(trimmed, phone.trim() || null, countryCode);
       if (!result.ok) {
         if (result.error === "phone_invalid") {
-          toast.push("Couldn't read that phone number. Try +93 70 123 4567.", "error");
+          toast.push(t("personAdd.phone.invalid"), "error");
         } else if (result.error === "phone_conflict") {
-          toast.push(`Phone already used by ${result.existing.name}`, "error");
+          toast.push(t("personAdd.phone.conflict", { name: result.existing.name }), "error");
         }
         return;
       }
       openPerson(result.id);
     } catch {
-      toast.push("Couldn't add person. Try again.", "error");
+      toast.push(t("entry.saveFailed"), "error");
     } finally {
       setBusy(false);
     }
@@ -117,11 +124,11 @@ export default function PersonAddOrFindScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, rowDir(isRTL)]}>
         <Pressable onPress={() => router.back()} hitSlop={8}>
-          <Text style={styles.cancel}>Cancel</Text>
+          <Text style={[styles.cancel, textDir(isRTL)]}>{t("common.cancel")}</Text>
         </Pressable>
-        <Text style={styles.title}>Add or find person</Text>
+        <Text style={styles.title}>{t("personAdd.title")}</Text>
         <View style={{ width: 60 }} />
       </View>
 
@@ -134,15 +141,15 @@ export default function PersonAddOrFindScreen() {
           contentContainerStyle={styles.scrollContent}
         >
           <View style={styles.field}>
-            <Text style={styles.label}>
-              Name <Text style={styles.required}>*</Text>
+            <Text style={[styles.label, textDir(isRTL)]}>
+              {t("personEdit.name.label")} <Text style={styles.required}>*</Text>
             </Text>
             <View style={styles.inputWrap}>
               <TextInput
-                style={styles.inputInner}
+                style={[styles.inputInner, textDir(isRTL)]}
                 value={name}
                 onChangeText={setName}
-                placeholder="Type to search or add"
+                placeholder={t("personAdd.name.placeholder")}
                 placeholderTextColor={colors.textMuted}
                 autoFocus
                 autoCorrect={false}
@@ -162,12 +169,22 @@ export default function PersonAddOrFindScreen() {
               hitSlop={8}
               style={({ pressed }) => [
                 styles.pickFromContacts,
+                rowDir(isRTL),
+                // alignSelf must be picked at render-time because we've
+                // disabled Yoga's RTL handling (allowRTL(false)); flex-start
+                // no longer resolves to the script's start edge, it's always
+                // physical left.
+                { alignSelf: isRTL ? "flex-end" : "flex-start" },
                 pressed && { opacity: 0.6 },
               ]}
             >
               <Ionicons name="person-circle-outline" size={16} color={colors.textSubtle} />
-              <Text style={styles.pickFromContactsText}>or pick from your contacts</Text>
-              <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
+              <Text style={styles.pickFromContactsText}>{t("personAdd.pickContact")}</Text>
+              <Ionicons
+                name={isRTL ? "chevron-back" : "chevron-forward"}
+                size={14}
+                color={colors.textMuted}
+              />
             </Pressable>
           </View>
 
@@ -179,14 +196,18 @@ export default function PersonAddOrFindScreen() {
 
           {showEmptyState ? (
             <View style={styles.emptyHint}>
-              <Text style={styles.emptyTitle}>No one here yet</Text>
-              <Text style={styles.emptySub}>Type a name above to add your first person.</Text>
+              <Text style={styles.emptyTitle}>{t("personAdd.empty.title")}</Text>
+              <Text style={styles.emptySub}>{t("personAdd.empty.subtitle")}</Text>
             </View>
           ) : null}
 
           {showRecentOrMatches ? (
             <View style={styles.section}>
-              <Text style={styles.sectionLabel}>{trimmed.length > 0 ? "Matches" : "Recent"}</Text>
+              <Text style={[styles.sectionLabel, textDir(isRTL)]}>
+                {trimmed.length > 0
+                  ? t("personAdd.section.matches")
+                  : t("personAdd.section.recent")}
+              </Text>
               <View style={styles.list}>
                 {results.map((p, i) => (
                   <View key={p.id}>
@@ -194,14 +215,15 @@ export default function PersonAddOrFindScreen() {
                       onPress={() => openPerson(p.id)}
                       style={({ pressed }) => [
                         styles.row,
+                        rowDir(isRTL),
                         pressed && { backgroundColor: colors.bgMuted },
                       ]}
                     >
                       <View style={styles.rowLeft}>
-                        <Text style={styles.rowName} numberOfLines={1}>
+                        <Text style={[styles.rowName, textDir(isRTL)]} numberOfLines={1}>
                           {p.name}
                         </Text>
-                        <Text style={styles.rowSub} numberOfLines={1}>
+                        <Text style={[styles.rowSub, textDir(isRTL)]} numberOfLines={1}>
                           {p.phone ?? "no phone"}
                         </Text>
                       </View>
@@ -216,14 +238,21 @@ export default function PersonAddOrFindScreen() {
 
           {showNoMatchesText ? (
             <View style={styles.noMatchSection}>
-              <Text style={styles.noMatchText}>No one matches &ldquo;{trimmed}&rdquo;.</Text>
+              <Text style={styles.noMatchText}>{t("personAdd.noMatch", { query: trimmed })}</Text>
             </View>
           ) : null}
 
           {isCreating ? (
             <>
               <View style={styles.field}>
-                <Text style={styles.label}>WhatsApp number</Text>
+                <Text style={[styles.label, textDir(isRTL)]}>{t("personEdit.phone.label")}</Text>
+                {/* Phone row deliberately stays physical-LTR even in
+                    Persian: Western digits render left-to-right via Unicode
+                    bidi regardless of the container, and Persian users
+                    enter phone numbers digit-by-digit from the left. The
+                    label and hint above/below flip via textDir to follow
+                    reading order; only the input field itself + country
+                    button stay anchored LTR. */}
                 <View style={styles.phoneRow}>
                   <Pressable
                     onPress={() => setPickerVisible(true)}
@@ -248,11 +277,15 @@ export default function PersonAddOrFindScreen() {
                     onSubmitEditing={createAndOpen}
                   />
                 </View>
-                <Text style={styles.fieldHint}>Needed to send pings on WhatsApp.</Text>
+                <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("personAdd.phone.hint")}</Text>
               </View>
 
               <View style={{ height: 8 }} />
-              <Button label={`Add ${trimmed}`} onPress={createAndOpen} loading={busy} />
+              <Button
+                label={t("personAdd.add", { name: trimmed })}
+                onPress={createAndOpen}
+                loading={busy}
+              />
             </>
           ) : null}
         </ScrollView>
@@ -278,17 +311,17 @@ export default function PersonAddOrFindScreen() {
 // breaking the monochrome palette.
 function RightAmount(props: { balance: number; hasEntries: boolean }) {
   if (!props.hasEntries) {
-    return <Text style={styles.rightMuted}>new</Text>;
+    return <Text style={styles.rightMuted}>{t("personAdd.rightAmount.new")}</Text>;
   }
   if (props.balance === 0) {
-    return <Text style={styles.rightMuted}>settled</Text>;
+    return <Text style={styles.rightMuted}>{t("personAdd.rightAmount.settled")}</Text>;
   }
   const sign = props.balance > 0 ? "+" : "−";
   return (
     <View style={styles.rightAmountRow}>
       <Text style={styles.rightSign}>{sign}</Text>
       <Text style={styles.rightAmount}>{formatAmount(props.balance)}</Text>
-      <Text style={styles.rightAfn}>AFN</Text>
+      <Text style={styles.rightAfn}>{getCurrentCurrencySymbol()}</Text>
     </View>
   );
 }
@@ -394,7 +427,7 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 10,
     paddingVertical: 4,
-    alignSelf: "flex-start",
+    // alignSelf is set inline based on isRTL — see usage site.
   },
   pickFromContactsText: {
     fontSize: 13,
