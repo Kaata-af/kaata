@@ -24,6 +24,8 @@ import { UpdateBanner } from "../components/UpdateBanner";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
 import { getCurrentCurrencySymbol } from "../lib/currency";
+import { ProfileMenuSheet } from "../components/ProfileMenuSheet";
+import { getSessionUser } from "../lib/auth";
 import { archivePerson, getLocalSelf, listAllPeople } from "../lib/db";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
@@ -68,6 +70,10 @@ export default function HomeScreen() {
   const [sheetFor, setSheetFor] = useState<PersonWithBalance | null>(null);
   const [confirmDeleteFor, setConfirmDeleteFor] = useState<PersonWithBalance | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // Profile menu state. sessionEmail is read on focus so it stays in
+  // sync with sign-in/out actions taken on the Account screen.
+  const [profileMenuVisible, setProfileMenuVisible] = useState(false);
+  const [sessionEmail, setSessionEmail] = useState<string | null>(null);
 
   // Rail position: 0 = collect tab visible, -screenWidth = pay tab visible.
   // We use a non-native Animated.Value because the gesture's onUpdate calls
@@ -85,9 +91,10 @@ export default function HomeScreen() {
   const lastBackPressRef = useRef(0);
 
   const load = useCallback(async () => {
-    const [s, list] = await Promise.all([getLocalSelf(), listAllPeople()]);
+    const [s, list, user] = await Promise.all([getLocalSelf(), listAllPeople(), getSessionUser()]);
     setSelf(s);
     setAllPeople(list);
+    setSessionEmail(user?.email ?? null);
     setLoaded(true);
   }, []);
 
@@ -206,9 +213,9 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={[styles.header, rowDir(isRTL)]}>
-        {/* Start edge: wordmark on top, store/personal name below. The
-            identity text is no longer a tap target — settings is now a
-            dedicated gear icon on the opposite end. */}
+        {/* Start edge: wordmark on top, store/personal name below.
+            Identity text is informational only — settings + account live
+            behind the profile icon on the opposite end. */}
         <View style={styles.headerStart}>
           <Text style={[styles.wordmark, textDir(isRTL)]}>{t("brand.wordmark")}</Text>
           {self ? (
@@ -218,11 +225,15 @@ export default function HomeScreen() {
           ) : null}
         </View>
         <Pressable
-          onPress={() => router.push("/settings")}
+          onPress={() => setProfileMenuVisible(true)}
           hitSlop={8}
           style={({ pressed }) => [styles.headerSettingsBtn, pressed && { opacity: 0.5 }]}
         >
-          <Ionicons name="settings-outline" size={22} color={colors.textSubtle} />
+          <Ionicons
+            name={sessionEmail ? "person-circle" : "person-circle-outline"}
+            size={26}
+            color={colors.textSubtle}
+          />
         </Pressable>
       </View>
 
@@ -316,6 +327,14 @@ export default function HomeScreen() {
           }
         }}
         onCancel={() => setConfirmDeleteFor(null)}
+      />
+
+      <ProfileMenuSheet
+        visible={profileMenuVisible}
+        signedInEmail={sessionEmail}
+        onAccount={() => router.push("/account")}
+        onPreferences={() => router.push("/preferences")}
+        onDismiss={() => setProfileMenuVisible(false)}
       />
     </SafeAreaView>
   );

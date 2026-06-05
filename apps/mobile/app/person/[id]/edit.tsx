@@ -20,7 +20,7 @@ import { getPerson, updatePerson } from "../../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
 import { fonts } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
-import { DEFAULT_COUNTRY_CODE, getCountry, inferCountryFromE164 } from "../../../lib/phone";
+import { getCountry, getCurrentDefaultCountryCode, inferCountryFromE164 } from "../../../lib/phone";
 
 export default function EditPersonScreen() {
   const router = useRouter();
@@ -30,7 +30,11 @@ export default function EditPersonScreen() {
   const [loaded, setLoaded] = useState(false);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [countryCode, setCountryCode] = useState(DEFAULT_COUNTRY_CODE);
+  // Defaults to the user's preferred country. Overwritten on load via
+  // inferCountryFromE164(person.phone) when the existing contact has a
+  // phone — only matters as the visible default while the data loads,
+  // and as the fallback for contacts saved without a phone number.
+  const [countryCode, setCountryCode] = useState(getCurrentDefaultCountryCode);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const nameRef = useRef<TextInput>(null);

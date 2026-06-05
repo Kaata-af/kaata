@@ -23,6 +23,7 @@ export function getDb(): Promise<SQLite.SQLiteDatabase> {
 const MIGRATION_001 = "001_v0_to_users_relationships";
 const MIGRATION_002 = "002_add_updated_at";
 const MIGRATION_003 = "003_unify_relationships_to_peer";
+const MIGRATION_004 = "004_onboarding_state_keys";
 
 export async function initDb(): Promise<void> {
   const db = await getDb();
@@ -49,6 +50,9 @@ export async function initDb(): Promise<void> {
   }
   if (!(await hasRunMigration(db, MIGRATION_003))) {
     await runMigration003(db);
+  }
+  if (!(await hasRunMigration(db, MIGRATION_004))) {
+    await runMigration004(db);
   }
 }
 
@@ -363,6 +367,52 @@ async function runMigration003(db: SQLite.SQLiteDatabase): Promise<void> {
   });
 }
 
+// Migration 004: onboarding state keys + upgrade-path defaults.
+//
+// app_meta keys that the new onboarding state machine reads/writes (no DDL —
+// app_meta is a generic k/v table, this just documents the contract):
+//
+//   onboarding_step  — values: 'language' | 'auth' | 'profile' | 'done'
+//                       (null on fresh install is treated as 'language')
+//   onboarding_pending_name   — email name returned by Google sign-in, NOT
+//                                used to prefill any field (per UX call); kept
+//                                only to render "Signed in as X" subtitle
+//   onboarding_pending_email  — email from Google sign-in, used for the
+//                                subtitle above
+//   tour_completed   — '1' once the user has seen or skipped the home tour.
+//                       Absence / '0' means show the tour on next home visit.
+//
+// SecureStore (NOT app_meta) holds the Google session JWT — see lib/auth.ts.
+//
+// Upgrade path: any install that already has a local_self user predates this
+// migration, so they ARE onboarded. We mark them so:
+//   - onboarding_step = 'done' (routing skips /onboarding/* for them)
+// We deliberately do NOT set tour_completed for upgraders — they should see
+// the tour on next launch, same as fresh installs. They can skip it if they
+// already know the app.
+async function runMigration004(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    // Detect whether this install already has a local_self user (i.e. they
+    // onboarded under the old single-screen flow). Safer than querying
+    // getLocalSelf() because we're inside a migration transaction.
+    const selfRow = await db.getFirstAsync<{ id: string }>(
+      `SELECT id FROM users WHERE is_local_self = 1 LIMIT 1`,
+    );
+    if (selfRow) {
+      await db.runAsync(
+        `INSERT INTO app_meta (key, value) VALUES ('onboarding_step', 'done')
+         ON CONFLICT(key) DO UPDATE SET value = 'done'`,
+      );
+    }
+
+    await db.runAsync(
+      "INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)",
+      MIGRATION_004,
+      Date.now(),
+    );
+  });
+}
+
 // --- v0 row shapes (used only during migration) ---
 type V0Shopkeeper = {
   id: number;
@@ -413,6 +463,30 @@ async function findRelationshipIdForPerson(
     personId,
   );
   return row?.id ?? null;
+}
+
+// Dev-only: drops every kaata table so the next initDb() rebuilds them
+// fresh. Used by the Settings "Reset all data" button to simulate a clean
+// install without wiping all of Expo Go's storage. Reseting dbPromise to
+// null closes the cached handle — next initDb() opens a fresh one.
+//
+// Lists both v0 (customers/shopkeeper) and v1 (users/relationships/etc)
+// table names so the reset works against any historical schema state.
+export async function resetAllLocalData(): Promise<void> {
+  const db = await getDb();
+  await db.execAsync(`
+    DROP TABLE IF EXISTS entries;
+    DROP TABLE IF EXISTS relationships;
+    DROP TABLE IF EXISTS shop_profile;
+    DROP TABLE IF EXISTS users;
+    DROP TABLE IF EXISTS app_meta;
+    DROP TABLE IF EXISTS schema_migrations;
+    DROP TABLE IF EXISTS shopkeeper;
+    DROP TABLE IF EXISTS _old_shopkeeper;
+    DROP TABLE IF EXISTS customers;
+  `);
+  await db.closeAsync();
+  dbPromise = null;
 }
 
 // --- public API ---

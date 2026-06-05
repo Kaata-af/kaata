@@ -24,7 +24,7 @@ import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
 import { t } from "../../lib/i18n";
-import { DEFAULT_COUNTRY_CODE, getCountry, inferCountryFromE164 } from "../../lib/phone";
+import { getCountry, getCurrentDefaultCountryCode, inferCountryFromE164 } from "../../lib/phone";
 import { hasExactMatch, searchPeople } from "../../lib/search";
 import type { PersonWithBalance } from "../../lib/types";
 
@@ -41,7 +41,10 @@ export default function PersonAddOrFindScreen() {
   const isRTL = useIsRTL();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [countryCode, setCountryCode] = useState(DEFAULT_COUNTRY_CODE);
+  // Initial country defaults to the user's preference (set in Preferences).
+  // Module-global was hydrated during _layout init, so this is synchronously
+  // correct on mount. The picker can still be changed per-entry.
+  const [countryCode, setCountryCode] = useState(getCurrentDefaultCountryCode);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [contactsVisible, setContactsVisible] = useState(false);
   const [people, setPeople] = useState<PersonWithBalance[] | null>(null);

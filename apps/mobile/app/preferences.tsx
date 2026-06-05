@@ -1,23 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { useRouter } from "expo-router";
-import { useEffect, useReducer, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Animated,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Button } from "../components/Button";
-import { useToast } from "../components/Toast";
 import { colors } from "../lib/colors";
 import {
   CURRENCIES,
@@ -26,10 +12,24 @@ import {
   getCurrentCurrencyCode,
   setCurrentCurrency,
 } from "../lib/currency";
-import { getAppMeta, getLocalSelf, setAppMeta, updateSelfProfile } from "../lib/db";
+import { getAppMeta, setAppMeta } from "../lib/db";
+import { CountryPickerSheet } from "../components/CountryPickerSheet";
+import { useToast } from "../components/Toast";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { type LocalePref, setLocale, t } from "../lib/i18n";
+import {
+  getCountry,
+  getCurrentDefaultCountryCode,
+  setCurrentDefaultCountryCode,
+} from "../lib/phone";
+
+// Preferences — language + currency.
+//
+// Auto-commit pattern (no Save button): tapping an option in the picker
+// sheet immediately writes app_meta + calls the in-memory module setter
+// (setLocale / setCurrentCurrency) AND closes the sheet. The screen
+// re-renders in the new language / currency on the spot.
 
 const LANGUAGE_OPTIONS: ReadonlyArray<{ value: LocalePref; labelKey: string }> = [
   { value: "system", labelKey: "settings.language.option.system" },
@@ -37,101 +37,69 @@ const LANGUAGE_OPTIONS: ReadonlyArray<{ value: LocalePref; labelKey: string }> =
   { value: "fa", labelKey: "settings.language.option.fa" },
 ];
 
-// Settings is one form: name, shop name, language, currency. Language and
-// currency are select fields that open a bottom sheet picker. Nothing is
-// persisted until the user taps Save — drafts live in local state until then.
-// This lets the user back out via the Cancel header button without committing.
-
-export default function SettingsScreen() {
+export default function PreferencesScreen() {
   const router = useRouter();
   const toast = useToast();
   const isRTL = useIsRTL();
   const [loaded, setLoaded] = useState(false);
-  const [name, setName] = useState("");
-  const [shopName, setShopName] = useState("");
-  // Drafts. Initial values come from app_meta on mount. Save commits them
-  // to DB + the in-memory module globals (setLocale, setCurrentCurrency).
   const [localePref, setLocalePref] = useState<LocalePref>("system");
   const [currency, setCurrency] = useState<string>(DEFAULT_CURRENCY);
-  // Original values captured on load so save() knows what actually changed.
-  // (Avoids gratuitous setLocale notifications if user re-picked the same.)
-  const initial = useRef<{ localePref: LocalePref; currency: string }>({
-    localePref: "system",
-    currency: DEFAULT_CURRENCY,
-  });
-  const [busy, setBusy] = useState(false);
+  const [countryCode, setCountryCode] = useState<string>("AF");
   const [langSheetVisible, setLangSheetVisible] = useState(false);
   const [currencySheetVisible, setCurrencySheetVisible] = useState(false);
-  const shopRef = useRef<TextInput>(null);
-  // Lets us re-render this screen after Save commits a language change, so
-  // the cancel/title/labels here repaint in the new locale before the user
-  // navigates back. Other mounted screens repaint via the useIsRTL/locale
-  // subscriber pattern.
-  const [, forceRerender] = useReducer((x: number) => x + 1, 0);
+  const [countrySheetVisible, setCountrySheetVisible] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const [s, storedPref] = await Promise.all([getLocalSelf(), getAppMeta("locale_pref")]);
-      if (s) {
-        setName(s.name);
-        setShopName(s.shop_name ?? "");
-      }
+      const storedPref = await getAppMeta("locale_pref");
       const pref: LocalePref = storedPref === "en" || storedPref === "fa" ? storedPref : "system";
       setLocalePref(pref);
-      const code = getCurrentCurrencyCode();
-      setCurrency(code);
-      initial.current = { localePref: pref, currency: code };
+      setCurrency(getCurrentCurrencyCode());
+      // Country: read from the module-global which was hydrated at app
+      // start via initDefaultCountryFromPref in _layout.tsx. No need to
+      // re-read app_meta here — the global is the source of truth.
+      setCountryCode(getCurrentDefaultCountryCode());
       setLoaded(true);
     })();
   }, []);
 
-  async function onSave() {
-    const trimmed = name.trim();
-    if (!trimmed) {
-      toast.push(t("onboarding.nameRequired"), "error");
-      return;
-    }
-    setBusy(true);
-    try {
-      // Name + shop always commit (cheap, safe to overwrite).
-      await updateSelfProfile(trimmed, shopName.trim() || null);
-
-      // Language: only commit + notify if actually changed. setLocale fires
-      // subscribers (useIsRTL + every consumer that subscribes via
-      // subscribeLocale), which triggers tree-wide re-render in the new
-      // language.
-      if (localePref !== initial.current.localePref) {
-        setLocale(localePref);
-        await setAppMeta("locale_pref", localePref);
-      }
-
-      // Currency: same pattern. setCurrentCurrency mutates the module
-      // global; consumers reading getCurrentCurrencySymbol() see the new
-      // value on their next render.
-      if (currency !== initial.current.currency) {
-        setCurrentCurrency(currency);
-        await setAppMeta("default_currency", currency);
-      }
-
-      // Repaint this screen if locale changed so the Saved toast + any
-      // labels on the way out are already in the new language.
-      forceRerender();
-      toast.push(t("settings.saved"), "success");
-      router.back();
-    } finally {
-      setBusy(false);
+  async function pickLanguage(value: LocalePref) {
+    setLocalePref(value);
+    setLangSheetVisible(false);
+    if (value !== localePref) {
+      setLocale(value);
+      await setAppMeta("locale_pref", value);
+      // Toast fires in the NEW locale (setLocale already swapped the
+      // module-global), so users get confirmation in their just-picked
+      // language. Visual re-render of every t() call elsewhere is the
+      // primary signal; the toast just confirms "yes, this stuck."
+      toast.push(t("settings.language.changed"), "success");
     }
   }
 
-  if (!loaded) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.fillCenter}>
-          <ActivityIndicator color={colors.textDefault} />
-        </View>
-      </SafeAreaView>
-    );
+  async function pickCurrency(code: string) {
+    setCurrency(code);
+    setCurrencySheetVisible(false);
+    if (code !== currency) {
+      setCurrentCurrency(code);
+      await setAppMeta("default_currency", code);
+      // Currency changes are less visible (only show on amount displays)
+      // so the toast is more important here than for language.
+      toast.push(t("settings.currency.changed"), "success");
+    }
   }
+
+  async function pickCountry(code: string) {
+    setCountryCode(code);
+    setCountrySheetVisible(false);
+    if (code !== countryCode) {
+      setCurrentDefaultCountryCode(code);
+      await setAppMeta("default_country_code", code);
+      toast.push(t("preferences.country.changed"), "success");
+    }
+  }
+
+  if (!loaded) return null;
 
   const selectedLangLabelKey =
     LANGUAGE_OPTIONS.find((o) => o.value === localePref)?.labelKey ??
@@ -143,85 +111,51 @@ export default function SettingsScreen() {
         <Pressable onPress={() => router.back()} hitSlop={8}>
           <Text style={[styles.cancel, textDir(isRTL)]}>{t("common.cancel")}</Text>
         </Pressable>
-        <Text style={styles.title}>{t("settings.title")}</Text>
+        <Text style={styles.title}>{t("preferences.title")}</Text>
         <View style={{ width: 60 }} />
       </View>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={styles.scrollContent}
-        >
-          <View style={styles.field}>
-            <Text style={[styles.label, textDir(isRTL)]}>
-              {t("settings.name.label")} <Text style={styles.required}>*</Text>
-            </Text>
-            <TextInput
-              style={[styles.input, textDir(isRTL)]}
-              value={name}
-              onChangeText={setName}
-              placeholder={t("onboarding.name.placeholder")}
-              placeholderTextColor={colors.textMuted}
-              autoCapitalize="words"
-              returnKeyType="next"
-              onSubmitEditing={() => shopRef.current?.focus()}
-              submitBehavior="submit"
-            />
-          </View>
-
-          <View style={styles.field}>
-            <Text style={[styles.label, textDir(isRTL)]}>{t("settings.shop.label")}</Text>
-            <TextInput
-              ref={shopRef}
-              style={[styles.input, textDir(isRTL)]}
-              value={shopName}
-              onChangeText={setShopName}
-              placeholder={t("onboarding.shop.placeholder")}
-              placeholderTextColor={colors.textMuted}
-              returnKeyType="done"
-            />
-            <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("settings.shop.hint")}</Text>
-          </View>
-
-          <SelectField
-            label={t("settings.language.label")}
-            value={t(selectedLangLabelKey as never)}
-            onPress={() => setLangSheetVisible(true)}
-            isRTL={isRTL}
-          />
-
-          <SelectField
-            label={t("settings.currency.label")}
-            value={`${findSymbol(currency)}  ${getCurrencyName(currency)}`}
-            onPress={() => setCurrencySheetVisible(true)}
-            isRTL={isRTL}
-            hint={t("settings.currency.hint")}
-          />
-
-          <View style={{ height: 24 }} />
-          <Button label={t("settings.save")} onPress={onSave} loading={busy} />
-        </ScrollView>
-      </KeyboardAvoidingView>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <SelectField
+          label={t("settings.language.label")}
+          // selectedLangLabelKey is a runtime-computed string; t() expects
+          // a literal key union. Casting to the union is safe because the
+          // value is always one of the three known LANGUAGE_OPTIONS keys.
+          value={t(selectedLangLabelKey as Parameters<typeof t>[0])}
+          onPress={() => setLangSheetVisible(true)}
+          isRTL={isRTL}
+        />
+        <SelectField
+          label={t("settings.currency.label")}
+          value={`${findSymbol(currency)}  ${getCurrencyName(currency)}`}
+          onPress={() => setCurrencySheetVisible(true)}
+          isRTL={isRTL}
+          hint={t("settings.currency.hint")}
+        />
+        <SelectField
+          label={t("preferences.country.label")}
+          value={(() => {
+            const c = getCountry(countryCode);
+            return `${c.flag}  ${c.name} (${c.dialCode})`;
+          })()}
+          onPress={() => setCountrySheetVisible(true)}
+          isRTL={isRTL}
+          hint={t("preferences.country.hint")}
+        />
+      </ScrollView>
 
       <OptionSheet
         visible={langSheetVisible}
         title={t("settings.language.label")}
         options={LANGUAGE_OPTIONS.map((o) => ({
           key: o.value,
-          label: t(o.labelKey as never),
+          label: t(o.labelKey as Parameters<typeof t>[0]),
         }))}
         selected={localePref}
+        onSelect={(k) => pickLanguage(k as LocalePref)}
         onDismiss={() => setLangSheetVisible(false)}
-        onSelect={(key) => {
-          setLocalePref(key as LocalePref);
-          setLangSheetVisible(false);
-        }}
         isRTL={isRTL}
       />
-
       <OptionSheet
         visible={currencySheetVisible}
         title={t("settings.currency.label")}
@@ -231,12 +165,15 @@ export default function SettingsScreen() {
           leading: c.symbol,
         }))}
         selected={currency}
+        onSelect={pickCurrency}
         onDismiss={() => setCurrencySheetVisible(false)}
-        onSelect={(key) => {
-          setCurrency(key);
-          setCurrencySheetVisible(false);
-        }}
         isRTL={isRTL}
+      />
+      <CountryPickerSheet
+        visible={countrySheetVisible}
+        selectedCode={countryCode}
+        onSelect={pickCountry}
+        onDismiss={() => setCountrySheetVisible(false)}
       />
     </SafeAreaView>
   );
@@ -246,8 +183,6 @@ function findSymbol(code: string): string {
   return CURRENCIES.find((c) => c.code === code)?.symbol ?? "";
 }
 
-// Compact select field. Renders like an input with the current value + a
-// chevron-down affordance; tap fires onPress to open a picker sheet.
 function SelectField(props: {
   label: string;
   value: string;
@@ -255,31 +190,29 @@ function SelectField(props: {
   isRTL: boolean;
   hint?: string;
 }) {
-  const { label, value, onPress, isRTL, hint } = props;
   return (
     <View style={styles.field}>
-      <Text style={[styles.label, textDir(isRTL)]}>{label}</Text>
+      <Text style={[styles.label, textDir(props.isRTL)]}>{props.label}</Text>
       <Pressable
-        onPress={onPress}
+        onPress={props.onPress}
         style={({ pressed }) => [
           styles.selectField,
-          rowDir(isRTL),
+          rowDir(props.isRTL),
           pressed && { backgroundColor: colors.bgMuted },
         ]}
       >
-        <Text style={[styles.selectValue, textDir(isRTL)]} numberOfLines={1}>
-          {value}
+        <Text style={[styles.selectValue, textDir(props.isRTL)]} numberOfLines={1}>
+          {props.value}
         </Text>
         <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
       </Pressable>
-      {hint ? <Text style={[styles.fieldHint, textDir(isRTL)]}>{hint}</Text> : null}
+      {props.hint ? (
+        <Text style={[styles.fieldHint, textDir(props.isRTL)]}>{props.hint}</Text>
+      ) : null}
     </View>
   );
 }
 
-// Bottom sheet that presents a list of options with checkmarks. Pattern
-// mirrors BottomSheet's slide-up + blur-backdrop chrome; kept inline here
-// because the row layout (leading char + label + checkmark) is specific.
 const SHEET_OFFSCREEN = 600;
 const SHEET_EXIT_MS = 220;
 
@@ -385,18 +318,22 @@ function OptionSheet(props: {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
-  fillCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderBottomWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.borderDefault,
   },
-  cancel: { fontSize: 15, fontFamily: fonts.sansMedium, color: colors.textSubtle, minWidth: 60 },
-  title: { fontSize: 15, fontFamily: fonts.sansSemi, color: colors.textEmphasis },
+  cancel: {
+    fontSize: 15,
+    fontFamily: fonts.sansMedium,
+    color: colors.textSubtle,
+    minWidth: 60,
+  },
+  title: { fontSize: 16, fontFamily: fonts.sansSemi, color: colors.textEmphasis },
   scrollContent: { padding: 16, paddingTop: 24, paddingBottom: 32 },
   field: { marginBottom: 20 },
   label: {
@@ -405,26 +342,13 @@ const styles = StyleSheet.create({
     color: colors.textDefault,
     marginBottom: 8,
   },
-  required: { color: colors.danger },
   fieldHint: {
     fontSize: 12,
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
     marginTop: 6,
   },
-  input: {
-    minHeight: 44,
-    borderWidth: 1,
-    borderColor: colors.borderDefault,
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    fontSize: 15,
-    fontFamily: fonts.sansRegular,
-    color: colors.textEmphasis,
-    backgroundColor: colors.bgDefault,
-  },
 
-  // Compact select field — looks like the text input, with a value + chevron.
   selectField: {
     minHeight: 44,
     borderWidth: 1,
@@ -434,70 +358,71 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgDefault,
     alignItems: "center",
     justifyContent: "space-between",
+    flexDirection: "row",
   },
   selectValue: {
-    flex: 1,
     fontSize: 15,
     fontFamily: fonts.sansRegular,
     color: colors.textEmphasis,
+    flexShrink: 1,
   },
 
-  // Bottom-sheet picker chrome — mirrors BottomSheet.tsx + CountryPickerSheet.
-  sheetTint: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.08)" },
+  // OptionSheet styles
+  sheetTint: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.08)",
+  },
   sheetContainer: {
     position: "absolute",
     left: 0,
     right: 0,
     bottom: 0,
-    maxHeight: "80%",
   },
-  sheetWrap: {
+  sheetWrap: { marginHorizontal: 12, marginBottom: 12 },
+  sheet: {
     backgroundColor: colors.bgDefault,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    borderTopWidth: 1,
-    borderTopColor: colors.borderDefault,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 4,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
   },
-  sheet: { paddingTop: 8, paddingBottom: 8 },
   sheetGrabber: {
-    alignSelf: "center",
-    width: 40,
+    width: 36,
     height: 4,
     borderRadius: 2,
     backgroundColor: colors.borderEmphasis,
-    marginBottom: 8,
+    alignSelf: "center",
+    marginBottom: 10,
   },
   sheetTitle: {
-    fontSize: 11,
+    fontSize: 13,
     fontFamily: fonts.sansSemi,
-    color: colors.textSubtle,
-    paddingHorizontal: 20,
-    paddingTop: 4,
-    paddingBottom: 12,
+    color: colors.textMuted,
+    letterSpacing: 0.5,
     textTransform: "uppercase",
-    letterSpacing: 0.6,
+    marginBottom: 10,
   },
-  sheetList: { paddingHorizontal: 8 },
+  sheetList: {},
   sheetRow: {
+    minHeight: 48,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingVertical: 14,
-    borderRadius: 8,
   },
   sheetRowDivider: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderSubtle,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.borderDefault,
   },
   sheetRowLeft: {
     flexDirection: "row",
-    alignItems: "baseline",
+    alignItems: "center",
     gap: 12,
     flex: 1,
   },
   sheetRowLeading: {
-    fontSize: 17,
+    fontSize: 18,
     fontFamily: fonts.monoSemi,
     color: colors.textEmphasis,
   },

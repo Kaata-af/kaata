@@ -79,12 +79,38 @@ import {
   initDb,
   readPendingUsage,
 } from "../lib/db";
+import { configureGoogleSignIn } from "../lib/auth";
 import { initCurrencyFromPref } from "../lib/currency";
+import { initDefaultCountryFromPref } from "../lib/phone";
 import { useAppFonts } from "../lib/fonts";
 import { initLocaleFromPref } from "../lib/i18n";
 import { ensureInstallId, getInstalledAtUnixMs } from "../lib/install-id";
 
 const currentVersion = Application.nativeApplicationVersion || "0.1.0";
+
+// Decide where the Stack mounts first. Precedence:
+//   1. If the user has a local_self user, they're already onboarded — home.
+//      hasOnboarded is the AUTHORITATIVE source; an onboarding_step='done'
+//      claim without a backing local_self row is treated as stale (the
+//      user wiped their self row out-of-band, e.g. via a partial reset).
+//   2. Otherwise, if onboarding_step records they were partway through,
+//      resume there.
+//   3. Fresh install: language step UNLESS the device is already Persian/
+//      Dari (their locale is correct, skip the gratuitous "pick your
+//      language" tap), in which case start at the auth step.
+function pickInitialRoute(args: {
+  hasOnboarded: boolean;
+  onboardingStep: "language" | "auth" | "profile" | "done" | null;
+  deviceIsPersian: boolean;
+}): string {
+  if (args.hasOnboarded) return "index";
+  // No self exists — ignore step='done' (treat as stale).
+  if (args.onboardingStep === "auth") return "onboarding/auth";
+  if (args.onboardingStep === "profile") return "onboarding/profile";
+  if (args.onboardingStep === "language") return "onboarding/language";
+  // Fresh install — skip language for Persian-locale devices.
+  return args.deviceIsPersian ? "onboarding/auth" : "onboarding/language";
+}
 
 export default function RootLayout() {
   // First-launch gate: if the Activity came up RTL (v0.2.4 upgrader OR a
@@ -102,6 +128,16 @@ export default function RootLayout() {
   const [appReady, setAppReady] = useState(false);
   const [installId, setInstallId] = useState<string | null>(null);
   const [hasOnboarded, setHasOnboarded] = useState(false);
+  // Resumable onboarding step: 'language' | 'auth' | 'profile' | 'done' | null.
+  // Read from app_meta on launch so a force-quit mid-flow returns the
+  // user to the screen they were last on, not back to step 1.
+  const [onboardingStep, setOnboardingStep] = useState<
+    "language" | "auth" | "profile" | "done" | null
+  >(null);
+  // Device-locale-driven flag: if the device is already Persian/Dari, we
+  // SKIP the language picker (their language is already correct; asking
+  // them feels like the app doesn't trust their device locale).
+  const [deviceIsPersian, setDeviceIsPersian] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -111,14 +147,40 @@ export default function RootLayout() {
         // first render so labels and amount currency codes are correct from
         // frame zero. Both read app_meta; safe to await right after initDb()
         // since the table is guaranteed.
-        await Promise.all([initLocaleFromPref(), initCurrencyFromPref()]);
+        await Promise.all([
+          initLocaleFromPref(),
+          initCurrencyFromPref(),
+          initDefaultCountryFromPref(),
+        ]);
+        // Google sign-in configuration is module-level state on the native
+        // module. Calling configure() once at app start sets the webClientId
+        // that will be used by every subsequent GoogleSignin.signIn() call.
+        // Safe to call repeatedly — it's idempotent.
+        configureGoogleSignIn();
         // No I18nManager reconciliation here — direction is sandboxed via
         // lib/direction.ts. The init load above sets currentLocale, which
         // derives the internal direction flag synchronously.
         const id = await ensureInstallId();
-        const self = await getLocalSelf();
+        const [self, step] = await Promise.all([getLocalSelf(), getAppMeta("onboarding_step")]);
         setInstallId(id);
         setHasOnboarded(Boolean(self));
+        // Validate the step value — only the four known states pass through.
+        if (step === "language" || step === "auth" || step === "profile" || step === "done") {
+          setOnboardingStep(step);
+        }
+        // Detect device locale for skip-language decision. Fresh installs
+        // get locale_pref=null at this point; this read is just the raw
+        // device value.
+        const deviceLang = await (async () => {
+          // expo-localization is already imported into lib/i18n via
+          // getLocales(); reuse that via a side-effect-free helper. We
+          // can read the same source from here without re-importing.
+          // Lazy require to keep the top of this file clean.
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { getLocales } = require("expo-localization");
+          return (getLocales()[0]?.languageCode ?? "en").toLowerCase();
+        })();
+        setDeviceIsPersian(deviceLang === "fa" || deviceLang === "prs");
       } catch (err) {
         console.warn("[init] failed", err);
       } finally {
@@ -150,14 +212,27 @@ export default function RootLayout() {
             <StatusBar style="dark" />
             {installId ? <BackgroundCheckIn installId={installId} /> : null}
             <Stack
-              initialRouteName={hasOnboarded ? "index" : "onboarding"}
+              initialRouteName={pickInitialRoute({
+                hasOnboarded,
+                onboardingStep,
+                deviceIsPersian,
+              })}
               screenOptions={{
                 headerShown: false,
                 contentStyle: { backgroundColor: colors.bgDefault },
               }}
             >
               <Stack.Screen name="index" />
-              <Stack.Screen name="onboarding" options={{ gestureEnabled: false }} />
+              {/* Resumable onboarding stack. Each screen is registered as
+                  its own Stack screen so the resumed step doesn't push
+                  the earlier ones into history (avoiding back-into-language
+                  loops). Gestures off across the whole flow — users
+                  navigate forward only, except via explicit on-screen Back
+                  on the profile screen. */}
+              <Stack.Screen name="onboarding/language" options={{ gestureEnabled: false }} />
+              <Stack.Screen name="onboarding/auth" options={{ gestureEnabled: false }} />
+              <Stack.Screen name="onboarding/profile" options={{ gestureEnabled: false }} />
+              <Stack.Screen name="onboarding/index" />
               <Stack.Screen
                 name="update-prompt"
                 options={{ presentation: "fullScreenModal", gestureEnabled: false }}
@@ -167,6 +242,8 @@ export default function RootLayout() {
               <Stack.Screen name="person/new" options={{ presentation: "modal" }} />
               <Stack.Screen name="entry/new" options={{ presentation: "modal" }} />
               <Stack.Screen name="entry/[id]/edit" options={{ presentation: "modal" }} />
+              <Stack.Screen name="account" options={{ presentation: "modal" }} />
+              <Stack.Screen name="preferences" options={{ presentation: "modal" }} />
             </Stack>
           </AppMetaProvider>
         </ToastProvider>

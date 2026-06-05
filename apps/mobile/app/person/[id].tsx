@@ -125,36 +125,40 @@ export default function PersonDetailScreen() {
          * (the v0.2.4 bug).
          */}
         <View style={styles.actions}>
-          <Pressable
-            onPress={() =>
-              router.push({
-                pathname: "/entry/new",
-                params: { personId: person.id, type: "payment" },
-              })
-            }
-            style={({ pressed }) => [
-              styles.actionBtn,
-              pressed && { backgroundColor: colors.bgMuted },
-            ]}
-          >
-            <Ionicons name="arrow-down-outline" size={16} color={colors.textEmphasis} />
-            <Text style={styles.actionText}>{t("person.action.iReceived")}</Text>
-          </Pressable>
-          <Pressable
-            onPress={() =>
-              router.push({
-                pathname: "/entry/new",
-                params: { personId: person.id, type: "debt" },
-              })
-            }
-            style={({ pressed }) => [
-              styles.actionBtn,
-              pressed && { backgroundColor: colors.bgMuted },
-            ]}
-          >
-            <Ionicons name="arrow-up-outline" size={16} color={colors.textEmphasis} />
-            <Text style={styles.actionText}>{t("person.action.iGave")}</Text>
-          </Pressable>
+          <View style={styles.actionBtnWrap}>
+            <Pressable
+              onPress={() =>
+                router.push({
+                  pathname: "/entry/new",
+                  params: { personId: person.id, type: "payment" },
+                })
+              }
+              style={({ pressed }) => [
+                styles.actionBtn,
+                pressed && { backgroundColor: colors.bgMuted },
+              ]}
+            >
+              <Ionicons name="arrow-down-outline" size={16} color={colors.textEmphasis} />
+              <Text style={styles.actionText}>{t("person.action.iReceived")}</Text>
+            </Pressable>
+          </View>
+          <View style={styles.actionBtnWrap}>
+            <Pressable
+              onPress={() =>
+                router.push({
+                  pathname: "/entry/new",
+                  params: { personId: person.id, type: "debt" },
+                })
+              }
+              style={({ pressed }) => [
+                styles.actionBtn,
+                pressed && { backgroundColor: colors.bgMuted },
+              ]}
+            >
+              <Ionicons name="arrow-up-outline" size={16} color={colors.textEmphasis} />
+              <Text style={styles.actionText}>{t("person.action.iGave")}</Text>
+            </Pressable>
+          </View>
         </View>
 
         {entries.length === 0 ? (
@@ -283,6 +287,9 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: 20,
   },
+  // Wrap View just exists to hang a ref for the tour spotlight. flex:1
+  // so it behaves identically to the bare Pressable did before.
+  actionBtnWrap: { flex: 1 },
   actionBtn: {
     flex: 1,
     flexDirection: "row",

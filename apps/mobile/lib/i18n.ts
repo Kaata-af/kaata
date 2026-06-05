@@ -35,6 +35,80 @@ const en = {
   "onboarding.continue": "Continue",
   "onboarding.nameRequired": "Name required",
 
+  // Onboarding step 1 — language picker. Only shown when device locale
+  // isn't already Persian/Dari.
+  "onboardingLanguage.title": "Choose your language",
+  "onboardingLanguage.subtitle": "You can change this later in Settings.",
+
+  // Onboarding mode picker (step 2 — appears after name + shop)
+  "onboardingMode.title": "How would you like to use kaata?",
+  "onboardingMode.subtitle": "You can change this later in Settings.",
+  "onboardingMode.google.title": "Sign in with Google",
+  "onboardingMode.google.body":
+    "Back up your kaata to the cloud. Restore it on a new phone if you lose this one.",
+  "onboardingMode.offline.title": "Stay fully offline",
+  "onboardingMode.offline.body":
+    "No account. Your kaata never leaves this phone — private by default.",
+  "onboardingMode.signInFailed": "Sign-in didn't work. Try again.",
+  "onboardingMode.expoGoHint": "Sign-in works on the real app; for now you can continue offline.",
+  "onboardingMode.back": "Back",
+
+  // Onboarding profile (last step before the tour)
+  "onboardingProfile.title": "Almost done",
+  "onboardingProfile.signedInHint": "Signed in as {email}",
+  "onboardingProfile.continue": "Continue",
+  "onboardingProfile.nameRequired": "Please enter your name",
+
+  // First-time guided tour was deprecated — keys removed. See
+  // docs/tour-redesign.md for the postmortem + the recommended
+  // approach for a future attempt.
+
+  // Settings — Account section
+  // Profile menu (bottom sheet from the home header)
+  "profile.menu.signedInAs": "Signed in as {email}",
+  "profile.menu.notSignedIn": "Not signed in",
+  "profile.menu.account": "Account",
+  "profile.menu.accountHint": "Name, shop, sign-in, backup",
+  "profile.menu.preferences": "Preferences",
+  "profile.menu.preferencesHint": "Language, currency",
+
+  // Account screen (split from Settings)
+  "account.title": "Account",
+  "account.identity.label": "Your identity",
+  "account.saved": "Saved.",
+
+  // Preferences screen (split from Settings)
+  "preferences.title": "Preferences",
+  "preferences.country.label": "Default country",
+  "preferences.country.hint":
+    "The country picker on new contacts starts here. Doesn't change any existing phone numbers.",
+  "preferences.country.changed": "Default country updated.",
+
+  "settings.account.label": "Account",
+  "settings.account.signedInAs": "Signed in as {email}",
+  "settings.account.signIn": "Sign in with Google",
+  "settings.account.signOut": "Sign out",
+  "settings.account.signInHint": "Required for cloud backup.",
+  "settings.account.signOutHint": "Backups stop until you sign in again.",
+
+  // Settings — Backup section
+  "settings.backup.label": "Backup",
+  "settings.backup.signInRequired": "Sign in to back up your kaata.",
+  "settings.backup.never": "Not backed up yet.",
+  "settings.backup.lastAt": "Last backup {when}.",
+  "settings.backup.justNow": "just now",
+  "settings.backup.minutesAgo": "{n} minutes ago",
+  "settings.backup.hoursAgo": "{n} hours ago",
+  "settings.backup.daysAgo": "{n} days ago",
+  "settings.backup.now": "Back up now",
+  "settings.backup.uploading": "Backing up…",
+  "settings.backup.success": "Backed up.",
+  "settings.backup.failed": "Backup didn't work. Try again.",
+  "settings.backup.sessionExpired": "Session expired. Sign in again to back up.",
+  "settings.backup.timeout": "Network was too slow. Try again on a better connection.",
+  "settings.backup.hint":
+    "Your kaata is saved to the cloud under your Google account. Only signed-in devices can read it back.",
+
   // Home
   "home.tab.collect": "To collect",
   "home.tab.pay": "To pay",
@@ -196,6 +270,79 @@ const fa: Partial<Record<Key, string>> = {
   "onboarding.shop.placeholder": "دکان سلطان",
   "onboarding.continue": "ادامه",
   "onboarding.nameRequired": "نام لازم است",
+
+  // Onboarding step 1 — language picker
+  "onboardingLanguage.title": "زبان خود را برگزینید",
+  "onboardingLanguage.subtitle": "بعداً می‌توانید این را در تنظیمات تغییر دهید.",
+
+  // Onboarding mode picker
+  "onboardingMode.title": "می‌خواهید چطور از کاتا استفاده کنید؟",
+  "onboardingMode.subtitle": "بعداً می‌توانید این را در تنظیمات تغییر دهید.",
+  "onboardingMode.google.title": "ورود با گوگل",
+  "onboardingMode.google.body":
+    "کاتای خود را در کلاد ذخیره کنید. اگر تلفن گم شد، روی تلفن نو بازیابی کنید.",
+  "onboardingMode.offline.title": "بدون حساب",
+  "onboardingMode.offline.body": "بدون حساب. کاتای شما فقط روی همین تلفون می‌ماند — کاملاً خصوصی.",
+  "onboardingMode.signInFailed": "ورود نشد. دوباره امتحان کنید.",
+  "onboardingMode.expoGoHint":
+    "ورود در نسخه واقعی برنامه کار می‌کند؛ فعلاً می‌توانید بدون حساب ادامه دهید.",
+  "onboardingMode.back": "برگشت",
+
+  // Onboarding profile
+  "onboardingProfile.title": "تقریباً تمام",
+  "onboardingProfile.signedInHint": "وارد شده به نام {email}",
+  "onboardingProfile.continue": "ادامه",
+  "onboardingProfile.nameRequired": "لطفاً نام خود را وارد کنید",
+
+  // Tour deprecated — keys removed alongside English. See
+  // docs/tour-redesign.md for the postmortem.
+
+  // Settings — Account section
+  // Profile menu
+  "profile.menu.signedInAs": "وارد شده به نام {email}",
+  "profile.menu.notSignedIn": "وارد نشده",
+  "profile.menu.account": "حساب",
+  "profile.menu.accountHint": "نام، فروشگاه، ورود، پشتیبان‌گیری",
+  "profile.menu.preferences": "تنظیمات",
+  "profile.menu.preferencesHint": "زبان، واحد پول",
+
+  // Account screen
+  "account.title": "حساب",
+  "account.identity.label": "هویت شما",
+  "account.saved": "ذخیره شد.",
+
+  // Preferences screen
+  "preferences.title": "تنظیمات",
+  "preferences.country.label": "کشور پیش‌فرض",
+  "preferences.country.hint":
+    "انتخاب‌گر کشور در افزودن مخاطب جدید از اینجا شروع می‌شود. شماره‌های موجود تغییر نمی‌کند.",
+  "preferences.country.changed": "کشور پیش‌فرض به‌روز شد.",
+
+  "settings.account.label": "حساب",
+  "settings.account.signedInAs": "وارد شده به نام {email}",
+  "settings.account.signIn": "ورود با گوگل",
+  "settings.account.signOut": "خروج",
+  "settings.account.signInHint": "برای پشتیبان‌گیری در کلاد لازم است.",
+  "settings.account.signOutHint": "تا وقتی دوباره وارد نشوید پشتیبان‌گیری متوقف می‌شود.",
+
+  // Settings — Backup section
+  "settings.backup.label": "پشتیبان‌گیری",
+  "settings.backup.signInRequired": "برای پشتیبان‌گیری کاتای خود وارد شوید.",
+  "settings.backup.never": "هنوز پشتیبان نگرفته‌اید.",
+  "settings.backup.lastAt": "آخرین پشتیبان {when}.",
+  "settings.backup.justNow": "همین حالا",
+  "settings.backup.minutesAgo": "{n} دقیقه پیش",
+  "settings.backup.hoursAgo": "{n} ساعت پیش",
+  "settings.backup.daysAgo": "{n} روز پیش",
+  "settings.backup.now": "حالا پشتیبان بگیر",
+  "settings.backup.uploading": "در حال پشتیبان‌گیری…",
+  "settings.backup.success": "پشتیبان گرفته شد.",
+  "settings.backup.failed": "پشتیبان‌گیری نشد. دوباره امتحان کنید.",
+  "settings.backup.sessionExpired":
+    "حساب از سیستم بیرون شده است. برای پشتیبان‌گیری دوباره وارد شوید.",
+  "settings.backup.timeout": "اینترنت کند است. با اتصال بهتر دوباره امتحان کنید.",
+  "settings.backup.hint":
+    "کاتای شما در کلاد زیر حساب گوگل ذخیره می‌شود. فقط دستگاه‌های وارد شده می‌توانند آن را بازیابی کنند.",
 
   // Home
   "home.tab.collect": "وصول",

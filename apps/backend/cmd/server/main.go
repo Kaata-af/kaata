@@ -8,6 +8,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/matee/kaata-backend/internal/auth"
+	"github.com/matee/kaata-backend/internal/backup"
 	"github.com/matee/kaata-backend/internal/checkin"
 	"github.com/matee/kaata-backend/internal/config"
 	"github.com/matee/kaata-backend/internal/db"
@@ -35,6 +37,12 @@ func main() {
 	visitSvc := visit.NewService(pool, cfg.APKDownloadURL)
 	visitH := visit.NewHandler(visitSvc)
 
+	authSvc := auth.NewService(pool, cfg.GoogleWebClientID, cfg.SessionJWTSecret)
+	authH := auth.NewHandler(authSvc)
+
+	backupSvc := backup.NewService(pool)
+	backupH := backup.NewHandler(backupSvc)
+
 	r := chi.NewRouter()
 	r.Use(httpx.Logger)
 	r.Use(httpx.Recoverer)
@@ -46,6 +54,17 @@ func main() {
 	r.Post("/v1/check-in", checkinH.CheckIn)
 	r.Post("/v1/visit", visitH.Visit)
 	r.Get("/v1/download", visitH.Download)
+
+	// Auth: public sign-in (no session yet), protected sign-out (validates
+	// the session JWT via RequireSession middleware). Backup endpoints
+	// also require a session — they live on the same protected subtree.
+	r.Post("/v1/auth/google", authH.GoogleSignIn)
+	r.Group(func(pr chi.Router) {
+		pr.Use(auth.RequireSession(cfg.SessionJWTSecret))
+		pr.Post("/v1/auth/signout", authH.SignOut)
+		pr.Post("/v1/backup/upload", backupH.Upload)
+		pr.Get("/v1/backup/latest", backupH.Latest)
+	})
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.BackendPort,

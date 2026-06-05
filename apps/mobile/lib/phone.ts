@@ -1,3 +1,5 @@
+import { getAppMeta } from "./db";
+
 // Multi-country phone normalization. Afghan numbers stay the strict-format
 // canonical input; everything else (Afghan diaspora destinations, neighbours)
 // is accepted with a permissive E.164 check (+ followed by 6-15 digits).
@@ -5,6 +7,12 @@
 // Storage is always the E.164 string. Country code on the input screen is a
 // UX hint that disambiguates a national number — it's not persisted; it's
 // inferred from the dial code on load when editing.
+//
+// Default country (the preselected entry in the picker on new-person /
+// new-entry screens) is user-configurable via Preferences. The choice is
+// persisted in app_meta under "default_country_code" and read into a
+// module-global on startup via initDefaultCountryFromPref(), same pattern
+// as currency in lib/currency.ts.
 
 export type Country = {
   code: string; // ISO 3166 alpha-2
@@ -33,6 +41,42 @@ export const COUNTRIES: Country[] = [
 ];
 
 export const DEFAULT_COUNTRY_CODE = "AF";
+
+// Module-global mirror of app_meta.default_country_code. Set on startup
+// by initDefaultCountryFromPref(); callers read synchronously via
+// getCurrentDefaultCountryCode() without prop-drilling. Falls back to
+// DEFAULT_COUNTRY_CODE (AF) until the init completes, which is fine
+// because phone-input screens (person/new, person/[id]/edit) only mount
+// after the app has booted past initDb + Promise.all of the init calls
+// in _layout.tsx.
+let currentDefaultCountryCode: string = DEFAULT_COUNTRY_CODE;
+
+export function getCurrentDefaultCountryCode(): string {
+  return currentDefaultCountryCode;
+}
+
+// Imperative setter for the active default. Caller is responsible for
+// also persisting via setAppMeta("default_country_code", code) — same
+// contract as setCurrentCurrency.
+export function setCurrentDefaultCountryCode(code: string): void {
+  if (COUNTRIES.some((c) => c.code === code)) {
+    currentDefaultCountryCode = code;
+  }
+}
+
+// Called from _layout.tsx during init alongside locale + currency.
+// Reads app_meta and applies the saved choice before the first
+// person/new mount so the picker pre-selects the user's country.
+export async function initDefaultCountryFromPref(): Promise<void> {
+  try {
+    const stored = await getAppMeta("default_country_code");
+    if (stored && COUNTRIES.some((c) => c.code === stored)) {
+      currentDefaultCountryCode = stored;
+    }
+  } catch {
+    // app_meta unreadable — fall back to AF silently.
+  }
+}
 
 export function getCountry(code: string): Country {
   return COUNTRIES.find((c) => c.code === code) ?? COUNTRIES[0];

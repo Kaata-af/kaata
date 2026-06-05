@@ -19,6 +19,18 @@ type Config struct {
 	// kaata-0.1.0.apk). Changing it requires only a backend env update —
 	// QR codes pointing at /v1/download?s=... keep working.
 	APKDownloadURL string
+	// GoogleWebClientID: the OAuth2 Web client ID from Google Cloud Console.
+	// Used as the AUDIENCE when verifying Google ID tokens posted to
+	// /v1/auth/google. Mobile (via @react-native-google-signin) requests
+	// tokens with this audience; the backend rejects any token where `aud`
+	// doesn't match. NOT a secret — public string baked into the APK too.
+	GoogleWebClientID string
+	// SessionJWTSecret: HMAC key for signing session JWTs we issue to mobile
+	// after a successful Google sign-in. MUST be a long random string (>=
+	// 32 bytes recommended) and MUST NOT be committed. Rotating it
+	// invalidates all currently-issued sessions, forcing every user to
+	// sign in again.
+	SessionJWTSecret string
 }
 
 func Load() Config {
@@ -28,6 +40,8 @@ func Load() Config {
 		BackendPort:         getenv("BACKEND_PORT", "8080"),
 		MigrateToBackendURL: os.Getenv("MIGRATE_TO_BACKEND_URL"),
 		APKDownloadURL:      getenv("APK_DOWNLOAD_URL", "http://localhost:3000/downloads/kaata-0.1.0.apk"),
+		GoogleWebClientID:   os.Getenv("GOOGLE_WEB_CLIENT_ID"),
+		SessionJWTSecret:    os.Getenv("SESSION_JWT_SECRET"),
 	}
 }
 

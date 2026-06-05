@@ -125,8 +125,16 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 		ON CONFLICT (install_id) DO UPDATE
 		SET last_seen_at   = NOW(),
 		    app_version    = EXCLUDED.app_version,
-		    platform       = EXCLUDED.platform,
-		    device_locale  = EXCLUDED.device_locale,
+		    -- platform/device_locale backfill: a previous /v1/auth/google call
+		    -- can stub-insert an installs row before the first real check-in
+		    -- (because auth races first check-in on a fresh install). The stub
+		    -- uses 'unknown' for both. We backfill those on the first real
+		    -- check-in but keep any value previously seen for stability.
+		    platform       = CASE
+		                       WHEN installs.platform = 'unknown' THEN EXCLUDED.platform
+		                       ELSE installs.platform
+		                     END,
+		    device_locale  = COALESCE(NULLIF(installs.device_locale, ''), EXCLUDED.device_locale),
 		    check_in_count = installs.check_in_count + 1,
 		    migration_001_phones_invalid  = COALESCE(EXCLUDED.migration_001_phones_invalid, installs.migration_001_phones_invalid),
 		    migration_001_phones_conflict = COALESCE(EXCLUDED.migration_001_phones_conflict, installs.migration_001_phones_conflict),
