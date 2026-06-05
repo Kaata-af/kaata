@@ -2,6 +2,7 @@ import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
 import { setAppMeta } from "../lib/db";
+import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 
 // Both banner variants share the same monochrome chassis. The update banner
@@ -9,17 +10,18 @@ import { fonts } from "../lib/fonts";
 // announcements stay light + bordered.
 export function UpdateBanner() {
   const { update, announcement, refresh } = useAppMeta();
+  const isRTL = useIsRTL();
 
   if (update) {
     return (
-      <View style={[styles.banner, styles.bannerInverted]}>
-        <View style={styles.body}>
-          <Text style={[styles.title, { color: colors.textInverted }]}>
+      <View style={[styles.banner, styles.bannerInverted, rowDir(isRTL)]}>
+        <View style={[styles.body, isRTL ? styles.bodyRTL : styles.bodyLTR]}>
+          <Text style={[styles.title, textDir(isRTL), { color: colors.textInverted }]}>
             Update available · v{update.version}
           </Text>
           {update.release_notes ? (
             <Text
-              style={[styles.note, { color: colors.textInverted, opacity: 0.85 }]}
+              style={[styles.note, textDir(isRTL), { color: colors.textInverted, opacity: 0.85 }]}
               numberOfLines={2}
             >
               {update.release_notes}
@@ -51,10 +53,15 @@ export function UpdateBanner() {
 
   if (announcement) {
     return (
-      <View style={[styles.banner, styles.bannerLight]}>
-        <View style={styles.body}>
-          <Text style={[styles.title, { color: colors.textEmphasis }]}>{announcement.title}</Text>
-          <Text style={[styles.note, { color: colors.textSubtle }]} numberOfLines={3}>
+      <View style={[styles.banner, styles.bannerLight, rowDir(isRTL)]}>
+        <View style={[styles.body, isRTL ? styles.bodyRTL : styles.bodyLTR]}>
+          <Text style={[styles.title, textDir(isRTL), { color: colors.textEmphasis }]}>
+            {announcement.title}
+          </Text>
+          <Text
+            style={[styles.note, textDir(isRTL), { color: colors.textSubtle }]}
+            numberOfLines={3}
+          >
             {announcement.body}
           </Text>
         </View>
@@ -100,7 +107,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgMuted,
     borderColor: colors.borderDefault,
   },
-  body: { flex: 1, marginRight: 12 },
+  body: { flex: 1 },
+  bodyLTR: { marginRight: 12 },
+  bodyRTL: { marginLeft: 12 },
   title: { fontFamily: fonts.sansSemi, fontSize: 13 },
   note: { fontSize: 12, fontFamily: fonts.sansRegular, marginTop: 2 },
   cta: {
@@ -115,6 +124,6 @@ const styles = StyleSheet.create({
     borderColor: colors.bgDefault,
   },
   ctaText: { fontFamily: fonts.sansSemi, fontSize: 12 },
-  dismiss: { marginLeft: 6, width: 24, height: 24, alignItems: "center", justifyContent: "center" },
+  dismiss: { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
   dismissText: { fontSize: 20, lineHeight: 22, fontFamily: fonts.sansRegular },
 });

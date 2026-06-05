@@ -9,8 +9,10 @@ import {
   useState,
 } from "react";
 import { Animated, Platform, StyleSheet, Text, View } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
+import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 
 // In-app toasts. Calm white card with a single colored icon for state — the
@@ -44,6 +46,14 @@ type ToastContextValue = {
 const ToastContext = createContext<ToastContextValue | null>(null);
 const DURATION_MS = 2500;
 const ANIM_MS = 240;
+// Swipe-to-dismiss thresholds. Either condition triggers commit on release:
+//   - drag distance ≥ 80px (about a quarter of a typical phone width)
+//   - velocity ≥ 600 px/s (a clear flick, in either direction)
+// Below both → spring back to zero translation.
+const SWIPE_DISMISS_DISTANCE = 80;
+const SWIPE_DISMISS_VELOCITY = 600;
+const SWIPE_DISMISS_TRAVEL = 400; // px the toast slides off-screen on commit
+const SWIPE_DISMISS_DURATION = 180;
 // Geometry for useToastOffset() — see notes in the hook for the derivation.
 const VIEWPORT_BOTTOM_MARGIN = 24; // matches the viewport's `bottom: 24 + insets.bottom`
 const TOAST_HEIGHT_SINGLE = 52; // single-line: 14 + 22 + 14 + (1+1) border
@@ -57,18 +67,26 @@ const LIFT_GAP = 16; // breathing room between toast top and lifted UI bottom
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const push = useCallback((message: string, kind: ToastKind = "info") => {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    setToasts((prev) => [...prev, { id, message, kind }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, DURATION_MS);
+  // Removal helper used by both the auto-dismiss timer and the user's swipe.
+  // Calls to remove an already-gone id are a no-op (idempotent filter), so a
+  // swipe-then-timer or timer-then-swipe race never causes a crash.
+  const remove = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
+
+  const push = useCallback(
+    (message: string, kind: ToastKind = "info") => {
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      setToasts((prev) => [...prev, { id, message, kind }]);
+      setTimeout(() => remove(id), DURATION_MS);
+    },
+    [remove],
+  );
 
   return (
     <ToastContext.Provider value={{ push, visibleCount: toasts.length }}>
       {children}
-      <ToastViewport toasts={toasts} />
+      <ToastViewport toasts={toasts} onDismiss={remove} />
     </ToastContext.Provider>
   );
 }
@@ -122,13 +140,19 @@ export function useToastOffset(): Animated.Value {
   return translateY;
 }
 
-function ToastViewport({ toasts }: { toasts: Toast[] }) {
+function ToastViewport({
+  toasts,
+  onDismiss,
+}: {
+  toasts: Toast[];
+  onDismiss: (id: string) => void;
+}) {
   const insets = useSafeAreaInsets();
   if (toasts.length === 0) return null;
   return (
     <View pointerEvents="box-none" style={[styles.viewport, { bottom: 24 + insets.bottom }]}>
       {toasts.map((t) => (
-        <ToastItem key={t.id} toast={t} />
+        <ToastItem key={t.id} toast={t} onDismiss={onDismiss} />
       ))}
     </View>
   );
@@ -140,8 +164,10 @@ const ICON_FOR_KIND = {
   info: "information-circle" as const,
 };
 
-function ToastItem({ toast }: { toast: Toast }) {
+function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {
+  const isRTL = useIsRTL();
   const translateY = useRef(new Animated.Value(40)).current;
+  const translateX = useRef(new Animated.Value(0)).current;
   const opacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -160,6 +186,47 @@ function ToastItem({ toast }: { toast: Toast }) {
     ]).start();
   }, [translateY, opacity]);
 
+  // Horizontal swipe-to-dismiss. Follow the finger via translateX.setValue
+  // during the drag (matches the home-rail pattern), commit on release if
+  // distance OR velocity crosses the threshold, otherwise spring back. The
+  // commit animation fades opacity and slides off-screen in parallel; on
+  // completion, we call onDismiss(id) which removes the toast from the
+  // queue. The 2.5s auto-dismiss timer keeps running independently — its
+  // call to remove(id) is a no-op if we beat it to it.
+  const pan = Gesture.Pan()
+    .activeOffsetX([-8, 8])
+    .onUpdate((e) => {
+      translateX.setValue(e.translationX);
+    })
+    .onEnd((e) => {
+      const shouldDismiss =
+        Math.abs(e.translationX) > SWIPE_DISMISS_DISTANCE ||
+        Math.abs(e.velocityX) > SWIPE_DISMISS_VELOCITY;
+      if (shouldDismiss) {
+        const direction =
+          e.translationX === 0 ? Math.sign(e.velocityX) || 1 : Math.sign(e.translationX);
+        Animated.parallel([
+          Animated.timing(translateX, {
+            toValue: direction * SWIPE_DISMISS_TRAVEL,
+            duration: SWIPE_DISMISS_DURATION,
+            useNativeDriver: true,
+          }),
+          Animated.timing(opacity, {
+            toValue: 0,
+            duration: SWIPE_DISMISS_DURATION,
+            useNativeDriver: true,
+          }),
+        ]).start(() => onDismiss(toast.id));
+      } else {
+        Animated.spring(translateX, {
+          toValue: 0,
+          useNativeDriver: true,
+          friction: 9,
+          tension: 110,
+        }).start();
+      }
+    });
+
   const iconColor =
     toast.kind === "error"
       ? colors.danger
@@ -168,12 +235,20 @@ function ToastItem({ toast }: { toast: Toast }) {
         : colors.textSubtle;
 
   return (
-    <Animated.View style={[styles.toast, { transform: [{ translateY }], opacity }]}>
-      <Ionicons name={ICON_FOR_KIND[toast.kind]} size={22} color={iconColor} />
-      <Text style={styles.message} numberOfLines={2}>
-        {toast.message}
-      </Text>
-    </Animated.View>
+    <GestureDetector gesture={pan}>
+      <Animated.View
+        style={[
+          styles.toast,
+          rowDir(isRTL),
+          { transform: [{ translateX }, { translateY }], opacity },
+        ]}
+      >
+        <Ionicons name={ICON_FOR_KIND[toast.kind]} size={22} color={iconColor} />
+        <Text style={[styles.message, textDir(isRTL)]} numberOfLines={2}>
+          {toast.message}
+        </Text>
+      </Animated.View>
+    </GestureDetector>
   );
 }
 

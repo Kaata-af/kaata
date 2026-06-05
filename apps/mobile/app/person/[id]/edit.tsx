@@ -17,11 +17,14 @@ import { CountryPickerSheet } from "../../../components/CountryPickerSheet";
 import { useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
 import { getPerson, updatePerson } from "../../../lib/db";
+import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
 import { fonts } from "../../../lib/fonts";
+import { t } from "../../../lib/i18n";
 import { DEFAULT_COUNTRY_CODE, getCountry, inferCountryFromE164 } from "../../../lib/phone";
 
 export default function EditPersonScreen() {
   const router = useRouter();
+  const isRTL = useIsRTL();
   const toast = useToast();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [loaded, setLoaded] = useState(false);
@@ -57,15 +60,15 @@ export default function EditPersonScreen() {
   // Reliable keyboard pop-up on Android — see entry/[id]/edit for context.
   useEffect(() => {
     if (!loaded) return;
-    const t = setTimeout(() => nameRef.current?.focus(), 280);
-    return () => clearTimeout(t);
+    const focusTimer = setTimeout(() => nameRef.current?.focus(), 280);
+    return () => clearTimeout(focusTimer);
   }, [loaded]);
 
   async function onSave() {
     if (!id) return;
     const trimmed = name.trim();
     if (!trimmed) {
-      toast.push("Name required", "error");
+      toast.push(t("onboarding.nameRequired"), "error");
       return;
     }
     setBusy(true);
@@ -73,13 +76,13 @@ export default function EditPersonScreen() {
       const result = await updatePerson(id, trimmed, phone.trim() || null, countryCode);
       if (!result.ok) {
         if (result.error === "phone_invalid") {
-          toast.push("Couldn't read that phone number. Try +93 70 123 4567.", "error");
+          toast.push(t("personAdd.phone.invalid"), "error");
         } else {
-          toast.push(`Phone already used by ${result.existing.name}`, "error");
+          toast.push(t("personAdd.phone.conflict", { name: result.existing.name }), "error");
         }
         return;
       }
-      toast.push("Saved", "success");
+      toast.push(t("settings.saved"), "success");
       router.back();
     } finally {
       setBusy(false);
@@ -98,11 +101,11 @@ export default function EditPersonScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, rowDir(isRTL)]}>
         <Pressable onPress={() => router.back()} hitSlop={8}>
-          <Text style={styles.cancel}>Cancel</Text>
+          <Text style={[styles.cancel, textDir(isRTL)]}>{t("common.cancel")}</Text>
         </Pressable>
-        <Text style={styles.title}>Edit person</Text>
+        <Text style={styles.title}>{t("personEdit.title")}</Text>
         <View style={{ width: 60 }} />
       </View>
       <KeyboardAvoidingView
@@ -110,15 +113,15 @@ export default function EditPersonScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={styles.field}>
-          <Text style={styles.label}>
-            Name <Text style={styles.required}>*</Text>
+          <Text style={[styles.label, textDir(isRTL)]}>
+            {t("personEdit.name.label")} <Text style={styles.required}>*</Text>
           </Text>
           <TextInput
             ref={nameRef}
-            style={styles.input}
+            style={[styles.input, textDir(isRTL)]}
             value={name}
             onChangeText={setName}
-            placeholder="Name"
+            placeholder={t("personEdit.name.label")}
             placeholderTextColor={colors.textMuted}
             autoCapitalize="words"
             returnKeyType="next"
@@ -127,7 +130,9 @@ export default function EditPersonScreen() {
           />
         </View>
         <View style={styles.field}>
-          <Text style={styles.label}>WhatsApp number</Text>
+          <Text style={[styles.label, textDir(isRTL)]}>{t("personEdit.phone.label")}</Text>
+          {/* Phone row stays physical-LTR; numbers are LTR-natural via
+              Unicode bidi. See the matching comment in person/new.tsx. */}
           <View style={styles.phoneRow}>
             <Pressable
               onPress={() => setPickerVisible(true)}
@@ -154,7 +159,7 @@ export default function EditPersonScreen() {
           </View>
         </View>
         <View style={{ height: 24 }} />
-        <Button label="Save changes" onPress={onSave} loading={busy} />
+        <Button label={t("personEdit.save")} onPress={onSave} loading={busy} />
       </KeyboardAvoidingView>
 
       <CountryPickerSheet

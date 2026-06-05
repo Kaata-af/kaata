@@ -15,11 +15,14 @@ import { Button } from "../components/Button";
 import { useToast } from "../components/Toast";
 import { colors } from "../lib/colors";
 import { createSelfProfile } from "../lib/db";
+import { textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
+import { t } from "../lib/i18n";
 
 export default function OnboardingScreen() {
   const router = useRouter();
   const toast = useToast();
+  const isRTL = useIsRTL();
   const [name, setName] = useState("");
   const [shopName, setShopName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -28,7 +31,7 @@ export default function OnboardingScreen() {
   async function onSubmit() {
     const trimmedName = name.trim();
     if (!trimmedName) {
-      toast.push("Name required", "error");
+      toast.push(t("onboarding.nameRequired"), "error");
       return;
     }
     setBusy(true);
@@ -52,20 +55,20 @@ export default function OnboardingScreen() {
           showsVerticalScrollIndicator={false}
         >
           <Image source={require("../assets/logo.png")} style={styles.logo} />
-          <Text style={styles.wordmark}>kaata.</Text>
-          <Text style={styles.subtitle}>A quiet ledger between you and the people you trust.</Text>
+          <Text style={styles.wordmark}>{t("brand.wordmark")}</Text>
+          <Text style={[styles.subtitle, textDir(isRTL)]}>{t("onboarding.subtitle")}</Text>
 
           <View style={{ height: 36 }} />
 
           <View style={styles.field}>
-            <Text style={styles.label}>
-              Your name <Text style={styles.required}>*</Text>
+            <Text style={[styles.label, textDir(isRTL)]}>
+              {t("onboarding.name.label")} <Text style={styles.required}>*</Text>
             </Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, textDir(isRTL)]}
               value={name}
               onChangeText={setName}
-              placeholder="Sultan"
+              placeholder={t("onboarding.name.placeholder")}
               placeholderTextColor={colors.textMuted}
               autoFocus
               returnKeyType="next"
@@ -75,13 +78,13 @@ export default function OnboardingScreen() {
           </View>
 
           <View style={styles.field}>
-            <Text style={styles.label}>Store or business name</Text>
+            <Text style={[styles.label, textDir(isRTL)]}>{t("onboarding.shop.label")}</Text>
             <TextInput
               ref={shopRef}
-              style={styles.input}
+              style={[styles.input, textDir(isRTL)]}
               value={shopName}
               onChangeText={setShopName}
-              placeholder="Shop Sultan"
+              placeholder={t("onboarding.shop.placeholder")}
               placeholderTextColor={colors.textMuted}
               returnKeyType="done"
               onSubmitEditing={onSubmit}
@@ -89,7 +92,7 @@ export default function OnboardingScreen() {
           </View>
 
           <View style={{ height: 24 }} />
-          <Button label="Continue" onPress={onSubmit} loading={busy} />
+          <Button label={t("onboarding.continue")} onPress={onSubmit} loading={busy} />
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

@@ -1,6 +1,8 @@
 import { Linking } from "react-native";
+import { getCurrentCurrencySymbol } from "./currency";
 import { bumpUsageCounter } from "./db";
 import { formatAmount } from "./format";
+import { t } from "./i18n";
 import type { Self } from "./types";
 
 // WhatsApp ping. Wording, sign and color emoji are all framed from the
@@ -10,32 +12,38 @@ import type { Self } from "./types";
 //   sender balance < 0 → receiver is creditor → "🟢 I owe you: +X"
 // A short action line ("Please settle when you can." etc.) sits alongside
 // the number so users who don't intuit "owe" still get a clear ask.
+//
+// Message body uses the SENDER's locale (the shopkeeper composing it).
+// The receiver may be on a different locale, but the message is one block
+// of text sent verbatim, so it's whatever the sender's kaata is set to.
 export async function shareKaataViaWhatsApp(
   person: { name: string; phone: string | null },
   balance: number,
   self: Self | null,
 ): Promise<void> {
   const accountWith = self?.shop_name ?? self?.name ?? "Kaata";
-  const lines: string[] = [`Salaam ${person.name}.`, ""];
+  const currency = getCurrentCurrencySymbol();
+  const amount = formatAmount(balance);
+  const lines: string[] = [t("share.greeting", { name: person.name }), ""];
 
   if (balance > 0) {
-    lines.push(`Your kaata at ${accountWith}:`);
-    lines.push(`🔴 You owe: −${formatAmount(balance)} AFN`);
+    lines.push(t("share.theyOwe.header", { accountWith }));
+    lines.push(t("share.theyOwe.amount", { amount, currency }));
     lines.push("");
-    lines.push("Please settle when you can.");
+    lines.push(t("share.theyOwe.cta"));
   } else if (balance < 0) {
-    lines.push(`Our kaata:`);
-    lines.push(`🟢 I owe you: +${formatAmount(balance)} AFN`);
+    lines.push(t("share.youOwe.header"));
+    lines.push(t("share.youOwe.amount", { amount, currency }));
     lines.push("");
-    lines.push("I will settle soon.");
+    lines.push(t("share.youOwe.cta"));
   } else {
-    lines.push(`🤝 Our kaata is fully settled.`);
+    lines.push(t("share.settled.line"));
     lines.push("");
-    lines.push("Thank you.");
+    lines.push(t("share.settled.cta"));
   }
 
   lines.push("");
-  lines.push("— Sent via Kaata.af");
+  lines.push(t("share.footer"));
 
   const text = lines.join("\n");
   const phone = person.phone ? person.phone.replace(/[^0-9+]/g, "") : "";
