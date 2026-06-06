@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { AutoBackup } from "../components/AutoBackup";
 import { ToastProvider } from "../components/Toast";
 
 // ============================================================================
@@ -211,6 +212,7 @@ export default function RootLayout() {
           <AppMetaProvider currentVersion={currentVersion}>
             <StatusBar style="dark" />
             {installId ? <BackgroundCheckIn installId={installId} /> : null}
+            <AutoBackup />
             <Stack
               initialRouteName={pickInitialRoute({
                 hasOnboarded,

@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { useEffect, useRef, useState } from "react";
-import { Animated, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, Image, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import type { SessionUser } from "../lib/auth";
 import { colors } from "../lib/colors";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
@@ -28,7 +29,12 @@ const EXIT_DURATION_MS = 220;
 
 export function ProfileMenuSheet(props: {
   visible: boolean;
-  signedInEmail: string | null;
+  // Full SessionUser so the header row can render the Google avatar
+  // when picture_url is set AND show the email below. Passing the
+  // whole object (rather than email + pictureUrl as separate props)
+  // keeps a single source of truth — there's never a case where one
+  // is fresh and the other is stale.
+  signedInUser: SessionUser | null;
   onAccount: () => void;
   onPreferences: () => void;
   onDismiss: () => void;
@@ -101,17 +107,29 @@ export function ProfileMenuSheet(props: {
       >
         <SafeAreaView edges={["bottom"]}>
           <BlurView intensity={45} tint="light" style={styles.sheet}>
-            {/* Signed-in state header. Informational, no onPress. */}
+            {/* Signed-in state header. Informational, no onPress.
+                Renders the Google avatar (if picture_url is set) at
+                32px to match the visual weight of the previous
+                Ionicons fallback. The Ionicons fallback handles the
+                signed-out case + edge cases where the user signed in
+                but Google didn't return an avatar URL. */}
             <View style={[styles.headerRow, rowDir(isRTL)]}>
-              <Ionicons
-                name={props.signedInEmail ? "person-circle" : "person-circle-outline"}
-                size={28}
-                color={colors.textEmphasis}
-                style={isRTL ? { marginLeft: 10 } : { marginRight: 10 }}
-              />
+              {props.signedInUser?.picture_url ? (
+                <Image
+                  source={{ uri: props.signedInUser.picture_url }}
+                  style={[styles.headerAvatar, isRTL ? { marginLeft: 10 } : { marginRight: 10 }]}
+                />
+              ) : (
+                <Ionicons
+                  name={props.signedInUser ? "person-circle" : "person-circle-outline"}
+                  size={28}
+                  color={colors.textEmphasis}
+                  style={isRTL ? { marginLeft: 10 } : { marginRight: 10 }}
+                />
+              )}
               <Text style={[styles.headerText, textDir(isRTL)]} numberOfLines={1}>
-                {props.signedInEmail
-                  ? t("profile.menu.signedInAs", { email: props.signedInEmail })
+                {props.signedInUser?.email
+                  ? t("profile.menu.signedInAs", { email: props.signedInUser.email })
                   : t("profile.menu.notSignedIn")}
               </Text>
             </View>
@@ -201,6 +219,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 14,
+  },
+  // 32px circular avatar slot — slightly larger than the 28px Ionicons
+  // fallback so the actual face/photo gets enough presence.
+  headerAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.bgMuted,
   },
   headerText: {
     fontSize: 13,

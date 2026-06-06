@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   BackHandler,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -25,7 +26,7 @@ import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
 import { getCurrentCurrencySymbol } from "../lib/currency";
 import { ProfileMenuSheet } from "../components/ProfileMenuSheet";
-import { getSessionUser } from "../lib/auth";
+import { getSessionUser, type SessionUser } from "../lib/auth";
 import { archivePerson, getLocalSelf, listAllPeople } from "../lib/db";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
@@ -70,10 +71,12 @@ export default function HomeScreen() {
   const [sheetFor, setSheetFor] = useState<PersonWithBalance | null>(null);
   const [confirmDeleteFor, setConfirmDeleteFor] = useState<PersonWithBalance | null>(null);
   const [loaded, setLoaded] = useState(false);
-  // Profile menu state. sessionEmail is read on focus so it stays in
-  // sync with sign-in/out actions taken on the Account screen.
+  // Profile menu state. sessionUser is read on focus so it stays in
+  // sync with sign-in/out actions taken on the Account screen. The full
+  // user object is kept (not just the email) so the header icon can
+  // render the user's actual Google avatar when picture_url is set.
   const [profileMenuVisible, setProfileMenuVisible] = useState(false);
-  const [sessionEmail, setSessionEmail] = useState<string | null>(null);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
 
   // Rail position: 0 = collect tab visible, -screenWidth = pay tab visible.
   // We use a non-native Animated.Value because the gesture's onUpdate calls
@@ -94,7 +97,7 @@ export default function HomeScreen() {
     const [s, list, user] = await Promise.all([getLocalSelf(), listAllPeople(), getSessionUser()]);
     setSelf(s);
     setAllPeople(list);
-    setSessionEmail(user?.email ?? null);
+    setSessionUser(user);
     setLoaded(true);
   }, []);
 
@@ -212,28 +215,68 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
+      {/* Header — title + subname text on the left (non-tappable,
+          informational), profile icon button on the right (the only
+          tap target). The icon is either the user's Google avatar
+          image OR a filled / outlined person-circle Ionicon depending
+          on sign-in state. Header total height locked via minHeight
+          on the title block (52px), so it doesn't change between
+          single-line and two-line cases. */}
       <View style={[styles.header, rowDir(isRTL)]}>
-        {/* Start edge: wordmark on top, store/personal name below.
-            Identity text is informational only — settings + account live
-            behind the profile icon on the opposite end. */}
-        <View style={styles.headerStart}>
-          <Text style={[styles.wordmark, textDir(isRTL)]}>{t("brand.wordmark")}</Text>
+        {/* Identity text block — flex:1 takes the row's remaining
+            width so a very long shop name truncates instead of
+            pushing the icon off-screen. NOT a Pressable; just
+            informational text. */}
+        <View style={styles.headerTitleBlock}>
           {self ? (
-            <Text style={[styles.identity, textDir(isRTL)]} numberOfLines={1}>
-              {self.shop_name ?? self.name}
-            </Text>
+            <>
+              <Text
+                style={[styles.headerTitle, textDir(isRTL)]}
+                numberOfLines={1}
+                allowFontScaling={false}
+              >
+                {self.shop_name ?? self.name}
+              </Text>
+              {self.shop_name && self.name !== self.shop_name ? (
+                <Text
+                  style={[styles.headerSubname, textDir(isRTL)]}
+                  numberOfLines={1}
+                  allowFontScaling={false}
+                >
+                  {self.name}
+                </Text>
+              ) : null}
+            </>
           ) : null}
         </View>
+
+        {/* Profile icon button — Image for signed-in-with-Google-
+            avatar, filled person-circle for signed-in-without-avatar,
+            outlined person-circle for not-signed-in. marginTop: 4
+            optically aligns the icon with the title's cap-height
+            rather than its line-box top. hitSlop:10 brings the
+            effective tap area to ~52px, well above Material's 48dp
+            floor. */}
         <Pressable
           onPress={() => setProfileMenuVisible(true)}
-          hitSlop={8}
-          style={({ pressed }) => [styles.headerSettingsBtn, pressed && { opacity: 0.5 }]}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel="Profile"
+          style={({ pressed }) => [
+            styles.profileBtn,
+            isRTL ? { marginRight: 12 } : { marginLeft: 12 },
+            pressed && { opacity: 0.5 },
+          ]}
         >
-          <Ionicons
-            name={sessionEmail ? "person-circle" : "person-circle-outline"}
-            size={26}
-            color={colors.textSubtle}
-          />
+          {sessionUser?.picture_url ? (
+            <Image source={{ uri: sessionUser.picture_url }} style={styles.profileAvatar} />
+          ) : (
+            <Ionicons
+              name={sessionUser ? "person-circle" : "person-circle-outline"}
+              size={32}
+              color={colors.textSubtle}
+            />
+          )}
         </Pressable>
       </View>
 
@@ -331,7 +374,7 @@ export default function HomeScreen() {
 
       <ProfileMenuSheet
         visible={profileMenuVisible}
-        signedInEmail={sessionEmail}
+        signedInUser={sessionUser}
         onAccount={() => router.push("/account")}
         onPreferences={() => router.push("/preferences")}
         onDismiss={() => setProfileMenuVisible(false)}
@@ -406,34 +449,77 @@ function TabPage(props: {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
+  // Header — iOS 17 "large title" pattern, borderless, typography-
+  // driven. Shop name is the visual anchor (28px display) with the
+  // personal name as a quiet caption underneath; a 34px avatar chip
+  // rides the trailing edge. alignItems:"flex-start" lets the chip
+  // stay glued to the title's cap-height region whether or not the
+  // subname is present. paddingTop:20 lets the title feel like it
+  // owns its region rather than getting crammed under the status bar
+  // / UpdateBanner.
   header: {
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 20,
     paddingBottom: 16,
     alignItems: "flex-start",
-    justifyContent: "space-between",
   },
-  headerStart: {
-    // Stacks wordmark on top of identity. Sits on the script's start edge
-    // because the parent header uses rowDir(isRTL) to swap children.
+  // Title column. flex:1 ensures very long shop names truncate at
+  // numberOfLines:1 instead of pushing the avatar off-screen.
+  //
+  // minHeight reserves the vertical slot the subname would occupy
+  // (title lineHeight 32 + marginTop 2 + subname lineHeight 18 = 52)
+  // so the header's total height stays constant whether or not the
+  // subname is rendered. Without this, the row's height shrinks ~20px
+  // when only a single-name user is signed in, and the layout shifts
+  // visibly between users. The subname slot is simply empty in the
+  // single-line case — invisible, no chrome, no flicker.
+  headerTitleBlock: {
     flex: 1,
+    minHeight: 52,
   },
-  headerSettingsBtn: {
-    // Bumps to sit roughly on the wordmark baseline. Hit area is the
-    // 22px icon + 8px hitSlop, so comfortable to tap.
-    paddingTop: 4,
-  },
-  wordmark: {
-    fontSize: 24,
+  // Display title — 28px bold with -0.5 letter-spacing. Deliberately
+  // NOT -0.7 (the SF Pro Display target) because Vazirmatn's Latin
+  // metrics collapse on letter pairs like "mn"/"rn" at that tightness;
+  // -0.5 still reads as a deliberate display setting without the
+  // kerning artifacts. lineHeight 32 hugs the cap height plus a hair
+  // of breathing room. includeFontPadding:false strips Android's
+  // invisible glyph padding so the title aligns pixel-perfect with
+  // the avatar's cap-height rather than drifting a few px low.
+  headerTitle: {
+    fontSize: 28,
+    lineHeight: 32,
     fontFamily: fonts.sansBold,
     color: colors.textEmphasis,
     letterSpacing: -0.5,
+    includeFontPadding: false,
   },
-  identity: {
-    fontSize: 13,
+  // Quiet caption directly under the title — informational, not a
+  // second headline. textSubtle keeps it visually subordinate.
+  headerSubname: {
+    fontSize: 14,
+    lineHeight: 18,
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
     marginTop: 2,
+    includeFontPadding: false,
+  },
+  // Profile button — wraps either the Google avatar Image or an
+  // Ionicons person-circle fallback. marginTop:4 optically aligns the
+  // icon's vertical center with the 28px title's cap-height so the
+  // single-line case doesn't feel top-heavy.
+  profileBtn: {
+    marginTop: 4,
+  },
+  // Google avatar Image — 32px circle. RN's Image disk-caches the
+  // Google CDN URL automatically. bgMuted fills the circle while the
+  // image is loading so the slot doesn't flash empty on cold launch.
+  // The Image content always fills its bounds, so no centering math
+  // is needed (unlike the abandoned initial-letter approach).
+  profileAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.bgMuted,
   },
   tabsWrap: { paddingHorizontal: 16, marginBottom: 16 },
   rail: {
