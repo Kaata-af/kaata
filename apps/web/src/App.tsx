@@ -6,6 +6,7 @@ import { fireVisitOnce, getSource } from "./lib/analytics";
 import { CustomerView } from "./pages/CustomerView";
 import { Download } from "./pages/Download";
 import { Home } from "./pages/Home";
+import { Invite } from "./pages/Invite";
 
 export function App() {
   useEffect(() => {
@@ -23,6 +24,10 @@ export function App() {
         <Route path="/" element={<Home />} />
         <Route path="/download" element={<Download />} />
         <Route path="/v/:token" element={<CustomerView />} />
+        {/* Phase 4: vault-invite landing. Public, no auth — purely
+            informational, mirrors what's behind the token. Actual accept
+            happens in the mobile app via POST /v1/vaults/invites/accept. */}
+        <Route path="/i/:token" element={<Invite />} />
       </Routes>
       <CookieConsent />
     </ToastProvider>

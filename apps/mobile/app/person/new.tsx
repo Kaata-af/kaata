@@ -19,7 +19,7 @@ import { CountryPickerSheet } from "../../components/CountryPickerSheet";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
-import { createPerson, listAllPeople } from "../../lib/db";
+import { createPerson, getActiveVaultArchivedState, listAllPeople } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
@@ -74,8 +74,33 @@ export default function PersonAddOrFindScreen() {
     }
   }
 
+  // D-DEFENSIVE-ARCHIVED-GUARD: see entry/new.tsx for rationale.
+  // A mesh-sourced vault_setting_set can land between home's load() and
+  // this screen's mount; bail before any DB write can be attempted.
   useEffect(() => {
-    listAllPeople().then(setPeople);
+    let cancelled = false;
+    void (async () => {
+      const guard = await getActiveVaultArchivedState();
+      if (cancelled) return;
+      if (guard.state === "none") {
+        toast.push(t("entry.noActiveVault"), "error");
+        router.replace("/");
+        return;
+      }
+      if (guard.state === "archived") {
+        toast.push(t("entry.vaultArchived"), "error");
+        router.replace("/vault/archived");
+        return;
+      }
+      const list = await listAllPeople();
+      if (cancelled) return;
+      setPeople(list);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // toast/router/t are stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const trimmed = name.trim();
@@ -89,6 +114,18 @@ export default function PersonAddOrFindScreen() {
 
   async function createAndOpen() {
     if (busy || !trimmed || people === null) return;
+    // Re-check at submit time in case a mesh archive landed mid-screen.
+    const guard = await getActiveVaultArchivedState();
+    if (guard.state === "none") {
+      toast.push(t("entry.noActiveVault"), "error");
+      router.replace("/");
+      return;
+    }
+    if (guard.state === "archived") {
+      toast.push(t("entry.vaultArchived"), "error");
+      router.replace("/vault/archived");
+      return;
+    }
     setBusy(true);
     try {
       const result = await createPerson(trimmed, phone.trim() || null, countryCode);

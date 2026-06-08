@@ -7,7 +7,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { NinjaIcon } from "../../components/NinjaIcon";
 import { isCancellation, signInWithGoogle } from "../../lib/auth";
 import { colors } from "../../lib/colors";
-import { setAppMeta } from "../../lib/db";
+import { getAppMeta, setAppMeta } from "../../lib/db";
 import { textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
@@ -45,8 +45,50 @@ export default function OnboardingAuthScreen() {
       // their formal/legal name, not their shop persona).
       if (user.name) await setAppMeta("onboarding_pending_name", user.name);
       if (user.email) await setAppMeta("onboarding_pending_email", user.email);
+      // Phase 5.1: if the user signed in BECAUSE a kaata://pair/<token>
+      // deep link triggered the "needs sign-in" gate, hand off back to
+      // that deep link rather than the restore probe — the pair flow is
+      // the higher-priority intent.
+      //
+      // Use router.replace, NOT Linking.openURL — the latter can:
+      //   1. Spawn a brand-new task instance on Android (singleTask
+      //      intent filter), leaving the previous activity orphaned.
+      //   2. Race with the JWT-write step: if getSessionJWT() in the
+      //      pair screen runs before postSignInHousekeeping has committed
+      //      the JWT to SecureStore, the pair screen will re-stash the
+      //      pending_pair_deeplink and re-route to /onboarding/auth,
+      //      producing an infinite redirect loop.
+      // The parsed-route handoff in-process sidesteps both issues.
+      const pendingPair = await getAppMeta("pending_pair_deeplink");
+      if (pendingPair) {
+        await setAppMeta("pending_pair_deeplink", "");
+        await setAppMeta("onboarding_step", "profile");
+        // Defensive parse: pendingPair is shaped like
+        //   kaata://pair/<token>?p=<base64>
+        // Map it to /pair/<token>?p=<base64> for expo-router.
+        try {
+          const url = new URL(pendingPair);
+          const token = url.pathname.replace(/^\//, "") || "x";
+          const p = url.searchParams.get("p") ?? "";
+          router.replace({
+            pathname: "/pair/[token]",
+            params: { token, p },
+          });
+        } catch {
+          // Malformed stash — clear, fall through to restore probe so the
+          // user isn't stranded.
+          router.replace("/onboarding/restore");
+        }
+        return;
+      }
+      // Phase 3: route through the restore probe instead of jumping
+      // straight to profile. The probe screen checks the backend for
+      // an existing snapshot or v0.4 backup; if neither is found it
+      // forwards to /onboarding/profile transparently. onboarding_step
+      // stays at 'profile' so a force-quit during the probe still
+      // resumes the flow correctly.
       await setAppMeta("onboarding_step", "profile");
-      router.replace("/onboarding/profile");
+      router.replace("/onboarding/restore");
     } catch (err) {
       if (isCancellation(err)) {
         // user-cancelled → silent, leave them on the screen

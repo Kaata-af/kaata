@@ -1,5 +1,29 @@
 import * as Crypto from "expo-crypto";
 import * as SQLite from "expo-sqlite";
+import {
+  _resetAccountIdCacheForReset,
+  _resetActiveVaultIdCacheForReset,
+  _resetDbHandleForReset,
+  getActiveVaultId,
+  getActiveVaultIdSync,
+  getActiveVaultIdSyncMaybe,
+  getAppMetaInTx,
+  getDb as getDbFromTx,
+  refreshLocalSelfUserIdCache,
+  setActiveVaultIdCache,
+  setAppMetaInTx,
+} from "./db-tx";
+import {
+  appendEntryAmended,
+  appendEntryCreated,
+  appendEntryDeleted,
+  appendPersonAdded,
+  appendPersonArchived,
+  appendPersonPhoneChanged,
+  appendPersonRenamed,
+  appendShopProfileUpdated,
+  findPhoneConflictInVault,
+} from "./event-log";
 import { normalizePhone } from "./phone";
 import type {
   CreatePersonResult,
@@ -10,26 +34,89 @@ import type {
   Self,
   UpdatePersonResult,
 } from "./types";
+import { KAATA_UUID_NAMESPACE, uuidv5 } from "./uuid-v5";
+import { serializeHLC } from "./hlc";
 
-let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
-
-export function getDb(): Promise<SQLite.SQLiteDatabase> {
-  if (!dbPromise) {
-    dbPromise = SQLite.openDatabaseAsync("kaata.db");
-  }
-  return dbPromise;
-}
+// Re-exported from db-tx.ts so existing call sites (`import { getDb } from
+// "./db"`) keep compiling unchanged. The handle/singleton lives in db-tx.ts
+// to break the circular import between db.ts and event-log.ts.
+export const getDb = getDbFromTx;
 
 const MIGRATION_001 = "001_v0_to_users_relationships";
 const MIGRATION_002 = "002_add_updated_at";
 const MIGRATION_003 = "003_unify_relationships_to_peer";
 const MIGRATION_004 = "004_onboarding_state_keys";
+const MIGRATION_005 = "005_event_log_and_projection_cache";
+const MIGRATION_006 = "006_backfill_synthetic_events";
+const MIGRATION_007 = "007_vaults_and_account_binding";
+const MIGRATION_008 = "008_sync_state_and_projection_conflicts";
+const MIGRATION_009 = "009_phase4_invites_vault_settings_field_hlcs";
+const MIGRATION_010 = "010_event_log_vault_type_target_index";
+const MIGRATION_011 = "011_phase5_mesh_credentials";
+const MIGRATION_012 = "012_vault_trust_anchor";
+const MIGRATION_013 = "013_event_log_signature_and_revocation_lift";
 
-export async function initDb(): Promise<void> {
+// Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
+// referenced from db.ts directly — the table itself is the generic key/value
+// store created during initDb above — but they're listed here so a grep
+// across the codebase always lands at a documented entry point.
+//
+//   'mesh_device_ed25519_pubkey'   — base64 of this device's Ed25519 public
+//                                    key. The matching private key is stored
+//                                    in expo-secure-store under the key
+//                                    'kaata_mesh_device_privkey' and never
+//                                    touches the SQLite database.
+//   'mesh_server_pubkey_primary'   — base64 of the server's primary signing
+//                                    pubkey, pinned on first /v1/check-in
+//                                    that announces it. Used to verify every
+//                                    VMC during mesh handshake.
+//   'mesh_server_pubkey_rotation'  — base64 of the server's rotation pubkey
+//                                    during a key-rotation window; absent
+//                                    outside of one. VMCs are accepted if
+//                                    signed by EITHER pinned key.
+//   'shop_mode_enabled'            — '0' or '1'. Gates mDNS publish/browse
+//                                    and WebRTC handshake. Off by default;
+//                                    user toggles via Account screen.
+//   'shop_mode_last_active_at'     — wall-clock ms of the most recent
+//                                    successful mesh handshake. Used by the
+//                                    12h auto-off timer to flip
+//                                    shop_mode_enabled back to '0' after
+//                                    inactivity.
+//   'last_revocation_seen_at_ms'   — JSON object {vault_id: ms} of the
+//                                    most recent revocation timestamp we
+//                                    have ingested per vault. Sent on
+//                                    /v1/check-in so the server only ships
+//                                    deltas.
+//   'mesh_per_device_salt'         — per-device salt reserved for a future
+//                                    server-mediated rendezvous token. NOT
+//                                    used by discovery.ts (mDNS rendezvous
+//                                    requires a deterministic tag both
+//                                    sides can compute).
+//   'pending_pair_tokens'          — JSON array of one-time pairing nonces
+//                                    issued by the owner-side QR-pair flow
+//                                    (apps/mobile/app/vault/pair.tsx). Each
+//                                    entry: {token, vault_id, expires_at_ms};
+//                                    GC'd on every read.
+
+// Sentinel HLC used as the floor for backfilled rows with NULL field_hlcs.
+// Any real event has pms >= 1 so this is strictly less than every real HLC
+// under compareHLC — the first real amend always wins. Exported so projection
+// appliers can synthesize the floor without re-deriving the literal.
+export const FIELD_HLC_INIT = { pms: 0, l: 0, did: "init" } as const;
+
+// initDb is split into two implicit phases: schema bootstrap (always runs)
+// and migrations 001..006 (run once each, tracked in schema_migrations).
+// Pass installId so migration 006 has it without falling back to a zero
+// UUID — call ensureInstallId() first, then initDb({installId}). If
+// installId is omitted, migration 006 will read it from app_meta itself;
+// if it's missing there too AND there are entries to backfill, the
+// migration throws rather than silently using the zero UUID.
+export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   const db = await getDb();
   await db.execAsync(`
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
+    PRAGMA busy_timeout = 5000;
 
     CREATE TABLE IF NOT EXISTS app_meta (
       key TEXT PRIMARY KEY,
@@ -43,16 +130,108 @@ export async function initDb(): Promise<void> {
   `);
 
   if (!(await hasRunMigration(db, MIGRATION_001))) {
-    await runMigration001(db);
+    try {
+      await runMigration001(db);
+    } catch (err) {
+      console.error("[init] runMigration001 failed:", err);
+      throw new Error("runMigration001 failed: " + String(err));
+    }
   }
   if (!(await hasRunMigration(db, MIGRATION_002))) {
-    await runMigration002(db);
+    try {
+      await runMigration002(db);
+    } catch (err) {
+      console.error("[init] runMigration002 failed:", err);
+      throw new Error("runMigration002 failed: " + String(err));
+    }
   }
   if (!(await hasRunMigration(db, MIGRATION_003))) {
-    await runMigration003(db);
+    try {
+      await runMigration003(db);
+    } catch (err) {
+      console.error("[init] runMigration003 failed:", err);
+      throw new Error("runMigration003 failed: " + String(err));
+    }
   }
   if (!(await hasRunMigration(db, MIGRATION_004))) {
-    await runMigration004(db);
+    try {
+      await runMigration004(db);
+    } catch (err) {
+      console.error("[init] runMigration004 failed:", err);
+      throw new Error("runMigration004 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_005))) {
+    try {
+      await runMigration005(db);
+    } catch (err) {
+      console.error("[init] runMigration005 failed:", err);
+      throw new Error("runMigration005 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_006))) {
+    try {
+      await runMigration006(db, opts.installId);
+    } catch (err) {
+      console.error("[init] runMigration006 failed:", err);
+      throw new Error("runMigration006 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_007))) {
+    try {
+      await runMigration007(db);
+    } catch (err) {
+      console.error("[init] runMigration007 failed:", err);
+      throw new Error("runMigration007 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_008))) {
+    try {
+      await runMigration008(db);
+    } catch (err) {
+      console.error("[init] runMigration008 failed:", err);
+      throw new Error("runMigration008 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_009))) {
+    try {
+      await runMigration009(db);
+    } catch (err) {
+      console.error("[init] runMigration009 failed:", err);
+      throw new Error("runMigration009 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_010))) {
+    try {
+      await runMigration010(db);
+    } catch (err) {
+      console.error("[init] runMigration010 failed:", err);
+      throw new Error("runMigration010 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_011))) {
+    try {
+      await runMigration011(db);
+    } catch (err) {
+      console.error("[init] runMigration011 failed:", err);
+      throw new Error("runMigration011 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_012))) {
+    try {
+      await runMigration012(db);
+    } catch (err) {
+      console.error("[init] runMigration012 failed:", err);
+      throw new Error("runMigration012 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_013))) {
+    try {
+      await runMigration013(db);
+    } catch (err) {
+      console.error("[init] runMigration013 failed:", err);
+      throw new Error("runMigration013 failed: " + String(err));
+    }
   }
 }
 
@@ -413,6 +592,1496 @@ async function runMigration004(db: SQLite.SQLiteDatabase): Promise<void> {
   });
 }
 
+// Migration 005: event log table + projection cache columns on entries.
+//
+// The event_log is the append-only source of truth from Phase 1 onward. Every
+// entry CRUD path goes through it (see lib/event-log.ts); legacy mutation of
+// entries rows is gone. Projection cache columns (current_event_id, is_deleted,
+// is_settled) speed up the home/balance queries without scanning the log.
+//
+// No FK constraints on event_log.relationship_id / target_id — intentional per
+// the append-only event-sourcing model: events must remain valid even if a
+// referenced row is later hard-deleted or arrives out of order during sync
+// (Phase 2). Projection logic enforces referential integrity at apply time,
+// not at insert time.
+async function runMigration005(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS event_log (
+        event_id                  TEXT PRIMARY KEY,
+        event_type                TEXT NOT NULL,
+        vault_id                  TEXT,
+        target_id                 TEXT NOT NULL,
+        relationship_id           TEXT,
+        hlc_physical_ms           INTEGER NOT NULL,
+        hlc_logical               INTEGER NOT NULL,
+        hlc_device_id             TEXT    NOT NULL,
+        device_id                 TEXT    NOT NULL,
+        author_user_id_local_only TEXT NOT NULL,
+        actor_account_id          TEXT,
+        payload_json              TEXT NOT NULL CHECK (json_valid(payload_json)),
+        payload_schema            INTEGER NOT NULL DEFAULT 1,
+        appended_at               INTEGER NOT NULL,
+        server_acked_at           INTEGER,
+        rejected_at               INTEGER,
+        origin                    TEXT NOT NULL DEFAULT 'local' CHECK (origin IN ('local','remote','backfill'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_event_log_target
+        ON event_log(target_id, hlc_physical_ms, hlc_logical, hlc_device_id);
+
+      CREATE INDEX IF NOT EXISTS idx_event_log_relationship
+        ON event_log(relationship_id, hlc_physical_ms)
+        WHERE relationship_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_event_log_unsynced
+        ON event_log(appended_at)
+        WHERE server_acked_at IS NULL AND rejected_at IS NULL;
+    `);
+
+    // ALTER TABLE ... ADD COLUMN is idempotent only via columnExists guard.
+    // Migration 002 demonstrates the pattern; reuse it here.
+    if (!(await columnExists(db, "entries", "current_event_id"))) {
+      await db.execAsync(`ALTER TABLE entries ADD COLUMN current_event_id TEXT`);
+    }
+    if (!(await columnExists(db, "entries", "is_deleted"))) {
+      await db.execAsync(`ALTER TABLE entries ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!(await columnExists(db, "entries", "is_settled"))) {
+      await db.execAsync(`ALTER TABLE entries ADD COLUMN is_settled INTEGER NOT NULL DEFAULT 0`);
+    }
+
+    // Backfill projection booleans from the existing legacy timestamp columns
+    // so the cache is correct from day one — migration 006 then emits the
+    // matching synthetic events.
+    await db.runAsync(`UPDATE entries SET is_deleted = 1 WHERE deleted_at IS NOT NULL`);
+    await db.runAsync(`UPDATE entries SET is_settled = 1 WHERE settled_at IS NOT NULL`);
+
+    await db.runAsync(
+      "INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)",
+      MIGRATION_005,
+      Date.now(),
+    );
+  });
+}
+
+// Migration 006: backfill synthetic events into event_log from existing entries.
+//
+// For every entry row that exists at the time of this migration, emit:
+//   1. entry_created  at HLC (created_at, logical, install_id)
+//   2. entry_amended  at HLC (updated_at, logical, install_id) — only if edited
+//      (updated_at > created_at + 1000ms; the 1s threshold tolerates the
+//      tiny jitter between INSERT and UPDATE in the legacy code path)
+//   3. entry_deleted  at HLC (deleted_at, logical, install_id) — only if soft-deleted
+//
+// Logical counter assignment (cross-entry collision safe):
+//   We bucket every emitted (physical_ms, kind) candidate by physical_ms and
+//   then assign a strictly-increasing logical within each bucket using the
+//   tuple (entry_id ASC, kind_priority ASC) as the deterministic order. This
+//   way two entries created in the same millisecond don't collide on
+//   (pms, l, did) — they get logical 0 and logical 1 respectively. The
+//   intra-entry causal order (create < amend < delete) is preserved because
+//   each step's physical_ms is monotonically increasing within an entry.
+//
+// Event IDs are deterministic UUIDv5 over (kind, entry_id, physical_ms), so
+// re-running this migration on the same DB is a no-op (INSERT OR IGNORE).
+//
+// After events are inserted, projection cache column current_event_id is set
+// to the latest synthetic event for that entry. is_deleted/is_settled were
+// already set in migration 005 from the legacy timestamp columns.
+//
+// Brand-new installs with no entries: silent no-op (no events, no hlc_last seed).
+async function runMigration006(db: SQLite.SQLiteDatabase, preInstallId?: string): Promise<void> {
+  type EntryRow = {
+    id: string;
+    relationship_id: string;
+    type: "debt" | "payment";
+    amount_afn: number;
+    note: string | null;
+    created_at: number;
+    updated_at: number;
+    deleted_at: number | null;
+    proposed_by_user_id: string | null;
+    accepted_at: number | null;
+    disputed_at: number | null;
+    disputed_reason: string | null;
+    settled_at: number | null;
+  };
+
+  const rows = await db.getAllAsync<EntryRow>(`SELECT * FROM entries`);
+
+  if (rows.length === 0) {
+    // Fresh install — no entries to backfill. Record migration and return.
+    // Crucially: do NOT seed hlc_last here. tickLocal on first real event
+    // reads null and starts from epoch, which is correct. INSERT OR IGNORE
+    // protects against a crash between the empty-no-op and the row commit:
+    // on retry, this branch runs again and the IGNORE swallows the dup.
+    await db.runAsync(
+      `INSERT OR IGNORE INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_006,
+      Date.now(),
+    );
+    return;
+  }
+
+  // We have entries to backfill — install_id MUST be available. Prefer the
+  // caller-provided id (passed by _layout.tsx via initDb), then fall back to
+  // app_meta. If both are missing we throw — silently writing a zero-UUID
+  // hlc.did permanently poisons HLC tiebreaks for these events and we'd
+  // rather fail loudly on retry than ship corrupted history.
+  let nodeId: string | null = preInstallId ?? null;
+  if (!nodeId) {
+    const installIdRow = await db.getFirstAsync<{ value: string }>(
+      `SELECT value FROM app_meta WHERE key = 'install_id'`,
+    );
+    nodeId = installIdRow?.value ?? null;
+  }
+  if (!nodeId) {
+    throw new Error(
+      "migration 006: install_id missing — ensureInstallId() must run before initDb({installId})",
+    );
+  }
+
+  // Author fallback: legacy entries created before proposed_by_user_id was
+  // populated have NULL. Empty-string author would project to a non-FK-valid
+  // users.id; fall back to the local-self user_id (every upgrader to v0.5
+  // necessarily has one — they completed onboarding under v0.4).
+  const localSelfRow = await db.getFirstAsync<{ id: string }>(
+    "SELECT id FROM users WHERE is_local_self = 1 LIMIT 1",
+  );
+  const localSelfUserId = localSelfRow?.id ?? null;
+
+  // Compute per-physical_ms logical counters across ALL emitted events so two
+  // entries that share a created_at don't collide on (pms, l, did). Order
+  // within a bucket: (physical_ms, entry_id, kind_priority) ascending. Kind
+  // priority enforces causal order for intra-entry collisions (create < amend
+  // < delete).
+  type Emit = {
+    entryId: string;
+    kind: "entry_created" | "entry_amended" | "entry_deleted";
+    physical: number;
+    kindPriority: 0 | 1 | 2;
+  };
+  const emissions: Emit[] = [];
+  for (const r of rows) {
+    emissions.push({
+      entryId: r.id,
+      kind: "entry_created",
+      physical: r.created_at,
+      kindPriority: 0,
+    });
+    if (r.updated_at > r.created_at + 1000) {
+      emissions.push({
+        entryId: r.id,
+        kind: "entry_amended",
+        physical: r.updated_at,
+        kindPriority: 1,
+      });
+    }
+    if (r.deleted_at !== null) {
+      emissions.push({
+        entryId: r.id,
+        kind: "entry_deleted",
+        physical: r.deleted_at,
+        kindPriority: 2,
+      });
+    }
+  }
+  // Sort by (physical asc, entry_id asc, kindPriority asc) so logical
+  // assignment is deterministic across migration re-runs.
+  emissions.sort((a, b) => {
+    if (a.physical !== b.physical) return a.physical - b.physical;
+    if (a.entryId !== b.entryId) return a.entryId < b.entryId ? -1 : 1;
+    return a.kindPriority - b.kindPriority;
+  });
+  // Walk the sorted list and assign logical = bucket-relative position.
+  const logicalByKey = new Map<string, number>();
+  let currentBucketPms = -1;
+  let currentLogical = 0;
+  for (const e of emissions) {
+    if (e.physical !== currentBucketPms) {
+      currentBucketPms = e.physical;
+      currentLogical = 0;
+    }
+    logicalByKey.set(`${e.entryId}|${e.kind}`, currentLogical);
+    currentLogical++;
+  }
+
+  await db.withTransactionAsync(async () => {
+    for (const r of rows) {
+      const author = r.proposed_by_user_id ?? localSelfUserId ?? "";
+
+      // ---- 1. entry_created ----
+      const createPhysical = r.created_at;
+      const createLogical = logicalByKey.get(`${r.id}|entry_created`) ?? 0;
+      const createEventId = uuidv5(
+        KAATA_UUID_NAMESPACE,
+        `backfill|entry_created|${r.id}|${createPhysical}`,
+      );
+      const createPayload = {
+        entry_id: r.id,
+        relationship_id: r.relationship_id,
+        type: r.type,
+        amount_afn: r.amount_afn,
+        note: r.note,
+        // occurred_at_ms is required on the entry_created payload type; use
+        // created_at as the proxy (matches the v0.4 schema semantics).
+        occurred_at_ms: r.created_at,
+        // Carry the pre-existing accepted/disputed/settled flags into the
+        // create payload so a future replay rebuilds full state from events
+        // alone. The applier reads these on create — they're not lost on
+        // wipe-and-replay (the central replay-test invariant).
+        backfill_synthetic: true as const,
+        backfill_accepted_at: r.accepted_at,
+        backfill_disputed_at: r.disputed_at,
+        backfill_disputed_reason: r.disputed_reason,
+        backfill_settled_at: r.settled_at,
+      };
+
+      await db.runAsync(
+        `INSERT OR IGNORE INTO event_log (
+           event_id, event_type, vault_id, target_id, relationship_id,
+           hlc_physical_ms, hlc_logical, hlc_device_id,
+           device_id, author_user_id_local_only, actor_account_id,
+           payload_json, payload_schema,
+           appended_at, server_acked_at, rejected_at, origin
+         ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?,  ?, ?,  ?, ?, ?, ?)`,
+        createEventId,
+        "entry_created",
+        null,
+        r.id,
+        r.relationship_id,
+        createPhysical,
+        createLogical,
+        nodeId,
+        nodeId,
+        author,
+        null,
+        JSON.stringify(createPayload),
+        1,
+        Date.now(),
+        null,
+        null,
+        "backfill",
+      );
+
+      let latestEventId = createEventId;
+
+      // ---- 2. entry_amended (only if meaningfully edited) ----
+      if (r.updated_at > r.created_at + 1000) {
+        const amendPhysical = r.updated_at;
+        const amendLogical = logicalByKey.get(`${r.id}|entry_amended`) ?? 0;
+        const amendEventId = uuidv5(
+          KAATA_UUID_NAMESPACE,
+          `backfill|entry_amended|${r.id}|${amendPhysical}`,
+        );
+        const amendPayload = {
+          // We don't know what actually changed pre-migration — only the
+          // current snapshot. Record current values as the post-amend state.
+          changes: {
+            amount_afn: r.amount_afn,
+            note: r.note,
+          },
+          backfill_synthetic: true,
+        };
+
+        await db.runAsync(
+          `INSERT OR IGNORE INTO event_log (
+             event_id, event_type, vault_id, target_id, relationship_id,
+             hlc_physical_ms, hlc_logical, hlc_device_id,
+             device_id, author_user_id_local_only, actor_account_id,
+             payload_json, payload_schema,
+             appended_at, server_acked_at, rejected_at, origin
+           ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?,  ?, ?,  ?, ?, ?, ?)`,
+          amendEventId,
+          "entry_amended",
+          null,
+          r.id,
+          r.relationship_id,
+          amendPhysical,
+          amendLogical,
+          nodeId,
+          nodeId,
+          author,
+          null,
+          JSON.stringify(amendPayload),
+          1,
+          Date.now(),
+          null,
+          null,
+          "backfill",
+        );
+
+        latestEventId = amendEventId;
+      }
+
+      // ---- 3. entry_deleted (only if soft-deleted) ----
+      if (r.deleted_at !== null) {
+        const deletePhysical = r.deleted_at;
+        const deleteLogical = logicalByKey.get(`${r.id}|entry_deleted`) ?? 0;
+        const deleteEventId = uuidv5(
+          KAATA_UUID_NAMESPACE,
+          `backfill|entry_deleted|${r.id}|${deletePhysical}`,
+        );
+        const deletePayload = {
+          backfill_synthetic: true,
+        };
+
+        await db.runAsync(
+          `INSERT OR IGNORE INTO event_log (
+             event_id, event_type, vault_id, target_id, relationship_id,
+             hlc_physical_ms, hlc_logical, hlc_device_id,
+             device_id, author_user_id_local_only, actor_account_id,
+             payload_json, payload_schema,
+             appended_at, server_acked_at, rejected_at, origin
+           ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?,  ?, ?,  ?, ?, ?, ?)`,
+          deleteEventId,
+          "entry_deleted",
+          null,
+          r.id,
+          r.relationship_id,
+          deletePhysical,
+          deleteLogical,
+          nodeId,
+          nodeId,
+          author,
+          null,
+          JSON.stringify(deletePayload),
+          1,
+          Date.now(),
+          null,
+          null,
+          "backfill",
+        );
+
+        latestEventId = deleteEventId;
+      }
+
+      // ---- Projection cache update ----
+      // Point the entry at its latest synthetic event. is_deleted/is_settled
+      // were set by migration 005 from the legacy timestamp columns.
+      await db.runAsync(
+        `UPDATE entries SET current_event_id = ? WHERE id = ?`,
+        latestEventId,
+        r.id,
+      );
+    }
+
+    // Advance the HLC cursor to the max synthetic HLC we just emitted so the
+    // next real event (post-migration) is guaranteed to sort after backfill.
+    let maxPhysical = 0;
+    let maxLogical = 0;
+    for (const e of emissions) {
+      const l = logicalByKey.get(`${e.entryId}|${e.kind}`) ?? 0;
+      if (e.physical > maxPhysical || (e.physical === maxPhysical && l > maxLogical)) {
+        maxPhysical = e.physical;
+        maxLogical = l;
+      }
+    }
+    await setAppMetaInTx(
+      db,
+      "hlc_last",
+      serializeHLC({ pms: maxPhysical, l: maxLogical, did: nodeId }),
+    );
+
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_006,
+      Date.now(),
+    );
+  });
+}
+
+// Migration 007: Phase 2 — vaults, account binding, and per-vault scoping.
+//
+// This is the canonical Phase 2 schema move. ATOMIC: every DDL + backfill step
+// runs inside a single withTransactionAsync block. On failure the entire
+// migration rolls back and the next initDb() retries cleanly.
+//
+// What it does (in order):
+//   1.  Create the multi-vault scaffolding: vaults + vault_members_mirror.
+//   2.  Extend users with google_sub + account_id (Phase 2 auth binding).
+//       Drop the global UNIQUE on users.phone_e164 — Phase 2 enforces phone
+//       uniqueness per-vault in app code, not at the DB level. Dropping a
+//       SQLite UNIQUE requires a table rewrite; we do it here.
+//   3.  Add vault_id (nullable) to entries and relationships.
+//   4.  Rebuild shop_profile so it's keyed by vault_id, not the fixed id=1
+//       singleton row.
+//   5.  Backfill: mint ONE default vault (UUIDv4), populate vault_id on every
+//       existing entries / relationships / event_log row, and the rebuilt
+//       shop_profile row. Write the default vault id to app_meta as both
+//       active_vault_id and default_vault_id.
+//   6.  Rewrite entries + relationships with vault_id NOT NULL + FK to
+//       vaults(id). Done last so backfill in (5) had a nullable column to
+//       populate first.
+//   7.  Create Phase 2 indexes for the new vault-scoped read paths.
+//
+// PRAGMA defer_foreign_keys = ON defers FK checks until COMMIT, which is
+// exactly what we need for multi-table rewrites in one tx. It resets at
+// end-of-tx automatically.
+//
+// Edge cases:
+//   - Brand-new install (no users, no shop_profile): SKIP minting a default
+//     vault. The new tables exist with no rows; first sign-in / onboarding
+//     mints the vault later.
+//   - Mid-onboarding (local_self exists, no shop_profile): mint default vault
+//     named "My ledger"; rebuild shop_profile with that name.
+//   - Full upgrader (shop_profile row exists): vault inherits shop_name.
+async function runMigration007(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    try {
+      await db.execAsync(`PRAGMA defer_foreign_keys = ON;`);
+    } catch (err) {
+      console.error('[mig007:step-0] failed at "PRAGMA defer_foreign_keys = ON":', err);
+      throw err;
+    }
+
+    // ------------------------------------------------------------------
+    // 0.5. Defensive: drop any stale rewrite-helper tables from a prior
+    // FAILED attempt of this migration. expo-sqlite rolls back DDL on
+    // throw, but on a device that ran a partial migration before crashing
+    // (e.g. OOM, app force-quit mid-flight) the rollback may not have
+    // restored the schema cleanly; the next launch would then hit
+    // "table _new already exists" or — worse — a leftover _old_shop_profile
+    // whose FK to the recreated users table is in a dangling state and
+    // surfaces only at COMMIT as a generic "FOREIGN KEY constraint failed".
+    // Dropping them up-front guarantees a clean working set.
+    // ------------------------------------------------------------------
+    try {
+      await db.execAsync(`
+        DROP TABLE IF EXISTS users_new;
+        DROP TABLE IF EXISTS relationships_new;
+        DROP TABLE IF EXISTS entries_new;
+        DROP TABLE IF EXISTS _old_shop_profile;
+      `);
+    } catch (err) {
+      console.error('[mig007:step-0.5] failed at "drop stale rewrite-helper tables":', err);
+      throw err;
+    }
+
+    // ------------------------------------------------------------------
+    // 1. New tables: vaults + vault_members_mirror
+    // ------------------------------------------------------------------
+    try {
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS vaults (
+          id                          TEXT PRIMARY KEY,
+          name                        TEXT NOT NULL,
+          currency                    TEXT NOT NULL DEFAULT 'AFN',
+          created_at                  INTEGER NOT NULL,
+          updated_at                  INTEGER NOT NULL,
+          archived_at                 INTEGER,
+          is_default                  INTEGER NOT NULL DEFAULT 0,
+          account_id                  TEXT,
+          registered_with_server_at   INTEGER,
+          vault_epoch                 INTEGER NOT NULL DEFAULT 0,
+          hlc_logical                 INTEGER NOT NULL DEFAULT 0,
+          hlc_wall_ms                 INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS vault_members_mirror (
+          vault_id    TEXT NOT NULL REFERENCES vaults(id),
+          account_id  TEXT NOT NULL,
+          role        TEXT NOT NULL CHECK (role IN ('owner','editor','viewer')),
+          accepted_at INTEGER,
+          revoked_at  INTEGER,
+          PRIMARY KEY (vault_id, account_id)
+        );
+      `);
+    } catch (err) {
+      console.error(
+        '[mig007:step-1] failed at "vaults + vault_members_mirror table creation":',
+        err,
+      );
+      throw err;
+    }
+
+    // ------------------------------------------------------------------
+    // 2. users: add google_sub + account_id, drop UNIQUE(phone_e164).
+    // ------------------------------------------------------------------
+    type UserRow = {
+      id: string;
+      phone_e164: string | null;
+      display_name: string;
+      is_local_self: number;
+      created_at: number;
+      updated_at: number;
+      archived_at: number | null;
+    };
+    let userRows: UserRow[];
+    try {
+      userRows = await db.getAllAsync<UserRow>(
+        `SELECT id, phone_e164, display_name, is_local_self, created_at, updated_at, archived_at
+         FROM users`,
+      );
+    } catch (err) {
+      console.error('[mig007:step-2a] failed at "SELECT existing users rows":', err);
+      throw err;
+    }
+
+    try {
+      await db.execAsync(`
+        CREATE TABLE users_new (
+          id            TEXT PRIMARY KEY,
+          phone_e164    TEXT,
+          display_name  TEXT NOT NULL,
+          is_local_self INTEGER NOT NULL DEFAULT 0,
+          created_at    INTEGER NOT NULL,
+          updated_at    INTEGER NOT NULL,
+          archived_at   INTEGER,
+          google_sub    TEXT,
+          account_id    TEXT
+        );
+      `);
+    } catch (err) {
+      console.error('[mig007:step-2b] failed at "CREATE TABLE users_new":', err);
+      throw err;
+    }
+    try {
+      for (const u of userRows) {
+        await db.runAsync(
+          `INSERT INTO users_new
+             (id, phone_e164, display_name, is_local_self, created_at, updated_at, archived_at, google_sub, account_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+          u.id,
+          u.phone_e164,
+          u.display_name,
+          u.is_local_self,
+          u.created_at,
+          u.updated_at,
+          u.archived_at,
+        );
+      }
+    } catch (err) {
+      console.error('[mig007:step-2c] failed at "INSERT INTO users_new from old users rows":', err);
+      throw err;
+    }
+
+    try {
+      await db.execAsync(`DROP TABLE users;`);
+    } catch (err) {
+      console.error('[mig007:step-2d] failed at "DROP TABLE users":', err);
+      throw err;
+    }
+    try {
+      await db.execAsync(`ALTER TABLE users_new RENAME TO users;`);
+    } catch (err) {
+      console.error('[mig007:step-2e] failed at "ALTER TABLE users_new RENAME TO users":', err);
+      throw err;
+    }
+
+    // Re-create the partial index on phone_e164. The global UNIQUE is gone —
+    // per-vault uniqueness lives in app code (createPerson/updatePerson).
+    try {
+      await db.execAsync(`
+        CREATE INDEX IF NOT EXISTS idx_users_phone
+          ON users(phone_e164) WHERE phone_e164 IS NOT NULL;
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub
+          ON users(google_sub) WHERE google_sub IS NOT NULL;
+      `);
+    } catch (err) {
+      console.error('[mig007:step-2f] failed at "recreate users indexes":', err);
+      throw err;
+    }
+
+    // ------------------------------------------------------------------
+    // 3. entries + relationships: add nullable vault_id (will be made
+    //    NOT NULL after backfill in step 6).
+    // ------------------------------------------------------------------
+    try {
+      if (!(await columnExists(db, "entries", "vault_id"))) {
+        await db.execAsync(`ALTER TABLE entries ADD COLUMN vault_id TEXT`);
+      }
+    } catch (err) {
+      console.error('[mig007:step-3a] failed at "ALTER TABLE entries ADD COLUMN vault_id":', err);
+      throw err;
+    }
+    try {
+      if (!(await columnExists(db, "relationships", "vault_id"))) {
+        await db.execAsync(`ALTER TABLE relationships ADD COLUMN vault_id TEXT`);
+      }
+    } catch (err) {
+      console.error(
+        '[mig007:step-3b] failed at "ALTER TABLE relationships ADD COLUMN vault_id":',
+        err,
+      );
+      throw err;
+    }
+
+    // ------------------------------------------------------------------
+    // 4. shop_profile rebuild: harvest old row, DROP old, create new keyed
+    // by vault_id.
+    //
+    // Crucial: we DROP the old shop_profile (rather than rename to
+    // _old_shop_profile and defer the drop) because the v1 shop_profile
+    // schema has `user_id NOT NULL REFERENCES users(id)`. With users dropped
+    // and re-renamed in step 2, that FK in a renamed _old_shop_profile is
+    // in a dangling state until the table is dropped — and on some
+    // SQLite builds the deferred FK pass at COMMIT can surface as a generic
+    // "FOREIGN KEY constraint failed" with no row info. Harvesting + dropping
+    // in one go sidesteps the issue entirely; we no longer need the
+    // _old_shop_profile rename at all.
+    // ------------------------------------------------------------------
+    type OldShopProfileRow = {
+      user_id: string;
+      shop_name: string;
+      owner_name: string | null;
+      created_at: number;
+      updated_at: number;
+    };
+    let oldShopProfile: OldShopProfileRow | null = null;
+    try {
+      if (await tableExists(db, "shop_profile")) {
+        oldShopProfile =
+          (await db.getFirstAsync<OldShopProfileRow>(
+            `SELECT user_id, shop_name, owner_name, created_at, updated_at
+             FROM shop_profile WHERE id = 1`,
+          )) ?? null;
+        await db.execAsync(`DROP TABLE shop_profile;`);
+      }
+    } catch (err) {
+      console.error('[mig007:step-4a] failed at "harvest + drop old shop_profile":', err);
+      throw err;
+    }
+
+    try {
+      await db.execAsync(`
+        CREATE TABLE shop_profile (
+          vault_id    TEXT PRIMARY KEY REFERENCES vaults(id),
+          owner_name  TEXT,
+          shop_name   TEXT NOT NULL,
+          created_at  INTEGER NOT NULL,
+          updated_at  INTEGER NOT NULL
+        );
+      `);
+    } catch (err) {
+      console.error('[mig007:step-4b] failed at "CREATE new shop_profile (vault-keyed)":', err);
+      throw err;
+    }
+
+    // ------------------------------------------------------------------
+    // 5. Default vault provisioning + backfill of vault_id everywhere.
+    // ------------------------------------------------------------------
+    //
+    // Mint a default vault iff this install has ledger state (any users
+    // row OR an old shop_profile). Brand-new installs skip — onboarding
+    // / first sign-in mints later.
+    let anyUserRow: { id: string } | null;
+    try {
+      anyUserRow = await db.getFirstAsync<{ id: string }>(`SELECT id FROM users LIMIT 1`);
+    } catch (err) {
+      console.error('[mig007:step-5a] failed at "SELECT id FROM users LIMIT 1 (mint check)":', err);
+      throw err;
+    }
+    const shouldMintDefaultVault = anyUserRow !== null || oldShopProfile !== null;
+
+    if (shouldMintDefaultVault) {
+      const now = Date.now();
+      const defaultVaultId = Crypto.randomUUID();
+      const vaultName = oldShopProfile?.shop_name?.trim() || "My ledger";
+
+      try {
+        await db.runAsync(
+          `INSERT INTO vaults
+             (id, name, currency, created_at, updated_at, archived_at,
+              is_default, account_id, registered_with_server_at,
+              vault_epoch, hlc_logical, hlc_wall_ms)
+           VALUES (?, ?, 'AFN', ?, ?, NULL, 1, NULL, NULL, 0, 0, 0)`,
+          defaultVaultId,
+          vaultName,
+          now,
+          now,
+        );
+      } catch (err) {
+        console.error('[mig007:step-5b] failed at "INSERT default vault row":', err);
+        throw err;
+      }
+
+      const spShopName = oldShopProfile?.shop_name?.trim() || vaultName;
+      const spOwnerName = oldShopProfile?.owner_name ?? null;
+      const spCreatedAt = oldShopProfile?.created_at ?? now;
+      const spUpdatedAt = oldShopProfile?.updated_at ?? now;
+
+      try {
+        await db.runAsync(
+          `INSERT INTO shop_profile
+             (vault_id, owner_name, shop_name, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?)`,
+          defaultVaultId,
+          spOwnerName,
+          spShopName,
+          spCreatedAt,
+          spUpdatedAt,
+        );
+      } catch (err) {
+        console.error('[mig007:step-5c] failed at "INSERT shop_profile (vault-keyed)":', err);
+        throw err;
+      }
+
+      // Backfill vault_id on every existing row across the three tables
+      // that gained the column. All existing ledger state belongs to the
+      // default vault by definition.
+      try {
+        await db.runAsync(`UPDATE entries SET vault_id = ? WHERE vault_id IS NULL`, defaultVaultId);
+      } catch (err) {
+        console.error('[mig007:step-5d] failed at "UPDATE entries SET vault_id":', err);
+        throw err;
+      }
+      try {
+        await db.runAsync(
+          `UPDATE relationships SET vault_id = ? WHERE vault_id IS NULL`,
+          defaultVaultId,
+        );
+      } catch (err) {
+        console.error('[mig007:step-5e] failed at "UPDATE relationships SET vault_id":', err);
+        throw err;
+      }
+      try {
+        await db.runAsync(
+          `UPDATE event_log SET vault_id = ? WHERE vault_id IS NULL`,
+          defaultVaultId,
+        );
+      } catch (err) {
+        console.error('[mig007:step-5f] failed at "UPDATE event_log SET vault_id":', err);
+        throw err;
+      }
+      // Defensive: enforce that NO event_log row escapes this migration with a
+      // null vault_id. Without this, a future bug producing an event with
+      // vault_id=null would silently land — and Phase 3 forward-sync would
+      // reject it for that vault attribution gap. We don't add a CHECK
+      // constraint on event_log itself (SQLite can't ALTER existing tables
+      // to add CHECKs without a full rewrite, and event_log is large); the
+      // post-backfill verification below catches drift at migration time and
+      // every append helper is fixed in lib/event-log.ts to stamp the active
+      // vault.
+      let stragglerRow: { n: number } | null;
+      try {
+        stragglerRow = await db.getFirstAsync<{ n: number }>(
+          `SELECT COUNT(*) AS n FROM event_log WHERE vault_id IS NULL`,
+        );
+      } catch (err) {
+        console.error(
+          '[mig007:step-5g] failed at "verify event_log straggler vault_id=NULL count":',
+          err,
+        );
+        throw err;
+      }
+      if ((stragglerRow?.n ?? 0) > 0) {
+        throw new Error(
+          `migration 007: ${stragglerRow?.n} event_log rows remain with vault_id IS NULL after backfill`,
+        );
+      }
+
+      // Stamp app_meta with active + default vault.
+      try {
+        await setAppMetaInTx(db, "active_vault_id", defaultVaultId);
+        await setAppMetaInTx(db, "default_vault_id", defaultVaultId);
+      } catch (err) {
+        console.error(
+          '[mig007:step-5h] failed at "stamp app_meta active_vault_id / default_vault_id":',
+          err,
+        );
+        throw err;
+      }
+    }
+
+    // step 5i removed: _old_shop_profile no longer exists at this point —
+    // step 4a now drops the old shop_profile directly after harvesting its
+    // single row, so there is no rename-and-defer phase. Kept as a comment
+    // so the step numbering with the inline log labels stays legible.
+    // Defensive: tolerate stragglers from a prior installed-but-pre-fix
+    // version of the app whose step 4a renamed (rather than dropped).
+    try {
+      if (await tableExists(db, "_old_shop_profile")) {
+        await db.execAsync(`DROP TABLE _old_shop_profile;`);
+      }
+    } catch (err) {
+      console.error('[mig007:step-5i] failed at "DROP TABLE _old_shop_profile":', err);
+      throw err;
+    }
+
+    // ------------------------------------------------------------------
+    // 6. Rewrite entries + relationships to enforce vault_id NOT NULL
+    //    with FK to vaults(id).
+    // ------------------------------------------------------------------
+
+    // ---- relationships ----
+    type RelationshipRow = {
+      id: string;
+      user_a_id: string;
+      user_b_id: string;
+      context: string;
+      created_at: number;
+      updated_at: number;
+      archived_at: number | null;
+      vault_id: string | null;
+    };
+    let relRows: RelationshipRow[];
+    try {
+      relRows = await db.getAllAsync<RelationshipRow>(
+        `SELECT id, user_a_id, user_b_id, context, created_at, updated_at, archived_at, vault_id
+         FROM relationships`,
+      );
+    } catch (err) {
+      console.error('[mig007:step-6a] failed at "SELECT existing relationships rows":', err);
+      throw err;
+    }
+
+    try {
+      await db.execAsync(`
+        CREATE TABLE relationships_new (
+          id          TEXT PRIMARY KEY,
+          vault_id    TEXT NOT NULL REFERENCES vaults(id),
+          user_a_id   TEXT NOT NULL REFERENCES users(id),
+          user_b_id   TEXT NOT NULL REFERENCES users(id),
+          context     TEXT NOT NULL DEFAULT 'peer' CHECK (context IN ('customer','supplier','peer')),
+          created_at  INTEGER NOT NULL,
+          updated_at  INTEGER NOT NULL,
+          archived_at INTEGER,
+          UNIQUE (vault_id, user_a_id, user_b_id, context)
+        );
+      `);
+    } catch (err) {
+      console.error('[mig007:step-6b] failed at "CREATE TABLE relationships_new":', err);
+      throw err;
+    }
+    try {
+      for (const r of relRows) {
+        if (r.vault_id == null) {
+          // Defensive: this should be impossible — every row with relationships
+          // is from an install that minted a default vault in step 5. Bail loudly
+          // rather than silently corrupting via empty string.
+          throw new Error(
+            `migration 007: relationships row ${r.id} has no vault_id after backfill`,
+          );
+        }
+        await db.runAsync(
+          `INSERT INTO relationships_new
+             (id, vault_id, user_a_id, user_b_id, context, created_at, updated_at, archived_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          r.id,
+          r.vault_id,
+          r.user_a_id,
+          r.user_b_id,
+          r.context,
+          r.created_at,
+          r.updated_at,
+          r.archived_at,
+        );
+      }
+    } catch (err) {
+      console.error(
+        '[mig007:step-6c] failed at "INSERT INTO relationships_new from old rows":',
+        err,
+      );
+      throw err;
+    }
+    try {
+      await db.execAsync(`DROP TABLE relationships;`);
+    } catch (err) {
+      console.error('[mig007:step-6d] failed at "DROP TABLE relationships":', err);
+      throw err;
+    }
+    try {
+      await db.execAsync(`ALTER TABLE relationships_new RENAME TO relationships;`);
+    } catch (err) {
+      console.error(
+        '[mig007:step-6e] failed at "ALTER TABLE relationships_new RENAME TO relationships":',
+        err,
+      );
+      throw err;
+    }
+
+    try {
+      await db.execAsync(`
+        CREATE INDEX IF NOT EXISTS idx_relationships_a
+          ON relationships(user_a_id) WHERE archived_at IS NULL;
+      `);
+    } catch (err) {
+      console.error('[mig007:step-6f] failed at "CREATE INDEX idx_relationships_a":', err);
+      throw err;
+    }
+
+    // ---- entries ----
+    type EntryRow = {
+      id: string;
+      relationship_id: string;
+      type: "debt" | "payment";
+      amount_afn: number;
+      note: string | null;
+      created_at: number;
+      updated_at: number;
+      deleted_at: number | null;
+      proposed_by_user_id: string | null;
+      accepted_at: number | null;
+      disputed_at: number | null;
+      disputed_reason: string | null;
+      settled_at: number | null;
+      current_event_id: string | null;
+      is_deleted: number;
+      is_settled: number;
+      vault_id: string | null;
+    };
+    let entryRows: EntryRow[];
+    try {
+      entryRows = await db.getAllAsync<EntryRow>(
+        `SELECT id, relationship_id, type, amount_afn, note,
+                created_at, updated_at, deleted_at, proposed_by_user_id,
+                accepted_at, disputed_at, disputed_reason, settled_at,
+                current_event_id, is_deleted, is_settled, vault_id
+         FROM entries`,
+      );
+    } catch (err) {
+      console.error('[mig007:step-7a] failed at "SELECT existing entries rows":', err);
+      throw err;
+    }
+
+    try {
+      await db.execAsync(`
+        CREATE TABLE entries_new (
+          id                   TEXT PRIMARY KEY,
+          vault_id             TEXT NOT NULL REFERENCES vaults(id),
+          relationship_id      TEXT NOT NULL REFERENCES relationships(id),
+          type                 TEXT NOT NULL CHECK (type IN ('debt','payment')),
+          amount_afn           INTEGER NOT NULL,
+          note                 TEXT,
+          created_at           INTEGER NOT NULL,
+          updated_at           INTEGER NOT NULL,
+          deleted_at           INTEGER,
+          proposed_by_user_id  TEXT REFERENCES users(id),
+          accepted_at          INTEGER,
+          disputed_at          INTEGER,
+          disputed_reason      TEXT,
+          settled_at           INTEGER,
+          current_event_id     TEXT,
+          is_deleted           INTEGER NOT NULL DEFAULT 0,
+          is_settled           INTEGER NOT NULL DEFAULT 0
+        );
+      `);
+    } catch (err) {
+      console.error('[mig007:step-7b] failed at "CREATE TABLE entries_new":', err);
+      throw err;
+    }
+    try {
+      for (const e of entryRows) {
+        if (e.vault_id == null) {
+          throw new Error(`migration 007: entries row ${e.id} has no vault_id after backfill`);
+        }
+        await db.runAsync(
+          `INSERT INTO entries_new
+             (id, vault_id, relationship_id, type, amount_afn, note,
+              created_at, updated_at, deleted_at, proposed_by_user_id,
+              accepted_at, disputed_at, disputed_reason, settled_at,
+              current_event_id, is_deleted, is_settled)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          e.id,
+          e.vault_id,
+          e.relationship_id,
+          e.type,
+          e.amount_afn,
+          e.note,
+          e.created_at,
+          e.updated_at,
+          e.deleted_at,
+          e.proposed_by_user_id,
+          e.accepted_at,
+          e.disputed_at,
+          e.disputed_reason,
+          e.settled_at,
+          e.current_event_id,
+          e.is_deleted,
+          e.is_settled,
+        );
+      }
+    } catch (err) {
+      console.error('[mig007:step-7c] failed at "INSERT INTO entries_new from old rows":', err);
+      throw err;
+    }
+    try {
+      await db.execAsync(`DROP TABLE entries;`);
+    } catch (err) {
+      console.error('[mig007:step-7d] failed at "DROP TABLE entries":', err);
+      throw err;
+    }
+    try {
+      await db.execAsync(`ALTER TABLE entries_new RENAME TO entries;`);
+    } catch (err) {
+      console.error('[mig007:step-7e] failed at "ALTER TABLE entries_new RENAME TO entries":', err);
+      throw err;
+    }
+
+    try {
+      await db.execAsync(`
+        CREATE INDEX IF NOT EXISTS idx_entries_relationship
+          ON entries(relationship_id) WHERE deleted_at IS NULL;
+      `);
+    } catch (err) {
+      console.error('[mig007:step-7f] failed at "CREATE INDEX idx_entries_relationship":', err);
+      throw err;
+    }
+
+    // ------------------------------------------------------------------
+    // 8. Phase 2 vault-scoped indexes.
+    // ------------------------------------------------------------------
+    try {
+      await db.execAsync(`
+        CREATE INDEX IF NOT EXISTS idx_entries_vault_created
+          ON entries(vault_id, created_at DESC) WHERE deleted_at IS NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_relationships_vault
+          ON relationships(vault_id, archived_at) WHERE archived_at IS NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_vaults_active
+          ON vaults(archived_at) WHERE archived_at IS NULL;
+      `);
+    } catch (err) {
+      console.error('[mig007:step-8] failed at "Phase 2 vault-scoped indexes":', err);
+      throw err;
+    }
+
+    // Step 8.5: Pre-commit FK integrity check.
+    //
+    // Migration 007 runs with PRAGMA defer_foreign_keys = ON, which postpones
+    // every FK constraint to COMMIT. If any of the table rewrites in steps 2,
+    // 6, 7 (or the backfill in step 5) left a row with an FK pointing at a
+    // non-existent parent, the violation surfaces only at the implicit COMMIT
+    // at the end of `withTransactionAsync` — outside the try/catch blocks
+    // above, so we'd just see a bare "FOREIGN KEY constraint failed" against
+    // execAsync with no row info.
+    //
+    // PRAGMA foreign_key_check returns one row per violation: (table, rowid,
+    // parent, fkid). Running it BEFORE the schema_migrations INSERT means a
+    // violation throws explicitly here with the actionable table/rowid, and
+    // the tx rolls back cleanly. On a healthy migration this is a single
+    // O(rows) scan over the (mostly empty) child tables.
+    try {
+      const fkViolations = await db.getAllAsync<{
+        table: string;
+        rowid: number | null;
+        parent: string;
+        fkid: number;
+      }>(`PRAGMA foreign_key_check;`);
+      if (fkViolations.length > 0) {
+        console.error(
+          "[mig007:step-8.5] foreign_key_check found violations:",
+          JSON.stringify(fkViolations),
+        );
+        throw new Error(
+          `migration 007: foreign_key_check found ${fkViolations.length} violation(s): ${JSON.stringify(fkViolations)}`,
+        );
+      }
+    } catch (err) {
+      console.error('[mig007:step-8.5] failed at "PRAGMA foreign_key_check":', err);
+      throw err;
+    }
+
+    try {
+      await db.runAsync(
+        `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+        MIGRATION_007,
+        Date.now(),
+      );
+    } catch (err) {
+      console.error('[mig007:step-9] failed at "INSERT INTO schema_migrations":', err);
+      throw err;
+    }
+  });
+}
+
+// Migration 008: per-vault sync cursor + projection conflict ledger (Phase 3).
+//
+// Two new tables, both pure additions — no rewrites of event_log, entries,
+// relationships, users, shop_profile, or vaults. Phase 1's event_log already
+// has target_id from day one, no CHECK on event_type (validated in app code
+// via isKnownEventType), and no supersedes_event_id column (per-field LWW by
+// HLC handles ordering at apply time). Phase 3 does not need to touch
+// event_log.
+//
+//   sync_state
+//     One row per vault. Tracks the high-water mark of server_seq pulled from
+//     the backend (last_pulled_server_seq), plus loose observability fields
+//     (last_pull_at, last_push_at, last_error, last_error_at). The cursor is
+//     advanced exclusively by lib/sync/pull.ts after applying a batch.
+//     ON DELETE CASCADE off vaults(id): if a vault is hard-deleted locally
+//     (only happens in dev reset today), its sync cursor goes with it.
+//
+//   projection_conflicts
+//     Append-only diagnostic log of cases where push surfaced a server-side
+//     rejection. detail_json is opaque to the schema; the sync worker logs
+//     { kind, event_id, reason, detail } and similar shapes per kind.
+//     resolved_at is nullable + currently unused — a Phase 4 admin UI may
+//     stamp it when a human acknowledges the conflict; until then every row
+//     is "open".
+async function runMigration008(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    // Defensive: defer FK checks to COMMIT. CREATE TABLE statements with
+    // REFERENCES don't normally trigger row-level checks, but a few SQLite
+    // builds surface generic FK errors at COMMIT when a child table is
+    // created whose parent was rewritten in the immediately-preceding
+    // transaction (mig 007). Setting this here costs nothing on a healthy
+    // run and keeps clean-DB boots from hitting "FOREIGN KEY constraint
+    // failed" on the implicit COMMIT.
+    await db.execAsync(`PRAGMA defer_foreign_keys = ON;`);
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS sync_state (
+        vault_id                TEXT PRIMARY KEY REFERENCES vaults(id) ON DELETE CASCADE,
+        last_pulled_server_seq  INTEGER NOT NULL DEFAULT 0,
+        last_pull_at            INTEGER,
+        last_push_at            INTEGER,
+        last_error              TEXT,
+        last_error_at           INTEGER,
+        updated_at              INTEGER
+      );
+
+      CREATE TABLE IF NOT EXISTS projection_conflicts (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind         TEXT NOT NULL,
+        vault_id     TEXT,
+        detail_json  TEXT NOT NULL CHECK (json_valid(detail_json)),
+        created_at   INTEGER NOT NULL,
+        resolved_at  INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_projection_conflicts_open
+        ON projection_conflicts(created_at DESC)
+        WHERE resolved_at IS NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_projection_conflicts_vault
+        ON projection_conflicts(vault_id, created_at DESC)
+        WHERE vault_id IS NOT NULL;
+    `);
+
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_008,
+      Date.now(),
+    );
+  });
+}
+
+// Migration 009: Phase 4 — pending_invitations cache, vault_settings table,
+// and field_hlcs sidecar columns on entries / users / shop_profile.
+//
+// pending_invitations: cache of GET /v1/vaults/invites/pending so the
+// invite-list screen + ProfileSettingsSheet-side badges render
+// without a network roundtrip. The scheduler refreshes this opportunistically;
+// the server remains the source of truth at accept-time.
+//
+// vault_settings: per-(vault_id, key) settings with per-key LWW HLC. Phase 4
+// introduces vault_setting_set events carrying arbitrary (key, value) pairs
+// scoped to a vault. Stored separately from app_meta because (a) app_meta is
+// install-scoped while vault settings are vault-scoped and must sync across
+// devices of every member, (b) per-key HLC lets the applier reject stale
+// incoming events without an event_log join.
+//
+// field_hlcs: JSON sidecar column on mutable-field entities. The applier
+// reads this column, compares each incoming field's event HLC against the
+// stored field HLC via compareHLC, and only applies fields whose event is
+// strictly greater. The same JSON is then re-written in the same UPDATE.
+// NULL means "never written" → treated as FIELD_HLC_INIT by readers. No
+// row-level backfill written: parseFieldHLCs(null) === {} which readFieldHLC
+// resolves to the floor, so the first real amend on any backfilled row will
+// always be applied.
+async function runMigration009(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    // Defensive: defer FK checks to COMMIT (same rationale as mig 008).
+    await db.execAsync(`PRAGMA defer_foreign_keys = ON;`);
+    // pending_invitations cache.
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS pending_invitations (
+        token             TEXT PRIMARY KEY,
+        vault_id          TEXT NOT NULL,
+        vault_name        TEXT NOT NULL,
+        invited_by_email  TEXT,
+        invited_by_name   TEXT,
+        role              TEXT NOT NULL CHECK (role IN ('owner','editor','viewer')),
+        invite_email      TEXT NOT NULL,
+        invited_at        INTEGER NOT NULL,
+        expires_at        INTEGER NOT NULL,
+        surfaced_at       INTEGER,
+        declined_at       INTEGER,
+        accepted_at       INTEGER,
+        revoked_at        INTEGER,
+        fetched_at        INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_pending_invitations_active
+        ON pending_invitations (expires_at)
+        WHERE declined_at IS NULL AND accepted_at IS NULL AND revoked_at IS NULL;
+    `);
+
+    // vault_settings: per-key LWW HLC.
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS vault_settings (
+        vault_id    TEXT NOT NULL REFERENCES vaults(id) ON DELETE CASCADE,
+        key         TEXT NOT NULL,
+        value       TEXT NOT NULL,
+        hlc_pms     INTEGER NOT NULL,
+        hlc_l       INTEGER NOT NULL,
+        hlc_did     TEXT NOT NULL,
+        updated_at  INTEGER NOT NULL,
+        PRIMARY KEY (vault_id, key)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_vault_settings_vault
+        ON vault_settings (vault_id);
+    `);
+
+    // field_hlcs sidecar columns. Each is nullable; parseFieldHLCs(null)
+    // returns {} which readFieldHLC resolves to FIELD_HLC_INIT — strictly
+    // less than every real HLC, so the first real amend always lands.
+    if (!(await columnExists(db, "entries", "field_hlcs"))) {
+      await db.execAsync(`
+        ALTER TABLE entries ADD COLUMN field_hlcs TEXT
+          CHECK (field_hlcs IS NULL OR json_valid(field_hlcs))
+      `);
+    }
+    if (!(await columnExists(db, "shop_profile", "field_hlcs"))) {
+      await db.execAsync(`
+        ALTER TABLE shop_profile ADD COLUMN field_hlcs TEXT
+          CHECK (field_hlcs IS NULL OR json_valid(field_hlcs))
+      `);
+    }
+    if (!(await columnExists(db, "users", "field_hlcs"))) {
+      await db.execAsync(`
+        ALTER TABLE users ADD COLUMN field_hlcs TEXT
+          CHECK (field_hlcs IS NULL OR json_valid(field_hlcs))
+      `);
+    }
+
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_009,
+      Date.now(),
+    );
+  });
+}
+
+// Migration 010: composite event_log index for high-churn vault membership
+// lookups (Phase 4.1 caveat closure).
+//
+// The Phase 4 baseline idx_event_log_target (target_id, hlc...) is sufficient
+// at expected scale, but per-field LWW lookups that scan event_log filtered by
+// (vault_id, event_type, target_id) — most prominently the entry_amended /
+// shop_profile_updated appliers and the vault_member_* projection paths added
+// in Phase 4.1 — degrade to a target_id index scan + filter as vault
+// membership churn accumulates. This composite covers (vault_id, event_type,
+// target_id) for the equality predicate and orders the trailing HLC tuple so
+// the planner can satisfy ORDER BY (hlc_physical_ms, hlc_logical,
+// hlc_device_id) DESC from the index alone — no sort step, no row visits for
+// the LWW pick.
+//
+// ENG #12: HLC columns are indexed DESC. SQLite's query planner can walk
+// an index in either direction for a single-column ORDER BY but only
+// matches multi-column DESC orderings against indexes whose column
+// directions match. The LWW queries we serve are uniformly ORDER BY
+// hlc_physical_ms DESC, hlc_logical DESC, hlc_device_id DESC — so the
+// index columns are declared DESC to let the planner skip the sort step
+// entirely. Equality columns (vault_id, event_type, target_id) ignore
+// direction so we leave them implicit (ASC).
+//
+// Partial WHERE rejected_at IS NULL: rejected events are never the LWW
+// winner, so excluding them keeps the index small on installs that
+// accumulate permission-rejected pulls.
+//
+// Purely additive — no behavior change. Re-running migration 010 is a no-op
+// via CREATE INDEX IF NOT EXISTS; the schema_migrations row guard makes the
+// run-once dispatch in initDb() short-circuit on the second launch.
+async function runMigration010(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`
+      CREATE INDEX IF NOT EXISTS idx_event_log_vault_type_target
+        ON event_log(
+          vault_id,
+          event_type,
+          target_id,
+          hlc_physical_ms DESC,
+          hlc_logical DESC,
+          hlc_device_id DESC
+        )
+        WHERE rejected_at IS NULL;
+    `);
+
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_010,
+      Date.now(),
+    );
+  });
+}
+
+// Migration 011: Phase 5 mesh credentials.
+//
+// Introduces two tables required for peer-to-peer mesh sync over WebRTC:
+//
+//   vault_credentials — Cache of server-signed Vault Membership Credentials
+//     (VMCs) for this device. A VMC is a compact Ed25519-signed token that
+//     proves "device D, owned by account A, has role R in vault V at epoch E,
+//     valid until T". Two phones meeting in the same shop complete a mesh
+//     handshake offline by exchanging and verifying each other's VMCs
+//     against the pinned server pubkey (see app_meta keys above).
+//     Refreshed via POST /v1/vaults/:vault_id/credential and on /v1/check-in
+//     piggy-back (vmc_renewals). 60-day lifetime; expiry triggers refresh
+//     on the next online check-in.
+//
+//   revocation_list — Tombstones for VMCs the server has revoked (device
+//     unlinked, member revoked, role downgraded). Populated from
+//     /v1/check-in response (revocations[]). Consulted during mesh handshake;
+//     a peer presenting a revoked VMC is rejected. Sticky: rows are never
+//     deleted, only added.
+//
+// The current vault_epoch is stored on vaults(vault_epoch) (mig 007). A VMC
+// whose vault_epoch < vaults.vault_epoch is treated as stale by the
+// handshake and forces a refresh.
+//
+// Purely additive — no rewrites, no backfill. Safe on fresh installs and
+// upgraders alike; mesh stays dormant until shop_mode_enabled is flipped on.
+async function runMigration011(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    // Defensive: defer FK checks to COMMIT (same rationale as mig 008).
+    // vault_credentials / revocation_list have no FKs, but the PRAGMA is
+    // a per-tx setting that resets at COMMIT, so setting it costs nothing
+    // and keeps the migration set uniform.
+    await db.execAsync(`PRAGMA defer_foreign_keys = ON;`);
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS vault_credentials (
+        vault_id      TEXT NOT NULL,
+        account_id    TEXT NOT NULL,
+        device_id     TEXT NOT NULL,
+        device_pubkey TEXT NOT NULL,
+        vmc_blob      TEXT NOT NULL,
+        issued_at     INTEGER NOT NULL,
+        expires_at    INTEGER NOT NULL,
+        vault_epoch   INTEGER NOT NULL,
+        PRIMARY KEY (vault_id, device_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_vc_account
+        ON vault_credentials(account_id);
+
+      CREATE INDEX IF NOT EXISTS idx_vc_expiry
+        ON vault_credentials(expires_at);
+
+      CREATE TABLE IF NOT EXISTS revocation_list (
+        vault_id   TEXT NOT NULL,
+        device_id  TEXT NOT NULL,
+        revoked_at INTEGER NOT NULL,
+        PRIMARY KEY (vault_id, device_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_rl_revoked
+        ON revocation_list(revoked_at);
+    `);
+
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_011,
+      Date.now(),
+    );
+  });
+}
+
+// Migration 012: Phase 7 local-CA mesh trust anchor.
+//
+// The vault owner's device key (Ed25519, generated in Phase 5 for mesh
+// handshake) doubles as the mesh trust anchor for this vault. Peers
+// verify VMCs against this column instead of the pinned server pubkey
+// when the column is non-NULL.
+//
+// Back-compat: NULL means "server-anchored" — the Phase 5 verification
+// path against app_meta.mesh_server_pubkey_primary still applies. Phase
+// 7 vault creation (vault/new.tsx + onboarding/profile.tsx) stamps the
+// creator's device pubkey unconditionally, so vaults minted from this
+// migration forward are always local-anchored even if the user is
+// signed in. Pre-existing vaults keep NULL — they remain server-
+// anchored until the owner runs a one-shot "claim" path (deferred,
+// see backlog).
+//
+// Storage: base64-encoded 32-byte Ed25519 pubkey (44 chars). Same
+// encoding used by app_meta.mesh_server_pubkey_primary and
+// vault_credentials.device_pubkey so existing decoders in vmc.ts and
+// device-key.ts apply unchanged.
+async function runMigration012(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`PRAGMA defer_foreign_keys = ON;`);
+    // ALTER TABLE ... ADD COLUMN is purely additive; existing rows get
+    // NULL (= server-anchored, back-compat).
+    if (!(await columnExists(db, "vaults", "vault_trust_anchor_pubkey"))) {
+      await db.execAsync(`ALTER TABLE vaults ADD COLUMN vault_trust_anchor_pubkey TEXT;`);
+    }
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_012,
+      Date.now(),
+    );
+  });
+}
+
+// Migration 013: Phase 8 D-ROLE-ENFORCEMENT-MOBILE — event signing + revocation lift.
+//
+// Closes SECURITY #2/#3 in the offline-member-management threat model.
+// Before this migration, ledger events on the mesh wire were unsigned —
+// any verified peer (editor or viewer) could forge a vault_member_*
+// event with actor_account_id set to the OWNER and the role-gate would
+// accept it on the basis of the claimed string alone. This is now
+// closed by:
+//
+//   1. Each event in event_log carries a 64-byte Ed25519 signature
+//      (event_sig_b64, NULLABLE only for pre-013 backfilled rows; new
+//      writes always populate it). The signing key is the local
+//      device's mesh Ed25519 privkey (lib/mesh/device-key.ts), the same
+//      key that mints VMCs in local-CA mode.
+//
+//   2. The signature covers a canonical encoding of the envelope +
+//      payload (see lib/event-sig.ts canonicalizeEvent). Signer device
+//      identity is bound via the event's device_id; the verifier looks
+//      up vault_credentials by (vault_id, device_id) to retrieve the
+//      authenticated device_pubkey and then verifies the signature
+//      AND extracts the authenticated account_id + role for the role-
+//      gate. The wire `actor_account_id` is treated as informational.
+//
+//   3. revocation_list gets a `lifted_at` column. When a previously-
+//      removed account is re-paired and applyVaultMemberAdded sees a
+//      fresh vault_member_added with newer HLC than the removal, the
+//      applier sets lifted_at = appended_at so the mesh handshake
+//      revocation check (vmc.ts isRevoked) treats the row as inactive.
+//      This closes ENG #8 — "removed-then-re-added device is
+//      permanently rejected at mesh handshake."
+//
+// Pure ADD-COLUMN migration. event_sig_b64 stays NULL on every existing
+// row (pre-013 events were authored locally with no signing scheme); the
+// verifier accepts NULL for local-origin replay and remote-origin events
+// whose envelope predates the schema version. New events authored after
+// this migration always carry a signature.
+async function runMigration013(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`PRAGMA defer_foreign_keys = ON;`);
+    if (!(await columnExists(db, "event_log", "event_sig_b64"))) {
+      await db.execAsync(`ALTER TABLE event_log ADD COLUMN event_sig_b64 TEXT;`);
+    }
+    if (!(await columnExists(db, "event_log", "signer_device_pubkey"))) {
+      // Snapshot of the signing pubkey at event-creation time. Bound here
+      // (and not just looked up from vault_credentials) so an event that
+      // outlives the credential row (e.g. cache eviction) can still be
+      // re-verified during a replay test. NULL for pre-013 rows.
+      await db.execAsync(`ALTER TABLE event_log ADD COLUMN signer_device_pubkey TEXT;`);
+    }
+    if (!(await columnExists(db, "revocation_list", "lifted_at"))) {
+      // ENG #8: when a removed device is re-paired, applyVaultMemberAdded
+      // stamps this column so isRevoked() ignores the row. Sticky write
+      // path: a later revocation OVERWRITES lifted_at back to NULL via
+      // the applier in vault_members.ts.
+      await db.execAsync(`ALTER TABLE revocation_list ADD COLUMN lifted_at INTEGER;`);
+    }
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_013,
+      Date.now(),
+    );
+  });
+}
+
 // --- v0 row shapes (used only during migration) ---
 type V0Shopkeeper = {
   id: number;
@@ -452,15 +2121,19 @@ async function findRelationshipIdForPerson(
   db: SQLite.SQLiteDatabase,
   personId: string,
 ): Promise<string | null> {
-  // After migration_003 every active relationship is 'peer'. We don't filter by
-  // context here so any straggler (customer/supplier rel that somehow survived)
-  // still works — the migration is exhaustive but this query stays robust.
+  // After migration_003 every active relationship is 'peer'; after migration_007
+  // every relationship has vault_id NOT NULL. Filter both so we never hand back
+  // a relationship from a different vault than the active one.
+  const vaultId = getActiveVaultIdSync();
   const row = await db.getFirstAsync<{ id: string }>(
     `SELECT id FROM relationships
-     WHERE user_b_id = ? AND archived_at IS NULL
+     WHERE user_b_id = ?
+       AND vault_id  = ?
+       AND archived_at IS NULL
      ORDER BY created_at DESC
      LIMIT 1`,
     personId,
+    vaultId,
   );
   return row?.id ?? null;
 }
@@ -475,10 +2148,21 @@ async function findRelationshipIdForPerson(
 export async function resetAllLocalData(): Promise<void> {
   const db = await getDb();
   await db.execAsync(`
+    DROP TABLE IF EXISTS sync_state;
+    DROP TABLE IF EXISTS projection_conflicts;
+    DROP TABLE IF EXISTS pending_invitations;
+    DROP TABLE IF EXISTS vault_settings;
+    DROP TABLE IF EXISTS event_log;
     DROP TABLE IF EXISTS entries;
+    DROP TABLE IF EXISTS entries_new;
     DROP TABLE IF EXISTS relationships;
+    DROP TABLE IF EXISTS relationships_new;
     DROP TABLE IF EXISTS shop_profile;
+    DROP TABLE IF EXISTS _old_shop_profile;
+    DROP TABLE IF EXISTS vault_members_mirror;
+    DROP TABLE IF EXISTS vaults;
     DROP TABLE IF EXISTS users;
+    DROP TABLE IF EXISTS users_new;
     DROP TABLE IF EXISTS app_meta;
     DROP TABLE IF EXISTS schema_migrations;
     DROP TABLE IF EXISTS shopkeeper;
@@ -486,88 +2170,276 @@ export async function resetAllLocalData(): Promise<void> {
     DROP TABLE IF EXISTS customers;
   `);
   await db.closeAsync();
-  dbPromise = null;
+  _resetDbHandleForReset();
+  _resetActiveVaultIdCacheForReset();
+  _resetAccountIdCacheForReset();
 }
 
 // --- public API ---
 
 export async function getLocalSelf(): Promise<Self | null> {
   const db = await getDb();
+  // After migration 007 shop_profile is keyed by vault_id (no user_id).
+  // Read the active vault's shop name when one exists; null otherwise.
+  // The local-self user row is the device identity, shared across vaults.
+  const vaultId = getActiveVaultIdSyncMaybe();
+  if (vaultId) {
+    const row = await db.getFirstAsync<Self>(
+      `SELECT u.id           AS user_id,
+              u.display_name AS name,
+              sp.shop_name   AS shop_name
+       FROM users u
+       LEFT JOIN shop_profile sp ON sp.vault_id = ?
+       WHERE u.is_local_self = 1
+       LIMIT 1`,
+      vaultId,
+    );
+    return row ?? null;
+  }
+  // No vault yet (brand-new install pre-onboarding). Return self user without
+  // shop_name; onboarding will mint vault + shop_profile together.
   const row = await db.getFirstAsync<Self>(
     `SELECT u.id           AS user_id,
             u.display_name AS name,
-            sp.shop_name   AS shop_name
+            NULL           AS shop_name
      FROM users u
-     LEFT JOIN shop_profile sp ON sp.user_id = u.id AND sp.id = 1
      WHERE u.is_local_self = 1
      LIMIT 1`,
   );
   return row ?? null;
 }
 
-export async function createSelfProfile(name: string, shopName: string | null): Promise<void> {
+export async function createSelfProfile(name: string, shopName: string): Promise<void> {
+  // Phase 7 D-VAULT-NAME-REQUIRED: shopName is REQUIRED. The previous
+  // signature accepted `string | null` and fell back to "My ledger" for
+  // the vault name and to `name` for shop_profile.shop_name. Founder
+  // rejected this — every vault must have a user-chosen name. The caller
+  // (onboarding/profile.tsx) validates + trims; this throw is the
+  // data-layer contract that catches anything that slips past the UI.
+  const trimmedName = name.trim();
+  const trimmedShop = shopName.trim();
+  if (!trimmedName) {
+    throw new Error("createSelfProfile: name is required");
+  }
+  if (!trimmedShop) {
+    throw new Error("createSelfProfile: shopName is required");
+  }
   const db = await getDb();
   const now = Date.now();
   const userId = Crypto.randomUUID();
+  // Brand-new install: migration 007 skipped minting a default vault, so
+  // onboarding completion mints it here in the same transaction that
+  // creates the local-self user + shop_profile. Mid-onboarding upgraders
+  // already have a vault (migration 007 minted it from the existing
+  // local_self row); skip the vault mint in that case.
+  const existingVaultId = await getActiveVaultId();
+  let vaultId = existingVaultId;
+
+  // Phase 7 D-LOCAL-CA-ARCHITECTURE: the owner's device pubkey is the
+  // mesh trust anchor for every vault we mint here — including the very
+  // first vault created during onboarding. Without this stamp, the
+  // onboarded vault would be server-anchored (column NULL) and
+  // startShopMode()'s eligibility gate would reject it. Pre-Phase-7
+  // installs that already have a vault (existingVaultId != null) get
+  // their anchor backfilled in the txn below — this lets old fresh
+  // installs that hit the new createSelfProfile path also become
+  // mesh-eligible without a separate migration step.
+  //
+  // ensureDeviceKey runs OUTSIDE the txn so a missing-keystore failure
+  // aborts cleanly. We don't fail the whole onboarding on key error —
+  // we fall back to leaving the column NULL, which puts the vault on
+  // the legacy server-anchored path; the next vault/new will succeed
+  // independently. (In practice ensureDeviceKey never fails after a
+  // fresh app install — the only realistic failure is the user
+  // wiping SecureStore mid-process, which we can't recover from.)
+  let trustAnchorPubkey: string | null = null;
+  try {
+    const deviceKey = await import("./mesh/device-key");
+    await deviceKey.ensureDeviceKey();
+    trustAnchorPubkey = deviceKey.getDevicePubkey() ?? null;
+  } catch (err) {
+    console.warn("[db] createSelfProfile: ensureDeviceKey failed", err);
+  }
+
   await db.withTransactionAsync(async () => {
     await db.runAsync(
       "INSERT INTO users (id, display_name, is_local_self, created_at, updated_at) VALUES (?, ?, 1, ?, ?)",
       userId,
-      name,
+      trimmedName,
       now,
       now,
     );
-    if (shopName) {
+
+    if (!vaultId) {
+      vaultId = Crypto.randomUUID();
       await db.runAsync(
-        "INSERT INTO shop_profile (id, user_id, shop_name, owner_name, created_at, updated_at) VALUES (1, ?, ?, ?, ?, ?)",
-        userId,
-        shopName,
-        name,
+        `INSERT INTO vaults
+           (id, name, currency, created_at, updated_at, archived_at,
+            is_default, account_id, registered_with_server_at,
+            vault_epoch, hlc_logical, hlc_wall_ms,
+            vault_trust_anchor_pubkey)
+         VALUES (?, ?, 'AFN', ?, ?, NULL, 1, NULL, NULL, 0, 0, 0, ?)`,
+        vaultId,
+        trimmedShop,
         now,
         now,
+        trustAnchorPubkey, // null only when ensureDeviceKey above failed
+      );
+      await setAppMetaInTx(db, "active_vault_id", vaultId);
+      await setAppMetaInTx(db, "default_vault_id", vaultId);
+    } else if (trustAnchorPubkey) {
+      // Backfill the trust anchor on a pre-existing vault row that was
+      // minted before Phase 7 (e.g. mid-onboarding upgrader from migration
+      // 007's bootstrap vault). COALESCE keeps an existing non-NULL value
+      // so a paired server-anchored vault doesn't get clobbered by a
+      // re-run of onboarding.
+      await db.runAsync(
+        `UPDATE vaults
+            SET vault_trust_anchor_pubkey = COALESCE(vault_trust_anchor_pubkey, ?)
+          WHERE id = ?`,
+        trustAnchorPubkey,
+        vaultId,
       );
     }
+
+    // shop_profile always has a row per vault — onboarding sets the
+    // first one with the user-chosen name. Phase 7: no fallback to the
+    // user's name (the field is required upstream).
+    await db.runAsync(
+      `INSERT OR REPLACE INTO shop_profile
+         (vault_id, owner_name, shop_name, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      vaultId,
+      trimmedName,
+      trimmedShop,
+      now,
+      now,
+    );
   });
+
+  // Issue + cache self-VMC AFTER the txn commits (cacheVMC owns its own
+  // write contract and isn't safe to call inside an existing tx). We
+  // import lazily to keep the mesh module graph out of the db.ts bundle
+  // when an install never reaches the mesh code path. Best-effort: if
+  // self-VMC issuance fails the vault row + trust anchor are still
+  // persisted; a subsequent startShopMode() will lazy-re-issue (see
+  // mesh/index.ts).
+  if (vaultId && trustAnchorPubkey) {
+    try {
+      const [{ buildLocalAccountId, issueLocalVMC }, { cacheVMC }, dbTx] = await Promise.all([
+        import("./mesh/local-vmc"),
+        import("./mesh/vmc"),
+        import("./db-tx"),
+      ]);
+      const selfAccountId = dbTx.getAccountIdSync() ?? buildLocalAccountId(trustAnchorPubkey);
+      const { blob, expiresAtMs } = await issueLocalVMC({
+        vaultId,
+        peerAccountId: selfAccountId,
+        peerDeviceId: dbTx.getInstallIdSync(),
+        peerDevicePubkey: trustAnchorPubkey,
+        role: "owner",
+        vaultEpoch: 0,
+      });
+      await cacheVMC(vaultId, blob, expiresAtMs, selfAccountId, trustAnchorPubkey, 0);
+    } catch (err) {
+      console.warn("[db] createSelfProfile: self-VMC issuance failed", err);
+    }
+  }
+
+  // Prime the in-memory caches so the first event append works immediately.
+  if (vaultId) setActiveVaultIdCache(vaultId);
+  await refreshLocalSelfUserIdCache();
+
+  // Emit a shop_profile_updated event so the initial shop_name + owner_name
+  // are reconstructable from event_log alone. Without this a wipe-and-replay
+  // (or a Phase 3 second-device restore-from-log) ends up with NO shop_profile
+  // row for the vault, because the INSERT above is a direct projection write
+  // outside the event log. The event projection applier UPDATEs the existing
+  // row idempotently, so emitting this AFTER the initial INSERT is safe (the
+  // event becomes the canonical write-history record; the INSERT is just the
+  // initial value seed).
+  //
+  // The local-self person is intentionally NOT emitted as a person_added —
+  // person_added events carry a relationship which the local-self has none of
+  // (it's the "user_a" side of every relationship, not a customer). Phase 3
+  // restore reconstructs the local self from app_meta.account_id + a fresh
+  // onboarding pass (the device has to re-mint its own self user row anyway
+  // because users.id is device-local for the self row).
+  if (vaultId) {
+    try {
+      await appendShopProfileUpdated({
+        vaultId,
+        changes: { shop_name: trimmedShop, owner_name: trimmedName },
+      });
+    } catch (err) {
+      // Best-effort: a transient failure here means the event log is missing
+      // the initial shop_name (recoverable on next updateSelfProfile call),
+      // not a data-integrity disaster. Don't fail onboarding for this.
+      console.warn("[db] createSelfProfile: shop_profile_updated emit failed", err);
+    }
+  }
 }
 
-// Updates the local-self user's display name and shop name. Both can be edited
-// independently from /settings after onboarding. Setting shopName to null clears
-// any existing shop_profile row; setting it to a string upserts the row.
+// Updates the local-self user's display name and shop name. Both can be
+// edited independently. In Phase 2:
+//   - Display name update routes through the person_renamed event applier
+//     so the projection rebuild path stays consistent.
+//   - Shop profile update routes through shop_profile_updated, keyed by
+//     vault_id (migration 007 collapsed the singleton id=1 row).
+//
+// Setting shopName to null/"" is treated as "no change to shop_name" since
+// shop_profile is now an always-present row per vault — clearing the name
+// is not a user gesture the UI supports.
 export async function updateSelfProfile(name: string, shopName: string | null): Promise<void> {
   const db = await getDb();
   const self = await getLocalSelfUserId(db);
   if (!self) throw new Error("local user not yet created");
-  const now = Date.now();
-  await db.withTransactionAsync(async () => {
-    await db.runAsync(
-      "UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?",
-      name,
-      now,
-      self,
+  const vaultId = getActiveVaultIdSync();
+
+  // Self display_name change goes through the event log (person_renamed
+  // applier handles it — no special case for is_local_self).
+  await appendPersonRenamed({ userId: self, vaultId, name });
+
+  // Shop name update — only emit when non-empty AND different from current.
+  if (shopName && shopName.length > 0) {
+    const current = await db.getFirstAsync<{ shop_name: string | null }>(
+      "SELECT shop_name FROM shop_profile WHERE vault_id = ?",
+      vaultId,
     );
-    if (shopName && shopName.length > 0) {
+    if (!current) {
+      // Migration 007 + onboarding both create a row for the active vault.
+      // If somehow missing, insert a minimal row first so the event applier
+      // has something to UPDATE — then ROUTE THROUGH THE EVENT LOG so a
+      // replay/restore reconstructs the same shop_name. Skipping the event
+      // here would break the "event log is the source of truth" contract.
+      const now = Date.now();
       await db.runAsync(
-        `INSERT INTO shop_profile (id, user_id, shop_name, owner_name, created_at, updated_at)
-         VALUES (1, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET shop_name = excluded.shop_name,
-                                       owner_name = excluded.owner_name,
-                                       updated_at = excluded.updated_at`,
-        self,
-        shopName,
+        `INSERT INTO shop_profile (vault_id, owner_name, shop_name, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        vaultId,
         name,
+        shopName,
         now,
         now,
       );
-    } else {
-      await db.runAsync("DELETE FROM shop_profile WHERE id = 1");
+      await appendShopProfileUpdated({
+        vaultId,
+        changes: { shop_name: shopName, owner_name: name },
+      });
+    } else if ((current.shop_name ?? "") !== shopName) {
+      await appendShopProfileUpdated({
+        vaultId,
+        changes: { shop_name: shopName, owner_name: name },
+      });
     }
-  });
+  }
 }
 
-// Creates a person with a single 'peer' relationship — no direction needed.
-// The balance and tab placement emerge from entries added later.
-// `countryCode` disambiguates a national phone number on input; storage is
-// always the resulting E.164 string. See lib/phone.ts.
+// Creates a person with a single 'peer' relationship via event-sourced
+// person_added (Phase 2). Public API + return type unchanged.
+//
+// Per-vault phone uniqueness check runs OUTSIDE the event append so we can
+// return a structured CreatePersonResult error before burning an HLC tick.
 export async function createPerson(
   name: string,
   phone: string | null,
@@ -576,6 +2448,7 @@ export async function createPerson(
   const db = await getDb();
   const localSelf = await getLocalSelfUserId(db);
   if (!localSelf) throw new Error("local user not yet created");
+  const vaultId = getActiveVaultIdSync();
 
   let phoneE164: string | null = null;
   if (phone && phone.length > 0) {
@@ -583,47 +2456,38 @@ export async function createPerson(
     if (!np) {
       return { ok: false, error: "phone_invalid" };
     }
-    const existing = await db.getFirstAsync<{ id: string; display_name: string }>(
-      "SELECT id, display_name FROM users WHERE phone_e164 = ?",
-      np,
-    );
-    if (existing) {
+    const conflict = await findPhoneConflictInVault(np, vaultId, null);
+    if (conflict) {
       return {
         ok: false,
         error: "phone_conflict",
-        existing: { id: existing.id, name: existing.display_name },
+        existing: conflict,
       };
     }
     phoneE164 = np;
   }
 
   const id = Crypto.randomUUID();
-  const now = Date.now();
   const relId = Crypto.randomUUID();
-  await db.withTransactionAsync(async () => {
-    await db.runAsync(
-      "INSERT INTO users (id, phone_e164, display_name, is_local_self, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
-      id,
-      phoneE164,
-      name,
-      now,
-      now,
-    );
-    await db.runAsync(
-      `INSERT INTO relationships (id, user_a_id, user_b_id, context, created_at, updated_at)
-       VALUES (?, ?, ?, 'peer', ?, ?)`,
-      relId,
-      localSelf,
-      id,
-      now,
-      now,
-    );
+  await appendPersonAdded({
+    userId: id,
+    relationshipId: relId,
+    name,
+    phoneE164,
+    vaultId,
   });
+
   await bumpUsageCounter("customers_added");
   return { ok: true, id };
 }
 
 async function selectAllPeopleRaw(db: SQLite.SQLiteDatabase): Promise<PersonWithBalance[]> {
+  // Vault filter on BOTH relationships and the LEFT-JOINed entries. The
+  // entries filter goes in the ON clause (not WHERE) because this is a
+  // LEFT JOIN; a person with zero entries must still appear.
+  // Pre-onboarding (no vault yet) returns [] cleanly.
+  const vaultId = getActiveVaultIdSyncMaybe();
+  if (!vaultId) return [];
   return db.getAllAsync<PersonWithBalance>(
     `SELECT u.id            AS id,
             u.display_name  AS name,
@@ -638,9 +2502,14 @@ async function selectAllPeopleRaw(db: SQLite.SQLiteDatabase): Promise<PersonWith
             MAX(CASE WHEN e.deleted_at IS NULL THEN e.created_at END) AS last_entry_at
      FROM relationships r
      INNER JOIN users u ON u.id = r.user_b_id
-     LEFT JOIN entries e ON e.relationship_id = r.id
-     WHERE r.archived_at IS NULL
+     LEFT JOIN entries e
+       ON e.relationship_id = r.id
+      AND e.vault_id = ?
+     WHERE r.vault_id   = ?
+       AND r.archived_at IS NULL
      GROUP BY u.id`,
+    vaultId,
+    vaultId,
   );
 }
 
@@ -680,6 +2549,8 @@ export async function listAllPeople(): Promise<PersonWithBalance[]> {
 
 export async function getPerson(id: string): Promise<PersonWithBalance | null> {
   const db = await getDb();
+  const vaultId = getActiveVaultIdSyncMaybe();
+  if (!vaultId) return null;
   const row = await db.getFirstAsync<PersonWithBalance>(
     `SELECT u.id            AS id,
             u.display_name  AS name,
@@ -694,49 +2565,79 @@ export async function getPerson(id: string): Promise<PersonWithBalance | null> {
             MAX(CASE WHEN e.deleted_at IS NULL THEN e.created_at END) AS last_entry_at
      FROM relationships r
      INNER JOIN users u ON u.id = r.user_b_id
-     LEFT JOIN entries e ON e.relationship_id = r.id
-     WHERE u.id = ? AND r.archived_at IS NULL
+     LEFT JOIN entries e
+       ON e.relationship_id = r.id
+      AND e.vault_id = ?
+     WHERE u.id = ?
+       AND r.vault_id = ?
+       AND r.archived_at IS NULL
      GROUP BY u.id
      LIMIT 1`,
+    vaultId,
     id,
+    vaultId,
   );
   return row ?? null;
 }
 
-// Archives every active relationship for the person and frees their phone
-// number for re-use. We null out users.phone_e164 because of the UNIQUE
-// constraint — without this, a shopkeeper who removes Ahmad and later
-// re-adds him with the same number would hit phone_conflict and be unable
-// to re-add anyone with that number ever again. Entries stay on disk
-// attached to the (now archived) relationship, so the history isn't lost.
+// Archives the person via event-sourced person_archived events — one per
+// active relationship for the person in the ACTIVE vault. Same public
+// signature as before (Promise<void>); the applier nulls the phone_e164
+// inside the same transaction once no active relationships remain across
+// any vault.
+//
+// In Phase 2 single-vault UI there's at most one active relationship; we
+// walk the list defensively so a future multi-vault UI doesn't silently
+// leave active rows behind.
 export async function archivePerson(id: string): Promise<void> {
   const db = await getDb();
-  const now = Date.now();
-  await db.withTransactionAsync(async () => {
-    await db.runAsync(
-      "UPDATE relationships SET archived_at = ?, updated_at = ? WHERE user_b_id = ? AND archived_at IS NULL",
-      now,
-      now,
-      id,
-    );
-    await db.runAsync("UPDATE users SET phone_e164 = NULL, updated_at = ? WHERE id = ?", now, id);
-  });
+  const vaultId = getActiveVaultIdSync();
+
+  const rels = await db.getAllAsync<{ id: string }>(
+    `SELECT id FROM relationships
+      WHERE user_b_id   = ?
+        AND vault_id    = ?
+        AND archived_at IS NULL`,
+    id,
+    vaultId,
+  );
+
+  for (const r of rels) {
+    await appendPersonArchived({
+      userId: id,
+      relationshipId: r.id,
+      vaultId,
+    });
+  }
 }
 
 export async function listEntries(personId: string): Promise<Entry[]> {
   const db = await getDb();
+  const vaultId = getActiveVaultIdSyncMaybe();
+  if (!vaultId) return [];
   return db.getAllAsync<Entry>(
     `SELECT e.id, e.relationship_id, e.type, e.amount_afn, e.note,
             e.created_at, e.updated_at, e.deleted_at, e.proposed_by_user_id,
             e.accepted_at, e.disputed_at, e.disputed_reason, e.settled_at
      FROM entries e
      INNER JOIN relationships r ON r.id = e.relationship_id
-     WHERE r.user_b_id = ? AND r.archived_at IS NULL AND e.deleted_at IS NULL
+     WHERE r.user_b_id  = ?
+       AND e.vault_id   = ?
+       AND r.vault_id   = ?
+       AND r.archived_at IS NULL
+       AND e.deleted_at IS NULL
      ORDER BY e.created_at DESC`,
     personId,
+    vaultId,
+    vaultId,
   );
 }
 
+// Public API preserved — same signature, same return type, same usage-counter
+// side effect. Internals now route through the event log instead of writing
+// to entries directly. The applier inside event-log.ts performs the actual
+// INSERT into entries within the same transaction that writes the event_log
+// row and advances hlc_last.
 export async function createEntry(
   personId: string,
   type: EntryType,
@@ -746,56 +2647,79 @@ export async function createEntry(
   const db = await getDb();
   const relId = await findRelationshipIdForPerson(db, personId);
   if (!relId) throw new Error(`no active relationship for person ${personId}`);
-  const localSelf = await getLocalSelfUserId(db);
-  const id = Crypto.randomUUID();
-  const now = Date.now();
-  await db.runAsync(
-    `INSERT INTO entries (id, relationship_id, type, amount_afn, note, created_at, updated_at, proposed_by_user_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    id,
-    relId,
+  const { entry_id } = await appendEntryCreated({
+    relationshipId: relId,
     type,
     amountAfn,
     note,
-    now,
-    now,
-    localSelf,
-  );
+  });
   await bumpUsageCounter("entries_created");
-  return id;
+  return entry_id;
 }
 
+// Same public API. Internally we compute a minimal delta against the current
+// row so we don't emit no-op amend events that would just churn the log on a
+// "Save" press where the user didn't actually change anything.
 export async function updateEntry(
   id: string,
   amountAfn: number,
   note: string | null,
 ): Promise<void> {
   const db = await getDb();
-  await db.runAsync(
-    "UPDATE entries SET amount_afn = ?, note = ?, updated_at = ? WHERE id = ?",
-    amountAfn,
-    note,
-    Date.now(),
-    id,
-  );
+  const vaultId = getActiveVaultIdSync();
+  // Read the current row (vault-scoped) so we can compute a minimal delta.
+  // A stale id from a different vault is treated as missing and no-ops.
+  const current = await db.getFirstAsync<{
+    amount_afn: number;
+    note: string | null;
+  }>("SELECT amount_afn, note FROM entries WHERE id = ? AND vault_id = ?", id, vaultId);
+  if (!current) {
+    // Mirror the old behavior: silently no-op on missing id. The previous
+    // UPDATE would simply affect 0 rows.
+    return;
+  }
+  const changes: { amount_afn?: number; note?: string | null } = {};
+  if (current.amount_afn !== amountAfn) changes.amount_afn = amountAfn;
+  // Normalize undefined / "" vs null so a no-op round-trip doesn't emit an event.
+  if ((current.note ?? null) !== (note ?? null)) changes.note = note;
+  if (Object.keys(changes).length === 0) {
+    // No-op: nothing actually changed. Do not append an empty amend event.
+    return;
+  }
+  await appendEntryAmended({ entryId: id, changes });
 }
 
 export async function getEntry(id: string): Promise<Entry | null> {
   const db = await getDb();
+  const vaultId = getActiveVaultIdSyncMaybe();
+  if (!vaultId) return null;
   const row = await db.getFirstAsync<Entry>(
     `SELECT id, relationship_id, type, amount_afn, note,
             created_at, updated_at, deleted_at, proposed_by_user_id,
             accepted_at, disputed_at, disputed_reason, settled_at
-     FROM entries WHERE id = ? AND deleted_at IS NULL`,
+     FROM entries
+     WHERE id = ?
+       AND vault_id = ?
+       AND deleted_at IS NULL`,
     id,
+    vaultId,
   );
   return row ?? null;
 }
 
+// Same public API. Sticky tombstone — already-deleted rows short-circuit at
+// the event-log layer; missing rows mirror the old "0 rows affected" no-op.
 export async function softDeleteEntry(id: string): Promise<void> {
   const db = await getDb();
-  const now = Date.now();
-  await db.runAsync("UPDATE entries SET deleted_at = ?, updated_at = ? WHERE id = ?", now, now, id);
+  const vaultId = getActiveVaultIdSync();
+  const current = await db.getFirstAsync<{ is_deleted: number | null }>(
+    "SELECT is_deleted FROM entries WHERE id = ? AND vault_id = ?",
+    id,
+    vaultId,
+  );
+  if (!current) return;
+  if (current.is_deleted === 1) return;
+  await appendEntryDeleted({ entryId: id });
 }
 
 export async function updatePerson(
@@ -805,33 +2729,71 @@ export async function updatePerson(
   countryCode?: string,
 ): Promise<UpdatePersonResult> {
   const db = await getDb();
+  const vaultId = getActiveVaultIdSync();
 
-  let phoneE164: string | null = null;
+  // Cross-vault safety: a stale UI passing a user_id from a different vault
+  // must not silently mutate that user globally. Verify the user has at
+  // least one active relationship IN THE ACTIVE VAULT before reading their
+  // current row.
+  const current = await db.getFirstAsync<{
+    display_name: string;
+    phone_e164: string | null;
+  }>(
+    `SELECT u.display_name, u.phone_e164
+       FROM users u
+      INNER JOIN relationships r
+         ON r.user_b_id = u.id
+        AND r.vault_id  = ?
+        AND r.archived_at IS NULL
+      WHERE u.id = ?
+      LIMIT 1`,
+    vaultId,
+    id,
+  );
+  if (!current) {
+    // Mirror the pre-rewrite silent no-op on missing id (or id from
+    // another vault, which is now indistinguishable from missing).
+    return { ok: true };
+  }
+
+  let nextPhone: string | null = current.phone_e164;
+  let phoneChanged = false;
+
   if (phone && phone.length > 0) {
     const np = normalizePhone(phone, countryCode);
     if (!np) return { ok: false, error: "phone_invalid" };
-    const conflict = await db.getFirstAsync<{ id: string; display_name: string }>(
-      "SELECT id, display_name FROM users WHERE phone_e164 = ? AND id != ?",
-      np,
-      id,
-    );
-    if (conflict) {
-      return {
-        ok: false,
-        error: "phone_conflict",
-        existing: { id: conflict.id, name: conflict.display_name },
-      };
+    if (np !== (current.phone_e164 ?? null)) {
+      const conflict = await findPhoneConflictInVault(np, vaultId, id);
+      if (conflict) {
+        return {
+          ok: false,
+          error: "phone_conflict",
+          existing: conflict,
+        };
+      }
+      nextPhone = np;
+      phoneChanged = true;
     }
-    phoneE164 = np;
+  } else if (current.phone_e164 != null) {
+    nextPhone = null;
+    phoneChanged = true;
   }
 
-  await db.runAsync(
-    "UPDATE users SET display_name = ?, phone_e164 = ?, updated_at = ? WHERE id = ?",
-    name,
-    phoneE164,
-    Date.now(),
-    id,
-  );
+  const nameChanged = name !== current.display_name;
+
+  // Emit as separate events when both changed — each event has a single
+  // semantic, which is what the backend projection + Phase 4 ACL want.
+  if (nameChanged) {
+    await appendPersonRenamed({ userId: id, vaultId, name });
+  }
+  if (phoneChanged) {
+    await appendPersonPhoneChanged({
+      userId: id,
+      vaultId,
+      phoneE164: nextPhone,
+    });
+  }
+
   return { ok: true };
 }
 
@@ -892,20 +2854,116 @@ export async function decrementPendingUsage(snapshot: PendingUsage): Promise<voi
   });
 }
 
+// Thin wrappers around the transaction-aware primitives in db-tx.ts. These
+// versions open their own implicit autocommit transaction per call — fine for
+// UI banner state, NOT safe for the hlc_last cursor (which uses the *InTx
+// variants inside withTransactionAsync).
 export async function getAppMeta(key: string): Promise<string | null> {
   const db = await getDb();
-  const row = await db.getFirstAsync<{ value: string }>(
-    "SELECT value FROM app_meta WHERE key = ?",
-    key,
-  );
-  return row?.value ?? null;
+  return getAppMetaInTx(db, key);
 }
 
 export async function setAppMeta(key: string, value: string): Promise<void> {
   const db = await getDb();
-  await db.runAsync(
-    "INSERT INTO app_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    key,
-    value,
+  return setAppMetaInTx(db, key, value);
+}
+
+// ---------------------------------------------------------------------------
+// Vault list helpers — D-ARCHIVED-VAULT-FILTER
+//
+// Two distinct entry points, never one with a flag:
+//
+//   listActiveVaults()                 → archived_at IS NULL
+//   listAllVaultsIncludingArchived()   → no filter
+//
+// Returning a flagged-union with `archived: boolean` would push the filter
+// to every call site (the v0 mistake we just cleaned up in
+// VaultPickerSheet / ProfileSettingsSheet). The split forces the call site
+// to declare intent at compile time: "I want the picker list" vs "I want
+// the archived-sub-section list". Adding a third surface (e.g. the
+// archived-only view) means a third helper, not a third call-site filter.
+// ---------------------------------------------------------------------------
+
+export type VaultListRow = {
+  id: string;
+  name: string;
+  archived: boolean;
+  archived_at: number | null;
+};
+
+export async function listActiveVaults(): Promise<VaultListRow[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{
+    id: string;
+    name: string;
+    archived_at: number | null;
+  }>(
+    `SELECT id, name, archived_at
+       FROM vaults
+      WHERE archived_at IS NULL
+      ORDER BY name COLLATE NOCASE`,
   );
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    archived: false,
+    archived_at: null,
+  }));
+}
+
+export async function listAllVaultsIncludingArchived(): Promise<VaultListRow[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{
+    id: string;
+    name: string;
+    archived_at: number | null;
+  }>(
+    `SELECT id, name, archived_at
+       FROM vaults
+      ORDER BY (archived_at IS NULL) DESC, name COLLATE NOCASE`,
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    archived: r.archived_at != null,
+    archived_at: r.archived_at,
+  }));
+}
+
+// D-ACTIVE-VAULT-REACTIVE: cheap 1-row read for the home-screen safety
+// net. Returns the archived_at timestamp (null = active) for one vault
+// id. Returns Date.now() (a "treat as archived" sentinel) if the row
+// doesn't exist — the caller's fallback path is identical for archived
+// and missing rows, so we collapse both into one signal.
+export async function getActiveVaultArchivedAt(vaultId: string): Promise<number | null> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ archived_at: number | null }>(
+    `SELECT archived_at FROM vaults WHERE id = ?`,
+    vaultId,
+  );
+  if (!row) return Date.now(); // row missing → treat as archived
+  return row.archived_at;
+}
+
+// D-DEFENSIVE-ARCHIVED-GUARD: cheap status check used by create-flows
+// (entry/new, person/new, home FAB) to refuse writes when the active
+// vault has been archived out from under the user — e.g. a remote
+// vault_setting_set landed via mesh between the screen load and the
+// user tap. Returns:
+//   - { state: "none" }       → no active vault id at all
+//   - { state: "archived" }   → active vault exists but archived_at is set
+//   - { state: "ok" }         → active vault is writable
+// Resolves to "none" if the vault row is missing (e.g. ledger reset).
+export async function getActiveVaultArchivedState(): Promise<
+  { state: "none" } | { state: "archived" } | { state: "ok" }
+> {
+  const vaultId = getActiveVaultIdSyncMaybe();
+  if (!vaultId) return { state: "none" };
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ archived_at: number | null }>(
+    `SELECT archived_at FROM vaults WHERE id = ?`,
+    vaultId,
+  );
+  if (!row) return { state: "none" };
+  return row.archived_at != null ? { state: "archived" } : { state: "ok" };
 }

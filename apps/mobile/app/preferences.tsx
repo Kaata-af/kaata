@@ -1,9 +1,44 @@
+// Preferences — Phase 7 unified design.
+//
+// Adopts the ProfileSettingsSheet design DNA so this page reads as a
+// natural extension of the sheet rather than a foreign modal:
+//   - SectionHeader (11/sansSemi/uppercase/letterSpacing 0.6/textSubtle)
+//   - SectionGap (4px bgMuted bar with 12px top margin)
+//   - NavRow (52px min, 20px horizontal padding, hairline divider)
+//   - Header: card-presentation with a back chevron on the left, no
+//     "Cancel" word — same affordance as iOS settings pages and the rest
+//     of the redesigned vault/* surfaces.
+//
+// Sections, top to bottom:
+//   1. LANGUAGE      — System default / English / دری
+//   2. CURRENCY      — default currency for new Kaatas (per-Kaata override
+//                      in /vault/settings)
+//   3. REGION        — default country code for new contacts
+//   4. APPEARANCE    — placeholder, disabled until theme support ships
+//   5. NOTIFICATIONS — placeholder, disabled until push ships (Phase 8+)
+//
+// Auto-commit pattern (no Save button): tapping an option in the picker
+// sheet writes app_meta + flips the in-memory module setter AND closes
+// the sheet. The page re-renders with the new value on the spot.
+
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  Animated,
+  Dimensions,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { CountryPickerSheet } from "../components/CountryPickerSheet";
+import { NavRow, ScreenHeader, SectionGap, SectionHeader } from "../components/SettingsScreen";
+import { useToast } from "../components/Toast";
 import { colors } from "../lib/colors";
 import {
   CURRENCIES,
@@ -13,8 +48,17 @@ import {
   setCurrentCurrency,
 } from "../lib/currency";
 import { getAppMeta, setAppMeta } from "../lib/db";
-import { CountryPickerSheet } from "../components/CountryPickerSheet";
-import { useToast } from "../components/Toast";
+import {
+  SETTINGS_ROW_LABEL_FONT_SIZE,
+  SETTINGS_ROW_MIN_HEIGHT,
+  SETTINGS_ROW_PADDING_X,
+  SETTINGS_ROW_PADDING_Y,
+  SETTINGS_SECTION_HEADER_FONT_SIZE,
+  SETTINGS_SECTION_HEADER_LETTER_SPACING,
+  SETTINGS_SECTION_HEADER_PADDING_BOTTOM,
+  SETTINGS_SECTION_HEADER_PADDING_TOP,
+  SETTINGS_SHEET_TOP_RADIUS,
+} from "../lib/design-tokens";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { type LocalePref, setLocale, t } from "../lib/i18n";
@@ -23,13 +67,6 @@ import {
   getCurrentDefaultCountryCode,
   setCurrentDefaultCountryCode,
 } from "../lib/phone";
-
-// Preferences — language + currency.
-//
-// Auto-commit pattern (no Save button): tapping an option in the picker
-// sheet immediately writes app_meta + calls the in-memory module setter
-// (setLocale / setCurrentCurrency) AND closes the sheet. The screen
-// re-renders in the new language / currency on the spot.
 
 const LANGUAGE_OPTIONS: ReadonlyArray<{ value: LocalePref; labelKey: string }> = [
   { value: "system", labelKey: "settings.language.option.system" },
@@ -41,10 +78,13 @@ export default function PreferencesScreen() {
   const router = useRouter();
   const toast = useToast();
   const isRTL = useIsRTL();
+  const insets = useSafeAreaInsets();
+
   const [loaded, setLoaded] = useState(false);
   const [localePref, setLocalePref] = useState<LocalePref>("system");
   const [currency, setCurrency] = useState<string>(DEFAULT_CURRENCY);
   const [countryCode, setCountryCode] = useState<string>("AF");
+
   const [langSheetVisible, setLangSheetVisible] = useState(false);
   const [currencySheetVisible, setCurrencySheetVisible] = useState(false);
   const [countrySheetVisible, setCountrySheetVisible] = useState(false);
@@ -55,48 +95,36 @@ export default function PreferencesScreen() {
       const pref: LocalePref = storedPref === "en" || storedPref === "fa" ? storedPref : "system";
       setLocalePref(pref);
       setCurrency(getCurrentCurrencyCode());
-      // Country: read from the module-global which was hydrated at app
-      // start via initDefaultCountryFromPref in _layout.tsx. No need to
-      // re-read app_meta here — the global is the source of truth.
       setCountryCode(getCurrentDefaultCountryCode());
       setLoaded(true);
     })();
   }, []);
 
   async function pickLanguage(value: LocalePref) {
-    setLocalePref(value);
     setLangSheetVisible(false);
-    if (value !== localePref) {
-      setLocale(value);
-      await setAppMeta("locale_pref", value);
-      // Toast fires in the NEW locale (setLocale already swapped the
-      // module-global), so users get confirmation in their just-picked
-      // language. Visual re-render of every t() call elsewhere is the
-      // primary signal; the toast just confirms "yes, this stuck."
-      toast.push(t("settings.language.changed"), "success");
-    }
+    if (value === localePref) return;
+    setLocalePref(value);
+    setLocale(value);
+    await setAppMeta("locale_pref", value);
+    toast.push(t("settings.language.changed"), "success");
   }
 
   async function pickCurrency(code: string) {
-    setCurrency(code);
     setCurrencySheetVisible(false);
-    if (code !== currency) {
-      setCurrentCurrency(code);
-      await setAppMeta("default_currency", code);
-      // Currency changes are less visible (only show on amount displays)
-      // so the toast is more important here than for language.
-      toast.push(t("settings.currency.changed"), "success");
-    }
+    if (code === currency) return;
+    setCurrency(code);
+    setCurrentCurrency(code);
+    await setAppMeta("default_currency", code);
+    toast.push(t("settings.currency.changed"), "success");
   }
 
   async function pickCountry(code: string) {
-    setCountryCode(code);
     setCountrySheetVisible(false);
-    if (code !== countryCode) {
-      setCurrentDefaultCountryCode(code);
-      await setAppMeta("default_country_code", code);
-      toast.push(t("preferences.country.changed"), "success");
-    }
+    if (code === countryCode) return;
+    setCountryCode(code);
+    setCurrentDefaultCountryCode(code);
+    await setAppMeta("default_country_code", code);
+    toast.push(t("preferences.country.changed"), "success");
   }
 
   if (!loaded) return null;
@@ -104,43 +132,102 @@ export default function PreferencesScreen() {
   const selectedLangLabelKey =
     LANGUAGE_OPTIONS.find((o) => o.value === localePref)?.labelKey ??
     "settings.language.option.system";
+  const languageValue = t(selectedLangLabelKey as Parameters<typeof t>[0]);
+
+  const currencyEntry = CURRENCIES.find((c) => c.code === currency);
+  const currencyValue = currencyEntry
+    ? `${currencyEntry.symbol}  ${getCurrencyName(currency)}`
+    : currency;
+
+  const country = getCountry(countryCode);
+  const countryValue = `${country.flag}  ${country.name}`;
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={[styles.header, rowDir(isRTL)]}>
-        <Pressable onPress={() => router.back()} hitSlop={8}>
-          <Text style={[styles.cancel, textDir(isRTL)]}>{t("common.cancel")}</Text>
-        </Pressable>
-        <Text style={styles.title}>{t("preferences.title")}</Text>
-        <View style={{ width: 60 }} />
-      </View>
+    <SafeAreaView style={styles.container} edges={["top"]}>
+      <ScreenHeader
+        title={t("preferences.title")}
+        onBack={() => router.back()}
+        isRTL={isRTL}
+        backLabel={t("common.back")}
+      />
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <SelectField
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 24 + insets.bottom * 0.25 }}
+      >
+        {/* ============ LANGUAGE ============ */}
+        <SectionHeader label={t("settings.language.label")} isRTL={isRTL} />
+        <NavRow
+          icon="language-outline"
           label={t("settings.language.label")}
-          // selectedLangLabelKey is a runtime-computed string; t() expects
-          // a literal key union. Casting to the union is safe because the
-          // value is always one of the three known LANGUAGE_OPTIONS keys.
-          value={t(selectedLangLabelKey as Parameters<typeof t>[0])}
+          trailing={languageValue}
           onPress={() => setLangSheetVisible(true)}
           isRTL={isRTL}
+          isLast
         />
-        <SelectField
+
+        <SectionGap />
+
+        {/* ============ CURRENCY ============ */}
+        <SectionHeader label={t("preferences.currency.section")} isRTL={isRTL} />
+        <NavRow
+          icon="cash-outline"
           label={t("settings.currency.label")}
-          value={`${findSymbol(currency)}  ${getCurrencyName(currency)}`}
+          hint={t("preferences.currency.defaultHint")}
+          trailing={currencyValue}
           onPress={() => setCurrencySheetVisible(true)}
           isRTL={isRTL}
-          hint={t("settings.currency.hint")}
+          isLast
         />
-        <SelectField
+
+        <SectionGap />
+
+        {/* ============ REGION ============ */}
+        <SectionHeader label={t("preferences.region.section")} isRTL={isRTL} />
+        <NavRow
+          icon="flag-outline"
           label={t("preferences.country.label")}
-          value={(() => {
-            const c = getCountry(countryCode);
-            return `${c.flag}  ${c.name} (${c.dialCode})`;
-          })()}
+          hint={t("preferences.country.hint")}
+          trailing={countryValue}
           onPress={() => setCountrySheetVisible(true)}
           isRTL={isRTL}
-          hint={t("preferences.country.hint")}
+          isLast
+        />
+
+        <SectionGap />
+
+        {/* ============ APPEARANCE (placeholder) ============
+            Theme toggle isn't shipped yet — the app is hard-coded light.
+            Row renders disabled with a "Coming soon" trailing so users
+            know the slot exists. When dark mode lands, drop the disabled
+            flag and wire up an OptionSheet (Light / Dark / System) using
+            the same pattern as language. */}
+        <SectionHeader label={t("preferences.appearance.section")} isRTL={isRTL} />
+        <NavRow
+          icon="color-palette-outline"
+          label={t("preferences.appearance.theme")}
+          hint={t("preferences.appearance.themeHint")}
+          trailing={t("preferences.comingSoon")}
+          onPress={() => {}}
+          isRTL={isRTL}
+          disabled
+          isLast
+        />
+
+        <SectionGap />
+
+        {/* ============ NOTIFICATIONS (placeholder) ============
+            Push notifications aren't shipped yet. Phase 8+. */}
+        <SectionHeader label={t("preferences.notifications.section")} isRTL={isRTL} />
+        <NavRow
+          icon="notifications-outline"
+          label={t("preferences.notifications.reminders")}
+          hint={t("preferences.notifications.remindersHint")}
+          trailing={t("preferences.comingSoon")}
+          onPress={() => {}}
+          isRTL={isRTL}
+          disabled
+          isLast
         />
       </ScrollView>
 
@@ -179,39 +266,11 @@ export default function PreferencesScreen() {
   );
 }
 
-function findSymbol(code: string): string {
-  return CURRENCIES.find((c) => c.code === code)?.symbol ?? "";
-}
-
-function SelectField(props: {
-  label: string;
-  value: string;
-  onPress: () => void;
-  isRTL: boolean;
-  hint?: string;
-}) {
-  return (
-    <View style={styles.field}>
-      <Text style={[styles.label, textDir(props.isRTL)]}>{props.label}</Text>
-      <Pressable
-        onPress={props.onPress}
-        style={({ pressed }) => [
-          styles.selectField,
-          rowDir(props.isRTL),
-          pressed && { backgroundColor: colors.bgMuted },
-        ]}
-      >
-        <Text style={[styles.selectValue, textDir(props.isRTL)]} numberOfLines={1}>
-          {props.value}
-        </Text>
-        <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
-      </Pressable>
-      {props.hint ? (
-        <Text style={[styles.fieldHint, textDir(props.isRTL)]}>{props.hint}</Text>
-      ) : null}
-    </View>
-  );
-}
+// --------------------------------------------------------------------------
+// OptionSheet — picker bottom sheet used for language / currency. Same
+// chrome as BottomSheet.tsx (OFFSCREEN=600, friction/tension, hairline
+// dividers, BlurView scrim, 220ms exit defer constant).
+// --------------------------------------------------------------------------
 
 const SHEET_OFFSCREEN = 600;
 const SHEET_EXIT_MS = 220;
@@ -237,7 +296,11 @@ function OptionSheet(props: {
       setRendered(true);
       requestAnimationFrame(() => {
         Animated.parallel([
-          Animated.timing(opacity, { toValue: 1, duration: 220, useNativeDriver: true }),
+          Animated.timing(opacity, {
+            toValue: 1,
+            duration: 220,
+            useNativeDriver: true,
+          }),
           Animated.spring(translateY, {
             toValue: 0,
             useNativeDriver: true,
@@ -248,7 +311,11 @@ function OptionSheet(props: {
       });
     } else if (rendered) {
       Animated.parallel([
-        Animated.timing(opacity, { toValue: 0, duration: 160, useNativeDriver: true }),
+        Animated.timing(opacity, {
+          toValue: 0,
+          duration: 160,
+          useNativeDriver: true,
+        }),
         Animated.timing(translateY, {
           toValue: SHEET_OFFSCREEN,
           duration: SHEET_EXIT_MS,
@@ -280,17 +347,30 @@ function OptionSheet(props: {
         style={[styles.sheetContainer, { transform: [{ translateY }] }]}
         pointerEvents="box-none"
       >
-        <SafeAreaView edges={["bottom"]} style={styles.sheetWrap}>
+        <SafeAreaView
+          edges={["bottom"]}
+          // Numeric maxHeight — percentage strings against position:absolute
+          // parents with no explicit height are undefined in RN. Concrete
+          // pixel cap. Same fix as ProfileSettingsSheet / VaultPickerSheet.
+          style={[styles.sheetWrap, { maxHeight: Dimensions.get("window").height * 0.75 }]}
+        >
           <View style={styles.sheet} onStartShouldSetResponder={() => true}>
             <View style={styles.sheetGrabber} />
             <Text style={[styles.sheetTitle, textDir(isRTL)]}>{title}</Text>
-            <View style={styles.sheetList}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+              contentContainerStyle={{ paddingBottom: 8 }}
+            >
               {options.map((o, i) => {
                 const isSelected = o.key === selected;
                 return (
                   <Pressable
                     key={o.key}
                     onPress={() => onSelect(o.key)}
+                    accessibilityRole="button"
+                    accessibilityLabel={o.label}
+                    accessibilityState={{ selected: isSelected }}
                     style={({ pressed }) => [
                       styles.sheetRow,
                       rowDir(isRTL),
@@ -308,7 +388,7 @@ function OptionSheet(props: {
                   </Pressable>
                 );
               })}
-            </View>
+            </ScrollView>
           </View>
         </SafeAreaView>
       </Animated.View>
@@ -318,56 +398,8 @@ function OptionSheet(props: {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.borderDefault,
-  },
-  cancel: {
-    fontSize: 15,
-    fontFamily: fonts.sansMedium,
-    color: colors.textSubtle,
-    minWidth: 60,
-  },
-  title: { fontSize: 16, fontFamily: fonts.sansSemi, color: colors.textEmphasis },
-  scrollContent: { padding: 16, paddingTop: 24, paddingBottom: 32 },
-  field: { marginBottom: 20 },
-  label: {
-    fontSize: 13,
-    fontFamily: fonts.sansMedium,
-    color: colors.textDefault,
-    marginBottom: 8,
-  },
-  fieldHint: {
-    fontSize: 12,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    marginTop: 6,
-  },
 
-  selectField: {
-    minHeight: 44,
-    borderWidth: 1,
-    borderColor: colors.borderDefault,
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    backgroundColor: colors.bgDefault,
-    alignItems: "center",
-    justifyContent: "space-between",
-    flexDirection: "row",
-  },
-  selectValue: {
-    fontSize: 15,
-    fontFamily: fonts.sansRegular,
-    color: colors.textEmphasis,
-    flexShrink: 1,
-  },
-
-  // OptionSheet styles
+  // OptionSheet ------------------------------------------------------------
   sheetTint: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.08)",
@@ -378,42 +410,47 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
-  sheetWrap: { marginHorizontal: 12, marginBottom: 12 },
-  sheet: {
+  sheetWrap: {
     backgroundColor: colors.bgDefault,
-    borderRadius: 18,
-    paddingHorizontal: 16,
+    borderTopLeftRadius: SETTINGS_SHEET_TOP_RADIUS,
+    borderTopRightRadius: SETTINGS_SHEET_TOP_RADIUS,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderDefault,
+  },
+  sheet: {
     paddingTop: 8,
-    paddingBottom: 4,
-    borderWidth: 1,
-    borderColor: colors.borderDefault,
+    paddingBottom: 0,
+    flexShrink: 1,
   },
   sheetGrabber: {
-    width: 36,
+    alignSelf: "center",
+    width: 40,
     height: 4,
     borderRadius: 2,
     backgroundColor: colors.borderEmphasis,
-    alignSelf: "center",
-    marginBottom: 10,
+    marginBottom: 4,
   },
   sheetTitle: {
-    fontSize: 13,
+    fontSize: SETTINGS_SECTION_HEADER_FONT_SIZE,
     fontFamily: fonts.sansSemi,
-    color: colors.textMuted,
-    letterSpacing: 0.5,
+    color: colors.textSubtle,
+    paddingHorizontal: SETTINGS_ROW_PADDING_X,
+    paddingTop: SETTINGS_SECTION_HEADER_PADDING_TOP,
+    paddingBottom: SETTINGS_SECTION_HEADER_PADDING_BOTTOM,
     textTransform: "uppercase",
-    marginBottom: 10,
+    letterSpacing: SETTINGS_SECTION_HEADER_LETTER_SPACING,
   },
-  sheetList: {},
   sheetRow: {
-    minHeight: 48,
+    minHeight: SETTINGS_ROW_MIN_HEIGHT,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    paddingHorizontal: SETTINGS_ROW_PADDING_X,
+    paddingVertical: SETTINGS_ROW_PADDING_Y,
   },
   sheetRowDivider: {
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.borderDefault,
+    borderBottomColor: colors.borderSubtle,
   },
   sheetRowLeft: {
     flexDirection: "row",
@@ -425,9 +462,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontFamily: fonts.monoSemi,
     color: colors.textEmphasis,
+    minWidth: 28,
   },
   sheetRowLabel: {
-    fontSize: 15,
+    fontSize: SETTINGS_ROW_LABEL_FONT_SIZE,
     fontFamily: fonts.sansMedium,
     color: colors.textEmphasis,
     flexShrink: 1,

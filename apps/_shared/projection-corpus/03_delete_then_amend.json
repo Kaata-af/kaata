@@ -1,0 +1,123 @@
+{
+  "name": "delete_then_amend",
+  "description": "Sticky tombstone: an entry_deleted at HLC T blocks a later entry_amended at HLC T+1 from reviving the row. The applier must NOT update amount even though the amend's HLC is strictly greater than the delete's HLC. is_deleted stays true, deleted_at/updated_at stay at the delete's pms.",
+  "events": [
+    {
+      "event_id": "10000001-0000-4000-8000-000000000001",
+      "event_type": "person_added",
+      "vault_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "target_id": "uuuuuuuu-3333-4333-8333-333333333333",
+      "relationship_id": "rrrrrrrr-3333-4333-8333-333333333333",
+      "hlc": { "pms": 1700000010000, "l": 0, "did": "device-c" },
+      "device_id": "device-c",
+      "author_user_id_local_only": "self-c",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {
+        "user_id": "uuuuuuuu-3333-4333-8333-333333333333",
+        "name": "Karim",
+        "phone_e164": null,
+        "relationship_context": "peer"
+      }
+    },
+    {
+      "event_id": "10000002-0000-4000-8000-000000000002",
+      "event_type": "entry_created",
+      "vault_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "target_id": "eeeeeeee-3333-4333-8333-333333333333",
+      "relationship_id": "rrrrrrrr-3333-4333-8333-333333333333",
+      "hlc": { "pms": 1700000011000, "l": 0, "did": "device-c" },
+      "device_id": "device-c",
+      "author_user_id_local_only": "self-c",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {
+        "entry_id": "eeeeeeee-3333-4333-8333-333333333333",
+        "relationship_id": "rrrrrrrr-3333-4333-8333-333333333333",
+        "type": "payment",
+        "amount_afn": 1000,
+        "note": null,
+        "occurred_at_ms": 1700000011000
+      }
+    },
+    {
+      "event_id": "10000003-0000-4000-8000-000000000003",
+      "event_type": "entry_deleted",
+      "vault_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "target_id": "eeeeeeee-3333-4333-8333-333333333333",
+      "relationship_id": "rrrrrrrr-3333-4333-8333-333333333333",
+      "hlc": { "pms": 1700000012000, "l": 0, "did": "device-c" },
+      "device_id": "device-c",
+      "author_user_id_local_only": "self-c",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {}
+    },
+    {
+      "event_id": "10000004-0000-4000-8000-000000000004",
+      "event_type": "entry_amended",
+      "vault_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "target_id": "eeeeeeee-3333-4333-8333-333333333333",
+      "relationship_id": "rrrrrrrr-3333-4333-8333-333333333333",
+      "hlc": { "pms": 1700000013000, "l": 0, "did": "device-d" },
+      "device_id": "device-d",
+      "author_user_id_local_only": "self-c",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {
+        "changes": { "amount_afn": 9999, "note": "should be ignored" }
+      }
+    }
+  ],
+  "expected_projection": {
+    "users": {
+      "uuuuuuuu-3333-4333-8333-333333333333": {
+        "id": "uuuuuuuu-3333-4333-8333-333333333333",
+        "phone_e164": null,
+        "display_name": "Karim",
+        "is_local_self": false,
+        "google_sub": null,
+        "account_id": null,
+        "created_at": 1700000010000,
+        "updated_at": 1700000010000,
+        "archived_at": null
+      }
+    },
+    "relationships": {
+      "rrrrrrrr-3333-4333-8333-333333333333": {
+        "id": "rrrrrrrr-3333-4333-8333-333333333333",
+        "user_a_id": "self-c",
+        "user_b_id": "uuuuuuuu-3333-4333-8333-333333333333",
+        "context": "peer",
+        "vault_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        "created_at": 1700000010000,
+        "updated_at": 1700000010000,
+        "archived_at": null
+      }
+    },
+    "entries": {
+      "eeeeeeee-3333-4333-8333-333333333333": {
+        "id": "eeeeeeee-3333-4333-8333-333333333333",
+        "vault_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        "relationship_id": "rrrrrrrr-3333-4333-8333-333333333333",
+        "type": "payment",
+        "amount_afn": 1000,
+        "note": null,
+        "created_at": 1700000011000,
+        "updated_at": 1700000012000,
+        "deleted_at": 1700000012000,
+        "proposed_by_user_id": "self-c",
+        "accepted_at": null,
+        "disputed_at": null,
+        "disputed_reason": null,
+        "settled_at": null,
+        "current_event_id": "10000003-0000-4000-8000-000000000003",
+        "is_deleted": true,
+        "is_settled": false
+      }
+    },
+    "shop_profile": null,
+    "members": {},
+    "vault_settings": {}
+  }
+}

@@ -116,4 +116,37 @@ export type CheckInResponse = {
   // and uses it for the next check-in. Empty string clears any prior override
   // (return to env default). Omitted/null leaves the current setting alone.
   migrate_to_backend_url?: string | null;
+  // Rolling JWT refresh. Backend returns this when an authenticated check-in
+  // arrives with a session token older than RefreshIfOlderThan (7 days). The
+  // mobile client overwrites SecureStore[kaata.session.jwt] silently — no UI
+  // surface. Absent for anonymous check-ins and for tokens still within the
+  // freshness window.
+  session_jwt_refresh?: string | null;
+
+  // Phase 5 mesh: freshly-signed VMC blobs the backend minted in response to
+  // `vmc_renewals_needed`. Each entry is UPSERTed into vault_credentials.
+  // Absent when the caller requested no renewals OR when the backend's
+  // signing key is missing.
+  vmc_renewals?: Array<{
+    vault_id: string;
+    vmc_blob: string;
+    expires_at_ms: number;
+  }> | null;
+
+  // Phase 5 mesh: incremental revocation list since the client's
+  // `last_revocation_seen_at_ms`. Mobile UPSERTs into revocation_list and
+  // bumps the high-water mark.
+  revocations?: Array<{
+    vault_id: string;
+    device_id: string;
+    revoked_at_ms: number;
+  }> | null;
+
+  // Phase 5 mesh: pinned server signing key(s). When configured server-side,
+  // present on EVERY response so first-sight pinning + rotation handoff both
+  // ride this channel.
+  mesh_server_pubkeys?: {
+    primary: string;
+    rotation?: string | null;
+  } | null;
 };

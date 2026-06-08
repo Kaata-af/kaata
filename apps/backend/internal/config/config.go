@@ -41,7 +41,10 @@ func Load() Config {
 		MigrateToBackendURL: os.Getenv("MIGRATE_TO_BACKEND_URL"),
 		APKDownloadURL:      getenv("APK_DOWNLOAD_URL", "http://localhost:3000/downloads/kaata-0.1.0.apk"),
 		GoogleWebClientID:   os.Getenv("GOOGLE_WEB_CLIENT_ID"),
-		SessionJWTSecret:    os.Getenv("SESSION_JWT_SECRET"),
+		// Read from JWT_SECRET first (Phase 2 canonical name), falling back to
+		// SESSION_JWT_SECRET for compatibility with v0.4 deployments that
+		// haven't rotated their .env yet.
+		SessionJWTSecret: firstNonEmpty(os.Getenv("JWT_SECRET"), os.Getenv("SESSION_JWT_SECRET")),
 	}
 }
 
@@ -50,4 +53,13 @@ func getenv(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

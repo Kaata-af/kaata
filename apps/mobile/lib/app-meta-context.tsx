@@ -1,4 +1,5 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from "react";
+import { rotateSessionJWT } from "./auth";
 import { getAppMeta, setAppMeta } from "./db";
 import type { CheckInResponse } from "./types";
 
@@ -85,7 +86,47 @@ export function AppMetaProvider(props: { currentVersion: string; children: React
       if (resp.migrate_to_backend_url != null) {
         await setAppMeta("backend_url_override", resp.migrate_to_backend_url);
       }
+      // Rolling JWT refresh: backend opts to mint a fresh token whenever the
+      // incoming one is past auth.RefreshIfOlderThan. Silent persist to
+      // SecureStore; no UI surface. Skipped silently when absent / blank.
+      if (resp.session_jwt_refresh && resp.session_jwt_refresh.length > 0) {
+        try {
+          await rotateSessionJWT(resp.session_jwt_refresh);
+        } catch (err) {
+          // SecureStore can fail on extremely-low-storage devices; the next
+          // check-in will just hand us another refresh and we try again.
+          console.warn("[app-meta] rotateSessionJWT failed", err);
+        }
+      }
+      // Phase 4.1: heartbeat for the "different account on this phone?"
+      // prompt. Only refresh when there's a binding to time-window;
+      // otherwise the value stays absent and the prompt never fires on
+      // a fresh install.
+      const boundSub = await getAppMeta("account_google_sub");
+      if (boundSub) {
+        await setAppMeta("account_last_seen_at", String(Date.now()));
+      }
       await setAppMeta("last_checkin_at", String(Date.now()));
+
+      // Phase 5 mesh: apply pinned pubkey announcement, cache fresh VMC
+      // renewals, and merge new revocations. All three fields are
+      // optional; the helper no-ops on absence. Dynamic import keeps the
+      // @noble SHA-512 wiring cost off cold-boot paths that don't need
+      // mesh. Failures inside applyVMCCheckInResponse are already logged
+      // and don't propagate — mesh is best-effort relative to check-in.
+      if (resp.vmc_renewals || resp.revocations || resp.mesh_server_pubkeys) {
+        try {
+          const mesh = await import("./mesh");
+          await mesh.applyVMCCheckInResponse({
+            vmc_renewals: resp.vmc_renewals ?? undefined,
+            revocations: resp.revocations ?? undefined,
+            mesh_server_pubkeys: resp.mesh_server_pubkeys ?? undefined,
+          });
+        } catch (err) {
+          console.warn("[app-meta] applyVMCCheckInResponse failed", err);
+        }
+      }
+
       setForceUpdate(resp.force_update);
       await refresh();
     },

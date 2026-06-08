@@ -1,0 +1,140 @@
+{
+  "name": "concurrent_amend",
+  "description": "Two devices amend the SAME entry concurrently — device-a touches amount, device-b touches note. LWW-by-field MUST preserve both. Then a THIRD amend on amount from device-b at a strictly-later HLC overrides device-a's amount. Validates per-field HLC bookkeeping is independent.",
+  "events": [
+    {
+      "event_id": "00000001-0000-4000-8000-000000000001",
+      "event_type": "person_added",
+      "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "target_id": "uuuuuuuu-2222-4222-8222-222222222222",
+      "relationship_id": "rrrrrrrr-2222-4222-8222-222222222222",
+      "hlc": { "pms": 1700000000000, "l": 0, "did": "device-a" },
+      "device_id": "device-a",
+      "author_user_id_local_only": "self-a",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {
+        "user_id": "uuuuuuuu-2222-4222-8222-222222222222",
+        "name": "Bilal",
+        "phone_e164": "+93701112222",
+        "relationship_context": "peer"
+      }
+    },
+    {
+      "event_id": "00000002-0000-4000-8000-000000000002",
+      "event_type": "entry_created",
+      "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "target_id": "eeeeeeee-2222-4222-8222-222222222222",
+      "relationship_id": "rrrrrrrr-2222-4222-8222-222222222222",
+      "hlc": { "pms": 1700000001000, "l": 0, "did": "device-a" },
+      "device_id": "device-a",
+      "author_user_id_local_only": "self-a",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {
+        "entry_id": "eeeeeeee-2222-4222-8222-222222222222",
+        "relationship_id": "rrrrrrrr-2222-4222-8222-222222222222",
+        "type": "debt",
+        "amount_afn": 100,
+        "note": "initial",
+        "occurred_at_ms": 1700000001000
+      }
+    },
+    {
+      "event_id": "00000003-0000-4000-8000-000000000003",
+      "event_type": "entry_amended",
+      "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "target_id": "eeeeeeee-2222-4222-8222-222222222222",
+      "relationship_id": "rrrrrrrr-2222-4222-8222-222222222222",
+      "hlc": { "pms": 1700000002000, "l": 0, "did": "device-a" },
+      "device_id": "device-a",
+      "author_user_id_local_only": "self-a",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {
+        "changes": { "amount_afn": 200 }
+      }
+    },
+    {
+      "event_id": "00000004-0000-4000-8000-000000000004",
+      "event_type": "entry_amended",
+      "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "target_id": "eeeeeeee-2222-4222-8222-222222222222",
+      "relationship_id": "rrrrrrrr-2222-4222-8222-222222222222",
+      "hlc": { "pms": 1700000002000, "l": 0, "did": "device-b" },
+      "device_id": "device-b",
+      "author_user_id_local_only": "self-a",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {
+        "changes": { "note": "device-b note" }
+      }
+    },
+    {
+      "event_id": "00000005-0000-4000-8000-000000000005",
+      "event_type": "entry_amended",
+      "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "target_id": "eeeeeeee-2222-4222-8222-222222222222",
+      "relationship_id": "rrrrrrrr-2222-4222-8222-222222222222",
+      "hlc": { "pms": 1700000003000, "l": 0, "did": "device-b" },
+      "device_id": "device-b",
+      "author_user_id_local_only": "self-a",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {
+        "changes": { "amount_afn": 300 }
+      }
+    }
+  ],
+  "expected_projection": {
+    "users": {
+      "uuuuuuuu-2222-4222-8222-222222222222": {
+        "id": "uuuuuuuu-2222-4222-8222-222222222222",
+        "phone_e164": "+93701112222",
+        "display_name": "Bilal",
+        "is_local_self": false,
+        "google_sub": null,
+        "account_id": null,
+        "created_at": 1700000000000,
+        "updated_at": 1700000000000,
+        "archived_at": null
+      }
+    },
+    "relationships": {
+      "rrrrrrrr-2222-4222-8222-222222222222": {
+        "id": "rrrrrrrr-2222-4222-8222-222222222222",
+        "user_a_id": "self-a",
+        "user_b_id": "uuuuuuuu-2222-4222-8222-222222222222",
+        "context": "peer",
+        "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "created_at": 1700000000000,
+        "updated_at": 1700000000000,
+        "archived_at": null
+      }
+    },
+    "entries": {
+      "eeeeeeee-2222-4222-8222-222222222222": {
+        "id": "eeeeeeee-2222-4222-8222-222222222222",
+        "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "relationship_id": "rrrrrrrr-2222-4222-8222-222222222222",
+        "type": "debt",
+        "amount_afn": 300,
+        "note": "device-b note",
+        "created_at": 1700000001000,
+        "updated_at": 1700000003000,
+        "deleted_at": null,
+        "proposed_by_user_id": "self-a",
+        "accepted_at": null,
+        "disputed_at": null,
+        "disputed_reason": null,
+        "settled_at": null,
+        "current_event_id": "00000005-0000-4000-8000-000000000005",
+        "is_deleted": false,
+        "is_settled": false
+      }
+    },
+    "shop_profile": null,
+    "members": {},
+    "vault_settings": {}
+  }
+}

@@ -4,12 +4,23 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/api/idtoken"
 )
 
 const ProviderGoogle = "google"
+
+// maxTokenAge is the freshness window for a Google ID token's `iat`.
+// Google tokens are valid for 1 hour, so a `iat` older than 5 minutes
+// almost always means: the token was minted at sign-in, then the user
+// spent N minutes on a confirmation screen before submission. Anything
+// older than that is replay or clock-skew abuse.
+const maxTokenAge = 5 * time.Minute
 
 type Service struct {
 	pool              *pgxpool.Pool
@@ -25,62 +36,118 @@ func NewService(pool *pgxpool.Pool, googleWebClientID, sessionSecret string) *Se
 	}
 }
 
-// User is the public profile we return to the mobile client so it can
-// display "Signed in as ahmad@gmail.com" or render the avatar. None of
-// these fields are used as identity keys — provider_sub (held server-side)
-// is the identity key.
+// User is the display block returned to the mobile client.
 type User struct {
+	Sub        string `json:"sub,omitempty"`
 	Email      string `json:"email,omitempty"`
 	Name       string `json:"name,omitempty"`
 	PictureURL string `json:"picture_url,omitempty"`
 }
 
-// GoogleSignInResult is what we hand back to mobile after a successful
-// /v1/auth/google call: the session JWT they should send in subsequent
-// Authorization headers, plus the User block for display.
-type GoogleSignInResult struct {
-	SessionJWT string `json:"session_jwt"`
-	User       User   `json:"user"`
+// PendingVaultRegistration lets a mobile install that already minted
+// its default vault locally (the common Phase 2 case via migration 007)
+// register that vault with the server in the SAME round-trip as sign-in.
+type PendingVaultRegistration struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Currency    string `json:"currency,omitempty"`
+	CreatedAtMS int64  `json:"created_at_ms,omitempty"`
 }
 
-// SignInWithGoogle verifies the supplied Google ID token, upserts an
-// auth_credentials row for this install, and returns a fresh session JWT
-// the mobile client should use for subsequent authenticated requests.
+// GoogleSignInResult is the response shape for POST /v1/auth/google.
+type GoogleSignInResult struct {
+	SessionJWT     string  `json:"session_jwt"`
+	AccountID      string  `json:"account_id"`
+	DefaultVaultID *string `json:"default_vault_id"`
+	User           User    `json:"user"`
+}
+
+// SignInWithGoogle is the full Phase 2 sign-in pipeline:
 //
-// install_id MUST already exist in `installs`. The mobile flow guarantees
-// this because the BackgroundCheckIn fires on app load before any auth
-// UI is reachable; if it doesn't, we INSERT a stub installs row to avoid
-// blocking sign-in on a check-in race.
-func (s *Service) SignInWithGoogle(ctx context.Context, installID, idTokenStr string) (GoogleSignInResult, error) {
+//  1. Verify Google ID token (signature, audience, expiry, email_verified, iat freshness)
+//  2. Upsert accounts row by google_sub
+//  3. Ensure installs row exists
+//  4. Upsert auth_credentials row keyed by (install_id, provider), bound to account_id
+//  5. Optionally register a pending vault as owned by this account
+//  6. Issue 30-day session JWT
+func (s *Service) SignInWithGoogle(
+	ctx context.Context,
+	installID, idTokenStr string,
+	pending *PendingVaultRegistration,
+) (GoogleSignInResult, error) {
 	if s.googleWebClientID == "" {
 		return GoogleSignInResult{}, errors.New("google web client id not configured")
 	}
 
-	// Validate the Google ID token: signature against Google's JWKs,
-	// audience matches our Web Client ID, expiry, issuer. The idtoken
-	// library fetches and caches Google's public keys for us.
+	// (1) Verify the Google ID token.
 	payload, err := idtoken.Validate(ctx, idTokenStr, s.googleWebClientID)
 	if err != nil {
 		return GoogleSignInResult{}, fmt.Errorf("verify google id token: %w", err)
 	}
 
-	// payload.Subject is the stable Google user id (the `sub` claim).
-	// email/name/picture come from claims; the user may have changed them
-	// since the token was issued, but for a sign-in flow this is fine —
-	// it's display data, refreshed every sign-in.
 	providerSub := payload.Subject
 	if providerSub == "" {
 		return GoogleSignInResult{}, errors.New("google id token missing sub claim")
 	}
+
+	// email_verified gate. The id_token carries this claim from Google's
+	// own verification. If false, the email is attacker-controlled.
+	if v, ok := payload.Claims["email_verified"].(bool); !ok || !v {
+		return GoogleSignInResult{}, errors.New("google account email is not verified")
+	}
+
+	// iat staleness: a Google ID token is valid for 1 hour, but the sign-in
+	// flow is supposed to mint and POST within seconds. >5min is a replay
+	// candidate. Missing iat is also a fail — Google always sets it; absence
+	// indicates a malformed/forged token slipping past the signature check
+	// (defense in depth).
+	iatAny, ok := payload.Claims["iat"].(float64)
+	if !ok {
+		return GoogleSignInResult{}, errors.New("google id token missing iat claim")
+	}
+	iat := time.Unix(int64(iatAny), 0)
+	age := time.Since(iat)
+	// Reject excessive negative skew too: a token claiming to be issued far
+	// in the future is either a clock-skew bug or a forgery attempt.
+	if age < -30*time.Second {
+		return GoogleSignInResult{}, errors.New("google id token iat is in the future")
+	}
+	if age > maxTokenAge {
+		return GoogleSignInResult{}, errors.New("google id token is stale (iat > 5min)")
+	}
+
 	email, _ := payload.Claims["email"].(string)
 	name, _ := payload.Claims["name"].(string)
 	picture, _ := payload.Claims["picture"].(string)
+	emailNormalized := normalizeEmail(email)
 
-	// Make sure the installs row exists. The mobile app should have called
-	// /v1/check-in before reaching auth, but we don't want a race condition
-	// at first-launch onboarding to wedge sign-in. A no-op INSERT on conflict
-	// covers both cases.
-	if _, err := s.pool.Exec(ctx, `
+	// (2-5) Single transaction.
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// (2) Upsert account by google_sub.
+	var accountID string
+	err = tx.QueryRow(ctx, `
+		INSERT INTO accounts (id, google_sub, email, email_normalized, email_verified, name, picture_url, last_login_at)
+		VALUES (gen_random_uuid(), $1, $2, $3, TRUE, $4, $5, NOW())
+		ON CONFLICT (google_sub) DO UPDATE
+		SET email            = EXCLUDED.email,
+		    email_normalized = EXCLUDED.email_normalized,
+		    email_verified   = TRUE,
+		    name             = EXCLUDED.name,
+		    picture_url      = EXCLUDED.picture_url,
+		    last_login_at    = NOW()
+		RETURNING id::text
+	`, providerSub, email, emailNormalized, name, picture).Scan(&accountID)
+	if err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("upsert account: %w", err)
+	}
+
+	// (3) Ensure installs row exists.
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO installs (install_id, app_version, platform)
 		VALUES ($1, 'unknown', 'unknown')
 		ON CONFLICT (install_id) DO NOTHING
@@ -88,31 +155,175 @@ func (s *Service) SignInWithGoogle(ctx context.Context, installID, idTokenStr st
 		return GoogleSignInResult{}, fmt.Errorf("ensure installs row: %w", err)
 	}
 
-	// Upsert credential. If the same install signs in with a DIFFERENT
-	// Google account, the UNIQUE(install_id, provider) constraint replaces
-	// the row — only one Google identity per install at a time.
-	if _, err := s.pool.Exec(ctx, `
+	// Also stamp account_id on the installs row (Phase 2 linkage).
+	//
+	// If a DIFFERENT account previously owned this install (rare: user
+	// signed out of A then into B on the same phone), we delete the prior
+	// auth_credentials row so the old account can't keep refreshing JWTs.
+	// The new credential row is inserted below in step (4).
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM auth_credentials
+		WHERE install_id = $1
+		  AND provider = $2
+		  AND account_id IS DISTINCT FROM $3::uuid
+	`, installID, ProviderGoogle, accountID); err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("clear stale auth credential: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE installs SET account_id = $2::uuid WHERE install_id = $1
+	`, installID, accountID); err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("set install account_id: %w", err)
+	}
+
+	// (4) Upsert auth_credentials.
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO auth_credentials (
-			install_id, provider, provider_sub, email, name, picture_url
-		) VALUES ($1, $2, $3, $4, $5, $6)
+			install_id, provider, provider_sub, account_id,
+			email, name, picture_url, revoked_at, last_used_at
+		) VALUES ($1, $2, $3, $4::uuid, $5, $6, $7, NULL, NOW())
 		ON CONFLICT (install_id, provider) DO UPDATE
 		SET provider_sub = EXCLUDED.provider_sub,
+		    account_id   = EXCLUDED.account_id,
 		    email        = EXCLUDED.email,
 		    name         = EXCLUDED.name,
 		    picture_url  = EXCLUDED.picture_url,
+		    revoked_at   = NULL,
 		    last_used_at = NOW()
-	`, installID, ProviderGoogle, providerSub, email, name, picture); err != nil {
+	`, installID, ProviderGoogle, providerSub, accountID, email, name, picture); err != nil {
 		return GoogleSignInResult{}, fmt.Errorf("upsert auth credential: %w", err)
 	}
 
-	sessionJWT, err := SignSession(s.sessionSecret, installID, ProviderGoogle, providerSub)
+	// (5) Pending vault registration.
+	//
+	// Canonicalization rule: an account owns AT MOST one default vault. If
+	// the account already has an owned vault and the mobile sends a DIFFERENT
+	// pending vault_id (signing in on a second device that minted its own
+	// local vault, for example), we DO NOT create a second vault — that
+	// silently bifurcates the account. Instead we return the existing default
+	// vault id and let mobile reconcile (adopt the canonical id, abandon the
+	// local one). The same logic protects the "two devices signing in
+	// concurrently" race.
+	var defaultVaultID *string
+
+	// Look up the existing canonical (oldest) vault owned by this account.
+	// Independent of whether the mobile sent a pending block.
+	var existingVault string
+	err = tx.QueryRow(ctx, `
+		SELECT v.vault_id::text
+		FROM vault_members vm
+		JOIN vaults v ON v.vault_id = vm.vault_id
+		WHERE vm.account_id = $1::uuid
+		  AND vm.role = 'owner'
+		  AND vm.accepted_at IS NOT NULL
+		  AND vm.revoked_at IS NULL
+		  AND v.archived_at IS NULL
+		ORDER BY v.created_at ASC
+		LIMIT 1
+	`, accountID).Scan(&existingVault)
+	switch {
+	case err == nil:
+		// Account already has a default vault. We'll return it as the
+		// canonical id, regardless of whether mobile sent a pending block.
+	case errors.Is(err, pgx.ErrNoRows):
+		existingVault = ""
+	default:
+		return GoogleSignInResult{}, fmt.Errorf("lookup default vault: %w", err)
+	}
+
+	if pending != nil && pending.ID != "" {
+		if _, err := uuid.Parse(pending.ID); err != nil {
+			return GoogleSignInResult{}, fmt.Errorf("pending_vault_registration.id must be uuid: %w", err)
+		}
+		if strings.TrimSpace(pending.Name) == "" {
+			return GoogleSignInResult{}, errors.New("pending_vault_registration.name is required")
+		}
+
+		// If the account already has a canonical vault AND the pending id
+		// is different, refuse the registration and surface the existing
+		// id so the mobile client adopts it. Avoids silent bifurcation
+		// across two devices that each minted their own local default.
+		if existingVault != "" && existingVault != pending.ID {
+			id := existingVault
+			defaultVaultID = &id
+		} else {
+			currency := pending.Currency
+			if currency == "" {
+				currency = "AFN"
+			}
+			var createdAt time.Time
+			if pending.CreatedAtMS > 0 {
+				t := time.UnixMilli(pending.CreatedAtMS)
+				// Clamp the lower bound too — a malicious / buggy client
+				// can otherwise plant a vault with created_at = epoch which
+				// then sorts as "oldest" and becomes the canonical default
+				// even when a legitimate vault was registered first.
+				minAllowed := time.Now().Add(-365 * 24 * time.Hour)
+				if t.Before(minAllowed) {
+					createdAt = time.Now()
+				} else if t.After(time.Now().Add(5 * time.Minute)) {
+					createdAt = time.Now()
+				} else {
+					createdAt = t
+				}
+			} else {
+				createdAt = time.Now()
+			}
+
+			var existingOwner string
+			err := tx.QueryRow(ctx, `
+				INSERT INTO vaults (vault_id, owner_account_id, name, currency, vault_epoch, created_at)
+				VALUES ($1::uuid, $2::uuid, $3, $4, 0, $5)
+				ON CONFLICT (vault_id) DO UPDATE
+				SET vault_id = vaults.vault_id
+				RETURNING owner_account_id::text
+			`, pending.ID, accountID, pending.Name, currency, createdAt).Scan(&existingOwner)
+			if err != nil {
+				return GoogleSignInResult{}, fmt.Errorf("upsert vault: %w", err)
+			}
+			if existingOwner != accountID {
+				return GoogleSignInResult{}, errors.New("vault_id collides with vault owned by a different account")
+			}
+
+			// Seed owner membership row. Idempotent via partial unique index.
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO vault_members (
+					vault_id, account_id, role, invited_at, accepted_at, invited_by
+				)
+				SELECT $1::uuid, $2::uuid, 'owner', NOW(), NOW(), $2::uuid
+				WHERE NOT EXISTS (
+					SELECT 1 FROM vault_members
+					 WHERE vault_id = $1::uuid AND account_id = $2::uuid
+					   AND revoked_at IS NULL
+				)
+			`, pending.ID, accountID); err != nil {
+				return GoogleSignInResult{}, fmt.Errorf("seed vault owner membership: %w", err)
+			}
+
+			id := pending.ID
+			defaultVaultID = &id
+		}
+	} else if existingVault != "" {
+		id := existingVault
+		defaultVaultID = &id
+	}
+	// no pending block AND no existing vault → mobile will POST /v1/vaults next.
+
+	if err := tx.Commit(ctx); err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("commit sign-in tx: %w", err)
+	}
+
+	// (6) Issue session JWT.
+	sessionJWT, err := SignSession(s.sessionSecret, accountID, installID, ProviderGoogle, providerSub)
 	if err != nil {
 		return GoogleSignInResult{}, fmt.Errorf("sign session jwt: %w", err)
 	}
 
 	return GoogleSignInResult{
-		SessionJWT: sessionJWT,
+		SessionJWT:     sessionJWT,
+		AccountID:      accountID,
+		DefaultVaultID: defaultVaultID,
 		User: User{
+			Sub:        providerSub,
 			Email:      email,
 			Name:       name,
 			PictureURL: picture,
@@ -120,12 +331,7 @@ func (s *Service) SignInWithGoogle(ctx context.Context, installID, idTokenStr st
 	}, nil
 }
 
-// SignOut removes the auth credential for this install + provider. The
-// session JWT itself remains technically valid until expiry — there's no
-// server-side blacklist — but a signed-out install has nothing to back
-// up to, so even if a stale JWT is replayed it can't access anything
-// useful. Rotating SESSION_JWT_SECRET is the nuclear option that
-// invalidates ALL existing sessions.
+// SignOut removes the auth_credentials row for (install_id, provider).
 func (s *Service) SignOut(ctx context.Context, installID, provider string) error {
 	_, err := s.pool.Exec(ctx, `
 		DELETE FROM auth_credentials
@@ -135,4 +341,48 @@ func (s *Service) SignOut(ctx context.Context, installID, provider string) error
 		return fmt.Errorf("delete auth credential: %w", err)
 	}
 	return nil
+}
+
+// CheckCredentialRevoked returns (revoked, error).
+//
+// A missing row counts as revoked — a credential that was deleted via SignOut
+// should not authorize further requests, even if the JWT hasn't expired yet.
+func (s *Service) CheckCredentialRevoked(ctx context.Context, installID, provider string) (bool, error) {
+	var revokedAt *time.Time
+	err := s.pool.QueryRow(ctx, `
+		SELECT revoked_at
+		FROM auth_credentials
+		WHERE install_id = $1 AND provider = $2
+	`, installID, provider).Scan(&revokedAt)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return true, nil
+	case err != nil:
+		return false, fmt.Errorf("lookup auth credential: %w", err)
+	}
+	return revokedAt != nil, nil
+}
+
+// IssueRefreshJWT mints a new session JWT for an existing valid claim.
+func (s *Service) IssueRefreshJWT(claims *SessionClaims) (string, error) {
+	return SignSession(s.sessionSecret, claims.AccountID, claims.InstallID, claims.Provider, claims.ProviderSub)
+}
+
+// normalizeEmail mirrors Google's "dots and case don't matter" rule for
+// gmail addresses, and lowercases everything else.
+func normalizeEmail(raw string) string {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	at := strings.LastIndex(s, "@")
+	if at < 0 {
+		return s
+	}
+	local, domain := s[:at], s[at:]
+	if domain == "@gmail.com" || domain == "@googlemail.com" {
+		local = strings.ReplaceAll(local, ".", "")
+		if i := strings.Index(local, "+"); i >= 0 {
+			local = local[:i]
+		}
+		return local + "@gmail.com"
+	}
+	return local + domain
 }

@@ -17,6 +17,7 @@ import { colors } from "../../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../../lib/currency";
 import { getEntry, updateEntry } from "../../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
+import { RoleGateRejectionError } from "../../../lib/event-log";
 import { fonts } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
 import type { EntryType } from "../../../lib/types";
@@ -73,8 +74,15 @@ export default function EditEntryScreen() {
       await updateEntry(id, intAmount, note.trim().slice(0, 100) || null);
       toast.push(t("entry.updated"), "success");
       router.back();
-    } catch {
-      toast.push(t("entry.saveFailed"), "error");
+    } catch (err) {
+      // Distinguish role-gate refusal from generic storage error so a
+      // demoted editor sees actionable "view only" copy rather than
+      // generic "save failed". See entry/new.tsx for the same pattern.
+      if (err instanceof RoleGateRejectionError) {
+        toast.push(t("entry.roleDenied"), "error");
+      } else {
+        toast.push(t("entry.saveFailed"), "error");
+      }
     } finally {
       setBusy(false);
     }

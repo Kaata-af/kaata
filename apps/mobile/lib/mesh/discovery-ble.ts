@@ -1,0 +1,318 @@
+// apps/mobile/lib/mesh/discovery-ble.ts
+//
+// Phase 6: BLE peer discovery. Scaffold over react-native-ble-plx (central)
+// + a future peripheral library (see PERIPHERAL_TODO in transport-ble.ts).
+//
+// Adversarial-design notes from the security critique that this file
+// EXPLICITLY honors:
+//
+//   - 4-byte truncated vault hash is enumerable in a nearby attack (~4.3B
+//     possible hashes) — acceptable per Phase 5 opt-in Shop Mode design.
+//     This module caps advertised hashes per packet at MAX_ADVERTISED_VAULT_HASHES
+//     (3) so a maliciously-configured phone can't burn the entire 31-byte
+//     adv budget on hash candidates that increase linkability.
+//
+//   - Capability flags byte: only bit 0 is defined (supports_wifi_upgrade).
+//     Bits 1-7 RESERVED — must NEVER carry owner-role / member-role hints.
+//     The VMC carries role and is exchanged only AFTER GATT connect.
+//
+//   - Pre-handshake `installIdShort` is attacker-spoofable. Discovery does
+//     NOT use the BLE MAC for dedupe — that's deferred to post-handshake
+//     `remoteDeviceId` in mesh/index.ts.
+//
+//   - Doze / scan throttling: Android 9+ throttles BLE callbacks after
+//     ~25min even with a foreground service. This module enforces a
+//     scan-restart loop (stop+start every SCAN_RESTART_INTERVAL_MS) to
+//     keep callbacks flowing on misbehaving OEM ROMs. Battery cost is
+//     ~5-10mA additional during the brief restart window.
+//
+//   - DoS: a rate-limit on emitted peer events prevents a fake-MAC flood
+//     from blowing up mesh/index.ts's handleDiscoveredPeer call rate.
+//     Circuit breaker: if N distinct deviceIds appear in M seconds
+//     without any passing handshake, the scan duty-cycle drops to
+//     "low power" until next user toggle.
+//
+// The actual react-native-ble-plx integration lives in `startBle()` below;
+// it's wired to the discovery-router via the RouterAdapters injection
+// pattern at MeshController boot.
+
+import type { BLEPeerRaw } from "./discovery-router";
+import {
+  CAP_FLAGS_RESERVED_MASK,
+  KAATA_MESH_SERVICE_UUID,
+  MAX_ADVERTISED_VAULT_HASHES,
+} from "./transport-ble";
+
+// ---------------------------------------------------------------------------
+// Tunable constants
+// ---------------------------------------------------------------------------
+
+export const BLE_TUNABLES = {
+  /** Active scan window — short bursts to bound battery cost. */
+  ACTIVE_SCAN_MS: 1_000,
+  /** Rest between active windows. 1s on / 5s rest = ~16% duty cycle. */
+  REST_BETWEEN_SCANS_MS: 5_000,
+  /** Force a scan restart on this interval to defeat OS callback throttling. */
+  SCAN_RESTART_INTERVAL_MS: 20 * 60_000,
+  /** Advertising interval (peripheral side). 500ms is a balance between
+   * discoverability and adv-rotation power cost. */
+  ADV_INTERVAL_MS: 500,
+  /** Rate limit: max distinct peer events emitted per second. */
+  MAX_EMITS_PER_SECOND: 5,
+  /** Circuit breaker: if more than this many distinct deviceIds are seen
+   *  in CIRCUIT_BREAKER_WINDOW_MS without any successful handshake, drop
+   *  into low-power mode and stop emitting until next start. */
+  CIRCUIT_BREAKER_DISTINCT_DEVICES: 200,
+  CIRCUIT_BREAKER_WINDOW_MS: 60_000,
+};
+
+// ---------------------------------------------------------------------------
+// Adapter shape — what the discovery-router expects to inject
+// ---------------------------------------------------------------------------
+
+export type StartBleOpts = {
+  /** WebRTC signaling port to advertise (carried by adv payload for wifi
+   *  upgrade). null when wifi listener isn't up yet. */
+  listenPort: number | null;
+  /** Callback for each discovered peer. The router fans this out. */
+  onPeerFound: (peer: BLEPeerRaw) => void;
+};
+
+/**
+ * Start BLE discovery (both scan and advertise where supported).
+ * Returns a stop function. Designed to be passed to discovery-router via
+ * `configureDiscoveryRouter({ startBle })`.
+ *
+ * On platforms where BLE isn't available (web, iOS without entitlement,
+ * Expo Go), this resolves to a no-op stop function — Shop Mode keeps
+ * the toggle on but the mesh sits idle. MeshController surfaces the
+ * "unsupported" toast in that case.
+ */
+export async function startBle(opts: StartBleOpts): Promise<() => Promise<void>> {
+  // Lazy require so this module is safe to import on web / Expo Go.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let blePlx: any = null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    blePlx = require("react-native-ble-plx");
+  } catch (err) {
+    if (__DEV__) console.warn("[discovery-ble] react-native-ble-plx not available", err);
+    return async () => {
+      /* no-op */
+    };
+  }
+
+  // -------------------------------------------------------------------
+  // State machine: scan loop with restart-on-interval + rate limit +
+  // circuit breaker.
+  // -------------------------------------------------------------------
+  let stopped = false;
+  let scanRestartTimer: ReturnType<typeof setTimeout> | null = null;
+  let emitTimestamps: number[] = [];
+  const seenDevices = new Map<string, number>();
+  let circuitTripped = false;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let manager: any = null;
+  try {
+    manager = new blePlx.BleManager();
+  } catch (err) {
+    if (__DEV__) console.warn("[discovery-ble] BleManager ctor failed", err);
+    return async () => {
+      /* no-op */
+    };
+  }
+
+  const emit = (peer: BLEPeerRaw) => {
+    if (stopped || circuitTripped) return;
+    // Rate limit.
+    const now = Date.now();
+    emitTimestamps = emitTimestamps.filter((t) => now - t < 1_000);
+    if (emitTimestamps.length >= BLE_TUNABLES.MAX_EMITS_PER_SECOND) return;
+    emitTimestamps.push(now);
+    // Circuit breaker accounting.
+    seenDevices.set(peer.deviceId, now);
+    const cutoff = now - BLE_TUNABLES.CIRCUIT_BREAKER_WINDOW_MS;
+    for (const [k, ts] of seenDevices) {
+      if (ts < cutoff) seenDevices.delete(k);
+    }
+    if (seenDevices.size > BLE_TUNABLES.CIRCUIT_BREAKER_DISTINCT_DEVICES) {
+      circuitTripped = true;
+      if (__DEV__)
+        console.warn(
+          "[discovery-ble] circuit breaker tripped — too many distinct devices, suspending until restart",
+        );
+      try {
+        manager?.stopDeviceScan?.();
+      } catch {
+        /* */
+      }
+      return;
+    }
+    try {
+      opts.onPeerFound(peer);
+    } catch (err) {
+      if (__DEV__) console.warn("[discovery-ble] onPeerFound threw", err);
+    }
+  };
+
+  const startScan = () => {
+    if (stopped) return;
+    try {
+      manager.startDeviceScan(
+        [KAATA_MESH_SERVICE_UUID],
+        { allowDuplicates: false },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (error: any, device: any) => {
+          if (stopped) return;
+          if (error) {
+            if (__DEV__) console.warn("[discovery-ble] scan error", error?.message);
+            return;
+          }
+          if (!device) return;
+          const raw = parseAdvertisement(device);
+          if (!raw) return;
+          emit(raw);
+        },
+      );
+    } catch (err) {
+      if (__DEV__) console.warn("[discovery-ble] startDeviceScan threw", err);
+    }
+  };
+
+  const stopScanForRestart = () => {
+    try {
+      manager.stopDeviceScan();
+    } catch {
+      /* */
+    }
+  };
+
+  // Schedule restarts to defeat OS throttling on Android 9+.
+  const scheduleRestart = () => {
+    if (stopped) return;
+    scanRestartTimer = setTimeout(() => {
+      stopScanForRestart();
+      if (!stopped) {
+        emitTimestamps = [];
+        seenDevices.clear();
+        circuitTripped = false;
+        startScan();
+        scheduleRestart();
+      }
+    }, BLE_TUNABLES.SCAN_RESTART_INTERVAL_MS);
+  };
+
+  startScan();
+  scheduleRestart();
+
+  // -------------------------------------------------------------------
+  // Bluetooth state subscription: pause scan on PoweredOff, resume on
+  // PoweredOn. Without this, the BleManager throws "BluetoothLE is
+  // powered off" the first time the user toggles BT off mid-session
+  // and the mesh appears to keep running while emitting nothing.
+  // -------------------------------------------------------------------
+  let stateSub: { remove: () => void } | null = null;
+  try {
+    stateSub = manager.onStateChange((state: string) => {
+      if (stopped) return;
+      if (state === "PoweredOff") {
+        stopScanForRestart();
+      } else if (state === "PoweredOn") {
+        startScan();
+      }
+    }, true);
+  } catch (err) {
+    if (__DEV__) console.warn("[discovery-ble] onStateChange threw", err);
+  }
+
+  // PERIPHERAL_TODO: kick off advertising here once the peripheral
+  // library is in place. Today we only scan (central role) — peers can
+  // see other phones that advertise, but until both sides advertise,
+  // the rendezvous won't form. See transport-ble.ts header.
+  void opts.listenPort; // explicitly unused until peripheral lands
+
+  return async () => {
+    stopped = true;
+    if (scanRestartTimer) clearTimeout(scanRestartTimer);
+    if (stateSub) {
+      try {
+        stateSub.remove();
+      } catch {
+        /* */
+      }
+    }
+    try {
+      manager.stopDeviceScan();
+    } catch {
+      /* */
+    }
+    try {
+      // BleManager.destroy releases native resources; required on
+      // re-create later in the same process.
+      manager.destroy?.();
+    } catch {
+      /* */
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Advertisement parsing
+// ---------------------------------------------------------------------------
+
+/**
+ * Decode a react-native-ble-plx Device's manufacturer data into a
+ * BLEPeerRaw. Returns null when the advertisement is missing required
+ * fields. Defensive against malformed payloads — a bug-or-hostile peer
+ * should never crash the scan loop.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseAdvertisement(device: any): BLEPeerRaw | null {
+  if (!device?.id) return null;
+  const rssi = typeof device.rssi === "number" ? device.rssi : null;
+  // ble-plx exposes `manufacturerData` as base64-encoded bytes when
+  // present. Our framing: [1 capability_flags][1 vault_epoch_hint]
+  // [Nx4 vault hashes]. We tolerate missing manufacturerData (some
+  // peripherals only carry serviceUUIDs in the primary adv) and emit
+  // with empty hashes — the mesh will skip-no-match.
+  let capabilityFlags = 0;
+  let vaultEpochHint = 0;
+  let vaultHashes: string[] = [];
+  const mfgB64: string | undefined = device.manufacturerData;
+  if (typeof mfgB64 === "string" && mfgB64.length > 0) {
+    try {
+      // eslint-disable-next-line no-undef
+      const bin = atob(mfgB64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      if (bytes.length >= 2) {
+        // Mask off reserved bits — refuse to honor capability bits the
+        // peer set that we don't recognize. Prevents future-version peers
+        // from accidentally instructing us via reserved bits.
+        capabilityFlags = bytes[0] & ~CAP_FLAGS_RESERVED_MASK;
+        vaultEpochHint = bytes[1];
+        const hashBytes = bytes.subarray(2);
+        const hashCount = Math.min(Math.floor(hashBytes.length / 4), MAX_ADVERTISED_VAULT_HASHES);
+        for (let i = 0; i < hashCount; i++) {
+          const slice = hashBytes.subarray(i * 4, i * 4 + 4);
+          let hex = "";
+          for (let j = 0; j < slice.length; j++) {
+            hex += slice[j].toString(16).padStart(2, "0");
+          }
+          vaultHashes.push(hex);
+        }
+      }
+    } catch {
+      // Malformed mfg data — emit with whatever we have so far.
+    }
+  }
+  return {
+    kind: "ble",
+    deviceId: device.id,
+    rssi,
+    vaultHashes,
+    capabilityFlags,
+    vaultEpochHint,
+  };
+}

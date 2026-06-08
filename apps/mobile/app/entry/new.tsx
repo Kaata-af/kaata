@@ -15,8 +15,9 @@ import { Button } from "../../components/Button";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
-import { createEntry, getPerson } from "../../lib/db";
+import { createEntry, getActiveVaultArchivedState, getPerson } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
+import { RoleGateRejectionError } from "../../lib/event-log";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import type { EntryType, PersonWithBalance } from "../../lib/types";
@@ -36,15 +37,42 @@ export default function NewEntryScreen() {
   const [busy, setBusy] = useState(false);
   const noteRef = useRef<TextInput>(null);
 
+  // D-DEFENSIVE-ARCHIVED-GUARD: D-POST-ARCHIVE-SWITCH should already
+  // have moved the user off any archived vault before they can land here,
+  // but a remote vault_setting_set arriving via mesh between the home
+  // screen's load() and this screen's mount can still drop us into an
+  // archived state. Bail to the right place instead of silently writing
+  // entries into a tombstone vault (which would be discarded the moment
+  // the user sync'd, and is incoherent meanwhile).
   useEffect(() => {
-    if (!personId) {
-      setLoading(false);
-      return;
-    }
-    getPerson(personId).then((p) => {
+    let cancelled = false;
+    void (async () => {
+      const guard = await getActiveVaultArchivedState();
+      if (cancelled) return;
+      if (guard.state === "none") {
+        toast.push(t("entry.noActiveVault"), "error");
+        router.replace("/");
+        return;
+      }
+      if (guard.state === "archived") {
+        toast.push(t("entry.vaultArchived"), "error");
+        router.replace("/vault/archived");
+        return;
+      }
+      if (!personId) {
+        setLoading(false);
+        return;
+      }
+      const p = await getPerson(personId);
+      if (cancelled) return;
       setPerson(p);
       setLoading(false);
-    });
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // toast/router/t are stable; only personId can meaningfully change here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [personId]);
 
   async function onSave() {
@@ -54,13 +82,37 @@ export default function NewEntryScreen() {
       toast.push(t("entry.invalidAmount"), "error");
       return;
     }
+    // Re-check at save time: the user may have sat on this screen long
+    // enough for a mesh-sourced archive event to land. Cheaper than
+    // hand-rolling a subscription and good enough for a defensive guard.
+    const guard = await getActiveVaultArchivedState();
+    if (guard.state === "none") {
+      toast.push(t("entry.noActiveVault"), "error");
+      router.replace("/");
+      return;
+    }
+    if (guard.state === "archived") {
+      toast.push(t("entry.vaultArchived"), "error");
+      router.replace("/vault/archived");
+      return;
+    }
     setBusy(true);
     try {
       await createEntry(personId, type, intAmount, note.trim().slice(0, 100) || null);
       toast.push(t("entry.saved"), "success");
       router.back();
-    } catch {
-      toast.push(t("entry.saveFailed"), "error");
+    } catch (err) {
+      // Distinguish "you don't have permission to edit this Kaata"
+      // (role-gate refusal — caused by a demotion that landed via
+      // mesh/sync between the screen load and the save tap) from a
+      // generic storage error. Without this branch the user sees the
+      // same generic "couldn't save" copy in both cases and assumes the
+      // app is broken, when the real story is "you're now a viewer".
+      if (err instanceof RoleGateRejectionError) {
+        toast.push(t("entry.roleDenied"), "error");
+      } else {
+        toast.push(t("entry.saveFailed"), "error");
+      }
     } finally {
       setBusy(false);
     }

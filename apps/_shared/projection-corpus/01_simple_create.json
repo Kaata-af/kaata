@@ -1,0 +1,95 @@
+{
+  "name": "simple_create",
+  "description": "Single person_added followed by a single entry_created. Baseline: validates the most-trafficked happy path with no merges, no deletes.",
+  "events": [
+    {
+      "event_id": "11111111-1111-4111-8111-111111111111",
+      "event_type": "person_added",
+      "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "target_id": "uuuuuuuu-1111-4111-8111-111111111111",
+      "relationship_id": "rrrrrrrr-1111-4111-8111-111111111111",
+      "hlc": { "pms": 1700000000000, "l": 0, "did": "device-a" },
+      "device_id": "device-a",
+      "author_user_id_local_only": "self-aaaaaaaa-1111-4111-8111",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {
+        "user_id": "uuuuuuuu-1111-4111-8111-111111111111",
+        "name": "Ahmad",
+        "phone_e164": "+93701234567",
+        "relationship_context": "peer"
+      }
+    },
+    {
+      "event_id": "22222222-2222-4222-8222-222222222222",
+      "event_type": "entry_created",
+      "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "target_id": "eeeeeeee-1111-4111-8111-111111111111",
+      "relationship_id": "rrrrrrrr-1111-4111-8111-111111111111",
+      "hlc": { "pms": 1700000000500, "l": 0, "did": "device-a" },
+      "device_id": "device-a",
+      "author_user_id_local_only": "self-aaaaaaaa-1111-4111-8111",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {
+        "entry_id": "eeeeeeee-1111-4111-8111-111111111111",
+        "relationship_id": "rrrrrrrr-1111-4111-8111-111111111111",
+        "type": "debt",
+        "amount_afn": 500,
+        "note": "tea",
+        "occurred_at_ms": 1700000000500
+      }
+    }
+  ],
+  "expected_projection": {
+    "users": {
+      "uuuuuuuu-1111-4111-8111-111111111111": {
+        "id": "uuuuuuuu-1111-4111-8111-111111111111",
+        "phone_e164": "+93701234567",
+        "display_name": "Ahmad",
+        "is_local_self": false,
+        "google_sub": null,
+        "account_id": null,
+        "created_at": 1700000000000,
+        "updated_at": 1700000000000,
+        "archived_at": null
+      }
+    },
+    "relationships": {
+      "rrrrrrrr-1111-4111-8111-111111111111": {
+        "id": "rrrrrrrr-1111-4111-8111-111111111111",
+        "user_a_id": "self-aaaaaaaa-1111-4111-8111",
+        "user_b_id": "uuuuuuuu-1111-4111-8111-111111111111",
+        "context": "peer",
+        "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "created_at": 1700000000000,
+        "updated_at": 1700000000000,
+        "archived_at": null
+      }
+    },
+    "entries": {
+      "eeeeeeee-1111-4111-8111-111111111111": {
+        "id": "eeeeeeee-1111-4111-8111-111111111111",
+        "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "relationship_id": "rrrrrrrr-1111-4111-8111-111111111111",
+        "type": "debt",
+        "amount_afn": 500,
+        "note": "tea",
+        "created_at": 1700000000500,
+        "updated_at": 1700000000500,
+        "deleted_at": null,
+        "proposed_by_user_id": "self-aaaaaaaa-1111-4111-8111",
+        "accepted_at": null,
+        "disputed_at": null,
+        "disputed_reason": null,
+        "settled_at": null,
+        "current_event_id": "22222222-2222-4222-8222-222222222222",
+        "is_deleted": false,
+        "is_settled": false
+      }
+    },
+    "shop_profile": null,
+    "members": {},
+    "vault_settings": {}
+  }
+}

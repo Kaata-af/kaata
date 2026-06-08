@@ -1,11 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { Redirect, useFocusEffect, useRouter } from "expo-router";
+import { Redirect, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   BackHandler,
   Image,
+  Linking,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,23 +17,50 @@ import {
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import Constants from "expo-constants";
 import { BottomSheet } from "../components/BottomSheet";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { EmptyState } from "../components/EmptyState";
 import { PersonRow } from "../components/PersonRow";
+import { ProfileSettingsSheet, type VaultListItem } from "../components/ProfileSettingsSheet";
 import { Tabs } from "../components/Tabs";
 import { useToast, useToastOffset } from "../components/Toast";
 import { UpdateBanner } from "../components/UpdateBanner";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
 import { getCurrentCurrencySymbol } from "../lib/currency";
-import { ProfileMenuSheet } from "../components/ProfileMenuSheet";
-import { getSessionUser, type SessionUser } from "../lib/auth";
-import { archivePerson, getLocalSelf, listAllPeople } from "../lib/db";
+import { VaultPickerSheet } from "../components/VaultPickerSheet";
+import {
+  type DifferentAccountChoice,
+  type DifferentAccountPromptArgs,
+  getSessionUser,
+  isCancellation,
+  type SessionUser,
+  SignInCancelledByUserError,
+  signInWithGoogle,
+  signOut,
+} from "../lib/auth";
+import {
+  archivePerson,
+  getActiveVaultArchivedAt,
+  getActiveVaultArchivedState,
+  getAppMeta,
+  getLocalSelf,
+  listActiveVaults,
+  listAllPeople,
+  listAllVaultsIncludingArchived,
+  setAppMeta,
+} from "../lib/db";
+import { getAccountIdSync, getActiveVaultId, setActiveVaultId } from "../lib/db-tx";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { formatAmount } from "../lib/format";
 import { t } from "../lib/i18n";
+import { syncOnce } from "../lib/sync";
+import {
+  shouldPromptBatteryExemption,
+  markBatteryExemptionPrompted,
+} from "../lib/battery-exemption";
 import type { Direction, PersonWithBalance, Self } from "../lib/types";
 
 // Tab labels are computed at render time so locale changes (after a hot reload
@@ -56,6 +85,11 @@ const RAIL_SPRING = { friction: 14, tension: 110 } as const;
 export default function HomeScreen() {
   const router = useRouter();
   const toast = useToast();
+  // Phase 5.1: ?menu=sync deep-link from the foreground-service notification
+  // tap auto-opens the hamburger menu on focus. We don't currently scroll
+  // to the Sync section — every section is on a single sheet, so opening
+  // the sheet is enough.
+  const params = useLocalSearchParams<{ menu?: string }>();
   const toastOffset = useToastOffset();
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
@@ -71,12 +105,56 @@ export default function HomeScreen() {
   const [sheetFor, setSheetFor] = useState<PersonWithBalance | null>(null);
   const [confirmDeleteFor, setConfirmDeleteFor] = useState<PersonWithBalance | null>(null);
   const [loaded, setLoaded] = useState(false);
-  // Profile menu state. sessionUser is read on focus so it stays in
-  // sync with sign-in/out actions taken on the Account screen. The full
-  // user object is kept (not just the email) so the header icon can
-  // render the user's actual Google avatar when picture_url is set.
-  const [profileMenuVisible, setProfileMenuVisible] = useState(false);
+  // Phase 7: unified settings sheet — replaces the hamburger AND the
+  // old ProfileMenuSheet. One state flag, one entry point on the profile
+  // chip top-RIGHT. sessionUser is read on focus so it stays in sync with
+  // sign-in/out actions taken on the Account screen. The full user object
+  // is kept (not just the email) so the header icon can render the user's
+  // actual Google avatar when picture_url is set.
+  const [settingsVisible, setSettingsVisible] = useState(false);
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  // Phase 7 D-TOP-LEFT-SWITCHER — VaultPickerSheet opens on shop-name tap
+  // in the header. Mutually exclusive with menuVisible + profileMenuVisible
+  // (the same Android Modal-stacking trap that BottomSheet's 220ms defer
+  // guards against, but here we prevent it by ensuring only one sheet is
+  // ever asked to render at a time).
+  const [vaultPickerVisible, setVaultPickerVisible] = useState(false);
+  const [activeVaultId, setActiveVaultIdState] = useState<string | null>(null);
+  const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
+  // D-ARCHIVED-VAULT-FILTER: the picker and settings sheet consume only
+  // non-archived vaults; the archived sub-section (toggle-revealed) reads
+  // `archivedVaults`. Two arrays > one array + per-render filter — the
+  // picker no longer needs to know what archive means.
+  const [vaults, setVaults] = useState<VaultListItem[]>([]);
+  const [archivedVaults, setArchivedVaults] = useState<VaultListItem[]>([]);
+  const [shopModeEnabled, setShopModeEnabled] = useState(false);
+  const [shopModeBusy, setShopModeBusy] = useState(false);
+  const [syncBusy, setSyncBusy] = useState(false);
+  // Phase 6: live peer count for the Sync toggle subtitle. Subscribed
+  // via mesh.onShopModeStatusChange() in the mount effect below so the
+  // UI updates without a 10s app_meta poll lag.
+  const [meshActivePeers, setMeshActivePeers] = useState(0);
+  // Phase 5.1 battery-optimization exemption prompt — fires the FIRST
+  // time the user toggles Shop Mode on. After resolution we record the
+  // prompt in app_meta so it never re-prompts.
+  const [batteryDialogOpen, setBatteryDialogOpen] = useState(false);
+  // Phase 7 (D-ACCOUNT-PAGE-ROLE): account.tsx was killed and folded
+  // into ProfileSettingsSheet. The sign-in flow + "different Google
+  // account on this phone?" prompt now live here so the sheet can fire
+  // them inline (same approach as sign-out, which was already inlined).
+  // While the dialog is up, signInWithGoogle is awaiting
+  // `pendingAccountDecision.resolve`; until the user taps a button the
+  // sign-in is suspended.
+  const [pendingAccountDecision, setPendingAccountDecision] = useState<{
+    args: DifferentAccountPromptArgs;
+    resolve: (choice: DifferentAccountChoice) => void;
+  } | null>(null);
+  const [authBusy, setAuthBusy] = useState(false);
+  // UX critique #6 — sign-out is destructive enough to warrant a ConfirmDialog
+  // per the documented contract in design-tokens.ts. The sheet's danger-styled
+  // NavRow opens this dialog; only on confirmation do we actually wipe the
+  // local session.
+  const [signOutConfirm, setSignOutConfirm] = useState(false);
 
   // Rail position: 0 = collect tab visible, -screenWidth = pay tab visible.
   // We use a non-native Animated.Value because the gesture's onUpdate calls
@@ -94,10 +172,52 @@ export default function HomeScreen() {
   const lastBackPressRef = useRef(0);
 
   const load = useCallback(async () => {
-    const [s, list, user] = await Promise.all([getLocalSelf(), listAllPeople(), getSessionUser()]);
+    const [s, list, user, vaultId, accId, shopRaw] = await Promise.all([
+      getLocalSelf(),
+      listAllPeople(),
+      getSessionUser(),
+      getActiveVaultId(),
+      getAppMeta("account_id"),
+      getAppMeta("shop_mode_enabled"),
+    ]);
     setSelf(s);
     setAllPeople(list);
     setSessionUser(user);
+    setActiveVaultIdState(vaultId);
+    setActiveAccountId(accId);
+    setShopModeEnabled(shopRaw === "1");
+
+    // D-ARCHIVED-VAULT-FILTER: helpers in lib/db.ts return the two slices
+    // separately. Loading them in parallel keeps the first paint snappy.
+    try {
+      const [active, all] = await Promise.all([
+        listActiveVaults(),
+        listAllVaultsIncludingArchived(),
+      ]);
+      setVaults(active.map((r) => ({ id: r.id, name: r.name, archived: false })));
+      setArchivedVaults(
+        all.filter((r) => r.archived).map((r) => ({ id: r.id, name: r.name, archived: true })),
+      );
+
+      // Edge case: if the active vault was just archived (e.g. by a remote
+      // event applier between the previous load() and this one), move the
+      // active vault to the first surviving non-archived vault, or null
+      // it out so the UI prompts "Create a Kaata first".
+      if (vaultId && !active.some((v) => v.id === vaultId)) {
+        const fallback = active[0]?.id ?? null;
+        if (fallback) {
+          await setActiveVaultId(fallback);
+          setActiveVaultIdState(fallback);
+        } else {
+          setActiveVaultIdState(null);
+        }
+      }
+    } catch (err) {
+      console.warn("[home] vault list load failed", err);
+      setVaults([]);
+      setArchivedVaults([]);
+    }
+
     setLoaded(true);
   }, []);
 
@@ -106,6 +226,95 @@ export default function HomeScreen() {
       load();
     }, [load]),
   );
+
+  // D-ACTIVE-VAULT-REACTIVE safety net.
+  //
+  // The header binds to `self.shop_name`, which is derived (inside
+  // getLocalSelf) from the row matching `activeVaultId`. The PRIMARY fix
+  // for "archive doesn't update the header" is D-POST-ARCHIVE-SWITCH:
+  // settings.tsx calls setActiveVaultId(next) immediately after emitting
+  // the vault_setting_set archive event, so activeVaultId actually
+  // changes, useEffects refire, header re-renders.
+  //
+  // This effect is the SAFETY NET for the case the primary fix can't
+  // reach: a *remote* peer (mesh applier) flips vaults.archived_at on
+  // the currently-active vault while this screen is unfocused. When
+  // home regains focus, we re-read just that one row's archived_at; if
+  // the vault we *think* is active has been archived from under us, we
+  // run the same switch-or-redirect path used by D-POST-ARCHIVE-SWITCH.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      if (!activeVaultId) return;
+      void (async () => {
+        try {
+          const archivedAt = await getActiveVaultArchivedAt(activeVaultId);
+          if (cancelled) return;
+          if (archivedAt == null) return; // still active, common path
+          const active = await listActiveVaults();
+          if (cancelled) return;
+          const fallback = active[0]?.id ?? null;
+          if (fallback) {
+            await setActiveVaultId(fallback);
+            setActiveVaultIdState(fallback);
+            // Re-run the full load so people/self/etc reflect the new
+            // vault. Without this the lists below the header stay
+            // pinned to the just-archived vault's data until the next
+            // user-initiated refresh.
+            void load();
+          } else {
+            // No surviving non-archived vault → push to /vault/new so
+            // the user can't keep adding entries to a dead vault.
+            setActiveVaultIdState(null);
+            router.replace("/vault/new");
+          }
+        } catch (err) {
+          if (__DEV__) {
+            console.warn("[home] active-vault archived-at check failed", err);
+          }
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [activeVaultId, load, router]),
+  );
+
+  // Phase 7: open the unified settings sheet when arriving with ?menu=sync
+  // (from the foreground-service notification tap). The URL param key
+  // stays "menu" so the foreground-service deep-link contract doesn't
+  // need an EAS rebuild — only the destination sheet changed.
+  useEffect(() => {
+    if (params.menu === "sync") {
+      setSettingsVisible(true);
+    }
+  }, [params.menu]);
+
+  // Phase 6: subscribe to mesh status changes so the Sync toggle's
+  // subtitle reflects live peer count without a 10s polling lag.
+  useEffect(() => {
+    let unsub: (() => void) | null = null;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const mesh = await import("../lib/mesh");
+        if (cancelled) return;
+        unsub =
+          mesh.onShopModeStatusChange?.((s) => {
+            setMeshActivePeers(s.activePeers);
+          }) ?? null;
+        // Seed initial value from the synchronous snapshot.
+        const snap = mesh.getShopModeStatus?.();
+        if (snap) setMeshActivePeers(snap.activePeers);
+      } catch (err) {
+        if (__DEV__) console.warn("[home] mesh status subscribe failed", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (unsub) unsub();
+    };
+  }, []);
 
   // Intercept the Android hardware back button on the home screen so a single
   // tap doesn't immediately close the app. Requires two presses within 2s —
@@ -210,26 +419,91 @@ export default function HomeScreen() {
       });
   }, [direction, screenWidth, translateX]);
 
+  // Phase 7 D-ACCOUNT-PAGE-ROLE: shared sign-in driver. Used by both
+  // "Sign in with Google" (signed-out state) and "Switch Google account"
+  // (signed-in state). GoogleSignin.configure({offlineAccess:false})
+  // forces the account picker on every call, so a signed-in user who
+  // taps Switch will land in the picker and can choose a different
+  // account — the rest of the flow (different-account prompt, backend
+  // call, housekeeping) is identical.
+  async function runGoogleSignIn() {
+    if (authBusy) return;
+    setAuthBusy(true);
+    try {
+      await signInWithGoogle(async (args) => {
+        return new Promise<DifferentAccountChoice>((resolve) => {
+          setPendingAccountDecision({ args, resolve });
+        });
+      });
+      await load();
+      setTimeout(() => toast.push(t("menu.account.signIn.toast"), "success"), 240);
+    } catch (err) {
+      if (err instanceof SignInCancelledByUserError) return;
+      if (isCancellation(err)) return;
+      console.warn("[home] sign-in failed", err);
+      setTimeout(() => toast.push(t("menu.account.signIn.failed"), "error"), 240);
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
   if (forceUpdate) return <Redirect href="/update-prompt" />;
   if (loaded && !self) return <Redirect href="/onboarding" />;
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
-      {/* Header — title + subname text on the left (non-tappable,
-          informational), profile icon button on the right (the only
-          tap target). The icon is either the user's Google avatar
-          image OR a filled / outlined person-circle Ionicon depending
-          on sign-in state. Header total height locked via minHeight
-          on the title block (52px), so it doesn't change between
-          single-line and two-line cases. */}
+      {/* Header — Phase 7 layout:
+            * top-LEFT: kaata name (vault switcher → VaultPickerSheet)
+            * top-RIGHT: profile chip (unified settings → ProfileSettingsSheet)
+          The hamburger menu is gone (Phase 7 founder feedback #1). The
+          identity text block carries a chevron-down hint so the
+          tappable affordance is discoverable.
+
+          D-HEADER-CLEANUP (Phase 7 polish): the user-name subtitle was
+          removed, so the title block's minHeight no longer needs to
+          reserve a second line. Both clusters now center on a single
+          row (alignItems:"center" on header AND headerTitleBlock) so
+          the title text and the avatar share the same vertical axis.
+          Result: no phantom space below the title, no marginTop hacks
+          on the avatar. */}
       <View style={[styles.header, rowDir(isRTL)]}>
-        {/* Identity text block — flex:1 takes the row's remaining
-            width so a very long shop name truncates instead of
-            pushing the icon off-screen. NOT a Pressable; just
-            informational text. */}
-        <View style={styles.headerTitleBlock}>
-          {self ? (
-            <>
+        {/* Identity text block — top-LEFT. Phase 7 D-TOP-LEFT-SWITCHER:
+            tapping opens VaultPickerSheet. The chevron-down hint next
+            to the title tells first-time users this is tappable;
+            without it the text reads as pure header chrome.
+
+            flex:1 takes the row's remaining width so a very long shop
+            name truncates at numberOfLines:1 instead of pushing the
+            profile button off-screen. hitSlop:8 widens the tap target
+            without enlarging the visual box. */}
+        <Pressable
+          onPress={() => {
+            // Mutual exclusion: close the settings sheet first so the
+            // Android Modal stack stays at depth 1. The 220ms defer
+            // matches ProfileSettingsSheet's EXIT_DURATION_MS so the
+            // closing sheet's <Modal> unmounts BEFORE the picker's mounts.
+            // Without this defer, both Modals are mounted for ~180ms
+            // during the close animation and Android renders the second
+            // one blank-but-tappable (UX critique #5, same shape as the
+            // BottomSheet chained() defer).
+            if (settingsVisible) {
+              setSettingsVisible(false);
+              setTimeout(() => setVaultPickerVisible(true), 220);
+            } else {
+              setVaultPickerVisible(true);
+            }
+          }}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t("menu.title.vaultSwitcher")}
+          style={({ pressed }) => [
+            styles.headerTitleBlock,
+            rowDir(isRTL),
+            pressed && { opacity: 0.5 },
+          ]}
+        >
+          <View style={styles.headerTitleTextCol}>
+            {self ? (
               <Text
                 style={[styles.headerTitle, textDir(isRTL)]}
                 numberOfLines={1}
@@ -237,31 +511,52 @@ export default function HomeScreen() {
               >
                 {self.shop_name ?? self.name}
               </Text>
-              {self.shop_name && self.name !== self.shop_name ? (
-                <Text
-                  style={[styles.headerSubname, textDir(isRTL)]}
-                  numberOfLines={1}
-                  allowFontScaling={false}
-                >
-                  {self.name}
-                </Text>
-              ) : null}
-            </>
+            ) : null}
+          </View>
+          {/* Chevron hint — subtle, sits on the title's cap-height
+              optical center. The 16px glyph's geometric center is at
+              row-center; the 28px title's optical center sits ~2px
+              above its geometric center (Latin caps have descender
+              headroom they don't use), so a small marginTop:3 nudges
+              the chevron up onto the cap-height line. Hidden when self
+              is null (pre-onboarding) so the placeholder header doesn't
+              show a misleading affordance. The chevron stays on the
+              trailing edge of the title in both LTR and RTL — rowDir
+              on the parent flips it. */}
+          {self ? (
+            <Ionicons
+              name="chevron-down"
+              size={16}
+              color={colors.textSubtle}
+              style={isRTL ? { marginRight: 4, marginTop: 3 } : { marginLeft: 4, marginTop: 3 }}
+            />
           ) : null}
-        </View>
+        </Pressable>
 
-        {/* Profile icon button — Image for signed-in-with-Google-
-            avatar, filled person-circle for signed-in-without-avatar,
-            outlined person-circle for not-signed-in. marginTop: 4
-            optically aligns the icon with the title's cap-height
-            rather than its line-box top. hitSlop:10 brings the
-            effective tap area to ~52px, well above Material's 48dp
-            floor. */}
+        {/* Profile chip — top-RIGHT. Phase 7: opens the unified
+            ProfileSettingsSheet (replaces the deprecated hamburger +
+            ProfileMenuSheet). The icon is either the user's Google
+            avatar image, an initial-letter chip if signed in without
+            an avatar URL, or a generic person-outline for local-only.
+            D-HEADER-CLEANUP: marginTop hack removed — the parent
+            row's alignItems:"center" now handles vertical centering
+            against the title. hitSlop:10 brings the tap area to ~52px. */}
         <Pressable
-          onPress={() => setProfileMenuVisible(true)}
+          onPress={() => {
+            // Mutual exclusion with VaultPickerSheet (see comment on the
+            // title Pressable above). 220ms defer mirrors the sheets'
+            // own EXIT_DURATION_MS — without it, both Modals stack on
+            // Android during the close animation.
+            if (vaultPickerVisible) {
+              setVaultPickerVisible(false);
+              setTimeout(() => setSettingsVisible(true), 220);
+            } else {
+              setSettingsVisible(true);
+            }
+          }}
           hitSlop={10}
           accessibilityRole="button"
-          accessibilityLabel="Profile"
+          accessibilityLabel={t("menu.title.profile")}
           style={({ pressed }) => [
             styles.profileBtn,
             isRTL ? { marginRight: 12 } : { marginLeft: 12 },
@@ -270,12 +565,15 @@ export default function HomeScreen() {
         >
           {sessionUser?.picture_url ? (
             <Image source={{ uri: sessionUser.picture_url }} style={styles.profileAvatar} />
+          ) : sessionUser ? (
+            // Signed-in but no Google avatar URL — initial-letter chip.
+            <View style={styles.profileInitialChip}>
+              <Text style={styles.profileInitialText}>
+                {(sessionUser.name ?? sessionUser.email ?? "?").trim().charAt(0).toUpperCase()}
+              </Text>
+            </View>
           ) : (
-            <Ionicons
-              name={sessionUser ? "person-circle" : "person-circle-outline"}
-              size={32}
-              color={colors.textSubtle}
-            />
+            <Ionicons name="person-circle-outline" size={32} color={colors.textSubtle} />
           )}
         </Pressable>
       </View>
@@ -326,12 +624,176 @@ export default function HomeScreen() {
         pointerEvents="box-none"
       >
         <Pressable
-          onPress={() => router.push("/person/new")}
+          // D-DEFENSIVE-ARCHIVED-GUARD: D-POST-ARCHIVE-SWITCH should
+          // normally keep the active vault writable, but a mesh-sourced
+          // archive event can race the FAB tap; refuse here and tell the
+          // user where to go instead. Cheap 1-row DB read; we don't
+          // memoize because the answer can change between renders and
+          // the UX cost of a stale "yes, write" is higher than a 1ms
+          // SELECT.
+          onPress={async () => {
+            const guard = await getActiveVaultArchivedState();
+            if (guard.state === "archived") {
+              toast.push(t("home.fab.blockedArchived"), "error");
+              return;
+            }
+            if (guard.state === "none") {
+              toast.push(t("entry.noActiveVault"), "error");
+              return;
+            }
+            router.push("/person/new");
+          }}
           style={({ pressed }) => [styles.fabInner, pressed && { opacity: 0.85 }]}
         >
           <Ionicons name="add" size={26} color={colors.textInverted} />
         </Pressable>
       </Animated.View>
+
+      {/* Phase 7 — unified settings sheet replaces HamburgerMenuSheet +
+          ProfileMenuSheet. Opens from the profile chip top-RIGHT. All
+          former hamburger entries migrated here per D-PROFILE-SLIDER /
+          D-KILL-HAMBURGER:
+            * Profile (sign-in/out, switch account)
+            * Preferences (links to /preferences route)
+            * Kaatas (vault list, add, manage)
+            * Sync (Nearby toggle — Phase 7 NO sign-in gate, plus
+              sync-to-cloud / restore-from-cloud)
+            * About (version + build)
+          Shop Mode toggle no longer pre-checks account_id — gating
+          lives inside startShopMode() (throws ShopModeNotAvailableError
+          when the device has no vault with a trust anchor; caught
+          below and surfaced as a toast). */}
+      <ProfileSettingsSheet
+        visible={settingsVisible}
+        signedInUser={sessionUser}
+        activeAccountId={activeAccountId}
+        activeVaultId={activeVaultId}
+        vaults={vaults}
+        archivedCount={archivedVaults.length}
+        onOpenArchived={() => {
+          setSettingsVisible(false);
+          setTimeout(() => router.push("/vault/archived"), 220);
+        }}
+        shopModeEnabled={shopModeEnabled}
+        shopModeBusy={shopModeBusy}
+        syncBusy={syncBusy}
+        activePeers={meshActivePeers}
+        appVersion={Constants.expoConfig?.version ?? "0.0.0"}
+        buildNumber={
+          Constants.expoConfig?.android?.versionCode != null
+            ? String(Constants.expoConfig.android.versionCode)
+            : undefined
+        }
+        onDismiss={() => setSettingsVisible(false)}
+        onSignIn={runGoogleSignIn}
+        onSignOut={() => {
+          // UX critique #6: open a ConfirmDialog before wiping the
+          // session. The sheet was already dismissed via chained()
+          // before this callback fired, so the dialog renders cleanly
+          // over the home surface. setTimeout aligns with the sheet's
+          // EXIT_DURATION_MS so the dialog opens after the sheet's
+          // Modal has fully unmounted (Android Modal-stacking).
+          setTimeout(() => setSignOutConfirm(true), 220);
+        }}
+        onSwitchAccount={runGoogleSignIn}
+        onOpenPreferences={() => router.push("/preferences")}
+        onSelectVault={async (vaultId) => {
+          try {
+            await setActiveVaultId(vaultId);
+            await load();
+            toast.push(t("menu.allKaatas.switched"), "success");
+          } catch (err) {
+            console.warn("[home] setActiveVaultId failed", err);
+            toast.push(t("menu.allKaatas.switchFailed"), "error");
+          }
+        }}
+        onAddVault={() => router.push("/vault/new")}
+        onScanPairingCode={() => router.push("/vault/pair-scan")}
+        onManageCurrentKaata={() => router.push("/vault/settings")}
+        onSyncNow={async () => {
+          if (syncBusy) return;
+          setSyncBusy(true);
+          let resultMsg: { msg: string; kind: "success" | "error" } | null = null;
+          try {
+            const result = await syncOnce();
+            resultMsg = {
+              msg: t("menu.sync.done", {
+                pulled: result.pulled,
+                pushed: result.pushed,
+              }),
+              kind: "success",
+            };
+          } catch (err) {
+            console.warn("[home] syncOnce failed", err);
+            resultMsg = { msg: t("menu.sync.failed"), kind: "error" };
+          } finally {
+            setSyncBusy(false);
+          }
+          // Close the sheet BEFORE pushing the toast — the toast viewport
+          // is a plain absolute View (per CLAUDE.md), so anything queued
+          // while a stack-modal sheet is open is silently swallowed.
+          // Modal-exit duration is ~220ms; we defer the push to match.
+          if (resultMsg) {
+            const { msg, kind } = resultMsg;
+            setSettingsVisible(false);
+            setTimeout(() => toast.push(msg, kind), 240);
+          }
+        }}
+        // D-BACKUP-RESTORE-FLOW: route to the in-app /restore confirm
+        // screen, NOT /onboarding/restore. The onboarding screen probes
+        // both snapshot + v0.4-backup AND expects to set onboarding_step
+        // on completion — running it post-onboarding would leave the
+        // ledger in a half-restored state with stale stamps. The new
+        // /restore route reuses lib/restore's snapshot path with copy
+        // tuned for the "I have local data to replace" mental model.
+        onRestoreFromCloud={() => router.push("/restore")}
+        onToggleShopMode={async (next) => {
+          if (shopModeBusy) return;
+          // Phase 7 D-SHOP-MODE-UNGATING: account_id is NOT required.
+          // The pre-condition becomes "has at least one vault with a
+          // trust anchor", which startShopMode() enforces by throwing
+          // ShopModeNotAvailableError on failure. We catch that below
+          // and surface a toast.
+          // Phase 5.1 battery dialog still applies on first toggle-on.
+          if (next && Platform.OS === "android") {
+            const shouldPrompt = await shouldPromptBatteryExemption();
+            if (shouldPrompt) {
+              setBatteryDialogOpen(true);
+              return;
+            }
+          }
+          setShopModeBusy(true);
+          // Optimistic flip — revert on failure.
+          setShopModeEnabled(next);
+          try {
+            const mesh = await import("../lib/mesh");
+            if (next) {
+              await mesh.startShopMode();
+              // UX critique #13: the 12-hour auto-off is documented in
+              // the hint copy but easy to miss. Confirm it explicitly on
+              // toggle-on so the user knows their phone won't broadcast
+              // forever. Skipped when the host opted into the battery
+              // exemption dialog path above (its own confirm covers the
+              // user mental model already).
+              toast.push(t("menu.sync.shopMode.startedToast"), "success");
+            } else {
+              await mesh.stopShopMode();
+            }
+            // startShopMode / stopShopMode write app_meta themselves, so
+            // we don't need a parallel setAppMeta call here.
+          } catch (err) {
+            setShopModeEnabled(!next);
+            const message =
+              err instanceof Error && err.name === "ShopModeNotAvailableError"
+                ? err.message
+                : t("menu.sync.shopMode.failed");
+            toast.push(message, "error");
+            if (__DEV__) console.warn("[home] shop mode toggle failed", err);
+          } finally {
+            setShopModeBusy(false);
+          }
+        }}
+      />
 
       <BottomSheet
         visible={sheetFor !== null}
@@ -372,12 +834,143 @@ export default function HomeScreen() {
         onCancel={() => setConfirmDeleteFor(null)}
       />
 
-      <ProfileMenuSheet
-        visible={profileMenuVisible}
-        signedInUser={sessionUser}
-        onAccount={() => router.push("/account")}
-        onPreferences={() => router.push("/preferences")}
-        onDismiss={() => setProfileMenuVisible(false)}
+      {/* Phase 7 D-TOP-LEFT-SWITCHER — vault switcher sheet, opened by
+          tapping the kaata name in the header. Sole source of truth for
+          the vault list is `vaults` loaded in load(); ProfileSettingsSheet
+          consumes the same array. */}
+      <VaultPickerSheet
+        visible={vaultPickerVisible}
+        activeVaultId={activeVaultId}
+        vaults={vaults}
+        archivedCount={archivedVaults.length}
+        onViewArchived={() => {
+          setVaultPickerVisible(false);
+          setTimeout(() => router.push("/vault/archived"), 220);
+        }}
+        onSelectVault={async (vaultId) => {
+          try {
+            await setActiveVaultId(vaultId);
+            await load();
+            toast.push(t("menu.allKaatas.switched"), "success");
+          } catch (err) {
+            console.warn("[home] setActiveVaultId failed", err);
+            toast.push(t("menu.allKaatas.switchFailed"), "error");
+          }
+        }}
+        onAddVault={() => router.push("/vault/new")}
+        onManageCurrent={() => router.push("/vault/settings")}
+        onDismiss={() => setVaultPickerVisible(false)}
+      />
+
+      {/* Phase 5.1 — first-time-only battery optimization exemption
+          prompt. Shown when the user toggles Nearby sync on for the first
+          time on Android. We can't programmatically request the exemption
+          (Play Store policy), so we deep-link to system Settings on Confirm.
+          On Skip we DO NOT enable Nearby sync — the dialog title is phrased
+          as an additive permission ask, so the user's expectation when
+          tapping Skip is "don't do it" not "do it without the permission".
+          The user can re-toggle later and the prompt won't re-appear
+          (markBatteryExemptionPrompted is called on both paths). */}
+      <ConfirmDialog
+        visible={batteryDialogOpen}
+        title={t("menu.battery.title")}
+        description={t("menu.battery.description")}
+        confirmLabel={t("menu.battery.confirm")}
+        cancelLabel={t("menu.battery.skip")}
+        onConfirm={async () => {
+          setBatteryDialogOpen(false);
+          await markBatteryExemptionPrompted();
+          setShopModeBusy(true);
+          try {
+            await setAppMeta("shop_mode_enabled", "1");
+            setShopModeEnabled(true);
+            await Linking.openSettings().catch(() => {
+              /* user can navigate manually */
+            });
+          } finally {
+            setShopModeBusy(false);
+          }
+        }}
+        onCancel={async () => {
+          setBatteryDialogOpen(false);
+          await markBatteryExemptionPrompted();
+          // Skip path: leave Nearby sync OFF. The toggle in the
+          // hamburger sheet stays in its original (off) position because
+          // shopModeEnabled was never mutated.
+        }}
+      />
+
+      {/* Phase 7 D-ACCOUNT-PAGE-ROLE: "different Google account on this
+          phone?" prompt — fires when the user picks a Google account
+          whose sub differs from the cached one AND the install was
+          active within the last 30 days. Three outcomes;
+          signInWithGoogle is awaiting our resolve() and proceeds (or
+          throws SignInCancelledByUserError) based on which button gets
+          tapped. Previously this dialog lived on the deleted /account
+          screen; folded in here so the sign-in flow can run inline from
+          ProfileSettingsSheet. */}
+      <ConfirmDialog
+        visible={pendingAccountDecision !== null}
+        title={t("account.differentAccount.title")}
+        description={
+          pendingAccountDecision
+            ? t("account.differentAccount.body", {
+                oldEmail: pendingAccountDecision.args.cachedEmail ?? "—",
+                newEmail: pendingAccountDecision.args.newEmail ?? "—",
+              })
+            : ""
+        }
+        confirmLabel={t("account.differentAccount.keep")}
+        tertiaryLabel={t("account.differentAccount.wipe")}
+        tertiaryDestructive
+        cancelLabel={t("account.differentAccount.cancel")}
+        onConfirm={() => {
+          const p = pendingAccountDecision;
+          setPendingAccountDecision(null);
+          p?.resolve("keep");
+        }}
+        onTertiary={() => {
+          const p = pendingAccountDecision;
+          setPendingAccountDecision(null);
+          p?.resolve("wipe");
+        }}
+        onCancel={() => {
+          const p = pendingAccountDecision;
+          setPendingAccountDecision(null);
+          p?.resolve("cancel");
+        }}
+      />
+
+      {/* UX critique #6 — sign-out confirmation. The body interpolates
+          the current email when known so the user knows which account
+          they're exiting; falls back to a generic phrasing when only
+          a local session exists (shouldn't happen in practice — the
+          row only renders when signedInUser is set — but the fallback
+          keeps the t() call total). */}
+      <ConfirmDialog
+        visible={signOutConfirm}
+        title={t("menu.account.signOut.confirm.title")}
+        description={
+          sessionUser?.email
+            ? t("menu.account.signOut.confirm.body", {
+                email: sessionUser.email,
+              })
+            : t("menu.account.signOut.confirm.bodyGeneric")
+        }
+        confirmLabel={t("menu.account.signOut.confirm.cta")}
+        destructive
+        onConfirm={async () => {
+          setSignOutConfirm(false);
+          try {
+            await signOut();
+            await load();
+            setTimeout(() => toast.push(t("menu.account.signOut.toast"), "success"), 240);
+          } catch (err) {
+            console.warn("[home] signOut failed", err);
+            setTimeout(() => toast.push(t("menu.account.signOut.failed"), "error"), 240);
+          }
+        }}
+        onCancel={() => setSignOutConfirm(false)}
       />
     </SafeAreaView>
   );
@@ -449,33 +1042,47 @@ function TabPage(props: {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
-  // Header — iOS 17 "large title" pattern, borderless, typography-
-  // driven. Shop name is the visual anchor (28px display) with the
-  // personal name as a quiet caption underneath; a 34px avatar chip
-  // rides the trailing edge. alignItems:"flex-start" lets the chip
-  // stay glued to the title's cap-height region whether or not the
-  // subname is present. paddingTop:20 lets the title feel like it
-  // owns its region rather than getting crammed under the status bar
-  // / UpdateBanner.
+  // Header — D-HEADER-CLEANUP. iOS 17 "large title" pattern, borderless,
+  // typography-driven. Shop name is the visual anchor (28px display).
+  // After the user-name subtitle was removed, both clusters now center
+  // on a single row (alignItems:"center"), so title text optical center
+  // and avatar center share the same line — no marginTop hacks needed.
+  // paddingTop:18 / paddingBottom:14 give the row enough breathing room
+  // under the status bar without wasting space (the old 20/16 anticipated
+  // a two-line title block). paddingHorizontal:16 is matched on both
+  // sides; safe-area top is handled by SafeAreaView edges={["top"]} on
+  // the parent.
   header: {
     paddingHorizontal: 16,
-    paddingTop: 20,
-    paddingBottom: 16,
-    alignItems: "flex-start",
+    paddingTop: 18,
+    paddingBottom: 14,
+    alignItems: "center",
   },
-  // Title column. flex:1 ensures very long shop names truncate at
-  // numberOfLines:1 instead of pushing the avatar off-screen.
+  // Title row — kaata name + chevron. flex:1 ensures very long shop
+  // names truncate at numberOfLines:1 instead of pushing the avatar
+  // off-screen. alignItems:"center" centers the chevron against the
+  // title text's row box (line-height 32). minHeight:40 matches the
+  // avatar's tap-target row so the header's total height is stable
+  // whether the title is rendered or self is still loading. The
+  // earlier 52px reserved a slot for a subname; Phase 7 removed the
+  // subname, so 40 is the right target (32px title row + 8px breathing
+  // room).
   //
-  // minHeight reserves the vertical slot the subname would occupy
-  // (title lineHeight 32 + marginTop 2 + subname lineHeight 18 = 52)
-  // so the header's total height stays constant whether or not the
-  // subname is rendered. Without this, the row's height shrinks ~20px
-  // when only a single-name user is signed in, and the layout shifts
-  // visibly between users. The subname slot is simply empty in the
-  // single-line case — invisible, no chrome, no flicker.
+  // Phase 7 D-TOP-LEFT-SWITCHER: this is a Pressable that opens
+  // VaultPickerSheet. rowDir(isRTL) applied inline flips the order
+  // of the title column + chevron in RTL.
   headerTitleBlock: {
     flex: 1,
-    minHeight: 52,
+    minHeight: 40,
+    alignItems: "center",
+  },
+  // Inner column for title + subname. flexShrink:1 (NOT flex:1) so the
+  // column takes its natural content width and the chevron sits IMMEDIATELY
+  // next to the title text — not pushed to the far edge of the header row.
+  // flexShrink lets long names truncate (numberOfLines:1) instead of
+  // pushing the chevron off-screen.
+  headerTitleTextCol: {
+    flexShrink: 1,
   },
   // Display title — 28px bold with -0.5 letter-spacing. Deliberately
   // NOT -0.7 (the SF Pro Display target) because Vazirmatn's Latin
@@ -493,22 +1100,32 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
     includeFontPadding: false,
   },
-  // Quiet caption directly under the title — informational, not a
-  // second headline. textSubtle keeps it visually subordinate.
-  headerSubname: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    marginTop: 2,
-    includeFontPadding: false,
+  // Profile button — wraps either the Google avatar Image, an
+  // initial-letter chip, or an Ionicons person-circle fallback.
+  // D-HEADER-CLEANUP: no marginTop — the parent header row's
+  // alignItems:"center" centers this against the title row natively.
+  // Empty rule kept (rather than deleted) so the inline marginLeft /
+  // marginRight composes onto a defined base; without an entry here,
+  // the inline overrides would still work, but keeping the slot makes
+  // future tweaks easy. The headerSubname style was removed alongside
+  // its JSX (Phase 7 founder feedback — the user-name subtitle is gone).
+  profileBtn: {},
+  // Phase 7: initial-letter chip rendered when signedIn user has no
+  // Google avatar URL. Same visual weight as the avatar slot (32x32
+  // bgMuted circle) so signed-in users always see a circular chip
+  // top-right, with the letter or the photo inside.
+  profileInitialChip: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.bgMuted,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  // Profile button — wraps either the Google avatar Image or an
-  // Ionicons person-circle fallback. marginTop:4 optically aligns the
-  // icon's vertical center with the 28px title's cap-height so the
-  // single-line case doesn't feel top-heavy.
-  profileBtn: {
-    marginTop: 4,
+  profileInitialText: {
+    fontSize: 14,
+    fontFamily: fonts.sansBold,
+    color: colors.textEmphasis,
   },
   // Google avatar Image — 32px circle. RN's Image disk-caches the
   // Google CDN URL automatically. bgMuted fills the circle while the
@@ -521,7 +1138,10 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: colors.bgMuted,
   },
-  tabsWrap: { paddingHorizontal: 16, marginBottom: 16 },
+  // tabsWrap — gap above the swipe rail. marginTop:2 closes the gap a
+  // hair after the header's paddingBottom shrunk to 14 (was 16);
+  // marginBottom:16 keeps the rail from feeling glued to the tab strip.
+  tabsWrap: { paddingHorizontal: 16, marginTop: 2, marginBottom: 16 },
   rail: {
     flex: 1,
     // Keep collect-tab on the physical left, pay-tab on the physical right.

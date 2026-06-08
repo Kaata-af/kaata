@@ -1,0 +1,125 @@
+{
+  "name": "concurrent_amend_different_fields",
+  "description": "Two co-owners amend the SAME entry concurrently — A bumps amount_afn at HLC pms=2000, B bumps note at HLC pms=2000 (same pms; tiebreak by device_id A<B). Per-field LWW MUST preserve both wins regardless of arrival order. This fixture is the Phase 4 close-the-gap fixture for D-PER-FIELD-LWW-MOBILE — under pre-Phase-4 unconditional UPDATE the second amend's row-level UPDATE would either clobber the first's amount_afn or not (depending on order). Under per-field LWW both wins land independently.",
+  "events": [
+    {
+      "event_id": "00000051-0000-4000-8000-000000000001",
+      "event_type": "person_added",
+      "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "target_id": "uuuuuuuu-5151-4151-8151-515151515151",
+      "relationship_id": "rrrrrrrr-5151-4151-8151-515151515151",
+      "hlc": { "pms": 1700000000000, "l": 0, "did": "device-a" },
+      "device_id": "device-a",
+      "author_user_id_local_only": "self-a",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {
+        "user_id": "uuuuuuuu-5151-4151-8151-515151515151",
+        "name": "Coowner Person",
+        "phone_e164": null,
+        "relationship_context": "peer"
+      }
+    },
+    {
+      "event_id": "00000052-0000-4000-8000-000000000002",
+      "event_type": "entry_created",
+      "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "target_id": "eeeeeeee-5151-4151-8151-515151515151",
+      "relationship_id": "rrrrrrrr-5151-4151-8151-515151515151",
+      "hlc": { "pms": 1700000001000, "l": 0, "did": "device-a" },
+      "device_id": "device-a",
+      "author_user_id_local_only": "self-a",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {
+        "entry_id": "eeeeeeee-5151-4151-8151-515151515151",
+        "relationship_id": "rrrrrrrr-5151-4151-8151-515151515151",
+        "type": "debt",
+        "amount_afn": 100,
+        "note": "initial",
+        "occurred_at_ms": 1700000001000
+      }
+    },
+    {
+      "event_id": "00000053-0000-4000-8000-000000000003",
+      "event_type": "entry_amended",
+      "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "target_id": "eeeeeeee-5151-4151-8151-515151515151",
+      "relationship_id": "rrrrrrrr-5151-4151-8151-515151515151",
+      "hlc": { "pms": 1700000002000, "l": 0, "did": "device-a" },
+      "device_id": "device-a",
+      "author_user_id_local_only": "self-a",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {
+        "changes": { "amount_afn": 250 }
+      }
+    },
+    {
+      "event_id": "00000054-0000-4000-8000-000000000004",
+      "event_type": "entry_amended",
+      "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "target_id": "eeeeeeee-5151-4151-8151-515151515151",
+      "relationship_id": "rrrrrrrr-5151-4151-8151-515151515151",
+      "hlc": { "pms": 1700000002000, "l": 0, "did": "device-b" },
+      "device_id": "device-b",
+      "author_user_id_local_only": "self-a",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {
+        "changes": { "note": "paid in part" }
+      }
+    }
+  ],
+  "expected_projection": {
+    "users": {
+      "uuuuuuuu-5151-4151-8151-515151515151": {
+        "id": "uuuuuuuu-5151-4151-8151-515151515151",
+        "phone_e164": null,
+        "display_name": "Coowner Person",
+        "is_local_self": false,
+        "google_sub": null,
+        "account_id": null,
+        "created_at": 1700000000000,
+        "updated_at": 1700000000000,
+        "archived_at": null
+      }
+    },
+    "relationships": {
+      "rrrrrrrr-5151-4151-8151-515151515151": {
+        "id": "rrrrrrrr-5151-4151-8151-515151515151",
+        "user_a_id": "self-a",
+        "user_b_id": "uuuuuuuu-5151-4151-8151-515151515151",
+        "context": "peer",
+        "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "created_at": 1700000000000,
+        "updated_at": 1700000000000,
+        "archived_at": null
+      }
+    },
+    "entries": {
+      "eeeeeeee-5151-4151-8151-515151515151": {
+        "id": "eeeeeeee-5151-4151-8151-515151515151",
+        "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "relationship_id": "rrrrrrrr-5151-4151-8151-515151515151",
+        "type": "debt",
+        "amount_afn": 250,
+        "note": "paid in part",
+        "created_at": 1700000001000,
+        "updated_at": 1700000002000,
+        "deleted_at": null,
+        "proposed_by_user_id": "self-a",
+        "accepted_at": null,
+        "disputed_at": null,
+        "disputed_reason": null,
+        "settled_at": null,
+        "current_event_id": "00000054-0000-4000-8000-000000000004",
+        "is_deleted": false,
+        "is_settled": false
+      }
+    },
+    "shop_profile": null,
+    "members": {},
+    "vault_settings": {}
+  }
+}

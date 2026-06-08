@@ -1,0 +1,138 @@
+{
+  "name": "account_bound",
+  "description": "Pre-sign-in events have actor_account_id=null; account_bound retroactively re-attributes them up through retroactive_through_event_id. Phase 4.1: validate that the server (and the projection) re-stamps the bound account_id on every NULL-actor event whose HLC <= the cut-off, while leaving uncovered NULL-actor events un-attributed. Projection state itself is unaffected by account_bound (state-side no-op); the test asserts on the attributed event_log too.",
+  "events": [
+    {
+      "event_id": "20000001-0000-4000-8000-000000000001",
+      "event_type": "shop_profile_updated",
+      "vault_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      "target_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      "relationship_id": null,
+      "hlc": { "pms": 1700000020000, "l": 0, "did": "device-e" },
+      "device_id": "device-e",
+      "author_user_id_local_only": "self-e",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {
+        "changes": { "shop_name": "Pre-signin Shop", "owner_name": "Matee" }
+      }
+    },
+    {
+      "event_id": "20000002-0000-4000-8000-000000000002",
+      "event_type": "person_added",
+      "vault_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      "target_id": "uuuuuuuu-4444-4444-8444-444444444444",
+      "relationship_id": "rrrrrrrr-4444-4444-8444-444444444444",
+      "hlc": { "pms": 1700000021000, "l": 0, "did": "device-e" },
+      "device_id": "device-e",
+      "author_user_id_local_only": "self-e",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {
+        "user_id": "uuuuuuuu-4444-4444-8444-444444444444",
+        "name": "Yusuf",
+        "phone_e164": "+93709998888",
+        "relationship_context": "peer"
+      }
+    },
+    {
+      "event_id": "20000003-0000-4000-8000-000000000003",
+      "event_type": "account_bound",
+      "vault_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      "target_id": "self-e",
+      "relationship_id": null,
+      "hlc": { "pms": 1700000022000, "l": 0, "did": "device-e" },
+      "device_id": "device-e",
+      "author_user_id_local_only": "self-e",
+      "actor_account_id": "acct-google-xyz",
+      "payload_schema": 1,
+      "payload": {
+        "from_user_id": "self-e",
+        "account_id": "acct-google-xyz",
+        "retroactive_through_event_id": "20000002-0000-4000-8000-000000000002"
+      }
+    },
+    {
+      "event_id": "20000004-0000-4000-8000-000000000004",
+      "event_type": "entry_created",
+      "vault_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      "target_id": "eeeeeeee-4444-4444-8444-444444444444",
+      "relationship_id": "rrrrrrrr-4444-4444-8444-444444444444",
+      "hlc": { "pms": 1700000023000, "l": 0, "did": "device-e" },
+      "device_id": "device-e",
+      "author_user_id_local_only": "self-e",
+      "actor_account_id": "acct-google-xyz",
+      "payload_schema": 1,
+      "payload": {
+        "entry_id": "eeeeeeee-4444-4444-8444-444444444444",
+        "relationship_id": "rrrrrrrr-4444-4444-8444-444444444444",
+        "type": "debt",
+        "amount_afn": 750,
+        "note": "post-signin",
+        "occurred_at_ms": 1700000023000
+      }
+    }
+  ],
+  "expected_event_attribution": {
+    "20000001-0000-4000-8000-000000000001": "acct-google-xyz",
+    "20000002-0000-4000-8000-000000000002": "acct-google-xyz",
+    "20000003-0000-4000-8000-000000000003": "acct-google-xyz",
+    "20000004-0000-4000-8000-000000000004": "acct-google-xyz"
+  },
+  "expected_projection": {
+    "users": {
+      "uuuuuuuu-4444-4444-8444-444444444444": {
+        "id": "uuuuuuuu-4444-4444-8444-444444444444",
+        "phone_e164": "+93709998888",
+        "display_name": "Yusuf",
+        "is_local_self": false,
+        "google_sub": null,
+        "account_id": null,
+        "created_at": 1700000021000,
+        "updated_at": 1700000021000,
+        "archived_at": null
+      }
+    },
+    "relationships": {
+      "rrrrrrrr-4444-4444-8444-444444444444": {
+        "id": "rrrrrrrr-4444-4444-8444-444444444444",
+        "user_a_id": "self-e",
+        "user_b_id": "uuuuuuuu-4444-4444-8444-444444444444",
+        "context": "peer",
+        "vault_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "created_at": 1700000021000,
+        "updated_at": 1700000021000,
+        "archived_at": null
+      }
+    },
+    "entries": {
+      "eeeeeeee-4444-4444-8444-444444444444": {
+        "id": "eeeeeeee-4444-4444-8444-444444444444",
+        "vault_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "relationship_id": "rrrrrrrr-4444-4444-8444-444444444444",
+        "type": "debt",
+        "amount_afn": 750,
+        "note": "post-signin",
+        "created_at": 1700000023000,
+        "updated_at": 1700000023000,
+        "deleted_at": null,
+        "proposed_by_user_id": "self-e",
+        "accepted_at": null,
+        "disputed_at": null,
+        "disputed_reason": null,
+        "settled_at": null,
+        "current_event_id": "20000004-0000-4000-8000-000000000004",
+        "is_deleted": false,
+        "is_settled": false
+      }
+    },
+    "shop_profile": {
+      "vault_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      "shop_name": "Pre-signin Shop",
+      "owner_name": "Matee",
+      "updated_at": 1700000020000
+    },
+    "members": {},
+    "vault_settings": {}
+  }
+}

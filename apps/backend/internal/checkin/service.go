@@ -11,6 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/matee/kaata-backend/internal/mesh"
 )
 
 // maxInstalledAtFutureSkew clamps a device-supplied installed_at that's
@@ -22,10 +24,14 @@ const maxInstalledAtFutureSkew = 5 * time.Minute
 type Service struct {
 	pool                *pgxpool.Pool
 	migrateToBackendURL string
+	// mesh is optional: when nil (boot-time test wiring), the /v1/check-in
+	// response simply omits the VMC + revocation + pubkey fields. Real
+	// production calls supply a configured service.
+	mesh *mesh.Service
 }
 
-func NewService(pool *pgxpool.Pool, migrateToBackendURL string) *Service {
-	return &Service{pool: pool, migrateToBackendURL: migrateToBackendURL}
+func NewService(pool *pgxpool.Pool, migrateToBackendURL string, meshSvc *mesh.Service) *Service {
+	return &Service{pool: pool, migrateToBackendURL: migrateToBackendURL, mesh: meshSvc}
 }
 
 type Request struct {
@@ -59,6 +65,21 @@ type Request struct {
 	UsageEntriesCreated *int `json:"usage_entries_created,omitempty"`
 	UsageCustomersAdded *int `json:"usage_customers_added,omitempty"`
 	UsageSharesSent     *int `json:"usage_shares_sent,omitempty"`
+
+	// Phase 5 mesh: caller-driven VMC renewal. Mobile lists vault_ids
+	// whose locally-cached VMC is within the renewal window (or expired).
+	// Server iterates, mints a fresh VMC for each vault the caller is
+	// still an active member of, and returns them in VMCRenewals. Vaults
+	// the caller no longer belongs to are silently omitted — the mesh
+	// client treats absence as "you've been kicked from this vault".
+	VMCRenewalsNeeded []string `json:"vmc_renewals_needed,omitempty"`
+
+	// Phase 5 mesh: per-vault revocation cursor. Map from vault_id to
+	// the largest revoked_at_ms the client has previously applied. Server
+	// returns revocations strictly newer than this. Missing entries are
+	// treated as 0 (full bootstrap of the current revocation set for
+	// that vault).
+	LastRevocationSeenAtMS map[string]int64 `json:"last_revocation_seen_at_ms,omitempty"`
 }
 
 type UpdateInfo struct {
@@ -87,6 +108,39 @@ type Response struct {
 	// persisted override on the client. Omit (nil) to leave the client's
 	// current setting alone.
 	MigrateToBackendURL *string `json:"migrate_to_backend_url,omitempty"`
+	// SessionJWTRefresh: a freshly-minted JWT for the same session, issued
+	// when the incoming token is older than auth.RefreshIfOlderThan. Mobile
+	// persists it to SecureStore. Absent when the caller is anonymous or
+	// the token is still fresh.
+	SessionJWTRefresh *string `json:"session_jwt_refresh,omitempty"`
+
+	// Phase 5 mesh: freshly-signed VMCs for vaults the caller listed in
+	// VMCRenewalsNeeded that they're still members of. Omitted entirely
+	// (nil) when the caller sent no renewal list OR the server's signing
+	// key is missing.
+	VMCRenewals []mesh.IssuedVMCForVault `json:"vmc_renewals,omitempty"`
+
+	// Phase 5 mesh: incremental revocation deltas across all vaults the
+	// caller is a current active member of. One entry per (vault, device)
+	// revocation event. Mesh clients merge these into their local
+	// revocation_list table; future handshakes refuse VMCs whose
+	// (vault, device) matches.
+	Revocations []mesh.Revocation `json:"revocations,omitempty"`
+
+	// Phase 5 mesh: pinned server signing pubkey(s). Sent on EVERY
+	// response when mesh signing is configured (never optional from the
+	// server's side, so clients can first-sight-pin and track rotations).
+	// During a rotation window, Rotation is set to the new key; outside,
+	// Rotation is nil/absent. Once rotation completes, the server promotes
+	// rotation -> primary and clears rotation; clients pick this up on
+	// next check-in and migrate their pinned key transparently.
+	MeshServerPubkeys *MeshServerPubkeys `json:"mesh_server_pubkeys,omitempty"`
+}
+
+// MeshServerPubkeys announces the server's ed25519 signing key(s).
+type MeshServerPubkeys struct {
+	Primary  string  `json:"primary"`            // base64, 32 bytes
+	Rotation *string `json:"rotation,omitempty"` // base64, 32 bytes; absent when no rotation
 }
 
 func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Response, error) {
@@ -275,7 +329,108 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 		return Response{}, err
 	}
 
+	// -------------------------------------------------------------------
+	// Phase 5 mesh extension. Best-effort: any failure here MUST NOT
+	// break check-in, which also carries force-update warnings and the
+	// announcement banner. Failures are logged and the response is
+	// returned with the mesh fields omitted.
+	// -------------------------------------------------------------------
+	if s.mesh != nil {
+		// Always announce pinned pubkey when configured — sent on EVERY
+		// response so first-sight pinning + rotation handoff both ride
+		// this channel.
+		if primary := s.mesh.SigningPubkeyB64(); primary != "" {
+			mp := &MeshServerPubkeys{Primary: primary}
+			if rot := s.mesh.RotationPubkeyB64(); rot != "" {
+				r := rot
+				mp.Rotation = &r
+			}
+			resp.MeshServerPubkeys = mp
+		}
+
+		// VMC renewals + revocations require an authenticated caller.
+		// We pull the account_id from the request context (the handler
+		// places it there when auth.ClaimsFromContext is present).
+		if accountID := ActorAccountIDFromContext(ctx); accountID != "" && s.mesh.SigningEnabled() {
+			for _, vaultID := range req.VMCRenewalsNeeded {
+				if vaultID == "" {
+					continue
+				}
+				issued, err := s.mesh.IssueVMC(ctx, vaultID, accountID, req.InstallID)
+				if err != nil {
+					if !isExpectedMeshIssueErr(err) {
+						log.Printf("checkin vmc renewal failed (vault=%s install=%s): %v",
+							vaultID, req.InstallID, err)
+					}
+					continue
+				}
+				resp.VMCRenewals = append(resp.VMCRenewals, mesh.IssuedVMCForVault{
+					VaultID:     vaultID,
+					VMCBlob:     issued.VMCBlob,
+					ExpiresAtMS: issued.ExpiresAt.UnixMilli(),
+				})
+			}
+			// Revocations are only disclosed for vaults the caller is a
+			// current member of — otherwise we leak revocation
+			// timestamps from foreign vaults.
+			for vaultID, sinceMs := range req.LastRevocationSeenAtMS {
+				ok, err := s.mesh.IsMember(ctx, vaultID, accountID)
+				if err != nil {
+					log.Printf("checkin revocation membership-check failed (vault=%s acct=%s): %v",
+						vaultID, accountID, err)
+					continue
+				}
+				if !ok {
+					continue
+				}
+				revs, err := s.mesh.GetRevocationsForVault(ctx, vaultID, sinceMs)
+				if err != nil {
+					log.Printf("checkin revocation list failed (vault=%s): %v", vaultID, err)
+					continue
+				}
+				resp.Revocations = append(resp.Revocations, revs...)
+			}
+		}
+	}
+
 	return resp, nil
+}
+
+// isExpectedMeshIssueErr returns true for errors that are part of the
+// renewal-path's normal control flow — caller has been revoked, never
+// registered a device key, server's signing key is missing, etc.
+// Unexpected errors (DB drop, marshal failure) still get logged.
+func isExpectedMeshIssueErr(err error) bool {
+	switch {
+	case errors.Is(err, mesh.ErrNotMember),
+		errors.Is(err, mesh.ErrDeviceKeyNotRegistered),
+		errors.Is(err, mesh.ErrSigningUnavailable):
+		return true
+	}
+	return false
+}
+
+// actorAccountIDKey is the context key the HTTP handler uses to pass the
+// authenticated account_id (extracted from JWT claims) into Handle(). We
+// don't import auth.ClaimsFromContext directly here because checkin must
+// remain free of an auth dependency in its service layer.
+type actorAccountIDKey struct{}
+
+// WithActorAccountID returns a context carrying the authenticated account_id.
+// nil-safe: empty string means "anonymous request" and the mesh extension
+// is skipped.
+func WithActorAccountID(ctx context.Context, accountID string) context.Context {
+	if accountID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, actorAccountIDKey{}, accountID)
+}
+
+// ActorAccountIDFromContext reads the account_id placed by
+// WithActorAccountID. Returns "" when absent.
+func ActorAccountIDFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(actorAccountIDKey{}).(string)
+	return v
 }
 
 func nullStr(s sql.NullString) *string {

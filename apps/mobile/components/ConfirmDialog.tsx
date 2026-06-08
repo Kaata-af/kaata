@@ -17,9 +17,16 @@ export function ConfirmDialog(props: {
   description?: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  // Phase 4.1: optional third action. When present, appears between Cancel
+  // and Confirm in the footer. Used by the "different account on this
+  // phone?" prompt to surface a destructive "wipe & start fresh" option
+  // alongside the primary "keep my data" action.
+  tertiaryLabel?: string;
+  tertiaryDestructive?: boolean;
   destructive?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  onTertiary?: () => void;
 }) {
   const [rendered, setRendered] = useState(false);
   const isRTL = useIsRTL();
@@ -99,9 +106,29 @@ export function ConfirmDialog(props: {
             >
               <Text style={styles.btnGhostText}>{props.cancelLabel ?? t("common.cancel")}</Text>
             </Pressable>
+            {props.onTertiary && props.tertiaryLabel ? (
+              <Pressable
+                onPress={() => {
+                  props.onTertiary?.();
+                }}
+                style={({ pressed }) => [
+                  props.tertiaryDestructive ? styles.confirmDestructive : styles.confirmPrimary,
+                  pressed && { opacity: 0.85 },
+                ]}
+              >
+                <Text
+                  style={
+                    props.tertiaryDestructive
+                      ? styles.confirmDestructiveText
+                      : styles.confirmPrimaryText
+                  }
+                >
+                  {props.tertiaryLabel}
+                </Text>
+              </Pressable>
+            ) : null}
             <Pressable
               onPress={() => {
-                props.onCancel();
                 props.onConfirm();
               }}
               style={({ pressed }) => [confirmStyle, pressed && { opacity: 0.85 }]}

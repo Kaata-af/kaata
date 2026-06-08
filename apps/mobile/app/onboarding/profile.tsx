@@ -41,6 +41,11 @@ export default function OnboardingProfileScreen() {
   const [name, setName] = useState("");
   const [shopName, setShopName] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
+  // Phase 7 D-VAULT-NAME-REQUIRED: shop (Kaata) name is now REQUIRED.
+  // Previously the field was optional and the vault defaulted to "My
+  // ledger" — founder rejected that. Every vault must have a
+  // user-chosen name.
+  const [shopError, setShopError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
@@ -66,15 +71,38 @@ export default function OnboardingProfileScreen() {
 
   async function onSubmit() {
     const trimmedName = name.trim();
+    const trimmedShop = shopName.trim();
+
+    // Validate BOTH fields up front so the user sees every error at once
+    // instead of fixing one, tapping submit, and discovering another.
+    let hasError = false;
     if (!trimmedName) {
       setNameError(t("onboardingProfile.nameRequired"));
+      hasError = true;
+    } else {
+      setNameError(null);
+    }
+    if (!trimmedShop) {
+      setShopError(t("onboardingProfile.shopRequired"));
+      hasError = true;
+    } else {
+      setShopError(null);
+    }
+    if (hasError) {
+      // Focus the first invalid field so the keyboard puts the user
+      // straight back to the action they need to take. Name first
+      // because it's above the shop field in tab order.
+      if (!trimmedName) nameRef.current?.focus();
+      else if (!trimmedShop) shopRef.current?.focus();
       return;
     }
-    setNameError(null);
+
     setSubmitError(null);
     setBusy(true);
     try {
-      await createSelfProfile(trimmedName, shopName.trim() || null);
+      // Phase 7: createSelfProfile now requires a non-empty trimmed
+      // shopName. The function throws on empty as a data-layer contract.
+      await createSelfProfile(trimmedName, trimmedShop);
       await setAppMeta("onboarding_step", "done");
       // Clear pending values so a later "reset all data + re-onboard"
       // run doesn't carry stale Google email into the next session.
@@ -159,11 +187,21 @@ export default function OnboardingProfileScreen() {
           <FormField
             ref={shopRef}
             label={t("onboarding.shop.label")}
+            required
             value={shopName}
-            onChangeText={setShopName}
+            onChangeText={(s) => {
+              setShopName(s);
+              if (shopError) setShopError(null);
+            }}
+            onBlur={() => {
+              if (!shopName.trim()) {
+                setShopError(t("onboardingProfile.shopRequired"));
+              }
+            }}
             placeholder={t("onboarding.shop.placeholder")}
             returnKeyType="done"
             onSubmitEditing={onSubmit}
+            error={shopError}
           />
 
           {submitError ? (

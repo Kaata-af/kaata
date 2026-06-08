@@ -36,6 +36,36 @@ type Toast = {
   kind: ToastKind;
 };
 
+// Cross-screen pending-toast queue. Used by call sites that fire
+// router.replace("/") right after a success — the navigation happens
+// before the toast viewport renders the push, so the toast never
+// appears. queuePendingToast() stores the message in module memory; the
+// ToastProvider drains the queue on mount AND whenever a new toast is
+// pushed (so the next mount on the destination screen surfaces it).
+//
+// In-memory only — survives a synchronous router.replace but not a
+// process restart. That's the right scope: a queued success message
+// from an archive flow doesn't need to survive a force-quit.
+type PendingToast = { message: string; kind: ToastKind };
+const pendingToasts: PendingToast[] = [];
+const pendingListeners = new Set<() => void>();
+
+export function queuePendingToast(message: string, kind: ToastKind = "info"): void {
+  pendingToasts.push({ message, kind });
+  for (const fn of pendingListeners) {
+    try {
+      fn();
+    } catch {
+      /* */
+    }
+  }
+}
+
+function drainPendingToasts(): PendingToast[] {
+  const drained = pendingToasts.splice(0, pendingToasts.length);
+  return drained;
+}
+
 type ToastContextValue = {
   push: (message: string, kind?: ToastKind) => void;
   // Number of currently-visible toasts. Components with bottom-anchored UI
@@ -82,6 +112,24 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     },
     [remove],
   );
+
+  // Cross-screen pending-toast drain. When a caller fires
+  // queuePendingToast() right before navigating, the queue holds the
+  // message until the next ToastProvider mount (or, if the provider is
+  // already mounted, until the listener fires inside the same JS tick).
+  // This is how vault-settings' "Kaata archived" toast survives
+  // router.replace("/") to home.
+  useEffect(() => {
+    const drain = () => {
+      const items = drainPendingToasts();
+      for (const item of items) push(item.message, item.kind);
+    };
+    drain();
+    pendingListeners.add(drain);
+    return () => {
+      pendingListeners.delete(drain);
+    };
+  }, [push]);
 
   return (
     <ToastContext.Provider value={{ push, visibleCount: toasts.length }}>
