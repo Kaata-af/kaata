@@ -36,7 +36,6 @@ apps/backend/server.exe
 *.ipa
 # Exception: APKs in the web service's public/downloads/ are intentional
 # release artifacts (we host them at kaata.af/downloads/ until Play Store).
-!apps/web/public/downloads/*.apk
 
 # logs
 npm-debug.*
