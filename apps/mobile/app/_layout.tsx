@@ -1,64 +1,26 @@
+// D-FOREGROUND-HARDEN: this MUST be the first import in the file. It
+// registers the notifee foreground-service callback, creates the
+// "shop-mode" channel, and registers the background-event handler at JS
+// module load — before any code path can call displayNotification with
+// asForegroundService:true. Doing it at module top in a dedicated leaf
+// module guarantees the registration survives process resurrection by
+// Android (e.g. when the FGS start intent is re-delivered after a Doze
+// kill before the React tree mounts).
+import "../lib/mesh/foreground-bootstrap";
+
 import * as Application from "expo-application";
 import * as Network from "expo-network";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  BackHandler,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AutoSync } from "../components/AutoSync";
 import { MeshController } from "../components/MeshController";
 import { ProjectionConflictsListener } from "../components/ProjectionConflictsListener";
 import { ToastProvider } from "../components/Toast";
-import {
-  ensureShopModeChannel,
-  registerShopModeForegroundTask,
-  SHOP_MODE_NOTIFICATION_ID,
-} from "../lib/mesh/foreground";
-
-// Phase 5.1: notifee requires the foreground-service task be registered at
-// module load, before any displayNotification({asForegroundService:true})
-// call. Safe to invoke on every JS bundle load — registration is idempotent
-// and no-ops on non-Android platforms / Expo Go via the wrapper.
-registerShopModeForegroundTask();
-
-// D-FOREGROUND-CRASH: Kick off channel creation at module load — not inside
-// the boot useEffect — so any cold-start auto-resume path that calls
-// startShopMode() before the React tree mounts still finds the channel
-// present. createChannel is idempotent on channelId, and
-// startShopModeForegroundService also awaits ensureShopModeChannel as
-// belt-and-suspenders.
-ensureShopModeChannel().catch((err) => {
-  if (__DEV__) console.warn("[init] ensureShopModeChannel (boot)", err);
-});
-
-// Phase 5.1: notifee also requires onBackgroundEvent to be registered at
-// module top level (NOT inside a component effect) so it's subscribed even
-// when the app is cold-started by a notification tap. The handler is a
-// no-op today — the cold-start route picks up `?menu=sync` via expo-router's
-// initialURL — but registering here suppresses notifee's "no background
-// handler" runtime warning and keeps the contract correct for when we add
-// actionable notifications.
-if (Platform.OS === "android") {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const notifee = require("@notifee/react-native");
-    notifee.default.onBackgroundEvent(async () => {
-      // intentional no-op — see comment above.
-    });
-  } catch {
-    // notifee not bundled (Expo Go / web) — fine, foreground service is
-    // already gated on it elsewhere.
-  }
-}
+import { ensureShopModeChannel, SHOP_MODE_NOTIFICATION_ID } from "../lib/mesh/foreground";
 
 // ============================================================================
 // I18nManager neutralization + one-shot migration. The architecture:
@@ -132,11 +94,19 @@ import {
 import { configureGoogleSignIn } from "../lib/auth";
 import { initCurrencyFromPref } from "../lib/currency";
 import { initDefaultCountryFromPref } from "../lib/phone";
-import { useAppFonts } from "../lib/fonts";
+import { useAppFontsWithError } from "../lib/fonts";
 import { initLocaleFromPref } from "../lib/i18n";
 import { ensureInstallId, getInstalledAtUnixMs } from "../lib/install-id";
+import { type BootError, forceRestart, toBootError } from "../lib/boot-error";
 
 const currentVersion = Application.nativeApplicationVersion || "0.1.0";
+
+// UX critique #5: support contact surfaced on every boot-error screen so
+// a stuck user has somewhere to send a screenshot. Single constant —
+// changing it (e.g. from email to a WhatsApp number) is one edit.
+// Declared up here so DbInitFailedPrompt + BootFailedPrompt can reference
+// it without temporal-dead-zone gymnastics.
+const SUPPORT_CONTACT = "support@kaata.af";
 
 // Decide where the Stack mounts first. Precedence:
 //   1. If the user has a local_self user, they're already onboarded — home.
@@ -195,8 +165,24 @@ export default function RootLayout() {
     return <MigrationPrompt />;
   }
 
-  const fontsReady = useAppFonts();
+  const [fontsReady, fontsError] = useAppFontsWithError();
   const [appReady, setAppReady] = useState(false);
+  // D-BOOT-CRASH-DEFENSE: fatal error captured by any boot step. Any
+  // non-null value short-circuits the render gates below and shows
+  // BootFailedPrompt. Distinct from dbReady===false (which surfaces
+  // DbInitFailedPrompt's narrower copy). The order matters in the render
+  // gates: dbReady===false wins so existing UX is preserved.
+  const [bootError, setBootError] = useState<BootError | null>(null);
+
+  // Map a font-load error into bootError. expo-font's useFonts surfaces
+  // the load error asynchronously; without this, a fresh install on a
+  // flaky network would sit on the BootSplash forever because fontsReady
+  // never flips true.
+  useEffect(() => {
+    if (fontsError && !bootError) {
+      setBootError(toBootError("fonts", fontsError));
+    }
+  }, [fontsError, bootError]);
   // Hard prerequisite: initDb() MUST resolve before the Stack mounts.
   // Migration 007 creates the vaults table that vault/new.tsx INSERTs into;
   // if a migration throws (integrity guard fires, FK violation, etc.) we
@@ -229,117 +215,152 @@ export default function RootLayout() {
 
   useEffect(() => {
     (async () => {
-      try {
-        // Mint / fetch install_id and prime its cache BEFORE migrations run
-        // so migration 006 (synthetic backfill) can stamp it as the hlc.did
-        // on every backfilled event. Without this ordering, migration 006
-        // would have to fall back to an all-zero UUID for any upgrader whose
-        // install_id was somehow missing — permanently poisoning HLC
-        // tiebreaks. initDb is split: it always creates app_meta /
-        // schema_migrations first, then accepts the freshly-minted id, then
-        // runs migrations 001-006. ensureInstallId itself only reads/writes
-        // app_meta, so it can run between the bootstrap and the migrations.
-        const id = await ensureInstallId();
-        setInstallIdCache(id);
+      // D-BOOT-CRASH-DEFENSE: every boot step funnels through `step()` so
+      // we never need an outer catch-all that silently flips appReady=true
+      // after a partial failure. On failure, bootError is set and appReady
+      // stays false; the render gate below picks up BootFailedPrompt
+      // instead of mounting the (partially-initialized) Stack.
+      let aborted = false;
+      const step = async <T,>(
+        stage: Parameters<typeof toBootError>[0],
+        fn: () => Promise<T>,
+      ): Promise<T | undefined> => {
+        if (aborted) return undefined;
         try {
-          await initDb({ installId: id });
-          setDbReady(true);
+          return await fn();
         } catch (err) {
-          // CRITICAL: do NOT flip dbReady=true. Migrations are append-only
-          // and atomic per-migration (each runs inside withTransactionAsync),
-          // so a throw here means at least one migration's schema changes
-          // rolled back. The vaults table (migration 007), event_log
-          // indexes (010), mesh credentials (011), etc. may all be absent.
-          // Rendering the Stack would let the user hit "no such table"
-          // errors anywhere — better to refuse to mount and prompt a
-          // restart than to pretend the app is healthy.
-          console.error("[init] initDb failed — refusing to render Stack", err);
-          setDbReady(false);
-          return; // skip rest of boot — every step below depends on the db.
+          console.error(`[init] ${stage} failed`, err);
+          setBootError(toBootError(stage, err));
+          aborted = true;
+          return undefined;
         }
-        // Phase 2: Migration 007 (which initDb just ran) writes
-        // app_meta.active_vault_id for any install that had ledger state.
-        // Prime the in-memory cache NOW so every subsequent query in this
-        // boot block (getLocalSelf, BackgroundCheckIn, home listAllPeople)
-        // can use the synchronous getActiveVaultIdSync() inside transactions
-        // without paying for a per-query app_meta lookup. Brand-new
-        // installs return null and reads gracefully no-op until onboarding
-        // mints a vault.
+      };
+
+      // 1. Mint / fetch install_id and prime its cache BEFORE migrations
+      //    run so migration 006 (synthetic backfill) can stamp it as the
+      //    hlc.did on every backfilled event.
+      const id = await step("install_id", async () => {
+        const v = await ensureInstallId();
+        setInstallIdCache(v);
+        return v;
+      });
+      if (aborted || !id) return;
+
+      // 2. Run all migrations inside per-migration transactions. We KEEP
+      //    the dedicated dbReady=false branch here because
+      //    DbInitFailedPrompt has copy specifically tuned to "schema is
+      //    in an unknown partial state". The user gets that screen on
+      //    init_db failure; every OTHER stage falls through to the
+      //    generic BootFailedPrompt with the captured stage tag.
+      let dbOk = false;
+      try {
+        await initDb({ installId: id });
+        dbOk = true;
+      } catch (err) {
+        // CRITICAL: do NOT flip dbReady=true. Migrations are append-only
+        // and atomic per-migration (each runs inside withTransactionAsync),
+        // so a throw here means at least one migration's schema changes
+        // rolled back. The vaults table (migration 007), event_log
+        // indexes (010), mesh credentials (011), etc. may all be absent.
+        // Rendering the Stack would let the user hit "no such table"
+        // errors anywhere — better to refuse to mount and prompt a
+        // restart than to pretend the app is healthy.
+        console.error("[init] initDb failed — refusing to render Stack", err);
+        setDbReady(false);
+        return; // skip rest of boot — every step below depends on the db.
+      }
+      if (!dbOk) return;
+      setDbReady(true);
+
+      // 3. Prime caches. Pulled into its own stage so a vault-cache
+      //    failure doesn't look like a migration failure to support.
+      await step("prime_caches", async () => {
+        // Phase 2: Migration 007 writes app_meta.active_vault_id for any
+        // install that had ledger state. Prime the in-memory cache NOW
+        // so every subsequent query can use getActiveVaultIdSync().
         await primeActiveVaultId();
-        // Prime the account_id cache so post-sign-in event appends stamp
-        // actor_account_id directly instead of relying on the account_bound
-        // retroactive re-stamping for events authored after sign-in. Reads
-        // app_meta.account_id, which postSignInHousekeeping writes after
-        // a successful Google sign-in. Returns null on a not-yet-signed-in
-        // install, which is the correct value to stamp on those events.
+        // Prime account_id cache so post-sign-in event appends stamp
+        // actor_account_id directly.
         await refreshAccountIdCache();
-        // Apply user prefs (language override, currency choice) before the
-        // first render so labels and amount currency codes are correct from
-        // frame zero. Both read app_meta; safe to await right after initDb()
-        // since the table is guaranteed.
+      });
+      if (aborted) return;
+
+      // 4. User prefs. Previously inside Promise.all WITHOUT a try-catch
+      //    — a flaky app_meta read here would crash the boot silently.
+      await step("user_prefs", async () => {
         await Promise.all([
           initLocaleFromPref(),
           initCurrencyFromPref(),
           initDefaultCountryFromPref(),
         ]);
-        // Google sign-in configuration is module-level state on the native
-        // module. Calling configure() once at app start sets the webClientId
-        // that will be used by every subsequent GoogleSignin.signIn() call.
-        // Safe to call repeatedly — it's idempotent.
+      });
+      if (aborted) return;
+
+      // 5. Google sign-in module configuration. Native-module-touching;
+      //    fenced so a future SDK rev that throws on missing webClientId
+      //    can't kill cold boot. configureGoogleSignIn() is idempotent
+      //    and synchronous — wrap it in a no-await promise so the step
+      //    helper's error capture applies.
+      await step("google_signin", async () => {
         configureGoogleSignIn();
-        // No I18nManager reconciliation here — direction is sandboxed via
-        // lib/direction.ts. The init load above sets currentLocale, which
-        // derives the internal direction flag synchronously.
-        const [self, step, accountIdRaw] = await Promise.all([
+      });
+      if (aborted) return;
+
+      // 6. Self / onboarding / account lookups.
+      await step("self_lookup", async () => {
+        const [self, oStep, accountIdRaw] = await Promise.all([
           getLocalSelf(),
           getAppMeta("onboarding_step"),
           getAppMeta("account_id"),
         ]);
-        // Prime the local-self identity cache that lib/event-log.ts reads
-        // synchronously on every entry write. install_id was already primed
-        // above before initDb so migration 006 had access to it.
+        // Prime the local-self identity cache that lib/event-log.ts
+        // reads synchronously on every entry write.
         setLocalSelfUserIdCache(self?.user_id ?? null);
         setInstallId(id);
         setHasOnboarded(Boolean(self));
         // Phase 3 restore gate. Only meaningful if accountIdRaw is set —
-        // restore_skipped_for_account_<id> is per-account so signing into
-        // a different Google account on the same device still triggers
-        // the restore prompt.
+        // restore_skipped_for_account_<id> is per-account so signing
+        // into a different Google account on the same device still
+        // triggers the restore prompt.
         setAccountId(accountIdRaw ?? null);
         if (accountIdRaw) {
           const skipped = await getAppMeta(`restore_skipped_for_account_${accountIdRaw}`);
           setRestoreSkipped(skipped === "1");
         }
-        // Validate the step value — only the four known states pass through.
-        if (step === "language" || step === "auth" || step === "profile" || step === "done") {
-          setOnboardingStep(step);
+        // Validate the step value — only the four known states pass
+        // through.
+        if (oStep === "language" || oStep === "auth" || oStep === "profile" || oStep === "done") {
+          setOnboardingStep(oStep);
         }
-        // Detect device locale for skip-language decision. Fresh installs
-        // get locale_pref=null at this point; this read is just the raw
-        // device value.
-        const deviceLang = await (async () => {
-          // expo-localization is already imported into lib/i18n via
-          // getLocales(); reuse that via a side-effect-free helper. We
-          // can read the same source from here without re-importing.
-          // Lazy require to keep the top of this file clean.
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const { getLocales } = require("expo-localization");
-          return (getLocales()[0]?.languageCode ?? "en").toLowerCase();
-        })();
+      });
+      if (aborted) return;
+
+      // 7. Device locale probe (skip-language decision). Lazy-require to
+      //    keep the top of the file clean.
+      await step("device_locale", async () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { getLocales } = require("expo-localization");
+        const deviceLang = (getLocales()[0]?.languageCode ?? "en").toLowerCase();
         setDeviceIsPersian(deviceLang === "fa" || deviceLang === "prs");
-        // Phase 5.1: ensure the persistent notification channel for Shop
-        // Mode foreground service exists. Idempotent — channelId is the
-        // key; no-ops on non-Android.
-        try {
-          await ensureShopModeChannel();
-        } catch (err) {
-          if (__DEV__) console.warn("[init] ensureShopModeChannel", err);
-        }
+      });
+      if (aborted) return;
+
+      // 8. Foreground-service channel. The bootstrap module already
+      //    creates it at module load (see foreground-bootstrap.ts) — this
+      //    call is idempotent + belt-and-suspenders. We treat it as
+      //    non-fatal so a transient miss here doesn't lock the user out
+      //    of the app entirely; the worst case is Shop Mode toggle
+      //    failing until the next launch.
+      try {
+        await ensureShopModeChannel();
       } catch (err) {
-        console.warn("[init] failed", err);
-      } finally {
-        setAppReady(true);
+        if (__DEV__) console.warn("[init] ensureShopModeChannel", err);
       }
+
+      // Everything that's supposed to run before the Stack mounts has
+      // completed successfully. Flip appReady. Note: NO outer try/finally
+      // wraps this body — appReady flips true ONLY on the success path.
+      setAppReady(true);
     })();
   }, []);
 
@@ -421,6 +442,11 @@ export default function RootLayout() {
   //   3. otherwise → render the full app.
   if (dbReady === false) {
     return <DbInitFailedPrompt />;
+  }
+  // D-BOOT-CRASH-DEFENSE: any captured fatal from a non-db stage. dbReady
+  // wins above so the existing DbInitFailedPrompt copy isn't shadowed.
+  if (bootError) {
+    return <BootFailedPrompt error={bootError} />;
   }
   if (!appReady || !fontsReady || dbReady !== true) {
     return <BootSplash />;
@@ -656,7 +682,7 @@ function MigrationPrompt() {
           <>
             <View style={migrationStyles.spacer} />
             <Pressable
-              onPress={() => BackHandler.exitApp()}
+              onPress={() => forceRestart()}
               style={({ pressed }) => [migrationStyles.button, pressed && { opacity: 0.85 }]}
             >
               <Text style={migrationStyles.buttonText}>Close kaata · بستن کاتا</Text>
@@ -679,14 +705,23 @@ function MigrationPrompt() {
 // ledger over a transient busy-timeout error. Reuses migrationStyles so
 // no new StyleSheet is needed. Bilingual copy hardcoded (same rationale
 // as MigrationPrompt: locale pref hasn't loaded because initDb failed).
+//
+// UX critique #5:
+//   - "Database" was jargon for an Afghan kiranchi — they have no mental
+//     model for it. Replaced with "your Kaata data" / "داده‌های کاتای شما"
+//     across both heading and body so the failure mode reads as
+//     "something with my data went wrong" rather than "the implementation
+//     thing failed".
+//   - Added a support contact line so a user staring at this screen has
+//     somewhere to actually share a screenshot of the issue.
 function DbInitFailedPrompt() {
   return (
     <View style={migrationStyles.container}>
       <View style={migrationStyles.card}>
         <Text style={migrationStyles.wordmark}>kaata.</Text>
         <View style={migrationStyles.spacer} />
-        <Text style={migrationStyles.heading}>Couldn&apos;t open the database</Text>
-        <Text style={migrationStyles.headingFa}>پایگاه داده باز نشد</Text>
+        <Text style={migrationStyles.heading}>Couldn&apos;t open your Kaata data</Text>
+        <Text style={migrationStyles.headingFa}>داده‌های کاتای شما باز نشد</Text>
         <View style={migrationStyles.spacer} />
         <Text style={migrationStyles.body}>
           {Platform.OS === "android"
@@ -699,11 +734,18 @@ function DbInitFailedPrompt() {
             ? "لطفاً کاتا را از برنامه‌های اخیر ببندید و دوباره باز کنید."
             : "لطفاً کاتا را به‌طور کامل ببندید (از پایین صفحه به بالا بکشید و آن را کنار بزنید) و دوباره باز کنید."}
         </Text>
+        <View style={migrationStyles.spacer} />
+        <Text style={bootErrorStyles.support}>
+          If it keeps happening, contact {SUPPORT_CONTACT}
+        </Text>
+        <Text style={bootErrorStyles.supportFa}>
+          اگر تکرار شد، با {SUPPORT_CONTACT} تماس بگیرید
+        </Text>
         {Platform.OS === "android" ? (
           <>
             <View style={migrationStyles.spacer} />
             <Pressable
-              onPress={() => BackHandler.exitApp()}
+              onPress={() => forceRestart()}
               style={({ pressed }) => [migrationStyles.button, pressed && { opacity: 0.85 }]}
             >
               <Text style={migrationStyles.buttonText}>Close kaata · بستن کاتا</Text>
@@ -714,6 +756,127 @@ function DbInitFailedPrompt() {
     </View>
   );
 }
+
+// D-BOOT-CRASH-DEFENSE: rendered when any non-initDb boot stage throws.
+// Shows the stage + error name + first 240 chars of message so a user can
+// screenshot it for support. Does NOT include stack frames — those can
+// surface bundler-mangled paths or query strings. The primary action is
+// forceRestart() (true process restart via react-native-restart with a
+// BackHandler.exitApp() fallback); both outcomes get the user to the only
+// recovery path (cold reopen).
+//
+// Reuses migrationStyles to avoid a new StyleSheet.create call. The
+// "diagnostic" block uses JetBrainsMono for support to read the values
+// cleanly.
+//
+// UX critique #5 updates:
+//   - Diagnostic intro line is bilingual now (the EN-only label
+//     "If you contact support, share this:" was opaque to Persian users).
+//   - CTA label softened: "Force quit & restart" became "Close & restart"
+//     in EN; the FA "بستن و راه‌اندازی" already reads that way. If
+//     react-native-restart is missing in prod the fallback only closes
+//     the process — the user still has to re-open — so the label is at
+//     worst slightly aspirational, not a lie.
+//   - Added support contact line so a user with a screenshot has
+//     somewhere to send it.
+function BootFailedPrompt({ error }: { error: BootError }) {
+  return (
+    <View style={migrationStyles.container}>
+      <View style={migrationStyles.card}>
+        <Text style={migrationStyles.wordmark}>kaata.</Text>
+        <View style={migrationStyles.spacer} />
+        <Text style={migrationStyles.heading}>Couldn&apos;t start</Text>
+        <Text style={migrationStyles.headingFa}>کاتا شروع نشد</Text>
+        <View style={migrationStyles.spacer} />
+        <Text style={migrationStyles.body}>
+          {Platform.OS === "android"
+            ? "Tap the button to restart kaata. If that doesn't work, close it from your recent apps and open it again."
+            : "Please force-quit kaata (swipe up from the bottom and flick it away) and open it again."}
+        </Text>
+        <View style={migrationStyles.spacerSmall} />
+        <Text style={migrationStyles.bodyFa}>
+          {Platform.OS === "android"
+            ? "روی دکمه بزنید تا کاتا دوباره راه‌اندازی شود. اگر کار نکرد، آن را از برنامه‌های اخیر ببندید و دوباره باز کنید."
+            : "لطفاً کاتا را به‌طور کامل ببندید و دوباره باز کنید."}
+        </Text>
+        <View style={migrationStyles.spacer} />
+        {/* Diagnostic block — stage + name + first 240 chars of message.
+            Surfaces enough info for support without leaking a stack.
+            Bilingual intro so Persian-only users know to screenshot it. */}
+        <Text style={bootErrorStyles.diagLabel}>If you contact support, share this:</Text>
+        <Text style={bootErrorStyles.diagLabelFa}>
+          اگر با پشتیبانی تماس می‌گیرید، این را بفرستید:
+        </Text>
+        <View style={bootErrorStyles.diagBox}>
+          <Text style={bootErrorStyles.diagLine}>stage: {error.stage}</Text>
+          <Text style={bootErrorStyles.diagLine}>error: {error.name}</Text>
+          {error.message ? (
+            <Text style={bootErrorStyles.diagLine} numberOfLines={6}>
+              {error.message}
+            </Text>
+          ) : null}
+        </View>
+        <View style={migrationStyles.spacerSmall} />
+        <Text style={bootErrorStyles.support}>Send to {SUPPORT_CONTACT}</Text>
+        <Text style={bootErrorStyles.supportFa}>به {SUPPORT_CONTACT} ارسال کنید</Text>
+        <View style={migrationStyles.spacer} />
+        <Pressable
+          onPress={() => forceRestart()}
+          style={({ pressed }) => [migrationStyles.button, pressed && { opacity: 0.85 }]}
+        >
+          <Text style={migrationStyles.buttonText}>
+            {Platform.OS === "android"
+              ? "Close & restart · بستن و راه‌اندازی"
+              : "Force quit · بستن کاتا"}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+const bootErrorStyles = StyleSheet.create({
+  diagLabel: {
+    fontSize: 12,
+    color: colors.textDefault,
+    opacity: 0.7,
+    textAlign: "center",
+    marginBottom: 2,
+  },
+  diagLabelFa: {
+    fontSize: 12,
+    color: colors.textDefault,
+    opacity: 0.7,
+    textAlign: "center",
+    marginBottom: 6,
+  },
+  diagBox: {
+    width: "100%",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: colors.bgSubtle,
+  },
+  diagLine: {
+    fontFamily: "JetBrainsMono_400Regular",
+    fontSize: 11,
+    color: colors.textDefault,
+    lineHeight: 16,
+  },
+  support: {
+    fontSize: 12,
+    color: colors.textDefault,
+    opacity: 0.8,
+    textAlign: "center",
+  },
+  supportFa: {
+    fontSize: 12,
+    color: colors.textDefault,
+    opacity: 0.8,
+    textAlign: "center",
+    marginTop: 2,
+  },
+});
 
 const migrationStyles = StyleSheet.create({
   container: {
@@ -829,8 +992,17 @@ function BackgroundCheckIn({ installId }: { installId: string }) {
         // happened between readPendingUsage() and now ride the next check-in.
         await decrementPendingUsage(usage);
         if (!cancelled) await applyCheckIn(resp);
-      } catch {
+      } catch (err) {
         // Backend unreachable or slow — ignore, the app must work offline.
+        // Engineering critique: in production we genuinely don't care
+        // (the check-in is best-effort telemetry), but in development a
+        // silently-swallowed error here can mask a real bug — e.g. a
+        // bad EXPO_PUBLIC_BACKEND_URL or a deserialization mismatch on
+        // the response. Log only when __DEV__ so production stays quiet.
+        if (__DEV__) {
+          // eslint-disable-next-line no-console
+          console.warn("[BackgroundCheckIn] check-in failed", err);
+        }
       }
     })();
     return () => {

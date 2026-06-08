@@ -37,7 +37,7 @@ import {
   SectionGap,
   SectionHeader,
 } from "../../components/SettingsScreen";
-import { useToast } from "../../components/Toast";
+import { queuePendingToast, useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { getActiveVaultId, getDb } from "../../lib/db-tx";
 import { getAppMeta } from "../../lib/db";
@@ -47,6 +47,7 @@ import { t } from "../../lib/i18n";
 import { useVaultRole } from "../../lib/use-vault-role";
 import { fetchPendingInvitations } from "../../lib/vault-api";
 import { appendVaultMemberRemoved, appendVaultMemberRoleChanged } from "../../lib/event-log";
+import { transferVaultOwnership } from "../../lib/vault-router";
 import type { VaultRole } from "../../lib/events";
 
 type MemberRow = {
@@ -224,25 +225,66 @@ export default function VaultMembersScreen() {
     }
   }
 
-  // Transfer = atomic "promote target, demote self". applyVaultMemberRoleChanged
-  // is LWW per-account, so the within-tick ordering doesn't matter; peers
-  // see both events together.
+  // Transfer = "promote target, then demote self" emitted as two
+  // sequential events via vault-router. Local-CA vaults stamp two
+  // vault_member_role_changed events; server-anchored vaults hit
+  // POST /transfer-ownership. The router enforces self-target /
+  // not-member / no-account guards AND handles partial-failure recovery
+  // (engineering critique 1.e), returning a typed error union we map to
+  // specific toasts.
   async function onTransfer() {
-    if (!transferTarget || !accountId) return;
+    if (!transferTarget) return;
     const target = transferTarget;
     setTransferTarget(null);
+    const displayName =
+      target.display_name ?? target.email ?? t("members.confirm.transfer.fallback");
     try {
-      await appendVaultMemberRoleChanged({
-        targetVaultId: vaultId,
-        accountId: target.account_id,
-        role: "owner",
-      });
-      await appendVaultMemberRoleChanged({
-        targetVaultId: vaultId,
-        accountId,
-        role: "editor",
-      });
-      toast.push(t("members.toast.transferred"), "success");
+      const res = await transferVaultOwnership(vaultId, target.account_id, accountId);
+      if (!res.ok) {
+        console.warn("[vault/members] transfer rejected:", res.error.kind);
+        // UX critique #2 / #6: map error kinds to specific toasts.
+        //   - not_member         → "{name} is no longer a member" (the
+        //                          target was removed concurrently via
+        //                          mesh propagation between sheet-open
+        //                          and tap).
+        //   - partial_recovered  → first event committed, second failed,
+        //                          we rolled the first back. Vault is in
+        //                          its starting state; surface a specific
+        //                          message so the user knows nothing
+        //                          half-landed.
+        //   - partial_unrecovered → both the second event AND the
+        //                          rollback failed. Vault has two owners
+        //                          until the user resolves it manually.
+        //                          Stay on screen so /members can be
+        //                          re-loaded with the new state.
+        //   - self_target / no_account / noop_demotion → caller bugs the
+        //                          sheet's guards already prevent. Fall
+        //                          through to generic transferFailed.
+        if (res.error.kind === "not_member") {
+          toast.push(t("members.toast.transferNotMember", { name: displayName }), "error");
+          await loadAll();
+          return;
+        }
+        if (res.error.kind === "partial_recovered") {
+          toast.push(t("members.toast.transferPartialRecovered"), "error");
+          await loadAll();
+          return;
+        }
+        if (res.error.kind === "partial_unrecovered") {
+          toast.push(t("members.toast.transferPartialUnrecovered"), "error");
+          await loadAll();
+          return; // intentionally do NOT router.back — user must resolve
+        }
+        toast.push(t("members.toast.transferFailed"), "error");
+        return;
+      }
+      // UX critique #2: name the recipient in the toast AND post via
+      // queuePendingToast so the ToastProvider drain on the parent screen
+      // surfaces it after router.back() unmounts this screen. push()ing
+      // first then back()ing in the same tick can race the unmount on
+      // some Android frame schedules; queuePendingToast is the documented
+      // pattern (see vault-settings' archive flow).
+      queuePendingToast(t("members.toast.transferred", { name: displayName }), "success");
       await loadAll();
       router.back();
     } catch (err) {
@@ -396,7 +438,16 @@ export default function VaultMembersScreen() {
       />
       <ConfirmDialog
         visible={transferTarget !== null}
-        title={t("members.confirm.transfer.title")}
+        title={
+          transferTarget
+            ? t("members.confirm.transfer.title", {
+                name:
+                  transferTarget.display_name ??
+                  transferTarget.email ??
+                  t("members.confirm.transfer.fallback"),
+              })
+            : ""
+        }
         description={
           transferTarget
             ? t("members.confirm.transfer.body", {
@@ -407,7 +458,20 @@ export default function VaultMembersScreen() {
               })
             : ""
         }
-        confirmLabel={t("members.confirm.transfer.cta")}
+        // UX critique #1: ownership transfer is irreversible from the
+        // demoted side — only the new owner can transfer it back. Mark
+        // destructive so the CTA gets the same visual weight as Remove.
+        confirmLabel={
+          transferTarget
+            ? t("members.confirm.transfer.cta", {
+                name:
+                  transferTarget.display_name ??
+                  transferTarget.email ??
+                  t("members.confirm.transfer.fallback"),
+              })
+            : t("members.confirm.transfer.cta.fallback")
+        }
+        destructive
         onConfirm={onTransfer}
         onCancel={() => setTransferTarget(null)}
       />

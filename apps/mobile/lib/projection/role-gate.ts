@@ -106,7 +106,17 @@ const ROLE_CACHE_MAX = 1024;
 const roleCache = new Map<string, VaultRole | null>();
 
 function cacheKey(vaultId: string, accountId: string, hlc: HLC): string {
-  return `${vaultId} ${accountId} ${hlc.pms}-${hlc.l}-${hlc.did}`;
+  // Engineering critique: separator must be a character that cannot
+  // appear in vault_id / account_id / device_id. We previously used a
+  // space — vault_id is opaque but no spec forbids a space — so two
+  // distinct (vault_id, account_id) pairs could theoretically collide
+  // (e.g. vault_id="foo " + account_id="bar" vs vault_id="foo" +
+  // account_id=" bar"). The HLC tail (pms-l-did) is fine because pms is
+  // a number and `-` is a fixed separator inside it, but the leading
+  // ids need a separator no row can produce. NUL ("\0") is illegal in
+  // every reasonable id format (it terminates C strings, breaks SQLite
+  // text, etc.) and is what the comment block above promised.
+  return `${vaultId}\0${accountId}\0${hlc.pms}-${hlc.l}-${hlc.did}`;
 }
 
 function cacheGet(key: string): VaultRole | null | undefined {

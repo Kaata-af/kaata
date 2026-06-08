@@ -647,8 +647,20 @@ const en = {
   "members.toast.roleFailed": "Failed to change role",
   "members.toast.removed": "Member removed",
   "members.toast.removeFailed": "Failed to remove member",
-  "members.toast.transferred": "Ownership transferred",
+  // UX critique #2: name the recipient in the success toast — it's both
+  // a confirmation-of-correctness signal and feels far less terse than
+  // the plain "Ownership transferred" the older copy used.
+  "members.toast.transferred": "Ownership transferred to {name}",
   "members.toast.transferFailed": "Failed to transfer",
+  // UX critique #6: specific error toasts for the three diagnosable
+  // failure modes the router can surface. Each one names the situation
+  // so the user understands what to do next.
+  "members.toast.transferNotMember":
+    "{name} is no longer a member of this Kaata. The list has been refreshed.",
+  "members.toast.transferPartialRecovered":
+    "Transfer didn't complete. Nothing changed — please try again.",
+  "members.toast.transferPartialUnrecovered":
+    "Transfer partially landed: there are two owners. Open the menu on one of them to fix this.",
   "members.sheet.title": "Manage {name}",
   "members.sheet.makeEditor": "Make editor",
   "members.sheet.makeViewer": "Make viewer",
@@ -658,10 +670,19 @@ const en = {
   "members.confirm.remove.body":
     "They will lose access to this vault immediately. Their past contributions stay in the ledger and audit log.",
   "members.confirm.remove.cta": "Remove",
-  "members.confirm.transfer.title": "Transfer ownership?",
-  "members.confirm.transfer.body": "Make {name} the new owner. You will become an editor.",
+  // UX critique #1: confirm dialog spells out the irreversible
+  // consequences ("only they can transfer back", "they control members
+  // and settings") and the CTA is a named action ("Make {name} owner")
+  // rather than a generic verb. Title also names the recipient so the
+  // user can catch the wrong-pick mistake before tapping confirm.
+  "members.confirm.transfer.title": "Make {name} the owner?",
+  "members.confirm.transfer.body":
+    "You'll be demoted to editor. Only {name} will be able to add or remove members, change settings, or transfer ownership back to you. They'll see this the next time their phone syncs.",
   "members.confirm.transfer.fallback": "this member",
-  "members.confirm.transfer.cta": "Transfer",
+  "members.confirm.transfer.cta": "Make {name} owner",
+  // Fallback CTA used only when the dialog is mid-dismiss and the target
+  // ref was just cleared. UI never normally renders this string.
+  "members.confirm.transfer.cta.fallback": "Make owner",
 
   // Vault invite — Phase 7 UX critique #8 (translated).
   "invite.title": "Invite member",
@@ -1291,8 +1312,13 @@ const fa: Partial<Record<Key, string>> = {
   "members.toast.roleFailed": "تغییر نقش ناکام شد",
   "members.toast.removed": "عضو حذف شد",
   "members.toast.removeFailed": "حذف عضو ناکام شد",
-  "members.toast.transferred": "مالکیت منتقل شد",
+  "members.toast.transferred": "مالکیت به {name} منتقل شد",
   "members.toast.transferFailed": "انتقال ناکام شد",
+  "members.toast.transferNotMember": "{name} دیگر عضو این کاتا نیست. لیست تازه‌سازی شد.",
+  "members.toast.transferPartialRecovered":
+    "انتقال کامل نشد. هیچ تغییری اعمال نشد — لطفاً دوباره تلاش کنید.",
+  "members.toast.transferPartialUnrecovered":
+    "انتقال نیمه‌انجام شد: اکنون دو مالک وجود دارد. روی یکی از آن‌ها ضربه بزنید تا اصلاح شود.",
   "members.sheet.title": "مدیریت {name}",
   "members.sheet.makeEditor": "ویرایشگر کردن",
   "members.sheet.makeViewer": "بیننده کردن",
@@ -1302,11 +1328,12 @@ const fa: Partial<Record<Key, string>> = {
   "members.confirm.remove.body":
     "دسترسی او به این کاتا فوراً قطع می‌شود. سهم‌های گذشته در دفتر و گزارش فعالیت می‌ماند.",
   "members.confirm.remove.cta": "حذف",
-  "members.confirm.transfer.title": "مالکیت منتقل شود؟",
+  "members.confirm.transfer.title": "{name} مالک شود؟",
   "members.confirm.transfer.body":
-    "{name} به مالک جدید تبدیل می‌شود. شما به ویرایشگر تبدیل می‌شوید.",
+    "شما به ویرایشگر تبدیل می‌شوید. فقط {name} می‌تواند اعضا را اضافه یا حذف کند، تنظیمات را تغییر دهد یا مالکیت را به شما بازگرداند. ایشان در همگام‌سازی بعدی این تغییر را خواهد دید.",
   "members.confirm.transfer.fallback": "این عضو",
-  "members.confirm.transfer.cta": "انتقال",
+  "members.confirm.transfer.cta": "{name} مالک شود",
+  "members.confirm.transfer.cta.fallback": "مالک شود",
 
   // Invite — Persian
   "invite.title": "دعوت عضو",

@@ -66,9 +66,19 @@ export const fonts = {
 } as const;
 
 export function useAppFonts(): boolean {
+  // Tuple is [loaded, error]; callers that only need `loaded` keep the
+  // existing boolean signature.
+  const [loaded] = useAppFontsWithError();
+  return loaded;
+}
+
+// D-BOOT-CRASH-DEFENSE: variant that exposes the underlying load error so
+// the boot path can show a recovery screen instead of an infinite spinner
+// when the font CDN is unreachable on a fresh install.
+export function useAppFontsWithError(): readonly [boolean, Error | null] {
   // Load every font we might need so the bundle is self-contained. Inter
   // is kept loaded for the en* keys above; bundle size cost is tiny.
-  const [loaded] = useInter({
+  const [loaded, error] = useInter({
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
@@ -82,5 +92,5 @@ export function useAppFonts(): boolean {
     Vazirmatn_600SemiBold,
     Vazirmatn_700Bold,
   });
-  return loaded;
+  return [loaded, error ?? null] as const;
 }

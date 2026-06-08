@@ -3,7 +3,8 @@
     "name": "Kaata",
     "slug": "kaata",
     "scheme": "kaata",
-    "version": "0.5.0",
+    "version": "0.5.1",
+    "newArchEnabled": false,
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -77,7 +78,8 @@
       [
         "expo-notifications",
         {
-          "color": "#000000"
+          "color": "#000000",
+          "icon": "./assets/icon.png"
         }
       ],
       [
