@@ -283,9 +283,21 @@ export function MeshController() {
     }
   });
 
-  // Start / stop mesh in response to (account_id, shop_mode_enabled).
+  // Start / stop mesh in response to shop_mode_enabled.
+  //
+  // PHASE 7 NOTE: this used to gate on !!accountId so mesh stayed off in
+  // local-only mode. Phase 7's local-CA design (vault owner's device key as
+  // the trust anchor) explicitly removed that requirement — a shopkeeper
+  // with no Google account must still be able to mesh with staff phones.
+  // Keeping the old gate meant local-only users toggling Nearby sync
+  // bypassed THIS effect entirely (which holds the BLE permission
+  // rationale + request flow) and the home screen's direct
+  // mesh.startShopMode() call hit BLUETOOTH_ADVERTISE SecurityException at
+  // the advertise call → process killed. The accountId is still surfaced
+  // (it influences the cloud-sync paths) but no longer gates mesh.
   useEffect(() => {
-    const wantOn = !!accountId && shopModeEnabled;
+    void accountId; // referenced so the linter doesn't complain about it being unused
+    const wantOn = shopModeEnabled;
     console.log(
       "[mesh.toggle] effect fired wantOn=",
       wantOn,

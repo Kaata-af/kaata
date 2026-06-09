@@ -26,6 +26,9 @@ import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { decodePairQr, type PairQrPayload, type PairQrRole } from "../../lib/mesh/pair-qr";
 import { verifyAndCacheVMC } from "../../lib/mesh/vmc";
+import { getDevicePubkey } from "../../lib/mesh/device-key";
+import { buildLocalAccountId } from "../../lib/mesh/local-vmc";
+import { getInstallIdSync } from "../../lib/db-tx";
 import { issueVaultCredential } from "../../lib/vault-api";
 
 /**
@@ -138,14 +141,25 @@ export default function VaultPairScanScreen() {
       // Local vault row. The server's /v1/sync/pull will reconcile the
       // canonical fields when signed in; for local-only vaults this is
       // the canonical row.
+      // Compute the role + the joining device's effective account_id.
+      // For local-CA when not signed in, synthesize a stable local ID
+      // from the device pubkey, matching the convention local-vmc.ts uses.
+      const offered = deriveOfferedRole(payload);
+      const devicePubkeyB64 = getDevicePubkey();
+      const effectiveAccountId =
+        ourAccountId ??
+        (devicePubkeyB64
+          ? buildLocalAccountId(devicePubkeyB64)
+          : `local:${getInstallIdSync().slice(0, 16)}`);
+
       const db = await getDb();
       await db.withTransactionAsync(async () => {
         const existing = await db.getFirstAsync<{ id: string }>(
           `SELECT id FROM vaults WHERE id = ? LIMIT 1`,
           payload.vault_id,
         );
+        const now = Date.now();
         if (!existing) {
-          const now = Date.now();
           await db.runAsync(
             `INSERT INTO vaults (
                id, name, currency, created_at, updated_at,
@@ -177,6 +191,36 @@ export default function VaultPairScanScreen() {
             payload.vault_id,
           );
         }
+
+        // Create the local shop_profile so the home header (which reads
+        // getLocalSelf → shop_profile.shop_name) shows the kaata name
+        // instead of falling back to the user's display name. Without
+        // this, joining a kaata silently leaves shop_profile empty and
+        // the header looks broken.
+        await db.runAsync(
+          `INSERT OR IGNORE INTO shop_profile
+             (vault_id, owner_name, shop_name, created_at, updated_at)
+           VALUES (?, NULL, ?, ?, ?)`,
+          payload.vault_id,
+          payload.vault_name,
+          now,
+          now,
+        );
+
+        // Create the vault_members_mirror row for self so the Members
+        // tab and useVaultRole hook recognize this device as a member.
+        // Without this the joined device sees an empty members list and
+        // role gates falsely deny actions. INSERT OR REPLACE so re-joining
+        // (e.g. after a re-pair) refreshes the role/accepted_at cleanly.
+        await db.runAsync(
+          `INSERT OR REPLACE INTO vault_members_mirror
+             (vault_id, account_id, role, accepted_at, revoked_at)
+           VALUES (?, ?, ?, ?, NULL)`,
+          payload.vault_id,
+          effectiveAccountId,
+          offered.role,
+          now,
+        );
       });
 
       if (isLocalCA) {

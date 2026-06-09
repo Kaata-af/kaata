@@ -768,6 +768,24 @@ export default function HomeScreen() {
           try {
             const mesh = await import("../lib/mesh");
             if (next) {
+              // BLE runtime perms must be granted BEFORE calling
+              // startShopMode — otherwise startBLEPeripheralMode hits a
+              // SecurityException for BLUETOOTH_ADVERTISE and the OS
+              // kills the process. The MeshController owns the rationale
+              // dialog flow, but for the home-screen-direct toggle we
+              // skip the rationale and request immediately. If the user
+              // denies, we throw and the catch below reverts the toggle
+              // with an honest toast.
+              if (Platform.OS === "android") {
+                const perms = await import("../lib/mesh/ble-permissions");
+                const has = await perms.hasBlePermissions();
+                if (!has) {
+                  const res = await perms.requestBlePermissions();
+                  if (res.kind !== "ok") {
+                    throw new Error("BLE permission required for Nearby sync");
+                  }
+                }
+              }
               await mesh.startShopMode();
               // UX critique #13: the 12-hour auto-off is documented in
               // the hint copy but easy to miss. Confirm it explicitly on
