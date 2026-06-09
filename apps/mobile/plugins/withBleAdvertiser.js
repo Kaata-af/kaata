@@ -131,7 +131,10 @@ function patchBleAdvertiserNativeForAgp8(config) {
         "android",
       );
 
-      // 1. build.gradle — inject namespace into android { … } block.
+      // 1. build.gradle — inject namespace into android { … } block AND bump
+      //    compileSdkVersion / targetSdkVersion to 36. The library hardcodes 28
+      //    which AGP 8 + JDK 17 rejects with "compileSdkVersion must be >= 30 to
+      //    compile Java 9+ source". 36 matches the Expo SDK 54 root project.
       const gradlePath = path.join(libRoot, "build.gradle");
       try {
         if (fs.existsSync(gradlePath)) {
@@ -141,8 +144,10 @@ function patchBleAdvertiserNativeForAgp8(config) {
               /android\s*\{/,
               "android {\n    namespace 'com.vitorpamplona.bleadvertiser'",
             );
-            fs.writeFileSync(gradlePath, gradle, "utf8");
           }
+          gradle = gradle.replace(/compileSdkVersion\s+\d+/g, "compileSdkVersion 36");
+          gradle = gradle.replace(/targetSdkVersion\s+\d+/g, "targetSdkVersion 36");
+          fs.writeFileSync(gradlePath, gradle, "utf8");
         }
       } catch (err) {
         console.warn(
@@ -166,6 +171,45 @@ function patchBleAdvertiserNativeForAgp8(config) {
       } catch (err) {
         console.warn(
           "[withBleAdvertiser] failed to strip legacy package= from library manifest:",
+          err?.message,
+        );
+      }
+
+      // 3. Java sources — the upstream library has a typo in its `package`
+      //    declaration: the directory is `com/vitorpamplona/bleadvertiser/`
+      //    but the .java files say `package com.vitorpamplona.bleavertiser;`
+      //    (missing the `d`). Autolinking generates PackageList.java that
+      //    imports from the directory path (correct spelling), so the build
+      //    fails with "cannot find symbol BLEAdvertiserPackage". Rewrite the
+      //    package declaration in every .java file under the bleadvertiser
+      //    directory to match the directory + namespace.
+      const javaDir = path.join(
+        libRoot,
+        "src",
+        "main",
+        "java",
+        "com",
+        "vitorpamplona",
+        "bleadvertiser",
+      );
+      try {
+        if (fs.existsSync(javaDir)) {
+          for (const file of fs.readdirSync(javaDir)) {
+            if (!file.endsWith(".java")) continue;
+            const javaPath = path.join(javaDir, file);
+            let src = fs.readFileSync(javaPath, "utf8");
+            const fixed = src.replace(
+              /package\s+com\.vitorpamplona\.bleavertiser\s*;/g,
+              "package com.vitorpamplona.bleadvertiser;",
+            );
+            if (fixed !== src) {
+              fs.writeFileSync(javaPath, fixed, "utf8");
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(
+          "[withBleAdvertiser] failed to fix package typo in Java sources:",
           err?.message,
         );
       }

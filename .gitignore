@@ -1,6 +1,12 @@
 # dependencies
 node_modules/
 
+# Bun lockfile — apps/mobile is npm-only (CLAUDE.md), but bun occasionally
+# leaks a bun.lock in here from editor extensions or accidental runs. Keep
+# package-lock.json canonical; ignore the bun one so it can't get committed
+# and so EAS doesn't pick bun as the package manager.
+apps/mobile/bun.lock
+
 # Expo / React Native
 .expo/
 .expo-shared/
