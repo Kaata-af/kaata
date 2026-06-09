@@ -593,14 +593,25 @@ export async function startShopMode(): Promise<void> {
  * Turn shop mode off. Idempotent.
  */
 export async function stopShopMode(): Promise<void> {
+  // Capture whether we were actually running BEFORE we flip state.running.
+  // If we were never running (process startup with shop_mode_enabled='0',
+  // which is the common case), skip the foreground-service teardown
+  // entirely. Calling notifee.stopForegroundService() when no FGS is
+  // active triggers a notifee HeadlessJS task spawn that crashes the
+  // app on Xiaomi/MIUI — see the comment block in foreground-bootstrap.ts
+  // for the full mechanism. The teardown only runs when there's actually
+  // something to tear down.
+  const wasRunning = state.running;
   state.generation++;
   state.running = false;
   emitStatusChange();
-  try {
-    const fg = await import("./foreground");
-    await fg.stopShopModeForegroundService();
-  } catch (err) {
-    if (__DEV__) console.warn("[mesh] foreground service stop failed", err);
+  if (wasRunning) {
+    try {
+      const fg = await import("./foreground");
+      await fg.stopShopModeForegroundService();
+    } catch (err) {
+      if (__DEV__) console.warn("[mesh] foreground service stop failed", err);
+    }
   }
   if (state.peripheralStop) {
     try {

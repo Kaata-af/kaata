@@ -33,6 +33,8 @@ import {
   type PairQrPayload,
   type PairQrRole,
 } from "../../lib/mesh/pair-qr";
+import { getDevicePubkey } from "../../lib/mesh/device-key";
+import { buildLocalAccountId } from "../../lib/mesh/local-vmc";
 import { registerVaultPairToken } from "../../lib/vault-api";
 
 type VaultLite = {
@@ -69,11 +71,22 @@ export default function VaultPairScreen() {
         const token = await generateShopModeToken();
         const now = Date.now();
         const expires = now + PAIR_QR_TTL_MS;
+        // In local-only mode (no Google sign-in — the offline-shopkeeper
+        // path that local-CA was built for) accId is null, but the QR
+        // schema requires a non-empty issuer_account_id. Synthesize a
+        // stable local ID from the device pubkey, matching the convention
+        // used by local-vmc.ts and the rest of the local-CA flow.
+        // Without this, the scanner rejects the QR as "malformed" and the
+        // shopkeeper can never add staff offline.
+        const devicePubkey = getDevicePubkey();
+        const localIssuerId = devicePubkey
+          ? buildLocalAccountId(devicePubkey)
+          : `local:${getInstallIdSync().slice(0, 16)}`;
         const next: PairQrPayload = {
           v: PAIR_QR_VERSION,
           vault_id: v.id,
           vault_name: v.name,
-          issuer_account_id: accId ?? "",
+          issuer_account_id: accId ?? localIssuerId,
           issuer_install_id: getInstallIdSync(),
           issued_at_ms: now,
           expires_at_ms: expires,

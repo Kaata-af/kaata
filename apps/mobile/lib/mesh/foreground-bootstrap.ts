@@ -120,29 +120,28 @@ if (Platform.OS === "android") {
       // getInitialShopModeNotification inside _layout.tsx.
     });
 
-    // ─────────────────────────────────────────────────────────────────
-    // 4. Defensive cleanup of any zombie FGS state from a prior session.
+    // !!! DO NOT call notifee.stopForegroundService() defensively here. !!!
     //
-    // Scenario: v0.5.1 had Shop Mode on when the OS killed the app.
-    // Android may carry a "this service should be running" intent across
-    // app updates. On the first launch of v0.5.2, that pending intent
-    // could spawn the FGS BEFORE the user actually toggles Shop Mode on
-    // this session — leading to a confusing "Nearby sync notification
-    // appeared without me asking" state, or a crash if anything in the
-    // FGS startup path mismatches v0.5.2's expectations.
+    // It looks tempting as belt-and-suspenders cleanup of zombie FGS state,
+    // but it ACTIVELY CRASHES the app on Xiaomi/MIUI (confirmed via logcat
+    // on a 10T running MIUI 14). The mechanism:
+    //   1. stopForegroundService() dispatches a notifee HeadlessJS task
+    //      via Context.startService(intent) to run the teardown callback.
+    //   2. On Android 12+ Xiaomi treats that startService call as if it
+    //      were a foreground-service start (presumably because
+    //      app.notifee.core.ForegroundService is declared as one in the
+    //      manifest, and MIUI's HardenedAccessControl can't distinguish
+    //      a headless cleanup invocation from a real FGS start).
+    //   3. The headless task has no notification to display, so it never
+    //      calls Service.startForeground(notification).
+    //   4. After 5s, the OS fires ForegroundServiceDidNotStartInTimeException
+    //      and force-kills the process. "Send feedback" dialog appears.
     //
-    // Calling stopForegroundService() at boot is a no-op when nothing is
-    // running, and a clean teardown when there IS a zombie. MeshController
-    // is the only legitimate path that re-starts the FGS, and it only
-    // does so when shop_mode_enabled flips to '1' via the user toggle.
-    //
-    // Wrapped in try/catch because some notifee versions throw if no FGS
-    // is currently active (the "graceful no-op" behaviour isn't
-    // contractually guaranteed).
-    // ─────────────────────────────────────────────────────────────────
-    notifee.default.stopForegroundService().catch(() => {
-      // No FGS to stop — that's the happy path, ignore.
-    });
+    // The correct teardown path is MeshController calling
+    // stopForegroundService() ONLY when it knows the FGS is currently
+    // running (i.e. when shop_mode_enabled flips from '1' to '0').
+    // Manifest-level android:stopWithTask="true" + that gated teardown
+    // covers every realistic zombie scenario without the headless trap.
   } catch (err) {
     // notifee not bundled (Expo Go) — degrade gracefully. Shop mode
     // still "works" but Doze will kill BLE within minutes of
