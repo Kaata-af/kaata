@@ -78,6 +78,18 @@ export function MeshController() {
   const toastRef = useRef(toast);
   toastRef.current = toast;
 
+  // Phase 9 D-FALLBACK-UX: debounce / coalesce state for the failure
+  // bridge. peripheralUnsupported is a once-per-session latch;
+  // adapterOff clears when adapter_on fires; peer failures get
+  // 30s + 3-per-15-min coalescing so a noisy environment doesn't
+  // produce a toast storm.
+  const peripheralUnsupportedShownRef = useRef(false);
+  const adapterOffShownRef = useRef(false);
+  const peerFailureWindowRef = useRef<{ timestamps: number[]; lastToastAt: number }>({
+    timestamps: [],
+    lastToastAt: 0,
+  });
+
   // Wire mesh-side bridges to UI surfaces on mount. Only ONE
   // MeshController is rendered per app lifetime (mounted in _layout),
   // so this is safe to do at mount without race-against-unmount.
@@ -91,6 +103,58 @@ export function MeshController() {
       wifi.setWifiUpgradeToastBridge((msg, kind) => {
         toastRef.current.push(msg, kind);
       });
+
+      // Phase 9 D-FALLBACK-UX: failure bridge from the mesh layer.
+      // Switch on the discriminator and pick the right (debounced) toast.
+      mesh.setMeshFailureBridge((event) => {
+        switch (event.kind) {
+          case "peripheral_unsupported": {
+            if (peripheralUnsupportedShownRef.current) return;
+            peripheralUnsupportedShownRef.current = true;
+            // Stays running (central-only). DO NOT revert the toggle.
+            toastRef.current.push(t("menu.ble.peripheralUnsupported"), "info");
+            return;
+          }
+          case "adapter_off": {
+            if (adapterOffShownRef.current) return;
+            adapterOffShownRef.current = true;
+            toastRef.current.push(t("menu.ble.adapterOff"), "info");
+            return;
+          }
+          case "adapter_on": {
+            adapterOffShownRef.current = false;
+            return;
+          }
+          case "peer_handshake_failed": {
+            const now = Date.now();
+            const w = peerFailureWindowRef.current;
+            w.timestamps = w.timestamps.filter((ts) => now - ts < 15 * 60 * 1000);
+            if (w.timestamps.length >= 3) return;
+            if (now - w.lastToastAt < 30 * 1000) return;
+            w.timestamps.push(now);
+            w.lastToastAt = now;
+            console.info("[mesh-ctl] peer handshake failed:", event.reason);
+            toastRef.current.push(t("menu.ble.peerHandshakeFailed"), "info");
+            return;
+          }
+          case "peer_decrypt_failed": {
+            const now = Date.now();
+            const w = peerFailureWindowRef.current;
+            w.timestamps = w.timestamps.filter((ts) => now - ts < 15 * 60 * 1000);
+            if (w.timestamps.length >= 3) return;
+            if (now - w.lastToastAt < 30 * 1000) return;
+            w.timestamps.push(now);
+            w.lastToastAt = now;
+            toastRef.current.push(t("menu.ble.peerDecryptFailed"), "info");
+            return;
+          }
+          case "peer_dropped_midsync": {
+            console.info("[mesh-ctl] peer dropped mid-sync, will retry on next discovery");
+            return;
+          }
+        }
+      });
+
       wifi.setWifiUpgradePromptBridge(async (opts) => {
         const copy = buildWifiUpgradePromptCopy({
           estimatedSeconds: opts.estimatedSeconds,
@@ -138,6 +202,7 @@ export function MeshController() {
         if (typeof unsub === "function") unsub();
         wifi.setWifiUpgradePromptBridge(null);
         wifi.setWifiUpgradeToastBridge(null);
+        mesh.setMeshFailureBridge(null);
       };
     })();
     return () => {
@@ -194,6 +259,9 @@ export function MeshController() {
     void setAppMeta("shop_mode_enabled", "0");
     toastRef.current.push(t("menu.sync.shopMode.failed"), "error");
   });
+  // Engineering critique N#1: single body. Prior version set the
+  // useRef initial value AND immediately overwrote it with a near-identical
+  // body — the initial-value version was dead code.
   const ensurePermsAndStart = useRef(async () => {
     try {
       const mesh = await import("../lib/mesh");
@@ -214,28 +282,18 @@ export function MeshController() {
       await setAppMeta("shop_mode_enabled", "0");
     }
   });
-  ensurePermsAndStart.current = async () => {
-    try {
-      const mesh = await import("../lib/mesh");
-      const ok = await hasBlePermissions();
-      if (ok) {
-        try {
-          await mesh.startShopMode();
-        } catch (err) {
-          handleStartError.current(err);
-        }
-        return;
-      }
-      setBleRationaleOpen(true);
-    } catch (err) {
-      console.warn("[mesh-ctl] ensurePermsAndStart failed", err);
-      await setAppMeta("shop_mode_enabled", "0");
-    }
-  };
 
   // Start / stop mesh in response to (account_id, shop_mode_enabled).
   useEffect(() => {
     const wantOn = !!accountId && shopModeEnabled;
+    console.log(
+      "[mesh.toggle] effect fired wantOn=",
+      wantOn,
+      "accountId?=",
+      !!accountId,
+      "shop_mode_enabled=",
+      shopModeEnabled,
+    );
     let cancelled = false;
     void (async () => {
       try {

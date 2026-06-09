@@ -38,10 +38,20 @@
 
 import type { BLEPeerRaw } from "./discovery-router";
 import {
-  CAP_FLAGS_RESERVED_MASK,
+  CAP_FLAG_SUPPORTS_WIFI_UPGRADE,
   KAATA_MESH_SERVICE_UUID,
   MAX_ADVERTISED_VAULT_HASHES,
+  _setSharedBleManager,
 } from "./transport-ble";
+
+// Engineering critique F: explicit "known" mask. Replaces the previous
+// `bytes[0] & ~CAP_FLAGS_RESERVED_MASK` pattern (which happens to compute
+// the same value today but couples receiver behaviour to the reserved-bit
+// constant — if anyone "releases" a reserved bit by flipping it to 0,
+// the receiver would silently start exposing it). KNOWN_MASK is the
+// inclusive OR of every capability bit the receiver actually understands.
+const CAP_FLAGS_KNOWN_MASK = CAP_FLAG_SUPPORTS_WIFI_UPGRADE;
+import { emitMeshFailure } from "./errors";
 
 // ---------------------------------------------------------------------------
 // Tunable constants
@@ -116,6 +126,10 @@ export async function startBle(opts: StartBleOpts): Promise<() => Promise<void>>
   let manager: any = null;
   try {
     manager = new blePlx.BleManager();
+    // Share the BleManager singleton with transport-ble's dialBLEPeer so
+    // we don't end up with two parallel native managers fighting for the
+    // same BluetoothAdapter callback queue.
+    _setSharedBleManager(manager);
   } catch (err) {
     if (__DEV__) console.warn("[discovery-ble] BleManager ctor failed", err);
     return async () => {
@@ -149,6 +163,14 @@ export async function startBle(opts: StartBleOpts): Promise<() => Promise<void>>
       }
       return;
     }
+    console.log(
+      "[discovery-ble] peer found id=",
+      peer.deviceId,
+      "rssi=",
+      peer.rssi,
+      "vaultHashes=",
+      peer.vaultHashes,
+    );
     try {
       opts.onPeerFound(peer);
     } catch (err) {
@@ -216,21 +238,25 @@ export async function startBle(opts: StartBleOpts): Promise<() => Promise<void>>
   try {
     stateSub = manager.onStateChange((state: string) => {
       if (stopped) return;
+      console.log("[discovery-ble] adapter state=", state);
       if (state === "PoweredOff") {
         stopScanForRestart();
+        emitMeshFailure({ kind: "adapter_off" });
       } else if (state === "PoweredOn") {
         startScan();
+        emitMeshFailure({ kind: "adapter_on" });
       }
     }, true);
   } catch (err) {
     if (__DEV__) console.warn("[discovery-ble] onStateChange threw", err);
   }
 
-  // PERIPHERAL_TODO: kick off advertising here once the peripheral
-  // library is in place. Today we only scan (central role) — peers can
-  // see other phones that advertise, but until both sides advertise,
-  // the rendezvous won't form. See transport-ble.ts header.
-  void opts.listenPort; // explicitly unused until peripheral lands
+  // Peripheral advertising (Phase 6.1) is handled OUT OF BAND in
+  // mesh/index.ts startShopMode() → startBLEPeripheralMode(). This
+  // module owns CENTRAL/scan only. listenPort is unused here — the
+  // capability flag carried by advertising indicates wifi-upgrade
+  // support; the actual port is exchanged over GATT post-handshake.
+  void opts.listenPort;
 
   return async () => {
     stopped = true;
@@ -287,10 +313,10 @@ function parseAdvertisement(device: any): BLEPeerRaw | null {
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       if (bytes.length >= 2) {
-        // Mask off reserved bits — refuse to honor capability bits the
+        // Mask to bits we KNOW about — refuse to honor capability bits the
         // peer set that we don't recognize. Prevents future-version peers
         // from accidentally instructing us via reserved bits.
-        capabilityFlags = bytes[0] & ~CAP_FLAGS_RESERVED_MASK;
+        capabilityFlags = bytes[0] & CAP_FLAGS_KNOWN_MASK;
         vaultEpochHint = bytes[1];
         const hashBytes = bytes.subarray(2);
         const hashCount = Math.min(Math.floor(hashBytes.length / 4), MAX_ADVERTISED_VAULT_HASHES);

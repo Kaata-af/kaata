@@ -101,7 +101,15 @@ import {
   MeshVMCRevokedError,
   ShopModeForegroundServiceFailedError,
   ShopModeNotAvailableError,
+  MeshPeripheralUnsupportedError,
+  emitMeshFailure,
 } from "./errors";
+import {
+  startBLEPeripheralMode,
+  startPeripheralGattAcceptLoop,
+  dialBLEPeer,
+  CAP_FLAG_SUPPORTS_WIFI_UPGRADE,
+} from "./transport-ble";
 
 // ---------------------------------------------------------------------------
 // app_meta keys (mirrored in db.ts migration documentation).
@@ -160,6 +168,12 @@ type RunState = {
   inflight: Set<string>;
   unsubscribeDiscovery: (() => void) | null;
   listenPort: number;
+  /** Stop fn returned by startBLEPeripheralMode. Null when peripheral is
+   *  not running (unsupported chip or not yet started). */
+  peripheralStop: (() => Promise<void>) | null;
+  /** Stop fn returned by startPeripheralGattAcceptLoop. Null when the GATT
+   *  server module isn't loaded or open failed. */
+  peripheralGattStop: (() => Promise<void>) | null;
 };
 
 const state: RunState = {
@@ -169,6 +183,8 @@ const state: RunState = {
   inflight: new Set(),
   unsubscribeDiscovery: null,
   listenPort: 0,
+  peripheralStop: null,
+  peripheralGattStop: null,
 };
 
 function makeConnKey(deviceId: string, vaultId: string): string {
@@ -254,6 +270,55 @@ function b64UrlToBytes(b64Url: string): Uint8Array {
   const bin = atob(padded);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/**
+ * Snapshot of (vault_id, 4-byte hash hex, low-8-bits of vault_epoch) for
+ * every non-archived vault on the device. Used by startBLEPeripheralMode
+ * to populate the advertising manufacturer-data payload.
+ *
+ * Order = active vault first (so it gets advertised on the first rotation
+ * tick), then by vault.created_at DESC to bias recently-opened vaults.
+ */
+async function snapshotVaultHashesForAdvertise(): Promise<
+  Array<{ vaultId: string; hashHex: string; epochLow: number }>
+> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{
+    id: string;
+    vault_epoch: number | null;
+  }>(
+    `SELECT id, vault_epoch FROM vaults
+      WHERE archived_at IS NULL
+      ORDER BY created_at DESC`,
+  );
+  const activeVaultId = getActiveVaultIdSyncMaybe();
+  const out: Array<{ vaultId: string; hashHex: string; epochLow: number }> = [];
+  for (const r of rows) {
+    const b64 = await vaultHashTag(r.id);
+    const decoded = b64UrlToBytes(b64);
+    let hex = "";
+    for (let i = 0; i < Math.min(4, decoded.length); i++) {
+      hex += decoded[i].toString(16).padStart(2, "0");
+    }
+    if (!hex) continue;
+    out.push({
+      vaultId: r.id,
+      hashHex: hex,
+      epochLow: (r.vault_epoch ?? 0) & 0xff,
+    });
+  }
+  // Push the active vault to the front of the pool so it's the first
+  // advertised hash (lowest discovery latency for the dominant case of
+  // "two phones, one vault").
+  if (activeVaultId) {
+    const idx = out.findIndex((r) => r.vaultId === activeVaultId);
+    if (idx > 0) {
+      const [active] = out.splice(idx, 1);
+      out.unshift(active);
+    }
+  }
   return out;
 }
 
@@ -353,7 +418,11 @@ async function reissueSelfVMCsIfMissing(): Promise<void> {
  * with a typed error the UI can surface as a toast.
  */
 export async function startShopMode(): Promise<void> {
-  if (state.running) return;
+  if (state.running) {
+    console.log("[mesh.start] already running, no-op");
+    return;
+  }
+  console.log("[mesh.start] begin");
 
   const db = await getDb();
   // Match either:
@@ -376,12 +445,15 @@ export async function startShopMode(): Promise<void> {
     Date.now(),
   );
   if (!eligible) {
+    console.warn("[mesh.start] no eligible vault — refusing");
     throw new ShopModeNotAvailableError("Create or join a Kaata first");
   }
+  console.log("[mesh.start] eligible vault=", eligible.id.slice(0, 8));
 
   await setAppMeta(SHOP_MODE_ENABLED_KEY, "1");
 
   await ensureDeviceKey();
+  console.log("[mesh.start] device key ready pubkey=", (getDevicePubkey() ?? "").slice(0, 8) + "…");
 
   // Phase 7: lazy re-issue self-VMC for any local-anchored vault that's
   // missing one (e.g. createSelfProfile's best-effort issuance failed at
@@ -391,6 +463,7 @@ export async function startShopMode(): Promise<void> {
   // on this — the eligibility gate above already proved at least one
   // vault is mesh-viable.
   await reissueSelfVMCsIfMissing();
+  console.log("[mesh.start] self-VMCs reissued");
 
   // Bump generation so a previous-generation in-flight handshake's
   // commit-to-map step sees the change and abandons.
@@ -400,6 +473,7 @@ export async function startShopMode(): Promise<void> {
   // Refresh the vault-hash index so BLE peer events can resolve to
   // local vault_id UUIDs.
   await rebuildVaultHashIndex();
+  console.log("[mesh.start] vault hash index rebuilt");
 
   // Start transport listener first so discovery has a real port to
   // advertise.
@@ -409,6 +483,7 @@ export async function startShopMode(): Promise<void> {
     },
   });
   state.listenPort = port;
+  console.log("[mesh.start] transport listener on port", port);
 
   // Phase 6: route through discovery-router, which owns BOTH BLE and
   // mDNS lifecycles. Pre-router we imported from `./discovery` directly
@@ -418,6 +493,66 @@ export async function startShopMode(): Promise<void> {
   state.unsubscribeDiscovery = onPeerFound((peer) => {
     void handleRoutedPeer(peer, currentGen);
   });
+  console.log("[mesh.start] discovery router started (BLE scan)");
+
+  // Phase 6.1: bring up the peripheral (advertise) so other Kaata phones
+  // can find US. Soft-fails: if the chip lacks peripheral support,
+  // MeshPeripheralUnsupportedError is thrown — we catch and continue
+  // central-only. The failure bridge surfaces the toast.
+  try {
+    const vaultHashes = await snapshotVaultHashesForAdvertise();
+    const peripheralStop = await startBLEPeripheralMode({
+      vaultHashes,
+      capabilityFlags: CAP_FLAG_SUPPORTS_WIFI_UPGRADE,
+    });
+    state.peripheralStop = peripheralStop;
+    console.log("[mesh.start] peripheral started, advertising", vaultHashes.length, "vault(s)");
+  } catch (err) {
+    if (err instanceof MeshPeripheralUnsupportedError) {
+      // Soft failure: scan keeps running, we stay invisible to others.
+      // emitMeshFailure already fired in startBLEPeripheralMode.
+      console.warn("[mesh.start] peripheral unsupported on this chip; scan-only mode");
+      state.peripheralStop = null;
+    } else {
+      console.warn("[mesh.start] peripheral start failed (non-fatal)", err);
+      state.peripheralStop = null;
+    }
+  }
+
+  // v0.5.2 GATT SERVER: open the BluetoothGattServer alongside the
+  // advertiser. Without this, centrals that dial our advertisement see an
+  // empty service tree and STREAM_CHAR writes return GATT_INVALID_HANDLE.
+  // The accept loop wraps each incoming central connection as a
+  // BleMeshConnection and routes it into the SAME handlePeerConnection
+  // pipeline that incoming WebRTC connections use (see
+  // startTransportListener.onIncomingConnection above). runAntiEntropy is
+  // role-symmetric — both sides exchange Hello, PoP, AEAD-derive, Summary,
+  // Delta over the same code path.
+  //
+  // Only attempt if the advertiser also started. If the chip can't advertise,
+  // no central will ever try to connect to us, so the GATT server would just
+  // sit idle.
+  if (state.peripheralStop) {
+    try {
+      const gattStop = await startPeripheralGattAcceptLoop({
+        onIncomingConnection: (conn) => {
+          console.log("[mesh.start.gatt] incoming BLE central accepted");
+          void handlePeerConnection(conn, "incoming", currentGen);
+        },
+      });
+      state.peripheralGattStop = gattStop;
+      console.log("[mesh.start] GATT server open, accepting central connections");
+    } catch (err) {
+      // MeshPeripheralUnsupportedError already emitted via failure bridge.
+      // We keep the advertiser running so the other phone can still scan
+      // us — they just can't complete a write. This is a degraded mode but
+      // not a fatal one.
+      console.warn("[mesh.start] GATT accept loop failed (non-fatal)", err);
+      state.peripheralGattStop = null;
+    }
+  } else {
+    if (__DEV__) console.log("[mesh.start] skipping GATT server because advertiser is not running");
+  }
 
   state.running = true;
   emitStatusChange();
@@ -436,6 +571,7 @@ export async function startShopMode(): Promise<void> {
   try {
     const fg = await import("./foreground");
     const ok = await fg.startShopModeForegroundService();
+    console.log("[mesh.start] FGS started=", ok);
     if (!ok && Platform.OS === "android") {
       throw new ShopModeForegroundServiceFailedError(
         "Couldn't start the nearby-sync notification.",
@@ -450,6 +586,7 @@ export async function startShopMode(): Promise<void> {
     }
     if (__DEV__) console.warn("[mesh] foreground service start failed", err);
   }
+  console.log("[mesh.start] DONE — Nearby sync active");
 }
 
 /**
@@ -464,6 +601,25 @@ export async function stopShopMode(): Promise<void> {
     await fg.stopShopModeForegroundService();
   } catch (err) {
     if (__DEV__) console.warn("[mesh] foreground service stop failed", err);
+  }
+  if (state.peripheralStop) {
+    try {
+      await state.peripheralStop();
+    } catch (err) {
+      console.warn("[mesh] peripheral stop threw, continuing", err);
+    }
+    state.peripheralStop = null;
+  }
+  // Tear down the GATT server AFTER stopping the advertiser so no new
+  // centrals dial in between. Failure here is non-fatal; the OS will
+  // close the server when the process exits or shop mode restarts.
+  if (state.peripheralGattStop) {
+    try {
+      await state.peripheralGattStop();
+    } catch (err) {
+      console.warn("[mesh] GATT accept loop stop threw, continuing", err);
+    }
+    state.peripheralGattStop = null;
   }
   if (state.unsubscribeDiscovery) {
     state.unsubscribeDiscovery();
@@ -543,15 +699,31 @@ async function handleRoutedPeer(routed: RoutedPeer, gen: number): Promise<void> 
         installIdShort: peerInfo.installIdShort,
       });
     } else {
-      // BLE transport — the actual dial is PERIPHERAL_TODO. transport-ble.ts
-      // ships the scaffold; until central+peripheral are both wired, we
-      // skip the BLE dial here. No-op keeps the router contract intact.
-      if (__DEV__) {
-        console.warn(
-          "[mesh] BLE peer discovered but dial path not yet implemented",
-          peerInfo.installIdShort,
-        );
-      }
+      // BLE transport — Phase 6.1 wired path. The peripheral side on the
+      // OTHER phone advertised the vault hash; we dial here.
+      //
+      // Race note: if both phones discover each other simultaneously,
+      // they both dial. Post-handshake dedup at the connections.set
+      // step below catches the loser and closes the duplicate. This is
+      // the simplest correct path — no need for a "lower-deviceId
+      // suppresses" pre-handshake protocol when the worst case is a
+      // ~5s wasted handshake.
+      const raw = routed.raw;
+      console.log(
+        "[mesh.ble.dial] BLE peer matched vault=",
+        chosenVaultId.slice(0, 8),
+        "installIdShort=",
+        peerInfo.installIdShort,
+        "deviceId=",
+        raw.deviceId,
+      );
+      const conn = await dialBLEPeer({ deviceId: raw.deviceId });
+      console.log("[mesh.ble.dial] GATT connected, starting handshake");
+      await handlePeerConnection(conn, "outgoing", gen, {
+        vaultId: chosenVaultId,
+        vmcBlob: cachedBlob,
+        installIdShort: peerInfo.installIdShort,
+      });
     }
   } catch (err) {
     if (err instanceof MeshTransportError) {
@@ -641,6 +813,12 @@ async function handlePeerConnection(
       return;
     }
     state.connections.set(key, conn);
+    console.log(
+      "[mesh.peer] connected total=",
+      state.connections.size,
+      "deviceId=",
+      result.peerDeviceId.slice(0, 8) + "…",
+    );
     emitStatusChange();
     await touchLastActive();
     void direction;
@@ -653,8 +831,21 @@ async function handlePeerConnection(
       err instanceof MeshTransportError
     ) {
       console.warn(`[mesh] ${direction} peer dropped: ${err.message}`);
+      // Surface the failure to the toast bridge with the most useful
+      // discriminator we can. MeshHandshakeError already carries `kind`;
+      // the other types map to generic "transport".
+      if (err instanceof MeshHandshakeError) {
+        emitMeshFailure({ kind: "peer_handshake_failed", reason: err.kind });
+      } else if (err instanceof MeshVMCExpiredError) {
+        emitMeshFailure({ kind: "peer_handshake_failed", reason: "vmc_invalid" });
+      } else if (err instanceof MeshVMCRevokedError) {
+        emitMeshFailure({ kind: "peer_handshake_failed", reason: "vmc_invalid" });
+      } else {
+        emitMeshFailure({ kind: "peer_handshake_failed", reason: "transport" });
+      }
     } else {
       console.warn("[mesh] unexpected handshake/anti-entropy error", err);
+      emitMeshFailure({ kind: "peer_handshake_failed", reason: "transport" });
     }
   }
 }
@@ -684,6 +875,9 @@ export {
   MeshTransportError,
   ShopModeForegroundServiceFailedError,
   ShopModeNotAvailableError,
+  MeshPeripheralUnsupportedError,
+  MeshAdapterOffError,
+  setMeshFailureBridge,
 } from "./errors";
 
 export { setWifiUpgradePromptBridge, setWifiUpgradeToastBridge } from "./wifi-upgrade";

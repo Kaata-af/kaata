@@ -1,0 +1,20 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'af.kaata.gattserver'
+version = '0.0.1'
+
+android {
+  namespace 'expo.modules.kaatagattserver'
+  defaultConfig {
+    versionCode 1
+    versionName '0.0.1'
+  }
+}
+
+dependencies {
+  // BluetoothGattServer ships in the Android platform SDK.
+  // expo-modules-core comes transitively via the expo-module-gradle-plugin.
+}

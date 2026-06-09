@@ -3,7 +3,7 @@
     "name": "Kaata",
     "slug": "kaata",
     "scheme": "kaata",
-    "version": "0.5.1",
+    "version": "0.5.2",
     "newArchEnabled": false,
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -90,7 +90,8 @@
         }
       ],
       "./plugins/withNearbyWifiNeverForLocation",
-      "./plugins/withNotifeeForegroundService"
+      "./plugins/withNotifeeForegroundService",
+      "./plugins/withBleAdvertiser"
     ],
     "extra": {
       "router": {},

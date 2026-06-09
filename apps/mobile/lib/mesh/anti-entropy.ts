@@ -76,6 +76,14 @@ import {
   MeshTransportError,
 } from "./errors";
 import {
+  generateEphemeralKeyPair,
+  deriveSessionAead,
+  wipeEphemeralPriv,
+  X25519_PUBKEY_BYTES,
+  type EphemeralKeyPair,
+  type BleAeadContext,
+} from "./aead";
+import {
   decodeDevicePubkey,
   EXPIRY_SKEW_TOLERANCE_MS,
   getCachedVMC,
@@ -90,7 +98,15 @@ import type { MeshConnection } from "./transport-interface";
 // Domain-separation tag for proof-of-possession signatures. Prevents the
 // signed challenge from being usable as a signature on any other Kaata
 // message that might be signed by the same device key in the future.
-const POP_DOMAIN = "kaata-mesh-handshake-pop-v1";
+//
+// v2 (v0.5.2 final) ALSO binds both ephemeral X25519 pubkeys into the
+// signed message. Without that binding, a Hello-mutation attacker could
+// substitute their own ephemeral pubkey in transit, the peer signs PoP
+// (which only covered nonces + VMC), and the AEAD key would be derived
+// against the attacker's pub — leaking traffic. Engineering critique N#2.
+// Bumping the domain string also forces a clean rejection if a v1 peer
+// somehow connects (their signature won't verify under the v2 message).
+const POP_DOMAIN = "kaata-mesh-handshake-pop-v2";
 
 // ---------------------------------------------------------------------------
 // Wire schemas
@@ -109,6 +125,12 @@ export type HelloMessage = {
   // VMC leaked from a backup or rooted phone would be replayable from any
   // device.
   pop_nonce: string;
+  // Phase 6 follow-up: ephemeral X25519 public key (32 bytes, base64url).
+  // Combined with the peer's ephemeral pubkey + both pop_nonces it
+  // derives a per-session ChaCha20-Poly1305 key for the BLE transport.
+  // Mandatory since v0.5.2 — peers without it are rejected as "too old"
+  // because the BLE link must NOT carry plaintext ledger data.
+  ephemeral_x25519_pubkey: string;
 };
 
 export type PopProofMessage = {
@@ -272,10 +294,17 @@ export async function runAntiEntropy(
     } satisfies SummaryMessage),
     recvTyped<SummaryMessage>(conn, "summary", deadline - Date.now()),
   ]);
+  console.log(
+    "[mesh.summary] exchanged ourDevices=",
+    Object.keys(localSummary).length,
+    "peerDevices=",
+    Object.keys(peerSummary.max_hlc_per_device).length,
+  );
 
   if (peerSummary.vault_id !== opts.vaultId) {
     throw new MeshHandshakeError(
       `peer summary vault_id mismatch: expected ${opts.vaultId}, got ${peerSummary.vault_id}`,
+      "transport",
     );
   }
 
@@ -438,6 +467,16 @@ export async function runAntiEntropy(
       has_more: !localSentDone,
     };
 
+    console.log(
+      "[mesh.delta] iter=",
+      totalLoopIters,
+      "sending=",
+      outBatch.length,
+      "sentTotal=",
+      sent,
+      "receivedTotal=",
+      received,
+    );
     const [, inMsg] = await Promise.all([
       sendMessage(conn, outMsg),
       recvTyped<DeltaMessage>(conn, "delta", deadline - Date.now()),
@@ -450,6 +489,14 @@ export async function runAntiEntropy(
     if (outBatch.length > 0) sentBatches++;
 
     const applied = await applyIncomingBatch(opts.vaultId, inMsg.events);
+    console.log(
+      "[mesh.delta] applied=",
+      applied.applied,
+      "duplicates=",
+      applied.duplicates,
+      "peer.has_more=",
+      inMsg.has_more,
+    );
     received += applied.applied;
     duplicates += applied.duplicates;
     // Same logic on the inbound side: don't burn budget for empty deltas
@@ -464,15 +511,29 @@ export async function runAntiEntropy(
   // Best-effort bye.
   try {
     await sendMessage(conn, { type: "bye", v: WIRE_VERSION });
+    console.log("[mesh.bye] sent");
   } catch {
     /* peer may already have disconnected */
+    console.log("[mesh.bye] send failed (peer already gone)");
   }
+
+  const durationMs = Date.now() - startedAt;
+  console.log(
+    "[mesh.done] sent=",
+    sent,
+    "received=",
+    received,
+    "duplicates=",
+    duplicates,
+    "durationMs=",
+    durationMs,
+  );
 
   return {
     sent,
     received,
     duplicates,
-    durationMs: Date.now() - startedAt,
+    durationMs,
     peerDeviceId: peerVMC.device_id,
   };
 }
@@ -482,10 +543,19 @@ export async function runAntiEntropy(
 // ---------------------------------------------------------------------------
 
 async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promise<ParsedVMC> {
+  console.log("[mesh.hs] start vault=", opts.vaultId.slice(0, 8), "transport=", conn.kind);
+
   // Generate our challenge nonce. 32 bytes CSPRNG is sufficient for
   // single-use challenge entropy (collision probability is negligible).
   const ourNonceBytes = await Crypto.getRandomBytesAsync(32);
   const ourNonceB64 = bytesToB64Url(ourNonceBytes);
+
+  // Generate the per-session ephemeral X25519 keypair for forward secrecy.
+  // The private key NEVER leaves this scope — even a compromise of our
+  // long-term device key tomorrow can't decrypt today's BLE traffic
+  // because the shared secret depended on this throwaway scalar.
+  const ourEphemeral: EphemeralKeyPair = generateEphemeralKeyPair();
+  const ourEphemeralPubB64 = bytesToB64Url(ourEphemeral.publicKey);
 
   const hello: HelloMessage = {
     type: "hello",
@@ -493,22 +563,45 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
     vmc_blob: opts.localVMCBlob,
     capabilities: ["v1"],
     pop_nonce: ourNonceB64,
+    ephemeral_x25519_pubkey: ourEphemeralPubB64,
   };
 
   const [, peerHello] = await Promise.all([
     sendMessage(conn, hello),
     recvTyped<HelloMessage>(conn, "hello", 10_000),
   ]);
+  console.log("[mesh.hs] peer hello received");
 
   const sharedCaps = peerHello.capabilities.filter((c) => c === "v1");
   if (sharedCaps.length === 0) {
     throw new MeshHandshakeError(
       `no shared capability with peer (peer offered: ${peerHello.capabilities.join(",")})`,
+      "transport",
     );
   }
   if (typeof peerHello.pop_nonce !== "string" || peerHello.pop_nonce.length < 16) {
     throw new MeshHandshakeError(
       `peer hello missing or malformed pop_nonce (required for proof-of-possession)`,
+      "transport",
+    );
+  }
+  // v0.5.2: ephemeral_x25519_pubkey is mandatory. Peers without it are
+  // pre-0.5.2 — the BLE transport can no longer be safely used unencrypted,
+  // so we fail loud rather than silently downgrade.
+  if (
+    typeof peerHello.ephemeral_x25519_pubkey !== "string" ||
+    peerHello.ephemeral_x25519_pubkey.length === 0
+  ) {
+    throw new MeshHandshakeError(
+      `peer too old (no ephemeral_x25519_pubkey in Hello). Ask them to update Kaata.`,
+      "transport",
+    );
+  }
+  const peerEphemeralPub = b64UrlDecode(peerHello.ephemeral_x25519_pubkey);
+  if (peerEphemeralPub.length !== X25519_PUBKEY_BYTES) {
+    throw new MeshHandshakeError(
+      `peer ephemeral_x25519_pubkey has wrong length ${peerEphemeralPub.length} (expected ${X25519_PUBKEY_BYTES})`,
+      "transport",
     );
   }
 
@@ -558,6 +651,7 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
       `peer device ${peeked.device_id} is revoked from vault ${peeked.vault_id} (early reject, pre-verify)`,
     );
   }
+  console.log("[mesh.hs] revocation pre-check OK");
 
   // Step 4: verify signature + envelope.
   const verifyResult = await verifyVMC(
@@ -571,9 +665,16 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
     }
     throw new MeshHandshakeError(
       `peer VMC verification failed (${verifyResult.error}): ${verifyResult.detail ?? ""}`,
+      "vmc_invalid",
     );
   }
   const peerVMC = verifyResult.vmc;
+  console.log(
+    "[mesh.hs] VMC verified peer device=",
+    peerVMC.device_id.slice(0, 8),
+    "role=",
+    peerVMC.role,
+  );
 
   // Step 5: re-check revocation against the now-trusted device_id (defense
   // in depth — covers the case where the unverified peek in step 3 returned
@@ -595,8 +696,15 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
   if (ourCached && peerVMC.vault_epoch < ourCached.vault_epoch) {
     throw new MeshHandshakeError(
       `peer vault_epoch ${peerVMC.vault_epoch} is older than ours ${ourCached.vault_epoch}; refusing handshake (peer will refresh on next check-in)`,
+      "vmc_invalid",
     );
   }
+  console.log(
+    "[mesh.hs] epoch gate OK peer_epoch=",
+    peerVMC.vault_epoch,
+    "ours=",
+    ourCached?.vault_epoch,
+  );
 
   // --- Proof of possession ---
   //
@@ -619,9 +727,20 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
   // The domain tag and our nonce make the signature unforgeable — even
   // an attacker who somehow recorded a previous handshake's PoP sig
   // can't replay it on a new session with a fresh nonce.
+  // v2 (v0.5.2 final): bind BOTH ephemeral X25519 pubkeys into the signed
+  // PoP message so a Hello-mutation MITM that substitutes a different
+  // ephemeral pubkey can't get the peer's PoP to accidentally authenticate
+  // the wrong key.
   const ourSigBytes = await signWithDeviceKey(
-    buildPopMessage(POP_DOMAIN, opts.localVMCBlob, peerHello.pop_nonce),
+    buildPopMessageWithEphemerals(
+      POP_DOMAIN,
+      opts.localVMCBlob,
+      peerHello.pop_nonce,
+      ourEphemeral.publicKey,
+      peerEphemeralPub,
+    ),
   );
+  console.log("[mesh.hs] our PoP signed sigLen=", ourSigBytes.length);
   const ourProof: PopProofMessage = {
     type: "pop_proof",
     v: WIRE_VERSION,
@@ -631,29 +750,91 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
     sendMessage(conn, ourProof),
     recvTyped<PopProofMessage>(conn, "pop_proof", 10_000),
   ]);
+  console.log("[mesh.hs] peer PoP received");
 
   const peerDevicePubkey = decodeDevicePubkey(peerVMC.device_pubkey);
   if (!peerDevicePubkey) {
-    throw new MeshHandshakeError(`peer VMC carries malformed device_pubkey (length != 32)`);
+    throw new MeshHandshakeError(
+      `peer VMC carries malformed device_pubkey (length != 32)`,
+      "vmc_invalid",
+    );
   }
   const peerSigBytes = b64UrlDecode(peerProof.sig);
   if (peerSigBytes.length !== 64) {
     throw new MeshHandshakeError(
       `peer PoP signature has wrong length ${peerSigBytes.length} (expected 64)`,
+      "pop_failed",
     );
   }
-  const popMsg = buildPopMessage(POP_DOMAIN, peerHello.vmc_blob, ourNonceB64);
+  // Verify the peer's PoP against (POP_DOMAIN || peer_vmc || OUR_nonce ||
+  // peer_ephemeral_pub || our_ephemeral_pub). From the peer's perspective
+  // their "own pub" is peerEphemeralPub and their "peer pub" is ours, so
+  // the argument order is swapped here vs. when we signed our own PoP.
+  const popMsg = buildPopMessageWithEphemerals(
+    POP_DOMAIN,
+    peerHello.vmc_blob,
+    ourNonceB64,
+    peerEphemeralPub,
+    ourEphemeral.publicKey,
+  );
   let popOk = false;
   try {
     // SYNC verify — uses sha512Sync shim. Async variant needs crypto.subtle.
     popOk = ed.verify(peerSigBytes, popMsg, peerDevicePubkey);
-  } catch {
+  } catch (err) {
+    if (__DEV__) console.warn("[mesh.hs] ed.verify threw — sha512Sync shim missing?", err);
     popOk = false;
   }
   if (!popOk) {
     throw new MeshHandshakeError(
       `peer failed proof-of-possession check — they hold a valid VMC blob ` +
         `but do not control the matching private key (likely VMC theft attempt)`,
+      "pop_failed",
+    );
+  }
+  console.log("[mesh.hs] PoP verified peer=", peerVMC.device_id.slice(0, 8));
+
+  // ---- AEAD key derivation + install ------------------------------------
+  //
+  // We derive the ChaCha20-Poly1305 key for ALL transports that expose
+  // installAead(). On BLE this enables encryption from here on. On WebRTC,
+  // BleMeshConnection isn't in play — the WebRTC transport's MeshConnection
+  // doesn't implement installAead, so the call is a no-op (DTLS already
+  // protects that link). On in-memory test connections: same.
+  //
+  // Binding the AEAD key to BOTH pop_nonces (which the PoP layer just
+  // signed) closes any seam where an attacker could derive a different key
+  // than the one a verified PoP commits to.
+  const aeadCtx: BleAeadContext = deriveSessionAead({
+    ownPriv: ourEphemeral.privateKey,
+    ownPub: ourEphemeral.publicKey,
+    peerPub: peerEphemeralPub,
+    ownNonceB64: ourNonceB64,
+    peerNonceB64: peerHello.pop_nonce,
+  });
+  // Mobile-Native critique H5: zero out the ephemeral private key now
+  // that the symmetric AEAD key has been derived. Hermes does not
+  // zeroize on GC; this shrinks the heap-snapshot exfil window for the
+  // forward-secrecy guarantee. The key derivation already used the priv.
+  wipeEphemeralPriv(ourEphemeral.privateKey);
+  const installer = (
+    conn as MeshConnection & {
+      installAead?: (ctx: BleAeadContext) => void;
+    }
+  ).installAead;
+  if (typeof installer === "function") {
+    installer.call(conn, aeadCtx);
+    console.log("[mesh.hs] AEAD key derived + installed", {
+      transport: conn.kind,
+      sendDir: aeadCtx.sendDirectionTag,
+      recvDir: aeadCtx.recvDirectionTag,
+    });
+  } else if (conn.kind === "ble") {
+    // BLE without installAead is a logic bug — fail loud rather than
+    // accept plaintext on this transport.
+    throw new MeshHandshakeError(
+      "BLE connection has no installAead method — AEAD cannot be enabled",
+      "transport",
     );
   }
 
@@ -677,18 +858,44 @@ async function reverifyVMCWindow(peer: ParsedVMC): Promise<void> {
   }
 }
 
-// buildPopMessage concatenates the proof-of-possession message bytes:
-// POP_DOMAIN ASCII || vmcBlob UTF-8 || pop_nonce UTF-8. Returned as Uint8Array.
-function buildPopMessage(domain: string, vmcBlob: string, pop_nonce: string): Uint8Array {
+// v2 PoP message (v0.5.2 final). Binds:
+//   POP_DOMAIN ASCII || vmcBlob UTF-8 || pop_nonce UTF-8
+//   || own_ephemeral_x25519_pubkey (32 raw bytes)
+//   || peer_ephemeral_x25519_pubkey (32 raw bytes)
+//
+// The ephemeral-pubkey binding closes the Hello-mutation seam where an
+// attacker could substitute their own ephemeral pubkey in transit and the
+// peer's PoP signature (which only covered nonces + VMC in v1) would
+// "authenticate" the attacker's key. With the binding, swapping the
+// ephemeral pubkey invalidates every peer's PoP signature.
+//
+// "own" / "peer" are from the signer's perspective: the signer always
+// puts THEIR ephemeral pub first, then the verifier's.
+function buildPopMessageWithEphemerals(
+  domain: string,
+  vmcBlob: string,
+  pop_nonce: string,
+  ownEphemeralPub: Uint8Array,
+  peerEphemeralPub: Uint8Array,
+): Uint8Array {
   // eslint-disable-next-line no-undef
   const enc = new TextEncoder();
   const d = enc.encode(domain);
   const v = enc.encode(vmcBlob);
   const n = enc.encode(pop_nonce);
-  const out = new Uint8Array(d.length + v.length + n.length);
-  out.set(d, 0);
-  out.set(v, d.length);
-  out.set(n, d.length + v.length);
+  const out = new Uint8Array(
+    d.length + v.length + n.length + ownEphemeralPub.length + peerEphemeralPub.length,
+  );
+  let off = 0;
+  out.set(d, off);
+  off += d.length;
+  out.set(v, off);
+  off += v.length;
+  out.set(n, off);
+  off += n.length;
+  out.set(ownEphemeralPub, off);
+  off += ownEphemeralPub.length;
+  out.set(peerEphemeralPub, off);
   return out;
 }
 
@@ -1049,12 +1256,18 @@ async function applyIncomingBatch(
     } catch (err) {
       // Per-event failure is non-fatal: an applier may refuse (e.g.
       // shop_profile_updated arriving before shop_profile row exists), and
-      // the next anti-entropy round will retry once the prereq lands. Log
-      // and continue.
-      console.warn(
-        `[mesh.anti-entropy] applyEvent failed for ${w.event_id} (${w.event_type})`,
-        err,
-      );
+      // the next anti-entropy round will retry once the prereq lands.
+      //
+      // Distinguish role-gate refusals from generic applier throws so
+      // logcat triage is O(seconds) instead of "applyEvent failed" 47×.
+      const msg = (err as Error)?.message ?? String(err);
+      if (msg.includes("role") || msg.includes("unsigned") || msg.includes("signature")) {
+        console.warn(
+          `[mesh.delta] event REFUSED by role-gate event=${w.event_id} type=${w.event_type} reason=${msg}`,
+        );
+      } else {
+        console.warn(`[mesh.delta] applyEvent failed for ${w.event_id} (${w.event_type})`, err);
+      }
     }
   }
 

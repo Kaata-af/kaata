@@ -1,0 +1,8 @@
+{
+  "name": "kaata-gatt-server",
+  "version": "0.0.1",
+  "description": "Kaata local Expo module - Android BluetoothGattServer wrapper for inbound BLE peripheral connections.",
+  "main": "index.ts",
+  "types": "index.ts",
+  "private": true
+}

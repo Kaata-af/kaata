@@ -399,6 +399,14 @@ const en = {
   "menu.ble.permDenied.cancel": "Not now",
   "menu.ble.unsupported": "This phone can't broadcast Bluetooth — Nearby sync won't work here.",
   "menu.ble.adapterOff": "Bluetooth is off. Turn it on to sync nearby.",
+  // Phase 9 D-FALLBACK-UX — runtime failure toasts surfaced via
+  // setMeshFailureBridge. Capability-framing copy ("can still find Kaata
+  // phones"), never uses the word "error".
+  "menu.ble.peripheralUnsupported":
+    "Your phone can't broadcast to others, but it can still find nearby Kaata phones. Ask the other phone to start Nearby sync.",
+  "menu.ble.peerHandshakeFailed":
+    "Couldn't connect to a nearby phone. They may be from a different Kaata or their session expired.",
+  "menu.ble.peerDecryptFailed": "Lost connection to a nearby phone. Retrying.",
   // Battery-optimization prompt (Phase 5.1, reworded for BLE-primary).
   "menu.battery.title": "One last step: allow background",
   "menu.battery.description":
@@ -1090,6 +1098,11 @@ const fa: Partial<Record<Key, string>> = {
   "menu.ble.permDenied.cancel": "حالا نه",
   "menu.ble.unsupported": "این تلفون نمی‌تواند بلوتوث ارسال کند — همگام‌سازی نزدیک کار نخواهد کرد.",
   "menu.ble.adapterOff": "بلوتوث خاموش است. برای همگام‌سازی روشن کنید.",
+  "menu.ble.peripheralUnsupported":
+    "تلفون شما نمی‌تواند به دیگران ارسال کند، اما همچنان می‌تواند تلفون‌های نزدیک کاتا را پیدا کند. از تلفون دیگر بخواهید همگام‌سازی نزدیک را روشن کند.",
+  "menu.ble.peerHandshakeFailed":
+    "اتصال به یک تلفون نزدیک ناکام شد. ممکن است از کاتای دیگر باشد یا نشست‌شان منقضی شده باشد.",
+  "menu.ble.peerDecryptFailed": "ارتباط با تلفون نزدیک قطع شد. در حال تلاش دوباره.",
   // Battery-optimization prompt
   "menu.battery.title": "یک قدم آخر: اجازهٔ پس‌زمینه",
   "menu.battery.description":

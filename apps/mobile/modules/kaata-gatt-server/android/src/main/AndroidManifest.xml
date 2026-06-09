@@ -1,0 +1,10 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!--
+    Permissions intentionally NOT declared here.
+
+    BLUETOOTH_CONNECT, BLUETOOTH_ADVERTISE, BLUETOOTH_SCAN are declared at the
+    app level in apps/mobile/app.json (android.permissions[]). Declaring them
+    here too would split the source of truth and break the existing pipeline
+    in plugins/withNearbyWifiNeverForLocation.js + plugins/withBleAdvertiser.js.
+  -->
+</manifest>
