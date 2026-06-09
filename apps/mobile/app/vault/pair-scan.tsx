@@ -209,9 +209,8 @@ export default function VaultPairScanScreen() {
 
         // Create the vault_members_mirror row for self so the Members
         // tab and useVaultRole hook recognize this device as a member.
-        // Without this the joined device sees an empty members list and
-        // role gates falsely deny actions. INSERT OR REPLACE so re-joining
-        // (e.g. after a re-pair) refreshes the role/accepted_at cleanly.
+        // INSERT OR REPLACE so re-joining (e.g. after a re-pair) refreshes
+        // the role/accepted_at cleanly.
         await db.runAsync(
           `INSERT OR REPLACE INTO vault_members_mirror
              (vault_id, account_id, role, accepted_at, revoked_at)
@@ -221,7 +220,44 @@ export default function VaultPairScanScreen() {
           offered.role,
           now,
         );
+
+        // Also add the OWNER (the issuer of this QR) to the mirror so the
+        // Members tab shows "Owner: <issuer>" alongside self immediately.
+        // Without this row, the joining device only sees itself in the
+        // Members list until a mesh handshake propagates the owner's
+        // identity — which the user may never get to see.
+        // INSERT OR IGNORE keeps this idempotent and additive (doesn't
+        // overwrite a later role change applied via mesh events).
+        if (payload.issuer_account_id && payload.issuer_account_id !== effectiveAccountId) {
+          await db.runAsync(
+            `INSERT OR IGNORE INTO vault_members_mirror
+               (vault_id, account_id, role, accepted_at, revoked_at)
+             VALUES (?, ?, 'owner', ?, NULL)`,
+            payload.vault_id,
+            payload.issuer_account_id,
+            now,
+          );
+        }
       });
+
+      // Emit a vault_member_added event for self into the event log so
+      // mesh anti-entropy propagates this membership to the owner (and
+      // any other peers) on the next handshake. The mirror row above
+      // makes our local UI correct; this event makes the OWNER's UI also
+      // show the new member once they sync.
+      try {
+        const eventLog = await import("../../lib/event-log");
+        await eventLog.appendVaultMemberAdded({
+          targetVaultId: payload.vault_id,
+          accountId: effectiveAccountId,
+          role: offered.role,
+        });
+      } catch (err) {
+        console.warn("[vault/pair-scan] appendVaultMemberAdded failed", err);
+        // Non-fatal — the mirror row is already written; the event will
+        // get re-emitted next time the user explicitly toggles role or
+        // re-joins. We don't want to abort the whole join over this.
+      }
 
       if (isLocalCA) {
         // Local-CA: we cannot fetch a VMC over the mesh until the
