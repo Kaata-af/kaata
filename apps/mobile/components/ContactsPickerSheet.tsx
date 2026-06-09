@@ -6,10 +6,9 @@ import {
   ActivityIndicator,
   Animated,
   Dimensions,
-  KeyboardAvoidingView,
+  Keyboard,
   Linking,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -48,6 +47,24 @@ export function ContactsPickerSheet(props: {
   const [permission, setPermission] = useState<"unknown" | "granted" | "denied">("unknown");
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(OFFSCREEN)).current;
+  // Keyboard height tracked manually. KeyboardAvoidingView wars with this
+  // sheet's content-based sizing on Android and produces visible jitter
+  // (the sheet shrinks-and-resizes per keyboard animation frame). Adding
+  // bottom padding equal to the keyboard height instead just pushes the
+  // sheet up smoothly without resizing.
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  useEffect(() => {
+    const showSub = Keyboard.addListener("keyboardDidShow", (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
+      setKeyboardHeight(0);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   useEffect(() => {
     if (props.visible) {
@@ -132,22 +149,34 @@ export function ContactsPickerSheet(props: {
       </Animated.View>
 
       <Animated.View
-        style={[styles.sheetContainer, { transform: [{ translateY }] }]}
+        // bottom = keyboardHeight pushes the bottom-anchored sheet up by
+        // exactly the keyboard height, so the sheet always sits flush above
+        // the soft keyboard regardless of content size. No KeyboardAvoidingView
+        // = no per-frame resize jitter on Android.
+        style={[
+          styles.sheetContainer,
+          { bottom: keyboardHeight, transform: [{ translateY }] },
+        ]}
         pointerEvents="box-none"
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          // Keeps the sheet (anchored bottom: 0) above the soft keyboard.
-          // Without it, the ScrollView's empty state ("No contact matches X.")
-          // ends up under the keyboard.
+        <SafeAreaView
+          // edges={[]} when keyboard is up — the keyboard already accounts for
+          // the bottom safe area. With edges={["bottom"]} we'd double-add the
+          // nav-bar inset.
+          edges={keyboardHeight > 0 ? [] : ["bottom"]}
+          // Concrete pixel sizing. maxHeight prevents overflow past status
+          // bar; minHeight guarantees the sheet stays tall enough to show
+          // the search bar + a usable list area even when filtered results
+          // are empty (otherwise it shrinks to ~80px and the empty-state
+          // text ends up below the keyboard).
+          style={[
+            styles.sheetWrap,
+            {
+              maxHeight: Dimensions.get("window").height * 0.8,
+              minHeight: Math.min(360, Dimensions.get("window").height * 0.5),
+            },
+          ]}
         >
-          <SafeAreaView
-            edges={["bottom"]}
-            // Concrete pixel maxHeight — "80%" against position:absolute parent
-            // with no explicit height is undefined in RN (same bug as
-            // ProfileSettingsSheet / VaultPickerSheet had).
-            style={[styles.sheetWrap, { maxHeight: Dimensions.get("window").height * 0.8 }]}
-          >
             <View style={styles.sheet} onStartShouldSetResponder={() => true}>
               <View style={styles.grabber} />
               <Text style={[styles.title, textDir(isRTL)]}>{t("contacts.title")}</Text>
@@ -233,7 +262,6 @@ export function ContactsPickerSheet(props: {
               )}
             </View>
           </SafeAreaView>
-        </KeyboardAvoidingView>
       </Animated.View>
     </Modal>
   );

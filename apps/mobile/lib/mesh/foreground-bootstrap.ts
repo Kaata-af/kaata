@@ -119,6 +119,30 @@ if (Platform.OS === "android") {
       // Intentional no-op. Cold-start routing happens via
       // getInitialShopModeNotification inside _layout.tsx.
     });
+
+    // ─────────────────────────────────────────────────────────────────
+    // 4. Defensive cleanup of any zombie FGS state from a prior session.
+    //
+    // Scenario: v0.5.1 had Shop Mode on when the OS killed the app.
+    // Android may carry a "this service should be running" intent across
+    // app updates. On the first launch of v0.5.2, that pending intent
+    // could spawn the FGS BEFORE the user actually toggles Shop Mode on
+    // this session — leading to a confusing "Nearby sync notification
+    // appeared without me asking" state, or a crash if anything in the
+    // FGS startup path mismatches v0.5.2's expectations.
+    //
+    // Calling stopForegroundService() at boot is a no-op when nothing is
+    // running, and a clean teardown when there IS a zombie. MeshController
+    // is the only legitimate path that re-starts the FGS, and it only
+    // does so when shop_mode_enabled flips to '1' via the user toggle.
+    //
+    // Wrapped in try/catch because some notifee versions throw if no FGS
+    // is currently active (the "graceful no-op" behaviour isn't
+    // contractually guaranteed).
+    // ─────────────────────────────────────────────────────────────────
+    notifee.default.stopForegroundService().catch(() => {
+      // No FGS to stop — that's the happy path, ignore.
+    });
   } catch (err) {
     // notifee not bundled (Expo Go) — degrade gracefully. Shop mode
     // still "works" but Doze will kill BLE within minutes of
