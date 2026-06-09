@@ -34,6 +34,19 @@ const { withAndroidManifest } = require("@expo/config-plugins");
 
 const SERVICE_NAME = "app.notifee.core.ForegroundService";
 const SERVICE_TYPE = "connectedDevice|dataSync";
+// stopWithTask=true tells Android to kill this foreground service when the
+// task it belongs to (the app's task) is removed. Without it, the OS treats
+// the FGS as a long-lived background obligation and auto-restarts it after
+// the app is killed/swiped/OOM-evicted. That restart spawns the service
+// BEFORE the JS bundle has loaded and registered notifee.registerForegroundService —
+// the service has 5s to call Service.startForeground() and can't, so Android
+// fires ForegroundServiceDidNotStartInTimeException and force-kills the
+// process. Every subsequent launch hits the same auto-restart, producing an
+// infinite "app crashes on open" loop. Setting stopWithTask=true makes the
+// service die with the task (Nearby sync gracefully ends when you close the
+// app) — restarting is the user's explicit choice on next launch, which
+// gives JS time to register its callback first.
+const STOP_WITH_TASK = "true";
 
 module.exports = function withNotifeeForegroundService(config) {
   return withAndroidManifest(config, (cfg) => {
@@ -65,6 +78,7 @@ module.exports = function withNotifeeForegroundService(config) {
     if (existing) {
       existing.$["android:foregroundServiceType"] = SERVICE_TYPE;
       existing.$["android:exported"] = "false";
+      existing.$["android:stopWithTask"] = STOP_WITH_TASK;
       return cfg;
     }
 
@@ -73,6 +87,7 @@ module.exports = function withNotifeeForegroundService(config) {
         "android:name": SERVICE_NAME,
         "android:foregroundServiceType": SERVICE_TYPE,
         "android:exported": "false",
+        "android:stopWithTask": STOP_WITH_TASK,
       },
     });
 

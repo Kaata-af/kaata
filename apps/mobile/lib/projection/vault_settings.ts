@@ -95,6 +95,21 @@ export async function applyVaultSettingSet(
             `[vault_setting_set] mirror UPDATE vaults.name affected 0 rows for vault_id=${event.vault_id}`,
           );
         }
+        // Also mirror to shop_profile.shop_name. Without this, the home
+        // header (which reads getLocalSelf → shop_profile.shop_name) stays
+        // stuck on the pre-rename value while VaultPickerSheet (which reads
+        // vaults.name) shows the new one. Two tables, one user-perceived
+        // "name" — keep them in lockstep on every rename.
+        // 0-row UPDATE is fine: a brand-new vault may not have a
+        // shop_profile row yet (created lazily during onboarding); the
+        // next createSelfProfile / shop_profile bootstrap will write the
+        // correct value at that point.
+        await tx.runAsync(
+          `UPDATE shop_profile SET shop_name = ?, updated_at = ? WHERE vault_id = ?`,
+          event.payload.value,
+          event.appended_at,
+          event.vault_id,
+        );
         break;
       }
       case "currency": {

@@ -9,7 +9,8 @@
     "dev": "concurrently -k -n backend,web,mobile -c blue,green,magenta \"bun run dev:backend\" \"bun run dev:web\" \"bun run dev:mobile\"",
     "dev:backend": "cd apps/backend && go run ./cmd/server",
     "dev:web": "cd apps/web && bun run dev",
-    "dev:mobile": "cd apps/mobile && npm run start"
+    "dev:mobile": "cd apps/mobile && npm run start",
+    "postinstall": "concurrently -n mobile,web -c magenta,green \"cd apps/mobile && npm install\" \"cd apps/web && bun install\""
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

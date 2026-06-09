@@ -5,8 +5,11 @@ import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
+  Dimensions,
+  KeyboardAvoidingView,
   Linking,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -132,89 +135,105 @@ export function ContactsPickerSheet(props: {
         style={[styles.sheetContainer, { transform: [{ translateY }] }]}
         pointerEvents="box-none"
       >
-        <SafeAreaView edges={["bottom"]} style={styles.sheetWrap}>
-          <View style={styles.sheet} onStartShouldSetResponder={() => true}>
-            <View style={styles.grabber} />
-            <Text style={[styles.title, textDir(isRTL)]}>{t("contacts.title")}</Text>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          // Keeps the sheet (anchored bottom: 0) above the soft keyboard.
+          // Without it, the ScrollView's empty state ("No contact matches X.")
+          // ends up under the keyboard.
+        >
+          <SafeAreaView
+            edges={["bottom"]}
+            // Concrete pixel maxHeight — "80%" against position:absolute parent
+            // with no explicit height is undefined in RN (same bug as
+            // ProfileSettingsSheet / VaultPickerSheet had).
+            style={[styles.sheetWrap, { maxHeight: Dimensions.get("window").height * 0.8 }]}
+          >
+            <View style={styles.sheet} onStartShouldSetResponder={() => true}>
+              <View style={styles.grabber} />
+              <Text style={[styles.title, textDir(isRTL)]}>{t("contacts.title")}</Text>
 
-            {permission === "denied" ? (
-              <View style={styles.permissionBlock}>
-                <Text style={styles.permissionTitle}>{t("contacts.permission.title")}</Text>
-                <Text style={styles.permissionBody}>{t("contacts.permission.body")}</Text>
-                <Pressable
-                  onPress={() => Linking.openSettings()}
-                  style={({ pressed }) => [styles.permissionBtn, pressed && { opacity: 0.85 }]}
-                >
-                  <Text style={styles.permissionBtnText}>{t("contacts.permission.button")}</Text>
-                </Pressable>
-              </View>
-            ) : contacts === null ? (
-              <View style={styles.centered}>
-                <ActivityIndicator color={colors.textDefault} />
-              </View>
-            ) : (
-              <>
-                <View style={[styles.searchWrap, rowDir(isRTL)]}>
-                  <Ionicons
-                    name="search"
-                    size={16}
-                    color={colors.textMuted}
-                    style={[styles.searchIcon, isRTL ? styles.searchIconRTL : styles.searchIconLTR]}
-                  />
-                  <TextInput
-                    style={[styles.searchInput, textDir(isRTL)]}
-                    value={query}
-                    onChangeText={setQuery}
-                    placeholder={t("contacts.search")}
-                    placeholderTextColor={colors.textMuted}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
+              {permission === "denied" ? (
+                <View style={styles.permissionBlock}>
+                  <Text style={styles.permissionTitle}>{t("contacts.permission.title")}</Text>
+                  <Text style={styles.permissionBody}>{t("contacts.permission.body")}</Text>
+                  <Pressable
+                    onPress={() => Linking.openSettings()}
+                    style={({ pressed }) => [styles.permissionBtn, pressed && { opacity: 0.85 }]}
+                  >
+                    <Text style={styles.permissionBtnText}>{t("contacts.permission.button")}</Text>
+                  </Pressable>
                 </View>
+              ) : contacts === null ? (
+                <View style={styles.centered}>
+                  <ActivityIndicator color={colors.textDefault} />
+                </View>
+              ) : (
+                <>
+                  <View style={[styles.searchWrap, rowDir(isRTL)]}>
+                    <Ionicons
+                      name="search"
+                      size={16}
+                      color={colors.textMuted}
+                      style={[
+                        styles.searchIcon,
+                        isRTL ? styles.searchIconRTL : styles.searchIconLTR,
+                      ]}
+                    />
+                    <TextInput
+                      style={[styles.searchInput, textDir(isRTL)]}
+                      value={query}
+                      onChangeText={setQuery}
+                      placeholder={t("contacts.search")}
+                      placeholderTextColor={colors.textMuted}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                  </View>
 
-                <ScrollView
-                  keyboardShouldPersistTaps="handled"
-                  style={styles.list}
-                  contentContainerStyle={styles.listContent}
-                >
-                  {filtered.length === 0 ? (
-                    <View style={styles.empty}>
-                      <Text style={styles.emptyText}>
-                        {contacts.length === 0
-                          ? t("contacts.empty.none")
-                          : t("contacts.empty.noMatch", { query: query.trim() })}
-                      </Text>
-                    </View>
-                  ) : (
-                    filtered.map((c, i) => {
-                      const phone = c.phoneNumbers?.[0]?.number;
-                      return (
-                        <Pressable
-                          key={`${c.name ?? "contact"}-${i}`}
-                          onPress={() => pick(c)}
-                          style={({ pressed }) => [
-                            styles.row,
-                            rowDir(isRTL),
-                            pressed && { backgroundColor: colors.bgMuted },
-                          ]}
-                        >
-                          <View style={styles.rowLeft}>
-                            <Text style={[styles.rowName, textDir(isRTL)]} numberOfLines={1}>
-                              {c.name ?? "—"}
-                            </Text>
-                            <Text style={[styles.rowSub, textDir(isRTL)]} numberOfLines={1}>
-                              {phone ?? t("contacts.noPhone")}
-                            </Text>
-                          </View>
-                        </Pressable>
-                      );
-                    })
-                  )}
-                </ScrollView>
-              </>
-            )}
-          </View>
-        </SafeAreaView>
+                  <ScrollView
+                    keyboardShouldPersistTaps="handled"
+                    style={styles.list}
+                    contentContainerStyle={styles.listContent}
+                  >
+                    {filtered.length === 0 ? (
+                      <View style={styles.empty}>
+                        <Text style={styles.emptyText}>
+                          {contacts.length === 0
+                            ? t("contacts.empty.none")
+                            : t("contacts.empty.noMatch", { query: query.trim() })}
+                        </Text>
+                      </View>
+                    ) : (
+                      filtered.map((c, i) => {
+                        const phone = c.phoneNumbers?.[0]?.number;
+                        return (
+                          <Pressable
+                            key={`${c.name ?? "contact"}-${i}`}
+                            onPress={() => pick(c)}
+                            style={({ pressed }) => [
+                              styles.row,
+                              rowDir(isRTL),
+                              pressed && { backgroundColor: colors.bgMuted },
+                            ]}
+                          >
+                            <View style={styles.rowLeft}>
+                              <Text style={[styles.rowName, textDir(isRTL)]} numberOfLines={1}>
+                                {c.name ?? "—"}
+                              </Text>
+                              <Text style={[styles.rowSub, textDir(isRTL)]} numberOfLines={1}>
+                                {phone ?? t("contacts.noPhone")}
+                              </Text>
+                            </View>
+                          </Pressable>
+                        );
+                      })
+                    )}
+                  </ScrollView>
+                </>
+              )}
+            </View>
+          </SafeAreaView>
+        </KeyboardAvoidingView>
       </Animated.View>
     </Modal>
   );
@@ -227,7 +246,9 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    maxHeight: "80%",
+    // maxHeight moved to the SafeAreaView inline style as a concrete pixel
+    // value; percentage maxHeight here was undefined behavior in RN against
+    // an absolute-positioned auto-height parent.
   },
   sheetWrap: {
     backgroundColor: colors.bgDefault,
