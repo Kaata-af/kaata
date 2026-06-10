@@ -25,11 +25,7 @@ module.exports = function withGradleJvmArgs(config) {
   return withDangerousMod(config, [
     "android",
     async (cfg) => {
-      const propsPath = path.join(
-        cfg.modRequest.projectRoot,
-        "android",
-        "gradle.properties",
-      );
+      const propsPath = path.join(cfg.modRequest.projectRoot, "android", "gradle.properties");
       try {
         let props = fs.existsSync(propsPath) ? fs.readFileSync(propsPath, "utf8") : "";
         if (/^\s*org\.gradle\.jvmargs\s*=/m.test(props)) {

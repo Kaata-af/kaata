@@ -153,10 +153,7 @@ export function ContactsPickerSheet(props: {
         // exactly the keyboard height, so the sheet always sits flush above
         // the soft keyboard regardless of content size. No KeyboardAvoidingView
         // = no per-frame resize jitter on Android.
-        style={[
-          styles.sheetContainer,
-          { bottom: keyboardHeight, transform: [{ translateY }] },
-        ]}
+        style={[styles.sheetContainer, { bottom: keyboardHeight, transform: [{ translateY }] }]}
         pointerEvents="box-none"
       >
         <SafeAreaView
@@ -177,91 +174,88 @@ export function ContactsPickerSheet(props: {
             },
           ]}
         >
-            <View style={styles.sheet} onStartShouldSetResponder={() => true}>
-              <View style={styles.grabber} />
-              <Text style={[styles.title, textDir(isRTL)]}>{t("contacts.title")}</Text>
+          <View style={styles.sheet} onStartShouldSetResponder={() => true}>
+            <View style={styles.grabber} />
+            <Text style={[styles.title, textDir(isRTL)]}>{t("contacts.title")}</Text>
 
-              {permission === "denied" ? (
-                <View style={styles.permissionBlock}>
-                  <Text style={styles.permissionTitle}>{t("contacts.permission.title")}</Text>
-                  <Text style={styles.permissionBody}>{t("contacts.permission.body")}</Text>
-                  <Pressable
-                    onPress={() => Linking.openSettings()}
-                    style={({ pressed }) => [styles.permissionBtn, pressed && { opacity: 0.85 }]}
-                  >
-                    <Text style={styles.permissionBtnText}>{t("contacts.permission.button")}</Text>
-                  </Pressable>
+            {permission === "denied" ? (
+              <View style={styles.permissionBlock}>
+                <Text style={styles.permissionTitle}>{t("contacts.permission.title")}</Text>
+                <Text style={styles.permissionBody}>{t("contacts.permission.body")}</Text>
+                <Pressable
+                  onPress={() => Linking.openSettings()}
+                  style={({ pressed }) => [styles.permissionBtn, pressed && { opacity: 0.85 }]}
+                >
+                  <Text style={styles.permissionBtnText}>{t("contacts.permission.button")}</Text>
+                </Pressable>
+              </View>
+            ) : contacts === null ? (
+              <View style={styles.centered}>
+                <ActivityIndicator color={colors.textDefault} />
+              </View>
+            ) : (
+              <>
+                <View style={[styles.searchWrap, rowDir(isRTL)]}>
+                  <Ionicons
+                    name="search"
+                    size={16}
+                    color={colors.textMuted}
+                    style={[styles.searchIcon, isRTL ? styles.searchIconRTL : styles.searchIconLTR]}
+                  />
+                  <TextInput
+                    style={[styles.searchInput, textDir(isRTL)]}
+                    value={query}
+                    onChangeText={setQuery}
+                    placeholder={t("contacts.search")}
+                    placeholderTextColor={colors.textMuted}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
                 </View>
-              ) : contacts === null ? (
-                <View style={styles.centered}>
-                  <ActivityIndicator color={colors.textDefault} />
-                </View>
-              ) : (
-                <>
-                  <View style={[styles.searchWrap, rowDir(isRTL)]}>
-                    <Ionicons
-                      name="search"
-                      size={16}
-                      color={colors.textMuted}
-                      style={[
-                        styles.searchIcon,
-                        isRTL ? styles.searchIconRTL : styles.searchIconLTR,
-                      ]}
-                    />
-                    <TextInput
-                      style={[styles.searchInput, textDir(isRTL)]}
-                      value={query}
-                      onChangeText={setQuery}
-                      placeholder={t("contacts.search")}
-                      placeholderTextColor={colors.textMuted}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                    />
-                  </View>
 
-                  <ScrollView
-                    keyboardShouldPersistTaps="handled"
-                    style={styles.list}
-                    contentContainerStyle={styles.listContent}
-                  >
-                    {filtered.length === 0 ? (
-                      <View style={styles.empty}>
-                        <Text style={styles.emptyText}>
-                          {contacts.length === 0
-                            ? t("contacts.empty.none")
-                            : t("contacts.empty.noMatch", { query: query.trim() })}
-                        </Text>
-                      </View>
-                    ) : (
-                      filtered.map((c, i) => {
-                        const phone = c.phoneNumbers?.[0]?.number;
-                        return (
-                          <Pressable
-                            key={`${c.name ?? "contact"}-${i}`}
-                            onPress={() => pick(c)}
-                            style={({ pressed }) => [
-                              styles.row,
-                              rowDir(isRTL),
-                              pressed && { backgroundColor: colors.bgMuted },
-                            ]}
-                          >
-                            <View style={styles.rowLeft}>
-                              <Text style={[styles.rowName, textDir(isRTL)]} numberOfLines={1}>
-                                {c.name ?? "—"}
-                              </Text>
-                              <Text style={[styles.rowSub, textDir(isRTL)]} numberOfLines={1}>
-                                {phone ?? t("contacts.noPhone")}
-                              </Text>
-                            </View>
-                          </Pressable>
-                        );
-                      })
-                    )}
-                  </ScrollView>
-                </>
-              )}
-            </View>
-          </SafeAreaView>
+                <ScrollView
+                  keyboardShouldPersistTaps="handled"
+                  style={styles.list}
+                  contentContainerStyle={styles.listContent}
+                >
+                  {filtered.length === 0 ? (
+                    <View style={styles.empty}>
+                      <Text style={styles.emptyText}>
+                        {contacts.length === 0
+                          ? t("contacts.empty.none")
+                          : t("contacts.empty.noMatch", { query: query.trim() })}
+                      </Text>
+                    </View>
+                  ) : (
+                    filtered.map((c, i) => {
+                      const phone = c.phoneNumbers?.[0]?.number;
+                      return (
+                        <Pressable
+                          key={`${c.name ?? "contact"}-${i}`}
+                          onPress={() => pick(c)}
+                          style={({ pressed }) => [
+                            styles.row,
+                            rowDir(isRTL),
+                            pressed && { backgroundColor: colors.bgMuted },
+                          ]}
+                        >
+                          <View style={styles.rowLeft}>
+                            <Text style={[styles.rowName, textDir(isRTL)]} numberOfLines={1}>
+                              {c.name ?? "—"}
+                            </Text>
+                            <Text style={[styles.rowSub, textDir(isRTL)]} numberOfLines={1}>
+                              {phone ?? t("contacts.noPhone")}
+                            </Text>
+                          </View>
+                        </Pressable>
+                      );
+                    })
+                  )}
+                </ScrollView>
+              </>
+            )}
+          </View>
+        </SafeAreaView>
       </Animated.View>
     </Modal>
   );
