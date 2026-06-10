@@ -187,10 +187,10 @@ export function MeshController() {
             const fg = await import("../lib/mesh/foreground");
             const body =
               s.activePeers === 0
-                ? "Looking for nearby phones over Bluetooth."
+                ? "Waiting for nearby phones to join…"
                 : s.activePeers === 1
-                  ? "Connected to 1 phone nearby."
-                  : `Connected to ${s.activePeers} phones nearby.`;
+                  ? "Syncing with 1 nearby phone"
+                  : `Syncing with ${s.activePeers} nearby phones`;
             await fg.updateShopModeNotification({ body });
           } catch (err) {
             if (__DEV__) console.warn("[mesh-ctl] updateShopModeNotification failed", err);

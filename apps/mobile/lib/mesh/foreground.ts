@@ -150,8 +150,15 @@ export async function startShopModeForegroundService(
   try {
     await notifee.default.displayNotification({
       id: SHOP_MODE_NOTIFICATION_ID,
-      title: opts?.title ?? "Kaata — Nearby sync active",
-      body: opts?.body ?? "Looking for nearby phones over Bluetooth.",
+      // Re-framed for v0.5.3 from "Nearby sync active" / "Looking for
+      // nearby phones over Bluetooth" — those described HOW (Bluetooth)
+      // not WHY (shopkeepers + staff sharing a ledger together). The new
+      // copy mirrors the user mental model: "I have my kaata open, my
+      // staff phone has it open too, our records line up." Title omits
+      // the "Kaata —" prefix because Android already renders the app name
+      // at the top of the notification — the prefix was redundant.
+      title: opts?.title ?? "Sharing your kaata nearby",
+      body: opts?.body ?? "Waiting for nearby phones to join…",
       android: {
         channelId: SHOP_MODE_CHANNEL_ID,
         // D-FOREGROUND-HARDEN: REQUIRED for the foreground-service
@@ -205,8 +212,8 @@ export async function updateShopModeNotification(opts: ShopModeNotificationOpts)
   try {
     await notifee.default.displayNotification({
       id: SHOP_MODE_NOTIFICATION_ID,
-      title: opts.title ?? "Kaata — Nearby sync active",
-      body: opts.body ?? "Looking for nearby phones over Bluetooth.",
+      title: opts.title ?? "Sharing your kaata nearby",
+      body: opts.body ?? "Waiting for nearby phones to join…",
       android: {
         channelId: SHOP_MODE_CHANNEL_ID,
         // D-FOREGROUND-HARDEN: same smallIcon contract as start — the

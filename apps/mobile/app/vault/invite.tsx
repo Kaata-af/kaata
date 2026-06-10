@@ -43,6 +43,7 @@ import {
 } from "../../components/SettingsScreen";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
+import { getSessionJWT } from "../../lib/auth";
 import { getActiveVaultId } from "../../lib/db-tx";
 import { getAppMeta } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
@@ -65,6 +66,13 @@ export default function VaultInviteScreen() {
 
   const [vaultId, setVaultId] = useState<string>("");
   const [accountId, setAccountId] = useState<string | null>(null);
+  // The actual "can call the API" gate: do we hold a valid JWT? Cached
+  // app_meta.account_id can be stale (e.g. legacy install written it but
+  // never bound, or a sign-in race where vault loaded before account_id
+  // landed in app_meta). The JWT is the only thing httpThrowing actually
+  // checks via requireJwt(), so we mirror that contract in the UI gate.
+  // `null` = unknown until the effect resolves.
+  const [hasJwt, setHasJwt] = useState<boolean | null>(null);
   const [email, setEmail] = useState("");
   const [emailError, setEmailError] = useState<string | null>(null);
   const [role, setRole] = useState<VaultRole>("editor");
@@ -89,8 +97,12 @@ export default function VaultInviteScreen() {
         return;
       }
       setVaultId(vid);
-      const accId = await getAppMeta("account_id");
+      const [accId, jwt] = await Promise.all([
+        getAppMeta("account_id"),
+        getSessionJWT().catch(() => null),
+      ]);
       setAccountId(accId);
+      setHasJwt(!!jwt);
     })();
     // Slight delay before focusing — pushed-screen slide-in needs to
     // finish or the soft keyboard never opens on Android (the recurring
@@ -129,7 +141,7 @@ export default function VaultInviteScreen() {
   async function onSubmit() {
     if (!canInvite) return;
     if (busy) return;
-    if (!accountId) {
+    if (!hasJwt) {
       // Email invites are server-mediated (the server holds the invite
       // token until the recipient signs in to accept) and the API requires
       // a Bearer JWT. A local-only user with no account_id can't reach
@@ -237,23 +249,23 @@ export default function VaultInviteScreen() {
             <View
               style={[
                 styles.disclosure,
-                online === false || !accountId ? styles.disclosureOffline : null,
+                online === false || hasJwt === false ? styles.disclosureOffline : null,
               ]}
             >
               <Ionicons
                 name={
-                  !accountId
+                  hasJwt === false
                     ? "person-circle-outline"
                     : online === false
                       ? "cloud-offline-outline"
                       : "information-circle-outline"
                 }
                 size={18}
-                color={online === false || !accountId ? colors.danger : colors.textSubtle}
+                color={online === false || hasJwt === false ? colors.danger : colors.textSubtle}
                 style={isRTL ? { marginLeft: 10 } : { marginRight: 10 }}
               />
               <Text style={[styles.disclosureText, textDir(isRTL)]}>
-                {!accountId
+                {hasJwt === false
                   ? t("invite.signInRequired")
                   : online === false
                     ? t("invite.offline.banner")
@@ -262,7 +274,7 @@ export default function VaultInviteScreen() {
             </View>
           ) : null}
 
-          {(online === false || !accountId) && !result ? (
+          {(online === false || hasJwt === false) && !result ? (
             <View style={styles.formInset}>
               <Pressable
                 onPress={() => router.replace("/vault/pair")}
@@ -324,7 +336,13 @@ export default function VaultInviteScreen() {
                   label={t("invite.submit")}
                   onPress={onSubmit}
                   loading={busy}
-                  disabled={!canInvite || online === false || online === null || !accountId}
+                  disabled={
+                    !canInvite ||
+                    online === false ||
+                    online === null ||
+                    hasJwt === false ||
+                    hasJwt === null
+                  }
                 />
               </View>
             </>
