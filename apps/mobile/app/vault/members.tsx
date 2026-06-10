@@ -40,7 +40,7 @@ import {
 import { queuePendingToast, useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { getActiveVaultId, getDb } from "../../lib/db-tx";
-import { getAppMeta } from "../../lib/db";
+import { getAppMeta, getLocalSelf } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
@@ -74,6 +74,18 @@ export default function VaultMembersScreen() {
 
   const [vaultId, setVaultId] = useState<string>("");
   const [accountId, setAccountId] = useState<string | null>(null);
+  // Local-self display name. For local-CA mode the `users` table doesn't
+  // have a row matching the synthesized account_id (`local:R%...`), so the
+  // existing LEFT JOIN returns NULL display_name and the UI fell back to
+  // the raw account_id. Use this self-name for the self row regardless.
+  const [selfName, setSelfName] = useState<string | null>(null);
+  // Local-CA self account id. In local-only mode getAppMeta("account_id")
+  // is null, so the standard `m.account_id === accountId` self-detection
+  // never matches — every row falls into the "unknown peer" branch and
+  // the user's own row shows the generic role label instead of their
+  // name. Computing buildLocalAccountId(devicePubkey) lets us match the
+  // mirror row that's actually self.
+  const [localSelfAccountId, setLocalSelfAccountId] = useState<string | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [pending, setPending] = useState<PendingInviteRow[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -96,6 +108,22 @@ export default function VaultMembersScreen() {
 
     const accId = await getAppMeta("account_id");
     setAccountId(accId);
+
+    // Lookup self's display name + local-CA self account id (see state
+    // comments above for why both are needed).
+    try {
+      const [self, devicePubkey, localVmc] = await Promise.all([
+        getLocalSelf(),
+        import("../../lib/mesh/device-key").then((m) => m.getDevicePubkey()),
+        import("../../lib/mesh/local-vmc"),
+      ]);
+      setSelfName(self?.name ?? null);
+      if (devicePubkey) {
+        setLocalSelfAccountId(localVmc.buildLocalAccountId(devicePubkey));
+      }
+    } catch {
+      setSelfName(null);
+    }
 
     const db = await getDb();
     const rows = await db.getAllAsync<{
@@ -338,15 +366,33 @@ export default function VaultMembersScreen() {
           <EmptyHint label={t("members.empty")} isRTL={isRTL} />
         ) : (
           members.map((m, i) => {
-            const isSelf = m.account_id === accountId;
+            // Self detection: match the signed-in account_id (server-anchored
+            // path) OR the local-CA self id derived from the device pubkey
+            // (local-only path). Without the second branch, local-only
+            // users' own row gets the generic role label instead of their
+            // name.
+            const isSelf = m.account_id === accountId || m.account_id === localSelfAccountId;
             const last = i === members.length - 1;
+            // Display name fallback (local-CA aware). The `users` LEFT
+            // JOIN can't resolve synthesized `local:R%abc…` account ids,
+            // so display_name comes back NULL for paired peers. Order:
+            //   1. users.display_name (server-anchored path)
+            //   2. users.email
+            //   3. selfName from getLocalSelf — only for the self row
+            //   4. role label ("Owner" / "Editor" / "Viewer") — better
+            //      than raw "local:R%…" for unknown peers
+            const roleLabel =
+              m.role === "owner"
+                ? t("vaultPair.role.owner")
+                : m.role === "editor"
+                  ? t("vaultPair.role.editor")
+                  : t("vaultPair.role.viewer");
+            const displayName =
+              m.display_name ?? m.email ?? (isSelf ? (selfName ?? roleLabel) : roleLabel);
             return (
               <MemberIdentityRow
                 key={m.account_id}
-                name={
-                  (m.display_name ?? m.email ?? shortAccount(m.account_id)) +
-                  (isSelf ? t("members.youSuffix") : "")
-                }
+                name={displayName + (isSelf ? t("members.youSuffix") : "")}
                 sub={m.email}
                 role={m.role}
                 isRTL={isRTL}

@@ -141,7 +141,13 @@ export default function VaultSettingsScreen() {
             WHERE vault_id = ? AND revoked_at IS NULL`,
           targetVaultId,
         );
-        setMemberCount(count?.n ?? 0);
+        // Same floor logic as useMembersCount in use-vault-summary.ts —
+        // an empty mirror in Phase 2 / local-only mode means "no rows yet"
+        // but the user IS a member of their own vault. Without this floor,
+        // settings shows "0 people" while the picker shows "1 member" and
+        // the two surfaces disagree.
+        const raw = count?.n ?? 0;
+        setMemberCount(raw === 0 ? 1 : raw);
       } catch (err) {
         console.warn("[vault/settings] load failed", err);
         toast.push(t("vaultSettings.toast.loadFailed"), "error");
