@@ -312,13 +312,29 @@ function parseAdvertisement(device: any): BLEPeerRaw | null {
       const bin = atob(mfgB64);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      if (bytes.length >= 2) {
+      // ble-plx Android exposes the FULL manufacturer AD field including
+      // the 2-byte little-endian company ID prefix (0xFF 0xFF in our case
+      // — see react-native-ble-advertiser broadcast(): bytes 0-1 = companyId).
+      // The payload we actually wrote starts at byte 2:
+      //   [0..1] company ID (skip)
+      //   [2]    capability_flags
+      //   [3]    vault_epoch_hint
+      //   [4..]  Nx4 vault hashes
+      // BEFORE THIS FIX we read bytes[0] as capabilityFlags (got 0xFF
+      // masked to 0x01), bytes[1] as vaultEpoch (got 0xFF), and bytes[2..]
+      // as vault hashes (got capability+epoch+partial real hash). Hashes
+      // never matched our vaultHashIndex → discovery emitted matchedVaultIds=[]
+      // → handleRoutedPeer silently returned before dialBLEPeer → no GATT
+      // connection → no handshake → no event propagation. The "Nearby
+      // sync active" notification just confirmed local advertiser/scanner
+      // started; no actual peer was ever found.
+      if (bytes.length >= 4) {
         // Mask to bits we KNOW about — refuse to honor capability bits the
         // peer set that we don't recognize. Prevents future-version peers
         // from accidentally instructing us via reserved bits.
-        capabilityFlags = bytes[0] & CAP_FLAGS_KNOWN_MASK;
-        vaultEpochHint = bytes[1];
-        const hashBytes = bytes.subarray(2);
+        capabilityFlags = bytes[2] & CAP_FLAGS_KNOWN_MASK;
+        vaultEpochHint = bytes[3];
+        const hashBytes = bytes.subarray(4);
         const hashCount = Math.min(Math.floor(hashBytes.length / 4), MAX_ADVERTISED_VAULT_HASHES);
         for (let i = 0; i < hashCount; i++) {
           const slice = hashBytes.subarray(i * 4, i * 4 + 4);

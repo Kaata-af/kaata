@@ -129,6 +129,16 @@ export default function VaultInviteScreen() {
   async function onSubmit() {
     if (!canInvite) return;
     if (busy) return;
+    if (!accountId) {
+      // Email invites are server-mediated (the server holds the invite
+      // token until the recipient signs in to accept) and the API requires
+      // a Bearer JWT. A local-only user with no account_id can't reach
+      // those endpoints. Surface a clear toast and route them to the QR
+      // pair flow instead of letting them tap Submit and get
+      // "POST /v1/vaults/.../invites: 401 — not signed in" as the toast.
+      toast.push(t("invite.signInRequired"), "error");
+      return;
+    }
     const err = validateEmail(email);
     if (err) {
       setEmailError(err);
@@ -145,12 +155,30 @@ export default function VaultInviteScreen() {
       toast.push(t("invite.created"), "success");
     } catch (e) {
       const msg = e instanceof Error ? e.message : t("invite.failed");
+      // Sanitize server error messages so the user doesn't see raw URLs
+      // like "POST /v1/vaults/<uuid>/invites: 404 — vault_not_found".
+      // Pattern-match on substrings the backend returns; fall back to a
+      // generic "couldn't send invite — try again" toast.
       if (msg.includes("already_invited") || msg.includes("already")) {
         setEmailError(t("invite.email.alreadyInvited"));
       } else if (msg.includes("already_member")) {
         setEmailError(t("invite.email.alreadyMember"));
+      } else if (msg.includes("not signed in") || msg.includes("401")) {
+        toast.push(t("invite.signInRequired"), "error");
+      } else if (
+        msg.includes("vault_not_found") ||
+        msg.includes("404") ||
+        msg.includes("403")
+      ) {
+        // The most common case for local-CA users who DID sign in once
+        // but never registered THIS vault with the server: the vault
+        // exists locally but the server has no record, so /v1/vaults/<id>
+        // returns 404. Tell them to sync first, or use QR pair.
+        toast.push(t("invite.vaultNotOnServer"), "error");
       } else {
-        toast.push(msg, "error");
+        // Generic fallback. Never surface the raw URL.
+        toast.push(t("invite.failed"), "error");
+        if (__DEV__) console.warn("[vault/invite] submit failed:", msg);
       }
     } finally {
       setBusy(false);
@@ -210,20 +238,35 @@ export default function VaultInviteScreen() {
               networks understand WHY this screen has a primary-
               disabled state before they tap submit. */}
           {!result ? (
-            <View style={[styles.disclosure, online === false ? styles.disclosureOffline : null]}>
+            <View
+              style={[
+                styles.disclosure,
+                online === false || !accountId ? styles.disclosureOffline : null,
+              ]}
+            >
               <Ionicons
-                name={online === false ? "cloud-offline-outline" : "information-circle-outline"}
+                name={
+                  !accountId
+                    ? "person-circle-outline"
+                    : online === false
+                      ? "cloud-offline-outline"
+                      : "information-circle-outline"
+                }
                 size={18}
-                color={online === false ? colors.danger : colors.textSubtle}
+                color={online === false || !accountId ? colors.danger : colors.textSubtle}
                 style={isRTL ? { marginLeft: 10 } : { marginRight: 10 }}
               />
               <Text style={[styles.disclosureText, textDir(isRTL)]}>
-                {online === false ? t("invite.offline.banner") : t("invite.online.banner")}
+                {!accountId
+                  ? t("invite.signInRequired")
+                  : online === false
+                    ? t("invite.offline.banner")
+                    : t("invite.online.banner")}
               </Text>
             </View>
           ) : null}
 
-          {online === false && !result ? (
+          {(online === false || !accountId) && !result ? (
             <View style={styles.formInset}>
               <Pressable
                 onPress={() => router.replace("/vault/pair")}
@@ -285,7 +328,9 @@ export default function VaultInviteScreen() {
                   label={t("invite.submit")}
                   onPress={onSubmit}
                   loading={busy}
-                  disabled={!canInvite || online === false || online === null}
+                  disabled={
+                    !canInvite || online === false || online === null || !accountId
+                  }
                 />
               </View>
             </>

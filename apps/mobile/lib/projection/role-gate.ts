@@ -458,6 +458,61 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
     }
   }
 
+  // ----------------------------------------------------------------------
+  // SELF-ADD carve-out for vault_member_added (Phase 6.1 interim).
+  //
+  // REQUIRED_ROLE['vault_member_added'] = 'owner', but the joiner-side
+  // pair-scan flow appends a vault_member_added FOR THEMSELVES (the
+  // joiner authors the membership event so it propagates to the owner
+  // via anti-entropy). The joiner is by definition NOT an owner at the
+  // time they author this event, so the gate would refuse with
+  // insufficient_role and Bug 2 (joiner doesn't appear on owner's
+  // Members tab) stays unfixed even after peer-VMC caching closes
+  // the unknown_actor leak.
+  //
+  // The principled fix is host-authored membership via the
+  // pair_claim/pair_grant wire (local-pair.ts consumePairToken — has
+  // ZERO callers today, blocked on Phase 6.1 BLE peripheral mode going
+  // beyond hello-handshake into a real claim/grant exchange).
+  //
+  // Interim carve-out: allow the joiner's own vault_member_added IFF:
+  //   1. event_type === 'vault_member_added'                        (scope)
+  //   2. payload.account_id === actorAccountId                      (self-add only,
+  //                                                                  not adding others)
+  //   3. NO prior vault_members_mirror row exists for this
+  //      (vault_id, account_id) pair — including revoked rows.      (anti-replay:
+  //                                                                  a removed
+  //                                                                  member cannot
+  //                                                                  re-add themselves)
+  //
+  // For origin='remote', this is AFTER signature verification (so we
+  // know the joiner actually authored the event with their private
+  // key). For origin='local', the device's own first-time self-add at
+  // pair time also benefits from this so the joiner's own UI shows
+  // the row immediately.
+  if (event.event_type === "vault_member_added") {
+    const payload = event.payload as { account_id?: string };
+    if (
+      typeof payload?.account_id === "string" &&
+      payload.account_id === actorAccountId
+    ) {
+      const existing = await tx.getFirstAsync<{ account_id: string }>(
+        `SELECT account_id FROM vault_members_mirror
+          WHERE vault_id = ? AND account_id = ?
+          LIMIT 1`,
+        event.vault_id,
+        actorAccountId,
+      );
+      if (existing == null) {
+        // First-ever self-add for this (vault, account). Permit.
+        return { ok: true };
+      }
+      // Prior row present — fall through to the normal owner-required
+      // check (which will refuse for an editor/viewer, preventing a
+      // removed member from re-adding themselves).
+    }
+  }
+
   // LOCAL-ONLY OWNER fallback. The founder constraint "local-only mode
   // must remain 100% functional" plus the local-CA model (device creator
   // is the trust anchor) means: when no account is bound, the device's

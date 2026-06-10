@@ -535,6 +535,55 @@ export async function cacheVMC(
   );
 }
 
+/**
+ * Cache a PEER's VMC into vault_credentials. Distinct from cacheVMC
+ * (which hardcodes getInstallIdSync() — our own device_id). Without this,
+ * role-gate.ts:lookupSignerCredential returns null for any remote event
+ * signer and the role-gate silently rejects with reason='unknown_actor'.
+ *
+ * Must be called from the mesh handshake AFTER the peer's VMC is
+ * cryptographically verified against the vault's trust anchor (or the
+ * server-pinned pubkey for server-anchored vaults). The peer device_id
+ * comes from peerHello (the install_id the peer reports during the
+ * mesh handshake; an attacker can spoof but only by re-signing the VMC,
+ * which the verification step rejected).
+ *
+ * Idempotent on (vault_id, device_id) via the same ON CONFLICT clause.
+ */
+export async function cachePeerVMC(args: {
+  vaultId: string;
+  peerDeviceId: string;
+  peerVmcBlob: string;
+  peerExpiresAt: number;
+  peerAccountId: string;
+  peerDevicePubkeyB64: string;
+  peerVaultEpoch: number;
+}): Promise<void> {
+  const db = await getDb();
+  const now = Date.now();
+  await db.runAsync(
+    `INSERT INTO vault_credentials
+       (vault_id, account_id, device_id, device_pubkey, vmc_blob,
+        issued_at, expires_at, vault_epoch)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (vault_id, device_id) DO UPDATE SET
+       account_id    = excluded.account_id,
+       device_pubkey = excluded.device_pubkey,
+       vmc_blob      = excluded.vmc_blob,
+       issued_at     = excluded.issued_at,
+       expires_at    = excluded.expires_at,
+       vault_epoch   = excluded.vault_epoch`,
+    args.vaultId,
+    args.peerAccountId,
+    args.peerDeviceId,
+    args.peerDevicePubkeyB64,
+    args.peerVmcBlob,
+    now,
+    args.peerExpiresAt,
+    args.peerVaultEpoch,
+  );
+}
+
 export async function getCachedVMC(vaultId: string): Promise<CachedVMC | null> {
   const db = await getDb();
   const deviceId = getInstallIdSync();

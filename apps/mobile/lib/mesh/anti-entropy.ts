@@ -84,6 +84,7 @@ import {
   type BleAeadContext,
 } from "./aead";
 import {
+  cachePeerVMC,
   decodeDevicePubkey,
   EXPIRY_SKEW_TOLERANCE_MS,
   getCachedVMC,
@@ -494,6 +495,8 @@ export async function runAntiEntropy(
       applied.applied,
       "duplicates=",
       applied.duplicates,
+      "roleGateRejected=",
+      applied.roleGateRejected,
       "peer.has_more=",
       inMsg.has_more,
     );
@@ -839,6 +842,43 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
   }
 
   conn.remoteDeviceId = peerVMC.device_id;
+
+  // Persist the peer's VMC into vault_credentials. Without this, every
+  // remote event the peer authors gets refused by role-gate.ts:401-415
+  // (lookupSignerCredential returns null for the peer's device_id →
+  // reason='unknown_actor'). The rejection is silent in logs (counted
+  // as 'duplicates++' in anti-entropy.ts) so the operator sees "sync
+  // successful" but no events propagate — exactly the v0.5.2 symptom.
+  // We're caching here, AFTER VMC verify + revocation + epoch + PoP all
+  // passed; the peer is fully authenticated and the binding (device_id
+  // → device_pubkey, account_id, role from vmc_blob) is trusted.
+  // Idempotent via ON CONFLICT (vault_id, device_id) DO UPDATE.
+  try {
+    await cachePeerVMC({
+      vaultId: peerVMC.vault_id,
+      peerDeviceId: peerVMC.device_id,
+      peerVmcBlob: peerHello.vmc_blob,
+      peerExpiresAt: peerVMC.expires_at_ms,
+      peerAccountId: peerVMC.account_id,
+      peerDevicePubkeyB64: peerVMC.device_pubkey,
+      peerVaultEpoch: peerVMC.vault_epoch,
+    });
+    console.log(
+      "[mesh.hs] peer VMC cached device=",
+      peerVMC.device_id.slice(0, 8),
+      "account=",
+      peerVMC.account_id.slice(0, 16),
+      "role=",
+      peerVMC.role,
+    );
+  } catch (err) {
+    // Non-fatal: handshake succeeded, AEAD is installed. If caching
+    // fails, role-gate will reject incoming events but the connection
+    // itself still works. Log loudly so the next operator review catches
+    // this — it indicates a SQLite write failure or schema drift.
+    console.warn("[mesh.hs] cachePeerVMC failed", err);
+  }
+
   return peerVMC;
 }
 
@@ -1209,9 +1249,14 @@ async function fetchNextBatch(
 async function applyIncomingBatch(
   expectedVaultId: string,
   events: WireMeshEvent[],
-): Promise<{ applied: number; duplicates: number }> {
+): Promise<{ applied: number; duplicates: number; roleGateRejected: number }> {
   let applied = 0;
   let duplicates = 0;
+  // role-gate refusals (the return-result path; throws are separately
+  // logged below). Without this counter, "duplicates++" hid the v0.5.2
+  // bug for an entire release cycle: events were silently dropped because
+  // peer VMCs weren't cached, but stats said "all good, just duplicates."
+  let roleGateRejected = 0;
 
   const sorted = [...events].sort((a, b) => compareHLC(a.hlc, b.hlc));
 
@@ -1250,6 +1295,18 @@ async function applyIncomingBatch(
       const result = await applyEvent(event, { origin: "remote" });
       if (result.applied) {
         applied++;
+      } else if (!result.applied && (result as { reason?: string }).reason === "role_gate") {
+        // The non-throwing role-gate path. Log loudly with the signer so
+        // operator can correlate to "peer X's events are being dropped"
+        // without needing to instrument applyEvent.
+        roleGateRejected++;
+        const signerShort =
+          typeof (w as { signer_device_pubkey?: string }).signer_device_pubkey === "string"
+            ? (w as { signer_device_pubkey: string }).signer_device_pubkey.slice(0, 12)
+            : "?";
+        console.warn(
+          `[mesh.delta] event REFUSED by role-gate (silent path) event=${w.event_id} type=${w.event_type} signer=${signerShort}…`,
+        );
       } else {
         duplicates++;
       }
@@ -1271,7 +1328,7 @@ async function applyIncomingBatch(
     }
   }
 
-  return { applied, duplicates };
+  return { applied, duplicates, roleGateRejected };
 }
 
 // ---------------------------------------------------------------------------

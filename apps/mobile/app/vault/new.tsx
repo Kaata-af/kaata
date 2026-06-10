@@ -54,7 +54,7 @@ import {
   setAppMetaInTx,
 } from "../../lib/db-tx";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
-import { appendShopProfileUpdated } from "../../lib/event-log";
+import { appendShopProfileUpdated, appendVaultMemberAdded } from "../../lib/event-log";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { ensureDeviceKey, getDevicePubkey } from "../../lib/mesh/device-key";
@@ -175,21 +175,33 @@ export default function VaultNewScreen() {
           now,
         );
 
-        // 3) vault_members_mirror — ONLY when signed in. The column is
-        //    NOT NULL; local-only installs have no account_id and rely on
-        //    useVaultRole's LOCAL_OWNER_DEFAULT fallback for the missing
-        //    mirror row. Server reconciliation will populate this row on
-        //    the next /v1/vaults pull after sign-in.
-        if (accountId) {
-          await db.runAsync(
-            `INSERT INTO vault_members_mirror
-               (vault_id, account_id, role, accepted_at, revoked_at)
-             VALUES (?, ?, 'owner', ?, NULL)`,
-            vaultId,
-            accountId,
-            now,
-          );
-        }
+        // 3) vault_members_mirror — ALWAYS insert, using the synthesized
+        //    local account id when the user isn't signed in. The
+        //    previous "if (accountId)" gate left local-only vaults with
+        //    NO mirror row, which:
+        //      (a) made vault/settings.tsx's COUNT(*) return 0 while
+        //          useMembersCount's floor returned 1 → UI inconsistency
+        //          (now both surfaces would read 1 from the real row).
+        //      (b) left role-gate.resolveRoleAt with no binding for the
+        //          OWNER's actor_account_id when remote events from
+        //          this owner reach a peer — peers would refuse the
+        //          owner's events because the owner isn't a member in
+        //          the peer's mirror. Combined with the missing
+        //          vault_member_added event for self (fixed below),
+        //          this is why peers never showed owner-authored
+        //          entries.
+        //    The mirror INSERT below is the LOCAL projection; the
+        //    appendVaultMemberAdded call after the txn emits the
+        //    corresponding event so peers learn the binding via mesh.
+        const ownerAccountId = accountId ?? buildLocalAccountId(trustAnchorPubkey);
+        await db.runAsync(
+          `INSERT INTO vault_members_mirror
+             (vault_id, account_id, role, accepted_at, revoked_at)
+           VALUES (?, ?, 'owner', ?, NULL)`,
+          vaultId,
+          ownerAccountId,
+          now,
+        );
 
         // 4) Flip active_vault_id INSIDE the txn so a write failure here
         //    rolls back the vault + shop_profile + mirror rows — no
@@ -245,6 +257,26 @@ export default function VaultNewScreen() {
         });
       } catch (err) {
         console.warn("[vault/new] shop_profile_updated emit failed", err);
+      }
+
+      // Emit a vault_member_added event for SELF (the vault creator,
+      // who is the owner). Without this, peers receiving entry/person/
+      // relationship events from this owner via mesh would hit
+      // role-gate.resolveRoleAt finding no binding for the owner's
+      // account_id → refuse with unknown_actor → events silently
+      // dropped (Bug 3: joiner sees the vault but no ledger entries).
+      // The local applier reaches role-gate's local-only fallback
+      // (origin='local' + actorAccountId=null → ok) so this is a no-op
+      // for the local mirror but materially fixes the mesh
+      // propagation path for both signed-in and local-CA owners.
+      try {
+        await appendVaultMemberAdded({
+          targetVaultId: vaultId,
+          accountId: accountId ?? buildLocalAccountId(trustAnchorPubkey),
+          role: "owner",
+        });
+      } catch (err) {
+        console.warn("[vault/new] vault_member_added emit failed", err);
       }
 
       // Fire-and-forget server registration. Skipped for local-only

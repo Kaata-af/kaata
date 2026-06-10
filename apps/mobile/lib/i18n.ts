@@ -731,6 +731,10 @@ const en = {
   "invite.offline.banner":
     "You're offline. Invite links need internet — try Add member for in-person setup.",
   "invite.offline.fallbackCta": "Open Add member instead",
+  "invite.signInRequired":
+    "Sign in with Google to send email invites. To add staff in person, use Add member.",
+  "invite.vaultNotOnServer":
+    "This Kaata hasn't synced to the server yet. Sync first to send email invites, or use Add member instead.",
 
   // Vault audit log — Phase 7 UX critique #8 (translated).
   "auditLog.title": "Activity",
@@ -1387,6 +1391,10 @@ const fa: Partial<Record<Key, string>> = {
   "invite.offline.banner":
     "آفلاین هستید. لینک‌های دعوت به اینترنت نیاز دارند — برای راه‌اندازی حضوری از «افزودن عضو» استفاده کنید.",
   "invite.offline.fallbackCta": "به جای آن «افزودن عضو» را باز کنید",
+  "invite.signInRequired":
+    "برای ارسال دعوت با ایمیل، با گوگل وارد شوید. برای افزودن حضوری از «افزودن عضو» استفاده کنید.",
+  "invite.vaultNotOnServer":
+    "این کاتا هنوز با سرور همگام نشده است. ابتدا همگام کنید یا از «افزودن عضو» استفاده کنید.",
 
   // Audit log — Persian
   "auditLog.title": "فعالیت",
