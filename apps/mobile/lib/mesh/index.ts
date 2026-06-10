@@ -815,9 +815,30 @@ async function handleRoutedPeer(routed: RoutedPeer, gen: number): Promise<void> 
   }
   if (!chosenVaultId || !cachedBlob) return;
 
-  // Pre-handshake dedup (best-effort) using the discovery-time short id.
-  // Post-handshake we re-key on the authenticated remoteDeviceId.
-  const inflightKey = `${peerInfo.installIdShort}:${chosenVaultId}`;
+  // Pre-handshake dedup.
+  //
+  // BUG (from handshake-fail-2.log): Android BLE uses MAC randomization
+  // (NRPA — non-resolvable private addresses) that rotates every ~500ms.
+  // The same physical phone advertises with a fresh MAC each tick, so
+  // `peerInfo.installIdShort` (derived from the MAC) was DIFFERENT every
+  // time the scanner emitted the peer. The previous inflightKey was
+  // therefore useless as a gate — every emit triggered a new dialBLEPeer
+  // which CANCELLED the previous in-flight dial at the BLE driver level
+  // (logged as "connectToDevice failed: Operation was cancelled"). No
+  // handshake ever completed. Symptom: menu.ble.peerHandshakeFailed toast
+  // 10-30s after pairing, after dozens of cancelled dials.
+  //
+  // Fix: for BLE, key the inflight gate ONLY on the vault. There can be
+  // at most one in-flight dial per (vault, this device) on BLE; if a
+  // second peer for the same vault comes in mid-handshake, drop it. The
+  // current in-flight handshake will succeed (or transient-fail and the
+  // next emit retries within 5s thanks to BUG-C). For mDNS the
+  // installIdShort is stable (service name, not MAC), so the legacy key
+  // is fine there.
+  const inflightKey =
+    routed.transport === "ble"
+      ? `ble:${chosenVaultId}`
+      : `${peerInfo.installIdShort}:${chosenVaultId}`;
   if (state.inflight.has(inflightKey)) return;
   state.inflight.add(inflightKey);
 
