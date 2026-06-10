@@ -23,9 +23,11 @@ import * as Crypto from "expo-crypto";
 // missing-role defaults to "editor" (safer than the legacy implicit
 // "owner" — a careless owner snapping a QR for staff shouldn't grant
 // owner-tier access by accident).
-export const PAIR_QR_VERSION = 2;
+export const PAIR_QR_VERSION = 3;
 export const PAIR_QR_TTL_MS = 5 * 60 * 1000;
-export const PAIR_QR_MAX_PAYLOAD_BYTES = 512;
+// v=3 carries device_pubkey + display_name in addition to v=2 fields, so
+// the payload grew. Existing payloads still fit comfortably under 512.
+export const PAIR_QR_MAX_PAYLOAD_BYTES = 768;
 
 /** Role offered by an owner-issued pair QR. Local-CA pair flow only —
  *  server-anchored flow ignores this field and always mints an owner-
@@ -35,12 +37,17 @@ export type PairQrRole = "owner" | "editor" | "viewer";
 export type PairQrPayload = {
   /**
    * Wire version. v=1 is the legacy schema (no role field; implicit
-   * owner). v=2 carries an explicit `role`. decodePairQr ACCEPTS both
-   * versions for forward compatibility — see decodePairQr for the
-   * legacy fallback (defaults role to "editor" when missing, the
-   * safer default).
+   * owner). v=2 carries an explicit `role`. v=3 (this version) adds
+   * issuer_device_pubkey + issuer_display_name so the SCANNER can
+   * pin the issuer's identity directly — enabling Briar-style
+   * bidirectional pair: each phone scans the other's QR, both ends
+   * end up with locally-pinned peer identities, and BLE handshake
+   * verifies peer signatures against the pinned pubkey (no VMC chain
+   * needed for local-CA). decodePairQr ACCEPTS v=1/v=2/v=3 for
+   * forward compatibility — see decodePairQr for the legacy fallback
+   * (defaults role to "editor" when missing).
    */
-  v: 1 | 2;
+  v: 1 | 2 | 3;
   vault_id: string;
   vault_name: string;
   issuer_account_id: string;
@@ -51,10 +58,9 @@ export type PairQrPayload = {
   /**
    * Phase 7 local-CA: base64-encoded 32-byte Ed25519 public key of the
    * vault's trust anchor (owner's device). When present, the scanner
-   * stores this into vaults.vault_trust_anchor_pubkey and uses it as
-   * the verifier key for mesh-handshake VMCs. Absent on Phase 5
-   * server-anchored vaults (back-compat). Additive — older scanners
-   * ignore the field silently.
+   * stores this into vaults.vault_trust_anchor_pubkey. Absent on
+   * Phase 5 server-anchored vaults (back-compat). Additive — older
+   * scanners ignore the field silently.
    */
   vault_trust_anchor_pubkey?: string;
   /**
@@ -67,6 +73,24 @@ export type PairQrPayload = {
    * (safer than legacy implicit owner) on decode. See decodePairQr.
    */
   role?: PairQrRole;
+  /**
+   * v=3 bidirectional pair: the issuer's Ed25519 device pubkey
+   * (base64-encoded 32-byte). When the scanner pins this into its
+   * local vault_credentials, the BLE handshake on that side can
+   * verify the issuer's PoP signatures directly — no VMC chain
+   * needed. This is what makes true offline mesh work for local-CA
+   * users without the deferred pair_claim/pair_grant wire.
+   *
+   * Required for v=3. Optional/absent for v<=2 (back-compat: v<=2
+   * scanners fall back to the legacy VMC-chain path).
+   */
+  issuer_device_pubkey?: string;
+  /**
+   * v=3: the issuer's chosen display name (so the OTHER side can
+   * render "Matee" instead of "local:abc…" in the Members tab).
+   * Required for v=3.
+   */
+  issuer_display_name?: string;
 };
 
 export type PairQrValidationResult =
@@ -106,10 +130,11 @@ export function decodePairQr(raw: string): PairQrValidationResult {
     return { ok: false, reason: "malformed" };
   }
   const obj = parsed as Record<string, unknown>;
-  // D-PAIR-WITH-ROLE: accept BOTH v=1 (legacy, no role field) and v=2
-  // (current, optional role). Anything else is "unsupported_version" so
-  // a future v=3 with a breaking change still surfaces a clean error.
-  if (obj.v !== 1 && obj.v !== 2) {
+  // Accept v=1 (legacy), v=2 (role-aware), v=3 (bidirectional pair w/
+  // issuer_device_pubkey + issuer_display_name). v=4+ surfaces as a
+  // clean unsupported_version error so the user gets "upgrade your app"
+  // instead of a silent malformed-reject.
+  if (obj.v !== 1 && obj.v !== 2 && obj.v !== 3) {
     return { ok: false, reason: "unsupported_version" };
   }
   const requiredStrings = [
@@ -137,6 +162,18 @@ export function decodePairQr(raw: string): PairQrValidationResult {
       typeof obj.role !== "string" ||
       (obj.role !== "owner" && obj.role !== "editor" && obj.role !== "viewer")
     ) {
+      return { ok: false, reason: "missing_field" };
+    }
+  }
+  // v=3 mandatory fields. For v<=2 these are absent and the scanner
+  // falls back to the legacy VMC-chain path (now that local-CA mesh has
+  // a working alternative this is preserved purely for back-compat with
+  // any QR generated before the v0.5.3 upgrade window).
+  if (obj.v === 3) {
+    if (typeof obj.issuer_device_pubkey !== "string" || obj.issuer_device_pubkey.length === 0) {
+      return { ok: false, reason: "missing_field" };
+    }
+    if (typeof obj.issuer_display_name !== "string" || obj.issuer_display_name.length === 0) {
       return { ok: false, reason: "missing_field" };
     }
   }

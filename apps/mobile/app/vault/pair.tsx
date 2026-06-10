@@ -35,6 +35,7 @@ import {
 } from "../../lib/mesh/pair-qr";
 import { getDevicePubkey } from "../../lib/mesh/device-key";
 import { buildLocalAccountId } from "../../lib/mesh/local-vmc";
+import { getLocalSelf } from "../../lib/db";
 import { registerVaultPairToken } from "../../lib/vault-api";
 
 type VaultLite = {
@@ -82,6 +83,15 @@ export default function VaultPairScreen() {
         const localIssuerId = devicePubkey
           ? buildLocalAccountId(devicePubkey)
           : `local:${getInstallIdSync().slice(0, 16)}`;
+        // v=3 (Briar-style bidirectional pair): include the OWNER's
+        // identity in the QR so the scanner can pin (device_pubkey,
+        // display_name) without waiting for the BLE handshake. The
+        // scanner uses the pinned device_pubkey at handshake time via
+        // verifyVMCAgainstPinnedPeer — that's what unblocks local-CA
+        // mesh sync end-to-end. Display name is for the Members tab
+        // (renders "Matee" instead of "local:abc…").
+        const self = await getLocalSelf();
+        const ownerDisplayName = (self?.name ?? "").trim() || "Owner";
         const next: PairQrPayload = {
           v: PAIR_QR_VERSION,
           vault_id: v.id,
@@ -102,6 +112,12 @@ export default function VaultPairScreen() {
           // vaults the server still issues an owner VMC; we include the
           // field anyway so a future server change is forward-compat.
           role: chosenRole,
+          // v=3: bidirectional pair fields. Required for v=3 QRs; the
+          // decoder enforces this. For server-anchored vaults we still
+          // include them so the scanner can use the pinned-peer path as
+          // a fallback (additive, no harm).
+          issuer_device_pubkey: devicePubkey ?? undefined,
+          issuer_display_name: ownerDisplayName,
         };
         // Phase 7: server-side token registration is ONLY required for
         // server-anchored vaults (where the scanner will hit

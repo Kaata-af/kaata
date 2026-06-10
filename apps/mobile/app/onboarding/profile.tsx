@@ -39,17 +39,19 @@ export default function OnboardingProfileScreen() {
   const router = useRouter();
   const isRTL = useIsRTL();
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
   const [shopName, setShopName] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
-  // Phase 7 D-VAULT-NAME-REQUIRED: shop (Kaata) name is now REQUIRED.
-  // Previously the field was optional and the vault defaulted to "My
-  // ledger" — founder rejected that. Every vault must have a
-  // user-chosen name.
-  const [shopError, setShopError] = useState<string | null>(null);
+  // v0.5.3: shop (Kaata) name is OPTIONAL. The user can install Kaata
+  // just to JOIN someone else's kaata — the "Join an existing kaata"
+  // link below skips vault creation entirely. When shop is left empty
+  // and the user taps Continue, a placeholder "My kaata" vault is minted
+  // so they have somewhere to land; they can rename it from settings.
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
   const nameRef = useRef<TextInput>(null);
+  const phoneRef = useRef<TextInput>(null);
   const shopRef = useRef<TextInput>(null);
 
   useEffect(() => {
@@ -69,46 +71,26 @@ export default function OnboardingProfileScreen() {
     return () => clearTimeout(t);
   }, []);
 
-  async function onSubmit() {
+  async function finalize(targetRoute: "/" | "/vault/pair-scan"): Promise<void> {
     const trimmedName = name.trim();
+    const trimmedPhone = phone.trim();
     const trimmedShop = shopName.trim();
 
-    // Validate BOTH fields up front so the user sees every error at once
-    // instead of fixing one, tapping submit, and discovering another.
-    let hasError = false;
     if (!trimmedName) {
       setNameError(t("onboardingProfile.nameRequired"));
-      hasError = true;
-    } else {
-      setNameError(null);
-    }
-    if (!trimmedShop) {
-      setShopError(t("onboardingProfile.shopRequired"));
-      hasError = true;
-    } else {
-      setShopError(null);
-    }
-    if (hasError) {
-      // Focus the first invalid field so the keyboard puts the user
-      // straight back to the action they need to take. Name first
-      // because it's above the shop field in tab order.
-      if (!trimmedName) nameRef.current?.focus();
-      else if (!trimmedShop) shopRef.current?.focus();
+      nameRef.current?.focus();
       return;
     }
+    setNameError(null);
 
     setSubmitError(null);
     setBusy(true);
     try {
-      // Phase 7: createSelfProfile now requires a non-empty trimmed
-      // shopName. The function throws on empty as a data-layer contract.
-      await createSelfProfile(trimmedName, trimmedShop);
+      await createSelfProfile(trimmedName, trimmedShop, trimmedPhone || null);
       await setAppMeta("onboarding_step", "done");
-      // Clear pending values so a later "reset all data + re-onboard"
-      // run doesn't carry stale Google email into the next session.
       await setAppMeta("onboarding_pending_name", "");
       await setAppMeta("onboarding_pending_email", "");
-      router.replace("/");
+      router.replace(targetRoute);
     } catch (err) {
       // createSelfProfile rarely throws — DB constraint violations are
       // the realistic case (e.g. a stale self user row from a partial
@@ -119,6 +101,19 @@ export default function OnboardingProfileScreen() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function onSubmit() {
+    await finalize("/");
+  }
+
+  async function onJoinExisting() {
+    // v0.5.3 "I'll join an existing kaata" path: create the local-self
+    // user (with whatever fields they filled in) and route directly to
+    // the QR scanner instead of home. The placeholder vault that
+    // createSelfProfile mints stays in the background — if they pair
+    // into someone else's kaata it gets switched as the active vault.
+    await finalize("/vault/pair-scan");
   }
 
   async function onBack() {
@@ -172,37 +167,40 @@ export default function OnboardingProfileScreen() {
             value={name}
             onChangeText={(s) => {
               setName(s);
-              // Clear error as soon as the user starts typing so it doesn't
-              // sit there nagging while they fix it.
               if (nameError) setNameError(null);
             }}
             placeholder={t("onboarding.name.placeholder")}
             autoCapitalize="words"
             returnKeyType="next"
-            onSubmitEditing={() => shopRef.current?.focus()}
+            onSubmitEditing={() => phoneRef.current?.focus()}
             submitBehavior="submit"
             error={nameError}
           />
 
           <FormField
+            ref={phoneRef}
+            label={t("onboarding.phone.label")}
+            value={phone}
+            onChangeText={setPhone}
+            placeholder={t("onboarding.phone.placeholder")}
+            keyboardType="phone-pad"
+            autoCorrect={false}
+            returnKeyType="next"
+            onSubmitEditing={() => shopRef.current?.focus()}
+            submitBehavior="submit"
+          />
+          <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("onboarding.phone.hint")}</Text>
+
+          <FormField
             ref={shopRef}
-            label={t("onboarding.shop.label")}
-            required
+            label={t("onboarding.shop.labelOptional")}
             value={shopName}
-            onChangeText={(s) => {
-              setShopName(s);
-              if (shopError) setShopError(null);
-            }}
-            onBlur={() => {
-              if (!shopName.trim()) {
-                setShopError(t("onboardingProfile.shopRequired"));
-              }
-            }}
+            onChangeText={setShopName}
             placeholder={t("onboarding.shop.placeholder")}
             returnKeyType="done"
             onSubmitEditing={onSubmit}
-            error={shopError}
           />
+          <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("onboarding.shop.hint")}</Text>
 
           {submitError ? (
             <Text style={[styles.submitError, textDir(isRTL)]} accessibilityLiveRegion="polite">
@@ -212,6 +210,17 @@ export default function OnboardingProfileScreen() {
 
           <View style={{ height: 12 }} />
           <Button label={t("onboardingProfile.continue")} onPress={onSubmit} loading={busy} />
+
+          <View style={{ height: 14 }} />
+          <Pressable
+            onPress={onJoinExisting}
+            disabled={busy}
+            style={({ pressed }) => [styles.joinLink, pressed && { opacity: 0.6 }]}
+          >
+            <Text style={[styles.joinLinkText, textDir(isRTL)]}>
+              {t("onboardingProfile.joinExisting")}
+            </Text>
+          </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -259,6 +268,24 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
   spacer: { height: 28 },
+  fieldHint: {
+    fontSize: 12,
+    fontFamily: fonts.sansRegular,
+    color: colors.textSubtle,
+    marginTop: 6,
+    marginBottom: 14,
+    lineHeight: 17,
+  },
+  joinLink: {
+    alignItems: "center",
+    paddingVertical: 10,
+  },
+  joinLinkText: {
+    fontSize: 14,
+    fontFamily: fonts.sansMedium,
+    color: colors.textSubtle,
+    textDecorationLine: "underline",
+  },
   submitError: {
     fontSize: 13,
     fontFamily: fonts.sansMedium,

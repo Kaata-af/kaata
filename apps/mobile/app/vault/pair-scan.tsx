@@ -25,9 +25,9 @@ import { textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { decodePairQr, type PairQrPayload, type PairQrRole } from "../../lib/mesh/pair-qr";
-import { verifyAndCacheVMC } from "../../lib/mesh/vmc";
+import { cachePeerVMC, cacheVMC, verifyAndCacheVMC } from "../../lib/mesh/vmc";
 import { getDevicePubkey } from "../../lib/mesh/device-key";
-import { buildLocalAccountId } from "../../lib/mesh/local-vmc";
+import { buildLocalAccountId, issueLocalVMC } from "../../lib/mesh/local-vmc";
 import { getInstallIdSync } from "../../lib/db-tx";
 import { issueVaultCredential } from "../../lib/vault-api";
 
@@ -260,11 +260,79 @@ export default function VaultPairScanScreen() {
       }
 
       if (isLocalCA) {
-        // Local-CA: we cannot fetch a VMC over the mesh until the
-        // BLE peripheral wire is shipped (Phase 6.1). Surface success
-        // here — the vault row + trust anchor are persisted so when
-        // the owner's device comes into range the handshake will
-        // verify a freshly-issued local VMC against the anchor.
+        // v0.5.3 BRIAR-STYLE BIDIRECTIONAL PAIR (this is the change that
+        // makes local-CA mesh actually WORK without Google sign-in).
+        //
+        // Two new pieces are wired here, both keyed to the v=3 QR fields
+        // (issuer_device_pubkey + issuer_display_name):
+        //
+        // (1) JOINER SELF-VMC. The joiner generates their own VMC signed
+        //     with their own device key (the same issueLocalVMC primitive
+        //     the owner uses at vault creation). They cache it via the
+        //     standard cacheVMC. When the joiner initiates a BLE
+        //     handshake, the OWNER receives this self-signed VMC and
+        //     verifies it against the joiner's pinned device_pubkey via
+        //     verifyVMCAgainstPinnedPeer (vmc.ts). No
+        //     pair_claim/pair_grant wire needed.
+        //
+        // (2) PIN THE OWNER. v=3 QRs carry issuer_device_pubkey — we
+        //     write a vault_credentials row for the owner using the
+        //     existing cachePeerVMC primitive (with the owner's vmc_blob
+        //     left empty as a placeholder; the BLE handshake will fill
+        //     it in via cachePeerVMC when the owner actually connects).
+        //     This is what role-gate.lookupSignerCredential needs to
+        //     find when the owner's events arrive over the mesh.
+        //
+        // Combined effect: BOTH sides have each other pinned, both can
+        // verify each other's events at role-gate AND BLE handshake,
+        // privacy is preserved (only the peer whose QR we scanned can
+        // pass either gate), and we don't need a separate peer_identities
+        // table — vault_credentials does the job.
+        const installId = getInstallIdSync();
+        const myDevicePubkey = getDevicePubkey();
+        if (myDevicePubkey && payload.vault_trust_anchor_pubkey) {
+          try {
+            const { blob, expiresAtMs } = await issueLocalVMC({
+              vaultId: payload.vault_id,
+              peerAccountId: effectiveAccountId,
+              peerDeviceId: installId,
+              peerDevicePubkey: myDevicePubkey,
+              role: offered.role,
+              vaultEpoch: 0,
+            });
+            // Cache as OUR OWN VMC (cacheVMC keys on getInstallIdSync()).
+            await cacheVMC(
+              payload.vault_id,
+              blob,
+              expiresAtMs,
+              effectiveAccountId,
+              myDevicePubkey,
+              0,
+            );
+          } catch (err) {
+            console.warn("[vault/pair-scan] self-VMC issue failed", err);
+          }
+        }
+        // Pin owner identity (v=3 QR). For v<=2 QRs we skip this and
+        // fall back to the legacy trust-anchor verification path — the
+        // owner's events still apply via role-gate if their VMC reaches
+        // us, just less robustly than the pinned path.
+        if (payload.issuer_device_pubkey && payload.issuer_install_id) {
+          try {
+            await cachePeerVMC({
+              vaultId: payload.vault_id,
+              peerDeviceId: payload.issuer_install_id,
+              peerVmcBlob: "",
+              peerExpiresAt: payload.expires_at_ms + 365 * 24 * 60 * 60 * 1000,
+              peerAccountId: payload.issuer_account_id,
+              peerDevicePubkeyB64: payload.issuer_device_pubkey,
+              peerVaultEpoch: 0,
+            });
+          } catch (err) {
+            console.warn("[vault/pair-scan] pin-owner failed", err);
+          }
+        }
+
         await setAppMeta("shop_mode_enabled", "1");
         await setActiveVaultId(payload.vault_id);
 

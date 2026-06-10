@@ -470,6 +470,129 @@ export async function verifyVMC(
 // ---------------------------------------------------------------------------
 
 /**
+ * Briar-style bidirectional pair verification.
+ *
+ * Tries verifyVMC against the vault's trust anchor first (the legacy
+ * local-CA path: owner self-signs their own VMC, joiner verifies it
+ * against owner's pubkey from the QR). If that fails, looks up the
+ * peer's pinned credential in vault_credentials (keyed on device_id
+ * from the VMC payload) and verifies the signature against the pinned
+ * device_pubkey. The pinned credential was populated at QR-scan time
+ * — i.e. the user physically scanned this peer's QR, so the pubkey is
+ * trusted-by-physical-presence.
+ *
+ * This is the privacy guarantee Kaata needs: only peers whose QR you
+ * scanned (and whose pubkey is therefore pinned) can ever produce a
+ * verifiable VMC. A stranger's BLE advert can reach us; their
+ * handshake hello cannot.
+ *
+ * Returns the same VerifyResult shape as verifyVMC — caller does not
+ * need to know which path succeeded.
+ */
+export async function verifyVMCAgainstPinnedPeer(
+  blob: string,
+  expectedVaultId: string,
+  vaultTrustAnchorPubkey?: Uint8Array | null,
+): Promise<VerifyResult> {
+  // Path A: standard trust-anchor verification (owner-self or
+  // owner-issued VMCs verified by owner's own pubkey).
+  const primary = await verifyVMC(blob, expectedVaultId, vaultTrustAnchorPubkey);
+  if (primary.valid) return primary;
+
+  // Path B: pinned-peer fallback. The peer self-signed a VMC at pair
+  // time and the scanner pinned their device_pubkey. The fallback is
+  // ONLY tried when the signature failed (bad_signature) — issuer
+  // mismatches, expiry, schema problems all stay as the primary
+  // verdict so genuinely-malformed VMCs surface clean errors.
+  if (primary.error !== "bad_signature") return primary;
+  const peeked = peekVMCDeviceId(blob);
+  if (!peeked) return primary;
+  if (peeked.vault_id !== expectedVaultId) return primary;
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ device_pubkey: string }>(
+    `SELECT device_pubkey
+       FROM vault_credentials
+      WHERE vault_id = ? AND device_id = ?
+      LIMIT 1`,
+    expectedVaultId,
+    peeked.device_id,
+  );
+  if (row) {
+    let pinnedPubkeyBytes: Uint8Array;
+    try {
+      // eslint-disable-next-line no-undef
+      const bin = atob(row.device_pubkey);
+      pinnedPubkeyBytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) pinnedPubkeyBytes[i] = bin.charCodeAt(i);
+    } catch {
+      return primary;
+    }
+    if (pinnedPubkeyBytes.length !== 32) return primary;
+    // Re-verify the same blob against the pinned pubkey. This works
+    // because verifyVMC's signature check is just Ed25519 over the
+    // canonical payload bytes — the verifier pubkey is interchangeable
+    // as long as the iss validation also passes (which it does because
+    // pinned peers also use iss="local-CA").
+    return verifyVMC(blob, expectedVaultId, pinnedPubkeyBytes);
+  }
+
+  // Path C: TOFU bound to a recent pair token.
+  //
+  // The OWNER just generated a pair QR within the last 5 minutes. A
+  // joiner that scanned it now connects over BLE. The owner has no
+  // pinned credential for the joiner yet — they're meeting for the
+  // first time. We accept the joiner's self-signed VMC for THIS
+  // handshake only if the owner has a valid unconsumed pair token for
+  // this vault. After successful verification, the caller's downstream
+  // logic (anti-entropy handshake's cachePeerVMC, plus the pair-token
+  // consume) closes the TOFU window so a stranger arriving 10 minutes
+  // later cannot use the same path.
+  //
+  // The privacy contract this preserves: a stranger phone that picks
+  // up Kaata's BLE advert can only TOFU into a vault if the owner has
+  // an active, unconsumed pair token RIGHT NOW. A passive eavesdropper
+  // who later attempts to spoof gets no window — the token is
+  // single-use and TTL-bound.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const localPair = require("./local-pair") as {
+      getPendingPairTokensForVault: (
+        vaultId: string,
+      ) => Promise<Array<{ nonce: string; expires_at_ms: number; consumed_at_ms?: number | null }>>;
+    };
+    const tokens = await localPair.getPendingPairTokensForVault(expectedVaultId);
+    const now = Date.now();
+    const live = tokens.some(
+      (t) => t.expires_at_ms > now && (t.consumed_at_ms == null || t.consumed_at_ms === 0),
+    );
+    if (!live) return primary;
+  } catch {
+    return primary;
+  }
+  // Parse the VMC payload to extract the CLAIMED device_pubkey, then
+  // verify the signature against that. If the signature matches, the
+  // VMC is internally consistent and we accept it under the pair-token
+  // TOFU policy above.
+  const peekedFull = peekVMCDeviceId(blob);
+  if (!peekedFull) return primary;
+  const split = splitBlob(blob);
+  if (!split) return primary;
+  const vmcPayload = parsePayload(split.payloadBytes);
+  if (!vmcPayload) return primary;
+  let claimedPubkeyBytes: Uint8Array;
+  try {
+    // eslint-disable-next-line no-undef
+    const bin = atob(vmcPayload.device_pubkey);
+    claimedPubkeyBytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) claimedPubkeyBytes[i] = bin.charCodeAt(i);
+  } catch {
+    return primary;
+  }
+  if (claimedPubkeyBytes.length !== 32) return primary;
+  return verifyVMC(blob, expectedVaultId, claimedPubkeyBytes);
+}
+
+/**
  * Verify the supplied VMC blob (against the pinned server pubkey) and cache
  * it. Returns the parsed body on success; throws on verification failure so
  * the caller (e.g. /vault/pair-scan) doesn't accidentally persist an

@@ -150,15 +150,17 @@ export async function startShopModeForegroundService(
   try {
     await notifee.default.displayNotification({
       id: SHOP_MODE_NOTIFICATION_ID,
-      // Re-framed for v0.5.3 from "Nearby sync active" / "Looking for
-      // nearby phones over Bluetooth" — those described HOW (Bluetooth)
-      // not WHY (shopkeepers + staff sharing a ledger together). The new
-      // copy mirrors the user mental model: "I have my kaata open, my
-      // staff phone has it open too, our records line up." Title omits
-      // the "Kaata —" prefix because Android already renders the app name
-      // at the top of the notification — the prefix was redundant.
-      title: opts?.title ?? "Sharing your kaata nearby",
-      body: opts?.body ?? "Waiting for nearby phones to join…",
+      // Privacy-aware framing: the copy must NOT imply broadcast to
+      // anyone nearby (the user explicitly rejected "Sharing your kaata
+      // nearby" — they pointed out a neighbour shop's phone could
+      // misread that as "Kaata is leaking my ledger to anything in
+      // range"). The TRUTH is: only phones you've pre-paired via QR
+      // can sync. The copy should reflect that controlled-trust model.
+      // "Connecting with your paired phones" makes the trust boundary
+      // explicit. Body during search frames it as a private session
+      // ("Waiting for your team to connect…") rather than open discovery.
+      title: opts?.title ?? "Connecting with your paired phones",
+      body: opts?.body ?? "Waiting for your team to connect…",
       android: {
         channelId: SHOP_MODE_CHANNEL_ID,
         // D-FOREGROUND-HARDEN: REQUIRED for the foreground-service
@@ -212,8 +214,8 @@ export async function updateShopModeNotification(opts: ShopModeNotificationOpts)
   try {
     await notifee.default.displayNotification({
       id: SHOP_MODE_NOTIFICATION_ID,
-      title: opts.title ?? "Sharing your kaata nearby",
-      body: opts.body ?? "Waiting for nearby phones to join…",
+      title: opts.title ?? "Connecting with your paired phones",
+      body: opts.body ?? "Waiting for your team to connect…",
       android: {
         channelId: SHOP_MODE_CHANNEL_ID,
         // D-FOREGROUND-HARDEN: same smallIcon contract as start — the

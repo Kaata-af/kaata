@@ -2209,21 +2209,34 @@ export async function getLocalSelf(): Promise<Self | null> {
   return row ?? null;
 }
 
-export async function createSelfProfile(name: string, shopName: string): Promise<void> {
-  // Phase 7 D-VAULT-NAME-REQUIRED: shopName is REQUIRED. The previous
-  // signature accepted `string | null` and fell back to "My ledger" for
-  // the vault name and to `name` for shop_profile.shop_name. Founder
-  // rejected this — every vault must have a user-chosen name. The caller
-  // (onboarding/profile.tsx) validates + trims; this throw is the
-  // data-layer contract that catches anything that slips past the UI.
+export async function createSelfProfile(
+  name: string,
+  shopName: string,
+  phone?: string | null,
+): Promise<void> {
+  // v0.5.3 Briar-style onboarding: shopName is now OPTIONAL (founder
+  // reversed the Phase 7 "always required" stance — too many users want
+  // to install Kaata to JOIN an existing kaata, not create one). When
+  // shopName is empty we still mint a default vault (so the user has
+  // somewhere to land if they DON'T pair into another kaata immediately)
+  // but with a generic name they can rename later. The "Join an existing
+  // kaata" path in profile.tsx routes the user straight to pair-scan
+  // and the placeholder vault gets used or replaced based on whether
+  // they pair into a remote vault or fall back to the local default.
+  //
+  // Phone is OPTIONAL — no OTP gate, no verification. It's stored in
+  // users.phone_e164 for future "search your contacts to add a person"
+  // matching but doesn't gate any flow.
   const trimmedName = name.trim();
-  const trimmedShop = shopName.trim();
+  const trimmedShop = (shopName ?? "").trim();
+  const trimmedPhone = (phone ?? "").trim();
   if (!trimmedName) {
     throw new Error("createSelfProfile: name is required");
   }
-  if (!trimmedShop) {
-    throw new Error("createSelfProfile: shopName is required");
-  }
+  // Empty shop name → mint a placeholder. The user sees this in the
+  // home header as "My kaata" until they either rename it (vault/settings)
+  // or pair into someone else's kaata (which becomes their active vault).
+  const effectiveShopName = trimmedShop || "My kaata";
   const db = await getDb();
   const now = Date.now();
   const userId = Crypto.randomUUID();
@@ -2263,8 +2276,9 @@ export async function createSelfProfile(name: string, shopName: string): Promise
 
   await db.withTransactionAsync(async () => {
     await db.runAsync(
-      "INSERT INTO users (id, display_name, is_local_self, created_at, updated_at) VALUES (?, ?, 1, ?, ?)",
+      "INSERT INTO users (id, phone_e164, display_name, is_local_self, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
       userId,
+      trimmedPhone || null,
       trimmedName,
       now,
       now,
@@ -2280,7 +2294,7 @@ export async function createSelfProfile(name: string, shopName: string): Promise
             vault_trust_anchor_pubkey)
          VALUES (?, ?, 'AFN', ?, ?, NULL, 1, NULL, NULL, 0, 0, 0, ?)`,
         vaultId,
-        trimmedShop,
+        effectiveShopName,
         now,
         now,
         trustAnchorPubkey, // null only when ensureDeviceKey above failed
@@ -2311,7 +2325,7 @@ export async function createSelfProfile(name: string, shopName: string): Promise
        VALUES (?, ?, ?, ?, ?)`,
       vaultId,
       trimmedName,
-      trimmedShop,
+      effectiveShopName,
       now,
       now,
     );
@@ -2369,7 +2383,7 @@ export async function createSelfProfile(name: string, shopName: string): Promise
     try {
       await appendShopProfileUpdated({
         vaultId,
-        changes: { shop_name: trimmedShop, owner_name: trimmedName },
+        changes: { shop_name: effectiveShopName, owner_name: trimmedName },
       });
     } catch (err) {
       // Best-effort: a transient failure here means the event log is missing

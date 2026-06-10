@@ -30,8 +30,15 @@ const en = {
   "onboarding.subtitle": "A quiet ledger between you and the people you trust.",
   "onboarding.name.label": "Your name",
   "onboarding.name.placeholder": "Sultan",
+  "onboarding.phone.label": "Phone number (optional)",
+  "onboarding.phone.placeholder": "+93 7…",
+  "onboarding.phone.hint":
+    "Used so staff can find you in their contacts when pairing. Not verified, not shared.",
   "onboarding.shop.label": "Store or business name",
+  "onboarding.shop.labelOptional": "Kaata name (optional)",
   "onboarding.shop.placeholder": "Shop Sultan",
+  "onboarding.shop.hint":
+    "Skip if you're joining an existing kaata. You can create or rename later.",
   "onboarding.continue": "Continue",
   "onboarding.nameRequired": "Name required",
 
@@ -59,6 +66,7 @@ const en = {
   "onboardingProfile.continue": "Continue",
   "onboardingProfile.nameRequired": "Please enter your name",
   "onboardingProfile.shopRequired": "Please name your Kaata",
+  "onboardingProfile.joinExisting": "I'll join an existing kaata instead",
 
   // Onboarding restore (inserted between auth and profile when the
   // backend has existing ledger state for the signed-in account).
@@ -797,8 +805,15 @@ const fa: Partial<Record<Key, string>> = {
   "onboarding.subtitle": "یک دفتر آرام میان شما و کسانی که اعتماد دارید.",
   "onboarding.name.label": "نام شما",
   "onboarding.name.placeholder": "سلطان",
+  "onboarding.phone.label": "شماره تلفون (اختیاری)",
+  "onboarding.phone.placeholder": "+93 7…",
+  "onboarding.phone.hint":
+    "برای اینکه کارمندان شما را در مخاطبین خود پیدا کنند. تأیید نمی‌شود و به اشتراک گذاشته نمی‌شود.",
   "onboarding.shop.label": "نام دکان یا تجارت",
+  "onboarding.shop.labelOptional": "نام کاتا (اختیاری)",
   "onboarding.shop.placeholder": "دکان سلطان",
+  "onboarding.shop.hint":
+    "اگر به کاتای موجود می‌پیوندید، رد کنید. بعداً می‌توانید بسازید یا نامگذاری کنید.",
   "onboarding.continue": "ادامه",
   "onboarding.nameRequired": "نام لازم است",
 
@@ -825,6 +840,7 @@ const fa: Partial<Record<Key, string>> = {
   "onboardingProfile.continue": "ادامه",
   "onboardingProfile.nameRequired": "لطفاً نام خود را وارد کنید",
   "onboardingProfile.shopRequired": "لطفاً برای کاتای خود نام بگذارید",
+  "onboardingProfile.joinExisting": "به جای آن به کاتای موجود می‌پیوندم",
 
   // Onboarding restore
   "onboardingRestore.title": "کاتای شما پیدا شد",

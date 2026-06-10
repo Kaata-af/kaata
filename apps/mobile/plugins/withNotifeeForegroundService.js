@@ -34,19 +34,28 @@ const { withAndroidManifest } = require("@expo/config-plugins");
 
 const SERVICE_NAME = "app.notifee.core.ForegroundService";
 const SERVICE_TYPE = "connectedDevice|dataSync";
-// stopWithTask=true tells Android to kill this foreground service when the
-// task it belongs to (the app's task) is removed. Without it, the OS treats
-// the FGS as a long-lived background obligation and auto-restarts it after
-// the app is killed/swiped/OOM-evicted. That restart spawns the service
-// BEFORE the JS bundle has loaded and registered notifee.registerForegroundService —
-// the service has 5s to call Service.startForeground() and can't, so Android
-// fires ForegroundServiceDidNotStartInTimeException and force-kills the
-// process. Every subsequent launch hits the same auto-restart, producing an
-// infinite "app crashes on open" loop. Setting stopWithTask=true makes the
-// service die with the task (Nearby sync gracefully ends when you close the
-// app) — restarting is the user's explicit choice on next launch, which
-// gives JS time to register its callback first.
-const STOP_WITH_TASK = "true";
+// stopWithTask=false (v0.5.3 reversal of the v0.5.2 fix): the user
+// expects Briar-like behaviour — when they swipe Kaata out of recents,
+// the "Connecting with your paired phones" notification should KEEP
+// running, the BLE mesh should keep listening, so a staff phone joining
+// the shop later can sync without the shopkeeper re-opening the app.
+//
+// The original v0.5.2 crash that drove stopWithTask=true was the OS
+// auto-restarting an orphaned FGS BEFORE the JS bundle could register
+// the notifee callback. That issue is now addressed from a different
+// angle: lib/mesh/index.ts:stopShopMode gates the
+// notifee.stopForegroundService() call on `wasRunning` (the JS-init
+// defensive cleanup that used to spawn a HeadlessJS task and trip
+// MIUI is gone), so the only thing that touches the FGS lifecycle is
+// the user's explicit toggle. With that gate in place, auto-restart
+// hits a JS layer that's ready for it.
+//
+// Trade-off accepted: an OS-killed FGS that auto-restarts BEFORE JS
+// loads (the 5s startForeground timeout window) can still crash on
+// very low-end devices. A native AndroidService that doesn't depend
+// on a JS callback (drop notifee for the FGS layer) is the real long-
+// term fix; flagged as 0.5.4 work.
+const STOP_WITH_TASK = "false";
 
 module.exports = function withNotifeeForegroundService(config) {
   return withAndroidManifest(config, (cfg) => {

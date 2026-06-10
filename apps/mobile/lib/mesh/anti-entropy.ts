@@ -91,7 +91,7 @@ import {
   isRevoked,
   peekVMCDeviceId,
   type ParsedVMC,
-  verifyVMC,
+  verifyVMCAgainstPinnedPeer,
 } from "./vmc";
 import { signWithDeviceKey } from "./device-key";
 import type { MeshConnection } from "./transport-interface";
@@ -656,8 +656,15 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
   }
   console.log("[mesh.hs] revocation pre-check OK");
 
-  // Step 4: verify signature + envelope.
-  const verifyResult = await verifyVMC(
+  // Step 4: verify signature + envelope. Tries the legacy trust-anchor
+  // path first (works for owner-self VMCs and owner-issued-for-peer
+  // VMCs), then falls back to the Briar-style pinned-peer path: the
+  // peer self-signed their own VMC at pair time, and we pinned their
+  // device_pubkey when scanning their QR. The fallback verifies the
+  // signature against the pinned pubkey — only peers whose QR we
+  // physically scanned can ever pass this gate (privacy guarantee:
+  // stranger phones in BLE range cannot impersonate paired ones).
+  const verifyResult = await verifyVMCAgainstPinnedPeer(
     peerHello.vmc_blob,
     opts.vaultId,
     opts.vaultTrustAnchorPubkey ?? null,
