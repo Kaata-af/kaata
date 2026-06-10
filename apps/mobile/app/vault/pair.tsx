@@ -128,13 +128,21 @@ export default function VaultPairScreen() {
         if (!v.vault_trust_anchor_pubkey && accId) {
           await registerVaultPairToken(v.id, token, expires);
         }
-        // Persist the token locally so a future "list outstanding pair
-        // codes" UI (or a GC sweep) can render it. The list is pruned
-        // of expired entries on every read.
+        // Persist the token locally with the SAME shape that
+        // lib/mesh/local-pair.ts's PendingPairToken / isPendingPairToken
+        // expects, so vmc.ts:verifyVMCAgainstPinnedPeer can find it when
+        // the joiner connects over BLE and trigger the pair-token-bound
+        // TOFU window (5 min after QR issue). Without the canonical
+        // shape this list comes back empty from
+        // getPendingPairTokensForVault and the BLE handshake refuses
+        // the joiner silently.
         await persistPendingPairToken({
-          token,
+          nonce: token,
           vault_id: v.id,
+          vault_name: v.name,
+          issued_at_ms: now,
           expires_at_ms: expires,
+          role: chosenRole,
         });
         setPayload(next);
         setSecondsLeft(Math.floor(PAIR_QR_TTL_MS / 1000));
@@ -432,12 +440,22 @@ function formatCountdown(seconds: number): string {
 }
 
 // Pending-pair-token store. Used to track outstanding tokens the owner
-// has minted. Each read GCs expired entries so the list doesn't grow
-// without bound.
+// has minted. The on-disk schema MUST match lib/mesh/local-pair.ts's
+// PendingPairToken type, because that module's getPendingPairTokensForVault
+// is the canonical read path (the v=3 BLE handshake's pair-token-bound
+// TOFU in vmc.ts:verifyVMCAgainstPinnedPeer calls it). If the field
+// names diverge — as they did between v0.5.2 and the fix below —
+// local-pair.ts's strict isPendingPairToken validator silently drops
+// every token this file writes, the TOFU never sees a live token, and
+// the owner refuses the joiner's BLE handshake. Symptom: joiner pairs
+// fine locally, owner sees nothing, no error.
 type PendingPairToken = {
-  token: string;
+  nonce: string; // was "token" before v0.5.3 — renamed to match local-pair.ts
   vault_id: string;
+  vault_name: string;
+  issued_at_ms: number;
   expires_at_ms: number;
+  role?: PairQrRole;
 };
 
 const PENDING_PAIR_TOKENS_KEY = "pending_pair_tokens";
@@ -454,8 +472,10 @@ async function persistPendingPairToken(t: PendingPairToken): Promise<void> {
           if (
             e &&
             typeof e === "object" &&
-            typeof e.token === "string" &&
+            typeof e.nonce === "string" &&
             typeof e.vault_id === "string" &&
+            typeof e.vault_name === "string" &&
+            typeof e.issued_at_ms === "number" &&
             typeof e.expires_at_ms === "number" &&
             e.expires_at_ms > now
           ) {
@@ -468,8 +488,8 @@ async function persistPendingPairToken(t: PendingPairToken): Promise<void> {
       list = [];
     }
   }
-  // Replace any existing entry for the same vault+token; otherwise append.
-  const filtered = list.filter((e) => !(e.vault_id === t.vault_id && e.token === t.token));
+  // Replace any existing entry for the same vault+nonce; otherwise append.
+  const filtered = list.filter((e) => !(e.vault_id === t.vault_id && e.nonce === t.nonce));
   filtered.push(t);
   await setAppMeta(PENDING_PAIR_TOKENS_KEY, JSON.stringify(filtered));
 }
