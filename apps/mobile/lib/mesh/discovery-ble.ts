@@ -181,8 +181,26 @@ export async function startBle(opts: StartBleOpts): Promise<() => Promise<void>>
   const startScan = () => {
     if (stopped) return;
     try {
+      // CRITICAL: scan with a null UUID filter, NOT [KAATA_MESH_SERVICE_UUID].
+      //
+      // react-native-ble-advertiser's broadcast() takes our service-UUID
+      // string as its first arg but DOES NOT put that UUID into the
+      // advertising data on the wire — it only emits manufacturer-
+      // specific data (2-byte little-endian company ID + payload bytes).
+      // ble-plx's startDeviceScan with a service-UUID filter then
+      // filters out EVERY one of our adverts because the scan layer
+      // only sees the manufacturer data, never the service UUID. Net
+      // result: notification says "Nearby sync active" but the scanner
+      // silently sees zero peers — confirmed via logcat on a v0.5.3
+      // build (~75s of scan, no parseAdvertisement callback ever fired).
+      //
+      // The right answer is null filter + parseAdvertisement does the
+      // payload-shape filtering downstream. Strangers' manufacturer
+      // data produces garbage vault hashes that don't match our index
+      // (emit with matchedVaultIds=[] → silently dropped), so the noise
+      // floor stays bounded even in a busy BLE environment.
       manager.startDeviceScan(
-        [KAATA_MESH_SERVICE_UUID],
+        null,
         { allowDuplicates: false },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (error: any, device: any) => {
