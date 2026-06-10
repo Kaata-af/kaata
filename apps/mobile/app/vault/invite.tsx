@@ -165,11 +165,7 @@ export default function VaultInviteScreen() {
         setEmailError(t("invite.email.alreadyMember"));
       } else if (msg.includes("not signed in") || msg.includes("401")) {
         toast.push(t("invite.signInRequired"), "error");
-      } else if (
-        msg.includes("vault_not_found") ||
-        msg.includes("404") ||
-        msg.includes("403")
-      ) {
+      } else if (msg.includes("vault_not_found") || msg.includes("404") || msg.includes("403")) {
         // The most common case for local-CA users who DID sign in once
         // but never registered THIS vault with the server: the vault
         // exists locally but the server has no record, so /v1/vaults/<id>
@@ -328,9 +324,7 @@ export default function VaultInviteScreen() {
                   label={t("invite.submit")}
                   onPress={onSubmit}
                   loading={busy}
-                  disabled={
-                    !canInvite || online === false || online === null || !accountId
-                  }
+                  disabled={!canInvite || online === false || online === null || !accountId}
                 />
               </View>
             </>

@@ -492,10 +492,7 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
   // the row immediately.
   if (event.event_type === "vault_member_added") {
     const payload = event.payload as { account_id?: string };
-    if (
-      typeof payload?.account_id === "string" &&
-      payload.account_id === actorAccountId
-    ) {
+    if (typeof payload?.account_id === "string" && payload.account_id === actorAccountId) {
       const existing = await tx.getFirstAsync<{ account_id: string }>(
         `SELECT account_id FROM vault_members_mirror
           WHERE vault_id = ? AND account_id = ?
