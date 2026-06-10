@@ -860,31 +860,47 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
   // passed; the peer is fully authenticated and the binding (device_id
   // → device_pubkey, account_id, role from vmc_blob) is trusted.
   // Idempotent via ON CONFLICT (vault_id, device_id) DO UPDATE.
-  try {
-    await cachePeerVMC({
-      vaultId: peerVMC.vault_id,
-      peerDeviceId: peerVMC.device_id,
-      peerVmcBlob: peerHello.vmc_blob,
-      peerExpiresAt: peerVMC.expires_at_ms,
-      peerAccountId: peerVMC.account_id,
-      peerDevicePubkeyB64: peerVMC.device_pubkey,
-      peerVaultEpoch: peerVMC.vault_epoch,
-    });
-    console.log(
-      "[mesh.hs] peer VMC cached device=",
-      peerVMC.device_id.slice(0, 8),
-      "account=",
-      peerVMC.account_id.slice(0, 16),
-      "role=",
-      peerVMC.role,
-    );
-  } catch (err) {
-    // Non-fatal: handshake succeeded, AEAD is installed. If caching
-    // fails, role-gate will reject incoming events but the connection
-    // itself still works. Log loudly so the next operator review catches
-    // this — it indicates a SQLite write failure or schema drift.
-    console.warn("[mesh.hs] cachePeerVMC failed", err);
+  // Retry the cache write up to 3x with backoff: a transient SQLite
+  // busy (e.g. concurrent backup) used to be silently swallowed below,
+  // leaving the handshake "successful" but every incoming event refused
+  // at the role-gate as unknown_actor. Loud-fail on persistent failure
+  // so the connection closes cleanly and discovery retries on the next
+  // emit (allowDuplicates: true post-BUG-C makes that effective).
+  let cacheErr: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await cachePeerVMC({
+        vaultId: peerVMC.vault_id,
+        peerDeviceId: peerVMC.device_id,
+        peerVmcBlob: peerHello.vmc_blob,
+        peerExpiresAt: peerVMC.expires_at_ms,
+        peerAccountId: peerVMC.account_id,
+        peerDevicePubkeyB64: peerVMC.device_pubkey,
+        peerVaultEpoch: peerVMC.vault_epoch,
+      });
+      cacheErr = null;
+      break;
+    } catch (err) {
+      cacheErr = err;
+      // 50ms, 150ms backoff. Any SQLite busy retry resolves well within
+      // this; persistent failure is a real bug.
+      await new Promise((r) => setTimeout(r, 50 * (attempt + 1) ** 2));
+    }
   }
+  if (cacheErr) {
+    throw new MeshHandshakeError(
+      `cachePeerVMC failed after 3 attempts: ${(cacheErr as Error).message}`,
+      "transport",
+    );
+  }
+  console.log(
+    "[mesh.hs] peer VMC cached device=",
+    peerVMC.device_id.slice(0, 8),
+    "account=",
+    peerVMC.account_id.slice(0, 16),
+    "role=",
+    peerVMC.role,
+  );
 
   return peerVMC;
 }

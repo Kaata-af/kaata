@@ -279,6 +279,18 @@ export default function VaultNewScreen() {
         console.warn("[vault/new] vault_member_added emit failed", err);
       }
 
+      // BUG-A: tell mesh the vault set changed so the new vault's
+      // hash is added to BLE advertising AND so peers' advertisements
+      // for it can be matched. Without this, the just-created vault
+      // is invisible until Nearby sync is toggled off/on. No-op when
+      // mesh isn't running.
+      try {
+        const mesh = await import("../../lib/mesh");
+        await mesh.notifyVaultSetChanged();
+      } catch (err) {
+        console.warn("[vault/new] notifyVaultSetChanged failed", err);
+      }
+
       // Fire-and-forget server registration. Skipped for local-only
       // installs; deferred to the next sign-in + sync. Phase 7: we
       // also send the trust anchor pubkey so the server can publish

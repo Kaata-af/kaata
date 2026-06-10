@@ -121,6 +121,14 @@ export async function startBle(opts: StartBleOpts): Promise<() => Promise<void>>
   let emitTimestamps: number[] = [];
   const seenDevices = new Map<string, number>();
   let circuitTripped = false;
+  // BUG-C: with allowDuplicates: true the scanner emits a callback for
+  // every advertising packet (~500ms cadence). We don't want to call
+  // onPeerFound that often — handleRoutedPeer would attempt a dial on
+  // every callback. Per-device suppression of 5s keeps the throughput
+  // bounded while still allowing rapid retry after a transient failure
+  // (vs. the prior 20-minute scan-restart penalty under allowDuplicates: false).
+  const lastEmitByDevice = new Map<string, number>();
+  const PER_DEVICE_EMIT_INTERVAL_MS = 5_000;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let manager: any = null;
@@ -139,8 +147,25 @@ export async function startBle(opts: StartBleOpts): Promise<() => Promise<void>>
 
   const emit = (peer: BLEPeerRaw) => {
     if (stopped || circuitTripped) return;
-    // Rate limit.
     const now = Date.now();
+    // Per-device 5s suppression — drop the K-th packet from the same
+    // peer within the window. Keeps emit rate bounded under
+    // allowDuplicates: true without giving up the "retry promptly
+    // after a transient failure" property the bug fix is meant to
+    // restore.
+    const lastEmit = lastEmitByDevice.get(peer.deviceId);
+    if (lastEmit != null && now - lastEmit < PER_DEVICE_EMIT_INTERVAL_MS) {
+      return;
+    }
+    lastEmitByDevice.set(peer.deviceId, now);
+    // Garbage-collect stale per-device entries to bound the map.
+    if (lastEmitByDevice.size > 256) {
+      const cutoff = now - 2 * PER_DEVICE_EMIT_INTERVAL_MS;
+      for (const [id, ts] of lastEmitByDevice) {
+        if (ts < cutoff) lastEmitByDevice.delete(id);
+      }
+    }
+    // Rate limit (global, across all devices).
     emitTimestamps = emitTimestamps.filter((t) => now - t < 1_000);
     if (emitTimestamps.length >= BLE_TUNABLES.MAX_EMITS_PER_SECOND) return;
     emitTimestamps.push(now);
@@ -201,7 +226,15 @@ export async function startBle(opts: StartBleOpts): Promise<() => Promise<void>>
       // floor stays bounded even in a busy BLE environment.
       manager.startDeviceScan(
         null,
-        { allowDuplicates: false },
+        // BUG-C: allowDuplicates: true — emit a callback for every
+        // advertising packet (~500ms cadence). Without this, the
+        // scanner emits each peer exactly once per 20-min scan
+        // restart, so any transient failure on first sighting
+        // (vault index stale, pair token not yet persisted, MTU
+        // race, CCCD race) becomes terminal until the next restart.
+        // The PER_DEVICE_EMIT_INTERVAL_MS guard above bounds the
+        // emit rate to 1 per peer per 5s.
+        { allowDuplicates: true },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (error: any, device: any) => {
           if (stopped) return;
@@ -324,7 +357,13 @@ function parseAdvertisement(device: any): BLEPeerRaw | null {
   let vaultEpochHint = 0;
   let vaultHashes: string[] = [];
   const mfgB64: string | undefined = device.manufacturerData;
-  if (typeof mfgB64 === "string" && mfgB64.length > 0) {
+  // BUG-F: hard-require manufacturer data. Without it we cannot
+  // distinguish a stranger phone from a Kaata peer, so emitting it
+  // would inflate seenDevices and trip the 200-device circuit breaker
+  // in any reasonable BLE environment (foot traffic, beacons, etc).
+  if (typeof mfgB64 !== "string" || mfgB64.length === 0) return null;
+  let fingerprintOk = false;
+  {
     try {
       // eslint-disable-next-line no-undef
       const bin = atob(mfgB64);
@@ -346,11 +385,23 @@ function parseAdvertisement(device: any): BLEPeerRaw | null {
       // connection → no handshake → no event propagation. The "Nearby
       // sync active" notification just confirmed local advertiser/scanner
       // started; no actual peer was ever found.
-      if (bytes.length >= 4) {
-        // Mask to bits we KNOW about — refuse to honor capability bits the
-        // peer set that we don't recognize. Prevents future-version peers
-        // from accidentally instructing us via reserved bits.
-        capabilityFlags = bytes[2] & CAP_FLAGS_KNOWN_MASK;
+      // BUG-F: Kaata fingerprint check. After removing the service-UUID
+      // filter (the scanner now sees EVERY BLE advert in range), this
+      // gate is what prevents stranger phones (AirPods, Mi-Bands, beacons,
+      // other apps' adverts) from inflating seenDevices and tripping the
+      // circuit breaker after 200 distinct MACs. Two requirements:
+      //   1. manufacturer ID matches Kaata's (0xFFFF little-endian).
+      //   2. capability_flags reserved bits are zero (our known mask).
+      // A peer that fails this fingerprint is silently dropped BEFORE
+      // it touches seenDevices — only legitimate Kaata adverts count
+      // toward the breaker.
+      if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xff) {
+        const rawCap = bytes[2];
+        // Reserved bits set → future protocol version OR a non-Kaata
+        // peer that happens to use 0xFFFF (the unassigned test
+        // company ID). Either way: drop.
+        if ((rawCap & ~CAP_FLAGS_KNOWN_MASK) !== 0) return null;
+        capabilityFlags = rawCap & CAP_FLAGS_KNOWN_MASK;
         vaultEpochHint = bytes[3];
         const hashBytes = bytes.subarray(4);
         const hashCount = Math.min(Math.floor(hashBytes.length / 4), MAX_ADVERTISED_VAULT_HASHES);
@@ -362,11 +413,13 @@ function parseAdvertisement(device: any): BLEPeerRaw | null {
           }
           vaultHashes.push(hex);
         }
+        fingerprintOk = true;
       }
     } catch {
-      // Malformed mfg data — emit with whatever we have so far.
+      // atob failed — corrupt b64. Drop.
     }
   }
+  if (!fingerprintOk) return null;
   return {
     kind: "ble",
     deviceId: device.id,

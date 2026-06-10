@@ -147,7 +147,14 @@ export function invalidateRoleGateCache(vaultId?: string): void {
     roleCache.clear();
     return;
   }
-  const prefix = `${vaultId} `;
+  // SEPARATOR MUST MATCH cacheKey() above — NUL ("\0"), not space.
+  // The prefix-based per-vault eviction was a no-op for years because
+  // this used " " while cacheKey() built with "\0". Effect: after a
+  // role demotion landed, the next event in the same delta batch passed
+  // a stale cached role check → silent privilege-escalation by timing.
+  // The roleCache.clear() path (vaultId == null) still worked because
+  // it doesn't rely on the separator.
+  const prefix = `${vaultId}\0`;
   for (const k of Array.from(roleCache.keys())) {
     if (k.startsWith(prefix)) roleCache.delete(k);
   }

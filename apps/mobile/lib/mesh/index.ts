@@ -162,10 +162,24 @@ function onPeerFoundMdns(handler: (peer: MdnsDiscoveredPeer) => void): () => voi
 type RunState = {
   running: boolean;
   generation: number;
-  /** Post-handshake connections (key = `${remoteDeviceId}:${vaultId}`). */
+  /** Post-handshake connections (key = `${remoteDeviceId}:${vaultId}`).
+   *  BUG-B: this used to leak indefinitely — every successful handshake
+   *  added an entry that was never removed. Per-conn state (AEAD ctx,
+   *  frame-assembly Map, GC interval, native event subscriptions) all
+   *  retained. Samsung A17 OOM-crashed after a few minutes.
+   *
+   *  Fix: treat anti-entropy as a one-shot burst. After runAntiEntropy
+   *  returns successfully, we close the connection and remove the
+   *  entry. The Map only holds CURRENTLY-RUNNING handshakes (mid-burst);
+   *  activePeers status uses the separate liveSessionCount below. */
   connections: Map<string, MeshConnection>;
   /** Pre-handshake in-flight installIdShorts (so we don't dial twice). */
   inflight: Set<string>;
+  /** Monotonic count of currently-mid-anti-entropy sessions. Decoupled
+   *  from `connections` so that even if a conn linger-bug returns, the
+   *  status surface is correct. Bumped on handshake success, decremented
+   *  on close. */
+  liveSessionCount: number;
   unsubscribeDiscovery: (() => void) | null;
   listenPort: number;
   /** Stop fn returned by startBLEPeripheralMode. Null when peripheral is
@@ -181,6 +195,7 @@ const state: RunState = {
   generation: 0,
   connections: new Map(),
   inflight: new Set(),
+  liveSessionCount: 0,
   unsubscribeDiscovery: null,
   listenPort: 0,
   peripheralStop: null,
@@ -208,7 +223,11 @@ export function getShopModeStatus(): ShopModeStatus {
   return {
     enabled: state.running,
     lastActiveAt: cachedLastActiveAt,
-    activePeers: state.connections.size,
+    // BUG-B: state.connections.size used to be the activePeers source
+    // and leaked monotonically because connections were never removed.
+    // liveSessionCount is incremented on handshake success and
+    // decremented on close — accurate AND bounded.
+    activePeers: state.liveSessionCount,
   };
 }
 
@@ -323,6 +342,74 @@ async function snapshotVaultHashesForAdvertise(): Promise<
 }
 
 /**
+ * BUG-A: Tell mesh that the local vault set has changed (pair-join, vault
+ * create, archive, restore, epoch-bump). Without this, startShopMode
+ * snapshots the vault index ONCE and the just-joined vault is invisible
+ * to BLE discovery + missing from the advertise payload — even though
+ * the UI shows it as the active vault — until the user power-cycles
+ * Nearby sync. The frozen-index bug confused users into thinking pair
+ * succeeded but sync was broken.
+ *
+ * No-op when mesh is not running (state.running === false). When running:
+ *   1. Rebuild the receive-side hash → vault_id index. Instant; affects
+ *      the very next [discovery-ble] peer match.
+ *   2. Tear down + restart the BLE advertiser with the new hash snapshot.
+ *      The advertiser stop ONLY tears down the rotation/restart timers
+ *      and stops broadcasting; the GATT server stays up so any in-flight
+ *      handshake is unaffected.
+ *
+ * Safe to call from a SQLite transaction's commit callback or from React
+ * effects — the function is idempotent and self-throttling (we don't
+ * restart the advertiser if the new hash set is identical to the prior
+ * snapshot).
+ */
+let lastAdvertisedHashSetKey = "";
+export async function notifyVaultSetChanged(): Promise<void> {
+  if (!state.running) return;
+  try {
+    await rebuildVaultHashIndex();
+  } catch (err) {
+    console.warn("[mesh.notifyVaultSetChanged] rebuildVaultHashIndex failed", err);
+    // continue — peripheral refresh is still useful
+  }
+  try {
+    const snapshot = await snapshotVaultHashesForAdvertise();
+    // Dedup: avoid tearing down a healthy advertiser when nothing
+    // actually changed (e.g. multiple events firing on the same vault
+    // mutation). Hash set key = sorted list of vaultId@epochLow.
+    const key = snapshot
+      .map((v) => `${v.vaultId}@${v.epochLow}`)
+      .sort()
+      .join(",");
+    if (key === lastAdvertisedHashSetKey && state.peripheralStop != null) {
+      return;
+    }
+    lastAdvertisedHashSetKey = key;
+
+    if (state.peripheralStop) {
+      try {
+        await state.peripheralStop();
+      } catch (err) {
+        console.warn("[mesh.notifyVaultSetChanged] previous peripheral stop threw", err);
+      }
+      state.peripheralStop = null;
+    }
+    const next = await startBLEPeripheralMode({
+      vaultHashes: snapshot,
+      capabilityFlags: CAP_FLAG_SUPPORTS_WIFI_UPGRADE,
+    });
+    state.peripheralStop = next;
+    console.log("[mesh.notifyVaultSetChanged] re-advertising", snapshot.length, "vault(s)");
+  } catch (err) {
+    if (err instanceof MeshPeripheralUnsupportedError) {
+      console.warn("[mesh.notifyVaultSetChanged] peripheral not supported on this chip");
+    } else {
+      console.warn("[mesh.notifyVaultSetChanged] peripheral refresh failed", err);
+    }
+  }
+}
+
+/**
  * Phase 7 self-VMC lazy re-issuance.
  *
  * Local-anchored vaults need a self-VMC cached at (vault_id, this_device_id)
@@ -423,7 +510,29 @@ export async function startShopMode(): Promise<void> {
     return;
   }
   console.log("[mesh.start] begin");
+  // BUG-J: wrap the body in try/catch so a partial failure (e.g. FGS
+  // start fails on MIUI) rolls back the radios we already brought up.
+  // Without this, advertiser+GATT+scanner+listener all keep burning
+  // battery while state.running stays "true-but-not-really", and the
+  // next startShopMode call no-ops via the idempotent guard above.
+  try {
+    await startShopModeBody();
+  } catch (err) {
+    console.warn("[mesh.start] partial-failure rollback", err);
+    state.running = false;
+    // skipFGS=true: if the FGS was the failing step it never came up,
+    // and calling stopForegroundService unnecessarily can spawn the
+    // notifee headless-task that crashes MIUI.
+    const fgsLikelyFailed =
+      err instanceof ShopModeForegroundServiceFailedError ||
+      (err instanceof Error && /foreground/i.test(err.message));
+    await teardownRadios({ skipFGS: fgsLikelyFailed });
+    emitStatusChange();
+    throw err;
+  }
+}
 
+async function startShopModeBody(): Promise<void> {
   const db = await getDb();
   // Match either:
   //   - local-CA vaults: vault_trust_anchor_pubkey populated, OR
@@ -590,22 +699,19 @@ export async function startShopMode(): Promise<void> {
 }
 
 /**
- * Turn shop mode off. Idempotent.
+ * BUG-J: extracted teardown so it can be called from both the public
+ * stopShopMode AND from startShopMode's catch block on partial failure
+ * (e.g. FGS start failed → advertiser/scanner/GATT-server kept running
+ * and silently burning battery). Without this, the next startShopMode
+ * call no-op'd via the idempotent guard while state.running was true.
+ *
+ * Optional `skipFGS` arg: when called from startShopMode catch where
+ * the FGS was the failing step, don't try to stop a service that never
+ * came up (would trigger the same MIUI HeadlessJS crash that
+ * stopShopMode normally avoids via the wasRunning gate).
  */
-export async function stopShopMode(): Promise<void> {
-  // Capture whether we were actually running BEFORE we flip state.running.
-  // If we were never running (process startup with shop_mode_enabled='0',
-  // which is the common case), skip the foreground-service teardown
-  // entirely. Calling notifee.stopForegroundService() when no FGS is
-  // active triggers a notifee HeadlessJS task spawn that crashes the
-  // app on Xiaomi/MIUI — see the comment block in foreground-bootstrap.ts
-  // for the full mechanism. The teardown only runs when there's actually
-  // something to tear down.
-  const wasRunning = state.running;
-  state.generation++;
-  state.running = false;
-  emitStatusChange();
-  if (wasRunning) {
+async function teardownRadios(opts: { skipFGS?: boolean } = {}): Promise<void> {
+  if (!opts.skipFGS) {
     try {
       const fg = await import("./foreground");
       await fg.stopShopModeForegroundService();
@@ -621,9 +727,6 @@ export async function stopShopMode(): Promise<void> {
     }
     state.peripheralStop = null;
   }
-  // Tear down the GATT server AFTER stopping the advertiser so no new
-  // centrals dial in between. Failure here is non-fatal; the OS will
-  // close the server when the process exits or shop mode restarts.
   if (state.peripheralGattStop) {
     try {
       await state.peripheralGattStop();
@@ -655,8 +758,30 @@ export async function stopShopMode(): Promise<void> {
   }
   state.connections.clear();
   state.inflight.clear();
+  state.liveSessionCount = 0;
   state.listenPort = 0;
   resetDialScheduler();
+}
+
+/**
+ * Turn shop mode off. Idempotent.
+ */
+export async function stopShopMode(): Promise<void> {
+  // Capture whether we were actually running BEFORE we flip state.running.
+  // If we were never running (process startup with shop_mode_enabled='0',
+  // which is the common case), skip the foreground-service teardown
+  // entirely. Calling notifee.stopForegroundService() when no FGS is
+  // active triggers a notifee HeadlessJS task spawn that crashes the
+  // app on Xiaomi/MIUI — see the comment block in foreground-bootstrap.ts
+  // for the full mechanism. The teardown only runs when there's actually
+  // something to tear down.
+  const wasRunning = state.running;
+  state.generation++;
+  state.running = false;
+  emitStatusChange();
+  // BUG-J: shared teardown. skipFGS is false here (we want to actually
+  // stop the notification when shop mode goes off via user toggle).
+  await teardownRadios({ skipFGS: !wasRunning });
 
   await setAppMeta(SHOP_MODE_ENABLED_KEY, "0");
   const db = await import("../db");
@@ -815,23 +940,36 @@ async function handlePeerConnection(
       void conn.close();
       return;
     }
-    // Post-handshake dedup on the cryptographically authenticated
-    // device_id. If a same-(device, vault) connection already exists,
-    // close the duplicate and keep the established one.
-    const key = makeConnKey(result.peerDeviceId, vaultId);
-    if (state.connections.has(key)) {
-      void conn.close();
-      return;
-    }
-    state.connections.set(key, conn);
-    console.log(
-      "[mesh.peer] connected total=",
-      state.connections.size,
-      "deviceId=",
-      result.peerDeviceId.slice(0, 8) + "…",
-    );
+    // BUG-B: Anti-entropy is a one-shot burst. By this point
+    // runAntiEntropy has already exchanged hello/PoP/AEAD/summary/delta
+    // and applied everything; the connection has no further useful work
+    // to do. Closing the GATT/WebRTC link releases:
+    //   - AEAD ctx (~80 bytes nonces + 32-byte key per direction)
+    //   - frame-assembly Map and inbox arrays
+    //   - the 5s assemblyGcTimer in transport-ble.ts
+    //   - native event subscription closures (chunkListener,
+    //     disconnectListener)
+    // and lets the OS reclaim the BLE link layer slot. The next
+    // discovery emit (allowDuplicates: true post-BUG-C) reconnects
+    // on demand. State.connections is no longer used as the dedup
+    // surface (the pre-handshake inflight set already covers that
+    // window).
+    state.liveSessionCount++;
     emitStatusChange();
     await touchLastActive();
+    console.log(
+      "[mesh.peer] connected (one-shot burst complete) device=",
+      result.peerDeviceId.slice(0, 8) + "…",
+      "live=",
+      state.liveSessionCount,
+    );
+    try {
+      await conn.close();
+    } catch (closeErr) {
+      if (__DEV__) console.warn("[mesh.peer] conn.close threw after burst", closeErr);
+    }
+    state.liveSessionCount = Math.max(0, state.liveSessionCount - 1);
+    emitStatusChange();
     void direction;
   } catch (err) {
     void conn.close();

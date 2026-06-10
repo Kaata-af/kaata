@@ -296,51 +296,73 @@ export default function VaultPairScanScreen() {
         // table — vault_credentials does the job.
         const installId = getInstallIdSync();
         const myDevicePubkey = getDevicePubkey();
-        if (myDevicePubkey && payload.vault_trust_anchor_pubkey) {
-          try {
-            const { blob, expiresAtMs } = await issueLocalVMC({
-              vaultId: payload.vault_id,
-              peerAccountId: effectiveAccountId,
-              peerDeviceId: installId,
-              peerDevicePubkey: myDevicePubkey,
-              role: offered.role,
-              vaultEpoch: 0,
-            });
-            // Cache as OUR OWN VMC (cacheVMC keys on getInstallIdSync()).
-            await cacheVMC(
-              payload.vault_id,
-              blob,
-              expiresAtMs,
-              effectiveAccountId,
-              myDevicePubkey,
-              0,
-            );
-          } catch (err) {
-            console.warn("[vault/pair-scan] self-VMC issue failed", err);
-          }
+        // BUG-M: fail-loud on self-VMC issuance. Without a self-VMC
+        // we have NOTHING to send in the BLE handshake hello — mesh
+        // sync silently does nothing while the UI says "paired".
+        // Previously this swallowed the error with console.warn and
+        // pushed the user to the joined screen anyway. Now we surface
+        // the failure as an error step so the user knows to retry.
+        if (!myDevicePubkey || !payload.vault_trust_anchor_pubkey) {
+          setStep({
+            kind: "error",
+            message:
+              "Couldn't finish pairing — your device key isn't ready. Force-close the app and try again.",
+          });
+          return;
         }
-        // Pin owner identity (v=3 QR). For v<=2 QRs we skip this and
-        // fall back to the legacy trust-anchor verification path — the
-        // owner's events still apply via role-gate if their VMC reaches
-        // us, just less robustly than the pinned path.
-        if (payload.issuer_device_pubkey && payload.issuer_install_id) {
-          try {
-            await cachePeerVMC({
-              vaultId: payload.vault_id,
-              peerDeviceId: payload.issuer_install_id,
-              peerVmcBlob: "",
-              peerExpiresAt: payload.expires_at_ms + 365 * 24 * 60 * 60 * 1000,
-              peerAccountId: payload.issuer_account_id,
-              peerDevicePubkeyB64: payload.issuer_device_pubkey,
-              peerVaultEpoch: 0,
-            });
-          } catch (err) {
-            console.warn("[vault/pair-scan] pin-owner failed", err);
-          }
+        try {
+          const { blob, expiresAtMs } = await issueLocalVMC({
+            vaultId: payload.vault_id,
+            peerAccountId: effectiveAccountId,
+            peerDeviceId: installId,
+            peerDevicePubkey: myDevicePubkey,
+            role: offered.role,
+            vaultEpoch: 0,
+          });
+          await cacheVMC(
+            payload.vault_id,
+            blob,
+            expiresAtMs,
+            effectiveAccountId,
+            myDevicePubkey,
+            0,
+          );
+        } catch (err) {
+          console.warn("[vault/pair-scan] self-VMC issue failed", err);
+          setStep({
+            kind: "error",
+            message:
+              "Couldn't create your sync credential — please try pairing again. If this keeps happening, force-close Kaata and retry.",
+          });
+          return;
         }
+        // BUG-O: we used to pre-pin the owner's identity into
+        // vault_credentials with peerVmcBlob: "" as a placeholder.
+        // That broke role-gate's extractRoleFromVmcBlob (which returns
+        // null for empty blobs) AND made the row look "real" to
+        // lookupSignerCredential for ~1 year. The BLE handshake's
+        // cachePeerVMC at anti-entropy.ts:863 writes the real blob with
+        // the correct expiry on first connect — that's the only path
+        // that should populate vault_credentials. The Members tab is
+        // already populated via vault_members_mirror (written above)
+        // so dropping the placeholder is purely a clean-up of dead
+        // weight.
 
         await setAppMeta("shop_mode_enabled", "1");
         await setActiveVaultId(payload.vault_id);
+
+        // BUG-A: tell mesh the vault set just changed so BLE discovery
+        // can match this vault's hash AND so our advertiser includes it
+        // in the rotation. Without this notify, the just-joined vault
+        // is invisible to mesh until the user toggles Nearby sync off
+        // and on again — the exact "I paired but nothing syncs"
+        // symptom users were reporting. No-op when mesh isn't running.
+        try {
+          const mesh = await import("../../lib/mesh");
+          await mesh.notifyVaultSetChanged();
+        } catch (err) {
+          console.warn("[vault/pair-scan] notifyVaultSetChanged failed", err);
+        }
 
         setStep({
           kind: "joined",
