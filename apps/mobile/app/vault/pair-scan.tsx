@@ -26,7 +26,7 @@ import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { decodePairQr, type PairQrPayload, type PairQrRole } from "../../lib/mesh/pair-qr";
 import { cachePeerVMC, cacheVMC, verifyAndCacheVMC } from "../../lib/mesh/vmc";
-import { getDevicePubkey } from "../../lib/mesh/device-key";
+import { ensureDeviceKey, getDevicePubkey } from "../../lib/mesh/device-key";
 import { buildLocalAccountId, issueLocalVMC } from "../../lib/mesh/local-vmc";
 import { getInstallIdSync } from "../../lib/db-tx";
 import { issueVaultCredential } from "../../lib/vault-api";
@@ -141,6 +141,12 @@ export default function VaultPairScanScreen() {
       // Local vault row. The server's /v1/sync/pull will reconcile the
       // canonical fields when signed in; for local-only vaults this is
       // the canonical row.
+      // Make sure the device key is loaded before reading it (same
+      // reason as pair.tsx: an in-memory cache miss leaves
+      // getDevicePubkey() returning null, which then skips both the
+      // joiner-self-VMC issuance AND the owner identity pin — silently
+      // leaving the joiner unable to participate in BLE handshake.
+      await ensureDeviceKey();
       // Compute the role + the joining device's effective account_id.
       // For local-CA when not signed in, synthesize a stable local ID
       // from the device pubkey, matching the convention local-vmc.ts uses.

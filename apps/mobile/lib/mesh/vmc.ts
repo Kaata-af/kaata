@@ -533,7 +533,13 @@ export async function verifyVMCAgainstPinnedPeer(
     // canonical payload bytes — the verifier pubkey is interchangeable
     // as long as the iss validation also passes (which it does because
     // pinned peers also use iss="local-CA").
-    return verifyVMC(blob, expectedVaultId, pinnedPubkeyBytes);
+    console.log("[mesh.verify] trying pinned-peer path for device=", peeked.device_id.slice(0, 8));
+    const pinnedResult = await verifyVMC(blob, expectedVaultId, pinnedPubkeyBytes);
+    console.log(
+      "[mesh.verify] pinned-peer result",
+      pinnedResult.valid ? "OK" : `FAIL (${pinnedResult.error})`,
+    );
+    return pinnedResult;
   }
 
   // Path C: TOFU bound to a recent pair token.
@@ -565,8 +571,20 @@ export async function verifyVMCAgainstPinnedPeer(
     const live = tokens.some(
       (t) => t.expires_at_ms > now && (t.consumed_at_ms == null || t.consumed_at_ms === 0),
     );
-    if (!live) return primary;
-  } catch {
+    console.log(
+      "[mesh.verify] TOFU check — pending tokens for vault=",
+      expectedVaultId.slice(0, 8),
+      "count=",
+      tokens.length,
+      "anyLive=",
+      live,
+    );
+    if (!live) {
+      console.log("[mesh.verify] TOFU refused — no live pending pair token");
+      return primary;
+    }
+  } catch (err) {
+    console.warn("[mesh.verify] TOFU lookup threw", err);
     return primary;
   }
   // Parse the VMC payload to extract the CLAIMED device_pubkey, then
@@ -589,7 +607,16 @@ export async function verifyVMCAgainstPinnedPeer(
     return primary;
   }
   if (claimedPubkeyBytes.length !== 32) return primary;
-  return verifyVMC(blob, expectedVaultId, claimedPubkeyBytes);
+  console.log(
+    "[mesh.verify] TOFU verifying against claimed device_pubkey=",
+    vmcPayload.device_pubkey.slice(0, 12),
+  );
+  const tofuResult = await verifyVMC(blob, expectedVaultId, claimedPubkeyBytes);
+  console.log(
+    "[mesh.verify] TOFU result",
+    tofuResult.valid ? "OK — peer ACCEPTED via pair-token window" : `FAIL (${tofuResult.error})`,
+  );
+  return tofuResult;
 }
 
 /**

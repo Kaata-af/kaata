@@ -33,7 +33,7 @@ import {
   type PairQrPayload,
   type PairQrRole,
 } from "../../lib/mesh/pair-qr";
-import { getDevicePubkey } from "../../lib/mesh/device-key";
+import { ensureDeviceKey, getDevicePubkey } from "../../lib/mesh/device-key";
 import { buildLocalAccountId } from "../../lib/mesh/local-vmc";
 import { getLocalSelf } from "../../lib/db";
 import { registerVaultPairToken } from "../../lib/vault-api";
@@ -79,6 +79,16 @@ export default function VaultPairScreen() {
         // used by local-vmc.ts and the rest of the local-CA flow.
         // Without this, the scanner rejects the QR as "malformed" and the
         // shopkeeper can never add staff offline.
+        // Make sure the device key is loaded BEFORE we read it. The
+        // getDevicePubkey() helper reads an in-memory cache that's
+        // populated by ensureDeviceKey(); if a screen transition or
+        // process reload skipped that warmup, the cache is null and
+        // we'd emit a v=3 QR with issuer_device_pubkey=undefined,
+        // which the decoder correctly rejects as "missing_field" →
+        // "Couldn't read this code" on the scanner side. Awaiting
+        // ensureDeviceKey() here is idempotent and cheap (single
+        // SecureStore read after first call).
+        await ensureDeviceKey();
         const devicePubkey = getDevicePubkey();
         const localIssuerId = devicePubkey
           ? buildLocalAccountId(devicePubkey)
@@ -92,8 +102,18 @@ export default function VaultPairScreen() {
         // (renders "Matee" instead of "local:abc…").
         const self = await getLocalSelf();
         const ownerDisplayName = (self?.name ?? "").trim() || "Owner";
+        // Schema version selection. If we got the device pubkey, ship
+        // v=3 with the bidirectional pair fields. If we somehow STILL
+        // don't have one (ensureDeviceKey failed — extremely rare; the
+        // only realistic failure is the SecureStore being wiped mid-
+        // process), fall back to v=2 so the QR is at least a valid
+        // legacy payload the scanner can parse. The legacy path still
+        // pairs the user; mesh sync stays in the broken-by-design v0.5.2
+        // state until they reinstall, but at least the QR doesn't break
+        // the entire flow with "Couldn't read this code".
+        const qrVersion: 2 | 3 = devicePubkey ? 3 : 2;
         const next: PairQrPayload = {
-          v: PAIR_QR_VERSION,
+          v: qrVersion,
           vault_id: v.id,
           vault_name: v.name,
           issuer_account_id: accId ?? localIssuerId,
@@ -112,12 +132,14 @@ export default function VaultPairScreen() {
           // vaults the server still issues an owner VMC; we include the
           // field anyway so a future server change is forward-compat.
           role: chosenRole,
-          // v=3: bidirectional pair fields. Required for v=3 QRs; the
-          // decoder enforces this. For server-anchored vaults we still
-          // include them so the scanner can use the pinned-peer path as
-          // a fallback (additive, no harm).
-          issuer_device_pubkey: devicePubkey ?? undefined,
-          issuer_display_name: ownerDisplayName,
+          // v=3: bidirectional pair fields. Only set when devicePubkey
+          // is non-null AND we're emitting v=3.
+          ...(qrVersion === 3 && devicePubkey
+            ? {
+                issuer_device_pubkey: devicePubkey,
+                issuer_display_name: ownerDisplayName,
+              }
+            : {}),
         };
         // Phase 7: server-side token registration is ONLY required for
         // server-anchored vaults (where the scanner will hit
