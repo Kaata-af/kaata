@@ -807,87 +807,64 @@ export async function startBLEPeripheralMode(
     );
   }
 
-  // ------ start real advertising loop with rotation ------
+  // ------ start real advertising (stable, no 500ms rotation) ------
   let stopped = false;
-  let rotationIdx = 0;
-  let rotationTimer: ReturnType<typeof setInterval> | null = null;
   let restartTimer: ReturnType<typeof setInterval> | null = null;
-  // Engineering critique G: serialize stop/start across rotation and
-  // restart timers so they don't race on the underlying native
-  // BLEAdvertiser state. Without this, a restart tick that fires
-  // concurrently with a rotation tick double-calls stopBroadcast and
-  // can leave the OS in an undefined advertising state on some OEMs.
+  // Serialize against the 20-min OEM-throttle restart timer.
   let advBusy = false;
 
-  // Cap the rotation pool at ADV_MAX_VAULTS so a device with 10+ vaults
-  // doesn't take 5 seconds to cycle each one.
-  const rotationPool = opts.vaultHashes.slice(0, ADV_MAX_VAULTS);
-
-  const buildPayload = (idx: number): Uint8Array => {
-    if (rotationPool.length === 0) {
-      return buildMfgPayloadBytes(opts.capabilityFlags & 0x01, 0, [0, 0, 0, 0]);
-    }
-    const v = rotationPool[idx % rotationPool.length];
+  // Mythos #1 fix: build ONE stable payload containing all vault hashes
+  // and advertise ONCE. No 500ms rotation. The previous code called
+  // BLEAdvertiser.broadcast() every ADV_ROTATION_MS to cycle hashes,
+  // which on most Android stacks minted a NEW random BLE MAC on each
+  // call — making OUR advertiser the MAC-rotation engine. That defeated
+  // the central side's per-MAC dedup (BUG-Q symptom) AND triggered the
+  // ble-plx Device cache growth that's the leading suspect for the
+  // mid-use OOM crash on Samsung A17.
+  //
+  // Receiver-side change is zero: parseAdvertisement already loops the
+  // hashBytes/4 elements starting at byte offset 4. Adding more hashes
+  // to a single payload just gets parsed as multiple matched vault
+  // hashes per peer-found callback. discovery-router matches the first
+  // local vault that intersects.
+  const hashesForPayload: number[][] = [];
+  for (const v of opts.vaultHashes.slice(0, MAX_ADVERTISED_VAULT_HASHES)) {
     const hashBytes = hexToBytes(v.hashHex);
-    const four: number[] = [];
-    for (let i = 0; i < 4; i++) four.push(hashBytes[i] ?? 0);
-    return buildMfgPayloadBytes(opts.capabilityFlags & 0x01, v.epochLow & 0xff, four);
-  };
+    hashesForPayload.push([
+      hashBytes[0] ?? 0,
+      hashBytes[1] ?? 0,
+      hashBytes[2] ?? 0,
+      hashBytes[3] ?? 0,
+    ]);
+  }
+  const stablePayload = buildMfgPayloadBytesMulti(opts.capabilityFlags & 0x01, hashesForPayload);
 
-  const broadcastOnce = async (idx: number) => {
+  const broadcastStable = async () => {
     if (stopped) return;
-    const payloadBytes = buildPayload(idx);
     try {
-      await BLEAdvertiser.broadcast(KAATA_MESH_SERVICE_UUID, Array.from(payloadBytes), {
+      await BLEAdvertiser.broadcast(KAATA_MESH_SERVICE_UUID, Array.from(stablePayload), {
         advertiseMode: BLEAdvertiser.ADVERTISE_MODE_BALANCED ?? 1,
         txPowerLevel: BLEAdvertiser.ADVERTISE_TX_POWER_MEDIUM ?? 2,
         connectable: true,
         includeDeviceName: false,
       });
     } catch (err) {
-      if (__DEV__) console.warn("[ble-peripheral] broadcast iteration failed", err);
+      if (__DEV__) console.warn("[ble-peripheral] broadcast failed", err);
     }
   };
 
-  await broadcastOnce(rotationIdx);
-  const firstLabel =
-    rotationPool.length > 0 ? rotationPool[0].vaultId.slice(0, 8) + "…" : "(no vaults)";
-  console.log("[ble-peripheral] advertising started vault=", firstLabel);
+  await broadcastStable();
+  const summaryLabel =
+    opts.vaultHashes.length > 0
+      ? `${opts.vaultHashes.length} vault(s) in one stable payload (first=${opts.vaultHashes[0].vaultId.slice(0, 8)}…)`
+      : "(no vaults)";
+  console.log("[ble-peripheral] advertising started —", summaryLabel);
 
-  if (rotationPool.length > 1) {
-    rotationTimer = setInterval(() => {
-      if (stopped || advBusy) return;
-      rotationIdx = (rotationIdx + 1) % rotationPool.length;
-      advBusy = true;
-      void (async () => {
-        try {
-          try {
-            await BLEAdvertiser.stopBroadcast();
-          } catch {
-            /* */
-          }
-          await broadcastOnce(rotationIdx);
-          // Per-rotation debug log so logcat triage can answer "which
-          // hash is being advertised right now" for multi-vault devices.
-          if (__DEV__) {
-            const v = rotationPool[rotationIdx];
-            console.log(
-              "[ble-peripheral] rotate idx=",
-              rotationIdx,
-              "vault=",
-              v.vaultId.slice(0, 8) + "…",
-              "hash=",
-              v.hashHex,
-            );
-          }
-        } finally {
-          advBusy = false;
-        }
-      })();
-    }, ADV_ROTATION_MS);
-  }
-
-  // Periodic restart against OEM throttling.
+  // We KEEP the 20-min restart timer as a defense against OEM ROM
+  // advertising throttling (MIUI/OneUI silently stop ads after 15-30 min).
+  // This is a single restart every 20 min, not a 500ms churn — at that
+  // cadence the MAC rotation matches Android's NRPA window so we're no
+  // worse off than the OS would do anyway.
   restartTimer = setInterval(() => {
     if (stopped || advBusy) return;
     advBusy = true;
@@ -898,7 +875,7 @@ export async function startBLEPeripheralMode(
         } catch {
           /* */
         }
-        await broadcastOnce(rotationIdx);
+        await broadcastStable();
         if (__DEV__) console.log("[ble-peripheral] periodic restart against OEM throttling");
       } finally {
         advBusy = false;
@@ -908,7 +885,6 @@ export async function startBLEPeripheralMode(
 
   return async () => {
     stopped = true;
-    if (rotationTimer) clearInterval(rotationTimer);
     if (restartTimer) clearInterval(restartTimer);
     try {
       await BLEAdvertiser.stopBroadcast();
@@ -1297,6 +1273,55 @@ function buildMfgPayloadBytes(capFlags: number, epochLow: number, hash4: number[
   out[3] = hash4[1] ?? 0;
   out[4] = hash4[2] ?? 0;
   out[5] = hash4[3] ?? 0;
+  return out;
+}
+
+/**
+ * Mythos #1 fix: build a SINGLE stable manufacturer-data payload
+ * containing ALL of our vault hashes at once.
+ *
+ * Why: every call to BLEAdvertiser.broadcast() mints a fresh random BLE
+ * MAC on most Android stacks. The previous code restarted the advertiser
+ * every ADV_ROTATION_MS (500ms) to cycle hashes — so our OWN advertiser
+ * was the MAC-rotation engine, NOT Android's privacy layer (NRPA's true
+ * rotation is ~15 min). Symptoms:
+ *   - ble-plx central side cached a new Device object per MAC, forever
+ *     (RxAndroidBle does not evict). Linear native-heap accumulation →
+ *     mid-use crash on Samsung A17.
+ *   - Our scanner's seenDevices + lastEmitByDevice keyed on MAC →
+ *     circuit breaker tripped on our own fleet in under a minute.
+ *   - BUG-Q's dial-cancellation cascade was downstream of this.
+ *
+ * Format: [capFlags, epochLow=0, h0_0..h0_3, h1_0..h1_3, ...] up to
+ * MAX_ADVERTISED_VAULT_HASHES. Receiver loops `Math.floor(hashBytes.length / 4)`
+ * starting at byte offset 4 so it parses all hashes automatically — no
+ * receiver-side change needed.
+ *
+ * epochLow byte is set to 0 (no-hint) since we lose per-vault granularity
+ * by combining payloads. The handshake's epoch gate is still authoritative
+ * — this byte was only an optimization hint and nothing downstream of
+ * parseAdvertisement currently reads it.
+ *
+ * Legacy advertising budget (31 bytes): 3 (flags AD field) + 4 (mfg AD
+ * fixed: length + type + 2-byte company ID) + N (payload) ≤ 31, so payload
+ * ≤ 24 bytes. With 1 cap + 1 epoch + 4N hash bytes that's up to 5 hashes
+ * in a single packet — plenty for the realistic shopkeeper case.
+ */
+function buildMfgPayloadBytesMulti(capFlags: number, hashes4: number[][]): Uint8Array {
+  // Hard-cap by both MAX_ADVERTISED_VAULT_HASHES (linkability ceiling)
+  // AND the 24-byte advertising budget (5 hashes = 22 bytes payload).
+  const safeMax = Math.min(MAX_ADVERTISED_VAULT_HASHES, 5);
+  const capped = hashes4.slice(0, safeMax);
+  const out = new Uint8Array(2 + capped.length * 4);
+  out[0] = capFlags & 0x01;
+  out[1] = 0; // epochLow no-hint — see comment above
+  for (let i = 0; i < capped.length; i++) {
+    const h = capped[i];
+    out[2 + i * 4 + 0] = h[0] ?? 0;
+    out[2 + i * 4 + 1] = h[1] ?? 0;
+    out[2 + i * 4 + 2] = h[2] ?? 0;
+    out[2 + i * 4 + 3] = h[3] ?? 0;
+  }
   return out;
 }
 

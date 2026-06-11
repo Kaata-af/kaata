@@ -27,7 +27,7 @@
 
 import * as Crypto from "expo-crypto";
 
-import { getAppMeta, getDb } from "../db";
+import { getAppMeta, getDb, setAppMeta } from "../db";
 import {
   buildLocalAccountId,
   issueLocalVMC,
@@ -501,4 +501,117 @@ export async function cancelPairToken(nonce: string): Promise<void> {
   // Atomic filter — keeps two parallel generates/cancels from clobbering
   // each other's view of the array (engineering critique #3).
   await mutatePendingTokens((tokens) => tokens.filter((t) => t.nonce !== nonce));
+}
+
+/**
+ * Mythos P2c. Mark a pending pair token consumed without deleting it
+ * (single-use semantics: the TOFU window for THIS nonce is now closed,
+ * but the GC sweep can still see expires_at_ms and prune later). Called
+ * by anti-entropy.handshake() after a successful Path C verify.
+ *
+ * Different from consumePairToken() above (which is the full
+ * VMC-minting flow that takes the peer pubkey and issues a VMC for the
+ * joiner — currently unused because the live BLE handshake skips that
+ * step and uses joiner self-signed VMCs verified via Path C). This
+ * function exists solely to flip consumed_at_ms so a SECOND joiner
+ * can't reuse the same nonce within the 5-min window.
+ */
+export async function consumePairNonce(nonce: string): Promise<void> {
+  const now = Date.now();
+  await mutatePendingTokens((tokens) =>
+    tokens.map((t) =>
+      t.nonce === nonce && (t.consumed_at_ms == null || t.consumed_at_ms === 0)
+        ? { ...t, consumed_at_ms: now }
+        : t,
+    ),
+  );
+}
+
+// --- Mythos P2: joiner-side pair_nonce echo store ----------------------------
+//
+// The JOINER persists the QR's shop_mode_token here AFTER they finish
+// the pair-scan flow. The next time they handshake with the matching
+// vault, anti-entropy.handshake() reads this and echoes it as
+// HelloMessage.pair_nonce. The owner's verifyVMCAgainstPinnedPeer Path C
+// uses it to bind TOFU to a specific QR scan (not just "any peer that
+// learned the vault_id").
+//
+// Lifetime: same 5-min TTL as PAIR_TOKEN_TTL_MS. After a successful
+// handshake (peer now pinned), anti-entropy.handshake() calls
+// clearLocalPairNonceForVault to retire it — subsequent handshakes use
+// Path B (pinned credential) instead.
+
+const META_KEY_LOCAL_PAIR_NONCES = "local_pair_nonces";
+
+type LocalPairNonceEntry = {
+  vault_id: string;
+  nonce: string;
+  expires_at_ms: number;
+};
+
+function isLocalPairNonceEntry(x: unknown): x is LocalPairNonceEntry {
+  if (!x || typeof x !== "object") return false;
+  const r = x as Record<string, unknown>;
+  return (
+    typeof r.vault_id === "string" &&
+    typeof r.nonce === "string" &&
+    typeof r.expires_at_ms === "number"
+  );
+}
+
+async function readLocalPairNonces(): Promise<LocalPairNonceEntry[]> {
+  const raw = await getAppMeta(META_KEY_LOCAL_PAIR_NONCES);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isLocalPairNonceEntry);
+  } catch {
+    return [];
+  }
+}
+
+async function writeLocalPairNonces(entries: LocalPairNonceEntry[]): Promise<void> {
+  const now = Date.now();
+  const live = entries.filter((e) => e.expires_at_ms > now);
+  await setAppMeta(META_KEY_LOCAL_PAIR_NONCES, JSON.stringify(live));
+}
+
+/**
+ * Joiner side. Called from vault/pair-scan.tsx after a successful join.
+ * Replaces any prior entry for the same vault.
+ */
+export async function setLocalPairNonceForVault(
+  vaultId: string,
+  nonce: string,
+  expiresAtMs: number,
+): Promise<void> {
+  const existing = await readLocalPairNonces();
+  const next = existing.filter((e) => e.vault_id !== vaultId);
+  next.push({ vault_id: vaultId, nonce, expires_at_ms: expiresAtMs });
+  await writeLocalPairNonces(next);
+}
+
+/**
+ * Joiner side. Called from anti-entropy.handshake() before building Hello.
+ * Returns null when no live entry exists for this vault (either never
+ * paired into it on this device, or the 5-min window has elapsed).
+ */
+export async function getLocalPairNonceForVault(vaultId: string): Promise<string | null> {
+  const all = await readLocalPairNonces();
+  const now = Date.now();
+  const found = all.find((e) => e.vault_id === vaultId && e.expires_at_ms > now);
+  return found?.nonce ?? null;
+}
+
+/**
+ * Joiner side. Called from anti-entropy.handshake() after a successful
+ * handshake. The peer is now pinned in vault_credentials, so subsequent
+ * handshakes use Path B and don't need the nonce. Single-use semantics
+ * defend against replay if a future bug leaks the nonce.
+ */
+export async function clearLocalPairNonceForVault(vaultId: string): Promise<void> {
+  const all = await readLocalPairNonces();
+  const next = all.filter((e) => e.vault_id !== vaultId);
+  await writeLocalPairNonces(next);
 }

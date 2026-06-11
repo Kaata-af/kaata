@@ -1,11 +1,17 @@
-// D-FOREGROUND-HARDEN: this MUST be the first import in the file. It
-// registers the notifee foreground-service callback, creates the
-// "shop-mode" channel, and registers the background-event handler at JS
-// module load — before any code path can call displayNotification with
-// asForegroundService:true. Doing it at module top in a dedicated leaf
-// module guarantees the registration survives process resurrection by
-// Android (e.g. when the FGS start intent is re-delivered after a Doze
-// kill before the React tree mounts).
+// CRYPTO POLYFILL is installed by ./index.js (the registered entry point
+// per package.json `main`), which runs BEFORE this layout module loads.
+// We keep an idempotent re-import here so a hot-reload of _layout.tsx
+// during development still gets the polyfill before any mesh code runs.
+import "../lib/mesh/_ed25519-setup";
+
+// D-FOREGROUND-HARDEN: this MUST be the second import. It registers the
+// notifee foreground-service callback, creates the "shop-mode" channel,
+// and registers the background-event handler at JS module load — before
+// any code path can call displayNotification with asForegroundService:true.
+// Doing it at module top in a dedicated leaf module guarantees the
+// registration survives process resurrection by Android (e.g. when the FGS
+// start intent is re-delivered after a Doze kill before the React tree
+// mounts).
 import "../lib/mesh/foreground-bootstrap";
 
 import * as Application from "expo-application";

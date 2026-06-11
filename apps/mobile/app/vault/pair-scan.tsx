@@ -348,6 +348,26 @@ export default function VaultPairScanScreen() {
         // so dropping the placeholder is purely a clean-up of dead
         // weight.
 
+        // Mythos P2: persist the QR's shop_mode_token locally so the
+        // joiner's next handshake echoes it as HelloMessage.pair_nonce.
+        // The owner's Path C TOFU requires this exact nonce match to
+        // bind "this handshake came from the QR we just generated" vs
+        // "any stranger in BLE range during the window." 5-min TTL
+        // matches the QR's expiry; cleared on first successful handshake.
+        try {
+          const localPair = await import("../../lib/mesh/local-pair");
+          await localPair.setLocalPairNonceForVault(
+            payload.vault_id,
+            payload.shop_mode_token,
+            payload.expires_at_ms,
+          );
+        } catch (err) {
+          console.warn("[vault/pair-scan] setLocalPairNonceForVault failed", err);
+          // Non-fatal: handshake retries the lookup; if it's missing
+          // and we have no pinned credential, the handshake refuses
+          // loudly.
+        }
+
         await setAppMeta("shop_mode_enabled", "1");
         await setActiveVaultId(payload.vault_id);
 

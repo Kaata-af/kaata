@@ -132,6 +132,25 @@ export type HelloMessage = {
   // Mandatory since v0.5.2 — peers without it are rejected as "too old"
   // because the BLE link must NOT carry plaintext ledger data.
   ephemeral_x25519_pubkey: string;
+  // Mythos P2 fix: pair_nonce binding.
+  //
+  // When a joiner is doing their VERY FIRST handshake with a vault they
+  // just paired into (i.e. their VMC is self-signed and the owner's
+  // verifyVMCAgainstPinnedPeer would fall through to Path C TOFU), the
+  // joiner echoes the QR's shop_mode_token here. Owner's Path C now
+  // REQUIRES this field to exactly match a live unconsumed pair token's
+  // nonce for THIS vault — converting the surface from "any stranger
+  // in BLE range during the 5-min window" to "specifically the device
+  // that scanned the QR." Without this, a stranger could harvest
+  // vault_id from any plaintext Hello, self-issue a VMC, and ride the
+  // pair window.
+  //
+  // Optional on the wire so:
+  //   - a peer that's ALREADY pinned (subsequent handshakes) omits it
+  //   - older clients without the field fall through to "no pair-window
+  //     attempt" gracefully (verifyVMCAgainstPinnedPeer Path C requires
+  //     a non-empty pair_nonce, so omitting it skips Path C entirely)
+  pair_nonce?: string;
 };
 
 export type PopProofMessage = {
@@ -560,6 +579,22 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
   const ourEphemeral: EphemeralKeyPair = generateEphemeralKeyPair();
   const ourEphemeralPubB64 = bytesToB64Url(ourEphemeral.publicKey);
 
+  // Mythos P2: if we're a joiner whose first handshake with this vault
+  // hasn't completed yet, attach the QR's shop_mode_token as pair_nonce
+  // so the owner's Path C TOFU has something to bind to. Lookup is
+  // best-effort and silent on miss — pinned peers (post-first-handshake)
+  // return null here and the field is omitted from Hello entirely.
+  let ourPairNonce: string | null = null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const localPair = require("./local-pair") as {
+      getLocalPairNonceForVault: (vaultId: string) => Promise<string | null>;
+    };
+    ourPairNonce = await localPair.getLocalPairNonceForVault(opts.vaultId);
+  } catch {
+    // ignore — handshake works without pair_nonce when peer is pinned
+  }
+
   const hello: HelloMessage = {
     type: "hello",
     v: WIRE_VERSION,
@@ -567,6 +602,7 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
     capabilities: ["v1"],
     pop_nonce: ourNonceB64,
     ephemeral_x25519_pubkey: ourEphemeralPubB64,
+    ...(ourPairNonce ? { pair_nonce: ourPairNonce } : {}),
   };
 
   const [, peerHello] = await Promise.all([
@@ -668,6 +704,11 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
     peerHello.vmc_blob,
     opts.vaultId,
     opts.vaultTrustAnchorPubkey ?? null,
+    // Mythos P2: thread the peer's echoed pair_nonce through so Path C
+    // can require an exact nonce match (binds TOFU to "the device that
+    // scanned the QR" instead of "anyone in BLE range who learned the
+    // vault_id during the 5-min window").
+    { pairNonceFromPeerHello: peerHello.pair_nonce },
   );
   if (!verifyResult.valid) {
     if (verifyResult.error === "expired") {
@@ -901,6 +942,44 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
     "role=",
     peerVMC.role,
   );
+
+  // Mythos P2c: close the TOFU window.
+  //
+  // OWNER side: if Path C succeeded, the verify result carries the
+  // nonce that matched. Marking it consumed prevents a second joiner
+  // from riding the same nonce — single-use semantics.
+  //
+  // JOINER side: drop our local pair_nonce. The peer is now pinned in
+  // vault_credentials; subsequent handshakes use Path B and don't need
+  // the nonce. Single-use here defends against replay if a buggy
+  // future code path leaks the nonce.
+  //
+  // Both are best-effort: a failure here doesn't undo the handshake
+  // success. The owner's consumed_at_ms write is critical for security;
+  // log loudly so a recurring failure is caught.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const localPair = require("./local-pair") as {
+      consumePairNonce?: (nonce: string) => Promise<void>;
+      clearLocalPairNonceForVault: (vaultId: string) => Promise<void>;
+    };
+    const tofuNonce = (verifyResult as { tofuMatchedTokenNonce?: string }).tofuMatchedTokenNonce;
+    if (tofuNonce && typeof localPair.consumePairNonce === "function") {
+      try {
+        await localPair.consumePairNonce(tofuNonce);
+      } catch (err) {
+        console.warn("[mesh.hs] consumePairNonce failed (TOFU window may still be open)", err);
+      }
+    }
+    try {
+      await localPair.clearLocalPairNonceForVault(opts.vaultId);
+    } catch (err) {
+      // benign — the entry self-expires in 5 min if not cleared.
+      if (__DEV__) console.warn("[mesh.hs] clearLocalPairNonceForVault failed", err);
+    }
+  } catch (err) {
+    if (__DEV__) console.warn("[mesh.hs] post-success pair-window cleanup failed", err);
+  }
 
   return peerVMC;
 }

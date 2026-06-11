@@ -119,16 +119,23 @@ export async function startBle(opts: StartBleOpts): Promise<() => Promise<void>>
   let stopped = false;
   let scanRestartTimer: ReturnType<typeof setTimeout> | null = null;
   let emitTimestamps: number[] = [];
-  const seenDevices = new Map<string, number>();
+  // Mythos P3 fix: the circuit breaker now keys on VAULT-HASH-SET, not
+  // MAC. The previous MAC-keyed accounting tripped within a minute in
+  // an empty room because our own peers (with Android's NRPA + the now-
+  // dead 500ms broadcast restart) presented hundreds of distinct MACs
+  // for the same physical phone. Vault hash sets are the stable peer
+  // identity — a stranger attacker that floods the air with Kaata-
+  // fingerprint adverts would need to brute-force matching vault hashes
+  // to inflate this counter, which is hard.
+  const seenVaultHashSets = new Map<string, number>();
   let circuitTripped = false;
-  // BUG-C: with allowDuplicates: true the scanner emits a callback for
-  // every advertising packet (~500ms cadence). We don't want to call
-  // onPeerFound that often — handleRoutedPeer would attempt a dial on
-  // every callback. Per-device suppression of 5s keeps the throughput
-  // bounded while still allowing rapid retry after a transient failure
-  // (vs. the prior 20-minute scan-restart penalty under allowDuplicates: false).
+  // Per-MAC emit suppression keeps allowDuplicates: true sane. We prune
+  // on EVERY emit using a time cutoff (not just when the map grows
+  // large) — combined with the dropped 500ms broadcast restart in
+  // transport-ble.ts, the map should stay small in normal operation.
   const lastEmitByDevice = new Map<string, number>();
   const PER_DEVICE_EMIT_INTERVAL_MS = 5_000;
+  const EMIT_DEDUP_PRUNE_CUTOFF_MS = 30_000;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let manager: any = null;
@@ -148,19 +155,17 @@ export async function startBle(opts: StartBleOpts): Promise<() => Promise<void>>
   const emit = (peer: BLEPeerRaw) => {
     if (stopped || circuitTripped) return;
     const now = Date.now();
-    // Per-device 5s suppression — drop the K-th packet from the same
-    // peer within the window. Keeps emit rate bounded under
-    // allowDuplicates: true without giving up the "retry promptly
-    // after a transient failure" property the bug fix is meant to
-    // restore.
+    // Per-MAC 5s suppression. Prune entries older than
+    // EMIT_DEDUP_PRUNE_CUTOFF_MS on every emit so the map can't grow
+    // unboundedly under MAC churn (post-P1 this should be rare; the
+    // pruning is defense in depth).
     const lastEmit = lastEmitByDevice.get(peer.deviceId);
     if (lastEmit != null && now - lastEmit < PER_DEVICE_EMIT_INTERVAL_MS) {
       return;
     }
     lastEmitByDevice.set(peer.deviceId, now);
-    // Garbage-collect stale per-device entries to bound the map.
-    if (lastEmitByDevice.size > 256) {
-      const cutoff = now - 2 * PER_DEVICE_EMIT_INTERVAL_MS;
+    {
+      const cutoff = now - EMIT_DEDUP_PRUNE_CUTOFF_MS;
       for (const [id, ts] of lastEmitByDevice) {
         if (ts < cutoff) lastEmitByDevice.delete(id);
       }
@@ -169,24 +174,32 @@ export async function startBle(opts: StartBleOpts): Promise<() => Promise<void>>
     emitTimestamps = emitTimestamps.filter((t) => now - t < 1_000);
     if (emitTimestamps.length >= BLE_TUNABLES.MAX_EMITS_PER_SECOND) return;
     emitTimestamps.push(now);
-    // Circuit breaker accounting.
-    seenDevices.set(peer.deviceId, now);
-    const cutoff = now - BLE_TUNABLES.CIRCUIT_BREAKER_WINDOW_MS;
-    for (const [k, ts] of seenDevices) {
-      if (ts < cutoff) seenDevices.delete(k);
-    }
-    if (seenDevices.size > BLE_TUNABLES.CIRCUIT_BREAKER_DISTINCT_DEVICES) {
-      circuitTripped = true;
-      if (__DEV__)
-        console.warn(
-          "[discovery-ble] circuit breaker tripped — too many distinct devices, suspending until restart",
-        );
-      try {
-        manager?.stopDeviceScan?.();
-      } catch {
-        /* */
+    // Circuit breaker accounting keyed on the VAULT-HASH SET (not MAC).
+    // The advertised hash set is the stable Kaata-peer identity; MAC
+    // rotates (NRPA, our own 20-min OEM restart, simultaneous adverts).
+    // 200 distinct vault hash SETS in the breaker window would be a
+    // genuine flood — far beyond any realistic shopkeeper deployment.
+    const hashSetKey =
+      peer.vaultHashes.length === 0 ? "" : peer.vaultHashes.slice().sort().join(",");
+    if (hashSetKey !== "") {
+      seenVaultHashSets.set(hashSetKey, now);
+      const cutoff = now - BLE_TUNABLES.CIRCUIT_BREAKER_WINDOW_MS;
+      for (const [k, ts] of seenVaultHashSets) {
+        if (ts < cutoff) seenVaultHashSets.delete(k);
       }
-      return;
+      if (seenVaultHashSets.size > BLE_TUNABLES.CIRCUIT_BREAKER_DISTINCT_DEVICES) {
+        circuitTripped = true;
+        if (__DEV__)
+          console.warn(
+            "[discovery-ble] circuit breaker tripped — too many distinct vault hash sets, suspending until restart",
+          );
+        try {
+          manager?.stopDeviceScan?.();
+        } catch {
+          /* */
+        }
+        return;
+      }
     }
     console.log(
       "[discovery-ble] peer found id=",
@@ -268,7 +281,8 @@ export async function startBle(opts: StartBleOpts): Promise<() => Promise<void>>
       stopScanForRestart();
       if (!stopped) {
         emitTimestamps = [];
-        seenDevices.clear();
+        seenVaultHashSets.clear();
+        lastEmitByDevice.clear();
         circuitTripped = false;
         startScan();
         scheduleRestart();

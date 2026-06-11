@@ -489,11 +489,36 @@ export async function verifyVMC(
  * Returns the same VerifyResult shape as verifyVMC — caller does not
  * need to know which path succeeded.
  */
+export type VerifyVMCExtras = {
+  /**
+   * Mythos P2 fix. Echoed by the joiner from the QR's shop_mode_token.
+   * Path C TOFU now REQUIRES this field to match a live unconsumed pair
+   * token's nonce for the verifying vault. Without it, Path C is skipped
+   * entirely — preventing a stranger in BLE range from riding the
+   * 5-minute pair window without having seen the QR.
+   *
+   * Undefined for any handshake AFTER the joiner is already pinned
+   * (Path B succeeds without needing the nonce).
+   */
+  pairNonceFromPeerHello?: string;
+};
+
+/**
+ * Mythos P2 fix: VerifyResult is now extended with a `tofuMatchedToken`
+ * marker so the caller (anti-entropy.handshake) can know to invoke
+ * consumePairToken with the same nonce after a successful Path-C verify.
+ * The field is OPTIONAL — Path A and Path B successes don't set it.
+ */
+export type VerifyVMCAgainstPinnedPeerResult = VerifyResult & {
+  tofuMatchedTokenNonce?: string;
+};
+
 export async function verifyVMCAgainstPinnedPeer(
   blob: string,
   expectedVaultId: string,
   vaultTrustAnchorPubkey?: Uint8Array | null,
-): Promise<VerifyResult> {
+  extras?: VerifyVMCExtras,
+): Promise<VerifyVMCAgainstPinnedPeerResult> {
   // Path A: standard trust-anchor verification (owner-self or
   // owner-issued VMCs verified by owner's own pubkey).
   const primary = await verifyVMC(blob, expectedVaultId, vaultTrustAnchorPubkey);
@@ -559,44 +584,92 @@ export async function verifyVMCAgainstPinnedPeer(
   // an active, unconsumed pair token RIGHT NOW. A passive eavesdropper
   // who later attempts to spoof gets no window — the token is
   // single-use and TTL-bound.
+  // Mythos P2: Path C TOFU now REQUIRES pair_nonce from the joiner's
+  // Hello to exactly match a live unconsumed token's nonce for THIS
+  // vault. Without it: skip Path C entirely. Without it would mean any
+  // stranger in BLE range who learned the vault_id (from any plaintext
+  // Hello on the same vault, or from the QR over-the-shoulder) could
+  // self-issue a VMC and ride the pair window.
+  const peerPairNonce = extras?.pairNonceFromPeerHello;
+  if (typeof peerPairNonce !== "string" || peerPairNonce.length === 0) {
+    console.log("[mesh.verify] TOFU refused — peer Hello had no pair_nonce");
+    return primary;
+  }
+  // Parse the VMC payload first so we can role-clamp before any verify
+  // work. Cheap parse — no signature math.
+  const split = splitBlob(blob);
+  if (!split) return primary;
+  const vmcPayload = parsePayload(split.payloadBytes);
+  if (!vmcPayload) return primary;
+  let matchedToken: { nonce: string; expires_at_ms: number; role?: string } | null = null;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const localPair = require("./local-pair") as {
-      getPendingPairTokensForVault: (
-        vaultId: string,
-      ) => Promise<Array<{ nonce: string; expires_at_ms: number; consumed_at_ms?: number | null }>>;
+      getPendingPairTokensForVault: (vaultId: string) => Promise<
+        Array<{
+          nonce: string;
+          expires_at_ms: number;
+          consumed_at_ms?: number | null;
+          role?: string;
+        }>
+      >;
     };
     const tokens = await localPair.getPendingPairTokensForVault(expectedVaultId);
     const now = Date.now();
-    const live = tokens.some(
-      (t) => t.expires_at_ms > now && (t.consumed_at_ms == null || t.consumed_at_ms === 0),
-    );
+    matchedToken =
+      tokens.find(
+        (t) =>
+          t.nonce === peerPairNonce &&
+          t.expires_at_ms > now &&
+          (t.consumed_at_ms == null || t.consumed_at_ms === 0),
+      ) ?? null;
     console.log(
-      "[mesh.verify] TOFU check — pending tokens for vault=",
+      "[mesh.verify] TOFU nonce check — vault=",
       expectedVaultId.slice(0, 8),
-      "count=",
+      "tokens=",
       tokens.length,
-      "anyLive=",
-      live,
+      "matched=",
+      matchedToken != null,
     );
-    if (!live) {
-      console.log("[mesh.verify] TOFU refused — no live pending pair token");
+    if (!matchedToken) {
+      console.log("[mesh.verify] TOFU refused — pair_nonce did not match any live token");
       return primary;
     }
   } catch (err) {
     console.warn("[mesh.verify] TOFU lookup threw", err);
     return primary;
   }
+
+  // Mythos P2 role clamp. If the joiner's self-issued VMC claims a
+  // ROLE STRICTLY GREATER than what the owner offered in the pair
+  // token, REFUSE. The honest client uses the QR's offered role; a
+  // hostile client could mint a VMC with role="owner" to escalate.
+  // Without this check the carve-out in role-gate would accept the
+  // higher role and the attacker could remove the real owner, rewrite
+  // settings, etc.
+  const ROLE_RANK: Record<string, number> = { viewer: 0, editor: 1, owner: 2 };
+  const tokenRole = matchedToken.role ?? "editor"; // fallback matches deriveOfferedRole
+  const vmcRole = vmcPayload.role;
+  const tokenRank = ROLE_RANK[tokenRole] ?? 1;
+  const vmcRank = ROLE_RANK[vmcRole] ?? -1;
+  if (vmcRank < 0) {
+    console.warn("[mesh.verify] TOFU refused — VMC role not recognized:", vmcRole);
+    return primary;
+  }
+  if (vmcRank > tokenRank) {
+    console.warn(
+      "[mesh.verify] TOFU refused — role escalation attempt: token offered",
+      tokenRole,
+      "but VMC claims",
+      vmcRole,
+    );
+    return primary;
+  }
+
   // Parse the VMC payload to extract the CLAIMED device_pubkey, then
   // verify the signature against that. If the signature matches, the
   // VMC is internally consistent and we accept it under the pair-token
   // TOFU policy above.
-  const peekedFull = peekVMCDeviceId(blob);
-  if (!peekedFull) return primary;
-  const split = splitBlob(blob);
-  if (!split) return primary;
-  const vmcPayload = parsePayload(split.payloadBytes);
-  if (!vmcPayload) return primary;
   let claimedPubkeyBytes: Uint8Array;
   try {
     // eslint-disable-next-line no-undef
@@ -616,6 +689,12 @@ export async function verifyVMCAgainstPinnedPeer(
     "[mesh.verify] TOFU result",
     tofuResult.valid ? "OK — peer ACCEPTED via pair-token window" : `FAIL (${tofuResult.error})`,
   );
+  if (tofuResult.valid) {
+    // Bubble up the matched token nonce so the caller can call
+    // consumePairToken after a successful handshake (closes the window
+    // so another joiner can't reuse the same nonce).
+    return { ...tofuResult, tofuMatchedTokenNonce: matchedToken.nonce };
+  }
   return tofuResult;
 }
 
