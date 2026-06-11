@@ -63,11 +63,21 @@ import "./_ed25519-setup";
 import * as ed from "@noble/ed25519";
 import * as Crypto from "expo-crypto";
 
-import { compareHLC, type HLC } from "../hlc";
+import { compareHLC, type HLC, tickReceive, serializeHLC, deserializeHLC } from "../hlc";
 import { applyEvent } from "../projection";
 import { getDb } from "../db-tx";
+import { getAppMetaInTx, setAppMetaInTx, getInstallIdSync } from "../db-tx";
 import type { LedgerEvent } from "../events";
 import { isKnownEventType } from "../events";
+import type {
+  IngestContext as IngestContextType,
+  IngestVerdict as IngestVerdictType,
+} from "../ingest-types";
+
+// HLC frontier app_meta key — duplicated as a string literal because
+// projection/index.ts keeps the constant private. Single source of
+// truth is projection/index.ts:46; if that changes, change here too.
+const HLC_LAST_KEY = "hlc_last";
 
 import {
   MeshHandshakeError,
@@ -1123,13 +1133,29 @@ export async function loadVaultTrustAnchor(vaultId: string): Promise<Uint8Array 
  */
 export async function computeSummary(vaultId: string): Promise<Record<string, HLC>> {
   const db = await getDb();
+  // Migration 014 / Mythos round-2 round-3 Critical 1.
+  //
+  // RECEIPT ≠ ACCEPTANCE: heads cover ALL ingested rows, including
+  // tombstoned and rejected-by-server. The semantic is "I have durably
+  // received this," not "I have accepted this." A peer who sends us a
+  // bad-sig event and a peer who sends us a later good event both
+  // advance our head correctly — and that's the only way the head can
+  // do its job, which is to stop peers from re-sending what they
+  // already delivered.
+  //
+  // The OLD `WHERE rejected_at IS NULL` filter was the gap-below-head
+  // bug: a rejected event below an applied head was effectively claimed
+  // as "we don't have this" forever, so the peer re-sent it every round
+  // — and worse, when ANY later event from the same device applied, the
+  // head advanced past the rejected one and it dropped into a permanent
+  // hole. See migration-014's docstring for the full pathology.
   const heads = await db.getAllAsync<{
     device_id: string;
     pms: number;
   }>(
     `SELECT device_id, MAX(hlc_physical_ms) AS pms
        FROM event_log
-      WHERE vault_id = ? AND rejected_at IS NULL
+      WHERE vault_id = ?
       GROUP BY device_id`,
     vaultId,
   );
@@ -1141,8 +1167,7 @@ export async function computeSummary(vaultId: string): Promise<Record<string, HL
          FROM event_log
         WHERE vault_id = ?
           AND device_id = ?
-          AND hlc_physical_ms = ?
-          AND rejected_at IS NULL`,
+          AND hlc_physical_ms = ?`,
       vaultId,
       h.device_id,
       h.pms,
@@ -1180,11 +1205,29 @@ export async function countDeltaEventsFromSummary(
 ): Promise<number> {
   const db = await getDb();
   // SUM across all our devices for vault — for each device, count rows
-  // strictly above the peer's floor. SQL injection N/A — values bound.
+  // strictly above the peer's floor and PASSING THE RELAY FILTER
+  // (migration 014).
+  //
+  // Relay filter (Mythos round-3 Critical 1 — the gap-below-head hole
+  // one hop out):
+  //   - tombstone_reason IS NULL: never relay cryptographically-
+  //     refused rows.
+  //   - quarantine_reason IS NULL OR quarantine_reason != 'unknown_actor':
+  //     unknown_actor is per-DEVICE all-or-nothing withhold (if the
+  //     credential is missing, EVERY row from that device is
+  //     unknown_actor, so the stream is withheld in its entirety —
+  //     hole-free). Other quarantine reasons come from credentialed
+  //     devices and DO relay because a downstream peer might apply
+  //     what we can't.
+  //   - rejected_at IS NULL: orthogonal server-rejection guard. Today's
+  //     behavior preserved.
   const rows = await db.getAllAsync<{ device_id: string; cnt: number }>(
     `SELECT device_id, COUNT(*) AS cnt
        FROM event_log
-      WHERE vault_id = ? AND rejected_at IS NULL
+      WHERE vault_id = ?
+        AND tombstone_reason IS NULL
+        AND (quarantine_reason IS NULL OR quarantine_reason != 'unknown_actor')
+        AND rejected_at IS NULL
       GROUP BY device_id`,
     vaultId,
   );
@@ -1200,7 +1243,10 @@ export async function countDeltaEventsFromSummary(
     const row = await db.getFirstAsync<{ c: number }>(
       `SELECT COUNT(*) AS c
          FROM event_log
-        WHERE vault_id = ? AND device_id = ? AND rejected_at IS NULL
+        WHERE vault_id = ? AND device_id = ?
+          AND tombstone_reason IS NULL
+          AND (quarantine_reason IS NULL OR quarantine_reason != 'unknown_actor')
+          AND rejected_at IS NULL
           AND (hlc_physical_ms > ?
                OR (hlc_physical_ms = ? AND hlc_logical > ?))`,
       vaultId,
@@ -1247,9 +1293,16 @@ async function fetchNextBatch(
   const batch: WireMeshEvent[] = [];
 
   if (cursor.currentDeviceId === null && cursor.pendingDeviceIds.length === 0) {
+    // DISTINCT device list — apply the relay filter here too so we
+    // skip devices that have ONLY unknown-actor / tombstoned / rejected
+    // rows. The per-device fetch below uses the same filter for the
+    // hole-safety invariant (Mythos round-3 Critical 1).
     const rows = await db.getAllAsync<{ device_id: string }>(
       `SELECT DISTINCT device_id FROM event_log
-        WHERE vault_id = ? AND rejected_at IS NULL
+        WHERE vault_id = ?
+          AND tombstone_reason IS NULL
+          AND (quarantine_reason IS NULL OR quarantine_reason != 'unknown_actor')
+          AND rejected_at IS NULL
         ORDER BY device_id ASC`,
       vaultId,
     );
@@ -1290,6 +1343,8 @@ async function fetchNextBatch(
          FROM event_log
         WHERE vault_id = ?
           AND device_id = ?
+          AND tombstone_reason IS NULL
+          AND (quarantine_reason IS NULL OR quarantine_reason != 'unknown_actor')
           AND rejected_at IS NULL
           AND (hlc_physical_ms > ?
                OR (hlc_physical_ms = ? AND hlc_logical > ?))
@@ -1307,7 +1362,19 @@ async function fetchNextBatch(
       let payload: unknown;
       try {
         payload = JSON.parse(r.payload_json);
-      } catch {
+      } catch (err) {
+        // Mythos round-2 audit-item #3: silent `continue` on payload
+        // JSON corruption created a permanent hole in OUR send stream
+        // — the peer's head advances past it via subsequent events
+        // and neither side ever knew. Loud-log now; the row stays in
+        // event_log but won't relay until JSON parses successfully
+        // (which it won't if the row is corrupt). The migration-014
+        // sweep tombstones such rows as schema_invalid on the next
+        // pass (sweep.ts:rowToLedgerEvent returns null on parse fail).
+        console.error(
+          `[mesh.fetch] payload_json corrupt for event=${r.event_id} type=${r.event_type} — skipping in this batch`,
+          err,
+        );
         continue;
       }
       batch.push({
@@ -1348,89 +1415,255 @@ async function fetchNextBatch(
 // Receive-side application
 // ---------------------------------------------------------------------------
 
+// Migration 014 / Mythos round-3 design.
+//
+// applyIncomingBatch was renamed (conceptually) to ingestIncomingBatch:
+// we INGEST every signature-verified event durably, then schedule a
+// sweep to attempt apply. The legacy "applied / duplicates /
+// roleGateRejected" counters survive as the outward shape so the
+// caller (runAntiEntropy's logging) doesn't need to change, but their
+// meaning is updated:
+//
+//   - applied: number of NEW rows INSERTED with ingested_at set.
+//              "Apply" happens later via the sweep; at batch-end time
+//              we don't yet know how many applied. Telemetry reflects
+//              receipt count.
+//   - duplicates: number of events whose event_id was already in
+//                 event_log. Genuine duplicate-by-PK now — the
+//                 over-counting Mythos round-2 audit-item #4 flagged
+//                 is fixed (we no longer count role-gate rejections
+//                 OR applier throws as duplicates).
+//   - roleGateRejected: number of tombstone_reason='bad_signature' or
+//                       'unsigned_event' INSERTs from verifyAndIngest.
+//                       Cryptographic refusals. NAME is preserved for
+//                       caller-side log compatibility; semantic is
+//                       "cryptographic ingest refusal."
+//
+// The sweep mutex is taken around the WHOLE batch so a concurrent
+// scheduleSweep that fires mid-batch (triggered by our own ingest
+// hooks) doesn't interleave with the INSERT loop.
 async function applyIncomingBatch(
   expectedVaultId: string,
   events: WireMeshEvent[],
 ): Promise<{ applied: number; duplicates: number; roleGateRejected: number }> {
-  let applied = 0;
+  // Lazy-import to avoid hauling projection/sweep into mesh's module
+  // graph at import time — projection/sweep imports getDb which
+  // initializes at runtime.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { sweepMutex, scheduleSweep } = require("../projection/sweep") as {
+    sweepMutex: { runExclusive: <T>(cb: () => Promise<T> | T) => Promise<T> };
+    scheduleSweep: (vaultId: string) => void;
+  };
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { verifyAndIngest } = require("../ingest-types") as {
+    verifyAndIngest: (event: LedgerEvent, ctx: IngestContextType) => Promise<IngestVerdictType>;
+  };
+
+  let ingested = 0;
   let duplicates = 0;
-  // role-gate refusals (the return-result path; throws are separately
-  // logged below). Without this counter, "duplicates++" hid the v0.5.2
-  // bug for an entire release cycle: events were silently dropped because
-  // peer VMCs weren't cached, but stats said "all good, just duplicates."
-  let roleGateRejected = 0;
+  let cryptoRefused = 0;
 
-  const sorted = [...events].sort((a, b) => compareHLC(a.hlc, b.hlc));
+  // Mutex-protect the ingest sweep against concurrent sweeps.
+  await sweepMutex.runExclusive(async () => {
+    const db = await getDb();
+    const sorted = [...events].sort((a, b) => compareHLC(a.hlc, b.hlc));
 
-  for (const w of sorted) {
-    if (!isKnownEventType(w.event_type)) continue;
-    if (w.vault_id !== expectedVaultId) continue;
-
-    const now = Date.now();
-    const event: LedgerEvent = {
-      event_id: w.event_id,
-      event_type: w.event_type,
-      vault_id: w.vault_id,
-      target_id: w.target_id ?? "",
-      relationship_id: w.relationship_id ?? null,
-      hlc: w.hlc,
-      device_id: w.device_id,
-      // author_user_id_local_only is a device-LOCAL field that never crosses
-      // the wire (per events.ts envelope comment). Set to "" for remote-origin
-      // events; appliers consult it only on local-origin events.
-      author_user_id_local_only: "",
-      actor_account_id: w.actor_account_id,
-      payload: w.payload,
-      payload_schema: w.schema_version,
-      appended_at: now,
-      // Mesh events are NOT server-acked. When this device next reaches the
-      // server, the existing sync push path will pick them up because they
-      // satisfy WHERE server_acked_at IS NULL — closing the bridge
-      // automatically. This is the "emergent bridging" referenced in the
-      // Phase 5 plan.
-      server_acked_at: null,
-      rejected_at: null,
-      origin: "remote",
-    } as unknown as LedgerEvent;
-
-    try {
-      const result = await applyEvent(event, { origin: "remote" });
-      if (result.applied) {
-        applied++;
-      } else if (!result.applied && (result as { reason?: string }).reason === "role_gate") {
-        // The non-throwing role-gate path. Log loudly with the signer so
-        // operator can correlate to "peer X's events are being dropped"
-        // without needing to instrument applyEvent.
-        roleGateRejected++;
-        const signerShort =
-          typeof (w as { signer_device_pubkey?: string }).signer_device_pubkey === "string"
-            ? (w as { signer_device_pubkey: string }).signer_device_pubkey.slice(0, 12)
-            : "?";
-        console.warn(
-          `[mesh.delta] event REFUSED by role-gate (silent path) event=${w.event_id} type=${w.event_type} signer=${signerShort}…`,
+    // IngestContext bound to this batch's vault + db. Hoisted out of
+    // the loop so each event reuses the same closure.
+    const ctx: IngestContextType = {
+      hasEventId: async (eventId: string) => {
+        const row = await db.getFirstAsync<{ n: number }>(
+          `SELECT 1 AS n FROM event_log WHERE event_id = ? LIMIT 1`,
+          eventId,
         );
-      } else {
-        duplicates++;
+        return row != null;
+      },
+      countUnknownActorQuarantine: async (vaultId: string, deviceId: string) => {
+        const row = await db.getFirstAsync<{ c: number }>(
+          `SELECT COUNT(*) AS c
+             FROM event_log
+            WHERE vault_id = ? AND device_id = ?
+              AND quarantine_reason = 'unknown_actor'`,
+          vaultId,
+          deviceId,
+        );
+        return row?.c ?? 0;
+      },
+      insertIngested: async (event: LedgerEvent, ingestedAtMs: number) => {
+        await db.withTransactionAsync(async () => {
+          await db.runAsync(
+            `INSERT INTO event_log (
+               event_id, event_type, vault_id, target_id, relationship_id,
+               hlc_physical_ms, hlc_logical, hlc_device_id,
+               device_id, author_user_id_local_only, actor_account_id,
+               payload_json, payload_schema,
+               appended_at, server_acked_at, rejected_at, origin,
+               event_sig_b64, signer_device_pubkey,
+               ingested_at, applied_at, quarantine_reason, tombstone_reason
+             ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?,  ?, ?,  ?, ?, ?, ?,  ?, ?,  ?, NULL, NULL, NULL)`,
+            event.event_id,
+            event.event_type,
+            event.vault_id,
+            event.target_id,
+            event.relationship_id,
+            event.hlc.pms,
+            event.hlc.l,
+            event.hlc.did,
+            event.device_id,
+            event.author_user_id_local_only ?? "",
+            event.actor_account_id,
+            JSON.stringify(event.payload),
+            event.payload_schema,
+            ingestedAtMs,
+            null,
+            null,
+            "remote",
+            event.event_sig_b64 ?? null,
+            event.signer_device_pubkey ?? null,
+            ingestedAtMs,
+          );
+          // HLC frontier bump (per-row inside the same txn as the
+          // INSERT). tickReceive merges the event's HLC into our
+          // frontier; this is the previous applyEvent's line 217
+          // semantics, kept intact under the ingest path.
+          const prevRaw = await getAppMetaInTx(db, HLC_LAST_KEY);
+          const prev = prevRaw ? deserializeHLC(prevRaw) : null;
+          const merged = tickReceive(prev, event.hlc, Date.now(), getInstallIdSync());
+          await setAppMetaInTx(db, HLC_LAST_KEY, serializeHLC(merged));
+        });
+      },
+      insertTombstoned: async (event: LedgerEvent, tombstoneReason, ingestedAtMs: number) => {
+        await db.withTransactionAsync(async () => {
+          await db.runAsync(
+            `INSERT INTO event_log (
+               event_id, event_type, vault_id, target_id, relationship_id,
+               hlc_physical_ms, hlc_logical, hlc_device_id,
+               device_id, author_user_id_local_only, actor_account_id,
+               payload_json, payload_schema,
+               appended_at, server_acked_at, rejected_at, origin,
+               event_sig_b64, signer_device_pubkey,
+               ingested_at, applied_at, quarantine_reason, tombstone_reason
+             ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?,  ?, ?,  ?, ?, ?, ?,  ?, ?,  ?, NULL, NULL, ?)`,
+            event.event_id,
+            event.event_type,
+            event.vault_id,
+            event.target_id,
+            event.relationship_id,
+            event.hlc.pms,
+            event.hlc.l,
+            event.hlc.did,
+            event.device_id,
+            event.author_user_id_local_only ?? "",
+            event.actor_account_id,
+            JSON.stringify(event.payload),
+            event.payload_schema,
+            ingestedAtMs,
+            null,
+            null,
+            "remote",
+            event.event_sig_b64 ?? null,
+            event.signer_device_pubkey ?? null,
+            ingestedAtMs,
+            tombstoneReason,
+          );
+          // Even for tombstones we bump the HLC frontier: we DID see
+          // this HLC, and the head advances. Bad-sig events should
+          // count for "I have received this" exactly the same as good
+          // events — that's the Critical-1 fix's whole point.
+          const prevRaw = await getAppMetaInTx(db, HLC_LAST_KEY);
+          const prev = prevRaw ? deserializeHLC(prevRaw) : null;
+          const merged = tickReceive(prev, event.hlc, Date.now(), getInstallIdSync());
+          await setAppMetaInTx(db, HLC_LAST_KEY, serializeHLC(merged));
+        });
+      },
+    };
+
+    for (const w of sorted) {
+      if (!isKnownEventType(w.event_type)) {
+        // Schema-invalid at the wire level. The new code path doesn't
+        // even insert these — same behavior as today's `continue`,
+        // but log loud so an unknown event_type is investigable.
+        console.warn(
+          `[mesh.delta] skipping unknown event_type ${w.event_type} event=${w.event_id}`,
+        );
+        continue;
       }
-    } catch (err) {
-      // Per-event failure is non-fatal: an applier may refuse (e.g.
-      // shop_profile_updated arriving before shop_profile row exists), and
-      // the next anti-entropy round will retry once the prereq lands.
-      //
-      // Distinguish role-gate refusals from generic applier throws so
-      // logcat triage is O(seconds) instead of "applyEvent failed" 47×.
-      const msg = (err as Error)?.message ?? String(err);
-      if (msg.includes("role") || msg.includes("unsigned") || msg.includes("signature")) {
-        console.warn(
-          `[mesh.delta] event REFUSED by role-gate event=${w.event_id} type=${w.event_type} reason=${msg}`,
-        );
-      } else {
-        console.warn(`[mesh.delta] applyEvent failed for ${w.event_id} (${w.event_type})`, err);
+      if (w.vault_id !== expectedVaultId) continue;
+
+      const event: LedgerEvent = {
+        event_id: w.event_id,
+        event_type: w.event_type,
+        vault_id: w.vault_id,
+        target_id: w.target_id ?? "",
+        relationship_id: w.relationship_id ?? null,
+        hlc: w.hlc,
+        device_id: w.device_id,
+        // author_user_id_local_only never crosses the wire (events.ts
+        // envelope comment). Set to "" for remote-origin events.
+        author_user_id_local_only: "",
+        actor_account_id: w.actor_account_id,
+        payload: w.payload,
+        payload_schema: w.schema_version,
+        appended_at: Date.now(),
+        server_acked_at: null,
+        rejected_at: null,
+        origin: "remote",
+        event_sig_b64: w.event_sig_b64 ?? null,
+        signer_device_pubkey: w.signer_device_pubkey ?? null,
+      } as unknown as LedgerEvent;
+
+      let verdict: IngestVerdictType;
+      try {
+        verdict = await verifyAndIngest(event, ctx);
+      } catch (err) {
+        console.warn(`[mesh.delta] verifyAndIngest threw for ${w.event_id}`, err);
+        continue;
+      }
+
+      switch (verdict.kind) {
+        case "ingested":
+          ingested++;
+          break;
+        case "tombstoned":
+          if (verdict.reason === "bad_signature" || verdict.reason === "unsigned_event") {
+            cryptoRefused++;
+            console.warn(
+              `[mesh.delta] event tombstoned at ingest event=${w.event_id} reason=${verdict.reason}`,
+            );
+          } else {
+            // 'schema_invalid' tombstones from ingest are rare (no
+            // current verifyAndIngest path produces them). Treat as
+            // cryptoRefused for log-shape stability.
+            cryptoRefused++;
+          }
+          break;
+        case "refused_pre_insert":
+          if (verdict.reason === "duplicate") {
+            duplicates++;
+          } else {
+            // Cap hit / missing pubkey / pre-insert bad sig (the last
+            // never happens today because verifyAndIngest tombstones
+            // bad-sig). Log loud — these are operationally interesting.
+            console.warn(
+              `[mesh.delta] event refused pre-insert event=${w.event_id} reason=${verdict.reason}`,
+            );
+          }
+          break;
       }
     }
-  }
 
-  return { applied, duplicates, roleGateRejected };
+    // Trigger (a): a new ingest MAY cure things in quarantine. Sweep
+    // is debounced, so calling once per batch is correct. Inside the
+    // mutex so it doesn't double-fire if scheduleSweep was also called
+    // by the per-event INSERT triggers.
+    scheduleSweep(expectedVaultId);
+  });
+
+  return {
+    applied: ingested,
+    duplicates,
+    roleGateRejected: cryptoRefused,
+  };
 }
 
 // ---------------------------------------------------------------------------

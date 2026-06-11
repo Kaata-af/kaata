@@ -55,6 +55,7 @@ const MIGRATION_010 = "010_event_log_vault_type_target_index";
 const MIGRATION_011 = "011_phase5_mesh_credentials";
 const MIGRATION_012 = "012_vault_trust_anchor";
 const MIGRATION_013 = "013_event_log_signature_and_revocation_lift";
+const MIGRATION_014 = "014_event_log_ingest_apply_split";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -231,6 +232,14 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
     } catch (err) {
       console.error("[init] runMigration013 failed:", err);
       throw new Error("runMigration013 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_014))) {
+    try {
+      await runMigration014(db);
+    } catch (err) {
+      console.error("[init] runMigration014 failed:", err);
+      throw new Error("runMigration014 failed: " + String(err));
     }
   }
 }
@@ -2080,6 +2089,277 @@ async function runMigration013(db: SQLite.SQLiteDatabase): Promise<void> {
       Date.now(),
     );
   });
+}
+
+// ---------------------------------------------------------------------------
+// Migration 014 — INGEST / APPLY SPLIT
+// ---------------------------------------------------------------------------
+//
+// THE BUG (Mythos round-2 audit):
+//
+// Events refused by role-gate are durably logged today (projection/
+// index.ts:265-322 — INSERT OR IGNORE runs BEFORE the role-gate check at
+// line 314). But:
+//   1. They are never retried — the next sweep never runs because there
+//      is no sweep.
+//   2. The summary's `WHERE rejected_at IS NULL` filter at
+//      anti-entropy.ts:1132 doesn't exclude them, so the head advances
+//      past them on the next round.
+//   3. Peers never re-send them — their (fetchNextBatch) floor is now
+//      past the refused event's HLC.
+//
+// Net effect on a multi-phone ledger: a refused event is in the LOG
+// but missing from the PROJECTION, and no peer in the mesh will ever
+// re-deliver it. For a "your entries never disappear" product, this is
+// the most important bug in the system. Same pathology, narrowly
+// scoped: when a later event from the same device DOES apply, every
+// previously-refused event from that device below its HLC drops into
+// a permanent hole.
+//
+// THE FIX (Mythos round-3 design, two criticals folded in):
+//
+// Make ingest and apply EXPLICITLY separate states via four columns:
+//
+//   ingested_at: "durably received + (for remote) signature-verified"
+//   applied_at:  "applied to projections successfully"
+//   quarantine_reason: NULL or a QuarantineReason — apply was skipped
+//                     for a curable reason; the sweep retries it on
+//                     credential / prereq / role-change events.
+//   tombstone_reason: NULL or a TombstoneReason — apply will NEVER
+//                     happen; row stays for summary advancement and
+//                     audit, but is never relayed or retried.
+//
+// RELAY FILTER (Mythos Critical 1 — the "gap-below-head" hole one hop
+// out): the send filter is per-DEVICE-stream all-or-nothing, never
+// per-event withholding. tombstone is per-event but cryptographically
+// certain. unknown_actor is per-event but hole-free because the gate
+// is "credential exists or not" — when it's absent, EVERY row from
+// that device is unknown_actor, so the stream withhold is total. When
+// the credential arrives, the sweep reclassifies the whole stream
+// atomically. Other quarantine reasons (missing_prereq /
+// role_insufficient / applier_throw) come from credentialed devices,
+// are fully authenticated, and DO relay — a downstream peer might
+// apply what we can't.
+//
+// rejected_at NOT REPURPOSED (Mythos Critical 2): server-authoritative
+// rejection from push.ts:184 happens AFTER local apply. Folding it
+// into tombstone_reason would crash the push path on the first server
+// rejection because applied_at + tombstone_reason violates the
+// state-machine. rejected_at stays orthogonal; the mesh relay filter
+// excludes it independently. server_rejected is NOT a TombstoneReason.
+//
+// POLICY (written down so a future reader knows it was a choice):
+//
+//   - Upward healing only. A quarantined event applies when its
+//     prereq lands.
+//   - NO downward re-evaluation. A later-arriving role-change that
+//     retroactively invalidates an already-applied event leaves the
+//     projection as-is. Full retroactive enforcement requires
+//     projection rebuilds; deferred.
+//   - server-rejection-after-applied: rejected_at gets set on a row
+//     whose projection effects are already live. Same downward
+//     problem, same deferral.
+//
+// BACKFILL STRATEGY:
+//
+//   - Critical 2: rejected_at IS NOT NULL → applied_at = appended_at.
+//     They WERE applied; we just relabel ingest and trust the
+//     orthogonal rejected_at column to gate relay.
+//   - Role-gate-refused under the old code → quarantine(role_insufficient).
+//     Identified via projection_conflicts where kind =
+//     'event_rejected_by_local_role_gate' (NOT the other kind which is
+//     server-rejection mirror), with event_id extracted from
+//     detail_json (no event_id column on that table).
+//   - Everything else → applied_at = appended_at.
+//   - The migration's classification can be ROUGHLY right because the
+//     one-time re-apply pass at runFullReapplyAfterMigration (queued
+//     for commit 6 in this PR series) runs applyAlreadyIngestedEvent
+//     over every non-tombstoned row, oldest-HLC first. Idempotent
+//     appliers cure any misclassification. Errors biased toward
+//     "applied" here are corrected; errors biased toward "quarantined"
+//     are also corrected (sweep applies them on the first pass).
+//
+// SCHEMA EVOLUTION:
+//
+//   - Enum membership is enforced in TRIGGERS, not column-level CHECKs.
+//     CHECKs added via ALTER TABLE are frozen and require a 12-step
+//     table rebuild to extend. Triggers can be dropped and recreated
+//     in a one-line migration when a new reason (e.g. 'revocation_pending')
+//     is added later.
+//   - Triggers are CREATED LAST, after the backfill UPDATEs. Per-row
+//     trigger overhead during the 5-statement backfill would be wasted
+//     and a broken backfill is caught wholesale by aborting the txn.
+async function runMigration014(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    // ---- 1. new columns (no column-level CHECKs) ----
+    if (!(await columnExists(db, "event_log", "ingested_at"))) {
+      await db.execAsync(`ALTER TABLE event_log ADD COLUMN ingested_at INTEGER;`);
+    }
+    if (!(await columnExists(db, "event_log", "applied_at"))) {
+      await db.execAsync(`ALTER TABLE event_log ADD COLUMN applied_at INTEGER;`);
+    }
+    if (!(await columnExists(db, "event_log", "quarantine_reason"))) {
+      await db.execAsync(`ALTER TABLE event_log ADD COLUMN quarantine_reason TEXT;`);
+    }
+    if (!(await columnExists(db, "event_log", "tombstone_reason"))) {
+      await db.execAsync(`ALTER TABLE event_log ADD COLUMN tombstone_reason TEXT;`);
+    }
+
+    // ---- 2a. backfill — server-rejected rows are applied. ----
+    await db.runAsync(`
+      UPDATE event_log
+         SET ingested_at = appended_at,
+             applied_at  = appended_at
+       WHERE rejected_at IS NOT NULL
+         AND ingested_at IS NULL
+    `);
+
+    // ---- 2b. backfill — role-gate refused rows. ----
+    //
+    // Filter projection_conflicts on the correct kind discriminator;
+    // event_id is INSIDE detail_json (no column on projection_conflicts).
+    await db.runAsync(`
+      UPDATE event_log
+         SET ingested_at = appended_at,
+             quarantine_reason = 'role_insufficient'
+       WHERE event_id IN (
+         SELECT json_extract(detail_json, '$.event_id')
+           FROM projection_conflicts
+          WHERE kind = 'event_rejected_by_local_role_gate'
+       )
+         AND ingested_at IS NULL
+    `);
+
+    // ---- 2c. backfill — everything else applied. ----
+    await db.runAsync(`
+      UPDATE event_log
+         SET ingested_at = appended_at,
+             applied_at  = appended_at
+       WHERE ingested_at IS NULL
+    `);
+
+    // ---- 3. indexes ----
+    //
+    // Partial index for the sweep. The sweep's WHERE clause matches
+    // this predicate exactly, so the planner picks it up.
+    await db.execAsync(`
+      CREATE INDEX IF NOT EXISTS idx_event_log_quarantine
+        ON event_log(vault_id, hlc_physical_ms, hlc_logical, hlc_device_id)
+        WHERE applied_at IS NULL AND tombstone_reason IS NULL;
+    `);
+    // Full index (NOT predicated) for computeSummary's
+    // GROUP BY device_id pattern. We don't predicate on ingested_at
+    // IS NOT NULL because the trigger makes that an invariant; a
+    // predicated index forces every consumer to repeat the predicate
+    // in their WHERE clause for the planner to use it.
+    await db.execAsync(`
+      CREATE INDEX IF NOT EXISTS idx_event_log_by_device_hlc
+        ON event_log(vault_id, device_id, hlc_physical_ms, hlc_logical);
+    `);
+
+    // ---- 4. state-machine triggers (CREATED LAST) ----
+    //
+    // Enforced on BOTH insert and update:
+    //   - ingested_at must be set (NOT NULL invariant — SQLite can't
+    //     ADD NOT NULL via ALTER, so trigger-enforced).
+    //   - applied_at + tombstone_reason mutually exclusive.
+    //   - applied_at + quarantine_reason mutually exclusive.
+    //   - tombstone_reason + quarantine_reason mutually exclusive.
+    //   - quarantine_reason if non-NULL must be a known enum value.
+    //   - tombstone_reason if non-NULL must be a known enum value.
+    //
+    // Future enum additions: DROP TRIGGER + CREATE TRIGGER in a
+    // one-line migration. No table rebuild.
+    await db.execAsync(`
+      CREATE TRIGGER IF NOT EXISTS event_log_state_machine_insert
+      BEFORE INSERT ON event_log
+      WHEN
+        (NEW.ingested_at IS NULL) OR
+        (NEW.applied_at IS NOT NULL AND NEW.tombstone_reason IS NOT NULL) OR
+        (NEW.applied_at IS NOT NULL AND NEW.quarantine_reason IS NOT NULL) OR
+        (NEW.tombstone_reason IS NOT NULL AND NEW.quarantine_reason IS NOT NULL) OR
+        (NEW.quarantine_reason IS NOT NULL AND NEW.quarantine_reason NOT IN
+           ('unknown_actor', 'missing_prereq', 'role_insufficient', 'applier_throw')) OR
+        (NEW.tombstone_reason IS NOT NULL AND NEW.tombstone_reason NOT IN
+           ('bad_signature', 'unsigned_event', 'schema_invalid'))
+      BEGIN
+        SELECT RAISE(ABORT, 'event_log state machine violation on insert');
+      END;
+    `);
+    await db.execAsync(`
+      CREATE TRIGGER IF NOT EXISTS event_log_state_machine_update
+      BEFORE UPDATE ON event_log
+      WHEN
+        (NEW.ingested_at IS NULL) OR
+        (NEW.applied_at IS NOT NULL AND NEW.tombstone_reason IS NOT NULL) OR
+        (NEW.applied_at IS NOT NULL AND NEW.quarantine_reason IS NOT NULL) OR
+        (NEW.tombstone_reason IS NOT NULL AND NEW.quarantine_reason IS NOT NULL) OR
+        (NEW.quarantine_reason IS NOT NULL AND NEW.quarantine_reason NOT IN
+           ('unknown_actor', 'missing_prereq', 'role_insufficient', 'applier_throw')) OR
+        (NEW.tombstone_reason IS NOT NULL AND NEW.tombstone_reason NOT IN
+           ('bad_signature', 'unsigned_event', 'schema_invalid'))
+      BEGIN
+        SELECT RAISE(ABORT, 'event_log state machine violation on update');
+      END;
+    `);
+
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_014,
+      Date.now(),
+    );
+  });
+
+  // ---- 5. One-time full re-apply (Mythos round-3 commit 6). ----
+  //
+  // After migration commits, schedule a sweep for every vault that has
+  // at least one quarantined row from the backfill. The sweep runs
+  // 100ms later, picks up the quarantine_reason='role_insufficient'
+  // rows that the backfill marked, and re-runs them through
+  // applyAlreadyIngestedEvent. Rows whose role gate now permits them
+  // (e.g. role was elevated since the original refusal) transition to
+  // applied_at; rows that still fail update their reason; rows that
+  // fail with a permanent reason tombstone.
+  //
+  // Why this is safe even though it runs AFTER schema_migrations
+  // INSERT: scheduleSweep uses a timer; the migration function
+  // returns synchronously, so the caller's next migration (or app
+  // start) proceeds without blocking on the sweep. The sweep takes
+  // the sweep mutex which is also held by applyIncomingBatch — so
+  // even if a mesh round fires before the sweep finishes, they
+  // serialize correctly.
+  //
+  // The "every non-tombstoned row" version Mythos originally proposed
+  // is also safe but unnecessary: under the old code, applier throws
+  // rolled back the INSERT atomically (projection/index.ts:197 wraps
+  // INSERT + role-gate + applier in one withTransactionAsync), so
+  // there are no orphan rows where the projection is missing despite
+  // applied_at being set. The backfill in steps 2a-2c is complete
+  // modulo what scheduleSweep cures.
+  try {
+    const quarantinedVaults = await db.getAllAsync<{ vault_id: string }>(
+      `SELECT DISTINCT vault_id
+         FROM event_log
+        WHERE quarantine_reason IS NOT NULL
+          AND vault_id IS NOT NULL`,
+    );
+    if (quarantinedVaults.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { scheduleSweep } = require("./projection/sweep") as {
+        scheduleSweep: (vaultId: string) => void;
+      };
+      for (const v of quarantinedVaults) {
+        scheduleSweep(v.vault_id);
+      }
+      console.log(
+        `[migration 014] scheduled re-apply sweep for ${quarantinedVaults.length} vault(s) with quarantined rows`,
+      );
+    }
+  } catch (err) {
+    // Best-effort: if sweep scheduling fails the runtime sweep will
+    // pick these up on the first mesh round after install.
+    console.warn("[migration 014] post-migration re-apply schedule failed", err);
+  }
 }
 
 // --- v0 row shapes (used only during migration) ---

@@ -339,6 +339,25 @@ export async function applyEvent(
     notifyProjectionConflictsChanged();
   }
 
+  // Migration 014 trigger (c): a role-changing event MAY cure events
+  // currently quarantined as role_insufficient. Also covers trigger
+  // (a) for local appends — a new event landing might be the prereq
+  // for a missing_prereq quarantine elsewhere. Debounced + idempotent
+  // (sweep is a no-op when nothing's quarantined), so it's safe to
+  // call on every successful apply. Lazy-import to avoid circular
+  // deps between projection/index.ts and projection/sweep.ts.
+  if (applied && event.vault_id != null) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { scheduleSweep } = require("./sweep") as {
+        scheduleSweep: (vaultId: string) => void;
+      };
+      scheduleSweep(event.vault_id);
+    } catch {
+      /* sweep is best-effort */
+    }
+  }
+
   if (applied) return { applied: true };
   if (notApplied.reason === "role_gate" && notApplied.roleGateDetail != null) {
     return {

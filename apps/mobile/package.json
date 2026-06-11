@@ -8,7 +8,9 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "selftest:hlc": "tsx lib/__dev__/hlc-selftest.ts"
+    "selftest:hlc": "tsx lib/__dev__/hlc-selftest.ts",
+    "selftest:ingest": "tsx lib/__dev__/ingest-selftest.ts",
+    "selftest:migration-014": "tsx lib/__dev__/migration-014-selftest.ts"
   },
   "dependencies": {
     "@config-plugins/react-native-webrtc": "^13.0.0",
@@ -59,7 +61,9 @@
     "react-native-zeroconf": "^0.13.8"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/react": "~19.1.10",
+    "better-sqlite3": "^12.10.0",
     "tsx": "^4.22.4",
     "typescript": "~5.9.2"
   },

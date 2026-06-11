@@ -811,6 +811,20 @@ export async function cachePeerVMC(args: {
     args.peerExpiresAt,
     args.peerVaultEpoch,
   );
+  // Migration 014 trigger (b): a new credential MAY cure events
+  // currently quarantined as unknown_actor (or role_insufficient if
+  // the credential carries a higher role than what we last knew).
+  // Lazy-import to avoid pulling projection/sweep into the mesh
+  // module graph at import time.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { scheduleSweep } = require("../projection/sweep") as {
+      scheduleSweep: (vaultId: string) => void;
+    };
+    scheduleSweep(args.vaultId);
+  } catch {
+    /* sweep is best-effort — credential is already cached */
+  }
 }
 
 export async function getCachedVMC(vaultId: string): Promise<CachedVMC | null> {

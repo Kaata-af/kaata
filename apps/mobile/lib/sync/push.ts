@@ -83,6 +83,13 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
 
   const db = await getDb();
   const rows = await db.getAllAsync<EventRow>(
+    // Migration 014 (Mythos round-3): also exclude tombstoned rows.
+    // Tombstoned events are locally-believed-bad-signature or schema-
+    // invalid; pushing them is wasteful and surfaces noise to the
+    // server. The idx_event_log_unsynced partial index (migration 005)
+    // doesn't include tombstone_reason yet, so the planner picks up
+    // the index then filters in memory. A follow-up index migration
+    // could fold tombstone_reason into the partial predicate.
     `SELECT event_id, event_type, vault_id, target_id, relationship_id,
             hlc_physical_ms, hlc_logical, hlc_device_id,
             device_id, author_user_id_local_only, actor_account_id,
@@ -91,6 +98,7 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
       WHERE vault_id = ?
         AND server_acked_at IS NULL
         AND rejected_at IS NULL
+        AND tombstone_reason IS NULL
       ORDER BY hlc_physical_ms ASC, hlc_logical ASC, hlc_device_id ASC
       LIMIT ?`,
     vaultId,
