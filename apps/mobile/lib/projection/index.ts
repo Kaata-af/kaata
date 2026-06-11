@@ -263,6 +263,27 @@ export async function applyEvent(
     }
 
     // 2. INSERT OR IGNORE — idempotent by event_id.
+    //
+    // MIGRATION 014 HOTFIX: the state-machine trigger created by
+    // migration 014 requires `ingested_at IS NOT NULL` on every
+    // INSERT into event_log. Without setting it here, the trigger
+    // ABORTs every local write — every contact-create, every entry-
+    // append, every vault_member_added event. Caught by user testing
+    // the same day the migration shipped.
+    //
+    // For local-origin events: ingested_at = applied_at = appended_at,
+    // because the local path is atomic INSERT+role-gate+applier inside
+    // one withTransactionAsync. If role-gate refuses (line 317 below),
+    // we UPDATE applied_at back to NULL so the sweep can retry on the
+    // next role-elevation event. If the applier throws, the entire
+    // txn rolls back, including this INSERT — no row, no inconsistency.
+    //
+    // For remote-origin events going through this path (pull from
+    // backend, NOT mesh): same semantic — the server is authoritative,
+    // we believe what it tells us. (Mesh-origin events DO NOT use
+    // this path; they go through anti-entropy.ts's verifyAndIngest
+    // pipeline which sets ingested_at and defers applied_at to the
+    // sweep.)
     const result = await db.runAsync(
       `INSERT OR IGNORE INTO event_log (
          event_id, event_type, vault_id, target_id, relationship_id,
@@ -270,8 +291,9 @@ export async function applyEvent(
          device_id, author_user_id_local_only, actor_account_id,
          payload_json, payload_schema,
          appended_at, server_acked_at, rejected_at, origin,
-         event_sig_b64, signer_device_pubkey
-       ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?,  ?, ?,  ?, ?, ?, ?,  ?, ?)`,
+         event_sig_b64, signer_device_pubkey,
+         ingested_at, applied_at
+       ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?,  ?, ?,  ?, ?, ?, ?,  ?, ?,  ?, ?)`,
       stamped.event_id,
       stamped.event_type,
       stamped.vault_id,
@@ -291,6 +313,8 @@ export async function applyEvent(
       stamped.origin,
       stamped.event_sig_b64 ?? null,
       stamped.signer_device_pubkey ?? null,
+      stamped.appended_at,
+      stamped.appended_at,
     );
 
     // changes === 0 means the INSERT OR IGNORE hit the PK and skipped.
@@ -313,6 +337,18 @@ export async function applyEvent(
     //    doesn't get stuck on a rejected event.
     const gate = await checkRoleForEvent(db, stamped);
     if (!gate.ok) {
+      // MIGRATION 014 HOTFIX: the INSERT above optimistically set
+      // applied_at = appended_at because the local path normally
+      // commits ingest+apply atomically. Now that role-gate refused,
+      // the applier WILL NOT run, so applied_at is wrong. Clear it
+      // and set quarantine_reason so the sweep retries on a later
+      // role-elevation event.
+      await db.runAsync(
+        `UPDATE event_log
+            SET applied_at = NULL, quarantine_reason = 'role_insufficient'
+          WHERE event_id = ?`,
+        stamped.event_id,
+      );
       await recordRoleGateReject(db, stamped, gate);
       await setAppMetaInTx(db, HLC_LAST_KEY, serializeHLC(newHlc));
       roleGateRejected = true;
