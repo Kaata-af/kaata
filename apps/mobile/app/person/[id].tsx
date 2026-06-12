@@ -1,7 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
-import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Animated,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomSheet } from "../../components/BottomSheet";
 import { Chip } from "../../components/Chip";
@@ -32,15 +40,20 @@ export default function PersonDetailScreen() {
   const [person, setPerson] = useState<PersonWithBalance | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [self, setSelf] = useState<Self | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [sheetFor, setSheetFor] = useState<Entry | null>(null);
   const [confirmDeleteFor, setConfirmDeleteFor] = useState<Entry | null>(null);
 
   const load = useCallback(async () => {
-    if (!id) return;
+    if (!id) {
+      setLoaded(true);
+      return;
+    }
     const [p, list, s] = await Promise.all([getPerson(id), listEntries(id), getLocalSelf()]);
     setPerson(p);
     setEntries(list);
     setSelf(s);
+    setLoaded(true);
   }, [id]);
 
   useFocusEffect(
@@ -50,9 +63,33 @@ export default function PersonDetailScreen() {
   );
 
   if (!person) {
+    // Pre-load: spinner. Post-load null (stale id, person archived remotely
+    // via mesh): say so — and in both cases keep a working back button.
+    // The old empty <View /> here was a dead end with no escape on iOS.
     return (
-      <SafeAreaView style={styles.container}>
-        <View />
+      <SafeAreaView style={styles.container} edges={["top"]}>
+        <View style={[styles.headerNav, rowDir(isRTL)]}>
+          <Pressable
+            onPress={() => router.back()}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={t("common.back")}
+            style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.5 }]}
+          >
+            <Ionicons
+              name={isRTL ? "chevron-forward" : "chevron-back"}
+              size={22}
+              color={colors.textEmphasis}
+            />
+          </Pressable>
+        </View>
+        <View style={styles.fillCenter}>
+          {loaded ? (
+            <Text style={styles.notFoundText}>{t("personAdd.personNotFound")}</Text>
+          ) : (
+            <ActivityIndicator color={colors.textDefault} />
+          )}
+        </View>
       </SafeAreaView>
     );
   }
@@ -76,6 +113,8 @@ export default function PersonDetailScreen() {
         <Pressable
           onPress={() => router.back()}
           hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t("common.back")}
           style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.5 }]}
         >
           <Ionicons
@@ -87,6 +126,8 @@ export default function PersonDetailScreen() {
         <Pressable
           onPress={() => router.push({ pathname: "/person/[id]/edit", params: { id: person.id } })}
           hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t("person.sheet.edit")}
           style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.5 }]}
         >
           <Ionicons name="create-outline" size={20} color={colors.textEmphasis} />
@@ -167,7 +208,9 @@ export default function PersonDetailScreen() {
           <View style={styles.list}>
             {entries.map((e, i) => (
               <View key={e.id}>
-                <EntryRow entry={e} onPress={() => setSheetFor(e)} />
+                {/* setSheetFor is referentially stable — keeps the memoized
+                    EntryRow from re-rendering on unrelated screen renders. */}
+                <EntryRow entry={e} onPress={setSheetFor} />
                 {i < entries.length - 1 ? <View style={styles.divider} /> : null}
               </View>
             ))}
@@ -202,7 +245,11 @@ export default function PersonDetailScreen() {
 
       <BottomSheet
         visible={sheetFor !== null}
-        title={sheetFor ? `${formatAmount(sheetFor.amount_afn)} AFN` : undefined}
+        title={
+          sheetFor
+            ? `${formatAmount(sheetFor.amount_afn)} ${getCurrentCurrencySymbol()}`
+            : undefined
+        }
         onDismiss={() => setSheetFor(null)}
         actions={[
           {
@@ -229,10 +276,20 @@ export default function PersonDetailScreen() {
         confirmLabel={t("person.delete.confirm")}
         destructive
         onConfirm={async () => {
-          if (confirmDeleteFor) {
-            await softDeleteEntry(confirmDeleteFor.id);
+          // Close the dialog FIRST — ConfirmDialog doesn't self-dismiss, and
+          // the success toast renders beneath the dialog's Modal, so leaving
+          // it open reads as "the tap did nothing" and invites a second
+          // Confirm tap (re-running the delete).
+          const target = confirmDeleteFor;
+          setConfirmDeleteFor(null);
+          if (!target) return;
+          try {
+            await softDeleteEntry(target.id);
             await load();
             toast.push(t("entry.deleted"), "success");
+          } catch (err) {
+            console.warn("[person] softDeleteEntry failed", err);
+            toast.push(t("entry.deleteFailed"), "error");
           }
         }}
         onCancel={() => setConfirmDeleteFor(null)}
@@ -243,6 +300,8 @@ export default function PersonDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
+  fillCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
+  notFoundText: { fontSize: 14, fontFamily: fonts.sansRegular, color: colors.textSubtle },
   headerNav: {
     flexDirection: "row",
     justifyContent: "space-between",

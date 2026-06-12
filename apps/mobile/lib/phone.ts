@@ -1,4 +1,5 @@
 import { getAppMeta } from "./db";
+import { toAsciiDigits } from "./digits";
 
 // Multi-country phone normalization. Afghan numbers stay the strict-format
 // canonical input; everything else (Afghan diaspora destinations, neighbours)
@@ -96,8 +97,11 @@ export function normalizePhone(
   countryCode: string = DEFAULT_COUNTRY_CODE,
 ): string | null {
   if (input == null) return null;
-  // Strip everything except digits and a single leading '+'.
-  let cleaned = input.trim().replace(/[^\d+]/g, "");
+  // Transliterate Persian/Arabic-Indic digits first — Persian keyboards emit
+  // U+06F0-9, which /[^\d+]/ would otherwise strip as "not a digit",
+  // rejecting perfectly valid numbers typed by Persian-locale users.
+  // Then strip everything except digits and a single leading '+'.
+  let cleaned = toAsciiDigits(input.trim()).replace(/[^\d+]/g, "");
   if (cleaned.length > 1) {
     cleaned = cleaned[0] + cleaned.slice(1).replace(/\+/g, "");
   }

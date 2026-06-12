@@ -3,12 +3,14 @@ import * as Haptics from "expo-haptics";
 import { Redirect, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Animated,
   BackHandler,
   Image,
   Linking,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -105,6 +107,7 @@ export default function HomeScreen() {
   const [sheetFor, setSheetFor] = useState<PersonWithBalance | null>(null);
   const [confirmDeleteFor, setConfirmDeleteFor] = useState<PersonWithBalance | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   // Phase 7: unified settings sheet — replaces the hamburger AND the
   // old ProfileMenuSheet. One state flag, one entry point on the profile
   // chip top-RIGHT. sessionUser is read on focus so it stays in sync with
@@ -226,6 +229,18 @@ export default function HomeScreen() {
       load();
     }, [load]),
   );
+
+  // Pull-to-refresh — with mesh/vault sync now core, entries can land while
+  // the shopkeeper sits on this screen (the dominant shop-counter posture).
+  // useFocusEffect alone never picks those up.
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [load]);
 
   // D-ACTIVE-VAULT-REACTIVE safety net.
   //
@@ -419,6 +434,16 @@ export default function HomeScreen() {
       });
   }, [direction, screenWidth, translateX]);
 
+  // Stable row handlers — PersonRow is memoized, and these two props must
+  // keep their identity across renders or every row re-renders on each
+  // toast push / locale flip (see PersonRow's memo rationale).
+  const openPerson = useCallback(
+    (p: PersonWithBalance) => {
+      router.push({ pathname: "/person/[id]", params: { id: p.id } });
+    },
+    [router],
+  );
+
   // Phase 7 D-ACCOUNT-PAGE-ROLE: shared sign-in driver. Used by both
   // "Sign in with Google" (signed-out state) and "Switch Google account"
   // (signed-in state). GoogleSignin.configure({offlineAccess:false})
@@ -584,28 +609,42 @@ export default function HomeScreen() {
         <Tabs<Direction> tabs={buildTabs()} value={direction} onChange={setDirection} />
       </View>
 
-      <GestureDetector gesture={swipeGesture}>
-        <Animated.View
-          style={[styles.rail, { width: screenWidth * 2, transform: [{ translateX }] }]}
-        >
-          <TabPage
-            direction="collect"
-            people={collectPeople}
-            width={screenWidth}
-            paddingBottom={96 + insets.bottom}
-            onPersonPress={(id) => router.push({ pathname: "/person/[id]", params: { id } })}
-            onPersonLongPress={setSheetFor}
-          />
-          <TabPage
-            direction="pay"
-            people={payPeople}
-            width={screenWidth}
-            paddingBottom={96 + insets.bottom}
-            onPersonPress={(id) => router.push({ pathname: "/person/[id]", params: { id } })}
-            onPersonLongPress={setSheetFor}
-          />
-        </Animated.View>
-      </GestureDetector>
+      {loaded ? (
+        <GestureDetector gesture={swipeGesture}>
+          <Animated.View
+            style={[styles.rail, { width: screenWidth * 2, transform: [{ translateX }] }]}
+          >
+            <TabPage
+              direction="collect"
+              people={collectPeople}
+              width={screenWidth}
+              paddingBottom={96 + insets.bottom}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              onPersonPress={openPerson}
+              onPersonLongPress={setSheetFor}
+            />
+            <TabPage
+              direction="pay"
+              people={payPeople}
+              width={screenWidth}
+              paddingBottom={96 + insets.bottom}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              onPersonPress={openPerson}
+              onPersonLongPress={setSheetFor}
+            />
+          </Animated.View>
+        </GestureDetector>
+      ) : (
+        // Pre-load: spinner instead of the rail. Rendering the rail before
+        // load() resolves flashed "0" totals + the first-run empty state at
+        // every cold launch — a false "my ledger is gone" signal for a
+        // shopkeeper with a full book.
+        <View style={styles.loadingFill}>
+          <ActivityIndicator color={colors.textDefault} />
+        </View>
+      )}
 
       {/*
        * INVARIANT: + FAB on the RIGHT side. Same right-hand-is-giving
@@ -624,6 +663,8 @@ export default function HomeScreen() {
         pointerEvents="box-none"
       >
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t("personAdd.title")}
           // D-DEFENSIVE-ARCHIVED-GUARD: D-POST-ARCHIVE-SWITCH should
           // normally keep the active vault writable, but a mesh-sourced
           // archive event can race the FAB tap; refuse here and tell the
@@ -842,11 +883,20 @@ export default function HomeScreen() {
         confirmLabel={t("common.remove")}
         destructive
         onConfirm={async () => {
-          if (confirmDeleteFor) {
-            const name = confirmDeleteFor.name;
-            await archivePerson(confirmDeleteFor.id);
+          // Close the dialog FIRST — ConfirmDialog doesn't self-dismiss, and
+          // the success toast renders beneath the dialog's Modal, so leaving
+          // it open reads as "the tap did nothing" and invites a second
+          // Confirm tap (re-running archivePerson).
+          const target = confirmDeleteFor;
+          setConfirmDeleteFor(null);
+          if (!target) return;
+          try {
+            await archivePerson(target.id);
             await load();
-            toast.push(t("common.removed", { name }), "success");
+            toast.push(t("common.removed", { name: target.name }), "success");
+          } catch (err) {
+            console.warn("[home] archivePerson failed", err);
+            toast.push(t("entry.deleteFailed"), "error");
           }
         }}
         onCancel={() => setConfirmDeleteFor(null)}
@@ -999,7 +1049,9 @@ function TabPage(props: {
   people: PersonWithBalance[];
   width: number;
   paddingBottom: number;
-  onPersonPress: (id: string) => void;
+  refreshing: boolean;
+  onRefresh: () => void;
+  onPersonPress: (person: PersonWithBalance) => void;
   onPersonLongPress: (person: PersonWithBalance) => void;
 }) {
   const isRTL = useIsRTL();
@@ -1010,7 +1062,17 @@ function TabPage(props: {
 
   return (
     <View style={{ width: props.width }}>
-      <ScrollView contentContainerStyle={{ paddingBottom: props.paddingBottom }}>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: props.paddingBottom }}
+        refreshControl={
+          <RefreshControl
+            refreshing={props.refreshing}
+            onRefresh={props.onRefresh}
+            colors={[colors.textEmphasis]}
+            tintColor={colors.textSubtle}
+          />
+        }
+      >
         <View style={styles.totalBlock}>
           <Text style={[styles.totalLabel, textDir(isRTL)]}>{totalLabel}</Text>
           <View style={[styles.totalRow, rowDir(isRTL)]}>
@@ -1045,8 +1107,8 @@ function TabPage(props: {
               <View key={p.id}>
                 <PersonRow
                   person={p}
-                  onPress={() => props.onPersonPress(p.id)}
-                  onLongPress={() => props.onPersonLongPress(p)}
+                  onPress={props.onPersonPress}
+                  onLongPress={props.onPersonLongPress}
                 />
                 {i < props.people.length - 1 ? <View style={styles.divider} /> : null}
               </View>
@@ -1160,6 +1222,7 @@ const styles = StyleSheet.create({
   // hair after the header's paddingBottom shrunk to 14 (was 16);
   // marginBottom:16 keeps the rail from feeling glued to the tab strip.
   tabsWrap: { paddingHorizontal: 16, marginTop: 2, marginBottom: 16 },
+  loadingFill: { flex: 1, alignItems: "center", justifyContent: "center" },
   rail: {
     flex: 1,
     // Keep collect-tab on the physical left, pay-tab on the physical right.

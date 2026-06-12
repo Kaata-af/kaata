@@ -23,6 +23,9 @@ export function Button(props: {
     <Pressable
       onPress={onPress}
       disabled={disabled || loading}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: Boolean(disabled || loading), busy: Boolean(loading) }}
+      accessibilityLabel={label}
       style={({ pressed }) => [
         styles.btn,
         {

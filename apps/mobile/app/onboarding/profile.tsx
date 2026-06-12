@@ -20,6 +20,7 @@ import { EventSigningUnavailableError } from "../../lib/event-log";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
+import { getCurrentDefaultCountryCode, normalizePhone } from "../../lib/phone";
 
 // Onboarding final form step — name + shop. NEITHER field is prefilled
 // from the Google profile (intentional UX call: shopkeepers' Google
@@ -43,6 +44,7 @@ export default function OnboardingProfileScreen() {
   const [phone, setPhone] = useState("");
   const [shopName, setShopName] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
   // v0.5.3: shop (Kaata) name is OPTIONAL. The user can install Kaata
   // just to JOIN someone else's kaata — the "Join an existing kaata"
   // link below skips vault creation entirely. When shop is left empty
@@ -54,6 +56,9 @@ export default function OnboardingProfileScreen() {
   const nameRef = useRef<TextInput>(null);
   const phoneRef = useRef<TextInput>(null);
   const shopRef = useRef<TextInput>(null);
+  // Synchronous re-entry guard — `busy` state can't stop a same-frame
+  // double-tap (setState is async); see entry/new.tsx.
+  const savingRef = useRef(false);
 
   useEffect(() => {
     (async () => {
@@ -73,6 +78,7 @@ export default function OnboardingProfileScreen() {
   }, []);
 
   async function finalize(targetRoute: "/" | "/vault/pair-scan"): Promise<void> {
+    if (savingRef.current) return;
     const trimmedName = name.trim();
     const trimmedPhone = phone.trim();
     const trimmedShop = shopName.trim();
@@ -84,10 +90,26 @@ export default function OnboardingProfileScreen() {
     }
     setNameError(null);
 
+    // Normalize to E.164 like every other phone write path. Without this,
+    // the raw string ("0700123456", spaces, typos) landed verbatim in
+    // users.phone_e164 — the column the data model treats as canonical
+    // identity — with zero feedback for typos.
+    let normalizedPhone: string | null = null;
+    if (trimmedPhone) {
+      normalizedPhone = normalizePhone(trimmedPhone, getCurrentDefaultCountryCode());
+      if (!normalizedPhone) {
+        setPhoneError(t("personAdd.phone.invalid"));
+        phoneRef.current?.focus();
+        return;
+      }
+    }
+    setPhoneError(null);
+
+    savingRef.current = true;
     setSubmitError(null);
     setBusy(true);
     try {
-      await createSelfProfile(trimmedName, trimmedShop, trimmedPhone || null);
+      await createSelfProfile(trimmedName, trimmedShop, normalizedPhone);
       await setAppMeta("onboarding_step", "done");
       await setAppMeta("onboarding_pending_name", "");
       await setAppMeta("onboarding_pending_email", "");
@@ -105,6 +127,7 @@ export default function OnboardingProfileScreen() {
         setSubmitError(t("entry.saveFailed"));
       }
     } finally {
+      savingRef.current = false;
       setBusy(false);
     }
   }
@@ -187,13 +210,17 @@ export default function OnboardingProfileScreen() {
             ref={phoneRef}
             label={t("onboarding.phone.label")}
             value={phone}
-            onChangeText={setPhone}
+            onChangeText={(v) => {
+              setPhoneError(null);
+              setPhone(v);
+            }}
             placeholder={t("onboarding.phone.placeholder")}
             keyboardType="phone-pad"
             autoCorrect={false}
             returnKeyType="next"
             onSubmitEditing={() => shopRef.current?.focus()}
             submitBehavior="submit"
+            error={phoneError}
           />
           <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("onboarding.phone.hint")}</Text>
 

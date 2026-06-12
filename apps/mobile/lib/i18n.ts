@@ -183,6 +183,7 @@ const en = {
   "personAdd.rightAmount.new": "new",
   "personAdd.rightAmount.settled": "settled",
   "personAdd.personNotFound": "Person not found.",
+  "personAdd.phone.placeholderGeneric": "Phone number",
 
   // Entry
   "entry.amount.label": "Amount (AFN)",
@@ -206,6 +207,7 @@ const en = {
   "entry.saved": "Entry saved",
   "entry.updated": "Entry updated",
   "entry.deleted": "Entry deleted",
+  "entry.deleteFailed": "Couldn't delete. Try again.",
   "entry.saveFailed": "Couldn't save. Try again.",
   // Surfaced when a local write is refused by the projection's role-gate
   // — usually because a co-owner demoted this device to viewer/editor and
@@ -958,6 +960,7 @@ const fa: Partial<Record<Key, string>> = {
   "personAdd.rightAmount.new": "جدید",
   "personAdd.rightAmount.settled": "تصفیه",
   "personAdd.personNotFound": "این شخص پیدا نشد.",
+  "personAdd.phone.placeholderGeneric": "شماره تلفون",
 
   // Entry
   "entry.amount.label": "مقدار (AFN)",
@@ -979,6 +982,7 @@ const fa: Partial<Record<Key, string>> = {
   "entry.saved": "ثبت شد",
   "entry.updated": "به‌روزرسانی شد",
   "entry.deleted": "حذف شد",
+  "entry.deleteFailed": "حذف نشد. دوباره امتحان کنید.",
   "entry.saveFailed": "ذخیره نشد. دوباره امتحان کنید.",
   "entry.roleDenied": "فقط مشاهده — از مالک اجازه ویرایشگر بخواهید.",
   "entry.signingUnavailable": "ذخیره امن آماده نشد. لطفاً برنامه را دوباره باز کنید و امتحان کنید.",

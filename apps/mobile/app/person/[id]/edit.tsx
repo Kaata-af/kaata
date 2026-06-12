@@ -18,6 +18,7 @@ import { useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
 import { getPerson, updatePerson } from "../../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
+import { EventSigningUnavailableError, RoleGateRejectionError } from "../../../lib/event-log";
 import { fonts } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
 import { getCountry, getCurrentDefaultCountryCode, inferCountryFromE164 } from "../../../lib/phone";
@@ -37,8 +38,15 @@ export default function EditPersonScreen() {
   const [countryCode, setCountryCode] = useState(getCurrentDefaultCountryCode);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Inline errors — modal screen, toasts can't render above it (Toast.tsx).
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const nameRef = useRef<TextInput>(null);
   const phoneRef = useRef<TextInput>(null);
+  // Synchronous re-entry guard — `busy` state can't stop a same-frame
+  // double-tap (setState is async); see entry/new.tsx.
+  const savingRef = useRef(false);
   const country = getCountry(countryCode);
 
   useEffect(() => {
@@ -69,26 +77,40 @@ export default function EditPersonScreen() {
   }, [loaded]);
 
   async function onSave() {
-    if (!id) return;
+    if (savingRef.current || !id) return;
     const trimmed = name.trim();
     if (!trimmed) {
-      toast.push(t("onboarding.nameRequired"), "error");
+      setNameError(t("onboarding.nameRequired"));
       return;
     }
+    savingRef.current = true;
     setBusy(true);
+    setSaveError(null);
     try {
       const result = await updatePerson(id, trimmed, phone.trim() || null, countryCode);
       if (!result.ok) {
         if (result.error === "phone_invalid") {
-          toast.push(t("personAdd.phone.invalid"), "error");
+          setPhoneError(t("personAdd.phone.invalid"));
         } else {
-          toast.push(t("personAdd.phone.conflict", { name: result.existing.name }), "error");
+          setPhoneError(t("personAdd.phone.conflict", { name: result.existing.name }));
         }
         return;
       }
       toast.push(t("settings.saved"), "success");
       router.back();
+    } catch (err) {
+      // Without this catch a thrown updatePerson (role demotion landing
+      // via mesh, signing unavailable, storage error) was a completely
+      // silent failure — spinner stopped, nothing saved, no feedback.
+      if (err instanceof RoleGateRejectionError) {
+        setSaveError(t("entry.roleDenied"));
+      } else if (err instanceof EventSigningUnavailableError) {
+        setSaveError(t("entry.signingUnavailable"));
+      } else {
+        setSaveError(t("entry.saveFailed"));
+      }
     } finally {
+      savingRef.current = false;
       setBusy(false);
     }
   }
@@ -122,16 +144,26 @@ export default function EditPersonScreen() {
           </Text>
           <TextInput
             ref={nameRef}
-            style={[styles.input, textDir(isRTL)]}
+            style={[styles.input, textDir(isRTL), nameError ? styles.inputError : null]}
             value={name}
-            onChangeText={setName}
+            onChangeText={(v) => {
+              setNameError(null);
+              setName(v);
+            }}
             placeholder={t("personEdit.name.label")}
             placeholderTextColor={colors.textMuted}
+            accessibilityLabel={t("personEdit.name.label")}
             autoCapitalize="words"
+            maxLength={50}
             returnKeyType="next"
             onSubmitEditing={() => phoneRef.current?.focus()}
             submitBehavior="submit"
           />
+          {nameError ? (
+            <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
+              {nameError}
+            </Text>
+          ) : null}
         </View>
         <View style={styles.field}>
           <Text style={[styles.label, textDir(isRTL)]}>{t("personEdit.phone.label")}</Text>
@@ -151,17 +183,33 @@ export default function EditPersonScreen() {
             </Pressable>
             <TextInput
               ref={phoneRef}
-              style={styles.phoneInput}
+              style={[styles.phoneInput, phoneError ? styles.inputError : null]}
               value={phone}
-              onChangeText={setPhone}
-              placeholder={country.code === "AF" ? "70 123 4567" : "national number"}
+              onChangeText={(v) => {
+                setPhoneError(null);
+                setPhone(v);
+              }}
+              placeholder={
+                country.code === "AF" ? "70 123 4567" : t("personAdd.phone.placeholderGeneric")
+              }
               placeholderTextColor={colors.textMuted}
+              accessibilityLabel={t("personEdit.phone.label")}
               keyboardType="phone-pad"
               returnKeyType="done"
               onSubmitEditing={onSave}
             />
           </View>
+          {phoneError ? (
+            <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
+              {phoneError}
+            </Text>
+          ) : null}
         </View>
+        {saveError ? (
+          <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
+            {saveError}
+          </Text>
+        ) : null}
         <View style={{ height: 24 }} />
         <Button label={t("personEdit.save")} onPress={onSave} loading={busy} />
       </KeyboardAvoidingView>
@@ -239,5 +287,16 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     color: colors.textEmphasis,
     backgroundColor: colors.bgDefault,
+  },
+  // Mirrors FormField's error treatment — see entry/new.tsx.
+  inputError: {
+    borderColor: colors.danger,
+    backgroundColor: "rgba(220, 38, 38, 0.04)",
+  },
+  fieldError: {
+    fontSize: 12,
+    fontFamily: fonts.sansMedium,
+    color: colors.danger,
+    marginTop: 6,
   },
 });

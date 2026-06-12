@@ -22,6 +22,11 @@ export function Tabs<K extends string>(props: {
           <Pressable
             key={t.key}
             onPress={() => props.onChange(t.key)}
+            // Selection was color-only — TalkBack users couldn't tell which
+            // tab is active, and this control is also the only non-gesture
+            // alternative to the home swipe rail.
+            accessibilityRole="tab"
+            accessibilityState={{ selected: active }}
             style={({ pressed }) => [
               styles.tab,
               active && styles.tabActive,

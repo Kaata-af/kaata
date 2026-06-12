@@ -5,6 +5,7 @@ import { Animated, Modal, Pressable, StyleSheet, Text, View } from "react-native
 import type { ComponentProps } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
+import { SHEET_BLUR_METHOD } from "../lib/blur";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 
@@ -73,7 +74,7 @@ export function BottomSheet(props: {
         <BlurView
           intensity={20}
           tint="light"
-          experimentalBlurMethod="dimezisBlurView"
+          experimentalBlurMethod={SHEET_BLUR_METHOD}
           style={StyleSheet.absoluteFill}
         />
         <View style={styles.tint} />

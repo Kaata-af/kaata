@@ -40,6 +40,7 @@ import { CountryPickerSheet } from "../components/CountryPickerSheet";
 import { NavRow, ScreenHeader, SectionGap, SectionHeader } from "../components/SettingsScreen";
 import { useToast } from "../components/Toast";
 import { colors } from "../lib/colors";
+import { SHEET_BLUR_METHOD } from "../lib/blur";
 import {
   CURRENCIES,
   DEFAULT_CURRENCY,
@@ -351,7 +352,7 @@ function OptionSheet(props: {
         <BlurView
           intensity={20}
           tint="light"
-          experimentalBlurMethod="dimezisBlurView"
+          experimentalBlurMethod={SHEET_BLUR_METHOD}
           style={StyleSheet.absoluteFill}
         />
         <View style={styles.sheetTint} />

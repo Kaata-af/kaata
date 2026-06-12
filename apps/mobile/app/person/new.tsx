@@ -20,6 +20,7 @@ import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
 import { createPerson, getActiveVaultArchivedState, listAllPeople } from "../../lib/db";
+import { toAsciiDigits } from "../../lib/digits";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
@@ -50,7 +51,13 @@ export default function PersonAddOrFindScreen() {
   const [contactsVisible, setContactsVisible] = useState(false);
   const [people, setPeople] = useState<PersonWithBalance[] | null>(null);
   const [busy, setBusy] = useState(false);
+  // Inline errors — modal screen, toasts can't render above it (Toast.tsx).
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const phoneRef = useRef<TextInput>(null);
+  // Synchronous re-entry guard — `busy` state can't stop a same-frame
+  // double-tap (setState is async); see entry/new.tsx.
+  const savingRef = useRef(false);
   const country = getCountry(countryCode);
 
   // Pulls a name + phone from the device's contacts picker. If the phone is
@@ -58,16 +65,20 @@ export default function PersonAddOrFindScreen() {
   // dial code so the picker UI is consistent.
   function onContactPicked(c: PickedContact) {
     setName(c.name);
+    setPhoneError(null);
     if (c.phone) {
-      if (c.phone.startsWith("+")) {
-        const inferred = inferCountryFromE164(c.phone);
+      // Contacts saved from a Persian keyboard can carry Persian/Arabic-
+      // Indic digits — transliterate before any ASCII-digit matching.
+      const rawPhone = toAsciiDigits(c.phone.trim());
+      if (rawPhone.startsWith("+")) {
+        const inferred = inferCountryFromE164(rawPhone);
         const dial = getCountry(inferred).dialCode;
         setCountryCode(inferred);
-        setPhone(c.phone.startsWith(dial) ? c.phone.slice(dial.length).trim() : c.phone);
+        setPhone(rawPhone.startsWith(dial) ? rawPhone.slice(dial.length).trim() : rawPhone);
       } else {
         // National-format number; leave the user's selected country alone
         // and just drop the leading 0 if present (Afghan trunk prefix).
-        const cleaned = c.phone.trim().replace(/[^\d]/g, "");
+        const cleaned = rawPhone.replace(/[^\d]/g, "");
         setPhone(cleaned.startsWith("0") ? cleaned.slice(1) : cleaned);
       }
     } else {
@@ -114,27 +125,30 @@ export default function PersonAddOrFindScreen() {
   }
 
   async function createAndOpen() {
-    if (busy || !trimmed || people === null) return;
-    // Re-check at submit time in case a mesh archive landed mid-screen.
-    const guard = await getActiveVaultArchivedState();
-    if (guard.state === "none") {
-      toast.push(t("entry.noActiveVault"), "error");
-      router.replace("/");
-      return;
-    }
-    if (guard.state === "archived") {
-      toast.push(t("entry.vaultArchived"), "error");
-      router.replace("/vault/archived");
-      return;
-    }
+    if (savingRef.current || !trimmed || people === null) return;
+    savingRef.current = true;
     setBusy(true);
+    setPhoneError(null);
+    setSaveError(null);
     try {
+      // Re-check at submit time in case a mesh archive landed mid-screen.
+      const guard = await getActiveVaultArchivedState();
+      if (guard.state === "none") {
+        toast.push(t("entry.noActiveVault"), "error");
+        router.replace("/");
+        return;
+      }
+      if (guard.state === "archived") {
+        toast.push(t("entry.vaultArchived"), "error");
+        router.replace("/vault/archived");
+        return;
+      }
       const result = await createPerson(trimmed, phone.trim() || null, countryCode);
       if (!result.ok) {
         if (result.error === "phone_invalid") {
-          toast.push(t("personAdd.phone.invalid"), "error");
+          setPhoneError(t("personAdd.phone.invalid"));
         } else if (result.error === "phone_conflict") {
-          toast.push(t("personAdd.phone.conflict", { name: result.existing.name }), "error");
+          setPhoneError(t("personAdd.phone.conflict", { name: result.existing.name }));
         }
         return;
       }
@@ -145,13 +159,14 @@ export default function PersonAddOrFindScreen() {
       // gets an actionable message ("reopen the app") instead of the
       // opaque "Couldn't save."
       if (err instanceof EventSigningUnavailableError) {
-        toast.push(t("entry.signingUnavailable"), "error");
+        setSaveError(t("entry.signingUnavailable"));
       } else if (err instanceof RoleGateRejectionError) {
-        toast.push(t("entry.roleDenied"), "error");
+        setSaveError(t("entry.roleDenied"));
       } else {
-        toast.push(t("entry.saveFailed"), "error");
+        setSaveError(t("entry.saveFailed"));
       }
     } finally {
+      savingRef.current = false;
       setBusy(false);
     }
   }
@@ -202,15 +217,23 @@ export default function PersonAddOrFindScreen() {
                 onChangeText={setName}
                 placeholder={t("personAdd.name.placeholder")}
                 placeholderTextColor={colors.textMuted}
+                accessibilityLabel={t("personEdit.name.label")}
                 autoFocus
                 autoCorrect={false}
                 autoCapitalize="words"
+                maxLength={50}
                 returnKeyType={exact ? "go" : trimmed.length > 0 ? "next" : "default"}
                 onSubmitEditing={onNameSubmit}
                 submitBehavior="submit"
               />
               {name.length > 0 ? (
-                <Pressable onPress={() => setName("")} hitSlop={8} style={styles.clearBtn}>
+                <Pressable
+                  onPress={() => setName("")}
+                  hitSlop={8}
+                  style={styles.clearBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("common.cancel")}
+                >
                   <Ionicons name="close-circle" size={18} color={colors.textMuted} />
                 </Pressable>
               ) : null}
@@ -275,7 +298,7 @@ export default function PersonAddOrFindScreen() {
                           {p.name}
                         </Text>
                         <Text style={[styles.rowSub, textDir(isRTL)]} numberOfLines={1}>
-                          {p.phone ?? "no phone"}
+                          {p.phone ?? t("contacts.noPhone")}
                         </Text>
                       </View>
                       <RightAmount balance={p.balance} hasEntries={p.last_entry_at !== null} />
@@ -318,19 +341,40 @@ export default function PersonAddOrFindScreen() {
                   </Pressable>
                   <TextInput
                     ref={phoneRef}
-                    style={styles.phoneInput}
+                    style={[styles.phoneInput, phoneError ? styles.inputError : null]}
                     value={phone}
-                    onChangeText={setPhone}
-                    placeholder={country.code === "AF" ? "70 123 4567" : "national number"}
+                    onChangeText={(v) => {
+                      setPhoneError(null);
+                      setPhone(v);
+                    }}
+                    placeholder={
+                      country.code === "AF"
+                        ? "70 123 4567"
+                        : t("personAdd.phone.placeholderGeneric")
+                    }
                     placeholderTextColor={colors.textMuted}
+                    accessibilityLabel={t("personEdit.phone.label")}
                     keyboardType="phone-pad"
                     returnKeyType="done"
                     onSubmitEditing={createAndOpen}
                   />
                 </View>
+                {phoneError ? (
+                  <Text
+                    style={[styles.fieldError, textDir(isRTL)]}
+                    accessibilityLiveRegion="polite"
+                  >
+                    {phoneError}
+                  </Text>
+                ) : null}
                 <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("personAdd.phone.hint")}</Text>
               </View>
 
+              {saveError ? (
+                <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
+                  {saveError}
+                </Text>
+              ) : null}
               <View style={{ height: 8 }} />
               <Button
                 label={t("personAdd.add", { name: trimmed })}
@@ -548,4 +592,17 @@ const styles = StyleSheet.create({
 
   noMatchSection: { paddingVertical: 4, marginBottom: 8 },
   noMatchText: { fontSize: 13, fontFamily: fonts.sansRegular, color: colors.textSubtle },
+
+  // Mirrors FormField's error treatment — see entry/new.tsx.
+  inputError: {
+    borderColor: colors.danger,
+    backgroundColor: "rgba(220, 38, 38, 0.04)",
+  },
+  fieldError: {
+    fontSize: 12,
+    fontFamily: fonts.sansMedium,
+    color: colors.danger,
+    marginTop: 6,
+    marginBottom: 6,
+  },
 });

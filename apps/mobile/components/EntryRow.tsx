@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { memo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
 import { getCurrentCurrencySymbol } from "../lib/currency";
@@ -11,7 +12,13 @@ import type { Entry } from "../lib/types";
 // type='debt'    → value left my hand  → "I gave"   → up arrow
 // type='payment' → value came to me    → "I received" → down arrow
 // Same in both directions; the row doesn't need to know which tab it lives in.
-export function EntryRow(props: { entry: Entry; onPress: () => void }) {
+//
+// Memoized with a person-style callback API (callback takes the entry) so
+// parents can pass a stable handler — see PersonRow for rationale.
+export const EntryRow = memo(function EntryRow(props: {
+  entry: Entry;
+  onPress: (entry: Entry) => void;
+}) {
   const isRTL = useIsRTL();
   const { entry } = props;
   const isGave = entry.type === "debt";
@@ -20,13 +27,14 @@ export function EntryRow(props: { entry: Entry; onPress: () => void }) {
 
   return (
     <Pressable
-      onPress={props.onPress}
+      onPress={() => props.onPress(entry)}
       // Same handler on long-press with a short delay so a sustained finger
       // press opens the sheet *while still holding*, not only on release.
       // Pressable cancels the press if the finger moves enough to start a
       // scroll, so this doesn't fight the list's vertical scroll gesture.
-      onLongPress={props.onPress}
+      onLongPress={() => props.onPress(entry)}
       delayLongPress={100}
+      accessibilityRole="button"
       style={({ pressed }) => [
         styles.row,
         rowDir(isRTL),
@@ -57,7 +65,7 @@ export function EntryRow(props: { entry: Entry; onPress: () => void }) {
       </View>
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   row: {

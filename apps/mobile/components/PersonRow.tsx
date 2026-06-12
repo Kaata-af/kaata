@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
 import { getCurrentCurrencySymbol } from "../lib/currency";
@@ -12,10 +13,15 @@ import type { PersonWithBalance } from "../lib/types";
 //
 // `balance` is signed at the type level but the row always shows the absolute
 // amount — direction is conveyed by the active tab, not by the row.
-export function PersonRow(props: {
+//
+// Memoized, and the callbacks take the person so parents can pass STABLE
+// handlers — home renders every person in two lists, and without the memo a
+// toast push (which re-renders the whole screen twice via the toast context)
+// re-rendered hundreds of rows on low-end devices.
+export const PersonRow = memo(function PersonRow(props: {
   person: PersonWithBalance;
-  onPress: () => void;
-  onLongPress?: () => void;
+  onPress: (person: PersonWithBalance) => void;
+  onLongPress?: (person: PersonWithBalance) => void;
 }) {
   const isRTL = useIsRTL();
   const { person } = props;
@@ -28,9 +34,19 @@ export function PersonRow(props: {
 
   return (
     <Pressable
-      onPress={props.onPress}
-      onLongPress={props.onLongPress}
+      onPress={() => props.onPress(person)}
+      onLongPress={props.onLongPress ? () => props.onLongPress?.(person) : undefined}
       delayLongPress={350}
+      accessibilityRole="button"
+      // The long-press edit/remove sheet is invisible to assistive tech
+      // without an explicit action — TalkBack exposes this as a custom
+      // action ("activate" stays the plain tap).
+      accessibilityActions={
+        props.onLongPress ? [{ name: "longpress", label: t("common.remove") }] : undefined
+      }
+      onAccessibilityAction={(e) => {
+        if (e.nativeEvent.actionName === "longpress") props.onLongPress?.(person);
+      }}
       style={({ pressed }) => [
         styles.row,
         rowDir(isRTL),
@@ -62,7 +78,7 @@ export function PersonRow(props: {
       </View>
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   row: {

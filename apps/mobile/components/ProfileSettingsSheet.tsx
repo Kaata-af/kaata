@@ -17,6 +17,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import type { SessionUser } from "../lib/auth";
 import { colors } from "../lib/colors";
+import { SHEET_BLUR_METHOD } from "../lib/blur";
 import { getAccountIdSync } from "../lib/db-tx";
 import {
   SETTINGS_AVATAR_HERO,
@@ -233,7 +234,7 @@ export function ProfileSettingsSheet(props: {
         <BlurView
           intensity={20}
           tint="light"
-          experimentalBlurMethod="dimezisBlurView"
+          experimentalBlurMethod={SHEET_BLUR_METHOD}
           style={StyleSheet.absoluteFill}
         />
         <View style={styles.tint} />

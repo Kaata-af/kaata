@@ -16,6 +16,7 @@ import { useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../../lib/currency";
 import { getEntry, updateEntry } from "../../../lib/db";
+import { toAsciiDigits } from "../../../lib/digits";
 import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../../lib/event-log";
 import { fonts } from "../../../lib/fonts";
@@ -33,8 +34,14 @@ export default function EditEntryScreen() {
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  // Inline errors — modal screen, toasts can't render above it (Toast.tsx).
+  const [amountError, setAmountError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const amountRef = useRef<TextInput>(null);
   const noteRef = useRef<TextInput>(null);
+  // Synchronous re-entry guard — `busy` state can't stop a same-frame
+  // double-tap (setState is async); see entry/new.tsx.
+  const savingRef = useRef(false);
 
   useEffect(() => {
     if (!id) {
@@ -63,13 +70,15 @@ export default function EditEntryScreen() {
   }, [loaded, found]);
 
   async function onSave() {
-    if (!id) return;
+    if (savingRef.current || !id) return;
     const intAmount = parseInt(amount.replace(/[^0-9]/g, ""), 10);
     if (!intAmount || intAmount <= 0) {
-      toast.push(t("entry.invalidAmount"), "error");
+      setAmountError(t("entry.invalidAmount"));
       return;
     }
+    savingRef.current = true;
     setBusy(true);
+    setSaveError(null);
     try {
       await updateEntry(id, intAmount, note.trim().slice(0, 100) || null);
       toast.push(t("entry.updated"), "success");
@@ -79,14 +88,15 @@ export default function EditEntryScreen() {
       // demoted editor sees actionable "view only" copy rather than
       // generic "save failed". See entry/new.tsx for the same pattern.
       if (err instanceof RoleGateRejectionError) {
-        toast.push(t("entry.roleDenied"), "error");
+        setSaveError(t("entry.roleDenied"));
       } else if (err instanceof EventSigningUnavailableError) {
         // Mythos Fix Set C: signing-unavailable gets an actionable message.
-        toast.push(t("entry.signingUnavailable"), "error");
+        setSaveError(t("entry.signingUnavailable"));
       } else {
-        toast.push(t("entry.saveFailed"), "error");
+        setSaveError(t("entry.saveFailed"));
       }
     } finally {
+      savingRef.current = false;
       setBusy(false);
     }
   }
@@ -143,19 +153,32 @@ export default function EditEntryScreen() {
           </Text>
           <TextInput
             ref={amountRef}
-            style={styles.amountInput}
+            style={[styles.amountInput, amountError ? styles.inputError : null]}
             value={amount}
-            // See entry/new.tsx — strip non-digits at typing time so "150.50"
-            // doesn't get parsed as "15050" on save. AFN is integer-only.
-            onChangeText={(raw) => setAmount(raw.match(/^\d*/)?.[0] ?? "")}
+            // See entry/new.tsx — transliterate Persian digits, then strip
+            // non-digits at typing time so "150.50" doesn't get parsed as
+            // "15050" on save. AFN is integer-only.
+            onChangeText={(raw) => {
+              setAmountError(null);
+              setAmount(toAsciiDigits(raw).match(/^\d*/)?.[0] ?? "");
+            }}
             placeholder="0"
             placeholderTextColor={colors.textMuted}
             keyboardType="number-pad"
+            maxLength={10}
+            accessibilityLabel={t("entry.amount.labelTemplate", {
+              code: getCurrentCurrencySymbol(),
+            })}
             selectTextOnFocus
             returnKeyType="next"
             onSubmitEditing={() => noteRef.current?.focus()}
             submitBehavior="submit"
           />
+          {amountError ? (
+            <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
+              {amountError}
+            </Text>
+          ) : null}
         </View>
         <View style={styles.field}>
           <Text style={[styles.label, textDir(isRTL)]}>{t("entry.note.label")}</Text>
@@ -167,10 +190,16 @@ export default function EditEntryScreen() {
             placeholder={t("entry.note.placeholder")}
             placeholderTextColor={colors.textMuted}
             maxLength={100}
+            accessibilityLabel={t("entry.note.label")}
             returnKeyType="done"
             onSubmitEditing={onSave}
           />
         </View>
+        {saveError ? (
+          <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
+            {saveError}
+          </Text>
+        ) : null}
         <View style={{ height: 24 }} />
         <Button label={t("entry.saveChanges")} onPress={onSave} loading={busy} />
       </KeyboardAvoidingView>
@@ -231,5 +260,16 @@ const styles = StyleSheet.create({
     color: colors.textEmphasis,
     backgroundColor: colors.bgDefault,
     textAlign: "center",
+  },
+  // Mirrors FormField's error treatment — see entry/new.tsx.
+  inputError: {
+    borderColor: colors.danger,
+    backgroundColor: "rgba(220, 38, 38, 0.04)",
+  },
+  fieldError: {
+    fontSize: 12,
+    fontFamily: fonts.sansMedium,
+    color: colors.danger,
+    marginTop: 6,
   },
 });

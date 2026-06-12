@@ -68,12 +68,31 @@ function drainPendingToasts(): PendingToast[] {
 
 type ToastContextValue = {
   push: (message: string, kind?: ToastKind) => void;
-  // Number of currently-visible toasts. Components with bottom-anchored UI
-  // (ping bar, FAB) subscribe via useToastOffset() and slide out of the way.
-  visibleCount: number;
 };
 
 const ToastContext = createContext<ToastContextValue | null>(null);
+
+// Visible-count channel for useToastOffset — a module-level subscription
+// (same pattern as pendingToasts above), NOT context state. The old
+// `{ push, visibleCount }` context value was a fresh object whose count
+// changed on every toast push AND auto-expire, so every useToast()/
+// useToastOffset() consumer — including home with its two full people
+// lists — did a complete re-render twice per toast. The offset is an
+// Animated.Value driven imperatively, so subscribers need zero re-renders.
+let currentVisibleCount = 0;
+const visibleCountListeners = new Set<(count: number) => void>();
+
+function publishVisibleCount(count: number): void {
+  if (count === currentVisibleCount) return;
+  currentVisibleCount = count;
+  for (const fn of visibleCountListeners) {
+    try {
+      fn(count);
+    } catch {
+      /* */
+    }
+  }
+}
 const DURATION_MS = 2500;
 const ANIM_MS = 240;
 // Swipe-to-dismiss thresholds. Either condition triggers commit on release:
@@ -131,8 +150,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     };
   }, [push]);
 
+  // Feed the offset subscription (see publishVisibleCount above).
+  useEffect(() => {
+    publishVisibleCount(toasts.length);
+  }, [toasts.length]);
+
+  // Stable context value — `push` is a stable useCallback, so consumers
+  // (every screen calling useToast()) never re-render from toast lifecycle.
+  const ctxValue = useRef<ToastContextValue>({ push }).current;
+
   return (
-    <ToastContext.Provider value={{ push, visibleCount: toasts.length }}>
+    <ToastContext.Provider value={ctxValue}>
       {children}
       <ToastViewport toasts={toasts} onDismiss={remove} />
     </ToastContext.Provider>
@@ -163,27 +191,35 @@ export function useToast(): ToastContextValue {
 const BASE_LIFT = VIEWPORT_BOTTOM_MARGIN + TOAST_HEIGHT_SINGLE - BUTTON_OFFSET_ABOVE_SAFE_AREA;
 
 export function useToastOffset(): Animated.Value {
-  const ctx = useContext(ToastContext);
   const translateY = useRef(new Animated.Value(0)).current;
-  const visibleCount = ctx?.visibleCount ?? 0;
-  const lift = BASE_LIFT + LIFT_GAP; // constant — no insets dependence
 
   useEffect(() => {
+    const lift = BASE_LIFT + LIFT_GAP; // constant — no insets dependence
+    let animation: Animated.CompositeAnimation | null = null;
     // Dampened spring: higher friction prevents overshoot/oscillation that
     // previously left the button hanging mid-screen when rapid toast pushes
-    // interrupted the animation mid-flight. Cleanup explicitly stops the
-    // in-flight animation before a new one starts, otherwise the native-driver
+    // interrupted the animation mid-flight. We explicitly stop the in-flight
+    // animation before a new one starts, otherwise the native-driver
     // animation can run concurrently with its successor and the value can
     // settle anywhere along the path.
-    const animation = Animated.spring(translateY, {
-      toValue: visibleCount > 0 ? -lift : 0,
-      useNativeDriver: true,
-      friction: 14, // was 10 — kill the overshoot
-      tension: 110,
-    });
-    animation.start();
-    return () => animation.stop();
-  }, [visibleCount, lift, translateY]);
+    const apply = (count: number) => {
+      animation?.stop();
+      animation = Animated.spring(translateY, {
+        toValue: count > 0 ? -lift : 0,
+        useNativeDriver: true,
+        friction: 14, // was 10 — kill the overshoot
+        tension: 110,
+      });
+      animation.start();
+    };
+    // Catch up if a toast is already visible when this consumer mounts.
+    if (currentVisibleCount > 0) apply(currentVisibleCount);
+    visibleCountListeners.add(apply);
+    return () => {
+      visibleCountListeners.delete(apply);
+      animation?.stop();
+    };
+  }, [translateY]);
 
   return translateY;
 }
@@ -285,6 +321,11 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
   return (
     <GestureDetector gesture={pan}>
       <Animated.View
+        // Toasts are the app's ONLY feedback channel (Alert is banned), and
+        // they auto-dismiss in 2.5s — without a live region TalkBack users
+        // get zero confirmation for any action they take.
+        accessibilityLiveRegion="polite"
+        accessibilityRole="alert"
         style={[
           styles.toast,
           rowDir(isRTL),

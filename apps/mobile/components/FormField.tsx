@@ -62,6 +62,11 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
           value={value}
           onChangeText={onChangeText}
           placeholderTextColor={colors.textMuted}
+          // Associate the visible label with the input — without this,
+          // TalkBack announces only the placeholder, which disappears as
+          // soon as the user types. Callers can still override via
+          // inputProps.
+          accessibilityLabel={label}
           {...inputProps}
           style={[styles.input, textDir(isRTL), hasError && styles.inputError, style]}
         />
