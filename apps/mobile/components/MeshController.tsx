@@ -107,6 +107,20 @@ export function MeshController() {
       // Phase 9 D-FALLBACK-UX: failure bridge from the mesh layer.
       // Switch on the discriminator and pick the right (debounced) toast.
       mesh.setMeshFailureBridge((event) => {
+        // Mythos crash-reporter: capture every mesh failure into the
+        // backend outbox (best-effort, never throws). adapter_on is a
+        // recovery signal, not a failure — skip it. The per-event toast
+        // logic below is unchanged.
+        if (event.kind !== "adapter_on") {
+          const reason = (event as { reason?: string }).reason;
+          void import("../lib/crash-report").then((cr) =>
+            cr.queueCrashReport({
+              kind: "mesh",
+              name: event.kind,
+              message: reason ? `reason=${reason}` : "",
+            }),
+          );
+        }
         switch (event.kind) {
           case "peripheral_unsupported": {
             if (peripheralUnsupportedShownRef.current) return;

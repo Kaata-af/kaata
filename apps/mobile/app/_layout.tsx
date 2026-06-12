@@ -236,8 +236,15 @@ export default function RootLayout() {
           return await fn();
         } catch (err) {
           console.error(`[init] ${stage} failed`, err);
-          setBootError(toBootError(stage, err));
+          const be = toBootError(stage, err);
+          setBootError(be);
           aborted = true;
+          // Mythos crash-reporter: a failed boot step is exactly the kind
+          // of thing we want in the backend. Queue it (durable; flushes on
+          // the next successful online launch). Best-effort, never throws.
+          void import("../lib/crash-report").then((cr) =>
+            cr.queueCrashReport({ kind: "boot", stage, name: be.name, message: be.message }),
+          );
           return undefined;
         }
       };
@@ -954,6 +961,21 @@ function BackgroundCheckIn({ installId }: { installId: string }) {
       try {
         const netState = await Network.getNetworkStateAsync();
         if (!netState.isConnected) return;
+
+        // Mythos crash-reporter: on this online pass, (1) queue the OS's
+        // verdict for the previous process death + the trailing memory
+        // slope, then (2) flush the outbox to the backend. Both are
+        // best-effort and never throw. This is what makes crash diagnosis
+        // adb-free — the verdict (LOW_MEMORY / NATIVE_CRASH / ...) and the
+        // PSS slope land in Postgres on the next connected launch.
+        try {
+          const cr = await import("../lib/crash-report");
+          await cr.queueExitInfoAndSamples();
+          await cr.flushCrashReports(installId);
+        } catch {
+          /* best-effort */
+        }
+
         // Phase 5: only read mesh-side renewal hints when the install has
         // actually completed Google sign-in. A brand-new local-only install
         // has no account_id, no vault_credentials, and no revocation

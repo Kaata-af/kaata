@@ -17,6 +17,7 @@ import (
 	"github.com/matee/kaata-backend/internal/backup"
 	"github.com/matee/kaata-backend/internal/checkin"
 	"github.com/matee/kaata-backend/internal/config"
+	"github.com/matee/kaata-backend/internal/crashreport"
 	"github.com/matee/kaata-backend/internal/db"
 	"github.com/matee/kaata-backend/internal/httpx"
 	"github.com/matee/kaata-backend/internal/mesh"
@@ -120,6 +121,11 @@ func main() {
 	visitSvc := visit.NewService(pool, cfg.APKDownloadURL)
 	visitH := visit.NewHandler(visitSvc)
 
+	// Mythos crash-reporter. Public + anonymous (same group as check-in)
+	// so local-only installs can report why they died.
+	crashSvc := crashreport.NewService(pool)
+	crashH := crashreport.NewHandler(crashSvc)
+
 	backupSvc := backup.NewService(pool)
 	backupH := backup.NewHandler(backupSvc)
 
@@ -176,6 +182,9 @@ func main() {
 	r.Group(func(pr chi.Router) {
 		pr.Use(authenticator.OptionalMiddleware())
 		pr.Post("/v1/check-in", checkinH.CheckIn)
+		// Mythos crash-reporter — anonymous-OK so local-only installs
+		// can report why they died.
+		pr.Post("/v1/crash-reports", crashH.Report)
 	})
 	r.Post("/v1/visit", visitH.Visit)
 	r.Get("/v1/download", visitH.Download)

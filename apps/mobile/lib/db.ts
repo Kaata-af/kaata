@@ -58,6 +58,7 @@ const MIGRATION_013 = "013_event_log_signature_and_revocation_lift";
 const MIGRATION_014 = "014_event_log_ingest_apply_split";
 const MIGRATION_015 = "015_vault_members_mirror_display_name";
 const MIGRATION_016 = "016_mem_samples_diagnostics";
+const MIGRATION_017 = "017_crash_outbox";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -258,6 +259,14 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
     } catch (err) {
       console.error("[init] runMigration016 failed:", err);
       throw new Error("runMigration016 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_017))) {
+    try {
+      await runMigration017(db);
+    } catch (err) {
+      console.error("[init] runMigration017 failed:", err);
+      throw new Error("runMigration017 failed: " + String(err));
     }
   }
 }
@@ -2435,6 +2444,48 @@ async function runMigration016(db: SQLite.SQLiteDatabase): Promise<void> {
     await db.runAsync(
       `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
       MIGRATION_016,
+      Date.now(),
+    );
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Migration 017 — crash_outbox (Mythos crash-reporter)
+// ---------------------------------------------------------------------------
+//
+// A durable SQLite outbox for crash/diagnostic items. The reporter queues
+// here (so a crash that kills the process doesn't lose the report — the row
+// is already committed), and the next check-in flushes a batch to the
+// backend /v1/crash-reports endpoint, marking rows flushed_at on success.
+//
+// kind taxonomy matches the backend's CHECK constraint:
+//   boot | mesh | sync | exit | memsample | js | native
+//
+// rss_kb / aux_kb carry numeric telemetry for exit + memsample rows
+// (rss-at-death / pss, or native_pss / dalvik_pss). NULL for error rows.
+async function runMigration017(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS crash_outbox (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind        TEXT NOT NULL,
+        stage       TEXT,
+        name        TEXT,
+        message     TEXT NOT NULL DEFAULT '',
+        rss_kb      INTEGER,
+        aux_kb      INTEGER,
+        app_version TEXT NOT NULL DEFAULT 'unknown',
+        created_at  INTEGER NOT NULL,
+        flushed_at  INTEGER
+      );
+    `);
+    await db.execAsync(`
+      CREATE INDEX IF NOT EXISTS idx_crash_outbox_unflushed
+        ON crash_outbox(id) WHERE flushed_at IS NULL;
+    `);
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_017,
       Date.now(),
     );
   });

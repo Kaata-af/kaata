@@ -133,6 +133,16 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
         // eslint-disable-next-line no-console
         console.warn("[sync] unexpected error, backing off", err);
         nextDelay = backoffSlot(backoffAttempt);
+        // Mythos crash-reporter: an UNEXPECTED sync error (not session-
+        // expired / permission / transient / timeout) is worth seeing in
+        // the backend. Best-effort, never throws.
+        void import("../crash-report").then((cr) =>
+          cr.queueCrashReport({
+            kind: "sync",
+            name: err instanceof Error ? err.name : "unknown",
+            message: err instanceof Error ? err.message : String(err),
+          }),
+        );
       }
 
       backoffAttempt = Math.min(backoffAttempt + 1, 16);
