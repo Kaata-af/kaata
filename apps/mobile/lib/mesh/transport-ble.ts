@@ -687,6 +687,14 @@ export function _setSharedBleManager(mgr: any): void {
   _sharedBleManager = mgr;
 }
 
+// Mythos §4: discovery-ble.ts's stop fn calls manager.destroy() but never
+// nulled this module-level singleton, so the NEXT dial after a stop/start
+// cycle grabbed a DESTROYED BleManager. Correct-by-construction hygiene
+// fix (not a crash fix — the crash is being diagnosed via instrumentation).
+export function _clearSharedBleManager(): void {
+  _sharedBleManager = null;
+}
+
 // ---------------------------------------------------------------------------
 // PERIPHERAL: startBLEPeripheralMode — advertise + accept connections
 // ---------------------------------------------------------------------------

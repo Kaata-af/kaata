@@ -56,6 +56,8 @@ const MIGRATION_011 = "011_phase5_mesh_credentials";
 const MIGRATION_012 = "012_vault_trust_anchor";
 const MIGRATION_013 = "013_event_log_signature_and_revocation_lift";
 const MIGRATION_014 = "014_event_log_ingest_apply_split";
+const MIGRATION_015 = "015_vault_members_mirror_display_name";
+const MIGRATION_016 = "016_mem_samples_diagnostics";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -240,6 +242,22 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
     } catch (err) {
       console.error("[init] runMigration014 failed:", err);
       throw new Error("runMigration014 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_015))) {
+    try {
+      await runMigration015(db);
+    } catch (err) {
+      console.error("[init] runMigration015 failed:", err);
+      throw new Error("runMigration015 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_016))) {
+    try {
+      await runMigration016(db);
+    } catch (err) {
+      console.error("[init] runMigration016 failed:", err);
+      throw new Error("runMigration016 failed: " + String(err));
     }
   }
 }
@@ -2360,6 +2378,66 @@ async function runMigration014(db: SQLite.SQLiteDatabase): Promise<void> {
     // pick these up on the first mesh round after install.
     console.warn("[migration 014] post-migration re-apply schedule failed", err);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Migration 015 — vault_members_mirror.display_name (Mythos Issue 1)
+// ---------------------------------------------------------------------------
+//
+// The Members tab showed the role label ("Owner"/"Editor") instead of a
+// name because there was NOWHERE for a peer's display name to live:
+// vault_members_mirror had only (vault_id, account_id, role, accepted_at,
+// revoked_at), and the users LEFT JOIN only resolves for the Google-
+// signed-in local-self. The QR carries issuer_display_name but it was
+// thrown away at pair-scan time.
+//
+// This column lets pair-scan persist the owner's name, vault/new persist
+// the owner's own name, and a future vault_member_added event payload
+// carry the joiner's name. Purely additive; nullable; no backfill needed
+// (existing rows just render via the old users-join / self-name fallback
+// until the next pair refreshes them).
+async function runMigration015(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    if (!(await columnExists(db, "vault_members_mirror", "display_name"))) {
+      await db.execAsync(`ALTER TABLE vault_members_mirror ADD COLUMN display_name TEXT;`);
+    }
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_015,
+      Date.now(),
+    );
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Migration 016 — mem_samples (Mythos crash-diagnosis instrumentation)
+// ---------------------------------------------------------------------------
+//
+// A capped ring of per-minute memory/storage snapshots taken while shop
+// mode is on. The Diagnostics screen renders the last ~15 rows as plain
+// text the user can screenshot — so we get the native-vs-dalvik PSS slope
+// over a crash window with NO adb. The mem-probe writer caps the table to
+// 240 rows (~4 hours at 60s cadence).
+async function runMigration016(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS mem_samples (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        at              INTEGER NOT NULL,
+        native_pss_kb   INTEGER,
+        dalvik_pss_kb   INTEGER,
+        native_alloc_kb INTEGER,
+        js_heap_kb      INTEGER,
+        avail_mb        INTEGER,
+        storage_free_mb INTEGER
+      );
+    `);
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_016,
+      Date.now(),
+    );
+  });
 }
 
 // --- v0 row shapes (used only during migration) ---

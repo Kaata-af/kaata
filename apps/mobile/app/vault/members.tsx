@@ -112,12 +112,20 @@ export default function VaultMembersScreen() {
     // Lookup self's display name + local-CA self account id (see state
     // comments above for why both are needed).
     try {
-      const [self, devicePubkey, localVmc] = await Promise.all([
+      // Mythos Issue 1 Fix 3: WARM the device-key cache before reading the
+      // pubkey. getDevicePubkey() returns only the in-memory cache; on a
+      // cold mount it's null, so localSelfAccountId stayed null, the self
+      // row failed its isSelf match, and the owner's own row rendered the
+      // "Owner" role label instead of their name. ensureDeviceKey()
+      // populates the cache (idempotent, cheap on the warm path).
+      const deviceKeyMod = await import("../../lib/mesh/device-key");
+      await deviceKeyMod.ensureDeviceKey();
+      const [self, localVmc] = await Promise.all([
         getLocalSelf(),
-        import("../../lib/mesh/device-key").then((m) => m.getDevicePubkey()),
         import("../../lib/mesh/local-vmc"),
       ]);
       setSelfName(self?.name ?? null);
+      const devicePubkey = deviceKeyMod.getDevicePubkey();
       if (devicePubkey) {
         setLocalSelfAccountId(localVmc.buildLocalAccountId(devicePubkey));
       }
@@ -134,11 +142,16 @@ export default function VaultMembersScreen() {
       display_name: string | null;
       email: string | null;
     }>(
+      // Mythos Issue 1 Fix 2: prefer the mirror's own display_name
+      // (persisted from the QR's issuer_display_name at pair time, and
+      // from getLocalSelf at vault-create time) over the users LEFT JOIN,
+      // which only resolves for the Google-signed-in local-self. This is
+      // what lets a paired peer's real name show instead of "Owner".
       `SELECT vmm.account_id   AS account_id,
               vmm.role         AS role,
               vmm.accepted_at  AS accepted_at,
               vmm.revoked_at   AS revoked_at,
-              u.display_name   AS display_name,
+              COALESCE(vmm.display_name, u.display_name) AS display_name,
               NULL             AS email
          FROM vault_members_mirror vmm
          LEFT JOIN users u ON u.account_id = vmm.account_id

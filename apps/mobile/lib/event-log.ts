@@ -127,6 +127,13 @@ export class RoleGateRejectionError extends Error {
   }
 }
 
+// Mythos Fix Set A: re-exported from ./projection (defined there because
+// applyEvent throws it, and event-log → projection is the existing import
+// direction — defining it here would create a cycle). Callers that already
+// import RoleGateRejectionError from event-log can import this from the
+// same place.
+export { EventSigningUnavailableError } from "./projection";
+
 // ---------- public append helpers (Phase 1 entry_* writes) ----------
 
 export async function appendEntryCreated(args: {

@@ -16,6 +16,7 @@ import { Button } from "../../components/Button";
 import { FormField } from "../../components/FormField";
 import { colors } from "../../lib/colors";
 import { createSelfProfile, getAppMeta, setAppMeta } from "../../lib/db";
+import { EventSigningUnavailableError } from "../../lib/event-log";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
@@ -97,7 +98,12 @@ export default function OnboardingProfileScreen() {
       // earlier reset). Surface inline so the user knows their tap
       // landed but something failed; falls back to a generic message.
       console.warn("[onboarding/profile] createSelfProfile failed", err);
-      setSubmitError(t("entry.saveFailed"));
+      // Mythos Fix Set C: signing-unavailable gets an actionable message.
+      if (err instanceof EventSigningUnavailableError) {
+        setSubmitError(t("entry.signingUnavailable"));
+      } else {
+        setSubmitError(t("entry.saveFailed"));
+      }
     } finally {
       setBusy(false);
     }

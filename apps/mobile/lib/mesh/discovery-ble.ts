@@ -345,6 +345,14 @@ export async function startBle(opts: StartBleOpts): Promise<() => Promise<void>>
     } catch {
       /* */
     }
+    // Mythos §4: null transport-ble's shared singleton so the next dial
+    // after this stop/start cycle doesn't grab the destroyed instance.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require("./transport-ble")._clearSharedBleManager();
+    } catch {
+      /* */
+    }
   };
 }
 

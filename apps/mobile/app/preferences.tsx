@@ -229,6 +229,21 @@ export default function PreferencesScreen() {
           disabled
           isLast
         />
+
+        <SectionGap />
+
+        {/* Mythos crash-diagnosis. Plain-English label so a shopkeeper
+            who's been asked to "open diagnostics and screenshot it" can
+            find it; the screen itself explains what to do. */}
+        <SectionHeader label={t("preferences.diagnostics.section")} isRTL={isRTL} />
+        <NavRow
+          icon="pulse-outline"
+          label={t("preferences.diagnostics.row")}
+          hint={t("preferences.diagnostics.rowHint")}
+          onPress={() => router.push("/diagnostics")}
+          isRTL={isRTL}
+          isLast
+        />
       </ScrollView>
 
       <OptionSheet

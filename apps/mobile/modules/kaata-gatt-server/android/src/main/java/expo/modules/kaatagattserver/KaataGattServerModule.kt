@@ -1,6 +1,8 @@
 package expo.modules.kaatagattserver
 
 import android.Manifest
+import android.app.ActivityManager
+import android.app.ApplicationExitInfo
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
@@ -13,6 +15,8 @@ import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Debug
+import android.os.StatFs
 import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
@@ -224,6 +228,68 @@ class KaataGattServerModule : Module() {
       } catch (e: Throwable) {
         promise.reject(CodedException("E_LIST_FAILED", e.message ?: "getConnectedCentrals failed", e))
       }
+    }
+
+    // Mythos crash-diagnosis instrumentation. These two Functions have
+    // NOTHING to do with the GATT server — they're parked here because the
+    // module scaffolding already works and a separate native module is
+    // overkill for two read-only OS queries. Rename/relocate later.
+
+    // getLastExitReasons: ApplicationExitInfo (API 30+). On every launch the
+    // app can ask the OS EXACTLY why its previous process died — LOW_MEMORY
+    // (LMK/OOM verdict), JAVA_CRASH, NATIVE_CRASH (Hermes abort), ANR,
+    // EXCESSIVE_RESOURCE (OEM killer) — plus RSS at death. This is THE
+    // confirming measurement: it replaces every crash hypothesis with a
+    // verdict, no adb required.
+    Function("getLastExitReasons") {
+      if (Build.VERSION.SDK_INT < 30) return@Function emptyList<Map<String, Any?>>()
+      val ctx = appContext.reactContext ?: return@Function emptyList<Map<String, Any?>>()
+      val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+      am.getHistoricalProcessExitReasons(ctx.packageName, 0, 8).map { info ->
+        mapOf(
+          "timestamp" to info.timestamp,
+          "reason" to info.reason,
+          "reasonName" to when (info.reason) {
+            ApplicationExitInfo.REASON_LOW_MEMORY -> "LOW_MEMORY"
+            ApplicationExitInfo.REASON_CRASH -> "JAVA_CRASH"
+            ApplicationExitInfo.REASON_CRASH_NATIVE -> "NATIVE_CRASH"
+            ApplicationExitInfo.REASON_ANR -> "ANR"
+            ApplicationExitInfo.REASON_SIGNALED -> "SIGNALED"
+            ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "EXCESSIVE_RESOURCE"
+            ApplicationExitInfo.REASON_USER_REQUESTED -> "USER_REQUESTED"
+            ApplicationExitInfo.REASON_DEPENDENCY_DIED -> "DEPENDENCY_DIED"
+            else -> "OTHER_${info.reason}"
+          },
+          "description" to (info.description ?: ""),
+          "rssKb" to info.rss,
+          "pssKb" to info.pss,
+          "importance" to info.importance,
+        )
+      }
+    }
+
+    // getMemorySnapshot: the per-minute sample. nativePss vs dalvikPss is the
+    // slope that convicts native (BLE/WebRTC) vs JS/Java retention.
+    // storageFreeMb settles whether the Samsung "Clear cache" prompt was
+    // really a low-STORAGE warning rather than RAM.
+    Function("getMemorySnapshot") {
+      val ctx = appContext.reactContext ?: return@Function emptyMap<String, Any?>()
+      val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+      val dmi = Debug.MemoryInfo()
+      Debug.getMemoryInfo(dmi)
+      val ami = ActivityManager.MemoryInfo()
+      am.getMemoryInfo(ami)
+      val rt = Runtime.getRuntime()
+      mapOf(
+        "totalPssKb" to dmi.totalPss,
+        "nativePssKb" to dmi.nativePss,
+        "dalvikPssKb" to dmi.dalvikPss,
+        "nativeHeapAllocKb" to (Debug.getNativeHeapAllocatedSize() / 1024).toInt(),
+        "javaHeapUsedKb" to ((rt.totalMemory() - rt.freeMemory()) / 1024).toInt(),
+        "systemAvailMemMb" to (ami.availMem / 1048576).toInt(),
+        "systemLowMemory" to ami.lowMemory,
+        "storageFreeMb" to (StatFs(ctx.filesDir.absolutePath).availableBytes / 1048576).toInt(),
+      )
     }
 
     OnDestroy {

@@ -45,6 +45,24 @@ import { notifyProjectionConflictsChanged } from "../projection-conflicts";
 // Read/written inside the same transaction as every event_log INSERT.
 const HLC_LAST_KEY = "hlc_last";
 
+// Mythos Fix Set A: thrown by applyEvent when a LOCAL-origin event cannot
+// be signed because the device key / pubkey cache is unavailable. The old
+// behavior was to swallow the signing failure and land the row with
+// signer_device_pubkey = NULL — which then gets refused at every peer's
+// mesh ingest (verifyAndIngest → missing_signer_pubkey, pre-insert, head
+// never advances, re-sent forever, never applied), silently killing sync
+// AND leaving the members projection empty/wrong on the owner. A save that
+// cannot be signed must fail VISIBLY rather than succeed-then-never-sync.
+// Re-exported from event-log.ts so save handlers import it next to
+// RoleGateRejectionError.
+export class EventSigningUnavailableError extends Error {
+  readonly kind = "signing_unavailable" as const;
+  constructor(message = "event signing unavailable") {
+    super(message);
+    this.name = "EventSigningUnavailableError";
+  }
+}
+
 // ---------- applier registry ----------
 
 export type Applier = (tx: SQLiteTx, event: LedgerEvent) => Promise<void>;
@@ -166,14 +184,31 @@ export async function applyEvent(
   // a SQLite transaction). Idempotent: subsequent calls are sync cache
   // reads. Skipped for non-local origins — those events were signed by
   // the authoring device and we re-verify their signature, not re-sign.
+  //
+  // Mythos Fix Set A: guarantee the in-memory pubkey cache is WARM before
+  // we enter the tx. getDevicePubkey() reads only the cache; ensureDeviceKey
+  // populates it. On a fresh install the SecureStore write and the cache
+  // warmup can race, so we retry the ensure once. If the cache is STILL
+  // cold after the retry we must NOT proceed to write an event whose
+  // signer_device_pubkey would be null — that event gets refused at every
+  // peer's mesh ingest and silently breaks sync + the members projection.
   if (opts.origin === "local") {
-    try {
-      await ensureDeviceKey();
-    } catch (err) {
-      // Bootstrap edge case: if SecureStore is wedged we still want the
-      // local write to land (the user typed something and pressed save).
-      // The role-gate will see a null signer and accept on local origin.
-      console.warn("[projection] ensureDeviceKey failed before signing", err);
+    let pub = getDevicePubkey();
+    if (!pub) {
+      try {
+        await ensureDeviceKey();
+        pub = getDevicePubkey();
+      } catch (err) {
+        console.warn("[projection] ensureDeviceKey failed before signing", err);
+      }
+    }
+    if (!pub) {
+      // Cannot produce a propagatable (signed-with-pubkey) event. Fail
+      // loud — the caller surfaces "couldn't prepare secure save, reopen
+      // the app" (Fix Set C). Reopening the app warms the key cache.
+      throw new EventSigningUnavailableError(
+        "device key/pubkey cache unavailable; refusing to write an unsigned local event",
+      );
     }
   }
 
@@ -235,31 +270,25 @@ export async function applyEvent(
     // here. Backfill-origin events are unsigned (synthetic pre-Phase 8).
     let stamped: LedgerEvent = stampedBase;
     if (opts.origin === "local") {
-      try {
-        const sig = await signEvent(
-          stampedBase as unknown as Parameters<typeof signEvent>[0],
-          signWithDeviceKey,
-        );
-        // getDevicePubkey returns the cached b64 pubkey synchronously.
-        // ensureDeviceKey() was awaited above, so this is non-null in
-        // the steady state. The fallback (null) leaves both columns
-        // NULL; checkRoleForEvent accepts that for origin='local'.
-        const pub = getDevicePubkey();
-        stamped = {
-          ...stampedBase,
-          event_sig_b64: sig,
-          signer_device_pubkey: pub ?? null,
-        } as LedgerEvent;
-      } catch (err) {
-        // Signing failure must not abort the local write — the user
-        // typed something and pressed save. Land the row unsigned; the
-        // role-gate accepts unsigned local events. Other peers WILL
-        // refuse it on mesh receive (unsigned + remote origin =
-        // refused), which is the right safety property: a device that
-        // can't sign shouldn't be propagating writes.
-        console.warn("[projection] signEvent failed for local origin", err);
-        stamped = stampedBase;
+      // Mythos Fix Set A: the pubkey cache was guaranteed warm above (we
+      // threw EventSigningUnavailableError otherwise), so pub is non-null
+      // here. We DELIBERATELY let signEvent throw rather than swallowing:
+      // a local write that cannot be signed must fail visibly instead of
+      // landing a non-propagatable row. The throw unwinds the tx (nothing
+      // is written) and the caller surfaces a clear message.
+      const pub = getDevicePubkey();
+      if (!pub) {
+        throw new EventSigningUnavailableError("device pubkey vanished between pre-warm and sign");
       }
+      const sig = await signEvent(
+        stampedBase as unknown as Parameters<typeof signEvent>[0],
+        signWithDeviceKey,
+      );
+      stamped = {
+        ...stampedBase,
+        event_sig_b64: sig,
+        signer_device_pubkey: pub,
+      } as LedgerEvent;
     }
 
     // 2. INSERT OR IGNORE — idempotent by event_id.

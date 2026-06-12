@@ -235,13 +235,18 @@ export default function VaultPairScanScreen() {
         // INSERT OR IGNORE keeps this idempotent and additive (doesn't
         // overwrite a later role change applied via mesh events).
         if (payload.issuer_account_id && payload.issuer_account_id !== effectiveAccountId) {
+          // Mythos Issue 1: persist the owner's display name from the QR
+          // (issuer_display_name, v=3 field) into the new display_name
+          // column so the Members tab can show the owner's real name
+          // instead of the "Owner" role-label fallback.
           await db.runAsync(
             `INSERT OR IGNORE INTO vault_members_mirror
-               (vault_id, account_id, role, accepted_at, revoked_at)
-             VALUES (?, ?, 'owner', ?, NULL)`,
+               (vault_id, account_id, role, accepted_at, revoked_at, display_name)
+             VALUES (?, ?, 'owner', ?, NULL, ?)`,
             payload.vault_id,
             payload.issuer_account_id,
             now,
+            payload.issuer_display_name ?? null,
           );
         }
       });

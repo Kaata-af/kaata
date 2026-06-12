@@ -20,6 +20,7 @@ import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
 import { createPerson, getActiveVaultArchivedState, listAllPeople } from "../../lib/db";
+import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
@@ -138,8 +139,18 @@ export default function PersonAddOrFindScreen() {
         return;
       }
       openPerson(result.id);
-    } catch {
-      toast.push(t("entry.saveFailed"), "error");
+    } catch (err) {
+      // Mythos Fix Set C: distinguish the signing-unavailable failure
+      // (Fix Set A's new throw) from generic storage errors so the user
+      // gets an actionable message ("reopen the app") instead of the
+      // opaque "Couldn't save."
+      if (err instanceof EventSigningUnavailableError) {
+        toast.push(t("entry.signingUnavailable"), "error");
+      } else if (err instanceof RoleGateRejectionError) {
+        toast.push(t("entry.roleDenied"), "error");
+      } else {
+        toast.push(t("entry.saveFailed"), "error");
+      }
     } finally {
       setBusy(false);
     }

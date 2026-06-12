@@ -17,7 +17,7 @@ import { colors } from "../../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../../lib/currency";
 import { getEntry, updateEntry } from "../../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
-import { RoleGateRejectionError } from "../../../lib/event-log";
+import { EventSigningUnavailableError, RoleGateRejectionError } from "../../../lib/event-log";
 import { fonts } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
 import type { EntryType } from "../../../lib/types";
@@ -80,6 +80,9 @@ export default function EditEntryScreen() {
       // generic "save failed". See entry/new.tsx for the same pattern.
       if (err instanceof RoleGateRejectionError) {
         toast.push(t("entry.roleDenied"), "error");
+      } else if (err instanceof EventSigningUnavailableError) {
+        // Mythos Fix Set C: signing-unavailable gets an actionable message.
+        toast.push(t("entry.signingUnavailable"), "error");
       } else {
         toast.push(t("entry.saveFailed"), "error");
       }

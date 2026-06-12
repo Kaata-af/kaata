@@ -17,7 +17,7 @@ import { colors } from "../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
 import { createEntry, getActiveVaultArchivedState, getPerson } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
-import { RoleGateRejectionError } from "../../lib/event-log";
+import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import type { EntryType, PersonWithBalance } from "../../lib/types";
@@ -110,6 +110,9 @@ export default function NewEntryScreen() {
       // app is broken, when the real story is "you're now a viewer".
       if (err instanceof RoleGateRejectionError) {
         toast.push(t("entry.roleDenied"), "error");
+      } else if (err instanceof EventSigningUnavailableError) {
+        // Mythos Fix Set C: signing-unavailable gets an actionable message.
+        toast.push(t("entry.signingUnavailable"), "error");
       } else {
         toast.push(t("entry.saveFailed"), "error");
       }

@@ -53,6 +53,8 @@ import {
   setActiveVaultIdCache,
   setAppMetaInTx,
 } from "../../lib/db-tx";
+// Mythos Issue 1: owner display-name source for the mirror row.
+import { getLocalSelf } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { appendShopProfileUpdated, appendVaultMemberAdded } from "../../lib/event-log";
 import { fonts } from "../../lib/fonts";
@@ -134,6 +136,19 @@ export default function VaultNewScreen() {
       return;
     }
 
+    // Mythos Issue 1: fetch the owner's display name BEFORE the txn (so we
+    // don't nest a getDb query inside withTransactionAsync) and persist it
+    // into the owner's own vault_members_mirror row. Without this, the
+    // owner's own Members tab shows "Owner" instead of their name on a
+    // brand-new vault before any sync round-trip.
+    let ownerDisplayName: string | null = null;
+    try {
+      const self = await getLocalSelf();
+      ownerDisplayName = (self?.name ?? "").trim() || null;
+    } catch {
+      ownerDisplayName = null;
+    }
+
     try {
       const db = await getDb();
       await db.withTransactionAsync(async () => {
@@ -196,11 +211,12 @@ export default function VaultNewScreen() {
         const ownerAccountId = accountId ?? buildLocalAccountId(trustAnchorPubkey);
         await db.runAsync(
           `INSERT INTO vault_members_mirror
-             (vault_id, account_id, role, accepted_at, revoked_at)
-           VALUES (?, ?, 'owner', ?, NULL)`,
+             (vault_id, account_id, role, accepted_at, revoked_at, display_name)
+           VALUES (?, ?, 'owner', ?, NULL, ?)`,
           vaultId,
           ownerAccountId,
           now,
+          ownerDisplayName,
         );
 
         // 4) Flip active_vault_id INSIDE the txn so a write failure here

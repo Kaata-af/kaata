@@ -695,6 +695,15 @@ async function startShopModeBody(): Promise<void> {
     }
     if (__DEV__) console.warn("[mesh] foreground service start failed", err);
   }
+  // Mythos crash-diagnosis: sample memory/storage every 60s while shop
+  // mode is on so the Diagnostics screen can render the leak slope over a
+  // crash window. Best-effort; never throws.
+  try {
+    const { startMemProbe } = await import("./mem-probe");
+    startMemProbe();
+  } catch {
+    /* */
+  }
   console.log("[mesh.start] DONE — Nearby sync active");
 }
 
@@ -711,6 +720,13 @@ async function startShopModeBody(): Promise<void> {
  * stopShopMode normally avoids via the wasRunning gate).
  */
 async function teardownRadios(opts: { skipFGS?: boolean } = {}): Promise<void> {
+  // Mythos crash-diagnosis: stop the memory sampler when shop mode ends.
+  try {
+    const { stopMemProbe } = await import("./mem-probe");
+    stopMemProbe();
+  } catch {
+    /* */
+  }
   if (!opts.skipFGS) {
     try {
       const fg = await import("./foreground");

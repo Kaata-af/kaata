@@ -121,6 +121,9 @@ const en = {
   "preferences.notifications.reminders": "Reminders",
   "preferences.notifications.remindersHint": "Get pinged about unpaid balances.",
   "preferences.comingSoon": "Coming soon",
+  "preferences.diagnostics.section": "Diagnostics",
+  "preferences.diagnostics.row": "App health",
+  "preferences.diagnostics.rowHint": "Memory + crash info. Screenshot if asked.",
 
   // (Phase 5 mesh "Shop Mode" copy lives under the menu.sync.shopMode.*
   // namespace — the hamburger menu is the only surface. The earlier
@@ -208,6 +211,12 @@ const en = {
   // — usually because a co-owner demoted this device to viewer/editor and
   // the demotion gossiped in via mesh/sync between screen-load and save.
   "entry.roleDenied": "View only — ask the owner for editor access.",
+  // Mythos Fix Set C: shown when a save can't be signed because the device
+  // key cache isn't ready (EventSigningUnavailableError). Reopening the app
+  // warms the cache; the retry then succeeds. Actionable, unlike the
+  // generic saveFailed.
+  "entry.signingUnavailable":
+    "Couldn't prepare a secure save. Please reopen the app and try again.",
 
   // Projection-conflicts surface (Phase 8 D-PROJECTION-CONFLICTS-SURFACE).
   // Toasted by ProjectionConflictsListener at the root of the app.
@@ -891,6 +900,9 @@ const fa: Partial<Record<Key, string>> = {
   "preferences.notifications.reminders": "یادآوری‌ها",
   "preferences.notifications.remindersHint": "برای حساب‌های تصفیه‌نشده اطلاع بگیرید.",
   "preferences.comingSoon": "به‌زودی",
+  "preferences.diagnostics.section": "عیب‌یابی",
+  "preferences.diagnostics.row": "وضعیت برنامه",
+  "preferences.diagnostics.rowHint": "اطلاعات حافظه و خرابی. در صورت درخواست اسکرین‌شات بگیرید.",
 
   // Home
   "home.tab.collect": "وصول",
@@ -969,6 +981,7 @@ const fa: Partial<Record<Key, string>> = {
   "entry.deleted": "حذف شد",
   "entry.saveFailed": "ذخیره نشد. دوباره امتحان کنید.",
   "entry.roleDenied": "فقط مشاهده — از مالک اجازه ویرایشگر بخواهید.",
+  "entry.signingUnavailable": "ذخیره امن آماده نشد. لطفاً برنامه را دوباره باز کنید و امتحان کنید.",
   "projectionConflicts.toast.roleGate": "نقش شما تغییر کرد — آن تغییر ذخیره نشد.",
   "projectionConflicts.toast.serverRejected":
     "سرور آخرین تغییر شما را نپذیرفت. لطفاً تازه‌سازی کنید.",

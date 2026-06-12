@@ -538,6 +538,9 @@ export default function RootLayout() {
                   ProfileSettingsSheet is already dismissed by the
                   chained() 220ms defer before the push lands). */}
               <Stack.Screen name="preferences" />
+              {/* Mythos crash-diagnosis screen — card presentation like
+                  the other settings sub-pages. */}
+              <Stack.Screen name="diagnostics" />
               {/* D-BACKUP-RESTORE-FLOW: in-app "Restore from cloud"
                   confirm. Distinct from onboarding/restore (no Start-
                   fresh path, no v0.4 bridge, lands on / on success).

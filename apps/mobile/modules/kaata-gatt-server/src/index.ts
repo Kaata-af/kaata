@@ -131,6 +131,63 @@ export async function getConnectedCentrals(): Promise<string[]> {
 }
 
 // ---------------------------------------------------------------------------
+// Mythos crash-diagnosis instrumentation (parked in this module; unrelated
+// to GATT). Synchronous Functions on the native side.
+// ---------------------------------------------------------------------------
+
+export type ProcessExitReason = {
+  timestamp: number;
+  reason: number;
+  /** LOW_MEMORY (=LMK/OOM) | JAVA_CRASH | NATIVE_CRASH | ANR | SIGNALED |
+   *  EXCESSIVE_RESOURCE | USER_REQUESTED | DEPENDENCY_DIED | OTHER_n */
+  reasonName: string;
+  description: string;
+  /** Resident set size (KB) at the moment of death — the slope's endpoint. */
+  rssKb: number;
+  pssKb: number;
+  importance: number;
+};
+
+export type MemorySnapshot = {
+  totalPssKb: number;
+  /** Native heap PSS — rising slope convicts BLE/WebRTC native allocation. */
+  nativePssKb: number;
+  /** Dalvik/ART heap PSS — rising slope convicts JS/Java retention. */
+  dalvikPssKb: number;
+  nativeHeapAllocKb: number;
+  javaHeapUsedKb: number;
+  systemAvailMemMb: number;
+  systemLowMemory: boolean;
+  /** Free storage on the data partition — settles the "Clear cache" question. */
+  storageFreeMb: number;
+};
+
+/**
+ * Why the PREVIOUS process died, per ApplicationExitInfo (API 30+). Returns
+ * [] on older Android or non-Android. The newest entry is the most recent
+ * death. This is the measurement that ends crash-by-inference.
+ */
+export function getLastExitReasons(): ProcessExitReason[] {
+  if (Platform.OS !== "android") return [];
+  try {
+    const result = getNative().getLastExitReasons();
+    return Array.isArray(result) ? (result as ProcessExitReason[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Point-in-time memory + storage snapshot. Empty object off-Android. */
+export function getMemorySnapshot(): Partial<MemorySnapshot> {
+  if (Platform.OS !== "android") return {};
+  try {
+    return (getNative().getMemorySnapshot() ?? {}) as Partial<MemorySnapshot>;
+  } catch {
+    return {};
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Event subscriptions. Returning { remove(): void } matches the rest of the
 // transport adapter conventions in lib/mesh/transport-ble.ts.
 // ---------------------------------------------------------------------------
