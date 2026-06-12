@@ -56,7 +56,10 @@ type WifiPromptState = {
 
 export function MeshController() {
   const toast = useToast();
+  // accountId is tracked for observability only — Phase 7 removed it as a
+  // mesh gate; see the PHASE 7 NOTE below.
   const [accountId, setAccountId] = useState<string | null>(null);
+  void accountId;
   const [shopModeEnabled, setShopModeEnabled] = useState<boolean>(false);
   const [activePeers, setActivePeers] = useState(0);
 
@@ -95,10 +98,20 @@ export function MeshController() {
   // so this is safe to do at mount without race-against-unmount.
   useEffect(() => {
     let cancelled = false;
+    // Hoisted so the OUTER effect cleanup can release them. The previous
+    // version returned a cleanup function from the inner async IIFE —
+    // which is discarded by definition — so the status unsub and bridge
+    // resets were dead code (leaked duplicate subscriptions on dev
+    // fast-refresh).
+    let statusUnsub: (() => void) | null = null;
+    let meshMod: typeof import("../lib/mesh") | null = null;
+    let wifiMod: typeof import("../lib/mesh/wifi-upgrade") | null = null;
     void (async () => {
       const mesh = await import("../lib/mesh");
       const wifi = await import("../lib/mesh/wifi-upgrade");
       if (cancelled) return;
+      meshMod = mesh;
+      wifiMod = wifi;
 
       wifi.setWifiUpgradeToastBridge((msg, kind) => {
         toastRef.current.push(msg, kind);
@@ -192,35 +205,35 @@ export function MeshController() {
 
       // Subscribe to status changes so the FG notification body and
       // local activePeers state stay in sync without polling.
-      const unsub = mesh.onShopModeStatusChange?.((s) => {
-        if (cancelled) return;
-        setActivePeers(s.activePeers);
-        // Update the persistent notification body to match real state.
-        void (async () => {
-          try {
-            const fg = await import("../lib/mesh/foreground");
-            const body =
-              s.activePeers === 0
-                ? "Waiting for your team to connect…"
-                : s.activePeers === 1
-                  ? "Connected to 1 paired phone"
-                  : `Connected to ${s.activePeers} paired phones`;
-            await fg.updateShopModeNotification({ body });
-          } catch (err) {
-            if (__DEV__) console.warn("[mesh-ctl] updateShopModeNotification failed", err);
-          }
-        })();
-      });
-
-      return () => {
-        if (typeof unsub === "function") unsub();
-        wifi.setWifiUpgradePromptBridge(null);
-        wifi.setWifiUpgradeToastBridge(null);
-        mesh.setMeshFailureBridge(null);
-      };
+      statusUnsub =
+        mesh.onShopModeStatusChange?.((s) => {
+          if (cancelled) return;
+          setActivePeers(s.activePeers);
+          // Update the persistent notification body to match real state.
+          void (async () => {
+            try {
+              const fg = await import("../lib/mesh/foreground");
+              const body =
+                s.activePeers === 0
+                  ? t("fgs.waiting")
+                  : s.activePeers === 1
+                    ? t("fgs.connectedOne")
+                    : t("fgs.connectedMany", { count: s.activePeers });
+              await fg.updateShopModeNotification({ body });
+            } catch (err) {
+              if (__DEV__) console.warn("[mesh-ctl] updateShopModeNotification failed", err);
+            }
+          })();
+        }) ?? null;
     })();
     return () => {
       cancelled = true;
+      if (statusUnsub) statusUnsub();
+      if (wifiMod) {
+        wifiMod.setWifiUpgradePromptBridge(null);
+        wifiMod.setWifiUpgradeToastBridge(null);
+      }
+      if (meshMod) meshMod.setMeshFailureBridge(null);
     };
   }, []);
 
@@ -228,9 +241,15 @@ export function MeshController() {
   // count flow via onShopModeStatusChange above — not via polling.)
   useEffect(() => {
     let cancelled = false;
-    let confirmedNoAccount = false;
     const poll = async () => {
-      if (confirmedNoAccount) return;
+      // NO account_id gating here. A previous version latched the poll
+      // off permanently on the first null account_id read — which meant
+      // local-only shopkeepers (the Phase 7 target persona) who enabled
+      // Nearby sync via any path that only writes app_meta (battery-
+      // exemption confirm, pair-scan join, pair deep link) were never
+      // observed: toggle showed ON, mesh never started until a cold
+      // relaunch. Phase 7's local-CA design explicitly removed the
+      // account requirement; the poll must mirror that.
       const [id, raw] = await Promise.all([
         getAppMeta("account_id"),
         getAppMeta("shop_mode_enabled"),
@@ -238,9 +257,6 @@ export function MeshController() {
       if (cancelled) return;
       setAccountId(id);
       setShopModeEnabled(raw === "1");
-      if (!id) {
-        confirmedNoAccount = true;
-      }
     };
     void poll();
     const t = setInterval(() => void poll(), APP_META_POLL_MS);
@@ -310,16 +326,8 @@ export function MeshController() {
   // the advertise call → process killed. The accountId is still surfaced
   // (it influences the cloud-sync paths) but no longer gates mesh.
   useEffect(() => {
-    void accountId; // referenced so the linter doesn't complain about it being unused
     const wantOn = shopModeEnabled;
-    console.log(
-      "[mesh.toggle] effect fired wantOn=",
-      wantOn,
-      "accountId?=",
-      !!accountId,
-      "shop_mode_enabled=",
-      shopModeEnabled,
-    );
+    console.log("[mesh.toggle] effect fired wantOn=", wantOn);
     let cancelled = false;
     void (async () => {
       try {
@@ -327,6 +335,8 @@ export function MeshController() {
         await mesh.hydrateLastActiveAt();
         if (cancelled) return;
         if (wantOn) {
+          // startShopMode is idempotent (no-ops when already running), so
+          // re-entering here after home's direct start call is harmless.
           await ensurePermsAndStart.current();
         } else {
           await mesh.stopShopMode();
@@ -335,18 +345,29 @@ export function MeshController() {
         console.warn("[mesh-ctl] mesh module load failed", err);
       }
     })();
+    // NO stop in this cleanup. The previous version depended on
+    // [accountId, shopModeEnabled] and unconditionally stopped mesh in
+    // cleanup — so a sign-in (accountId flip) or the poll catching up
+    // with home's direct start blipped mesh off/on mid-handshake, with
+    // the unsequenced stop able to land AFTER the restart and kill mesh
+    // while the toggle showed on. Off-transitions are handled by the
+    // effect body above; true teardown by the unmount effect below.
     return () => {
       cancelled = true;
-      void (async () => {
-        try {
-          const mesh = await import("../lib/mesh");
-          await mesh.stopShopMode();
-        } catch {
-          /* */
-        }
-      })();
     };
-  }, [accountId, shopModeEnabled]);
+  }, [shopModeEnabled]);
+
+  // True-unmount teardown only (root remount / dev fast-refresh): stop
+  // mesh if it is running so radios don't leak past the component.
+  useEffect(() => {
+    return () => {
+      void import("../lib/mesh")
+        .then((m) => m.stopShopMode())
+        .catch(() => {
+          /* */
+        });
+    };
+  }, []);
 
   // No auto-off effect. Nearby sync stays on until the user toggles it
   // off. (Removed in Phase 7 per founder decision — see constants block.)

@@ -1,32 +1,47 @@
+import { useState } from "react";
 import { Linking, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../components/Button";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
+import { textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
+import { t } from "../lib/i18n";
 
 export default function UpdatePromptScreen() {
   const { update } = useAppMeta();
+  const isRTL = useIsRTL();
+  // Inline (this is a fullScreenModal — toasts can't render above it).
+  const [openFailed, setOpenFailed] = useState(false);
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.inner}>
-        <Text style={styles.title}>Update required</Text>
-        <Text style={styles.subtitle}>
-          Your version of Kaata is too old to continue. Install the latest update to keep using the
-          app.
-        </Text>
+        <Text style={[styles.title, textDir(isRTL)]}>{t("updatePrompt.title")}</Text>
+        <Text style={[styles.subtitle, textDir(isRTL)]}>{t("updatePrompt.body")}</Text>
         {update?.release_notes ? (
           <View style={styles.notesWrap}>
-            <Text style={styles.notes}>{update.release_notes}</Text>
+            <Text style={[styles.notes, textDir(isRTL)]}>{update.release_notes}</Text>
           </View>
+        ) : null}
+        {openFailed ? (
+          <Text style={[styles.openFailed, textDir(isRTL)]} accessibilityLiveRegion="polite">
+            {t("updatePrompt.openFailed")}
+          </Text>
         ) : null}
         <View style={{ height: 24 }} />
         <Button
-          label={update?.version ? `Install v${update.version}` : "Install update"}
+          label={
+            update?.version
+              ? t("updatePrompt.install", { version: update.version })
+              : t("updatePrompt.installGeneric")
+          }
           onPress={() => {
-            const url = update?.apk_url ?? update?.play_store_url;
-            if (url) Linking.openURL(url);
+            // This is the ONLY affordance on a blocking screen — it must
+            // never silently do nothing. Fall back to the website when the
+            // release row carries no URL, and surface openURL rejections.
+            const url = update?.apk_url ?? update?.play_store_url ?? "https://kaata.af/download";
+            Linking.openURL(url).catch(() => setOpenFailed(true));
           }}
         />
       </View>
@@ -59,4 +74,10 @@ const styles = StyleSheet.create({
     borderColor: colors.borderDefault,
   },
   notes: { fontSize: 13, fontFamily: fonts.sansRegular, color: colors.textDefault, lineHeight: 19 },
+  openFailed: {
+    marginTop: 12,
+    fontSize: 12,
+    fontFamily: fonts.sansMedium,
+    color: colors.danger,
+  },
 });

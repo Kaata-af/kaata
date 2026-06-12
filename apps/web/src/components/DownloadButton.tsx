@@ -1,20 +1,26 @@
-import { APK_VERSION } from "../env";
-import { getTrackedDownloadUrl } from "../lib/analytics";
+import { APK_DOWNLOAD_URL, APK_VERSION } from "../env";
+import { reportDownloadClick } from "../lib/analytics";
+import { useI18n } from "../lib/i18n";
 import { useToast } from "./Toast";
 
 export function DownloadButton() {
-  // Computed at render time, not at module load, so a freshly-stored source
-  // (e.g. user just landed on /?s=foo and immediately navigated to /download)
-  // is included. The backend handles the 302 to the real APK.
-  const href = getTrackedDownloadUrl();
+  // The href is the SAME-ORIGIN APK (served by the static host alongside
+  // this page) — previously it navigated to api.kaata.af/v1/download, so a
+  // backend outage replaced kaata.af with a browser error page and killed
+  // the funnel at its final step. The click count still reaches the
+  // backend best-effort via reportDownloadClick().
   const { push } = useToast();
+  const { t } = useI18n();
   return (
     <a
-      href={href}
-      onClick={() => push("Starting download — install when ready.", "success")}
+      href={APK_DOWNLOAD_URL}
+      onClick={() => {
+        reportDownloadClick();
+        push(t("download.toast"), "success");
+      }}
       className="block w-full bg-neutral-900 text-white font-semibold px-8 py-4 rounded-lg hover:bg-neutral-800 transition-colors text-center text-base"
     >
-      Download APK · v{APK_VERSION}
+      {t("download.button", { version: APK_VERSION })}
     </a>
   );
 }

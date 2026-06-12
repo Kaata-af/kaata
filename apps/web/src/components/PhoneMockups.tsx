@@ -6,7 +6,13 @@ import type { ReactNode } from "react";
 
 function PhoneFrame({ children }: { children: ReactNode }) {
   return (
-    <div className="relative w-[284px] aspect-[284/580] bg-white rounded-[2.25rem] border-[7px] border-neutral-900 shadow-[0_20px_50px_-15px_rgba(0,0,0,0.18)] overflow-hidden flex flex-col">
+    // dir="ltr": the mockups depict the mobile app, which is deliberately
+    // locked LTR (see the app's I18nManager architecture) — they must not
+    // mirror when the surrounding page flips to RTL for Persian.
+    <div
+      dir="ltr"
+      className="relative w-[284px] max-w-full aspect-[284/580] bg-white rounded-[2.25rem] border-[7px] border-neutral-900 shadow-[0_20px_50px_-15px_rgba(0,0,0,0.18)] overflow-hidden flex flex-col"
+    >
       {/* Pill notch — purely decorative */}
       <div className="h-5 bg-neutral-900 mx-auto w-28 rounded-b-2xl shrink-0" />
       {children}

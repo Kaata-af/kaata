@@ -39,6 +39,14 @@ export async function getInviteInfo(token: string): Promise<InviteInfoResult> {
     res = await fetch(`${BACKEND_URL}/v1/vaults/invites/${encodeURIComponent(cleaned)}/info`, {
       method: "GET",
       headers: { Accept: "application/json" },
+      // Bound the wait — on the stalled connections common for this
+      // audience a bare fetch sat on "Loading invitation" for minutes.
+      // Feature-detected: older WebViews without AbortSignal.timeout keep
+      // the unbounded behavior instead of failing instantly.
+      signal:
+        typeof AbortSignal !== "undefined" && "timeout" in AbortSignal
+          ? AbortSignal.timeout(10_000)
+          : undefined,
     });
   } catch {
     return { ok: false, error: { kind: "network" } };

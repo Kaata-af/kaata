@@ -16,8 +16,8 @@
 // NO API calls fire from action handlers. Server is a sync destination.
 // Self-row is non-interactive; last-owner protection enforced at sheet build.
 
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -177,31 +177,49 @@ export default function VaultMembersScreen() {
     setPending(inv);
   }, [router, toast]);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        await loadAll();
-      } catch (err) {
-        console.warn("[vault/members] load failed", err);
-        toast.push(t("members.toast.loadFailed"), "error");
-      } finally {
-        setLoaded(true);
-      }
-    })();
-  }, [loadAll, toast]);
+  // Re-runs on every focus, not just mount: a member added via vault/pair
+  // or an invite sent via vault/invite lands in the mirror while this
+  // screen sits beneath them on the stack — popping back must re-query.
+  useFocusEffect(
+    useCallback(() => {
+      void (async () => {
+        try {
+          await loadAll();
+        } catch (err) {
+          console.warn("[vault/members] load failed", err);
+          toast.push(t("members.toast.loadFailed"), "error");
+        } finally {
+          setLoaded(true);
+        }
+      })();
+    }, [loadAll, toast]),
+  );
 
   const transferModeHint = params.action === "transfer";
 
   async function onRefresh() {
     setRefreshing(true);
+    let failed = false;
     try {
-      await fetchPendingInvitations();
+      // The network fetch gets its own guard: it throws for offline AND
+      // local-CA (no JWT) users, and an unguarded throw here used to skip
+      // loadAll entirely — pull-to-refresh spun and changed nothing even
+      // when the local mirror had new rows.
+      try {
+        await fetchPendingInvitations();
+      } catch (err) {
+        failed = true;
+        console.warn("[vault/members] invite fetch failed", err);
+      }
       await loadAll();
     } catch (err) {
+      failed = true;
       console.warn("[vault/members] refresh failed", err);
     } finally {
       setRefreshing(false);
     }
+    // Silent refresh failures are indistinguishable from "nothing new".
+    if (failed) toast.push(t("common.refreshFailed"), "info");
   }
 
   function openMemberSheet(m: MemberRow) {
@@ -245,7 +263,8 @@ export default function VaultMembersScreen() {
       await loadAll();
     } catch (err) {
       console.warn("[vault/members] change role failed", err);
-      toast.push(err instanceof Error ? err.message : t("members.toast.roleFailed"), "error");
+      // Localized copy only — err.message is HTTP/internal jargon.
+      toast.push(t("members.toast.roleFailed"), "error");
     }
   }
 
@@ -262,7 +281,7 @@ export default function VaultMembersScreen() {
       await loadAll();
     } catch (err) {
       console.warn("[vault/members] revoke failed", err);
-      toast.push(err instanceof Error ? err.message : t("members.toast.removeFailed"), "error");
+      toast.push(t("members.toast.removeFailed"), "error");
     }
   }
 
@@ -330,7 +349,7 @@ export default function VaultMembersScreen() {
       router.back();
     } catch (err) {
       console.warn("[vault/members] transfer failed", err);
-      toast.push(err instanceof Error ? err.message : t("members.toast.transferFailed"), "error");
+      toast.push(t("members.toast.transferFailed"), "error");
     }
   }
 

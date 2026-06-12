@@ -78,11 +78,17 @@ export async function ensureShopModeChannel(): Promise<void> {
   const notifee = getNotifee();
   if (!notifee) return;
   try {
+    // Lazy import keeps this module a leaf for foreground-bootstrap's
+    // module-load registration (no static i18n → db chain). The bootstrap
+    // call runs before the locale pref loads (English); _layout's later
+    // ensureShopModeChannel() call re-applies with the loaded locale —
+    // notifee createChannel updates the existing channel's name in place.
+    const { t } = await import("../i18n");
     await notifee.default.createChannel({
       id: SHOP_MODE_CHANNEL_ID,
-      name: "Nearby sync",
+      name: t("fgs.channelName"),
       importance: notifee.AndroidImportance.LOW,
-      description: "Shown while Kaata is syncing with nearby phones over Bluetooth.",
+      description: t("fgs.channelDescription"),
       vibration: false,
       sound: undefined,
     });
@@ -159,8 +165,8 @@ export async function startShopModeForegroundService(
       // "Connecting with your paired phones" makes the trust boundary
       // explicit. Body during search frames it as a private session
       // ("Waiting for your team to connect…") rather than open discovery.
-      title: opts?.title ?? "Connecting with your paired phones",
-      body: opts?.body ?? "Waiting for your team to connect…",
+      title: opts?.title ?? (await import("../i18n")).t("fgs.title"),
+      body: opts?.body ?? (await import("../i18n")).t("fgs.waiting"),
       android: {
         channelId: SHOP_MODE_CHANNEL_ID,
         // D-FOREGROUND-HARDEN: REQUIRED for the foreground-service
@@ -214,8 +220,8 @@ export async function updateShopModeNotification(opts: ShopModeNotificationOpts)
   try {
     await notifee.default.displayNotification({
       id: SHOP_MODE_NOTIFICATION_ID,
-      title: opts.title ?? "Connecting with your paired phones",
-      body: opts.body ?? "Waiting for your team to connect…",
+      title: opts.title ?? (await import("../i18n")).t("fgs.title"),
+      body: opts.body ?? (await import("../i18n")).t("fgs.waiting"),
       android: {
         channelId: SHOP_MODE_CHANNEL_ID,
         // D-FOREGROUND-HARDEN: same smallIcon contract as start — the

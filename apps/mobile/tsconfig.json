@@ -2,5 +2,10 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true
-  }
+  },
+  // migration-014-selftest runs under Node against better-sqlite3 (not an
+  // installed dependency) and is imported by nothing in the app. Leaving
+  // it in the program kept `tsc --noEmit` permanently red, which masked
+  // real regressions behind a known-failure habit.
+  "exclude": ["node_modules", "lib/__dev__/migration-014-selftest.ts"]
 }

@@ -26,7 +26,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Crypto from "expo-crypto";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -83,6 +83,10 @@ export default function VaultNewScreen() {
   const [shopName, setShopName] = useState("");
   const [currency, setCurrency] = useState<string>(DEFAULT_CURRENCY);
   const [creating, setCreating] = useState(false);
+  // Synchronous re-entry guard — `creating` state can't stop a same-frame
+  // double-tap (setState is async); see entry/new.tsx. Without it a
+  // double-tap inserts two vaults.
+  const creatingRef = useRef(false);
   // Phase 7 D-VAULT-NAME-REQUIRED: inline error surfaces when the user
   // taps Create with an empty name OR when the name is empty on blur.
   // The Button's disabled-on-empty rule still guards the happy path; the
@@ -98,7 +102,7 @@ export default function VaultNewScreen() {
   const currencyOptions = useMemo(() => CURRENCIES.map((c) => c.code), []);
 
   async function onCreate() {
-    if (creating) return;
+    if (creatingRef.current) return;
     const trimmedShop = shopName.trim();
     // Phase 7 D-VAULT-NAME-REQUIRED: name is required. The Button is
     // disabled-on-empty (happy path), but if a future refactor drops
@@ -109,6 +113,7 @@ export default function VaultNewScreen() {
       return;
     }
     setNameError(null);
+    creatingRef.current = true;
     setCreating(true);
 
     const vaultId = Crypto.randomUUID();
@@ -132,6 +137,7 @@ export default function VaultNewScreen() {
     } catch (err) {
       console.warn("[vault/new] ensureDeviceKey failed", err);
       toast.push(t("vaultNew.failed"), "error");
+      creatingRef.current = false;
       setCreating(false);
       return;
     }
@@ -326,6 +332,7 @@ export default function VaultNewScreen() {
     } catch (err) {
       console.warn("[vault/new] create failed", err);
       toast.push(t("vaultNew.failed"), "error");
+      creatingRef.current = false;
       setCreating(false);
     }
   }

@@ -1,16 +1,17 @@
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import * as Contacts from "expo-contacts";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
   Dimensions,
+  FlatList,
   Keyboard,
   Linking,
+  type ListRenderItemInfo,
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -46,6 +47,35 @@ export function ContactsPickerSheet(props: {
   const isRTL = useIsRTL();
   const [contacts, setContacts] = useState<Contacts.Contact[] | null>(null);
   const [permission, setPermission] = useState<"unknown" | "granted" | "denied">("unknown");
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  // Extracted so the error state's Retry button can re-run it. Guarded —
+  // content-provider reads DO fail on low-end Androids with large books,
+  // and an unhandled rejection here left a perpetual spinner.
+  const loadContacts = useCallback(async () => {
+    setLoadFailed(false);
+    try {
+      const { status } = await Contacts.requestPermissionsAsync();
+      if (status !== "granted") {
+        setPermission("denied");
+        return;
+      }
+      setPermission("granted");
+      const { data } = await Contacts.getContactsAsync({
+        fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers],
+        // Sort here is best-effort; we re-sort by name client-side anyway.
+        sort: Contacts.SortTypes.FirstName,
+      });
+      // Drop contacts with no usable display name; sort by name asc.
+      const usable = data
+        .filter((c) => Boolean(c.name && c.name.trim().length > 0))
+        .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+      setContacts(usable);
+    } catch (err) {
+      console.warn("[contacts-picker] load failed", err);
+      setLoadFailed(true);
+    }
+  }, []);
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(OFFSCREEN)).current;
   // Keyboard height tracked manually. KeyboardAvoidingView wars with this
@@ -73,24 +103,7 @@ export function ContactsPickerSheet(props: {
       setQuery("");
       // Request + load contacts lazily so the prompt only fires when the user
       // actually opens the picker.
-      (async () => {
-        const { status } = await Contacts.requestPermissionsAsync();
-        if (status !== "granted") {
-          setPermission("denied");
-          return;
-        }
-        setPermission("granted");
-        const { data } = await Contacts.getContactsAsync({
-          fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers],
-          // Sort here is best-effort; we re-sort by name client-side anyway.
-          sort: Contacts.SortTypes.FirstName,
-        });
-        // Drop contacts with no usable display name; sort by name asc.
-        const usable = data
-          .filter((c) => Boolean(c.name && c.name.trim().length > 0))
-          .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
-        setContacts(usable);
-      })();
+      void loadContacts();
 
       requestAnimationFrame(() => {
         Animated.parallel([
@@ -114,6 +127,48 @@ export function ContactsPickerSheet(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.visible]);
 
+  const { onPick, onDismiss } = props;
+  const pick = useCallback(
+    (c: Contacts.Contact) => {
+      const name = (c.name ?? "").trim();
+      const phone = c.phoneNumbers?.[0]?.number?.trim() || null;
+      onPick({ name, phone });
+      onDismiss();
+    },
+    [onPick, onDismiss],
+  );
+
+  // FlatList row — virtualized. The previous ScrollView + .map mounted the
+  // ENTIRE device contact book (often 1000+ rows) inside the Modal and
+  // re-rendered all of it on every search keystroke; multi-second sheet
+  // opens and typing freezes on low-end Androids.
+  const renderRow = useCallback(
+    ({ item }: ListRenderItemInfo<Contacts.Contact>) => {
+      const phone = item.phoneNumbers?.[0]?.number;
+      return (
+        <Pressable
+          onPress={() => pick(item)}
+          accessibilityRole="button"
+          style={({ pressed }) => [
+            styles.row,
+            rowDir(isRTL),
+            pressed && { backgroundColor: colors.bgMuted },
+          ]}
+        >
+          <View style={styles.rowLeft}>
+            <Text style={[styles.rowName, textDir(isRTL)]} numberOfLines={1}>
+              {item.name ?? "—"}
+            </Text>
+            <Text style={[styles.rowSub, textDir(isRTL)]} numberOfLines={1}>
+              {phone ?? t("contacts.noPhone")}
+            </Text>
+          </View>
+        </Pressable>
+      );
+    },
+    [pick, isRTL],
+  );
+
   if (!rendered) return null;
 
   const q = query.trim().toLowerCase();
@@ -122,13 +177,6 @@ export function ContactsPickerSheet(props: {
       ? contacts.filter((c) => (c.name ?? "").toLowerCase().includes(q))
       : contacts
     : [];
-
-  function pick(c: Contacts.Contact) {
-    const name = (c.name ?? "").trim();
-    const phone = c.phoneNumbers?.[0]?.number?.trim() || null;
-    props.onPick({ name, phone });
-    props.onDismiss();
-  }
 
   return (
     <Modal
@@ -190,6 +238,17 @@ export function ContactsPickerSheet(props: {
                   <Text style={styles.permissionBtnText}>{t("contacts.permission.button")}</Text>
                 </Pressable>
               </View>
+            ) : loadFailed ? (
+              <View style={styles.permissionBlock}>
+                <Text style={styles.permissionBody}>{t("contacts.loadFailed")}</Text>
+                <Pressable
+                  onPress={() => void loadContacts()}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [styles.permissionBtn, pressed && { opacity: 0.85 }]}
+                >
+                  <Text style={styles.permissionBtnText}>{t("common.tryAgain")}</Text>
+                </Pressable>
+              </View>
             ) : contacts === null ? (
               <View style={styles.centered}>
                 <ActivityIndicator color={colors.textDefault} />
@@ -214,12 +273,16 @@ export function ContactsPickerSheet(props: {
                   />
                 </View>
 
-                <ScrollView
+                <FlatList
+                  data={filtered}
+                  renderItem={renderRow}
+                  keyExtractor={(c, i) => `${c.name ?? "contact"}-${i}`}
                   keyboardShouldPersistTaps="handled"
                   style={styles.list}
                   contentContainerStyle={styles.listContent}
-                >
-                  {filtered.length === 0 ? (
+                  initialNumToRender={14}
+                  windowSize={7}
+                  ListEmptyComponent={
                     <View style={styles.empty}>
                       <Text style={styles.emptyText}>
                         {contacts.length === 0
@@ -227,32 +290,8 @@ export function ContactsPickerSheet(props: {
                           : t("contacts.empty.noMatch", { query: query.trim() })}
                       </Text>
                     </View>
-                  ) : (
-                    filtered.map((c, i) => {
-                      const phone = c.phoneNumbers?.[0]?.number;
-                      return (
-                        <Pressable
-                          key={`${c.name ?? "contact"}-${i}`}
-                          onPress={() => pick(c)}
-                          style={({ pressed }) => [
-                            styles.row,
-                            rowDir(isRTL),
-                            pressed && { backgroundColor: colors.bgMuted },
-                          ]}
-                        >
-                          <View style={styles.rowLeft}>
-                            <Text style={[styles.rowName, textDir(isRTL)]} numberOfLines={1}>
-                              {c.name ?? "—"}
-                            </Text>
-                            <Text style={[styles.rowSub, textDir(isRTL)]} numberOfLines={1}>
-                              {phone ?? t("contacts.noPhone")}
-                            </Text>
-                          </View>
-                        </Pressable>
-                      );
-                    })
-                  )}
-                </ScrollView>
+                  }
+                />
               </>
             )}
           </View>

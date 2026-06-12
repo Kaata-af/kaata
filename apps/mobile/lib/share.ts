@@ -16,11 +16,14 @@ import type { Self } from "./types";
 // Message body uses the SENDER's locale (the shopkeeper composing it).
 // The receiver may be on a different locale, but the message is one block
 // of text sent verbatim, so it's whatever the sender's kaata is set to.
+// Returns true when WhatsApp opened; false when it couldn't (not
+// installed / disabled). Callers surface the failure — the ping bar is
+// the app's primary share CTA and a silent no-op tap reads as "broken".
 export async function shareKaataViaWhatsApp(
   person: { name: string; phone: string | null },
   balance: number,
   self: Self | null,
-): Promise<void> {
+): Promise<boolean> {
   const accountWith = self?.shop_name ?? self?.name ?? "Kaata";
   const currency = getCurrentCurrencySymbol();
   const amount = formatAmount(balance);
@@ -50,6 +53,14 @@ export async function shareKaataViaWhatsApp(
   const url = phone
     ? `whatsapp://send?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(text)}`
     : `whatsapp://send?text=${encodeURIComponent(text)}`;
-  await bumpUsageCounter("shares_sent");
-  await Linking.openURL(url);
+  try {
+    await Linking.openURL(url);
+  } catch (err) {
+    console.warn("[share] WhatsApp open failed", err);
+    return false;
+  }
+  // Count only AFTER the open succeeded — bumping first inflated the
+  // shares_sent telemetry on every failed attempt.
+  await bumpUsageCounter("shares_sent").catch(() => undefined);
+  return true;
 }

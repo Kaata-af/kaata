@@ -1,9 +1,11 @@
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { useToast } from "./Toast";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
 import { setAppMeta } from "../lib/db";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
+import { t } from "../lib/i18n";
 
 // Both banner variants share the same monochrome chassis. The update banner
 // reverses to bgInverted so it asks for attention without breaking the palette;
@@ -11,13 +13,14 @@ import { fonts } from "../lib/fonts";
 export function UpdateBanner() {
   const { update, announcement, refresh } = useAppMeta();
   const isRTL = useIsRTL();
+  const toast = useToast();
 
   if (update) {
     return (
       <View style={[styles.banner, styles.bannerInverted, rowDir(isRTL)]}>
         <View style={[styles.body, isRTL ? styles.bodyRTL : styles.bodyLTR]}>
           <Text style={[styles.title, textDir(isRTL), { color: colors.textInverted }]}>
-            Update available · v{update.version}
+            {t("updateBanner.title", { version: update.version })}
           </Text>
           {update.release_notes ? (
             <Text
@@ -30,12 +33,15 @@ export function UpdateBanner() {
         </View>
         <Pressable
           onPress={() => {
-            const url = update.apk_url || update.play_store_url;
-            if (url) Linking.openURL(url);
+            const url = update.apk_url || update.play_store_url || "https://kaata.af/download";
+            Linking.openURL(url).catch(() => toast.push(t("updatePrompt.openFailed"), "error"));
           }}
+          accessibilityRole="button"
           style={[styles.cta, styles.ctaInverted]}
         >
-          <Text style={[styles.ctaText, { color: colors.textEmphasis }]}>Update</Text>
+          <Text style={[styles.ctaText, { color: colors.textEmphasis }]}>
+            {t("updateBanner.cta")}
+          </Text>
         </Pressable>
         <Pressable
           onPress={async () => {
@@ -44,6 +50,8 @@ export function UpdateBanner() {
           }}
           style={styles.dismiss}
           hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t("updateBanner.dismiss")}
         >
           <Text style={[styles.dismissText, { color: colors.textInverted }]}>×</Text>
         </Pressable>
@@ -66,9 +74,17 @@ export function UpdateBanner() {
           </Text>
         </View>
         {announcement.cta_url ? (
-          <Pressable onPress={() => Linking.openURL(announcement.cta_url!)} style={styles.cta}>
+          <Pressable
+            onPress={() =>
+              Linking.openURL(announcement.cta_url!).catch(() =>
+                toast.push(t("updatePrompt.openFailed"), "error"),
+              )
+            }
+            accessibilityRole="button"
+            style={styles.cta}
+          >
             <Text style={[styles.ctaText, { color: colors.textEmphasis }]}>
-              {announcement.cta_label || "Learn more"}
+              {announcement.cta_label || t("updateBanner.learnMore")}
             </Text>
           </Pressable>
         ) : null}
@@ -79,6 +95,8 @@ export function UpdateBanner() {
           }}
           style={styles.dismiss}
           hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t("updateBanner.dismiss")}
         >
           <Text style={[styles.dismissText, { color: colors.textSubtle }]}>×</Text>
         </Pressable>

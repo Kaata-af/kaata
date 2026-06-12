@@ -31,6 +31,7 @@ import { setActiveVaultId } from "../../lib/db-tx";
 import { setAppMeta } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
+import { t } from "../../lib/i18n";
 import {
   acceptVaultInvite,
   declineVaultInviteLocally,
@@ -56,7 +57,7 @@ export default function InviteAcceptScreen() {
   useEffect(() => {
     (async () => {
       if (!token) {
-        toast.push("Invalid invitation link", "error");
+        toast.push(t("inviteAccept.invalidLink"), "error");
         router.replace("/");
         return;
       }
@@ -73,23 +74,22 @@ export default function InviteAcceptScreen() {
 
         const found = await lookupPendingInvite(token);
         if (!found) {
-          setErrorMsg(
-            "This invitation isn't visible on your account. The invite is anchored to a specific email — try signing in with the Google account that received the invitation.",
-          );
+          setErrorMsg(t("inviteAccept.error.notVisible"));
           setStage("error");
           return;
         }
         if (found.expires_at <= Date.now()) {
-          setErrorMsg("This invitation has expired. Ask the inviter for a new one.");
+          setErrorMsg(t("inviteAccept.error.expired"));
           setStage("error");
           return;
         }
         setInvite(found);
         setStage("confirm");
       } catch (err) {
+        // Raw err.message stays in the console for debugging; the user
+        // sees the localized fallback only.
         console.warn("[invite] lookup failed", err);
-        const msg = err instanceof Error ? err.message : "Failed to load invitation";
-        setErrorMsg(msg);
+        setErrorMsg(t("inviteAccept.error.loadFailed"));
         setStage("error");
       }
     })();
@@ -106,12 +106,13 @@ export default function InviteAcceptScreen() {
       await setActiveVaultId(result.vault_id);
       await setAppMeta(PENDING_TOKEN_KEY, "");
       setStage("done");
-      toast.push(`Joined ${invite.vault_name}`, "success");
+      toast.push(t("inviteAccept.joinedToast", { name: invite.vault_name }), "success");
       router.replace("/");
     } catch (err) {
+      // Raw err.message stays in the console for debugging; the user
+      // sees the localized fallback only.
       console.warn("[invite] accept failed", err);
-      const msg = err instanceof Error ? err.message : "Failed to accept invitation";
-      setErrorMsg(msg);
+      setErrorMsg(t("inviteAccept.error.acceptFailed"));
       setStage("error");
     }
   }
@@ -133,13 +134,24 @@ export default function InviteAcceptScreen() {
     router.replace("/onboarding/auth");
   }
 
+  // Confirm-stage body is ONE i18n sentence with {inviter} + {role}
+  // placeholders (never split across keys — Persian word order differs).
+  // t() substitutes {inviter}; we then split on the literal "{role}"
+  // token so the role label can keep its bold style inline.
+  const inviterLabel = invite
+    ? (invite.inviter_name ?? invite.inviter_email ?? t("inviteAccept.confirm.someone"))
+    : "";
+  const confirmBodyParts = invite
+    ? t("inviteAccept.confirm.body", { inviter: inviterLabel }).split("{role}")
+    : [];
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={[styles.header, rowDir(isRTL)]}>
         <Pressable onPress={() => router.replace("/")} hitSlop={8}>
-          <Text style={[styles.cancel, textDir(isRTL)]}>Cancel</Text>
+          <Text style={[styles.cancel, textDir(isRTL)]}>{t("common.cancel")}</Text>
         </Pressable>
-        <Text style={styles.title}>Vault invitation</Text>
+        <Text style={styles.title}>{t("inviteAccept.title")}</Text>
         <View style={{ width: 60 }} />
       </View>
 
@@ -154,15 +166,16 @@ export default function InviteAcceptScreen() {
           <View style={styles.fillCenter}>
             <Ionicons name="lock-closed-outline" size={40} color={colors.textMuted} />
             <View style={{ height: 12 }} />
-            <Text style={[styles.heading, textDir(isRTL)]}>Sign in to continue</Text>
-            <Text style={[styles.body2, textDir(isRTL)]}>
-              You need to sign in with Google to accept this invitation. Use the email address that
-              received the invite.
-            </Text>
+            <Text style={[styles.heading, textDir(isRTL)]}>{t("common.signInToContinue")}</Text>
+            <Text style={[styles.body2, textDir(isRTL)]}>{t("inviteAccept.signin.body")}</Text>
             <View style={{ height: 20 }} />
-            <Button label="Sign in with Google" onPress={onSignIn} />
+            <Button label={t("menu.account.signIn")} onPress={onSignIn} />
             <View style={{ height: 12 }} />
-            <Button label="Not now" variant="secondary" onPress={() => router.replace("/")} />
+            <Button
+              label={t("common.notNow")}
+              variant="secondary"
+              onPress={() => router.replace("/")}
+            />
           </View>
         ) : null}
 
@@ -170,21 +183,28 @@ export default function InviteAcceptScreen() {
           <View style={styles.confirmCard}>
             <Ionicons name="mail-open-outline" size={36} color={colors.textEmphasis} />
             <View style={{ height: 12 }} />
-            <Text style={[styles.heading, textDir(isRTL)]}>Join {invite.vault_name}?</Text>
+            <Text style={[styles.heading, textDir(isRTL)]}>
+              {t("inviteAccept.confirm.title", { name: invite.vault_name })}
+            </Text>
             <View style={{ height: 8 }} />
             <Text style={[styles.body2, textDir(isRTL)]}>
-              {invite.inviter_name ?? invite.inviter_email ?? "Someone"} invited you to join as a{" "}
-              <Text style={styles.bold}>{invite.role}</Text>.
+              {confirmBodyParts[0]}
+              <Text style={styles.bold}>{roleLabel(invite.role)}</Text>
+              {confirmBodyParts[1] ?? ""}
             </Text>
             <View style={{ height: 4 }} />
             <Text style={[styles.bodySubtle, textDir(isRTL)]}>
-              Expires {formatExpires(invite.expires_at)}.
+              {t("members.expiresLabel", { when: formatExpires(invite.expires_at) })}
             </Text>
 
             <View style={{ height: 28 }} />
-            <Button label={`Accept and join`} onPress={onAccept} />
+            <Button label={t("inviteAccept.confirm.accept")} onPress={onAccept} />
             <View style={{ height: 12 }} />
-            <Button label="Decline" variant="secondary" onPress={onDecline} />
+            <Button
+              label={t("inviteAccept.confirm.decline")}
+              variant="secondary"
+              onPress={onDecline}
+            />
           </View>
         ) : null}
 
@@ -192,7 +212,7 @@ export default function InviteAcceptScreen() {
           <View style={styles.fillCenter}>
             <ActivityIndicator color={colors.textDefault} />
             <View style={{ height: 12 }} />
-            <Text style={[styles.body2, textDir(isRTL)]}>Joining vault…</Text>
+            <Text style={[styles.body2, textDir(isRTL)]}>{t("inviteAccept.joining")}</Text>
           </View>
         ) : null}
 
@@ -200,10 +220,10 @@ export default function InviteAcceptScreen() {
           <View style={styles.fillCenter}>
             <Ionicons name="alert-circle-outline" size={36} color={colors.danger} />
             <View style={{ height: 12 }} />
-            <Text style={[styles.heading, textDir(isRTL)]}>Something went wrong</Text>
+            <Text style={[styles.heading, textDir(isRTL)]}>{t("inviteAccept.error.title")}</Text>
             <Text style={[styles.body2, textDir(isRTL)]}>{errorMsg}</Text>
             <View style={{ height: 20 }} />
-            <Button label="Back to Kaata" onPress={() => router.replace("/")} />
+            <Button label={t("common.backToKaata")} onPress={() => router.replace("/")} />
           </View>
         ) : null}
       </View>
@@ -211,12 +231,26 @@ export default function InviteAcceptScreen() {
   );
 }
 
+// Map the raw role enum to its translated label (vaultPair.role.* keys).
+function roleLabel(role: PendingInvite["role"]): string {
+  switch (role) {
+    case "owner":
+      return t("vaultPair.role.owner");
+    case "viewer":
+      return t("vaultPair.role.viewer");
+    default:
+      return t("vaultPair.role.editor");
+  }
+}
+
+// Relative expiry phrase, rendered inside members.expiresLabel
+// ("Expires {when}"). Reuses the invite.expiresIn.* keys.
 function formatExpires(epochMs: number): string {
   const diff = epochMs - Date.now();
-  if (diff <= 0) return "soon";
+  if (diff <= 0) return t("invite.expiresIn.soon");
   const days = Math.ceil(diff / (24 * 3600_000));
-  if (days <= 1) return "in less than a day";
-  return `in ${days} days`;
+  if (days <= 1) return t("invite.expiresIn.lessThanDay");
+  return t("invite.expiresIn.days", { days });
 }
 
 const styles = StyleSheet.create({

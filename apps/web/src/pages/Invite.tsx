@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 import { getInviteInfo, type InviteInfo, type InviteInfoError } from "../lib/api";
+import { useI18n } from "../lib/i18n";
 
 // /i/:token landing for vault invites. Purely informational; actual
 // acceptance happens in the mobile app via POST /v1/vaults/invites/accept.
@@ -14,6 +15,8 @@ export function Invite() {
   const [state, setState] = useState<
     { kind: "loading" } | { kind: "ok"; info: InviteInfo } | { kind: "error"; err: InviteInfoError }
   >({ kind: "loading" });
+  // Bumped by the error view's Retry button — re-runs the fetch effect.
+  const [retryNonce, setRetryNonce] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -26,14 +29,22 @@ export function Invite() {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, retryNonce]);
 
   return (
     <main>
       <SiteHeader />
       <section className="px-6 py-16 md:py-24 max-w-xl mx-auto">
         {state.kind === "loading" && <LoadingView />}
-        {state.kind === "error" && <ErrorView err={state.err} />}
+        {state.kind === "error" && (
+          <ErrorView
+            err={state.err}
+            onRetry={() => {
+              setState({ kind: "loading" });
+              setRetryNonce((n) => n + 1);
+            }}
+          />
+        )}
         {state.kind === "ok" && <DetailsView info={state.info} token={token} />}
       </section>
       <SiteFooter />
@@ -42,10 +53,11 @@ export function Invite() {
 }
 
 function LoadingView() {
+  const { t } = useI18n();
   return (
     <div className="text-center">
       <p className="text-[11px] font-semibold tracking-wider uppercase text-neutral-500 mb-4">
-        Loading invitation
+        {t("invite.loading")}
       </p>
       <div className="mx-auto h-2 w-32 rounded-full bg-neutral-200 overflow-hidden">
         <div className="h-full w-1/2 bg-neutral-900 animate-pulse" />
@@ -54,73 +66,112 @@ function LoadingView() {
   );
 }
 
-function ErrorView({ err }: { err: InviteInfoError }) {
-  let title = "This invitation isn't available";
-  let body =
-    "It may have expired, been revoked, or already been accepted. Ask the person who invited you to send a new link.";
+function ErrorView({ err, onRetry }: { err: InviteInfoError; onRetry: () => void }) {
+  const { t } = useI18n();
+  let title = t("invite.error.unavailable.title");
+  let body = t("invite.error.unavailable.body");
+  // Transient failures get a Retry button; the collapsed not-found state
+  // (expired/revoked/accepted) doesn't — retrying can't change it.
+  let retryable = false;
 
   if (err.kind === "rate_limited") {
-    title = "Too many tries";
-    body =
-      "We've throttled this link for the moment. Wait a minute and reload, or ask the inviter to send a fresh link.";
+    title = t("invite.error.rateLimited.title");
+    const wait =
+      err.retryAfterSeconds && err.retryAfterSeconds > 0
+        ? t("invite.error.rateLimited.minutes", {
+            count: Math.max(1, Math.ceil(err.retryAfterSeconds / 60)),
+          })
+        : t("invite.error.rateLimited.fallbackWait");
+    body = t("invite.error.rateLimited.body", { wait });
+    retryable = true;
   } else if (err.kind === "network") {
-    title = "Can't reach Kaata";
-    body =
-      "Check your connection and reload the page. If the problem persists, ask the inviter to resend.";
+    title = t("invite.error.network.title");
+    body = t("invite.error.network.body");
+    retryable = true;
   } else if (err.kind === "server") {
-    title = "Something went wrong";
-    body = "Reload the page in a minute. If it keeps failing, ask the inviter to resend.";
+    title = t("invite.error.server.title");
+    body = t("invite.error.server.body");
+    retryable = true;
   }
 
   return (
     <div className="text-center">
       <p className="text-[11px] font-semibold tracking-wider uppercase text-neutral-500 mb-4">
-        Invitation
+        {t("invite.kicker")}
       </p>
       <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-neutral-900">{title}</h1>
       <p className="mt-5 text-base text-neutral-600 leading-relaxed">{body}</p>
+      {retryable ? (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-8 inline-block bg-neutral-900 text-white font-semibold px-7 py-3 rounded-lg hover:bg-neutral-800 transition-colors text-sm"
+        >
+          {t("invite.tryAgain")}
+        </button>
+      ) : null}
       <Link
         to="/"
-        className="mt-10 inline-block text-sm text-neutral-600 hover:text-neutral-900 transition-colors font-medium"
+        className="mt-10 block text-sm text-neutral-600 hover:text-neutral-900 transition-colors font-medium"
       >
-        Back to Kaata
+        {t("invite.backHome")}
       </Link>
     </div>
   );
 }
 
 function DetailsView({ info, token }: { info: InviteInfo; token: string }) {
+  const { t } = useI18n();
   const onMobile = useIsMobile();
-  const deepLink = `kaata://invite/${encodeURIComponent(token)}`;
-  const roleLabel = ROLE_LABELS[info.role] ?? info.role;
-  const expiresRelative = useMemo(() => formatExpiresIn(info.expires_at), [info.expires_at]);
+  // Android Chrome silently ignores unhandled custom-scheme navigations —
+  // a plain kaata:// anchor did visibly nothing for invitees without the
+  // app. intent:// gives Android a browser_fallback_url (the download
+  // page); iOS and others keep the plain scheme.
+  const isAndroid = typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent ?? "");
+  const deepLink = isAndroid
+    ? `intent://invite/${encodeURIComponent(token)}#Intent;scheme=kaata;S.browser_fallback_url=${encodeURIComponent(
+        "https://kaata.af/download",
+      )};end`
+    : `kaata://invite/${encodeURIComponent(token)}`;
+  const roleLabel =
+    info.role === "owner"
+      ? t("invite.role.owner")
+      : info.role === "editor"
+        ? t("invite.role.editor")
+        : info.role === "viewer"
+          ? t("invite.role.viewer")
+          : info.role;
+  const expiresRelative = useMemo(() => formatExpiresIn(info.expires_at, t), [info.expires_at, t]);
 
   return (
     <div className="text-center">
       <p className="text-[11px] font-semibold tracking-wider uppercase text-neutral-500 mb-4">
-        You're invited
+        {t("invite.youreInvited")}
       </p>
       <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-neutral-900 leading-tight">
-        Join <span className="text-neutral-900">{info.vault_name}</span>
-        <span className="block text-neutral-500 mt-1 text-2xl md:text-3xl">as {roleLabel}</span>
+        {t("invite.join", { name: info.vault_name })}
+        <span className="block text-neutral-500 mt-1 text-2xl md:text-3xl">
+          {t("invite.asRole", { role: roleLabel })}
+        </span>
       </h1>
 
-      <dl className="mt-10 grid grid-cols-1 gap-4 text-left max-w-sm mx-auto">
-        <Row label="Invited by" value={info.inviter_name || info.inviter_email_redacted} />
+      <dl className="mt-10 grid grid-cols-1 gap-4 text-start max-w-sm mx-auto">
+        <Row
+          label={t("invite.invitedBy")}
+          value={info.inviter_name || info.inviter_email_redacted}
+        />
         {info.inviter_name && info.inviter_email_redacted && (
-          <Row label="Email" value={info.inviter_email_redacted} />
+          <Row label={t("invite.email")} value={info.inviter_email_redacted} />
         )}
-        <Row label="Expires" value={expiresRelative} />
+        <Row label={t("invite.expires")} value={expiresRelative} />
       </dl>
 
       <div className="mt-12">
         {onMobile ? <MobileActions deepLink={deepLink} /> : <DesktopActions token={token} />}
       </div>
 
-      <p className="mt-10 text-xs text-neutral-400 leading-relaxed">
-        Kaata never shows your ledger to anyone outside the people you invite. Accepting this
-        invitation lets {roleLabel === "viewer" ? "you view" : "you edit"} this shop's entries on
-        your device.
+      <p className="mt-10 text-xs text-neutral-600 leading-relaxed">
+        {info.role === "viewer" ? t("invite.privacyNote.view") : t("invite.privacyNote.edit")}
       </p>
     </div>
   );
@@ -132,44 +183,43 @@ function Row({ label, value }: { label: string; value: string }) {
       <dt className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500 self-end">
         {label}
       </dt>
-      <dd className="text-sm text-neutral-900 font-medium text-right break-words min-w-0">
-        {value}
-      </dd>
+      <dd className="text-sm text-neutral-900 font-medium text-end break-words min-w-0">{value}</dd>
     </div>
   );
 }
 
 function MobileActions({ deepLink }: { deepLink: string }) {
+  const { t } = useI18n();
   return (
     <div className="flex flex-col gap-3">
       <a
         href={deepLink}
         className="inline-flex justify-center items-center bg-neutral-900 text-white font-medium px-5 h-12 rounded-lg ring-0 ring-neutral-100 hover:ring-4 transition-[box-shadow] text-[15px]"
       >
-        Open in Kaata
+        {t("invite.openInApp")}
       </a>
       <Link
         to="/download"
         className="inline-flex justify-center items-center text-neutral-700 hover:text-neutral-900 font-medium px-5 h-11 rounded-lg border border-neutral-200 hover:border-neutral-300 transition-colors text-[14px]"
       >
-        Don't have Kaata yet? Download
+        {t("invite.downloadFallback")}
       </Link>
-      <p className="mt-1 text-xs text-neutral-400 leading-relaxed">
-        After installing, return to this page and tap "Open in Kaata".
-      </p>
+      <p className="mt-1 text-xs text-neutral-600 leading-relaxed">{t("invite.afterInstall")}</p>
     </div>
   );
 }
 
 function DesktopActions({ token }: { token: string }) {
+  const { t } = useI18n();
   return (
     <div className="flex flex-col gap-3 items-center">
-      <p className="text-sm text-neutral-600">
-        Open Kaata on your phone, then paste this code into <em>Pending invitations</em>:
-      </p>
+      <p className="text-sm text-neutral-600">{t("invite.desktopHint")}</p>
       <div
+        // dir="ltr": the token is opaque Latin data; keep it unidirectional
+        // even on the Persian page so it can be read back digit by digit.
+        dir="ltr"
         className="font-mono text-sm text-neutral-900 bg-neutral-100 rounded-lg px-4 py-3 max-w-full break-all border border-neutral-200"
-        aria-label="Invitation code"
+        aria-label={t("invite.codeLabel")}
       >
         {token}
       </div>
@@ -177,17 +227,11 @@ function DesktopActions({ token }: { token: string }) {
         to="/download"
         className="mt-4 inline-flex justify-center items-center text-neutral-700 hover:text-neutral-900 font-medium px-5 h-11 rounded-lg border border-neutral-200 hover:border-neutral-300 transition-colors text-[14px]"
       >
-        Don't have Kaata yet? Download
+        {t("invite.downloadFallback")}
       </Link>
     </div>
   );
 }
-
-const ROLE_LABELS: Record<string, string> = {
-  owner: "owner",
-  editor: "editor",
-  viewer: "viewer",
-};
 
 function useIsMobile(): boolean {
   const [isMobile, setIsMobile] = useState<boolean>(() => detectMobile());
@@ -205,17 +249,19 @@ function detectMobile(): boolean {
   return /Android|iPhone|iPod/i.test(ua);
 }
 
-function formatExpiresIn(iso: string): string {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "soon";
-  const deltaMs = t - Date.now();
-  if (deltaMs <= 0) return "expired";
+type Translate = ReturnType<typeof useI18n>["t"];
+
+function formatExpiresIn(iso: string, t: Translate): string {
+  const parsed = Date.parse(iso);
+  if (Number.isNaN(parsed)) return t("invite.expires.soon");
+  const deltaMs = parsed - Date.now();
+  if (deltaMs <= 0) return t("invite.expires.expired");
   const hours = Math.floor(deltaMs / (60 * 60 * 1000));
   if (hours < 1) {
     const minutes = Math.max(1, Math.floor(deltaMs / (60 * 1000)));
-    return `in ${minutes} minute${minutes === 1 ? "" : "s"}`;
+    return t("invite.expires.minutes", { count: minutes });
   }
-  if (hours < 48) return `in ${hours} hour${hours === 1 ? "" : "s"}`;
+  if (hours < 48) return t("invite.expires.hours", { count: hours });
   const days = Math.floor(hours / 24);
-  return `in ${days} day${days === 1 ? "" : "s"}`;
+  return t("invite.expires.days", { count: days });
 }

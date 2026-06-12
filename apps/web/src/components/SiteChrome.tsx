@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { WHATSAPP_CONTACT_URL } from "../env";
+import { useI18n } from "../lib/i18n";
 
-// Header mirrors dub.co's chassis: logo left, nav links centered, primary
-// CTA far right. Border and backdrop blur are absent at the top of the page
-// and fade in once the user starts scrolling — same progressive treatment
-// dub uses.
+// Header mirrors dub.co's chassis: logo at the start, nav links centered,
+// primary CTA at the end (start/end flip with the document direction for
+// Persian). Border and backdrop blur are absent at the top of the page and
+// fade in once the user starts scrolling.
 export function SiteHeader() {
   const scrolled = useScrolled(8);
+  const { t, lang, setLang } = useI18n();
 
   return (
     <header
@@ -17,8 +19,8 @@ export function SiteHeader() {
           : "bg-transparent border-transparent"
       }`}
     >
-      {/* Flex on mobile (logo + CTA hug the edges, no awkward empty center).
-          Grid on desktop so the nav stays perfectly centered between the two. */}
+      {/* Flex on mobile (logo + actions hug the edges), grid on desktop so
+          the nav stays perfectly centered between the two. */}
       <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex md:grid md:grid-cols-[1fr_auto_1fr] items-center justify-between">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2 md:justify-self-start">
@@ -32,29 +34,42 @@ export function SiteHeader() {
             to="/#product"
             className="text-neutral-600 hover:text-neutral-900 font-medium transition-colors"
           >
-            Product
+            {t("nav.product")}
           </Link>
           <Link
             to="/#how"
             className="text-neutral-600 hover:text-neutral-900 font-medium transition-colors"
           >
-            How it works
+            {t("nav.how")}
           </Link>
           <Link
             to="/download"
             className="text-neutral-600 hover:text-neutral-900 font-medium transition-colors"
           >
-            Download
+            {t("nav.download")}
           </Link>
         </nav>
 
-        {/* Primary CTA. Dub's signature interaction: ring on hover, not darken. */}
-        <Link
-          to="/download"
-          className="md:justify-self-end bg-neutral-900 text-white font-medium px-3.5 h-8 inline-flex items-center rounded-lg ring-0 ring-neutral-100 hover:ring-4 transition-[box-shadow] text-[13px]"
-        >
-          Get the app
-        </Link>
+        <div className="flex items-center gap-2 md:justify-self-end">
+          {/* Language toggle — shows the language you'd switch TO. Persian
+              is the audience's language; one tap from either side. */}
+          <button
+            type="button"
+            onClick={() => setLang(lang === "fa" ? "en" : "fa")}
+            lang={lang === "fa" ? "en" : "fa"}
+            className="text-[13px] font-medium text-neutral-600 hover:text-neutral-900 px-2.5 h-8 inline-flex items-center rounded-lg hover:bg-neutral-100 transition-colors"
+          >
+            {lang === "fa" ? "English" : "دری"}
+          </button>
+
+          {/* Primary CTA. Dub's signature interaction: ring on hover. */}
+          <Link
+            to="/download"
+            className="bg-neutral-900 text-white font-medium px-3.5 h-8 inline-flex items-center rounded-lg ring-0 ring-neutral-100 hover:ring-4 transition-[box-shadow] text-[13px]"
+          >
+            {t("nav.getApp")}
+          </Link>
+        </div>
       </div>
     </header>
   );
@@ -72,6 +87,7 @@ function useScrolled(threshold: number): boolean {
 }
 
 export function SiteFooter() {
+  const { t } = useI18n();
   return (
     <footer className="border-t border-neutral-200 bg-white">
       <div className="max-w-6xl mx-auto px-6 py-16 grid md:grid-cols-3 gap-12 md:gap-6">
@@ -81,28 +97,28 @@ export function SiteFooter() {
             <span className="text-lg font-bold tracking-tight text-neutral-900">kaata.</span>
           </Link>
           <p className="mt-4 text-sm text-neutral-500 max-w-xs leading-relaxed">
-            A quiet ledger between you and the people you trust. Built in Kabul.
+            {t("footer.tagline")}
           </p>
         </div>
 
         <div>
           <h3 className="text-[11px] font-semibold uppercase tracking-wider text-neutral-900">
-            Product
+            {t("footer.product")}
           </h3>
           <ul className="mt-4 space-y-2.5 text-sm text-neutral-500">
             <li>
               <Link to="/download" className="hover:text-neutral-900 transition-colors">
-                Download
+                {t("footer.download")}
               </Link>
             </li>
             <li>
               <Link to="/#how" className="hover:text-neutral-900 transition-colors">
-                How it works
+                {t("footer.how")}
               </Link>
             </li>
             <li>
               <Link to="/#product" className="hover:text-neutral-900 transition-colors">
-                What&apos;s inside
+                {t("footer.inside")}
               </Link>
             </li>
           </ul>
@@ -110,7 +126,7 @@ export function SiteFooter() {
 
         <div>
           <h3 className="text-[11px] font-semibold uppercase tracking-wider text-neutral-900">
-            Company
+            {t("footer.company")}
           </h3>
           <ul className="mt-4 space-y-2.5 text-sm text-neutral-500">
             <li>
@@ -120,11 +136,11 @@ export function SiteFooter() {
                 rel="noopener noreferrer"
                 className="hover:text-neutral-900 transition-colors"
               >
-                Contact on WhatsApp
+                {t("footer.contact")}
               </a>
             </li>
             <li>
-              <span>Open source · Coming soon</span>
+              <span>{t("footer.openSource")}</span>
             </li>
           </ul>
         </div>
@@ -132,7 +148,7 @@ export function SiteFooter() {
 
       <div className="border-t border-neutral-200">
         <div className="max-w-6xl mx-auto px-6 py-5 text-xs text-neutral-500">
-          © 2026 Kaata · Made in Kabul.
+          {t("footer.copyright")}
         </div>
       </div>
     </footer>

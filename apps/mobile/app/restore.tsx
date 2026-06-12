@@ -38,7 +38,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Network from "expo-network";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -71,6 +71,10 @@ export default function RestoreScreen() {
   const isRTL = useIsRTL();
   const toast = useToast();
   const [phase, setPhase] = useState<Phase>({ kind: "confirm" });
+  // Synchronous re-entry guard — see entry/new.tsx. Without it a
+  // double-tap during the network precheck started two concurrent
+  // restoreFromSnapshot transactions.
+  const confirmingRef = useRef(false);
 
   // Defer toast pushes until AFTER router navigation so the parent
   // viewport can actually render them (toasts inside the leaving stack
@@ -87,6 +91,11 @@ export default function RestoreScreen() {
   }
 
   async function onConfirm() {
+    if (confirmingRef.current) return;
+    confirmingRef.current = true;
+    // Flip to the spinner BEFORE the network precheck — the confirm
+    // button must leave the screen the moment the first tap lands.
+    setPhase({ kind: "restoring" });
     // UX critique #5 (Eng C5): cheap network precheck so users on a flaky
     // connection don't sit on the spinner for the full 30 s timeout.
     // Network.getNetworkStateAsync is also unreliable (false negatives on
@@ -101,7 +110,6 @@ export default function RestoreScreen() {
     } catch {
       // expo-network unavailable — skip precheck, fall through to fetch.
     }
-    setPhase({ kind: "restoring" });
     try {
       const defaultVaultId = await getAppMeta("default_vault_id");
       if (!defaultVaultId) {

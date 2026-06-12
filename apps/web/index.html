@@ -8,13 +8,42 @@
       name="description"
       content="Kaata is a digital kaata book. Track what people owe you and what you owe them. Send a friendly reminder over WhatsApp in two taps. Works offline."
     />
-    <link rel="icon" type="image/png" href="/favicon.png" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
+    <meta name="theme-color" content="#ffffff" />
+    <!-- Open Graph — the kaata.af growth loop is people sharing the link on
+         WhatsApp; without these tags the preview card renders bare. og:image
+         must be an absolute URL or WhatsApp ignores it. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Kaata" />
+    <meta
+      property="og:title"
+      content="Kaata — A quiet ledger between you and the people you trust."
     />
+    <meta
+      property="og:description"
+      content="Track what people owe you and what you owe them. Send a friendly reminder over WhatsApp in two taps. Works offline. Free forever."
+    />
+    <meta property="og:url" content="https://kaata.af/" />
+    <meta property="og:image" content="https://kaata.af/logo.png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:alt" content="Kaata logo" />
+    <link rel="canonical" href="https://kaata.af/" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="fa_AF" />
+    <meta name="twitter:card" content="summary" />
+    <meta
+      name="twitter:title"
+      content="Kaata — A quiet ledger between you and the people you trust."
+    />
+    <meta
+      name="twitter:description"
+      content="Track what people owe you and what you owe them. Works offline. Free forever."
+    />
+    <meta name="twitter:image" content="https://kaata.af/logo.png" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <!-- Fonts are self-hosted (Fontsource, bundled by Vite) — no external
+         font request can block or fail this page on slow networks. -->
   </head>
   <body>
     <div id="root"></div>

@@ -85,6 +85,10 @@ export default function VaultInviteScreen() {
   // online for UI purposes until the check resolves.
   const [online, setOnline] = useState<boolean | null>(null);
   const emailRef = useRef<TextInput>(null);
+  // Synchronous re-entry guard — `busy` state can't stop a same-frame
+  // double-tap (setState is async); see entry/new.tsx. Double-submit
+  // here creates duplicate server invites.
+  const submittingRef = useRef(false);
 
   const canInvite = useVaultPermission(vaultId, accountId, "vault.invite_member");
 
@@ -140,7 +144,7 @@ export default function VaultInviteScreen() {
 
   async function onSubmit() {
     if (!canInvite) return;
-    if (busy) return;
+    if (busy || submittingRef.current) return;
     if (!hasJwt) {
       // Email invites are server-mediated (the server holds the invite
       // token until the recipient signs in to accept) and the API requires
@@ -157,6 +161,7 @@ export default function VaultInviteScreen() {
       return;
     }
     setEmailError(null);
+    submittingRef.current = true;
     setBusy(true);
     try {
       const r = await createVaultInvite(vaultId, {
@@ -171,10 +176,13 @@ export default function VaultInviteScreen() {
       // like "POST /v1/vaults/<uuid>/invites: 404 — vault_not_found".
       // Pattern-match on substrings the backend returns; fall back to a
       // generic "couldn't send invite — try again" toast.
-      if (msg.includes("already_invited") || msg.includes("already")) {
-        setEmailError(t("invite.email.alreadyInvited"));
-      } else if (msg.includes("already_member")) {
+      if (msg.includes("already_member")) {
+        // Must be checked BEFORE the broad includes("already") below —
+        // "already_member" contains "already", so the old order made
+        // this branch dead code and showed "already invited" instead.
         setEmailError(t("invite.email.alreadyMember"));
+      } else if (msg.includes("already_invited") || msg.includes("already")) {
+        setEmailError(t("invite.email.alreadyInvited"));
       } else if (msg.includes("not signed in") || msg.includes("401")) {
         toast.push(t("invite.signInRequired"), "error");
       } else if (msg.includes("vault_not_found") || msg.includes("404") || msg.includes("403")) {
@@ -189,6 +197,7 @@ export default function VaultInviteScreen() {
         if (__DEV__) console.warn("[vault/invite] submit failed:", msg);
       }
     } finally {
+      submittingRef.current = false;
       setBusy(false);
     }
   }

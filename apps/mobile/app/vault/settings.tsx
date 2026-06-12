@@ -16,8 +16,8 @@
 // mirrored to the server-side vaults row by the same PATCH).
 
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -105,57 +105,67 @@ export default function VaultSettingsScreen() {
   const canRename = useVaultPermission(vaultId, accountId, "vault.rename");
   const canArchive = useVaultPermission(vaultId, accountId, "vault.archive");
 
-  useEffect(() => {
-    (async () => {
-      try {
-        // Prefer the explicit route param (archived-restore case) and
-        // fall back to the active vault. The param is a single string from
-        // expo-router's typed params (could be string | string[]); narrow
-        // it conservatively.
-        const paramId = typeof params.id === "string" ? params.id : undefined;
-        const targetVaultId = paramId ?? (await getActiveVaultId());
-        if (!targetVaultId) {
-          toast.push(t("vaultSettings.toast.noActive"), "error");
-          router.back();
-          return;
-        }
-        const db = await getDb();
-        const row = await db.getFirstAsync<VaultRow>(
-          `SELECT id, name, currency, archived_at FROM vaults WHERE id = ? LIMIT 1`,
-          targetVaultId,
-        );
-        if (!row) {
-          toast.push(t("vaultSettings.toast.notFound"), "error");
-          router.back();
-          return;
-        }
-        setVault(row);
-        setName(row.name);
-        setCurrency(row.currency || "AFN");
+  useFocusEffect(
+    useCallback(() => {
+      void (async () => {
+        try {
+          // Prefer the explicit route param (archived-restore case) and
+          // fall back to the active vault. The param is a single string from
+          // expo-router's typed params (could be string | string[]); narrow
+          // it conservatively.
+          const paramId = typeof params.id === "string" ? params.id : undefined;
+          const targetVaultId = paramId ?? (await getActiveVaultId());
+          if (!targetVaultId) {
+            toast.push(t("vaultSettings.toast.noActive"), "error");
+            router.back();
+            return;
+          }
+          const db = await getDb();
+          const row = await db.getFirstAsync<VaultRow>(
+            `SELECT id, name, currency, archived_at FROM vaults WHERE id = ? LIMIT 1`,
+            targetVaultId,
+          );
+          if (!row) {
+            toast.push(t("vaultSettings.toast.notFound"), "error");
+            router.back();
+            return;
+          }
+          setVault(row);
+          setName(row.name);
+          setCurrency(row.currency || "AFN");
 
-        const accId = await getAppMeta("account_id");
-        setAccountId(accId);
+          const accId = await getAppMeta("account_id");
+          setAccountId(accId);
 
-        const count = await db.getFirstAsync<{ n: number }>(
-          `SELECT COUNT(*) AS n FROM vault_members_mirror
+          const count = await db.getFirstAsync<{ n: number }>(
+            `SELECT COUNT(*) AS n FROM vault_members_mirror
             WHERE vault_id = ? AND revoked_at IS NULL`,
-          targetVaultId,
-        );
-        // Same floor logic as useMembersCount in use-vault-summary.ts —
-        // an empty mirror in Phase 2 / local-only mode means "no rows yet"
-        // but the user IS a member of their own vault. Without this floor,
-        // settings shows "0 people" while the picker shows "1 member" and
-        // the two surfaces disagree.
-        const raw = count?.n ?? 0;
-        setMemberCount(raw === 0 ? 1 : raw);
-      } catch (err) {
-        console.warn("[vault/settings] load failed", err);
-        toast.push(t("vaultSettings.toast.loadFailed"), "error");
-      } finally {
-        setLoaded(true);
-      }
-    })();
-  }, []);
+            targetVaultId,
+          );
+          // Same floor logic as useMembersCount in use-vault-summary.ts —
+          // an empty mirror in Phase 2 / local-only mode means "no rows yet"
+          // but the user IS a member of their own vault. Without this floor,
+          // settings shows "0 people" while the picker shows "1 member" and
+          // the two surfaces disagree.
+          const raw = count?.n ?? 0;
+          setMemberCount(raw === 0 ? 1 : raw);
+        } catch (err) {
+          console.warn("[vault/settings] load failed", err);
+          toast.push(t("vaultSettings.toast.loadFailed"), "error");
+          // Leave like the noActive/notFound branches above do — loaded=true
+          // with vault=null strands the user on a header-less spinner.
+          router.back();
+        } finally {
+          setLoaded(true);
+        }
+      })();
+      // Re-runs on focus (not mount-only): popping back from members/
+      // invite/pair must re-read role, member count and vault row, or a
+      // transfer completed on the members screen leaves this screen
+      // showing stale owner-only rows.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [params.id]),
+  );
 
   async function commitName() {
     const trimmed = name.trim();
@@ -286,10 +296,8 @@ export default function VaultSettingsScreen() {
       router.replace({ pathname: "/vault/new", params: { forced: "1" } });
     } catch (err) {
       console.warn("[vault/settings] archive failed", err);
-      toast.push(
-        err instanceof Error ? err.message : t("vaultSettings.toast.archiveFailed"),
-        "error",
-      );
+      // Localized copy only — err.message is HTTP/internal jargon.
+      toast.push(t("vaultSettings.toast.archiveFailed"), "error");
     } finally {
       setBusy(null);
     }
@@ -321,10 +329,7 @@ export default function VaultSettingsScreen() {
       toast.push(t("vaultSettings.toast.unarchived"), "success");
     } catch (err) {
       console.warn("[vault/settings] unarchive failed", err);
-      toast.push(
-        err instanceof Error ? err.message : t("vaultSettings.toast.unarchiveFailed"),
-        "error",
-      );
+      toast.push(t("vaultSettings.toast.unarchiveFailed"), "error");
     } finally {
       setBusy(null);
     }
@@ -397,10 +402,7 @@ export default function VaultSettingsScreen() {
       router.replace("/");
     } catch (err) {
       console.warn("[vault/settings] leave failed", err);
-      toast.push(
-        err instanceof Error ? err.message : t("vaultSettings.toast.leaveFailed"),
-        "error",
-      );
+      toast.push(t("vaultSettings.toast.leaveFailed"), "error");
     } finally {
       setBusy(null);
     }

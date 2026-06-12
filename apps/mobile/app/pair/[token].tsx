@@ -29,6 +29,7 @@ import { setActiveVaultId } from "../../lib/db-tx";
 import { getAppMeta, getDb, setAppMeta } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
+import { t } from "../../lib/i18n";
 import { decodePairDeepLinkPayload, type PairQrPayload } from "../../lib/mesh/pair-qr";
 import { verifyAndCacheVMC } from "../../lib/mesh/vmc";
 import { issueVaultCredential } from "../../lib/vault-api";
@@ -58,7 +59,7 @@ export default function PairDeepLinkScreen() {
       if (!blob) {
         setStage({
           kind: "error",
-          message: "This pairing link is missing data. Ask the owner to resend it.",
+          message: t("pairLink.error.missingData"),
         });
         return;
       }
@@ -68,8 +69,8 @@ export default function PairDeepLinkScreen() {
           kind: "error",
           message:
             decoded.reason === "expired"
-              ? "This pairing link has expired. Ask the owner to generate a new one."
-              : "This pairing link is malformed. Make sure you opened it from the original message.",
+              ? t("pairLink.error.expired")
+              : t("pairLink.error.malformed"),
         });
         return;
       }
@@ -99,15 +100,14 @@ export default function PairDeepLinkScreen() {
       if (!ourAccountId) {
         setStage({
           kind: "error",
-          message: "Sign in with the same Google account as the other phone first.",
+          message: t("vaultPairScan.error.signInRequired"),
         });
         return;
       }
       if (ourAccountId !== payload.issuer_account_id) {
         setStage({
           kind: "error",
-          message:
-            "This link was issued for a different Google account. Ask the owner to send you an email invitation instead.",
+          message: t("pairLink.error.accountMismatch"),
         });
         return;
       }
@@ -151,12 +151,14 @@ export default function PairDeepLinkScreen() {
       await setAppMeta(PENDING_PAIR_DEEPLINK_KEY, "");
 
       setStage({ kind: "joined", vault_name: payload.vault_name });
-      toast.push("Paired — now syncing nearby", "success");
+      toast.push(t("vaultPairScan.toast.pairedNearby"), "success");
     } catch (err) {
+      // Raw err.message stays in the console for debugging; the user
+      // sees the localized fallback only.
       console.warn("[pair/deeplink] join failed", err);
       setStage({
         kind: "error",
-        message: err instanceof Error ? err.message : "Pairing failed",
+        message: t("vaultPairScan.error.generic"),
       });
     }
   }
@@ -185,10 +187,10 @@ export default function PairDeepLinkScreen() {
             color={colors.textEmphasis}
           />
           <Text style={[styles.backLabel, textDir(isRTL)]}>
-            {stage.kind === "joined" ? "Done" : "Cancel"}
+            {stage.kind === "joined" ? t("common.done") : t("common.cancel")}
           </Text>
         </Pressable>
-        <Text style={styles.title}>Pair phones</Text>
+        <Text style={styles.title}>{t("pairLink.title")}</Text>
         <View style={{ width: 72 }} />
       </View>
 
@@ -203,14 +205,12 @@ export default function PairDeepLinkScreen() {
           <View style={styles.fillCenter}>
             <Ionicons name="lock-closed-outline" size={40} color={colors.textMuted} />
             <View style={{ height: 12 }} />
-            <Text style={[styles.heading, textDir(isRTL)]}>Sign in to continue</Text>
-            <Text style={[styles.body2, textDir(isRTL)]}>
-              Sign in with the SAME Google account as the other phone to complete pairing.
-            </Text>
+            <Text style={[styles.heading, textDir(isRTL)]}>{t("common.signInToContinue")}</Text>
+            <Text style={[styles.body2, textDir(isRTL)]}>{t("pairLink.signin.body")}</Text>
             <View style={{ height: 20 }} />
-            <Button label="Sign in with Google" onPress={onSignIn} />
+            <Button label={t("menu.account.signIn")} onPress={onSignIn} />
             <View style={{ height: 12 }} />
-            <Button label="Not now" variant="secondary" onPress={onCancel} />
+            <Button label={t("common.notNow")} variant="secondary" onPress={onCancel} />
           </View>
         ) : null}
 
@@ -218,13 +218,14 @@ export default function PairDeepLinkScreen() {
           <View style={styles.fillCenter}>
             <Ionicons name="phone-portrait-outline" size={40} color={colors.textEmphasis} />
             <View style={{ height: 12 }} />
+            {/* Single key with {name} — the former nested-bold wrapper was a
+                visual no-op (styles.bold === styles.heading's font/color), so
+                collapsing keeps the rendering identical while letting Persian
+                reorder the sentence freely. */}
             <Text style={[styles.heading, textDir(isRTL)]}>
-              Join <Text style={styles.bold}>{stage.payload.vault_name}</Text>?
+              {t("pairLink.confirm.title", { name: stage.payload.vault_name })}
             </Text>
-            <Text style={[styles.body2, textDir(isRTL)]}>
-              This phone will become a second device on the kaata. Your entries will sync over the
-              internet, and also peer-to-peer when both phones are on the same wifi.
-            </Text>
+            <Text style={[styles.body2, textDir(isRTL)]}>{t("pairLink.confirm.body")}</Text>
             {/* Show the first 8 chars of the issuer's account_id so the user
                 can spot wrong-account links BEFORE tapping Join — the QR
                 schema doesn't carry the issuer's email (it's a v1 wire
@@ -232,12 +233,14 @@ export default function PairDeepLinkScreen() {
                 fingerprint. We compare server-side too, so this is purely
                 a UX hint. */}
             <Text style={[styles.issuerLine, textDir(isRTL)]}>
-              From account {stage.payload.issuer_account_id.slice(0, 8)}…
+              {t("pairLink.confirm.fromAccount", {
+                id: stage.payload.issuer_account_id.slice(0, 8),
+              })}
             </Text>
             <View style={{ height: 24 }} />
-            <Button label="Join kaata" onPress={onConfirm} />
+            <Button label={t("vaultPairScan.confirm.join")} onPress={onConfirm} />
             <View style={{ height: 12 }} />
-            <Button label="Cancel" variant="secondary" onPress={onCancel} />
+            <Button label={t("common.cancel")} variant="secondary" onPress={onCancel} />
           </View>
         ) : null}
 
@@ -245,7 +248,9 @@ export default function PairDeepLinkScreen() {
           <View style={styles.fillCenter}>
             <ActivityIndicator color={colors.textDefault} />
             <View style={{ height: 12 }} />
-            <Text style={[styles.body2, textDir(isRTL)]}>Joining {stage.payload.vault_name}…</Text>
+            <Text style={[styles.body2, textDir(isRTL)]}>
+              {t("vaultPairScan.joining", { name: stage.payload.vault_name })}
+            </Text>
           </View>
         ) : null}
 
@@ -253,15 +258,14 @@ export default function PairDeepLinkScreen() {
           <View style={styles.fillCenter}>
             <Ionicons name="checkmark-circle" size={56} color={colors.textEmphasis} />
             <View style={{ height: 12 }} />
+            {/* Single key with an embedded \n + {name} — same no-op-bold
+                collapse as the confirm heading above. */}
             <Text style={[styles.heading, textDir(isRTL)]}>
-              Paired with{"\n"}
-              <Text style={styles.bold}>{stage.vault_name}</Text>
+              {t("pairLink.joined.title", { name: stage.vault_name })}
             </Text>
-            <Text style={[styles.body2, textDir(isRTL)]}>
-              Both phones will now sync when on the same wifi. Shop Mode is on.
-            </Text>
+            <Text style={[styles.body2, textDir(isRTL)]}>{t("pairLink.joined.body")}</Text>
             <View style={{ height: 24 }} />
-            <Button label="Done" onPress={onDone} />
+            <Button label={t("common.done")} onPress={onDone} />
           </View>
         ) : null}
 
@@ -269,10 +273,12 @@ export default function PairDeepLinkScreen() {
           <View style={styles.fillCenter}>
             <Ionicons name="alert-circle-outline" size={40} color={colors.danger} />
             <View style={{ height: 12 }} />
-            <Text style={[styles.heading, textDir(isRTL)]}>Couldn't pair</Text>
+            <Text style={[styles.heading, textDir(isRTL)]}>
+              {t("vaultPairScan.error.headline")}
+            </Text>
             <Text style={[styles.body2, textDir(isRTL)]}>{stage.message}</Text>
             <View style={{ height: 20 }} />
-            <Button label="Back to Kaata" onPress={onCancel} />
+            <Button label={t("common.backToKaata")} onPress={onCancel} />
           </View>
         ) : null}
       </View>

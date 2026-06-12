@@ -4,8 +4,9 @@ import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
+  FlatList,
+  type ListRenderItemInfo,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -41,6 +42,7 @@ export default function PersonDetailScreen() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [self, setSelf] = useState<Self | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [sheetFor, setSheetFor] = useState<Entry | null>(null);
   const [confirmDeleteFor, setConfirmDeleteFor] = useState<Entry | null>(null);
 
@@ -49,17 +51,47 @@ export default function PersonDetailScreen() {
       setLoaded(true);
       return;
     }
-    const [p, list, s] = await Promise.all([getPerson(id), listEntries(id), getLocalSelf()]);
-    setPerson(p);
-    setEntries(list);
-    setSelf(s);
-    setLoaded(true);
+    // Guarded — an unhandled rejection here previously left the screen on
+    // a permanent blank state with setLoaded never flipping.
+    try {
+      const [p, list, s] = await Promise.all([getPerson(id), listEntries(id), getLocalSelf()]);
+      setPerson(p);
+      setEntries(list);
+      setSelf(s);
+      setLoadFailed(false);
+    } catch (err) {
+      console.warn("[person] load failed", err);
+      setLoadFailed(true);
+    } finally {
+      setLoaded(true);
+    }
   }, [id]);
 
   useFocusEffect(
     useCallback(() => {
       load();
     }, [load]),
+  );
+
+  // Virtualized entry rows — power users accumulate hundreds of entries,
+  // and the old ScrollView + .map mounted all of them. Card-edge emulation
+  // per row, same approach as home's TabPage.
+  const renderEntryRow = useCallback(
+    ({ item, index }: ListRenderItemInfo<Entry>) => (
+      <View
+        style={[
+          styles.cardRow,
+          index === 0 && styles.cardRowFirst,
+          index === entries.length - 1 && styles.cardRowLast,
+        ]}
+      >
+        {index > 0 ? <View style={styles.divider} /> : null}
+        {/* setSheetFor is referentially stable — keeps the memoized
+            EntryRow from re-rendering on unrelated screen renders. */}
+        <EntryRow entry={item} onPress={setSheetFor} />
+      </View>
+    ),
+    [entries.length],
   );
 
   if (!person) {
@@ -85,7 +117,12 @@ export default function PersonDetailScreen() {
         </View>
         <View style={styles.fillCenter}>
           {loaded ? (
-            <Text style={styles.notFoundText}>{t("personAdd.personNotFound")}</Text>
+            // Distinguish "this person doesn't exist" from "the read
+            // failed" — telling a shopkeeper a real person was not found
+            // on a transient storage error is a false data-loss signal.
+            <Text style={styles.notFoundText}>
+              {loadFailed ? t("home.loadFailed") : t("personAdd.personNotFound")}
+            </Text>
           ) : (
             <ActivityIndicator color={colors.textDefault} />
           )}
@@ -134,89 +171,88 @@ export default function PersonDetailScreen() {
         </Pressable>
       </View>
 
-      <ScrollView
+      <FlatList
+        data={entries}
+        renderItem={renderEntryRow}
+        keyExtractor={(e) => e.id}
+        initialNumToRender={12}
+        windowSize={7}
         contentContainerStyle={{
           paddingBottom: (entries.length > 0 ? 96 : 24) + insets.bottom,
         }}
-      >
-        <View style={styles.info}>
-          <Text style={[styles.name, textDir(isRTL)]}>{person.name}</Text>
-          {person.phone ? <Text style={[styles.phone, textDir(isRTL)]}>{person.phone}</Text> : null}
-          <View style={{ height: 16 }} />
-          {chipLabel && chipVariant ? (
-            <Chip label={chipLabel} variant={chipVariant} />
-          ) : entries.length > 0 ? (
-            <Chip label={t("person.balance.settled")} variant="neutral" />
-          ) : null}
-          <View style={[styles.balanceRow, rowDir(isRTL)]}>
-            <Text style={[styles.balance, !hasBalance && { color: colors.textMuted }]}>
-              {formatAmount(abs)}
-            </Text>
-            <Text style={styles.balanceAfn}>{getCurrentCurrencySymbol()}</Text>
-          </View>
-        </View>
-
-        {/*
-         * INVARIANT: "I gave" on the RIGHT, "I received" on the LEFT.
-         * Right-hand-is-giving cultural rule. The actions style below uses
-         * `flexDirection: "row"` and relies on the Activity being LTR —
-         * that's guaranteed by _layout.tsx's I18nManager neutralization +
-         * one-shot migration prompt. If the Activity were RTL, Yoga would
-         * auto-reverse children and "I gave" would land on the left
-         * (the v0.2.4 bug).
-         */}
-        <View style={styles.actions}>
-          <View style={styles.actionBtnWrap}>
-            <Pressable
-              onPress={() =>
-                router.push({
-                  pathname: "/entry/new",
-                  params: { personId: person.id, type: "payment" },
-                })
-              }
-              style={({ pressed }) => [
-                styles.actionBtn,
-                pressed && { backgroundColor: colors.bgMuted },
-              ]}
-            >
-              <Ionicons name="arrow-down-outline" size={16} color={colors.textEmphasis} />
-              <Text style={styles.actionText}>{t("person.action.iReceived")}</Text>
-            </Pressable>
-          </View>
-          <View style={styles.actionBtnWrap}>
-            <Pressable
-              onPress={() =>
-                router.push({
-                  pathname: "/entry/new",
-                  params: { personId: person.id, type: "debt" },
-                })
-              }
-              style={({ pressed }) => [
-                styles.actionBtn,
-                pressed && { backgroundColor: colors.bgMuted },
-              ]}
-            >
-              <Ionicons name="arrow-up-outline" size={16} color={colors.textEmphasis} />
-              <Text style={styles.actionText}>{t("person.action.iGave")}</Text>
-            </Pressable>
-          </View>
-        </View>
-
-        {entries.length === 0 ? (
-          <EmptyState title={t("person.empty.title")} subtitle={t("person.empty.subtitle")} />
-        ) : (
-          <View style={styles.list}>
-            {entries.map((e, i) => (
-              <View key={e.id}>
-                {/* setSheetFor is referentially stable — keeps the memoized
-                    EntryRow from re-rendering on unrelated screen renders. */}
-                <EntryRow entry={e} onPress={setSheetFor} />
-                {i < entries.length - 1 ? <View style={styles.divider} /> : null}
+        ListHeaderComponent={
+          <>
+            <View style={styles.info}>
+              <Text style={[styles.name, textDir(isRTL)]}>{person.name}</Text>
+              {person.phone ? (
+                <Text style={[styles.phone, textDir(isRTL)]}>{person.phone}</Text>
+              ) : null}
+              <View style={{ height: 16 }} />
+              {chipLabel && chipVariant ? (
+                <Chip label={chipLabel} variant={chipVariant} />
+              ) : entries.length > 0 ? (
+                <Chip label={t("person.balance.settled")} variant="neutral" />
+              ) : null}
+              <View style={[styles.balanceRow, rowDir(isRTL)]}>
+                <Text style={[styles.balance, !hasBalance && { color: colors.textMuted }]}>
+                  {formatAmount(abs)}
+                </Text>
+                <Text style={styles.balanceAfn}>{getCurrentCurrencySymbol()}</Text>
               </View>
-            ))}
-          </View>
-        )}
-      </ScrollView>
+            </View>
+
+            {/*
+             * INVARIANT: "I gave" on the RIGHT, "I received" on the LEFT.
+             * Right-hand-is-giving cultural rule. The actions style below uses
+             * `flexDirection: "row"` and relies on the Activity being LTR —
+             * that's guaranteed by _layout.tsx's I18nManager neutralization +
+             * one-shot migration prompt. If the Activity were RTL, Yoga would
+             * auto-reverse children and "I gave" would land on the left
+             * (the v0.2.4 bug).
+             */}
+            <View style={styles.actions}>
+              <View style={styles.actionBtnWrap}>
+                <Pressable
+                  onPress={() =>
+                    router.push({
+                      pathname: "/entry/new",
+                      params: { personId: person.id, type: "payment" },
+                    })
+                  }
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    pressed && { backgroundColor: colors.bgMuted },
+                  ]}
+                >
+                  <Ionicons name="arrow-down-outline" size={16} color={colors.textEmphasis} />
+                  <Text style={styles.actionText}>{t("person.action.iReceived")}</Text>
+                </Pressable>
+              </View>
+              <View style={styles.actionBtnWrap}>
+                <Pressable
+                  onPress={() =>
+                    router.push({
+                      pathname: "/entry/new",
+                      params: { personId: person.id, type: "debt" },
+                    })
+                  }
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    pressed && { backgroundColor: colors.bgMuted },
+                  ]}
+                >
+                  <Ionicons name="arrow-up-outline" size={16} color={colors.textEmphasis} />
+                  <Text style={styles.actionText}>{t("person.action.iGave")}</Text>
+                </Pressable>
+              </View>
+            </View>
+
+            {entries.length === 0 ? (
+              <EmptyState title={t("person.empty.title")} subtitle={t("person.empty.subtitle")} />
+            ) : null}
+          </>
+        }
+      />
 
       {entries.length > 0 ? (
         <Animated.View
@@ -226,13 +262,15 @@ export default function PersonDetailScreen() {
           ]}
         >
           <Pressable
-            onPress={() =>
-              shareKaataViaWhatsApp(
+            onPress={async () => {
+              const ok = await shareKaataViaWhatsApp(
                 { name: person.name, phone: person.phone },
                 person.balance,
                 self,
-              )
-            }
+              );
+              if (!ok) toast.push(t("share.whatsappUnavailable"), "error");
+            }}
+            accessibilityRole="button"
             style={({ pressed }) => [styles.pingButton, pressed && { opacity: 0.85 }]}
           >
             <Ionicons name="logo-whatsapp" size={20} color={colors.textInverted} />
@@ -362,13 +400,26 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgDefault,
   },
   actionText: { fontSize: 14, fontFamily: fonts.sansSemi, color: colors.textEmphasis },
-  list: {
+  // Per-row card-edge emulation for the virtualized list — together the
+  // rows render identically to the old single bordered-card container.
+  cardRow: {
     marginHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
     borderColor: colors.borderDefault,
-    overflow: "hidden",
     backgroundColor: colors.bgDefault,
+  },
+  cardRowFirst: {
+    borderTopWidth: 1,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    overflow: "hidden",
+  },
+  cardRowLast: {
+    borderBottomWidth: 1,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    overflow: "hidden",
   },
   divider: { height: 1, backgroundColor: colors.borderDefault },
   pingBar: {

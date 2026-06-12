@@ -64,7 +64,11 @@ export default function VaultPairScreen() {
   const [secondsLeft, setSecondsLeft] = useState<number>(Math.floor(PAIR_QR_TTL_MS / 1000));
   const [error, setError] = useState<string | null>(null);
   const [sendingLink, setSendingLink] = useState(false);
+  const [issuing, setIssuing] = useState(false);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Synchronous re-entry guard — issueQr hits the network for server-
+  // anchored vaults; repeated taps would register multiple pair tokens.
+  const issuingRef = useRef(false);
 
   const issueQr = useCallback(
     async (v: VaultLite, accId: string | null, chosenRole: PairQrRole) => {
@@ -169,13 +173,13 @@ export default function VaultPairScreen() {
         setPayload(next);
         setSecondsLeft(Math.floor(PAIR_QR_TTL_MS / 1000));
         setError(null);
+        return true;
       } catch (err) {
+        // Localized copy only — the raw err.message is HTTP jargon
+        // ("POST /v1/...: 500 — …") that means nothing to a shopkeeper.
         console.warn("[vault/pair] issue failed", err);
-        setError(
-          err instanceof Error
-            ? `Failed to register pairing code: ${err.message}`
-            : "Failed to generate pairing code",
-        );
+        setError(t("vaultPair.issueFailed"));
+        return false;
       }
     },
     [],
@@ -218,6 +222,9 @@ export default function VaultPairScreen() {
       } catch (err) {
         console.warn("[vault/pair] bootstrap failed", err);
         toast.push(t("vaultPair.loadFailed"), "error");
+        // Leave — loaded=true with vault=null would strand the user on a
+        // header-less "Loading…" screen with no back affordance.
+        router.back();
       } finally {
         setLoaded(true);
       }
@@ -261,9 +268,19 @@ export default function VaultPairScreen() {
   }
 
   async function onConfirmRole() {
-    if (!vault) return;
-    await issueQr(vault, accountId, role);
-    setStage("show-qr");
+    if (issuingRef.current || !vault) return;
+    issuingRef.current = true;
+    setIssuing(true);
+    try {
+      const ok = await issueQr(vault, accountId, role);
+      // Only advance on success. Flipping to show-qr with a null payload
+      // rendered a never-resolving "Generating…" placeholder and a dead
+      // Send-link button; the error now shows here on the role picker.
+      if (ok) setStage("show-qr");
+    } finally {
+      issuingRef.current = false;
+      setIssuing(false);
+    }
   }
 
   async function onSendLink() {
@@ -356,8 +373,9 @@ export default function VaultPairScreen() {
             );
           })}
 
+          {error ? <Text style={[styles.errorText, textDir(isRTL)]}>{error}</Text> : null}
           <View style={{ height: 24 }} />
-          <Button label={t("vaultPair.role.continue")} onPress={onConfirmRole} />
+          <Button label={t("vaultPair.role.continue")} onPress={onConfirmRole} loading={issuing} />
           <View style={{ height: 10 }} />
           <Button label={t("common.cancel")} variant="secondary" onPress={() => router.back()} />
         </View>

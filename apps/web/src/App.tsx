@@ -7,6 +7,7 @@ import { CustomerView } from "./pages/CustomerView";
 import { Download } from "./pages/Download";
 import { Home } from "./pages/Home";
 import { Invite } from "./pages/Invite";
+import { NotFound } from "./pages/NotFound";
 
 export function App() {
   useEffect(() => {
@@ -28,6 +29,7 @@ export function App() {
             informational, mirrors what's behind the token. Actual accept
             happens in the mobile app via POST /v1/vaults/invites/accept. */}
         <Route path="/i/:token" element={<Invite />} />
+        <Route path="*" element={<NotFound />} />
       </Routes>
       <CookieConsent />
     </ToastProvider>

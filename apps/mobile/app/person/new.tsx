@@ -117,6 +117,11 @@ export default function PersonAddOrFindScreen() {
 
   const trimmed = name.trim();
   const results = useMemo(() => (people ? searchPeople(name, people) : []), [people, name]);
+  // Cap the rendered matches — this list lives inside a ScrollView (no
+  // virtualization possible without restructuring the form) and an empty
+  // query returns the entire book. Typing narrows; 30 rows is plenty.
+  const visibleResults = useMemo(() => results.slice(0, 30), [results]);
+  const hiddenResultCount = results.length - visibleResults.length;
   const exact = useMemo(() => (people ? hasExactMatch(name, people) : undefined), [people, name]);
   const isCreating = trimmed.length > 0 && !exact;
 
@@ -283,7 +288,7 @@ export default function PersonAddOrFindScreen() {
                   : t("personAdd.section.recent")}
               </Text>
               <View style={styles.list}>
-                {results.map((p, i) => (
+                {visibleResults.map((p, i) => (
                   <View key={p.id}>
                     <Pressable
                       onPress={() => openPerson(p.id)}
@@ -303,10 +308,15 @@ export default function PersonAddOrFindScreen() {
                       </View>
                       <RightAmount balance={p.balance} hasEntries={p.last_entry_at !== null} />
                     </Pressable>
-                    {i < results.length - 1 ? <View style={styles.divider} /> : null}
+                    {i < visibleResults.length - 1 ? <View style={styles.divider} /> : null}
                   </View>
                 ))}
               </View>
+              {hiddenResultCount > 0 ? (
+                <Text style={[styles.noMatchText, { marginTop: 8 }, textDir(isRTL)]}>
+                  {t("personAdd.moreResults", { count: hiddenResultCount })}
+                </Text>
+              ) : null}
             </View>
           ) : null}
 

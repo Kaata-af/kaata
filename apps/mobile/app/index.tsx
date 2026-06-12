@@ -6,12 +6,13 @@ import {
   ActivityIndicator,
   Animated,
   BackHandler,
+  FlatList,
   Image,
   Linking,
+  type ListRenderItemInfo,
   Platform,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -107,6 +108,7 @@ export default function HomeScreen() {
   const [sheetFor, setSheetFor] = useState<PersonWithBalance | null>(null);
   const [confirmDeleteFor, setConfirmDeleteFor] = useState<PersonWithBalance | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   // Phase 7: unified settings sheet — replaces the hamburger AND the
   // old ProfileMenuSheet. One state flag, one entry point on the profile
@@ -141,6 +143,9 @@ export default function HomeScreen() {
   // time the user toggles Shop Mode on. After resolution we record the
   // prompt in app_meta so it never re-prompts.
   const [batteryDialogOpen, setBatteryDialogOpen] = useState(false);
+  // BLE "Don't ask again" recovery — the OS suppresses the permission
+  // dialog, so the only path forward is system settings.
+  const [bleSettingsDialogOpen, setBleSettingsDialogOpen] = useState(false);
   // Phase 7 (D-ACCOUNT-PAGE-ROLE): account.tsx was killed and folded
   // into ProfileSettingsSheet. The sign-in flow + "different Google
   // account on this phone?" prompt now live here so the sheet can fire
@@ -175,53 +180,63 @@ export default function HomeScreen() {
   const lastBackPressRef = useRef(0);
 
   const load = useCallback(async () => {
-    const [s, list, user, vaultId, accId, shopRaw] = await Promise.all([
-      getLocalSelf(),
-      listAllPeople(),
-      getSessionUser(),
-      getActiveVaultId(),
-      getAppMeta("account_id"),
-      getAppMeta("shop_mode_enabled"),
-    ]);
-    setSelf(s);
-    setAllPeople(list);
-    setSessionUser(user);
-    setActiveVaultIdState(vaultId);
-    setActiveAccountId(accId);
-    setShopModeEnabled(shopRaw === "1");
-
-    // D-ARCHIVED-VAULT-FILTER: helpers in lib/db.ts return the two slices
-    // separately. Loading them in parallel keeps the first paint snappy.
+    // The whole body is guarded: any rejection here (SQLite error,
+    // SecureStore decrypt failure after a backup-restore to a new phone)
+    // previously meant setLoaded(true) never ran — an infinite spinner on
+    // the ROOT screen with no retry and no back.
     try {
-      const [active, all] = await Promise.all([
-        listActiveVaults(),
-        listAllVaultsIncludingArchived(),
+      const [s, list, user, vaultId, accId, shopRaw] = await Promise.all([
+        getLocalSelf(),
+        listAllPeople(),
+        getSessionUser(),
+        getActiveVaultId(),
+        getAppMeta("account_id"),
+        getAppMeta("shop_mode_enabled"),
       ]);
-      setVaults(active.map((r) => ({ id: r.id, name: r.name, archived: false })));
-      setArchivedVaults(
-        all.filter((r) => r.archived).map((r) => ({ id: r.id, name: r.name, archived: true })),
-      );
+      setSelf(s);
+      setAllPeople(list);
+      setSessionUser(user);
+      setActiveVaultIdState(vaultId);
+      setActiveAccountId(accId);
+      setShopModeEnabled(shopRaw === "1");
 
-      // Edge case: if the active vault was just archived (e.g. by a remote
-      // event applier between the previous load() and this one), move the
-      // active vault to the first surviving non-archived vault, or null
-      // it out so the UI prompts "Create a Kaata first".
-      if (vaultId && !active.some((v) => v.id === vaultId)) {
-        const fallback = active[0]?.id ?? null;
-        if (fallback) {
-          await setActiveVaultId(fallback);
-          setActiveVaultIdState(fallback);
-        } else {
-          setActiveVaultIdState(null);
+      // D-ARCHIVED-VAULT-FILTER: helpers in lib/db.ts return the two slices
+      // separately. Loading them in parallel keeps the first paint snappy.
+      try {
+        const [active, all] = await Promise.all([
+          listActiveVaults(),
+          listAllVaultsIncludingArchived(),
+        ]);
+        setVaults(active.map((r) => ({ id: r.id, name: r.name, archived: false })));
+        setArchivedVaults(
+          all.filter((r) => r.archived).map((r) => ({ id: r.id, name: r.name, archived: true })),
+        );
+
+        // Edge case: if the active vault was just archived (e.g. by a remote
+        // event applier between the previous load() and this one), move the
+        // active vault to the first surviving non-archived vault, or null
+        // it out so the UI prompts "Create a Kaata first".
+        if (vaultId && !active.some((v) => v.id === vaultId)) {
+          const fallback = active[0]?.id ?? null;
+          if (fallback) {
+            await setActiveVaultId(fallback);
+            setActiveVaultIdState(fallback);
+          } else {
+            setActiveVaultIdState(null);
+          }
         }
+      } catch (err) {
+        console.warn("[home] vault list load failed", err);
+        setVaults([]);
+        setArchivedVaults([]);
       }
+      setLoadError(false);
     } catch (err) {
-      console.warn("[home] vault list load failed", err);
-      setVaults([]);
-      setArchivedVaults([]);
+      console.warn("[home] load failed", err);
+      setLoadError(true);
+    } finally {
+      setLoaded(true);
     }
-
-    setLoaded(true);
   }, []);
 
   useFocusEffect(
@@ -609,7 +624,22 @@ export default function HomeScreen() {
         <Tabs<Direction> tabs={buildTabs()} value={direction} onChange={setDirection} />
       </View>
 
-      {loaded ? (
+      {loaded && loadError && allPeople.length === 0 ? (
+        // Load failed with nothing cached to show. Rendering the rail here
+        // would show "0" totals — the false data-loss signal this audience
+        // is most sensitive to. A later successful retry clears this.
+        <View style={styles.loadingFill}>
+          <Text style={styles.loadErrorText}>{t("home.loadFailed")}</Text>
+          <View style={{ height: 16 }} />
+          <Pressable
+            onPress={() => void load()}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.loadErrorRetry, pressed && { opacity: 0.85 }]}
+          >
+            <Text style={styles.loadErrorRetryText}>{t("common.tryAgain")}</Text>
+          </Pressable>
+        </View>
+      ) : loaded ? (
         <GestureDetector gesture={swipeGesture}>
           <Animated.View
             style={[styles.rail, { width: screenWidth * 2, transform: [{ translateX }] }]}
@@ -822,6 +852,14 @@ export default function HomeScreen() {
                 const has = await perms.hasBlePermissions();
                 if (!has) {
                   const res = await perms.requestBlePermissions();
+                  if (res.kind === "never_ask_again") {
+                    // The OS will never show the dialog again — a generic
+                    // "could not toggle" toast here was a dead end users
+                    // retried in vain. Route to system settings instead.
+                    setShopModeEnabled(false);
+                    setBleSettingsDialogOpen(true);
+                    return;
+                  }
                   if (res.kind !== "ok") {
                     throw new Error("BLE permission required for Nearby sync");
                   }
@@ -968,6 +1006,25 @@ export default function HomeScreen() {
         }}
       />
 
+      {/* BLE permission permanently denied ("Don't ask again") — the OS
+          suppresses further permission dialogs, so the only recovery is
+          system settings. Reuses the same copy MeshController's rationale
+          flow shows for this state. */}
+      <ConfirmDialog
+        visible={bleSettingsDialogOpen}
+        title={t("menu.ble.permDenied.title")}
+        description={t("menu.ble.permDenied.body")}
+        confirmLabel={t("menu.ble.permDenied.openSettings")}
+        cancelLabel={t("menu.ble.permDenied.cancel")}
+        onConfirm={() => {
+          setBleSettingsDialogOpen(false);
+          void Linking.openSettings().catch(() => {
+            /* user can navigate manually */
+          });
+        }}
+        onCancel={() => setBleSettingsDialogOpen(false)}
+      />
+
       {/* Phase 7 D-ACCOUNT-PAGE-ROLE: "different Google account on this
           phone?" prompt — fires when the user picks a Google account
           whose sub differs from the cached one AND the install was
@@ -1060,10 +1117,71 @@ function TabPage(props: {
   const totalLabel =
     props.direction === "collect" ? t("home.total.label.collect") : t("home.total.label.pay");
 
+  // Virtualized rows. The old ScrollView + .map mounted EVERY person — and
+  // home mounts both tab pages at once, so a 200-person book meant 400 rows
+  // on every cold start / focus. The bordered-card look is emulated per-row
+  // (side borders on each row, top/bottom borders + radii on the first/last)
+  // because FlatList can't wrap its virtualized children in a styled View.
+  const { people, onPersonPress, onPersonLongPress } = props;
+  const renderRow = useCallback(
+    ({ item, index }: ListRenderItemInfo<PersonWithBalance>) => (
+      <View
+        style={[
+          styles.cardRow,
+          index === 0 && styles.cardRowFirst,
+          index === people.length - 1 && styles.cardRowLast,
+        ]}
+      >
+        {index > 0 ? <View style={styles.divider} /> : null}
+        <PersonRow person={item} onPress={onPersonPress} onLongPress={onPersonLongPress} />
+      </View>
+    ),
+    [people.length, onPersonPress, onPersonLongPress],
+  );
+
+  const header = (
+    <>
+      <View style={styles.totalBlock}>
+        <Text style={[styles.totalLabel, textDir(isRTL)]}>{totalLabel}</Text>
+        <View style={[styles.totalRow, rowDir(isRTL)]}>
+          <Text style={styles.totalAmount}>{formatAmount(total)}</Text>
+          <Text style={styles.totalAfn}>{getCurrentCurrencySymbol()}</Text>
+        </View>
+        <Text style={[styles.totalSub, textDir(isRTL)]}>
+          {active === 0
+            ? props.people.length === 0
+              ? t("home.empty.noOneYet")
+              : t("home.empty.allSettled")
+            : t(active === 1 ? "home.from.someone" : "home.from.many", { count: active })}
+        </Text>
+      </View>
+      {props.people.length === 0 ? (
+        <EmptyState
+          title={
+            props.direction === "collect"
+              ? t("home.empty.collect.title")
+              : t("home.empty.pay.title")
+          }
+          subtitle={
+            props.direction === "collect"
+              ? t("home.empty.collect.subtitle")
+              : t("home.empty.pay.subtitle")
+          }
+        />
+      ) : null}
+    </>
+  );
+
   return (
     <View style={{ width: props.width }}>
-      <ScrollView
+      <FlatList
+        data={people}
+        renderItem={renderRow}
+        keyExtractor={(p) => p.id}
+        ListHeaderComponent={header}
         contentContainerStyle={{ paddingBottom: props.paddingBottom }}
+        initialNumToRender={12}
+        windowSize={7}
         refreshControl={
           <RefreshControl
             refreshing={props.refreshing}
@@ -1072,50 +1190,7 @@ function TabPage(props: {
             tintColor={colors.textSubtle}
           />
         }
-      >
-        <View style={styles.totalBlock}>
-          <Text style={[styles.totalLabel, textDir(isRTL)]}>{totalLabel}</Text>
-          <View style={[styles.totalRow, rowDir(isRTL)]}>
-            <Text style={styles.totalAmount}>{formatAmount(total)}</Text>
-            <Text style={styles.totalAfn}>{getCurrentCurrencySymbol()}</Text>
-          </View>
-          <Text style={[styles.totalSub, textDir(isRTL)]}>
-            {active === 0
-              ? props.people.length === 0
-                ? t("home.empty.noOneYet")
-                : t("home.empty.allSettled")
-              : t(active === 1 ? "home.from.someone" : "home.from.many", { count: active })}
-          </Text>
-        </View>
-
-        {props.people.length === 0 ? (
-          <EmptyState
-            title={
-              props.direction === "collect"
-                ? t("home.empty.collect.title")
-                : t("home.empty.pay.title")
-            }
-            subtitle={
-              props.direction === "collect"
-                ? t("home.empty.collect.subtitle")
-                : t("home.empty.pay.subtitle")
-            }
-          />
-        ) : (
-          <View style={styles.list}>
-            {props.people.map((p, i) => (
-              <View key={p.id}>
-                <PersonRow
-                  person={p}
-                  onPress={props.onPersonPress}
-                  onLongPress={props.onPersonLongPress}
-                />
-                {i < props.people.length - 1 ? <View style={styles.divider} /> : null}
-              </View>
-            ))}
-          </View>
-        )}
-      </ScrollView>
+      />
     </View>
   );
 }
@@ -1223,6 +1298,24 @@ const styles = StyleSheet.create({
   // marginBottom:16 keeps the rail from feeling glued to the tab strip.
   tabsWrap: { paddingHorizontal: 16, marginTop: 2, marginBottom: 16 },
   loadingFill: { flex: 1, alignItems: "center", justifyContent: "center" },
+  loadErrorText: {
+    fontSize: 14,
+    fontFamily: fonts.sansRegular,
+    color: colors.textSubtle,
+    textAlign: "center",
+    paddingHorizontal: 32,
+  },
+  loadErrorRetry: {
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: colors.bgInverted,
+  },
+  loadErrorRetryText: {
+    fontSize: 14,
+    fontFamily: fonts.sansSemi,
+    color: colors.textInverted,
+  },
   rail: {
     flex: 1,
     // Keep collect-tab on the physical left, pay-tab on the physical right.
@@ -1256,13 +1349,26 @@ const styles = StyleSheet.create({
     color: colors.textSubtle,
     marginTop: 4,
   },
-  list: {
+  // Per-row card-edge emulation for the virtualized list — together the
+  // rows render identically to the old single bordered-card container.
+  cardRow: {
     marginHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
     borderColor: colors.borderDefault,
-    overflow: "hidden",
     backgroundColor: colors.bgDefault,
+  },
+  cardRowFirst: {
+    borderTopWidth: 1,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    overflow: "hidden",
+  },
+  cardRowLast: {
+    borderBottomWidth: 1,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    overflow: "hidden",
   },
   divider: { height: 1, backgroundColor: colors.borderDefault },
   fab: {

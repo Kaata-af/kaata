@@ -81,6 +81,18 @@ export default function OnboardingAuthScreen() {
         }
         return;
       }
+      // Vault-invite deep link parity with the pair flow above: the
+      // invite screen stashes pending_invite_token before sending the
+      // user here to sign in. Without this read, the stash was written
+      // and never consumed — the invitee signed in and got dumped into
+      // onboarding/restore with their invite lost.
+      const pendingInvite = await getAppMeta("pending_invite_token");
+      if (pendingInvite) {
+        await setAppMeta("pending_invite_token", "");
+        await setAppMeta("onboarding_step", "profile");
+        router.replace({ pathname: "/invite/[token]", params: { token: pendingInvite } });
+        return;
+      }
       // Phase 3: route through the restore probe instead of jumping
       // straight to profile. The probe screen checks the backend for
       // an existing snapshot or v0.4 backup; if neither is found it

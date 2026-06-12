@@ -11,6 +11,7 @@
 // must remain consumable from non-React contexts (the future pre-append
 // guard inside event-log.ts is plain TS). Hooks here, pure logic there.
 
+import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { getDb } from "./db-tx";
 import { invalidateRoleGateCache } from "./projection/role-gate";
@@ -74,7 +75,11 @@ export function useVaultRole(vaultId: string, accountId: string | null): VaultRo
   const initial = roleCache.get(vaultId) ?? LOCAL_OWNER_DEFAULT;
   const [role, setRole] = useState<VaultRole>(initial);
 
-  useEffect(() => {
+  // Re-read on focus, not only when args change: an ownership transfer
+  // completed on the members screen changes THIS user's role without
+  // changing (vaultId, accountId), and the mount-only read left settings
+  // screens showing stale owner-only affordances until remount.
+  const reread = useCallback(() => {
     let cancelled = false;
     readRoleFromDb(vaultId, accountId)
       .then((r) => {
@@ -91,6 +96,9 @@ export function useVaultRole(vaultId: string, accountId: string | null): VaultRo
       cancelled = true;
     };
   }, [vaultId, accountId]);
+
+  useEffect(() => reread(), [reread]);
+  useFocusEffect(reread);
 
   return role;
 }

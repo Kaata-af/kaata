@@ -18,6 +18,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ScreenHeader } from "../components/SettingsScreen";
 import { colors } from "../lib/colors";
+import { fonts } from "../lib/fonts";
 import { getDb } from "../lib/db-tx";
 import {
   getLastExitReasons,
@@ -159,29 +160,45 @@ export default function DiagnosticsScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bgDefault },
   scroll: { padding: 20, paddingBottom: 60 },
-  hint: { fontSize: 13, color: colors.textSubtle, marginBottom: 20, lineHeight: 18 },
+  hint: {
+    fontSize: 13,
+    fontFamily: fonts.sansRegular,
+    color: colors.textSubtle,
+    marginBottom: 20,
+    lineHeight: 18,
+  },
   section: {
     fontSize: 11,
+    fontFamily: fonts.sansSemi,
     color: colors.textSubtle,
     letterSpacing: 0.6,
     marginTop: 22,
     marginBottom: 8,
-    fontWeight: "600",
   },
   exitRow: {
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.borderDefault,
     paddingVertical: 8,
   },
-  exitName: { fontSize: 14, color: colors.textEmphasis, fontWeight: "600", marginBottom: 2 },
+  exitName: {
+    fontSize: 14,
+    fontFamily: fonts.sansSemi,
+    color: colors.textEmphasis,
+    marginBottom: 2,
+  },
   mono: {
-    fontFamily: "monospace",
+    fontFamily: fonts.monoRegular,
     fontSize: 12,
     color: colors.textDefault,
     marginVertical: 1,
   },
-  monoDim: { fontFamily: "monospace", fontSize: 11, color: colors.textMuted, marginVertical: 1 },
-  muted: { fontSize: 13, color: colors.textMuted, fontStyle: "italic" },
+  monoDim: {
+    fontFamily: fonts.monoRegular,
+    fontSize: 11,
+    color: colors.textMuted,
+    marginVertical: 1,
+  },
+  muted: { fontSize: 13, fontFamily: fonts.sansRegular, color: colors.textMuted },
   refresh: {
     marginTop: 28,
     alignSelf: "flex-start",
@@ -190,5 +207,5 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: colors.bgInverted,
   },
-  refreshText: { color: colors.textInverted, fontSize: 14, fontWeight: "600" },
+  refreshText: { color: colors.textInverted, fontSize: 14, fontFamily: fonts.sansSemi },
 });

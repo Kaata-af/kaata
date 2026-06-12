@@ -12,6 +12,11 @@ export function getSource(): string {
   const fromUrl = new URLSearchParams(window.location.search).get("s");
   if (fromUrl && fromUrl.length > 0 && fromUrl.length <= 64) {
     try {
+      // First source wins (per the policy comment above) — the code used
+      // to overwrite unconditionally, silently re-attributing a shop-QR
+      // visitor to whatever ?s= a later link carried.
+      const existing = window.localStorage.getItem(SOURCE_KEY);
+      if (existing) return existing;
       window.localStorage.setItem(SOURCE_KEY, fromUrl);
     } catch {
       // localStorage unavailable (private mode, quotas) — fine, just lose stickiness.
@@ -76,4 +81,23 @@ export function getTrackedDownloadUrl(): string {
   const src = getSource();
   const base = `${BACKEND_URL}/v1/download`;
   return src ? `${base}?s=${encodeURIComponent(src)}` : base;
+}
+
+// Best-effort download-click counter. The download link itself now points
+// at the same-origin APK (so a backend outage can't kill the funnel); this
+// pings /v1/download purely for the count. redirect:"manual" stops the
+// browser from pulling the APK body a second time through the 302.
+export function reportDownloadClick(): void {
+  try {
+    void fetch(getTrackedDownloadUrl(), {
+      method: "GET",
+      keepalive: true,
+      mode: "no-cors",
+      redirect: "manual",
+    }).catch(() => {
+      // Analytics must never break the download.
+    });
+  } catch {
+    // ignore
+  }
 }

@@ -218,6 +218,12 @@ export default function RootLayout() {
   // fresh" on the restore screen for the current account.
   const [accountId, setAccountId] = useState<string | null>(null);
   const [restoreSkipped, setRestoreSkipped] = useState(false);
+  // Cold-start FGS-notification tap intent. The old implementation pushed
+  // the route after a fixed 250ms — but the Stack mounts only after fonts
+  // + migrations (1-3s on target devices), so expo-router threw "navigate
+  // before mounting" into an empty catch and the tap silently did nothing.
+  // Stash the intent and navigate from the effect below once ready.
+  const [pendingSyncNav, setPendingSyncNav] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -407,7 +413,11 @@ export default function RootLayout() {
         try {
           // eslint-disable-next-line @typescript-eslint/no-require-imports
           const { router } = require("expo-router");
-          router.push("/?menu=sync");
+          // navigate (NOT push): push stacked a duplicate home instance on
+          // every notification tap while the app was open — each re-running
+          // the full home load — and hardware back then stepped through the
+          // stale copies before exiting.
+          router.navigate("/?menu=sync");
         } catch {
           /* */
         }
@@ -424,15 +434,7 @@ export default function RootLayout() {
         const fg = await import("../lib/mesh/foreground");
         const initial = await fg.getInitialShopModeNotification();
         if (initial?.pressActionId === "open-shop-mode-settings") {
-          setTimeout(() => {
-            try {
-              // eslint-disable-next-line @typescript-eslint/no-require-imports
-              const { router } = require("expo-router");
-              router.push("/?menu=sync");
-            } catch {
-              /* */
-            }
-          }, 250);
+          setPendingSyncNav(true);
         }
       } catch {
         /* */
@@ -443,6 +445,25 @@ export default function RootLayout() {
       if (typeof unsub === "function") unsub();
     };
   }, []);
+
+  // Deliver the stashed cold-start notification intent once the Stack is
+  // actually mounted (same readiness gates as the render below).
+  useEffect(() => {
+    if (!pendingSyncNav || !appReady || !fontsReady || dbReady !== true) return;
+    setPendingSyncNav(false);
+    // One frame's grace so the Stack's first commit has happened before
+    // we navigate into it.
+    const timer = setTimeout(() => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { router } = require("expo-router");
+        router.navigate("/?menu=sync");
+      } catch {
+        /* */
+      }
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [pendingSyncNav, appReady, fontsReady, dbReady]);
 
   // Render gates, in priority order:
   //   1. dbReady === false  → migrations failed. Show an error card. NEVER
@@ -618,6 +639,10 @@ function BootSplash() {
   }, []);
   return (
     <View style={bootSplashStyles.container}>
+      {/* The root StatusBar (style="dark") only mounts with the Stack —
+          during this black splash the default dark icons were invisible
+          (dark-on-black) for the full 1-3s migration-heavy boot. */}
+      <StatusBar style="light" />
       <Text style={bootSplashStyles.wordmark}>kaata.</Text>
       <View style={bootSplashStyles.spacer} />
       <ActivityIndicator color={colors.textInverted} />

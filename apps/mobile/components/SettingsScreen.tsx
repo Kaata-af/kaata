@@ -23,6 +23,7 @@ import {
 } from "../lib/design-tokens";
 import { rowDir, textDir } from "../lib/direction";
 import { fonts } from "../lib/fonts";
+import { t } from "../lib/i18n";
 
 // Settings-screen design atoms — extracted from ProfileSettingsSheet's
 // design DNA so vault/* and preferences screens share one source of
@@ -63,7 +64,7 @@ export function ScreenHeader(props: {
           hitSlop={8}
           style={({ pressed }) => [styles.headerBack, pressed && { opacity: 0.5 }]}
           accessibilityRole="button"
-          accessibilityLabel={props.backLabel ?? "Back"}
+          accessibilityLabel={props.backLabel ?? t("common.back")}
         >
           <Ionicons
             name={props.isRTL ? "chevron-forward" : "chevron-back"}

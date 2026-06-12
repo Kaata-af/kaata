@@ -13,7 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Linking, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { ScreenHeader } from "../../components/SettingsScreen";
@@ -427,10 +427,8 @@ export default function VaultPairScanScreen() {
       toast.push(t("vaultPairScan.toast.pairedNearby"), "success");
     } catch (err) {
       console.warn("[vault/pair-scan] join failed", err);
-      setStep({
-        kind: "error",
-        message: err instanceof Error ? err.message : t("vaultPairScan.error.generic"),
-      });
+      // Localized copy only — err.message is HTTP/internal jargon.
+      setStep({ kind: "error", message: t("vaultPairScan.error.generic") });
     }
   }
 
@@ -467,7 +465,25 @@ export default function VaultPairScanScreen() {
             {t("vaultPairScan.permission.body")}
           </Text>
           <View style={{ height: 20 }} />
-          <Button label={t("vaultPairScan.permission.allow")} onPress={() => requestPermission()} />
+          {/* After "Don't ask again" the OS suppresses the dialog —
+              requestPermission() silently no-ops and the Allow button
+              looks broken. Route to system settings instead, the same
+              recovery ContactsPickerSheet and MeshController use. */}
+          {permission && !permission.canAskAgain ? (
+            <Button
+              label={t("contacts.permission.button")}
+              onPress={() =>
+                void Linking.openSettings().catch(() => {
+                  /* user can navigate manually */
+                })
+              }
+            />
+          ) : (
+            <Button
+              label={t("vaultPairScan.permission.allow")}
+              onPress={() => requestPermission()}
+            />
+          )}
         </View>
       ) : null}
 

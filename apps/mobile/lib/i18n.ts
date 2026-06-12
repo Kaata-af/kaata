@@ -184,6 +184,9 @@ const en = {
   "personAdd.rightAmount.settled": "settled",
   "personAdd.personNotFound": "Person not found.",
   "personAdd.phone.placeholderGeneric": "Phone number",
+  // Overflow row under the truncated Matches list — invites the user to
+  // refine the search instead of scrolling an unbounded result set.
+  "personAdd.moreResults": "+{count} more — keep typing to narrow",
 
   // Entry
   "entry.amount.label": "Amount (AFN)",
@@ -257,6 +260,7 @@ const en = {
   "contacts.empty.none": "No contacts on this phone.",
   "contacts.empty.noMatch": 'No contact matches "{query}".',
   "contacts.noPhone": "no phone",
+  "contacts.loadFailed": "Couldn't read your contacts. Try again.",
 
   // WhatsApp share — full message body sent to the customer.
   "share.greeting": "Salaam {name}.",
@@ -284,8 +288,34 @@ const en = {
   "format.weeksAgo": "{n}w ago",
 
   // Common
+  // Update prompt + banner — the force-update recovery path must be
+  // readable by Persian-locale users, who are exactly who gets stuck here.
+  "updatePrompt.title": "Update required",
+  "updatePrompt.body":
+    "Your version of Kaata is too old to continue. Install the latest update to keep using the app.",
+  "updatePrompt.install": "Install v{version}",
+  "updatePrompt.installGeneric": "Install update",
+  "updatePrompt.openFailed": "Couldn't open the download link. Visit kaata.af/download instead.",
+  "updateBanner.title": "Update available · v{version}",
+  "updateBanner.cta": "Update",
+  "updateBanner.learnMore": "Learn more",
+  "updateBanner.dismiss": "Dismiss",
+
+  // Foreground-service (Nearby sync) notification — sits in the shade all
+  // day while Shop Mode is on; must be readable in the user's language.
+  "fgs.channelName": "Nearby sync",
+  "fgs.channelDescription": "Shown while Kaata is syncing with nearby phones over Bluetooth.",
+  "fgs.title": "Connecting with your paired phones",
+  "fgs.waiting": "Waiting for your team to connect…",
+  "fgs.connectedOne": "Connected to 1 paired phone",
+  "fgs.connectedMany": "Connected to {count} paired phones",
+
+  "home.loadFailed": "Couldn't load your Kaata data. Your entries are safe — try again.",
+
   "common.cancel": "Cancel",
   "common.back": "Back",
+  "common.refreshFailed": "Couldn't refresh — check your connection.",
+  "share.whatsappUnavailable": "Couldn't open WhatsApp. Is it installed on this phone?",
   "common.retry": "Retry",
   "common.done": "Done",
   "common.loading": "Loading…",
@@ -295,6 +325,11 @@ const en = {
   "common.remove.title": "Remove {name}?",
   "common.remove.description":
     "They'll disappear from your list. Their entries stay on your device.",
+  // Shared by the invite/[token] + pair/[token] deep-link screens (their
+  // sign-in gates and error states use identical copy).
+  "common.notNow": "Not now",
+  "common.backToKaata": "Back to Kaata",
+  "common.signInToContinue": "Sign in to continue",
 
   // Profile sheet (Phase 7) — every label/section header in the unified
   // settings surface. Section headers are stored in normal case; the
@@ -508,6 +543,7 @@ const en = {
     "3. Point its camera at the code below.",
   "vaultPair.codeExpired": "Code expired",
   "vaultPair.generating": "Generating…",
+  "vaultPair.issueFailed": "Couldn't create the pairing code. Check your connection and try again.",
   "vaultPair.expiresIn": "Expires in {time}",
   "vaultPair.generateNew": "Generate a new code",
   "vaultPair.sendLink": "Send link instead",
@@ -575,6 +611,30 @@ const en = {
   // D-PAIR-WITH-ROLE — confirmation screen role surfacing
   "vaultPairScan.confirm.asRole": "as {role}",
   "vaultPairScan.confirm.roleMissing": "Role not specified in this code — joining as Editor.",
+
+  // Pair deep link (app/pair/[token].tsx) — the "Send link instead" flow.
+  // Mirrors the vaultPairScan.* scanner copy but speaks about a LINK, not
+  // a code, because the user got here by tapping a shared URL. Keys that
+  // matched the scanner copy verbatim are reused from vaultPairScan.*
+  // (signInRequired, generic, joining, headline, toast.pairedNearby,
+  // confirm.join).
+  "pairLink.title": "Pair phones",
+  "pairLink.signin.body":
+    "Sign in with the SAME Google account as the other phone to complete pairing.",
+  "pairLink.confirm.title": "Join {name}?",
+  "pairLink.confirm.body":
+    "This phone will become a second device on the kaata. Your entries will sync over the internet, and also peer-to-peer when both phones are on the same wifi.",
+  // {id} is the first 8 chars of the issuer's account_id — a fingerprint
+  // hint so the user can spot wrong-account links before tapping Join.
+  "pairLink.confirm.fromAccount": "From account {id}…",
+  "pairLink.joined.title": "Paired with\n{name}",
+  "pairLink.joined.body": "Both phones will now sync when on the same wifi. Shop Mode is on.",
+  "pairLink.error.missingData": "This pairing link is missing data. Ask the owner to resend it.",
+  "pairLink.error.expired": "This pairing link has expired. Ask the owner to generate a new one.",
+  "pairLink.error.malformed":
+    "This pairing link is malformed. Make sure you opened it from the original message.",
+  "pairLink.error.accountMismatch":
+    "This link was issued for a different Google account. Ask the owner to send you an email invitation instead.",
 
   // Vault settings — Phase 7 UX critique #8 (translated).
   "vaultSettings.title": "Kaata settings",
@@ -754,6 +814,32 @@ const en = {
     "Sign in with Google to send email invites. To add staff in person, use Add member.",
   "invite.vaultNotOnServer":
     "This Kaata hasn't synced to the server yet. Sync first to send email invites, or use Add member instead.",
+
+  // Invite acceptance deep link (app/invite/[token].tsx) — the screen the
+  // INVITEE lands on after tapping an emailed/shared invite URL. Role
+  // labels reuse vaultPair.role.*; expiry phrasing reuses
+  // invite.expiresIn.* + members.expiresLabel.
+  "inviteAccept.title": "Vault invitation",
+  "inviteAccept.invalidLink": "Invalid invitation link",
+  "inviteAccept.signin.body":
+    "You need to sign in with Google to accept this invitation. Use the email address that received the invite.",
+  "inviteAccept.confirm.title": "Join {name}?",
+  // Single sentence with BOTH placeholders — never split for the bold
+  // {role}; the screen splits the template on "{role}" at render time so
+  // Persian word order survives. {inviter} falls back to
+  // inviteAccept.confirm.someone when the server sent no name/email.
+  "inviteAccept.confirm.body": "{inviter} invited you to join as {role}.",
+  "inviteAccept.confirm.someone": "Someone",
+  "inviteAccept.confirm.accept": "Accept and join",
+  "inviteAccept.confirm.decline": "Decline",
+  "inviteAccept.joining": "Joining vault…",
+  "inviteAccept.joinedToast": "Joined {name}",
+  "inviteAccept.error.title": "Something went wrong",
+  "inviteAccept.error.notVisible":
+    "This invitation isn't visible on your account. The invite is anchored to a specific email — try signing in with the Google account that received the invitation.",
+  "inviteAccept.error.expired": "This invitation has expired. Ask the inviter for a new one.",
+  "inviteAccept.error.loadFailed": "Failed to load invitation",
+  "inviteAccept.error.acceptFailed": "Failed to accept invitation",
 
   // Vault audit log — Phase 7 UX critique #8 (translated).
   "auditLog.title": "Activity",
@@ -961,6 +1047,8 @@ const fa: Partial<Record<Key, string>> = {
   "personAdd.rightAmount.settled": "تصفیه",
   "personAdd.personNotFound": "این شخص پیدا نشد.",
   "personAdd.phone.placeholderGeneric": "شماره تلفون",
+  // Overflow row under the truncated Matches list.
+  "personAdd.moreResults": "{count}+ نتیجهٔ دیگر — برای محدود کردن، بیشتر تایپ کنید",
 
   // Entry
   "entry.amount.label": "مقدار (AFN)",
@@ -990,6 +1078,29 @@ const fa: Partial<Record<Key, string>> = {
   "projectionConflicts.toast.serverRejected":
     "سرور آخرین تغییر شما را نپذیرفت. لطفاً تازه‌سازی کنید.",
 
+  // Update prompt + banner
+  "updatePrompt.title": "به‌روزرسانی لازم است",
+  "updatePrompt.body":
+    "نسخهٔ کاتای شما برای ادامه خیلی قدیمی است. برای استفاده از برنامه، آخرین به‌روزرسانی را نصب کنید.",
+  "updatePrompt.install": "نصب نسخه {version}",
+  "updatePrompt.installGeneric": "نصب به‌روزرسانی",
+  "updatePrompt.openFailed": "لینک دانلود باز نشد. به kaata.af/download مراجعه کنید.",
+  "updateBanner.title": "به‌روزرسانی موجود است · نسخه {version}",
+  "updateBanner.cta": "به‌روزرسانی",
+  "updateBanner.learnMore": "بیشتر بدانید",
+  "updateBanner.dismiss": "بستن",
+
+  // Foreground-service (Nearby sync) notification
+  "fgs.channelName": "همگام‌سازی نزدیک",
+  "fgs.channelDescription":
+    "هنگام همگام‌سازی کاتا با تلفون‌های نزدیک از طریق بلوتوث نشان داده می‌شود.",
+  "fgs.title": "در حال اتصال با تلفون‌های جفت‌شده",
+  "fgs.waiting": "در انتظار اتصال تیم شما…",
+  "fgs.connectedOne": "به ۱ تلفون جفت‌شده وصل شد",
+  "fgs.connectedMany": "به {count} تلفون جفت‌شده وصل شد",
+
+  "home.loadFailed": "داده‌های کاتای شما بارگیری نشد. ثبت‌های شما محفوظ است — دوباره امتحان کنید.",
+
   // Settings — only "settings.saved" remains (person/edit auto-save toast).
   "settings.saved": "ذخیره شد",
   "settings.language.label": "زبان",
@@ -1017,6 +1128,7 @@ const fa: Partial<Record<Key, string>> = {
   "contacts.empty.none": "هیچ مخاطبی روی این تلفون نیست.",
   "contacts.empty.noMatch": "هیچ مخاطبی با «{query}» مطابقت نمی‌کند.",
   "contacts.noPhone": "بدون شماره",
+  "contacts.loadFailed": "مخاطبین شما خوانده نشد. دوباره امتحان کنید.",
 
   // WhatsApp share — full message body sent to the customer.
   "share.greeting": "سلام {name}.",
@@ -1044,11 +1156,17 @@ const fa: Partial<Record<Key, string>> = {
   // Common
   "common.cancel": "لغو",
   "common.back": "برگشت",
+  "common.refreshFailed": "تازه‌سازی نشد — اتصال خود را بررسی کنید.",
+  "share.whatsappUnavailable": "واتساپ باز نشد. آیا روی این تلفون نصب است؟",
   "common.retry": "تلاش دوباره",
   "common.removed": "{name} حذف شد",
   "common.remove": "حذف",
   "common.remove.title": "{name} حذف شود؟",
   "common.remove.description": "از لیست شما حذف می‌شود. ثبت‌های آن‌ها در دستگاه می‌ماند.",
+  // Shared by the invite/[token] + pair/[token] deep-link screens.
+  "common.notNow": "حالا نه",
+  "common.backToKaata": "بازگشت به کاتا",
+  "common.signInToContinue": "برای ادامه وارد شوید",
 
   // Profile sheet (Phase 7) — Persian counterparts. Section labels in
   // normal case; the SectionHeader atom applies textTransform:"uppercase"
@@ -1202,6 +1320,7 @@ const fa: Partial<Record<Key, string>> = {
     "۳. دوربین را روی کود زیر بگیرید.",
   "vaultPair.codeExpired": "کود منقضی شد",
   "vaultPair.generating": "در حال ساخت…",
+  "vaultPair.issueFailed": "کود جفت‌سازی ساخته نشد. اتصال خود را بررسی کنید و دوباره امتحان کنید.",
   "vaultPair.expiresIn": "انقضا در {time}",
   "vaultPair.generateNew": "کود جدید بسازید",
   "vaultPair.sendLink": "به جای آن لینک بفرستید",
@@ -1267,6 +1386,28 @@ const fa: Partial<Record<Key, string>> = {
   // D-PAIR-WITH-ROLE — confirmation role surfacing (Persian)
   "vaultPairScan.confirm.asRole": "به عنوان {role}",
   "vaultPairScan.confirm.roleMissing": "نقش در این کود مشخص نشده — به عنوان ویرایشگر می‌پیوندید.",
+
+  // Pair deep link (app/pair/[token].tsx) — Persian. Speaks about a LINK
+  // (لینک) not a code (کود) because the user arrived by tapping a shared
+  // URL. NOTE: the English "Shop Mode is on" is rendered in Persian as
+  // «همگام‌سازی نزدیک روشن شد» — the fa table consistently calls this
+  // feature "Nearby sync" (Phase 6 rename) and "Shop Mode" never appears
+  // in Persian copy.
+  "pairLink.title": "جفت‌سازی تلفون‌ها",
+  "pairLink.signin.body": "برای تکمیل جفت‌سازی، با همان حساب گوگل تلفون دیگر وارد شوید.",
+  "pairLink.confirm.title": "به {name} بپیوندید؟",
+  "pairLink.confirm.body":
+    "این تلفون به عنوان تلفون دوم این کاتا اضافه می‌شود. ورودی‌ها از طریق انترنت همگام می‌شوند و وقتی هر دو تلفون روی یک وای‌فای باشند، مستقیم هم.",
+  "pairLink.confirm.fromAccount": "از حساب {id}…",
+  "pairLink.joined.title": "جفت شد با\n{name}",
+  "pairLink.joined.body":
+    "هر دو تلفون از این پس وقتی روی یک وای‌فای باشند همگام می‌شوند. همگام‌سازی نزدیک روشن شد.",
+  "pairLink.error.missingData": "این لینک جفت‌سازی ناقص است. از مالک بخواهید دوباره بفرستد.",
+  "pairLink.error.expired": "این لینک جفت‌سازی منقضی شده. از مالک بخواهید لینک جدید بسازد.",
+  "pairLink.error.malformed":
+    "این لینک جفت‌سازی خراب است. مطمئن شوید آن را از پیام اصلی باز کرده‌اید.",
+  "pairLink.error.accountMismatch":
+    "این لینک برای حساب گوگل دیگری ساخته شده. از مالک بخواهید دعوت ایمیلی بفرستد.",
 
   "common.done": "تمام",
   "common.loading": "بارگیری…",
@@ -1428,6 +1569,27 @@ const fa: Partial<Record<Key, string>> = {
     "برای ارسال دعوت با ایمیل، با گوگل وارد شوید. برای افزودن حضوری از «افزودن عضو» استفاده کنید.",
   "invite.vaultNotOnServer":
     "این کاتا هنوز با سرور همگام نشده است. ابتدا همگام کنید یا از «افزودن عضو» استفاده کنید.",
+
+  // Invite acceptance deep link (app/invite/[token].tsx) — Persian. Role
+  // labels reuse vaultPair.role.*; expiry phrasing reuses invite.expiresIn.*
+  // + members.expiresLabel.
+  "inviteAccept.title": "دعوت به کاتا",
+  "inviteAccept.invalidLink": "لینک دعوت معتبر نیست",
+  "inviteAccept.signin.body":
+    "برای پذیرفتن این دعوت باید با گوگل وارد شوید. از همان ایمیلی وارد شوید که دعوت به آن رسیده است.",
+  "inviteAccept.confirm.title": "به {name} بپیوندید؟",
+  "inviteAccept.confirm.body": "{inviter} شما را دعوت کرده است تا به عنوان {role} بپیوندید.",
+  "inviteAccept.confirm.someone": "کسی",
+  "inviteAccept.confirm.accept": "پذیرفتن و پیوستن",
+  "inviteAccept.confirm.decline": "رد کردن",
+  "inviteAccept.joining": "در حال پیوستن به کاتا…",
+  "inviteAccept.joinedToast": "به {name} پیوستید",
+  "inviteAccept.error.title": "مشکلی پیش آمد",
+  "inviteAccept.error.notVisible":
+    "این دعوت در حساب شما دیده نمی‌شود. دعوت به یک ایمیل مشخص گره خورده است — با همان حساب گوگلی وارد شوید که دعوت را دریافت کرده است.",
+  "inviteAccept.error.expired": "این دعوت منقضی شده است. از دعوت‌کننده بخواهید دعوت جدید بفرستد.",
+  "inviteAccept.error.loadFailed": "بار کردن دعوت ناکام شد",
+  "inviteAccept.error.acceptFailed": "پذیرفتن دعوت ناکام شد",
 
   // Audit log — Persian
   "auditLog.title": "فعالیت",

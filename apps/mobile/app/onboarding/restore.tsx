@@ -34,7 +34,7 @@
 
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
@@ -70,6 +70,13 @@ export default function OnboardingRestoreScreen() {
   const router = useRouter();
   const isRTL = useIsRTL();
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
+  // Bumped by the error screen's "Try again" — the probe effect keys on it.
+  // Previously Try-again only set phase back to "loading" and NOTHING
+  // re-ran the mount-only probe: an infinite spinner with force-quit as
+  // the only way out.
+  const [retryNonce, setRetryNonce] = useState(0);
+  // Synchronous re-entry guard for the restore actions — see entry/new.tsx.
+  const restoringRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -129,7 +136,9 @@ export default function OnboardingRestoreScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
+    // The probe deliberately re-runs when "Try again" bumps retryNonce.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retryNonce]);
 
   // Auto-redirect when there's nothing to restore. Done in an effect so
   // the spinner gets at least one render frame and the user perceives
@@ -143,6 +152,8 @@ export default function OnboardingRestoreScreen() {
   }, [phase.kind, router]);
 
   async function onRestoreSnapshot(snapshot: Snapshot) {
+    if (restoringRef.current) return;
+    restoringRef.current = true;
     setPhase({ kind: "restoring" });
     try {
       await restoreFromSnapshot(snapshot);
@@ -155,6 +166,7 @@ export default function OnboardingRestoreScreen() {
       await setAppMeta("onboarding_pending_email", "");
       router.replace("/");
     } catch (err) {
+      restoringRef.current = false;
       setPhase({
         kind: "error",
         message: classifyError(err),
@@ -164,6 +176,8 @@ export default function OnboardingRestoreScreen() {
   }
 
   async function onRestoreV04(backup: V04Backup, vaultId: string) {
+    if (restoringRef.current) return;
+    restoringRef.current = true;
     setPhase({ kind: "restoring" });
     try {
       const installId = await ensureInstallId();
@@ -177,6 +191,7 @@ export default function OnboardingRestoreScreen() {
       await setAppMeta("onboarding_step", "profile");
       router.replace("/onboarding/profile");
     } catch (err) {
+      restoringRef.current = false;
       setPhase({
         kind: "error",
         message: classifyError(err),
@@ -232,7 +247,12 @@ export default function OnboardingRestoreScreen() {
           {phase.retryable ? (
             <Button
               label={t("onboardingRestore.tryAgain")}
-              onPress={() => setPhase({ kind: "loading" })}
+              onPress={() => {
+                setPhase({ kind: "loading" });
+                // Re-run the probe — setting phase alone left an
+                // infinite spinner (the probe effect was mount-only).
+                setRetryNonce((n) => n + 1);
+              }}
             />
           ) : null}
           <View style={styles.gap} />
