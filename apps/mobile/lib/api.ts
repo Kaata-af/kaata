@@ -35,12 +35,9 @@ export async function checkIn(payload: {
   usage_entries_created?: number;
   usage_customers_added?: number;
   usage_shares_sent?: number;
-  // Phase 5 mesh: vaults whose locally-cached VMC is near expiry (or
-  // already expired). Backend mints fresh blobs and returns them in
-  // resp.vmc_renewals. Omitted when empty.
-  vmc_renewals_needed?: string[];
-  // Phase 5 mesh: per-vault revocation cursor (vault_id -> max revoked_at_ms
-  // we've applied). Backend returns deltas only. Omitted when empty.
+  // Mesh: per-vault revocation cursor (vault_id -> max revoked_at_ms we've
+  // applied). Backend returns deltas only, re-sourced from membership
+  // events (M4). Omitted when empty.
   last_revocation_seen_at_ms?: Record<string, number>;
 }): Promise<CheckInResponse> {
   const baseUrl = await getBackendUrl();

@@ -62,6 +62,39 @@ async function httpThrowing(method: string, path: string, body?: unknown): Promi
 }
 
 // ---------------------------------------------------------------------------
+// GET /v1/vaults — list the account's memberships (M5 multi-vault recovery)
+// ---------------------------------------------------------------------------
+
+/** One vault the signed-in account is a member of (GET /v1/vaults). */
+export type VaultListing = {
+  vault_id: string;
+  name: string;
+  currency?: string;
+  role: string;
+  members_count: number;
+  created_at_ms: number;
+  archived_at_ms?: number;
+  vault_epoch: number;
+  /** base64 32-byte owner anchor pubkey; absent for server-anchored vaults. */
+  vault_trust_anchor_pubkey?: string;
+};
+
+/**
+ * List every vault the signed-in account is a member of, with each vault's
+ * role + trust anchor. The driver of multi-vault recovery (lib/recovery.ts)
+ * loops this; archived vaults are included so the caller can decide.
+ */
+export async function listVaults(): Promise<VaultListing[]> {
+  const body = await httpThrowing("GET", "/v1/vaults");
+  const vaults = (body as { vaults?: unknown } | null)?.vaults;
+  if (!Array.isArray(vaults)) return [];
+  return vaults.filter(
+    (v): v is VaultListing =>
+      v != null && typeof v === "object" && typeof (v as VaultListing).vault_id === "string",
+  );
+}
+
+// ---------------------------------------------------------------------------
 // PATCH / archive / leave / transfer
 // ---------------------------------------------------------------------------
 
@@ -381,48 +414,40 @@ export async function registerDeviceKey(pubkey_b64: string): Promise<void> {
   });
 }
 
-// Requests a fresh VMC for the given vault.
-//
-// Two callers, two regimes:
-//   - Existing member (renewal): pass `undefined` for `pairAuth`. The
-//     backend authorises by JWT (account_id) — the steady-state path.
-//   - New device joining via QR (`/vault/pair-scan`): pass `pairAuth`
-//     carrying the single-use token + the QR's issued_at_ms. The backend
-//     consumes the token (single-use), checks issued_at_ms against its
-//     own clock to defeat scanner-clock rollback, and INSERTs a
-//     vault_members row before minting the VMC. Without these two
-//     fields the new-device call 403s.
-export async function issueVaultCredential(
-  vaultId: string,
-  pairAuth?: { pair_token: string; pair_issued_at_ms: number },
-): Promise<{
-  vmc_blob: string;
-  expires_at_ms: number;
-}> {
-  const body = pairAuth ?? {};
-  const res = (await httpThrowing(
-    "POST",
-    `/v1/vaults/${encodeURIComponent(vaultId)}/credential`,
-    body,
-  )) as { vmc_blob: string; expires_at_ms: number };
-  return { vmc_blob: res.vmc_blob, expires_at_ms: res.expires_at_ms };
-}
+// M4: issueVaultCredential (POST /v1/vaults/:id/credential) and
+// registerVaultPairToken (POST /v1/vaults/:id/pair-tokens) were the legacy
+// server VMC-minting + pair-token subsystem. They are deleted with the VMC
+// retirement — QR joins are now chain-native (the owner emits the joiner's
+// admission over the mesh; no server credential round-trip).
 
-// Registers a same-account pair token with the server. Called by the QR
-// issuer (apps/mobile/app/vault/pair.tsx) immediately after the QR is
-// generated locally so the scanner side can consume it via /credential.
-//
-// Only owners may mint pair tokens — 403 on non-owner call. expires_at_ms
-// is clamped server-side to a max 10-minute lifetime regardless of input.
-export async function registerVaultPairToken(
-  vaultId: string,
-  token: string,
-  expires_at_ms: number,
-): Promise<void> {
-  await httpThrowing("POST", `/v1/vaults/${encodeURIComponent(vaultId)}/pair-tokens`, {
-    token,
-    expires_at_ms,
-  });
+// ---------------------------------------------------------------------------
+// M2 membership chain — server witness (docs/m2-membership-chain.md §8.1)
+// ---------------------------------------------------------------------------
+
+// Attestation signatures for the calling account + install:
+//   device_witness — "account A controls device D" — always present.
+//   member_witness — "owner-account O invited account A at role R" — only
+//     when a brokered invite exists (the server checked its invite tables;
+//     this is what proves owner intent on the online admission path).
+// sig_b64 values are Ed25519 over the canonical JSON of the §2 tuples,
+// verifiable against the pinned server signing pubkey(s) named by
+// server_key_id.
+export type MembershipWitnessResponse = {
+  server_key_id: string;
+  device_witness: { sig_b64: string; issued_at_ms: number };
+  member_witness: {
+    sig_b64: string;
+    issued_at_ms: number;
+    inviter_account_id: string;
+    role: VaultRole;
+  } | null;
+};
+
+export async function fetchMembershipWitness(vaultId: string): Promise<MembershipWitnessResponse> {
+  return (await httpThrowing(
+    "POST",
+    `/v1/vaults/${encodeURIComponent(vaultId)}/witness`,
+  )) as MembershipWitnessResponse;
 }
 
 // _devUnused keeps tree-shaking honest: getInstallIdSync is referenced

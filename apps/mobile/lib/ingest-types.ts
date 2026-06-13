@@ -39,15 +39,15 @@ import { verifyEventSignature } from "./event-sig";
  * Apply was skipped for a reason that MIGHT BE CURED by future events.
  * The sweep retries these on triggers:
  *   (a) new ingest of any event into this vault
- *   (b) cachePeerVMC writes a credential
- *   (c) a role-changing event applies
+ *   (b) a role-changing / membership event applies
  *
  * All triggers are debounced (commit 4) to one sweep per anti-entropy
  * round per vault.
  */
 export type QuarantineReason =
-  /** Signer credential not in vault_credentials yet. Cured by mesh
-   *  delivery of the owner's pair grant / VMC. */
+  /** Signer's device->account binding not yet in the membership chain
+   *  (vault_device_registry). Cured by mesh delivery of the owner's
+   *  admission events (vault_member_added + vault_device_added). */
   | "unknown_actor"
   /** Applier needs a referenced row (target_id, relationship_id) that
    *  hasn't arrived yet. Cured when the prereq event applies. */

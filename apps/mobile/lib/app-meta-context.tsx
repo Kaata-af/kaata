@@ -108,22 +108,30 @@ export function AppMetaProvider(props: { currentVersion: string; children: React
       }
       await setAppMeta("last_checkin_at", String(Date.now()));
 
-      // Phase 5 mesh: apply pinned pubkey announcement, cache fresh VMC
-      // renewals, and merge new revocations. All three fields are
-      // optional; the helper no-ops on absence. Dynamic import keeps the
-      // @noble SHA-512 wiring cost off cold-boot paths that don't need
-      // mesh. Failures inside applyVMCCheckInResponse are already logged
-      // and don't propagate — mesh is best-effort relative to check-in.
-      if (resp.vmc_renewals || resp.revocations || resp.mesh_server_pubkeys) {
+      // Mesh (M4): pin the server WITNESS pubkey announcement and merge new
+      // revocations. Both fields are optional. Dynamic imports keep the
+      // module cost off cold-boot paths that don't need mesh. Order: pin
+      // pubkeys FIRST (so a revocation arriving in the same response is
+      // applied under the current pin), then revocations. Failures are
+      // logged and don't propagate — mesh is best-effort relative to
+      // check-in. (VMC renewals are retired — the chain carries trust.)
+      if (resp.mesh_server_pubkeys?.primary) {
         try {
-          const mesh = await import("./mesh");
-          await mesh.applyVMCCheckInResponse({
-            vmc_renewals: resp.vmc_renewals ?? undefined,
-            revocations: resp.revocations ?? undefined,
-            mesh_server_pubkeys: resp.mesh_server_pubkeys ?? undefined,
-          });
+          const { persistPinnedServerPubkeys } = await import("./trust/proof");
+          await persistPinnedServerPubkeys(
+            resp.mesh_server_pubkeys.primary,
+            resp.mesh_server_pubkeys.rotation ?? null,
+          );
         } catch (err) {
-          console.warn("[app-meta] applyVMCCheckInResponse failed", err);
+          console.warn("[app-meta] persistPinnedServerPubkeys failed", err);
+        }
+      }
+      if (resp.revocations && resp.revocations.length > 0) {
+        try {
+          const { applyServerRevocations } = await import("./trust/revocation");
+          await applyServerRevocations(resp.revocations);
+        } catch (err) {
+          console.warn("[app-meta] applyServerRevocations failed", err);
         }
       }
 

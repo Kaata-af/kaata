@@ -34,12 +34,15 @@ import type {
   EntryAmendedEvent,
   EntryCreatedEvent,
   EntryDeletedEvent,
+  MembershipWitness,
   PersonAddedEvent,
   PersonArchivedEvent,
   PersonPhoneChangedEvent,
   PersonRenamedEvent,
   PersonUnarchivedEvent,
   ShopProfileUpdatedEvent,
+  VaultDeviceAddedEvent,
+  VaultDeviceRemovedEvent,
   VaultMemberAddedEvent,
   VaultMemberRemovedEvent,
   VaultMemberRoleChangedEvent,
@@ -730,6 +733,19 @@ export async function appendVaultMemberAdded(args: {
   targetVaultId: string;
   accountId: string;
   role: VaultRole;
+  // M2 membership chain (docs/m2-membership-chain.md §2): optional
+  // pass-throughs into the payload.
+  //   displayName       — the joiner's name so peers' Members tabs render
+  //                       a name without a server round-trip.
+  //   witness           — server attestation for the ONLINE invite-accept
+  //                       path; offline/QR admissions carry none (they're
+  //                       owner-device-signed, the stronger statement).
+  //   backfillSynthetic — chain-genesis backfill admissions (§5) so
+  //                       replicas can distinguish "owner attested
+  //                       pre-chain membership" from organic adds.
+  displayName?: string | null;
+  witness?: MembershipWitness;
+  backfillSynthetic?: boolean;
 }): Promise<{ event_id: string }> {
   const eventId = Crypto.randomUUID();
   const installId = getInstallIdSync();
@@ -753,7 +769,16 @@ export async function appendVaultMemberAdded(args: {
     server_acked_at: null,
     rejected_at: null,
     origin: "local",
-    payload: { account_id: args.accountId, role: args.role },
+    payload: {
+      account_id: args.accountId,
+      role: args.role,
+      // Optional fields are spread-conditionally so absent args produce
+      // byte-identical payloads to pre-M2 events (canonical JSON omits
+      // the keys entirely rather than carrying explicit undefined/null).
+      ...(args.displayName !== undefined ? { display_name: args.displayName } : {}),
+      ...(args.witness ? { witness: args.witness } : {}),
+      ...(args.backfillSynthetic ? { backfill_synthetic: true as const } : {}),
+    },
   };
 
   const result = await applyEvent(event, { origin: "local" });
@@ -823,6 +848,100 @@ export async function appendVaultMemberRemoved(args: {
     rejected_at: null,
     origin: "local",
     payload: { account_id: args.accountId },
+  };
+
+  const result = await applyEvent(event, { origin: "local" });
+  if (!result.applied && result.reason === "role_gate" && result.role_gate) {
+    throw new RoleGateRejectionError(result.role_gate);
+  }
+  return { event_id: eventId };
+}
+
+// ---------- M2 membership chain: device-binding append helpers ----------
+//
+// vault_device_added / vault_device_removed bind/unbind a device Ed25519
+// pubkey to a member account inside the chain (docs/m2-membership-chain.md
+// §2). Same offline-first contract as the vault_member_* helpers above:
+// the local append IS the mutation; sync/mesh propagate it. Authorization
+// (owner-bound signer vs named-device + server witness) is the chain fold
+// + role-gate's job, not the append path's.
+
+export async function appendVaultDeviceAdded(args: {
+  targetVaultId: string;
+  accountId: string;
+  deviceId: string;
+  // base64 Ed25519, same encoding as signer_device_pubkey.
+  devicePubkeyB64: string;
+  // Server attestation for the online self-bind path (the named device
+  // signs its own admission + the witness proves the server verified
+  // account control). Owner-signed QR/backfill binds carry none.
+  witness?: MembershipWitness;
+  backfillSynthetic?: boolean;
+}): Promise<{ event_id: string }> {
+  const eventId = Crypto.randomUUID();
+  const installId = getInstallIdSync();
+  const authorUserId = requireLocalSelfUserId();
+  const actorAccountId = getAccountIdSync();
+
+  const event: VaultDeviceAddedEvent = {
+    event_id: eventId,
+    event_type: "vault_device_added",
+    vault_id: args.targetVaultId,
+    // target_id = device_id for device events — keys the HLC sidecar
+    // lookup in lib/projection/vault_devices.ts.
+    target_id: args.deviceId,
+    relationship_id: null,
+    hlc: { pms: 0, l: 0, did: installId },
+    device_id: installId,
+    author_user_id_local_only: authorUserId,
+    actor_account_id: actorAccountId,
+    payload_schema: CURRENT_PAYLOAD_SCHEMA,
+    appended_at: 0,
+    server_acked_at: null,
+    rejected_at: null,
+    origin: "local",
+    payload: {
+      account_id: args.accountId,
+      device_id: args.deviceId,
+      device_pubkey: args.devicePubkeyB64,
+      ...(args.witness ? { witness: args.witness } : {}),
+      ...(args.backfillSynthetic ? { backfill_synthetic: true as const } : {}),
+    },
+  };
+
+  const result = await applyEvent(event, { origin: "local" });
+  if (!result.applied && result.reason === "role_gate" && result.role_gate) {
+    throw new RoleGateRejectionError(result.role_gate);
+  }
+  return { event_id: eventId };
+}
+
+export async function appendVaultDeviceRemoved(args: {
+  targetVaultId: string;
+  deviceId: string;
+}): Promise<{ event_id: string }> {
+  const eventId = Crypto.randomUUID();
+  const installId = getInstallIdSync();
+  const authorUserId = requireLocalSelfUserId();
+  const actorAccountId = getAccountIdSync();
+
+  const event: VaultDeviceRemovedEvent = {
+    event_id: eventId,
+    event_type: "vault_device_removed",
+    vault_id: args.targetVaultId,
+    // target_id = device_id, matching vault_device_added.
+    target_id: args.deviceId,
+    relationship_id: null,
+    hlc: { pms: 0, l: 0, did: installId },
+    device_id: installId,
+    author_user_id_local_only: authorUserId,
+    actor_account_id: actorAccountId,
+    payload_schema: CURRENT_PAYLOAD_SCHEMA,
+    appended_at: 0,
+    server_acked_at: null,
+    rejected_at: null,
+    origin: "local",
+    payload: { device_id: args.deviceId },
   };
 
   const result = await applyEvent(event, { origin: "local" });

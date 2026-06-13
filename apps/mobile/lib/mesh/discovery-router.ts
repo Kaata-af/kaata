@@ -25,7 +25,10 @@
 // from MeshController in response to user toggles or anti-entropy
 // signals.
 
-import type { DiscoveredPeer as MDNSDiscoveredPeer } from "./discovery";
+// M3: the mDNS adapter now surfaces LAN peers (discovery-lan.ts) carrying the
+// TCP port + salted daily digests. Same structural shape as the WebRTC-era
+// DiscoveredPeer, so the router's "mdns" path is unchanged below.
+import type { LanDiscoveredPeer as MDNSDiscoveredPeer } from "./discovery-lan";
 import type { PeerInfo } from "./transport-interface";
 
 // ---- types ---------------------------------------------------------

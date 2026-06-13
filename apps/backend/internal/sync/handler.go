@@ -3,6 +3,8 @@ package sync
 
 import (
 	"compress/gzip"
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -47,21 +49,46 @@ func NewHandler(svc *Service) *Handler {
 // ==========================================================================
 
 type pushRequest struct {
-	VaultID  string      `json:"vault_id"`
+	VaultID string `json:"vault_id"`
+	// DeviceID is the TRANSPORT device doing the push. Events authored on
+	// other devices (relays, sync v2 §4 scenario 4) are legitimate: each
+	// event's author is its hlc.device_id, which is what gets stored and
+	// what author_seq slots key on.
 	DeviceID string      `json:"device_id"`
 	Events   []PushEvent `json:"events"`
 }
 
 // PushEvent is the wire format for a single event on push.
 type PushEvent struct {
-	EventID        string          `json:"event_id"`
-	HLC            PushHLC         `json:"hlc"`
-	EventType      string          `json:"event_type"`
-	SchemaVersion  int             `json:"schema_version"`
-	TargetID       *string         `json:"target_id,omitempty"`
-	RelationshipID *string         `json:"relationship_id,omitempty"`
-	ActorAccountID *string         `json:"actor_account_id,omitempty"`
-	Payload        json.RawMessage `json:"payload"`
+	EventID        string  `json:"event_id"`
+	HLC            PushHLC `json:"hlc"`
+	EventType      string  `json:"event_type"`
+	SchemaVersion  int     `json:"schema_version"`
+	TargetID       *string `json:"target_id,omitempty"`
+	RelationshipID *string `json:"relationship_id,omitempty"`
+	ActorAccountID *string `json:"actor_account_id,omitempty"`
+	// AuthorSeq is the per-device monotonic counter assigned at append
+	// time on the authoring device (sync v2 §5), keyed by hlc.device_id —
+	// the author — not by the batch-level pushing device. OPTIONAL: pre-M1
+	// clients omit it and their events persist with NULL author_seq. When
+	// present it must be >= 1; a fresh event_id claiming an already-taken
+	// (vault, author device, seq) slot is rejected with reason
+	// "seq_conflict", while a duplicate event_id re-announcing a seq for
+	// its stored row stays a plain duplicate (and back-fills the seq when
+	// the stored row has none and the slot is free).
+	AuthorSeq *int64 `json:"author_seq,omitempty"`
+	// M2 (docs/m2-membership-chain.md §2): OPTIONAL author signature.
+	// event_sig_b64 is the std-base64 64-byte Ed25519 signature over the
+	// canonical envelope+payload (mobile lib/event-sig.ts; Go mirror in
+	// membership.go canonicalSignableEvent); signer_device_pubkey is the
+	// std-base64 32-byte pubkey of the signing device. Supplied together
+	// or not at all. Pre-M2 clients omit both — their membership events
+	// keep the legacy JWT ACL. On anchored vaults, signed membership
+	// events are verified against the chain rules and rejected per-event
+	// with reason "membership_unverified" on failure.
+	EventSigB64           *string         `json:"event_sig_b64,omitempty"`
+	SignerDevicePubkeyB64 *string         `json:"signer_device_pubkey,omitempty"`
+	Payload               json.RawMessage `json:"payload"`
 }
 
 type PushHLC struct {
@@ -165,6 +192,31 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 		if ev.SchemaVersion <= 0 {
 			httpx.Error(w, http.StatusBadRequest, "events["+strconv.Itoa(i)+"].schema_version must be >= 1")
 			return
+		}
+		if ev.AuthorSeq != nil && *ev.AuthorSeq < 1 {
+			httpx.Error(w, http.StatusBadRequest, "events["+strconv.Itoa(i)+"].author_seq must be >= 1 when present")
+			return
+		}
+		// M2: signature material is all-or-nothing and syntactically valid
+		// base64 of the right lengths. Authorization (anchor / bound
+		// device / witness) is the service's job; this is wire hygiene.
+		hasSig := ev.EventSigB64 != nil && *ev.EventSigB64 != ""
+		hasSignerPub := ev.SignerDevicePubkeyB64 != nil && *ev.SignerDevicePubkeyB64 != ""
+		if hasSig != hasSignerPub {
+			httpx.Error(w, http.StatusBadRequest, "events["+strconv.Itoa(i)+"]: event_sig_b64 and signer_device_pubkey must be supplied together")
+			return
+		}
+		if hasSig {
+			raw, err := base64.StdEncoding.DecodeString(*ev.EventSigB64)
+			if err != nil || len(raw) != ed25519.SignatureSize {
+				httpx.Error(w, http.StatusBadRequest, "events["+strconv.Itoa(i)+"].event_sig_b64 must be standard base64 of a 64-byte signature")
+				return
+			}
+			raw, err = base64.StdEncoding.DecodeString(*ev.SignerDevicePubkeyB64)
+			if err != nil || len(raw) != ed25519.PublicKeySize {
+				httpx.Error(w, http.StatusBadRequest, "events["+strconv.Itoa(i)+"].signer_device_pubkey must be standard base64 of a 32-byte Ed25519 pubkey")
+				return
+			}
 		}
 		if _, err := uuid.Parse(ev.HLC.DeviceID); err != nil {
 			httpx.Error(w, http.StatusBadRequest, "events["+strconv.Itoa(i)+"].hlc.device_id must be a uuid")
@@ -397,4 +449,52 @@ func (h *Handler) Snapshot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpx.JSON(w, http.StatusOK, resp)
+}
+
+// ==========================================================================
+// VECTOR
+// ==========================================================================
+
+// Vector — GET /v1/sync/vector?vault_id=<uuid> (PROTECTED).
+//
+// Returns the server replica's per-device author_seq summary for the vault
+// (sync v2 §5): for each authoring device, {max_seq, count, min_seq} over
+// non-redacted events that carry an author_seq, plus the vault's server_seq
+// high-water mark. Clients infer "provably complete from 1" as
+// min_seq == 1 && count == max_seq.
+//
+// Auth + membership gating mirror Pull: 401 without a session, 403 for
+// non-members and unknown vaults alike (no existence oracle).
+func (h *Handler) Vector(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.ClaimsFromContext(r.Context())
+	if !ok {
+		httpx.Error(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	vaultID := r.URL.Query().Get("vault_id")
+	if vaultID == "" {
+		httpx.Error(w, http.StatusBadRequest, "vault_id is required")
+		return
+	}
+	if _, err := uuid.Parse(vaultID); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "vault_id must be a uuid")
+		return
+	}
+
+	res, err := h.svc.DeviceVectors(r.Context(), claims.AccountID, vaultID)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotMember), errors.Is(err, ErrVaultNotFound):
+			httpx.Error(w, http.StatusForbidden, "not a member of this vault")
+			return
+		default:
+			log.Printf("sync.vector failed for account=%s vault=%s: %v",
+				claims.AccountID, vaultID, err)
+			httpx.Error(w, http.StatusInternalServerError, "sync vector failed")
+			return
+		}
+	}
+
+	httpx.JSON(w, http.StatusOK, res)
 }

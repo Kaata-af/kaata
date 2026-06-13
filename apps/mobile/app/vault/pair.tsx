@@ -12,7 +12,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, Pressable, Share, StyleSheet, Text, View } from "react-native";
+import { AppState, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import QRCode from "react-native-qrcode-svg";
 import { Button } from "../../components/Button";
@@ -25,7 +25,6 @@ import { textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import {
-  encodePairDeepLink,
   encodePairQr,
   generateShopModeToken,
   PAIR_QR_TTL_MS,
@@ -34,9 +33,8 @@ import {
   type PairQrRole,
 } from "../../lib/mesh/pair-qr";
 import { ensureDeviceKey, getDevicePubkey } from "../../lib/mesh/device-key";
-import { buildLocalAccountId } from "../../lib/mesh/local-vmc";
+import { buildLocalAccountId } from "../../lib/trust/account-id";
 import { getLocalSelf } from "../../lib/db";
-import { registerVaultPairToken } from "../../lib/vault-api";
 
 type VaultLite = {
   id: string;
@@ -63,7 +61,6 @@ export default function VaultPairScreen() {
   const [payload, setPayload] = useState<PairQrPayload | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number>(Math.floor(PAIR_QR_TTL_MS / 1000));
   const [error, setError] = useState<string | null>(null);
-  const [sendingLink, setSendingLink] = useState(false);
   const [issuing, setIssuing] = useState(false);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Synchronous re-entry guard — issueQr hits the network for server-
@@ -77,12 +74,11 @@ export default function VaultPairScreen() {
         const now = Date.now();
         const expires = now + PAIR_QR_TTL_MS;
         // In local-only mode (no Google sign-in — the offline-shopkeeper
-        // path that local-CA was built for) accId is null, but the QR
-        // schema requires a non-empty issuer_account_id. Synthesize a
-        // stable local ID from the device pubkey, matching the convention
-        // used by local-vmc.ts and the rest of the local-CA flow.
-        // Without this, the scanner rejects the QR as "malformed" and the
-        // shopkeeper can never add staff offline.
+        // path) accId is null, but the QR schema requires a non-empty
+        // issuer_account_id. Synthesize a stable local ID from the device
+        // pubkey, matching the convention lib/trust/account-id.ts uses for
+        // chain emission. Without this, the scanner rejects the QR as
+        // "malformed" and the shopkeeper can never add staff offline.
         // Make sure the device key is loaded BEFORE we read it. The
         // getDevicePubkey() helper reads an in-memory cache that's
         // populated by ensureDeviceKey(); if a screen transition or
@@ -98,23 +94,25 @@ export default function VaultPairScreen() {
           ? buildLocalAccountId(devicePubkey)
           : `local:${getInstallIdSync().slice(0, 16)}`;
         // v=3 (Briar-style bidirectional pair): include the OWNER's
-        // identity in the QR so the scanner can pin (device_pubkey,
-        // display_name) without waiting for the BLE handshake. The
-        // scanner uses the pinned device_pubkey at handshake time via
-        // verifyVMCAgainstPinnedPeer — that's what unblocks local-CA
-        // mesh sync end-to-end. Display name is for the Members tab
-        // (renders "Matee" instead of "local:abc…").
+        // identity in the QR so the scanner can pin
+        // (vault_trust_anchor_pubkey, display_name) without waiting for the
+        // BLE handshake. The joiner presents an empty proof bundle + this
+        // QR's shop_mode_token as the mesh pair_nonce; the owner verifies
+        // it against the chain and emits the joiner's admission. Display
+        // name is for the Members tab (renders "Matee" instead of
+        // "local:abc…").
         const self = await getLocalSelf();
         const ownerDisplayName = (self?.name ?? "").trim() || "Owner";
-        // Schema version selection. If we got the device pubkey, ship
-        // v=3 with the bidirectional pair fields. If we somehow STILL
-        // don't have one (ensureDeviceKey failed — extremely rare; the
-        // only realistic failure is the SecureStore being wiped mid-
-        // process), fall back to v=2 so the QR is at least a valid
-        // legacy payload the scanner can parse. The legacy path still
-        // pairs the user; mesh sync stays in the broken-by-design v0.5.2
-        // state until they reinstall, but at least the QR doesn't break
-        // the entire flow with "Couldn't read this code".
+        // Schema version selection. The chain pair path REQUIRES the
+        // owner's trust anchor pubkey in the QR (the joiner pins it). We
+        // got the device pubkey above, so ship v=3 with the bidirectional
+        // pair fields. If we somehow STILL don't have one (ensureDeviceKey
+        // failed — extremely rare; the only realistic failure is the
+        // SecureStore being wiped mid-process), fall back to v=2 so the QR
+        // is at least a parseable payload rather than breaking the flow
+        // with "Couldn't read this code" — but a v=2 QR can't complete a
+        // chain join (no anchor to pin), so the user must re-issue once
+        // the key is available.
         const qrVersion: 2 | 3 = devicePubkey ? 3 : 2;
         const next: PairQrPayload = {
           v: qrVersion,
@@ -125,16 +123,14 @@ export default function VaultPairScreen() {
           issued_at_ms: now,
           expires_at_ms: expires,
           shop_mode_token: token,
-          // Phase 7 local-CA: include the owner's trust anchor pubkey
-          // so the scanner can verify the eventual VMC against it
-          // (instead of waiting for a server round-trip). For Phase 5
-          // server-anchored vaults the field is absent and the scanner
-          // takes the legacy /credential path.
+          // Owner's trust anchor pubkey — the joiner pins it from the QR
+          // (TOFU) and the chain handshake folds the membership proof
+          // against it. Every vault is chain-anchored (M4), so this is
+          // always populated.
           vault_trust_anchor_pubkey: v.vault_trust_anchor_pubkey ?? undefined,
-          // D-PAIR-WITH-ROLE: only meaningful for local-CA pair (the only
-          // path that mints the VMC client-side). On server-anchored
-          // vaults the server still issues an owner VMC; we include the
-          // field anyway so a future server change is forward-compat.
+          // D-PAIR-WITH-ROLE: the role the owner commits at QR-issue time.
+          // The owner's pair-admission emission (verifyPeerChain) carries
+          // it into the joiner's vault_member_added.
           role: chosenRole,
           // v=3: bidirectional pair fields. Only set when devicePubkey
           // is non-null AND we're emitting v=3.
@@ -145,23 +141,13 @@ export default function VaultPairScreen() {
               }
             : {}),
         };
-        // Phase 7: server-side token registration is ONLY required for
-        // server-anchored vaults (where the scanner will hit
-        // /v1/vaults/:vault_id/credential to mint the VMC). Local-CA
-        // vaults issue the VMC directly via the owner's device, so the
-        // server need not be involved — and indeed CANNOT be when the
-        // owner is signed out. Skip the register call in that case.
-        if (!v.vault_trust_anchor_pubkey && accId) {
-          await registerVaultPairToken(v.id, token, expires);
-        }
         // Persist the token locally with the SAME shape that
         // lib/mesh/local-pair.ts's PendingPairToken / isPendingPairToken
-        // expects, so vmc.ts:verifyVMCAgainstPinnedPeer can find it when
-        // the joiner connects over BLE and trigger the pair-token-bound
-        // TOFU window (5 min after QR issue). Without the canonical
-        // shape this list comes back empty from
-        // getPendingPairTokensForVault and the BLE handshake refuses
-        // the joiner silently.
+        // expects, so verifyPeerChain's pair-admission lookup
+        // (getLivePairTokenByNonce) finds it when the joiner connects over
+        // BLE and presents this nonce as pair_nonce. Without the canonical
+        // shape this list comes back empty and the owner refuses the
+        // joiner's BLE handshake silently.
         await persistPendingPairToken({
           nonce: token,
           vault_id: v.id,
@@ -280,27 +266,6 @@ export default function VaultPairScreen() {
     } finally {
       issuingRef.current = false;
       setIssuing(false);
-    }
-  }
-
-  async function onSendLink() {
-    if (!payload || sendingLink) return;
-    setSendingLink(true);
-    try {
-      const deepLink = encodePairDeepLink(payload);
-      // Without expo-clipboard, the system Share sheet is the cleanest
-      // path — both iOS and Android surface a "Copy" action plus
-      // WhatsApp / SMS share targets in the same sheet.
-      await Share.share({
-        message: t("vaultPair.shareLinkMessage", { url: deepLink }),
-        url: deepLink,
-      });
-      toast.push(t("vaultPair.shareLinkReady"), "success");
-    } catch (err) {
-      console.warn("[vault/pair] share link failed", err);
-      toast.push(t("vaultPair.shareLinkFailed"), "error");
-    } finally {
-      setSendingLink(false);
     }
   }
 
@@ -444,15 +409,7 @@ export default function VaultPairScreen() {
         {expired ? (
           <Button label={t("vaultPair.generateNew")} onPress={onReissue} />
         ) : (
-          <>
-            <Button
-              label={sendingLink ? t("vaultPair.sendLink.opening") : t("vaultPair.sendLink")}
-              variant="secondary"
-              onPress={onSendLink}
-            />
-            <View style={{ height: 10 }} />
-            <Button label={t("common.cancel")} variant="secondary" onPress={() => router.back()} />
-          </>
+          <Button label={t("common.cancel")} variant="secondary" onPress={() => router.back()} />
         )}
 
         <Text style={[styles.fineprint, textDir(isRTL)]}>
@@ -481,14 +438,13 @@ function formatCountdown(seconds: number): string {
 
 // Pending-pair-token store. Used to track outstanding tokens the owner
 // has minted. The on-disk schema MUST match lib/mesh/local-pair.ts's
-// PendingPairToken type, because that module's getPendingPairTokensForVault
-// is the canonical read path (the v=3 BLE handshake's pair-token-bound
-// TOFU in vmc.ts:verifyVMCAgainstPinnedPeer calls it). If the field
-// names diverge — as they did between v0.5.2 and the fix below —
-// local-pair.ts's strict isPendingPairToken validator silently drops
-// every token this file writes, the TOFU never sees a live token, and
-// the owner refuses the joiner's BLE handshake. Symptom: joiner pairs
-// fine locally, owner sees nothing, no error.
+// PendingPairToken type, because that module's read paths
+// (getLivePairTokenByNonce / getLocalPairNonceForVault) are canonical for
+// the chain pair-admission window. If the field names diverge,
+// local-pair.ts's strict isPendingPairToken validator silently drops every
+// token this file writes, the window never sees a live token, and the
+// owner refuses the joiner's BLE handshake. Symptom: joiner pairs fine
+// locally, owner sees nothing, no error.
 type PendingPairToken = {
   nonce: string; // was "token" before v0.5.3 — renamed to match local-pair.ts
   vault_id: string;

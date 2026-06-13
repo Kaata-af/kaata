@@ -2,27 +2,31 @@
 //
 // HLC-based anti-entropy delta swap over an established MeshConnection.
 //
-// Design D-ANTI-ENTROPY (Phase 5):
-//   1. Handshake — exchange + verify VMCs against pinned server pubkey,
-//      then PROOF-OF-POSSESSION: each side challenges the peer with a
-//      32-byte CSPRNG nonce; the peer signs (DOMAIN || self_vmc || nonce)
-//      with their device privkey and we verify against the device_pubkey
-//      embedded in the VMC. Without this step a leaked VMC blob would be
-//      usable by any device that ever observed it (migration 009 promises
-//      "leaked VMCs are unusable elsewhere" — proof-of-possession is what
-//      delivers that promise).
-//   2. Summary  — each side sends max HLC per device_id for this vault.
-//   3. Delta    — each side streams events the other doesn't have, in
-//                 HLC-ASC order, in 500-event batches, until has_more=false
-//                 on both sides.
+// Design D-ANTI-ENTROPY (M2c/M3.5, chain-only after M4):
+//   1. Handshake — each side presents its membership-proof bundle + chain
+//      identity (device pubkey/id/account). The verifier folds
+//      (peer proof ∪ local events) against the vault anchor
+//      (verifyPeerMembership) — a removal we hold locally wins. Then
+//      PROOF-OF-POSSESSION (v3): each side challenges the peer with a
+//      32-byte CSPRNG nonce; the peer signs (POP_DOMAIN_V3 ||
+//      bundle-commitment || nonce || both ephemeral pubkeys) with their
+//      device privkey and we verify against their CLAIMED device pubkey,
+//      which the chain verdict bound to an account. Without this step a
+//      proof bundle observed off the wire would be replayable from any
+//      device.
+//   2. Summary  — each side sends its per-author RELAYABLE contiguous
+//      author_seq frontier (version vector) for this vault.
+//   3. Delta    — each side streams the author_seq ranges the other lacks,
+//                 in order, in 500-event batches, until has_more=false on
+//                 both sides.
 //   4. Disconnect.
 //
-// Lawful-at-HLC ACL on mesh: VMCs encode (role, vault_epoch). A peer whose
-// VMC vault_epoch is STRICTLY LESS THAN ours is rejected — the peer will
-// refresh via /v1/check-in on the next online encounter. ACL re-application
-// happens locally — applyEvent is the single source of truth, and the
-// server's PullEvents path re-stamps actor_account_id retroactively when
-// this device next reaches the server.
+// Lawful-at-HLC ACL on mesh: the membership chain is folded at the event's
+// own HLC (role-at-that-HLC), so a removal the verifier holds refuses the
+// peer at handshake AND at every batch boundary (reverifyPeerWindow).
+// ACL re-application happens locally — applyEvent is the single source of
+// truth, and the server's PullEvents path re-stamps actor_account_id
+// retroactively when this device next reaches the server.
 //
 // Transport contract:
 //   - MeshConnection (per transport-interface.ts) exposes sendJSON /
@@ -33,8 +37,8 @@
 //   - BLE is a different story: the BLE link layer is UNENCRYPTED unless
 //     OS-level bonding is used (which Kaata explicitly avoids — the "Pair
 //     this device?" dialog UX cost is too high). The Phase 6 follow-up
-//     phase implements per-session X25519 ECDH (key = ECDH(own_device_priv,
-//     peer_device_pub-from-VMC) → HKDF-SHA512 → ChaCha20-Poly1305 per
+//     phase implements per-session X25519 ECDH (key = ECDH(own_ephemeral_priv,
+//     peer_ephemeral_pub) → HKDF-SHA512 → ChaCha20-Poly1305 per
 //     frame) inside transport-ble.ts. UNTIL that lands, BLE wire traffic
 //     is plaintext over the air — see SECURITY CALLOUT in the PR.
 //
@@ -45,10 +49,9 @@
 //     summary from scratch. Cheap (single GROUP BY query per vault).
 //
 // Edge cases handled:
-//   - VMC expiry mid-sync: re-checked at each batch boundary with the same
-//     EXPIRY_SKEW_TOLERANCE_MS leeway as the initial verifyVMC, avoiding a
-//     livelock where a slow-clock peer's VMC verifies once and gets killed
-//     on the first batch's mid-session check.
+//   - Membership change mid-sync: re-checked at each batch boundary by
+//     re-folding (peer proof ∪ local events), so a removal that arrived in
+//     THIS session's delta stream refuses the peer at the next boundary.
 //   - Out-of-order arrival: applyEvent handles via HLC; no reorder buffer.
 //   - Partial application: each applyEvent is its own transaction.
 //   - Asymmetric volume: separate send / receive batch budgets so a peer
@@ -61,14 +64,31 @@
 // the shim relies on transitive import order through other modules.
 import "./_ed25519-setup";
 import * as ed from "@noble/ed25519";
+// sha2 (not the deprecated per-hash deep import) — same function, current
+// module layout in the installed @noble/hashes.
+import { sha256 } from "@noble/hashes/sha2";
 import * as Crypto from "expo-crypto";
 
 import { compareHLC, type HLC, tickReceive, serializeHLC, deserializeHLC } from "../hlc";
-import { applyEvent } from "../projection";
 import { getDb } from "../db-tx";
-import { getAppMetaInTx, setAppMetaInTx, getInstallIdSync } from "../db-tx";
+import { getAppMetaInTx, setAppMetaInTx, getInstallIdSync, getAccountIdSync } from "../db-tx";
+import {
+  buildOwnProofBundle,
+  getLocalMembershipState,
+  verifyPeerMembership,
+  PROOF_BUNDLE_CAP,
+} from "../trust/proof";
+import type { MembershipEventLike } from "../trust/chain";
 import type { LedgerEvent } from "../events";
 import { isKnownEventType } from "../events";
+// M3.5: the pure version-vector engine (transport-agnostic, bun-tested). The
+// mesh delta protocol is now its first load-bearing consumer.
+import {
+  computeContiguous,
+  planRangesToSend,
+  type SeqRange,
+  type Vector,
+} from "../replication/planner";
 import type {
   IngestContext as IngestContextType,
   IngestVerdict as IngestVerdictType,
@@ -81,9 +101,10 @@ const HLC_LAST_KEY = "hlc_last";
 
 import {
   MeshHandshakeError,
-  MeshVMCExpiredError,
   MeshVMCRevokedError,
   MeshTransportError,
+  emitMeshFailure,
+  type MeshFailureEvent,
 } from "./errors";
 import {
   generateEphemeralKeyPair,
@@ -93,48 +114,53 @@ import {
   type EphemeralKeyPair,
   type BleAeadContext,
 } from "./aead";
-import {
-  cachePeerVMC,
-  decodeDevicePubkey,
-  EXPIRY_SKEW_TOLERANCE_MS,
-  getCachedVMC,
-  isRevoked,
-  peekVMCDeviceId,
-  type ParsedVMC,
-  verifyVMCAgainstPinnedPeer,
-} from "./vmc";
-import { signWithDeviceKey } from "./device-key";
+import { isRevoked } from "../trust/revocation";
+import { ensureDeviceKey, getDevicePubkey, signWithDeviceKey } from "./device-key";
+import { buildLocalAccountId } from "../trust/account-id";
 import type { MeshConnection } from "./transport-interface";
 
-// Domain-separation tag for proof-of-possession signatures. Prevents the
-// signed challenge from being usable as a signature on any other Kaata
+// Domain-separation tag for the proof-of-possession signature. Prevents
+// the signed challenge from being usable as a signature on any other Kaata
 // message that might be signed by the same device key in the future.
 //
-// v2 (v0.5.2 final) ALSO binds both ephemeral X25519 pubkeys into the
-// signed message. Without that binding, a Hello-mutation attacker could
-// substitute their own ephemeral pubkey in transit, the peer signs PoP
-// (which only covered nonces + VMC), and the AEAD key would be derived
-// against the attacker's pub — leaking traffic. Engineering critique N#2.
-// Bumping the domain string also forces a clean rejection if a v1 peer
-// somehow connects (their signature won't verify under the v2 message).
-const POP_DOMAIN = "kaata-mesh-handshake-pop-v2";
+// The signed transcript binds the signer's OWN presented proof bundle (as
+// a sha256 over its canonical event_id list), the verifier's challenge
+// nonce, and both ephemeral X25519 pubkeys. The ephemeral-pubkey binding
+// closes the Hello-mutation seam: without it a MITM could substitute its
+// own ephemeral pubkey in transit, the peer signs a PoP that only covered
+// nonces + bundle, and the AEAD key would be derived against the
+// attacker's pub — leaking traffic. The bundle commitment stops a MITM
+// from splicing a different proof set under a recorded signature. Verified
+// against the peer's CLAIMED device_pubkey_b64, which the chain verdict
+// bound to an account.
+const POP_DOMAIN_V3 = "kaata-pop-v3";
 
 // ---------------------------------------------------------------------------
 // Wire schemas
 // ---------------------------------------------------------------------------
 
-export const WIRE_VERSION = 1;
+// WIRE_VERSION 3 is the membership-chain handshake (M2c,
+// docs/m2-membership-chain.md §7) over the author_seq VERSION-VECTOR
+// protocol (M3.5): the summary is a per-author contiguous-frontier vector
+// (not max_hlc_per_device) and the delta streams author_seq ranges in
+// order. Full cutover, no backwards-compat (no users yet): pre-v3 peers
+// (incl. the retired v1 VMC handshake) are refused at the version gate
+// with an actionable "peer_outdated" failure event.
+export const WIRE_VERSION = 3;
+const SUPPORTED_WIRE_VERSIONS: ReadonlySet<number> = new Set([3]);
 
 export type HelloMessage = {
   type: "hello";
-  v: typeof WIRE_VERSION;
-  vmc_blob: string;
+  // Wire version (3 = membership-chain + author_seq version-vector). Typed
+  // as number (not the literal) so we can detect + reject older peers at
+  // the version gate with an actionable "peer_outdated" message.
+  v: number;
   capabilities: string[];
   // 32-byte CSPRNG nonce as URL-safe base64 (no padding). The peer must
-  // return its signature over (POP_DOMAIN || own_vmc_bytes || this_nonce)
-  // in their PopProofMessage. Without this proof-of-possession round, a
-  // VMC leaked from a backup or rooted phone would be replayable from any
-  // device.
+  // return its signature over the v3 PoP transcript (POP_DOMAIN_V3 ||
+  // bundle-commitment || this_nonce || both ephemeral pubkeys) in their
+  // PopProofMessage. Without this proof-of-possession round, a chain proof
+  // observed off the wire would be replayable from any device.
   pop_nonce: string;
   // Phase 6 follow-up: ephemeral X25519 public key (32 bytes, base64url).
   // Combined with the peer's ephemeral pubkey + both pop_nonces it
@@ -142,41 +168,69 @@ export type HelloMessage = {
   // Mandatory since v0.5.2 — peers without it are rejected as "too old"
   // because the BLE link must NOT carry plaintext ledger data.
   ephemeral_x25519_pubkey: string;
-  // Mythos P2 fix: pair_nonce binding.
+  // pair_nonce binding (chain pair path, docs/m2-membership-chain.md §4
+  // row 2).
   //
   // When a joiner is doing their VERY FIRST handshake with a vault they
-  // just paired into (i.e. their VMC is self-signed and the owner's
-  // verifyVMCAgainstPinnedPeer would fall through to Path C TOFU), the
-  // joiner echoes the QR's shop_mode_token here. Owner's Path C now
-  // REQUIRES this field to exactly match a live unconsumed pair token's
-  // nonce for THIS vault — converting the surface from "any stranger
-  // in BLE range during the 5-min window" to "specifically the device
-  // that scanned the QR." Without this, a stranger could harvest
-  // vault_id from any plaintext Hello, self-issue a VMC, and ride the
+  // just paired into, they have NO chain yet — they send an EMPTY
+  // proof_bundle plus the QR's shop_mode_token echoed here. The owner
+  // admits the handshake IFF this nonce exactly matches a live unconsumed
+  // pair token for THIS vault, then EMITS the admission events itself
+  // (owner-signed vault_member_added + vault_device_added). This converts
+  // the surface from "any stranger in BLE range during the 5-min window"
+  // to "specifically the device that scanned the QR." Without it, a
+  // stranger could harvest vault_id from any plaintext Hello and ride the
   // pair window.
   //
-  // Optional on the wire so:
-  //   - a peer that's ALREADY pinned (subsequent handshakes) omits it
-  //   - older clients without the field fall through to "no pair-window
-  //     attempt" gracefully (verifyVMCAgainstPinnedPeer Path C requires
-  //     a non-empty pair_nonce, so omitting it skips Path C entirely)
+  // Optional on the wire so a peer that's ALREADY in the chain (subsequent
+  // handshakes) omits it — its proof bundle covers admission.
   pair_nonce?: string;
+  // --- M2c Hello v2 fields (membership-chain handshake) -------------------
+  // All optional on the wire so v:1 peers parse cleanly; the version
+  // gate + per-field validation make them mandatory on the chain path.
+  //
+  // Sender's device Ed25519 pubkey (standard base64, 32 bytes raw) —
+  // the identity the chain verdict binds to an account, and the key the
+  // v3 PoP is verified against.
+  device_pubkey_b64?: string;
+  // Sender's device id (install id). Cross-checked against the chain's
+  // device-registry binding for the claimed pubkey; on the pair path
+  // it's the id the owner binds via vault_device_added.
+  device_id?: string;
+  // Sender's claimed account id. For local-only joiners this is the
+  // 'local:<...>' sentinel (buildLocalAccountId over the vault anchor).
+  // On the chain path the verdict's account wins (this field is only
+  // load-bearing for the pair-admission emission, where no chain entry
+  // exists yet).
+  account_id?: string;
+  // Membership-proof bundle (docs §3): ordinary membership events, same
+  // wire shape as delta events. Verified via verifyPeerMembership over
+  // (bundle ∪ local events), then ingested through the normal
+  // verifyAndIngest pipeline — this is how chains gossip. Empty for a
+  // freshly-paired joiner (pair_nonce covers admission-in-progress).
+  proof_bundle?: WireMeshEvent[];
 };
 
 export type PopProofMessage = {
   type: "pop_proof";
   v: typeof WIRE_VERSION;
-  // ed25519 signature (base64) by the peer's device privkey over the bytes
-  // (POP_DOMAIN || peer_vmc_blob || our_nonce). Verified against the
-  // device_pubkey embedded in the peer's already-verified VMC.
+  // ed25519 signature (base64) by the peer's device privkey over the v3 PoP
+  // transcript (POP_DOMAIN_V3 || bundle-commitment || our_nonce || both
+  // ephemeral pubkeys). Verified against the peer's claimed device_pubkey,
+  // which the chain verdict (or the live pair token) bound to an account.
   sig: string;
 };
 
-export type SummaryMessage = {
-  type: "summary";
+// M3.5: the summary is now a per-author VERSION VECTOR — for each author
+// device, the highest RELAYABLE contiguous author_seq we hold (see
+// computeRelayableVector). The peer plans `planRangesToSend(itsVector, ourVector)`
+// and streams exactly the author_seq ranges we lack. Replaces max_hlc_per_device.
+export type VectorSummaryMessage = {
+  type: "vector";
   v: typeof WIRE_VERSION;
   vault_id: string;
-  max_hlc_per_device: Record<string, HLC>;
+  /** author device_id → highest relayable contiguous author_seq held. */
+  frontier: Record<string, number>;
 };
 
 export type WireMeshEvent = {
@@ -187,6 +241,13 @@ export type WireMeshEvent = {
   relationship_id: string | null;
   hlc: HLC;
   device_id: string;
+  // M3.5: the AUTHOR's canonical per-(vault,device) sequence, forwarded
+  // VERBATIM by every honest relay (read straight from event_log.author_seq,
+  // never re-minted). The receiver persists it (with a slot pre-check) so its
+  // version vector advances contiguously. The DELTA path always carries a real
+  // number (it selects WHERE author_seq IS NOT NULL); null is reachable only
+  // via the membership proof bundle (a row whose seq was slot-sacrificed).
+  author_seq: number | null;
   actor_account_id: string | null;
   payload: unknown;
   schema_version: number;
@@ -214,7 +275,7 @@ export type ByeMessage = {
   v: typeof WIRE_VERSION;
 };
 
-type AnyMessage = HelloMessage | PopProofMessage | SummaryMessage | DeltaMessage | ByeMessage;
+type AnyMessage = HelloMessage | PopProofMessage | VectorSummaryMessage | DeltaMessage | ByeMessage;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -237,16 +298,14 @@ const REVERIFY_EVERY_N_BATCHES = 1;
 // ---------------------------------------------------------------------------
 
 export type AntiEntropyOptions = {
-  localVMCBlob: string;
   vaultId: string;
   /**
-   * Phase 7: per-vault trust anchor pubkey (32 bytes, Ed25519). Pass
-   * when the vault is local-CA-anchored
-   * (vaults.vault_trust_anchor_pubkey populated). The peer's VMC will
-   * be verified against this key only, and the peer is required to
-   * present a `kaata-mesh-local-v1`-issued VMC. Omit/null for
-   * server-anchored vaults — verification falls back to the pinned
-   * server pubkey in app_meta and a `kaata-mesh-v1` issuer.
+   * Per-vault trust anchor pubkey (32 bytes, Ed25519): the owner's device
+   * pubkey, fixed at vault creation. Every live vault is chain-anchored
+   * (M4), so this is non-null for any vault the dispatch gate selects; the
+   * chain handshake folds the membership proof against it. Typed nullable
+   * only because loadVaultTrustAnchor() returns null on a malformed/missing
+   * row — handshake() refuses such a vault.
    *
    * Callers obtain this via loadVaultTrustAnchor(vaultId) below.
    */
@@ -310,25 +369,31 @@ export async function runAntiEntropy(
   const maxDurationMs = opts.maxDurationMs ?? 5 * 60 * 1000;
   const deadline = startedAt + maxDurationMs;
 
-  // --- 1. Handshake (VMC + proof-of-possession + epoch compare) ---
-  const peerVMC = await handshake(conn, opts);
+  // --- 1. Handshake ---
+  // Chain-only (M4): membership-proof verification against the vault
+  // anchor + v3 proof-of-possession. Every live vault is anchored.
+  const peer = await handshake(conn, opts);
 
-  // --- 2. Summary exchange ---
-  const localSummary = await computeSummary(opts.vaultId);
+  // --- 2. Vector exchange (M3.5) ---
+  // Each side sends its per-author RELAYABLE contiguous frontier. The peer
+  // plans planRangesToSend(itsFrontier, ourFrontier) and streams exactly the
+  // author_seq ranges we lack — replaces the HLC max_hlc_per_device summary.
+  const localVector = await computeRelayableVector(opts.vaultId);
   const [, peerSummary] = await Promise.all([
     sendMessage(conn, {
-      type: "summary",
+      type: "vector",
       v: WIRE_VERSION,
       vault_id: opts.vaultId,
-      max_hlc_per_device: localSummary,
-    } satisfies SummaryMessage),
-    recvTyped<SummaryMessage>(conn, "summary", deadline - Date.now()),
+      frontier: localVector,
+    } satisfies VectorSummaryMessage),
+    recvTyped<VectorSummaryMessage>(conn, "vector", deadline - Date.now()),
   ]);
+  const peerVector: Vector = peerSummary.frontier ?? {};
   console.log(
-    "[mesh.summary] exchanged ourDevices=",
-    Object.keys(localSummary).length,
+    "[mesh.vector] exchanged ourDevices=",
+    Object.keys(localVector).length,
     "peerDevices=",
-    Object.keys(peerSummary.max_hlc_per_device).length,
+    Object.keys(peerVector).length,
   );
 
   if (peerSummary.vault_id !== opts.vaultId) {
@@ -344,23 +409,13 @@ export async function runAntiEntropy(
   // user to switch to wifi if BLE would take > BLE_WIFI_UPGRADE_PROMPT_SECONDS.
   // Skipped for webrtc/memory transports (already on fast wifi).
   //
-  // The estimate uses a one-sided count (delta events we'd SEND) plus the
-  // peer's pending count, which we approximate via the symmetric summary:
-  // any device the peer's max_hlc trails ours on contributes pending events
-  // in the SEND direction; any device our max_hlc trails the peer's
-  // contributes in the RECEIVE direction. The actual peer-receive count
-  // requires a separate exchange round, deferred — see countDeltaEventsFromSummary.
+  // M3.5: the estimate is now exact in the SEND direction — the planned
+  // author_seq ranges (planRangesToSend) sum to precisely the events we'll
+  // send. The peer's pending (RECEIVE) count still needs a round we don't do,
+  // so we keep the 2× conservative doubling for the bi-directional case.
   if (conn.kind === "ble" && opts.coordinateUpgrade && opts.upgradeListenPort != null) {
     try {
-      const sendCount = await countDeltaEventsFromSummary(
-        opts.vaultId,
-        peerSummary.max_hlc_per_device,
-      );
-      // We cannot precisely know the peer's pending count without a
-      // separate count-exchange round (the summary message only carries
-      // head HLCs). For the prompt threshold we use 2× our sendCount as
-      // a conservative upper bound — captures the bi-directional case
-      // typical at vault-join time.
+      const sendCount = countRangeEvents(planRangesToSend(localVector, peerVector));
       const totalEstimated = Math.max(sendCount, sendCount * 2);
       if (opts.coordinateUpgrade.shouldPromptForWifi(totalEstimated)) {
         const choice = await opts.coordinateUpgrade.shouldOfferWifiUpgrade(
@@ -379,13 +434,13 @@ export async function runAntiEntropy(
             received: 0,
             duplicates: 0,
             durationMs: Date.now() - startedAt,
-            peerDeviceId: peerVMC.device_id,
+            peerDeviceId: peer.deviceId,
           };
         }
         if (choice === "wifi") {
           const upgradeResult = await opts.coordinateUpgrade.coordinateWifiUpgrade(conn, {
             ownPeerId: opts.coordinateUpgrade.ownDeviceId,
-            peerId: peerVMC.device_id,
+            peerId: peer.deviceId,
             vaultId: opts.vaultId,
             estimatedSeconds: opts.coordinateUpgrade.estimateBleSeconds(totalEstimated),
             totalEvents: totalEstimated,
@@ -393,16 +448,17 @@ export async function runAntiEntropy(
             peerLabel: opts.peerLabel,
           });
           if (upgradeResult.success && upgradeResult.newConnection) {
-            // CRITICAL: re-run the full handshake on the new WebRTC
+            // CRITICAL: re-run the full handshake on the new LAN (TCP)
             // connection AND verify the device_id matches the one we
             // authenticated on BLE. This defends against a LAN MITM
-            // hijacking the upgrade via mDNS race.
+            // hijacking the upgrade via the mDNS race. The handshake also
+            // installs the LAN session AEAD (fail-loud if absent).
             const wifiConn = upgradeResult.newConnection;
             const expected = upgradeResult.expectedPeerDeviceId;
             try {
               const newPeer = await handshake(wifiConn, opts);
-              if (expected && newPeer.device_id !== expected) {
-                // Identity mismatch — close WebRTC and stay on BLE.
+              if (expected && newPeer.deviceId !== expected) {
+                // Identity mismatch — close the LAN conn and stay on BLE.
                 try {
                   await wifiConn.close();
                 } catch {
@@ -412,8 +468,8 @@ export async function runAntiEntropy(
                   console.warn(
                     "[anti-entropy] wifi-upgrade identity mismatch: BLE=",
                     expected,
-                    "WebRTC=",
-                    newPeer.device_id,
+                    "LAN=",
+                    newPeer.deviceId,
                   );
                 }
               } else {
@@ -450,7 +506,9 @@ export async function runAntiEntropy(
   let sent = 0;
   let received = 0;
   let duplicates = 0;
-  const sendState = newSendCursor(peerSummary.max_hlc_per_device);
+  // M3.5: plan the exact author_seq ranges the peer lacks, then stream them in
+  // author_seq order so the peer's frontier advances contiguously.
+  const sendState = newSendCursor(planRangesToSend(localVector, peerVector));
   let localSentDone = false;
   let peerSentDone = false;
   let sentBatches = 0;
@@ -479,7 +537,7 @@ export async function runAntiEntropy(
     totalLoopIters++;
 
     if (totalLoopIters % REVERIFY_EVERY_N_BATCHES === 0) {
-      await reverifyVMCWindow(peerVMC);
+      await reverifyPeerWindow(opts.vaultId, peer);
     }
 
     let outBatch: WireMeshEvent[] = [];
@@ -566,7 +624,7 @@ export async function runAntiEntropy(
     received,
     duplicates,
     durationMs,
-    peerDeviceId: peerVMC.device_id,
+    peerDeviceId: peer.deviceId,
   };
 }
 
@@ -574,7 +632,36 @@ export async function runAntiEntropy(
 // Handshake
 // ---------------------------------------------------------------------------
 
-async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promise<ParsedVMC> {
+/**
+ * What the chain handshake authenticates — the identity + role the
+ * downstream stages (delta loop, wifi upgrade, mid-session reverify)
+ * consume.
+ */
+type PeerSession = {
+  deviceId: string;
+  devicePubkeyB64: string;
+  accountId: string;
+  role: string;
+  /** The peer's presented membership-proof bundle, kept so the mid-session
+   *  reverify can re-run the SAME verdict the handshake ran (local events
+   *  are always merged in, so a removal ingested mid-stream still wins and
+   *  kills the session). */
+  proofEvents: MembershipEventLike[];
+};
+
+/** Plumbing the chain verification path needs, captured once in
+ *  handshake() after the Hello exchange. */
+type HandshakeWireContext = {
+  peerHello: HelloMessage;
+  ourNonceB64: string;
+  ourEphemeralPub: Uint8Array;
+  peerEphemeralPub: Uint8Array;
+  /** event_ids of the proof bundle WE sent in our own Hello — the v3
+   *  PoP transcript commits to them. */
+  ownBundleIds: string[];
+};
+
+async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promise<PeerSession> {
   console.log("[mesh.hs] start vault=", opts.vaultId.slice(0, 8), "transport=", conn.kind);
 
   // Generate our challenge nonce. 32 bytes CSPRNG is sufficient for
@@ -605,14 +692,46 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
     // ignore — handshake works without pair_nonce when peer is pinned
   }
 
+  // M2c: gather our v2 identity + membership-proof bundle.
+  //
+  //   - device_pubkey_b64 / device_id: this install's chain identity.
+  //   - account_id: signed-in account, else the deterministic 'local:'
+  //     sentinel derived from OUR OWN device pubkey — the exact
+  //     resolution lib/trust/backfill.ts uses for chain emission. For
+  //     the vault owner that sentinel coincides with the anchor-derived
+  //     one (the anchor IS their device key); for a local-only JOINER
+  //     it's a distinct per-device sentinel, which is what lets the
+  //     owner's admission events carry the joiner's QR-committed role
+  //     instead of collapsing the joiner into the owner's account.
+  //   - proof_bundle: full local membership set (M2; see
+  //     buildOwnProofBundle for the M3 minimal-chain note). Empty when
+  //     we have no chain yet — i.e. exactly the freshly-paired joiner
+  //     case, where pair_nonce above carries the admission claim.
+  const { pubkey_b64: ownDevicePubkeyB64 } = await ensureDeviceKey();
+  const ownDeviceId = getInstallIdSync();
+  const ownAccountId = getAccountIdSync() ?? buildLocalAccountId(ownDevicePubkeyB64);
+  let ownBundle: MembershipEventLike[] = [];
+  try {
+    ownBundle = await buildOwnProofBundle(opts.vaultId);
+  } catch (err) {
+    // A bundle-read failure must not kill the handshake outright: an
+    // empty bundle is only accepted by the peer inside a live pair
+    // window, so this fails closed on their side, loudly here.
+    console.warn("[mesh.hs] buildOwnProofBundle failed — sending empty bundle", err);
+  }
+  const ownBundleIds = ownBundle.map((e) => e.event_id);
+
   const hello: HelloMessage = {
     type: "hello",
     v: WIRE_VERSION,
-    vmc_blob: opts.localVMCBlob,
     capabilities: ["v1"],
     pop_nonce: ourNonceB64,
     ephemeral_x25519_pubkey: ourEphemeralPubB64,
     ...(ourPairNonce ? { pair_nonce: ourPairNonce } : {}),
+    device_pubkey_b64: ownDevicePubkeyB64,
+    device_id: ownDeviceId,
+    ...(ownAccountId ? { account_id: ownAccountId } : {}),
+    proof_bundle: ownBundle.map(membershipEventToWire),
   };
 
   const [, peerHello] = await Promise.all([
@@ -655,213 +774,41 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
   }
 
   // -------------------------------------------------------------------------
-  // Handshake gate order (Design D-REVOCATION-GOSSIP):
-  //
-  //   1. Recv peer Hello (vmc_blob + pop_nonce).
-  //   2. PEEK the unverified vault_id + device_id out of the blob.
-  //   3. revocation_list lookup on (vault_id, device_id) — if present, REJECT
-  //      with MeshVMCRevokedError. (Cheap SQL query; skips Ed25519 verify
-  //      cost on known-revoked peers, and keeps the rejection reason crisp
-  //      even when a removed peer's VMC would still cryptographically
-  //      verify because their signature is intact.)
-  //   4. verifyVMC — Ed25519 signature + expiry + issuer + role + vault_id
-  //      match against the pinned trust anchor (server pubkey OR local-CA
-  //      pubkey for Phase 7 local-CA vaults).
-  //   5. revocation_list lookup AGAIN on the now-trusted device_id. Defense
-  //      in depth: if step 3 was dodged by a malformed/lying blob carrying
-  //      a different device_id, we re-check against the verified one.
-  //      Idempotent and cheap.
-  //   6. vault_epoch comparison — refuse peers strictly older than our
-  //      cached vault_epoch (forces them to refresh via /v1/check-in).
-  //   7. Proof-of-possession exchange (challenge-response over device key).
-  //   8. Summary / delta data exchange.
-  //
-  // Why the early peek matters: a peer removed via the offline owner-
-  // emitted vault_member_removed event (Phase D) still holds a
-  // cryptographically valid VMC — the local-CA signature on it doesn't
-  // become invalid; only the revocation row makes them unwelcome. The
-  // ONLY thing standing between a fired staff member and an active sync
-  // session is this revocation_list check, so we run it as early as
-  // possible and again post-verify.
-  //
-  // Race note: revocation gossip received during the SAME batch as an
-  // in-flight handshake does NOT kill the current session — the row may
-  // not have landed yet when this handshake's checks ran. Acceptable per
-  // design: the removed peer can only deliver events they authored
-  // BEFORE removal in this batch, and the next handshake will see the
-  // updated revocation_list and reject. The mid-session reverifyVMCWindow
-  // (every N batches) closes most of this window in practice.
+  // M3.5 version gate. Only v3 is supported (full cutover — recvTyped already
+  // refuses other versions at the wire layer, but we gate the Hello explicitly
+  // so a pre-v3 peer gets the actionable 'peer_outdated' UX instead of a
+  // generic bad_version). M4: the trust path is chain-only — every live vault
+  // is anchored (loadVaultTrustAnchor non-null) and the dispatch gate only
+  // selects anchored vaults, so there is a single verification path.
   // -------------------------------------------------------------------------
-
-  // Step 2-3: early revocation check on unverified header fields.
-  const peeked = peekVMCDeviceId(peerHello.vmc_blob);
-  if (peeked && (await isRevoked(peeked.vault_id, peeked.device_id))) {
-    throw new MeshVMCRevokedError(
-      `peer device ${peeked.device_id} is revoked from vault ${peeked.vault_id} (early reject, pre-verify)`,
-    );
-  }
-  console.log("[mesh.hs] revocation pre-check OK");
-
-  // Step 4: verify signature + envelope. Tries the legacy trust-anchor
-  // path first (works for owner-self VMCs and owner-issued-for-peer
-  // VMCs), then falls back to the Briar-style pinned-peer path: the
-  // peer self-signed their own VMC at pair time, and we pinned their
-  // device_pubkey when scanning their QR. The fallback verifies the
-  // signature against the pinned pubkey — only peers whose QR we
-  // physically scanned can ever pass this gate (privacy guarantee:
-  // stranger phones in BLE range cannot impersonate paired ones).
-  const verifyResult = await verifyVMCAgainstPinnedPeer(
-    peerHello.vmc_blob,
-    opts.vaultId,
-    opts.vaultTrustAnchorPubkey ?? null,
-    // Mythos P2: thread the peer's echoed pair_nonce through so Path C
-    // can require an exact nonce match (binds TOFU to "the device that
-    // scanned the QR" instead of "anyone in BLE range who learned the
-    // vault_id during the 5-min window").
-    { pairNonceFromPeerHello: peerHello.pair_nonce },
-  );
-  if (!verifyResult.valid) {
-    if (verifyResult.error === "expired") {
-      throw new MeshVMCExpiredError(`peer VMC expired: ${verifyResult.detail ?? ""}`);
-    }
+  const peerWireVersion = typeof peerHello.v === "number" ? peerHello.v : 0;
+  if (peerWireVersion < WIRE_VERSION) {
+    // Cast: 'peer_outdated' is not yet in errors.ts's MeshFailureEvent union;
+    // MeshController matches the kind via string.
+    emitMeshFailure({ kind: "peer_outdated" } as unknown as MeshFailureEvent);
     throw new MeshHandshakeError(
-      `peer VMC verification failed (${verifyResult.error}): ${verifyResult.detail ?? ""}`,
+      `peer wire version ${peerWireVersion} < ${WIRE_VERSION} — peer must update to the version-vector protocol before it can sync`,
       "vmc_invalid",
     );
   }
-  const peerVMC = verifyResult.vmc;
-  console.log(
-    "[mesh.hs] VMC verified peer device=",
-    peerVMC.device_id.slice(0, 8),
-    "role=",
-    peerVMC.role,
-  );
 
-  // Step 5: re-check revocation against the now-trusted device_id (defense
-  // in depth — covers the case where the unverified peek in step 3 returned
-  // null due to a malformed blob that nonetheless verified, or where a
-  // forged blob in step 3 carried a different device_id than the signed
-  // one).
-  if (await isRevoked(peerVMC.vault_id, peerVMC.device_id)) {
-    throw new MeshVMCRevokedError(
-      `peer device ${peerVMC.device_id} is revoked from vault ${peerVMC.vault_id}`,
-    );
-  }
-
-  // Lawful-at-HLC ACL: refuse peers carrying a STRICTLY LESS vault_epoch
-  // than ours. They will refresh on their next online check-in. Equal-or-
-  // greater is fine — we may be the stale party in the inverse direction
-  // and they'll get the chance to refuse us via the same check on their
-  // side. (Both sides being equal is the steady-state case.)
-  const ourCached = await getCachedVMC(opts.vaultId);
-  if (ourCached && peerVMC.vault_epoch < ourCached.vault_epoch) {
-    throw new MeshHandshakeError(
-      `peer vault_epoch ${peerVMC.vault_epoch} is older than ours ${ourCached.vault_epoch}; refusing handshake (peer will refresh on next check-in)`,
-      "vmc_invalid",
-    );
-  }
-  console.log(
-    "[mesh.hs] epoch gate OK peer_epoch=",
-    peerVMC.vault_epoch,
-    "ours=",
-    ourCached?.vault_epoch,
-  );
-
-  // --- Proof of possession ---
-  //
-  // We've verified the peer's VMC blob is a server-signed credential
-  // binding (device_pubkey, vault_id, role, ...). What we still don't
-  // know is whether the entity at the OTHER end of this socket is the
-  // device that owns the matching private key. Without this check,
-  // anyone who copies the SQLite vault_credentials row off a phone
-  // (e.g. via ADB on a debuggable build, a backup that wasn't excluded
-  // from Android's auto-backup, or a rooted phone) can replay the blob
-  // and impersonate the legitimate device.
-  //
-  // Both sides exchange:
-  //   1. PoP-proof for the OTHER side's challenge:
-  //      sig = ed25519_sign(own_privkey,
-  //        POP_DOMAIN || own_vmc_blob_bytes || peer_pop_nonce)
-  //   2. Verify the peer's proof against THEIR device_pubkey from THEIR
-  //      VMC body, over (POP_DOMAIN || peer_vmc_blob || OUR pop_nonce).
-  //
-  // The domain tag and our nonce make the signature unforgeable — even
-  // an attacker who somehow recorded a previous handshake's PoP sig
-  // can't replay it on a new session with a fresh nonce.
-  // v2 (v0.5.2 final): bind BOTH ephemeral X25519 pubkeys into the signed
-  // PoP message so a Hello-mutation MITM that substitutes a different
-  // ephemeral pubkey can't get the peer's PoP to accidentally authenticate
-  // the wrong key.
-  const ourSigBytes = await signWithDeviceKey(
-    buildPopMessageWithEphemerals(
-      POP_DOMAIN,
-      opts.localVMCBlob,
-      peerHello.pop_nonce,
-      ourEphemeral.publicKey,
-      peerEphemeralPub,
-    ),
-  );
-  console.log("[mesh.hs] our PoP signed sigLen=", ourSigBytes.length);
-  const ourProof: PopProofMessage = {
-    type: "pop_proof",
-    v: WIRE_VERSION,
-    sig: bytesToB64Url(ourSigBytes),
-  };
-  const [, peerProof] = await Promise.all([
-    sendMessage(conn, ourProof),
-    recvTyped<PopProofMessage>(conn, "pop_proof", 10_000),
-  ]);
-  console.log("[mesh.hs] peer PoP received");
-
-  const peerDevicePubkey = decodeDevicePubkey(peerVMC.device_pubkey);
-  if (!peerDevicePubkey) {
-    throw new MeshHandshakeError(
-      `peer VMC carries malformed device_pubkey (length != 32)`,
-      "vmc_invalid",
-    );
-  }
-  const peerSigBytes = b64UrlDecode(peerProof.sig);
-  if (peerSigBytes.length !== 64) {
-    throw new MeshHandshakeError(
-      `peer PoP signature has wrong length ${peerSigBytes.length} (expected 64)`,
-      "pop_failed",
-    );
-  }
-  // Verify the peer's PoP against (POP_DOMAIN || peer_vmc || OUR_nonce ||
-  // peer_ephemeral_pub || our_ephemeral_pub). From the peer's perspective
-  // their "own pub" is peerEphemeralPub and their "peer pub" is ours, so
-  // the argument order is swapped here vs. when we signed our own PoP.
-  const popMsg = buildPopMessageWithEphemerals(
-    POP_DOMAIN,
-    peerHello.vmc_blob,
+  const wire: HandshakeWireContext = {
+    peerHello,
     ourNonceB64,
+    ourEphemeralPub: ourEphemeral.publicKey,
     peerEphemeralPub,
-    ourEphemeral.publicKey,
-  );
-  let popOk = false;
-  try {
-    // SYNC verify — uses sha512Sync shim. Async variant needs crypto.subtle.
-    popOk = ed.verify(peerSigBytes, popMsg, peerDevicePubkey);
-  } catch (err) {
-    if (__DEV__) console.warn("[mesh.hs] ed.verify threw — sha512Sync shim missing?", err);
-    popOk = false;
-  }
-  if (!popOk) {
-    throw new MeshHandshakeError(
-      `peer failed proof-of-possession check — they hold a valid VMC blob ` +
-        `but do not control the matching private key (likely VMC theft attempt)`,
-      "pop_failed",
-    );
-  }
-  console.log("[mesh.hs] PoP verified peer=", peerVMC.device_id.slice(0, 8));
+    ownBundleIds,
+  };
+  const session = await verifyPeerChain(conn, opts, wire);
 
   // ---- AEAD key derivation + install ------------------------------------
   //
-  // We derive the ChaCha20-Poly1305 key for ALL transports that expose
-  // installAead(). On BLE this enables encryption from here on. On WebRTC,
-  // BleMeshConnection isn't in play — the WebRTC transport's MeshConnection
-  // doesn't implement installAead, so the call is a no-op (DTLS already
-  // protects that link). On in-memory test connections: same.
+  // Shared by both paths. We derive the ChaCha20-Poly1305 key for ALL
+  // transports that expose installAead(). On BLE and LAN (TCP) this enables
+  // encryption from here on — both are plaintext byte channels with no
+  // transport-layer crypto, so the session AEAD is the ONLY thing protecting
+  // ledger data on the wire. On in-memory test connections installAead is a
+  // no-op stub. (WebRTC, which had DTLS and skipped this, was removed in M3.)
   //
   // Binding the AEAD key to BOTH pop_nonces (which the PoP layer just
   // signed) closes any seam where an attacker could derive a different key
@@ -890,165 +837,555 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
       sendDir: aeadCtx.sendDirectionTag,
       recvDir: aeadCtx.recvDirectionTag,
     });
-  } else if (conn.kind === "ble") {
-    // BLE without installAead is a logic bug — fail loud rather than
-    // accept plaintext on this transport.
+  } else if (conn.kind === "ble" || conn.kind === "lan") {
+    // BLE and LAN are plaintext byte channels — a missing installAead means
+    // we'd run ledger sync in the clear. Fail loud rather than silently
+    // accept plaintext (done-criterion 2: a packet capture must show
+    // ciphertext only). The earlier kind-only check missed "lan".
     throw new MeshHandshakeError(
-      "BLE connection has no installAead method — AEAD cannot be enabled",
+      `${conn.kind} connection has no installAead method — AEAD cannot be enabled`,
       "transport",
     );
   }
 
-  conn.remoteDeviceId = peerVMC.device_id;
+  conn.remoteDeviceId = session.deviceId;
 
-  // Persist the peer's VMC into vault_credentials. Without this, every
-  // remote event the peer authors gets refused by role-gate.ts:401-415
-  // (lookupSignerCredential returns null for the peer's device_id →
-  // reason='unknown_actor'). The rejection is silent in logs (counted
-  // as 'duplicates++' in anti-entropy.ts) so the operator sees "sync
-  // successful" but no events propagate — exactly the v0.5.2 symptom.
-  // We're caching here, AFTER VMC verify + revocation + epoch + PoP all
-  // passed; the peer is fully authenticated and the binding (device_id
-  // → device_pubkey, account_id, role from vmc_blob) is trusted.
-  // Idempotent via ON CONFLICT (vault_id, device_id) DO UPDATE.
-  // Retry the cache write up to 3x with backoff: a transient SQLite
-  // busy (e.g. concurrent backup) used to be silently swallowed below,
-  // leaving the handshake "successful" but every incoming event refused
-  // at the role-gate as unknown_actor. Loud-fail on persistent failure
-  // so the connection closes cleanly and discovery retries on the next
-  // emit (allowDuplicates: true post-BUG-C makes that effective).
-  let cacheErr: unknown = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      await cachePeerVMC({
-        vaultId: peerVMC.vault_id,
-        peerDeviceId: peerVMC.device_id,
-        peerVmcBlob: peerHello.vmc_blob,
-        peerExpiresAt: peerVMC.expires_at_ms,
-        peerAccountId: peerVMC.account_id,
-        peerDevicePubkeyB64: peerVMC.device_pubkey,
-        peerVaultEpoch: peerVMC.vault_epoch,
-      });
-      cacheErr = null;
-      break;
-    } catch (err) {
-      cacheErr = err;
-      // 50ms, 150ms backoff. Any SQLite busy retry resolves well within
-      // this; persistent failure is a real bug.
-      await new Promise((r) => setTimeout(r, 50 * (attempt + 1) ** 2));
-    }
-  }
-  if (cacheErr) {
-    throw new MeshHandshakeError(
-      `cachePeerVMC failed after 3 attempts: ${(cacheErr as Error).message}`,
-      "transport",
-    );
-  }
-  console.log(
-    "[mesh.hs] peer VMC cached device=",
-    peerVMC.device_id.slice(0, 8),
-    "account=",
-    peerVMC.account_id.slice(0, 16),
-    "role=",
-    peerVMC.role,
-  );
-
-  // Mythos P2c: close the TOFU window.
-  //
-  // OWNER side: if Path C succeeded, the verify result carries the
-  // nonce that matched. Marking it consumed prevents a second joiner
-  // from riding the same nonce — single-use semantics.
-  //
-  // JOINER side: drop our local pair_nonce. The peer is now pinned in
-  // vault_credentials; subsequent handshakes use Path B and don't need
-  // the nonce. Single-use here defends against replay if a buggy
-  // future code path leaks the nonce.
-  //
-  // Both are best-effort: a failure here doesn't undo the handshake
-  // success. The owner's consumed_at_ms write is critical for security;
-  // log loudly so a recurring failure is caught.
+  // JOINER side (both paths): drop our local pair_nonce echo. After a
+  // successful first handshake the owner has either pinned us
+  // (legacy: vault_credentials) or emitted our admission into the chain
+  // (chain pair path) — its own local knowledge now admits us, so the
+  // nonce is no longer needed even if THIS session dies before the
+  // admission events replicate to us. Single-use semantics defend
+  // against replay if a future bug leaks the nonce. Best-effort: the
+  // entry self-expires in 5 min regardless.
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const localPair = require("./local-pair") as {
-      consumePairNonce?: (nonce: string) => Promise<void>;
       clearLocalPairNonceForVault: (vaultId: string) => Promise<void>;
     };
-    const tofuNonce = (verifyResult as { tofuMatchedTokenNonce?: string }).tofuMatchedTokenNonce;
-    if (tofuNonce && typeof localPair.consumePairNonce === "function") {
-      try {
-        await localPair.consumePairNonce(tofuNonce);
-      } catch (err) {
-        console.warn("[mesh.hs] consumePairNonce failed (TOFU window may still be open)", err);
-      }
-    }
-    try {
-      await localPair.clearLocalPairNonceForVault(opts.vaultId);
-    } catch (err) {
-      // benign — the entry self-expires in 5 min if not cleared.
-      if (__DEV__) console.warn("[mesh.hs] clearLocalPairNonceForVault failed", err);
-    }
+    await localPair.clearLocalPairNonceForVault(opts.vaultId);
   } catch (err) {
-    if (__DEV__) console.warn("[mesh.hs] post-success pair-window cleanup failed", err);
+    if (__DEV__) console.warn("[mesh.hs] clearLocalPairNonceForVault failed", err);
   }
 
-  return peerVMC;
+  return session;
 }
 
-async function reverifyVMCWindow(peer: ParsedVMC): Promise<void> {
-  const now = Date.now();
-  // Apply the same EXPIRY_SKEW_TOLERANCE_MS leeway as the initial verifyVMC
-  // — otherwise a peer with a slow clock that passed verify-time would get
-  // immediately killed on the first batch's mid-session check, producing
-  // a handshake -> abort -> rehandshake -> abort livelock.
-  if (peer.expires_at_ms + EXPIRY_SKEW_TOLERANCE_MS < now) {
-    throw new MeshVMCExpiredError(
-      `peer VMC expired during anti-entropy (expired_at_ms=${peer.expires_at_ms}, now=${now})`,
+// ---------------------------------------------------------------------------
+// Chain verification path (M2c — the SOLE trust path after M4).
+// docs/m2-membership-chain.md §3 (verifier), §4 row 2 (pair flow), §7.
+// ---------------------------------------------------------------------------
+
+async function verifyPeerChain(
+  conn: MeshConnection,
+  opts: AntiEntropyOptions,
+  wire: HandshakeWireContext,
+): Promise<PeerSession> {
+  const { peerHello, ourNonceB64, ourEphemeralPub, peerEphemeralPub } = wire;
+
+  // --- 1. Claimed identity fields (mandatory on the chain path) ---
+  const claimedPubkeyB64 = peerHello.device_pubkey_b64;
+  let claimedPubkeyBytes: Uint8Array | null = null;
+  if (typeof claimedPubkeyB64 === "string" && claimedPubkeyB64.length > 0) {
+    try {
+      const decoded = b64ToBytes(claimedPubkeyB64);
+      if (decoded.length === 32) claimedPubkeyBytes = decoded;
+    } catch {
+      claimedPubkeyBytes = null;
+    }
+  }
+  if (typeof claimedPubkeyB64 !== "string" || !claimedPubkeyBytes) {
+    throw new MeshHandshakeError(
+      "peer hello v2 missing or malformed device_pubkey_b64",
+      "vmc_invalid",
     );
   }
-  if (await isRevoked(peer.vault_id, peer.device_id)) {
-    throw new MeshVMCRevokedError(`peer device ${peer.device_id} revoked mid-session`);
+  const claimedDeviceId = peerHello.device_id;
+  if (typeof claimedDeviceId !== "string" || claimedDeviceId.length === 0) {
+    throw new MeshHandshakeError("peer hello v2 missing device_id", "vmc_invalid");
+  }
+  const claimedAccountId = peerHello.account_id;
+  if (typeof claimedAccountId !== "string" || claimedAccountId.length === 0) {
+    throw new MeshHandshakeError("peer hello v2 missing account_id", "vmc_invalid");
+  }
+  const rawBundle = Array.isArray(peerHello.proof_bundle) ? peerHello.proof_bundle : [];
+  if (rawBundle.length > PROOF_BUNDLE_CAP) {
+    throw new MeshHandshakeError(
+      `peer proof_bundle too large (${rawBundle.length} > ${PROOF_BUNDLE_CAP})`,
+      "vmc_invalid",
+    );
+  }
+  // Wire → MembershipEventLike, dropping structurally-broken entries
+  // (the fold would refuse them anyway; filtering keeps the ingest step
+  // from tripping on malformed HLCs). NOTE: the v3 PoP commitment below
+  // hashes the RAW received event_id list, not the sanitized one — it
+  // must match what the peer hashed on their side, byte for byte.
+  const peerProofWire = rawBundle.filter(isStructurallyValidWireEvent);
+  const peerProofEvents = peerProofWire.map(wireToMembershipEvent);
+  const rawBundleIds = rawBundle.map((w) =>
+    w && typeof w.event_id === "string" ? w.event_id : "",
+  );
+
+  // --- 2. Early revocation check (parity with the legacy gate order:
+  // cheap SQL before any Ed25519 work; chain removals fan out to
+  // revocation_list via the vault_member_removed applier). ---
+  if (await isRevoked(opts.vaultId, claimedDeviceId)) {
+    throw new MeshVMCRevokedError(
+      `peer device ${claimedDeviceId} is revoked from vault ${opts.vaultId} (chain path, early reject)`,
+    );
+  }
+
+  // --- 3. Membership verdict: fold (peer proof ∪ our local events). A
+  // removal we hold locally wins regardless of what the peer omits —
+  // the M2 done-criterion. Epoch checks are intentionally GONE on this
+  // path (they retire with VMCs). ---
+  const verdict = await verifyPeerMembership({
+    vaultId: opts.vaultId,
+    claimedDevicePubkeyB64: claimedPubkeyB64,
+    proofEvents: peerProofEvents,
+  });
+
+  // PAIR PATH (docs §4 row 2): a freshly-paired joiner has NO chain yet
+  // — it presents an EMPTY proof bundle plus the QR's pair_nonce. The
+  // owner accepts the handshake IFF that nonce matches a live unconsumed
+  // pair token for THIS vault (admission-in-progress, gated to this one
+  // session), and after PoP succeeds EMITS the admission events itself
+  // (owner-signed member add + device bind — the chain-native
+  // replacement for the Phase 6.1 joiner-self-add for NEW pairs; the
+  // role-gate carve-out stays for old flows). Any other empty/failing
+  // proof refuses with the normal verdict reason.
+  let admissionToken: { nonce: string; role?: string } | null = null;
+  if (!verdict.ok) {
+    if (
+      peerProofEvents.length === 0 &&
+      typeof peerHello.pair_nonce === "string" &&
+      peerHello.pair_nonce.length > 0
+    ) {
+      try {
+        // M4 (review fix): ATOMICALLY claim the nonce, binding it to the
+        // peer's claimed device pubkey, BEFORE PoP. The CAS makes the nonce
+        // strictly single-use — a second concurrent handshake riding the same
+        // sniffed nonce gets null here and is refused (closes the double-admit
+        // TOCTOU). If PoP later fails we release the claim (below) so the
+        // legit joiner can retry.
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const localPair = require("./local-pair") as {
+          claimPairNonce: (
+            vaultId: string,
+            nonce: string,
+            claimedDeviceKeyB64: string,
+          ) => Promise<{ nonce: string; role?: string } | null>;
+        };
+        admissionToken = await localPair.claimPairNonce(
+          opts.vaultId,
+          peerHello.pair_nonce,
+          claimedPubkeyB64,
+        );
+      } catch (err) {
+        console.warn("[mesh.hs] pair token claim threw", err);
+        admissionToken = null;
+      }
+    }
+    if (!admissionToken) {
+      throw new MeshHandshakeError(
+        `peer membership proof refused (${verdict.reason}) and no live pair token matched`,
+        "vmc_invalid",
+      );
+    }
+    console.log(
+      "[mesh.hs] chain verdict not-ok (",
+      verdict.reason,
+      ") but live pair token matched — admission-in-progress",
+    );
+  } else {
+    // The chain bound the claimed pubkey to a (device_id, account_id).
+    // The claimed device_id MUST match the chain binding — a mismatch
+    // means the peer is wearing someone else's install identity.
+    if (verdict.device_id !== claimedDeviceId) {
+      throw new MeshHandshakeError(
+        `peer device_id ${claimedDeviceId} does not match chain binding ${verdict.device_id}`,
+        "vmc_invalid",
+      );
+    }
+    // account_id mismatch is only a warn: the chain's account is
+    // authoritative for the session, and a benign mismatch exists (a
+    // local-only owner whose chain holds the 'local:' sentinel signs
+    // into Google later — getAccountIdSync changes, the chain doesn't).
+    if (verdict.account_id !== claimedAccountId) {
+      console.warn(
+        "[mesh.hs] peer claimed account_id differs from chain binding — using chain's",
+        claimedAccountId.slice(0, 16),
+        "vs",
+        verdict.account_id.slice(0, 16),
+      );
+    }
+    console.log(
+      "[mesh.hs] chain verdict OK device=",
+      verdict.device_id.slice(0, 8),
+      "role=",
+      verdict.role,
+    );
+  }
+
+  // --- 4. Proof of possession (v3). The chain (or the pair token)
+  // vouches for the CLAIMED pubkey; PoP proves the entity on this
+  // socket holds the matching private key. The transcript commits to
+  // the signer's OWN presented bundle (sha256 over its canonical
+  // event_id list), the verifier's challenge nonce, and both ephemeral
+  // X25519 pubkeys (preserving the v2 MITM fix — see POP_DOMAIN_V3). ---
+  const ourSigBytes = await signWithDeviceKey(
+    buildPopMessageV3(wire.ownBundleIds, peerHello.pop_nonce, ourEphemeralPub, peerEphemeralPub),
+  );
+  const ourProof: PopProofMessage = {
+    type: "pop_proof",
+    v: WIRE_VERSION,
+    sig: bytesToB64Url(ourSigBytes),
+  };
+  const [, peerProof] = await Promise.all([
+    sendMessage(conn, ourProof),
+    recvTyped<PopProofMessage>(conn, "pop_proof", 10_000),
+  ]);
+  console.log("[mesh.hs] peer PoP received (v3)");
+
+  const peerSigBytes = b64UrlDecode(peerProof.sig);
+  if (peerSigBytes.length !== 64) {
+    throw new MeshHandshakeError(
+      `peer PoP signature has wrong length ${peerSigBytes.length} (expected 64)`,
+      "pop_failed",
+    );
+  }
+  // From the peer's perspective: their bundle is the one we RECEIVED,
+  // the nonce is OURS, their ephemeral pub comes first.
+  const popMsg = buildPopMessageV3(rawBundleIds, ourNonceB64, peerEphemeralPub, ourEphemeralPub);
+  let popOk = false;
+  try {
+    popOk = ed.verify(peerSigBytes, popMsg, claimedPubkeyBytes);
+  } catch (err) {
+    if (__DEV__) console.warn("[mesh.hs] ed.verify threw — sha512Sync shim missing?", err);
+    popOk = false;
+  }
+  if (!popOk) {
+    // M4 (review fix): PoP failed AFTER we claimed the pair nonce — release
+    // our claim so a failed (or hostile) attempt doesn't burn the nonce and
+    // the legitimate joiner can retry. Only releases a claim WE hold.
+    if (admissionToken) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const localPair = require("./local-pair") as {
+          releasePairNonceClaim: (nonce: string, claimedDeviceKeyB64: string) => Promise<void>;
+        };
+        await localPair.releasePairNonceClaim(admissionToken.nonce, claimedPubkeyB64);
+      } catch (err) {
+        if (__DEV__) console.warn("[mesh.hs] releasePairNonceClaim failed", err);
+      }
+    }
+    throw new MeshHandshakeError(
+      `peer failed v3 proof-of-possession — chain (or pair token) vouches for their pubkey ` +
+        `but they do not control the matching private key`,
+      "pop_failed",
+    );
+  }
+  console.log("[mesh.hs] PoP v3 verified peer=", claimedDeviceId.slice(0, 8));
+
+  // --- 5. Owner-side pair admission (after PoP — never admit a key
+  // whose possession wasn't proven). Emits through the normal local
+  // append path, which signs with OUR device key automatically; the new
+  // events replicate to the joiner in THIS session's delta phase
+  // (summary is computed after handshake() returns). ---
+  //
+  // The account we actually BIND in the chain for a pair joiner (derived
+  // from the PoP-proven pubkey, NOT claimedAccountId — see FIX A below).
+  // Used as the session account on the pair path so the returned identity
+  // matches what landed in the chain rather than the attacker-controlled
+  // Hello value.
+  let pairAdmittedAccountId: string | null = null;
+  if (admissionToken) {
+    const role = normalizeTokenRole(admissionToken.role);
+
+    // SECURITY (owner takeover via pair admission, M2 review FIX A):
+    // Hello.account_id (claimedAccountId) is ATTACKER-CONTROLLED — a QR
+    // scanner can set it to ANY string, including buildLocalAccountId of
+    // the vault's anchor pubkey (derivable from the QR's
+    // vault_trust_anchor_pubkey). If we honoured it, the owner would emit
+    // a vault_device_added attaching the scanner's PoP-proven key to the
+    // OWNER's account → the scanner becomes an owner-bound device → full
+    // takeover. So for the QR pair flow (the local-CA path by design) we
+    // NEVER trust Hello.account_id to name the account. Instead we derive
+    // the joiner's account SERVER-INDEPENDENTLY from the PoP-PROVEN device
+    // pubkey — the same deterministic sentinel a local-only peer would
+    // self-assign — so the account an attacker can name is pinned to the
+    // one key they actually proved possession of.
+    const joinerAccountId = buildLocalAccountId(claimedPubkeyB64);
+    pairAdmittedAccountId = joinerAccountId;
+
+    // SECURITY: a pair token admits a NEW device for a NEW joiner. It must
+    // never re-bind to / impersonate an EXISTING member (re-admitting an
+    // existing member's new device is the Members-UI re-add path, not QR
+    // pair admission). Refuse if the derived joiner account already names
+    // a member of this vault, or is the owner's own account. Without this,
+    // the attack above survives even after deriving from the pubkey: the
+    // attacker mints a fresh keypair whose buildLocalAccountId happens to
+    // collide is infeasible, but a benign re-scan of an existing member's
+    // QR could silently rebind — and more importantly this is the last
+    // line of defence keeping pair admission strictly additive.
+    const db = await getDb();
+    const existingMirror = await db.getFirstAsync<{ one: number }>(
+      `SELECT 1 AS one FROM vault_members_mirror WHERE vault_id = ? AND account_id = ? LIMIT 1`,
+      opts.vaultId,
+      joinerAccountId,
+    );
+    // Owner's own account: this device is the anchor holder, so the owner
+    // account is the signed-in account if present, else the local sentinel
+    // derived from THIS device's (= anchor) pubkey.
+    const ownDevicePubkey = getDevicePubkey();
+    const ownerAccountId =
+      getAccountIdSync() ?? (ownDevicePubkey ? buildLocalAccountId(ownDevicePubkey) : null);
+    if (existingMirror || joinerAccountId === ownerAccountId) {
+      throw new MeshHandshakeError(
+        `pair admission refused: derived joiner account ${joinerAccountId.slice(0, 16)} ` +
+          `is an existing member or the owner — pair tokens admit NEW joiners only`,
+        "vmc_invalid",
+      );
+    }
+
+    // Re-fold local knowledge to keep the emissions idempotent across
+    // re-pairs (duplicate admissions are no-ops in the fold, but we
+    // avoid the duplicate event noise when we can).
+    const state = await getLocalMembershipState(opts.vaultId);
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const eventLog = require("../event-log") as {
+      appendVaultMemberAdded: (args: {
+        targetVaultId: string;
+        accountId: string;
+        role: "owner" | "editor" | "viewer";
+      }) => Promise<{ event_id: string }>;
+      appendVaultDeviceAdded: (args: {
+        targetVaultId: string;
+        accountId: string;
+        deviceId: string;
+        devicePubkeyB64: string;
+      }) => Promise<{ event_id: string }>;
+    };
+    const member = state?.members.get(joinerAccountId);
+    if (!member || member.removed) {
+      await eventLog.appendVaultMemberAdded({
+        targetVaultId: opts.vaultId,
+        accountId: joinerAccountId,
+        role,
+      });
+      console.log(
+        "[mesh.hs] pair admission: vault_member_added account=",
+        joinerAccountId.slice(0, 16),
+        "role=",
+        role,
+      );
+    }
+    const dev = state?.devices.get(claimedPubkeyB64);
+    if (
+      !dev ||
+      dev.removed ||
+      dev.account_id !== joinerAccountId ||
+      dev.device_id !== claimedDeviceId
+    ) {
+      // Bind EXACTLY the PoP-proven pubkey + the joiner's claimed
+      // device_id to the derived joiner account — never claimedAccountId.
+      await eventLog.appendVaultDeviceAdded({
+        targetVaultId: opts.vaultId,
+        accountId: joinerAccountId,
+        deviceId: claimedDeviceId,
+        devicePubkeyB64: claimedPubkeyB64,
+      });
+      console.log(
+        "[mesh.hs] pair admission: vault_device_added device=",
+        claimedDeviceId.slice(0, 8),
+      );
+    }
+    // M4 (review fix): the pair window is ALREADY closed — claimPairNonce
+    // consumed the nonce atomically (bound to this device's pubkey) BEFORE
+    // PoP. No separate consume step; admission only reaches here because we
+    // won the claim and then proved possession.
+  }
+
+  // --- 6. Gossip the peer's proof events through the normal ingest
+  // pipeline. They're ordinary signed events — verifyAndIngest re-checks
+  // every signature and dedups known event_ids, so this is safe and
+  // usually a no-op; for a fresh joiner it's how the chain (incl.
+  // genesis) lands BEFORE the delta loop, so the role-gate's chain
+  // source can authenticate the owner's ledger events. Best-effort:
+  // verification already succeeded over the in-memory copy. ---
+  if (peerProofWire.length > 0) {
+    try {
+      const ingested = await applyIncomingBatch(opts.vaultId, peerProofWire);
+      console.log(
+        "[mesh.hs] proof bundle ingested new=",
+        ingested.applied,
+        "dup=",
+        ingested.duplicates,
+        "refused=",
+        ingested.roleGateRejected,
+      );
+    } catch (err) {
+      console.warn("[mesh.hs] proof bundle ingest failed (will retry via delta/sweep)", err);
+    }
+  }
+
+  return {
+    deviceId: claimedDeviceId,
+    devicePubkeyB64: claimedPubkeyB64,
+    // On the pair path the bound account is the one we DERIVED from the
+    // PoP-proven pubkey (pairAdmittedAccountId), never the attacker-
+    // controlled claimedAccountId (FIX A).
+    accountId: verdict.ok ? verdict.account_id : (pairAdmittedAccountId ?? claimedAccountId),
+    role: verdict.ok ? verdict.role : normalizeTokenRole(admissionToken?.role),
+    proofEvents: peerProofEvents,
+  };
+}
+
+/** D-PAIR-WITH-ROLE: the role committed at QR-issue time is canonical;
+ *  unset (legacy tokens) falls back to "editor". The owner carries this
+ *  into the joiner's vault_member_added during pair admission. */
+function normalizeTokenRole(role: string | undefined): "owner" | "editor" | "viewer" {
+  return role === "owner" || role === "viewer" ? role : "editor";
+}
+
+// ---------------------------------------------------------------------------
+// Mid-session re-verification (every N batches)
+// ---------------------------------------------------------------------------
+
+async function reverifyPeerWindow(vaultId: string, peer: PeerSession): Promise<void> {
+  if (await isRevoked(vaultId, peer.deviceId)) {
+    throw new MeshVMCRevokedError(`peer device ${peer.deviceId} revoked mid-session`);
+  }
+  // Re-run the handshake verdict over (peer proof ∪ local events). Local
+  // events are re-read each time, so a removal that arrived in THIS
+  // session's own delta stream (revocation gossip) refuses the peer at the
+  // next batch boundary. The admission-in-progress case is covered too: by
+  // the time the delta loop runs, the owner has already emitted (and
+  // locally applied) the admission events, so the fold knows the peer.
+  const verdict = await verifyPeerMembership({
+    vaultId,
+    claimedDevicePubkeyB64: peer.devicePubkeyB64,
+    proofEvents: peer.proofEvents,
+  });
+  if (!verdict.ok) {
+    if (verdict.reason === "device_removed" || verdict.reason === "member_removed") {
+      throw new MeshVMCRevokedError(
+        `peer device ${peer.deviceId} removed from membership chain mid-session (${verdict.reason})`,
+      );
+    }
+    throw new MeshHandshakeError(
+      `peer membership verdict degraded mid-session (${verdict.reason})`,
+      "vmc_invalid",
+    );
   }
 }
 
-// v2 PoP message (v0.5.2 final). Binds:
-//   POP_DOMAIN ASCII || vmcBlob UTF-8 || pop_nonce UTF-8
+// v3 PoP message (chain path — the only path after M4). Binds:
+//   POP_DOMAIN_V3 ASCII
+//   || sha256(canonical proof-bundle commitment) (32 raw bytes)
+//   || pop_nonce UTF-8 (the VERIFIER'S challenge)
 //   || own_ephemeral_x25519_pubkey (32 raw bytes)
 //   || peer_ephemeral_x25519_pubkey (32 raw bytes)
 //
-// The ephemeral-pubkey binding closes the Hello-mutation seam where an
-// attacker could substitute their own ephemeral pubkey in transit and the
-// peer's PoP signature (which only covered nonces + VMC in v1) would
-// "authenticate" the attacker's key. With the binding, swapping the
-// ephemeral pubkey invalidates every peer's PoP signature.
-//
-// "own" / "peer" are from the signer's perspective: the signer always
-// puts THEIR ephemeral pub first, then the verifier's.
-function buildPopMessageWithEphemerals(
-  domain: string,
-  vmcBlob: string,
+// The signer commits to the exact proof set they presented, so a MITM
+// can't splice a different bundle under a recorded signature. Canonical
+// form: the bundle's event_ids sorted lexicographically and joined with
+// "\n" (transport order doesn't matter; an empty bundle hashes the empty
+// string — the pair-admission case). The ephemeral-pubkey binding closes
+// the Hello-mutation key-substitution seam (see POP_DOMAIN_V3 above);
+// "own" / "peer" are from the signer's perspective.
+function buildPopMessageV3(
+  bundleEventIds: string[],
   pop_nonce: string,
   ownEphemeralPub: Uint8Array,
   peerEphemeralPub: Uint8Array,
 ): Uint8Array {
   // eslint-disable-next-line no-undef
   const enc = new TextEncoder();
-  const d = enc.encode(domain);
-  const v = enc.encode(vmcBlob);
+  const d = enc.encode(POP_DOMAIN_V3);
+  const h = sha256(enc.encode([...bundleEventIds].sort().join("\n")));
   const n = enc.encode(pop_nonce);
   const out = new Uint8Array(
-    d.length + v.length + n.length + ownEphemeralPub.length + peerEphemeralPub.length,
+    d.length + h.length + n.length + ownEphemeralPub.length + peerEphemeralPub.length,
   );
   let off = 0;
   out.set(d, off);
   off += d.length;
-  out.set(v, off);
-  off += v.length;
+  out.set(h, off);
+  off += h.length;
   out.set(n, off);
   off += n.length;
   out.set(ownEphemeralPub, off);
   off += ownEphemeralPub.length;
   out.set(peerEphemeralPub, off);
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Proof-bundle wire mapping (M2c). The bundle reuses WireMeshEvent — the
+// exact shape the delta loop already speaks — so received proof events
+// can be handed straight to applyIncomingBatch for chain gossip.
+// ---------------------------------------------------------------------------
+
+function membershipEventToWire(e: MembershipEventLike): WireMeshEvent {
+  return {
+    event_id: e.event_id,
+    event_type: e.event_type,
+    vault_id: e.vault_id ?? "",
+    target_id: e.target_id,
+    relationship_id: e.relationship_id,
+    hlc: { pms: e.hlc.pms, l: e.hlc.l, did: e.hlc.did },
+    device_id: e.device_id,
+    // M3.5: carry the membership event's author_seq through the bundle so the
+    // receiver records it and the version vector reflects it (else membership
+    // events would be re-sent on the delta channel every round).
+    author_seq: e.author_seq ?? null,
+    actor_account_id: e.actor_account_id,
+    payload: e.payload,
+    schema_version: e.payload_schema,
+    event_sig_b64: e.event_sig_b64 ?? null,
+    signer_device_pubkey: e.signer_device_pubkey ?? null,
+  };
+}
+
+function wireToMembershipEvent(w: WireMeshEvent): MembershipEventLike {
+  return {
+    event_id: w.event_id,
+    event_type: w.event_type,
+    vault_id: w.vault_id,
+    target_id: w.target_id ?? "",
+    relationship_id: w.relationship_id,
+    hlc: { pms: w.hlc.pms, l: w.hlc.l, did: w.hlc.did },
+    device_id: w.device_id,
+    author_seq: sanitizeWireAuthorSeq(w.author_seq),
+    actor_account_id: w.actor_account_id,
+    payload: w.payload,
+    payload_schema: w.schema_version,
+    event_sig_b64: w.event_sig_b64 ?? null,
+    signer_device_pubkey: w.signer_device_pubkey ?? null,
+  };
+}
+
+/** Minimal structural gate for received proof-bundle entries — enough
+ *  that compareHLC / the fold / applyIncomingBatch can't trip on a
+ *  malformed object. Content validity (signatures, authorization) is
+ *  the fold's and verifyAndIngest's job, not this filter's. */
+function isStructurallyValidWireEvent(w: unknown): w is WireMeshEvent {
+  if (!w || typeof w !== "object") return false;
+  const r = w as Record<string, unknown>;
+  const hlc = r.hlc as Record<string, unknown> | undefined;
+  return (
+    typeof r.event_id === "string" &&
+    r.event_id.length > 0 &&
+    typeof r.event_type === "string" &&
+    typeof r.vault_id === "string" &&
+    typeof r.device_id === "string" &&
+    hlc != null &&
+    typeof hlc === "object" &&
+    typeof hlc.pms === "number" &&
+    typeof hlc.l === "number" &&
+    typeof hlc.did === "string"
+  );
 }
 
 function bytesToB64Url(bytes: Uint8Array): string {
@@ -1117,171 +1454,96 @@ export async function loadVaultTrustAnchor(vaultId: string): Promise<Uint8Array 
 // ---------------------------------------------------------------------------
 
 /**
- * Compute the local max-HLC-per-device-id summary for one vault.
+ * M3.5: compute our per-author RELAYABLE contiguous frontier vector — the
+ * summary we advertise. For each author device, the highest author_seq N such
+ * that we hold AND WILL RELAY all of 1..N. "Relayable" = passes the same relay
+ * filter the send query uses (tombstone / unknown_actor / rejected withheld),
+ * so everything we advertise we can actually satisfy — no held-but-unsendable
+ * holes. computeContiguous gives the contiguous prefix; a withheld seq
+ * ceilings it (a bad-sig tombstone at seq N → frontier N-1; an unknown_actor
+ * device whose whole stream is withheld → frontier 0, omitted).
  *
- * Two-pass implementation (safer than the prior single-statement correlated
- * subquery that referenced an outer aggregate from the inner WHERE — that
- * pattern relies on undocumented SQLite behavior and could silently break on
- * a future engine upgrade):
+ * FORWARD QUARANTINED ROWS (M3.5 review fix). We do NOT withhold quarantined
+ * rows (incl. unknown_actor). The original relay filter assumed unknown_actor
+ * was all-or-nothing per device so its withheld region was always a suffix —
+ * but quarantine is assigned PER EVENT / per-HLC (a device removed at HLC H
+ * quarantines only its post-H events; a role-'none' event like account_bound
+ * applies unconditionally). author_seq is ONE shared space across all event
+ * types for a (vault,device), so a relayable event can sit ABOVE a quarantine
+ * hole — withholding the quarantined seq would strand it permanently. A
+ * quarantined event is validly SIGNED (only its role is unverifiable locally),
+ * so an honest relay forwarding it is safe: the receiver's own role-gate
+ * re-quarantines it at apply time (receipt ≠ apply), it never reaches the
+ * ledger, and the seq space stays contiguous. We still withhold ONLY
+ * tombstone (bad-sig garbage that could poison) and rejected (server-refused).
  *
- *   1. SELECT device_id, MAX(hlc_physical_ms) → (device_id, pms) pairs.
- *   2. For each pair, SELECT MAX(hlc_logical) WHERE physical_ms = pms.
- *
- * The schema's CHECK (device_id = hlc_device_id) invariant (migration 007)
- * makes the device-id tiebreak collapse — every row for a given device_id
- * has the same did, so we can omit it from the GROUP BY key.
+ * RECEIPT vs RELAY: a tombstoned row still counts as HELD for dedup (event_id
+ * PK), but is not relayable, so it ceilings the advertised frontier (rare;
+ * the good copy propagates from the author). A corrupt-payload row the sweep
+ * hasn't tombstoned yet likewise ceilings the SEND; it self-resolves once the
+ * sweep tombstones it.
  */
-export async function computeSummary(vaultId: string): Promise<Record<string, HLC>> {
+export async function computeRelayableVector(vaultId: string): Promise<Vector> {
   const db = await getDb();
-  // Migration 014 / Mythos round-2 round-3 Critical 1.
-  //
-  // RECEIPT ≠ ACCEPTANCE: heads cover ALL ingested rows, including
-  // tombstoned and rejected-by-server. The semantic is "I have durably
-  // received this," not "I have accepted this." A peer who sends us a
-  // bad-sig event and a peer who sends us a later good event both
-  // advance our head correctly — and that's the only way the head can
-  // do its job, which is to stop peers from re-sending what they
-  // already delivered.
-  //
-  // The OLD `WHERE rejected_at IS NULL` filter was the gap-below-head
-  // bug: a rejected event below an applied head was effectively claimed
-  // as "we don't have this" forever, so the peer re-sent it every round
-  // — and worse, when ANY later event from the same device applied, the
-  // head advanced past the rejected one and it dropped into a permanent
-  // hole. See migration-014's docstring for the full pathology.
-  const heads = await db.getAllAsync<{
-    device_id: string;
-    pms: number;
-  }>(
-    `SELECT device_id, MAX(hlc_physical_ms) AS pms
+  const rows = await db.getAllAsync<{ device_id: string; author_seq: number }>(
+    `SELECT device_id, author_seq
        FROM event_log
       WHERE vault_id = ?
-      GROUP BY device_id`,
+        AND author_seq IS NOT NULL
+        AND tombstone_reason IS NULL
+        AND rejected_at IS NULL
+      ORDER BY device_id ASC, author_seq ASC`,
     vaultId,
   );
-
-  const out: Record<string, HLC> = {};
-  for (const h of heads) {
-    const row = await db.getFirstAsync<{ l: number }>(
-      `SELECT MAX(hlc_logical) AS l
-         FROM event_log
-        WHERE vault_id = ?
-          AND device_id = ?
-          AND hlc_physical_ms = ?`,
-      vaultId,
-      h.device_id,
-      h.pms,
-    );
-    out[h.device_id] = {
-      pms: h.pms,
-      l: row?.l ?? 0,
-      did: h.device_id,
-    };
+  const perDevice = new Map<string, number[]>();
+  for (const r of rows) {
+    let list = perDevice.get(r.device_id);
+    if (!list) {
+      list = [];
+      perDevice.set(r.device_id, list);
+    }
+    list.push(r.author_seq);
   }
-  return out;
+  const vector: Vector = {};
+  for (const [device, seqs] of perDevice) {
+    const frontier = computeContiguous(seqs).frontier;
+    // frontier 0 = nothing relayable from seq 1; omit so the wire stays small
+    // and planRangesToSend treats it as "peer has nothing" (sends from 1).
+    if (frontier > 0) vector[device] = frontier;
+  }
+  return vector;
 }
 
 // ---------------------------------------------------------------------------
-// Volume estimation for the wifi-upgrade decision
+// Volume estimation for the wifi-upgrade decision (M3.5)
 // ---------------------------------------------------------------------------
 
 /**
- * Count the local rows that are strictly newer than the peer's per-device
- * head HLC — i.e., the number of events we'd SEND in this anti-entropy
- * round. Bounds the wifi-upgrade threshold check without doing the actual
- * fetch.
- *
- * The peer's RECEIVE-direction pending count cannot be computed from a
- * one-sided summary; for the prompt threshold the caller doubles the
- * SEND count as a conservative upper bound (typical vault-join is
- * symmetric — both sides have something the other lacks).
- *
- * device_ids the peer has never seen are treated as floor=null (we send
- * ALL of our events for that device).
+ * Total events across the planned author_seq ranges — the EXACT count we'll
+ * SEND this round (each inclusive range contributes to_seq - from_seq + 1).
+ * Replaces the HLC-floor count; the SEND direction is now exact rather than
+ * estimated. (The peer's RECEIVE-direction count still needs a round we don't
+ * do, so the caller keeps the 2× doubling.)
  */
-export async function countDeltaEventsFromSummary(
-  vaultId: string,
-  peerMaxHlcPerDevice: Record<string, HLC>,
-): Promise<number> {
-  const db = await getDb();
-  // SUM across all our devices for vault — for each device, count rows
-  // strictly above the peer's floor and PASSING THE RELAY FILTER
-  // (migration 014).
-  //
-  // Relay filter (Mythos round-3 Critical 1 — the gap-below-head hole
-  // one hop out):
-  //   - tombstone_reason IS NULL: never relay cryptographically-
-  //     refused rows.
-  //   - quarantine_reason IS NULL OR quarantine_reason != 'unknown_actor':
-  //     unknown_actor is per-DEVICE all-or-nothing withhold (if the
-  //     credential is missing, EVERY row from that device is
-  //     unknown_actor, so the stream is withheld in its entirety —
-  //     hole-free). Other quarantine reasons come from credentialed
-  //     devices and DO relay because a downstream peer might apply
-  //     what we can't.
-  //   - rejected_at IS NULL: orthogonal server-rejection guard. Today's
-  //     behavior preserved.
-  const rows = await db.getAllAsync<{ device_id: string; cnt: number }>(
-    `SELECT device_id, COUNT(*) AS cnt
-       FROM event_log
-      WHERE vault_id = ?
-        AND tombstone_reason IS NULL
-        AND (quarantine_reason IS NULL OR quarantine_reason != 'unknown_actor')
-        AND rejected_at IS NULL
-      GROUP BY device_id`,
-    vaultId,
-  );
+function countRangeEvents(ranges: SeqRange[]): number {
   let total = 0;
-  for (const r of rows) {
-    const floor = peerMaxHlcPerDevice[r.device_id];
-    if (!floor) {
-      // Peer has never seen this device — we'd send all rows.
-      total += r.cnt;
-      continue;
-    }
-    // Re-query to count rows strictly above the floor.
-    const row = await db.getFirstAsync<{ c: number }>(
-      `SELECT COUNT(*) AS c
-         FROM event_log
-        WHERE vault_id = ? AND device_id = ?
-          AND tombstone_reason IS NULL
-          AND (quarantine_reason IS NULL OR quarantine_reason != 'unknown_actor')
-          AND rejected_at IS NULL
-          AND (hlc_physical_ms > ?
-               OR (hlc_physical_ms = ? AND hlc_logical > ?))`,
-      vaultId,
-      r.device_id,
-      floor.pms,
-      floor.pms,
-      floor.l,
-    );
-    total += row?.c ?? 0;
-  }
+  for (const r of ranges) total += Math.max(0, r.to_seq - r.from_seq + 1);
   return total;
 }
 
 // ---------------------------------------------------------------------------
-// Send-side cursor
+// Send-side cursor (M3.5: walks the planned author_seq ranges in order)
 // ---------------------------------------------------------------------------
 
 type SendCursor = {
-  pendingDeviceIds: string[];
-  floorByDevice: Map<string, HLC>;
-  currentDeviceId: string | null;
-  currentSentThrough: HLC | null;
+  ranges: SeqRange[];
+  rangeIdx: number;
+  /** Next author_seq to fetch within ranges[rangeIdx]. */
+  nextSeq: number;
 };
 
-function newSendCursor(peerMaxHlc: Record<string, HLC>): SendCursor {
-  const floor = new Map<string, HLC>();
-  for (const [did, hlc] of Object.entries(peerMaxHlc)) {
-    floor.set(did, hlc);
-  }
-  return {
-    pendingDeviceIds: [],
-    floorByDevice: floor,
-    currentDeviceId: null,
-    currentSentThrough: null,
-  };
+function newSendCursor(ranges: SeqRange[]): SendCursor {
+  return { ranges, rangeIdx: 0, nextSeq: ranges[0]?.from_seq ?? 0 };
 }
 
 async function fetchNextBatch(
@@ -1292,35 +1554,20 @@ async function fetchNextBatch(
   const db = await getDb();
   const batch: WireMeshEvent[] = [];
 
-  if (cursor.currentDeviceId === null && cursor.pendingDeviceIds.length === 0) {
-    // DISTINCT device list — apply the relay filter here too so we
-    // skip devices that have ONLY unknown-actor / tombstoned / rejected
-    // rows. The per-device fetch below uses the same filter for the
-    // hole-safety invariant (Mythos round-3 Critical 1).
-    const rows = await db.getAllAsync<{ device_id: string }>(
-      `SELECT DISTINCT device_id FROM event_log
-        WHERE vault_id = ?
-          AND tombstone_reason IS NULL
-          AND (quarantine_reason IS NULL OR quarantine_reason != 'unknown_actor')
-          AND rejected_at IS NULL
-        ORDER BY device_id ASC`,
-      vaultId,
-    );
-    cursor.pendingDeviceIds = rows.map((r) => r.device_id);
-  }
+  const advanceRange = () => {
+    cursor.rangeIdx++;
+    cursor.nextSeq = cursor.ranges[cursor.rangeIdx]?.from_seq ?? 0;
+  };
 
   while (batch.length < limit) {
-    if (cursor.currentDeviceId === null) {
-      const next = cursor.pendingDeviceIds.shift();
-      if (next == null) return batch;
-      cursor.currentDeviceId = next;
-      cursor.currentSentThrough = cursor.floorByDevice.get(next) ?? null;
+    const range = cursor.ranges[cursor.rangeIdx];
+    if (!range) return batch; // all ranges exhausted
+    if (cursor.nextSeq > range.to_seq) {
+      advanceRange();
+      continue;
     }
 
-    const did = cursor.currentDeviceId;
-    const floor = cursor.currentSentThrough;
     const remaining = limit - batch.length;
-
     const rows = await db.getAllAsync<{
       event_id: string;
       event_type: string;
@@ -1335,47 +1582,70 @@ async function fetchNextBatch(
       payload_schema: number;
       event_sig_b64: string | null;
       signer_device_pubkey: string | null;
+      author_seq: number;
     }>(
+      // SAME relay filter as computeRelayableVector (forward quarantined; only
+      // tombstone/rejected withheld) — the advertised frontier and the
+      // sendable set MUST agree, else the peer requests a seq we withhold and
+      // its frontier stalls. ORDER BY author_seq so the receiver's frontier
+      // advances contiguously.
       `SELECT event_id, event_type, target_id, relationship_id,
               hlc_physical_ms, hlc_logical, hlc_device_id,
               device_id, actor_account_id, payload_json, payload_schema,
-              event_sig_b64, signer_device_pubkey
+              event_sig_b64, signer_device_pubkey, author_seq
          FROM event_log
         WHERE vault_id = ?
           AND device_id = ?
+          AND author_seq IS NOT NULL
+          AND author_seq >= ?
+          AND author_seq <= ?
           AND tombstone_reason IS NULL
-          AND (quarantine_reason IS NULL OR quarantine_reason != 'unknown_actor')
           AND rejected_at IS NULL
-          AND (hlc_physical_ms > ?
-               OR (hlc_physical_ms = ? AND hlc_logical > ?))
-        ORDER BY hlc_physical_ms ASC, hlc_logical ASC
+        ORDER BY author_seq ASC
         LIMIT ?`,
       vaultId,
-      did,
-      floor?.pms ?? -1,
-      floor?.pms ?? -1,
-      floor?.l ?? -1,
+      range.device_id,
+      cursor.nextSeq,
+      range.to_seq,
       remaining,
     );
 
+    if (rows.length === 0) {
+      // Range drained — move on. (A planned range is contiguous-relayable, so
+      // this means we've sent it all.)
+      advanceRange();
+      continue;
+    }
+
+    // Defensive: a planned range should be hole-free, but if the first row is
+    // above nextSeq there is a hole at nextSeq we can't relay — ceiling this
+    // device's stream rather than sending events above the hole (which would
+    // stall the peer's frontier). Self-corrects when the missing seq fills.
+    if (rows[0].author_seq > cursor.nextSeq) {
+      console.warn(
+        `[mesh.fetch] unexpected hole at ${range.device_id}#${cursor.nextSeq} — ceiling device stream`,
+      );
+      advanceRange();
+      continue;
+    }
+
+    let ceilinged = false;
+    let lastSeq = cursor.nextSeq - 1;
     for (const r of rows) {
       let payload: unknown;
       try {
         payload = JSON.parse(r.payload_json);
       } catch (err) {
-        // Mythos round-2 audit-item #3: silent `continue` on payload
-        // JSON corruption created a permanent hole in OUR send stream
-        // — the peer's head advances past it via subsequent events
-        // and neither side ever knew. Loud-log now; the row stays in
-        // event_log but won't relay until JSON parses successfully
-        // (which it won't if the row is corrupt). The migration-014
-        // sweep tombstones such rows as schema_invalid on the next
-        // pass (sweep.ts:rowToLedgerEvent returns null on parse fail).
+        // Corrupt payload: ceiling THIS device's stream here — don't relay it
+        // or anything above it (sending above would stall the peer at this
+        // seq forever). The sweep tombstones such rows, after which
+        // computeRelayableVector ceilings the advertised frontier to match.
         console.error(
-          `[mesh.fetch] payload_json corrupt for event=${r.event_id} type=${r.event_type} — skipping in this batch`,
+          `[mesh.fetch] payload_json corrupt for event=${r.event_id} type=${r.event_type} — ceiling device stream`,
           err,
         );
-        continue;
+        ceilinged = true;
+        break;
       }
       batch.push({
         event_id: r.event_id,
@@ -1389,22 +1659,20 @@ async function fetchNextBatch(
           did: r.hlc_device_id,
         },
         device_id: r.device_id,
+        author_seq: r.author_seq,
         actor_account_id: r.actor_account_id,
         payload,
         schema_version: r.payload_schema,
         event_sig_b64: r.event_sig_b64,
         signer_device_pubkey: r.signer_device_pubkey,
       });
-      cursor.currentSentThrough = {
-        pms: r.hlc_physical_ms,
-        l: r.hlc_logical,
-        did: r.hlc_device_id,
-      };
+      lastSeq = r.author_seq;
     }
 
-    if (rows.length < remaining) {
-      cursor.currentDeviceId = null;
-      cursor.currentSentThrough = null;
+    if (ceilinged) {
+      advanceRange();
+    } else {
+      cursor.nextSeq = lastSeq + 1;
     }
   }
 
@@ -1442,6 +1710,48 @@ async function fetchNextBatch(
 // The sweep mutex is taken around the WHOLE batch so a concurrent
 // scheduleSweep that fires mid-batch (triggered by our own ingest
 // hooks) doesn't interleave with the INSERT loop.
+/**
+ * M3.5 (review fix): coerce a WIRE author_seq to a clean value before it can
+ * reach event_log. author_seq is NOT in the signed envelope, so a PoP-proven
+ * peer can put anything here; bound the damage to the documented integer
+ * slot-squat by rejecting non-integers / non-positives to null. (The deeper
+ * re-stamp/suppression fix — signing author_seq — is deferred per the design.)
+ */
+function sanitizeWireAuthorSeq(v: unknown): number | null {
+  return typeof v === "number" && Number.isInteger(v) && v >= 1 ? v : null;
+}
+
+/**
+ * M3.5 author_seq slot pre-check for mesh ingest. Returns the event's author
+ * seq, or null if a DIFFERENT event_id already occupies the
+ * (vault, author_device, seq) slot — in which case we sacrifice the SEQ, never
+ * the event (mirrors projection/index.ts:342-363 and pull.ts's UPDATE OR
+ * IGNORE). Honest relays forward the author's verbatim seq, so in a fresh
+ * system this never fires; if it does, the event still ingests (PK) but is
+ * invisible to the version vector until the conflict resolves.
+ */
+async function resolveMeshAuthorSeq(
+  db: Awaited<ReturnType<typeof getDb>>,
+  event: LedgerEvent,
+): Promise<number | null> {
+  const seq = event.author_seq ?? null;
+  if (seq == null || event.vault_id == null) return null;
+  const slot = await db.getFirstAsync<{ event_id: string }>(
+    `SELECT event_id FROM event_log
+      WHERE vault_id = ? AND device_id = ? AND author_seq = ?`,
+    event.vault_id,
+    event.device_id,
+    seq,
+  );
+  if (slot && slot.event_id !== event.event_id) {
+    console.warn(
+      `[mesh.ingest] author_seq slot ${event.device_id}#${seq} held by ${slot.event_id} — sacrificing seq for ${event.event_id}`,
+    );
+    return null;
+  }
+  return seq;
+}
+
 async function applyIncomingBatch(
   expectedVaultId: string,
   events: WireMeshEvent[],
@@ -1491,16 +1801,26 @@ async function applyIncomingBatch(
       },
       insertIngested: async (event: LedgerEvent, ingestedAtMs: number) => {
         await db.withTransactionAsync(async () => {
+          // M3.5: persist the author's canonical seq so our version vector
+          // advances contiguously. Slot pre-check (mirrors
+          // projection/index.ts:342-363): if a DIFFERENT event_id already
+          // holds this (vault, author, seq) slot, sacrifice the SEQ — never
+          // the event. In a fresh honest system this never fires.
+          const authorSeq = await resolveMeshAuthorSeq(db, event);
           await db.runAsync(
-            `INSERT INTO event_log (
+            // INSERT OR IGNORE: a re-received event is an idempotent no-op on
+            // the event_id PK. The (vault,device,author_seq) UNIQUE index can't
+            // fire here — resolveMeshAuthorSeq already sacrificed the seq to
+            // NULL inside this same txn if the slot was taken.
+            `INSERT OR IGNORE INTO event_log (
                event_id, event_type, vault_id, target_id, relationship_id,
                hlc_physical_ms, hlc_logical, hlc_device_id,
                device_id, author_user_id_local_only, actor_account_id,
                payload_json, payload_schema,
                appended_at, server_acked_at, rejected_at, origin,
                event_sig_b64, signer_device_pubkey,
-               ingested_at, applied_at, quarantine_reason, tombstone_reason
-             ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?,  ?, ?,  ?, ?, ?, ?,  ?, ?,  ?, NULL, NULL, NULL)`,
+               ingested_at, applied_at, quarantine_reason, tombstone_reason, author_seq
+             ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?,  ?, ?,  ?, ?, ?, ?,  ?, ?,  ?, NULL, NULL, NULL, ?)`,
             event.event_id,
             event.event_type,
             event.vault_id,
@@ -1521,11 +1841,13 @@ async function applyIncomingBatch(
             event.event_sig_b64 ?? null,
             event.signer_device_pubkey ?? null,
             ingestedAtMs,
+            authorSeq,
           );
           // HLC frontier bump (per-row inside the same txn as the
           // INSERT). tickReceive merges the event's HLC into our
           // frontier; this is the previous applyEvent's line 217
-          // semantics, kept intact under the ingest path.
+          // semantics, kept intact under the ingest path. (M3.5 keeps the
+          // hlc_last PROJECTION cursor — it's independent of the summary.)
           const prevRaw = await getAppMetaInTx(db, HLC_LAST_KEY);
           const prev = prevRaw ? deserializeHLC(prevRaw) : null;
           const merged = tickReceive(prev, event.hlc, Date.now(), getInstallIdSync());
@@ -1534,16 +1856,23 @@ async function applyIncomingBatch(
       },
       insertTombstoned: async (event: LedgerEvent, tombstoneReason, ingestedAtMs: number) => {
         await db.withTransactionAsync(async () => {
+          // M3.5 (review fix): a tombstoned (bad-sig / corrupt) row is garbage
+          // that never applies and is NOT relayable, so it must NOT claim an
+          // author_seq slot — otherwise it would squat the seq that the
+          // legitimate event owns and strand it (slot pre-check would sacrifice
+          // the real event's seq). Persist author_seq = NULL. Dedup still works
+          // via the event_id PK. INSERT OR IGNORE so a re-received tombstone is
+          // an idempotent no-op rather than a swallowed PK violation.
           await db.runAsync(
-            `INSERT INTO event_log (
+            `INSERT OR IGNORE INTO event_log (
                event_id, event_type, vault_id, target_id, relationship_id,
                hlc_physical_ms, hlc_logical, hlc_device_id,
                device_id, author_user_id_local_only, actor_account_id,
                payload_json, payload_schema,
                appended_at, server_acked_at, rejected_at, origin,
                event_sig_b64, signer_device_pubkey,
-               ingested_at, applied_at, quarantine_reason, tombstone_reason
-             ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?,  ?, ?,  ?, ?, ?, ?,  ?, ?,  ?, NULL, NULL, ?)`,
+               ingested_at, applied_at, quarantine_reason, tombstone_reason, author_seq
+             ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?,  ?, ?,  ?, ?, ?, ?,  ?, ?,  ?, NULL, NULL, ?, NULL)`,
             event.event_id,
             event.event_type,
             event.vault_id,
@@ -1598,6 +1927,10 @@ async function applyIncomingBatch(
         relationship_id: w.relationship_id ?? null,
         hlc: w.hlc,
         device_id: w.device_id,
+        // M3.5: carry the author's canonical seq through to insertIngested /
+        // insertTombstoned, which persist it (with a slot pre-check). Sanitized
+        // at this wire boundary so a hostile peer's garbage can't reach the DB.
+        author_seq: sanitizeWireAuthorSeq(w.author_seq),
         // author_user_id_local_only never crosses the wire (events.ts
         // envelope comment). Set to "" for remote-origin events.
         author_user_id_local_only: "",
@@ -1703,9 +2036,12 @@ async function recvTyped<T extends AnyMessage>(
     throw new MeshTransportError(`recv: non-object message`, "bad_payload");
   }
   const m = raw as { type?: unknown; v?: unknown };
-  if (m.v !== WIRE_VERSION) {
+  // M3.5: only v:3 (the author_seq version-vector protocol) is accepted —
+  // full cutover, no backwards-compat. A pre-v3 peer is refused here at the
+  // transport layer (and at the Hello version gate).
+  if (typeof m.v !== "number" || !SUPPORTED_WIRE_VERSIONS.has(m.v)) {
     throw new MeshTransportError(
-      `recv: unsupported wire version ${String(m.v)} (expected ${WIRE_VERSION})`,
+      `recv: unsupported wire version ${String(m.v)} (expected one of ${[...SUPPORTED_WIRE_VERSIONS].join(",")})`,
       "bad_version",
     );
   }

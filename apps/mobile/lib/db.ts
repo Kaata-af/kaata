@@ -4,6 +4,7 @@ import {
   _resetAccountIdCacheForReset,
   _resetActiveVaultIdCacheForReset,
   _resetDbHandleForReset,
+  getAccountIdSync,
   getActiveVaultId,
   getActiveVaultIdSync,
   getActiveVaultIdSyncMaybe,
@@ -22,8 +23,10 @@ import {
   appendPersonPhoneChanged,
   appendPersonRenamed,
   appendShopProfileUpdated,
+  appendVaultMemberAdded,
   findPhoneConflictInVault,
 } from "./event-log";
+import { buildLocalAccountId } from "./trust/account-id";
 import { normalizePhone } from "./phone";
 import type {
   CreatePersonResult,
@@ -59,6 +62,8 @@ const MIGRATION_014 = "014_event_log_ingest_apply_split";
 const MIGRATION_015 = "015_vault_members_mirror_display_name";
 const MIGRATION_016 = "016_mem_samples_diagnostics";
 const MIGRATION_017 = "017_crash_outbox";
+const MIGRATION_018 = "018_event_author_seq";
+const MIGRATION_019 = "019_vault_device_registry";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -267,6 +272,22 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
     } catch (err) {
       console.error("[init] runMigration017 failed:", err);
       throw new Error("runMigration017 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_018))) {
+    try {
+      await runMigration018(db, opts.installId);
+    } catch (err) {
+      console.error("[init] runMigration018 failed:", err);
+      throw new Error("runMigration018 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_019))) {
+    try {
+      await runMigration019(db);
+    } catch (err) {
+      console.error("[init] runMigration019 failed:", err);
+      throw new Error("runMigration019 failed: " + String(err));
     }
   }
 }
@@ -2081,7 +2102,8 @@ async function runMigration012(db: SQLite.SQLiteDatabase): Promise<void> {
 //      removed account is re-paired and applyVaultMemberAdded sees a
 //      fresh vault_member_added with newer HLC than the removal, the
 //      applier sets lifted_at = appended_at so the mesh handshake
-//      revocation check (vmc.ts isRevoked) treats the row as inactive.
+//      revocation check (lib/trust/revocation.ts isRevoked) treats the
+//      row as inactive.
 //      This closes ENG #8 — "removed-then-re-added device is
 //      permanently rejected at mesh handshake."
 //
@@ -2491,6 +2513,190 @@ async function runMigration017(db: SQLite.SQLiteDatabase): Promise<void> {
   });
 }
 
+// Migration 018 — Sync v2 M1 (docs/sync-v2-architecture.md §5): per-author
+// sequence numbers on the event log.
+//
+// `author_seq` is TRANSFER BOOKKEEPING, not authored content: it is NOT part
+// of the signed envelope (see lib/event-sig.ts SIGNED_FIELDS) and never
+// affects projection/merge order — HLC remains the merge order. It exists so
+// replicas can describe their state of knowledge as a per-device version
+// vector ({device_id → highest contiguous seq held}) and exchange exactly
+// the missing events, resumably, over any transport.
+//
+// Backfill: every existing row gets a seq per (vault, device) in HLC order.
+// This is deterministic — each device's HLC is strictly monotonic, so any
+// replica holding the same prefix of a device's events computes identical
+// numbers for them. The per-(vault,device) watermark of backfilled seqs is
+// recorded in app_meta (JSON map) because backfilled numbers for OTHER
+// devices' events are inferences, not author assignments — the LAN/BLE
+// channels (M3/M4) must treat seqs at or below a foreign watermark as
+// advisory. The server channel never relies on them (outbox flags remain
+// push truth in M1).
+async function runMigration018(db: SQLite.SQLiteDatabase, preInstallId?: string): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    // Same install-id resolution as migration 006: prefer the param,
+    // fall back to app_meta (ensureInstallId persisted it pre-initDb).
+    let installId: string | null = preInstallId ?? null;
+    if (!installId) {
+      const row = await db.getFirstAsync<{ value: string }>(
+        `SELECT value FROM app_meta WHERE key = 'install_id'`,
+      );
+      installId = row?.value ?? null;
+    }
+    if (!installId) {
+      throw new Error(
+        "migration 018: install_id missing — ensureInstallId() must run before initDb({installId})",
+      );
+    }
+    if (!(await columnExists(db, "event_log", "author_seq"))) {
+      await db.execAsync(`ALTER TABLE event_log ADD COLUMN author_seq INTEGER;`);
+    }
+
+    // Deterministic backfill: ROW_NUMBER per (vault, device) in HLC order,
+    // event_id as the final tiebreaker so the numbering stays total and
+    // reproducible even if a pathological (pms, l) collision exists
+    // (lost hlc_last + clock rollback). COALESCE(vault_id,'') groups the
+    // pre-Phase-2 NULL-vault legacy rows into one stable partition instead
+    // of NULL-isolating each row.
+    await db.execAsync(`
+      WITH ranked AS (
+        SELECT event_id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY COALESCE(vault_id, ''), device_id
+                 ORDER BY hlc_physical_ms ASC, hlc_logical ASC, event_id ASC
+               ) AS rn
+          FROM event_log
+      )
+      UPDATE event_log
+         SET author_seq = (SELECT rn FROM ranked WHERE ranked.event_id = event_log.event_id)
+       WHERE author_seq IS NULL;
+    `);
+
+    // Record backfill watermarks: { "<vault>|<device>": <max backfilled seq> }.
+    const watermarkRows = await db.getAllAsync<{
+      vault_id: string | null;
+      device_id: string;
+      max_seq: number;
+    }>(
+      `SELECT vault_id, device_id, MAX(author_seq) AS max_seq
+         FROM event_log
+        WHERE author_seq IS NOT NULL
+        GROUP BY COALESCE(vault_id, ''), device_id`,
+    );
+    const watermarks: Record<string, number> = {};
+    for (const r of watermarkRows) {
+      watermarks[`${r.vault_id ?? ""}|${r.device_id}`] = r.max_seq;
+    }
+    await db.runAsync(
+      `INSERT INTO app_meta (key, value) VALUES ('author_seq_backfill_watermarks', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      JSON.stringify(watermarks),
+    );
+
+    // One-shot seq re-announce flags: for every vault where THIS device's
+    // own history just got numbered, mark it pending. The next push for
+    // that vault un-acks our own sequenced rows once so the server's
+    // duplicate re-announce path can stamp author_seq onto its stored
+    // copies (otherwise pre-M1 history stays seq-less server-side forever
+    // and the vector never becomes provable). See lib/sync/push.ts.
+    for (const r of watermarkRows) {
+      if (r.device_id === installId && r.vault_id != null) {
+        await db.runAsync(
+          `INSERT INTO app_meta (key, value) VALUES (?, '1')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+          `seq_reannounce_pending:${r.vault_id}`,
+        );
+      }
+    }
+
+    // UNIQUE per (vault, device, seq). Partial: legacy mesh-ingested rows
+    // may legitimately remain NULL (their author never told us a seq).
+    await db.execAsync(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_event_log_author_seq
+        ON event_log(vault_id, device_id, author_seq)
+        WHERE author_seq IS NOT NULL;
+    `);
+
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_018,
+      Date.now(),
+    );
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Migration 019 — vault_device_registry (M2 membership chain)
+// ---------------------------------------------------------------------------
+//
+// Fold-target table for the M2 membership chain (docs/m2-membership-chain.md
+// §6): the materialized device-binding state produced by folding
+// vault_device_added / vault_device_removed events (appliers in
+// lib/projection/vault_devices.ts). Lets the role-gate answer "which account
+// does this signer pubkey belong to, and is the binding live?" without the
+// legacy vault_credentials VMC cache. The event log remains the history for
+// at-HLC queries; this table is current-state only.
+//
+// device_pubkey is base64 Ed25519 — the same encoding as
+// event_log.signer_device_pubkey, so lookups join byte-for-byte.
+//
+// Also adds idx_event_log_membership: membership-chain folds scan "all
+// membership events for a vault in HLC order". The existing
+// idx_event_log_vault_type_target (migration 010) cannot serve that scan —
+// it is PARTIAL (WHERE rejected_at IS NULL, and the chain fold must see every
+// event regardless of server rejection) and orders target_id before the HLC
+// columns. Purely additive; safe on fresh installs and upgraders alike.
+async function runMigration019(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS vault_device_registry (
+        vault_id      TEXT NOT NULL,
+        device_pubkey TEXT NOT NULL,
+        device_id     TEXT NOT NULL,
+        account_id    TEXT NOT NULL,
+        added_at_ms   INTEGER NOT NULL,
+        removed_at_ms INTEGER,
+        -- Full removal HLC (logical + device-id components). The role-gate's
+        -- device_removed verdict must compare the FULL HLC tuple against the
+        -- signing event, not pms alone — a removed device can author an event
+        -- at exactly removed_at_ms with a higher logical counter, which is
+        -- post-removal in the chain fold's full-HLC order but ties on pms.
+        -- (M2 security review.)
+        removed_at_l   INTEGER,
+        removed_at_did TEXT,
+        PRIMARY KEY (vault_id, device_pubkey)
+      );
+    `);
+    await db.execAsync(`
+      CREATE INDEX IF NOT EXISTS idx_vault_device_registry_device
+        ON vault_device_registry(vault_id, device_id);
+    `);
+    await db.execAsync(`
+      CREATE INDEX IF NOT EXISTS idx_event_log_membership
+        ON event_log(vault_id, event_type, hlc_physical_ms, hlc_logical);
+    `);
+
+    // M2 (review P1): rewind every per-vault pull cursor. A v0.5.x client
+    // that pulled vault_device_added/removed events it didn't yet know
+    // (HEAD added those types) dropped them per-event while ADVANCING the
+    // cursor past them — they'd never be re-fetched, so the upgraded
+    // client's chain would be permanently missing those bindings/removals
+    // (handshake refusals + unsigned_event quarantines that never heal).
+    // Reset to 0 so the next sync re-pulls the full log once; applyEvent is
+    // idempotent (INSERT OR IGNORE on event_id) so already-held events are
+    // no-ops and only the previously-dropped membership events land.
+    if (await tableExists(db, "sync_state")) {
+      await db.runAsync(`UPDATE sync_state SET last_pulled_server_seq = 0`);
+    }
+
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_019,
+      Date.now(),
+    );
+  });
+}
+
 // --- v0 row shapes (used only during migration) ---
 type V0Shopkeeper = {
   id: number;
@@ -2557,6 +2763,7 @@ async function findRelationshipIdForPerson(
 export async function resetAllLocalData(): Promise<void> {
   const db = await getDb();
   await db.execAsync(`
+    DROP TABLE IF EXISTS vault_device_registry;
     DROP TABLE IF EXISTS sync_state;
     DROP TABLE IF EXISTS projection_conflicts;
     DROP TABLE IF EXISTS pending_invitations;
@@ -2657,30 +2864,28 @@ export async function createSelfProfile(
   const existingVaultId = await getActiveVaultId();
   let vaultId = existingVaultId;
 
-  // Phase 7 D-LOCAL-CA-ARCHITECTURE: the owner's device pubkey is the
-  // mesh trust anchor for every vault we mint here — including the very
-  // first vault created during onboarding. Without this stamp, the
-  // onboarded vault would be server-anchored (column NULL) and
-  // startShopMode()'s eligibility gate would reject it. Pre-Phase-7
-  // installs that already have a vault (existingVaultId != null) get
-  // their anchor backfilled in the txn below — this lets old fresh
-  // installs that hit the new createSelfProfile path also become
-  // mesh-eligible without a separate migration step.
-  //
-  // ensureDeviceKey runs OUTSIDE the txn so a missing-keystore failure
-  // aborts cleanly. We don't fail the whole onboarding on key error —
-  // we fall back to leaving the column NULL, which puts the vault on
-  // the legacy server-anchored path; the next vault/new will succeed
-  // independently. (In practice ensureDeviceKey never fails after a
-  // fresh app install — the only realistic failure is the user
-  // wiping SecureStore mid-process, which we can't recover from.)
-  let trustAnchorPubkey: string | null = null;
-  try {
+  // M4: the owner's device pubkey is the mesh trust anchor for every
+  // vault — there is NO server-anchored path anymore. Every live vault
+  // MUST be chain-anchored (loadVaultTrustAnchor non-null), because the
+  // membership chain is the sole trust path; an anchor-less vault would
+  // have no verification at all. So ensureDeviceKey failure here is
+  // FATAL — we refuse to create an anchor-less vault rather than fall
+  // back to a (now non-existent) server-anchored path. ensureDeviceKey
+  // runs OUTSIDE the txn so the throw aborts before any row is written.
+  // (In practice it never fails after a fresh install — the only
+  // realistic failure is the user wiping SecureStore mid-process, which
+  // we can't recover from regardless.)
+  let trustAnchorPubkey: string;
+  {
     const deviceKey = await import("./mesh/device-key");
     await deviceKey.ensureDeviceKey();
-    trustAnchorPubkey = deviceKey.getDevicePubkey() ?? null;
-  } catch (err) {
-    console.warn("[db] createSelfProfile: ensureDeviceKey failed", err);
+    const pk = deviceKey.getDevicePubkey();
+    if (!pk) {
+      throw new Error(
+        "createSelfProfile: device pubkey unavailable after ensureDeviceKey — cannot create an anchor-less vault",
+      );
+    }
+    trustAnchorPubkey = pk;
   }
 
   await db.withTransactionAsync(async () => {
@@ -2706,16 +2911,16 @@ export async function createSelfProfile(
         effectiveShopName,
         now,
         now,
-        trustAnchorPubkey, // null only when ensureDeviceKey above failed
+        trustAnchorPubkey, // always non-null (fatal if unavailable, above)
       );
       await setAppMetaInTx(db, "active_vault_id", vaultId);
       await setAppMetaInTx(db, "default_vault_id", vaultId);
-    } else if (trustAnchorPubkey) {
+    } else {
       // Backfill the trust anchor on a pre-existing vault row that was
-      // minted before Phase 7 (e.g. mid-onboarding upgrader from migration
-      // 007's bootstrap vault). COALESCE keeps an existing non-NULL value
-      // so a paired server-anchored vault doesn't get clobbered by a
-      // re-run of onboarding.
+      // minted before the anchor column existed (e.g. a mid-onboarding
+      // upgrader from migration 007's bootstrap vault). COALESCE keeps an
+      // existing non-NULL value so a re-run of onboarding doesn't clobber
+      // an already-anchored vault.
       await db.runAsync(
         `UPDATE vaults
             SET vault_trust_anchor_pubkey = COALESCE(vault_trust_anchor_pubkey, ?)
@@ -2740,34 +2945,10 @@ export async function createSelfProfile(
     );
   });
 
-  // Issue + cache self-VMC AFTER the txn commits (cacheVMC owns its own
-  // write contract and isn't safe to call inside an existing tx). We
-  // import lazily to keep the mesh module graph out of the db.ts bundle
-  // when an install never reaches the mesh code path. Best-effort: if
-  // self-VMC issuance fails the vault row + trust anchor are still
-  // persisted; a subsequent startShopMode() will lazy-re-issue (see
-  // mesh/index.ts).
-  if (vaultId && trustAnchorPubkey) {
-    try {
-      const [{ buildLocalAccountId, issueLocalVMC }, { cacheVMC }, dbTx] = await Promise.all([
-        import("./mesh/local-vmc"),
-        import("./mesh/vmc"),
-        import("./db-tx"),
-      ]);
-      const selfAccountId = dbTx.getAccountIdSync() ?? buildLocalAccountId(trustAnchorPubkey);
-      const { blob, expiresAtMs } = await issueLocalVMC({
-        vaultId,
-        peerAccountId: selfAccountId,
-        peerDeviceId: dbTx.getInstallIdSync(),
-        peerDevicePubkey: trustAnchorPubkey,
-        role: "owner",
-        vaultEpoch: 0,
-      });
-      await cacheVMC(vaultId, blob, expiresAtMs, selfAccountId, trustAnchorPubkey, 0);
-    } catch (err) {
-      console.warn("[db] createSelfProfile: self-VMC issuance failed", err);
-    }
-  }
+  // M4: no self-VMC issuance. Trust comes from the genesis
+  // vault_member_added emitted below — the chain fold implicitly binds
+  // this anchor device from it. The owner participates in the mesh
+  // immediately via the chain handshake.
 
   // Prime the in-memory caches so the first event append works immediately.
   if (vaultId) setActiveVaultIdCache(vaultId);
@@ -2799,6 +2980,29 @@ export async function createSelfProfile(
       // the initial shop_name (recoverable on next updateSelfProfile call),
       // not a data-integrity disaster. Don't fail onboarding for this.
       console.warn("[db] createSelfProfile: shop_profile_updated emit failed", err);
+    }
+  }
+
+  // M4: emit the genesis vault_member_added{owner} INLINE (matching
+  // vault/new.tsx). This IS the membership-chain root
+  // (docs/m2-membership-chain.md §3.1): it's authored + signed by THIS
+  // device, and the chain fold implicitly binds the anchor device from
+  // it, so no vault_device_added is emitted for the creator. The applier
+  // (applyVaultMemberAdded) writes the owner's vault_members_mirror row,
+  // so the owner's own Members tab + role-gate binding are correct
+  // immediately, and the event propagates to peers via mesh so they can
+  // authenticate the owner's ledger events. Best-effort: a transient
+  // failure leaves the local user/vault intact; runGenesisBackfill is the
+  // self-heal safety net that re-emits on a later launch.
+  if (vaultId) {
+    try {
+      await appendVaultMemberAdded({
+        targetVaultId: vaultId,
+        accountId: getAccountIdSync() ?? buildLocalAccountId(trustAnchorPubkey),
+        role: "owner",
+      });
+    } catch (err) {
+      console.warn("[db] createSelfProfile: genesis vault_member_added emit failed", err);
     }
   }
 }

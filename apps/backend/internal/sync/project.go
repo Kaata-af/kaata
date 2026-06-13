@@ -80,6 +80,8 @@ const (
 	EventVaultMemberAdded    = "vault_member_added"
 	EventVaultMemberRoleChng = "vault_member_role_changed"
 	EventVaultMemberRemoved  = "vault_member_removed"
+	EventVaultDeviceAdded    = "vault_device_added"
+	EventVaultDeviceRemoved  = "vault_device_removed"
 	EventAccountBound        = "account_bound"
 )
 
@@ -340,6 +342,12 @@ func applyOne(p *Projection, e *LedgerEvent) error {
 		return applyVaultMemberRoleChanged(p, e)
 	case EventVaultMemberRemoved:
 		return applyVaultMemberRemoved(p, e)
+	case EventVaultDeviceAdded, EventVaultDeviceRemoved:
+		// M2: device-registry events are a snapshot-projection no-op —
+		// the server's operational fold target is the vault_devices table
+		// (push path, membership.go), and mobile folds its own registry.
+		// Listed here so snapshot replay doesn't fail on unknown types.
+		return nil
 	case EventAccountBound:
 		// State-side no-op; event persists for audit/ACL on server.
 		return nil

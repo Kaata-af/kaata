@@ -14,7 +14,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/matee/kaata-backend/internal/auth"
-	"github.com/matee/kaata-backend/internal/backup"
 	"github.com/matee/kaata-backend/internal/checkin"
 	"github.com/matee/kaata-backend/internal/config"
 	"github.com/matee/kaata-backend/internal/crashreport"
@@ -63,15 +62,14 @@ func main() {
 		}
 	}
 
-	// Phase 5 mesh: load the Ed25519 signing keypair. If the private key
-	// is missing the rest of the backend still boots — mesh just refuses
-	// to issue VMCs (503) and the /v1/check-in extension omits the
-	// VMCRenewals / Revocations fields (the pinned-pubkey announcement
-	// also goes silent). We log a critical warning so this degradation
-	// is visible in startup logs.
+	// Mesh: load the Ed25519 signing keypair. If the private key is missing
+	// the rest of the backend still boots — mesh just refuses to mint witness
+	// attestations (503) and the /v1/check-in extension omits the Revocations
+	// field (the pinned-pubkey announcement also goes silent). We log a
+	// critical warning so this degradation is visible in startup logs.
 	meshPriv, meshPubB64, meshRotationB64 := loadMeshSigningMaterial()
 	if meshPriv == nil {
-		log.Println("CRITICAL: MESH_SIGNING_PRIVKEY_PRIMARY missing or invalid — mesh VMC issuance disabled. Run `go run ./cmd/genkeypair` to mint a fresh keypair; commit the public half to clients and store the private half in the backend's secret store.")
+		log.Println("CRITICAL: MESH_SIGNING_PRIVKEY_PRIMARY missing or invalid — mesh witness attestation disabled. Run `go run ./cmd/genkeypair` to mint a fresh keypair; commit the public half to clients and store the private half in the backend's secret store.")
 	}
 
 	ctx := context.Background()
@@ -105,15 +103,13 @@ func main() {
 		return claims.AccountID
 	})
 
-	// Phase 5 mesh service. nil signingPriv puts it in disabled-but-loaded
-	// mode — every IssueVMC call returns ErrSigningUnavailable (handler
-	// maps to 503) and the /v1/check-in extension simply omits the mesh
-	// fields. Wiring vaults.SetMeshRevoker installs the per-account
-	// revocation hook that mutates vault_credentials_issued inside the
-	// same transaction as role / leave / revoke changes.
+	// Mesh service. nil signingPriv puts it in disabled-but-loaded mode —
+	// every witness call returns ErrSigningUnavailable (handler maps to 503)
+	// and the /v1/check-in extension simply omits the mesh fields. M4 retired
+	// the per-account credential-revocation hook: mesh revocation is now
+	// re-sourced from membership-removal events (mesh.GetRevocationsForVault).
 	meshSvc := mesh.NewService(pool, meshPriv, meshPubB64, meshRotationB64)
 	meshH := mesh.NewHandler(meshSvc)
-	vaults.SetMeshRevoker(meshSvc.ApplyRevocationForAccount)
 
 	checkinSvc := checkin.NewService(pool, cfg.MigrateToBackendURL, meshSvc)
 	checkinH := checkin.NewHandler(checkinSvc, authSvc)
@@ -126,9 +122,6 @@ func main() {
 	crashSvc := crashreport.NewService(pool)
 	crashH := crashreport.NewHandler(crashSvc)
 
-	backupSvc := backup.NewService(pool)
-	backupH := backup.NewHandler(backupSvc)
-
 	vaultsSvc := vaults.NewService(pool)
 	vaultsH := vaults.NewHandler(vaultsSvc)
 
@@ -137,6 +130,16 @@ func main() {
 	// slow snapshot replay can't starve user-facing request connections.
 	syncSvc := syncapi.NewService(pool)
 	syncH := syncapi.NewHandler(syncSvc)
+
+	// M2 (membership chain §8.2): pin the server witness verification key
+	// set on the sync service so push-side membership verification can
+	// check `witness` payloads. Primary + optional rotation pubkey — the
+	// same material the mesh service announces on check-in. With mesh
+	// signing disabled the set is empty and the witness arm simply never
+	// matches (anchor / bound-owner verification still works).
+	if keys := witnessVerifyKeys(meshPubB64, meshRotationB64); len(keys) > 0 {
+		syncSvc.SetWitnessPubkeys(keys)
+	}
 
 	snapshotPool, snapshotMaxConns, err := syncapi.OpenSnapshotPool(ctx, cfg.PostgresURL)
 	if err != nil {
@@ -224,23 +227,16 @@ func main() {
 			Post("/v1/vaults/{vault_id}/invites", vaultsH.CreateInvite)
 		pr.Post("/v1/vaults/invites/accept", vaultsH.AcceptInvite)
 		pr.Get("/v1/vaults/invites/pending", vaultsH.PendingInvites)
-		// Phase 5 mesh. RegisterKey is rare (per-install lifecycle) but
-		// we cap as a brake against a buggy retry loop. IssueCredential
-		// is also rare in steady state (once per 60-day lifetime) but
-		// joining new vaults or re-keying drives bursts; 60/hr per
-		// account absorbs that without inviting abuse.
+		// Mesh: device-key registration. Rare (per-install lifecycle) but
+		// we cap as a brake against a buggy retry loop.
 		pr.With(httpx.RateLimitPerAccount(httpx.RegisterKeyLimit, httpx.RegisterKeyWindow)).
 			Post("/v1/devices/register-key", meshH.RegisterKey)
+		// M2 witness endpoint (membership chain §8.1): signs the device /
+		// member attestation tuples for the calling (account, install).
+		// 60/hr per account absorbs the burst profile (invite accept, new
+		// device of an existing member) without inviting abuse.
 		pr.With(httpx.RateLimitPerAccount(httpx.IssueVMCLimit, httpx.IssueVMCWindow)).
-			Post("/v1/vaults/{vault_id}/credential", meshH.IssueCredential)
-		// Pair-token mint (owner-only). Reuses the RegisterKey rate
-		// budget — same per-account cap because both endpoints land on
-		// rare lifecycle paths and we want a single brake against a
-		// buggy retry loop flooding the table.
-		pr.With(httpx.RateLimitPerAccount(httpx.RegisterKeyLimit, httpx.RegisterKeyWindow)).
-			Post("/v1/vaults/{vault_id}/pair-tokens", meshH.RegisterPairToken)
-		pr.Post("/v1/backup/upload", backupH.Upload)
-		pr.Get("/v1/backup/latest", backupH.Latest)
+			Post("/v1/vaults/{vault_id}/witness", meshH.Witness)
 	})
 
 	// PROTECTED sync routes. Wrapped in GzipResponseMiddleware so pull/snapshot
@@ -258,6 +254,9 @@ func main() {
 			Post("/v1/sync/push", syncH.Push)
 		pr.Get("/v1/sync/pull", syncH.Pull)
 		pr.Get("/v1/sync/snapshot", syncH.Snapshot)
+		// M1 (sync v2 §5): advisory per-device author_seq summary so a
+		// relay can ask "what is the server missing?" in one round trip.
+		pr.Get("/v1/sync/vector", syncH.Vector)
 	})
 
 	// Background snapshot regeneration. Runs on its own dedicated 4-conn
@@ -298,6 +297,25 @@ func main() {
 // backend symptom — we want to fail loud here. Treat as fatal because the
 // only safe response is "don't issue VMCs at all", and there's nothing
 // recoverable about a typo'd config.
+// witnessVerifyKeys decodes the announced mesh signing pubkeys (primary +
+// optional rotation) into the verification key set the sync push path pins
+// for membership-event witness checks. Invalid entries are skipped —
+// loadMeshSigningMaterial already validated/zeroed them and logged.
+func witnessVerifyKeys(b64s ...string) []ed25519.PublicKey {
+	keys := make([]ed25519.PublicKey, 0, len(b64s))
+	for _, b64 := range b64s {
+		if b64 == "" {
+			continue
+		}
+		raw, err := base64.StdEncoding.DecodeString(b64)
+		if err != nil || len(raw) != ed25519.PublicKeySize {
+			continue
+		}
+		keys = append(keys, ed25519.PublicKey(raw))
+	}
+	return keys
+}
+
 func loadMeshSigningMaterial() (ed25519.PrivateKey, string, string) {
 	privB64 := os.Getenv("MESH_SIGNING_PRIVKEY_PRIMARY")
 	pubB64 := os.Getenv("MESH_SIGNING_PUBKEY_PRIMARY")

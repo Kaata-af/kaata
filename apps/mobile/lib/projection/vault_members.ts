@@ -55,6 +55,10 @@ async function readLatestRoleEventHlc(
     hlc_logical: number;
     hlc_device_id: string;
   }>(
+    // SECURITY (M2 review): only APPLIED rows may shadow this cell — a
+    // role-gate-refused event (applied_at NULL + quarantine_reason) never
+    // mutated the mirror and must not block a later legitimate change.
+    // Mirrors the same fix in vault_devices.ts readLatestDeviceEventHlc.
     `SELECT hlc_physical_ms, hlc_logical, hlc_device_id
        FROM event_log
       WHERE vault_id = ?
@@ -62,6 +66,8 @@ async function readLatestRoleEventHlc(
               ('vault_member_added','vault_member_role_changed','vault_member_removed')
         AND target_id = ?
         AND event_id != ?
+        AND applied_at IS NOT NULL
+        AND quarantine_reason IS NULL
       ORDER BY hlc_physical_ms DESC, hlc_logical DESC, hlc_device_id DESC
       LIMIT 1`,
     vaultId,
@@ -119,6 +125,52 @@ export async function applyVaultMemberAdded(
     event.appended_at,
   );
 
+  // M2 (review P0): GENESIS anchor binding. The chain fold (lib/trust/
+  // chain.ts) binds the owner's anchor device IMPLICITLY at genesis, but
+  // nothing else writes that binding into vault_device_registry (genesis
+  // emits no vault_device_added). Without it, a JOINER receiving the
+  // owner's genesis/owner events finds no signer binding in the registry,
+  // so lookupSignerCredential returns unknown_actor and quarantines every
+  // owner event — gate refuses what the handshake-fold accepts, and past
+  // the 64-row unknown_actor cap sync stalls (the joiner sees an empty
+  // vault). Seed it here: when this member_added is signed by the vault's
+  // trust anchor and admits an owner (genesis self-admission), bind
+  // (anchor_pubkey -> device_id, owner account). The "no existing row"
+  // guard keeps it genesis-scoped and idempotent.
+  if (
+    event.payload.role === "owner" &&
+    typeof event.signer_device_pubkey === "string" &&
+    event.signer_device_pubkey.length > 0
+  ) {
+    const anchorRow = await tx.getFirstAsync<{ vault_trust_anchor_pubkey: string | null }>(
+      `SELECT vault_trust_anchor_pubkey FROM vaults WHERE id = ? LIMIT 1`,
+      event.vault_id,
+    );
+    if (
+      anchorRow?.vault_trust_anchor_pubkey != null &&
+      anchorRow.vault_trust_anchor_pubkey === event.signer_device_pubkey
+    ) {
+      const existing = await tx.getFirstAsync<{ device_pubkey: string }>(
+        `SELECT device_pubkey FROM vault_device_registry
+          WHERE vault_id = ? AND device_pubkey = ? LIMIT 1`,
+        event.vault_id,
+        event.signer_device_pubkey,
+      );
+      if (existing == null) {
+        await tx.runAsync(
+          `INSERT INTO vault_device_registry
+             (vault_id, device_pubkey, device_id, account_id, added_at_ms, removed_at_ms)
+           VALUES (?, ?, ?, ?, ?, NULL)`,
+          event.vault_id,
+          event.signer_device_pubkey,
+          event.device_id,
+          event.payload.account_id,
+          event.hlc.pms,
+        );
+      }
+    }
+  }
+
   // ENG #8 fix: lift any matching revocation_list rows for the
   // re-added account's devices. Without this, removed-then-re-added
   // devices stay permanently refused at mesh handshake even though
@@ -127,8 +179,8 @@ export async function applyVaultMemberAdded(
   // Implementation: vault_credentials.account_id -> device_id rows for
   // this account are the candidates. UPDATE revocation_list SET
   // lifted_at = appended_at WHERE (vault_id, device_id) matches and
-  // lifted_at IS NULL. isRevoked() in vmc.ts now ignores rows where
-  // lifted_at IS NOT NULL.
+  // lifted_at IS NULL. isRevoked() in lib/trust/revocation.ts now ignores
+  // rows where lifted_at IS NOT NULL.
   const deviceRows = await tx.getAllAsync<{ device_id: string }>(
     `SELECT device_id FROM vault_credentials
       WHERE vault_id = ? AND account_id = ?`,
@@ -290,7 +342,7 @@ export async function applyVaultMemberRemoved(
   // snapshot is consistent with the mirror update above. The UPSERT uses
   // MIN(revoked_at, excluded.revoked_at) so a later server-delivered
   // revocation can never push the timestamp forward, mirroring
-  // applyServerRevocations() in mesh/vmc.ts.
+  // applyServerRevocations() in lib/trust/revocation.ts.
   //
   // Note: we don't have a guaranteed-complete list of the removed
   // account's devices — only those we have credentials cached for
@@ -319,6 +371,28 @@ export async function applyVaultMemberRemoved(
       event.appended_at,
     );
   }
+
+  // M2 (review): retire the removed account's device bindings in
+  // vault_device_registry too. The chain fold (lib/trust/chain.ts) retires
+  // every device of a removed account; if the apply-path registry doesn't
+  // match, lookupSignerCredential would keep authenticating a removed
+  // member's device (no device_removed verdict) — a gate/fold parity break
+  // and revocation bypass. removed_at_ms = event.hlc.pms (the author clock,
+  // matching applyVaultDeviceRemoved's deterministic choice). MIN-style
+  // guard via "removed_at_ms IS NULL" keeps a stale re-removal from moving
+  // an existing tombstone.
+  await tx.runAsync(
+    `UPDATE vault_device_registry
+        SET removed_at_ms = ?, removed_at_l = ?, removed_at_did = ?
+      WHERE vault_id = ?
+        AND account_id = ?
+        AND removed_at_ms IS NULL`,
+    event.hlc.pms,
+    event.hlc.l,
+    event.hlc.did,
+    event.vault_id,
+    event.payload.account_id,
+  );
 
   // Bump vault_epoch so the removed device(s) — even if they manage to
   // present a still-signature-valid VMC (cached pre-removal) — hit the

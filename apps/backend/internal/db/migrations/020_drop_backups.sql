@@ -1,0 +1,25 @@
+-- 020_drop_backups.sql
+--
+-- M5 (docs/m5-recovery.md §4): retire the legacy v0.4 server backup. The
+-- v0.4 model uploaded an opaque per-install SQLite snapshot to the `backups`
+-- table (migration 005) for a single-vault "restore on a new phone" flow.
+-- Sync v2 replaced that wholesale: recovery is now snapshot+tail restore per
+-- vault via GET /v1/sync/snapshot (which M5 extends to carry the trust anchor
+-- + the full membership chain), and the backup endpoints / package are gone.
+-- No data migration is required — there are no users on the legacy table.
+--
+-- Drops:
+--   * backups — the per-install snapshot table (migration 005). Its only
+--     readers were the deleted internal/backup package's Upload/Latest
+--     handlers (POST /v1/backup/upload, GET /v1/backup/latest, also removed).
+--
+-- CASCADE drops, in one statement, everything that hangs off the table:
+--   * idx_backups_provider_sub_updated (migration 005)
+--   * idx_backups_account / idx_backups_vault (migration 006)
+--   * the migration-006 FK columns backups.vault_id → vaults(vault_id) and
+--     backups.account_id → accounts(id), with their FK constraints.
+-- Nothing else in the schema references `backups`, so CASCADE has no wider
+-- reach. Migrations 005 and 006 are LEFT UNTOUCHED (append-only invariant):
+-- this migration is the sole place the retirement lives.
+
+DROP TABLE IF EXISTS backups CASCADE;

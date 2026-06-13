@@ -43,9 +43,7 @@
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.WAKE_LOCK",
         "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
+        "android.permission.CAMERA"
       ]
     },
     "web": {
@@ -80,13 +78,6 @@
         {
           "color": "#000000",
           "icon": "./assets/icon.png"
-        }
-      ],
-      [
-        "@config-plugins/react-native-webrtc",
-        {
-          "cameraPermission": "Kaata does not use the camera for mesh sync; this permission is required by the WebRTC library but is not exercised.",
-          "microphonePermission": "Kaata does not use the microphone for mesh sync; this permission is required by the WebRTC library but is not exercised."
         }
       ],
       "./plugins/withNearbyWifiNeverForLocation",

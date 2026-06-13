@@ -105,6 +105,25 @@ export default function InviteAcceptScreen() {
       // it so the home screen lands in the freshly-joined vault.
       await setActiveVaultId(result.vault_id);
       await setAppMeta(PENDING_TOKEN_KEY, "");
+
+      // M2 membership chain (docs/m2-membership-chain.md §4): after a
+      // successful online acceptance, this device fetches the server
+      // witness and emits its own witnessed vault_member_added +
+      // vault_device_added — the invitee's future handshake proofs.
+      // Emission failure must NOT break the accept UX: the pending flag
+      // is set BEFORE the attempt and cleared only on success, so
+      // ensureChainBackfill retries on the next app session (duplicate
+      // admissions are no-ops in the chain fold, so a partial first
+      // attempt re-running is safe).
+      try {
+        const { emitWitnessedSelfAdmission, witnessEmitPendingKey } =
+          await import("../../lib/trust/backfill");
+        await setAppMeta(witnessEmitPendingKey(result.vault_id), "1");
+        await emitWitnessedSelfAdmission(result.vault_id);
+        await setAppMeta(witnessEmitPendingKey(result.vault_id), "");
+      } catch (err) {
+        console.warn("[invite] witness emission failed (backfill path will retry)", err);
+      }
       setStage("done");
       toast.push(t("inviteAccept.joinedToast", { name: invite.vault_name }), "success");
       router.replace("/");

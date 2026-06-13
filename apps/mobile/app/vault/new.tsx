@@ -49,7 +49,6 @@ import {
   ACTIVE_VAULT_META_KEY,
   getDb,
   getAccountIdSync,
-  getInstallIdSync,
   setActiveVaultIdCache,
   setAppMetaInTx,
 } from "../../lib/db-tx";
@@ -60,8 +59,7 @@ import { appendShopProfileUpdated, appendVaultMemberAdded } from "../../lib/even
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { ensureDeviceKey, getDevicePubkey } from "../../lib/mesh/device-key";
-import { buildLocalAccountId, issueLocalVMC } from "../../lib/mesh/local-vmc";
-import { cacheVMC } from "../../lib/mesh/vmc";
+import { buildLocalAccountId } from "../../lib/trust/account-id";
 
 const NAME_MAX = 50;
 
@@ -238,28 +236,10 @@ export default function VaultNewScreen() {
       // value on the success path only.
       setActiveVaultIdCache(vaultId);
 
-      // Phase 7: self-VMC. The owner's device issues a VMC FOR ITSELF
-      // signed with its own privkey, verifiable against the vault's
-      // trust anchor (which equals this same pubkey). That lets the
-      // owner participate in the mesh immediately — no server round-
-      // trip, no sign-in. cacheVMC is idempotent at (vault_id, device_id)
-      // so the next sign-in / server VMC issuance doesn't fight this.
-      try {
-        const selfAccountId = accountId ?? buildLocalAccountId(trustAnchorPubkey);
-        const { blob, expiresAtMs } = await issueLocalVMC({
-          vaultId,
-          peerAccountId: selfAccountId,
-          peerDeviceId: getInstallIdSync(),
-          peerDevicePubkey: trustAnchorPubkey,
-          role: "owner",
-          vaultEpoch: 0,
-        });
-        await cacheVMC(vaultId, blob, expiresAtMs, selfAccountId, trustAnchorPubkey, 0);
-      } catch (err) {
-        // Non-fatal: a future mesh start can re-issue. The vault row +
-        // trust anchor are persisted regardless.
-        console.warn("[vault/new] self-VMC issuance failed", err);
-      }
+      // M4: no self-VMC. The owner's trust authority comes from the
+      // genesis vault_member_added (emitted below), which the chain fold
+      // binds to this anchor device. The owner participates in the mesh
+      // immediately via the chain handshake — no credential to mint.
 
       // Emit a shop_profile_updated event so a wipe-and-replay (or a Phase 3
       // second-device restore-from-log) reconstructs THIS vault's shop_name.
@@ -282,11 +262,16 @@ export default function VaultNewScreen() {
       }
 
       // Emit a vault_member_added event for SELF (the vault creator,
-      // who is the owner). Without this, peers receiving entry/person/
-      // relationship events from this owner via mesh would hit
-      // role-gate.resolveRoleAt finding no binding for the owner's
-      // account_id → refuse with unknown_actor → events silently
-      // dropped (Bug 3: joiner sees the vault but no ledger entries).
+      // who is the owner). M2 membership chain: this IS the genesis
+      // admission — the chain root (docs/m2-membership-chain.md §3.1).
+      // It is authored + signed by THIS device through the normal local
+      // append path, and the chain fold implicitly binds the anchor
+      // device from it, so NO vault_device_added is emitted for the
+      // creator. Pre-M2 rationale (still true): without this, peers
+      // receiving entry/person/relationship events from this owner via
+      // mesh would hit role-gate.resolveRoleAt finding no binding for
+      // the owner's account_id → refuse with unknown_actor → events
+      // silently dropped (Bug 3: joiner sees the vault but no entries).
       // The local applier reaches role-gate's local-only fallback
       // (origin='local' + actorAccountId=null → ok) so this is a no-op
       // for the local mirror but materially fixes the mesh

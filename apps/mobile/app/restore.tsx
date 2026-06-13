@@ -1,14 +1,16 @@
 // In-app Restore from cloud screen. Reachable from the SYNC section of
 // ProfileSettingsSheet (signed-in only).
 //
+// M5 multi-vault recovery: runs recoverAllVaults() (lib/recovery.ts) — it
+// lists every vault the account belongs to, restores + witness-binds each,
+// and picks one active/default. The success toast reports the count.
+//
 // Distinct from app/onboarding/restore.tsx by design:
-//   - Onboarding/restore probes BOTH snapshot AND v0.4-backup, supports
-//     "Start fresh" because the user has no local data they care about
-//     yet, and stamps onboarding_step on completion.
-//   - This in-app screen only handles the Phase 3 snapshot path. v0.4
-//     legacy bridge is not exposed here — anyone who shipped past v0.5
-//     and is now in-app is well past the v0.4 boundary.
-//   - On success it returns to / (home), not to onboarding/profile.
+//   - Onboarding/restore supports "Start fresh" because the user has no
+//     local data they care about yet, and stamps onboarding_step on
+//     completion.
+//   - On success this in-app screen returns to / (home), not to
+//     onboarding/profile.
 //   - The user already has local data; the CTA wording warns about
 //     replacement instead of offering "Start fresh".
 //
@@ -53,16 +55,11 @@ import { ScreenHeader } from "../components/SettingsScreen";
 import { useToast } from "../components/Toast";
 import { signOut } from "../lib/auth";
 import { colors } from "../lib/colors";
-import { getAppMeta } from "../lib/db";
 import { textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { t } from "../lib/i18n";
-import {
-  fetchSnapshot,
-  restoreFromSnapshot,
-  RestoreSessionExpiredError,
-  RestoreTimeoutError,
-} from "../lib/restore";
+import { recoverAllVaults } from "../lib/recovery";
+import { RestoreSessionExpiredError, RestoreTimeoutError } from "../lib/restore";
 
 type Phase = { kind: "confirm" } | { kind: "restoring" };
 
@@ -111,21 +108,31 @@ export default function RestoreScreen() {
       // expo-network unavailable — skip precheck, fall through to fetch.
     }
     try {
-      const defaultVaultId = await getAppMeta("default_vault_id");
-      if (!defaultVaultId) {
-        // Shouldn't happen — restore button is gated by signed-in, and
-        // sign-in stamps default_vault_id. Treat as no-backup for the
-        // user's mental model.
+      // M5 multi-vault recovery: restore EVERY vault the account belongs to,
+      // not just the default. recoverAllVaults never throws for a single
+      // vault's failure — it returns a per-vault outcome (only a total
+      // inability to list the account's vaults bubbles up here).
+      const result = await recoverAllVaults();
+      if (result.recovered.length > 0) {
+        exitToHomeWithToast(
+          t("restore.toast.successVaults", { count: String(result.recovered.length) }),
+          "success",
+        );
+        return;
+      }
+      // Nothing recovered. If the inability to list was auth — surface the
+      // session-expired path (clears the local session below). Otherwise the
+      // account simply has no restorable vaults yet, or every vault errored.
+      const listFailure = result.failed.find((f) => f.vaultId === "*");
+      if (listFailure && /401|not signed in|unauthor/i.test(listFailure.error)) {
+        throw new RestoreSessionExpiredError();
+      }
+      if (result.failed.length === 0) {
         exitWithToast(t("restore.toast.noBackup"), "error");
         return;
       }
-      const snapshot = await fetchSnapshot({ defaultVaultId });
-      if (!snapshot) {
-        exitWithToast(t("restore.toast.noBackup"), "error");
-        return;
-      }
-      await restoreFromSnapshot(snapshot);
-      exitToHomeWithToast(t("restore.toast.success"), "success");
+      if (__DEV__) console.warn("[restore] recovery produced no vaults", result.failed);
+      exitWithToast(t("restore.toast.generic"), "error");
     } catch (err) {
       if (err instanceof RestoreSessionExpiredError) {
         // UX critique #5 (Eng C5): the JWT is invalid; the sheet's

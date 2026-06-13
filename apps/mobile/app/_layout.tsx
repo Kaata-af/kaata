@@ -1001,20 +1001,17 @@ function BackgroundCheckIn({ installId }: { installId: string }) {
           /* best-effort */
         }
 
-        // Phase 5: only read mesh-side renewal hints when the install has
+        // Only read the mesh-side revocation cursor when the install has
         // actually completed Google sign-in. A brand-new local-only install
-        // has no account_id, no vault_credentials, and no revocation
-        // cursors — paying the @noble SHA-512 wiring cost during cold boot
-        // for nothing is wasteful. Once account_id is present we dynamic-
-        // import the mesh entrypoint (which wires up sha512Sync at module
-        // load) and ask it for its check-in deltas.
+        // has no account_id and no revocation cursors, so paying the read
+        // cost during cold boot for nothing is wasteful. (M4: VMC renewals
+        // are retired — the membership chain carries trust, so there's
+        // nothing to renew via check-in.)
         const accountIdRaw = await getAppMeta("account_id");
-        let vmcRenewalsNeeded: string[] = [];
         let lastRevocationSeenAtMs: Record<string, number> = {};
         if (accountIdRaw) {
-          const mesh = await import("../lib/mesh");
-          vmcRenewalsNeeded = await mesh.collectRenewalsForCheckIn();
-          lastRevocationSeenAtMs = await mesh.getLastRevocationSeenAtMs();
+          const revocation = await import("../lib/trust/revocation");
+          lastRevocationSeenAtMs = await revocation.getLastRevocationSeenAtMs();
         }
         const [invalidStr, conflictStr, usage, installedAtMs, self] = await Promise.all([
           getAppMeta("migration_001_phones_invalid_count"),
@@ -1035,12 +1032,10 @@ function BackgroundCheckIn({ installId }: { installId: string }) {
           usage_entries_created: usage.entries_created,
           usage_customers_added: usage.customers_added,
           usage_shares_sent: usage.shares_sent,
-          // Only send the array when non-empty. Backend treats an absent
-          // field as "no renewal requested" and skips the (somewhat
-          // expensive) signing path entirely.
-          vmc_renewals_needed: vmcRenewalsNeeded.length > 0 ? vmcRenewalsNeeded : undefined,
-          // Always send the per-vault cursor map (may be empty). Empty map
-          // signals "first check-in" and pulls the full current set.
+          // Always send the per-vault revocation cursor map (may be empty).
+          // Empty map signals "first check-in" and pulls the full current
+          // set. The server re-sources revocations from membership events
+          // (M4) — the cursor is still how we page the delta.
           last_revocation_seen_at_ms:
             Object.keys(lastRevocationSeenAtMs).length > 0 ? lastRevocationSeenAtMs : undefined,
         });

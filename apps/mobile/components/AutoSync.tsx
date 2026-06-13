@@ -19,10 +19,12 @@ import { startSyncScheduler } from "../lib/sync";
 //     sign-in as someone else, or default vault switched), the effect
 //     tears the old scheduler down and starts a fresh one.
 //
-// Why this replaces the v0.4 AutoBackup component:
+// Why this replaces the old AutoBackup component:
 //   - v0.4 fired POST /v1/backup/upload on AppState→background as a
-//     full-snapshot upload. Phase 3 retires that path: ledger state is
-//     synced incrementally via the event log over /v1/sync/{push,pull}.
+//     full-snapshot upload. That whole backup path is now RETIRED (M5,
+//     docs/m5-recovery.md §4): ledger state syncs incrementally via the
+//     event log over /v1/sync/{push,pull}, and recovery rebuilds from the
+//     per-vault snapshot+tail (lib/recovery.ts), not a mega-snapshot.
 //   - The scheduler owns its own AppState listener and its own retry
 //     policy, so this component is intentionally minimal.
 //

@@ -88,6 +88,10 @@ export function MeshController() {
   // produce a toast storm.
   const peripheralUnsupportedShownRef = useRef(false);
   const adapterOffShownRef = useRef(false);
+  // M2c: once-per-session latch for the "nearby kaata needs an update"
+  // toast (an outdated peer will keep retrying handshakes; one toast is
+  // enough until the user restarts shop mode).
+  const peerOutdatedShownRef = useRef(false);
   const peerFailureWindowRef = useRef<{ timestamps: number[]; lastToastAt: number }>({
     timestamps: [],
     lastToastAt: 0,
@@ -133,6 +137,21 @@ export function MeshController() {
               message: reason ? `reason=${reason}` : "",
             }),
           );
+        }
+        // M2c 'peer_outdated': a v1 peer was refused on an anchored
+        // vault (membership-chain handshake). Handled via a string
+        // match BEFORE the switch because the kind isn't in errors.ts's
+        // MeshFailureEvent union yet (file deliberately untouched in
+        // M2c; fold the kind into the union in M4). Also stamps the
+        // peer-failure debounce window so the generic
+        // peer_handshake_failed that the session-teardown path emits
+        // right after doesn't double-toast.
+        if ((event.kind as string) === "peer_outdated") {
+          peerFailureWindowRef.current.lastToastAt = Date.now();
+          if (peerOutdatedShownRef.current) return;
+          peerOutdatedShownRef.current = true;
+          toastRef.current.push(t("menu.ble.peerOutdated"), "info");
+          return;
         }
         switch (event.kind) {
           case "peripheral_unsupported": {

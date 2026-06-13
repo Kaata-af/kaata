@@ -1,13 +1,17 @@
-// Phase 5 — same-account multi-device QR pairing, new-device side.
+// QR pairing, new-device (joiner) side — chain-native (M4).
 //
 // Mounts the camera (expo-camera), parses the QR, validates it, then:
-//   1. Verifies own account_id == payload.issuer_account_id (cross-account
-//      pairing via QR is refused — Phase 4 invite flow is the path).
-//   2. Adds the vault row locally (so it appears in the vault picker even
-//      before /v1/sync/pull populates the canonical fields).
-//   3. Calls POST /v1/vaults/:vault_id/credential to fetch our VMC.
-//   4. Persists the VMC into vault_credentials.
-//   5. Flips shop_mode_enabled = '1' so mesh starts immediately.
+//   1. Adds the vault row locally with the owner's trust anchor pubkey
+//      pinned from the QR (so it appears in the vault picker and the chain
+//      handshake can fold membership against it).
+//   2. Writes the joiner's own vault_members_mirror row + pins the owner's
+//      identity locally so the Members tab and role-gate work immediately.
+//   3. Persists the QR's shop_mode_token as the local pair_nonce — the
+//      joiner echoes it on its first BLE handshake; the OWNER verifies it
+//      against a live pair token and EMITS the joiner's admission events
+//      (vault_member_added + vault_device_added) into the chain. The
+//      joiner does NOT self-admit and does NOT mint any credential.
+//   4. Flips shop_mode_enabled = '1' so mesh starts immediately.
 
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -25,11 +29,8 @@ import { textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { decodePairQr, type PairQrPayload, type PairQrRole } from "../../lib/mesh/pair-qr";
-import { cachePeerVMC, cacheVMC, verifyAndCacheVMC } from "../../lib/mesh/vmc";
 import { ensureDeviceKey, getDevicePubkey } from "../../lib/mesh/device-key";
-import { buildLocalAccountId, issueLocalVMC } from "../../lib/mesh/local-vmc";
-import { getInstallIdSync } from "../../lib/db-tx";
-import { issueVaultCredential } from "../../lib/vault-api";
+import { buildLocalAccountId } from "../../lib/trust/account-id";
 
 /**
  * D-PAIR-WITH-ROLE: derive the role offered by a scanned QR.
@@ -59,13 +60,6 @@ type Step =
       kind: "joined";
       vault_id: string;
       vault_name: string;
-      /**
-       * True when the QR's vault_trust_anchor_pubkey was present, i.e.
-       * the scanner installed a local-CA vault. Drives copy on the
-       * success screen so we don't promise wifi-sync on a BLE-primary
-       * local-anchored pair.
-       */
-      isLocalCA: boolean;
     }
   | { kind: "error"; message: string };
 
@@ -105,58 +99,46 @@ export default function VaultPairScanScreen() {
     const payload = step.payload;
     setStep({ kind: "joining", payload });
     try {
-      // Phase 7 local-CA path: if the QR carries
-      // vault_trust_anchor_pubkey, the owner's device will sign the
-      // VMC directly (no server roundtrip, no Google sign-in required).
-      // The actual VMC delivery over the mesh handshake is wired in a
-      // follow-up phase (Phase 6.1 — BLE peripheral). Until then we
-      // record the local-CA intent: persist the vault row with the
-      // trust anchor populated and the QR's vault_name. The mesh
-      // handshake will then verify the eventually-received VMC against
-      // this anchor instead of the pinned server pubkey.
-      const isLocalCA = Boolean(payload.vault_trust_anchor_pubkey);
-
-      // Phase 5 server-anchor path retains the account-match guard so
-      // a server-issued VMC is only mintable for the issuer's account.
-      // Local-CA path skips this check — the owner's device is the
-      // root of trust.
-      const ourAccountId = await getAppMeta("account_id");
-      if (!isLocalCA) {
-        if (!ourAccountId) {
-          setStep({
-            kind: "error",
-            message: t("vaultPairScan.error.signInRequired"),
-          });
-          return;
-        }
-        if (ourAccountId !== payload.issuer_account_id) {
-          setStep({
-            kind: "error",
-            message: t("vaultPairScan.error.accountMismatch"),
-          });
-          return;
-        }
+      // Chain-native join (M4): every QR carries the owner's trust anchor
+      // pubkey (vault_trust_anchor_pubkey). The joiner pins it, then on its
+      // first BLE handshake presents an EMPTY proof bundle + the QR's
+      // shop_mode_token as the mesh pair_nonce. The OWNER verifies the
+      // nonce against a live pair token and EMITS the joiner's admission
+      // (vault_member_added + vault_device_added) into the chain. The
+      // joiner mints NO credential and does NOT self-admit. A QR without
+      // an anchor pubkey can't complete a chain join — refuse it.
+      if (!payload.vault_trust_anchor_pubkey) {
+        setStep({
+          kind: "error",
+          message: t("vaultPairScan.error.malformed"),
+        });
+        return;
       }
 
-      // Local vault row. The server's /v1/sync/pull will reconcile the
-      // canonical fields when signed in; for local-only vaults this is
-      // the canonical row.
-      // Make sure the device key is loaded before reading it (same
-      // reason as pair.tsx: an in-memory cache miss leaves
-      // getDevicePubkey() returning null, which then skips both the
-      // joiner-self-VMC issuance AND the owner identity pin — silently
-      // leaving the joiner unable to participate in BLE handshake.
+      // The joining device's effective account_id. When signed in, that's
+      // the real account; otherwise synthesize a stable local sentinel from
+      // the device pubkey, matching lib/trust/account-id.ts. NOTE: this is
+      // only the joiner's LOCAL mirror identity — the account the OWNER
+      // actually binds in the chain is derived owner-side from the
+      // PoP-proven pubkey (verifyPeerChain FIX A), never trusted from here.
+      const ourAccountId = await getAppMeta("account_id");
+
+      // Make sure the device key is loaded before reading it (same reason
+      // as pair.tsx: an in-memory cache miss leaves getDevicePubkey()
+      // returning null, which would leave the joiner unable to participate
+      // in the BLE handshake).
       await ensureDeviceKey();
-      // Compute the role + the joining device's effective account_id.
-      // For local-CA when not signed in, synthesize a stable local ID
-      // from the device pubkey, matching the convention local-vmc.ts uses.
       const offered = deriveOfferedRole(payload);
       const devicePubkeyB64 = getDevicePubkey();
-      const effectiveAccountId =
-        ourAccountId ??
-        (devicePubkeyB64
-          ? buildLocalAccountId(devicePubkeyB64)
-          : `local:${getInstallIdSync().slice(0, 16)}`);
+      if (!devicePubkeyB64) {
+        setStep({
+          kind: "error",
+          message:
+            "Couldn't finish pairing — your device key isn't ready. Force-close the app and try again.",
+        });
+        return;
+      }
+      const effectiveAccountId = ourAccountId ?? buildLocalAccountId(devicePubkeyB64);
 
       const db = await getDb();
       await db.withTransactionAsync(async () => {
@@ -178,12 +160,13 @@ export default function VaultPairScanScreen() {
             payload.vault_name,
             now,
             now,
-            // For server-anchored pair we set account_id immediately
-            // (issueVaultCredential will INSERT vault_members on the
-            // server next). For local-CA pair we leave account_id null
-            // when the scanner is signed-out; sign-in later reconciles.
-            isLocalCA ? (ourAccountId ?? null) : ourAccountId,
-            isLocalCA ? null : now,
+            // account_id is left null when the scanner is signed out;
+            // sign-in later reconciles. registered_with_server_at stays
+            // null — the joiner isn't server-registered for this vault
+            // (the owner's pushed admission events are how the server
+            // learns membership).
+            ourAccountId ?? null,
+            null,
             payload.vault_trust_anchor_pubkey ?? null,
           );
         } else if (payload.vault_trust_anchor_pubkey) {
@@ -251,178 +234,55 @@ export default function VaultPairScanScreen() {
         }
       });
 
-      // Emit a vault_member_added event for self into the event log so
-      // mesh anti-entropy propagates this membership to the owner (and
-      // any other peers) on the next handshake. The mirror row above
-      // makes our local UI correct; this event makes the OWNER's UI also
-      // show the new member once they sync.
+      // CHAIN-NATIVE JOIN (M4): the joiner does NOT emit its own
+      // vault_member_added and does NOT mint any credential. The mirror
+      // rows above make the joiner's LOCAL UI correct immediately; the
+      // OWNER emits the joiner's admission (vault_member_added +
+      // vault_device_added, owner-signed) during the BLE handshake
+      // (verifyPeerChain's pair path), and those events are what the
+      // server learns membership from when they're pushed. A
+      // self-admission here would be refused by every peer's role-gate
+      // anyway (the joiner is not yet an owner-bound device).
+
+      // Persist the QR's shop_mode_token locally so the joiner's first
+      // BLE handshake echoes it as HelloMessage.pair_nonce. The owner's
+      // pair-admission path requires this exact nonce to match a live
+      // unconsumed pair token, binding "this handshake came from the QR
+      // we just generated" vs "any stranger in BLE range during the
+      // window." 5-min TTL matches the QR's expiry; cleared on first
+      // successful handshake.
       try {
-        const eventLog = await import("../../lib/event-log");
-        await eventLog.appendVaultMemberAdded({
-          targetVaultId: payload.vault_id,
-          accountId: effectiveAccountId,
-          role: offered.role,
-        });
+        const localPair = await import("../../lib/mesh/local-pair");
+        await localPair.setLocalPairNonceForVault(
+          payload.vault_id,
+          payload.shop_mode_token,
+          payload.expires_at_ms,
+        );
       } catch (err) {
-        console.warn("[vault/pair-scan] appendVaultMemberAdded failed", err);
-        // Non-fatal — the mirror row is already written; the event will
-        // get re-emitted next time the user explicitly toggles role or
-        // re-joins. We don't want to abort the whole join over this.
+        console.warn("[vault/pair-scan] setLocalPairNonceForVault failed", err);
+        // Non-fatal: the handshake retries the lookup. If it's missing,
+        // the owner refuses the pair handshake loudly until re-paired.
       }
 
-      if (isLocalCA) {
-        // v0.5.3 BRIAR-STYLE BIDIRECTIONAL PAIR (this is the change that
-        // makes local-CA mesh actually WORK without Google sign-in).
-        //
-        // Two new pieces are wired here, both keyed to the v=3 QR fields
-        // (issuer_device_pubkey + issuer_display_name):
-        //
-        // (1) JOINER SELF-VMC. The joiner generates their own VMC signed
-        //     with their own device key (the same issueLocalVMC primitive
-        //     the owner uses at vault creation). They cache it via the
-        //     standard cacheVMC. When the joiner initiates a BLE
-        //     handshake, the OWNER receives this self-signed VMC and
-        //     verifies it against the joiner's pinned device_pubkey via
-        //     verifyVMCAgainstPinnedPeer (vmc.ts). No
-        //     pair_claim/pair_grant wire needed.
-        //
-        // (2) PIN THE OWNER. v=3 QRs carry issuer_device_pubkey — we
-        //     write a vault_credentials row for the owner using the
-        //     existing cachePeerVMC primitive (with the owner's vmc_blob
-        //     left empty as a placeholder; the BLE handshake will fill
-        //     it in via cachePeerVMC when the owner actually connects).
-        //     This is what role-gate.lookupSignerCredential needs to
-        //     find when the owner's events arrive over the mesh.
-        //
-        // Combined effect: BOTH sides have each other pinned, both can
-        // verify each other's events at role-gate AND BLE handshake,
-        // privacy is preserved (only the peer whose QR we scanned can
-        // pass either gate), and we don't need a separate peer_identities
-        // table — vault_credentials does the job.
-        const installId = getInstallIdSync();
-        const myDevicePubkey = getDevicePubkey();
-        // BUG-M: fail-loud on self-VMC issuance. Without a self-VMC
-        // we have NOTHING to send in the BLE handshake hello — mesh
-        // sync silently does nothing while the UI says "paired".
-        // Previously this swallowed the error with console.warn and
-        // pushed the user to the joined screen anyway. Now we surface
-        // the failure as an error step so the user knows to retry.
-        if (!myDevicePubkey || !payload.vault_trust_anchor_pubkey) {
-          setStep({
-            kind: "error",
-            message:
-              "Couldn't finish pairing — your device key isn't ready. Force-close the app and try again.",
-          });
-          return;
-        }
-        try {
-          const { blob, expiresAtMs } = await issueLocalVMC({
-            vaultId: payload.vault_id,
-            peerAccountId: effectiveAccountId,
-            peerDeviceId: installId,
-            peerDevicePubkey: myDevicePubkey,
-            role: offered.role,
-            vaultEpoch: 0,
-          });
-          await cacheVMC(
-            payload.vault_id,
-            blob,
-            expiresAtMs,
-            effectiveAccountId,
-            myDevicePubkey,
-            0,
-          );
-        } catch (err) {
-          console.warn("[vault/pair-scan] self-VMC issue failed", err);
-          setStep({
-            kind: "error",
-            message:
-              "Couldn't create your sync credential — please try pairing again. If this keeps happening, force-close Kaata and retry.",
-          });
-          return;
-        }
-        // BUG-O: we used to pre-pin the owner's identity into
-        // vault_credentials with peerVmcBlob: "" as a placeholder.
-        // That broke role-gate's extractRoleFromVmcBlob (which returns
-        // null for empty blobs) AND made the row look "real" to
-        // lookupSignerCredential for ~1 year. The BLE handshake's
-        // cachePeerVMC at anti-entropy.ts:863 writes the real blob with
-        // the correct expiry on first connect — that's the only path
-        // that should populate vault_credentials. The Members tab is
-        // already populated via vault_members_mirror (written above)
-        // so dropping the placeholder is purely a clean-up of dead
-        // weight.
-
-        // Mythos P2: persist the QR's shop_mode_token locally so the
-        // joiner's next handshake echoes it as HelloMessage.pair_nonce.
-        // The owner's Path C TOFU requires this exact nonce match to
-        // bind "this handshake came from the QR we just generated" vs
-        // "any stranger in BLE range during the window." 5-min TTL
-        // matches the QR's expiry; cleared on first successful handshake.
-        try {
-          const localPair = await import("../../lib/mesh/local-pair");
-          await localPair.setLocalPairNonceForVault(
-            payload.vault_id,
-            payload.shop_mode_token,
-            payload.expires_at_ms,
-          );
-        } catch (err) {
-          console.warn("[vault/pair-scan] setLocalPairNonceForVault failed", err);
-          // Non-fatal: handshake retries the lookup; if it's missing
-          // and we have no pinned credential, the handshake refuses
-          // loudly.
-        }
-
-        await setAppMeta("shop_mode_enabled", "1");
-        await setActiveVaultId(payload.vault_id);
-
-        // BUG-A: tell mesh the vault set just changed so BLE discovery
-        // can match this vault's hash AND so our advertiser includes it
-        // in the rotation. Without this notify, the just-joined vault
-        // is invisible to mesh until the user toggles Nearby sync off
-        // and on again — the exact "I paired but nothing syncs"
-        // symptom users were reporting. No-op when mesh isn't running.
-        try {
-          const mesh = await import("../../lib/mesh");
-          await mesh.notifyVaultSetChanged();
-        } catch (err) {
-          console.warn("[vault/pair-scan] notifyVaultSetChanged failed", err);
-        }
-
-        setStep({
-          kind: "joined",
-          vault_id: payload.vault_id,
-          vault_name: payload.vault_name,
-          isLocalCA: true,
-        });
-        toast.push(t("vaultPairScan.toast.pairedNearby"), "success");
-        return;
-      }
-
-      // Phase 5 server-anchor path: fetch our VMC. The new-device
-      // flow forwards the QR's shop_mode_token + issued_at_ms so the
-      // backend can consume the single-use token, reject scanner-
-      // clock rollback, and INSERT a vault_members row before
-      // minting the VMC.
-      const issued = await issueVaultCredential(payload.vault_id, {
-        pair_token: payload.shop_mode_token,
-        pair_issued_at_ms: payload.issued_at_ms,
-      });
-
-      // Verify against the pinned server pubkey (default path — no
-      // trust anchor passed) and persist. verifyAndCacheVMC populates
-      // device_pubkey + vault_epoch from the parsed blob.
-      await verifyAndCacheVMC(payload.vault_id, issued.vmc_blob);
-
-      // Auto-enable Shop Mode + switch active vault.
       await setAppMeta("shop_mode_enabled", "1");
       await setActiveVaultId(payload.vault_id);
+
+      // Tell mesh the vault set just changed so BLE discovery can match
+      // this vault's hash AND so our advertiser includes it in the
+      // rotation. Without this notify, the just-joined vault is invisible
+      // to mesh until the user toggles Nearby sync off and on again.
+      // No-op when mesh isn't running.
+      try {
+        const mesh = await import("../../lib/mesh");
+        await mesh.notifyVaultSetChanged();
+      } catch (err) {
+        console.warn("[vault/pair-scan] notifyVaultSetChanged failed", err);
+      }
 
       setStep({
         kind: "joined",
         vault_id: payload.vault_id,
         vault_name: payload.vault_name,
-        isLocalCA: false,
       });
       toast.push(t("vaultPairScan.toast.pairedNearby"), "success");
     } catch (err) {
@@ -561,9 +421,7 @@ export default function VaultPairScanScreen() {
             <Text style={styles.emph}>{step.vault_name}</Text>
           </Text>
           <Text style={[styles.bodyText, textDir(isRTL)]}>
-            {step.isLocalCA
-              ? t("vaultPairScan.joined.body.local")
-              : t("vaultPairScan.joined.body.server")}
+            {t("vaultPairScan.joined.body.local")}
           </Text>
           <View style={{ height: 24 }} />
           <Button label={t("common.done")} onPress={onDone} />

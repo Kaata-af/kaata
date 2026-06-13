@@ -64,9 +64,13 @@
 //   the lex-loser has accepted; it sends its own `wifi_upgrade_response
 //   { accepted: true }`. Both sides converge cleanly with no ambiguity.
 
-import { dialPeer, type MeshConnection, type PeerHint } from "./transport";
-import { onPeerFound, onPeerLost, type DiscoveredPeer } from "./discovery";
+import { dialLanPeer } from "./transport-lan";
+import type { MeshConnection } from "./transport-interface";
+import { onPeerFound, onPeerLost, type LanDiscoveredPeer } from "./discovery-lan";
 import { closeUpgradeWindow, openUpgradeWindow } from "./discovery-router";
+
+/** Discovery-time dial hint for a LAN peer (host/port from the mDNS resolve). */
+type PeerHint = { host: string; port: number; serviceName: string };
 
 // ---------------------------------------------------------------------------
 // Tunable constants (exported for tweaking after real-device measurements).
@@ -581,16 +585,19 @@ export async function coordinateWifiUpgrade(
     };
   }
 
-  // -- 4b. Dialer path.
+  // -- 4b. Dialer path. M3: dial the LAN (TCP) transport instead of WebRTC.
+  // dialLanPeer returns a pre-handshake LanMeshConnection; the caller
+  // (anti-entropy.ts) runs the fresh VMC+PoP handshake on it and MUST verify
+  // remoteDeviceId === expectedPeerDeviceId afterward (LAN-MITM defense).
   let wifiConn: MeshConnection;
   try {
     wifiConn = await withTimeout(
-      dialPeer(peerHint),
+      dialLanPeer({ host: peerHint.host, port: peerHint.port }),
       TUNABLE_CONSTANTS.WEBRTC_DIAL_TIMEOUT_MS,
-      "webrtc dial timeout",
+      "lan dial timeout",
     );
   } catch (err) {
-    if (__DEV__) console.warn("[wifi-upgrade] WebRTC dial failed", err);
+    if (__DEV__) console.warn("[wifi-upgrade] LAN dial failed", err);
     emitToast("Couldn't connect over wifi, using Bluetooth");
     return { success: false, reason: "webrtc_failed" };
   }
@@ -637,7 +644,7 @@ async function raceForMdnsPeer(vaultId: string): Promise<PeerHint | null> {
 
   try {
     return await new Promise<PeerHint | null>((resolve) => {
-      const onFound = (peer: DiscoveredPeer) => {
+      const onFound = (peer: LanDiscoveredPeer) => {
         if (peer.isSelf) return;
         if (!peer.matchedVaultIds.includes(vaultId)) return;
         if (!peer.host || !peer.port) return;

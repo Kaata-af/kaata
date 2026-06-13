@@ -1,0 +1,47 @@
+-- M2 membership chain (docs/m2-membership-chain.md §8.3, SEC FIX 4): HLC
+-- arbitration between the chain-fold UPDATEs and the legacy Phase-4
+-- membership endpoints (SetMemberRole / RevokeMember / TransferOwnership /
+-- Leave).
+--
+-- Problem: foldMembershipEvent's role_changed / member_removed UPDATEs and
+-- the legacy endpoints both wrote vault_members.role / revoked_at
+-- unconditionally — last-writer-by-ARRIVAL. A stale chain event arriving
+-- after a newer change (or vice versa) silently clobbered the newer state.
+-- Membership convergence must be deterministic and independent of which
+-- write physically reaches the row last.
+--
+-- Fix: stamp the HLC physical_ms of the change that last touched a
+-- vault_members row, and gate every membership-mutating write on it. A write
+-- applies only when its change is NEWER than what the row already reflects:
+--
+--   incoming_hlc_ms > last_change_hlc_ms                 → apply
+--   incoming_hlc_ms = last_change_hlc_ms (tie)           → apply (idempotent;
+--                                                           ties are the same
+--                                                           logical change or
+--                                                           harmlessly equal —
+--                                                           event_id breaks
+--                                                           ties in the full
+--                                                           log fold, but the
+--                                                           server ACL mirror
+--                                                           only needs a stable
+--                                                           >= rule)
+--   incoming_hlc_ms < last_change_hlc_ms (stale)         → skip
+--
+-- The guard is `>=` so a tie re-applies idempotently rather than wedging.
+--
+-- Source of the stamp:
+--   * chain folds        → the event's hlc_physical_ms (deterministic across
+--                          replicas; matches added_at_ms / removed_at_ms on
+--                          vault_devices).
+--   * legacy endpoints   → server wall-clock (NOW() in ms). Legacy callers
+--                          act on CURRENT state in real time, so wall-clock is
+--                          the correct logical timestamp for their change and
+--                          is monotonic vs. any genuinely-older chain event.
+--
+-- NULL on existing rows (pre-M2 history, owner self-seed, brokered invites
+-- that never went through the chain). A NULL last_change_hlc_ms means "no
+-- chain/guarded write has stamped this row yet"; the guards treat NULL as
+-- -infinity so the FIRST guarded write always lands and stamps it.
+
+ALTER TABLE vault_members
+  ADD COLUMN IF NOT EXISTS last_change_hlc_ms BIGINT;

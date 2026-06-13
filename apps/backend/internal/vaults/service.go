@@ -161,33 +161,13 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 // lawful-at-HLC rule lives in the sync package.
 // ===========================================================================
 
-// MeshRevoker is the hook vaults/service.go calls inside the same tx as
-// Leave / SetMemberRole / RevokeMember / TransferOwnership so the affected
-// account's mesh credentials are revoked atomically with the role change.
-//
-// Implemented in package mesh by Service.ApplyRevocationForAccount. Wired
-// at startup in main.go via SetMeshRevoker so this package does not import
-// mesh (which would create a cycle once mesh wants to read any vault
-// helper).
-type MeshRevoker func(ctx context.Context, tx pgx.Tx, vaultID, accountID string) (int64, error)
-
-var meshRevoker MeshRevoker
-
-// SetMeshRevoker is called once at startup from main.go. nil is allowed
-// (mesh disabled — the revokeMeshIfWired helper short-circuits).
-func SetMeshRevoker(fn MeshRevoker) { meshRevoker = fn }
-
-// revokeMeshIfWired calls the registered MeshRevoker, swallowing the
-// rowsAffected return. Errors propagate so the outer tx rolls back —
-// mesh revocation is part of the atomic membership mutation, not a
-// fire-and-forget.
-func revokeMeshIfWired(ctx context.Context, tx pgx.Tx, vaultID, accountID string) error {
-	if meshRevoker == nil {
-		return nil
-	}
-	_, err := meshRevoker(ctx, tx, vaultID, accountID)
-	return err
-}
+// M4 (docs/m4-retire-vmc.md): the legacy MeshRevoker hook — which stamped
+// revoked_at on the retired vault_credentials_issued ledger inside Leave /
+// SetMemberRole / RevokeMember / TransferOwnership — is gone. Mesh revocation
+// is now re-sourced from the membership-removal signal these same endpoints
+// already write (vault_members.revoked_at) plus the chain's
+// vault_devices.removed_at_ms fold; see mesh.GetRevocationsForVault. The
+// endpoints below no longer need a separate per-account credential sweep.
 
 // Phase 4 typed errors. Handler maps each to a specific HTTP status.
 var (
@@ -621,21 +601,21 @@ func (s *Service) Leave(ctx context.Context, vaultID, accountID string) (int64, 
 		}
 	}
 
+	// SEC FIX 4: stamp last_change_hlc_ms (wall-clock ms) so a stale chain
+	// removal/role_changed cannot clobber this self-leave.
 	if _, err := tx.Exec(ctx, `
 		UPDATE vault_members
 		   SET revoked_at = NOW(), revoked_by = $2::uuid,
-		       revoked_reason = 'self_leave', updated_at = NOW()
+		       revoked_reason = 'self_leave', updated_at = NOW(),
+		       last_change_hlc_ms = GREATEST(COALESCE(last_change_hlc_ms, 0), $3)
 		 WHERE vault_id = $1::uuid AND account_id = $2::uuid AND revoked_at IS NULL
-	`, vaultID, accountID); err != nil {
+	`, vaultID, accountID, nowMS()); err != nil {
 		return 0, fmt.Errorf("revoke self: %w", err)
 	}
 
-	// Phase 5: invalidate every mesh credential this account holds on
-	// this vault so peer devices stop trusting handshakes from any of
-	// the leaver's installs.
-	if err := revokeMeshIfWired(ctx, tx, vaultID, accountID); err != nil {
-		return 0, fmt.Errorf("revoke mesh creds on leave: %w", err)
-	}
+	// M4: the leaver's revocation rides vault_members.revoked_at (set above)
+	// + the emitted vault_member_removed event; mesh peers learn of it via the
+	// re-sourced /v1/check-in revocations delta (mesh.GetRevocationsForVault).
 
 	newEpoch, err := bumpEpoch(ctx, tx, vaultID)
 	if err != nil {
@@ -707,40 +687,36 @@ func (s *Service) TransferOwnership(ctx context.Context, in TransferInput) (int6
 		return 0, fmt.Errorf("read target membership: %w", err)
 	}
 
+	// SEC FIX 4: stamp last_change_hlc_ms on every transfer mutation.
 	if _, err := tx.Exec(ctx, `
-		UPDATE vault_members SET role = 'owner', updated_at = NOW()
+		UPDATE vault_members SET role = 'owner', updated_at = NOW(),
+		       last_change_hlc_ms = GREATEST(COALESCE(last_change_hlc_ms, 0), $3)
 		 WHERE vault_id = $1::uuid AND account_id = $2::uuid AND revoked_at IS NULL
-	`, in.VaultID, in.ToAccountID); err != nil {
+	`, in.VaultID, in.ToAccountID, nowMS()); err != nil {
 		return 0, fmt.Errorf("promote target: %w", err)
 	}
-	// Phase 5: the promoted target's existing VMC (issued at the prior
-	// role) is now stale; revoke so the peer must refresh and get a
-	// fresh VMC stamped owner+new-epoch.
-	if err := revokeMeshIfWired(ctx, tx, in.VaultID, in.ToAccountID); err != nil {
-		return 0, fmt.Errorf("revoke mesh creds on promote: %w", err)
-	}
+	// M4: role changes no longer invalidate a credential (the chain carries
+	// roles directly via vault_member_role_changed). Only the demote-to-leave
+	// branch below removes a member, and that revocation rides
+	// vault_members.revoked_at + the emitted vault_member_removed event.
 
 	switch in.DemoteSelfTo {
 	case "editor":
 		if _, err := tx.Exec(ctx, `
-			UPDATE vault_members SET role = 'editor', updated_at = NOW()
+			UPDATE vault_members SET role = 'editor', updated_at = NOW(),
+			       last_change_hlc_ms = GREATEST(COALESCE(last_change_hlc_ms, 0), $3)
 			 WHERE vault_id = $1::uuid AND account_id = $2::uuid AND revoked_at IS NULL
-		`, in.VaultID, in.AccountID); err != nil {
+		`, in.VaultID, in.AccountID, nowMS()); err != nil {
 			return 0, fmt.Errorf("demote self: %w", err)
-		}
-		if err := revokeMeshIfWired(ctx, tx, in.VaultID, in.AccountID); err != nil {
-			return 0, fmt.Errorf("revoke mesh creds on self-demote: %w", err)
 		}
 	case "leave":
 		if _, err := tx.Exec(ctx, `
 			UPDATE vault_members SET revoked_at = NOW(), revoked_by = $2::uuid,
-			       revoked_reason = 'ownership_transfer', updated_at = NOW()
+			       revoked_reason = 'ownership_transfer', updated_at = NOW(),
+			       last_change_hlc_ms = GREATEST(COALESCE(last_change_hlc_ms, 0), $3)
 			 WHERE vault_id = $1::uuid AND account_id = $2::uuid AND revoked_at IS NULL
-		`, in.VaultID, in.AccountID); err != nil {
+		`, in.VaultID, in.AccountID, nowMS()); err != nil {
 			return 0, fmt.Errorf("leave on transfer: %w", err)
-		}
-		if err := revokeMeshIfWired(ctx, tx, in.VaultID, in.AccountID); err != nil {
-			return 0, fmt.Errorf("revoke mesh creds on transfer-leave: %w", err)
 		}
 	}
 
@@ -842,21 +818,24 @@ func (s *Service) SetMemberRole(ctx context.Context, vaultID, callerID, targetID
 		}
 	}
 
+	// SEC FIX 4: stamp last_change_hlc_ms with the server wall-clock (ms) so
+	// a stale chain vault_member_role_changed (whose HLC is genuinely older)
+	// cannot later clobber this real-time owner action. The chain fold's
+	// `>= last_change_hlc_ms` guard reads this stamp. We MAX() against any
+	// existing stamp so an out-of-order legacy call can't move the clock
+	// backward; a wall-clock NOW() is normally already the newest.
 	if _, err := tx.Exec(ctx, `
-		UPDATE vault_members SET role = $3, updated_at = NOW()
+		UPDATE vault_members
+		   SET role = $3, updated_at = NOW(),
+		       last_change_hlc_ms = GREATEST(COALESCE(last_change_hlc_ms, 0), $4)
 		 WHERE vault_id = $1::uuid AND account_id = $2::uuid AND revoked_at IS NULL
-	`, vaultID, targetID, newRole); err != nil {
+	`, vaultID, targetID, newRole, nowMS()); err != nil {
 		return 0, fmt.Errorf("update role: %w", err)
 	}
 
-	// Phase 5: any role flip invalidates outstanding VMCs because the
-	// role field is signed into the credential. Mesh peers will reject
-	// any cached VMC bearing the old role; we make that explicit by
-	// revoking server-side so the next check-in carries the revocation
-	// even if the affected device hasn't tried to mesh yet.
-	if err := revokeMeshIfWired(ctx, tx, vaultID, targetID); err != nil {
-		return 0, fmt.Errorf("revoke mesh creds on role change: %w", err)
-	}
+	// M4: a role flip no longer invalidates a credential — there is no
+	// credential. The chain carries the new role directly via the emitted
+	// vault_member_role_changed event; peers re-derive role from it.
 
 	newEpoch, err := bumpEpoch(ctx, tx, vaultID)
 	if err != nil {
@@ -934,21 +913,22 @@ func (s *Service) RevokeMember(ctx context.Context, in RevokeInput) (int64, erro
 		reason = "owner_revoked"
 	}
 
+	// SEC FIX 4: stamp last_change_hlc_ms (wall-clock ms) so a stale chain
+	// vault_member_removed/role_changed cannot clobber this real-time revoke.
 	if _, err := tx.Exec(ctx, `
 		UPDATE vault_members
 		   SET revoked_at = NOW(), revoked_by = $3::uuid,
-		       revoked_reason = $4, updated_at = NOW()
+		       revoked_reason = $4, updated_at = NOW(),
+		       last_change_hlc_ms = GREATEST(COALESCE(last_change_hlc_ms, 0), $5)
 		 WHERE vault_id = $1::uuid AND account_id = $2::uuid AND revoked_at IS NULL
-	`, in.VaultID, in.TargetID, in.CallerID, reason); err != nil {
+	`, in.VaultID, in.TargetID, in.CallerID, reason, nowMS()); err != nil {
 		return 0, fmt.Errorf("revoke member: %w", err)
 	}
 
-	// Phase 5: hard-revoke every mesh credential the target holds on
-	// this vault. Without this, a revoked device could still mesh-sync
-	// with peers until its 60-day VMC expired naturally.
-	if err := revokeMeshIfWired(ctx, tx, in.VaultID, in.TargetID); err != nil {
-		return 0, fmt.Errorf("revoke mesh creds on member-revoke: %w", err)
-	}
+	// M4: the target's revocation rides vault_members.revoked_at (set above)
+	// + the emitted vault_member_removed event. Mesh peers refuse handshake
+	// once the re-sourced /v1/check-in revocations delta names the device;
+	// no separate credential sweep is needed (credentials are retired).
 
 	newEpoch, err := bumpEpoch(ctx, tx, in.VaultID)
 	if err != nil {
@@ -1656,6 +1636,14 @@ func countArchiveConcurrences(ctx context.Context, tx pgx.Tx, vaultID string) (i
 		return 0, fmt.Errorf("count concurrences: %w", err)
 	}
 	return n, nil
+}
+
+// nowMS is the server wall-clock in milliseconds, used by SEC FIX 4 to
+// stamp vault_members.last_change_hlc_ms on legacy membership mutations so
+// the chain fold's HLC arbitration treats real-time owner actions as the
+// newest change vs any genuinely-older chain event.
+func nowMS() int64 {
+	return time.Now().UnixMilli()
 }
 
 func bumpEpoch(ctx context.Context, tx pgx.Tx, vaultID string) (int64, error) {

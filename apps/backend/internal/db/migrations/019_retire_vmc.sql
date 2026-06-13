@@ -1,0 +1,31 @@
+-- 019_retire_vmc.sql
+--
+-- M4 (docs/m4-retire-vmc.md): retire the legacy VMC (Vault Membership
+-- Credential) trust system. The M2 signed membership chain is now the sole
+-- trust system; the server is a witness-ACL, not a credential issuer.
+--
+-- Drops:
+--   * vault_credentials_issued — the append-only ledger of server-signed
+--     VMCs. Its only readers were IssueVMC (issuance, deleted) and the
+--     check-in revocation delta, which is now re-sourced from the membership
+--     fold tables (vault_devices.removed_at_ms + vault_members.revoked_at)
+--     in mesh.GetRevocationsForVault. No data migration is required: there are
+--     no users yet, and the re-sourced revocation set is derived from the
+--     events fold the server already maintains.
+--   * vault_pair_tokens — the server-side single-use QR pair-token table
+--     (migration 010). The ONLY consumer was IssueCredential's new-device
+--     branch (deleted). QR-join is now chain-native (the pair rendezvous is
+--     the mesh pair_nonce, not a server token).
+--
+-- KEPT: device_keys (shares migration 009 with vault_credentials_issued but
+-- is still read by the M2 witness — witness.go). We therefore DROP only the
+-- credential table by name rather than reverting migration 009.
+--
+-- Idempotent (IF EXISTS) and dependency-safe: both tables have FKs pointing
+-- INTO vaults/accounts, nothing points into them, so a plain DROP TABLE
+-- suffices (CASCADE not needed — but harmless if a future index/view is added,
+-- so we keep it explicit-by-name and let dependent indexes drop with the
+-- table).
+
+DROP TABLE IF EXISTS vault_credentials_issued;
+DROP TABLE IF EXISTS vault_pair_tokens;

@@ -67,7 +67,6 @@ import { getActiveVaultIdSyncMaybe, getDb } from "../db-tx";
 
 import { ensureDeviceKey, registerDeviceKey, getDevicePubkey } from "./device-key";
 import { runAntiEntropy, loadVaultTrustAnchor } from "./anti-entropy";
-import { getCachedVMC } from "./vmc";
 import {
   configureDiscoveryRouter,
   onPeerFound,
@@ -76,16 +75,17 @@ import {
   stopDiscovery as routerStopDiscovery,
   type RoutedPeer,
 } from "./discovery-router";
+// vaultHashTag still drives the BLE manufacturer-data 4-byte hash; the mDNS
+// side has moved to discovery-lan (salted daily digests) below.
+import { vaultHashTag } from "./discovery";
 import {
-  startDiscovery as mdnsStartDiscovery,
-  stopDiscovery as mdnsStopDiscovery,
-  vaultHashTag,
-  type DiscoveredPeer as MdnsDiscoveredPeer,
-} from "./discovery";
+  startLanDiscovery,
+  stopLanDiscovery,
+  onPeerFound as onLanPeerFound,
+} from "./discovery-lan";
 import { startBle } from "./discovery-ble";
-import { startTransportListener, stopTransportListener } from "./transport";
+import { startLanListener, dialLanPeer } from "./transport-lan";
 import type { MeshConnection } from "./transport-interface";
-import { dialPeerScheduled, reset as resetDialScheduler } from "./scheduler";
 import {
   coordinateWifiUpgrade,
   estimateBleSeconds,
@@ -127,27 +127,19 @@ export const SHOP_MODE_LAST_ACTIVE_AT_KEY = "shop_mode_last_active_at";
 configureDiscoveryRouter({
   startBle,
   startMdns: async (opts) => {
-    // Wrap the Phase 5 mDNS module's startDiscovery() in the
-    // RouterAdapters shape (a single function that resolves to a stop
-    // function). Adapter holds the listener subscription so stop() can
-    // tear it down idempotently.
-    const unsub = onPeerFoundMdns(opts.onPeerFound);
-    await mdnsStartDiscovery({ listenPort: opts.listenPort });
+    // M3: the opportunistic mDNS window is now the LAN driver
+    // (discovery-lan.ts) — it advertises the TCP listener port (opts.listenPort
+    // is the LAN listener's OS-assigned port) + salted daily vault digests.
+    // Adapter holds the listener subscription so stop() tears it down
+    // idempotently.
+    const unsub = onLanPeerFound(opts.onPeerFound);
+    await startLanDiscovery({ tcpPort: opts.listenPort });
     return async () => {
       unsub();
-      await mdnsStopDiscovery();
+      await stopLanDiscovery();
     };
   },
 });
-
-// Forward mDNS peer events into the router's adapter callback. Phase 5's
-// onPeerFound in discovery.ts is a global emitter — multiple listeners are
-// fine, the router just adds one more.
-function onPeerFoundMdns(handler: (peer: MdnsDiscoveredPeer) => void): () => void {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { onPeerFound } = require("./discovery") as typeof import("./discovery");
-  return onPeerFound(handler);
-}
 
 // ---------------------------------------------------------------------------
 // Module-level state.
@@ -182,6 +174,8 @@ type RunState = {
   liveSessionCount: number;
   unsubscribeDiscovery: (() => void) | null;
   listenPort: number;
+  /** Stop fn for the M3 LAN (TCP) listener. Null when not running. */
+  lanListenerStop: (() => Promise<void>) | null;
   /** Stop fn returned by startBLEPeripheralMode. Null when peripheral is
    *  not running (unsupported chip or not yet started). */
   peripheralStop: (() => Promise<void>) | null;
@@ -198,6 +192,7 @@ const state: RunState = {
   liveSessionCount: 0,
   unsubscribeDiscovery: null,
   listenPort: 0,
+  lanListenerStop: null,
   peripheralStop: null,
   peripheralGattStop: null,
 };
@@ -410,91 +405,6 @@ export async function notifyVaultSetChanged(): Promise<void> {
 }
 
 /**
- * Phase 7 self-VMC lazy re-issuance.
- *
- * Local-anchored vaults need a self-VMC cached at (vault_id, this_device_id)
- * for the handshake to advertise a credential. Normally createSelfProfile
- * (onboarding) and vault/new.tsx (Add a Kaata) mint it at vault-creation
- * time — but those issuance calls are best-effort and can fail without
- * rolling back the vault row. In that case the vault sits in a "trust
- * anchor present but no usable self-VMC" state: startShopMode's eligibility
- * gate accepts it, but actual peer handshake fails because we have nothing
- * to send.
- *
- * This sweep runs at the top of startShopMode(). For every local-anchored
- * vault whose anchor is THIS device's pubkey and which is missing a
- * non-expired cached VMC for this device_id, mint one. Each per-vault
- * issuance is independently best-effort — a failure on one vault must not
- * block mesh startup for the others.
- */
-async function reissueSelfVMCsIfMissing(): Promise<void> {
-  try {
-    const db = await getDb();
-    const ownPubkey = getDevicePubkey();
-    if (!ownPubkey) return; // ensureDeviceKey hasn't completed yet — caller awaits separately
-
-    // Local-anchored vaults where THIS device is the anchor.
-    const rows = await db.getAllAsync<{
-      id: string;
-      vault_epoch: number | null;
-      account_id: string | null;
-    }>(
-      `SELECT id, vault_epoch, account_id
-         FROM vaults
-        WHERE archived_at IS NULL
-          AND vault_trust_anchor_pubkey IS NOT NULL
-          AND vault_trust_anchor_pubkey = ?`,
-      ownPubkey,
-    );
-    if (rows.length === 0) return;
-
-    // Lazy-import the mesh modules to avoid pulling them into the bundle
-    // before startShopMode is invoked.
-    const dbTx = await import("../db-tx");
-    const installId = dbTx.getInstallIdSync();
-    const accountId = dbTx.getAccountIdSync();
-    const [{ cacheVMC }, { buildLocalAccountId, issueLocalVMC }] = await Promise.all([
-      import("./vmc"),
-      import("./local-vmc"),
-    ]);
-
-    const nowMs = Date.now();
-    for (const row of rows) {
-      try {
-        // Skip if a non-expired self-VMC already exists for THIS device_id.
-        // cacheVMC's storage is keyed by (vault_id, device_id) — for our
-        // own self-VMC the device_id is the local install_id. Direct DB
-        // probe (not getCachedVMC) so we can scope by device_id without
-        // refactoring the public helper signature.
-        const existing = await db.getFirstAsync<{ expires_at: number }>(
-          `SELECT expires_at
-             FROM vault_credentials
-            WHERE vault_id = ? AND device_id = ?`,
-          row.id,
-          installId,
-        );
-        if (existing && existing.expires_at > nowMs) continue;
-
-        const selfAccountId = accountId ?? buildLocalAccountId(ownPubkey);
-        const { blob, expiresAtMs } = await issueLocalVMC({
-          vaultId: row.id,
-          peerAccountId: selfAccountId,
-          peerDeviceId: installId,
-          peerDevicePubkey: ownPubkey,
-          role: "owner",
-          vaultEpoch: row.vault_epoch ?? 0,
-        });
-        await cacheVMC(row.id, blob, expiresAtMs, selfAccountId, ownPubkey, row.vault_epoch ?? 0);
-      } catch (err) {
-        if (__DEV__) console.warn(`[mesh] reissueSelfVMCsIfMissing: vault ${row.id} failed`, err);
-      }
-    }
-  } catch (err) {
-    if (__DEV__) console.warn("[mesh] reissueSelfVMCsIfMissing swept", err);
-  }
-}
-
-/**
  * Turn shop mode on. Idempotent.
  *
  * Phase 7 D-SHOP-MODE-UNGATING: sign-in is NO LONGER required. The gate
@@ -534,24 +444,15 @@ export async function startShopMode(): Promise<void> {
 
 async function startShopModeBody(): Promise<void> {
   const db = await getDb();
-  // Match either:
-  //   - local-CA vaults: vault_trust_anchor_pubkey populated, OR
-  //   - server-anchored vaults: we hold a non-expired cached VMC.
-  // We treat either as "at least one mesh-eligible vault on this device".
+  // M4: a vault is mesh-eligible iff it's chain-anchored
+  // (vault_trust_anchor_pubkey populated) — the chain is the sole trust
+  // path, so there's no VMC fallback. We need at least one such vault.
   const eligible = await db.getFirstAsync<{ id: string }>(
     `SELECT v.id AS id
        FROM vaults v
       WHERE v.archived_at IS NULL
-        AND (
-          v.vault_trust_anchor_pubkey IS NOT NULL
-          OR EXISTS (
-            SELECT 1 FROM vault_credentials vc
-             WHERE vc.vault_id = v.id
-               AND vc.expires_at > ?
-          )
-        )
+        AND v.vault_trust_anchor_pubkey IS NOT NULL
       LIMIT 1`,
-    Date.now(),
   );
   if (!eligible) {
     console.warn("[mesh.start] no eligible vault — refusing");
@@ -564,15 +465,10 @@ async function startShopModeBody(): Promise<void> {
   await ensureDeviceKey();
   console.log("[mesh.start] device key ready pubkey=", (getDevicePubkey() ?? "").slice(0, 8) + "…");
 
-  // Phase 7: lazy re-issue self-VMC for any local-anchored vault that's
-  // missing one (e.g. createSelfProfile's best-effort issuance failed at
-  // onboarding time, or the cache was wiped). Must come AFTER
-  // ensureDeviceKey so getDevicePubkey() returns the cached value. Each
-  // per-vault failure is logged and skipped; we never block startShopMode
-  // on this — the eligibility gate above already proved at least one
-  // vault is mesh-viable.
-  await reissueSelfVMCsIfMissing();
-  console.log("[mesh.start] self-VMCs reissued");
+  // M4: no self-VMC re-issuance. Trust is chain-native — every vault is
+  // anchored and the owner's genesis vault_member_added is its membership
+  // proof. The handshake builds its proof bundle from the chain, so there
+  // is no per-vault credential to mint at mesh start.
 
   // Bump generation so a previous-generation in-flight handshake's
   // commit-to-map step sees the change and abandons.
@@ -584,15 +480,19 @@ async function startShopModeBody(): Promise<void> {
   await rebuildVaultHashIndex();
   console.log("[mesh.start] vault hash index rebuilt");
 
-  // Start transport listener first so discovery has a real port to
-  // advertise.
-  const { port } = await startTransportListener({
-    onIncomingConnection: (conn) => {
+  // M3: start the LAN (TCP) listener first so discovery has a real port to
+  // advertise. The OS assigns the port; inbound accepted sockets flow into the
+  // SAME handlePeerConnection pipeline the BLE peripheral feeds, so
+  // runAntiEntropy runs role-agnostically on the inbound side.
+  const lan = await startLanListener({
+    onConnection: (conn) => {
       void handlePeerConnection(conn, "incoming", currentGen);
     },
   });
+  const port = lan.port;
   state.listenPort = port;
-  console.log("[mesh.start] transport listener on port", port);
+  state.lanListenerStop = lan.stop;
+  console.log("[mesh.start] LAN listener on port", port);
 
   // Phase 6: route through discovery-router, which owns BOTH BLE and
   // mDNS lifecycles. Pre-router we imported from `./discovery` directly
@@ -633,8 +533,8 @@ async function startShopModeBody(): Promise<void> {
   // empty service tree and STREAM_CHAR writes return GATT_INVALID_HANDLE.
   // The accept loop wraps each incoming central connection as a
   // BleMeshConnection and routes it into the SAME handlePeerConnection
-  // pipeline that incoming WebRTC connections use (see
-  // startTransportListener.onIncomingConnection above). runAntiEntropy is
+  // pipeline that incoming LAN (TCP) connections use (see the LAN listener's
+  // onConnection above). runAntiEntropy is
   // role-symmetric — both sides exchange Hello, PoP, AEAD-derive, Summary,
   // Delta over the same code path.
   //
@@ -760,10 +660,13 @@ async function teardownRadios(opts: { skipFGS?: boolean } = {}): Promise<void> {
   } catch (err) {
     console.warn("[mesh] router stopDiscovery threw, continuing", err);
   }
-  try {
-    await stopTransportListener();
-  } catch (err) {
-    console.warn("[mesh] stopTransportListener threw, continuing", err);
+  if (state.lanListenerStop) {
+    try {
+      await state.lanListenerStop();
+    } catch (err) {
+      console.warn("[mesh] LAN listener stop threw, continuing", err);
+    }
+    state.lanListenerStop = null;
   }
   for (const conn of state.connections.values()) {
     try {
@@ -776,7 +679,6 @@ async function teardownRadios(opts: { skipFGS?: boolean } = {}): Promise<void> {
   state.inflight.clear();
   state.liveSessionCount = 0;
   state.listenPort = 0;
-  resetDialScheduler();
 }
 
 /**
@@ -819,17 +721,17 @@ async function handleRoutedPeer(routed: RoutedPeer, gen: number): Promise<void> 
   const peerInfo = routed.peerInfo;
   if (routed.transport === "mdns" && routed.raw.isSelf) return;
 
+  // M4 dispatch gate: a vault is mesh-eligible iff it's chain-anchored
+  // (loadVaultTrustAnchor non-null). The real membership check stays in
+  // verifyPeerChain; this gate only filters which vault we dial for.
   let chosenVaultId: string | null = null;
-  let cachedBlob: string | null = null;
   for (const vid of peerInfo.matchedVaultIds) {
-    const cached = await getCachedVMC(vid);
-    if (cached) {
+    if (await loadVaultTrustAnchor(vid)) {
       chosenVaultId = vid;
-      cachedBlob = cached.blob;
       break;
     }
   }
-  if (!chosenVaultId || !cachedBlob) return;
+  if (!chosenVaultId) return;
 
   // Pre-handshake dedup.
   //
@@ -860,15 +762,19 @@ async function handleRoutedPeer(routed: RoutedPeer, gen: number): Promise<void> 
 
   try {
     if (routed.transport === "mdns") {
+      // M3: mDNS discovered a LAN peer (discovery-lan.ts). Dial it over TCP.
       const raw = routed.raw;
-      const conn = await dialPeerScheduled(raw.serviceName, {
-        host: raw.host,
-        port: raw.port,
-        serviceName: raw.serviceName,
-      });
+      console.log(
+        "[mesh.lan.dial] LAN peer matched vault=",
+        chosenVaultId.slice(0, 8),
+        "host=",
+        raw.host,
+        "port=",
+        raw.port,
+      );
+      const conn = await dialLanPeer({ host: raw.host, port: raw.port });
       await handlePeerConnection(conn, "outgoing", gen, {
         vaultId: chosenVaultId,
-        vmcBlob: cachedBlob,
         installIdShort: peerInfo.installIdShort,
       });
     } else {
@@ -894,7 +800,6 @@ async function handleRoutedPeer(routed: RoutedPeer, gen: number): Promise<void> 
       console.log("[mesh.ble.dial] GATT connected, starting handshake");
       await handlePeerConnection(conn, "outgoing", gen, {
         vaultId: chosenVaultId,
-        vmcBlob: cachedBlob,
         installIdShort: peerInfo.installIdShort,
       });
     }
@@ -911,7 +816,6 @@ async function handleRoutedPeer(routed: RoutedPeer, gen: number): Promise<void> 
 
 type ConnectionContext = {
   vaultId: string;
-  vmcBlob: string;
   installIdShort: string;
 };
 
@@ -926,39 +830,34 @@ async function handlePeerConnection(
     return;
   }
   let vaultId: string;
-  let cachedBlob: string;
   if (ctx) {
     vaultId = ctx.vaultId;
-    cachedBlob = ctx.vmcBlob;
   } else {
     const activeVaultId = getActiveVaultIdSyncMaybe();
     if (!activeVaultId) {
       void conn.close();
       return;
     }
-    const cached = await getCachedVMC(activeVaultId);
-    if (!cached) {
-      void conn.close();
-      return;
-    }
     vaultId = activeVaultId;
-    cachedBlob = cached.blob;
+  }
+
+  // M4 dispatch gate: the vault must be chain-anchored. Look up the
+  // per-vault trust anchor (the owner's device pubkey, fixed at vault
+  // creation). Null means the vault isn't chain-anchored — there is no
+  // other trust path, so refuse. The chain handshake folds the peer's
+  // membership proof against this key.
+  const vaultTrustAnchorPubkey = await loadVaultTrustAnchor(vaultId);
+  if (!vaultTrustAnchorPubkey) {
+    void conn.close();
+    return;
   }
 
   // Determine our own device_id (Ed25519 pubkey, base64) for the
   // wifi-upgrade race-resolver. Fall back to install_id-short if unset.
   const ownDeviceId = getDevicePubkey() ?? "";
 
-  // Phase 7 Part B: look up the per-vault trust anchor. Non-null →
-  // local-CA mode (peer VMC must be signed by the owner's device key,
-  // iss=kaata-mesh-local-v1). Null → server-anchored mode (Phase 5
-  // back-compat). Either way, the lookup is cheap (one indexed read)
-  // and idempotent.
-  const vaultTrustAnchorPubkey = await loadVaultTrustAnchor(vaultId);
-
   try {
     const result = await runAntiEntropy(conn, {
-      localVMCBlob: cachedBlob,
       vaultId,
       vaultTrustAnchorPubkey,
       coordinateUpgrade: ownDeviceId
@@ -1047,12 +946,6 @@ async function touchLastActive(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export { ensureDeviceKey, registerDeviceKey } from "./device-key";
-
-export {
-  applyVMCCheckInResponse,
-  collectRenewalsForCheckIn,
-  getLastRevocationSeenAtMs,
-} from "./vmc";
 
 export {
   MeshHandshakeError,

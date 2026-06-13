@@ -2,9 +2,11 @@ package sync
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	gosync "sync"
@@ -70,6 +72,11 @@ type Service struct {
 	// account_id IS NULL) and by PullEvents to re-stamp account_id on
 	// the response wire shape.
 	binding *BindingResolver
+
+	// M2 (membership.go): pinned server signing pubkey set for verifying
+	// the `witness` field on membership events. Set via SetWitnessPubkeys
+	// at startup; empty disables the witness authorization arm.
+	witnessPubkeys []ed25519.PublicKey
 }
 
 func NewService(pool *pgxpool.Pool) *Service {
@@ -136,6 +143,12 @@ func (s *Service) IsMember(ctx context.Context, accountID, vaultID string) (bool
 // ==========================================================================
 
 // PushInput is what the handler hands to PushEvents after JSON decode.
+//
+// DeviceID is the batch-level TRANSPORT device — whoever is pushing right
+// now. It is NOT necessarily the author of the events in the batch: a relay
+// (sync v2 §4 scenario 4) legitimately pushes events authored on other
+// devices. Everything author-keyed (events.device_id stamping, author_seq
+// slots, device vectors) keys on each event's hlc.device_id instead.
 type PushInput struct {
 	AccountID string
 	VaultID   string
@@ -183,6 +196,20 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 		return nil, fmt.Errorf("read current server_seq: %w", err)
 	}
 
+	// M2: the vault trust anchor (NULL on legacy server-anchored vaults).
+	// Signed membership events on anchored vaults take the chain-
+	// verification path below instead of the JWT ACL.
+	var vaultAnchor []byte
+	if err := tx.QueryRow(ctx, `
+		SELECT vault_trust_anchor_pubkey FROM vaults WHERE vault_id = $1::uuid
+	`, in.VaultID).Scan(&vaultAnchor); err != nil {
+		return nil, fmt.Errorf("read vault trust anchor: %w", err)
+	}
+
+	// M2: membership-cache invalidations collected from chain folds,
+	// applied after commit.
+	var foldInvalidations []string
+
 	// Pre-parse account/vault uuids once; reused per-event for the
 	// lawful-at-HLC role lookup. Either failure causes a wholesale push
 	// failure; that's fine because the same uuids drove membership lookup
@@ -190,7 +217,41 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 	accountUUID, _ := uuid.Parse(in.AccountID)
 	vaultUUID, _ := uuid.Parse(in.VaultID)
 
-	for _, ev := range in.Events {
+	// SEC FIX 1: verify+fold membership events in deterministic
+	// (HLC, event_id) order, NOT wire order. The membership chain folds
+	// in-batch state (a vault_member_added then its later removal, a device
+	// binding then an event that relies on it) and each event is verified
+	// against the fold state built so far. If we iterated wire order, an
+	// attacker could reorder the batch to make verification read fold state
+	// at an attacker-chosen point. Mobile and the ledger projection both
+	// fold strictly by (hlc_physical_ms, hlc_logical, hlc_device_id,
+	// event_id) (apps/mobile/lib/trust/proof.ts, project.go) — match that
+	// total order here so every replica folds identically.
+	//
+	// We sort a COPY of the slice. The per-event response arrays (accepted /
+	// duplicates / rejected) are keyed by event_id, not position, so the
+	// reorder leaves the wire contract intact. author_seq slot assignment
+	// keys on (vault_id, hlc.device_id, author_seq) and reads committed /
+	// in-tx DB rows under the vaults-row FOR UPDATE lock — it never depends
+	// on in-batch iteration order — so the sort is safe for it too.
+	ordered := make([]PushEvent, len(in.Events))
+	copy(ordered, in.Events)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		a, b := &ordered[i], &ordered[j]
+		if a.HLC.PhysicalMS != b.HLC.PhysicalMS {
+			return a.HLC.PhysicalMS < b.HLC.PhysicalMS
+		}
+		if a.HLC.Logical != b.HLC.Logical {
+			return a.HLC.Logical < b.HLC.Logical
+		}
+		if a.HLC.DeviceID != b.HLC.DeviceID {
+			return a.HLC.DeviceID < b.HLC.DeviceID
+		}
+		return a.EventID < b.EventID
+	})
+
+	for i := range ordered {
+		ev := ordered[i]
 		// Phase 4 lawful-at-HLC ACL + Phase 4.1 retroactive binding.
 		// We evaluate the author's role AT THE EVENT'S HLC time per
 		// vault_audit_log — so a recently-demoted editor's offline
@@ -217,35 +278,108 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 			storedActor = &parsed
 		}
 
-		allowed, atRole, requiredRole, err := CheckEventPermission(
-			ctx, tx, s.binding,
-			accountUUID, vaultUUID,
-			evIDUUID, ev.EventType, storedActor,
-			ev.HLC.PhysicalMS, ev.HLC.Logical, hlcDevUUID,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("permission check for %s: %w", ev.EventID, err)
+		// M2 (membership.go): a SIGNED membership event on an ANCHORED
+		// vault is judged by the chain rules (anchor / bound owner device /
+		// server witness) instead of the JWT ACL — the witnessed self-
+		// admission flows are precisely the ones the role matrix would
+		// wrongly refuse. Anchor-less vaults and unsigned events keep the
+		// legacy path below unchanged (no regression for old clients).
+		m2Verified := false
+		if IsMembershipEventType(ev.EventType) &&
+			len(vaultAnchor) == ed25519.PublicKeySize &&
+			derefStr(ev.EventSigB64) != "" &&
+			derefStr(ev.SignerDevicePubkeyB64) != "" {
+			ok, verr := s.verifyMembershipEvent(ctx, tx, in.VaultID, in.AccountID, vaultAnchor, &ev)
+			if verr != nil {
+				return nil, fmt.Errorf("membership verification for %s: %w", ev.EventID, verr)
+			}
+			if !ok {
+				rejected = append(rejected, RejectedEvent{
+					EventID: ev.EventID,
+					Reason:  RejectReasonMembershipUnverified,
+				})
+				continue
+			}
+			m2Verified = true
 		}
-		if !allowed {
-			reason := "insufficient_role"
-			// Phase 4.1 signal: an empty currentRole on a NULL-actor
-			// event means no binding covered it.
-			if atRole == "" && storedActor == nil {
-				reason = "unauthored_pre_binding"
+
+		if !m2Verified {
+			allowed, atRole, requiredRole, err := CheckEventPermission(
+				ctx, tx, s.binding,
+				accountUUID, vaultUUID,
+				evIDUUID, ev.EventType, storedActor,
+				ev.HLC.PhysicalMS, ev.HLC.Logical, hlcDevUUID,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("permission check for %s: %w", ev.EventID, err)
 			}
-			if atRole == "" {
-				atRole = role
+			if !allowed {
+				reason := "insufficient_role"
+				// Phase 4.1 signal: an empty currentRole on a NULL-actor
+				// event means no binding covered it.
+				if atRole == "" && storedActor == nil {
+					reason = "unauthored_pre_binding"
+				}
+				if atRole == "" {
+					atRole = role
+				}
+				if requiredRole == "" {
+					requiredRole = RequiredRoleFor(ev.EventType)
+				}
+				rejected = append(rejected, RejectedEvent{
+					EventID:      ev.EventID,
+					Reason:       reason,
+					CurrentRole:  atRole,
+					RequiredRole: requiredRole,
+				})
+				continue
 			}
-			if requiredRole == "" {
-				requiredRole = RequiredRoleFor(ev.EventType)
+		}
+
+		// M1 (sync v2 §5): author_seq slot check. Slots are keyed by the
+		// EVENT'S AUTHOR — (vault_id, hlc.device_id, author_seq) — never by
+		// the batch-level pushing device (in.DeviceID): relays push events
+		// authored on other devices, and keying the slot on the pusher
+		// would corrupt the per-author sequence space. The partial unique
+		// index events_vault_device_author_seq guarantees one (vault,
+		// author device, seq) slot per event; we pre-check it here — safe
+		// because the vaults-row FOR UPDATE above serializes pushes per
+		// vault — so a DIFFERENT event claiming a taken slot becomes a
+		// per-event "seq_conflict" rejection instead of a tx-aborting
+		// unique violation (no 500, batch continues). The SAME event
+		// re-claiming its own slot falls through to the insert, where the
+		// event_id PK arbiter routes it to duplicates[] exactly as before.
+		if ev.AuthorSeq != nil {
+			var slotEventID string
+			err := tx.QueryRow(ctx, `
+				SELECT event_id::text FROM events
+				WHERE vault_id = $1::uuid AND device_id = $2::uuid AND author_seq = $3
+			`, in.VaultID, ev.HLC.DeviceID, *ev.AuthorSeq).Scan(&slotEventID)
+			switch {
+			case err == nil && slotEventID != ev.EventID:
+				// Slot held by a different event. If THIS event is already
+				// stored, this is a duplicate re-announce carrying a
+				// conflicting seq — report it as a plain duplicate (the
+				// stored row keeps whatever author_seq it has, first value
+				// wins). seq_conflict is reserved for fresh events.
+				var exists bool
+				if derr := tx.QueryRow(ctx, `
+					SELECT EXISTS (SELECT 1 FROM events WHERE event_id = $1::uuid)
+				`, ev.EventID).Scan(&exists); derr != nil {
+					return nil, fmt.Errorf("duplicate check for %s: %w", ev.EventID, derr)
+				}
+				if exists {
+					duplicates = append(duplicates, ev.EventID)
+					continue
+				}
+				rejected = append(rejected, RejectedEvent{
+					EventID: ev.EventID,
+					Reason:  "seq_conflict",
+				})
+				continue
+			case err != nil && !errors.Is(err, pgx.ErrNoRows):
+				return nil, fmt.Errorf("author_seq slot check for %s: %w", ev.EventID, err)
 			}
-			rejected = append(rejected, RejectedEvent{
-				EventID:      ev.EventID,
-				Reason:       reason,
-				CurrentRole:  atRole,
-				RequiredRole: requiredRole,
-			})
-			continue
 		}
 
 		nextSeq := curSeq + 1
@@ -262,7 +396,26 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 		if storedActor != nil {
 			actorID = storedActor.String()
 		}
+		var authorSeq interface{}
+		if ev.AuthorSeq != nil {
+			authorSeq = *ev.AuthorSeq
+		}
+		// M2: persist the author signature material when supplied so pull /
+		// snapshot-tail relay the proof bytes to other replicas verbatim.
+		var eventSig interface{}
+		if derefStr(ev.EventSigB64) != "" {
+			eventSig = *ev.EventSigB64
+		}
+		var signerPubkey interface{}
+		if derefStr(ev.SignerDevicePubkeyB64) != "" {
+			signerPubkey = *ev.SignerDevicePubkeyB64
+		}
 
+		// device_id is stamped from the EVENT's author (hlc.device_id), not
+		// from in.DeviceID: relayed events carry hlc_device_id != pusher,
+		// and 007's CHECK (device_id = hlc_device_id) would 500 the whole
+		// batch — permanently wedging the relayer's outbox — if we stamped
+		// the pusher here.
 		tag, err := tx.Exec(ctx, `
 			INSERT INTO events (
 				event_id, vault_id, server_seq,
@@ -270,6 +423,8 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 				hlc_physical_ms, hlc_logical, hlc_device_id,
 				device_id, account_id,
 				target_id, relationship_id,
+				author_seq,
+				event_sig_b64, signer_device_pubkey,
 				payload, server_received_at
 			) VALUES (
 				$1::uuid, $2::uuid, $3,
@@ -277,15 +432,19 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 				$6, $7, $8::uuid,
 				$9::uuid, $10,
 				$11, $12,
-				$13::jsonb, NOW()
+				$13,
+				$14, $15,
+				$16::jsonb, NOW()
 			)
 			ON CONFLICT (event_id) DO NOTHING
 		`,
 			ev.EventID, in.VaultID, nextSeq,
 			ev.EventType, ev.SchemaVersion,
 			ev.HLC.PhysicalMS, ev.HLC.Logical, ev.HLC.DeviceID,
-			in.DeviceID, actorID,
+			ev.HLC.DeviceID, actorID,
 			targetID, relID,
+			authorSeq,
+			eventSig, signerPubkey,
 			string(ev.Payload),
 		)
 		if err != nil {
@@ -293,8 +452,43 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 		}
 
 		if tag.RowsAffected() == 0 {
+			// Duplicate by event_id. M1 re-announce: when the wire carries
+			// an author_seq and the stored row predates M1 (author_seq IS
+			// NULL), adopt the announced seq — this is how pre-M1 history
+			// gains sequence numbers (mobile ships a one-shot re-announce
+			// that re-pushes its own acked history as duplicates). The slot
+			// pre-check above already verified the (vault, author, seq)
+			// slot is free or held by this very event, and the vault lock
+			// keeps that read stable for the rest of the tx, so this UPDATE
+			// cannot trip the unique index. The device_id guard pins the
+			// claim to the author the slot check keyed on; author_seq IS
+			// NULL makes a conflicting re-announce a silent no-op (first
+			// value wins).
+			if ev.AuthorSeq != nil {
+				if _, uerr := tx.Exec(ctx, `
+					UPDATE events SET author_seq = $4
+					WHERE event_id = $1::uuid
+					  AND vault_id = $2::uuid
+					  AND device_id = $3::uuid
+					  AND author_seq IS NULL
+				`, ev.EventID, in.VaultID, ev.HLC.DeviceID, *ev.AuthorSeq); uerr != nil {
+					return nil, fmt.Errorf("re-announce author_seq for %s: %w", ev.EventID, uerr)
+				}
+			}
 			duplicates = append(duplicates, ev.EventID)
 			continue
+		}
+
+		// M2: chain-verified membership events fold into the server's
+		// operational ACL tables (vault_members / vault_devices) inside
+		// this same transaction. Fold only on a FRESH insert — duplicates
+		// were folded when first accepted.
+		if m2Verified {
+			accts, ferr := s.foldMembershipEvent(ctx, tx, in.VaultID, in.AccountID, &ev)
+			if ferr != nil {
+				return nil, fmt.Errorf("fold membership event %s: %w", ev.EventID, ferr)
+			}
+			foldInvalidations = append(foldInvalidations, accts...)
 		}
 
 		// Phase 4.1: invalidate the binding cache so subsequent
@@ -323,6 +517,13 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit push tx: %w", err)
+	}
+
+	// M2: folded membership changes must land within one request on the
+	// cached membership path, same contract as the Phase 4 endpoints'
+	// InvalidateMembership calls.
+	for _, acct := range foldInvalidations {
+		s.InvalidateMembership(in.VaultID, acct)
 	}
 
 	if n := len(accepted); n > 0 {
@@ -431,13 +632,22 @@ type PulledEvent struct {
 	// key off target_id; person_added / person_archived key off
 	// relationship_id). Without these the remote projection silently
 	// no-ops and diverges from the server's view.
-	TargetID         *string         `json:"target_id"`
-	RelationshipID   *string         `json:"relationship_id"`
-	EventType        string          `json:"event_type"`
-	SchemaVersion    int             `json:"schema_version"`
-	Payload          json.RawMessage `json:"payload"`
-	ServerSeq        int64           `json:"server_seq"`
-	ServerReceivedAt string          `json:"server_received_at"`
+	TargetID       *string         `json:"target_id"`
+	RelationshipID *string         `json:"relationship_id"`
+	EventType      string          `json:"event_type"`
+	SchemaVersion  int             `json:"schema_version"`
+	Payload        json.RawMessage `json:"payload"`
+	// AuthorSeq is the per-device monotonic counter (sync v2 §5).
+	// null on the wire for legacy rows pushed before M1.
+	AuthorSeq *int64 `json:"author_seq"`
+	// M2: author signature material, relayed verbatim so receiving
+	// replicas can verify the membership chain (and, later, every event)
+	// end-to-end. null for rows pushed by pre-M2 clients — keys are
+	// always present on the wire, mirroring author_seq.
+	EventSigB64        *string `json:"event_sig_b64"`
+	SignerDevicePubkey *string `json:"signer_device_pubkey"`
+	ServerSeq          int64   `json:"server_seq"`
+	ServerReceivedAt   string  `json:"server_received_at"`
 }
 
 // PullEvents serves GET /v1/sync/pull.
@@ -520,6 +730,9 @@ func (s *Service) PullEvents(ctx context.Context, in PullInput) (*PullResult, er
 			event_type,
 			schema_version,
 			payload,
+			author_seq,
+			event_sig_b64,
+			signer_device_pubkey,
 			server_seq,
 			server_received_at
 		FROM events
@@ -558,6 +771,9 @@ func (s *Service) PullEvents(ctx context.Context, in PullInput) (*PullResult, er
 			&ev.EventType,
 			&ev.SchemaVersion,
 			&payload,
+			&ev.AuthorSeq,
+			&ev.EventSigB64,
+			&ev.SignerDevicePubkey,
 			&ev.ServerSeq,
 			&serverReceivedAt,
 		); err != nil {
@@ -623,6 +839,83 @@ func (s *Service) PullEvents(ctx context.Context, in PullInput) (*PullResult, er
 	})
 
 	return result, nil
+}
+
+// ==========================================================================
+// VECTOR (sync v2 §5 — M1)
+// ==========================================================================
+
+// DeviceVector summarizes one authoring device's author_seq coverage on
+// the server replica. Clients infer "provably complete from 1" as
+// MinSeq == 1 && Count == MaxSeq.
+type DeviceVector struct {
+	MaxSeq int64 `json:"max_seq"`
+	Count  int64 `json:"count"`
+	MinSeq int64 `json:"min_seq"`
+}
+
+// VectorResult is the GET /v1/sync/vector response body.
+type VectorResult struct {
+	DeviceVectors      map[string]DeviceVector `json:"device_vectors"`
+	VaultServerSeqHigh int64                   `json:"vault_server_seq_high"`
+}
+
+// DeviceVectors serves GET /v1/sync/vector. Same membership gating as
+// pull (fresh check, no cache — revocation lands within one request).
+//
+// NOTE: this endpoint is ADVISORY in M1 — HTTPS clients keep their outbox
+// as the source of truth for what still needs pushing; this summary just
+// lets a relay ask "what is the server missing?" in one round trip. The
+// LAN/BLE channels in M3/M4 are where strict vector-driven transfer takes
+// over (the epoch-boundary problem is documented in
+// docs/sync-v2-architecture.md §5).
+func (s *Service) DeviceVectors(ctx context.Context, accountID, vaultID string) (*VectorResult, error) {
+	if err := s.checkMembershipFresh(ctx, accountID, vaultID); err != nil {
+		return nil, err
+	}
+
+	res := &VectorResult{DeviceVectors: make(map[string]DeviceVector)}
+
+	// Single GROUP BY over the live (non-redacted) sequenced rows, keyed by
+	// the AUTHOR device (hlc_device_id). §5 defines the vector per authoring
+	// device; the pusher is irrelevant. device_id is equal by 007's CHECK,
+	// but grouping on hlc_device_id keeps the author semantics explicit.
+	// max/count/min only — gap enumeration is the client's job.
+	rows, err := s.pool.Query(ctx, `
+		SELECT hlc_device_id::text, MAX(author_seq), COUNT(*), MIN(author_seq)
+		FROM events
+		WHERE vault_id = $1::uuid
+		  AND author_seq IS NOT NULL
+		  AND redacted_at IS NULL
+		GROUP BY hlc_device_id
+	`, vaultID)
+	if err != nil {
+		return nil, fmt.Errorf("device vectors: query: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var deviceID string
+		var v DeviceVector
+		if err := rows.Scan(&deviceID, &v.MaxSeq, &v.Count, &v.MinSeq); err != nil {
+			return nil, fmt.Errorf("device vectors: scan: %w", err)
+		}
+		res.DeviceVectors[deviceID] = v
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("device vectors: rows: %w", err)
+	}
+
+	// Same semantics as PushResponse.VaultServerSeqHigh: the vault's
+	// high-water server_seq including redacted rows (redaction preserves
+	// the seq slot).
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(MAX(server_seq), 0) FROM events WHERE vault_id = $1::uuid
+	`, vaultID).Scan(&res.VaultServerSeqHigh); err != nil {
+		return nil, fmt.Errorf("device vectors: server_seq high: %w", err)
+	}
+
+	return res, nil
 }
 
 // resolveBindingsOnPulled re-stamps account_id on PulledEvent rows whose

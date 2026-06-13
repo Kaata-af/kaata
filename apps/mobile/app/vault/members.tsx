@@ -120,14 +120,14 @@ export default function VaultMembersScreen() {
       // populates the cache (idempotent, cheap on the warm path).
       const deviceKeyMod = await import("../../lib/mesh/device-key");
       await deviceKeyMod.ensureDeviceKey();
-      const [self, localVmc] = await Promise.all([
+      const [self, accountIdMod] = await Promise.all([
         getLocalSelf(),
-        import("../../lib/mesh/local-vmc"),
+        import("../../lib/trust/account-id"),
       ]);
       setSelfName(self?.name ?? null);
       const devicePubkey = deviceKeyMod.getDevicePubkey();
       if (devicePubkey) {
-        setLocalSelfAccountId(localVmc.buildLocalAccountId(devicePubkey));
+        setLocalSelfAccountId(accountIdMod.buildLocalAccountId(devicePubkey));
       }
     } catch {
       setSelfName(null);

@@ -212,3 +212,29 @@ export function verifyEventSignature(
   }
   return { valid: false, reason: "bad_signature" };
 }
+
+/**
+ * Raw Ed25519 verification over arbitrary bytes (M2: server-witness
+ * attestations on membership events; see lib/trust/chain.ts). Same sync
+ * noble path and base64 conventions as event signatures.
+ */
+export function verifyRawSignature(msg: Uint8Array, sigB64: string, pubkeyB64: string): boolean {
+  let sig: Uint8Array;
+  let pub: Uint8Array;
+  try {
+    sig = b64ToBytes(sigB64);
+    pub = b64ToBytes(pubkeyB64);
+  } catch {
+    return false;
+  }
+  if (sig.length !== 64 || pub.length !== 32) return false;
+  try {
+    return ed.verify(sig, msg, pub);
+  } catch {
+    return false;
+  }
+}
+
+// M2: the canonical-JSON encoder is shared with witness-tuple signing —
+// ONE canonicalizer for everything signature-shaped in the app.
+export { canonicalize };

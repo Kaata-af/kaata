@@ -12,7 +12,7 @@ import { getSessionJWT } from "../auth";
 import { getDb } from "../db-tx";
 import type { LedgerEvent } from "../events";
 import { isKnownEventType } from "../events";
-import { applyEvent } from "../projection";
+import { applyEvent, applyEventMutex } from "../projection";
 import { getLastPulledServerSeq, setLastPulledServerSeq } from "./cursor";
 import { SessionExpiredError, SyncTimeoutError, SyncTransientError } from "./errors";
 
@@ -31,6 +31,15 @@ type WirePulledEvent = {
   payload: unknown;
   server_seq: number;
   server_received_at: string;
+  // Sync v2 M1: author-assigned sequence; null for legacy rows the server
+  // stored before migration. Stored verbatim — never recomputed for
+  // remote-origin events (the author is the only assignment authority).
+  author_seq?: number | null;
+  // M2 (review P0): the Ed25519 envelope signature the server now persists
+  // and returns. The chain verifier + role-gate need it to verify and honor
+  // membership events on the HTTPS channel. Null for pre-M2 legacy rows.
+  event_sig_b64?: string | null;
+  signer_device_pubkey?: string | null;
 };
 
 type PullResponse = {
@@ -166,6 +175,12 @@ async function applyBatch(vaultId: string, wireEvents: WirePulledEvent[]): Promi
       server_acked_at: now,
       rejected_at: null,
       origin: "remote" as const,
+      author_seq: sanitizeAuthorSeq(w.author_seq),
+      // M2: carry the signature so the role-gate can authenticate membership
+      // events pulled over HTTPS (and the chain verifier can fold them).
+      event_sig_b64: typeof w.event_sig_b64 === "string" ? w.event_sig_b64 : null,
+      signer_device_pubkey:
+        typeof w.signer_device_pubkey === "string" ? w.signer_device_pubkey : null,
     } as unknown as LedgerEvent;
 
     try {
@@ -178,17 +193,47 @@ async function applyBatch(vaultId: string, wireEvents: WirePulledEvent[]): Promi
 
   // For pulled events that ended up in event_log without a stamp (e.g. a
   // duplicate INSERT OR IGNORE matched an already-existing locally-authored
-  // row), patch server_acked_at so they don't get pushed again.
-  await db.withTransactionAsync(async () => {
-    for (const w of wireEvents) {
-      await db.runAsync(
-        `UPDATE event_log SET server_acked_at = ?
-          WHERE event_id = ? AND server_acked_at IS NULL`,
-        now,
-        w.event_id,
-      );
-    }
-  });
+  // row), patch server_acked_at so they don't get pushed again. Same pass
+  // backfills author_seq onto rows that pre-exist WITHOUT one (a mesh-
+  // ingested copy arrived before the author's seq reached us via the
+  // server) — the author's assignment is authoritative, and without this
+  // the row stays invisible to the version vector forever. UPDATE OR
+  // IGNORE: if another row already holds that (vault, device, seq) slot
+  // (legacy backfill divergence), keep ours NULL rather than corrupt the
+  // unique index — the advisory vector simply keeps understating until M3
+  // gap-repair.
+  // Serialized behind the same mutex as applyEvent — expo-sqlite's
+  // withTransactionAsync is non-exclusive and this patch tx must not
+  // interleave with a concurrent user-save transaction.
+  await applyEventMutex.runExclusive(() =>
+    db.withTransactionAsync(async () => {
+      for (const w of wireEvents) {
+        await db.runAsync(
+          `UPDATE event_log SET server_acked_at = ?
+            WHERE event_id = ? AND server_acked_at IS NULL`,
+          now,
+          w.event_id,
+        );
+        const wireSeq = sanitizeAuthorSeq(w.author_seq);
+        if (wireSeq != null) {
+          await db.runAsync(
+            `UPDATE OR IGNORE event_log SET author_seq = ?
+              WHERE event_id = ? AND author_seq IS NULL`,
+            wireSeq,
+            w.event_id,
+          );
+        }
+      }
+    }),
+  );
+}
+
+// Author seqs are positive integers by contract. The M1 backend enforces
+// this on push, but this replica must not trust any wire blindly — M3's
+// untrusted mesh peers feed the same envelope path, and computeContiguous
+// is only defined over 1..n.
+function sanitizeAuthorSeq(raw: unknown): number | null {
+  return typeof raw === "number" && Number.isInteger(raw) && raw >= 1 ? raw : null;
 }
 
 function parseRetryAfter(raw: string | null): number | null {

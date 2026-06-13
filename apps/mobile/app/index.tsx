@@ -29,6 +29,7 @@ import { ProfileSettingsSheet, type VaultListItem } from "../components/ProfileS
 import { Tabs } from "../components/Tabs";
 import { useToast, useToastOffset } from "../components/Toast";
 import { UpdateBanner } from "../components/UpdateBanner";
+import { BackupNagBanner } from "../components/BackupNagBanner";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
 import { getCurrentCurrencySymbol } from "../lib/currency";
@@ -230,6 +231,20 @@ export default function HomeScreen() {
         setVaults([]);
         setArchivedVaults([]);
       }
+
+      // M2 membership chain: one-shot chain-genesis backfill (+ pending
+      // witness emission retry) for the active vault. This call site
+      // covers local-only installs that never start the sync scheduler
+      // (the other kickoff lives in startSyncScheduler). Fire-and-forget;
+      // ensureChainBackfill self-guards with an in-session Set keyed by
+      // vault, so the useFocusEffect-driven re-loads of this screen are
+      // synchronous no-ops after the first call per vault.
+      if (vaultId) {
+        void import("../lib/trust/backfill")
+          .then(({ ensureChainBackfill }) => ensureChainBackfill(vaultId))
+          .catch((err) => console.warn("[home] chain backfill kickoff failed", err));
+      }
+
       setLoadError(false);
     } catch (err) {
       console.warn("[home] load failed", err);
@@ -619,6 +634,11 @@ export default function HomeScreen() {
       </View>
 
       <UpdateBanner />
+      <BackupNagBanner
+        activeVaultId={activeVaultId}
+        signedOut={sessionUser == null}
+        onPress={() => setSettingsVisible(true)}
+      />
 
       <View style={styles.tabsWrap}>
         <Tabs<Direction> tabs={buildTabs()} value={direction} onChange={setDirection} />
@@ -786,7 +806,10 @@ export default function HomeScreen() {
           setSyncBusy(true);
           let resultMsg: { msg: string; kind: "success" | "error" } | null = null;
           try {
-            const result = await syncOnce();
+            // Manual sync is the natural moment for the (advisory) vector
+            // convergence check — the user is explicitly asking "am I in
+            // sync?". See lib/replication/server-vector.ts.
+            const result = await syncOnce({ verifyConvergence: true });
             resultMsg = {
               msg: t("menu.sync.done", {
                 pulled: result.pulled,

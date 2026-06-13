@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -41,6 +42,15 @@ const (
 // the tail of events appended AFTER the snapshot's up_to_server_seq, so
 // the client lands on the live projection without a follow-up pull
 // round-trip. hlc_last seeds the mobile HLC frontier.
+//
+// MembershipEvents (M5 recovery) is the vault's FULL membership chain in HLC
+// order, INDEPENDENT of the snapshot cursor — a recovering device needs the
+// whole chain (genesis + member/device adds) to build a proof bundle and
+// fold its own membership, even though most of those events sit at or below
+// the snapshot's up_to_server_seq and so never appear in the post-cursor
+// tail. An event can legitimately be BOTH in MembershipEvents and in Events
+// (Events is cursor-bound, MembershipEvents is not); mobile ingests by
+// event_id idempotently, so the overlap is harmless.
 type SnapshotResponse struct {
 	VaultID           string                 `json:"vault_id"`
 	SnapshotServerSeq int64                  `json:"snapshot_server_seq"`
@@ -53,6 +63,7 @@ type SnapshotResponse struct {
 	Entries           []SnapshotEntry        `json:"entries"`
 	HLCLast           HLC                    `json:"hlc_last"`
 	Events            []PulledEvent          `json:"events"`
+	MembershipEvents  []PulledEvent          `json:"membership_events"`
 }
 
 // SnapshotVault mirrors the SQLite vaults row shape on mobile.
@@ -64,6 +75,12 @@ type SnapshotVault struct {
 	UpdatedAt int64   `json:"updated_at"`
 	IsDefault int     `json:"is_default"`
 	AccountID *string `json:"account_id"`
+	// VaultTrustAnchorPubkey (M5 recovery) — base64(std) of the vault's
+	// Phase 7 local-CA Ed25519 trust anchor (32 raw bytes). nil for
+	// server-anchored (Phase 5 back-compat) vaults. A recovering device
+	// pins THIS verbatim instead of (incorrectly) adopting itself as the
+	// anchor. Same std-base64 encoding GET /v1/vaults uses.
+	VaultTrustAnchorPubkey *string `json:"vault_trust_anchor_pubkey"`
 }
 
 type SnapshotShopProfile struct {
@@ -148,18 +165,26 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 	// columns (name, currency, account_id, is_default) that the projection
 	// does NOT carry (projection is ledger-state only).
 	var (
-		vaultName     string
-		vaultCurrency string
-		vaultCreated  time.Time
-		vaultUpdated  time.Time
-		vaultAccount  *string
+		vaultName      string
+		vaultCurrency  string
+		vaultCreated   time.Time
+		vaultUpdated   time.Time
+		vaultAccount   *string
+		trustAnchorRaw []byte // nil for server-anchored vaults
 	)
 	if err := s.pool.QueryRow(ctx, `
-		SELECT name, currency, created_at, COALESCE(updated_at, created_at), owner_account_id::text
+		SELECT name, currency, created_at, COALESCE(updated_at, created_at), owner_account_id::text, vault_trust_anchor_pubkey
 		FROM vaults
 		WHERE vault_id = $1::uuid
-	`, vaultID).Scan(&vaultName, &vaultCurrency, &vaultCreated, &vaultUpdated, &vaultAccount); err != nil {
+	`, vaultID).Scan(&vaultName, &vaultCurrency, &vaultCreated, &vaultUpdated, &vaultAccount, &trustAnchorRaw); err != nil {
 		return nil, fmt.Errorf("read vault row: %w", err)
+	}
+	// M5: surface the pinned trust anchor when populated. Same std-base64
+	// encoding GET /v1/vaults uses, so the mobile decoder serves both paths.
+	var trustAnchorB64 *string
+	if len(trustAnchorRaw) == 32 {
+		encoded := base64.StdEncoding.EncodeToString(trustAnchorRaw)
+		trustAnchorB64 = &encoded
 	}
 
 	// Drain the post-snapshot event tail in pulled-event shape.
@@ -174,9 +199,24 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 	// events even when an account_bound covers them.
 	s.resolveBindingsOnPulled(ctx, vaultID, tail)
 
+	// M5 recovery: the vault's FULL membership chain in HLC order, regardless
+	// of the snapshot cursor. A recovering device needs every membership
+	// event (genesis + member/device adds) to build a proof bundle and fold
+	// its own membership; the cursor-bound tail above does not carry the ones
+	// that predate up_to_server_seq. Same wire shape + binding resolution as
+	// the tail (mobile ingests by event_id idempotently, so overlap is fine).
+	membership, err := s.pullMembershipChain(ctx, vaultID)
+	if err != nil {
+		return nil, fmt.Errorf("read membership chain: %w", err)
+	}
+	s.resolveBindingsOnPulled(ctx, vaultID, membership)
+
 	// Compute hlc_last as the MAX HLC observed in the snapshot's events
 	// (which we don't keep explicitly — we approximate by walking the
-	// projection's updated_at fields and the tail).
+	// projection's updated_at fields and the tail). Membership events are
+	// intentionally NOT folded in here: they are pre-cursor history, the
+	// projection's updated_at fields already bound the live frontier, and
+	// any membership event also present in the tail is already counted.
 	hlcLast := snapshotMaxHLC(&projection, tail)
 
 	resp := &SnapshotResponse{
@@ -185,20 +225,22 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 		GeneratedAtMS:     createdAt.UnixMilli(),
 		SchemaVersion:     schemaVer,
 		Vault: SnapshotVault{
-			ID:        vaultID,
-			Name:      vaultName,
-			Currency:  vaultCurrency,
-			CreatedAt: vaultCreated.UnixMilli(),
-			UpdatedAt: vaultUpdated.UnixMilli(),
-			IsDefault: 1,
-			AccountID: vaultAccount,
+			ID:                     vaultID,
+			Name:                   vaultName,
+			Currency:               vaultCurrency,
+			CreatedAt:              vaultCreated.UnixMilli(),
+			UpdatedAt:              vaultUpdated.UnixMilli(),
+			IsDefault:              1,
+			AccountID:              vaultAccount,
+			VaultTrustAnchorPubkey: trustAnchorB64,
 		},
-		ShopProfile:   projectShopProfile(vaultID, projection.ShopProfile),
-		Users:         projectUsers(projection.Users),
-		Relationships: projectRelationships(projection.Relationships),
-		Entries:       projectEntries(projection.Entries),
-		HLCLast:       hlcLast,
-		Events:        tail,
+		ShopProfile:      projectShopProfile(vaultID, projection.ShopProfile),
+		Users:            projectUsers(projection.Users),
+		Relationships:    projectRelationships(projection.Relationships),
+		Entries:          projectEntries(projection.Entries),
+		HLCLast:          hlcLast,
+		Events:           tail,
+		MembershipEvents: membership,
 	}
 	return resp, nil
 }
@@ -323,36 +365,31 @@ func snapshotMaxHLC(p *Projection, tail []PulledEvent) HLC {
 	return max
 }
 
-// pullTail returns events appended after upTo for the given vault, in the
-// same shape as PullEvents.
-func (s *Service) pullTail(ctx context.Context, vaultID string, upTo int64) ([]PulledEvent, error) {
-	const tailSQL = `
-		SELECT
-			event_id::text,
-			hlc_physical_ms,
-			hlc_logical,
-			hlc_device_id::text,
-			device_id::text,
-			account_id::text,
-			target_id::text,
-			relationship_id::text,
-			event_type,
-			schema_version,
-			payload,
-			server_seq,
-			server_received_at
-		FROM events
-		WHERE vault_id = $1::uuid
-		  AND server_seq > $2
-		  AND redacted_at IS NULL
-		ORDER BY server_seq ASC
-	`
-	rows, err := s.pool.Query(ctx, tailSQL, vaultID, upTo)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+// pulledEventColumns is the SELECT list (in scan order) shared by pullTail
+// and pullMembershipChain so both produce byte-identical PulledEvent wire
+// shapes — incl. event_sig_b64 / signer_device_pubkey / author_seq, which
+// the receiving replica needs to verify the membership chain end-to-end.
+const pulledEventColumns = `
+		event_id::text,
+		hlc_physical_ms,
+		hlc_logical,
+		hlc_device_id::text,
+		device_id::text,
+		account_id::text,
+		target_id::text,
+		relationship_id::text,
+		event_type,
+		schema_version,
+		payload,
+		author_seq,
+		event_sig_b64,
+		signer_device_pubkey,
+		server_seq,
+		server_received_at`
 
+// scanPulledEvents drains rows shaped by pulledEventColumns into PulledEvents.
+func scanPulledEvents(rows pgx.Rows) ([]PulledEvent, error) {
+	defer rows.Close()
 	events := make([]PulledEvent, 0)
 	for rows.Next() {
 		var (
@@ -375,6 +412,9 @@ func (s *Service) pullTail(ctx context.Context, vaultID string, upTo int64) ([]P
 			&ev.EventType,
 			&ev.SchemaVersion,
 			&payload,
+			&ev.AuthorSeq,
+			&ev.EventSigB64,
+			&ev.SignerDevicePubkey,
 			&ev.ServerSeq,
 			&serverReceivedAt,
 		); err != nil {
@@ -392,6 +432,45 @@ func (s *Service) pullTail(ctx context.Context, vaultID string, upTo int64) ([]P
 		events = append(events, ev)
 	}
 	return events, rows.Err()
+}
+
+// pullTail returns events appended after upTo for the given vault, in the
+// same shape as PullEvents.
+func (s *Service) pullTail(ctx context.Context, vaultID string, upTo int64) ([]PulledEvent, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT`+pulledEventColumns+`
+		FROM events
+		WHERE vault_id = $1::uuid
+		  AND server_seq > $2
+		  AND redacted_at IS NULL
+		ORDER BY server_seq ASC
+	`, vaultID, upTo)
+	if err != nil {
+		return nil, err
+	}
+	return scanPulledEvents(rows)
+}
+
+// pullMembershipChain returns the vault's FULL membership chain (the M2
+// IsMembershipEventType set: vault_member_added / vault_member_removed /
+// vault_member_role_changed / vault_device_added / vault_device_removed) in
+// HLC order (hlc_physical_ms, hlc_logical, hlc_device_id, event_id),
+// IGNORING the snapshot cursor. A recovering device folds these to rebuild
+// its membership proof bundle. Tiny (<100/vault). Same wire shape as the
+// tail; mobile ingests by event_id so overlap with the tail is idempotent.
+func (s *Service) pullMembershipChain(ctx context.Context, vaultID string) ([]PulledEvent, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT`+pulledEventColumns+`
+		FROM events
+		WHERE vault_id = $1::uuid
+		  AND redacted_at IS NULL
+		  AND event_type = ANY($2)
+		ORDER BY hlc_physical_ms ASC, hlc_logical ASC, hlc_device_id ASC, event_id ASC
+	`, vaultID, membershipEventTypes)
+	if err != nil {
+		return nil, err
+	}
+	return scanPulledEvents(rows)
 }
 
 // ==========================================================================

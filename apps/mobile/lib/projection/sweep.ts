@@ -10,10 +10,10 @@
 //
 // TRIGGERS (callers schedule a sweep):
 //   (a) verifyAndIngest inserted a new row → maybe the new row is a
-//       credential/prereq that cures something.
-//   (b) cachePeerVMC wrote a credential row → unknown_actor quarantines
-//       for that signer may now be applyable.
-//   (c) a role-changing event applied → role_insufficient quarantines
+//       membership/prereq that cures something (e.g. an admission event
+//       binding a signer's device → unknown_actor quarantines for that
+//       signer may now be applyable).
+//   (b) a role-changing event applied → role_insufficient quarantines
 //       below the new role's HLC are now applyable.
 //
 // DEBOUNCE: per-vault Set<string>. Multiple triggers for the same

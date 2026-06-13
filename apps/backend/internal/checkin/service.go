@@ -66,15 +66,7 @@ type Request struct {
 	UsageCustomersAdded *int `json:"usage_customers_added,omitempty"`
 	UsageSharesSent     *int `json:"usage_shares_sent,omitempty"`
 
-	// Phase 5 mesh: caller-driven VMC renewal. Mobile lists vault_ids
-	// whose locally-cached VMC is within the renewal window (or expired).
-	// Server iterates, mints a fresh VMC for each vault the caller is
-	// still an active member of, and returns them in VMCRenewals. Vaults
-	// the caller no longer belongs to are silently omitted — the mesh
-	// client treats absence as "you've been kicked from this vault".
-	VMCRenewalsNeeded []string `json:"vmc_renewals_needed,omitempty"`
-
-	// Phase 5 mesh: per-vault revocation cursor. Map from vault_id to
+	// Mesh: per-vault revocation cursor. Map from vault_id to
 	// the largest revoked_at_ms the client has previously applied. Server
 	// returns revocations strictly newer than this. Missing entries are
 	// treated as 0 (full bootstrap of the current revocation set for
@@ -114,20 +106,13 @@ type Response struct {
 	// the token is still fresh.
 	SessionJWTRefresh *string `json:"session_jwt_refresh,omitempty"`
 
-	// Phase 5 mesh: freshly-signed VMCs for vaults the caller listed in
-	// VMCRenewalsNeeded that they're still members of. Omitted entirely
-	// (nil) when the caller sent no renewal list OR the server's signing
-	// key is missing.
-	VMCRenewals []mesh.IssuedVMCForVault `json:"vmc_renewals,omitempty"`
-
-	// Phase 5 mesh: incremental revocation deltas across all vaults the
-	// caller is a current active member of. One entry per (vault, device)
-	// revocation event. Mesh clients merge these into their local
-	// revocation_list table; future handshakes refuse VMCs whose
-	// (vault, device) matches.
+	// Mesh: incremental revocation deltas across all vaults the caller is a
+	// current active member of. One entry per (vault, device) revocation.
+	// Mesh clients merge these into their local revocation_list table;
+	// future handshakes refuse any peer whose (vault, device) matches.
 	Revocations []mesh.Revocation `json:"revocations,omitempty"`
 
-	// Phase 5 mesh: pinned server signing pubkey(s). Sent on EVERY
+	// Mesh: pinned server signing pubkey(s). Sent on EVERY
 	// response when mesh signing is configured (never optional from the
 	// server's side, so clients can first-sight-pin and track rotations).
 	// During a rotation window, Rotation is set to the new key; outside,
@@ -348,28 +333,10 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 			resp.MeshServerPubkeys = mp
 		}
 
-		// VMC renewals + revocations require an authenticated caller.
-		// We pull the account_id from the request context (the handler
-		// places it there when auth.ClaimsFromContext is present).
+		// Revocation deltas require an authenticated caller. We pull the
+		// account_id from the request context (the handler places it there
+		// when auth.ClaimsFromContext is present).
 		if accountID := ActorAccountIDFromContext(ctx); accountID != "" && s.mesh.SigningEnabled() {
-			for _, vaultID := range req.VMCRenewalsNeeded {
-				if vaultID == "" {
-					continue
-				}
-				issued, err := s.mesh.IssueVMC(ctx, vaultID, accountID, req.InstallID)
-				if err != nil {
-					if !isExpectedMeshIssueErr(err) {
-						log.Printf("checkin vmc renewal failed (vault=%s install=%s): %v",
-							vaultID, req.InstallID, err)
-					}
-					continue
-				}
-				resp.VMCRenewals = append(resp.VMCRenewals, mesh.IssuedVMCForVault{
-					VaultID:     vaultID,
-					VMCBlob:     issued.VMCBlob,
-					ExpiresAtMS: issued.ExpiresAt.UnixMilli(),
-				})
-			}
 			// Revocations are only disclosed for vaults the caller is a
 			// current member of — otherwise we leak revocation
 			// timestamps from foreign vaults.
@@ -394,20 +361,6 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 	}
 
 	return resp, nil
-}
-
-// isExpectedMeshIssueErr returns true for errors that are part of the
-// renewal-path's normal control flow — caller has been revoked, never
-// registered a device key, server's signing key is missing, etc.
-// Unexpected errors (DB drop, marshal failure) still get logged.
-func isExpectedMeshIssueErr(err error) bool {
-	switch {
-	case errors.Is(err, mesh.ErrNotMember),
-		errors.Is(err, mesh.ErrDeviceKeyNotRegistered),
-		errors.Is(err, mesh.ErrSigningUnavailable):
-		return true
-	}
-	return false
 }
 
 // actorAccountIDKey is the context key the HTTP handler uses to pass the

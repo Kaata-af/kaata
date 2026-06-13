@@ -13,7 +13,6 @@
     "selftest:migration-014": "tsx lib/__dev__/migration-014-selftest.ts"
   },
   "dependencies": {
-    "@config-plugins/react-native-webrtc": "^13.0.0",
     "@expo-google-fonts/inter": "^0.4.2",
     "@expo-google-fonts/jetbrains-mono": "^0.4.1",
     "@expo-google-fonts/vazirmatn": "^0.4.1",
@@ -57,7 +56,6 @@
     "react-native-svg": "15.12.1",
     "react-native-tcp-socket": "^6.3.0",
     "react-native-web": "~0.21.0",
-    "react-native-webrtc": "^124.0.5",
     "react-native-zeroconf": "^0.13.8"
   },
   "devDependencies": {

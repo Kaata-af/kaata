@@ -65,7 +65,9 @@ type GoogleSignInResult struct {
 // SignInWithGoogle is the full Phase 2 sign-in pipeline:
 //
 //  1. Verify Google ID token (signature, audience, expiry, email_verified, iat freshness)
-//  2. Upsert accounts row by google_sub
+//  2. Resolve-or-create the account via account_identities (M1 — see
+//     resolveOrCreateAccount in identity.go; google_sub is still
+//     dual-written for new accounts this release)
 //  3. Ensure installs row exists
 //  4. Upsert auth_credentials row keyed by (install_id, provider), bound to account_id
 //  5. Optionally register a pending vault as owned by this account
@@ -128,22 +130,18 @@ func (s *Service) SignInWithGoogle(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// (2) Upsert account by google_sub.
-	var accountID string
-	err = tx.QueryRow(ctx, `
-		INSERT INTO accounts (id, google_sub, email, email_normalized, email_verified, name, picture_url, last_login_at)
-		VALUES (gen_random_uuid(), $1, $2, $3, TRUE, $4, $5, NOW())
-		ON CONFLICT (google_sub) DO UPDATE
-		SET email            = EXCLUDED.email,
-		    email_normalized = EXCLUDED.email_normalized,
-		    email_verified   = TRUE,
-		    name             = EXCLUDED.name,
-		    picture_url      = EXCLUDED.picture_url,
-		    last_login_at    = NOW()
-		RETURNING id::text
-	`, providerSub, email, emailNormalized, name, picture).Scan(&accountID)
+	// (2) Resolve-or-create the account via account_identities (M1).
+	// Profile fields (email/name/picture, last_login_at) are refreshed on
+	// every login inside the helper.
+	accountID, _, err := resolveOrCreateAccount(ctx, tx, ProviderGoogle, providerSub, AccountProfile{
+		Email:           email,
+		EmailNormalized: emailNormalized,
+		EmailVerified:   true,
+		Name:            name,
+		PictureURL:      picture,
+	})
 	if err != nil {
-		return GoogleSignInResult{}, fmt.Errorf("upsert account: %w", err)
+		return GoogleSignInResult{}, fmt.Errorf("resolve account: %w", err)
 	}
 
 	// (3) Ensure installs row exists.

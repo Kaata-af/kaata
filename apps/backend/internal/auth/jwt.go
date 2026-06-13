@@ -28,6 +28,14 @@ const RefreshIfOlderThan = 7 * 24 * time.Hour
 // convenience — most endpoints can authorize against (account_id) without
 // touching auth_credentials, and the few that need install scope (sign-out,
 // device-list) read it from the claim instead of an extra round-trip.
+//
+// M1 (sync v2 §4): the claim set is provider-agnostic — `provider` +
+// `provider_sub` describe whichever identity minted the session ('google'
+// today, 'phone_otp' later). There is deliberately NO google-specific
+// claim. Tokens minted by older releases (or with extra claims) still
+// parse: encoding/json — and therefore golang-jwt — ignores unknown JSON
+// fields, so adding/removing denormalized claims never invalidates
+// in-flight 30-day sessions.
 type SessionClaims struct {
 	AccountID   string `json:"account_id"`
 	InstallID   string `json:"install_id"`

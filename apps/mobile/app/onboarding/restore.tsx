@@ -1,34 +1,29 @@
 // Onboarding step inserted between auth and profile when the backend has
-// existing ledger state for the freshly-signed-in account. Two flows land
-// here:
+// existing ledger state for the freshly-signed-in account.
 //
-//   1. Phase 3 snapshot path. Backend returns 200 from GET /v1/sync/snapshot
-//      with a JSON body — the user had a previous v0.5+ install on this
-//      account. Show "We found your ledger from <date>. Restore?" + the
-//      two action cards. Restore = restoreFromSnapshot; Start fresh = skip
-//      to onboarding/profile with the local vault intact.
+// M5 multi-vault recovery (docs/m5-recovery.md §3.2). The freshly-signed-in
+// account may belong to MANY vaults (its own + ones it was invited to). We
+// probe GET /v1/vaults (listVaults) and, if there are any non-archived
+// vaults, show "We found your kaata — restore N vaults?" + the two action
+// cards. Restore = recoverAllVaults() (restores+witness-binds EVERY vault,
+// picks one active/default). Start fresh = skip to onboarding/profile with
+// the local vault intact.
 //
-//   2. v0.4 legacy bridge path. Backend returns 404 from the snapshot
-//      endpoint BUT 200 from GET /v1/backup/latest. The user is upgrading
-//      across the v0.4→v0.5 boundary and the backend still holds the old
-//      mega-snapshot. Same two-card UI; Restore = decodeV04Backup +
-//      importDecodedEvents.
-//
-// If both endpoints come back empty (no snapshot and no v0.4 backup),
-// _layout.tsx routes the user past this screen straight to profile —
-// they're a fresh install with no recoverable data.
+// If the account belongs to no vaults (or there's no account_id yet —
+// mid-onboarding with no server vault), _layout.tsx / this screen routes
+// the user past straight to profile: they're a fresh install with no
+// recoverable data.
 //
 // State machine on this screen:
 //
-//   loading           → spinner while we fetch snapshot + (optionally) v0.4 backup
-//   ready_snapshot    → show "restore from snapshot" UI
-//   ready_v04         → show "restore from v0.4 backup" UI
-//   ready_none        → router.replace('/onboarding/profile') (auto-skip)
-//   restoring         → spinner while restoreFromSnapshot or bridge runs
-//   error             → inline error + "Try again" / "Start fresh"
+//   loading     → spinner while we list the account's vaults
+//   ready       → show "restore N vaults" UI (N = non-archived vault count)
+//   ready_none  → router.replace('/onboarding/profile') (auto-skip)
+//   restoring   → spinner while recoverAllVaults runs
+//   error       → inline error + "Try again" / "Start fresh"
 //
 // Restore success → router.replace('/'). The home screen will read the
-// just-imported projection rows. Start fresh keeps onboarding flowing
+// just-restored projection rows. Start fresh keeps onboarding flowing
 // normally to /onboarding/profile (the user explicitly chose to discard
 // the cloud copy in favor of a clean slate).
 
@@ -43,25 +38,13 @@ import { getAppMeta, setAppMeta } from "../../lib/db";
 import { textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
-import { ensureInstallId } from "../../lib/install-id";
-import {
-  decodeV04Backup,
-  ensureBridgeVaultId,
-  fetchSnapshot,
-  fetchV04Backup,
-  importDecodedEvents,
-  isEventLogEmptyForVault,
-  restoreFromSnapshot,
-  RestoreSessionExpiredError,
-  RestoreTimeoutError,
-  type Snapshot,
-  type V04Backup,
-} from "../../lib/restore";
+import { recoverAllVaults } from "../../lib/recovery";
+import { RestoreSessionExpiredError, RestoreTimeoutError } from "../../lib/restore";
+import { listVaults } from "../../lib/vault-api";
 
 type Phase =
   | { kind: "loading" }
-  | { kind: "ready_snapshot"; snapshot: Snapshot }
-  | { kind: "ready_v04"; backup: V04Backup; vaultId: string }
+  | { kind: "ready"; vaultCount: number }
   | { kind: "ready_none" }
   | { kind: "restoring" }
   | { kind: "error"; message: string; retryable: boolean };
@@ -75,55 +58,31 @@ export default function OnboardingRestoreScreen() {
   // re-ran the mount-only probe: an infinite spinner with force-quit as
   // the only way out.
   const [retryNonce, setRetryNonce] = useState(0);
-  // Synchronous re-entry guard for the restore actions — see entry/new.tsx.
+  // Synchronous re-entry guard for the restore action — see entry/new.tsx.
   const restoringRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        // Read the default vault id _layout.tsx persisted right after
-        // postSignInHousekeeping returned. If it's missing the user is
-        // mid-onboarding with no server vault yet — skip straight to
-        // profile so they can create one.
-        const defaultVaultId = await getAppMeta("default_vault_id");
+        // Without an account_id the user is mid-onboarding with no server
+        // vault yet — skip straight to profile so they can create one.
         const accountId = await getAppMeta("account_id");
-        if (!defaultVaultId || !accountId) {
+        if (!accountId) {
           if (!cancelled) setPhase({ kind: "ready_none" });
           return;
         }
 
-        // 1. Phase 3 snapshot path.
-        const snapshot = await fetchSnapshot({ defaultVaultId });
+        // M5: list every vault this account is a member of. Any non-archived
+        // vault → offer recovery; none → fresh install, skip to profile.
+        const vaults = await listVaults();
         if (cancelled) return;
-        if (snapshot) {
-          setPhase({ kind: "ready_snapshot", snapshot });
+        const live = vaults.filter((v) => v.archived_at_ms == null);
+        if (live.length === 0) {
+          setPhase({ kind: "ready_none" });
           return;
         }
-
-        // 2. v0.4 legacy bridge fallback. Only worth fetching if the
-        //    local event log for this vault is empty — if it's not
-        //    empty the bridge already ran on a prior launch and the
-        //    user must have wiped the snapshot manually; show
-        //    ready_none and let onboarding/profile take over.
-        const installId = await ensureInstallId();
-        const vaultId = await ensureBridgeVaultId({
-          installId,
-          accountId,
-        });
-        const eventLogEmpty = await isEventLogEmptyForVault(vaultId);
-        if (!eventLogEmpty) {
-          if (!cancelled) setPhase({ kind: "ready_none" });
-          return;
-        }
-        const v04 = await fetchV04Backup();
-        if (cancelled) return;
-        if (v04) {
-          setPhase({ kind: "ready_v04", backup: v04, vaultId });
-          return;
-        }
-
-        setPhase({ kind: "ready_none" });
+        setPhase({ kind: "ready", vaultCount: live.length });
       } catch (err) {
         if (cancelled) return;
         setPhase({
@@ -151,45 +110,32 @@ export default function OnboardingRestoreScreen() {
     return () => clearTimeout(id);
   }, [phase.kind, router]);
 
-  async function onRestoreSnapshot(snapshot: Snapshot) {
+  async function onRestore() {
     if (restoringRef.current) return;
     restoringRef.current = true;
     setPhase({ kind: "restoring" });
     try {
-      await restoreFromSnapshot(snapshot);
-      // Mark onboarding done — the snapshot already contains the local
-      // self user so we don't need the profile screen. Going straight
-      // to home matches the user's mental model: "my data is back, take
-      // me to it."
-      await setAppMeta("onboarding_step", "done");
-      await setAppMeta("onboarding_pending_name", "");
-      await setAppMeta("onboarding_pending_email", "");
-      router.replace("/");
-    } catch (err) {
+      const result = await recoverAllVaults();
+      if (result.recovered.length > 0) {
+        // At least one vault came back. Mark onboarding done — the restored
+        // snapshot already contains the local self user so we don't need the
+        // profile screen. Going straight to home matches the user's mental
+        // model: "my data is back, take me to it."
+        await setAppMeta("onboarding_step", "done");
+        await setAppMeta("onboarding_pending_name", "");
+        await setAppMeta("onboarding_pending_email", "");
+        router.replace("/");
+        return;
+      }
+      // Nothing recovered but at least one vault errored → retryable error.
+      // (recoverAllVaults itself only throws on a total inability to list,
+      // which is caught below; per-vault failures land here.)
       restoringRef.current = false;
       setPhase({
         kind: "error",
-        message: classifyError(err),
-        retryable: !(err instanceof RestoreSessionExpiredError),
+        message: t("onboardingRestore.errorGeneric"),
+        retryable: true,
       });
-    }
-  }
-
-  async function onRestoreV04(backup: V04Backup, vaultId: string) {
-    if (restoringRef.current) return;
-    restoringRef.current = true;
-    setPhase({ kind: "restoring" });
-    try {
-      const installId = await ensureInstallId();
-      const decoded = decodeV04Backup(backup, installId, vaultId);
-      await importDecodedEvents(decoded);
-      // The bridge re-creates relationships + entries + shop_profile but
-      // NOT the local-self user (it has no event of its own). The user
-      // still needs to go through onboarding/profile to re-mint their
-      // local self row and let the appliers re-bind it to relationships
-      // via the user_a_id resolution in applyPersonAdded.
-      await setAppMeta("onboarding_step", "profile");
-      router.replace("/onboarding/profile");
     } catch (err) {
       restoringRef.current = false;
       setPhase({
@@ -266,28 +212,19 @@ export default function OnboardingRestoreScreen() {
     );
   }
 
-  const generatedDate =
-    phase.kind === "ready_snapshot"
-      ? new Date(phase.snapshot.generated_at_ms)
-      : new Date(phase.backup.exported_at);
-  const dateLabel = formatDate(generatedDate);
-
+  // phase.kind === "ready"
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <Text style={[styles.title, textDir(isRTL)]}>{t("onboardingRestore.title")}</Text>
         <Text style={[styles.subtitle, textDir(isRTL)]}>
-          {t("onboardingRestore.subtitle", { date: dateLabel })}
+          {t("onboardingRestore.subtitleVaults", { count: String(phase.vaultCount) })}
         </Text>
 
         <View style={styles.spacer} />
 
         <Pressable
-          onPress={() =>
-            phase.kind === "ready_snapshot"
-              ? onRestoreSnapshot(phase.snapshot)
-              : onRestoreV04(phase.backup, phase.vaultId)
-          }
+          onPress={onRestore}
           style={({ pressed }) => [styles.card, styles.cardPrimary, pressed && { opacity: 0.85 }]}
         >
           <View style={styles.cardIcon}>
@@ -297,7 +234,7 @@ export default function OnboardingRestoreScreen() {
             {t("onboardingRestore.restore.title")}
           </Text>
           <Text style={[styles.cardBody, styles.cardBodyPrimary, textDir(isRTL)]}>
-            {t("onboardingRestore.restore.body")}
+            {t("onboardingRestore.restore.bodyVaults", { count: String(phase.vaultCount) })}
           </Text>
         </Pressable>
 
@@ -330,13 +267,6 @@ function classifyError(err: unknown): string {
     return t("onboardingRestore.errorTimeout");
   }
   return t("onboardingRestore.errorGeneric");
-}
-
-function formatDate(d: Date): string {
-  if (Number.isNaN(d.getTime())) return "—";
-  // Localized short-date format. Day/month/year without time — the
-  // restore prompt is about "from which day" not "to the minute."
-  return d.toLocaleDateString();
 }
 
 // ---------- styles (mirrors onboarding/auth.tsx for visual continuity) ----------

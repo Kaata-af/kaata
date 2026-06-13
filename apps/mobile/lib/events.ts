@@ -42,6 +42,16 @@ type EventEnvelope = {
   // vault_credentials row has since been evicted. Required when
   // event_sig_b64 is non-null; null otherwise.
   signer_device_pubkey?: string | null;
+  // Sync v2 M1 (migration 018): per-author sequence number, scoped to
+  // (vault_id, device_id), assigned at append time by the authoring device.
+  // TRANSFER BOOKKEEPING ONLY: deliberately NOT in the signed envelope
+  // (lib/event-sig.ts) and never consulted by projection/merge — HLC stays
+  // the merge order. Replicas use it to express version vectors
+  // (lib/replication). As of M3.5 it travels on the MESH wire too
+  // (WireMeshEvent.author_seq) and the mesh ingest persists it, so it is the
+  // authoritative completeness mechanism on every channel; null only on a
+  // slot-conflict sacrifice (a fresh honest system never hits that).
+  author_seq?: number | null;
 };
 
 // ---------- Entry events (Phase 1) ----------
@@ -149,11 +159,35 @@ export type VaultSettingSetEvent = EventEnvelope & {
   payload: { key: string; value: string };
 };
 
-// ---------- Vault membership events (Phase 4) ----------
+// ---------- Vault membership events (Phase 4; M2 membership chain) ----------
+
+// M2 (docs/m2-membership-chain.md §2): a server-witness attestation attached
+// to membership events admitted via the ONLINE path (email invite / new
+// device of a signed-in member). The witness proves what the owner's device
+// couldn't sign in person: "the server verified this account/device claim".
+// Verified against the pinned server signing pubkey(s); ±7d freshness vs
+// the event HLC. Offline/QR-path events carry NO witness — they're signed
+// directly by an owner-bound device, which is the stronger statement.
+export type MembershipWitness = {
+  sig_b64: string;
+  server_key_id: string;
+  issued_at_ms: number;
+  // member_added witnesses additionally name the inviter whose brokered
+  // invite proves owner intent.
+  inviter_account_id?: string;
+};
 
 export type VaultMemberAddedEvent = EventEnvelope & {
   event_type: "vault_member_added";
-  payload: { account_id: string; role: VaultRole };
+  payload: {
+    account_id: string;
+    role: VaultRole;
+    display_name?: string | null;
+    witness?: MembershipWitness;
+    // Set on chain-genesis backfill admissions (M2 §5) so replicas can
+    // distinguish "owner attested pre-chain membership" from organic adds.
+    backfill_synthetic?: true;
+  };
 };
 
 export type VaultMemberRoleChangedEvent = EventEnvelope & {
@@ -164,6 +198,27 @@ export type VaultMemberRoleChangedEvent = EventEnvelope & {
 export type VaultMemberRemovedEvent = EventEnvelope & {
   event_type: "vault_member_removed";
   payload: { account_id: string };
+};
+
+// M2: binds a device public key to a member account inside the chain.
+// Signed by an owner-bound device (QR path) OR self-signed by the named
+// device with a server witness (online path). The device registry fold
+// (vault_device_registry) is what lets the role-gate authenticate a remote
+// event's signer without the legacy vault_credentials VMC cache.
+export type VaultDeviceAddedEvent = EventEnvelope & {
+  event_type: "vault_device_added";
+  payload: {
+    account_id: string;
+    device_id: string;
+    device_pubkey: string; // base64 Ed25519, same encoding as signer_device_pubkey
+    witness?: MembershipWitness;
+    backfill_synthetic?: true;
+  };
+};
+
+export type VaultDeviceRemovedEvent = EventEnvelope & {
+  event_type: "vault_device_removed";
+  payload: { device_id: string };
 };
 
 // ---------- Account binding (Phase 2) ----------
@@ -199,6 +254,8 @@ export type LedgerEvent =
   | VaultMemberAddedEvent
   | VaultMemberRoleChangedEvent
   | VaultMemberRemovedEvent
+  | VaultDeviceAddedEvent
+  | VaultDeviceRemovedEvent
   | AccountBoundEvent;
 
 export type EventType = LedgerEvent["event_type"];
@@ -222,6 +279,8 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<EventType> = new Set([
   "vault_member_added",
   "vault_member_role_changed",
   "vault_member_removed",
+  "vault_device_added",
+  "vault_device_removed",
   "account_bound",
 ]);
 

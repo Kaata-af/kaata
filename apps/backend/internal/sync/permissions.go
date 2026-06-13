@@ -130,10 +130,18 @@ func requiredRoleFor(eventType string) (string, bool) {
 		return "editor", true
 
 	// Vault governance — owner.
+	//
+	// M2: vault_device_added / vault_device_removed are listed here only
+	// for the LEGACY fallback path (unsigned events / anchor-less vaults)
+	// so an unknown-event-type lookup can't 500 a batch. Signed device
+	// events on anchored vaults never reach this matrix — the chain rules
+	// in membership.go (which allow witnessed self-admission) decide them.
 	case "vault_setting_set",
 		"vault_member_added",
 		"vault_member_role_changed",
-		"vault_member_removed":
+		"vault_member_removed",
+		"vault_device_added",
+		"vault_device_removed":
 		return "owner", true
 	}
 	return "", false

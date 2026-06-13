@@ -34,6 +34,8 @@ const FOREGROUND_INTERVAL_MS = 5_000;
 const BACKGROUND_INTERVAL_MS = 30_000;
 const BACKOFF_BASE_MS = 1_000;
 const BACKOFF_MAX_MS = 60_000;
+// Advisory vector convergence check every N successful cycles (M1).
+const CONVERGENCE_EVERY_N = 60;
 
 export type SyncOnceResult = {
   pulled: number;
@@ -45,7 +47,9 @@ export type SyncOnceResult = {
 // Runs one pull-then-push cycle for the given vault (or the active vault if
 // not specified). Exposed for the "Sync now" row in ProfileSettingsSheet and
 // for the dev replay-test harness.
-export async function syncOnce(opts: { vaultId?: string } = {}): Promise<SyncOnceResult> {
+export async function syncOnce(
+  opts: { vaultId?: string; verifyConvergence?: boolean } = {},
+): Promise<SyncOnceResult> {
   const vaultId = opts.vaultId ?? getActiveVaultIdSyncMaybe();
   if (!vaultId) {
     return { pulled: 0, pushed: 0, rejected: 0, duplicates: 0 };
@@ -64,6 +68,17 @@ export async function syncOnce(opts: { vaultId?: string } = {}): Promise<SyncOnc
   // Pull-then-push. Non-negotiable per plan C1.
   const pullRes = await pullEvents(vaultId);
   const pushRes = await pushEvents(vaultId);
+
+  // Sync v2 M1: advisory convergence check (docs/sync-v2-architecture.md
+  // §9-M1). Compares our author-seq vector with the server's AFTER the
+  // cycle; logs divergence (relay holes, pull gaps) while the new
+  // bookkeeping earns trust ahead of M3. Fire-and-forget by contract —
+  // checkConvergence never throws — so it cannot affect sync results,
+  // ordering, or the scheduler's backoff.
+  if (opts.verifyConvergence) {
+    const { checkConvergence } = await import("../replication");
+    void checkConvergence(vaultId);
+  }
 
   return {
     pulled: pullRes.pulled,
@@ -87,6 +102,21 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
   let inFlight = false;
   let currentAppState: AppStateStatus = AppState.currentState;
 
+  // M2 membership chain: one-shot chain-genesis backfill (+ pending
+  // witness emission retry) across ALL non-archived vaults — not just the
+  // active one (review P2: a multi-vault owner's other vaults must get
+  // their chain, and a stranded witness_emit_pending must retry). Fire-
+  // and-forget, non-fatal by contract — each per-vault run catches its own
+  // emission errors and self-guards with an in-session Set, so this can
+  // never affect the sync loop. Lazy import keeps the scheduler module
+  // free of the trust/event-log dependency at load time.
+  void (async () => {
+    const { ensureChainBackfillAllVaults } = await import("../trust/backfill");
+    await ensureChainBackfillAllVaults();
+  })().catch((err) => {
+    console.warn("[sync] chain backfill kickoff failed (non-fatal)", err);
+  });
+
   const appStateSub = AppState.addEventListener("change", (s) => {
     currentAppState = s;
   });
@@ -101,13 +131,24 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
     return currentAppState === "active" ? FOREGROUND_INTERVAL_MS : BACKGROUND_INTERVAL_MS;
   };
 
+  // Convergence-check cadence: every CONVERGENCE_EVERY_N successful cycles
+  // (~5 min at the 5s foreground interval) rather than every tick — the
+  // check is advisory observability and shouldn't double request volume.
+  let cyclesSinceConvergenceCheck = 0;
+
   const tick = async (): Promise<void> => {
     if (stopped) return;
     if (inFlight) return;
 
     inFlight = true;
     try {
-      await syncOnce();
+      cyclesSinceConvergenceCheck++;
+      const verifyConvergence = cyclesSinceConvergenceCheck >= CONVERGENCE_EVERY_N;
+      await syncOnce({ verifyConvergence });
+      // Reset only after the designated cycle RESOLVED — a throw above
+      // keeps the counter past threshold so the next successful cycle
+      // runs the (advisory) check instead of waiting another full window.
+      if (verifyConvergence) cyclesSinceConvergenceCheck = 0;
       backoffAttempt = 0;
       scheduleNext(currentInterval());
     } catch (err) {

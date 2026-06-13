@@ -13,6 +13,7 @@
 
 import { getBackendUrl } from "../api";
 import { getSessionJWT } from "../auth";
+import { getAppMeta, setAppMeta } from "../db";
 import { getDb, getInstallIdSync } from "../db-tx";
 import { notifyProjectionConflictsChanged } from "../projection-conflicts";
 import { markPushDone } from "./cursor";
@@ -43,6 +44,9 @@ type EventRow = {
   payload_json: string;
   payload_schema: number;
   appended_at: number;
+  author_seq: number | null;
+  event_sig_b64: string | null;
+  signer_device_pubkey: string | null;
 };
 
 type WireEvent = {
@@ -54,6 +58,16 @@ type WireEvent = {
   hlc: { physical_ms: number; logical: number; device_id: string };
   actor_account_id: string | null;
   payload: unknown;
+  // Sync v2 M1: per-author sequence (migration 018). Optional on the wire —
+  // legacy mesh-ingested rows may not carry one.
+  author_seq?: number;
+  // M2 (review P0): the Ed25519 envelope signature MUST cross the HTTPS
+  // channel. Without it, server-synced replicas store membership events
+  // with NULL signatures — the chain verifier (lib/trust) refuses them
+  // (missing_signature), the role-gate quarantines them (unsigned_event),
+  // and HTTPS-only members can never verify the chain or honor a removal.
+  event_sig_b64?: string | null;
+  signer_device_pubkey?: string | null;
 };
 
 type PushResponse = {
@@ -82,6 +96,31 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
   }
 
   const db = await getDb();
+
+  // One-shot seq re-announce (Sync v2 M1). Migration 018 numbered our own
+  // pre-M1 history, but those rows are already server-acked and would
+  // never be re-pushed — leaving the server permanently seq-less for this
+  // device's history and the vector permanently unprovable. Un-ack our own
+  // sequenced rows ONCE; the normal push machinery re-sends them, the
+  // server treats them as duplicates and back-fills author_seq onto its
+  // stored rows (duplicate re-announce path, backend service.go).
+  const reannounceKey = `seq_reannounce_pending:${vaultId}`;
+  if ((await getAppMeta(reannounceKey)) === "1") {
+    await db.runAsync(
+      `UPDATE event_log SET server_acked_at = NULL
+        WHERE vault_id = ? AND device_id = ?
+          AND author_seq IS NOT NULL
+          AND server_acked_at IS NOT NULL
+          AND rejected_at IS NULL
+          AND tombstone_reason IS NULL`,
+      vaultId,
+      getInstallIdSync(),
+    );
+    // Clear immediately — the rows now sit in the outbox and drain over
+    // the next cycles; a crash mid-drain loses nothing (they stay unacked
+    // until the server acks them again).
+    await setAppMeta(reannounceKey, "");
+  }
   const rows = await db.getAllAsync<EventRow>(
     // Migration 014 (Mythos round-3): also exclude tombstoned rows.
     // Tombstoned events are locally-believed-bad-signature or schema-
@@ -93,7 +132,8 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
     `SELECT event_id, event_type, vault_id, target_id, relationship_id,
             hlc_physical_ms, hlc_logical, hlc_device_id,
             device_id, author_user_id_local_only, actor_account_id,
-            payload_json, payload_schema, appended_at
+            payload_json, payload_schema, appended_at, author_seq,
+            event_sig_b64, signer_device_pubkey
        FROM event_log
       WHERE vault_id = ?
         AND server_acked_at IS NULL
@@ -109,6 +149,14 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
     return { pushed: 0, duplicates: 0, rejected: 0 };
   }
 
+  // Seq claims are only ever transmitted for rows WE authored. A relayed
+  // (mesh-ingested, foreign-authored) row's local author_seq may be a
+  // migration-018 backfill INFERENCE — announcing someone else's numbering
+  // as authoritative poisons their partition server-side and triggers
+  // spurious seq_conflict strips. The author announces their own seqs;
+  // relays carry the event seq-less until M3 puts author-asserted seqs on
+  // the mesh wire.
+  const ownDeviceId = getInstallIdSync();
   const events: WireEvent[] = rows.map((r) => ({
     event_id: r.event_id,
     event_type: r.event_type,
@@ -122,6 +170,9 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
     },
     actor_account_id: r.actor_account_id,
     payload: safeParseJSON(r.payload_json),
+    ...(r.author_seq != null && r.device_id === ownDeviceId ? { author_seq: r.author_seq } : {}),
+    ...(r.event_sig_b64 != null ? { event_sig_b64: r.event_sig_b64 } : {}),
+    ...(r.signer_device_pubkey != null ? { signer_device_pubkey: r.signer_device_pubkey } : {}),
   }));
 
   const baseUrl = await getBackendUrl();
@@ -189,6 +240,26 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
       );
     }
     for (const r of rejectedList) {
+      // seq_conflict is NOT a verdict on the event — only on its seq claim
+      // (a different event_id already holds that (vault, device, seq) slot
+      // on the server; pathological — install-id clone or local reset).
+      // Stamping rejected_at would permanently exile a valid event from
+      // the server. Instead: drop our seq claim and let the next cycle
+      // re-push the event seq-less. Also advance the per-vault assignment
+      // floor past the contested slot — without it, nextAuthorSeqInTx's
+      // MAX()+1 would re-mint the same seq for every future append and
+      // loop a rejection round-trip per event forever.
+      if (r.reason === "seq_conflict") {
+        const strippedSeq = rows.find((row) => row.event_id === r.event_id)?.author_seq ?? null;
+        await db.runAsync("UPDATE event_log SET author_seq = NULL WHERE event_id = ?", r.event_id);
+        if (strippedSeq != null) {
+          const floorKey = `author_seq_floor:${vaultId}`;
+          const existing = Number((await getAppMeta(floorKey)) ?? "0");
+          const nextFloor = Math.max(Number.isFinite(existing) ? existing : 0, strippedSeq + 1);
+          await setAppMeta(floorKey, String(nextFloor));
+        }
+        continue;
+      }
       await db.runAsync("UPDATE event_log SET rejected_at = ? WHERE event_id = ?", now, r.event_id);
       await db.runAsync(
         `INSERT INTO projection_conflicts (kind, detail_json, vault_id, created_at)

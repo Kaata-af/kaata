@@ -71,9 +71,12 @@ const en = {
   // Onboarding restore (inserted between auth and profile when the
   // backend has existing ledger state for the signed-in account).
   "onboardingRestore.title": "We found your kaata",
-  "onboardingRestore.subtitle": "Last saved on {date}.",
+  // M5 multi-vault recovery: the count of non-archived vaults the account
+  // belongs to. {count} is always >= 1 on this screen.
+  "onboardingRestore.subtitleVaults": "Restore {count} ledger(s) saved to your account.",
   "onboardingRestore.restore.title": "Restore from cloud",
-  "onboardingRestore.restore.body": "Bring back your people, entries, and shop on this phone.",
+  "onboardingRestore.restore.bodyVaults":
+    "Bring back all {count} of your ledgers — people, entries, and shop — on this phone.",
   "onboardingRestore.fresh.title": "Start fresh",
   "onboardingRestore.fresh.body": "Ignore the cloud copy and set up a clean ledger on this phone.",
   "onboardingRestore.restoring": "Restoring your kaata…",
@@ -300,6 +303,10 @@ const en = {
   "updateBanner.cta": "Update",
   "updateBanner.learnMore": "Learn more",
   "updateBanner.dismiss": "Dismiss",
+  "backupNag.title": "Back up your shop",
+  "backupNag.body": "Sign in so your staff's records survive a lost phone.",
+  "backupNag.cta": "Sign in to back up",
+  "backupNag.dismiss": "Dismiss",
 
   // Foreground-service (Nearby sync) notification — sits in the shade all
   // day while Shop Mode is on; must be readable in the user's language.
@@ -421,6 +428,8 @@ const en = {
   "restore.confirm.cancel": "Cancel",
   "restore.toast.noBackup": "No cloud backup found for this account.",
   "restore.toast.success": "Restored from cloud.",
+  // M5 multi-vault recovery — {count} ledgers brought back.
+  "restore.toast.successVaults": "Restored {count} ledger(s) from cloud.",
   "restore.toast.sessionExpired": "Signed out. Sign in again to restore.",
   "restore.toast.timeout": "Restore timed out. Check your connection.",
   "restore.toast.generic": "Restore failed.",
@@ -461,6 +470,9 @@ const en = {
   "menu.ble.peerHandshakeFailed":
     "Couldn't connect to a nearby phone. They may be from a different Kaata or their session expired.",
   "menu.ble.peerDecryptFailed": "Lost connection to a nearby phone. Retrying.",
+  // M2c membership-chain handshake: a v1 peer tried to sync with an
+  // anchored vault — they must update before they can participate.
+  "menu.ble.peerOutdated": "A nearby kaata needs an update before it can sync.",
   // Battery-optimization prompt (Phase 5.1, reworded for BLE-primary).
   "menu.battery.title": "One last step: allow background",
   "menu.battery.description":
@@ -619,6 +631,9 @@ const en = {
   // (signInRequired, generic, joining, headline, toast.pairedNearby,
   // confirm.join).
   "pairLink.title": "Pair phones",
+  "pairLink.unsupported.title": "Scan the code in person",
+  "pairLink.unsupported.body":
+    "Pairing by link is no longer supported. Ask the owner to show you the pairing QR code and scan it from this phone while you're near each other.",
   "pairLink.signin.body":
     "Sign in with the SAME Google account as the other phone to complete pairing.",
   "pairLink.confirm.title": "Join {name}?",
@@ -941,9 +956,10 @@ const fa: Partial<Record<Key, string>> = {
 
   // Onboarding restore
   "onboardingRestore.title": "کاتای شما پیدا شد",
-  "onboardingRestore.subtitle": "آخرین ذخیره در {date}.",
+  "onboardingRestore.subtitleVaults": "{count} دفتر ذخیره‌شده در حساب شما را بازیابی کنید.",
   "onboardingRestore.restore.title": "بازیابی از فضای ابری",
-  "onboardingRestore.restore.body": "افراد، ثبت‌ها و فروشگاه خود را روی این تلفن برگردانید.",
+  "onboardingRestore.restore.bodyVaults":
+    "هر {count} دفتر شما — افراد، ثبت‌ها و فروشگاه — را روی این تلفن برگردانید.",
   "onboardingRestore.fresh.title": "شروع تازه",
   "onboardingRestore.fresh.body":
     "نسخهٔ ابری را نادیده بگیرید و یک کاتای تمیز روی این تلفن بسازید.",
@@ -1089,6 +1105,10 @@ const fa: Partial<Record<Key, string>> = {
   "updateBanner.cta": "به‌روزرسانی",
   "updateBanner.learnMore": "بیشتر بدانید",
   "updateBanner.dismiss": "بستن",
+  "backupNag.title": "از دکان خود پشتیبان بگیرید",
+  "backupNag.body": "وارد شوید تا سوابق کارمندان‌تان با گم‌شدن گوشی از بین نرود.",
+  "backupNag.cta": "برای پشتیبان‌گیری وارد شوید",
+  "backupNag.dismiss": "بستن",
 
   // Foreground-service (Nearby sync) notification
   "fgs.channelName": "همگام‌سازی نزدیک",
@@ -1226,6 +1246,7 @@ const fa: Partial<Record<Key, string>> = {
   "restore.confirm.cancel": "لغو",
   "restore.toast.noBackup": "برای این حساب نسخهٔ پشتیبانی در کلاد پیدا نشد.",
   "restore.toast.success": "از کلاد بازیابی شد.",
+  "restore.toast.successVaults": "{count} دفتر از کلاد بازیابی شد.",
   "restore.toast.sessionExpired": "خارج شدید. برای بازیابی دوباره وارد شوید.",
   "restore.toast.timeout": "بازیابی به وقفه خورد. اتصال خود را بررسی کنید.",
   "restore.toast.generic": "بازیابی ناکام شد.",
@@ -1258,6 +1279,8 @@ const fa: Partial<Record<Key, string>> = {
   "menu.ble.peerHandshakeFailed":
     "اتصال به یک تلفون نزدیک ناکام شد. ممکن است از کاتای دیگر باشد یا نشست‌شان منقضی شده باشد.",
   "menu.ble.peerDecryptFailed": "ارتباط با تلفون نزدیک قطع شد. در حال تلاش دوباره.",
+  "menu.ble.peerOutdated":
+    "کاتای یک تلفون نزدیک به به‌روزرسانی نیاز دارد تا بتواند همگام‌سازی کند.",
   // Battery-optimization prompt
   "menu.battery.title": "یک قدم آخر: اجازهٔ پس‌زمینه",
   "menu.battery.description":
@@ -1394,6 +1417,9 @@ const fa: Partial<Record<Key, string>> = {
   // feature "Nearby sync" (Phase 6 rename) and "Shop Mode" never appears
   // in Persian copy.
   "pairLink.title": "جفت‌سازی تلفون‌ها",
+  "pairLink.unsupported.title": "کد را حضوری اسکن کنید",
+  "pairLink.unsupported.body":
+    "جفت‌سازی از طریق لینک دیگر پشتیبانی نمی‌شود. از مالک بخواهید کد QR جفت‌سازی را نشان دهد و وقتی نزدیک هم هستید آن را از این تلفون اسکن کنید.",
   "pairLink.signin.body": "برای تکمیل جفت‌سازی، با همان حساب گوگل تلفون دیگر وارد شوید.",
   "pairLink.confirm.title": "به {name} بپیوندید؟",
   "pairLink.confirm.body":
