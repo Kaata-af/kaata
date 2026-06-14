@@ -553,16 +553,18 @@ export function ProfileSettingsSheet(props: {
                 </>
               ) : null}
 
-              {/* DEV: Bluetooth Classic (RFCOMM) transport test — M-BTC-1.
-                  Temporary entry point; remove once RFCOMM replaces the BLE
-                  mesh path. */}
-              <NavRow
-                icon="bluetooth-outline"
-                label="Bluetooth test (dev)"
-                onPress={() => router.push("/dev/btc-test")}
-                isRTL={isRTL}
-                isLast
-              />
+              {/* DEV-only: Bluetooth Classic (RFCOMM) transport test. Gated
+                  behind __DEV__ so it never appears in preview/production builds
+                  now that RFCOMM is the real mesh transport. */}
+              {__DEV__ ? (
+                <NavRow
+                  icon="bluetooth-outline"
+                  label="Bluetooth test (dev)"
+                  onPress={() => router.push("/dev/btc-test")}
+                  isRTL={isRTL}
+                  isLast
+                />
+              ) : null}
 
               <SectionGap />
 

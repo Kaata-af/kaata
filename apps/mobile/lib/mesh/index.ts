@@ -273,77 +273,18 @@ function b64UrlToBytes(b64Url: string): Uint8Array {
 }
 
 /**
- * Snapshot of (vault_id, 4-byte hash hex, low-8-bits of vault_epoch) for
- * every non-archived vault on the device. Used by startBLEPeripheralMode
- * to populate the advertising manufacturer-data payload.
- *
- * Order = active vault first (so it gets advertised on the first rotation
- * tick), then by vault.created_at DESC to bias recently-opened vaults.
- */
-async function snapshotVaultHashesForAdvertise(): Promise<
-  Array<{ vaultId: string; hashHex: string; epochLow: number }>
-> {
-  const db = await getDb();
-  const rows = await db.getAllAsync<{
-    id: string;
-    vault_epoch: number | null;
-  }>(
-    `SELECT id, vault_epoch FROM vaults
-      WHERE archived_at IS NULL
-      ORDER BY created_at DESC`,
-  );
-  const activeVaultId = getActiveVaultIdSyncMaybe();
-  const out: Array<{ vaultId: string; hashHex: string; epochLow: number }> = [];
-  for (const r of rows) {
-    const b64 = await vaultHashTag(r.id);
-    const decoded = b64UrlToBytes(b64);
-    let hex = "";
-    for (let i = 0; i < Math.min(4, decoded.length); i++) {
-      hex += decoded[i].toString(16).padStart(2, "0");
-    }
-    if (!hex) continue;
-    out.push({
-      vaultId: r.id,
-      hashHex: hex,
-      epochLow: (r.vault_epoch ?? 0) & 0xff,
-    });
-  }
-  // Push the active vault to the front of the pool so it's the first
-  // advertised hash (lowest discovery latency for the dominant case of
-  // "two phones, one vault").
-  if (activeVaultId) {
-    const idx = out.findIndex((r) => r.vaultId === activeVaultId);
-    if (idx > 0) {
-      const [active] = out.splice(idx, 1);
-      out.unshift(active);
-    }
-  }
-  return out;
-}
-
-/**
  * BUG-A: Tell mesh that the local vault set has changed (pair-join, vault
- * create, archive, restore, epoch-bump). Without this, startShopMode
- * snapshots the vault index ONCE and the just-joined vault is invisible
- * to BLE discovery + missing from the advertise payload — even though
- * the UI shows it as the active vault — until the user power-cycles
- * Nearby sync. The frozen-index bug confused users into thinking pair
- * succeeded but sync was broken.
+ * create, archive, restore, epoch-bump). Without this, startShopMode reads the
+ * anchored-vault set ONCE and a just-joined vault never gets a steady channel —
+ * the UI shows it as active but sync stays dark until the user power-cycles
+ * Nearby sync. That frozen-set bug confused users into thinking pair succeeded
+ * but sync was broken.
  *
- * No-op when mesh is not running (state.running === false). When running:
- *   1. Rebuild the receive-side hash → vault_id index. Instant; affects
- *      the very next [discovery-ble] peer match.
- *   2. Tear down + restart the BLE advertiser with the new hash snapshot.
- *      The advertiser stop ONLY tears down the rotation/restart timers
- *      and stops broadcasting; the GATT server stays up so any in-flight
- *      handshake is unaffected.
- *
- * Safe to call from a SQLite transaction's commit callback or from React
- * effects — the function is idempotent and self-throttling (we don't
- * restart the advertiser if the new hash set is identical to the prior
- * snapshot).
+ * No-op when mesh is not running (state.running === false). When running, it
+ * rebuilds the hash index and restarts the BTC steady channel with the new
+ * anchored-vault set (idempotent). Safe to call from a SQLite transaction's
+ * commit callback or from React effects.
  */
-let lastAdvertisedHashSetKey = "";
 export async function notifyVaultSetChanged(): Promise<void> {
   if (!state.running) return;
   try {
