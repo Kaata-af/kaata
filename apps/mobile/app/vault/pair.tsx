@@ -317,7 +317,11 @@ export default function VaultPairScreen() {
               try {
                 await setAppMeta("shop_mode_enabled", "1");
                 const mesh = await import("../../lib/mesh");
+                // startShopMode for the cold-start case; notifyVaultSetChanged so
+                // an already-running Shop Mode (another vault) refreshes every
+                // channel for this newly-paired vault (startShopMode no-ops then).
                 await mesh.startShopMode();
+                await mesh.notifyVaultSetChanged();
               } catch (err) {
                 console.warn("[vault/pair] could not start steady sync", err);
               }

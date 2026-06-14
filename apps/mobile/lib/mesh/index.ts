@@ -295,8 +295,7 @@ export async function notifyVaultSetChanged(): Promise<void> {
   }
   // M-BTC-3.4: refresh the steady BTC channel so a just-joined/created vault is
   // synced without a full Shop Mode power-cycle. startBtcSteadySync is idempotent
-  // — it restarts with the new anchored-vault set. LAN/mDNS picks up the new
-  // vault on its next discovery cycle.
+  // — it restarts with the new anchored-vault set.
   try {
     const db = await getDb();
     const anchored = await db.getAllAsync<{ id: string }>(
@@ -306,6 +305,20 @@ export async function notifyVaultSetChanged(): Promise<void> {
     await startBtcSteadySync({ vaultIds: anchored.map((v) => v.id) });
   } catch (err) {
     console.warn("[mesh.notifyVaultSetChanged] steady-channel refresh failed", err);
+  }
+  // Restart LAN/mDNS discovery so it RE-SNAPSHOTS the vault set: discovery-lan
+  // freezes its advertised TXT digests + its inbound scan index at start, so a
+  // new vault would otherwise be invisible over LAN until a Shop Mode power-cycle
+  // (the BUG-A frozen-set trap — same one fixed for BTC above). The onPeerFound
+  // listener registered in startShopModeBody survives the router stop/start, so
+  // we don't re-subscribe here.
+  if (state.listenPort) {
+    try {
+      await routerStopDiscovery();
+      await routerStartDiscovery({ listenPort: state.listenPort });
+    } catch (err) {
+      console.warn("[mesh.notifyVaultSetChanged] LAN discovery refresh failed", err);
+    }
   }
 }
 
