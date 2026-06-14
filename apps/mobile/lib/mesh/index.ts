@@ -494,6 +494,22 @@ async function startShopModeBody(): Promise<void> {
   state.lanListenerStop = lan.stop;
   console.log("[mesh.start] LAN listener on port", port);
 
+  // M-BTC-3.3: steady-state Bluetooth Classic sync. Re-syncs ALREADY-PAIRED
+  // peers (MAC cached at pair time) on a stable per-vault RFCOMM UUID, every
+  // ~30s, with no QR re-scan and no classic inquiry. Android-only; the module
+  // no-ops elsewhere. Non-fatal: a failure here must not abort shop mode.
+  try {
+    const anchoredVaults = await db.getAllAsync<{ id: string }>(
+      `SELECT id FROM vaults
+        WHERE archived_at IS NULL AND vault_trust_anchor_pubkey IS NOT NULL`,
+    );
+    const { startBtcSteadySync } = await import("./btc-steady");
+    await startBtcSteadySync({ vaultIds: anchoredVaults.map((v) => v.id) });
+    console.log("[mesh.start] BTC steady-state sync for", anchoredVaults.length, "vault(s)");
+  } catch (err) {
+    console.warn("[mesh.start] BTC steady-state start failed (non-fatal)", err);
+  }
+
   // Phase 6: route through discovery-router, which owns BOTH BLE and
   // mDNS lifecycles. Pre-router we imported from `./discovery` directly
   // — that path is now retired here (still imported below as the
@@ -673,6 +689,13 @@ async function teardownRadios(opts: { skipFGS?: boolean } = {}): Promise<void> {
       console.warn("[mesh] LAN listener stop threw, continuing", err);
     }
     state.lanListenerStop = null;
+  }
+  // M-BTC-3.3: stop steady-state Bluetooth Classic sync (listeners + dial loop).
+  try {
+    const { stopBtcSteadySync } = await import("./btc-steady");
+    await stopBtcSteadySync();
+  } catch (err) {
+    if (__DEV__) console.warn("[mesh] BTC steady-state stop threw, continuing", err);
   }
   for (const conn of state.connections.values()) {
     try {

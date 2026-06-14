@@ -35,6 +35,8 @@ import {
 import { ensureDeviceKey, getDevicePubkey } from "../../lib/mesh/device-key";
 import { buildLocalAccountId } from "../../lib/trust/account-id";
 import { getLocalSelf } from "../../lib/db";
+import { hostPairOverBtc, type HostPairHandle } from "../../lib/mesh/pair-btc";
+import { getLocalName } from "../../modules/kaata-bt-classic";
 
 type VaultLite = {
   id: string;
@@ -66,9 +68,13 @@ export default function VaultPairScreen() {
   // Synchronous re-entry guard — issueQr hits the network for server-
   // anchored vaults; repeated taps would register multiple pair tokens.
   const issuingRef = useRef(false);
+  // M-BTC-3.2: the live RFCOMM pair listener (owner side). Torn down on
+  // unmount, QR expiry, and re-issue so the server + discoverable window don't
+  // linger past the pair token they belong to.
+  const pairHostRef = useRef<HostPairHandle | null>(null);
 
   const issueQr = useCallback(
-    async (v: VaultLite, accId: string | null, chosenRole: PairQrRole) => {
+    async (v: VaultLite, accId: string | null, chosenRole: PairQrRole): Promise<string | null> => {
       try {
         const token = await generateShopModeToken();
         const now = Date.now();
@@ -103,6 +109,11 @@ export default function VaultPairScreen() {
         // "local:abc…").
         const self = await getLocalSelf();
         const ownerDisplayName = (self?.name ?? "").trim() || "Owner";
+        // M-BTC-3.2: the owner's Bluetooth adapter name lets the scanner target
+        // this device first during classic inquiry (vs blind-dialing every
+        // nearby phone by the derived RFCOMM UUID). Best-effort; Android-only
+        // and may be null (no name set / permission) — omitted from the QR then.
+        const btName = await getLocalName().catch(() => null);
         // Schema version selection. The chain pair path REQUIRES the
         // owner's trust anchor pubkey in the QR (the joiner pins it). We
         // got the device pubkey above, so ship v=3 with the bidirectional
@@ -138,6 +149,8 @@ export default function VaultPairScreen() {
             ? {
                 issuer_device_pubkey: devicePubkey,
                 issuer_display_name: ownerDisplayName,
+                // Additive RFCOMM hint (M-BTC-3.2); omitted when null.
+                ...(btName ? { issuer_bt_name: btName } : {}),
               }
             : {}),
         };
@@ -159,17 +172,31 @@ export default function VaultPairScreen() {
         setPayload(next);
         setSecondsLeft(Math.floor(PAIR_QR_TTL_MS / 1000));
         setError(null);
-        return true;
+        return token;
       } catch (err) {
         // Localized copy only — the raw err.message is HTTP jargon
         // ("POST /v1/...: 500 — …") that means nothing to a shopkeeper.
         console.warn("[vault/pair] issue failed", err);
         setError(t("vaultPair.issueFailed"));
-        return false;
+        return null;
       }
     },
     [],
   );
+
+  // Tear down the RFCOMM pair listener + discoverable window (idempotent).
+  // Declared before the teardown effects below that reference it.
+  const stopHosting = useCallback(async () => {
+    const h = pairHostRef.current;
+    pairHostRef.current = null;
+    if (h) {
+      try {
+        await h.stop();
+      } catch {
+        /* */
+      }
+    }
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -243,35 +270,67 @@ export default function VaultPairScreen() {
     };
   }, [payload]);
 
+  // M-BTC-3.2: tear down the RFCOMM pair listener when the QR expires (the
+  // token is dead, so the UUID should stop answering) and on screen unmount.
+  useEffect(() => {
+    if (payload && secondsLeft <= 0) {
+      void stopHosting();
+    }
+  }, [payload, secondsLeft, stopHosting]);
+
+  useEffect(() => {
+    return () => {
+      void stopHosting();
+    };
+  }, [stopHosting]);
+
   async function onReissue() {
     // D-PAIR-WITH-ROLE: send the owner back to the role picker on re-
     // issue so they can change their mind. Previously this re-used the
     // committed role silently, which was surprising once the role
     // picker existed (the owner expected a fresh decision point).
     if (!vault) return;
+    await stopHosting(); // the old token's RFCOMM UUID is about to be replaced
     setPayload(null);
     setStage("pick-role");
   }
 
-  // Bring up THIS phone's radios so the joiner can actually connect. The pair
-  // screen used to mint the QR but start no mesh — so unless Shop Mode happened
-  // to already be running, the owner advertised nothing and the joiner's dial
-  // hit no peripheral ("owner does nothing"). startShopMode is idempotent;
-  // notifyVaultSetChanged makes this vault's hash advertised immediately. We
-  // also persist shop_mode_enabled=1 so MeshController keeps it on and runs the
-  // BLE-permission rationale if it hasn't been granted yet.
-  async function hostPairing(): Promise<void> {
+  // M-BTC-3.2: host the pair window over Bluetooth Classic (RFCOMM). The owner
+  // listens on the UUID derived from THIS QR's shop_mode_token + goes
+  // discoverable; the joiner dials it and runs the real chain handshake, which
+  // claims the pair nonce and emits the joiner's admission. This replaces the
+  // old BLE peripheral/GATT bringup (startShopMode) — Bluetooth Classic is the
+  // only proximity transport that works on the target hardware.
+  async function hostPairing(vaultId: string, pairNonce: string): Promise<void> {
     try {
-      if ((await getAppMeta("shop_mode_enabled")) !== "1") {
-        await setAppMeta("shop_mode_enabled", "1");
-      }
-      const mesh = await import("../../lib/mesh");
-      await mesh.startShopMode();
-      await mesh.notifyVaultSetChanged();
+      await stopHosting(); // drop any prior listener (e.g. on re-issue)
+      const handle = await hostPairOverBtc({
+        vaultId,
+        pairNonce,
+        onResult: (o) => {
+          if (o.ok) {
+            toast.push(t("vaultPair.toast.paired"), "success");
+            // M-BTC-3.3: bring up steady-state sync so future changes propagate
+            // to the just-paired phone without re-scanning. Idempotent; the now-
+            // cached peer MAC lets the dial loop re-sync every ~30s.
+            void (async () => {
+              try {
+                await setAppMeta("shop_mode_enabled", "1");
+                const mesh = await import("../../lib/mesh");
+                await mesh.startShopMode();
+              } catch (err) {
+                console.warn("[vault/pair] could not start steady sync", err);
+              }
+            })();
+          }
+          // Failures are intentionally quiet on the owner screen: a stranger
+          // dialing the UUID with a stale/forged nonce shouldn't alarm the
+          // owner. The joiner gets the real error on its own screen.
+        },
+      });
+      pairHostRef.current = handle;
     } catch (err) {
-      // Non-fatal: MeshController's poll retries (and runs the permission
-      // rationale if needed); the joiner side can also drive the handshake.
-      console.warn("[vault/pair] could not start mesh for hosting", err);
+      console.warn("[vault/pair] could not host pair over BT", err);
       toast.push(t("menu.sync.shopMode.failed"), "info");
     }
   }
@@ -281,14 +340,14 @@ export default function VaultPairScreen() {
     issuingRef.current = true;
     setIssuing(true);
     try {
-      const ok = await issueQr(vault, accountId, role);
+      const token = await issueQr(vault, accountId, role);
       // Only advance on success. Flipping to show-qr with a null payload
       // rendered a never-resolving "Generating…" placeholder and a dead
       // Send-link button; the error now shows here on the role picker.
-      if (ok) {
+      if (token) {
         setStage("show-qr");
-        // Start advertising + GATT now so the joiner has something to dial.
-        void hostPairing();
+        // Start the RFCOMM pair listener now so the joiner has something to dial.
+        void hostPairing(vault.id, token);
       }
     } finally {
       issuingRef.current = false;

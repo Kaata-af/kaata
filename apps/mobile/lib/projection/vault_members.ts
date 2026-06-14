@@ -115,14 +115,28 @@ export async function applyVaultMemberAdded(
     return;
   }
 
+  // Preserve display_name across name-less re-applies. The old INSERT OR REPLACE
+  // dropped + reinserted the row WITHOUT display_name, so every time the owner's
+  // genesis vault_member_added (which carries no name) was gossiped, it reset
+  // the row's display_name to NULL — wiping the name the joiner seeded from the
+  // QR. That's the "peer renders as their role label instead of a name" bug, and
+  // why a re-scan made it worse. UPSERT with COALESCE keeps any stored name
+  // unless this event actually carries one; revoked_at is explicitly cleared so
+  // a re-add after a remove still works (the behaviour OR REPLACE gave us).
   await tx.runAsync(
-    `INSERT OR REPLACE INTO vault_members_mirror
-       (vault_id, account_id, role, accepted_at, revoked_at)
-     VALUES (?, ?, ?, ?, NULL)`,
+    `INSERT INTO vault_members_mirror
+       (vault_id, account_id, role, accepted_at, revoked_at, display_name)
+     VALUES (?, ?, ?, ?, NULL, ?)
+     ON CONFLICT(vault_id, account_id) DO UPDATE SET
+       role         = excluded.role,
+       accepted_at  = excluded.accepted_at,
+       revoked_at   = NULL,
+       display_name = COALESCE(excluded.display_name, vault_members_mirror.display_name)`,
     event.vault_id,
     event.payload.account_id,
     event.payload.role,
     event.appended_at,
+    event.payload.display_name ?? null,
   );
 
   // M2 (review P0): GENESIS anchor binding. The chain fold (lib/trust/

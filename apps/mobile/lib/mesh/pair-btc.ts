@@ -1,0 +1,185 @@
+// apps/mobile/lib/mesh/pair-btc.ts
+//
+// M-BTC-3.2 — first-pair over Bluetooth Classic (insecure RFCOMM), Briar-style.
+//
+// Owner and joiner derive the SAME RFCOMM service UUID from the pair QR's
+// shop_mode_token (deriveRfcommUuid). The owner goes discoverable + listens on
+// it; the joiner runs classic inquiry, dials the host by that UUID, and BOTH run
+// the REAL transport-agnostic anti-entropy handshake — Hello / PoP / AEAD /
+// membership-chain verdict + pair-admission + delta — the exact path proven over
+// RFCOMM by the M-BTC-3.1 dev screen. The pair-admission binding (the joiner's
+// Hello.pair_nonce ↔ the owner's live pair token) is keyed by vault_id, not by
+// transport, so verifyPeerChain admits the joiner with ZERO changes here.
+//
+// This REPLACES the BLE peripheral/GATT bringup the pair screens used to do via
+// mesh.startShopMode(); Bluetooth Classic is the only proximity transport that
+// works on the target hardware (e.g. Xiaomi Mi 10T). The screens drive these
+// helpers directly during the pair window instead of relying on always-on
+// discovery (classic inquiry carries no vault advertisement — there is no
+// steady-state "is this peer in my vault" signal, so first contact is a QR-
+// scoped rendezvous; ongoing auto-discovery is M-BTC-3.3).
+
+import { Platform } from "react-native";
+import { runAntiEntropy, loadVaultTrustAnchor } from "./anti-entropy";
+import { ensureDeviceKey } from "./device-key";
+import { requestBlePermissions } from "./ble-permissions";
+import {
+  deriveRfcommUuid,
+  discoverAndConnect,
+  startBtcListener,
+  type BtcListenerHandle,
+  type BtcMeshConnection,
+} from "./transport-btc";
+import { requestDiscoverable } from "../../modules/kaata-bt-classic";
+
+const PAIR_SERVICE_NAME = "kaata-pair";
+// Android caps discoverability at ~300s; that's the first-contact window during
+// which a never-before-seen joiner's inquiry can learn our MAC. The pair TOKEN
+// lives longer (PAIR_QR_TTL_MS), so a slow re-scan just re-arms discoverable.
+const DISCOVERABLE_SEC = 300;
+
+export type PairSyncOutcome = {
+  ok: boolean;
+  sent: number;
+  received: number;
+  peerDeviceId: string | null;
+  error: string | null;
+};
+
+export type HostPairHandle = {
+  /** Idempotent teardown of the RFCOMM pair server. */
+  stop: () => Promise<void>;
+};
+
+async function ensureBtReady(): Promise<void> {
+  if (Platform.OS !== "android") throw new Error("bt_classic_android_only");
+  const perm = await requestBlePermissions();
+  if (perm.kind !== "ok" && perm.kind !== "platform_unsupported") {
+    throw new Error(`bluetooth_permission_${perm.kind}`);
+  }
+  await ensureDeviceKey();
+}
+
+/**
+ * OWNER side: open an RFCOMM server on the QR-derived UUID + go discoverable.
+ * Each joiner that dials runs the real handshake; the owner's verifyPeerChain
+ * claims the pair nonce and emits the joiner's admission events into the chain.
+ * Returns a handle the pair screen tears down on unmount / QR expiry / re-issue.
+ * The listener stays up so the owner can pair several staff phones in a row.
+ */
+export async function hostPairOverBtc(opts: {
+  vaultId: string;
+  /** The QR's shop_mode_token — the shared rendezvous secret. */
+  pairNonce: string;
+  /** Fired after each joiner session completes (success or failure). */
+  onResult?: (o: PairSyncOutcome) => void;
+}): Promise<HostPairHandle> {
+  await ensureBtReady();
+  const anchor = await loadVaultTrustAnchor(opts.vaultId);
+  if (!anchor) throw new Error("vault_has_no_trust_anchor");
+  const uuid = deriveRfcommUuid(opts.pairNonce);
+
+  const listener: BtcListenerHandle = await startBtcListener({
+    serviceName: PAIR_SERVICE_NAME,
+    uuid,
+    onConnection: (conn) => {
+      void runPairSession(conn, opts.vaultId, anchor).then((o) => opts.onResult?.(o));
+    },
+  });
+
+  // Best-effort: a never-before-seen joiner needs us discoverable so its classic
+  // inquiry can learn our MAC. Non-fatal on deny (a previously-paired phone that
+  // already knows our MAC wouldn't need it — but for first contact it's required).
+  try {
+    await requestDiscoverable(DISCOVERABLE_SEC);
+  } catch {
+    /* user declined the discoverable prompt — pairing may still work if cached */
+  }
+
+  return { stop: listener.stop };
+}
+
+/**
+ * JOINER side: classic inquiry → dial the host by the QR-derived UUID → real
+ * handshake. The joiner's Hello carries the pair_nonce (persisted by the scan
+ * screen before this call); the owner admits it. THROWS on failure so the scan
+ * screen can offer a retry — the vault row + pair nonce persist, so re-running
+ * is safe and idempotent (a second attempt re-syncs even if the first already
+ * admitted this device chain-side).
+ */
+export async function joinPairOverBtc(opts: {
+  vaultId: string;
+  pairNonce: string;
+  /** The owner's Bluetooth name from the QR (issuer_bt_name) — dialed first. */
+  hostName?: string | null;
+  onLog?: (line: string) => void;
+}): Promise<PairSyncOutcome> {
+  await ensureBtReady();
+  const anchor = await loadVaultTrustAnchor(opts.vaultId);
+  if (!anchor) throw new Error("vault_has_no_trust_anchor");
+  const uuid = deriveRfcommUuid(opts.pairNonce);
+
+  const conn = await discoverAndConnect({
+    uuid,
+    hostName: opts.hostName ?? undefined,
+    onLog: opts.onLog,
+  });
+  const outcome = await runPairSession(conn, opts.vaultId, anchor);
+  if (!outcome.ok) {
+    // Re-throw the real reason (e.g. the membership-chain verdict) so the scan
+    // screen can surface it and offer a retry.
+    throw new Error(outcome.error ?? "pair_sync_failed");
+  }
+  return outcome;
+}
+
+/**
+ * Run the real anti-entropy handshake over a connected RFCOMM socket, from
+ * either side. NEVER throws — returns an outcome so the owner's fire-and-forget
+ * onResult path can't leak an unhandled rejection; the joiner inspects ok and
+ * re-throws. suppressFailures is set because the PAIR SCREENS are the feedback
+ * channel (their own joined / retry UI); suppressFailures only mutes the
+ * transport's global mesh-failure toast on the normal post-sync close, which
+ * after a SUCCESSFUL pair would otherwise read as a scary "couldn't connect".
+ */
+async function runPairSession(
+  conn: BtcMeshConnection,
+  vaultId: string,
+  anchor: Uint8Array,
+): Promise<PairSyncOutcome> {
+  conn.suppressFailures = true;
+  try {
+    const r = await runAntiEntropy(conn, { vaultId, vaultTrustAnchorPubkey: anchor });
+    // M-BTC-3.3: remember the now-authenticated peer's MAC so steady-state sync
+    // (btc-steady.ts) can re-dial it directly — no QR re-scan, no classic inquiry.
+    if (conn.remoteDeviceId && conn.remoteMac) {
+      try {
+        const { addKnownPeer } = await import("./btc-peers");
+        await addKnownPeer({ vaultId, deviceId: conn.remoteDeviceId, mac: conn.remoteMac });
+      } catch {
+        /* non-fatal — steady sync just won't have this peer cached yet */
+      }
+    }
+    return {
+      ok: true,
+      sent: r.sent,
+      received: r.received,
+      peerDeviceId: r.peerDeviceId,
+      error: null,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      sent: 0,
+      received: 0,
+      peerDeviceId: null,
+      error: (err as Error)?.message ?? "pair_sync_failed",
+    };
+  } finally {
+    try {
+      await conn.close();
+    } catch {
+      /* */
+    }
+  }
+}

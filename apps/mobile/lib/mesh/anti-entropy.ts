@@ -209,6 +209,13 @@ export type HelloMessage = {
   // verifyAndIngest pipeline — this is how chains gossip. Empty for a
   // freshly-paired joiner (pair_nonce covers admission-in-progress).
   proof_bundle?: WireMeshEvent[];
+  // M-BTC-3.2 follow-up: sender's display name (getLocalSelf().name). On the
+  // pair path the OWNER has no other way to learn the joiner's name (the QR is
+  // one-directional), so it stamps this into the joiner's vault_member_added —
+  // otherwise the owner's Members tab renders the joiner's role label as their
+  // name. Optional; sent pre-AEAD, same exposure class as account_id/device_id
+  // already in this Hello.
+  display_name?: string;
 };
 
 export type PopProofMessage = {
@@ -736,6 +743,19 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
   }
   const ownBundleIds = ownBundle.map((e) => e.event_id);
 
+  // Our display name, so a peer admitting us (pair path) can stamp it into our
+  // vault_member_added. Best-effort — handshake works fine without it.
+  let ownDisplayName: string | null = null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const dbMod = require("../db") as {
+      getLocalSelf: () => Promise<{ name: string } | null>;
+    };
+    ownDisplayName = (await dbMod.getLocalSelf())?.name?.trim() || null;
+  } catch {
+    /* name is best-effort */
+  }
+
   const hello: HelloMessage = {
     type: "hello",
     v: WIRE_VERSION,
@@ -746,6 +766,7 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
     device_pubkey_b64: ownDevicePubkeyB64,
     device_id: ownDeviceId,
     ...(ownAccountId ? { account_id: ownAccountId } : {}),
+    ...(ownDisplayName ? { display_name: ownDisplayName } : {}),
     proof_bundle: ownBundle.map(membershipEventToWire),
   };
 
@@ -852,11 +873,12 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
       sendDir: aeadCtx.sendDirectionTag,
       recvDir: aeadCtx.recvDirectionTag,
     });
-  } else if (conn.kind === "ble" || conn.kind === "lan") {
-    // BLE and LAN are plaintext byte channels — a missing installAead means
-    // we'd run ledger sync in the clear. Fail loud rather than silently
-    // accept plaintext (done-criterion 2: a packet capture must show
-    // ciphertext only). The earlier kind-only check missed "lan".
+  } else if (conn.kind === "ble" || conn.kind === "lan" || conn.kind === "btc") {
+    // BLE, LAN, and BTC (Bluetooth Classic RFCOMM) are plaintext byte channels
+    // — a missing installAead means we'd run ledger sync in the clear. Fail loud
+    // rather than silently accept plaintext (done-criterion 2: a packet capture
+    // must show ciphertext only). The earlier kind-only check missed "lan", and
+    // "btc" was added when RFCOMM became a real ledger transport (M-BTC-3).
     throw new MeshHandshakeError(
       `${conn.kind} connection has no installAead method — AEAD cannot be enabled`,
       "transport",
@@ -1173,6 +1195,7 @@ async function verifyPeerChain(
         targetVaultId: string;
         accountId: string;
         role: "owner" | "editor" | "viewer";
+        displayName?: string | null;
       }) => Promise<{ event_id: string }>;
       appendVaultDeviceAdded: (args: {
         targetVaultId: string;
@@ -1187,6 +1210,10 @@ async function verifyPeerChain(
         targetVaultId: opts.vaultId,
         accountId: joinerAccountId,
         role,
+        // Stamp the joiner's name (from their Hello) so the owner's Members tab
+        // shows a real name, not the role label. Null-safe; persisted by the
+        // display_name-preserving applier.
+        displayName: peerHello.display_name ?? null,
       });
       console.log(
         "[mesh.hs] pair admission: vault_member_added account=",

@@ -1,15 +1,19 @@
 // apps/mobile/app/dev/btc-test.tsx
 //
-// DEV / milestone M-BTC-2 — proves Bluetooth Classic (insecure RFCOMM) pairing
-// via QR, Briar-style, with NO manual MAC entry. The host shows a QR carrying a
-// random secret + goes discoverable + listens on a derived RFCOMM UUID; the
-// scanner reads the QR, derives the same UUID, runs classic inquiry to learn
-// the host's MAC, and dials it. They then exchange a ping/pong over a real
-// BtcMeshConnection (the same framing the anti-entropy handshake will use). No
-// bonding, no system pairing dialog.
+// DEV / milestone M-BTC-3.1 — proves REAL ledger sync over Bluetooth Classic
+// (insecure RFCOMM), Briar-style, with NO manual MAC entry and NO system
+// pairing dialog. Builds on M-BTC-2's QR rendezvous but swaps the raw ping/pong
+// for the actual mesh handshake: both phones run runAntiEntropy over the
+// BtcMeshConnection (Hello / PoP / AEAD / membership-chain verdict / delta) —
+// the exact transport-agnostic protocol that already runs over LAN and BLE.
+//
+// PREREQ: both phones must already be members of the SAME vault (same
+// vault_trust_anchor_pubkey). Pair once via the normal QR flow first, then use
+// this screen to prove the ledger replicates over Bluetooth.
 //
 //   Phone A: tap "Host" → allow the "make discoverable" prompt → show the QR.
-//   Phone B: tap "Scan" → point at Phone A's QR. It finds + connects on its own.
+//   Phone B: tap "Scan" → point at Phone A's QR. It finds + connects + syncs.
+//   Either phone: tap "Make test entry", then sync — watch recv>0 on the peer.
 //
 // Throwaway dev surface (Settings → "Bluetooth test (dev)").
 
@@ -31,8 +35,12 @@ import {
   type BtcListenerHandle,
   type BtcMeshConnection,
 } from "../../lib/mesh/transport-btc";
+import { runAntiEntropy, loadVaultTrustAnchor } from "../../lib/mesh/anti-entropy";
+import { ensureDeviceKey } from "../../lib/mesh/device-key";
+import { getActiveVaultIdSyncMaybe } from "../../lib/db-tx";
+import { appendEntryCreated } from "../../lib/event-log";
+import { getDb } from "../../lib/db";
 
-const RECV_TIMEOUT_MS = 60_000;
 const DISCOVERABLE_SEC = 300;
 
 type Mode = "idle" | "hosting" | "scanning";
@@ -51,6 +59,79 @@ export default function BtcTestScreen() {
     const ts = new Date().toISOString().slice(11, 19);
     setLog((prev) => [`${ts}  ${line}`, ...prev].slice(0, 200));
   }, []);
+
+  // Run the REAL anti-entropy handshake + delta over a connected RFCOMM socket.
+  // This is the whole point of M-BTC-3.1: prove the transport-agnostic mesh
+  // protocol (Hello/PoP/AEAD/chain-verdict/delta) runs over Bluetooth unchanged.
+  // Both phones must already share the active vault + its trust anchor.
+  //
+  // suppressFailures stays true on this DEV surface only: a real handshake or
+  // decrypt failure still surfaces because runAntiEntropy THROWS (caught + logged
+  // below); suppressFailures only mutes the transport's post-sync close toast,
+  // which here is just noise (the log is our feedback channel).
+  const runRealSync = useCallback(
+    async (conn: BtcMeshConnection) => {
+      conn.suppressFailures = true;
+      const vaultId = getActiveVaultIdSyncMaybe();
+      if (!vaultId) {
+        append("✗ no active vault — onboard/pair first");
+        return;
+      }
+      const anchor = await loadVaultTrustAnchor(vaultId);
+      if (!anchor) {
+        append("✗ active vault has no trust anchor — pair into a chain vault first");
+        return;
+      }
+      await ensureDeviceKey();
+      append(`▶ runAntiEntropy vault=${vaultId.slice(0, 8)}…`);
+      try {
+        const r = await runAntiEntropy(conn, { vaultId, vaultTrustAnchorPubkey: anchor });
+        append(
+          `✓✓ sync OK  sent=${r.sent} recv=${r.received} dup=${r.duplicates} ` +
+            `peer=${r.peerDeviceId.slice(0, 8)} ${r.durationMs}ms`,
+        );
+      } catch (err) {
+        append(`✗ sync failed: ${(err as Error).message}`);
+      } finally {
+        try {
+          await conn.close();
+        } catch {
+          /* */
+        }
+      }
+    },
+    [append],
+  );
+
+  // Make a tiny ledger entry so replication is observable: tap on one phone,
+  // then sync — the other phone's "recv" count should go up by one.
+  const onMakeTestEntry = useCallback(async () => {
+    try {
+      const vaultId = getActiveVaultIdSyncMaybe();
+      if (!vaultId) {
+        append("✗ no active vault");
+        return;
+      }
+      const db = await getDb();
+      const rel = await db.getFirstAsync<{ id: string }>(
+        `SELECT id FROM relationships WHERE vault_id = ? AND archived_at IS NULL LIMIT 1`,
+        vaultId,
+      );
+      if (!rel) {
+        append("✗ no relationship — add a person first");
+        return;
+      }
+      const res = await appendEntryCreated({
+        relationshipId: rel.id,
+        type: "debt",
+        amountAfn: 1,
+        note: "btc-test",
+      });
+      append(`+ test entry ${res.entry_id.slice(0, 8)} (debt 1) — now sync to replicate`);
+    } catch (err) {
+      append(`✗ make entry failed: ${(err as Error).message}`);
+    }
+  }, [append]);
 
   const ensureBt = useCallback(async (): Promise<boolean> => {
     const res = await requestBlePermissions();
@@ -72,18 +153,8 @@ export default function BtcTestScreen() {
         serviceName: "kaata-btc-test",
         uuid,
         onConnection: (conn: BtcMeshConnection) => {
-          conn.suppressFailures = true; // raw test: a normal close isn't a failure
           append("← peer connected");
-          void (async () => {
-            try {
-              const msg = await conn.recvJSON(RECV_TIMEOUT_MS);
-              append(`← recv: ${JSON.stringify(msg)}`);
-              await conn.sendJSON({ pong: true, echo: msg, at: Date.now() });
-              append("→ sent pong  ✓✓ round-trip OK");
-            } catch (err) {
-              append(`✗ host exchange failed: ${(err as Error).message}`);
-            }
-          })();
+          void runRealSync(conn);
         },
       });
       listenerRef.current = handle;
@@ -98,7 +169,7 @@ export default function BtcTestScreen() {
     } finally {
       setBusy(false);
     }
-  }, [busy, ensureBt, append]);
+  }, [busy, ensureBt, append, runRealSync]);
 
   const onStopHost = useCallback(async () => {
     try {
@@ -148,11 +219,7 @@ export default function BtcTestScreen() {
             hostName: parsed.name ?? undefined,
             onLog: append,
           });
-          conn.suppressFailures = true; // raw test: a normal close isn't a failure
-          await conn.sendJSON({ ping: true, from: "btc-test", ts: Date.now() });
-          append("→ sent ping");
-          const reply = await conn.recvJSON(RECV_TIMEOUT_MS);
-          append(`← recv: ${JSON.stringify(reply)}  ✓✓ round-trip OK`);
+          await runRealSync(conn);
         } catch (err) {
           append(`✗ ${(err as Error).message}`);
         } finally {
@@ -165,7 +232,7 @@ export default function BtcTestScreen() {
         }
       })();
     },
-    [append],
+    [append, runRealSync],
   );
 
   if (Platform.OS !== "android") {
@@ -182,7 +249,7 @@ export default function BtcTestScreen() {
         <Pressable onPress={() => router.back()} hitSlop={10}>
           <Text style={styles.back}>‹ Back</Text>
         </Pressable>
-        <Text style={styles.title}>BT Classic test (M-BTC-2)</Text>
+        <Text style={styles.title}>BT Classic sync (M-BTC-3.1)</Text>
         <View style={{ width: 50 }} />
       </View>
 
@@ -231,6 +298,12 @@ export default function BtcTestScreen() {
               style={({ pressed }) => [styles.btn, (pressed || busy) && { opacity: 0.6 }]}
             >
               <Text style={styles.btnText}>Scan to connect</Text>
+            </Pressable>
+            <Pressable
+              onPress={onMakeTestEntry}
+              style={({ pressed }) => [styles.btnGhost, pressed && { opacity: 0.6 }]}
+            >
+              <Text style={styles.btnGhostText}>Make test entry (then sync)</Text>
             </Pressable>
           </View>
         )}

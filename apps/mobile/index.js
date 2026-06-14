@@ -20,7 +20,16 @@
 //
 //   This file makes the ordering structural: polyfill loads first,
 //   then expo-router/entry, then everything else. No race window.
+//
+//   _crypto-polyfill MUST be the very first import: it is the ONLY
+//   crypto-setup module with zero @noble/* imports, so it can install
+//   globalThis.crypto.getRandomValues before any @noble/hashes/crypto
+//   module is evaluated (those capture globalThis.crypto eagerly at load —
+//   see lib/mesh/_crypto-polyfill.ts). _ed25519-setup imports it first
+//   internally too, but listing it explicitly here keeps the guarantee
+//   robust against future import reordering.
 
+import "./lib/mesh/_crypto-polyfill";
 import "./lib/mesh/_ed25519-setup";
 // eslint-disable-next-line import/no-unresolved
 import "expo-router/entry";

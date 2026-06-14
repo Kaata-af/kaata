@@ -39,8 +39,28 @@ export function invalidateVaultRoleCache(vaultId?: string): void {
 const LOCAL_OWNER_DEFAULT: VaultRole = "owner";
 
 async function readRoleFromDb(vaultId: string, accountId: string | null): Promise<VaultRole> {
-  // Local-only install (no Google sign-in) → no mirror row to look up.
-  if (!accountId) return LOCAL_OWNER_DEFAULT;
+  let effectiveAccountId = accountId;
+  // Local-CA (signed-out) install: the device isn't tied to a Google account,
+  // but after a QR pair it DOES have a vault_members_mirror row keyed by the
+  // deterministic device-pubkey account id. Resolve that so a paired EDITOR or
+  // VIEWER phone reads its TRUE role instead of blindly assuming owner (the bug
+  // where the settings header showed "owner" on the editor phone). A solo
+  // install has no mirror row → falls through to LOCAL_OWNER_DEFAULT below,
+  // preserving the local-only-must-keep-working invariant.
+  if (!effectiveAccountId) {
+    try {
+      const [deviceKeyMod, accountIdMod] = await Promise.all([
+        import("./mesh/device-key"),
+        import("./trust/account-id"),
+      ]);
+      await deviceKeyMod.ensureDeviceKey();
+      const pub = deviceKeyMod.getDevicePubkey();
+      if (pub) effectiveAccountId = accountIdMod.buildLocalAccountId(pub);
+    } catch {
+      /* fall through to the owner default below */
+    }
+  }
+  if (!effectiveAccountId) return LOCAL_OWNER_DEFAULT;
   const db = await getDb();
   const row = await db.getFirstAsync<{ role: VaultRole }>(
     `SELECT role FROM vault_members_mirror
@@ -48,7 +68,7 @@ async function readRoleFromDb(vaultId: string, accountId: string | null): Promis
        AND revoked_at IS NULL
      LIMIT 1`,
     vaultId,
-    accountId,
+    effectiveAccountId,
   );
   return row?.role ?? LOCAL_OWNER_DEFAULT;
 }

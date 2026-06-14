@@ -97,6 +97,15 @@ export type PairQrPayload = {
    * Required for v=3.
    */
   issuer_display_name?: string;
+  /**
+   * v=3 (M-BTC-3.2): the issuer's Bluetooth adapter name (getLocalName).
+   * Lets the scanner target the owner's device FIRST during classic
+   * inquiry instead of blind-dialing every nearby phone by the derived
+   * RFCOMM UUID. Optional + additive — when absent the scanner still
+   * finds the host by trying all inquiry hits against the UUID (only the
+   * host exposes that service). Not validated on decode (best-effort hint).
+   */
+  issuer_bt_name?: string;
 };
 
 export type PairQrValidationResult =

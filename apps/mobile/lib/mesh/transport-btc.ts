@@ -107,6 +107,14 @@ export class BtcMeshConnection implements MeshConnection {
   readonly kind = "btc" as const;
   remoteDeviceId: string | null = null;
   /**
+   * The peer's Bluetooth Classic MAC, when known: the dialed MAC on an
+   * outgoing conn (dialBtcPeer), or the accept event's remoteMac on an
+   * incoming one (startBtcListener). Paired with the authenticated
+   * remoteDeviceId (set by the handshake), this is what M-BTC-3.3 stores so
+   * steady-state sync can re-dial the peer directly without a classic inquiry.
+   */
+  remoteMac: string | null = null;
+  /**
    * Dev/test escape hatch: when true, a socket close does NOT emit a global
    * mesh-failure toast. Set by the M-BTC dev screen, which runs a raw byte-pipe
    * ping/pong with NO AEAD/handshake — so a perfectly normal close would
@@ -389,13 +397,23 @@ export type DialBtcPeerOpts = {
   mac: string;
   /** RFCOMM service UUID both sides agree on. */
   uuid: string;
+  /**
+   * Construct the conn with failure-toast suppression already ON. Background
+   * dials (steady-state sync) set this so that if the socket closes in the tiny
+   * window before the caller can set conn.suppressFailures, onSocketClose
+   * doesn't emit a user-facing "couldn't connect" toast from a silent re-sync.
+   */
+  suppressFailures?: boolean;
 };
 
 /** Dial a peer over insecure RFCOMM and return a BtcMeshConnection. */
 export async function dialBtcPeer(opts: DialBtcPeerOpts): Promise<BtcMeshConnection> {
   ensureNativeWired();
   const socketId = await connectRfcomm(opts.mac, opts.uuid);
-  return new BtcMeshConnection(makeBtcAdapter(socketId));
+  const conn = new BtcMeshConnection(makeBtcAdapter(socketId));
+  conn.remoteMac = opts.mac;
+  if (opts.suppressFailures) conn.suppressFailures = true;
+  return conn;
 }
 
 export type BtcListenerHandle = {
@@ -420,6 +438,7 @@ export async function startBtcListener(opts: {
     if (e.listenerId !== listenerId) return;
     try {
       const conn = new BtcMeshConnection(makeBtcAdapter(e.socketId));
+      conn.remoteMac = e.remoteMac;
       opts.onConnection(conn);
     } catch (err) {
       if (__DEV__) console.warn("[btc.listen] onConnection threw — closing socket", err);
@@ -474,38 +493,81 @@ export async function discoverAndConnect(opts: {
   ensureNativeWired();
   const log = opts.onLog ?? (() => {});
   const discoveryMs = opts.discoveryMs ?? 15_000;
+  const target = opts.hostName ? opts.hostName.trim().toLowerCase() : null;
   const found = new Map<string, string>();
   let finished = false;
+  let matchedMac: string | null = null;
+  let resolveWait: (() => void) | null = null;
+  const waitForMatch = new Promise<void>((res) => {
+    resolveWait = res;
+  });
+
   const subFound = onDeviceFound((d) => {
-    if (d.mac && !found.has(d.mac)) {
-      found.set(d.mac, d.name ?? "");
-      log(`· found ${d.name || d.mac}`);
+    if (!d.mac) return;
+    const name = d.name ?? "";
+    const prev = found.get(d.mac);
+    if (prev === undefined) {
+      found.set(d.mac, name);
+      log(`· found ${name || d.mac}`);
+    } else if (prev === "" && name !== "") {
+      // Android often reports the friendly name in a LATER ACTION_FOUND for the
+      // same MAC — upgrade the stored name rather than dropping that event.
+      found.set(d.mac, name);
+    }
+    // EARLY-EXIT: the instant we see the QR-named host, stop waiting and dial it
+    // — don't burn the full ~15s inquiry. (No match → we fall back to all hits.)
+    if (target && matchedMac === null && name.toLowerCase() === target) {
+      matchedMac = d.mac;
+      log("✓ host name matched — connecting");
+      resolveWait?.();
     }
   });
   const subDone = onDiscoveryFinished(() => {
     finished = true;
+    resolveWait?.(); // inquiry ended with no name match — unblock + use all hits
   });
+
   try {
     log("scanning for nearby Bluetooth devices…");
     await startClassicDiscovery();
     const deadline = Date.now() + discoveryMs;
-    while (!finished && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 400));
-    }
+    await Promise.race([
+      waitForMatch,
+      (async () => {
+        while (!finished && matchedMac === null && Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 200));
+        }
+      })(),
+    ]);
   } finally {
     subFound.remove();
     subDone.remove();
+    // MUST cancel discovery before any dial — Android requires cancelDiscovery()
+    // before connect() (connectRfcomm also settles 250ms after).
     try {
       await stopClassicDiscovery();
     } catch {
       /* */
     }
   }
-  let entries = [...found.entries()];
-  // Dial the QR-named host first (the only device we expect to succeed); the
-  // rest are tried as a fallback in case the advertised names don't match.
-  if (opts.hostName) {
-    const target = opts.hostName.toLowerCase();
+
+  // Dial the name-matched host first (the early-exit win).
+  if (matchedMac) {
+    const name = found.get(matchedMac) || matchedMac;
+    try {
+      log(`→ dialing ${name}`);
+      const conn = await dialBtcPeer({ mac: matchedMac, uuid: opts.uuid });
+      log(`✓ connected to ${name}`);
+      return conn;
+    } catch (err) {
+      log(`  ✗ ${name}: ${(err as Error).message} — trying others`);
+    }
+  }
+
+  // Fallback: try every OTHER discovered device by the derived UUID (only the
+  // true host exposes it). Name-sorted so a name hint still dials likely-first.
+  let entries = [...found.entries()].filter(([mac]) => mac !== matchedMac);
+  if (target) {
     entries = entries.sort((a, b) => {
       const am = a[1].toLowerCase() === target ? 0 : 1;
       const bm = b[1].toLowerCase() === target ? 0 : 1;

@@ -178,6 +178,22 @@ async function sweepQuarantine(vaultId: string): Promise<void> {
   console.log(
     `[sweep] vault=${vaultId.slice(0, 8)} applied=${applied} stillQuarantined=${stillQuarantined} tombstoned=${tombstoned}`,
   );
+
+  // Mesh-ingested events become visible projections HERE (applyIncomingBatch
+  // ingests, then this sweep applies). Notify the UI so a synced tally appears
+  // without pull-to-refresh. origin="remote": these are peer events, never the
+  // local user's writes, so this must NOT trigger the mesh push loop.
+  if (applied > 0) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { emitLedgerApplied } = require("../ledger-events") as {
+        emitLedgerApplied: (vaultId: string, origin: "local" | "remote" | "backfill") => void;
+      };
+      emitLedgerApplied(vaultId, "remote");
+    } catch {
+      /* best-effort */
+    }
+  }
 }
 
 /**

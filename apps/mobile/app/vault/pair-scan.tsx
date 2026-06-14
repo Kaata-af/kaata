@@ -264,25 +264,38 @@ export default function VaultPairScanScreen() {
         // the owner refuses the pair handshake loudly until re-paired.
       }
 
-      await setAppMeta("shop_mode_enabled", "1");
       await setActiveVaultId(payload.vault_id);
 
-      // Tell mesh the vault set just changed so BLE discovery can match
-      // this vault's hash AND so our advertiser includes it in the
-      // rotation. Without this notify, the just-joined vault is invisible
-      // to mesh until the user toggles Nearby sync off and on again.
-      // No-op when mesh isn't running.
+      // M-BTC-3.2: pair + sync over Bluetooth Classic (RFCOMM). The joiner runs
+      // classic inquiry, dials the owner by the UUID derived from the QR's
+      // shop_mode_token, and runs the REAL anti-entropy handshake — the owner
+      // claims our pair_nonce and emits our admission (vault_member_added +
+      // vault_device_added) into the chain, then streams the ledger delta. This
+      // replaces the old BLE peripheral path (startShopMode), which never
+      // completed a handshake on real hardware. Throws on failure → caught
+      // below → retry (the vault row + pair nonce persist, so re-running is
+      // idempotent and re-syncs even if the first attempt already admitted us).
+      const { joinPairOverBtc } = await import("../../lib/mesh/pair-btc");
+      await joinPairOverBtc({
+        vaultId: payload.vault_id,
+        pairNonce: payload.shop_mode_token,
+        hostName: payload.issuer_bt_name ?? null,
+      });
+
+      // Persist shop-mode intent only AFTER the rendezvous completes, so
+      // MeshController's background poll doesn't bring up other radios that
+      // contend with our inquiry/dial on the single Bluetooth adapter mid-pair.
+      await setAppMeta("shop_mode_enabled", "1");
+
+      // M-BTC-3.3: start steady-state sync now (inquiry is done, so no radio
+      // contention) so future changes propagate without re-scanning the QR. The
+      // peer's MAC was cached during the pair, so the dial loop re-syncs every
+      // ~30s. Idempotent; non-fatal.
       try {
         const mesh = await import("../../lib/mesh");
-        // Start the joiner's radios NOW so it can dial the owner immediately
-        // instead of waiting for MeshController's 10s poll to notice
-        // shop_mode_enabled. startShopMode is idempotent; only AFTER it runs is
-        // notifyVaultSetChanged effective (it's a no-op while mesh is stopped),
-        // so the just-joined vault is advertised + scanned for right away.
         await mesh.startShopMode();
-        await mesh.notifyVaultSetChanged();
       } catch (err) {
-        console.warn("[vault/pair-scan] start mesh / notify failed", err);
+        console.warn("[vault/pair-scan] could not start steady sync", err);
       }
 
       setStep({
@@ -293,8 +306,16 @@ export default function VaultPairScanScreen() {
       toast.push(t("vaultPairScan.toast.pairedNearby"), "success");
     } catch (err) {
       console.warn("[vault/pair-scan] join failed", err);
-      // Localized copy only — err.message is HTTP/internal jargon.
-      setStep({ kind: "error", message: t("vaultPairScan.error.generic") });
+      // M-BTC-3.2: surface the real reason during this milestone (e.g. the
+      // membership-chain verdict) — far more useful than generic copy while the
+      // Bluetooth pair flow is being stabilized. TODO: localize once stable.
+      const reason = (err as Error)?.message ?? "";
+      setStep({
+        kind: "error",
+        message: reason
+          ? `${t("vaultPairScan.error.generic")} (${reason})`
+          : t("vaultPairScan.error.generic"),
+      });
     }
   }
 

@@ -53,7 +53,16 @@ export async function applyEntryCreated(tx: SQLiteTx, event: EntryCreatedEvent):
     p.note,
     p.occurred_at_ms,
     p.occurred_at_ms,
-    event.author_user_id_local_only,
+    // author_user_id_local_only is device-local and NEVER crosses the wire —
+    // ingest forces it to "" for any replicated event. proposed_by_user_id has
+    // a REFERENCES users(id) FK with PRAGMA foreign_keys=ON, and "" is non-null
+    // so SQLite enforces it: with no users row id="" the applier throws
+    // "FOREIGN KEY constraint failed" and the sweep quarantines EVERY synced
+    // entry forever (the bug where tallies never replicated). NULL is the honest
+    // value for a remote entry (no local author) and skips the FK check. Local
+    // appends still carry the real author id. The UI author-fallback already
+    // coalesces a null proposed_by to the local self (db.ts).
+    event.author_user_id_local_only || null,
     event.event_id,
     p.backfill_settled_at != null ? 1 : 0,
     p.backfill_accepted_at ?? null,

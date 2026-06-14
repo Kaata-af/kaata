@@ -56,6 +56,7 @@ import {
   setAppMeta,
 } from "../lib/db";
 import { getAccountIdSync, getActiveVaultId, setActiveVaultId } from "../lib/db-tx";
+import { useLedgerRefresh } from "../lib/ledger-events";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { formatAmount } from "../lib/format";
@@ -259,6 +260,10 @@ export default function HomeScreen() {
       load();
     }, [load]),
   );
+
+  // Live refresh: a mesh/cloud sync that applies events for the visible vault
+  // re-runs load() immediately, so a synced tally appears without pull-refresh.
+  useLedgerRefresh(activeVaultId, load);
 
   // Pull-to-refresh — with mesh/vault sync now core, entries can land while
   // the shopkeeper sits on this screen (the dominant shop-counter posture).

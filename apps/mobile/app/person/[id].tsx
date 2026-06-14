@@ -21,6 +21,8 @@ import { useToast, useToastOffset } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
 import { getLocalSelf, getPerson, listEntries, softDeleteEntry } from "../../lib/db";
+import { getActiveVaultIdSyncMaybe } from "../../lib/db-tx";
+import { useLedgerRefresh } from "../../lib/ledger-events";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
@@ -72,6 +74,10 @@ export default function PersonDetailScreen() {
       load();
     }, [load]),
   );
+
+  // Live refresh: re-load when a sync applies events for the active vault, so a
+  // remote entry/payment for this person appears without navigating away/back.
+  useLedgerRefresh(getActiveVaultIdSyncMaybe(), load);
 
   // Virtualized entry rows — power users accumulate hundreds of entries,
   // and the old ScrollView + .map mounted all of them. Card-edge emulation

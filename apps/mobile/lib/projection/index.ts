@@ -490,6 +490,19 @@ export async function applyEvent(
     } catch {
       /* sweep is best-effort */
     }
+    // Notify UI + the mesh push loop that the ledger changed. origin lets the
+    // mesh filter to LOCAL writes only (push our own edits; never re-dial in
+    // response to a remote apply). Fires post-commit so subscribers read
+    // committed state. Lazy require to avoid a projection↔ledger-events cycle.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { emitLedgerApplied } = require("../ledger-events") as {
+        emitLedgerApplied: (vaultId: string, origin: "local" | "remote" | "backfill") => void;
+      };
+      emitLedgerApplied(event.vault_id, opts.origin);
+    } catch {
+      /* best-effort */
+    }
   }
 
   if (applied) return { applied: true };
