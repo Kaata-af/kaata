@@ -46,6 +46,7 @@ private const val EVENT_CONNECTED = "onCentralConnected"
 private const val EVENT_DISCONNECTED = "onCentralDisconnected"
 private const val EVENT_WRITE = "onCentralWrite"
 private const val EVENT_MTU = "onMtuChanged"
+private const val EVENT_SUBSCRIBED = "onCentralSubscribed"
 
 // Client Characteristic Configuration Descriptor (CCCD) - standard 0x2902.
 private val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
@@ -142,7 +143,7 @@ class KaataGattServerModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("KaataGattServer")
 
-    Events(EVENT_CONNECTED, EVENT_DISCONNECTED, EVENT_WRITE, EVENT_MTU)
+    Events(EVENT_CONNECTED, EVENT_DISCONNECTED, EVENT_WRITE, EVENT_MTU, EVENT_SUBSCRIBED)
 
     AsyncFunction("openGattServer") { serviceUuid: String, handshakeCharUuid: String, streamCharUuid: String, promise: Promise ->
       scope.launch {
@@ -714,14 +715,31 @@ class KaataGattServerModule : Module() {
       offset: Int,
       value: ByteArray,
     ) {
-      // CCCD writes (subscribe / unsubscribe). Just ACK; we don't track the
-      // subscription state because we always allow notifications - the peer's
-      // monitorCharacteristicForService side toggles it for us.
+      // CCCD writes (subscribe / unsubscribe). ACK them, AND on a SUBSCRIBE
+      // (ENABLE_NOTIFICATION/INDICATION) emit onCentralSubscribed so the
+      // peripheral can defer its first notify until the central is actually
+      // listening. Without this gate the symmetric handshake can notify the
+      // owner's Hello before the central's CCCD write lands; Android then drops
+      // the notification (no subscriber) and the central times out — the
+      // "couldn't connect" pairing symptom. See transport-ble.ts
+      // startPeripheralGattAcceptLoop (subscribedReady).
       val server = gattServer
       if (responseNeeded && server != null) {
         try {
           server.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
         } catch (_: Throwable) { /* */ }
+      }
+      if (descriptor.uuid == CCCD_UUID) {
+        val enabled =
+          value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) ||
+            value.contentEquals(BluetoothGattDescriptor.ENABLE_INDICATION_VALUE)
+        if (enabled) {
+          val payload = HashMap<String, Any?>()
+          payload["address"] = device.address
+          payload["charUuid"] = descriptor.characteristic?.uuid?.toString()
+          sendEvent(EVENT_SUBSCRIBED, payload)
+          Log.i(TAG, "central subscribed addr=${device.address} char=${descriptor.characteristic?.uuid}")
+        }
       }
     }
 

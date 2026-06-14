@@ -608,6 +608,9 @@ export default function RootLayout() {
               <Stack.Screen name="vault/archived" options={{ presentation: "card" }} />
               <Stack.Screen name="vault/pair" />
               <Stack.Screen name="vault/pair-scan" />
+              {/* DEV: Bluetooth Classic (RFCOMM) transport test — M-BTC-1.
+                  Temporary; remove once RFCOMM is wired into Shop Mode. */}
+              <Stack.Screen name="dev/btc-test" />
               {/* Phase 5.1 deep-link handler for kaata://pair/<token>?p=...
                   Reuses the same 5-step issuance as vault/pair-scan.tsx. */}
               <Stack.Screen name="pair/[token]" options={{ presentation: "modal" }} />

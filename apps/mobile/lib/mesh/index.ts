@@ -504,63 +504,69 @@ async function startShopModeBody(): Promise<void> {
   });
   console.log("[mesh.start] discovery router started (BLE scan)");
 
-  // Phase 6.1: bring up the peripheral (advertise) so other Kaata phones
-  // can find US. Soft-fails: if the chip lacks peripheral support,
-  // MeshPeripheralUnsupportedError is thrown — we catch and continue
-  // central-only. The failure bridge surfaces the toast.
+  // v0.5.2 GATT SERVER: open the BluetoothGattServer BEFORE advertising a
+  // connectable endpoint. The old order advertised first, so a central that
+  // dialed in the window before the server was open saw an empty service tree
+  // and STREAM_CHAR writes returned GATT_INVALID_HANDLE — the "couldn't
+  // connect" / owner-does-nothing pairing symptom. It was also gated on the
+  // advertiser having started, so any advertiser failure skipped the server
+  // entirely. Open the server FIRST; only then go connectable. The accept loop
+  // wraps each incoming central connection as a BleMeshConnection and routes it
+  // into the SAME handlePeerConnection pipeline incoming LAN (TCP) connections
+  // use. runAntiEntropy is role-symmetric (both sides exchange Hello, PoP,
+  // AEAD-derive, Summary, Delta over one code path).
+  let gattServerOpen = false;
   try {
-    const vaultHashes = await snapshotVaultHashesForAdvertise();
-    const peripheralStop = await startBLEPeripheralMode({
-      vaultHashes,
-      capabilityFlags: CAP_FLAG_SUPPORTS_WIFI_UPGRADE,
+    const gattStop = await startPeripheralGattAcceptLoop({
+      onIncomingConnection: (conn) => {
+        console.log("[mesh.start.gatt] incoming BLE central accepted");
+        void handlePeerConnection(conn, "incoming", currentGen);
+      },
     });
-    state.peripheralStop = peripheralStop;
-    console.log("[mesh.start] peripheral started, advertising", vaultHashes.length, "vault(s)");
+    state.peripheralGattStop = gattStop;
+    gattServerOpen = true;
+    console.log("[mesh.start] GATT server open, accepting central connections");
   } catch (err) {
-    if (err instanceof MeshPeripheralUnsupportedError) {
-      // Soft failure: scan keeps running, we stay invisible to others.
-      // emitMeshFailure already fired in startBLEPeripheralMode.
-      console.warn("[mesh.start] peripheral unsupported on this chip; scan-only mode");
-      state.peripheralStop = null;
-    } else {
-      console.warn("[mesh.start] peripheral start failed (non-fatal)", err);
-      state.peripheralStop = null;
-    }
+    // No GATT server → we can't receive a dial, so stay scan-only and skip
+    // advertising a connectable endpoint below.
+    console.warn("[mesh.start] GATT accept loop failed (non-fatal); scan-only", err);
+    state.peripheralGattStop = null;
   }
 
-  // v0.5.2 GATT SERVER: open the BluetoothGattServer alongside the
-  // advertiser. Without this, centrals that dial our advertisement see an
-  // empty service tree and STREAM_CHAR writes return GATT_INVALID_HANDLE.
-  // The accept loop wraps each incoming central connection as a
-  // BleMeshConnection and routes it into the SAME handlePeerConnection
-  // pipeline that incoming LAN (TCP) connections use (see the LAN listener's
-  // onConnection above). runAntiEntropy is
-  // role-symmetric — both sides exchange Hello, PoP, AEAD-derive, Summary,
-  // Delta over the same code path.
-  //
-  // Only attempt if the advertiser also started. If the chip can't advertise,
-  // no central will ever try to connect to us, so the GATT server would just
-  // sit idle.
-  if (state.peripheralStop) {
+  // Phase 6.1: bring up the peripheral (advertise) so other Kaata phones can
+  // find US — only once the GATT server is open to receive their dial. Soft-
+  // fails: if the chip lacks peripheral support or the advert overflows the
+  // 31-byte budget, MeshPeripheralUnsupportedError is thrown — we catch, tear
+  // down the now-useless GATT server, and continue scan-only.
+  if (gattServerOpen) {
     try {
-      const gattStop = await startPeripheralGattAcceptLoop({
-        onIncomingConnection: (conn) => {
-          console.log("[mesh.start.gatt] incoming BLE central accepted");
-          void handlePeerConnection(conn, "incoming", currentGen);
-        },
+      const vaultHashes = await snapshotVaultHashesForAdvertise();
+      const peripheralStop = await startBLEPeripheralMode({
+        vaultHashes,
+        capabilityFlags: CAP_FLAG_SUPPORTS_WIFI_UPGRADE,
       });
-      state.peripheralGattStop = gattStop;
-      console.log("[mesh.start] GATT server open, accepting central connections");
+      state.peripheralStop = peripheralStop;
+      console.log("[mesh.start] peripheral started, advertising", vaultHashes.length, "vault(s)");
     } catch (err) {
-      // MeshPeripheralUnsupportedError already emitted via failure bridge.
-      // We keep the advertiser running so the other phone can still scan
-      // us — they just can't complete a write. This is a degraded mode but
-      // not a fatal one.
-      console.warn("[mesh.start] GATT accept loop failed (non-fatal)", err);
-      state.peripheralGattStop = null;
+      if (err instanceof MeshPeripheralUnsupportedError) {
+        console.warn("[mesh.start] peripheral unsupported on this chip; scan-only mode");
+      } else {
+        console.warn("[mesh.start] peripheral start failed (non-fatal)", err);
+      }
+      state.peripheralStop = null;
+      // A GATT server with no connectable advertiser is useless — no one can
+      // discover us to dial it. Tear it down so we're cleanly scan-only.
+      if (state.peripheralGattStop) {
+        try {
+          await state.peripheralGattStop();
+        } catch {
+          /* */
+        }
+        state.peripheralGattStop = null;
+      }
     }
   } else {
-    if (__DEV__) console.log("[mesh.start] skipping GATT server because advertiser is not running");
+    if (__DEV__) console.log("[mesh.start] skipping advertiser because GATT server is not open");
   }
 
   state.running = true;

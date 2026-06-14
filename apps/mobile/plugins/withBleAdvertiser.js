@@ -72,6 +72,30 @@ function patchMainManifest(config) {
       });
     }
 
+    // 1b. Strip the android:maxSdkVersion="30" cap that react-native-ble-plx's
+    //     AAR manifest puts on BLUETOOTH. The manifest merger inherits that cap
+    //     onto our (uncapped) app-level BLUETOOTH, so the shipped APK would DROP
+    //     android.permission.BLUETOOTH on API 31+. Xiaomi/MIUI (e.g. the Mi 10T
+    //     on Android 12) STILL legacy-checks BLUETOOTH for RFCOMM/discovery and
+    //     throws "permission android.permission.BLUETOOTH lacks" when it's
+    //     absent — the exact device family Briar's manifest comment calls out.
+    //     tools:remove drops the inherited cap so BLUETOOTH stays present at all
+    //     API levels (Briar declares it uncapped for this reason). BLUETOOTH_ADMIN
+    //     intentionally keeps ble-plx's maxSdkVersion=30 (matches Briar; ADMIN is
+    //     not needed on API 31+).
+    const BT_LEGACY_PERM = "android.permission.BLUETOOTH";
+    const btEntry = manifest["uses-permission"].find(
+      (entry) => entry?.$?.["android:name"] === BT_LEGACY_PERM,
+    );
+    if (btEntry) {
+      delete btEntry.$["android:maxSdkVersion"];
+      btEntry.$["tools:remove"] = "android:maxSdkVersion";
+    } else {
+      manifest["uses-permission"].push({
+        $: { "android:name": BT_LEGACY_PERM, "tools:remove": "android:maxSdkVersion" },
+      });
+    }
+
     // 2. Block ACCESS_FINE_LOCATION + ACCESS_COARSE_LOCATION inherited from
     //    react-native-ble-advertiser's AAR. tools:node="remove" wins the
     //    manifest-merger fight regardless of order.

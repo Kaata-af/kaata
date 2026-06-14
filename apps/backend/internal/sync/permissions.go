@@ -27,8 +27,9 @@ import (
 // vault_members row (the member existed since vault creation, no transitions).
 //
 // account_bound is a special-cased system event: it carries no role
-// requirement. The handler is expected to enforce target_id == accountID
-// before reaching here. We short-circuit allowed=true.
+// requirement. The handler enforces payload.account_id == accountID before
+// reaching here (target_id carries from_user_id, not the account). We
+// short-circuit allowed=true.
 //
 // Phase 4.1: when the EVENT's stored actor_account_id is NULL (the event was
 // authored before the device signed in), we look for a covering account_bound

@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!--
+    Permissions intentionally NOT declared here. BLUETOOTH_CONNECT /
+    BLUETOOTH_SCAN (+ legacy BLUETOOTH/BLUETOOTH_ADMIN + ACCESS_FINE_LOCATION
+    maxSdkVersion=30 for classic inquiry) are declared at the app level in
+    apps/mobile/app.json so there's a single source of truth (see
+    plugins/withNearbyWifiNeverForLocation.js).
+  -->
+</manifest>

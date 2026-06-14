@@ -619,6 +619,21 @@ export async function runAntiEntropy(
     durationMs,
   );
 
+  // JOINER side: a FULL sync completed, so the owner's pair-admission events
+  // have replicated back and future handshakes prove membership via the chain —
+  // retire our local pair_nonce echo now. Deferred here from handshake() so a
+  // mid-sync failure leaves the nonce live for the automatic retry. No-op for
+  // the owner (no local pair nonce). Best-effort.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const localPair = require("./local-pair") as {
+      clearLocalPairNonceForVault: (vaultId: string) => Promise<void>;
+    };
+    await localPair.clearLocalPairNonceForVault(opts.vaultId);
+  } catch (err) {
+    if (__DEV__) console.warn("[mesh.done] clearLocalPairNonceForVault failed", err);
+  }
+
   return {
     sent,
     received,
@@ -850,24 +865,13 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
 
   conn.remoteDeviceId = session.deviceId;
 
-  // JOINER side (both paths): drop our local pair_nonce echo. After a
-  // successful first handshake the owner has either pinned us
-  // (legacy: vault_credentials) or emitted our admission into the chain
-  // (chain pair path) — its own local knowledge now admits us, so the
-  // nonce is no longer needed even if THIS session dies before the
-  // admission events replicate to us. Single-use semantics defend
-  // against replay if a future bug leaks the nonce. Best-effort: the
-  // entry self-expires in 5 min regardless.
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const localPair = require("./local-pair") as {
-      clearLocalPairNonceForVault: (vaultId: string) => Promise<void>;
-    };
-    await localPair.clearLocalPairNonceForVault(opts.vaultId);
-  } catch (err) {
-    if (__DEV__) console.warn("[mesh.hs] clearLocalPairNonceForVault failed", err);
-  }
-
+  // NOTE: the joiner's local pair_nonce is deliberately NOT cleared here.
+  // Clearing it at handshake-success (before the delta loop) meant any later
+  // failure left the OWNER unconverged while the joiner had already retired its
+  // nonce — so the automatic retry sent no pair_nonce and was refused with "no
+  // live pair token matched". The clear now happens at the END of runAntiEntropy
+  // (full sync complete → the owner's admission events have replicated back).
+  // Single-use semantics + the 30-min TTL still bound replay.
   return session;
 }
 
@@ -956,8 +960,19 @@ async function verifyPeerChain(
   // proof refuses with the normal verdict reason.
   let admissionToken: { nonce: string; role?: string } | null = null;
   if (!verdict.ok) {
+    // Reach the pair fallback whenever the peer is simply NOT-YET-BOUND (a
+    // fresh joiner), NOT only when its proof bundle is literally empty. A joiner
+    // that gossip-ingested the OWNER's membership events in a prior, link-
+    // dropped session (section 6 below) sends a NON-empty bundle on the retry
+    // that still doesn't bind ITS OWN pubkey — verdict stays device_not_bound /
+    // no_genesis. Gating on length===0 wedged those retries permanently once BLE
+    // actually started connecting (pre-existing bug, unmasked by the CCCD
+    // subscribe fix). device_removed / member_removed / no_anchor must NOT
+    // pair-admit; the SECURITY guard below additionally refuses any already-
+    // member or the owner.
+    const freshJoiner = verdict.reason === "device_not_bound" || verdict.reason === "no_genesis";
     if (
-      peerProofEvents.length === 0 &&
+      freshJoiner &&
       typeof peerHello.pair_nonce === "string" &&
       peerHello.pair_nonce.length > 0
     ) {

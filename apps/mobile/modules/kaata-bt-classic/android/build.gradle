@@ -1,0 +1,21 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'af.kaata.btclassic'
+version = '0.0.1'
+
+android {
+  namespace 'expo.modules.kaatabtclassic'
+  defaultConfig {
+    versionCode 1
+    versionName '0.0.1'
+  }
+}
+
+dependencies {
+  // BluetoothAdapter / BluetoothServerSocket / RFCOMM ship in the Android
+  // platform SDK. expo-modules-core comes transitively via the
+  // expo-module-gradle-plugin.
+}

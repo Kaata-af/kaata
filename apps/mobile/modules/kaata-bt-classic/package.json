@@ -1,0 +1,8 @@
+{
+  "name": "kaata-bt-classic",
+  "version": "0.0.1",
+  "description": "Kaata local Expo module - Android Bluetooth Classic (insecure RFCOMM) byte-pipe for the mesh, Briar-style. No bonding, no system pairing UI.",
+  "main": "index.ts",
+  "types": "index.ts",
+  "private": true
+}

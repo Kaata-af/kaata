@@ -439,7 +439,7 @@ const en = {
   // on. Keep "Nearby sync" as the noun-form key elsewhere (notification
   // channel, toasts) for stability; the visible label is the long form.
   "menu.sync.shopMode": "Sync with phones nearby",
-  "menu.sync.shopMode.hint": "Works over Bluetooth — no wifi or internet needed.",
+  "menu.sync.shopMode.hint": "Works over Bluetooth or Wi-Fi — no internet needed.",
   "menu.sync.shopMode.hintWithPeers": "{count} phones nearby",
   "menu.sync.shopMode.hintOnePeer": "1 phone nearby",
   "menu.sync.shopMode.hintLooking": "Looking for nearby phones…",
@@ -1254,7 +1254,7 @@ const fa: Partial<Record<Key, string>> = {
   // loanword every Afghan shopkeeper recognizes; "اینترنت/وای‌فای نیاز ندارد"
   // makes the no-connectivity benefit explicit.
   "menu.sync.shopMode": "همگام‌سازی با تلفون‌های نزدیک",
-  "menu.sync.shopMode.hint": "از طریق بلوتوث کار می‌کند — به وای‌فای یا اینترنت نیاز ندارد.",
+  "menu.sync.shopMode.hint": "از طریق بلوتوث یا وای‌فای کار می‌کند — به اینترنت نیاز ندارد.",
   "menu.sync.shopMode.hintWithPeers": "{count} تلفون نزدیک",
   "menu.sync.shopMode.hintOnePeer": "۱ تلفون نزدیک",
   "menu.sync.shopMode.hintLooking": "در حال یافتن تلفون‌های نزدیک…",

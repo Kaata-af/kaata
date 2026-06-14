@@ -102,6 +102,7 @@ import {
   onCentralWrite as kaataOnCentralWrite,
   onCentralDisconnected as kaataOnCentralDisconnected,
   onMtuChanged as kaataOnMtuChanged,
+  onCentralSubscribed as kaataOnCentralSubscribed,
   notifyCentral as kaataNotifyCentral,
   disconnectCentral as kaataDisconnectCentral,
   type CentralWriteEvent as KaataCentralWriteEvent,
@@ -847,7 +848,7 @@ export async function startBLEPeripheralMode(
   }
   const stablePayload = buildMfgPayloadBytesMulti(opts.capabilityFlags & 0x01, hashesForPayload);
 
-  const broadcastStable = async () => {
+  const broadcastStable = async (isInitial = false) => {
     if (stopped) return;
     try {
       await BLEAdvertiser.broadcast(KAATA_MESH_SERVICE_UUID, Array.from(stablePayload), {
@@ -857,11 +858,23 @@ export async function startBLEPeripheralMode(
         includeDeviceName: false,
       });
     } catch (err) {
-      if (__DEV__) console.warn("[ble-peripheral] broadcast failed", err);
+      // A real on-air advertising failure (ADVERTISE_FAILED_DATA_TOO_LARGE,
+      // chip non-support, OEM throttle) means THIS phone is invisible to peers
+      // and unconnectable — the silent failure here is exactly what made
+      // pairing look "stuck" with no signal. Surface it loudly. On the initial
+      // broadcast, fail the whole peripheral bring-up so the caller + UI learn
+      // the phone can't advertise (scan-only) instead of falsely reporting OK.
+      console.warn("[ble-peripheral] broadcast failed —", err);
+      if (isInitial) {
+        emitMeshFailure({ kind: "peripheral_unsupported" });
+        throw new MeshPeripheralUnsupportedError(
+          `BLE advertising failed to start: ${String((err as { message?: string })?.message ?? err)}`,
+        );
+      }
     }
   };
 
-  await broadcastStable();
+  await broadcastStable(true);
   const summaryLabel =
     opts.vaultHashes.length > 0
       ? `${opts.vaultHashes.length} vault(s) in one stable payload (first=${opts.vaultHashes[0].vaultId.slice(0, 8)}…)`
@@ -962,6 +975,18 @@ type PeripheralCentralState = {
   resolveMtuReady: () => void;
   rejectMtuReady: (err: Error) => void;
   mtuReadyDone: boolean;
+  /**
+   * Resolves once the central has written the STREAM_CHAR CCCD to enable
+   * notifications (onCentralSubscribed). Outbound notifies (writeStream) await
+   * this in addition to mtuReady: notifying before the central has subscribed
+   * makes Android drop the notification (no listener), which stalled the
+   * symmetric handshake's first Hello → "couldn't connect". Rejects on
+   * disconnect/teardown, or times out (PERIPHERAL_SUBSCRIBE_WAIT_MS).
+   */
+  subscribedReady: Promise<void>;
+  resolveSubscribed: () => void;
+  rejectSubscribed: (err: Error) => void;
+  subscribedDone: boolean;
 };
 
 // How long to wait for the central to upgrade MTU before we give up and
@@ -969,6 +994,12 @@ type PeripheralCentralState = {
 // immediately after connect; in practice onMtuChanged fires within
 // 200-800ms. 5s leaves ample headroom for stuttery OEM stacks.
 const PERIPHERAL_MTU_WAIT_MS = 5_000;
+
+// How long to wait for the central to enable notifications (write the
+// STREAM_CHAR CCCD) before giving up. ble-plx centrals subscribe via
+// monitorCharacteristicForService right after discovering services, so this
+// normally fires within a few hundred ms; 5s covers stuttery OEM stacks.
+const PERIPHERAL_SUBSCRIBE_WAIT_MS = 5_000;
 
 // Minimum MTU we need on the peripheral side. Same math as the central
 // side (BLE_FRAME_HEADER_BYTES + BLE_CHUNK_PAYLOAD_BYTES + TAG_BYTES + 3
@@ -1040,6 +1071,10 @@ export async function startPeripheralGattAcceptLoop(
           stale.mtuReadyDone = true;
           stale.rejectMtuReady(new Error("central reconnected before MTU upgrade"));
         }
+        if (!stale.subscribedDone) {
+          stale.subscribedDone = true;
+          stale.rejectSubscribed(new Error("central reconnected before subscribe"));
+        }
         centrals.delete(address);
       }
     }
@@ -1062,6 +1097,18 @@ export async function startPeripheralGattAcceptLoop(
       resolveMtuReady = resolve;
       rejectMtuReady = reject;
     });
+    // Bug #4 — subscribe-ready gate. The peripheral must not notify before the
+    // central enables notifications on STREAM_CHAR, or Android drops the notify
+    // (no listener) and the central's recvJSON times out. Resolved by the
+    // kaataOnCentralSubscribed listener below; the detached .catch avoids an
+    // unhandled rejection if the link dies before any writeStream call.
+    let resolveSubscribed!: () => void;
+    let rejectSubscribed!: (err: Error) => void;
+    const subscribedReady = new Promise<void>((resolve, reject) => {
+      resolveSubscribed = resolve;
+      rejectSubscribed = reject;
+    });
+    void subscribedReady.catch(() => {});
     // If the native side ever pre-negotiates MTU before this event (some
     // OEMs do MTU before the connect event), we'd see mtu >= MIN here and
     // resolve immediately. Cover that.
@@ -1072,6 +1119,10 @@ export async function startPeripheralGattAcceptLoop(
       resolveMtuReady,
       rejectMtuReady,
       mtuReadyDone: false,
+      subscribedReady,
+      resolveSubscribed,
+      rejectSubscribed,
+      subscribedDone: false,
     };
     centrals.set(address, cs);
     if (mtu >= PERIPHERAL_MIN_MTU) {
@@ -1097,6 +1148,28 @@ export async function startPeripheralGattAcceptLoop(
       // guard inside the timer callback is the source of truth.
       void t;
     }
+    // Subscribe timeout (bug #4): if we never observe the central's CCCD enable
+    // within the window, FAIL OPEN — resolve and notify anyway rather than hard-
+    // failing + disconnecting. ble-plx reliably issues the CCCD write (verified
+    // against RxAndroidBle), and the first inbound central write ALSO resolves
+    // this gate (subWrite below), so the timeout only bites on a quirky OEM
+    // stack that never surfaces the descriptor write — and there, notifying
+    // (risking the old dropped-first-notify) beats tearing the link down.
+    const subTimer = setTimeout(() => {
+      if (!cs.subscribedDone) {
+        cs.subscribedDone = true;
+        if (__DEV__) {
+          console.warn(
+            "[ble-gatt] subscribe not observed within",
+            PERIPHERAL_SUBSCRIBE_WAIT_MS,
+            "ms — failing open (notifying anyway) addr=",
+            address,
+          );
+        }
+        cs.resolveSubscribed();
+      }
+    }, PERIPHERAL_SUBSCRIBE_WAIT_MS);
+    void subTimer;
 
     const adapter = {
       writeStream: async (chunk: Uint8Array) => {
@@ -1109,6 +1182,16 @@ export async function startPeripheralGattAcceptLoop(
           throw new MeshTransportError(
             `MTU not negotiated: ${(err as Error).message}`,
             "ble_mtu_too_small",
+          );
+        }
+        // ...and until the central has enabled notifications (bug #4), else
+        // Android drops the notify and the central's recvJSON times out.
+        try {
+          await cs.subscribedReady;
+        } catch (err) {
+          throw new MeshTransportError(
+            `central not subscribed: ${(err as Error).message}`,
+            "ble_write_failed",
           );
         }
         try {
@@ -1138,6 +1221,10 @@ export async function startPeripheralGattAcceptLoop(
           cs.mtuReadyDone = true;
           cs.rejectMtuReady(new Error("connection torn down before MTU upgrade"));
         }
+        if (!cs.subscribedDone) {
+          cs.subscribedDone = true;
+          cs.rejectSubscribed(new Error("connection torn down before subscribe"));
+        }
         try {
           await kaataDisconnectCentral(address);
         } catch {
@@ -1156,6 +1243,10 @@ export async function startPeripheralGattAcceptLoop(
       if (!cs.mtuReadyDone) {
         cs.mtuReadyDone = true;
         cs.rejectMtuReady(new Error("onIncomingConnection threw"));
+      }
+      if (!cs.subscribedDone) {
+        cs.subscribedDone = true;
+        cs.rejectSubscribed(new Error("onIncomingConnection threw"));
       }
       void kaataDisconnectCentral(address).catch(() => {});
     }
@@ -1189,6 +1280,20 @@ export async function startPeripheralGattAcceptLoop(
   });
   subscriptions.push(subMtu);
 
+  // Bug #4 — resolve the per-central subscribe gate when the central enables
+  // notifications on STREAM_CHAR (the char writeStream notifies on). Until this
+  // fires, the peripheral's notifies are dropped by Android (no listener).
+  const subSubscribed = kaataOnCentralSubscribed(({ address, charUuid }) => {
+    const cs = centrals.get(address);
+    if (!cs || cs.subscribedDone) return;
+    // Only the STREAM_CHAR subscription gates outbound notifies.
+    if (charUuid && charUuid.toLowerCase() !== KAATA_STREAM_CHAR_UUID.toLowerCase()) return;
+    cs.subscribedDone = true;
+    cs.resolveSubscribed();
+    if (__DEV__) console.log("[ble-gatt] central subscribed addr=", address);
+  });
+  subscriptions.push(subSubscribed);
+
   const subWrite = kaataOnCentralWrite((evt: KaataCentralWriteEvent) => {
     if (stopped) return;
     // Both HANDSHAKE_CHAR and STREAM_CHAR writes flow into the same inbox.
@@ -1201,7 +1306,16 @@ export async function startPeripheralGattAcceptLoop(
       return;
     }
     const cs = centrals.get(evt.address);
-    if (!cs || cs.chunkListeners.size === 0) return;
+    if (!cs) return;
+    // A central that is writing to us has an open ATT channel and (ble-plx
+    // subscribes before its first write) has enabled notifications — resolve the
+    // subscribe gate (bug #4 robustness) so outbound notifies aren't held up if
+    // the CCCD-write event was delayed or missed by the OEM stack.
+    if (!cs.subscribedDone) {
+      cs.subscribedDone = true;
+      cs.resolveSubscribed();
+    }
+    if (cs.chunkListeners.size === 0) return;
     const bytes = base64ToBytes(evt.valueBase64);
     for (const h of cs.chunkListeners) {
       try {
@@ -1220,6 +1334,10 @@ export async function startPeripheralGattAcceptLoop(
       if (!cs.mtuReadyDone) {
         cs.mtuReadyDone = true;
         cs.rejectMtuReady(new Error("central disconnected before MTU upgrade"));
+      }
+      if (!cs.subscribedDone) {
+        cs.subscribedDone = true;
+        cs.rejectSubscribed(new Error("central disconnected before subscribe"));
       }
       for (const h of cs.disconnectListeners) {
         try {
@@ -1247,6 +1365,10 @@ export async function startPeripheralGattAcceptLoop(
       if (!cs.mtuReadyDone) {
         cs.mtuReadyDone = true;
         cs.rejectMtuReady(new Error("accept loop stopped"));
+      }
+      if (!cs.subscribedDone) {
+        cs.subscribedDone = true;
+        cs.rejectSubscribed(new Error("accept loop stopped"));
       }
       for (const h of cs.disconnectListeners) {
         try {

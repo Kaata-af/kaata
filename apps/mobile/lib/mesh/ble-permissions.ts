@@ -9,8 +9,9 @@
 //   1. User toggles "Sync with phones nearby" → ON.
 //   2. Kaata shows its OWN rationale ConfirmDialog explaining the
 //      Bluetooth-not-location framing.
-//   3. On Continue, request BLUETOOTH_SCAN / CONNECT / ADVERTISE via
-//      PermissionsAndroid.requestMultiple — the OS dialogs fire here.
+//   3. On Continue, request BLUETOOTH_SCAN / CONNECT / ADVERTISE (and, on
+//      Android 13+, NEARBY_WIFI_DEVICES best-effort for the Wi-Fi upgrade)
+//      via PermissionsAndroid.requestMultiple — the OS dialogs fire here.
 //   4. On all-granted → proceed.
 //      On any-denied (not "Don't ask again") → toast + revert toggle.
 //      On any-denied with "Don't ask again" (NEVER_ASK_AGAIN) → show
@@ -33,6 +34,15 @@ const PERMS_ANDROID_12 = [
   "android.permission.BLUETOOTH_CONNECT",
   "android.permission.BLUETOOTH_ADVERTISE",
 ] as const;
+
+// NEARBY_WIFI_DEVICES exists only on Android 13+ (API 33). It's required for
+// the Wi-Fi LAN transport the mesh UPGRADES to after a BLE handshake — BLE
+// first-contact works without it. It's declared in app.json but, until now,
+// was never requested at runtime, so the LAN upgrade silently no-opped on API
+// 33+. We request it best-effort alongside the BLE perms: its denial NEVER
+// blocks Shop Mode (only the later Wi-Fi upgrade), and it's omitted on API < 33
+// where the string doesn't exist (requesting it there reads as a spurious deny).
+const PERM_NEARBY_WIFI = "android.permission.NEARBY_WIFI_DEVICES";
 
 export type BlePermissionResult =
   | { kind: "ok" }
@@ -90,8 +100,15 @@ export async function requestBlePermissions(): Promise<BlePermissionResult> {
   if (version < 31) return { kind: "ok" }; // legacy install-time perms
 
   try {
+    // Request the three REQUIRED BLE perms, plus NEARBY_WIFI_DEVICES on API
+    // 33+ (best-effort — for the Wi-Fi LAN upgrade; see PERM_NEARBY_WIFI).
+    const toRequest: string[] = [...PERMS_ANDROID_12];
+    if (version >= 33) toRequest.push(PERM_NEARBY_WIFI);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const res = await PermissionsAndroid.requestMultiple(PERMS_ANDROID_12 as any);
+    const res = await PermissionsAndroid.requestMultiple(toRequest as any);
+    // The ok/denied decision is keyed ONLY on the BLE perms; a denied
+    // NEARBY_WIFI_DEVICES disables the Wi-Fi upgrade but must not revert the
+    // toggle, since BLE first-contact still works.
     let anyDenied = false;
     let anyNeverAskAgain = false;
     for (const p of PERMS_ANDROID_12) {
@@ -101,6 +118,11 @@ export async function requestBlePermissions(): Promise<BlePermissionResult> {
       if (status === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
         anyNeverAskAgain = true;
       }
+    }
+    if (version >= 33 && res[PERM_NEARBY_WIFI] !== PermissionsAndroid.RESULTS.GRANTED && __DEV__) {
+      console.warn(
+        "[ble-perms] NEARBY_WIFI_DEVICES not granted — Wi-Fi LAN upgrade disabled; BLE unaffected",
+      );
     }
     if (!anyDenied) return { kind: "ok" };
     if (anyNeverAskAgain) return { kind: "never_ask_again" };

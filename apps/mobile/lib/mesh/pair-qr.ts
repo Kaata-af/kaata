@@ -24,7 +24,13 @@ import * as Crypto from "expo-crypto";
 // "owner" — a careless owner snapping a QR for staff shouldn't grant
 // owner-tier access by accident).
 export const PAIR_QR_VERSION = 3;
-export const PAIR_QR_TTL_MS = 5 * 60 * 1000;
+// 30 min (was 5): this TTL bounds the BLE pair-admission window, not just the
+// QR's visual life. First-pair latency (BLE permission dialogs + duty-cycled
+// discovery + connect/MTU) routinely outran a 5-min window, after which the
+// joiner's nonce expired and the owner refused with "no live pair token
+// matched". 30 min is longer than any first-contact handshake; the token is
+// still single-use and bound to the joiner's pubkey on claim.
+export const PAIR_QR_TTL_MS = 30 * 60 * 1000;
 // v=3 carries device_pubkey + display_name in addition to v=2 fields, so
 // the payload grew. Existing payloads still fit comfortably under 512.
 export const PAIR_QR_MAX_PAYLOAD_BYTES = 768;

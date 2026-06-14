@@ -8,11 +8,12 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  type TextInput,
+  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
+import { CountryPickerSheet } from "../../components/CountryPickerSheet";
 import { FormField } from "../../components/FormField";
 import { colors } from "../../lib/colors";
 import { createSelfProfile, getAppMeta, setAppMeta } from "../../lib/db";
@@ -20,7 +21,7 @@ import { EventSigningUnavailableError } from "../../lib/event-log";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
-import { getCurrentDefaultCountryCode, normalizePhone } from "../../lib/phone";
+import { getCountry, getCurrentDefaultCountryCode, normalizePhone } from "../../lib/phone";
 
 // Onboarding final form step — name + shop. NEITHER field is prefilled
 // from the Google profile (intentional UX call: shopkeepers' Google
@@ -42,6 +43,12 @@ export default function OnboardingProfileScreen() {
   const isRTL = useIsRTL();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  // Country dial-code for the phone field — same compound field as person/new
+  // and person/[id]/edit. Defaults to the user's preference (hydrated at
+  // _layout init, so synchronously correct on mount); changeable via the
+  // CountryPickerSheet. normalizePhone uses this country on submit.
+  const [countryCode, setCountryCode] = useState(getCurrentDefaultCountryCode);
+  const [pickerVisible, setPickerVisible] = useState(false);
   const [shopName, setShopName] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
   const [phoneError, setPhoneError] = useState<string | null>(null);
@@ -59,6 +66,7 @@ export default function OnboardingProfileScreen() {
   // Synchronous re-entry guard — `busy` state can't stop a same-frame
   // double-tap (setState is async); see entry/new.tsx.
   const savingRef = useRef(false);
+  const country = getCountry(countryCode);
 
   useEffect(() => {
     (async () => {
@@ -96,7 +104,7 @@ export default function OnboardingProfileScreen() {
     // identity — with zero feedback for typos.
     let normalizedPhone: string | null = null;
     if (trimmedPhone) {
-      normalizedPhone = normalizePhone(trimmedPhone, getCurrentDefaultCountryCode());
+      normalizedPhone = normalizePhone(trimmedPhone, countryCode);
       if (!normalizedPhone) {
         setPhoneError(t("personAdd.phone.invalid"));
         phoneRef.current?.focus();
@@ -206,22 +214,52 @@ export default function OnboardingProfileScreen() {
             error={nameError}
           />
 
-          <FormField
-            ref={phoneRef}
-            label={t("onboarding.phone.label")}
-            value={phone}
-            onChangeText={(v) => {
-              setPhoneError(null);
-              setPhone(v);
-            }}
-            placeholder={t("onboarding.phone.placeholder")}
-            keyboardType="phone-pad"
-            autoCorrect={false}
-            returnKeyType="next"
-            onSubmitEditing={() => shopRef.current?.focus()}
-            submitBehavior="submit"
-            error={phoneError}
-          />
+          {/* Phone with country picker — same compound field as person/new and
+              person/[id]/edit. The row stays physical-LTR (Western digits
+              render LTR via Unicode bidi regardless of locale); the label and
+              hint flip via textDir to follow reading order. */}
+          <View>
+            <Text style={[styles.fieldLabel, textDir(isRTL)]}>{t("onboarding.phone.label")}</Text>
+            <View style={styles.phoneRow}>
+              <Pressable
+                onPress={() => setPickerVisible(true)}
+                style={({ pressed }) => [
+                  styles.countryBtn,
+                  pressed && { backgroundColor: colors.bgMuted },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={t("onboarding.phone.label")}
+              >
+                <Text style={styles.countryFlag}>{country.flag}</Text>
+                <Text style={styles.countryDial}>{country.dialCode}</Text>
+                <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
+              </Pressable>
+              <TextInput
+                ref={phoneRef}
+                style={[styles.phoneInput, phoneError ? styles.inputError : null]}
+                value={phone}
+                onChangeText={(v) => {
+                  setPhoneError(null);
+                  setPhone(v);
+                }}
+                placeholder={
+                  country.code === "AF" ? "70 123 4567" : t("personAdd.phone.placeholderGeneric")
+                }
+                placeholderTextColor={colors.textMuted}
+                accessibilityLabel={t("onboarding.phone.label")}
+                keyboardType="phone-pad"
+                autoCorrect={false}
+                returnKeyType="next"
+                onSubmitEditing={() => shopRef.current?.focus()}
+                submitBehavior="submit"
+              />
+            </View>
+            {phoneError ? (
+              <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
+                {phoneError}
+              </Text>
+            ) : null}
+          </View>
           <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("onboarding.phone.hint")}</Text>
 
           <FormField
@@ -256,6 +294,13 @@ export default function OnboardingProfileScreen() {
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <CountryPickerSheet
+        visible={pickerVisible}
+        selectedCode={countryCode}
+        onSelect={(c) => setCountryCode(c)}
+        onDismiss={() => setPickerVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -324,5 +369,52 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansMedium,
     color: colors.danger,
     marginBottom: 4,
+  },
+  // Phone field with country picker — mirrors person/new.tsx.
+  fieldLabel: {
+    fontSize: 13,
+    fontFamily: fonts.sansMedium,
+    color: colors.textDefault,
+    marginBottom: 8,
+  },
+  phoneRow: { flexDirection: "row", gap: 8 },
+  countryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 44,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: 8,
+    backgroundColor: colors.bgDefault,
+  },
+  countryFlag: { fontSize: 18 },
+  countryDial: {
+    fontSize: 14,
+    fontFamily: fonts.monoMedium,
+    color: colors.textEmphasis,
+  },
+  phoneInput: {
+    flex: 1,
+    minHeight: 44,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    fontFamily: fonts.sansRegular,
+    color: colors.textEmphasis,
+    backgroundColor: colors.bgDefault,
+  },
+  inputError: {
+    borderColor: colors.danger,
+    backgroundColor: "rgba(220, 38, 38, 0.04)",
+  },
+  fieldError: {
+    fontSize: 12,
+    fontFamily: fonts.sansMedium,
+    color: colors.danger,
+    marginTop: 6,
   },
 });

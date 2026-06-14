@@ -49,7 +49,7 @@ export interface MeshConnection {
   /** Discriminator for telemetry + wifi-upgrade decision logic.
    *  ("lan" is the M3 TCP-over-LAN transport; "webrtc" was removed in M3d
    *  when the WebRTC transport + local signaling server were deleted.) */
-  readonly kind: "ble" | "lan" | "memory";
+  readonly kind: "ble" | "lan" | "btc" | "memory";
 
   /**
    * The peer's device_id, set by anti-entropy.ts after the VMC handshake

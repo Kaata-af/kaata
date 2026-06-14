@@ -249,8 +249,8 @@ export default function VaultPairScanScreen() {
       // pair-admission path requires this exact nonce to match a live
       // unconsumed pair token, binding "this handshake came from the QR
       // we just generated" vs "any stranger in BLE range during the
-      // window." 5-min TTL matches the QR's expiry; cleared on first
-      // successful handshake.
+      // window." The TTL matches the QR's expiry (see PAIR_QR_TTL_MS);
+      // cleared on the first successful handshake.
       try {
         const localPair = await import("../../lib/mesh/local-pair");
         await localPair.setLocalPairNonceForVault(
@@ -274,9 +274,15 @@ export default function VaultPairScanScreen() {
       // No-op when mesh isn't running.
       try {
         const mesh = await import("../../lib/mesh");
+        // Start the joiner's radios NOW so it can dial the owner immediately
+        // instead of waiting for MeshController's 10s poll to notice
+        // shop_mode_enabled. startShopMode is idempotent; only AFTER it runs is
+        // notifyVaultSetChanged effective (it's a no-op while mesh is stopped),
+        // so the just-joined vault is advertised + scanned for right away.
+        await mesh.startShopMode();
         await mesh.notifyVaultSetChanged();
       } catch (err) {
-        console.warn("[vault/pair-scan] notifyVaultSetChanged failed", err);
+        console.warn("[vault/pair-scan] start mesh / notify failed", err);
       }
 
       setStep({

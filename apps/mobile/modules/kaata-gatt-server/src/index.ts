@@ -44,6 +44,12 @@ export type MtuChangedEvent = {
   mtu: number;
 };
 
+export type CentralSubscribedEvent = {
+  address: string;
+  /** UUID of the characteristic whose CCCD the central enabled (may be null). */
+  charUuid: string | null;
+};
+
 // ---------------------------------------------------------------------------
 // Lazy native resolution. On Android, requireNativeModule succeeds once
 // autolinking registered "KaataGattServer". On other platforms we leave it
@@ -227,4 +233,14 @@ export function onMtuChanged(handler: (event: MtuChangedEvent) => void): EventSu
   if (Platform.OS !== "android") return { remove: () => {} };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return getNative().addListener("onMtuChanged", (e: any) => handler(e as MtuChangedEvent));
+}
+
+export function onCentralSubscribed(
+  handler: (event: CentralSubscribedEvent) => void,
+): EventSubscription {
+  if (Platform.OS !== "android") return { remove: () => {} };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return getNative().addListener("onCentralSubscribed", (e: any) =>
+    handler(e as CentralSubscribedEvent),
+  );
 }

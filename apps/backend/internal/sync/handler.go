@@ -257,12 +257,13 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 				httpx.Error(w, http.StatusBadRequest, "events["+strconv.Itoa(i)+"].payload.account_id does not match session account")
 				return
 			}
-			// target_id (when present) is also the bound account on
-			// account_bound events; gate it too for defense in depth.
-			if ev.TargetID != nil && *ev.TargetID != "" && *ev.TargetID != claims.AccountID {
-				httpx.Error(w, http.StatusBadRequest, "events["+strconv.Itoa(i)+"].target_id does not match session account on account_bound")
-				return
-			}
+			// NOTE: target_id on account_bound carries the local-self USER id
+			// (payload.from_user_id), NOT the account id — it is device-local
+			// metadata the mobile projection uses to bind its self-user row.
+			// The binding is authorized solely by payload.account_id (checked
+			// above) and resolved server-side from the events.account_id column
+			// (see account_binding.go scanBindings), never from target_id.
+			// target_id is still validated as a syntactic UUID below.
 		}
 		// Optional UUID syntactic checks for envelope refs.
 		if ev.TargetID != nil && *ev.TargetID != "" {

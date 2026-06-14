@@ -30,7 +30,7 @@ export type LocalVMCRole = "owner" | "editor" | "viewer";
 
 // --- constants ---------------------------------------------------------------
 
-export const PAIR_TOKEN_TTL_MS = 5 * 60 * 1000; // 5 minutes
+export const PAIR_TOKEN_TTL_MS = 30 * 60 * 1000; // 30 min — see PAIR_QR_TTL_MS
 const PAIR_TOKEN_BYTES = 32;
 const META_KEY_PENDING_PAIR_TOKENS = "pending_pair_tokens";
 

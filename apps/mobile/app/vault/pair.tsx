@@ -253,6 +253,29 @@ export default function VaultPairScreen() {
     setStage("pick-role");
   }
 
+  // Bring up THIS phone's radios so the joiner can actually connect. The pair
+  // screen used to mint the QR but start no mesh — so unless Shop Mode happened
+  // to already be running, the owner advertised nothing and the joiner's dial
+  // hit no peripheral ("owner does nothing"). startShopMode is idempotent;
+  // notifyVaultSetChanged makes this vault's hash advertised immediately. We
+  // also persist shop_mode_enabled=1 so MeshController keeps it on and runs the
+  // BLE-permission rationale if it hasn't been granted yet.
+  async function hostPairing(): Promise<void> {
+    try {
+      if ((await getAppMeta("shop_mode_enabled")) !== "1") {
+        await setAppMeta("shop_mode_enabled", "1");
+      }
+      const mesh = await import("../../lib/mesh");
+      await mesh.startShopMode();
+      await mesh.notifyVaultSetChanged();
+    } catch (err) {
+      // Non-fatal: MeshController's poll retries (and runs the permission
+      // rationale if needed); the joiner side can also drive the handshake.
+      console.warn("[vault/pair] could not start mesh for hosting", err);
+      toast.push(t("menu.sync.shopMode.failed"), "info");
+    }
+  }
+
   async function onConfirmRole() {
     if (issuingRef.current || !vault) return;
     issuingRef.current = true;
@@ -262,7 +285,11 @@ export default function VaultPairScreen() {
       // Only advance on success. Flipping to show-qr with a null payload
       // rendered a never-resolving "Generating…" placeholder and a dead
       // Send-link button; the error now shows here on the role picker.
-      if (ok) setStage("show-qr");
+      if (ok) {
+        setStage("show-qr");
+        // Start advertising + GATT now so the joiner has something to dial.
+        void hostPairing();
+      }
     } finally {
       issuingRef.current = false;
       setIssuing(false);

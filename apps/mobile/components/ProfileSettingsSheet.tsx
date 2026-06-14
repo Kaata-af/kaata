@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
+import { useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -131,6 +132,7 @@ export function ProfileSettingsSheet(props: {
 }) {
   const [rendered, setRendered] = useState(false);
   const isRTL = useIsRTL();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(OFFSCREEN)).current;
@@ -514,6 +516,17 @@ export function ProfileSettingsSheet(props: {
                   />
                 </>
               ) : null}
+
+              {/* DEV: Bluetooth Classic (RFCOMM) transport test — M-BTC-1.
+                  Temporary entry point; remove once RFCOMM replaces the BLE
+                  mesh path. */}
+              <NavRow
+                icon="bluetooth-outline"
+                label="Bluetooth test (dev)"
+                onPress={() => router.push("/dev/btc-test")}
+                isRTL={isRTL}
+                isLast
+              />
 
               <SectionGap />
 

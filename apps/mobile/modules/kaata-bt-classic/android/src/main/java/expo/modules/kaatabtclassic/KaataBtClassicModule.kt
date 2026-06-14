@@ -1,0 +1,460 @@
+package expo.modules.kaatabtclassic
+
+import android.Manifest
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothServerSocket
+import android.bluetooth.BluetoothSocket
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.os.Build
+import android.util.Base64
+import android.util.Log
+import androidx.core.content.ContextCompat
+import expo.modules.kotlin.Promise
+import expo.modules.kotlin.exception.CodedException
+import expo.modules.kotlin.modules.Module
+import expo.modules.kotlin.modules.ModuleDefinition
+import java.io.IOException
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+private const val TAG = "KaataBtClassic"
+
+// Event names — must match the TS surface in src/index.ts.
+private const val EVENT_ACCEPTED = "onRfcommAccepted"
+private const val EVENT_DATA = "onRfcommData"
+private const val EVENT_CLOSED = "onRfcommClosed"
+private const val EVENT_DEVICE_FOUND = "onDeviceFound"
+private const val EVENT_DISCOVERY_FINISHED = "onDiscoveryFinished"
+
+private const val READ_BUF_BYTES = 4096
+
+/**
+ * Expo Module wrapping Android Bluetooth Classic INSECURE RFCOMM for the kaata
+ * mesh — the Briar approach. Insecure RFCOMM = no OS bonding / no PIN dialog /
+ * never appears as a system paired-or-connected device; kaata layers its own
+ * Noise-XX + membership-chain crypto on the raw stream (lib/mesh/transport-btc.ts).
+ *
+ * An RFCOMM BluetoothSocket exposes input/output streams = a reliable ordered
+ * bidirectional byte pipe ("TCP over Bluetooth"), so it drops onto the same
+ * MeshConnection seam the LAN transport uses — none of the BLE GATT/MTU/CCCD
+ * machinery is needed.
+ *
+ * JS surface (see src/index.ts):
+ *   - openRfcommServer(name, uuid) -> listenerId   (insecure server + accept loop)
+ *   - stopRfcommServer(listenerId)
+ *   - connectRfcomm(mac, uuid) -> socketId         (insecure client dial)
+ *   - writeRfcomm(socketId, base64) / closeRfcomm(socketId)
+ *   - startClassicDiscovery() / stopClassicDiscovery()  (inquiry, learn a MAC)
+ *   - emits onRfcommAccepted / onRfcommData / onRfcommClosed /
+ *     onDeviceFound / onDiscoveryFinished
+ */
+class KaataBtClassicModule : Module() {
+
+  private var scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+  private val nextId = AtomicInteger(1)
+
+  private class ServerState(val socket: BluetoothServerSocket) {
+    @Volatile var job: Job? = null
+  }
+
+  private class SockState(val socket: BluetoothSocket) {
+    @Volatile var readJob: Job? = null
+  }
+
+  private val servers = ConcurrentHashMap<String, ServerState>()
+  private val sockets = ConcurrentHashMap<String, SockState>()
+
+  @Volatile private var discoveryReceiver: BroadcastReceiver? = null
+
+  private val appCtx: Context
+    get() = appContext.reactContext
+      ?: throw CodedException("E_NO_CONTEXT", "React context unavailable", null)
+
+  private fun adapter(): BluetoothAdapter {
+    val mgr = appCtx.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+      ?: throw CodedException("E_NO_BT", "BluetoothManager unavailable", null)
+    return mgr.adapter ?: throw CodedException("E_NO_BT", "No Bluetooth adapter on this device", null)
+  }
+
+  private fun ensureConnectPermission() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+    val ok = ContextCompat.checkSelfPermission(
+      appCtx,
+      Manifest.permission.BLUETOOTH_CONNECT,
+    ) == PackageManager.PERMISSION_GRANTED
+    if (!ok) {
+      throw CodedException("E_BLUETOOTH_CONNECT_DENIED", "BLUETOOTH_CONNECT not granted", null)
+    }
+  }
+
+  private fun ensureScanPermission() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+    val ok = ContextCompat.checkSelfPermission(
+      appCtx,
+      Manifest.permission.BLUETOOTH_SCAN,
+    ) == PackageManager.PERMISSION_GRANTED
+    if (!ok) {
+      throw CodedException("E_BLUETOOTH_SCAN_DENIED", "BLUETOOTH_SCAN not granted", null)
+    }
+  }
+
+  override fun definition() = ModuleDefinition {
+    Name("KaataBtClassic")
+
+    Events(EVENT_ACCEPTED, EVENT_DATA, EVENT_CLOSED, EVENT_DEVICE_FOUND, EVENT_DISCOVERY_FINISHED)
+
+    Function("isAvailable") {
+      try {
+        (appCtx.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter != null
+      } catch (_: Throwable) {
+        false
+      }
+    }
+
+    // This device's Bluetooth name (readable, unlike the MAC). Put in the pair
+    // QR so the scanner can target ONLY the host among discovered devices.
+    AsyncFunction("getLocalName") { promise: Promise ->
+      try {
+        promise.resolve(adapter().name)
+      } catch (_: Throwable) {
+        promise.resolve(null)
+      }
+    }
+
+    AsyncFunction("openRfcommServer") { serviceName: String, serviceUuid: String, promise: Promise ->
+      scope.launch {
+        try {
+          ensureConnectPermission()
+          val uuid = UUID.fromString(serviceUuid)
+          val server = adapter().listenUsingInsecureRfcommWithServiceRecord(serviceName, uuid)
+          val listenerId = "L" + nextId.getAndIncrement()
+          val st = ServerState(server)
+          servers[listenerId] = st
+          st.job = scope.launch { acceptLoop(listenerId, server) }
+          Log.i(TAG, "rfcomm server open listener=$listenerId uuid=$serviceUuid")
+          promise.resolve(listenerId)
+        } catch (e: CodedException) {
+          promise.reject(e)
+        } catch (e: Throwable) {
+          Log.w(TAG, "openRfcommServer failed", e)
+          promise.reject(CodedException("E_SERVER_FAILED", e.message ?: "openRfcommServer failed", e))
+        }
+      }
+    }
+
+    AsyncFunction("stopRfcommServer") { listenerId: String, promise: Promise ->
+      scope.launch {
+        try {
+          servers.remove(listenerId)?.let { st ->
+            try { st.socket.close() } catch (_: Throwable) { /* */ }
+            st.job?.cancel()
+          }
+          promise.resolve(null)
+        } catch (e: Throwable) {
+          promise.reject(CodedException("E_STOP_FAILED", e.message ?: "stopRfcommServer failed", e))
+        }
+      }
+    }
+
+    AsyncFunction("connectRfcomm") { mac: String, serviceUuid: String, promise: Promise ->
+      scope.launch {
+        try {
+          ensureConnectPermission()
+          // Inquiry contends with the single radio; Android REQUIRES
+          // cancelDiscovery() before connect(), and the radio needs a moment to
+          // settle afterwards or the first connect fails instantly.
+          try { if (adapter().isDiscovering) adapter().cancelDiscovery() } catch (_: Throwable) { /* */ }
+          delay(250)
+          val dev = adapter().getRemoteDevice(mac)
+          val uuid = UUID.fromString(serviceUuid)
+          val s = connectInsecure(dev, uuid)
+          val socketId = registerSocket(s)
+          Log.i(TAG, "rfcomm connected socket=$socketId mac=$mac")
+          promise.resolve(socketId)
+        } catch (e: CodedException) {
+          promise.reject(e)
+        } catch (e: Throwable) {
+          Log.w(TAG, "connectRfcomm failed mac=$mac", e)
+          promise.reject(CodedException("E_CONNECT_FAILED", e.message ?: "connectRfcomm failed", e))
+        }
+      }
+    }
+
+    AsyncFunction("writeRfcomm") { socketId: String, valueBase64: String, promise: Promise ->
+      scope.launch {
+        try {
+          val st = sockets[socketId]
+            ?: throw CodedException("E_NO_SOCKET", "No socket $socketId", null)
+          val bytes = Base64.decode(valueBase64, Base64.NO_WRAP)
+          st.socket.outputStream.write(bytes)
+          st.socket.outputStream.flush()
+          promise.resolve(null)
+        } catch (e: CodedException) {
+          promise.reject(e)
+        } catch (e: Throwable) {
+          // A write failure means the link is gone — surface as closed.
+          closeSocketInternal(socketId, "write failed: ${e.message}")
+          promise.reject(CodedException("E_WRITE_FAILED", e.message ?: "writeRfcomm failed", e))
+        }
+      }
+    }
+
+    AsyncFunction("closeRfcomm") { socketId: String, promise: Promise ->
+      scope.launch {
+        closeSocketInternal(socketId, null)
+        promise.resolve(null)
+      }
+    }
+
+    AsyncFunction("startClassicDiscovery") { promise: Promise ->
+      scope.launch {
+        try {
+          ensureScanPermission()
+          registerDiscoveryReceiver()
+          try { if (adapter().isDiscovering) adapter().cancelDiscovery() } catch (_: Throwable) { /* */ }
+          val started = adapter().startDiscovery()
+          promise.resolve(started)
+        } catch (e: CodedException) {
+          promise.reject(e)
+        } catch (e: Throwable) {
+          promise.reject(CodedException("E_DISCOVERY_FAILED", e.message ?: "startClassicDiscovery failed", e))
+        }
+      }
+    }
+
+    AsyncFunction("stopClassicDiscovery") { promise: Promise ->
+      scope.launch {
+        try {
+          try { adapter().cancelDiscovery() } catch (_: Throwable) { /* */ }
+          unregisterDiscoveryReceiver()
+          promise.resolve(null)
+        } catch (e: Throwable) {
+          promise.reject(CodedException("E_STOP_DISCOVERY_FAILED", e.message ?: "stopClassicDiscovery failed", e))
+        }
+      }
+    }
+
+    // Make THIS device classic-discoverable so a peer that doesn't know our MAC
+    // can find it via inquiry (Android hides the local MAC since API 23). Shows
+    // the system ACTION_REQUEST_DISCOVERABLE prompt; time-limited (max ~300s on
+    // most OEMs). Needed only for first contact.
+    AsyncFunction("requestDiscoverable") { durationSec: Int, promise: Promise ->
+      try {
+        val activity = appContext.currentActivity
+          ?: throw CodedException("E_NO_ACTIVITY", "No current activity for discoverability", null)
+        val intent = Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE)
+          .putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, durationSec)
+        activity.runOnUiThread { activity.startActivity(intent) }
+        promise.resolve(true)
+      } catch (e: CodedException) {
+        promise.reject(e)
+      } catch (e: Throwable) {
+        Log.w(TAG, "requestDiscoverable failed", e)
+        promise.reject(CodedException("E_DISCOVERABLE_FAILED", e.message ?: "requestDiscoverable failed", e))
+      }
+    }
+
+    OnDestroy {
+      // Cancel the scope so coroutines don't leak on HMR/rebind; tear down on a
+      // throwaway scope (mirrors KaataGattServerModule).
+      val prior = scope
+      val teardown = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+      teardown.launch {
+        try { internalCloseAll() } catch (_: Throwable) { /* */ }
+        try { prior.cancel() } catch (_: Throwable) { /* */ }
+        try { teardown.cancel() } catch (_: Throwable) { /* */ }
+      }
+      scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internals
+  // ---------------------------------------------------------------------------
+
+  // Blocking accept loop on an IO coroutine. Cancelled by closing the server
+  // socket (accept() then throws IOException) + removing the listener.
+  private suspend fun acceptLoop(listenerId: String, server: BluetoothServerSocket) {
+    while (servers.containsKey(listenerId)) {
+      val socket: BluetoothSocket = try {
+        server.accept()
+      } catch (_: IOException) {
+        break // server closed / stopped
+      } catch (e: Throwable) {
+        Log.w(TAG, "accept failed listener=$listenerId", e)
+        break
+      }
+      try {
+        val socketId = registerSocket(socket)
+        val payload = HashMap<String, Any?>()
+        payload["listenerId"] = listenerId
+        payload["socketId"] = socketId
+        payload["remoteMac"] = try { socket.remoteDevice?.address } catch (_: Throwable) { null }
+        sendEvent(EVENT_ACCEPTED, payload)
+        Log.i(TAG, "rfcomm accepted socket=$socketId listener=$listenerId")
+      } catch (e: Throwable) {
+        try { socket.close() } catch (_: Throwable) { /* */ }
+        Log.w(TAG, "accept handling failed", e)
+      }
+    }
+  }
+
+  // Insecure RFCOMM connect with the mitigations Briar uses for OEM/timing
+  // flakiness: the SDP-based socket is retried (the first attempt right after an
+  // inquiry commonly fails), then a reflection fallback to a fixed RFCOMM
+  // channel (bypasses SDP) for stacks where SDP-based connect never works.
+  private suspend fun connectInsecure(dev: BluetoothDevice, uuid: UUID): BluetoothSocket {
+    var lastErr: Throwable? = null
+    for (attempt in 1..2) {
+      var s: BluetoothSocket? = null
+      try {
+        s = dev.createInsecureRfcommSocketToServiceRecord(uuid)
+        s.connect()
+        return s
+      } catch (e: Throwable) {
+        lastErr = e
+        try { s?.close() } catch (_: Throwable) { /* */ }
+        Log.w(TAG, "rfcomm SDP connect attempt $attempt failed: ${e.message}")
+        delay(500)
+      }
+    }
+    // Reflection fallback: createInsecureRfcommSocket(channel=1) — bypasses SDP.
+    var s: BluetoothSocket? = null
+    try {
+      val m = dev.javaClass.getMethod("createInsecureRfcommSocket", Int::class.javaPrimitiveType)
+      s = m.invoke(dev, 1) as BluetoothSocket
+      s.connect()
+      Log.i(TAG, "rfcomm connected via reflection fallback (channel 1)")
+      return s
+    } catch (e: Throwable) {
+      try { s?.close() } catch (_: Throwable) { /* */ }
+      Log.w(TAG, "rfcomm reflection fallback failed: ${e.message}")
+      if (lastErr == null) lastErr = e
+    }
+    throw lastErr ?: IOException("rfcomm connect failed")
+  }
+
+  private fun registerSocket(socket: BluetoothSocket): String {
+    val socketId = "S" + nextId.getAndIncrement()
+    val st = SockState(socket)
+    sockets[socketId] = st
+    st.readJob = scope.launch { readLoop(socketId, socket) }
+    return socketId
+  }
+
+  // Blocking read loop on an IO coroutine. Emits inbound bytes as base64.
+  private suspend fun readLoop(socketId: String, socket: BluetoothSocket) {
+    val input = try {
+      socket.inputStream
+    } catch (e: Throwable) {
+      closeSocketInternal(socketId, "no input stream")
+      return
+    }
+    val buf = ByteArray(READ_BUF_BYTES)
+    while (sockets.containsKey(socketId)) {
+      val n = try {
+        input.read(buf)
+      } catch (e: IOException) {
+        closeSocketInternal(socketId, "read error: ${e.message}")
+        return
+      } catch (e: Throwable) {
+        closeSocketInternal(socketId, "read failed: ${e.message}")
+        return
+      }
+      if (n < 0) {
+        closeSocketInternal(socketId, "eof")
+        return
+      }
+      if (n == 0) continue
+      val b64 = Base64.encodeToString(buf, 0, n, Base64.NO_WRAP)
+      val payload = HashMap<String, Any?>()
+      payload["socketId"] = socketId
+      payload["valueBase64"] = b64
+      sendEvent(EVENT_DATA, payload)
+    }
+  }
+
+  private fun closeSocketInternal(socketId: String, reason: String?) {
+    val st = sockets.remove(socketId) ?: return
+    try { st.socket.close() } catch (_: Throwable) { /* */ }
+    st.readJob?.cancel()
+    val payload = HashMap<String, Any?>()
+    payload["socketId"] = socketId
+    if (reason != null) payload["reason"] = reason
+    sendEvent(EVENT_CLOSED, payload)
+    Log.i(TAG, "rfcomm closed socket=$socketId reason=$reason")
+  }
+
+  private fun internalCloseAll() {
+    for (id in servers.keys.toList()) {
+      servers.remove(id)?.let { st ->
+        try { st.socket.close() } catch (_: Throwable) { /* */ }
+        st.job?.cancel()
+      }
+    }
+    for (id in sockets.keys.toList()) {
+      sockets.remove(id)?.let { st ->
+        try { st.socket.close() } catch (_: Throwable) { /* */ }
+        st.readJob?.cancel()
+      }
+    }
+    unregisterDiscoveryReceiver()
+  }
+
+  private fun registerDiscoveryReceiver() {
+    if (discoveryReceiver != null) return
+    val receiver = object : BroadcastReceiver() {
+      override fun onReceive(ctx: Context, intent: Intent) {
+        when (intent.action) {
+          BluetoothDevice.ACTION_FOUND -> {
+            val dev: BluetoothDevice? =
+              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+              } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+              }
+            if (dev != null) {
+              val payload = HashMap<String, Any?>()
+              payload["mac"] = dev.address
+              payload["name"] = try { dev.name } catch (_: Throwable) { null }
+              sendEvent(EVENT_DEVICE_FOUND, payload)
+            }
+          }
+          BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
+            sendEvent(EVENT_DISCOVERY_FINISHED, HashMap<String, Any?>())
+          }
+        }
+      }
+    }
+    val filter = IntentFilter().apply {
+      addAction(BluetoothDevice.ACTION_FOUND)
+      addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
+    }
+    // ACTION_FOUND / ACTION_DISCOVERY_FINISHED are system (protected) broadcasts;
+    // RECEIVER_EXPORTED is the correct flag for the Android 14+ requirement.
+    ContextCompat.registerReceiver(appCtx, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
+    discoveryReceiver = receiver
+  }
+
+  private fun unregisterDiscoveryReceiver() {
+    discoveryReceiver?.let {
+      try { appCtx.unregisterReceiver(it) } catch (_: Throwable) { /* */ }
+    }
+    discoveryReceiver = null
+  }
+}
