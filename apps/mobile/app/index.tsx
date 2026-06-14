@@ -136,6 +136,10 @@ export default function HomeScreen() {
   const [archivedVaults, setArchivedVaults] = useState<VaultListItem[]>([]);
   const [shopModeEnabled, setShopModeEnabled] = useState(false);
   const [shopModeBusy, setShopModeBusy] = useState(false);
+  // Cloud backup channel — default ON when the key is unset (existing signed-in
+  // installs synced unconditionally before the toggle). See AutoSync gate.
+  const [cloudSyncEnabled, setCloudSyncEnabled] = useState(true);
+  const [cloudSyncBusy, setCloudSyncBusy] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
   // Phase 6: live peer count for the Sync toggle subtitle. Subscribed
   // via mesh.onShopModeStatusChange() in the mount effect below so the
@@ -187,13 +191,14 @@ export default function HomeScreen() {
     // previously meant setLoaded(true) never ran — an infinite spinner on
     // the ROOT screen with no retry and no back.
     try {
-      const [s, list, user, vaultId, accId, shopRaw] = await Promise.all([
+      const [s, list, user, vaultId, accId, shopRaw, cloudRaw] = await Promise.all([
         getLocalSelf(),
         listAllPeople(),
         getSessionUser(),
         getActiveVaultId(),
         getAppMeta("account_id"),
         getAppMeta("shop_mode_enabled"),
+        getAppMeta("cloud_sync_enabled"),
       ]);
       setSelf(s);
       setAllPeople(list);
@@ -201,6 +206,7 @@ export default function HomeScreen() {
       setActiveVaultIdState(vaultId);
       setActiveAccountId(accId);
       setShopModeEnabled(shopRaw === "1");
+      setCloudSyncEnabled(cloudRaw == null ? true : cloudRaw === "1");
 
       // D-ARCHIVED-VAULT-FILTER: helpers in lib/db.ts return the two slices
       // separately. Loading them in parallel keeps the first paint snappy.
@@ -772,6 +778,8 @@ export default function HomeScreen() {
         }}
         shopModeEnabled={shopModeEnabled}
         shopModeBusy={shopModeBusy}
+        cloudSyncEnabled={cloudSyncEnabled}
+        cloudSyncBusy={cloudSyncBusy}
         syncBusy={syncBusy}
         activePeers={meshActivePeers}
         appVersion={Constants.expoConfig?.version ?? "0.0.0"}
@@ -916,6 +924,27 @@ export default function HomeScreen() {
             if (__DEV__) console.warn("[home] shop mode toggle failed", err);
           } finally {
             setShopModeBusy(false);
+          }
+        }}
+        onToggleCloudSync={async (next) => {
+          // Pure app_meta flip — no native perms. AutoSync's 10s poll picks it
+          // up and starts/stops the cloud scheduler; the mesh channels are
+          // unaffected (independent — no single point of failure).
+          if (cloudSyncBusy) return;
+          setCloudSyncBusy(true);
+          setCloudSyncEnabled(next); // optimistic
+          try {
+            await setAppMeta("cloud_sync_enabled", next ? "1" : "0");
+            toast.push(
+              next ? t("menu.sync.cloud.onToast") : t("menu.sync.cloud.offToast"),
+              "success",
+            );
+          } catch (err) {
+            setCloudSyncEnabled(!next); // revert
+            toast.push(t("menu.sync.cloud.failed"), "error");
+            if (__DEV__) console.warn("[home] cloud sync toggle failed", err);
+          } finally {
+            setCloudSyncBusy(false);
           }
         }}
       />

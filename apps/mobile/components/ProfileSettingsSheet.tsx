@@ -93,6 +93,8 @@ export function ProfileSettingsSheet(props: {
   // Sync state
   shopModeEnabled: boolean;
   shopModeBusy?: boolean;
+  cloudSyncEnabled: boolean;
+  cloudSyncBusy?: boolean;
   syncBusy?: boolean;
   activePeers?: number;
 
@@ -124,6 +126,7 @@ export function ProfileSettingsSheet(props: {
 
   // Sync
   onToggleShopMode: (next: boolean) => void;
+  onToggleCloudSync: (next: boolean) => void;
   onSyncNow: () => void;
   onRestoreFromCloud: () => void;
 
@@ -491,9 +494,42 @@ export function ProfileSettingsSheet(props: {
                 />
               </View>
 
-              {/* Sync to cloud / Restore from cloud — signed-in only. */}
+              {/* Cloud backup toggle + Sync to cloud / Restore — signed-in only. */}
               {liveAccountId ? (
                 <>
+                  <View style={[styles.toggleRow, rowDir(isRTL)]}>
+                    <Ionicons
+                      name="cloud-outline"
+                      size={SETTINGS_ROW_ICON_SIZE}
+                      color={colors.textEmphasis}
+                      style={
+                        isRTL
+                          ? { marginLeft: SETTINGS_ROW_ICON_GAP }
+                          : { marginRight: SETTINGS_ROW_ICON_GAP }
+                      }
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.toggleTitle, textDir(isRTL)]}>
+                        {t("menu.sync.cloud")}
+                      </Text>
+                      <Text style={[styles.toggleHint, textDir(isRTL)]}>
+                        {props.cloudSyncEnabled
+                          ? t("menu.sync.cloud.hint")
+                          : t("menu.sync.cloud.hintOff")}
+                      </Text>
+                    </View>
+                    <Switch
+                      value={props.cloudSyncEnabled}
+                      onValueChange={props.onToggleCloudSync}
+                      disabled={!!props.cloudSyncBusy}
+                      accessibilityRole="switch"
+                      accessibilityLabel={t("menu.sync.cloud")}
+                      accessibilityState={{
+                        checked: props.cloudSyncEnabled,
+                        disabled: !!props.cloudSyncBusy,
+                      }}
+                    />
+                  </View>
                   <NavRow
                     icon="cloud-upload-outline"
                     label={t("menu.sync.now")}

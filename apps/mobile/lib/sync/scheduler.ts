@@ -29,11 +29,16 @@ import {
 } from "./errors";
 import { pullEvents } from "./pull";
 import { pushEvents } from "./push";
+import { onLedgerApplied } from "../ledger-events";
 
 const FOREGROUND_INTERVAL_MS = 5_000;
 const BACKGROUND_INTERVAL_MS = 30_000;
 const BACKOFF_BASE_MS = 1_000;
 const BACKOFF_MAX_MS = 60_000;
+// Push-on-write: after a LOCAL edit, run a sync cycle within ~1s instead of
+// waiting out the poll interval — matches the mesh channel's latency so the
+// cloud channel is near-real-time too. Debounced to coalesce edit bursts.
+const KICK_DEBOUNCE_MS = 1_000;
 // Advisory vector convergence check every N successful cycles (M1).
 const CONVERGENCE_EVERY_N = 60;
 
@@ -117,8 +122,14 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
     console.warn("[sync] chain backfill kickoff failed (non-fatal)", err);
   });
 
+  let kickTimer: ReturnType<typeof setTimeout> | null = null;
+
   const appStateSub = AppState.addEventListener("change", (s) => {
+    const wasActive = currentAppState === "active";
     currentAppState = s;
+    // Foreground kick: sync immediately on resume instead of waiting out the
+    // in-flight background interval (up to 30s of stale data after unlock).
+    if (!wasActive && s === "active") scheduleNext(0);
   });
 
   const scheduleNext = (delayMs: number): void => {
@@ -126,6 +137,23 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
     if (timer) clearTimeout(timer);
     timer = setTimeout(tick, delayMs);
   };
+
+  // Push-on-write: a LOCAL ledger edit schedules a near-immediate sync cycle.
+  // Only local writes (a remote-applied event already came from a sync — kicking
+  // on it would loop) and only the active vault (the scheduler is single-vault).
+  const scheduleKick = (): void => {
+    if (stopped || kickTimer) return; // coalesce a burst into one cycle
+    kickTimer = setTimeout(() => {
+      kickTimer = null;
+      if (stopped) return;
+      scheduleNext(0); // tick guards inFlight, so this collapses into a run
+    }, KICK_DEBOUNCE_MS);
+  };
+  const unsubLedger = onLedgerApplied((vaultId, origin) => {
+    if (origin !== "local") return;
+    if (vaultId !== getActiveVaultIdSyncMaybe()) return;
+    scheduleKick();
+  });
 
   const currentInterval = (): number => {
     return currentAppState === "active" ? FOREGROUND_INTERVAL_MS : BACKGROUND_INTERVAL_MS;
@@ -202,6 +230,11 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
       clearTimeout(timer);
       timer = null;
     }
+    if (kickTimer) {
+      clearTimeout(kickTimer);
+      kickTimer = null;
+    }
+    unsubLedger();
     appStateSub.remove();
   };
 }
