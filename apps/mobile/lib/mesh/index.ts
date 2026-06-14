@@ -83,15 +83,8 @@ import {
   stopLanDiscovery,
   onPeerFound as onLanPeerFound,
 } from "./discovery-lan";
-import { startBle } from "./discovery-ble";
 import { startLanListener, dialLanPeer } from "./transport-lan";
 import type { MeshConnection } from "./transport-interface";
-import {
-  coordinateWifiUpgrade,
-  estimateBleSeconds,
-  shouldOfferWifiUpgrade,
-  shouldPromptForWifi,
-} from "./wifi-upgrade";
 import { Platform } from "react-native";
 
 import {
@@ -101,15 +94,15 @@ import {
   MeshVMCRevokedError,
   ShopModeForegroundServiceFailedError,
   ShopModeNotAvailableError,
-  MeshPeripheralUnsupportedError,
   emitMeshFailure,
 } from "./errors";
-import {
-  startBLEPeripheralMode,
-  startPeripheralGattAcceptLoop,
-  dialBLEPeer,
-  CAP_FLAG_SUPPORTS_WIFI_UPGRADE,
-} from "./transport-ble";
+
+// M-BTC-3.4: BLE peripheral/GATT/advertiser + the BLE→wifi upgrade path are
+// RETIRED. The proximity transports are now Bluetooth Classic RFCOMM
+// (btc-steady.ts, transport-btc.ts) for first-contact + steady sync, and
+// mDNS/LAN (discovery-router → discovery-lan, transport-lan) as the steady
+// same-network transport. transport-ble.ts + discovery-ble.ts were deleted;
+// wifi-upgrade.ts is dead (the upgrade only ran over BLE).
 
 // ---------------------------------------------------------------------------
 // app_meta keys (mirrored in db.ts migration documentation).
@@ -125,7 +118,7 @@ export const SHOP_MODE_LAST_ACTIVE_AT_KEY = "shop_mode_last_active_at";
 // them out.
 // ---------------------------------------------------------------------------
 configureDiscoveryRouter({
-  startBle,
+  // BLE retired (M-BTC-3.4) — mDNS/LAN is the only router-driven discovery now.
   startMdns: async (opts) => {
     // M3: the opportunistic mDNS window is now the LAN driver
     // (discovery-lan.ts) — it advertises the TCP listener port (opts.listenPort
@@ -176,12 +169,6 @@ type RunState = {
   listenPort: number;
   /** Stop fn for the M3 LAN (TCP) listener. Null when not running. */
   lanListenerStop: (() => Promise<void>) | null;
-  /** Stop fn returned by startBLEPeripheralMode. Null when peripheral is
-   *  not running (unsupported chip or not yet started). */
-  peripheralStop: (() => Promise<void>) | null;
-  /** Stop fn returned by startPeripheralGattAcceptLoop. Null when the GATT
-   *  server module isn't loaded or open failed. */
-  peripheralGattStop: (() => Promise<void>) | null;
 };
 
 const state: RunState = {
@@ -193,8 +180,6 @@ const state: RunState = {
   unsubscribeDiscovery: null,
   listenPort: 0,
   lanListenerStop: null,
-  peripheralStop: null,
-  peripheralGattStop: null,
 };
 
 function makeConnKey(deviceId: string, vaultId: string): string {
@@ -367,40 +352,19 @@ export async function notifyVaultSetChanged(): Promise<void> {
     console.warn("[mesh.notifyVaultSetChanged] rebuildVaultHashIndex failed", err);
     // continue — peripheral refresh is still useful
   }
+  // M-BTC-3.4: refresh the steady BTC channel so a just-joined/created vault is
+  // synced without a full Shop Mode power-cycle. startBtcSteadySync is idempotent
+  // — it restarts with the new anchored-vault set. LAN/mDNS picks up the new
+  // vault on its next discovery cycle.
   try {
-    const snapshot = await snapshotVaultHashesForAdvertise();
-    // Dedup: avoid tearing down a healthy advertiser when nothing
-    // actually changed (e.g. multiple events firing on the same vault
-    // mutation). Hash set key = sorted list of vaultId@epochLow.
-    const key = snapshot
-      .map((v) => `${v.vaultId}@${v.epochLow}`)
-      .sort()
-      .join(",");
-    if (key === lastAdvertisedHashSetKey && state.peripheralStop != null) {
-      return;
-    }
-    lastAdvertisedHashSetKey = key;
-
-    if (state.peripheralStop) {
-      try {
-        await state.peripheralStop();
-      } catch (err) {
-        console.warn("[mesh.notifyVaultSetChanged] previous peripheral stop threw", err);
-      }
-      state.peripheralStop = null;
-    }
-    const next = await startBLEPeripheralMode({
-      vaultHashes: snapshot,
-      capabilityFlags: CAP_FLAG_SUPPORTS_WIFI_UPGRADE,
-    });
-    state.peripheralStop = next;
-    console.log("[mesh.notifyVaultSetChanged] re-advertising", snapshot.length, "vault(s)");
+    const db = await getDb();
+    const anchored = await db.getAllAsync<{ id: string }>(
+      `SELECT id FROM vaults WHERE archived_at IS NULL AND vault_trust_anchor_pubkey IS NOT NULL`,
+    );
+    const { startBtcSteadySync } = await import("./btc-steady");
+    await startBtcSteadySync({ vaultIds: anchored.map((v) => v.id) });
   } catch (err) {
-    if (err instanceof MeshPeripheralUnsupportedError) {
-      console.warn("[mesh.notifyVaultSetChanged] peripheral not supported on this chip");
-    } else {
-      console.warn("[mesh.notifyVaultSetChanged] peripheral refresh failed", err);
-    }
+    console.warn("[mesh.notifyVaultSetChanged] steady-channel refresh failed", err);
   }
 }
 
@@ -510,80 +474,15 @@ async function startShopModeBody(): Promise<void> {
     console.warn("[mesh.start] BTC steady-state start failed (non-fatal)", err);
   }
 
-  // Phase 6: route through discovery-router, which owns BOTH BLE and
-  // mDNS lifecycles. Pre-router we imported from `./discovery` directly
-  // — that path is now retired here (still imported below as the
-  // adapter implementation).
+  // M-BTC-3.4: steady mDNS/LAN discovery (the discovery-router now drives LAN,
+  // not BLE). Discovered same-network peers are dialed over TCP in
+  // handleRoutedPeer. Incoming LAN dials land on the startLanListener above; the
+  // BTC channel (started above) handles Bluetooth. No BLE peripheral/GATT/advert.
   await routerStartDiscovery({ listenPort: port });
   state.unsubscribeDiscovery = onPeerFound((peer) => {
     void handleRoutedPeer(peer, currentGen);
   });
-  console.log("[mesh.start] discovery router started (BLE scan)");
-
-  // v0.5.2 GATT SERVER: open the BluetoothGattServer BEFORE advertising a
-  // connectable endpoint. The old order advertised first, so a central that
-  // dialed in the window before the server was open saw an empty service tree
-  // and STREAM_CHAR writes returned GATT_INVALID_HANDLE — the "couldn't
-  // connect" / owner-does-nothing pairing symptom. It was also gated on the
-  // advertiser having started, so any advertiser failure skipped the server
-  // entirely. Open the server FIRST; only then go connectable. The accept loop
-  // wraps each incoming central connection as a BleMeshConnection and routes it
-  // into the SAME handlePeerConnection pipeline incoming LAN (TCP) connections
-  // use. runAntiEntropy is role-symmetric (both sides exchange Hello, PoP,
-  // AEAD-derive, Summary, Delta over one code path).
-  let gattServerOpen = false;
-  try {
-    const gattStop = await startPeripheralGattAcceptLoop({
-      onIncomingConnection: (conn) => {
-        console.log("[mesh.start.gatt] incoming BLE central accepted");
-        void handlePeerConnection(conn, "incoming", currentGen);
-      },
-    });
-    state.peripheralGattStop = gattStop;
-    gattServerOpen = true;
-    console.log("[mesh.start] GATT server open, accepting central connections");
-  } catch (err) {
-    // No GATT server → we can't receive a dial, so stay scan-only and skip
-    // advertising a connectable endpoint below.
-    console.warn("[mesh.start] GATT accept loop failed (non-fatal); scan-only", err);
-    state.peripheralGattStop = null;
-  }
-
-  // Phase 6.1: bring up the peripheral (advertise) so other Kaata phones can
-  // find US — only once the GATT server is open to receive their dial. Soft-
-  // fails: if the chip lacks peripheral support or the advert overflows the
-  // 31-byte budget, MeshPeripheralUnsupportedError is thrown — we catch, tear
-  // down the now-useless GATT server, and continue scan-only.
-  if (gattServerOpen) {
-    try {
-      const vaultHashes = await snapshotVaultHashesForAdvertise();
-      const peripheralStop = await startBLEPeripheralMode({
-        vaultHashes,
-        capabilityFlags: CAP_FLAG_SUPPORTS_WIFI_UPGRADE,
-      });
-      state.peripheralStop = peripheralStop;
-      console.log("[mesh.start] peripheral started, advertising", vaultHashes.length, "vault(s)");
-    } catch (err) {
-      if (err instanceof MeshPeripheralUnsupportedError) {
-        console.warn("[mesh.start] peripheral unsupported on this chip; scan-only mode");
-      } else {
-        console.warn("[mesh.start] peripheral start failed (non-fatal)", err);
-      }
-      state.peripheralStop = null;
-      // A GATT server with no connectable advertiser is useless — no one can
-      // discover us to dial it. Tear it down so we're cleanly scan-only.
-      if (state.peripheralGattStop) {
-        try {
-          await state.peripheralGattStop();
-        } catch {
-          /* */
-        }
-        state.peripheralGattStop = null;
-      }
-    }
-  } else {
-    if (__DEV__) console.log("[mesh.start] skipping advertiser because GATT server is not open");
-  }
+  console.log("[mesh.start] LAN/mDNS discovery started");
 
   state.running = true;
   emitStatusChange();
@@ -656,22 +555,6 @@ async function teardownRadios(opts: { skipFGS?: boolean } = {}): Promise<void> {
     } catch (err) {
       if (__DEV__) console.warn("[mesh] foreground service stop failed", err);
     }
-  }
-  if (state.peripheralStop) {
-    try {
-      await state.peripheralStop();
-    } catch (err) {
-      console.warn("[mesh] peripheral stop threw, continuing", err);
-    }
-    state.peripheralStop = null;
-  }
-  if (state.peripheralGattStop) {
-    try {
-      await state.peripheralGattStop();
-    } catch (err) {
-      console.warn("[mesh] GATT accept loop stop threw, continuing", err);
-    }
-    state.peripheralGattStop = null;
   }
   if (state.unsubscribeDiscovery) {
     state.unsubscribeDiscovery();
@@ -748,7 +631,9 @@ export async function hydrateLastActiveAt(): Promise<void> {
 async function handleRoutedPeer(routed: RoutedPeer, gen: number): Promise<void> {
   if (gen !== state.generation) return;
   const peerInfo = routed.peerInfo;
-  if (routed.transport === "mdns" && routed.raw.isSelf) return;
+  // BLE retired (M-BTC-3.4): the router only emits mDNS/LAN peers now.
+  if (routed.transport !== "mdns") return;
+  if (routed.raw.isSelf) return;
 
   // M4 dispatch gate: a vault is mesh-eligible iff it's chain-anchored
   // (loadVaultTrustAnchor non-null). The real membership check stays in
@@ -782,56 +667,27 @@ async function handleRoutedPeer(routed: RoutedPeer, gen: number): Promise<void> 
   // next emit retries within 5s thanks to BUG-C). For mDNS the
   // installIdShort is stable (service name, not MAC), so the legacy key
   // is fine there.
-  const inflightKey =
-    routed.transport === "ble"
-      ? `ble:${chosenVaultId}`
-      : `${peerInfo.installIdShort}:${chosenVaultId}`;
+  const inflightKey = `${peerInfo.installIdShort}:${chosenVaultId}`;
   if (state.inflight.has(inflightKey)) return;
   state.inflight.add(inflightKey);
 
   try {
-    if (routed.transport === "mdns") {
-      // M3: mDNS discovered a LAN peer (discovery-lan.ts). Dial it over TCP.
-      const raw = routed.raw;
-      console.log(
-        "[mesh.lan.dial] LAN peer matched vault=",
-        chosenVaultId.slice(0, 8),
-        "host=",
-        raw.host,
-        "port=",
-        raw.port,
-      );
-      const conn = await dialLanPeer({ host: raw.host, port: raw.port });
-      await handlePeerConnection(conn, "outgoing", gen, {
-        vaultId: chosenVaultId,
-        installIdShort: peerInfo.installIdShort,
-      });
-    } else {
-      // BLE transport — Phase 6.1 wired path. The peripheral side on the
-      // OTHER phone advertised the vault hash; we dial here.
-      //
-      // Race note: if both phones discover each other simultaneously,
-      // they both dial. Post-handshake dedup at the connections.set
-      // step below catches the loser and closes the duplicate. This is
-      // the simplest correct path — no need for a "lower-deviceId
-      // suppresses" pre-handshake protocol when the worst case is a
-      // ~5s wasted handshake.
-      const raw = routed.raw;
-      console.log(
-        "[mesh.ble.dial] BLE peer matched vault=",
-        chosenVaultId.slice(0, 8),
-        "installIdShort=",
-        peerInfo.installIdShort,
-        "deviceId=",
-        raw.deviceId,
-      );
-      const conn = await dialBLEPeer({ deviceId: raw.deviceId });
-      console.log("[mesh.ble.dial] GATT connected, starting handshake");
-      await handlePeerConnection(conn, "outgoing", gen, {
-        vaultId: chosenVaultId,
-        installIdShort: peerInfo.installIdShort,
-      });
-    }
+    // mDNS discovered a LAN peer (discovery-lan.ts). Dial it over TCP; the
+    // handshake/anti-entropy runs identically to BTC (transport-agnostic).
+    const raw = routed.raw;
+    console.log(
+      "[mesh.lan.dial] LAN peer matched vault=",
+      chosenVaultId.slice(0, 8),
+      "host=",
+      raw.host,
+      "port=",
+      raw.port,
+    );
+    const conn = await dialLanPeer({ host: raw.host, port: raw.port });
+    await handlePeerConnection(conn, "outgoing", gen, {
+      vaultId: chosenVaultId,
+      installIdShort: peerInfo.installIdShort,
+    });
   } catch (err) {
     if (err instanceof MeshTransportError) {
       console.warn("[mesh] dialPeer failed", peerInfo.serviceName, err.message);
@@ -881,24 +737,13 @@ async function handlePeerConnection(
     return;
   }
 
-  // Determine our own device_id (Ed25519 pubkey, base64) for the
-  // wifi-upgrade race-resolver. Fall back to install_id-short if unset.
-  const ownDeviceId = getDevicePubkey() ?? "";
-
   try {
+    // M-BTC-3.4: the BLE→wifi upgrade hook is gone (it only ran over BLE). BTC
+    // and LAN are both first-class transports, so there's nothing to upgrade
+    // FROM. runAntiEntropy runs identically over every transport.
     const result = await runAntiEntropy(conn, {
       vaultId,
       vaultTrustAnchorPubkey,
-      coordinateUpgrade: ownDeviceId
-        ? {
-            ownDeviceId,
-            shouldPromptForWifi,
-            estimateBleSeconds,
-            shouldOfferWifiUpgrade,
-            coordinateWifiUpgrade,
-          }
-        : undefined,
-      upgradeListenPort: state.listenPort,
     });
 
     if (gen !== state.generation) {

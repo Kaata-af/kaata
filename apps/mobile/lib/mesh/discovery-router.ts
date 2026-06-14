@@ -124,7 +124,8 @@ const state: RouterState = {
  * adapters via `configureDiscoveryRouter()` at startup.
  */
 export type RouterAdapters = {
-  startBle: (opts: {
+  // BLE retired (M-BTC-3.4) — kept optional so old test wiring still type-checks.
+  startBle?: (opts: {
     listenPort: number | null;
     onPeerFound: (peer: BLEPeerRaw) => void;
   }) => Promise<() => Promise<void>>;
@@ -193,15 +194,22 @@ export async function startDiscovery(opts: { listenPort: number | null }): Promi
   }
   if (state.mode !== "off") return; // idempotent
 
+  // M-BTC-3.4: BLE is retired. mDNS/LAN is now the STEADY discovery transport
+  // (was opportunistic-only before). It needs the TCP listener port to advertise.
+  if (opts.listenPort == null) {
+    if (__DEV__) console.warn("[discovery-router] no listenPort — LAN discovery skipped");
+    return;
+  }
+
   const gen = ++state.generation;
 
-  const stopBle = await adapters.startBle({
+  const stopMdns = await adapters.startMdns({
     listenPort: opts.listenPort,
     onPeerFound: (raw) => {
       if (gen !== state.generation) return; // stale
       emit({
-        transport: "ble",
-        peerInfo: blePeerInfo(raw),
+        transport: "mdns",
+        peerInfo: mdnsPeerInfo(raw),
         raw,
       });
     },
@@ -209,14 +217,14 @@ export async function startDiscovery(opts: { listenPort: number | null }): Promi
 
   if (gen !== state.generation) {
     // We were stopped mid-start. Tear down what we just brought up.
-    await stopBle().catch(() => {
+    await stopMdns().catch(() => {
       /* */
     });
     return;
   }
 
-  state.bleStop = stopBle;
-  state.mode = "ble";
+  state.mdnsStop = stopMdns;
+  state.mode = "ble"; // "steady discovery on" — label kept to avoid wider churn
 }
 
 /**
