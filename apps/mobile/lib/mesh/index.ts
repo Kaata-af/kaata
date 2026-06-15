@@ -53,8 +53,8 @@
 //      (plugins/withNearbyWifiNeverForLocation.js was generalized).
 //
 //   3. Confirm @config-plugins/react-native-webrtc is intact and
-//      ./plugins/withNotifeeForegroundService is enabled (declares
-//      the `connectedDevice|dataSync` FGS type).
+//      ./plugins/withKaataForegroundService is enabled (declares the native
+//      KaataForegroundService with the `connectedDevice` FGS type).
 
 // Side-effect import — installs the @noble/ed25519 Hermes shims
 // (sha512Sync + randomBytes via expo-crypto). Centralized in

@@ -13,13 +13,14 @@
 // mesh is Android-only in Phase 6.
 //
 // FGS TYPE DECLARATION (Android 14+):
-//   - The native service is declared with `connectedDevice|dataSync` in the
-//     kaata-bt-classic module manifest, and KaataForegroundService passes the
-//     matching bitmask to startForeground (or it throws on API 34+). Both:
-//       CONNECTED_DEVICE — holding open RFCOMM links to nearby phones
-//       DATA_SYNC        — anti-entropy event replication
-//   - app.json declares both FOREGROUND_SERVICE_CONNECTED_DEVICE and
-//     FOREGROUND_SERVICE_DATA_SYNC runtime permissions.
+//   - The native service is declared with `connectedDevice` (ONLY) via the
+//     config plugin plugins/withKaataForegroundService.js, and
+//     KaataForegroundService passes the matching type to startForeground (or it
+//     throws on API 34+). connectedDevice = we hold open RFCOMM links to nearby
+//     phones. We deliberately avoid dataSync: on Android 14+ a dataSync FGS is
+//     capped at ~6h/day and auto-stopped, which would kill always-on sync (this
+//     is also why Briar uses connectedDevice only).
+//   - app.json declares FOREGROUND_SERVICE_CONNECTED_DEVICE.
 
 import { Platform } from "react-native";
 
@@ -117,9 +118,8 @@ export type ShopModeNotificationOpts = {
  *
  * Android 13+ requires POST_NOTIFICATIONS at runtime; we request it on
  * the first start so the tray notification actually appears. Android 14+
- * also requires the FGS to declare a foregroundServiceType — we pass
- * `connectedDevice|dataSync` to match the manifest entry (BLE GATT
- * holds = connectedDevice; anti-entropy = dataSync).
+ * also requires the FGS to declare a foregroundServiceType — the native
+ * service uses `connectedDevice` (we hold RFCOMM links to nearby phones).
  */
 export async function startShopModeForegroundService(
   opts?: ShopModeNotificationOpts,

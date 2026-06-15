@@ -43,30 +43,18 @@ if (Platform.OS === "android") {
     const notifee = require("@notifee/react-native");
 
     // ─────────────────────────────────────────────────────────────────
-    // 1. Register the foreground-service task FIRST.
+    // 1. (REMOVED) notifee foreground-service registration.
     //
-    // The callback returns a never-resolving Promise. While the Promise
-    // is pending, notifee's native ForegroundService keeps the JS task
-    // alive (which keeps the process at foreground priority). The
-    // Promise resolves implicitly when we call
-    // notifee.stopForegroundService() (or cancelDisplayedNotification on
-    // the FGS notification), at which point notifee tears the task down
-    // and Android demotes us back to background.
-    //
-    // Per notifee docs: this MUST be called at module top level, not
-    // inside a React effect, because Android can deliver the FGS start
-    // intent BEFORE the React tree mounts (e.g. process resurrection
-    // after Doze).
+    // The foreground service is now the NATIVE KaataForegroundService
+    // (modules/kaata-bt-classic), declared via plugins/
+    // withKaataForegroundService.js and started from foreground.ts. notifee's
+    // JS-callback-bound FGS — a never-resolving Promise that only kept the
+    // process alive while the JS bundle was loaded — was exactly the thing
+    // that vanished on swipe-away and tripped the 5s
+    // ForegroundServiceDidNotStartInTimeException on restart. So we no longer
+    // call notifee.registerForegroundService at all. notifee is kept ONLY for
+    // the tray channel + the POST_NOTIFICATIONS prompt below.
     // ─────────────────────────────────────────────────────────────────
-    notifee.default.registerForegroundService(
-      // The notification arg is intentionally unused — we only need the
-      // Promise to stay pending so the native service stays alive.
-      (_notification: unknown) =>
-        new Promise<void>(() => {
-          // Never resolves. notifee tears the task down externally when
-          // the FGS notification is cancelled via stopForegroundService.
-        }),
-    );
 
     // ─────────────────────────────────────────────────────────────────
     // 2. Ensure the notification channel exists.
