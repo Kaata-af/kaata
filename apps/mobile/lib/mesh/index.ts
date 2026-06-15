@@ -452,12 +452,20 @@ async function startShopModeBody(): Promise<void> {
   });
   console.log("[mesh.start] LAN/mDNS discovery started");
 
+  // Flip running BEFORE the FGS block so notifyVaultSetChanged() + the
+  // startShopMode idempotent guard observe "running" during the failure-path FGS
+  // retry window (~2.4s) — otherwise a vault-set change there silently no-ops
+  // (frozen-set) and a re-entrant start could run startShopModeBody twice. The
+  // startShopMode catch resets running on any throw. emitStatusChange still runs
+  // AFTER the FGS start, preserving START-before-UPDATE.
+  state.running = true;
+
   // Phase 6: promote to a foreground service for BACKGROUND survival (Doze
   // otherwise kills the radios when the app is backgrounded). The service type
   // (connectedDevice|dataSync) is declared in the manifest.
   //
-  // Started BEFORE state.running/emitStatusChange so the START path runs before
-  // MeshController's UPDATE path (a status-change-driven displayNotification).
+  // Started before emitStatusChange so the START path runs before MeshController's
+  // UPDATE path (a status-change-driven displayNotification).
   //
   // NON-FATAL + RETRIED: a flaky notifee start must not tear down working
   // foreground sync (that was the "sync silently turns off" bug), but we try
@@ -482,7 +490,6 @@ async function startShopModeBody(): Promise<void> {
     console.warn("[mesh] foreground service start threw (non-fatal, foreground-only)", err);
   }
 
-  state.running = true;
   emitStatusChange();
   // Mythos crash-diagnosis: sample memory/storage every 60s while shop
   // mode is on so the Diagnostics screen can render the leak slope over a

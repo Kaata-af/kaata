@@ -41,6 +41,10 @@ const DISCOVERABLE_SEC = 300;
 // cleanup), auto-resume the steady loop after this long so sync can't stay
 // paused forever. Slightly longer than the discoverable window.
 const PAIR_PAUSE_SAFETY_MS = 360_000;
+// Cap the pair handshake+delta. The default is 5min; a hung peer would otherwise
+// pin the steady-sync pause (joiner) / the host listener that long. 60s is ample
+// for a pair + initial ledger transfer.
+const PAIR_SESSION_MAX_MS = 60_000;
 
 export type PairSyncOutcome = {
   ok: boolean;
@@ -187,7 +191,11 @@ async function runPairSession(
 ): Promise<PairSyncOutcome> {
   conn.suppressFailures = true;
   try {
-    const r = await runAntiEntropy(conn, { vaultId, vaultTrustAnchorPubkey: anchor });
+    const r = await runAntiEntropy(conn, {
+      vaultId,
+      vaultTrustAnchorPubkey: anchor,
+      maxDurationMs: PAIR_SESSION_MAX_MS,
+    });
     // M-BTC-3.3: remember the now-authenticated peer's MAC so steady-state sync
     // (btc-steady.ts) can re-dial it directly — no QR re-scan, no classic inquiry.
     if (conn.remoteDeviceId && conn.remoteMac) {
