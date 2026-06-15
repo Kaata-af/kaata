@@ -538,6 +538,12 @@ export async function discoverAndConnect(opts: {
 }): Promise<BtcMeshConnection> {
   ensureNativeWired();
   const log = opts.onLog ?? (() => {});
+  // Diagnostics folded into the final btc_no_host error so the pair screen shows
+  // exactly WHERE it failed without adb (host MAC present? scan started? devices
+  // found? dial errors?). The pair-scan screen renders err.message verbatim.
+  let directDialError: string | null = null;
+  let discoveryStarted = false;
+  const dialErrors: string[] = [];
 
   // PRIMARY (Briar): the QR carried the host's real MAC — dial it directly. Only
   // the host answers the derived UUID, so this is deterministic + skips the
@@ -550,7 +556,8 @@ export async function discoverAndConnect(opts: {
       log("✓ connected directly");
       return conn;
     } catch (err) {
-      log(`  ✗ direct dial failed: ${(err as Error).message} — scanning instead`);
+      directDialError = (err as Error).message;
+      log(`  ✗ direct dial failed: ${directDialError} — scanning instead`);
     }
   }
 
@@ -601,7 +608,10 @@ export async function discoverAndConnect(opts: {
 
   try {
     log("scanning for nearby Bluetooth devices…");
-    await startClassicDiscovery();
+    // startDiscovery returns false if the adapter refused to start scanning
+    // (BT off, busy, or an OEM block) — captured for the diagnostic.
+    discoveryStarted = (await startClassicDiscovery()) === true;
+    if (!discoveryStarted) log("  ⚠ classic discovery did NOT start");
     const deadline = Date.now() + discoveryMs;
     await Promise.race([
       waitForMatch,
@@ -667,8 +677,27 @@ export async function discoverAndConnect(opts: {
       return conn;
     } catch (err) {
       // Log WHY each dial failed — the host's error is the diagnostic.
-      log(`  ✗ ${info.name || mac}: ${(err as Error).message}`);
+      const m = (err as Error).message;
+      dialErrors.push(m);
+      log(`  ✗ ${info.name || mac}: ${m}`);
     }
   }
-  throw new MeshTransportError("no RFCOMM host found among nearby devices", "btc_no_host");
+  // Rich diagnostic in the message (shown on the pair-scan error screen):
+  //   hostMac=y/n   was the host's MAC in the QR (did getLocalAddress work)
+  //   directErr=…   why the direct-MAC dial failed (when hostMac=y)
+  //   scanStarted   did classic discovery actually start
+  //   found=N       how many non-LE devices the inquiry discovered
+  //                 (0 ⇒ host not discoverable / scan delivering nothing)
+  //   dials=N       how many we attempted by UUID
+  //   dialErrs=…    the actual RFCOMM connect errors (host not listening vs
+  //                 SDP/connect failure on the hardware)
+  const uniqErrs = [...new Set(dialErrors)].slice(0, 3).join(" | ");
+  throw new MeshTransportError(
+    "no RFCOMM host found " +
+      `[hostMac=${opts.hostMac ? "y" : "n"}` +
+      `${directDialError ? ` directErr=${directDialError}` : ""}` +
+      `, scanStarted=${discoveryStarted}, found=${found.size}, dials=${entries.length}` +
+      `${uniqErrs ? `, dialErrs=${uniqErrs}` : ""}]`,
+    "btc_no_host",
+  );
 }
