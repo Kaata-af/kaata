@@ -12,6 +12,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.Settings
 import android.util.Base64
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -41,6 +42,10 @@ private const val EVENT_DEVICE_FOUND = "onDeviceFound"
 private const val EVENT_DISCOVERY_FINISHED = "onDiscoveryFinished"
 
 private const val READ_BUF_BYTES = 4096
+
+// The fake MAC Android returns to apps since API 23 to hide the real address.
+// getLocalAddress rejects it (mirrors Briar's AndroidUtils.FAKE_BLUETOOTH_ADDRESS).
+private const val FAKE_BLUETOOTH_ADDRESS = "02:00:00:00:00:00"
 
 // Cap concurrent RFCOMM sockets. A pileup of half-open accepted/dialed sockets
 // (each = a reader coroutine + 4KB buffer + thread stack + the BT stack's own
@@ -138,6 +143,14 @@ class KaataBtClassicModule : Module() {
       } catch (_: Throwable) {
         promise.resolve(null)
       }
+    }
+
+    // This device's REAL Bluetooth MAC, so the pair QR can carry it and the
+    // scanner dials the host DIRECTLY (no unreliable name-inquiry) — exactly how
+    // Briar does it (AndroidUtils.getBluetoothAddressAndMethod). Returns null if
+    // none of the three sources yield a valid (non-fake) address.
+    AsyncFunction("getLocalAddress") { promise: Promise ->
+      promise.resolve(resolveLocalAddress())
     }
 
     AsyncFunction("openRfcommServer") { serviceName: String, serviceUuid: String, promise: Promise ->
@@ -363,6 +376,43 @@ class KaataBtClassicModule : Module() {
     }
   }
 
+  private fun isValidBtAddress(addr: String?): Boolean =
+    !addr.isNullOrEmpty() &&
+      BluetoothAdapter.checkBluetoothAddress(addr) &&
+      addr != FAKE_BLUETOOTH_ADDRESS
+
+  // Port of Briar's AndroidUtils.getBluetoothAddressAndMethod: try the adapter,
+  // then Settings.Secure (API < 33), then reflection on the hidden mService.
+  // Each source is guarded — a SecurityException (missing BLUETOOTH_CONNECT) just
+  // falls through to the next. Returns null when no source yields a real address.
+  private fun resolveLocalAddress(): String? {
+    val adapter = try { adapter() } catch (_: Throwable) { return null }
+    // 1. adapter.getAddress() — valid on older Android / some OEMs.
+    try {
+      val a = adapter.address
+      if (isValidBtAddress(a)) return a
+    } catch (_: Throwable) { /* SecurityException on newer Android — try next */ }
+    // 2. Settings.Secure "bluetooth_address" — readable on API < 33.
+    if (Build.VERSION.SDK_INT < 33) {
+      try {
+        val a = Settings.Secure.getString(appCtx.contentResolver, "bluetooth_address")
+        if (isValidBtAddress(a)) return a
+      } catch (_: Throwable) { /* */ }
+    }
+    // 3. Reflection on the hidden mService.getAddress().
+    try {
+      val field = adapter.javaClass.getDeclaredField("mService")
+      field.isAccessible = true
+      val mService = field.get(adapter)
+      if (mService != null) {
+        val getAddress = mService.javaClass.getMethod("getAddress")
+        val a = getAddress.invoke(mService) as? String
+        if (isValidBtAddress(a)) return a
+      }
+    } catch (_: Throwable) { /* */ }
+    return null
+  }
+
   // Blocking accept loop on an IO coroutine. Cancelled by closing the server
   // socket (accept() then throws IOException) + removing the listener.
   private suspend fun acceptLoop(listenerId: String, server: BluetoothServerSocket) {
@@ -526,6 +576,9 @@ class KaataBtClassicModule : Module() {
               val payload = HashMap<String, Any?>()
               payload["mac"] = dev.address
               payload["name"] = try { dev.name } catch (_: Throwable) { null }
+              // type so JS can skip BLE-only devices (DEVICE_TYPE_LE = 2) — they
+              // can never answer an RFCOMM SDP dial (Briar's d.getType()!=LE filter).
+              payload["type"] = try { dev.type } catch (_: Throwable) { -1 }
               safeEmit(EVENT_DEVICE_FOUND, payload)
             }
           }

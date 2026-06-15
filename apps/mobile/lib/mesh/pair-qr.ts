@@ -106,6 +106,15 @@ export type PairQrPayload = {
    * host exposes that service). Not validated on decode (best-effort hint).
    */
   issuer_bt_name?: string;
+  /**
+   * v=3: the issuer's REAL Bluetooth MAC (getLocalAddress). When present, the
+   * scanner dials the host DIRECTLY by MAC — no classic inquiry, no name match —
+   * which is how Briar's QR pairing works (BQP §6.1 descriptor address). Optional
+   * + additive: a device that can't read its own MAC (Android hides it; recovery
+   * can fail) simply omits it and the scanner falls back to inquiry-by-UUID. Not
+   * validated on decode (best-effort hint, same as issuer_bt_name).
+   */
+  issuer_bt_mac?: string;
 };
 
 export type PairQrValidationResult =

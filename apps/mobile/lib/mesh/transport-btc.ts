@@ -515,7 +515,15 @@ export function deriveRfcommUuid(secret: string): string {
  */
 export async function discoverAndConnect(opts: {
   uuid: string;
-  /** The host's Bluetooth name (from the QR) — dialed first when present. */
+  /**
+   * The host's REAL Bluetooth MAC (from the QR). When present we dial it
+   * DIRECTLY — no inquiry, no name match — exactly like Briar's QR pairing
+   * (BQP §6.1 descriptor address). This is the reliable primary path; inquiry
+   * is only the fallback for hosts that can't advertise their MAC.
+   */
+  hostMac?: string;
+  /** The host's Bluetooth name (from the QR) — a SORT hint for the inquiry
+   *  fallback only; NEVER a match gate (Android name resolution is unreliable). */
   hostName?: string;
   discoveryMs?: number;
   onLog?: (s: string) => void;
@@ -530,20 +538,39 @@ export async function discoverAndConnect(opts: {
 }): Promise<BtcMeshConnection> {
   ensureNativeWired();
   const log = opts.onLog ?? (() => {});
+
+  // PRIMARY (Briar): the QR carried the host's real MAC — dial it directly. Only
+  // the host answers the derived UUID, so this is deterministic + skips the
+  // multi-second inquiry entirely. Fall through to inquiry if it fails (MAC
+  // stale / host re-paired / transient radio error).
+  if (opts.hostMac) {
+    try {
+      log(`→ dialing host directly ${opts.hostMac}`);
+      const conn = await dialBtcPeer({ mac: opts.hostMac, uuid: opts.uuid });
+      log("✓ connected directly");
+      return conn;
+    } catch (err) {
+      log(`  ✗ direct dial failed: ${(err as Error).message} — scanning instead`);
+    }
+  }
+
   const discoveryMs = opts.discoveryMs ?? 15_000;
-  // Once devices start appearing, only wait this much longer before stopping
-  // inquiry + dialing. The co-member is physically present so it surfaces in the
-  // first 1-2s; waiting the full inquiry window (~12-15s) just to maybe catch a
-  // late friendly-name was the bulk of the "first QR scan is slow" latency.
-  const GRACE_AFTER_FIRST_MS = 2_500;
-  // Bound the blind-dial fallback so one call can't monopolize the radio.
-  const MAX_FALLBACK_DIALS = 6;
-  const MAX_FALLBACK_DIAL_MS = 12_000;
-  const target = opts.hostName ? opts.hostName.trim().toLowerCase() : null;
-  const found = new Map<string, string>();
+  // We collect for the WHOLE inquiry window (until ACTION_DISCOVERY_FINISHED or
+  // the deadline) and then dial EVERY discovered non-LE device by the UUID —
+  // exactly Briar's discoverAndConnect. We deliberately do NOT early-stop after
+  // the first device: the host can be slow to surface in a BT-dense room, and a
+  // grace-after-first cut the scan before it appeared (-> false btc_no_host).
+  // We no longer wait for a friendly NAME either (Android usually reports "");
+  // only the host answers the UUID, so dialing all hits is what finds it.
+  //
+  // Overall cap on the dial sweep so a dense room can't block forever. Unlike
+  // the old 6-dial cap, we attempt EVERY discovered non-LE device within this
+  // window (Briar caps only the inquiry, then dials all hits).
+  const DIAL_WALL_BUDGET_MS = 25_000;
+  const nameHint = opts.hostName ? opts.hostName.trim().toLowerCase() : null;
+  // mac -> { name, type }
+  const found = new Map<string, { name: string; type: number }>();
   let finished = false;
-  let matchedMac: string | null = null;
-  let firstFoundAt = 0;
   let aborted = false;
   let resolveWait: (() => void) | null = null;
   const waitForMatch = new Promise<void>((res) => {
@@ -552,28 +579,24 @@ export async function discoverAndConnect(opts: {
 
   const subFound = onDeviceFound((d) => {
     if (!d.mac) return;
+    const type = d.type ?? -1;
+    // Skip BLE-only devices — they can never answer an RFCOMM SDP dial and would
+    // only waste dial budget (Briar's `d.getType() != DEVICE_TYPE_LE` filter).
+    if (type === 2 /* DEVICE_TYPE_LE */) return;
     const name = d.name ?? "";
     const prev = found.get(d.mac);
     if (prev === undefined) {
-      if (firstFoundAt === 0) firstFoundAt = Date.now();
-      found.set(d.mac, name);
+      found.set(d.mac, { name, type });
       log(`· found ${name || d.mac}`);
-    } else if (prev === "" && name !== "") {
+    } else if (prev.name === "" && name !== "") {
       // Android often reports the friendly name in a LATER ACTION_FOUND for the
-      // same MAC — upgrade the stored name rather than dropping that event.
-      found.set(d.mac, name);
-    }
-    // EARLY-EXIT: the instant we see the QR-named host, stop waiting and dial it
-    // — don't burn the full ~15s inquiry. (No match → we fall back to all hits.)
-    if (target && matchedMac === null && name.toLowerCase() === target) {
-      matchedMac = d.mac;
-      log("✓ host name matched — connecting");
-      resolveWait?.();
+      // same MAC — upgrade the stored name (used only as a sort hint).
+      found.set(d.mac, { name, type });
     }
   });
   const subDone = onDiscoveryFinished(() => {
     finished = true;
-    resolveWait?.(); // inquiry ended with no name match — unblock + use all hits
+    resolveWait?.();
   });
 
   try {
@@ -583,22 +606,13 @@ export async function discoverAndConnect(opts: {
     await Promise.race([
       waitForMatch,
       (async () => {
-        while (!finished && matchedMac === null && Date.now() < deadline) {
+        while (!finished && Date.now() < deadline) {
           // A higher-priority radio user (QR pairing) asked us to release the
-          // radio — stop inquiring immediately so we don't cross-cancel ITS
-          // inquiry. Throws btc_aborted below; the steady caller swallows it.
+          // radio — stop inquiring so we don't cross-cancel ITS inquiry.
           if (opts.shouldAbort?.()) {
             aborted = true;
             break;
           }
-          // Grace early-stop ONLY when there's no host name to match (the steady
-          // inquiry fallback, where any co-member works + we dial all found).
-          // For the QR-pair path (target set) we must NOT cut off early — Android
-          // inquiry can surface the named host a few seconds in, so we wait for
-          // the name-match early-exit or the full deadline (reliability > speed
-          // for first contact; name-match usually fires fast anyway).
-          if (!target && firstFoundAt > 0 && Date.now() - firstFoundAt > GRACE_AFTER_FIRST_MS)
-            break;
           await new Promise((r) => setTimeout(r, 150));
         }
       })(),
@@ -620,49 +634,40 @@ export async function discoverAndConnect(opts: {
     throw new MeshTransportError("inquiry aborted (radio reclaimed for pairing)", "btc_aborted");
   }
 
-  // Dial the name-matched host first (the early-exit win).
-  if (matchedMac) {
-    const name = found.get(matchedMac) || matchedMac;
-    try {
-      log(`→ dialing ${name}`);
-      const conn = await dialBtcPeer({ mac: matchedMac, uuid: opts.uuid });
-      log(`✓ connected to ${name}`);
-      return conn;
-    } catch (err) {
-      log(`  ✗ ${name}: ${(err as Error).message} — trying others`);
-    }
+  // Dial EVERY discovered (non-LE) device by the derived UUID — only the host
+  // exposes that service. Shuffled so a dense room doesn't deterministically
+  // retry the same wrong device first (Briar's `shuffle(addresses)`); the QR
+  // name, when present, only re-orders to dial the likely host first.
+  const entries = [...found.entries()];
+  for (let i = entries.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [entries[i], entries[j]] = [entries[j], entries[i]];
   }
-
-  // Fallback: try OTHER discovered devices by the derived UUID (only the true
-  // host exposes it). Name-sorted so a name hint still dials likely-first.
-  // BOUNDED: each failed dial costs ~1.5-2s (SDP retries + reflection fallback),
-  // so a BT-dense room (many phones/POS/headphones) would otherwise block for
-  // 15-20s. Cap the attempts AND a total wall budget so first-contact + the
-  // steady inquiry fallback can't monopolize the single radio.
-  let entries = [...found.entries()].filter(([mac]) => mac !== matchedMac);
-  if (target) {
-    entries = entries.sort((a, b) => {
-      const am = a[1].toLowerCase() === target ? 0 : 1;
-      const bm = b[1].toLowerCase() === target ? 0 : 1;
+  if (nameHint) {
+    entries.sort((a, b) => {
+      const am = a[1].name.toLowerCase() === nameHint ? 0 : 1;
+      const bm = b[1].name.toLowerCase() === nameHint ? 0 : 1;
       return am - bm;
     });
   }
-  const fallbackDeadline = Date.now() + MAX_FALLBACK_DIAL_MS;
-  entries = entries.slice(0, MAX_FALLBACK_DIALS);
+  const dialDeadline = Date.now() + DIAL_WALL_BUDGET_MS;
   log(`trying ${entries.length} device(s)…`);
-  for (const [mac, name] of entries) {
-    if (Date.now() > fallbackDeadline) {
+  for (const [mac, info] of entries) {
+    if (opts.shouldAbort?.()) {
+      throw new MeshTransportError("inquiry aborted (radio reclaimed for pairing)", "btc_aborted");
+    }
+    if (Date.now() > dialDeadline) {
       log("  · dial budget exhausted — giving up this sweep");
       break;
     }
     try {
-      log(`→ dialing ${name || mac}`);
+      log(`→ dialing ${info.name || mac}`);
       const conn = await dialBtcPeer({ mac, uuid: opts.uuid });
-      log(`✓ connected to ${name || mac}`);
+      log(`✓ connected to ${info.name || mac}`);
       return conn;
     } catch (err) {
       // Log WHY each dial failed — the host's error is the diagnostic.
-      log(`  ✗ ${name || mac}: ${(err as Error).message}`);
+      log(`  ✗ ${info.name || mac}: ${(err as Error).message}`);
     }
   }
   throw new MeshTransportError("no RFCOMM host found among nearby devices", "btc_no_host");

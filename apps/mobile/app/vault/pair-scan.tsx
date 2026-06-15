@@ -279,6 +279,7 @@ export default function VaultPairScanScreen() {
       await joinPairOverBtc({
         vaultId: payload.vault_id,
         pairNonce: payload.shop_mode_token,
+        hostMac: payload.issuer_bt_mac ?? null,
         hostName: payload.issuer_bt_name ?? null,
       });
 

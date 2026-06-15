@@ -36,7 +36,7 @@ import { ensureDeviceKey, getDevicePubkey } from "../../lib/mesh/device-key";
 import { buildLocalAccountId } from "../../lib/trust/account-id";
 import { getLocalSelf } from "../../lib/db";
 import { hostPairOverBtc, type HostPairHandle } from "../../lib/mesh/pair-btc";
-import { getLocalName } from "../../modules/kaata-bt-classic";
+import { getLocalName, getLocalAddress } from "../../modules/kaata-bt-classic";
 
 type VaultLite = {
   id: string;
@@ -114,6 +114,11 @@ export default function VaultPairScreen() {
         // nearby phone by the derived RFCOMM UUID). Best-effort; Android-only
         // and may be null (no name set / permission) — omitted from the QR then.
         const btName = await getLocalName().catch(() => null);
+        // The owner's REAL Bluetooth MAC, when obtainable, lets the scanner dial
+        // this device DIRECTLY (no inquiry, no name match) — the reliable Briar
+        // path. Null on devices that hide it; the scanner then falls back to
+        // inquiry-by-UUID. Best-effort; omitted from the QR when null.
+        const btMac = await getLocalAddress().catch(() => null);
         // Schema version selection. The chain pair path REQUIRES the
         // owner's trust anchor pubkey in the QR (the joiner pins it). We
         // got the device pubkey above, so ship v=3 with the bidirectional
@@ -151,6 +156,7 @@ export default function VaultPairScreen() {
                 issuer_display_name: ownerDisplayName,
                 // Additive RFCOMM hint (M-BTC-3.2); omitted when null.
                 ...(btName ? { issuer_bt_name: btName } : {}),
+                ...(btMac ? { issuer_bt_mac: btMac } : {}),
               }
             : {}),
         };

@@ -44,6 +44,9 @@ export type RfcommClosedEvent = {
 export type DeviceFoundEvent = {
   mac: string;
   name: string | null;
+  /** BluetoothDevice.getType(): 1=CLASSIC, 2=LE, 3=DUAL, 0=UNKNOWN, -1=unavailable.
+   *  Used to skip LE-only devices that can't answer an RFCOMM dial. */
+  type?: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -68,6 +71,20 @@ function getNative(): NativeKaataBtClassic {
 export async function getLocalName(): Promise<string | null> {
   if (Platform.OS !== "android") return null;
   return (await getNative().getLocalName()) ?? null;
+}
+
+/**
+ * This device's REAL Bluetooth MAC (Briar's 3-source recovery: adapter →
+ * Settings.Secure → reflection), or null if none is obtainable on this device.
+ * Put in the pair QR so the scanner dials the host directly instead of inquiring.
+ */
+export async function getLocalAddress(): Promise<string | null> {
+  if (Platform.OS !== "android") return null;
+  try {
+    return (await getNative().getLocalAddress()) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /** True iff the native module is loaded (Android only). */

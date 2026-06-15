@@ -144,7 +144,10 @@ export async function hostPairOverBtc(opts: {
 export async function joinPairOverBtc(opts: {
   vaultId: string;
   pairNonce: string;
-  /** The owner's Bluetooth name from the QR (issuer_bt_name) — dialed first. */
+  /** The owner's REAL Bluetooth MAC from the QR (issuer_bt_mac) — dialed DIRECTLY
+   *  when present (no inquiry). The reliable Briar path. */
+  hostMac?: string | null;
+  /** The owner's Bluetooth name from the QR (issuer_bt_name) — inquiry sort hint. */
   hostName?: string | null;
   onLog?: (line: string) => void;
 }): Promise<PairSyncOutcome> {
@@ -160,6 +163,7 @@ export async function joinPairOverBtc(opts: {
   try {
     const conn = await discoverAndConnect({
       uuid,
+      hostMac: opts.hostMac ?? undefined,
       hostName: opts.hostName ?? undefined,
       onLog: opts.onLog,
     });
