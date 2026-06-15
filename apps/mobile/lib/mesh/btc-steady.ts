@@ -107,8 +107,29 @@ let steady: SteadyState | null = null;
 // SECOND kaata (peerless → steady keeps inquiring it) failed to pair while the
 // first kept syncing. Counter, not a bool, so overlapping host+join balance.
 let pairPauseCount = 0;
-export function pauseBtcSteadyForPairing(): void {
+
+// How long pauseBtcSteadyForPairing waits for an in-flight steady tick to drop
+// the radio before letting the pair inquiry start. The aborting inquiry bails
+// within ~150ms of pairPauseCount going >0; this is just the safety ceiling.
+const PAIR_RADIO_WAIT_MS = 4_000;
+
+/**
+ * Acquire the radio for a QR pair window. Increments the pause (so no NEW steady
+ * pass starts) AND waits for any IN-FLIGHT steady tick to release the radio —
+ * the in-flight inquiry sees pairPauseCount>0 via its shouldAbort and bails, but
+ * we must wait for it to actually finish or the pair's startClassicDiscovery
+ * races the steady inquiry's stopClassicDiscovery and both sweeps cancel each
+ * other (the "no RFCOMM host found" failure once steady auto-resumes on launch).
+ * async + awaited by the pair screens.
+ */
+export async function pauseBtcSteadyForPairing(): Promise<void> {
   pairPauseCount++;
+  const s = steady;
+  if (!s) return;
+  const deadline = Date.now() + PAIR_RADIO_WAIT_MS;
+  while (s.tickRunning && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 80));
+  }
 }
 export function resumeBtcSteadyForPairing(): void {
   pairPauseCount = Math.max(0, pairPauseCount - 1);
@@ -354,6 +375,10 @@ async function inquireForPeer(s: SteadyState, vaultId: string): Promise<void> {
     conn = await discoverAndConnect({
       uuid: steadyUuid(vaultId, dayNumber(Date.now())),
       discoveryMs: INQUIRY_DISCOVERY_MS,
+      // Yield the radio the instant a QR pair window opens (steady is the
+      // low-priority radio user). Without this the in-flight steady inquiry
+      // cross-cancels the pair inquiry -> "no RFCOMM host found".
+      shouldAbort: () => pairPauseCount > 0,
     });
   } catch {
     return; // no co-member found this sweep — retry after INQUIRY_INTERVAL_MS

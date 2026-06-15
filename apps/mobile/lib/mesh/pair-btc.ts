@@ -91,7 +91,7 @@ export async function hostPairOverBtc(opts: {
   // joiner's inquiry. Balanced exactly once in stop(); a safety timer also
   // resumes after the QR TTL so a missed stop() can't leave sync paused forever.
   const { pauseBtcSteadyForPairing, resumeBtcSteadyForPairing } = await import("./btc-steady");
-  pauseBtcSteadyForPairing();
+  await pauseBtcSteadyForPairing();
   let resumed = false;
   const doResume = () => {
     if (resumed) return;
@@ -156,7 +156,7 @@ export async function joinPairOverBtc(opts: {
   // Give the pair inquiry/dial EXCLUSIVE use of the single radio — pause the
   // steady loop so it doesn't cross-cancel our inquiry (the new-kaata pair bug).
   const { pauseBtcSteadyForPairing, resumeBtcSteadyForPairing } = await import("./btc-steady");
-  pauseBtcSteadyForPairing();
+  await pauseBtcSteadyForPairing();
   try {
     const conn = await discoverAndConnect({
       uuid,

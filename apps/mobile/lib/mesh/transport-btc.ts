@@ -519,6 +519,14 @@ export async function discoverAndConnect(opts: {
   hostName?: string;
   discoveryMs?: number;
   onLog?: (s: string) => void;
+  /**
+   * Cooperative abort, polled during inquiry. Lets a higher-priority radio user
+   * (QR pairing) reclaim the single BT radio from a low-priority steady-sync
+   * inquiry: when this returns true the inquiry stops + this call throws
+   * `btc_aborted` instead of cross-cancelling the other inquiry. The pair path
+   * passes nothing (it IS the priority); steady passes `() => pairPauseCount>0`.
+   */
+  shouldAbort?: () => boolean;
 }): Promise<BtcMeshConnection> {
   ensureNativeWired();
   const log = opts.onLog ?? (() => {});
@@ -536,6 +544,7 @@ export async function discoverAndConnect(opts: {
   let finished = false;
   let matchedMac: string | null = null;
   let firstFoundAt = 0;
+  let aborted = false;
   let resolveWait: (() => void) | null = null;
   const waitForMatch = new Promise<void>((res) => {
     resolveWait = res;
@@ -575,6 +584,13 @@ export async function discoverAndConnect(opts: {
       waitForMatch,
       (async () => {
         while (!finished && matchedMac === null && Date.now() < deadline) {
+          // A higher-priority radio user (QR pairing) asked us to release the
+          // radio — stop inquiring immediately so we don't cross-cancel ITS
+          // inquiry. Throws btc_aborted below; the steady caller swallows it.
+          if (opts.shouldAbort?.()) {
+            aborted = true;
+            break;
+          }
           // Grace early-stop ONLY when there's no host name to match (the steady
           // inquiry fallback, where any co-member works + we dial all found).
           // For the QR-pair path (target set) we must NOT cut off early — Android
@@ -597,6 +613,11 @@ export async function discoverAndConnect(opts: {
     } catch {
       /* */
     }
+  }
+
+  // Released the radio for a higher-priority inquiry (QR pairing) — don't dial.
+  if (aborted) {
+    throw new MeshTransportError("inquiry aborted (radio reclaimed for pairing)", "btc_aborted");
   }
 
   // Dial the name-matched host first (the early-exit win).
