@@ -699,23 +699,36 @@ async function runDeltaLoop(
 // symmetric, so both sides wind down together.
 
 // Per-round hard cap (a stuck round can't pin the socket forever).
+// INVARIANT: ROUND_MAX_MS MUST stay > the max roundIntervalMs (the idle
+// keep-alive, 30s below). A one-sided wake makes the woken peer block in
+// recvTyped("vector") until the other peer's next keep-alive round (up to the
+// idle interval); that recv is budgeted by ROUND_MAX_MS, so if the cap ever
+// drops below the keep-alive interval, idle rounds time out and warm links
+// churn-reconnect. Current margin: 45s cap vs 30s keep-alive = 15s.
 const ROUND_MAX_MS = 45_000;
 // Whole-session hard cap. At this cap the session ends and the conn is CLOSED;
 // the next backstop dial re-establishes a fresh session (close-then-redial, not
 // an in-place refresh) — so a long-lived socket can't accumulate native buffers.
-const SESSION_MAX_MS = 300_000;
+// Raised to 20 min (was 5) to keep the warm connection through a realistic shop
+// session — the first edit after a lull was paying a full reconnect+handshake
+// (~2-5s) every 5 min. A single streaming conn doesn't accumulate buffers (the
+// reader drains frames), so a longer cap is safe; the cap is just hygiene.
+const SESSION_MAX_MS = 1_200_000;
 // Close the session after this many consecutive rounds with zero events moved.
-// With the adaptive interval below this is ~3 min of true idle before we drop
-// the warm connection (then the next local write / backstop dial re-establishes).
-const IDLE_ROUNDS_BEFORE_CLOSE = 24;
+// With the idle interval below (flat 30s keep-alive, Briar-style) this is ~16 min
+// of true idle before we drop the warm connection — so the common "first edit
+// after a short lull" stays warm/real-time instead of cold-reconnecting.
+const IDLE_ROUNDS_BEFORE_CLOSE = 40;
 
-/** Adaptive inter-round wait: snappy right after activity, gentle when idle, so
- *  real-time sync stays fast without polling an idle link every 1.5s for minutes.
- *  Pure function of idleRounds → symmetric across both peers. */
+/** Adaptive inter-round wait: snappy right after activity, then a flat 30s
+ *  keep-alive when idle (matches Briar's keep-alive) so the link stays WARM for
+ *  instant pushes without polling hard. A local write wakes the session
+ *  immediately (makeWaker), so this is only the floor for a missed wake / the
+ *  idle keep-alive cadence. Pure function of idleRounds → symmetric across peers. */
 function roundIntervalMs(idleRounds: number): number {
-  if (idleRounds < 3) return 1_500;
-  if (idleRounds < 8) return 4_000;
-  return 10_000;
+  if (idleRounds < 3) return 700;
+  if (idleRounds < 8) return 3_000;
+  return 30_000;
 }
 
 /**

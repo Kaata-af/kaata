@@ -170,6 +170,17 @@ type RunState = {
   listenPort: number;
   /** Stop fn for the M3 LAN (TCP) listener. Null when not running. */
   lanListenerStop: (() => Promise<void>) | null;
+  /** Last matched LAN peer per (installIdShort:vaultId), so a local write can
+   *  immediately re-dial it (push) instead of waiting for the next mDNS emit —
+   *  LAN previously had NO push-on-write at all (the dominant latency source). */
+  lanPeerCache: Map<string, { routed: RoutedPeer; vaultId: string }>;
+  /** Unsubscribe from the ledger-applied emitter (the LAN push trigger). */
+  unsubLanLedger: (() => void) | null;
+  /** Debounce timer for the LAN push re-dial. */
+  lanKickTimer: ReturnType<typeof setTimeout> | null;
+  /** Vaults edited within the current debounce window — so a burst across
+   *  MULTIPLE vaults pushes ALL of them, not just the first. */
+  lanKickVaults: Set<string>;
 };
 
 const state: RunState = {
@@ -181,6 +192,10 @@ const state: RunState = {
   unsubscribeDiscovery: null,
   listenPort: 0,
   lanListenerStop: null,
+  lanPeerCache: new Map(),
+  unsubLanLedger: null,
+  lanKickTimer: null,
+  lanKickVaults: new Set(),
 };
 
 function makeConnKey(deviceId: string, vaultId: string): string {
@@ -450,6 +465,20 @@ async function startShopModeBody(): Promise<void> {
   state.unsubscribeDiscovery = onPeerFound((peer) => {
     void handleRoutedPeer(peer, currentGen);
   });
+
+  // LAN PUSH-ON-WRITE: previously LAN had NO push — an edit only synced when
+  // mDNS happened to re-emit the peer (seconds to minutes, or never). Now a
+  // LOCAL write immediately re-dials the cached LAN peer(s) for that vault
+  // (debounced; deduped by the inflight gate). Mirrors btc-steady's kick.
+  try {
+    const { onLedgerApplied } = await import("../ledger-events");
+    state.unsubLanLedger = onLedgerApplied((vaultId, origin) => {
+      if (origin !== "local") return;
+      scheduleLanKick(vaultId, currentGen);
+    });
+  } catch (err) {
+    console.warn("[mesh.start] LAN push subscribe failed (non-fatal)", err);
+  }
   console.log("[mesh.start] LAN/mDNS discovery started");
 
   // Flip running BEFORE the FGS block so notifyVaultSetChanged() + the
@@ -539,6 +568,16 @@ async function teardownRadios(opts: { skipFGS?: boolean } = {}): Promise<void> {
     state.unsubscribeDiscovery();
     state.unsubscribeDiscovery = null;
   }
+  if (state.unsubLanLedger) {
+    state.unsubLanLedger();
+    state.unsubLanLedger = null;
+  }
+  if (state.lanKickTimer) {
+    clearTimeout(state.lanKickTimer);
+    state.lanKickTimer = null;
+  }
+  state.lanKickVaults.clear();
+  state.lanPeerCache.clear();
   try {
     await routerStopDiscovery();
   } catch (err) {
@@ -619,6 +658,31 @@ export async function hydrateLastActiveAt(): Promise<void> {
 // Internal peer drivers
 // ---------------------------------------------------------------------------
 
+// Debounce for the LAN push re-dial (coalesce an edit burst into one re-dial of
+// the cached peers). Short — the win is pushing promptly, not coalescing hard.
+const LAN_KICK_DEBOUNCE_MS = 150;
+
+/** LAN push: on a local write, re-dial the cached LAN peer(s) for the vault so
+ *  the edit syncs now instead of waiting for the next mDNS emit. Debounced;
+ *  handleRoutedPeer's inflight gate dedups concurrent dials. */
+function scheduleLanKick(vaultId: string, gen: number): void {
+  // Accumulate every edited vault in the window so a burst across multiple
+  // vaults re-dials peers for ALL of them (not just the first) when the timer
+  // fires — the shared-timer leading-skip would otherwise drop later vaults.
+  state.lanKickVaults.add(vaultId);
+  if (state.lanKickTimer) return;
+  state.lanKickTimer = setTimeout(() => {
+    state.lanKickTimer = null;
+    const vaults = state.lanKickVaults;
+    state.lanKickVaults = new Set();
+    if (gen !== state.generation) return;
+    for (const entry of state.lanPeerCache.values()) {
+      if (!vaults.has(entry.vaultId)) continue;
+      void handleRoutedPeer(entry.routed, state.generation);
+    }
+  }, LAN_KICK_DEBOUNCE_MS);
+}
+
 async function handleRoutedPeer(routed: RoutedPeer, gen: number): Promise<void> {
   if (gen !== state.generation) return;
   const peerInfo = routed.peerInfo;
@@ -637,6 +701,14 @@ async function handleRoutedPeer(routed: RoutedPeer, gen: number): Promise<void> 
     }
   }
   if (!chosenVaultId) return;
+
+  // Remember this LAN peer so a local write can re-dial it immediately (the LAN
+  // push path) instead of waiting for the next mDNS emit. Keyed the same as the
+  // inflight gate. A stale host just fails the re-dial; mDNS refreshes it.
+  state.lanPeerCache.set(`${peerInfo.installIdShort}:${chosenVaultId}`, {
+    routed,
+    vaultId: chosenVaultId,
+  });
 
   // Pre-handshake dedup.
   //

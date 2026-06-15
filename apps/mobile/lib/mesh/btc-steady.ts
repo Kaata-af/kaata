@@ -56,9 +56,11 @@ const FAILURE_BACKOFF_MS = 90_000;
 // Jitter on the first kick so two phones pairing at the same instant don't fire
 // their first dial on the exact same millisecond.
 const FIRST_KICK_JITTER_MS = 3_000;
-// Debounce for push-on-local-write: coalesce a burst of edits (e.g. add-person
-// then add-entry) into a single immediate dial. ~real-time without thrashing.
-const KICK_DEBOUNCE_MS = 500;
+// Debounce for the DIAL half of push-on-write (coalesce an edit burst into one
+// connect attempt for not-yet-connected peers). The WAKE half is NOT debounced —
+// waking an already-warm session to push the edit has zero thrash cost, so it
+// fires synchronously (see scheduleKick) for real-time latency.
+const KICK_DEBOUNCE_MS = 150;
 // Inquiry fallback for vaults with NO cached peer MAC (a newly created/paired
 // vault, or one whose peer MAC we never stored). A classic inquiry monopolizes
 // the radio (~8-12s), so throttle it hard and only do one vault per sweep.
@@ -342,10 +344,21 @@ async function steadyTick(s: SteadyState): Promise<void> {
   await runDialPass(s, true);
 }
 
-/** Push pass — a LOCAL write happened. First WAKE every live persistent session
- *  so the edit syncs immediately over the already-open conn (no reconnect), then
- *  dial any known peer NOT already in a session, bypassing the success cooldown. */
+/** Push pass — DIAL any known peer NOT already in a warm session, bypassing the
+ *  success cooldown. Warm sessions were already woken SYNCHRONOUSLY in
+ *  scheduleKick (so the edit pushes instantly); re-waking here would only burn an
+ *  extra empty round, so this path is dial-only. */
 async function kickTick(s: SteadyState): Promise<void> {
+  await runDialPass(s, false);
+}
+
+/** Schedule a push after a local write. The WAKE of warm sessions fires NOW
+ *  (real-time, zero thrash); only the DIAL of not-yet-connected peers is
+ *  debounced to coalesce edit bursts. */
+function scheduleKick(s: SteadyState): void {
+  if (s.stopped || steady !== s) return;
+  // Real-time path: push the edit over every already-open warm session
+  // immediately — do NOT make it wait on the dial debounce.
   for (const sess of s.liveSessions.values()) {
     try {
       sess.wake();
@@ -353,12 +366,7 @@ async function kickTick(s: SteadyState): Promise<void> {
       /* */
     }
   }
-  await runDialPass(s, false);
-}
-
-/** Schedule a debounced push pass after a local write (coalesces edit bursts). */
-function scheduleKick(s: SteadyState): void {
-  if (s.stopped || steady !== s || s.kickDebounce) return;
+  if (s.kickDebounce) return;
   s.kickDebounce = setTimeout(() => {
     s.kickDebounce = null;
     if (s.stopped || steady !== s) return;
