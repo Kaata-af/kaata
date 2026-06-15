@@ -37,6 +37,10 @@ const PAIR_SERVICE_NAME = "kaata-pair";
 // which a never-before-seen joiner's inquiry can learn our MAC. The pair TOKEN
 // lives longer (PAIR_QR_TTL_MS), so a slow re-scan just re-arms discoverable.
 const DISCOVERABLE_SEC = 300;
+// Failsafe: if hostPairOverBtc's stop() is never called (screen killed without
+// cleanup), auto-resume the steady loop after this long so sync can't stay
+// paused forever. Slightly longer than the discoverable window.
+const PAIR_PAUSE_SAFETY_MS = 360_000;
 
 export type PairSyncOutcome = {
   ok: boolean;
@@ -79,13 +83,33 @@ export async function hostPairOverBtc(opts: {
   if (!anchor) throw new Error("vault_has_no_trust_anchor");
   const uuid = deriveRfcommUuid(opts.pairNonce);
 
-  const listener: BtcListenerHandle = await startBtcListener({
-    serviceName: PAIR_SERVICE_NAME,
-    uuid,
-    onConnection: (conn) => {
-      void runPairSession(conn, opts.vaultId, anchor).then((o) => opts.onResult?.(o));
-    },
-  });
+  // Pause the steady loop for the pair window so it doesn't cross-cancel the
+  // joiner's inquiry. Balanced exactly once in stop(); a safety timer also
+  // resumes after the QR TTL so a missed stop() can't leave sync paused forever.
+  const { pauseBtcSteadyForPairing, resumeBtcSteadyForPairing } = await import("./btc-steady");
+  pauseBtcSteadyForPairing();
+  let resumed = false;
+  const doResume = () => {
+    if (resumed) return;
+    resumed = true;
+    resumeBtcSteadyForPairing();
+  };
+  const safetyTimer = setTimeout(doResume, PAIR_PAUSE_SAFETY_MS);
+
+  let listener: BtcListenerHandle;
+  try {
+    listener = await startBtcListener({
+      serviceName: PAIR_SERVICE_NAME,
+      uuid,
+      onConnection: (conn) => {
+        void runPairSession(conn, opts.vaultId, anchor).then((o) => opts.onResult?.(o));
+      },
+    });
+  } catch (err) {
+    clearTimeout(safetyTimer);
+    doResume();
+    throw err;
+  }
 
   // Best-effort: a never-before-seen joiner needs us discoverable so its classic
   // inquiry can learn our MAC. Non-fatal on deny (a previously-paired phone that
@@ -96,7 +120,13 @@ export async function hostPairOverBtc(opts: {
     /* user declined the discoverable prompt — pairing may still work if cached */
   }
 
-  return { stop: listener.stop };
+  return {
+    stop: async () => {
+      clearTimeout(safetyTimer);
+      doResume();
+      await listener.stop();
+    },
+  };
 }
 
 /**
@@ -119,18 +149,26 @@ export async function joinPairOverBtc(opts: {
   if (!anchor) throw new Error("vault_has_no_trust_anchor");
   const uuid = deriveRfcommUuid(opts.pairNonce);
 
-  const conn = await discoverAndConnect({
-    uuid,
-    hostName: opts.hostName ?? undefined,
-    onLog: opts.onLog,
-  });
-  const outcome = await runPairSession(conn, opts.vaultId, anchor);
-  if (!outcome.ok) {
-    // Re-throw the real reason (e.g. the membership-chain verdict) so the scan
-    // screen can surface it and offer a retry.
-    throw new Error(outcome.error ?? "pair_sync_failed");
+  // Give the pair inquiry/dial EXCLUSIVE use of the single radio — pause the
+  // steady loop so it doesn't cross-cancel our inquiry (the new-kaata pair bug).
+  const { pauseBtcSteadyForPairing, resumeBtcSteadyForPairing } = await import("./btc-steady");
+  pauseBtcSteadyForPairing();
+  try {
+    const conn = await discoverAndConnect({
+      uuid,
+      hostName: opts.hostName ?? undefined,
+      onLog: opts.onLog,
+    });
+    const outcome = await runPairSession(conn, opts.vaultId, anchor);
+    if (!outcome.ok) {
+      // Re-throw the real reason (e.g. the membership-chain verdict) so the scan
+      // screen can surface it and offer a retry.
+      throw new Error(outcome.error ?? "pair_sync_failed");
+    }
+    return outcome;
+  } finally {
+    resumeBtcSteadyForPairing();
   }
-  return outcome;
 }
 
 /**

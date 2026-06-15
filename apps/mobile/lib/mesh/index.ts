@@ -452,31 +452,38 @@ async function startShopModeBody(): Promise<void> {
   });
   console.log("[mesh.start] LAN/mDNS discovery started");
 
-  state.running = true;
-  emitStatusChange();
-
   // Phase 6: promote to a foreground service for BACKGROUND survival (Doze
   // otherwise kills the radios when the app is backgrounded). The service type
   // (connectedDevice|dataSync) is declared in the manifest.
   //
-  // BUG FIX (sync silently turns off): the FGS start is now NON-FATAL. It used
-  // to throw on any notifee hiccup, and startShopMode's catch tore down ALL
-  // radios — so a flaky notification killed working foreground BTC+LAN sync, the
-  // UI still showed "on", and MeshController's retry then flipped the toggle off
-  // ~10s later with no toast. FGS is only needed for BACKGROUND; foreground sync
-  // works without it. So we degrade (foreground-only) instead of tearing down.
+  // Started BEFORE state.running/emitStatusChange so the START path runs before
+  // MeshController's UPDATE path (a status-change-driven displayNotification).
+  //
+  // NON-FATAL + RETRIED: a flaky notifee start must not tear down working
+  // foreground sync (that was the "sync silently turns off" bug), but we try
+  // hard — the persistent notification is what keeps BACKGROUND sync alive, so a
+  // transient miss is retried with backoff before degrading to foreground-only.
+  // (Note: true persistence across an MIUI process-kill needs a native
+  // START_STICKY service — notifee's FGS is START_NOT_STICKY; tracked separately.)
   try {
     const fg = await import("./foreground");
-    const ok = await fg.startShopModeForegroundService();
+    let ok = await fg.startShopModeForegroundService();
+    for (let attempt = 1; !ok && attempt <= 2 && Platform.OS === "android"; attempt++) {
+      await new Promise((r) => setTimeout(r, attempt * 800));
+      ok = await fg.startShopModeForegroundService();
+    }
     console.log("[mesh.start] FGS started=", ok);
     if (!ok && Platform.OS === "android") {
       console.warn(
-        "[mesh.start] foreground service did not start — foreground-only sync (background may be unreliable)",
+        "[mesh.start] foreground service did not start after retries — foreground-only sync (background may be unreliable)",
       );
     }
   } catch (err) {
     console.warn("[mesh] foreground service start threw (non-fatal, foreground-only)", err);
   }
+
+  state.running = true;
+  emitStatusChange();
   // Mythos crash-diagnosis: sample memory/storage every 60s while shop
   // mode is on so the Diagnostics screen can render the leak slope over a
   // crash window. Best-effort; never throws.

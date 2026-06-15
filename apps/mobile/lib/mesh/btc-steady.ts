@@ -101,6 +101,19 @@ type SteadyState = {
 
 let steady: SteadyState | null = null;
 
+// Pause-for-pairing: a QR pair window needs EXCLUSIVE use of the single BT radio
+// (its inquiry/dial). While paused, the steady dial loop + inquiry fallback
+// short-circuit so they don't cross-cancel the pair's inquiry — the bug where a
+// SECOND kaata (peerless → steady keeps inquiring it) failed to pair while the
+// first kept syncing. Counter, not a bool, so overlapping host+join balance.
+let pairPauseCount = 0;
+export function pauseBtcSteadyForPairing(): void {
+  pairPauseCount++;
+}
+export function resumeBtcSteadyForPairing(): void {
+  pairPauseCount = Math.max(0, pairPauseCount - 1);
+}
+
 /**
  * Start steady-state RFCOMM sync for the given chain-anchored vaults. Idempotent
  * (restarts cleanly). Android-only; no-ops elsewhere.
@@ -274,6 +287,8 @@ function scheduleKick(s: SteadyState): void {
  */
 async function runDialPass(s: SteadyState, respectCooldown: boolean): Promise<void> {
   if (s.stopped || steady !== s || s.tickRunning) return;
+  // A QR pair window owns the radio — don't dial/inquire and cross-cancel it.
+  if (pairPauseCount > 0) return;
   // Foreground-only dialing: one BT radio + battery. The listener stays up so a
   // foregrounded peer can still reach a backgrounded one.
   if (AppState.currentState !== "active") return;
