@@ -84,6 +84,7 @@ import {
   onPeerFound as onLanPeerFound,
 } from "./discovery-lan";
 import { startLanListener, dialLanPeer } from "./transport-lan";
+import { markPeerSeen } from "./presence";
 import type { MeshConnection } from "./transport-interface";
 import { Platform } from "react-native";
 
@@ -710,6 +711,7 @@ async function handlePeerConnection(
     // surface (the pre-handshake inflight set already covers that
     // window).
     state.liveSessionCount++;
+    markPeerSeen(result.peerDeviceId); // presence: this device is reachable now
     emitStatusChange();
     await touchLastActive();
     console.log(

@@ -17,7 +17,7 @@
 // Self-row is non-interactive; last-owner protection enforced at sheet build.
 
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -45,6 +45,7 @@ import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { useVaultRole } from "../../lib/use-vault-role";
+import { subscribePresence, isPeerOnline } from "../../lib/mesh/presence";
 import { fetchPendingInvitations } from "../../lib/vault-api";
 import { appendVaultMemberRemoved, appendVaultMemberRoleChanged } from "../../lib/event-log";
 import { transferVaultOwnership } from "../../lib/vault-router";
@@ -87,6 +88,8 @@ export default function VaultMembersScreen() {
   // mirror row that's actually self.
   const [localSelfAccountId, setLocalSelfAccountId] = useState<string | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
+  // account_ids whose device is reachable over the mesh right now (presence).
+  const [onlineAccounts, setOnlineAccounts] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<PendingInviteRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -176,6 +179,45 @@ export default function VaultMembersScreen() {
     );
     setPending(inv);
   }, [router, toast]);
+
+  // Presence: map online device_ids → account_ids via the device registry so the
+  // members list can show a "reachable now" dot. Recomputed on every mesh sync
+  // (subscribePresence) and on an interval (to age peers OUT of the window).
+  const refreshPresence = useCallback(async () => {
+    try {
+      const activeVaultId = await getActiveVaultId();
+      if (!activeVaultId) {
+        setOnlineAccounts(new Set());
+        return;
+      }
+      const db = await getDb();
+      const devices = await db.getAllAsync<{ account_id: string; device_id: string }>(
+        `SELECT account_id, device_id FROM vault_device_registry
+          WHERE vault_id = ? AND removed_at_ms IS NULL`,
+        activeVaultId,
+      );
+      const now = Date.now();
+      const online = new Set<string>();
+      for (const d of devices) {
+        if (d.account_id && d.device_id && isPeerOnline(d.device_id, now)) {
+          online.add(d.account_id);
+        }
+      }
+      setOnlineAccounts(online);
+    } catch (err) {
+      if (__DEV__) console.warn("[vault/members] presence refresh failed", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshPresence();
+    const unsub = subscribePresence(() => void refreshPresence());
+    const interval = setInterval(() => void refreshPresence(), 15_000);
+    return () => {
+      unsub();
+      clearInterval(interval);
+    };
+  }, [refreshPresence]);
 
   // Re-runs on every focus, not just mount: a member added via vault/pair
   // or an invite sent via vault/invite lands in the mirror while this
@@ -428,6 +470,7 @@ export default function VaultMembersScreen() {
                 sub={m.email}
                 role={m.role}
                 isRTL={isRTL}
+                online={!isSelf && onlineAccounts.has(m.account_id)}
                 onPress={() => openMemberSheet(m)}
                 disabled={!isOwner || isSelf}
                 isLast={last}
@@ -564,6 +607,7 @@ function MemberIdentityRow(props: {
   sub: string | null;
   role: VaultRole;
   isRTL: boolean;
+  online?: boolean;
   onPress?: () => void;
   disabled?: boolean;
   pending?: boolean;
@@ -582,6 +626,10 @@ function MemberIdentityRow(props: {
         ]}
       >
         <Text style={styles.identityAvatarLetter}>{initial}</Text>
+        {/* Presence dot — this member's device synced over the mesh recently. */}
+        {props.online ? (
+          <View style={[styles.presenceDot, props.isRTL ? { left: -1 } : { right: -1 }]} />
+        ) : null}
       </View>
       <View style={{ flex: 1 }}>
         <Text style={[styles.identityName, textDir(props.isRTL)]} numberOfLines={1}>
@@ -729,6 +777,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgMuted,
     alignItems: "center",
     justifyContent: "center",
+  },
+  presenceDot: {
+    position: "absolute",
+    bottom: -1,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#22c55e", // green — reachable over the mesh right now
+    borderWidth: 2,
+    borderColor: colors.bgDefault,
   },
   identityAvatarLetter: {
     fontSize: 20,

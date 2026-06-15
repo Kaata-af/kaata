@@ -493,10 +493,16 @@ export async function discoverAndConnect(opts: {
   ensureNativeWired();
   const log = opts.onLog ?? (() => {});
   const discoveryMs = opts.discoveryMs ?? 15_000;
+  // Once devices start appearing, only wait this much longer before stopping
+  // inquiry + dialing. The co-member is physically present so it surfaces in the
+  // first 1-2s; waiting the full inquiry window (~12-15s) just to maybe catch a
+  // late friendly-name was the bulk of the "first QR scan is slow" latency.
+  const GRACE_AFTER_FIRST_MS = 2_500;
   const target = opts.hostName ? opts.hostName.trim().toLowerCase() : null;
   const found = new Map<string, string>();
   let finished = false;
   let matchedMac: string | null = null;
+  let firstFoundAt = 0;
   let resolveWait: (() => void) | null = null;
   const waitForMatch = new Promise<void>((res) => {
     resolveWait = res;
@@ -507,6 +513,7 @@ export async function discoverAndConnect(opts: {
     const name = d.name ?? "";
     const prev = found.get(d.mac);
     if (prev === undefined) {
+      if (firstFoundAt === 0) firstFoundAt = Date.now();
       found.set(d.mac, name);
       log(`· found ${name || d.mac}`);
     } else if (prev === "" && name !== "") {
@@ -535,7 +542,9 @@ export async function discoverAndConnect(opts: {
       waitForMatch,
       (async () => {
         while (!finished && matchedMac === null && Date.now() < deadline) {
-          await new Promise((r) => setTimeout(r, 200));
+          // Stop early once devices have appeared + the grace window elapsed.
+          if (firstFoundAt > 0 && Date.now() - firstFoundAt > GRACE_AFTER_FIRST_MS) break;
+          await new Promise((r) => setTimeout(r, 150));
         }
       })(),
     ]);

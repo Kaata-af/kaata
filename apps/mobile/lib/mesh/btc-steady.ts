@@ -40,12 +40,16 @@ import { isBtClassicSupported } from "../../modules/kaata-bt-classic";
 import { vaultDigest, advertiseDays, dayNumber } from "./vault-digest";
 import { addKnownPeer, listKnownPeers } from "./btc-peers";
 import { onLedgerApplied } from "../ledger-events";
+import { markPeerSeen } from "./presence";
 
 const STEADY_SERVICE_NAME = "kaata-sync";
-const DIAL_INTERVAL_MS = 30_000;
+// Backstop poll. Push-on-write (ledger-events) already covers the real-time case
+// for known peers, so this is just the safety net for missed pushes / a peer
+// that came back in range — 15s keeps it snappy without much extra radio.
+const DIAL_INTERVAL_MS = 15_000;
 // After we reach a peer, don't re-dial for this long (dedupes the both-phones-
 // dial-each-other burst within a window). Must be < DIAL_INTERVAL.
-const PEER_COOLDOWN_MS = 22_000;
+const PEER_COOLDOWN_MS = 12_000;
 // After we FAIL to reach a peer (powered off / out of range), back off longer so
 // the radio isn't burned dialing a dead MAC every tick.
 const FAILURE_BACKOFF_MS = 90_000;
@@ -389,6 +393,7 @@ async function runSteadySession(
     const r = await runAntiEntropy(conn, { vaultId, vaultTrustAnchorPubkey: anchor });
     if (conn.remoteDeviceId) {
       s.skipUntil.set(conn.remoteDeviceId, Date.now() + PEER_COOLDOWN_MS);
+      markPeerSeen(conn.remoteDeviceId); // presence: this device is reachable now
       // Self-heal the MAC mapping (e.g. peer first learned via an inbound accept).
       // addKnownPeer skips the write when the MAC is unchanged, so this is cheap.
       if (conn.remoteMac) {
