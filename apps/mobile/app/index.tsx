@@ -599,6 +599,13 @@ export default function HomeScreen() {
           ) : null}
         </Pressable>
 
+        {/* Non-tappable spacer fills the gap between the switcher and the
+            profile, pushing the avatar to the edge. The switcher Pressable
+            hugs its content (name + chevron) instead of flex:1-ing across the
+            whole row, so tapping the empty middle no longer opens the kaata
+            picker (it used to: the switcher's tap target spanned to the avatar). */}
+        <View style={{ flex: 1 }} pointerEvents="none" />
+
         {/* Profile chip — top-RIGHT. Phase 7: opens the unified
             ProfileSettingsSheet (replaces the deprecated hamburger +
             ProfileMenuSheet). The icon is either the user's Google
@@ -1288,7 +1295,12 @@ const styles = StyleSheet.create({
   // VaultPickerSheet. rowDir(isRTL) applied inline flips the order
   // of the title column + chevron in RTL.
   headerTitleBlock: {
-    flex: 1,
+    // flexShrink (NOT flex:1) so the tappable switcher hugs the name + chevron
+    // — its tap target must NOT span the whole header (that made a tap left of
+    // the avatar open the kaata picker). A sibling flex:1 spacer fills the gap.
+    // flexShrink:1 + the inner textCol's flexShrink + numberOfLines:1 still let
+    // a long shop name truncate instead of pushing the avatar off-screen.
+    flexShrink: 1,
     minHeight: 40,
     alignItems: "center",
   },
