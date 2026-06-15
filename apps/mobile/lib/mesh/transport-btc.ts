@@ -498,6 +498,9 @@ export async function discoverAndConnect(opts: {
   // first 1-2s; waiting the full inquiry window (~12-15s) just to maybe catch a
   // late friendly-name was the bulk of the "first QR scan is slow" latency.
   const GRACE_AFTER_FIRST_MS = 2_500;
+  // Bound the blind-dial fallback so one call can't monopolize the radio.
+  const MAX_FALLBACK_DIALS = 6;
+  const MAX_FALLBACK_DIAL_MS = 12_000;
   const target = opts.hostName ? opts.hostName.trim().toLowerCase() : null;
   const found = new Map<string, string>();
   let finished = false;
@@ -542,8 +545,14 @@ export async function discoverAndConnect(opts: {
       waitForMatch,
       (async () => {
         while (!finished && matchedMac === null && Date.now() < deadline) {
-          // Stop early once devices have appeared + the grace window elapsed.
-          if (firstFoundAt > 0 && Date.now() - firstFoundAt > GRACE_AFTER_FIRST_MS) break;
+          // Grace early-stop ONLY when there's no host name to match (the steady
+          // inquiry fallback, where any co-member works + we dial all found).
+          // For the QR-pair path (target set) we must NOT cut off early — Android
+          // inquiry can surface the named host a few seconds in, so we wait for
+          // the name-match early-exit or the full deadline (reliability > speed
+          // for first contact; name-match usually fires fast anyway).
+          if (!target && firstFoundAt > 0 && Date.now() - firstFoundAt > GRACE_AFTER_FIRST_MS)
+            break;
           await new Promise((r) => setTimeout(r, 150));
         }
       })(),
@@ -573,8 +582,12 @@ export async function discoverAndConnect(opts: {
     }
   }
 
-  // Fallback: try every OTHER discovered device by the derived UUID (only the
-  // true host exposes it). Name-sorted so a name hint still dials likely-first.
+  // Fallback: try OTHER discovered devices by the derived UUID (only the true
+  // host exposes it). Name-sorted so a name hint still dials likely-first.
+  // BOUNDED: each failed dial costs ~1.5-2s (SDP retries + reflection fallback),
+  // so a BT-dense room (many phones/POS/headphones) would otherwise block for
+  // 15-20s. Cap the attempts AND a total wall budget so first-contact + the
+  // steady inquiry fallback can't monopolize the single radio.
   let entries = [...found.entries()].filter(([mac]) => mac !== matchedMac);
   if (target) {
     entries = entries.sort((a, b) => {
@@ -583,8 +596,14 @@ export async function discoverAndConnect(opts: {
       return am - bm;
     });
   }
+  const fallbackDeadline = Date.now() + MAX_FALLBACK_DIAL_MS;
+  entries = entries.slice(0, MAX_FALLBACK_DIALS);
   log(`trying ${entries.length} device(s)…`);
   for (const [mac, name] of entries) {
+    if (Date.now() > fallbackDeadline) {
+      log("  · dial budget exhausted — giving up this sweep");
+      break;
+    }
     try {
       log(`→ dialing ${name || mac}`);
       const conn = await dialBtcPeer({ mac, uuid: opts.uuid });

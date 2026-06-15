@@ -91,11 +91,6 @@ let peerLostListeners: Set<(serviceName: string) => void> = new Set();
 // that runs across midnight keeps matching without a republish.
 let localVaultIds: string[] = [];
 let scanIndexCache: { day: number; index: Map<string, string> } | null = null;
-// Captured at start so updateLanVaultIds() can republish the TXT in place (no
-// scan restart) when the vault set changes — avoids tearing down + re-flooding
-// NSD discovery (the resolve storm) every time a vault is created/joined.
-let publishedServiceName: string | null = null;
-let publishedTcpPort = 0;
 
 function currentScanIndex(nowMs: number): Map<string, string> {
   const day = dayNumber(nowMs);
@@ -297,8 +292,6 @@ export async function startLanDiscovery(
     console.warn("[mesh-lan] failed to register zeroconf listeners", err);
   }
 
-  publishedServiceName = serviceName;
-  publishedTcpPort = opts.tcpPort;
   try {
     zc.publishService(
       SERVICE_TYPE,
@@ -346,8 +339,6 @@ export async function startLanDiscovery(
       activeHandle = null;
       localVaultIds = [];
       scanIndexCache = null;
-      publishedServiceName = null;
-      publishedTcpPort = 0;
     },
   };
   activeHandle = handle;
@@ -358,40 +349,6 @@ export async function stopLanDiscovery(): Promise<void> {
   if (activeHandle) {
     activeHandle.stop();
     activeHandle = null;
-  }
-}
-
-/**
- * Refresh the advertised vault set IN PLACE when a vault is created/joined while
- * discovery is already running — re-snapshots localVaultIds (so we both ADVERTISE
- * the new vault's digest and MATCH incoming peers for it) and republishes the TXT
- * WITHOUT restarting the scan. Restarting the whole zeroconf instance on every
- * vault change re-floods Android NsdManager (single-resolve serialization) and
- * can permanently lose peers' resolves — this avoids that. No-op when discovery
- * isn't running.
- */
-export async function updateLanVaultIds(): Promise<void> {
-  if (!zc || !publishedServiceName) return;
-  try {
-    localVaultIds = await getLocalVaultIds();
-    scanIndexCache = null; // rebuilt on next match against the new set
-    const txt = buildTxtRecord(localVaultIds, publishedTcpPort, Date.now());
-    try {
-      zc.unpublishService(publishedServiceName);
-    } catch {
-      /* best-effort */
-    }
-    zc.publishService(
-      SERVICE_TYPE,
-      SERVICE_PROTOCOL,
-      SERVICE_DOMAIN,
-      publishedServiceName,
-      publishedTcpPort,
-      txt,
-    );
-    console.log("[mesh-lan] republished TXT in place for", localVaultIds.length, "vault(s)");
-  } catch (err) {
-    console.warn("[mesh-lan] updateLanVaultIds failed", err);
   }
 }
 

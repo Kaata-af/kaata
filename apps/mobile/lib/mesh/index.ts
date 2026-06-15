@@ -307,19 +307,34 @@ export async function notifyVaultSetChanged(): Promise<void> {
   } catch (err) {
     console.warn("[mesh.notifyVaultSetChanged] steady-channel refresh failed", err);
   }
-  // Refresh the LAN advertised/matched vault set IN PLACE (discovery-lan freezes
-  // its TXT digests + scan index at start, so a new vault would be invisible
-  // over LAN until a power-cycle — the BUG-A frozen-set trap). updateLanVaultIds
-  // republishes the TXT + rebuilds the scan index WITHOUT restarting the scan,
-  // which avoids re-flooding Android NsdManager (its single-resolve
-  // serialization can otherwise permanently lose peer resolves).
-  try {
-    const { updateLanVaultIds } = await import("./discovery-lan");
-    await updateLanVaultIds();
-  } catch (err) {
-    console.warn("[mesh.notifyVaultSetChanged] LAN republish failed", err);
-  }
+  // Refresh LAN discovery so a new vault is advertised + matched (discovery-lan
+  // freezes its TXT digests + scan index at start — the BUG-A frozen-set trap).
+  // A DEBOUNCED full restart re-snapshots cleanly: an in-place unpublish+publish
+  // races Android NSD's ASYNC unregister (re-registering under the same name
+  // before the old tears down silently fails or mangles the name, leaving stale
+  // TXT advertised forever). Debounced so a burst of vault changes is ONE restart
+  // (not a resolve storm). The onPeerFound listener survives the router restart.
+  if (lanRestartTimer) clearTimeout(lanRestartTimer);
+  lanRestartTimer = setTimeout(() => {
+    lanRestartTimer = null;
+    void (async () => {
+      if (!state.running || !state.listenPort) return;
+      try {
+        await routerStopDiscovery();
+        await routerStartDiscovery({ listenPort: state.listenPort });
+        console.log("[mesh.notifyVaultSetChanged] LAN discovery restarted for new vault set");
+      } catch (err) {
+        console.warn("[mesh.notifyVaultSetChanged] LAN restart failed", err);
+      }
+    })();
+  }, LAN_RESTART_DEBOUNCE_MS);
 }
+
+// Debounce window for the LAN-discovery restart on a vault-set change. Coalesces
+// a burst (e.g. create-then-activate, or rapid pairs) into a single clean
+// restart instead of churning Android NSD.
+const LAN_RESTART_DEBOUNCE_MS = 1500;
+let lanRestartTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Turn shop mode on. Idempotent.
@@ -501,6 +516,10 @@ async function teardownRadios(opts: { skipFGS?: boolean } = {}): Promise<void> {
     } catch (err) {
       if (__DEV__) console.warn("[mesh] foreground service stop failed", err);
     }
+  }
+  if (lanRestartTimer) {
+    clearTimeout(lanRestartTimer);
+    lanRestartTimer = null;
   }
   if (state.unsubscribeDiscovery) {
     state.unsubscribeDiscovery();
