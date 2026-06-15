@@ -306,19 +306,17 @@ export async function notifyVaultSetChanged(): Promise<void> {
   } catch (err) {
     console.warn("[mesh.notifyVaultSetChanged] steady-channel refresh failed", err);
   }
-  // Restart LAN/mDNS discovery so it RE-SNAPSHOTS the vault set: discovery-lan
-  // freezes its advertised TXT digests + its inbound scan index at start, so a
-  // new vault would otherwise be invisible over LAN until a Shop Mode power-cycle
-  // (the BUG-A frozen-set trap — same one fixed for BTC above). The onPeerFound
-  // listener registered in startShopModeBody survives the router stop/start, so
-  // we don't re-subscribe here.
-  if (state.listenPort) {
-    try {
-      await routerStopDiscovery();
-      await routerStartDiscovery({ listenPort: state.listenPort });
-    } catch (err) {
-      console.warn("[mesh.notifyVaultSetChanged] LAN discovery refresh failed", err);
-    }
+  // Refresh the LAN advertised/matched vault set IN PLACE (discovery-lan freezes
+  // its TXT digests + scan index at start, so a new vault would be invisible
+  // over LAN until a power-cycle — the BUG-A frozen-set trap). updateLanVaultIds
+  // republishes the TXT + rebuilds the scan index WITHOUT restarting the scan,
+  // which avoids re-flooding Android NsdManager (its single-resolve
+  // serialization can otherwise permanently lose peer resolves).
+  try {
+    const { updateLanVaultIds } = await import("./discovery-lan");
+    await updateLanVaultIds();
+  } catch (err) {
+    console.warn("[mesh.notifyVaultSetChanged] LAN republish failed", err);
   }
 }
 

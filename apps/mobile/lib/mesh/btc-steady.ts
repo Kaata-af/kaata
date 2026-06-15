@@ -31,6 +31,7 @@ import { ensureDeviceKey } from "./device-key";
 import {
   deriveRfcommUuid,
   dialBtcPeer,
+  discoverAndConnect,
   startBtcListener,
   type BtcListenerHandle,
   type BtcMeshConnection,
@@ -54,6 +55,11 @@ const FIRST_KICK_JITTER_MS = 3_000;
 // Debounce for push-on-local-write: coalesce a burst of edits (e.g. add-person
 // then add-entry) into a single immediate dial. ~real-time without thrashing.
 const KICK_DEBOUNCE_MS = 500;
+// Inquiry fallback for vaults with NO cached peer MAC (a newly created/paired
+// vault, or one whose peer MAC we never stored). A classic inquiry monopolizes
+// the radio (~8-12s), so throttle it hard and only do one vault per sweep.
+const INQUIRY_INTERVAL_MS = 150_000;
+const INQUIRY_DISCOVERY_MS = 8_000;
 
 /** Stable per-(vault,day) RFCOMM service UUID. Distinct domain prefix from the
  *  one-shot pair UUID (deriveRfcommUuid(shop_mode_token)) so a live pair window
@@ -79,6 +85,10 @@ type SteadyState = {
   kickPending: boolean;
   /** Unsubscribe from the ledger-applied emitter (push trigger). */
   unsubLedger: (() => void) | null;
+  /** Last classic-inquiry sweep for peerless vaults (heavily throttled). */
+  lastInquiryAt: number;
+  /** Round-robin cursor over peerless vaults for the inquiry sweep. */
+  inquiryRR: number;
 };
 
 let steady: SteadyState | null = null;
@@ -103,6 +113,8 @@ export async function startBtcSteadySync(opts: { vaultIds: string[] }): Promise<
     kickDebounce: null,
     kickPending: false,
     unsubLedger: null,
+    lastInquiryAt: 0,
+    inquiryRR: 0,
   };
   steady = s;
 
@@ -267,16 +279,36 @@ async function runDialPass(s: SteadyState, respectCooldown: boolean): Promise<vo
     }
 
     const now = Date.now();
+    const peerless: string[] = [];
     for (const vaultId of s.vaultIds) {
       if (s.stopped || steady !== s) break;
       const anchor = await loadVaultTrustAnchor(vaultId);
       if (!anchor) continue;
       const peers = await listKnownPeers(vaultId);
+      if (peers.length === 0) peerless.push(vaultId);
       for (const peer of peers) {
         if (s.stopped || steady !== s) break;
         if (respectCooldown && now < (s.skipUntil.get(peer.deviceId) ?? 0)) continue;
         await dialKnownPeer(s, vaultId, anchor, peer.deviceId, peer.mac);
       }
+    }
+
+    // Inquiry fallback (backstop only, not push-kicks): a vault with NO cached
+    // peer (newly created/paired, or MAC never stored) can't be dialed directly.
+    // Run a throttled classic inquiry to FIND a co-located co-member by blind-
+    // dialing the vault's steady UUID (only co-members answer it). One vault per
+    // sweep, round-robin, since inquiry monopolizes the single radio for ~8s.
+    if (
+      respectCooldown &&
+      peerless.length > 0 &&
+      now - s.lastInquiryAt >= INQUIRY_INTERVAL_MS &&
+      !s.stopped &&
+      steady === s
+    ) {
+      s.lastInquiryAt = Date.now();
+      const vaultId = peerless[s.inquiryRR % peerless.length];
+      s.inquiryRR++;
+      await inquireForPeer(s, vaultId);
     }
   } finally {
     s.tickRunning = false;
@@ -286,6 +318,32 @@ async function runDialPass(s: SteadyState, respectCooldown: boolean): Promise<vo
       void kickTick(s);
     }
   }
+}
+
+/** Classic-inquiry fallback for a vault with no cached peer: find a co-located
+ *  co-member by blind-dialing the vault's steady UUID, then sync. runSteadySession
+ *  caches the found peer's MAC so future ticks dial it directly (no more inquiry). */
+async function inquireForPeer(s: SteadyState, vaultId: string): Promise<void> {
+  const anchor = await loadVaultTrustAnchor(vaultId);
+  if (!anchor) return;
+  let conn: BtcMeshConnection;
+  try {
+    conn = await discoverAndConnect({
+      uuid: steadyUuid(vaultId, dayNumber(Date.now())),
+      discoveryMs: INQUIRY_DISCOVERY_MS,
+    });
+  } catch {
+    return; // no co-member found this sweep — retry after INQUIRY_INTERVAL_MS
+  }
+  if (s.stopped || steady !== s) {
+    try {
+      await conn.close();
+    } catch {
+      /* */
+    }
+    return;
+  }
+  await runSteadySession(s, conn, vaultId, anchor);
 }
 
 async function dialKnownPeer(

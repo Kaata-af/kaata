@@ -91,6 +91,11 @@ let peerLostListeners: Set<(serviceName: string) => void> = new Set();
 // that runs across midnight keeps matching without a republish.
 let localVaultIds: string[] = [];
 let scanIndexCache: { day: number; index: Map<string, string> } | null = null;
+// Captured at start so updateLanVaultIds() can republish the TXT in place (no
+// scan restart) when the vault set changes — avoids tearing down + re-flooding
+// NSD discovery (the resolve storm) every time a vault is created/joined.
+let publishedServiceName: string | null = null;
+let publishedTcpPort = 0;
 
 function currentScanIndex(nowMs: number): Map<string, string> {
   const day = dayNumber(nowMs);
@@ -196,7 +201,11 @@ export async function startLanDiscovery(
     try {
       const name = raw?.name ?? "";
       const isSelf = name === serviceName;
-      const host = pickIPv4Address(raw) ?? raw?.host;
+      // Require a real IPv4 address. The old code fell back to addresses[0]
+      // (could be an IPv6 literal) or raw.host (a hostname) — TcpSocket.connect
+      // to either fails → a transport error that surfaced as the misleading
+      // "different Kaata" toast. If there's no dialable IPv4, skip the peer.
+      const host = pickIPv4Address(raw);
 
       const peerTxt = (raw?.txt ?? {}) as Record<string, string | undefined>;
       const peerVersion = (peerTxt.v ?? "0") as string;
@@ -206,7 +215,11 @@ export async function startLanDiscovery(
       // port (they should agree — pt is belt-and-suspenders).
       const txtPort = peerTxt.pt ? parseInt(peerTxt.pt, 10) : NaN;
       const port = Number.isFinite(txtPort) && txtPort > 0 ? txtPort : raw?.port;
-      if (!host || !port) return;
+      if (!host) {
+        if (!isSelf) console.warn("[mesh-lan] resolved peer has no IPv4 address — skipping", name);
+        return;
+      }
+      if (!port) return;
 
       const peerDigests = ((peerTxt.h ?? "") as string).split(",").filter(Boolean);
       const peerInstallShort = (peerTxt.d ?? "") as string;
@@ -217,7 +230,26 @@ export async function startLanDiscovery(
         const vid = index.get(d);
         if (vid && !matched.includes(vid)) matched.push(vid);
       }
-      if (matched.length === 0 && !isSelf) return;
+      if (matched.length === 0 && !isSelf) {
+        // Resolved a kaata peer but none of its advertised digests match a vault
+        // we belong to — not an error, just not a co-member. Log so a real
+        // discovery (peer seen, but no shared vault) is distinguishable from
+        // "discovery never fired at all".
+        console.log("[mesh-lan] resolved peer", name, "host", host, "— no shared vault");
+        return;
+      }
+      if (!isSelf) {
+        console.log(
+          "[mesh-lan] resolved co-member",
+          name,
+          "host",
+          host,
+          "port",
+          port,
+          "vaults",
+          matched.length,
+        );
+      }
 
       const peer: LanDiscoveredPeer = {
         installIdShort: peerInstallShort,
@@ -254,6 +286,10 @@ export async function startLanDiscovery(
   try {
     zc.on("resolved", onResolved);
     zc.on("remove", onRemoved);
+    // 'found' fires before 'resolved' (zeroconf auto-resolves). Logging it lets
+    // us tell "mDNS discovery works but resolve/match failed" from "discovery
+    // never saw anything" (multicast blocked / AP client-isolation) on-device.
+    zc.on("found", (name: string) => console.log("[mesh-lan] found service", name));
     zc.on("error", (err: unknown) => {
       console.warn("[mesh-lan] zeroconf error", err);
     });
@@ -261,6 +297,8 @@ export async function startLanDiscovery(
     console.warn("[mesh-lan] failed to register zeroconf listeners", err);
   }
 
+  publishedServiceName = serviceName;
+  publishedTcpPort = opts.tcpPort;
   try {
     zc.publishService(
       SERVICE_TYPE,
@@ -276,6 +314,12 @@ export async function startLanDiscovery(
 
   try {
     zc.scan(SERVICE_TYPE, SERVICE_PROTOCOL, SERVICE_DOMAIN);
+    console.log(
+      "[mesh-lan] scanning + advertising",
+      localVaultIds.length,
+      "vault(s) on port",
+      opts.tcpPort,
+    );
   } catch (err) {
     console.warn("[mesh-lan] zeroconf scan failed", err);
   }
@@ -302,6 +346,8 @@ export async function startLanDiscovery(
       activeHandle = null;
       localVaultIds = [];
       scanIndexCache = null;
+      publishedServiceName = null;
+      publishedTcpPort = 0;
     },
   };
   activeHandle = handle;
@@ -315,8 +361,43 @@ export async function stopLanDiscovery(): Promise<void> {
   }
 }
 
+/**
+ * Refresh the advertised vault set IN PLACE when a vault is created/joined while
+ * discovery is already running — re-snapshots localVaultIds (so we both ADVERTISE
+ * the new vault's digest and MATCH incoming peers for it) and republishes the TXT
+ * WITHOUT restarting the scan. Restarting the whole zeroconf instance on every
+ * vault change re-floods Android NsdManager (single-resolve serialization) and
+ * can permanently lose peers' resolves — this avoids that. No-op when discovery
+ * isn't running.
+ */
+export async function updateLanVaultIds(): Promise<void> {
+  if (!zc || !publishedServiceName) return;
+  try {
+    localVaultIds = await getLocalVaultIds();
+    scanIndexCache = null; // rebuilt on next match against the new set
+    const txt = buildTxtRecord(localVaultIds, publishedTcpPort, Date.now());
+    try {
+      zc.unpublishService(publishedServiceName);
+    } catch {
+      /* best-effort */
+    }
+    zc.publishService(
+      SERVICE_TYPE,
+      SERVICE_PROTOCOL,
+      SERVICE_DOMAIN,
+      publishedServiceName,
+      publishedTcpPort,
+      txt,
+    );
+    console.log("[mesh-lan] republished TXT in place for", localVaultIds.length, "vault(s)");
+  } catch (err) {
+    console.warn("[mesh-lan] updateLanVaultIds failed", err);
+  }
+}
+
+// Strict IPv4 picker — return a dialable IPv4 or null. Never an IPv6 literal or
+// a hostname (TcpSocket.connect can't reach those reliably on Android).
 function pickIPv4Address(raw: RawZeroconfService): string | null {
   if (!raw?.addresses || raw.addresses.length === 0) return null;
-  const v4 = raw.addresses.find((a) => !a.includes(":"));
-  return v4 ?? raw.addresses[0];
+  return raw.addresses.find((a) => !a.includes(":") && a !== "0.0.0.0") ?? null;
 }
