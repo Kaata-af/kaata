@@ -42,6 +42,11 @@ private const val EVENT_DISCOVERY_FINISHED = "onDiscoveryFinished"
 
 private const val READ_BUF_BYTES = 4096
 
+// Cap concurrent RFCOMM sockets. A pileup of half-open accepted/dialed sockets
+// (each = a reader coroutine + 4KB buffer + thread stack + the BT stack's own
+// buffers) under connect churn was inflating RSS toward the ~300MB JAVA_CRASH.
+private const val MAX_SOCKETS = 8
+
 /**
  * Expo Module wrapping Android Bluetooth Classic INSECURE RFCOMM for the kaata
  * mesh — the Briar approach. Insecure RFCOMM = no OS bonding / no PIN dialog /
@@ -286,6 +291,19 @@ class KaataBtClassicModule : Module() {
   // Internals
   // ---------------------------------------------------------------------------
 
+  // Emit a JS event ONLY if the React context is still alive, and never let the
+  // emit throw. sendEvent() throws when the runtime/JS context is gone (app
+  // backgrounded/killed, HMR rebind) — and these emits fire on IO coroutines and
+  // the discovery BroadcastReceiver's main thread, where an UNCAUGHT throw kills
+  // the whole process. That was the observed JAVA_CRASH during connect churn.
+  private fun safeEmit(name: String, payload: Map<String, Any?>) {
+    try {
+      if (appContext.reactContext != null) sendEvent(name, payload)
+    } catch (_: Throwable) {
+      /* context torn down mid-emit during churn — must never crash the process */
+    }
+  }
+
   // Blocking accept loop on an IO coroutine. Cancelled by closing the server
   // socket (accept() then throws IOException) + removing the listener.
   private suspend fun acceptLoop(listenerId: String, server: BluetoothServerSocket) {
@@ -304,7 +322,7 @@ class KaataBtClassicModule : Module() {
         payload["listenerId"] = listenerId
         payload["socketId"] = socketId
         payload["remoteMac"] = try { socket.remoteDevice?.address } catch (_: Throwable) { null }
-        sendEvent(EVENT_ACCEPTED, payload)
+        safeEmit(EVENT_ACCEPTED, payload)
         Log.i(TAG, "rfcomm accepted socket=$socketId listener=$listenerId")
       } catch (e: Throwable) {
         try { socket.close() } catch (_: Throwable) { /* */ }
@@ -349,6 +367,14 @@ class KaataBtClassicModule : Module() {
   }
 
   private fun registerSocket(socket: BluetoothSocket): String {
+    // Refuse + close beyond the cap so a half-open pileup can't grow unbounded.
+    // We close the passed socket ourselves so neither caller (connect/accept)
+    // leaks it when this throws.
+    if (sockets.size >= MAX_SOCKETS) {
+      Log.w(TAG, "socket cap reached ($MAX_SOCKETS) — refusing + closing new socket")
+      try { socket.close() } catch (_: Throwable) { /* */ }
+      throw CodedException("E_TOO_MANY_SOCKETS", "Too many open RFCOMM sockets", null)
+    }
     val socketId = "S" + nextId.getAndIncrement()
     val st = SockState(socket)
     sockets[socketId] = st
@@ -384,7 +410,7 @@ class KaataBtClassicModule : Module() {
       val payload = HashMap<String, Any?>()
       payload["socketId"] = socketId
       payload["valueBase64"] = b64
-      sendEvent(EVENT_DATA, payload)
+      safeEmit(EVENT_DATA, payload)
     }
   }
 
@@ -395,7 +421,7 @@ class KaataBtClassicModule : Module() {
     val payload = HashMap<String, Any?>()
     payload["socketId"] = socketId
     if (reason != null) payload["reason"] = reason
-    sendEvent(EVENT_CLOSED, payload)
+    safeEmit(EVENT_CLOSED, payload)
     Log.i(TAG, "rfcomm closed socket=$socketId reason=$reason")
   }
 
@@ -416,7 +442,16 @@ class KaataBtClassicModule : Module() {
   }
 
   private fun registerDiscoveryReceiver() {
-    if (discoveryReceiver != null) return
+    // synchronized so concurrent start/stopClassicDiscovery (steady-loop inquiry
+    // churn + a pair inquiry) can't double-register or race the field set, which
+    // threw "receiver already registered" uncaught → JAVA_CRASH.
+    synchronized(this) {
+      if (discoveryReceiver != null) return
+      registerDiscoveryReceiverLocked()
+    }
+  }
+
+  private fun registerDiscoveryReceiverLocked() {
     val receiver = object : BroadcastReceiver() {
       override fun onReceive(ctx: Context, intent: Intent) {
         when (intent.action) {
@@ -432,11 +467,11 @@ class KaataBtClassicModule : Module() {
               val payload = HashMap<String, Any?>()
               payload["mac"] = dev.address
               payload["name"] = try { dev.name } catch (_: Throwable) { null }
-              sendEvent(EVENT_DEVICE_FOUND, payload)
+              safeEmit(EVENT_DEVICE_FOUND, payload)
             }
           }
           BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
-            sendEvent(EVENT_DISCOVERY_FINISHED, HashMap<String, Any?>())
+            safeEmit(EVENT_DISCOVERY_FINISHED, HashMap<String, Any?>())
           }
         }
       }
@@ -447,14 +482,21 @@ class KaataBtClassicModule : Module() {
     }
     // ACTION_FOUND / ACTION_DISCOVERY_FINISHED are system (protected) broadcasts;
     // RECEIVER_EXPORTED is the correct flag for the Android 14+ requirement.
-    ContextCompat.registerReceiver(appCtx, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
-    discoveryReceiver = receiver
+    // Guarded: a stray double-register must not throw uncaught.
+    try {
+      ContextCompat.registerReceiver(appCtx, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
+      discoveryReceiver = receiver
+    } catch (e: Throwable) {
+      Log.w(TAG, "registerDiscoveryReceiver failed (already registered?)", e)
+    }
   }
 
   private fun unregisterDiscoveryReceiver() {
-    discoveryReceiver?.let {
-      try { appCtx.unregisterReceiver(it) } catch (_: Throwable) { /* */ }
+    synchronized(this) {
+      discoveryReceiver?.let {
+        try { appCtx.unregisterReceiver(it) } catch (_: Throwable) { /* */ }
+      }
+      discoveryReceiver = null
     }
-    discoveryReceiver = null
   }
 }

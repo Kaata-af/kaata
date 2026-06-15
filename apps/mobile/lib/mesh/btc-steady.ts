@@ -64,6 +64,10 @@ const KICK_DEBOUNCE_MS = 500;
 // the radio (~8-12s), so throttle it hard and only do one vault per sweep.
 const INQUIRY_INTERVAL_MS = 150_000;
 const INQUIRY_DISCOVERY_MS = 8_000;
+// Cap a steady session's handshake+delta. The default is 5min; a half-open peer
+// that connects + sends nothing would otherwise pin the socket (+ its native
+// reader) that long, piling up toward the crash. 45s is ample for a real sync.
+const STEADY_SESSION_MAX_MS = 45_000;
 
 /** Stable per-(vault,day) RFCOMM service UUID. Distinct domain prefix from the
  *  one-shot pair UUID (deriveRfcommUuid(shop_mode_token)) so a live pair window
@@ -390,7 +394,11 @@ async function runSteadySession(
   // toast; a genuine handshake failure still rejects runAntiEntropy (logged).
   conn.suppressFailures = true;
   try {
-    const r = await runAntiEntropy(conn, { vaultId, vaultTrustAnchorPubkey: anchor });
+    const r = await runAntiEntropy(conn, {
+      vaultId,
+      vaultTrustAnchorPubkey: anchor,
+      maxDurationMs: STEADY_SESSION_MAX_MS,
+    });
     if (conn.remoteDeviceId) {
       s.skipUntil.set(conn.remoteDeviceId, Date.now() + PEER_COOLDOWN_MS);
       markPeerSeen(conn.remoteDeviceId); // presence: this device is reachable now

@@ -333,6 +333,10 @@ type Sink = {
 
 const sinks = new Map<string, Sink>();
 let nativeWired = false;
+// Bound pre-attach buffering: bytes for a socket whose conn hasn't attached a
+// handler yet are queued, but a flood (or a socket nobody ever owns) must not
+// grow unbounded — close it past this cap.
+const MAX_PREATTACH_QUEUE_CHUNKS = 64;
 
 function getSink(socketId: string): Sink {
   let s = sinks.get(socketId);
@@ -347,16 +351,33 @@ function ensureNativeWired(): void {
   if (nativeWired) return;
   nativeWired = true;
   onRfcommData((e) => {
-    const sink = getSink(e.socketId);
+    const sink = getSink(e.socketId); // auto-create to buffer early bytes
     const bytes = new Uint8Array(Buffer.from(e.valueBase64, "base64"));
-    if (sink.onData) sink.onData(bytes);
-    else sink.dataQueue.push(bytes);
+    if (sink.onData) {
+      sink.onData(bytes);
+      return;
+    }
+    if (sink.dataQueue.length >= MAX_PREATTACH_QUEUE_CHUNKS) {
+      // No handler has attached and the buffer is full — a flood or an unowned
+      // socket. Close it so the queue can't grow unbounded toward the crash.
+      void closeRfcomm(e.socketId).catch(() => {});
+      sinks.delete(e.socketId);
+      return;
+    }
+    sink.dataQueue.push(bytes);
   });
   onRfcommClosed((e) => {
     const sink = sinks.get(e.socketId);
     if (!sink) return;
-    if (sink.onClose) sink.onClose();
-    else sink.closedPending = true;
+    if (sink.onClose) {
+      sink.onClose();
+      sinks.delete(e.socketId); // conn was notified — free the entry
+    } else {
+      // No conn attached yet — keep the entry so a soon-to-attach conn still
+      // learns of the close (closedPending). makeBtcAdapter.destroy() / the
+      // dialBtcPeer cleanup path will delete it; a truly-orphaned entry is tiny.
+      sink.closedPending = true;
+    }
   });
 }
 
@@ -410,10 +431,19 @@ export type DialBtcPeerOpts = {
 export async function dialBtcPeer(opts: DialBtcPeerOpts): Promise<BtcMeshConnection> {
   ensureNativeWired();
   const socketId = await connectRfcomm(opts.mac, opts.uuid);
-  const conn = new BtcMeshConnection(makeBtcAdapter(socketId));
-  conn.remoteMac = opts.mac;
-  if (opts.suppressFailures) conn.suppressFailures = true;
-  return conn;
+  try {
+    const conn = new BtcMeshConnection(makeBtcAdapter(socketId));
+    conn.remoteMac = opts.mac;
+    if (opts.suppressFailures) conn.suppressFailures = true;
+    return conn;
+  } catch (err) {
+    // connectRfcomm already opened a native socket + spawned its reader
+    // coroutine. If anything after it throws, that socket would leak (a key
+    // contributor to the ~300MB RSS crash). Close it before rethrowing.
+    void closeRfcomm(socketId).catch(() => {});
+    sinks.delete(socketId);
+    throw err;
+  }
 }
 
 export type BtcListenerHandle = {
