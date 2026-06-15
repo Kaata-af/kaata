@@ -510,6 +510,79 @@ export async function runAntiEntropy(
   }
 
   // --- 3 + 4. Delta swap loop ---
+  const { sent, received, duplicates } = await runDeltaLoop(
+    conn,
+    opts,
+    peer,
+    localVector,
+    peerVector,
+    deadline,
+  );
+
+  // Best-effort bye.
+  try {
+    await sendMessage(conn, { type: "bye", v: WIRE_VERSION });
+    console.log("[mesh.bye] sent");
+  } catch {
+    /* peer may already have disconnected */
+    console.log("[mesh.bye] send failed (peer already gone)");
+  }
+
+  const durationMs = Date.now() - startedAt;
+  console.log(
+    "[mesh.done] sent=",
+    sent,
+    "received=",
+    received,
+    "duplicates=",
+    duplicates,
+    "durationMs=",
+    durationMs,
+  );
+
+  // JOINER side: a FULL sync completed, so the owner's pair-admission events
+  // have replicated back and future handshakes prove membership via the chain —
+  // retire our local pair_nonce echo now. Deferred here from handshake() so a
+  // mid-sync failure leaves the nonce live for the automatic retry. No-op for
+  // the owner (no local pair nonce). Best-effort.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const localPair = require("./local-pair") as {
+      clearLocalPairNonceForVault: (vaultId: string) => Promise<void>;
+    };
+    await localPair.clearLocalPairNonceForVault(opts.vaultId);
+  } catch (err) {
+    if (__DEV__) console.warn("[mesh.done] clearLocalPairNonceForVault failed", err);
+  }
+
+  return {
+    sent,
+    received,
+    duplicates,
+    durationMs,
+    peerDeviceId: peer.deviceId,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Delta swap loop (shared by one-shot runAntiEntropy + the persistent session)
+// ---------------------------------------------------------------------------
+
+/**
+ * One vector→delta exchange's delta phase: stream the events the peer lacks and
+ * apply the events we lack, in lockstep batches, until both sides drain. Extracted
+ * verbatim from runAntiEntropy so the one-shot and persistent paths share ONE
+ * copy of this security-relevant loop (reverify at every batch boundary). Caller
+ * has already done the handshake + vector exchange and passes both frontiers.
+ */
+async function runDeltaLoop(
+  conn: MeshConnection,
+  opts: AntiEntropyOptions,
+  peer: PeerSession,
+  localVector: Vector,
+  peerVector: Vector,
+  deadline: number,
+): Promise<{ sent: number; received: number; duplicates: number }> {
   let sent = 0;
   let received = 0;
   let duplicates = 0;
@@ -524,10 +597,7 @@ export async function runAntiEntropy(
 
   while (!(localSentDone && peerSentDone)) {
     if (Date.now() > deadline) {
-      throw new MeshTransportError(
-        `anti-entropy exceeded max duration ${maxDurationMs}ms`,
-        "timeout",
-      );
+      throw new MeshTransportError(`anti-entropy delta loop exceeded deadline`, "timeout");
     }
     if (sentBatches >= MAX_BATCHES_SENT) {
       throw new MeshTransportError(
@@ -605,47 +675,183 @@ export async function runAntiEntropy(
     }
   }
 
-  // Best-effort bye.
-  try {
-    await sendMessage(conn, { type: "bye", v: WIRE_VERSION });
-    console.log("[mesh.bye] sent");
-  } catch {
-    /* peer may already have disconnected */
-    console.log("[mesh.bye] send failed (peer already gone)");
-  }
+  return { sent, received, duplicates };
+}
 
-  const durationMs = Date.now() - startedAt;
-  console.log(
-    "[mesh.done] sent=",
-    sent,
-    "received=",
-    received,
-    "duplicates=",
-    duplicates,
-    "durationMs=",
-    durationMs,
-  );
+// ---------------------------------------------------------------------------
+// Persistent anti-entropy session (Briar-style warm connection)
+// ---------------------------------------------------------------------------
+//
+// The one-shot runAntiEntropy dials, handshakes, syncs ONCE, and closes — so the
+// steady loop paid a fresh RFCOMM connect (~1-2s) + full handshake every cycle.
+// That churn was both the "slower than Briar" gap AND a driver of the connect-
+// storm crash. This keeps ONE handshaken connection open and loops vector→delta
+// ROUNDS over it: one handshake + one connect for the whole session, like Briar's
+// ConnectionManager. It NEVER reopens a logical session on a fresh socket, so it
+// never skips a handshake (safer than a resume-with-cached-session scheme) — the
+// AEAD installed at handshake protects every round, and reverifyPeerWindow runs
+// before each round as the revocation backstop.
+//
+// Symmetry: both the dialer and the listener-accepter run THIS function, so they
+// loop in lockstep — every round's vector exchange + delta loop is Promise.all-
+// paired, which absorbs the small per-round timing skew. Idle-close (no events
+// for IDLE_ROUNDS_BEFORE_CLOSE rounds) is computed from events-moved, which is
+// symmetric, so both sides wind down together.
 
-  // JOINER side: a FULL sync completed, so the owner's pair-admission events
-  // have replicated back and future handshakes prove membership via the chain —
-  // retire our local pair_nonce echo now. Deferred here from handshake() so a
-  // mid-sync failure leaves the nonce live for the automatic retry. No-op for
-  // the owner (no local pair nonce). Best-effort.
+// Per-round hard cap (a stuck round can't pin the socket forever).
+const ROUND_MAX_MS = 45_000;
+// Whole-session hard cap. At this cap the session ends and the conn is CLOSED;
+// the next backstop dial re-establishes a fresh session (close-then-redial, not
+// an in-place refresh) — so a long-lived socket can't accumulate native buffers.
+const SESSION_MAX_MS = 300_000;
+// Close the session after this many consecutive rounds with zero events moved.
+// With the adaptive interval below this is ~3 min of true idle before we drop
+// the warm connection (then the next local write / backstop dial re-establishes).
+const IDLE_ROUNDS_BEFORE_CLOSE = 24;
+
+/** Adaptive inter-round wait: snappy right after activity, gentle when idle, so
+ *  real-time sync stays fast without polling an idle link every 1.5s for minutes.
+ *  Pure function of idleRounds → symmetric across both peers. */
+function roundIntervalMs(idleRounds: number): number {
+  if (idleRounds < 3) return 1_500;
+  if (idleRounds < 8) return 4_000;
+  return 10_000;
+}
+
+/**
+ * A re-armable wait that a push-on-write (or a stop/pause) can cut short. LATCHED:
+ * a wake() delivered while NOT parked in wait() (e.g. mid-round, the common case
+ * for a push that fires during a sync) is remembered so the very next wait()
+ * returns immediately instead of dropping the signal and waiting out the timer.
+ */
+function makeWaker(): { wait: (ms: number) => Promise<void>; wake: () => void } {
+  let resolve: (() => void) | null = null;
+  let pending = new Promise<void>((r) => (resolve = r));
+  let signalled = false;
+  return {
+    wait: (ms: number) => {
+      if (signalled) {
+        signalled = false;
+        return Promise.resolve();
+      }
+      return Promise.race([
+        pending.then(() => {
+          signalled = false;
+        }),
+        new Promise<void>((r) => setTimeout(r, ms)),
+      ]).then(() => {});
+    },
+    wake: () => {
+      signalled = true;
+      resolve?.();
+      pending = new Promise<void>((r) => (resolve = r));
+    },
+  };
+}
+
+export type AntiEntropySessionHooks = {
+  /**
+   * Called ONCE right after the handshake with the peer's deviceId, the peer's
+   * device pubkey (b64 — for a deterministic both-dial tie-break against the
+   * local pubkey), and a wake() that ends the current inter-round wait early. The
+   * caller registers the live session (to dedupe future dials) and stores wake()
+   * so a local write triggers an immediate round instead of waiting the interval.
+   */
+  onEstablished?: (peerDeviceId: string, peerPubkeyB64: string, wake: () => void) => void;
+  /** Polled between rounds; return true to end the session (shop mode stopping). */
+  shouldStop?: () => boolean;
+};
+
+/**
+ * Persistent warm-connection anti-entropy. Handshakes once, then loops sync
+ * rounds over the same open connection until idle / session cap / stop / error.
+ * Returns the aggregate of all rounds. The CALLER owns conn.close() (in its
+ * finally), exactly like runAntiEntropy.
+ */
+export async function runAntiEntropySession(
+  conn: MeshConnection,
+  opts: AntiEntropyOptions,
+  hooks?: AntiEntropySessionHooks,
+): Promise<AntiEntropyResult> {
+  const startedAt = Date.now();
+  const sessionMaxMs = opts.maxDurationMs ?? SESSION_MAX_MS;
+  const sessionDeadline = startedAt + sessionMaxMs;
+
+  // ONE handshake for the whole session — the expensive part. The conn stays
+  // authenticated + AEAD-installed; every round reuses it.
+  const peer = await handshake(conn, opts);
+
+  const waker = makeWaker();
+  hooks?.onEstablished?.(peer.deviceId, peer.devicePubkeyB64, waker.wake);
+
+  let sent = 0;
+  let received = 0;
+  let duplicates = 0;
+  let idleRounds = 0;
+
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const localPair = require("./local-pair") as {
-      clearLocalPairNonceForVault: (vaultId: string) => Promise<void>;
-    };
-    await localPair.clearLocalPairNonceForVault(opts.vaultId);
-  } catch (err) {
-    if (__DEV__) console.warn("[mesh.done] clearLocalPairNonceForVault failed", err);
+    while (true) {
+      if (hooks?.shouldStop?.()) break;
+      if (Date.now() >= sessionDeadline) break;
+
+      // Revocation backstop before every round: re-run the membership verdict so
+      // a peer removed since the handshake (or via a prior round's gossip) is
+      // refused. Throws on revocation → session ends (caller closes the conn).
+      await reverifyPeerWindow(opts.vaultId, peer);
+
+      const roundDeadline = Math.min(sessionDeadline, Date.now() + ROUND_MAX_MS);
+      const localVector = await computeRelayableVector(opts.vaultId);
+      const [, peerSummary] = await Promise.all([
+        sendMessage(conn, {
+          type: "vector",
+          v: WIRE_VERSION,
+          vault_id: opts.vaultId,
+          frontier: localVector,
+        } satisfies VectorSummaryMessage),
+        recvTyped<VectorSummaryMessage>(conn, "vector", roundDeadline - Date.now()),
+      ]);
+      if (peerSummary.vault_id !== opts.vaultId) {
+        throw new MeshHandshakeError(
+          `peer summary vault_id mismatch: expected ${opts.vaultId}, got ${peerSummary.vault_id}`,
+          "transport",
+        );
+      }
+      const peerVector: Vector = peerSummary.frontier ?? {};
+
+      const r = await runDeltaLoop(conn, opts, peer, localVector, peerVector, roundDeadline);
+      sent += r.sent;
+      received += r.received;
+      duplicates += r.duplicates;
+
+      // Symmetric idle metric: include duplicates so both peers count a round the
+      // same way (sent counts events shipped incl. ones the peer already had;
+      // received excludes duplicates — without duplicates the two sides' idle
+      // counters could drift a round apart and close out of lockstep).
+      if (r.sent + r.received + r.duplicates > 0) {
+        idleRounds = 0;
+      } else {
+        idleRounds++;
+        if (idleRounds >= IDLE_ROUNDS_BEFORE_CLOSE) break;
+      }
+
+      // Wait before the next round; a local write wakes us early for real-time
+      // sync. The interval lengthens as the link stays idle (battery).
+      await waker.wait(roundIntervalMs(idleRounds));
+    }
+  } finally {
+    // Best-effort bye so the peer's loop winds down on its next recv.
+    try {
+      await sendMessage(conn, { type: "bye", v: WIRE_VERSION });
+    } catch {
+      /* peer already gone */
+    }
   }
 
   return {
     sent,
     received,
     duplicates,
-    durationMs,
+    durationMs: Date.now() - startedAt,
     peerDeviceId: peer.deviceId,
   };
 }

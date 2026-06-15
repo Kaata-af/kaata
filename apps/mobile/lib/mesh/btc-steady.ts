@@ -26,8 +26,8 @@
 // same instant don't dial each other on the exact same tick.
 
 import { AppState, Platform } from "react-native";
-import { runAntiEntropy, loadVaultTrustAnchor } from "./anti-entropy";
-import { ensureDeviceKey } from "./device-key";
+import { runAntiEntropySession, loadVaultTrustAnchor } from "./anti-entropy";
+import { ensureDeviceKey, getDevicePubkey } from "./device-key";
 import {
   deriveRfcommUuid,
   dialBtcPeer,
@@ -64,10 +64,10 @@ const KICK_DEBOUNCE_MS = 500;
 // the radio (~8-12s), so throttle it hard and only do one vault per sweep.
 const INQUIRY_INTERVAL_MS = 150_000;
 const INQUIRY_DISCOVERY_MS = 8_000;
-// Cap a steady session's handshake+delta. The default is 5min; a half-open peer
-// that connects + sends nothing would otherwise pin the socket (+ its native
-// reader) that long, piling up toward the crash. 45s is ample for a real sync.
-const STEADY_SESSION_MAX_MS = 45_000;
+// Steady sessions are now PERSISTENT (Briar-style): runAntiEntropySession keeps
+// one handshaken conn open and loops sync rounds, bounded by its own per-round
+// (ROUND_MAX_MS) and whole-session (SESSION_MAX_MS) caps + idle-close. A
+// half-open peer is bounded by the handshake's own 10s recv timeouts.
 
 /** Stable per-(vault,day) RFCOMM service UUID. Distinct domain prefix from the
  *  one-shot pair UUID (deriveRfcommUuid(shop_mode_token)) so a live pair window
@@ -97,6 +97,29 @@ type SteadyState = {
   lastInquiryAt: number;
   /** Round-robin cursor over peerless vaults for the inquiry sweep. */
   inquiryRR: number;
+  /**
+   * Live warm sessions, peer deviceId → { wake, close }. Briar-style: a peer
+   * with an open persistent anti-entropy session is NOT re-dialed (dedupe); a
+   * local write wake()s it for immediate sync; pairing / stop close()s it to
+   * free the single radio. Populated post-handshake by runAntiEntropySession's
+   * onEstablished, cleared when the session ends. Sessions run fire-and-forget
+   * (NOT awaited by the dial pass), so they live outside the tickRunning window.
+   */
+  liveSessions: Map<string, { wake: () => void; close: () => void }>;
+  /**
+   * EVERY connection a session is running on — added before the handshake,
+   * removed when the session ends. liveSessions only holds ESTABLISHED sessions
+   * (post-handshake, deduped to one per peer), so pause/stop must close THIS set
+   * to also catch mid-handshake conns and any displaced/duplicate conn that
+   * never made it into liveSessions (else a stray conn holds the radio).
+   */
+  sessionConns: Set<BtcMeshConnection>;
+  /**
+   * deviceIds with a dial→handshake in progress (before the session registers in
+   * liveSessions). Skipped by BOTH the backstop and push dial paths so a local
+   * write mid-handshake doesn't open a duplicate socket to the same peer.
+   */
+  dialing: Set<string>;
 };
 
 let steady: SteadyState | null = null;
@@ -126,9 +149,34 @@ export async function pauseBtcSteadyForPairing(): Promise<void> {
   pairPauseCount++;
   const s = steady;
   if (!s) return;
+  quiesceSessions(s);
+  // Wait for the in-flight tick AND every session conn to actually release the
+  // single radio before the pair inquiry starts (a lingering RFCOMM socket or a
+  // mid-handshake conn would cross-cancel the pair inquiry). The inquiry itself
+  // yields via shouldAbort (pairPauseCount>0). Also bail if a new session opens
+  // an inbound accept during the window — onEstablished refuses while paused.
   const deadline = Date.now() + PAIR_RADIO_WAIT_MS;
-  while (s.tickRunning && Date.now() < deadline) {
+  while ((s.tickRunning || s.sessionConns.size > 0) && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 80));
+  }
+}
+
+/** Wake + close EVERY session (established or mid-handshake) so they stop using
+ *  the radio and unwind promptly. Used by pause-for-pairing and stop. */
+function quiesceSessions(s: SteadyState): void {
+  for (const sess of s.liveSessions.values()) {
+    try {
+      sess.wake(); // unblock a session parked in its inter-round wait
+    } catch {
+      /* */
+    }
+  }
+  for (const conn of s.sessionConns) {
+    try {
+      void conn.close(); // closes established, mid-handshake, and duplicate conns
+    } catch {
+      /* */
+    }
   }
 }
 export function resumeBtcSteadyForPairing(): void {
@@ -157,6 +205,9 @@ export async function startBtcSteadySync(opts: { vaultIds: string[] }): Promise<
     unsubLedger: null,
     lastInquiryAt: 0,
     inquiryRR: 0,
+    liveSessions: new Map(),
+    sessionConns: new Set(),
+    dialing: new Set(),
   };
   steady = s;
 
@@ -201,6 +252,8 @@ export async function stopBtcSteadySync(): Promise<void> {
   steady = null;
   if (!s) return;
   s.stopped = true;
+  // Wake + close every session conn promptly so radios don't linger after stop.
+  quiesceSessions(s);
   if (s.timer) {
     clearInterval(s.timer);
     s.timer = null;
@@ -256,7 +309,18 @@ async function openListeners(s: SteadyState): Promise<void> {
           serviceName: STEADY_SERVICE_NAME,
           uuid: steadyUuid(vaultId, day),
           onConnection: (conn) => {
-            void runSteadySession(s, conn, vaultId, anchor);
+            // Refuse inbound steady sessions while stopping / superseded / in a QR
+            // pair window — the single radio is reserved for pairing, and we don't
+            // want even the handshake's I/O competing with the pair inquiry.
+            if (s.stopped || steady !== s || pairPauseCount > 0) {
+              try {
+                void conn.close();
+              } catch {
+                /* */
+              }
+              return;
+            }
+            void runSteadySession(s, conn, vaultId, anchor, { isOutbound: false });
           },
         });
         // If we were superseded/stopped while openRfcommServer was awaiting, this
@@ -278,9 +342,17 @@ async function steadyTick(s: SteadyState): Promise<void> {
   await runDialPass(s, true);
 }
 
-/** Push pass — a LOCAL write happened, so dial known peers NOW, bypassing the
- *  success cooldown (an edit must not be swallowed by the 22s window). */
+/** Push pass — a LOCAL write happened. First WAKE every live persistent session
+ *  so the edit syncs immediately over the already-open conn (no reconnect), then
+ *  dial any known peer NOT already in a session, bypassing the success cooldown. */
 async function kickTick(s: SteadyState): Promise<void> {
+  for (const sess of s.liveSessions.values()) {
+    try {
+      sess.wake();
+    } catch {
+      /* */
+    }
+  }
   await runDialPass(s, false);
 }
 
@@ -332,6 +404,10 @@ async function runDialPass(s: SteadyState, respectCooldown: boolean): Promise<vo
       if (peers.length === 0) peerless.push(vaultId);
       for (const peer of peers) {
         if (s.stopped || steady !== s) break;
+        // Already in a warm session OR mid dial→handshake — don't open a second
+        // conn. This guard holds for BOTH the backstop and push paths (a local
+        // write must not double-dial a peer whose session is still establishing).
+        if (s.liveSessions.has(peer.deviceId) || s.dialing.has(peer.deviceId)) continue;
         if (respectCooldown && now < (s.skipUntil.get(peer.deviceId) ?? 0)) continue;
         await dialKnownPeer(s, vaultId, anchor, peer.deviceId, peer.mac);
       }
@@ -391,7 +467,10 @@ async function inquireForPeer(s: SteadyState, vaultId: string): Promise<void> {
     }
     return;
   }
-  await runSteadySession(s, conn, vaultId, anchor);
+  // Fire-and-forget (persistent session) so the dial pass / inquiry sweep isn't
+  // blocked for the session's lifetime. onEstablished caches the MAC, so the
+  // vault stops being "peerless" and this inquiry path won't re-connect it.
+  void runSteadySession(s, conn, vaultId, anchor, { isOutbound: true });
 }
 
 async function dialKnownPeer(
@@ -413,35 +492,121 @@ async function dialKnownPeer(
     } catch {
       continue; // peer not listening on this day's UUID — try the next
     }
-    await runSteadySession(s, conn, vaultId, anchor);
-    // We at least connected — short cooldown (covers a connect-but-handshake-fail
-    // so we don't hammer it every tick; runSteadySession also stamps on success).
+    // Connected. Reserve the peer (dialing) so a concurrent push/backstop pass
+    // won't open a second socket while we handshake; set a cooldown too; then run
+    // the session FIRE-AND-FORGET so the dial pass moves on to other peers
+    // instead of blocking for the whole (persistent, minutes-long) session. The
+    // reservation + skipUntil are cleared in runSteadySession's finally.
+    s.dialing.add(deviceId);
     s.skipUntil.set(deviceId, Date.now() + PEER_COOLDOWN_MS);
+    void runSteadySession(s, conn, vaultId, anchor, {
+      isOutbound: true,
+      dialReservation: deviceId,
+    });
     return;
   }
   // Couldn't reach this peer on any advertised day — back off longer.
   s.skipUntil.set(deviceId, Date.now() + FAILURE_BACKOFF_MS);
 }
 
+/**
+ * Run a PERSISTENT (Briar-style) anti-entropy session over a connected socket:
+ * one handshake, then loop sync rounds until idle / session cap / stop. Used by
+ * BOTH the dialer (dialKnownPeer / inquireForPeer, dialReservation set) and the
+ * listener-accepter (dialReservation undefined). Always closes the conn.
+ *
+ * opts.isOutbound: did WE dial (true) or accept (false)? Drives the both-dial
+ * tie-break. opts.dialReservation: the deviceId the DIAL path reserved in
+ * s.dialing (so a concurrent push can't double-dial); cleared in the finally —
+ * also the key for connect-but-handshake-fail backoff (conn.remoteDeviceId is
+ * null then).
+ */
 async function runSteadySession(
   s: SteadyState,
   conn: BtcMeshConnection,
   vaultId: string,
   anchor: Uint8Array,
+  opts: { isOutbound: boolean; dialReservation?: string },
 ): Promise<void> {
-  // Background periodic sync — the user has no screen to show a failure on, and a
-  // normal post-sync close shouldn't toast. suppressFailures mutes the transport
-  // toast; a genuine handshake failure still rejects runAntiEntropy (logged).
+  const { isOutbound, dialReservation } = opts;
+  // suppressFailures mutes the transport's global failure toast for a background
+  // sync the user can't see; a genuine error still rejects (logged below).
   conn.suppressFailures = true;
+  // Track EVERY session conn so pause/stop can close it even if it never
+  // registers in liveSessions (mid-handshake, or a deduped duplicate).
+  s.sessionConns.add(conn);
+  const closeConn = () => {
+    try {
+      void conn.close();
+    } catch {
+      /* */
+    }
+  };
+  let establishedDeviceId: string | null = null;
+  let myEntry: { wake: () => void; close: () => void } | null = null;
+  let handshakeSucceeded = false;
   try {
-    const r = await runAntiEntropy(conn, {
-      vaultId,
-      vaultTrustAnchorPubkey: anchor,
-      maxDurationMs: STEADY_SESSION_MAX_MS,
-    });
+    const r = await runAntiEntropySession(
+      conn,
+      { vaultId, vaultTrustAnchorPubkey: anchor },
+      {
+        onEstablished: (deviceId, peerPubkeyB64, wake) => {
+          // Reached post-handshake => peer is reachable + authenticated. Mark it
+          // so the catch below doesn't apply connect-failure backoff even if we
+          // close the conn here (a deliberate dedup/pause close, not a failure).
+          handshakeSucceeded = true;
+          // Don't keep a session alive if we're stopping / superseded / in a QR
+          // pair window — closing the conn makes the loop's first send throw and
+          // unwind, freeing the single radio for pairing.
+          if (s.stopped || steady !== s || pairPauseCount > 0) {
+            closeConn();
+            return;
+          }
+          // ONE warm session per peer. On a both-dial race two sockets exist
+          // (our outbound + an inbound accept). Pick deterministically so BOTH
+          // devices keep the SAME socket: keep the one DIALED by the smaller
+          // device pubkey. (winner direction = outbound iff ourPubkey<peerPubkey,
+          // else inbound.) Without this, each side could close a different socket
+          // and kill both, forcing a reconnect.
+          const ownPubkey = getDevicePubkey() ?? "";
+          const thisIsWinner = isOutbound ? ownPubkey < peerPubkeyB64 : peerPubkeyB64 < ownPubkey;
+          const existing = s.liveSessions.get(deviceId);
+          if (existing) {
+            if (!thisIsWinner) {
+              closeConn(); // the other socket is the keeper
+              return;
+            }
+            existing.close(); // we're the keeper — drop the duplicate
+          }
+          establishedDeviceId = deviceId;
+          myEntry = {
+            wake,
+            // close() also wakes so a session parked in its inter-round wait
+            // unwinds immediately (prompt radio handoff on pause/stop).
+            close: () => {
+              try {
+                wake();
+              } catch {
+                /* */
+              }
+              closeConn();
+            },
+          };
+          s.liveSessions.set(deviceId, myEntry);
+          markPeerSeen(deviceId); // presence: this device is reachable now
+          // Cache the MAC AS SOON AS the peer is identified so a peerless vault
+          // becomes non-peerless for the session's lifetime — otherwise the
+          // inquiry fallback would keep re-connecting the same peer (dup session).
+          if (conn.remoteMac) {
+            void addKnownPeer({ vaultId, deviceId, mac: conn.remoteMac }).catch(() => {});
+          }
+        },
+        shouldStop: () => s.stopped || steady !== s,
+      },
+    );
     if (conn.remoteDeviceId) {
       s.skipUntil.set(conn.remoteDeviceId, Date.now() + PEER_COOLDOWN_MS);
-      markPeerSeen(conn.remoteDeviceId); // presence: this device is reachable now
+      markPeerSeen(conn.remoteDeviceId);
       // Self-heal the MAC mapping (e.g. peer first learned via an inbound accept).
       // addKnownPeer skips the write when the MAC is unchanged, so this is cheap.
       if (conn.remoteMac) {
@@ -449,15 +614,29 @@ async function runSteadySession(
       }
     }
     if (__DEV__)
-      console.log("[btc.steady] synced", {
+      console.log("[btc.steady] session ended", {
         vault: vaultId.slice(0, 8),
         sent: r.sent,
         recv: r.received,
         peer: r.peerDeviceId.slice(0, 8),
+        durationMs: r.durationMs,
       });
   } catch (err) {
     if (__DEV__) console.warn("[btc.steady] session failed:", (err as Error).message);
+    // Connected but the HANDSHAKE failed (peer outdated / removed / AEAD missing).
+    // conn.remoteDeviceId is null here, so back off on the dialed deviceId instead
+    // of hammering a guaranteed-failing peer every backstop tick + every push.
+    if (!handshakeSucceeded && dialReservation) {
+      s.skipUntil.set(dialReservation, Date.now() + FAILURE_BACKOFF_MS);
+    }
   } finally {
+    if (dialReservation) s.dialing.delete(dialReservation);
+    s.sessionConns.delete(conn);
+    // Deregister ONLY our own entry — a both-dial race may have replaced it with
+    // a newer session for the same deviceId; don't evict that one.
+    if (establishedDeviceId && s.liveSessions.get(establishedDeviceId) === myEntry) {
+      s.liveSessions.delete(establishedDeviceId);
+    }
     try {
       await conn.close();
     } catch {
