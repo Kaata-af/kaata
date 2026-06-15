@@ -310,6 +310,12 @@ export default function VaultPairScreen() {
   async function hostPairing(vaultId: string, pairNonce: string): Promise<void> {
     try {
       await stopHosting(); // drop any prior listener (e.g. on re-issue)
+      // ATOMICITY: record shop-mode intent as soon as we start hosting, NOT only
+      // on a fully-successful pair session (onResult ok). If the first session
+      // drops mid-sync, steady-sync must still run once the owner leaves this
+      // pair screen (the pause releases) so it re-syncs the just-pinned joiner —
+      // otherwise the owner ends up with the member shown but no ongoing sync.
+      await setAppMeta("shop_mode_enabled", "1");
       const handle = await hostPairOverBtc({
         vaultId,
         pairNonce,

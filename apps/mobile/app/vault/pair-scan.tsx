@@ -60,6 +60,10 @@ type Step =
       kind: "joined";
       vault_id: string;
       vault_name: string;
+      /** Set when the immediate first-sync didn't complete — you're still joined
+       *  (pinned from the QR) and steady-sync retries in the background. Shown as
+       *  a small note (also carries the phase diagnostic). */
+      syncNote?: string;
     }
   | { kind: "error"; message: string };
 
@@ -275,23 +279,33 @@ export default function VaultPairScanScreen() {
       // completed a handshake on real hardware. Throws on failure → caught
       // below → retry (the vault row + pair nonce persist, so re-running is
       // idempotent and re-syncs even if the first attempt already admitted us).
+      // ATOMICITY: by here the joiner is already PINNED into the vault (active
+      // vault + local pair nonce above) from the QR — that's the membership
+      // commitment. The immediate BT pair below is a "fast first sync"; it can
+      // drop mid-handshake on a flaky RFCOMM link. We make it NON-FATAL: on a
+      // drop we still proceed to "joined" and let steady-sync (started below)
+      // re-attempt the admission + ledger sync every cycle (the pair nonce
+      // persists until admitted; the inquiry fallback finds the peerless host).
+      // This kills the confusing half-state where the vault + members showed but
+      // the screen said "failed" and nothing synced.
       const { joinPairOverBtc } = await import("../../lib/mesh/pair-btc");
-      await joinPairOverBtc({
-        vaultId: payload.vault_id,
-        pairNonce: payload.shop_mode_token,
-        hostMac: payload.issuer_bt_mac ?? null,
-        hostName: payload.issuer_bt_name ?? null,
-      });
+      let syncNote: string | undefined;
+      try {
+        await joinPairOverBtc({
+          vaultId: payload.vault_id,
+          pairNonce: payload.shop_mode_token,
+          hostMac: payload.issuer_bt_mac ?? null,
+          hostName: payload.issuer_bt_name ?? null,
+        });
+      } catch (err) {
+        syncNote = (err as Error)?.message ?? "first sync did not complete";
+        console.warn("[vault/pair-scan] first BT sync failed (steady will retry):", syncNote);
+      }
 
-      // Persist shop-mode intent only AFTER the rendezvous completes, so
-      // MeshController's background poll doesn't bring up other radios that
-      // contend with our inquiry/dial on the single Bluetooth adapter mid-pair.
+      // Start steady-state sync REGARDLESS of the first attempt — it's the
+      // reliable, self-retrying path (inquiry fallback for the peerless vault;
+      // cached owner MAC when available). Idempotent; non-fatal.
       await setAppMeta("shop_mode_enabled", "1");
-
-      // M-BTC-3.3: start steady-state sync now (inquiry is done, so no radio
-      // contention) so future changes propagate without re-scanning the QR. The
-      // peer's MAC was cached during the pair, so the dial loop re-syncs every
-      // ~30s. Idempotent; non-fatal.
       try {
         const mesh = await import("../../lib/mesh");
         // startShopMode covers the cold-start case; notifyVaultSetChanged covers
@@ -307,8 +321,12 @@ export default function VaultPairScanScreen() {
         kind: "joined",
         vault_id: payload.vault_id,
         vault_name: payload.vault_name,
+        syncNote,
       });
-      toast.push(t("vaultPairScan.toast.pairedNearby"), "success");
+      toast.push(
+        syncNote ? t("vaultPairScan.toast.joinedSyncing") : t("vaultPairScan.toast.pairedNearby"),
+        syncNote ? "info" : "success",
+      );
     } catch (err) {
       console.warn("[vault/pair-scan] join failed", err);
       // M-BTC-3.2: surface the real reason during this milestone (e.g. the
@@ -453,8 +471,15 @@ export default function VaultPairScanScreen() {
             <Text style={styles.emph}>{step.vault_name}</Text>
           </Text>
           <Text style={[styles.bodyText, textDir(isRTL)]}>
-            {t("vaultPairScan.joined.body.local")}
+            {step.syncNote
+              ? t("vaultPairScan.joined.body.syncing")
+              : t("vaultPairScan.joined.body.local")}
           </Text>
+          {step.syncNote ? (
+            <Text style={[styles.bodyText, textDir(isRTL), { opacity: 0.55, fontSize: 12 }]}>
+              {step.syncNote}
+            </Text>
+          ) : null}
           <View style={{ height: 24 }} />
           <Button label={t("common.done")} onPress={onDone} />
         </View>

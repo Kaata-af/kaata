@@ -2288,8 +2288,10 @@ async function recvTyped<T extends AnyMessage>(
   // surfaces the misleading "unsupported wire version undefined" — really it
   // means the peer hung up (or we connected to the wrong RFCOMM service).
   if ((raw as { __closed?: unknown }).__closed === true) {
+    // Name the phase we died waiting for ('hello' = start, 'vector'/'delta' =
+    // post-handshake ledger sync) so a drop is diagnosable without adb.
     throw new MeshTransportError(
-      `recv: connection closed during handshake (peer hung up or wrong RFCOMM service)`,
+      `recv: connection closed waiting for '${expectedType}' (peer hung up / dropped mid-sync)`,
       "recv_failed",
     );
   }

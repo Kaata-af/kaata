@@ -613,9 +613,12 @@ const en = {
   "vaultPairScan.joined.headline": "Paired with",
   "vaultPairScan.joined.body.local":
     "Both phones will sync over Bluetooth when close to each other. Nearby sync is on.",
+  "vaultPairScan.joined.body.syncing":
+    "You're in. The first sync didn't finish — it'll catch up automatically in the background while the phones are near each other.",
   "vaultPairScan.joined.body.server":
     "Both phones will sync over the internet, and over Bluetooth when nearby. Nearby sync is on.",
   "vaultPairScan.toast.pairedNearby": "Paired — now syncing nearby",
+  "vaultPairScan.toast.joinedSyncing": "Joined — syncing in the background",
   "vaultPairScan.error.headline": "Couldn't pair",
   "vaultPairScan.error.signInRequired":
     "Sign in with the same Google account as the other phone first.",
@@ -1408,9 +1411,12 @@ const fa: Partial<Record<Key, string>> = {
   "vaultPairScan.joined.headline": "جفت شد با",
   "vaultPairScan.joined.body.local":
     "وقتی دو تلفون نزدیک هم باشند با بلوتوث همگام می‌شوند. همگام‌سازی نزدیک روشن شد.",
+  "vaultPairScan.joined.body.syncing":
+    "عضو شدید. اولین همگام‌سازی کامل نشد — وقتی تلفون‌ها نزدیک هم باشند، در پس‌زمینه به‌طور خودکار همگام می‌شود.",
   "vaultPairScan.joined.body.server":
     "دو تلفون با انترنت و نیز با بلوتوث در صورت نزدیکی همگام می‌شوند. همگام‌سازی نزدیک روشن شد.",
   "vaultPairScan.toast.pairedNearby": "جفت شد — در حال همگام‌سازی نزدیک",
+  "vaultPairScan.toast.joinedSyncing": "عضو شدید — در حال همگام‌سازی در پس‌زمینه",
   "vaultPairScan.error.headline": "جفت‌سازی ناکام شد",
   "vaultPairScan.error.signInRequired": "ابتدا با همان حساب گوگل تلفون دیگر وارد شوید.",
   "vaultPairScan.error.accountMismatch":
