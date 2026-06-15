@@ -273,6 +273,65 @@ class KaataBtClassicModule : Module() {
       }
     }
 
+    // -----------------------------------------------------------------------
+    // Native foreground service (Briar-style START_STICKY). Replaces notifee's
+    // JS-callback-bound FGS so the "Nearby sync" notification + process survive
+    // app close / MIUI process death. See KaataForegroundService.kt.
+    // -----------------------------------------------------------------------
+
+    // Start (or update) the foreground service. The app is in the foreground
+    // whenever this is called (user toggle / app-open auto-resume), so
+    // startForegroundService is allowed by the API 31+ background-start rules.
+    AsyncFunction("startMeshForegroundService") {
+        title: String, body: String, channelName: String, channelDesc: String, promise: Promise ->
+      try {
+        val intent = Intent(appCtx, KaataForegroundService::class.java).apply {
+          action = KaataForegroundService.ACTION_START
+          putExtra(KaataForegroundService.EXTRA_TITLE, title)
+          putExtra(KaataForegroundService.EXTRA_BODY, body)
+          putExtra(KaataForegroundService.EXTRA_CHANNEL_NAME, channelName)
+          putExtra(KaataForegroundService.EXTRA_CHANNEL_DESC, channelDesc)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) appCtx.startForegroundService(intent)
+        else appCtx.startService(intent)
+        promise.resolve(true)
+      } catch (e: Throwable) {
+        Log.w(TAG, "startMeshForegroundService failed", e)
+        promise.reject(CodedException("E_FGS_START", e.message ?: "startMeshForegroundService failed", e))
+      }
+    }
+
+    // In-place title/body update as peer count changes. Uses startService (NOT
+    // startForegroundService): updates can fire while the app is backgrounded,
+    // and re-issuing startForegroundService from the background throws on API
+    // 31+. The service is already running+foreground here, so a plain
+    // startService command is allowed. Best-effort — failures are ignored.
+    AsyncFunction("updateMeshForegroundService") { title: String, body: String, promise: Promise ->
+      try {
+        val intent = Intent(appCtx, KaataForegroundService::class.java).apply {
+          action = KaataForegroundService.ACTION_START
+          putExtra(KaataForegroundService.EXTRA_TITLE, title)
+          putExtra(KaataForegroundService.EXTRA_BODY, body)
+        }
+        appCtx.startService(intent)
+        promise.resolve(true)
+      } catch (_: Throwable) {
+        promise.resolve(false)
+      }
+    }
+
+    // Stop the service (user toggled Nearby sync off). stopService -> onDestroy
+    // removes the notification; not subject to the 5s startForeground rule.
+    AsyncFunction("stopMeshForegroundService") { promise: Promise ->
+      try {
+        appCtx.stopService(Intent(appCtx, KaataForegroundService::class.java))
+        promise.resolve(true)
+      } catch (e: Throwable) {
+        Log.w(TAG, "stopMeshForegroundService failed", e)
+        promise.resolve(false)
+      }
+    }
+
     OnDestroy {
       // Cancel the scope so coroutines don't leak on HMR/rebind; tear down on a
       // throwaway scope (mirrors KaataGattServerModule).

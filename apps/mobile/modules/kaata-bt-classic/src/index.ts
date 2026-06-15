@@ -141,6 +141,50 @@ export async function requestDiscoverable(durationSec: number): Promise<boolean>
 }
 
 // ---------------------------------------------------------------------------
+// Native foreground service (Briar-style START_STICKY).
+//
+// Replaces notifee's JS-callback-bound foreground service so the "Nearby sync"
+// notification + process survive app close / MIUI process death. See
+// android/.../KaataForegroundService.kt. All no-op off Android.
+// ---------------------------------------------------------------------------
+
+/**
+ * Start the native foreground service with the given notification copy. Throws
+ * on a hard failure (e.g. background-start blocked) so the caller can treat the
+ * FGS as not-started. channelName + channelDesc seed the native channel for the
+ * no-JS sticky-restart case.
+ */
+export async function startMeshForegroundService(
+  title: string,
+  body: string,
+  channelName: string,
+  channelDesc: string,
+): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  return await getNative().startMeshForegroundService(title, body, channelName, channelDesc);
+}
+
+/** Update the running service's title/body in place. Best-effort (never throws). */
+export async function updateMeshForegroundService(title: string, body: string): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  try {
+    return await getNative().updateMeshForegroundService(title, body);
+  } catch {
+    return false;
+  }
+}
+
+/** Stop the service + remove its notification. Idempotent; never throws. */
+export async function stopMeshForegroundService(): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  try {
+    return await getNative().stopMeshForegroundService();
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Event subscriptions (return { remove() } like the rest of the mesh adapters).
 // ---------------------------------------------------------------------------
 

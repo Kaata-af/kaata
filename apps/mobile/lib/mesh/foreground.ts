@@ -1,21 +1,23 @@
 // apps/mobile/lib/mesh/foreground.ts
 //
-// Wraps @notifee/react-native foreground-service primitives so the rest
-// of the codebase (mesh/index.ts, _layout.tsx) doesn't have a hard dep on
-// the native module. Keeps unit tests + web compile alive when notifee
-// isn't installed.
+// Foreground-service facade for the rest of the codebase (mesh/index.ts,
+// MeshController, _layout.tsx). The FGS itself is now a NATIVE START_STICKY
+// service (modules/kaata-bt-classic KaataForegroundService) — the Briar model —
+// so the "Nearby sync" notification + process survive app close / MIUI process
+// death. notifee is kept ONLY for the notification channel + the Android 13+
+// POST_NOTIFICATIONS prompt + cold-start tap inspection; it no longer owns the
+// foreground service (its JS-callback-bound FGS was the thing that vanished on
+// close and tripped the 5s ForegroundServiceDidNotStartInTime crash on restart).
 //
 // On non-Android platforms (web, iOS for now) every export is a no-op —
 // mesh is Android-only in Phase 6.
 //
 // FGS TYPE DECLARATION (Android 14+):
-//   - Manifest declares `connectedDevice|dataSync` (see plugins/
-//     withNotifeeForegroundService.js).
-//   - JS-side displayNotification passes the matching bitmask so
-//     Service.startForeground doesn't throw
-//     MissingForegroundServiceTypeException. Both types are required:
-//       CONNECTED_DEVICE — justifies holding open the BLE GATT link
-//       DATA_SYNC        — justifies anti-entropy event replication
+//   - The native service is declared with `connectedDevice|dataSync` in the
+//     kaata-bt-classic module manifest, and KaataForegroundService passes the
+//     matching bitmask to startForeground (or it throws on API 34+). Both:
+//       CONNECTED_DEVICE — holding open RFCOMM links to nearby phones
+//       DATA_SYNC        — anti-entropy event replication
 //   - app.json declares both FOREGROUND_SERVICE_CONNECTED_DEVICE and
 //     FOREGROUND_SERVICE_DATA_SYNC runtime permissions.
 
@@ -48,20 +50,6 @@ function getNotifee(): NotifeeModule | null {
     }
     return null;
   }
-}
-
-/**
- * Resolve the FGS types bitmask. notifee exposes
- * `AndroidForegroundServiceType` as an enum-style object — we read the
- * symbolic constants when available and fall back to the documented
- * numeric values for older notifee versions where the constants weren't
- * exported.
- *   DATA_SYNC = 1
- *   CONNECTED_DEVICE = 16
- */
-function fgsTypes(notifee: NotifeeModule): number[] {
-  const t = notifee?.AndroidForegroundServiceType ?? {};
-  return [t.DATA_SYNC ?? 1, t.CONNECTED_DEVICE ?? 16];
 }
 
 /**
@@ -136,67 +124,35 @@ export type ShopModeNotificationOpts = {
 export async function startShopModeForegroundService(
   opts?: ShopModeNotificationOpts,
 ): Promise<boolean> {
-  const notifee = getNotifee();
-  if (!notifee) return false;
+  if (Platform.OS !== "android") return false;
 
-  // D-FOREGROUND-CRASH: GUARANTEE the channel exists before we ever ask
-  // Android to spawn the foreground service. ensureShopModeChannel is also
-  // called at boot from _layout.tsx, but cold-start auto-resume can fire
-  // startShopMode before that init effect finishes. createChannel is
-  // idempotent on the channelId, so calling twice is free.
+  // Apply the localized channel name (notifee path). The native service also
+  // creates the channel as a no-JS fallback, but this seeds the user's
+  // language. Idempotent — safe to call on every start / cold-start auto-resume.
   await ensureShopModeChannel();
 
-  // Android 13+ permission ask. notifee.requestPermission is idempotent —
-  // returns immediately if already granted/denied.
+  // Android 13+ POST_NOTIFICATIONS so the tray notification is actually
+  // visible. The foreground service runs without it, but the notification
+  // would be hidden. notifee.requestPermission is idempotent.
   try {
-    await notifee.default.requestPermission();
+    const notifee = getNotifee();
+    if (notifee) await notifee.default.requestPermission();
   } catch (err) {
     if (__DEV__) console.warn("[mesh/foreground] requestPermission failed", err);
   }
+
+  // Hand off to the NATIVE START_STICKY service (modules/kaata-bt-classic).
+  // Title/body are the controlled-trust copy (only pre-paired phones sync);
+  // channelName/Desc seed the native channel for the no-JS sticky-restart case.
   try {
-    await notifee.default.displayNotification({
-      id: SHOP_MODE_NOTIFICATION_ID,
-      // Privacy-aware framing: the copy must NOT imply broadcast to
-      // anyone nearby (the user explicitly rejected "Sharing your kaata
-      // nearby" — they pointed out a neighbour shop's phone could
-      // misread that as "Kaata is leaking my ledger to anything in
-      // range"). The TRUTH is: only phones you've pre-paired via QR
-      // can sync. The copy should reflect that controlled-trust model.
-      // "Connecting with your paired phones" makes the trust boundary
-      // explicit. Body during search frames it as a private session
-      // ("Waiting for your team to connect…") rather than open discovery.
-      title: opts?.title ?? (await import("../i18n")).t("fgs.title"),
-      body: opts?.body ?? (await import("../i18n")).t("fgs.waiting"),
-      android: {
-        channelId: SHOP_MODE_CHANNEL_ID,
-        // D-FOREGROUND-HARDEN: REQUIRED for the foreground-service
-        // Notification to build. Without a valid drawable resolvable via
-        // getResources().getIdentifier(name, "drawable", pkg), Service
-        // .startForeground() is never called and Android force-kills us
-        // after 5s with ForegroundServiceDidNotStartInTimeException.
-        // "notification_icon" is generated by the expo-notifications
-        // plugin's "icon" config (app.json) and lives in res/drawable-*/.
-        // Previously "ic_launcher" was used here — but ic_launcher is in
-        // res/mipmap-*/, NOT res/drawable*/, so notifee's lookup returned
-        // 0 (resource not found) → invalid notification → 5s crash.
-        smallIcon: "notification_icon",
-        asForegroundService: true,
-        foregroundServiceTypes: fgsTypes(notifee),
-        ongoing: true,
-        importance: notifee.AndroidImportance.LOW,
-        // Tapping the notification opens the app via the default
-        // launchActivity; the kaata:// deep-link routing is handled by
-        // the onForegroundEvent listener registered in _layout.tsx, and
-        // cold-start by the getInitialNotification handler.
-        pressAction: {
-          id: "open-shop-mode-settings",
-          launchActivity: "default",
-        },
-        visibility: notifee.AndroidVisibility.SECRET,
-        showTimestamp: false,
-      },
-    });
-    return true;
+    const { t } = await import("../i18n");
+    const bt = await import("../../modules/kaata-bt-classic");
+    return await bt.startMeshForegroundService(
+      opts?.title ?? t("fgs.title"),
+      opts?.body ?? t("fgs.waiting"),
+      t("fgs.channelName"),
+      t("fgs.channelDescription"),
+    );
   } catch (err) {
     if (__DEV__) console.warn("[mesh/foreground] startShopModeForegroundService failed", err);
     return false;
@@ -215,32 +171,14 @@ export async function startShopModeForegroundService(
  *   - idle after activity → "Last synced {rel}"
  */
 export async function updateShopModeNotification(opts: ShopModeNotificationOpts): Promise<void> {
-  const notifee = getNotifee();
-  if (!notifee) return;
+  if (Platform.OS !== "android") return;
   try {
-    await notifee.default.displayNotification({
-      id: SHOP_MODE_NOTIFICATION_ID,
-      title: opts.title ?? (await import("../i18n")).t("fgs.title"),
-      body: opts.body ?? (await import("../i18n")).t("fgs.waiting"),
-      android: {
-        channelId: SHOP_MODE_CHANNEL_ID,
-        // D-FOREGROUND-HARDEN: same smallIcon contract as start — the
-        // "update" path re-emits with asForegroundService:true so Android
-        // treats the new notification as the service's foreground
-        // notification. A missing smallIcon here crashes the same way.
-        smallIcon: "notification_icon",
-        asForegroundService: true,
-        foregroundServiceTypes: fgsTypes(notifee),
-        ongoing: true,
-        importance: notifee.AndroidImportance.LOW,
-        pressAction: {
-          id: "open-shop-mode-settings",
-          launchActivity: "default",
-        },
-        visibility: notifee.AndroidVisibility.SECRET,
-        showTimestamp: false,
-      },
-    });
+    const { t } = await import("../i18n");
+    const bt = await import("../../modules/kaata-bt-classic");
+    await bt.updateMeshForegroundService(
+      opts.title ?? t("fgs.title"),
+      opts.body ?? t("fgs.waiting"),
+    );
   } catch (err) {
     if (__DEV__) console.warn("[mesh/foreground] updateShopModeNotification failed", err);
   }
@@ -251,17 +189,15 @@ export async function updateShopModeNotification(opts: ShopModeNotificationOpts)
  * the process back to "background" priority. Idempotent.
  */
 export async function stopShopModeForegroundService(): Promise<void> {
-  const notifee = getNotifee();
-  if (!notifee) return;
+  if (Platform.OS !== "android") return;
+  // Native stopService -> onDestroy removes the notification. This also drops
+  // the old notifee.stopForegroundService() call, which itself was a MIUI crash
+  // vector (it spawned a HeadlessJS task the OS misread as an FGS start).
   try {
-    await notifee.default.stopForegroundService();
-  } catch {
-    // Already stopped — ignore.
-  }
-  try {
-    await notifee.default.cancelDisplayedNotification(SHOP_MODE_NOTIFICATION_ID);
-  } catch {
-    // Already cancelled — ignore.
+    const bt = await import("../../modules/kaata-bt-classic");
+    await bt.stopMeshForegroundService();
+  } catch (err) {
+    if (__DEV__) console.warn("[mesh/foreground] stopShopModeForegroundService failed", err);
   }
 }
 

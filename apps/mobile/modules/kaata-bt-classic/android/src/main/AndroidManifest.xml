@@ -5,5 +5,23 @@
     maxSdkVersion=30 for classic inquiry) are declared at the app level in
     apps/mobile/app.json so there's a single source of truth (see
     plugins/withNearbyWifiNeverForLocation.js).
+
+    The FOREGROUND_SERVICE_* + POST_NOTIFICATIONS permissions the service
+    below needs are likewise declared at app level in app.json.
   -->
+  <application>
+    <!--
+      Native START_STICKY foreground service for "Nearby sync" (Briar model).
+      stopWithTask="false" -> survives swipe-away; foregroundServiceType MUST
+      match the runtime type passed in KaataForegroundService.startForeground
+      (connectedDevice = holds RFCOMM links, dataSync = anti-entropy). This is
+      separate from notifee's FGS (withNotifeeForegroundService plugin); only
+      this one is ever started now (see lib/mesh/foreground.ts).
+    -->
+    <service
+      android:name="expo.modules.kaatabtclassic.KaataForegroundService"
+      android:exported="false"
+      android:foregroundServiceType="connectedDevice|dataSync"
+      android:stopWithTask="false" />
+  </application>
 </manifest>
