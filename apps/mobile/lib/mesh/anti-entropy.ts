@@ -2283,6 +2283,16 @@ async function recvTyped<T extends AnyMessage>(
   if (!raw || typeof raw !== "object") {
     throw new MeshTransportError(`recv: non-object message`, "bad_payload");
   }
+  // The BTC transport resolves a pending recv with {__closed:true} when the
+  // socket drops. Without this check it falls through to the version gate and
+  // surfaces the misleading "unsupported wire version undefined" — really it
+  // means the peer hung up (or we connected to the wrong RFCOMM service).
+  if ((raw as { __closed?: unknown }).__closed === true) {
+    throw new MeshTransportError(
+      `recv: connection closed during handshake (peer hung up or wrong RFCOMM service)`,
+      "recv_failed",
+    );
+  }
   const m = raw as { type?: unknown; v?: unknown };
   // M3.5: only v:3 (the author_seq version-vector protocol) is accepted —
   // full cutover, no backwards-compat. A pre-v3 peer is refused here at the

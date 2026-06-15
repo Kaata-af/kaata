@@ -440,10 +440,19 @@ class KaataBtClassicModule : Module() {
     }
   }
 
-  // Insecure RFCOMM connect with the mitigations Briar uses for OEM/timing
-  // flakiness: the SDP-based socket is retried (the first attempt right after an
-  // inquiry commonly fails), then a reflection fallback to a fixed RFCOMM
-  // channel (bypasses SDP) for stacks where SDP-based connect never works.
+  // Insecure RFCOMM connect, SDP-based, like Briar. The first attempt right after
+  // an inquiry commonly fails (SDP not warmed up), so retry once.
+  //
+  // NO reflection createInsecureRfcommSocket(channel=1) fallback. Channel 1 is
+  // almost never the service's real (system-assigned) channel, so dialing it
+  // connects to whatever OTHER RFCOMM service happens to sit on channel 1 — NOT
+  // our pairing service. With the dial-every-discovered-device sweep, that made
+  // discoverAndConnect "succeed" against the WRONG device, and the kaata
+  // handshake then died with "connection closed / unsupported wire version
+  // undefined" against that wrong service. Briar has no such fallback for exactly
+  // this reason: only the SDP path (UUID -> the host's real channel) reaches the
+  // pairing service; a device without the service simply fails to connect and the
+  // sweep moves on to the next candidate (the real host).
   private suspend fun connectInsecure(dev: BluetoothDevice, uuid: UUID): BluetoothSocket {
     var lastErr: Throwable? = null
     for (attempt in 1..2) {
@@ -456,21 +465,8 @@ class KaataBtClassicModule : Module() {
         lastErr = e
         try { s?.close() } catch (_: Throwable) { /* */ }
         Log.w(TAG, "rfcomm SDP connect attempt $attempt failed: ${e.message}")
-        delay(500)
+        if (attempt < 2) delay(500)
       }
-    }
-    // Reflection fallback: createInsecureRfcommSocket(channel=1) — bypasses SDP.
-    var s: BluetoothSocket? = null
-    try {
-      val m = dev.javaClass.getMethod("createInsecureRfcommSocket", Int::class.javaPrimitiveType)
-      s = m.invoke(dev, 1) as BluetoothSocket
-      s.connect()
-      Log.i(TAG, "rfcomm connected via reflection fallback (channel 1)")
-      return s
-    } catch (e: Throwable) {
-      try { s?.close() } catch (_: Throwable) { /* */ }
-      Log.w(TAG, "rfcomm reflection fallback failed: ${e.message}")
-      if (lastErr == null) lastErr = e
     }
     throw lastErr ?: IOException("rfcomm connect failed")
   }
