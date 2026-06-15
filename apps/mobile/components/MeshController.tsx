@@ -36,6 +36,13 @@ import { hasBlePermissions, requestBlePermissions } from "../lib/mesh/ble-permis
 import { buildWifiUpgradePromptCopy, type WifiUpgradeChoice } from "../lib/mesh/wifi-upgrade";
 
 const APP_META_POLL_MS = 10_000;
+// Auto-resume backoff. A transient start failure (Bluetooth momentarily off,
+// radio busy after a kill, FGS race) must NOT wipe the user's intent — we keep
+// shop_mode_enabled="1" and retry a few times this session; the mount effect
+// also retries on every app launch. Bounded so a permanently-failing start
+// doesn't spin forever (the intent still persists for the next launch).
+const START_RETRY_BASE_MS = 4_000;
+const MAX_START_RETRIES = 4;
 // Phase 7 founder decision: Nearby sync does NOT auto-off. The user is
 // the only one who decides when to stop sharing — battery is their call,
 // not ours. The 12h auto-off + 24h initial-grace logic from earlier
@@ -96,6 +103,11 @@ export function MeshController() {
     timestamps: [],
     lastToastAt: 0,
   });
+
+  // Auto-resume retry state. attempts counts consecutive failed starts this
+  // session; timer holds the pending backoff so we don't stack retries.
+  const startAttemptsRef = useRef(0);
+  const startRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Wire mesh-side bridges to UI surfaces on mount. Only ONE
   // MeshController is rendered per app lifetime (mounted in _layout),
@@ -296,26 +308,61 @@ export function MeshController() {
 
   // BLE permission gate. When the user toggles ON, we check whether the
   // runtime perms are granted; if not, show the rationale dialog FIRST,
-  // then request, then either start mesh or revert+toast.
+  // then request, then either start mesh or (on an explicit permission
+  // denial) clear the intent.
   //
-  // UX critique #6: on Android, ShopModeForegroundServiceFailedError
-  // means the FGS never came up — the radio won't survive Doze and the
-  // user thinks Nearby sync is on while it actually isn't. Revert the
-  // toggle and show a specific error toast so the state matches reality.
+  // INTENT-PRESERVING START ERRORS: a *transient* start failure must NOT
+  // clear shop_mode_enabled. That was the bug behind "the toggle is OFF
+  // every time I reopen the app" — a single radio/FGS hiccup disabled
+  // sync silently. Only an explicit user choice (toggle-off, permission
+  // denied) clears the persisted intent; everything else keeps it and
+  // retries (handleStartError -> scheduleStartRetry).
+  //
+  // "Nothing to sync" — the user has no mesh-eligible vault yet. Retrying is
+  // pointless and it isn't a failure the user can act on, so we stay quiet and
+  // do NOT touch the intent (it resumes once they create/join a Kaata).
+  const isTerminalStartError = (err: unknown): boolean =>
+    !!err &&
+    typeof err === "object" &&
+    "name" in err &&
+    (err as { name: string }).name === "ShopModeNotAvailableError";
+
+  // Retry startShopMode with growing backoff WITHOUT wiping the user's intent.
+  // Self-contained (only re-arms itself) so there's no ref cycle. Bails if the
+  // user turned the intent off while we were waiting.
+  const scheduleStartRetry = useRef(() => {
+    if (startRetryTimerRef.current) return; // a retry is already pending
+    if (startAttemptsRef.current >= MAX_START_RETRIES) return; // give up THIS session
+    const attempt = startAttemptsRef.current;
+    const delay = START_RETRY_BASE_MS * (attempt + 1);
+    startRetryTimerRef.current = setTimeout(() => {
+      startRetryTimerRef.current = null;
+      void (async () => {
+        const intent = await getAppMeta("shop_mode_enabled");
+        if (intent !== "1") {
+          startAttemptsRef.current = 0; // user turned it off — stop retrying
+          return;
+        }
+        startAttemptsRef.current = attempt + 1;
+        try {
+          const mesh = await import("../lib/mesh");
+          await mesh.startShopMode();
+          startAttemptsRef.current = 0; // recovered
+        } catch (e) {
+          if (isTerminalStartError(e)) return;
+          scheduleStartRetry.current();
+        }
+      })();
+    }, delay);
+  });
+
+  // A start failed. CRITICAL: never clear shop_mode_enabled here. It is the
+  // persisted user intent; clearing it on a transient failure was what forced
+  // a manual re-toggle on every app reopen. Keep it set and retry instead.
   const handleStartError = useRef((err: unknown) => {
-    if (
-      err &&
-      typeof err === "object" &&
-      "name" in err &&
-      (err as { name: string }).name === "ShopModeForegroundServiceFailedError"
-    ) {
-      void setAppMeta("shop_mode_enabled", "0");
-      toastRef.current.push(t("menu.sync.shopMode.fgsFailed"), "error");
-      return;
-    }
-    console.warn("[mesh-ctl] startShopMode failed", err);
-    void setAppMeta("shop_mode_enabled", "0");
-    toastRef.current.push(t("menu.sync.shopMode.failed"), "error");
+    if (isTerminalStartError(err)) return; // nothing to sync; keep intent, no retry
+    console.warn("[mesh-ctl] startShopMode failed — keeping intent, retrying", err);
+    scheduleStartRetry.current();
   });
   // Engineering critique N#1: single body. Prior version set the
   // useRef initial value AND immediately overwrote it with a near-identical
@@ -336,8 +383,10 @@ export function MeshController() {
       // request and either-start-or-revert flow.
       setBleRationaleOpen(true);
     } catch (err) {
-      console.warn("[mesh-ctl] ensurePermsAndStart failed", err);
-      await setAppMeta("shop_mode_enabled", "0");
+      // Module-load / perm-check failure — transient, not a user choice.
+      // Keep the intent and retry rather than silently disabling sync.
+      console.warn("[mesh-ctl] ensurePermsAndStart failed — keeping intent, retrying", err);
+      scheduleStartRetry.current();
     }
   });
 
@@ -356,6 +405,14 @@ export function MeshController() {
   useEffect(() => {
     const wantOn = shopModeEnabled;
     console.log("[mesh.toggle] effect fired wantOn=", wantOn);
+    // A fresh intent (or an off-flip) cancels any pending auto-resume retry
+    // and resets the backoff so a new toggle-on isn't blocked by a previous
+    // session's exhausted attempts.
+    if (startRetryTimerRef.current) {
+      clearTimeout(startRetryTimerRef.current);
+      startRetryTimerRef.current = null;
+    }
+    if (wantOn) startAttemptsRef.current = 0;
     let cancelled = false;
     void (async () => {
       try {
@@ -386,9 +443,15 @@ export function MeshController() {
   }, [shopModeEnabled]);
 
   // True-unmount teardown only (root remount / dev fast-refresh): stop
-  // mesh if it is running so radios don't leak past the component.
+  // mesh if it is running so radios don't leak past the component. NOTE:
+  // stopShopMode() WITHOUT userInitiated leaves shop_mode_enabled set, so a
+  // remount auto-resumes — the intent only ever clears via the user toggle.
   useEffect(() => {
     return () => {
+      if (startRetryTimerRef.current) {
+        clearTimeout(startRetryTimerRef.current);
+        startRetryTimerRef.current = null;
+      }
       void import("../lib/mesh")
         .then((m) => m.stopShopMode())
         .catch(() => {

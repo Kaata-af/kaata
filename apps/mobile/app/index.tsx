@@ -917,18 +917,28 @@ export default function HomeScreen() {
               // user mental model already).
               toast.push(t("menu.sync.shopMode.startedToast"), "success");
             } else {
-              await mesh.stopShopMode();
+              // userInitiated: this is the ONE path that clears the persisted
+              // intent. startShopMode (on) writes "1"; stopShopMode (off, here)
+              // writes "0". Every other stop preserves intent so the mesh
+              // auto-resumes on the next launch.
+              await mesh.stopShopMode({ userInitiated: true });
             }
-            // startShopMode / stopShopMode write app_meta themselves, so
-            // we don't need a parallel setAppMeta call here.
           } catch (err) {
-            setShopModeEnabled(!next);
-            const message =
-              err instanceof Error && err.name === "ShopModeNotAvailableError"
-                ? err.message
-                : t("menu.sync.shopMode.failed");
-            toast.push(message, "error");
-            if (__DEV__) console.warn("[home] shop mode toggle failed", err);
+            const terminal = err instanceof Error && err.name === "ShopModeNotAvailableError";
+            if (terminal) {
+              // No mesh-eligible vault — honestly revert AND clear the intent
+              // (there is nothing to auto-resume to).
+              setShopModeEnabled(false);
+              await setAppMeta("shop_mode_enabled", "0");
+              toast.push(err.message, "error");
+            } else {
+              // Transient (Bluetooth momentarily off, radio busy, FGS race).
+              // Keep the intent ON — startShopMode already persisted "1", and
+              // MeshController retries with backoff and again on next launch.
+              // Flipping the toggle back OFF here is exactly the behaviour the
+              // user complained about, so we leave it ON and stay quiet.
+              if (__DEV__) console.warn("[home] shop mode start retrying", err);
+            }
           } finally {
             setShopModeBusy(false);
           }

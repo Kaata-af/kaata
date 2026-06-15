@@ -574,8 +574,16 @@ async function teardownRadios(opts: { skipFGS?: boolean } = {}): Promise<void> {
 
 /**
  * Turn shop mode off. Idempotent.
+ *
+ * `shop_mode_enabled` is the PERSISTED USER INTENT — "the shopkeeper wants
+ * offline sync on" — NOT a live mirror of whether the radios are currently up.
+ * Only a deliberate user toggle-off (`userInitiated: true`) clears it. Every
+ * other caller (component unmount, dev fast-refresh, an internal restart) tears
+ * the radios down but LEAVES the intent set, so the mesh auto-resumes on the
+ * next launch. Conflating the two is what made the toggle read OFF on every
+ * reopen and forced a manual re-enable.
  */
-export async function stopShopMode(): Promise<void> {
+export async function stopShopMode(opts?: { userInitiated?: boolean }): Promise<void> {
   // Capture whether we were actually running BEFORE we flip state.running.
   // If we were never running (process startup with shop_mode_enabled='0',
   // which is the common case), skip the foreground-service teardown
@@ -592,7 +600,11 @@ export async function stopShopMode(): Promise<void> {
   // stop the notification when shop mode goes off via user toggle).
   await teardownRadios({ skipFGS: !wasRunning });
 
-  await setAppMeta(SHOP_MODE_ENABLED_KEY, "0");
+  // Only a deliberate user toggle-off clears the persisted intent (see the
+  // doc comment above). Teardown paths must not, or auto-resume can't fire.
+  if (opts?.userInitiated) {
+    await setAppMeta(SHOP_MODE_ENABLED_KEY, "0");
+  }
   const db = await import("../db");
   await db.setAppMeta("shop_mode_started_at", "");
 }

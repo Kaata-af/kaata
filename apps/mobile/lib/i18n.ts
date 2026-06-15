@@ -311,11 +311,11 @@ const en = {
   // Foreground-service (Nearby sync) notification — sits in the shade all
   // day while Shop Mode is on; must be readable in the user's language.
   "fgs.channelName": "Nearby sync",
-  "fgs.channelDescription": "Shown while Kaata is syncing with nearby phones over Bluetooth.",
-  "fgs.title": "Connecting with your paired phones",
-  "fgs.waiting": "Waiting for your team to connect…",
-  "fgs.connectedOne": "Connected to 1 paired phone",
-  "fgs.connectedMany": "Connected to {count} paired phones",
+  "fgs.channelDescription": "Shown while Kaata keeps your ledger in sync with nearby phones.",
+  "fgs.title": "Nearby sync is on",
+  "fgs.waiting": "Tap to open Kaata",
+  "fgs.connectedOne": "Connected to 1 phone nearby",
+  "fgs.connectedMany": "Connected to {count} phones nearby",
 
   "home.loadFailed": "Couldn't load your Kaata data. Your entries are safe — try again.",
 
@@ -1120,12 +1120,11 @@ const fa: Partial<Record<Key, string>> = {
 
   // Foreground-service (Nearby sync) notification
   "fgs.channelName": "همگام‌سازی نزدیک",
-  "fgs.channelDescription":
-    "هنگام همگام‌سازی کاتا با تلفون‌های نزدیک از طریق بلوتوث نشان داده می‌شود.",
-  "fgs.title": "در حال اتصال با تلفون‌های جفت‌شده",
-  "fgs.waiting": "در انتظار اتصال تیم شما…",
-  "fgs.connectedOne": "به ۱ تلفون جفت‌شده وصل شد",
-  "fgs.connectedMany": "به {count} تلفون جفت‌شده وصل شد",
+  "fgs.channelDescription": "هنگام همگام‌سازی دفتر شما با تلفون‌های نزدیک نشان داده می‌شود.",
+  "fgs.title": "همگام‌سازی نزدیک روشن است",
+  "fgs.waiting": "برای باز کردن کاتا ضربه بزنید",
+  "fgs.connectedOne": "به ۱ تلفون نزدیک وصل است",
+  "fgs.connectedMany": "به {count} تلفون نزدیک وصل است",
 
   "home.loadFailed": "داده‌های کاتای شما بارگیری نشد. ثبت‌های شما محفوظ است — دوباره امتحان کنید.",
 
