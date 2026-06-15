@@ -1239,6 +1239,10 @@ function TabPage(props: {
         contentContainerStyle={{ paddingBottom: props.paddingBottom }}
         initialNumToRender={12}
         windowSize={7}
+        // A shopkeeper's contact list is small; cell-clipping buys nothing and is
+        // a known Android source of blank rows. Disable it (insurance alongside
+        // the overflow:hidden removal on the first/last card rows).
+        removeClippedSubviews={false}
         refreshControl={
           <RefreshControl
             refreshing={props.refreshing}
@@ -1415,17 +1419,22 @@ const styles = StyleSheet.create({
     borderColor: colors.borderDefault,
     backgroundColor: colors.bgDefault,
   },
+  // NOTE: no `overflow: "hidden"` here. On Android, overflow:hidden +
+  // borderRadius on an intrinsic-height FlatList cell (no getItemLayout) makes
+  // the cell paint blank/white when it's first measured at ~0 height and the
+  // clip never re-expands — which blanked exactly the first and last rows (the
+  // only ones with these styles): both rows with 2 contacts, the first with 3+.
+  // The radii round the visible border corners without clipping; PersonRow has
+  // no content that bleeds past the corner, so nothing needs clipping.
   cardRowFirst: {
     borderTopWidth: 1,
     borderTopLeftRadius: 12,
     borderTopRightRadius: 12,
-    overflow: "hidden",
   },
   cardRowLast: {
     borderBottomWidth: 1,
     borderBottomLeftRadius: 12,
     borderBottomRightRadius: 12,
-    overflow: "hidden",
   },
   divider: { height: 1, backgroundColor: colors.borderDefault },
   fab: {

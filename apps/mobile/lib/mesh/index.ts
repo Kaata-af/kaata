@@ -441,34 +441,27 @@ async function startShopModeBody(): Promise<void> {
   state.running = true;
   emitStatusChange();
 
-  // Phase 6: promote to a foreground service. The service type declared
-  // in the manifest (connectedDevice|dataSync) matches the JS-side bitmask
-  // passed by foreground.ts.
+  // Phase 6: promote to a foreground service for BACKGROUND survival (Doze
+  // otherwise kills the radios when the app is backgrounded). The service type
+  // (connectedDevice|dataSync) is declared in the manifest.
   //
-  // UX critique #6 fix: on Android, FGS failure is NOT optional — without
-  // it, the OS Doze kills the BLE radio within minutes and the user
-  // believes "Nearby sync" is on while no peer can actually reach them.
-  // Surface the failure so the caller (MeshController) reverts the
-  // shop_mode_enabled toggle and shows a specific error toast. On
-  // non-Android (Expo Go / web / iOS) the FGS no-op is still fine —
-  // foreground.ts returns false but we let it slide.
+  // BUG FIX (sync silently turns off): the FGS start is now NON-FATAL. It used
+  // to throw on any notifee hiccup, and startShopMode's catch tore down ALL
+  // radios — so a flaky notification killed working foreground BTC+LAN sync, the
+  // UI still showed "on", and MeshController's retry then flipped the toggle off
+  // ~10s later with no toast. FGS is only needed for BACKGROUND; foreground sync
+  // works without it. So we degrade (foreground-only) instead of tearing down.
   try {
     const fg = await import("./foreground");
     const ok = await fg.startShopModeForegroundService();
     console.log("[mesh.start] FGS started=", ok);
     if (!ok && Platform.OS === "android") {
-      throw new ShopModeForegroundServiceFailedError(
-        "Couldn't start the nearby-sync notification.",
+      console.warn(
+        "[mesh.start] foreground service did not start — foreground-only sync (background may be unreliable)",
       );
     }
   } catch (err) {
-    if (err instanceof ShopModeForegroundServiceFailedError) throw err;
-    if (Platform.OS === "android") {
-      throw new ShopModeForegroundServiceFailedError(
-        err instanceof Error ? err.message : "Foreground service start failed",
-      );
-    }
-    if (__DEV__) console.warn("[mesh] foreground service start failed", err);
+    console.warn("[mesh] foreground service start threw (non-fatal, foreground-only)", err);
   }
   // Mythos crash-diagnosis: sample memory/storage every 60s while shop
   // mode is on so the Diagnostics screen can render the leak slope over a

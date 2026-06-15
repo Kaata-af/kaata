@@ -172,6 +172,15 @@ export function MeshController() {
             return;
           }
           case "peer_handshake_failed": {
+            // A "transport" reason = the plumbing failed (couldn't connect / the
+            // socket dropped before the handshake) — it auto-retries on the next
+            // dial, so do NOT alarm the user with the "different Kaata" copy
+            // (that copy is only accurate for a real membership/chain mismatch:
+            // vmc_invalid, pop_failed, device_not_bound, no_genesis, …).
+            if (event.reason === "transport") {
+              console.info("[mesh-ctl] peer transport failed (will retry):", event.reason);
+              return;
+            }
             const now = Date.now();
             const w = peerFailureWindowRef.current;
             w.timestamps = w.timestamps.filter((ts) => now - ts < 15 * 60 * 1000);

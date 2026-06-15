@@ -3,6 +3,7 @@ import { BlurView } from "expo-blur";
 import { useEffect, useRef, useState } from "react";
 import {
   Animated,
+  Dimensions,
   Modal,
   Pressable,
   ScrollView,
@@ -99,8 +100,14 @@ export function CountryPickerSheet(props: {
         style={[styles.sheetContainer, { transform: [{ translateY }] }]}
         pointerEvents="box-none"
       >
-        <SafeAreaView edges={["bottom"]} style={styles.sheetWrap}>
-          <View style={styles.sheet} onStartShouldSetResponder={() => true}>
+        <SafeAreaView
+          edges={["bottom"]}
+          style={[styles.sheetWrap, { maxHeight: Dimensions.get("window").height * 0.75 }]}
+        >
+          {/* No onStartShouldSetResponder here — it swallowed the ScrollView's
+              pan so the country list couldn't be scrolled. The backdrop Pressable
+              above already handles outside-taps. */}
+          <View style={styles.sheet}>
             <View style={styles.grabber} />
             <Text style={[styles.title, textDir(isRTL)]}>{t("country.title")}</Text>
 
@@ -185,8 +192,10 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    // Cap the sheet height so it doesn't take the whole screen on tall devices.
-    maxHeight: "75%",
+    // Height is capped on the SafeAreaView with a concrete pixel value
+    // (Dimensions * 0.75). A percentage maxHeight here didn't resolve — the
+    // absolute parent has no fixed height — so the inner ScrollView had no
+    // bounded viewport and couldn't scroll.
   },
   sheetWrap: {
     backgroundColor: colors.bgDefault,
