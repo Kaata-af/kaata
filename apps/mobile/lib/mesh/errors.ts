@@ -123,7 +123,7 @@ export type MeshFailureEvent =
   | { kind: "peripheral_unsupported" }
   | { kind: "adapter_off" }
   | { kind: "adapter_on" }
-  | { kind: "peer_handshake_failed"; reason: MeshHandshakeKind }
+  | { kind: "peer_handshake_failed"; reason: MeshHandshakeKind; detail?: string }
   | { kind: "peer_decrypt_failed" }
   | { kind: "peer_dropped_midsync" };
 

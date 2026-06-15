@@ -695,6 +695,10 @@ type ConnectionContext = {
   installIdShort: string;
 };
 
+// How long an inbound LAN connection waits for the dialer's vault_offer before
+// giving up. The dialer sends it immediately, pre-handshake.
+const VAULT_OFFER_TIMEOUT_MS = 10_000;
+
 async function handlePeerConnection(
   conn: MeshConnection,
   direction: "incoming" | "outgoing",
@@ -708,13 +712,37 @@ async function handlePeerConnection(
   let vaultId: string;
   if (ctx) {
     vaultId = ctx.vaultId;
-  } else {
-    const activeVaultId = getActiveVaultIdSyncMaybe();
-    if (!activeVaultId) {
+    // Announce the vault we're dialing for FIRST, so the inbound peer folds the
+    // membership chain against THIS vault. Previously the inbound side had no
+    // way to learn the dialer's vault and defaulted to whatever vault it had
+    // FOREGROUNDED (getActiveVaultIdSyncMaybe) — when that differed from the
+    // shared vault, the verdict was device_not_bound -> spurious "different
+    // Kaata" toast AND LAN sync silently failed in BOTH directions (every LAN
+    // conn has an inbound side). Plaintext pre-handshake frame (vault_id is not
+    // secret — it's in the pair QR).
+    try {
+      await conn.sendJSON({ vault_offer: vaultId });
+    } catch {
       void conn.close();
       return;
     }
-    vaultId = activeVaultId;
+  } else {
+    // Learn the dialer's intended vault from its offer instead of guessing the
+    // foregrounded one. recvJSON resolves a close-sentinel ({__closed}) on drop,
+    // which fails the string check below -> clean close.
+    let offer: unknown;
+    try {
+      offer = await conn.recvJSON(VAULT_OFFER_TIMEOUT_MS);
+    } catch {
+      void conn.close();
+      return;
+    }
+    const offered = (offer as { vault_offer?: unknown } | null)?.vault_offer;
+    if (typeof offered !== "string" || offered.length === 0) {
+      void conn.close();
+      return;
+    }
+    vaultId = offered;
   }
 
   // M4 dispatch gate: the vault must be chain-anchored. Look up the
@@ -785,14 +813,18 @@ async function handlePeerConnection(
       // Surface the failure to the toast bridge with the most useful
       // discriminator we can. MeshHandshakeError already carries `kind`;
       // the other types map to generic "transport".
+      // Carry a precise on-device diagnostic (the verdict reason from the error
+      // message + which vault we folded against) so a residual failure is
+      // self-explaining without adb. e.g. "device_not_bound [vault=ab12]".
+      const detail = `${err.message} [vault=${vaultId.slice(0, 8)} ${direction}]`;
       if (err instanceof MeshHandshakeError) {
-        emitMeshFailure({ kind: "peer_handshake_failed", reason: err.kind });
+        emitMeshFailure({ kind: "peer_handshake_failed", reason: err.kind, detail });
       } else if (err instanceof MeshVMCExpiredError) {
-        emitMeshFailure({ kind: "peer_handshake_failed", reason: "vmc_invalid" });
+        emitMeshFailure({ kind: "peer_handshake_failed", reason: "vmc_invalid", detail });
       } else if (err instanceof MeshVMCRevokedError) {
-        emitMeshFailure({ kind: "peer_handshake_failed", reason: "vmc_invalid" });
+        emitMeshFailure({ kind: "peer_handshake_failed", reason: "vmc_invalid", detail });
       } else {
-        emitMeshFailure({ kind: "peer_handshake_failed", reason: "transport" });
+        emitMeshFailure({ kind: "peer_handshake_failed", reason: "transport", detail });
       }
     } else {
       console.warn("[mesh] unexpected handshake/anti-entropy error", err);

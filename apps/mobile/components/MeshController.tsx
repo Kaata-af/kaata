@@ -190,7 +190,11 @@ export function MeshController() {
             // (that copy is only accurate for a real membership/chain mismatch:
             // vmc_invalid, pop_failed, device_not_bound, no_genesis, …).
             if (event.reason === "transport") {
-              console.info("[mesh-ctl] peer transport failed (will retry):", event.reason);
+              console.info(
+                "[mesh-ctl] peer transport failed (will retry):",
+                event.reason,
+                event.detail ?? "",
+              );
               return;
             }
             const now = Date.now();
@@ -200,8 +204,14 @@ export function MeshController() {
             if (now - w.lastToastAt < 30 * 1000) return;
             w.timestamps.push(now);
             w.lastToastAt = now;
-            console.info("[mesh-ctl] peer handshake failed:", event.reason);
-            toastRef.current.push(t("menu.ble.peerHandshakeFailed"), "info");
+            console.info("[mesh-ctl] peer handshake failed:", event.reason, event.detail ?? "");
+            // Append the precise verdict detail (verdict reason + folded vault)
+            // while the BT pair/sync flow is being stabilized — far more useful
+            // to a tester than the generic copy, and visible without adb.
+            toastRef.current.push(
+              t("menu.ble.peerHandshakeFailed") + (event.detail ? ` — ${event.detail}` : ""),
+              "info",
+            );
             return;
           }
           case "peer_decrypt_failed": {
