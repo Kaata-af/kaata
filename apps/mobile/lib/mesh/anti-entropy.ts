@@ -116,6 +116,7 @@ import {
 } from "./aead";
 import { isRevoked } from "../trust/revocation";
 import { ensureDeviceKey, getDevicePubkey, signWithDeviceKey } from "./device-key";
+import { isDialableMac } from "./btc-peers";
 import { buildLocalAccountId } from "../trust/account-id";
 import type { MeshConnection } from "./transport-interface";
 
@@ -216,6 +217,17 @@ export type HelloMessage = {
   // name. Optional; sent pre-AEAD, same exposure class as account_id/device_id
   // already in this Hello.
   display_name?: string;
+  // Sender's REAL Bluetooth Classic MAC (getLocalAddress, Briar's 3-method).
+  // Carried here because the OS masks the accept-side socket address to
+  // 02:00:00:00:00:00 on API 31+ — so the device that only ACCEPTS a steady
+  // RFCOMM connection (the owner, post-pair) can never learn the dialer's real
+  // MAC from the socket and thus can never dial BACK. The masking is purely an
+  // OS-socket concern; this application-layer field is unaffected. Read ONLY
+  // after verifyPeerChain authenticates the peer (same gate + exposure class as
+  // device_id/account_id/display_name above), then cached via addKnownPeer so
+  // BOTH peers become dialers and BT-only sync establishes regardless of which
+  // side is foregrounded. Optional + validated against isDialableMac on receipt.
+  bt_mac?: string;
 };
 
 export type PopProofMessage = {
@@ -975,6 +987,25 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
     /* name is best-effort */
   }
 
+  // Our real Bluetooth MAC, so a peer that only ACCEPTS our steady RFCOMM
+  // connection (it sees the OS-masked 02:00:00:00:00:00, not our hardware MAC)
+  // can learn a dialable address and dial us BACK. Only meaningful on the BTC
+  // transport; skip the native call on LAN/BLE/memory. Best-effort + validated
+  // by isDialableMac so a null/masked local address is simply omitted.
+  let ownBtMac: string | null = null;
+  if (conn.kind === "btc") {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const btMod = require("../../modules/kaata-bt-classic") as {
+        getLocalAddress: () => Promise<string | null>;
+      };
+      const mac = (await btMod.getLocalAddress())?.trim() ?? null;
+      ownBtMac = mac && isDialableMac(mac) ? mac : null;
+    } catch {
+      /* bt_mac is best-effort */
+    }
+  }
+
   const hello: HelloMessage = {
     type: "hello",
     v: WIRE_VERSION,
@@ -986,6 +1017,7 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
     device_id: ownDeviceId,
     ...(ownAccountId ? { account_id: ownAccountId } : {}),
     ...(ownDisplayName ? { display_name: ownDisplayName } : {}),
+    ...(ownBtMac ? { bt_mac: ownBtMac } : {}),
     proof_bundle: ownBundle.map(membershipEventToWire),
   };
 
@@ -1105,6 +1137,26 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
   }
 
   conn.remoteDeviceId = session.deviceId;
+
+  // SYMMETRIZE BT DIALING (#41): on Bluetooth Classic the ACCEPT side gets the
+  // OS-masked 02:00:00:00:00:00 as the socket's remoteMac, so a device that only
+  // ever accepts a steady connection (the owner, post-pair) can never dial back
+  // and BT-only sync goes dark whenever the sole dialer isn't foregrounded. The
+  // peer just told us its REAL MAC in the now-AUTHENTICATED Hello (verifyPeerChain
+  // succeeded above), so if our socket-derived remoteMac is missing/non-dialable,
+  // adopt the Hello's. addKnownPeer (btc-steady onEstablished) then persists it,
+  // making BOTH peers dialers. Validated with the shared isDialableMac — never
+  // trust the raw wire string. Only touch a BTC conn (remoteMac isn't on the
+  // generic MeshConnection).
+  if (conn.kind === "btc") {
+    const btcConn = conn as MeshConnection & { remoteMac?: string | null };
+    const haveDialable = typeof btcConn.remoteMac === "string" && isDialableMac(btcConn.remoteMac);
+    const peerMac = typeof peerHello.bt_mac === "string" ? peerHello.bt_mac.trim() : "";
+    if (!haveDialable && peerMac && isDialableMac(peerMac)) {
+      btcConn.remoteMac = peerMac;
+      console.log("[mesh.hs] learned peer bt_mac from Hello (accept-side masked)");
+    }
+  }
 
   // NOTE: the joiner's local pair_nonce is deliberately NOT cleared here.
   // Clearing it at handshake-success (before the delta loop) meant any later

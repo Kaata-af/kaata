@@ -40,7 +40,11 @@ export type KnownPeer = {
 // (both sentinels are all-numeric, so MAC letter-case is irrelevant here.)
 const MAC_RE = /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/;
 const NON_ROUTABLE_MACS = new Set(["00:00:00:00:00:00", "02:00:00:00:00:00"]);
-function isDialableMac(mac: string): boolean {
+// Exported so the handshake (anti-entropy.ts) can validate a peer-supplied
+// bt_mac with the SAME rule before caching it — never trust a raw wire string
+// or hand-roll a second regex. (btc-peers imports only ../db, so this new
+// import edge from anti-entropy creates no cycle.)
+export function isDialableMac(mac: string): boolean {
   return MAC_RE.test(mac) && !NON_ROUTABLE_MACS.has(mac);
 }
 
