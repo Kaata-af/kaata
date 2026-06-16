@@ -101,6 +101,13 @@ export function AppMetaProvider(props: { currentVersion: string; children: React
           // JS-side re-check, and the next check-in retries the mirror.
           if (__DEV__) console.warn("[app-meta] setBgMeshEnabled mirror failed", err);
         }
+        // Register/unregister the Phase 1 periodic catch-up to match the flag.
+        try {
+          const { reconcileBgCatchup } = await import("./mesh/bg-task");
+          await reconcileBgCatchup();
+        } catch (err) {
+          if (__DEV__) console.warn("[app-meta] reconcileBgCatchup failed", err);
+        }
       }
       // Rolling JWT refresh: backend opts to mint a fresh token whenever the
       // incoming one is past auth.RefreshIfOlderThan. Silent persist to

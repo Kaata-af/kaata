@@ -436,6 +436,15 @@ export function MeshController() {
         } else {
           await mesh.stopShopMode();
         }
+        // #43 P2 Phase 1: register/unregister the periodic background catch-up to
+        // match (shop_mode_enabled × bg_mesh_enabled). No-op unless the remote
+        // kill-switch is on; idempotent; never throws.
+        try {
+          const { reconcileBgCatchup } = await import("../lib/mesh/bg-task");
+          await reconcileBgCatchup();
+        } catch {
+          /* best-effort */
+        }
       } catch (err) {
         console.warn("[mesh-ctl] mesh module load failed", err);
       }

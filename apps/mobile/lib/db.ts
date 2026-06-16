@@ -120,7 +120,25 @@ export const FIELD_HLC_INIT = { pms: 0, l: 0, did: "init" } as const;
 // installId is omitted, migration 006 will read it from app_meta itself;
 // if it's missing there too AND there are entries to backfill, the
 // migration throws rather than silently using the zero UUID.
+
+// #43 P2 structural guard: the killed-app background JS context (Phase 1
+// expo-background-task / Phase 2 HeadlessJS) runs on a SECOND Hermes VM with its
+// OWN sqlite connection. It MUST NEVER run migrations — two migration passes on
+// one file (some destructive: 007 DROP/RENAME) = corruption. The background entry
+// calls markHeadlessMode() before touching the DB; if any code path then reaches
+// initDb, throw loudly rather than double-migrate. The foreground app never calls
+// this, so initDb works normally there.
+let headlessMode = false;
+export function markHeadlessMode(): void {
+  headlessMode = true;
+}
+
 export async function initDb(opts: { installId?: string } = {}): Promise<void> {
+  if (headlessMode) {
+    throw new Error(
+      "initDb must not run in the headless background context — it would double-run destructive migrations on a second connection (#43 P2 data-safety)",
+    );
+  }
   const db = await getDb();
   await db.execAsync(`
     PRAGMA journal_mode = WAL;

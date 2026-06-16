@@ -31,5 +31,10 @@
 
 import "./lib/mesh/_crypto-polyfill";
 import "./lib/mesh/_ed25519-setup";
+// #43 P2 Phase 1: register the periodic background-catch-up task (TaskManager
+// .defineTask runs at module load). Imported AFTER the crypto polyfills so the
+// task — which may run in a headless context that re-enters this bundle — has
+// crypto ready. The task itself does nothing unless the Phase 0 kill-switch is on.
+import "./lib/mesh/bg-task";
 // eslint-disable-next-line import/no-unresolved
 import "expo-router/entry";
