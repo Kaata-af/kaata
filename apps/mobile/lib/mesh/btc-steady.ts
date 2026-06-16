@@ -21,8 +21,10 @@
 // longer so a powered-off staff phone isn't dialed every tick. Both phones may
 // still each initiate ~once per interval — that's fine, anti-entropy is
 // idempotent and bidirectional, and keeping both-dial means sync still works
-// when one phone is backgrounded (the dial loop is foreground-only; the listener
-// always answers). The first kick is jittered so two phones that pair at the
+// when one phone is backgrounded. The dial loop runs while the app is
+// foregrounded OR while the steady session is up under the foreground service +
+// wakelock (so two backgrounded phones still sync, #43); the listener always
+// answers regardless. The first kick is jittered so two phones that pair at the
 // same instant don't dial each other on the exact same tick.
 
 import { AppState, Platform } from "react-native";
@@ -122,9 +124,28 @@ type SteadyState = {
    * write mid-handshake doesn't open a duplicate socket to the same peer.
    */
   dialing: Set<string>;
+  /**
+   * AppState "change" subscription. On background→active we fire an immediate
+   * catch-up dial (steadyTick) instead of waiting up to DIAL_INTERVAL_MS — and
+   * it's the reliable trigger if an OEM throttled the background timer. Stored
+   * here so stopBtcSteadySync can remove it (no leak across auto-resume restart).
+   */
+  appStateSub: { remove: () => void } | null;
 };
 
 let steady: SteadyState | null = null;
+
+// True while a steady session is fully up — which (verified) ONLY happens under
+// Shop Mode + the foreground service + PARTIAL_WAKE_LOCK: startBtcSteadySync's
+// only callers are startShopModeBody (index.ts startBtcSteadySync call) and the
+// vault-set-change resync (notifyVaultSetChanged), both inside Shop Mode right
+// next to the FGS start. So steadyRunning is a correct, reversible proxy for "the
+// FGS is up" and is what lets runDialPass dial while backgrounded WITHOUT a
+// foreground Activity (the #43 background-sync fix). Set true at the END of a
+// successful startBtcSteadySync, false at the TOP of stopBtcSteadySync. If a
+// future caller starts steady WITHOUT the FGS, gate this behind that — otherwise
+// it would permit background dialing with no wakelock.
+let steadyRunning = false;
 
 // Pause-for-pairing: a QR pair window needs EXCLUSIVE use of the single BT radio
 // (its inquiry/dial). While paused, the steady dial loop + inquiry fallback
@@ -210,6 +231,7 @@ export async function startBtcSteadySync(opts: { vaultIds: string[] }): Promise<
     liveSessions: new Map(),
     sessionConns: new Set(),
     dialing: new Set(),
+    appStateSub: null,
   };
   steady = s;
 
@@ -241,6 +263,20 @@ export async function startBtcSteadySync(opts: { vaultIds: string[] }): Promise<
     scheduleKick(s);
   });
 
+  // Immediate catch-up dial on background→foreground: don't wait up to
+  // DIAL_INTERVAL_MS for the next tick when the user reopens the app, and it's
+  // the reliable trigger if an OEM throttled the background timer under Doze.
+  // Runs the SAME serialized path the periodic timer runs. Removed on stop.
+  s.appStateSub = AppState.addEventListener("change", (next) => {
+    if (next === "active" && steady === s && !s.stopped) void steadyTick(s);
+  });
+
+  // Mark the steady session fully up. Reached ONLY on a successful start (every
+  // superseded path returned above), and every start is under Shop Mode + the
+  // FGS — so this is a safe proxy for "the wakelock is held" that lets
+  // runDialPass dial while backgrounded (#43). Cleared in stopBtcSteadySync.
+  steadyRunning = true;
+
   if (__DEV__)
     console.log("[btc.steady] started", {
       vaults: opts.vaultIds.length,
@@ -252,8 +288,16 @@ export async function startBtcSteadySync(opts: { vaultIds: string[] }): Promise<
 export async function stopBtcSteadySync(): Promise<void> {
   const s = steady;
   steady = null;
+  // No steady session is up → background dialing is no longer permitted. Cleared
+  // FIRST (next to steady=null) so a superseded/failed start never leaves the
+  // background-dial gate open without a live session + wakelock.
+  steadyRunning = false;
   if (!s) return;
   s.stopped = true;
+  if (s.appStateSub) {
+    s.appStateSub.remove();
+    s.appStateSub = null;
+  }
   // Wake + close every session conn promptly so radios don't linger after stop.
   quiesceSessions(s);
   if (s.timer) {
@@ -390,9 +434,15 @@ async function runDialPass(s: SteadyState, respectCooldown: boolean): Promise<vo
   if (s.stopped || steady !== s || s.tickRunning) return;
   // A QR pair window owns the radio — don't dial/inquire and cross-cancel it.
   if (pairPauseCount > 0) return;
-  // Foreground-only dialing: one BT radio + battery. The listener stays up so a
-  // foregrounded peer can still reach a backgrounded one.
-  if (AppState.currentState !== "active") return;
+  // Dial while foregrounded OR while a steady session is up under the FGS +
+  // PARTIAL_WAKE_LOCK (#43 background sync). Previously this was foreground-only,
+  // so a backgrounded phone NEVER initiated — two backgrounded phones never
+  // synced, and a reopened phone could only be reached, not reach. steadyRunning
+  // is true ONLY under Shop Mode's foreground service, so we never dial on the
+  // radio without a wakelock. MUST stay AFTER the pairPauseCount guard above:
+  // moving it earlier would let a backgrounded host dial mid-pair and
+  // cross-cancel the joiner's inquiry (the "no RFCOMM host found" regression).
+  if (AppState.currentState !== "active" && !steadyRunning) return;
   s.tickRunning = true;
   try {
     // Refresh listeners across a UTC-day rollover so the dialer's day window and
