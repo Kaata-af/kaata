@@ -85,7 +85,8 @@
       "./plugins/withNearbyWifiNeverForLocation",
       "./plugins/withKaataForegroundService",
       "./plugins/withBleAdvertiser",
-      "./plugins/withGradleJvmArgs"
+      "./plugins/withGradleJvmArgs",
+      "expo-background-task"
     ],
     "extra": {
       "router": {},

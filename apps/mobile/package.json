@@ -25,6 +25,7 @@
     "@react-native-google-signin/google-signin": "^16.1.2",
     "expo": "~54.0.0",
     "expo-application": "~7.0.0",
+    "expo-background-task": "~1.0.10",
     "expo-blur": "~15.0.8",
     "expo-camera": "~17.0.8",
     "expo-constants": "~18.0.0",
