@@ -236,6 +236,33 @@ export default function VaultPairScanScreen() {
             payload.issuer_display_name ?? null,
           );
         }
+
+        // CRITICAL (sync): seed the OWNER's device->account binding in
+        // vault_device_registry from the QR. The role-gate authorizes a synced
+        // event by resolving its signer_device_pubkey -> account -> role via
+        // this registry; with NO binding for the owner's device, every
+        // owner-authored person/relationship/ENTRY event is quarantined as
+        // unknown_actor on the joiner -> contacts + ledger NEVER appear (only
+        // the QR-seeded mirror rows show, a false "it paired" signal). The
+        // authoritative writer is the genesis vault_member_added(owner) applier,
+        // but on a fresh pair it often hasn't replicated/applied yet. Seed it
+        // now from the SAME TOFU-pinned issuer pubkey the joiner already trusts
+        // (vault_trust_anchor_pubkey). INSERT OR IGNORE so the genesis applier
+        // (keyed on the same vault_id+pubkey) stays authoritative. device_id is
+        // a pubkey-derived placeholder — lookupSignerCredential keys on the
+        // pubkey, so resolution is correct regardless.
+        if (payload.issuer_device_pubkey && payload.issuer_account_id) {
+          await db.runAsync(
+            `INSERT OR IGNORE INTO vault_device_registry
+               (vault_id, device_pubkey, device_id, account_id, added_at_ms, removed_at_ms)
+             VALUES (?, ?, ?, ?, ?, NULL)`,
+            payload.vault_id,
+            payload.issuer_device_pubkey,
+            `qrseed:${payload.issuer_device_pubkey}`,
+            payload.issuer_account_id,
+            now,
+          );
+        }
       });
 
       // CHAIN-NATIVE JOIN (M4): the joiner does NOT emit its own

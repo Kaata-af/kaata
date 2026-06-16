@@ -164,24 +164,35 @@ export async function applyVaultMemberAdded(
       anchorRow?.vault_trust_anchor_pubkey != null &&
       anchorRow.vault_trust_anchor_pubkey === event.signer_device_pubkey
     ) {
-      const existing = await tx.getFirstAsync<{ device_pubkey: string }>(
-        `SELECT device_pubkey FROM vault_device_registry
-          WHERE vault_id = ? AND device_pubkey = ? LIMIT 1`,
+      // Authoritative owner binding. UPSERT (was guarded INSERT) so it lands
+      // even when the pair-time QR seed (pair-scan.tsx, placeholder device_id)
+      // already inserted this (vault_id, pubkey) — correcting device_id +
+      // account_id to the real chain values and clearing any removal. Without
+      // the seed coexisting, the joiner couldn't authorize the owner's ledger
+      // until this genesis replicated (often never, on a fresh pair).
+      await tx.runAsync(
+        `INSERT INTO vault_device_registry
+           (vault_id, device_pubkey, device_id, account_id, added_at_ms, removed_at_ms)
+         VALUES (?, ?, ?, ?, ?, NULL)
+         ON CONFLICT(vault_id, device_pubkey) DO UPDATE SET
+           device_id = excluded.device_id,
+           account_id = excluded.account_id,
+           removed_at_ms = NULL`,
         event.vault_id,
         event.signer_device_pubkey,
+        event.device_id,
+        event.payload.account_id,
+        event.hlc.pms,
       );
-      if (existing == null) {
-        await tx.runAsync(
-          `INSERT INTO vault_device_registry
-             (vault_id, device_pubkey, device_id, account_id, added_at_ms, removed_at_ms)
-           VALUES (?, ?, ?, ?, ?, NULL)`,
-          event.vault_id,
-          event.signer_device_pubkey,
-          event.device_id,
-          event.payload.account_id,
-          event.hlc.pms,
-        );
-      }
+    } else if (event.origin === "remote") {
+      // A remote genesis owner-admission applied but its signer != our pinned
+      // anchor, so the owner binding is NOT seeded and the owner's ledger
+      // events will quarantine as unknown_actor. Loud so this silent path is
+      // visible if it ever happens (should not — the QR pins this same anchor).
+      console.warn(
+        "[vault_members] genesis owner member_added signer != vault anchor — registry NOT seeded",
+        { vault: event.vault_id.slice(0, 8) },
+      );
     }
   }
 
