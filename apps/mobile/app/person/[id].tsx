@@ -183,6 +183,15 @@ export default function PersonDetailScreen() {
         keyExtractor={(e) => e.id}
         initialNumToRender={12}
         windowSize={7}
+        // Android-only blank-row bug: with removeClippedSubviews defaulting to
+        // true, a row wrapped in an overflow:"hidden" card (cardRowFirst/Last,
+        // needed for the rounded corners) gets its subviews detached and never
+        // repainted when the list reorders — e.g. adding a 2nd entry pushes the
+        // old row from index 0 to 1, flipping its style, and it renders blank
+        // but still takes space. Same fix + same cardRow pattern as the home
+        // person list (app/index.tsx). The list is bounded by windowSize so
+        // disabling clipping costs effectively nothing here.
+        removeClippedSubviews={false}
         contentContainerStyle={{
           paddingBottom: (entries.length > 0 ? 96 : 24) + insets.bottom,
         }}
