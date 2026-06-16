@@ -80,6 +80,23 @@ function steadyUuid(vaultId: string, day: number): string {
   return deriveRfcommUuid("steady:" + vaultDigest(vaultId, day));
 }
 
+/**
+ * Composite session-tracking key. A steady RFCOMM session is scoped to ONE
+ * vault (its UUID is steadyUuid(vaultId,day) and runAntiEntropySession syncs
+ * only opts.vaultId). Two phones that share MULTIPLE vaults must therefore keep
+ * a SEPARATE warm session per vault for the same peer device — keying the dedup
+ * / reservation / cooldown maps by deviceId alone starved every vault but the
+ * first (the new-kaata "members show but contacts/ledger don't sync" bug:
+ * a freshly-paired second vault loses the per-device dedup race to an already-
+ * warm first vault's session and never gets dialed, while its cached peer keeps
+ * it out of the peerless inquiry fallback too). LAN already keys its connection
+ * map by `${deviceId}:${vaultId}` (lib/mesh/index.ts makeConnKey) — this mirrors
+ * that so BTC steady syncs every shared vault, not just one.
+ */
+function connKey(vaultId: string, deviceId: string): string {
+  return `${deviceId}:${vaultId}`;
+}
+
 type SteadyState = {
   listeners: BtcListenerHandle[];
   /** UTC day the current listeners were opened for (rollover refresh). */
@@ -89,7 +106,9 @@ type SteadyState = {
   tickRunning: boolean;
   stopped: boolean;
   vaultIds: string[];
-  /** deviceId → ms until which we skip dialing it (success cooldown / fail backoff). */
+  /** connKey(vaultId,deviceId) → ms until which we skip dialing it (success
+   *  cooldown / fail backoff). Keyed per (vault,peer) because a session is
+   *  vault-scoped — see connKey. */
   skipUntil: Map<string, number>;
   /** Pending push-on-write debounce timer (coalesces a burst of local edits). */
   kickDebounce: ReturnType<typeof setTimeout> | null;
@@ -102,12 +121,15 @@ type SteadyState = {
   /** Round-robin cursor over peerless vaults for the inquiry sweep. */
   inquiryRR: number;
   /**
-   * Live warm sessions, peer deviceId → { wake, close }. Briar-style: a peer
-   * with an open persistent anti-entropy session is NOT re-dialed (dedupe); a
-   * local write wake()s it for immediate sync; pairing / stop close()s it to
-   * free the single radio. Populated post-handshake by runAntiEntropySession's
-   * onEstablished, cleared when the session ends. Sessions run fire-and-forget
-   * (NOT awaited by the dial pass), so they live outside the tickRunning window.
+   * Live warm sessions, connKey(vaultId,deviceId) → { wake, close }. Briar-style:
+   * a (vault,peer) with an open persistent anti-entropy session is NOT re-dialed
+   * (dedupe); a local write wake()s it for immediate sync; pairing / stop
+   * close()s it to free the single radio. Keyed per (vault,peer) — NOT per
+   * deviceId — because a session syncs ONE vault, so a peer shared across two
+   * vaults needs two independent warm sessions (the new-kaata sync bug; see
+   * connKey). Populated post-handshake by runAntiEntropySession's onEstablished,
+   * cleared when the session ends. Sessions run fire-and-forget (NOT awaited by
+   * the dial pass), so they live outside the tickRunning window.
    */
   liveSessions: Map<string, { wake: () => void; close: () => void }>;
   /**
@@ -119,9 +141,11 @@ type SteadyState = {
    */
   sessionConns: Set<BtcMeshConnection>;
   /**
-   * deviceIds with a dial→handshake in progress (before the session registers in
-   * liveSessions). Skipped by BOTH the backstop and push dial paths so a local
-   * write mid-handshake doesn't open a duplicate socket to the same peer.
+   * connKey(vaultId,deviceId)s with a dial→handshake in progress (before the
+   * session registers in liveSessions). Skipped by BOTH the backstop and push
+   * dial paths so a local write mid-handshake doesn't open a duplicate socket to
+   * the same (vault,peer). Keyed per (vault,peer) so a second vault's dial to the
+   * same peer is NOT spuriously suppressed by an in-flight first-vault dial.
    */
   dialing: Set<string>;
   /**
@@ -462,11 +486,16 @@ async function runDialPass(s: SteadyState, respectCooldown: boolean): Promise<vo
       if (peers.length === 0) peerless.push(vaultId);
       for (const peer of peers) {
         if (s.stopped || steady !== s) break;
-        // Already in a warm session OR mid dial→handshake — don't open a second
-        // conn. This guard holds for BOTH the backstop and push paths (a local
-        // write must not double-dial a peer whose session is still establishing).
-        if (s.liveSessions.has(peer.deviceId) || s.dialing.has(peer.deviceId)) continue;
-        if (respectCooldown && now < (s.skipUntil.get(peer.deviceId) ?? 0)) continue;
+        // Already in a warm session OR mid dial→handshake for THIS (vault,peer) —
+        // don't open a second conn. This guard holds for BOTH the backstop and
+        // push paths (a local write must not double-dial a peer whose session is
+        // still establishing). Keyed per (vault,peer): a session syncs ONE vault,
+        // so a peer already warm on vault A must STILL be dialed for vault B
+        // (the new-kaata sync bug — keying on deviceId alone starved every vault
+        // but the first). See connKey.
+        const key = connKey(vaultId, peer.deviceId);
+        if (s.liveSessions.has(key) || s.dialing.has(key)) continue;
+        if (respectCooldown && now < (s.skipUntil.get(key) ?? 0)) continue;
         await dialKnownPeer(s, vaultId, anchor, peer.deviceId, peer.mac);
       }
     }
@@ -550,21 +579,25 @@ async function dialKnownPeer(
     } catch {
       continue; // peer not listening on this day's UUID — try the next
     }
-    // Connected. Reserve the peer (dialing) so a concurrent push/backstop pass
-    // won't open a second socket while we handshake; set a cooldown too; then run
-    // the session FIRE-AND-FORGET so the dial pass moves on to other peers
-    // instead of blocking for the whole (persistent, minutes-long) session. The
-    // reservation + skipUntil are cleared in runSteadySession's finally.
-    s.dialing.add(deviceId);
-    s.skipUntil.set(deviceId, Date.now() + PEER_COOLDOWN_MS);
+    // Connected. Reserve THIS (vault,peer) (dialing) so a concurrent
+    // push/backstop pass won't open a second socket while we handshake; set a
+    // cooldown too; then run the session FIRE-AND-FORGET so the dial pass moves
+    // on to other peers instead of blocking for the whole (persistent,
+    // minutes-long) session. The reservation + skipUntil are cleared in
+    // runSteadySession's finally. Reservation is per (vault,peer) so a dial for a
+    // DIFFERENT vault to the same peer isn't suppressed (the new-kaata sync bug).
+    const key = connKey(vaultId, deviceId);
+    s.dialing.add(key);
+    s.skipUntil.set(key, Date.now() + PEER_COOLDOWN_MS);
     void runSteadySession(s, conn, vaultId, anchor, {
       isOutbound: true,
-      dialReservation: deviceId,
+      dialReservation: key,
     });
     return;
   }
-  // Couldn't reach this peer on any advertised day — back off longer.
-  s.skipUntil.set(deviceId, Date.now() + FAILURE_BACKOFF_MS);
+  // Couldn't reach this peer on any advertised day — back off longer (this
+  // (vault,peer) only; the peer may still be reachable for another vault's UUID).
+  s.skipUntil.set(connKey(vaultId, deviceId), Date.now() + FAILURE_BACKOFF_MS);
 }
 
 /**
@@ -574,10 +607,10 @@ async function dialKnownPeer(
  * listener-accepter (dialReservation undefined). Always closes the conn.
  *
  * opts.isOutbound: did WE dial (true) or accept (false)? Drives the both-dial
- * tie-break. opts.dialReservation: the deviceId the DIAL path reserved in
- * s.dialing (so a concurrent push can't double-dial); cleared in the finally —
- * also the key for connect-but-handshake-fail backoff (conn.remoteDeviceId is
- * null then).
+ * tie-break. opts.dialReservation: the connKey(vaultId,deviceId) the DIAL path
+ * reserved in s.dialing (so a concurrent push can't double-dial); cleared in the
+ * finally — also the key for connect-but-handshake-fail backoff
+ * (conn.remoteDeviceId is null then).
  */
 async function runSteadySession(
   s: SteadyState,
@@ -600,7 +633,7 @@ async function runSteadySession(
       /* */
     }
   };
-  let establishedDeviceId: string | null = null;
+  let establishedKey: string | null = null;
   let myEntry: { wake: () => void; close: () => void } | null = null;
   let handshakeSucceeded = false;
   try {
@@ -620,15 +653,18 @@ async function runSteadySession(
             closeConn();
             return;
           }
-          // ONE warm session per peer. On a both-dial race two sockets exist
-          // (our outbound + an inbound accept). Pick deterministically so BOTH
-          // devices keep the SAME socket: keep the one DIALED by the smaller
-          // device pubkey. (winner direction = outbound iff ourPubkey<peerPubkey,
-          // else inbound.) Without this, each side could close a different socket
-          // and kill both, forcing a reconnect.
+          // ONE warm session per (vault,peer). On a both-dial race two sockets
+          // exist FOR THE SAME VAULT (our outbound + an inbound accept). Pick
+          // deterministically so BOTH devices keep the SAME socket: keep the one
+          // DIALED by the smaller device pubkey. (winner direction = outbound iff
+          // ourPubkey<peerPubkey, else inbound.) Without this, each side could
+          // close a different socket and kill both, forcing a reconnect. The
+          // dedup is per (vault,peer): a session for vault B to the same peer is
+          // a DIFFERENT key and must NOT collide with vault A's warm session.
           const ownPubkey = getDevicePubkey() ?? "";
           const thisIsWinner = isOutbound ? ownPubkey < peerPubkeyB64 : peerPubkeyB64 < ownPubkey;
-          const existing = s.liveSessions.get(deviceId);
+          const key = connKey(vaultId, deviceId);
+          const existing = s.liveSessions.get(key);
           if (existing) {
             if (!thisIsWinner) {
               closeConn(); // the other socket is the keeper
@@ -636,7 +672,7 @@ async function runSteadySession(
             }
             existing.close(); // we're the keeper — drop the duplicate
           }
-          establishedDeviceId = deviceId;
+          establishedKey = key;
           myEntry = {
             wake,
             // close() also wakes so a session parked in its inter-round wait
@@ -650,7 +686,7 @@ async function runSteadySession(
               closeConn();
             },
           };
-          s.liveSessions.set(deviceId, myEntry);
+          s.liveSessions.set(key, myEntry);
           markPeerSeen(deviceId); // presence: this device is reachable now
           // Cache the MAC AS SOON AS the peer is identified so a peerless vault
           // becomes non-peerless for the session's lifetime — otherwise the
@@ -663,7 +699,9 @@ async function runSteadySession(
       },
     );
     if (conn.remoteDeviceId) {
-      s.skipUntil.set(conn.remoteDeviceId, Date.now() + PEER_COOLDOWN_MS);
+      // Cooldown is per (vault,peer): this session synced only THIS vault, so
+      // another vault's dial to the same peer must not be cooled down by it.
+      s.skipUntil.set(connKey(vaultId, conn.remoteDeviceId), Date.now() + PEER_COOLDOWN_MS);
       markPeerSeen(conn.remoteDeviceId);
       // Self-heal the MAC mapping (e.g. peer first learned via an inbound accept).
       // addKnownPeer skips the write when the MAC is unchanged, so this is cheap.
@@ -691,9 +729,9 @@ async function runSteadySession(
     if (dialReservation) s.dialing.delete(dialReservation);
     s.sessionConns.delete(conn);
     // Deregister ONLY our own entry — a both-dial race may have replaced it with
-    // a newer session for the same deviceId; don't evict that one.
-    if (establishedDeviceId && s.liveSessions.get(establishedDeviceId) === myEntry) {
-      s.liveSessions.delete(establishedDeviceId);
+    // a newer session for the same (vault,peer); don't evict that one.
+    if (establishedKey && s.liveSessions.get(establishedKey) === myEntry) {
+      s.liveSessions.delete(establishedKey);
     }
     try {
       await conn.close();
