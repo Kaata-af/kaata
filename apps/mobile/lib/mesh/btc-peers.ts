@@ -34,16 +34,14 @@ export type KnownPeer = {
 //     returned since API 23 to hide the local/remote hardware MAC. Caching it
 //     made the owner dial a dead MAC forever (FAILURE_BACKOFF) so owner->joiner
 //     Bluetooth sync never established — the BT-only-sync-fails bug.
-// More generally, reject any locally-administered address (low bit 0x02 of the
-// first octet set) — those are masked/random, not a routable peer.
+// We reject EXACTLY these two sentinels (Briar's rule), NOT the whole
+// locally-administered class: real Bluetooth Classic adapters can legitimately
+// carry the 0x02 bit, and rejecting all of them would drop valid peers.
+// (both sentinels are all-numeric, so MAC letter-case is irrelevant here.)
 const MAC_RE = /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/;
+const NON_ROUTABLE_MACS = new Set(["00:00:00:00:00:00", "02:00:00:00:00:00"]);
 function isDialableMac(mac: string): boolean {
-  if (!MAC_RE.test(mac)) return false;
-  if (mac === "00:00:00:00:00:00") return false;
-  // Locally-administered bit set => masked/random (e.g. 02:00:00:00:00:00).
-  const firstOctet = parseInt(mac.slice(0, 2), 16);
-  if (Number.isNaN(firstOctet) || (firstOctet & 0x02) !== 0) return false;
-  return true;
+  return MAC_RE.test(mac) && !NON_ROUTABLE_MACS.has(mac);
 }
 
 function parse(raw: string | null): KnownPeer[] {
