@@ -121,9 +121,12 @@ export function normalizePhone(
     e164 = country.dialCode + national;
   }
 
-  if (e164.startsWith("+93")) {
-    return E164_AF_MOBILE.test(e164) ? e164 : null;
-  }
+  // Afghanistan: accept mobiles (+937XXXXXXXX) AND landlines / "digital" numbers
+  // like Kabul 020-XXX-XXXX (-> +9320XXXXXXX). The old strict mobile-only regex
+  // rejected landlines, which shopkeepers legitimately have, so a contact simply
+  // couldn't be added. Use the generic E.164 length check for AF too — storage +
+  // uniqueness key are still the normalized E.164; only the over-strict
+  // validation gate is relaxed. (E164_AF_MOBILE is still used for display.)
   return E164_GENERIC.test(e164) ? e164 : null;
 }
 
