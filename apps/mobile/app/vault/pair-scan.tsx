@@ -317,6 +317,23 @@ export default function VaultPairScanScreen() {
         console.warn("[vault/pair-scan] could not start steady sync", err);
       }
 
+      // HEAL the owner's first batch within THIS session (no relaunch needed).
+      // The owner's contacts+entries stream in over the next few seconds via
+      // steady sync; each ingest already schedules a sweep, but on a fresh pair
+      // the genesis-seeded registry can land a beat after the ledger ingest, so
+      // the in-batch sweep can finish before the binding exists. A couple of
+      // delayed catch-up sweeps re-run the role-gate once the genesis has
+      // applied, so the ledger appears without the user having to background +
+      // reopen. Fire-and-forget; idempotent (no-ops once everything's applied).
+      try {
+        const { sweepAllQuarantinedVaults } = await import("../../lib/projection/sweep");
+        for (const delay of [3000, 8000, 16000]) {
+          setTimeout(() => void sweepAllQuarantinedVaults(), delay);
+        }
+      } catch {
+        /* best-effort */
+      }
+
       setStep({
         kind: "joined",
         vault_id: payload.vault_id,

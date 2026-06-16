@@ -19,7 +19,15 @@ import * as Network from "expo-network";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  AppState,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AutoSync } from "../components/AutoSync";
@@ -103,6 +111,7 @@ import { initDefaultCountryFromPref } from "../lib/phone";
 import { useAppFontsWithError } from "../lib/fonts";
 import { initLocaleFromPref } from "../lib/i18n";
 import { ensureInstallId, getInstalledAtUnixMs } from "../lib/install-id";
+import { sweepAllQuarantinedVaults } from "../lib/projection/sweep";
 import { type BootError, forceRestart, toBootError } from "../lib/boot-error";
 
 const currentVersion = Application.nativeApplicationVersion || "0.1.0";
@@ -382,6 +391,32 @@ export default function RootLayout() {
       setAppReady(true);
     })();
   }, []);
+
+  // HEAL-TRIGGER: re-sweep quarantined rows on launch and on every
+  // background->foreground transition. Quarantine healing is otherwise purely
+  // event-driven (local write / fresh mesh ingest), so a fresh joiner whose
+  // owner-authored contacts+entries got stranded as unknown_actor (the genesis
+  // applied + seeded the registry, but the post-ingest sweep didn't finish, and
+  // the owner then stops re-sending because the joiner's frontier already counts
+  // those rows as held) never heals on its own. These two lifecycle re-sweeps
+  // give it the missing trigger — and "close the app then reopen" is EXACTLY the
+  // user's reported workflow. Both are fire-and-forget so they never block the
+  // Stack mount; sweepAllQuarantinedVaults is idempotent + no-ops when there's
+  // nothing un-applied. Gated on dbReady so event_log exists.
+  useEffect(() => {
+    if (dbReady !== true) return;
+    // Launch pass (covers relaunch / cold start).
+    void sweepAllQuarantinedVaults();
+    // Foreground pass: only on a real background->active transition, not every
+    // focus tick, so we don't spam a DB scan.
+    let last = AppState.currentState;
+    const sub = AppState.addEventListener("change", (next) => {
+      const cameToForeground = last.match(/inactive|background/) != null && next === "active";
+      last = next;
+      if (cameToForeground) void sweepAllQuarantinedVaults();
+    });
+    return () => sub.remove();
+  }, [dbReady]);
 
   // Phase 5.1: route notification taps on the Shop Mode foreground-service
   // notification into the hamburger menu's Sync section. We open the home

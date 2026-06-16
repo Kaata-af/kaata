@@ -66,6 +66,41 @@ export function scheduleSweep(vaultId: string): void {
   }, SWEEP_DEBOUNCE_MS);
 }
 
+/**
+ * Re-arm a sweep for EVERY vault that currently holds un-applied rows.
+ *
+ * WHY THIS EXISTS (the new-kaata "members show but contacts/ledger don't
+ * sync" bug): healing of quarantined rows is otherwise PURELY event-driven —
+ * scheduleSweep only fires on a local write, a fresh mesh ingest batch, the
+ * one-time migration-014 pass, or recovery. There is no launch / foreground /
+ * reconnect retry. On a fresh pair the owner's genesis vault_member_added
+ * applies and seeds the device registry, but the owner's contacts/entries can
+ * land in a window where the post-ingest sweep doesn't run to completion
+ * (time-boxed pairing session, app backgrounded inside the 100ms debounce,
+ * etc.). Once that happens it NEVER retries: the joiner's relayable frontier
+ * counts the already-ingested quarantined rows as held, so the owner stops
+ * re-sending them, so no new ingest ever re-triggers a sweep — the rows sit
+ * applied_at=NULL forever even though a single sweep now would heal them
+ * (the genesis is applied, the registry is seeded). This is that missing
+ * trigger: a lifecycle-driven re-sweep over rows already durably on disk.
+ *
+ * Keyed on applied_at IS NULL (not quarantine_reason) so it also re-arms rows
+ * that were ingested but whose very first sweep never ran. Idempotent and
+ * cheap: a vault with nothing to do logs rows=0 and returns. Adds no trust
+ * surface — it only re-runs the existing role-gated applier; it does NOT
+ * pre-seed any binding (that QR-seed approach was reverted as harmful).
+ */
+export async function sweepAllQuarantinedVaults(): Promise<void> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{ vault_id: string }>(
+    `SELECT DISTINCT vault_id FROM event_log
+       WHERE applied_at IS NULL
+         AND tombstone_reason IS NULL
+         AND vault_id IS NOT NULL`,
+  );
+  for (const r of rows) scheduleSweep(r.vault_id);
+}
+
 async function runScheduledSweeps(vaultIds: string[]): Promise<void> {
   // The mutex protects all sweeps + applyIncomingBatch from
   // interleaving. We hold it for the WHOLE batch (one acquisition,
