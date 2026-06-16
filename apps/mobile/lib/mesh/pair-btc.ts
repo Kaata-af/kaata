@@ -96,7 +96,11 @@ export async function hostPairOverBtc(opts: {
   const doResume = () => {
     if (resumed) return;
     resumed = true;
-    resumeBtcSteadyForPairing();
+    // resumeBtcSteadyForPairing is async (it restarts steady + re-opens the
+    // listeners the pause closed). doResume is called from sync contexts (the
+    // safety-timer + the listener-throw catch), so fire-and-forget; resume wraps
+    // its restart in its own try/catch so this can never reject.
+    void resumeBtcSteadyForPairing().catch(() => {});
   };
   const safetyTimer = setTimeout(doResume, PAIR_PAUSE_SAFETY_MS);
 
@@ -175,7 +179,11 @@ export async function joinPairOverBtc(opts: {
     }
     return outcome;
   } finally {
-    resumeBtcSteadyForPairing();
+    // await is safe: resumeBtcSteadyForPairing never throws (its steady restart
+    // is internally try/caught), so it can't clobber the pair outcome/error this
+    // try block returns or re-throws. It also re-opens the listeners the pause
+    // closed before we hand back to the scan screen.
+    await resumeBtcSteadyForPairing();
   }
 }
 

@@ -178,6 +178,17 @@ let steadyRunning = false;
 // first kept syncing. Counter, not a bool, so overlapping host+join balance.
 let pairPauseCount = 0;
 
+// The vault set to (re)start steady with when the LAST pair window closes.
+// non-null ⇒ "steady is intended to be running" — it's set when a pair window
+// opens over a live steady session (captured in pauseBtcSteadyForPairing) OR when
+// a startBtcSteadySync is requested WHILE paused (deferred, last-write-wins so a
+// kaata created mid-pair is included). Cleared by resume after it restarts, and
+// by stopBtcSteadySync (a real user toggle-off, so we don't auto-restart against
+// an OFF intent). This is the heart of the pair-vs-sync radio handoff: steady's
+// listener-churning restart is DEFERRED out of the pair window instead of
+// re-grabbing the single BT radio mid-pair (the seesaw bug).
+let pendingRestartVaultIds: string[] | null = null;
+
 // How long pauseBtcSteadyForPairing waits for an in-flight steady tick to drop
 // the radio before letting the pair inquiry start. The aborting inquiry bails
 // within ~150ms of pairPauseCount going >0; this is just the safety ceiling.
@@ -193,10 +204,33 @@ const PAIR_RADIO_WAIT_MS = 4_000;
  * async + awaited by the pair screens.
  */
 export async function pauseBtcSteadyForPairing(): Promise<void> {
+  const firstPause = pairPauseCount === 0;
   pairPauseCount++;
   const s = steady;
   if (!s) return;
   quiesceSessions(s);
+  // On the FIRST pause only (overlapping host+join keep count>0): remember the
+  // running vault set so the LAST resume restarts steady with it, then CLOSE the
+  // steady RFCOMM LISTENERS. The old pause only quiesced SESSIONS and left the
+  // per-(vault,day) accept loops running — on Android's single BT controller
+  // those accept loops + the discovery-receiver register/unregister contend with
+  // the pair flow's inquiry/discoverable, so the joiner intermittently can't find
+  // or connect to the host ("no RFCOMM host found"). Fully yielding the radio
+  // (listeners too) is what makes pairing reliable while sync is otherwise on.
+  // (Count-gated: a 2nd overlapping pause must NOT re-capture an already-emptied
+  // listener set or re-close.)
+  if (firstPause) {
+    pendingRestartVaultIds = s.vaultIds;
+    const listeners = s.listeners;
+    s.listeners = [];
+    for (const h of listeners) {
+      try {
+        await h.stop();
+      } catch {
+        /* */
+      }
+    }
+  }
   // Wait for the in-flight tick AND every session conn to actually release the
   // single radio before the pair inquiry starts (a lingering RFCOMM socket or a
   // mid-handshake conn would cross-cancel the pair inquiry). The inquiry itself
@@ -226,8 +260,26 @@ function quiesceSessions(s: SteadyState): void {
     }
   }
 }
-export function resumeBtcSteadyForPairing(): void {
+export async function resumeBtcSteadyForPairing(): Promise<void> {
   pairPauseCount = Math.max(0, pairPauseCount - 1);
+  if (pairPauseCount > 0) return; // another pair window still owns the radio
+  // LAST pair window closed: do ONE clean restart with the freshest desired
+  // vault set (a kaata created mid-pair overwrote pendingRestartVaultIds via the
+  // deferred startBtcSteadySync). This re-opens every vault's listener + re-arms
+  // dial/inquiry — i.e. brings steady back exactly as a normal start would, but
+  // only now that the radio is free. null ⇒ steady wasn't running / was toggled
+  // off during the window (stopBtcSteadySync cleared it) ⇒ don't auto-restart.
+  const vaultIds = pendingRestartVaultIds;
+  pendingRestartVaultIds = null;
+  if (!vaultIds) return;
+  // CRITICAL: never let the restart throw — this runs inside the pair flow's
+  // finally (joinPairOverBtc) / doResume, and a rejection here would clobber the
+  // real pair result/error the screen needs to show.
+  try {
+    await startBtcSteadySync({ vaultIds });
+  } catch (err) {
+    if (__DEV__) console.warn("[btc.steady] resume restart failed", err);
+  }
 }
 
 /**
@@ -236,6 +288,19 @@ export function resumeBtcSteadyForPairing(): void {
  */
 export async function startBtcSteadySync(opts: { vaultIds: string[] }): Promise<void> {
   if (Platform.OS !== "android" || !isBtClassicSupported()) return;
+  // A QR pair window owns the single BT radio. The normal restart below tears
+  // down + RE-OPENS every RFCOMM listener (stopBtcSteadySync + openListeners),
+  // which re-grabs the controller mid-pair and breaks the pair inquiry — the
+  // pair-vs-sync seesaw. Defer: record the desired vault set (last-write-wins, so
+  // a kaata created during the window is included) and return WITHOUT touching
+  // the radio; resumeBtcSteadyForPairing runs exactly one restart with this set
+  // once the last pair window closes. Triggers that hit this mid-pair:
+  // notifyVaultSetChanged (vault create + both pair screens' post-sync) and the
+  // MeshController shop_mode poll.
+  if (pairPauseCount > 0) {
+    pendingRestartVaultIds = opts.vaultIds;
+    return;
+  }
   await stopBtcSteadySync();
 
   const s: SteadyState = {
@@ -266,9 +331,62 @@ export async function startBtcSteadySync(opts: { vaultIds: string[] }): Promise<
   }
   // A concurrent start/stop may have superseded us during the await above.
   if (steady !== s) return;
+  // TOCTOU: a pair window may have opened DURING the awaits above (the top-of-
+  // function pairPauseCount check can't catch a pause that lands mid-start — e.g.
+  // host re-issue: stopHosting fire-and-forgets a resume restart, then the new
+  // hostPairOverBtc pauses while this start is in flight). Bail + defer so we
+  // don't proceed to open listeners on the radio mid-pair; resume restarts us.
+  if (pairPauseCount > 0) {
+    // Defer + tear down INLINE (not via stopBtcSteadySync, which nulls
+    // pendingRestartVaultIds across its own awaited listener-stops — a window
+    // where a concurrent resume could read it null and skip the restart, leaving
+    // steady permanently off). Set the flag FIRST so any resume always sees it,
+    // then close the listeners openListeners may have opened. At this point no
+    // timer/firstKick/unsubLedger/appStateSub exists yet, so listeners + the two
+    // module flags are all there is to undo.
+    pendingRestartVaultIds = opts.vaultIds;
+    const opened = s.listeners;
+    s.listeners = [];
+    steady = null;
+    steadyRunning = false;
+    for (const h of opened) {
+      try {
+        await h.stop();
+      } catch {
+        /* */
+      }
+    }
+    return;
+  }
 
   await openListeners(s);
   if (steady !== s) return; // superseded while opening listeners — openListeners cleaned up
+  // Same TOCTOU guard AFTER openListeners: if a pair window opened while we were
+  // opening RFCOMM servers, openListeners just grabbed the radio — undo it
+  // (close the just-opened listeners inline + clear steady) and defer the restart
+  // to the last resume.
+  if (pairPauseCount > 0) {
+    // Defer + tear down INLINE (not via stopBtcSteadySync, which nulls
+    // pendingRestartVaultIds across its own awaited listener-stops — a window
+    // where a concurrent resume could read it null and skip the restart, leaving
+    // steady permanently off). Set the flag FIRST so any resume always sees it,
+    // then close the listeners openListeners may have opened. At this point no
+    // timer/firstKick/unsubLedger/appStateSub exists yet, so listeners + the two
+    // module flags are all there is to undo.
+    pendingRestartVaultIds = opts.vaultIds;
+    const opened = s.listeners;
+    s.listeners = [];
+    steady = null;
+    steadyRunning = false;
+    for (const h of opened) {
+      try {
+        await h.stop();
+      } catch {
+        /* */
+      }
+    }
+    return;
+  }
 
   s.timer = setInterval(() => void steadyTick(s), DIAL_INTERVAL_MS);
   // Kick one soon (jittered) so the first post-pair sync isn't a full interval
@@ -292,7 +410,13 @@ export async function startBtcSteadySync(opts: { vaultIds: string[] }): Promise<
   // the reliable trigger if an OEM throttled the background timer under Doze.
   // Runs the SAME serialized path the periodic timer runs. Removed on stop.
   s.appStateSub = AppState.addEventListener("change", (next) => {
-    if (next === "active" && steady === s && !s.stopped) void steadyTick(s);
+    // pairPauseCount===0: don't even enter steadyTick on the focus-return after
+    // requestDiscoverable's system dialog (which backgrounds then re-foregrounds
+    // the app mid-pair). runDialPass also guards on pairPauseCount, but this skips
+    // the work entirely during a pair window.
+    if (next === "active" && steady === s && !s.stopped && pairPauseCount === 0) {
+      void steadyTick(s);
+    }
   });
 
   // Mark the steady session fully up. Reached ONLY on a successful start (every
@@ -316,6 +440,11 @@ export async function stopBtcSteadySync(): Promise<void> {
   // FIRST (next to steady=null) so a superseded/failed start never leaves the
   // background-dial gate open without a live session + wakelock.
   steadyRunning = false;
+  // A real stop (user toggle-off via teardownRadios) clears any deferred
+  // pair-resume restart so we don't auto-restart steady against an OFF intent.
+  // (The resume-driven restart path already captured + nulled this before calling
+  // startBtcSteadySync, so this never eats a legitimate restart.)
+  pendingRestartVaultIds = null;
   if (!s) return;
   s.stopped = true;
   if (s.appStateSub) {
@@ -369,11 +498,14 @@ async function openListeners(s: SteadyState): Promise<void> {
   const now = Date.now();
   s.listenerDay = dayNumber(now);
   for (const vaultId of s.vaultIds) {
-    if (s.stopped || steady !== s) break;
+    // pairPauseCount>0: a pair window opened mid-open — stop grabbing the radio
+    // with more RFCOMM servers. The caller (startBtcSteadySync) re-checks after
+    // and closes whatever we opened + defers the restart to the last resume.
+    if (s.stopped || steady !== s || pairPauseCount > 0) break;
     const anchor = await loadVaultTrustAnchor(vaultId);
     if (!anchor) continue;
     for (const day of advertiseDays(now)) {
-      if (s.stopped || steady !== s) break;
+      if (s.stopped || steady !== s || pairPauseCount > 0) break;
       try {
         const handle = await startBtcListener({
           serviceName: STEADY_SERVICE_NAME,
