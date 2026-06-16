@@ -201,6 +201,35 @@ export async function stopMeshForegroundService(): Promise<boolean> {
   }
 }
 
+/**
+ * Mirror the REMOTE background-mesh kill-switch (#43 P2) into native SharedPrefs
+ * so the killed-app background entry can read it with a plain Service Context
+ * (the JS DB isn't natively readable, and appContext is dead post-kill). Driven
+ * from the /v1/check-in response. Best-effort; never throws.
+ */
+export async function setBgMeshEnabled(enabled: boolean): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  try {
+    return await getNative().setBgMeshEnabled(enabled);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Clear the LOCAL background-mesh crash-loop breaker. Called on every foreground
+ * launch so a device that tripped the breaker self-heals the instant the app is
+ * opened. Best-effort; never throws.
+ */
+export async function resetBgMeshFailures(): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  try {
+    return await getNative().resetBgMeshFailures();
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Event subscriptions (return { remove() } like the rest of the mesh adapters).
 // ---------------------------------------------------------------------------

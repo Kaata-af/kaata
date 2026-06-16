@@ -314,6 +314,32 @@ class KaataBtClassicModule : Module() {
       }
     }
 
+    // Background-mesh kill-switch + crash-loop breaker (#43 P2 Phase 0). These run
+    // while JS is ALIVE (foreground), so appCtx is valid here — the gate itself
+    // reads with a plain Service Context after a swipe-kill. setBgMeshEnabled
+    // mirrors the remote /v1/check-in flag into SharedPrefs so the background
+    // entry (Phase 1/2) can read it natively post-kill; resetBgMeshFailures clears
+    // the local breaker on every foreground launch (self-heal).
+    AsyncFunction("setBgMeshEnabled") { enabled: Boolean, promise: Promise ->
+      try {
+        KaataBgMeshGate.setEnabled(appCtx, enabled)
+        promise.resolve(true)
+      } catch (e: Throwable) {
+        Log.w(TAG, "setBgMeshEnabled failed", e)
+        promise.reject(CodedException("E_BG_GATE", e.message ?: "setBgMeshEnabled failed", e))
+      }
+    }
+
+    AsyncFunction("resetBgMeshFailures") { promise: Promise ->
+      try {
+        KaataBgMeshGate.resetFailures(appCtx)
+        promise.resolve(true)
+      } catch (e: Throwable) {
+        Log.w(TAG, "resetBgMeshFailures failed", e)
+        promise.reject(CodedException("E_BG_GATE", e.message ?: "resetBgMeshFailures failed", e))
+      }
+    }
+
     // In-place title/body update as peer count changes. Uses startService (NOT
     // startForegroundService): updates can fire while the app is backgrounded,
     // and re-issuing startForegroundService from the background throws on API

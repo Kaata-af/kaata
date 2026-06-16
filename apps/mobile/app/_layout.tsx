@@ -418,6 +418,31 @@ export default function RootLayout() {
     return () => sub.remove();
   }, [dbReady]);
 
+  // #43 P2 breaker self-heal: clear the background-mesh crash-loop breaker on
+  // EVERY foreground launch, UNCONDITIONALLY (NOT gated on dbReady/appReady). If
+  // initDb throws, boot bails before setAppReady and the user sits on the
+  // migration-error screen — but a foreground launch must still clear the breaker
+  // so the background path isn't permanently disabled by failures unrelated to a
+  // poisoned event. The breaker only ever gates the BACKGROUND path, never the
+  // foreground app. Best-effort + Android-only (resetBgMeshFailures no-ops else).
+  useEffect(() => {
+    const resetBreaker = () => {
+      void import("../modules/kaata-bt-classic")
+        .then((bt) => bt.resetBgMeshFailures())
+        .catch(() => {
+          /* best-effort */
+        });
+    };
+    resetBreaker(); // cold launch
+    let last = AppState.currentState;
+    const sub = AppState.addEventListener("change", (next) => {
+      const cameToForeground = last.match(/inactive|background/) != null && next === "active";
+      last = next;
+      if (cameToForeground) resetBreaker();
+    });
+    return () => sub.remove();
+  }, []);
+
   // Phase 5.1: route notification taps on the Shop Mode foreground-service
   // notification into the hamburger menu's Sync section. We open the home
   // route with ?menu=sync; the home screen reads that param on mount and

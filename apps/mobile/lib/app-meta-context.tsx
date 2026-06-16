@@ -86,6 +86,22 @@ export function AppMetaProvider(props: { currentVersion: string; children: React
       if (resp.migrate_to_backend_url != null) {
         await setAppMeta("backend_url_override", resp.migrate_to_backend_url);
       }
+      // #43 P2 background-mesh kill-switch. Persist to app_meta (JS reads it) AND
+      // mirror to native SharedPrefs (KaataBgMeshGate) so the killed-app
+      // background entry can read it with a plain Service Context — the JS DB
+      // isn't natively readable and appContext is dead post-kill. Omitted/null =
+      // leave as-is (the live fleet defaults OFF until the backend flips it).
+      if (resp.bg_mesh_enabled != null) {
+        await setAppMeta("bg_mesh_enabled", resp.bg_mesh_enabled ? "1" : "0");
+        try {
+          const bt = await import("../modules/kaata-bt-classic");
+          await bt.setBgMeshEnabled(resp.bg_mesh_enabled);
+        } catch (err) {
+          // native mirror is best-effort; the JS app_meta copy still governs the
+          // JS-side re-check, and the next check-in retries the mirror.
+          if (__DEV__) console.warn("[app-meta] setBgMeshEnabled mirror failed", err);
+        }
+      }
       // Rolling JWT refresh: backend opts to mint a fresh token whenever the
       // incoming one is past auth.RefreshIfOlderThan. Silent persist to
       // SecureStore; no UI surface. Skipped silently when absent / blank.

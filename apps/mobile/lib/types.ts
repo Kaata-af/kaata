@@ -116,6 +116,13 @@ export type CheckInResponse = {
   // and uses it for the next check-in. Empty string clears any prior override
   // (return to env default). Omitted/null leaves the current setting alone.
   migrate_to_backend_url?: string | null;
+  // #43 P2 REMOTE kill-switch for killed-app background mesh sync. Default ABSENT
+  // => OFF (so the live fleet sees zero change until the backend flips it for a
+  // cohort; a bad rollout is reverted server-side with no APK push). When present,
+  // mobile persists to `app_meta.bg_mesh_enabled` AND mirrors it to native
+  // SharedPrefs (KaataBgMeshGate) so the background entry can read it post-kill.
+  // Like force_update, treat with a fail-closed bias. Omitted/null = leave as-is.
+  bg_mesh_enabled?: boolean | null;
   // Rolling JWT refresh. Backend returns this when an authenticated check-in
   // arrives with a session token older than RefreshIfOlderThan (7 days). The
   // mobile client overwrites SecureStore[kaata.session.jwt] silently — no UI
