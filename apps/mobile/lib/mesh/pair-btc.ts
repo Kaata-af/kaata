@@ -110,7 +110,19 @@ export async function hostPairOverBtc(opts: {
       serviceName: PAIR_SERVICE_NAME,
       uuid,
       onConnection: (conn) => {
-        void runPairSession(conn, opts.vaultId, anchor).then((o) => opts.onResult?.(o));
+        void runPairSession(conn, opts.vaultId, anchor).then((o) => {
+          opts.onResult?.(o);
+          // First successful pair ENDS the useful pair window: the QR pair nonce
+          // is single-use (consumePairNonce after admission), so no second joiner
+          // can use this QR. Resume steady NOW (once-guarded) so the just-paired
+          // vault's steady listener comes back up and it syncs promptly — WITHOUT
+          // the owner having to leave the QR screen first (the "paired but doesn't
+          // sync while I'm still on the pair screen" bug). Seesaw-safe: pairing
+          // already succeeded, so there's no active pair inquiry for steady's dial
+          // to cross-cancel; the pair listener itself stays up (harmless) until
+          // the screen-leave stop().
+          if (o.ok) doResume();
+        });
       },
     });
   } catch (err) {
