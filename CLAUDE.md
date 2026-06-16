@@ -131,20 +131,22 @@ These are coordination patterns that recur across screens and bit us once each. 
 
 ### Release / deploy flow
 
-1. Bump `version` in `apps/mobile/app.json` (e.g. `0.2.2` → `0.2.3`).
-2. `cd apps/mobile && eas build --profile preview --platform android` — **must be run from `apps/mobile/`** (see Dev workflow quirks).
-3. Rename the EAS-built artifact to `kaata-<version>.apk` and place at `apps/web/public/downloads/`. Delete the previous version's APK from the same folder if you don't want repo bloat — Cloudflare's edge holds the old URL for ~4h for in-flight downloads.
-4. In Dokploy: set `VITE_APK_VERSION=<version>` build-arg on `kaata-web`, set `APK_DOWNLOAD_URL=https://kaata.af/downloads/kaata-<version>.apk` env on `kaata-backend`, click **Redeploy** on `kaata-backend` (env-only changes don't auto-trigger).
-5. Commit + push (`kaata-web` watch path `apps/web/**` auto-redeploys it).
+**APK distribution is via GitHub Releases, NOT committed to the repo.** The APK now exceeds GitHub's 100 MB per-file git limit, so it CANNOT live in `apps/web/public/downloads/` (a push would be rejected). Release assets allow up to 2 GB; the web download button + the backend `/v1/download` 302 both point at the GitHub Release asset URL.
+
+1. Bump **both** `version` AND `android.versionCode` in `apps/mobile/app.json` (e.g. `0.5.4`/`3` → `0.6.0`/`4`). versionCode MUST increase or the sideloaded APK won't install over the old one — the `preview` profile uses `appVersionSource: "local"` with **no** `autoIncrement` (only `production` auto-increments), so it's manual.
+2. Build the APK from `apps/mobile/`: `bun apk --profile preview --local` (or `eas build --profile preview --platform android`) — **must be run from `apps/mobile/`** (see Dev workflow quirks). The `preview` profile points `EXPO_PUBLIC_BACKEND_URL` at `https://api.kaata.af`.
+3. **Create a GitHub Release** at tag `v<version>` (tags are `v`-prefixed: `v0.5.1`, `v0.6.0`, …) and upload the artifact as the asset `kaata-<version>.apk`. Either `cd <repo> && gh release create v<version> <artifact>.apk --title "Kaata <version>" --notes "<notes>"` (gh creates the tag if absent), or the web UI ("Draft a new release" → pick/create the tag → upload). The stable asset URL is `https://github.com/Kaata-af/kaata/releases/download/v<version>/kaata-<version>.apk`. Do NOT add the APK to git.
+4. In Dokploy, point both services at that asset URL: on `kaata-web` set build-args `VITE_APK_VERSION=<version>` AND `VITE_APK_DOWNLOAD_URL=https://github.com/Kaata-af/kaata/releases/download/v<version>/kaata-<version>.apk`; on `kaata-backend` set env `APK_DOWNLOAD_URL=https://github.com/Kaata-af/kaata/releases/download/v<version>/kaata-<version>.apk` and click **Redeploy** (env-only changes don't auto-trigger). Redeploy `kaata-web` too (build-arg change).
+5. Commit + push the version bump (`apps/mobile/app.json`) and the `v<version>` tag. (No APK in the commit — it's a Release asset.)
 6. Smoke test from outside any VPN:
    ```
-   curl -sS -I https://kaata.af/downloads/kaata-<version>.apk
-   curl -sSL -o nul -w "%{http_code} -> %{redirect_url}" https://api.kaata.af/v1/download
+   curl -sSL -o /dev/null -w "%{http_code}\n" https://github.com/Kaata-af/kaata/releases/download/v<version>/kaata-<version>.apk
+   curl -sSL -o /dev/null -w "%{http_code} -> %{redirect_url}" https://api.kaata.af/v1/download
    ```
-7. **`INSERT INTO app_releases`** via `docker exec -it kaata-database-<suffix> psql -U kaata -d kaata` so existing users see the UpdateBanner on next launch. Without this, only fresh downloads get the new version. The columns are `platform`, `version`, `min_supported_version`, `apk_url`, `play_store_url`, `release_notes` — there's **no `force_update` column**; force-update is computed at check-in time by comparing the client's version against `min_supported_version`. For a non-forcing release, set `min_supported_version` to a version every existing install is at or above (e.g., `'0.1.0'`):
+7. **`INSERT INTO app_releases`** via `docker exec -it kaata-database-<suffix> psql -U kaata -d kaata` so existing users see the UpdateBanner on next launch. Without this, only fresh downloads get the new version. The columns are `platform`, `version`, `min_supported_version`, `apk_url`, `play_store_url`, `release_notes` — there's **no `force_update` column**; force-update is computed at check-in time by comparing the client's version against `min_supported_version`. `apk_url` is the GitHub Release asset URL. For a non-forcing release, set `min_supported_version` to a version every existing install is at or above (e.g., `'0.1.0'`):
    ```sql
    INSERT INTO app_releases (platform, version, min_supported_version, apk_url, play_store_url, release_notes)
-   VALUES ('android', '0.2.3', '0.1.0', 'https://kaata.af/downloads/kaata-0.2.3.apk', NULL, 'Release notes here.');
+   VALUES ('android', '0.6.0', '0.1.0', 'https://github.com/Kaata-af/kaata/releases/download/v0.6.0/kaata-0.6.0.apk', NULL, 'Release notes here.');
    ```
    To force-update everyone below a version (only for critical fixes), set `min_supported_version` to that boundary.
 
