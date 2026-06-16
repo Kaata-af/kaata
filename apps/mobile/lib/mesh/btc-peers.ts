@@ -26,12 +26,24 @@ export type KnownPeer = {
 };
 
 // Classic BT MAC shape "AA:BB:CC:DD:EE:FF". We only ever cache a MAC that came
-// from an authenticated session, but some OEMs hand back a placeholder
-// (00:00:00:00:00:00) or null for an accepted insecure-RFCOMM socket — never
-// overwrite a known-good mapping with one of those.
+// from an authenticated session, but some OEMs hand back a placeholder for an
+// accepted insecure-RFCOMM socket — never overwrite a known-good mapping (or
+// seed one) with a non-routable address:
+//   00:00:00:00:00:00 — all-zero placeholder
+//   02:00:00:00:00:00 — Android's MASKED address (FAKE_BLUETOOTH_ADDRESS),
+//     returned since API 23 to hide the local/remote hardware MAC. Caching it
+//     made the owner dial a dead MAC forever (FAILURE_BACKOFF) so owner->joiner
+//     Bluetooth sync never established — the BT-only-sync-fails bug.
+// More generally, reject any locally-administered address (low bit 0x02 of the
+// first octet set) — those are masked/random, not a routable peer.
 const MAC_RE = /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/;
 function isDialableMac(mac: string): boolean {
-  return MAC_RE.test(mac) && mac !== "00:00:00:00:00:00";
+  if (!MAC_RE.test(mac)) return false;
+  if (mac === "00:00:00:00:00:00") return false;
+  // Locally-administered bit set => masked/random (e.g. 02:00:00:00:00:00).
+  const firstOctet = parseInt(mac.slice(0, 2), 16);
+  if (Number.isNaN(firstOctet) || (firstOctet & 0x02) !== 0) return false;
+  return true;
 }
 
 function parse(raw: string | null): KnownPeer[] {

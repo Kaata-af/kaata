@@ -430,7 +430,17 @@ class KaataBtClassicModule : Module() {
         val payload = HashMap<String, Any?>()
         payload["listenerId"] = listenerId
         payload["socketId"] = socketId
-        payload["remoteMac"] = try { socket.remoteDevice?.address } catch (_: Throwable) { null }
+        // Validate the accepted socket's remote address: modern Android /
+        // insecure-RFCOMM often hands back the MASKED 02:00:00:00:00:00
+        // (FAKE_BLUETOOTH_ADDRESS). Emitting that let the owner cache a dead MAC
+        // for the joiner and dial it forever (owner->joiner BT sync never
+        // worked). Emit only a real, routable address; else null.
+        payload["remoteMac"] = try {
+          val ra = socket.remoteDevice?.address
+          if (isValidBtAddress(ra)) ra else null
+        } catch (_: Throwable) {
+          null
+        }
         safeEmit(EVENT_ACCEPTED, payload)
         Log.i(TAG, "rfcomm accepted socket=$socketId listener=$listenerId")
       } catch (e: Throwable) {
