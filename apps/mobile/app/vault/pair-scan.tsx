@@ -1,52 +1,39 @@
-// QR pairing, new-device (joiner) side — chain-native (M4), Briar split-screen.
+// QR pairing, new-device (joiner) side — chain-native (M4). ONE-WAY scan: the
+// joiner scans the HOST's code and joins. No reciprocal owner-scan — the owner
+// just shows its code and hosts; admission is on the QR's pair nonce (the owner
+// shows it in person for a short window). First contact is fast: the joiner
+// dials the host directly by the MAC in the QR and is admitted on its first
+// successful handshake.
 //
-// Briar shows BOTH a QR and a camera at once: each phone shows its own code and
-// scans the other's, simultaneously. This screen is the joiner half:
-//
-//   - TOP:    the joiner's identity QR (its device pubkey + display name). The
-//             OWNER scans this out-of-band so it can pin our key
-//             (bindExpectedJoiner) and admit exactly this device.
-//   - BOTTOM: a live camera scanning the OWNER's vault QR.
-//
-// On scanning the owner's QR we PREP locally (no "joined" yet):
+// On scanning the host's QR we PREP locally (no "joined" yet):
 //   1. Add the vault row with the owner's trust anchor pubkey pinned (the chain
 //      handshake folds membership against it; loadVaultTrustAnchor needs the row
 //      BEFORE we dial, so this can't be deferred).
 //   2. Write the joiner's own vault_members_mirror row + pin the owner as member
 //      so the Members tab + role-gate render correctly once sync lands.
 //   3. Persist the QR's shop_mode_token as the local pair_nonce — the joiner
-//      echoes it on its first handshake; the OWNER verifies it against a live
-//      pair token (gated on the key they scanned from our top QR) and EMITS the
-//      joiner's admission into the chain. We mint NO credential.
-// Then we KEEP our identity QR on screen and dial the owner in the background.
-// The handshake is admitted ONLY after the owner scans us (claimPairNonce is
-// strict), so we reach "joined" — and flip shop_mode_enabled = '1' — ONLY on a
-// real successful handshake, never from the local prep alone. That's what makes
-// the two-way scan genuinely two-way instead of a one-sided optimistic write.
+//      echoes it on its handshake; the OWNER matches it to a live pair token and
+//      EMITS the joiner's admission into the chain. We mint NO credential.
+// Then we dial the host. "Joined" — and shop_mode_enabled = '1' — is set ONLY on
+// a real successful handshake, never from the local prep alone, so the UI can't
+// claim success for a join that never synced.
 
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Linking, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import QRCode from "react-native-qrcode-svg";
 import { Button } from "../../components/Button";
 import { ScreenHeader } from "../../components/SettingsScreen";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { setActiveVaultId } from "../../lib/db-tx";
-import { getAppMeta, getDb, getLocalSelf, setAppMeta } from "../../lib/db";
+import { getAppMeta, getDb, setAppMeta } from "../../lib/db";
 import { textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
-import {
-  decodeJoinerIdentityQr,
-  decodePairQr,
-  encodeJoinerIdentityQr,
-  type PairQrPayload,
-  type PairQrRole,
-} from "../../lib/mesh/pair-qr";
+import { decodePairQr, type PairQrPayload, type PairQrRole } from "../../lib/mesh/pair-qr";
 import { ensureDeviceKey, getDevicePubkey } from "../../lib/mesh/device-key";
 import { buildLocalAccountId } from "../../lib/trust/account-id";
 
@@ -63,48 +50,35 @@ function deriveOfferedRole(payload: PairQrPayload): { role: PairQrRole; missing:
   return { role: "editor", missing: true };
 }
 
-/** The owner's display name from the QR (v=3), for the "ask {name} to scan"
- *  copy. Falls back to the Owner role label on a legacy QR with no name. */
-function ownerNameOf(payload: PairQrPayload): string {
-  return payload.issuer_display_name?.trim() || t("vaultPair.role.owner");
-}
-
 type Step =
-  // Briar split-screen: our identity QR (top) + live camera (bottom), both at
-  // once. Stays here until the owner's QR is scanned.
-  | { kind: "pairing" }
-  // We scanned the owner's code + did local prep. We KEEP showing our identity
-  // QR (so the owner can scan it back) and dial in the background. The handshake
-  // is admitted ONLY after the owner scans us (claimPairNonce is strict), so
-  // this is a genuine "waiting for the other phone" state — NOT joined.
+  | { kind: "needs_permission" }
+  | { kind: "scanning" }
+  // Scanned + prepped; dialing the host. NOT joined until the handshake lands.
   | { kind: "connecting"; payload: PairQrPayload }
-  // The dial window elapsed without admission (the owner likely hasn't scanned
-  // our code yet). Still NOT joined — keep the QR up + offer a retry.
+  // Dial window elapsed without a successful handshake (host code stopped
+  // showing, or out of Bluetooth range). NOT joined — offer a retry.
   | { kind: "awaiting"; payload: PairQrPayload; lastError?: string }
-  // Reached ONLY on a successful mutual handshake (real sync happened).
+  // Reached ONLY on a real successful handshake (sync happened).
   | { kind: "joined"; vault_id: string; vault_name: string }
   | { kind: "error"; message: string };
 
-// Once the owner has scanned us, the direct-MAC dial is admitted within one
-// round trip — so a tight backoff makes pairing feel instant. We keep retrying
-// for a generous window because the owner may take a moment to scan.
+// One-way: the host is hosting + discoverable, so the first direct-MAC dial is
+// admitted right away. Tight backoff for the rare transport hiccup; bounded so a
+// host that walked away doesn't spin forever.
 const PAIR_DIAL_BACKOFF_MS = 1500;
-const PAIR_DIAL_DEADLINE_MS = 120_000;
+const PAIR_DIAL_DEADLINE_MS = 60_000;
 
 export default function VaultPairScanScreen() {
   const router = useRouter();
   const isRTL = useIsRTL();
   const toast = useToast();
   const [permission, requestPermission] = useCameraPermissions();
-  const [step, setStep] = useState<Step>({ kind: "pairing" });
-  // Our own identity QR, built once on mount from the device key + display name.
-  const [identityQr, setIdentityQr] = useState<string | null>(null);
+  const [step, setStep] = useState<Step>({ kind: "scanning" });
   // Guard against BarCodeScanner firing the callback multiple times before the
-  // camera unmounts. First valid scan wins; a garbage/wrong code re-arms it.
+  // camera unmounts. First valid scan wins; a garbage code re-arms it.
   const handledRef = useRef(false);
-  // True while mounted — guards setStep after async awaits so a backed-out
-  // screen doesn't update state. Bumped epoch cancels an in-flight dial loop
-  // (on unmount OR when the user taps Retry, so loops never stack).
+  // Guards setStep after async awaits so a backed-out screen doesn't update
+  // state; bumped epoch cancels an in-flight dial loop (unmount OR Retry).
   const mountedRef = useRef(true);
   const dialEpochRef = useRef(0);
   useEffect(() => {
@@ -114,71 +88,23 @@ export default function VaultPairScanScreen() {
     };
   }, []);
 
-  // Build our identity QR once: the OWNER scans this to pin our device key, so it
-  // must be live alongside the camera (Briar's split). Loads the device key first
-  // (an in-memory cache miss leaves getDevicePubkey() null).
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        await ensureDeviceKey();
-        const devicePubkeyB64 = getDevicePubkey();
-        if (!devicePubkeyB64) return;
-        const self = await getLocalSelf();
-        const joinerName = (self?.name ?? "").trim();
-        const qr = encodeJoinerIdentityQr({
-          v: 1,
-          kind: "joiner_identity",
-          device_pubkey: devicePubkeyB64,
-          display_name: joinerName,
-        });
-        if (!cancelled) setIdentityQr(qr);
-      } catch (err) {
-        console.warn("[vault/pair-scan] identity QR build failed", err);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // Auto-request the camera as soon as we're on the split, so both halves (our
-  // code + their camera) are live together with no extra tap.
-  useEffect(() => {
-    if (step.kind === "pairing" && permission && !permission.granted && permission.canAskAgain) {
-      void requestPermission();
+    if (permission && !permission.granted) {
+      setStep({ kind: "needs_permission" });
+    } else if (permission?.granted) {
+      setStep({ kind: "scanning" });
+      handledRef.current = false;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step.kind, permission?.granted]);
+  }, [permission]);
 
-  async function onRequestCamera() {
-    let perm = permission;
-    if (!perm?.granted) perm = await requestPermission();
-    if (!perm?.granted && perm && !perm.canAskAgain) {
-      void Linking.openSettings().catch(() => {
-        /* user can navigate manually */
-      });
-    }
-  }
-
-  // Scanned the OWNER's vault QR. Briar auto-joins (no separate confirm step):
-  // decode → join writes → dial. The camera stays live on a garbage/wrong code,
-  // re-armed after a short debounce so it keeps scanning.
   const onBarcodeScanned = useCallback((result: { data?: string }) => {
     if (handledRef.current) return;
     if (!result?.data) return;
     handledRef.current = true;
     const decoded = decodePairQr(result.data);
     if (!decoded.ok) {
-      // Most common mistake: both phones opened the SCAN screen, so the user
-      // pointed at the other phone's join code (a joiner-identity QR — no vault
-      // in it) instead of the kaata's share code. Detect that and give a
-      // corrective message instead of the generic "couldn't read this code".
-      const asIdentity = decodeJoinerIdentityQr(result.data);
-      toast.push(
-        asIdentity.ok ? t("vaultPairScan.error.scannedJoinCode") : pairErrorMessage(decoded.reason),
-        "error",
-      );
+      // Keep the camera live on a garbage/wrong code — toast + re-arm.
+      toast.push(pairErrorMessage(decoded.reason), "error");
       setTimeout(() => {
         handledRef.current = false;
       }, 1500);
@@ -188,19 +114,17 @@ export default function VaultPairScanScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The whole join: local writes (chain-native — no self-admission, no minted
-  // credential) then dial + steady sync. Idempotent + non-fatal — steady-sync
-  // keeps retrying in the background even if the first dial doesn't land.
+  // Prep the local vault rows (the handshake needs them) then dial. Chain-native:
+  // no self-admission, no minted credential.
   async function doJoin(payload: PairQrPayload) {
+    setStep({ kind: "connecting", payload });
     try {
       // Chain-native join (M4): every QR carries the owner's trust anchor pubkey
-      // (vault_trust_anchor_pubkey). The joiner pins it, then on its first BLE
-      // handshake presents an EMPTY proof bundle + the QR's shop_mode_token as
-      // the mesh pair_nonce. The OWNER verifies the nonce against a live pair
-      // token and EMITS the joiner's admission (vault_member_added +
-      // vault_device_added) into the chain. The joiner mints NO credential and
-      // does NOT self-admit. A QR without an anchor pubkey can't complete a chain
-      // join — refuse it.
+      // (vault_trust_anchor_pubkey). The joiner pins it, then on its handshake
+      // presents an EMPTY proof bundle + the QR's shop_mode_token as the mesh
+      // pair_nonce. The OWNER matches the nonce to a live pair token and EMITS
+      // the joiner's admission into the chain. A QR without an anchor pubkey
+      // can't complete a chain join — refuse it.
       if (!payload.vault_trust_anchor_pubkey) {
         setStep({ kind: "error", message: t("vaultPairScan.error.malformed") });
         return;
@@ -210,13 +134,13 @@ export default function VaultPairScanScreen() {
       // real account; otherwise synthesize a stable local sentinel from the
       // device pubkey, matching lib/trust/account-id.ts. NOTE: this is only the
       // joiner's LOCAL mirror identity — the account the OWNER actually binds in
-      // the chain is derived owner-side from the PoP-proven pubkey
-      // (verifyPeerChain FIX A), never trusted from here.
+      // the chain is derived owner-side from the PoP-proven pubkey, never trusted
+      // from here.
       const ourAccountId = await getAppMeta("account_id");
 
       // Make sure the device key is loaded before reading it (an in-memory cache
       // miss leaves getDevicePubkey() null, which would leave the joiner unable
-      // to participate in the BLE handshake).
+      // to participate in the handshake).
       await ensureDeviceKey();
       const offered = deriveOfferedRole(payload);
       const devicePubkeyB64 = getDevicePubkey();
@@ -305,10 +229,6 @@ export default function VaultPairScanScreen() {
         // this idempotent and additive (doesn't overwrite a later role change
         // applied via mesh events).
         if (payload.issuer_account_id && payload.issuer_account_id !== effectiveAccountId) {
-          // Mythos Issue 1: persist the owner's display name from the QR
-          // (issuer_display_name, v=3 field) into the display_name column so the
-          // Members tab can show the owner's real name instead of the "Owner"
-          // role-label fallback.
           await db.runAsync(
             `INSERT OR IGNORE INTO vault_members_mirror
                (vault_id, account_id, role, accepted_at, revoked_at, display_name)
@@ -321,12 +241,10 @@ export default function VaultPairScanScreen() {
         }
       });
 
-      // Persist the QR's shop_mode_token locally so the joiner's first BLE
-      // handshake echoes it as HelloMessage.pair_nonce. The owner's
-      // pair-admission path requires this exact nonce to match a live unconsumed
-      // pair token, binding "this handshake came from the QR we just scanned" vs
-      // "any stranger in BLE range during the window." The TTL matches the QR's
-      // expiry; cleared on the first successful handshake.
+      // Persist the QR's shop_mode_token locally so the joiner's handshake echoes
+      // it as HelloMessage.pair_nonce. The owner's pair-admission requires this
+      // exact nonce to match a live unconsumed pair token. The TTL matches the
+      // QR's expiry; cleared on the first successful handshake.
       try {
         const localPair = await import("../../lib/mesh/local-pair");
         await localPair.setLocalPairNonceForVault(
@@ -336,16 +254,12 @@ export default function VaultPairScanScreen() {
         );
       } catch (err) {
         console.warn("[vault/pair-scan] setLocalPairNonceForVault failed", err);
-        // Non-fatal: the handshake retries the lookup. If it's missing, the owner
-        // refuses the pair handshake loudly until re-paired.
+        // Non-fatal: the handshake retries the lookup.
       }
 
       await setActiveVaultId(payload.vault_id);
 
-      // Prep is done. KEEP our identity QR on screen ("connecting") so the owner
-      // can scan it — that scan is what admits us — and dial in the background.
       if (!mountedRef.current) return;
-      setStep({ kind: "connecting", payload });
       void runDialLoop(payload);
     } catch (err) {
       console.warn("[vault/pair-scan] join prep failed", err);
@@ -363,19 +277,16 @@ export default function VaultPairScanScreen() {
     }
   }
 
-  // Dial the owner's pair listener until the handshake is ADMITTED, which only
-  // happens once the owner has scanned our identity QR (claimPairNonce is
-  // strict — see lib/mesh/local-pair.ts). Until then each dial is refused inside
-  // the handshake and we retry on a tight backoff. This is the ONLY path to the
-  // "joined" state — a refused/never-admitted dial never reports success, so the
-  // UI can't lie about a one-sided "join".
+  // Dial the host until the handshake succeeds. One-way: the host admits on the
+  // pair nonce, so the first successful dial is admitted — this loop only exists
+  // to ride out transport hiccups. The ONLY path to "joined": a refused/failed
+  // dial never reports success, so the UI can't claim a join that didn't sync.
   async function runDialLoop(payload: PairQrPayload) {
     const myEpoch = ++dialEpochRef.current;
     const { joinPairOverBtc } = await import("../../lib/mesh/pair-btc");
     const deadline = Date.now() + PAIR_DIAL_DEADLINE_MS;
     let lastError: string | undefined;
     while (Date.now() < deadline) {
-      // Cancelled by unmount or a fresh Retry — stop this stale loop.
       if (dialEpochRef.current !== myEpoch || !mountedRef.current) return;
       try {
         await joinPairOverBtc({
@@ -384,29 +295,21 @@ export default function VaultPairScanScreen() {
           hostMac: payload.issuer_bt_mac ?? null,
           hostName: payload.issuer_bt_name ?? null,
         });
-        // SUCCESS — the owner scanned us, admitted us, and the ledger delta
-        // synced. Only here do we flip shop mode on + declare "joined".
         if (dialEpochRef.current !== myEpoch || !mountedRef.current) return;
         await onPairSucceeded(payload);
         return;
       } catch (err) {
         lastError = (err as Error)?.message ?? "first sync did not complete";
-        console.warn(
-          "[vault/pair-scan] pair dial refused (owner may not have scanned yet):",
-          lastError,
-        );
+        console.warn("[vault/pair-scan] pair dial failed:", lastError);
         await new Promise((r) => setTimeout(r, PAIR_DIAL_BACKOFF_MS));
       }
     }
-    // Window elapsed without admission — almost always "the owner hasn't scanned
-    // our code yet". Stay honest: NOT joined; keep the QR up + offer a retry.
     if (dialEpochRef.current !== myEpoch || !mountedRef.current) return;
     setStep({ kind: "awaiting", payload, lastError });
   }
 
-  // Real pairing success. Turn on steady-state sync (the reliable self-retrying
-  // path) + schedule catch-up sweeps to heal the first batch, then declare
-  // "joined". Idempotent.
+  // Real pairing success. Turn on steady-state sync + schedule catch-up sweeps to
+  // heal the first batch, then declare "joined". Idempotent.
   async function onPairSucceeded(payload: PairQrPayload) {
     await setAppMeta("shop_mode_enabled", "1");
     try {
@@ -436,7 +339,7 @@ export default function VaultPairScanScreen() {
 
   function onRescan() {
     handledRef.current = false;
-    setStep({ kind: "pairing" });
+    setStep({ kind: "scanning" });
   }
 
   function onDone() {
@@ -452,122 +355,86 @@ export default function VaultPairScanScreen() {
         backLabel={t("common.back")}
       />
 
-      {step.kind === "pairing" ? (
-        // Briar-style split: YOUR code (top) + THEIR camera (bottom), both live
-        // at once. The owner's screen shows the same kind of split; you each scan
-        // the other's code simultaneously.
-        <ScrollView contentContainerStyle={styles.splitBody} showsVerticalScrollIndicator={false}>
-          <Text style={[styles.splitHint, textDir(isRTL)]}>{t("vaultPairScan.split.hint")}</Text>
-
-          <Text style={[styles.splitLabel, textDir(isRTL)]}>
-            {t("vaultPairScan.split.yourCode")}
+      {step.kind === "needs_permission" ? (
+        <View style={styles.body}>
+          <Text style={[styles.headline, textDir(isRTL)]}>
+            {t("vaultPairScan.permission.headline")}
           </Text>
-          <View style={styles.qrCardSm}>
-            {identityQr ? (
-              <QRCode
-                value={identityQr}
-                size={170}
-                backgroundColor={colors.bgDefault}
-                color={colors.textEmphasis}
-              />
-            ) : (
-              <View style={styles.qrPlaceholderSm}>
-                <ActivityIndicator color={colors.textMuted} />
-                <Text style={[styles.bodyText, { marginTop: 8, textAlign: "center" }]}>
-                  {t("vaultPair.generating")}
-                </Text>
-              </View>
-            )}
-          </View>
-
-          <Text style={[styles.splitLabel, textDir(isRTL), { marginTop: 18 }]}>
-            {t("vaultPairScan.split.theirCode")}
+          <Text style={[styles.bodyText, textDir(isRTL)]}>
+            {t("vaultPairScan.permission.body")}
           </Text>
-          <View style={styles.splitCamera}>
-            {permission?.granted ? (
-              <>
-                <CameraView
-                  style={StyleSheet.absoluteFill}
-                  facing="back"
-                  barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-                  onBarcodeScanned={onBarcodeScanned}
-                />
-                <View style={styles.scannerReticle} pointerEvents="none" />
-              </>
-            ) : (
-              <View style={styles.cameraOverlay}>
-                <Ionicons name="camera-outline" size={40} color={colors.textMuted} />
-                <Text style={[styles.bodyText, { textAlign: "center", marginTop: 8 }]}>
-                  {t("vaultPair.twoWay.camera.body")}
-                </Text>
-                <View style={{ height: 10 }} />
-                <Button label={t("vaultPair.twoWay.camera.allow")} onPress={onRequestCamera} />
-              </View>
-            )}
-          </View>
-
-          <View style={{ height: 18 }} />
-          <Button label={t("common.cancel")} variant="secondary" onPress={() => router.back()} />
-        </ScrollView>
+          <View style={{ height: 20 }} />
+          {permission && !permission.canAskAgain ? (
+            <Button
+              label={t("contacts.permission.button")}
+              onPress={() =>
+                void Linking.openSettings().catch(() => {
+                  /* user can navigate manually */
+                })
+              }
+            />
+          ) : (
+            <Button
+              label={t("vaultPairScan.permission.allow")}
+              onPress={() => requestPermission()}
+            />
+          )}
+        </View>
       ) : null}
 
-      {step.kind === "connecting" || step.kind === "awaiting" ? (
-        // Briar-faithful: our identity QR stays UP so the owner can scan it —
-        // that scan is what admits us. We dial in the background; "joined" only
-        // shows once the handshake actually lands.
-        <ScrollView contentContainerStyle={styles.splitBody} showsVerticalScrollIndicator={false}>
-          <Text style={[styles.headline, textDir(isRTL)]}>
-            {step.kind === "connecting"
-              ? t("vaultPairScan.connecting.headline")
-              : t("vaultPairScan.awaiting.headline")}
-          </Text>
-          <View style={styles.qrCardSm}>
-            {identityQr ? (
-              <QRCode
-                value={identityQr}
-                size={200}
-                backgroundColor={colors.bgDefault}
-                color={colors.textEmphasis}
-              />
-            ) : (
-              <View style={styles.qrPlaceholderSm}>
-                <ActivityIndicator color={colors.textMuted} />
-              </View>
-            )}
+      {step.kind === "scanning" ? (
+        <View style={styles.cameraWrap}>
+          <CameraView
+            style={StyleSheet.absoluteFill}
+            facing="back"
+            barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+            onBarcodeScanned={onBarcodeScanned}
+          />
+          <View style={styles.scannerReticle} pointerEvents="none" />
+          <View style={styles.scannerHint} pointerEvents="none">
+            <Text style={styles.scannerHintText}>{t("vaultPairScan.scanning.hint")}</Text>
           </View>
-          <View style={{ height: 14 }} />
-          <Text style={[styles.bodyText, textDir(isRTL), { textAlign: "center" }]}>
-            {step.kind === "connecting"
-              ? t("vaultPairScan.connecting.body", { name: ownerNameOf(step.payload) })
-              : t("vaultPairScan.awaiting.body", { name: ownerNameOf(step.payload) })}
+        </View>
+      ) : null}
+
+      {step.kind === "connecting" ? (
+        <View style={styles.body}>
+          <ActivityIndicator color={colors.textEmphasis} size="large" />
+          <Text style={[styles.bodyText, { marginTop: 16, textAlign: "center" }]}>
+            {t("vaultPairScan.joining", { name: step.payload.vault_name })}
           </Text>
-          <View style={{ height: 16 }} />
-          {step.kind === "connecting" ? (
-            <View style={styles.statusRow}>
-              <ActivityIndicator color={colors.textEmphasis} />
-              <Text style={[styles.bodyText, { marginLeft: 8, alignSelf: "auto" }]}>
-                {t("vaultPairScan.connecting.status")}
-              </Text>
-            </View>
-          ) : (
-            <>
-              <Button label={t("common.tryAgain")} onPress={() => onRetryConnect(step.payload)} />
-              {step.lastError ? (
-                <Text
-                  style={[
-                    styles.bodyText,
-                    textDir(isRTL),
-                    { opacity: 0.5, fontSize: 12, marginTop: 10, textAlign: "center" },
-                  ]}
-                >
-                  {step.lastError}
-                </Text>
-              ) : null}
-            </>
-          )}
-          <View style={{ height: 14 }} />
-          <Button label={t("common.cancel")} variant="secondary" onPress={() => router.back()} />
-        </ScrollView>
+        </View>
+      ) : null}
+
+      {step.kind === "awaiting" ? (
+        <View style={styles.body}>
+          <Ionicons name="bluetooth-outline" size={40} color={colors.textMuted} />
+          <Text style={[styles.headline, textDir(isRTL)]}>
+            {t("vaultPairScan.awaiting.hostHeadline")}
+          </Text>
+          <Text style={[styles.bodyText, textDir(isRTL), { textAlign: "center" }]}>
+            {t("vaultPairScan.awaiting.hostBody")}
+          </Text>
+          {step.lastError ? (
+            <Text
+              style={[
+                styles.bodyText,
+                textDir(isRTL),
+                { opacity: 0.5, fontSize: 12, marginTop: 10, textAlign: "center" },
+              ]}
+            >
+              {step.lastError}
+            </Text>
+          ) : null}
+          <View style={{ height: 20 }} />
+          <Button label={t("common.tryAgain")} onPress={() => onRetryConnect(step.payload)} />
+          <View style={{ height: 10 }} />
+          <Button
+            label={t("vaultPairScan.confirm.rescan")}
+            variant="secondary"
+            onPress={onRescan}
+          />
+        </View>
       ) : null}
 
       {step.kind === "joined" ? (
@@ -637,54 +504,10 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   emph: { fontFamily: fonts.sansSemi, color: colors.textEmphasis },
-  // Briar split-screen pairing (mirrors apps/mobile/app/vault/pair.tsx).
-  splitBody: { padding: 20, alignItems: "center", paddingBottom: 32 },
-  splitHint: {
-    fontSize: 13,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    textAlign: "center",
-    marginBottom: 14,
-    alignSelf: "stretch",
-  },
-  splitLabel: {
-    fontSize: 13,
-    fontFamily: fonts.sansSemi,
-    color: colors.textSubtle,
-    alignSelf: "stretch",
-    marginBottom: 8,
-  },
-  qrCardSm: {
-    padding: 14,
-    backgroundColor: colors.bgDefault,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.borderDefault,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  qrPlaceholderSm: {
-    width: 170,
-    height: 170,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.bgMuted,
-    borderRadius: 12,
-  },
-  splitCamera: {
-    width: 240,
-    height: 240,
-    borderRadius: 16,
-    overflow: "hidden",
-    backgroundColor: "#000",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cameraOverlay: { alignItems: "center", justifyContent: "center", padding: 16 },
-  statusRow: { flexDirection: "row", alignItems: "center", justifyContent: "center" },
+  cameraWrap: { flex: 1, backgroundColor: "#000" },
   scannerReticle: {
     position: "absolute",
-    top: "12%",
+    top: "25%",
     left: "12%",
     right: "12%",
     aspectRatio: 1,
@@ -692,5 +515,23 @@ const styles = StyleSheet.create({
     borderColor: "#fff",
     borderRadius: 16,
     backgroundColor: "transparent",
+  },
+  scannerHint: {
+    position: "absolute",
+    bottom: 60,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  scannerHintText: {
+    fontSize: 14,
+    fontFamily: fonts.sansMedium,
+    color: "#fff",
+    textAlign: "center",
+    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
   },
 });

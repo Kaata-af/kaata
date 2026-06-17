@@ -669,6 +669,10 @@ const en = {
   "vaultPairScan.awaiting.headline": "Waiting for the other phone",
   "vaultPairScan.awaiting.body":
     "Ask {name} to scan this code on their phone — their screen has a camera too. Pairing finishes the moment they do.",
+  // One-way scan: couldn't reach the host after scanning its code.
+  "vaultPairScan.awaiting.hostHeadline": "Couldn't reach the other phone",
+  "vaultPairScan.awaiting.hostBody":
+    "Make sure the other phone is still showing its code, Bluetooth is on, and the phones are close. Then try again.",
   "vaultPairScan.error.headline": "Couldn't pair",
   "vaultPairScan.error.signInRequired":
     "Sign in with the same Google account as the other phone first.",
@@ -1517,6 +1521,9 @@ const fa: Partial<Record<Key, string>> = {
   "vaultPairScan.awaiting.headline": "در انتظار تلفون دیگر",
   "vaultPairScan.awaiting.body":
     "از {name} بخواهید این کود را در تلفون خود اسکن کند — صفحه آن‌ها هم کمره دارد. به‌محض اینکه اسکن کنند، جفت‌سازی تمام می‌شود.",
+  "vaultPairScan.awaiting.hostHeadline": "رسیدن به تلفون دیگر ناکام شد",
+  "vaultPairScan.awaiting.hostBody":
+    "مطمئن شوید تلفون دیگر هنوز کود خود را نشان می‌دهد، بلوتوث روشن است و تلفون‌ها نزدیک هستند. سپس دوباره کوشش کنید.",
   "vaultPairScan.error.headline": "جفت‌سازی ناکام شد",
   "vaultPairScan.error.signInRequired": "ابتدا با همان حساب گوگل تلفون دیگر وارد شوید.",
   "vaultPairScan.error.accountMismatch":

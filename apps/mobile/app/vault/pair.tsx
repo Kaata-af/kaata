@@ -10,19 +10,9 @@
 // Phase 4 email-anchored token flow).
 
 import { Ionicons } from "@expo/vector-icons";
-import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  AppState,
-  Linking,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import QRCode from "react-native-qrcode-svg";
 import { Button } from "../../components/Button";
@@ -35,7 +25,6 @@ import { textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import {
-  decodeJoinerIdentityQr,
   encodePairQr,
   PAIR_QR_TTL_MS,
   PAIR_QR_VERSION,
@@ -83,18 +72,9 @@ export default function VaultPairScreen() {
   // unmount, QR expiry, and re-issue so the server + discoverable window don't
   // linger past the pair token they belong to.
   const pairHostRef = useRef<HostPairHandle | null>(null);
-  // BRIAR-STRICT two-way scan (owner side): after showing the QR, the owner
-  // scans the JOINER's identity QR to pin their key. "scanning" mounts the
-  // camera; "bound" confirms the joiner is pinned + can be admitted.
-  const [scanMode, setScanMode] = useState<"idle" | "bound">("idle");
-  const [boundName, setBoundName] = useState<string | null>(null);
-  // Flips true when a joiner actually completes the handshake (onResult ok).
-  // Until then the owner must STAY on this screen — leaving tears down the
-  // RFCOMM listener the joiner is dialing — so we don't offer "Done" yet.
+  // One-way: flips true when a joiner completes the handshake (onResult ok), so
+  // the owner sees a "paired" confirmation instead of the QR.
   const [sessionPaired, setSessionPaired] = useState(false);
-  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
-  // Dedupe the barcode callback (fires repeatedly until the camera unmounts).
-  const ownerScanHandledRef = useRef(false);
 
   const issueQr = useCallback(
     async (v: VaultLite, accId: string | null, chosenRole: PairQrRole): Promise<string | null> => {
@@ -319,9 +299,6 @@ export default function VaultPairScreen() {
     await stopHosting(); // the old token's RFCOMM UUID is about to be replaced
     setPayload(null);
     setStage("pick-role");
-    // A fresh nonce means any prior joiner-key binding is moot — reset the scan.
-    setScanMode("idle");
-    setBoundName(null);
     setSessionPaired(false);
   }
 
@@ -395,71 +372,6 @@ export default function VaultPairScreen() {
       setIssuing(false);
     }
   }
-
-  // Briar split-screen: the camera is LIVE alongside the QR. Request permission
-  // once the QR is up; the "Allow camera" prompt in the camera slot re-runs this
-  // (or routes to settings if permanently denied).
-  async function onRequestCamera() {
-    let perm = cameraPermission;
-    if (!perm?.granted) perm = await requestCameraPermission();
-    if (!perm?.granted && perm && !perm.canAskAgain) {
-      void Linking.openSettings().catch(() => {});
-    }
-  }
-
-  // Auto-request the camera as soon as the QR is showing, so both halves of the
-  // split (your code + their camera) are live together with no extra tap.
-  useEffect(() => {
-    if (stage === "show-qr" && payload && cameraPermission && !cameraPermission.granted) {
-      if (cameraPermission.canAskAgain) void requestCameraPermission();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage, payload, cameraPermission?.granted]);
-
-  // Scanned the joiner's identity QR: pin their device pubkey onto THIS QR's
-  // pending token. After this, the owner's pair-admission (claimPairNonce) will
-  // admit exactly that one device — the out-of-band binding that makes the pair
-  // mutually authenticated. The camera stays live; on a wrong/garbage code we
-  // re-arm after a short debounce so it keeps scanning.
-  const onJoinerBarcode = useCallback(
-    async (result: { data?: string }) => {
-      if (ownerScanHandledRef.current) return;
-      if (!result?.data) return;
-      ownerScanHandledRef.current = true;
-      const reArm = () => {
-        setTimeout(() => {
-          ownerScanHandledRef.current = false;
-        }, 1500);
-      };
-      const decoded = decodeJoinerIdentityQr(result.data);
-      if (!decoded.ok) {
-        toast.push(t("vaultPair.twoWay.wrongCode"), "error");
-        reArm();
-        return;
-      }
-      const nonce = payload?.shop_mode_token;
-      if (!vault || !nonce) {
-        reArm();
-        return;
-      }
-      try {
-        const { bindExpectedJoiner } = await import("../../lib/mesh/local-pair");
-        const ok = await bindExpectedJoiner(vault.id, nonce, decoded.payload.device_pubkey);
-        if (!ok) {
-          toast.push(t("vaultPair.issueFailed"), "error");
-          reArm();
-          return;
-        }
-        setBoundName(decoded.payload.display_name.trim() || null);
-        setScanMode("bound");
-      } catch (err) {
-        console.warn("[vault/pair] bindExpectedJoiner failed", err);
-        toast.push(t("vaultPair.issueFailed"), "error");
-        reArm();
-      }
-    },
-    [payload, vault, toast],
-  );
 
   if (!loaded || !vault) {
     return (
@@ -552,118 +464,65 @@ export default function VaultPairScreen() {
         isRTL={isRTL}
         backLabel={t("common.back")}
       />
-      {/* Briar-style split: YOUR code (top) + THEIR camera (bottom), both live
-          at once. The other phone shows the same kind of screen; you each scan
-          the other's code simultaneously. */}
-      <ScrollView contentContainerStyle={styles.splitBody} showsVerticalScrollIndicator={false}>
-        <Text style={[styles.splitHint, textDir(isRTL)]}>{t("vaultPair.twoWay.splitHint")}</Text>
-
-        <Text style={[styles.splitLabel, textDir(isRTL)]}>{t("vaultPair.twoWay.yourCode")}</Text>
-        <View style={styles.qrCardSm}>
-          {payload && !expired ? (
-            // 220, not 170: the v=3 share payload is dense (~500 bytes →
-            // QR version ~20). At 170px the modules are ~1.7px and many phone
-            // cameras can't resolve them, so the joiner's scan silently never
-            // fires. A bigger render is the cheap reliability win.
-            <QRCode
-              value={encoded}
-              size={220}
-              backgroundColor={colors.bgDefault}
-              color={colors.textEmphasis}
-            />
-          ) : (
-            <View style={styles.qrPlaceholderLg}>
-              <Ionicons name="time-outline" size={36} color={colors.textMuted} />
-              <Text style={[styles.bodyText, { marginTop: 8, textAlign: "center" }]}>
-                {expired ? t("vaultPair.codeExpired") : t("vaultPair.generating")}
-              </Text>
-            </View>
-          )}
-        </View>
-        {payload && !expired && scanMode !== "bound" ? (
-          <Text style={[styles.timerText, textDir(isRTL)]}>
-            {t("vaultPair.expiresIn", { time: formatCountdown(secondsLeft) })}
-          </Text>
-        ) : null}
-
-        <Text style={[styles.splitLabel, textDir(isRTL), { marginTop: 18 }]}>
-          {t("vaultPair.twoWay.theirCode")}
-        </Text>
-        <View style={styles.splitCamera}>
-          {scanMode === "bound" ? (
-            <View style={styles.cameraOverlay}>
-              <Ionicons name="checkmark-circle" size={48} color={colors.textEmphasis} />
-              <Text style={[styles.boundHeadline, textDir(isRTL)]}>
-                {sessionPaired
-                  ? boundName
-                    ? t("vaultPair.twoWay.paired.headline", { name: boundName })
-                    : t("vaultPair.twoWay.paired.headlineNoName")
-                  : boundName
-                    ? t("vaultPair.twoWay.bound.headline", { name: boundName })
-                    : t("vaultPair.twoWay.bound.headlineNoName")}
-              </Text>
-            </View>
-          ) : expired ? (
-            <View style={styles.cameraOverlay}>
-              <Ionicons name="time-outline" size={40} color={colors.textMuted} />
-            </View>
-          ) : cameraPermission?.granted ? (
-            <>
-              <CameraView
-                style={StyleSheet.absoluteFill}
-                facing="back"
-                barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-                onBarcodeScanned={onJoinerBarcode}
-              />
-              <View style={styles.scannerReticle} pointerEvents="none" />
-            </>
-          ) : (
-            <View style={styles.cameraOverlay}>
-              <Ionicons name="camera-outline" size={40} color={colors.textMuted} />
-              <Text style={[styles.bodyText, { textAlign: "center", marginTop: 8 }]}>
-                {t("vaultPair.twoWay.camera.body")}
-              </Text>
-              <View style={{ height: 10 }} />
-              <Button label={t("vaultPair.twoWay.camera.allow")} onPress={onRequestCamera} />
-            </View>
-          )}
-        </View>
-
-        {error ? <Text style={[styles.errorText, textDir(isRTL)]}>{error}</Text> : null}
-
-        <View style={{ height: 18 }} />
-        {scanMode === "bound" ? (
-          sessionPaired ? (
-            <>
-              <Text style={[styles.bodyText, textDir(isRTL), { textAlign: "center" }]}>
-                {t("vaultPair.twoWay.paired.body")}
-              </Text>
-              <View style={{ height: 12 }} />
-              <Button label={t("common.done")} onPress={() => router.back()} />
-            </>
-          ) : (
-            // Joiner not connected yet — KEEP the listener up. No "Done" here, or
-            // the owner tears it down before the joiner's dial lands.
-            <>
-              <ActivityIndicator color={colors.textEmphasis} />
-              <View style={{ height: 8 }} />
-              <Text style={[styles.bodyText, textDir(isRTL), { textAlign: "center" }]}>
-                {boundName
-                  ? t("vaultPair.twoWay.bound.connecting", { name: boundName })
-                  : t("vaultPair.twoWay.bound.connectingNoName")}
-              </Text>
-              <View style={{ height: 12 }} />
-              <Button
-                label={t("vaultPair.twoWay.bound.startOver")}
-                variant="secondary"
-                onPress={onReissue}
-              />
-            </>
-          )
-        ) : expired ? (
-          <Button label={t("vaultPair.generateNew")} onPress={onReissue} />
+      {/* One-way: the owner shows its code; the other phone scans it. No camera
+          here. When a joiner completes the handshake (onResult ok), we confirm. */}
+      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        {sessionPaired ? (
+          // A joiner connected. The owner doesn't scan the joiner in one-way mode,
+          // so we don't have its name here — a generic confirmation + Done.
+          <>
+            <Ionicons name="checkmark-circle" size={56} color={colors.textEmphasis} />
+            <Text style={[styles.headline, textDir(isRTL), { marginTop: 14 }]}>
+              {t("vaultPair.twoWay.paired.headlineNoName")}
+            </Text>
+            <Text style={[styles.bodyText, textDir(isRTL), { textAlign: "center" }]}>
+              {t("vaultPair.twoWay.paired.body")}
+            </Text>
+            <View style={{ height: 22 }} />
+            <Button label={t("common.done")} onPress={() => router.back()} />
+          </>
         ) : (
-          <Button label={t("common.cancel")} variant="secondary" onPress={() => router.back()} />
+          <>
+            <Text style={[styles.headline, textDir(isRTL)]}>
+              {t("vaultPair.headline")} <Text style={styles.emph}>{vault.name}</Text>
+            </Text>
+            <Text style={[styles.bodyText, textDir(isRTL)]}>
+              {t("vaultPair.instructions.local")}
+            </Text>
+            <View style={[styles.qrCardSm, { marginTop: 20 }]}>
+              {payload && !expired ? (
+                <QRCode
+                  value={encoded}
+                  size={240}
+                  backgroundColor={colors.bgDefault}
+                  color={colors.textEmphasis}
+                />
+              ) : (
+                <View style={styles.qrPlaceholderLg}>
+                  <Ionicons name="time-outline" size={36} color={colors.textMuted} />
+                  <Text style={[styles.bodyText, { marginTop: 8, textAlign: "center" }]}>
+                    {expired ? t("vaultPair.codeExpired") : t("vaultPair.generating")}
+                  </Text>
+                </View>
+              )}
+            </View>
+            {payload && !expired ? (
+              <Text style={[styles.timerText, textDir(isRTL)]}>
+                {t("vaultPair.expiresIn", { time: formatCountdown(secondsLeft) })}
+              </Text>
+            ) : null}
+            {error ? <Text style={[styles.errorText, textDir(isRTL)]}>{error}</Text> : null}
+            <View style={{ height: 20 }} />
+            {expired ? (
+              <Button label={t("vaultPair.generateNew")} onPress={onReissue} />
+            ) : (
+              <Button
+                label={t("common.cancel")}
+                variant="secondary"
+                onPress={() => router.back()}
+              />
+            )}
+          </>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -702,23 +561,6 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   emph: { fontFamily: fonts.sansSemi, color: colors.textEmphasis },
-  // Briar split-screen pairing.
-  splitBody: { padding: 20, alignItems: "center", paddingBottom: 32 },
-  splitHint: {
-    fontSize: 13,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    textAlign: "center",
-    marginBottom: 14,
-    alignSelf: "stretch",
-  },
-  splitLabel: {
-    fontSize: 13,
-    fontFamily: fonts.sansSemi,
-    color: colors.textSubtle,
-    alignSelf: "stretch",
-    marginBottom: 8,
-  },
   qrCardSm: {
     padding: 14,
     backgroundColor: colors.bgDefault,
@@ -736,16 +578,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgMuted,
     borderRadius: 12,
   },
-  splitCamera: {
-    width: 240,
-    height: 240,
-    borderRadius: 16,
-    overflow: "hidden",
-    backgroundColor: "#000",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cameraOverlay: { alignItems: "center", justifyContent: "center", padding: 16 },
   timerText: {
     marginTop: 14,
     fontSize: 13,
@@ -772,24 +604,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansSemi,
     color: colors.textSubtle,
     textAlign: "center",
-  },
-  // Briar-style two-way scan UI ------------------------------------------
-  boundHeadline: {
-    fontSize: 16,
-    fontFamily: fonts.sansSemi,
-    color: colors.textEmphasis,
-    textAlign: "center",
-  },
-  scannerReticle: {
-    position: "absolute",
-    top: "25%",
-    left: "12%",
-    right: "12%",
-    aspectRatio: 1,
-    borderWidth: 3,
-    borderColor: "#fff",
-    borderRadius: 16,
-    backgroundColor: "transparent",
   },
   roleChip: {
     flexDirection: "row",

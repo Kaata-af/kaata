@@ -326,19 +326,18 @@ export async function consumePairNonce(nonce: string): Promise<void> {
  * sniffed/observed QR nonce admitted an unauthorized device alongside the
  * legit joiner. With the CAS, only one device per nonce can ever be admitted.
  *
- * BRIAR-STRICT two-way scan (the deferred hardening, now SHIPPED): this no
- * longer admits on nonce alone. The owner must have scanned the joiner's
- * identity QR (bindExpectedJoiner pins expected_joiner_pubkey), and the claim
- * succeeds ONLY when claimedDeviceKeyB64 === expected_joiner_pubkey. So a
- * passive sniffer who replays the nonce with their OWN key is refused (key
- * mismatch), AND an attacker who replays the nonce with the legit joiner's
- * scanned key still fails the subsequent PoP (they lack that private key). The
- * out-of-band scan is the binding the old note said was missing.
+ * ONE-WAY pairing (default, restored): admit on nonce match alone. The owner
+ * shows the QR in person for a short window; the joiner scans it and dials
+ * immediately — no reciprocal owner-scan, so first contact is fast. The CAS
+ * still makes the nonce STRICTLY single-use (binds it to the first claimant's
+ * pubkey on claim), so a second concurrent handshake riding the same sniffed
+ * nonce is refused. If PoP later fails we release the claim so the legit joiner
+ * can retry.
  *
- * When expected_joiner_pubkey is UNSET (owner hasn't scanned the joiner yet),
- * the claim DEFERS (returns null) rather than admitting — the joiner simply
- * retries until the owner's scan binds the key. Combined with the CAS this is
- * single-use AND mutually-authenticated.
+ * Optional two-way hardening preserved: if expected_joiner_pubkey WAS bound
+ * out-of-band (bindExpectedJoiner, owner scanned the joiner's identity QR), the
+ * claim additionally requires claimedDeviceKeyB64 === expected_joiner_pubkey.
+ * An UNBOUND token (the one-way case) admits the first claimant.
  */
 export async function claimPairNonce(
   vaultId: string,
@@ -351,10 +350,9 @@ export async function claimPairNonce(
   await mutatePendingTokens((tokens) =>
     tokens.map((t) => {
       if (t.vault_id !== vaultId || t.nonce !== nonce || t.expires_at_ms <= now) return t;
-      // BRIAR-STRICT GATE: refuse unless the owner pinned THIS exact key
-      // out-of-band by scanning the joiner's identity QR. Unset (not yet
-      // scanned) or a different key => no claim (defer / reject).
-      if (!t.expected_joiner_pubkey || t.expected_joiner_pubkey !== claimedDeviceKeyB64) {
+      // Two-way (optional): if a key was pinned out-of-band, it MUST match. An
+      // unbound token (one-way, the default) admits the first claimant.
+      if (t.expected_joiner_pubkey && t.expected_joiner_pubkey !== claimedDeviceKeyB64) {
         return t;
       }
       const unclaimed = t.consumed_at_ms == null || t.consumed_at_ms === 0;
