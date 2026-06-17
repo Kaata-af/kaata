@@ -664,6 +664,12 @@ const en = {
     "This code is from a newer version of Kaata. Update the app and try again.",
   "vaultPairScan.error.malformed":
     "Couldn't read this code. Make sure you scanned a Kaata pairing code.",
+  "vaultPairScan.error.scannedJoinCode":
+    "That's the other phone's join code. On the phone that HAS the kaata, open it → Members → Add member, then scan that code.",
+  // Joiner split-screen: tells the scanner which phone's code to point at.
+  "vaultPairScan.split.hint": "Scan the code on the phone that has the kaata.",
+  "vaultPairScan.split.yourCode": "Your code (so they can add you)",
+  "vaultPairScan.split.theirCode": "The kaata's code",
   // D-PAIR-WITH-ROLE — confirmation screen role surfacing
   "vaultPairScan.confirm.asRole": "as {role}",
   "vaultPairScan.confirm.roleMissing": "Role not specified in this code — joining as Editor.",
@@ -1490,6 +1496,12 @@ const fa: Partial<Record<Key, string>> = {
     "این کود از نسخه جدیدتر کاتا است. اپ را به‌روز کنید و دوباره کوشش کنید.",
   "vaultPairScan.error.malformed":
     "خواندن این کود ناکام شد. مطمئن شوید کود جفت‌سازی کاتا را اسکن کرده‌اید.",
+  "vaultPairScan.error.scannedJoinCode":
+    "این کود پیوستن تلفون دیگر است. در تلفونی که کاتا را دارد، آن را باز کنید ← اعضا ← افزودن عضو، سپس آن کود را اسکن کنید.",
+  // Joiner split-screen: tells the scanner which phone's code to point at.
+  "vaultPairScan.split.hint": "کود تلفونی را که کاتا را دارد اسکن کنید.",
+  "vaultPairScan.split.yourCode": "کود شما (تا شما را اضافه کنند)",
+  "vaultPairScan.split.theirCode": "کود کاتا",
   // D-PAIR-WITH-ROLE — confirmation role surfacing (Persian)
   "vaultPairScan.confirm.asRole": "به عنوان {role}",
   "vaultPairScan.confirm.roleMissing": "نقش در این کود مشخص نشده — به عنوان ویرایشگر می‌پیوندید.",

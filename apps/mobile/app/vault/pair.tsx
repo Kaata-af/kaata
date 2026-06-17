@@ -546,14 +546,18 @@ export default function VaultPairScreen() {
         <Text style={[styles.splitLabel, textDir(isRTL)]}>{t("vaultPair.twoWay.yourCode")}</Text>
         <View style={styles.qrCardSm}>
           {payload && !expired ? (
+            // 220, not 170: the v=3 share payload is dense (~500 bytes →
+            // QR version ~20). At 170px the modules are ~1.7px and many phone
+            // cameras can't resolve them, so the joiner's scan silently never
+            // fires. A bigger render is the cheap reliability win.
             <QRCode
               value={encoded}
-              size={170}
+              size={220}
               backgroundColor={colors.bgDefault}
               color={colors.textEmphasis}
             />
           ) : (
-            <View style={styles.qrPlaceholderSm}>
+            <View style={styles.qrPlaceholderLg}>
               <Ionicons name="time-outline" size={36} color={colors.textMuted} />
               <Text style={[styles.bodyText, { marginTop: 8, textAlign: "center" }]}>
                 {expired ? t("vaultPair.codeExpired") : t("vaultPair.generating")}
@@ -691,9 +695,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  qrPlaceholderSm: {
-    width: 170,
-    height: 170,
+  qrPlaceholderLg: {
+    width: 220,
+    height: 220,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.bgMuted,

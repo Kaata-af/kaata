@@ -37,6 +37,7 @@ import { textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import {
+  decodeJoinerIdentityQr,
   decodePairQr,
   encodeJoinerIdentityQr,
   type PairQrPayload,
@@ -142,7 +143,15 @@ export default function VaultPairScanScreen() {
     handledRef.current = true;
     const decoded = decodePairQr(result.data);
     if (!decoded.ok) {
-      toast.push(pairErrorMessage(decoded.reason), "error");
+      // Most common mistake: both phones opened the SCAN screen, so the user
+      // pointed at the other phone's join code (a joiner-identity QR — no vault
+      // in it) instead of the kaata's share code. Detect that and give a
+      // corrective message instead of the generic "couldn't read this code".
+      const asIdentity = decodeJoinerIdentityQr(result.data);
+      toast.push(
+        asIdentity.ok ? t("vaultPairScan.error.scannedJoinCode") : pairErrorMessage(decoded.reason),
+        "error",
+      );
       setTimeout(() => {
         handledRef.current = false;
       }, 1500);
@@ -421,9 +430,11 @@ export default function VaultPairScanScreen() {
         // at once. The owner's screen shows the same kind of split; you each scan
         // the other's code simultaneously.
         <ScrollView contentContainerStyle={styles.splitBody} showsVerticalScrollIndicator={false}>
-          <Text style={[styles.splitHint, textDir(isRTL)]}>{t("vaultPair.twoWay.splitHint")}</Text>
+          <Text style={[styles.splitHint, textDir(isRTL)]}>{t("vaultPairScan.split.hint")}</Text>
 
-          <Text style={[styles.splitLabel, textDir(isRTL)]}>{t("vaultPair.twoWay.yourCode")}</Text>
+          <Text style={[styles.splitLabel, textDir(isRTL)]}>
+            {t("vaultPairScan.split.yourCode")}
+          </Text>
           <View style={styles.qrCardSm}>
             {identityQr ? (
               <QRCode
@@ -443,7 +454,7 @@ export default function VaultPairScanScreen() {
           </View>
 
           <Text style={[styles.splitLabel, textDir(isRTL), { marginTop: 18 }]}>
-            {t("vaultPair.twoWay.theirCode")}
+            {t("vaultPairScan.split.theirCode")}
           </Text>
           <View style={styles.splitCamera}>
             {permission?.granted ? (
