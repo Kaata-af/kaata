@@ -27,4 +27,12 @@ dependencies {
   // react-native-gradle-plugin (applied by expo-module-gradle-plugin) resolves it,
   // exactly as expo-modules-core's own build.gradle does.
   implementation 'com.facebook.react:react-android'
+
+  // Native mesh engine (Briar-parity rewrite): crypto that must match the JS
+  // protocol byte-for-byte — Ed25519 (identity), X25519 (ECDH), HKDF-SHA512
+  // (session key), ChaCha20-Poly1305 IETF (frame AEAD). BouncyCastle's
+  // lightweight low-level API (org.bouncycastle.crypto.*) is used DIRECTLY (no
+  // JCE provider registration → no clash with Android's bundled BC), and it
+  // ships every primitive @noble uses on the JS side, including RFC-5869 HKDF.
+  implementation 'org.bouncycastle:bcprov-jdk18on:1.78.1'
 }
