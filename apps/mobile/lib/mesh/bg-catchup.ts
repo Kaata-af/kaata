@@ -1,20 +1,27 @@
 // apps/mobile/lib/mesh/bg-catchup.ts
 //
-// #43 P2 — bounded background mesh catch-up, run in a HEADLESS JS context (a 2nd
-// Hermes VM with no Activity): Phase 1 (expo-background-task, ~15min periodic) and
-// Phase 2 (continuous HeadlessJS under the FGS) both call runBackgroundCatchup().
+// #43 P2 — bounded background mesh catch-up, run in the headless background entry:
+// Phase 1 (expo-background-task, ~15min periodic) and Phase 2 (HeadlessJS spawned
+// by the FGS) both call runBackgroundCatchup().
 //
-// Defense-in-depth crypto-polyfill ordering: the headless context loads the same
-// bundle as the app (index.js imports the polyfills first), but we import them
-// here too so this module is safe to import from any entry order. @noble/* capture
-// globalThis.crypto eagerly at load, so the polyfill MUST precede any of them.
+// OLD-ARCH REALITY (newArchEnabled=false): the headless task runs in a SEPARATE
+// Hermes VM only when the process was fully killed first. When the FGS kept the
+// process alive across swipe-kill (the common case), the headless task REUSES the
+// app's singleton ReactContext + the same getDb() connection. The guards below are
+// correct for BOTH cases: the per-connection PRAGMAs are an idempotent re-apply on
+// a shared connection, and we never call initDb (the schema-guard + "only the
+// foreground boot migrates" is the protection — see db.ts initDb).
+//
+// Defense-in-depth crypto-polyfill ordering (the headless ReactContext re-enters
+// this bundle): import the polyfills first; @noble/* capture globalThis.crypto
+// eagerly at load.
 import "./_crypto-polyfill";
 import "./_ed25519-setup";
 
 import { Platform } from "react-native";
 
 import { isForegroundMeshAlive, markBgMeshWindowOk } from "../../modules/kaata-bt-classic";
-import { getAppMeta, markHeadlessMode } from "../db";
+import { getAppMeta } from "../db";
 import {
   getDb,
   primeActiveVaultId,
@@ -25,40 +32,38 @@ import {
 import { ensureInstallId } from "../install-id";
 
 // The schema must be at this migration before the headless path runs the mesh.
-// If absent, the DB isn't fully migrated on THIS install yet — bail (NEVER run
-// initDb from headless; see markHeadlessMode + the initDb guard in db.ts). Bump
-// this when a NEW migration becomes a hard prerequisite for the mesh.
+// Absent => this install isn't fully migrated yet — bail (NEVER run initDb from
+// here). Bump when a new migration becomes a hard mesh prerequisite.
 const REQUIRED_MIGRATION = "019_vault_device_registry";
 
 export type CatchupResult = "ran" | "skipped";
 
 /**
- * One bounded background sync window. Fail-closed + data-safe in a 2nd JS VM:
- *  - markHeadlessMode() so a stray initDb call throws instead of double-migrating.
- *  - PRAGMA busy_timeout + foreign_keys on THIS connection (a fresh VM's
- *    connection defaults busy_timeout=0; WAL is a persistent DB property so it's
- *    inherited, but busy_timeout/foreign_keys are per-connection). Without the
- *    timeout, any contention with another writer is an instant SQLITE_BUSY.
+ * One bounded background sync window. Fail-closed + data-safe:
+ *  - PRAGMA busy_timeout + foreign_keys on the connection (a freshly-opened VM's
+ *    connection defaults busy_timeout=0; idempotent re-apply when sharing the
+ *    foreground connection). WAL is a persistent DB property, inherited either way.
  *  - schema-guard (never migrate from here).
- *  - re-check the kill-switch + shop-mode (the native gate already passed).
- *  - bail if the foreground app is active (single-mesh: never two meshes on the
- *    one BT radio), and bail mid-window if it becomes active.
+ *  - re-check the kill-switch + shop-mode.
+ *  - single-mesh: bail if a foreground mesh is alive (cross-VM heartbeat, NOT
+ *    AppState — AppState is per-context), and bail mid-window if it comes alive.
  *  - prime the per-VM sync caches or the event-log hot path throws.
- * Returns "skipped" on any guard miss (caller treats that as a clean no-op, NOT a
- * crash-loop-breaker failure). Throws only on a genuine unexpected error.
+ * A clean exit (any "skipped" or "ran") CLEARS the crash-loop breaker that the
+ * native KaataMeshHeadlessService incremented before the spawn — only a genuine
+ * THROW (caught by the caller) counts as a breaker failure. Phase 1 has no native
+ * increment, so the clears are harmless no-ops there.
  */
 export async function runBackgroundCatchup(maxMs: number): Promise<CatchupResult> {
   if (Platform.OS !== "android") return "skipped";
-  // Single-mesh guard: never run while the FOREGROUND JS mesh is alive (it owns
-  // the radio + DB). Uses the cross-VM heartbeat, NOT AppState — a headless VM's
-  // AppState is always "background", so it can't see the foreground app.
-  if (await isForegroundMeshAlive()) return "skipped";
 
-  // A stray initDb from here must fail loudly, not double-migrate the 2nd connection.
-  markHeadlessMode();
+  // Single-mesh guard: never run while a FOREGROUND mesh owns the radio + DB.
+  if (await isForegroundMeshAlive()) {
+    await markBgMeshWindowOk();
+    return "skipped";
+  }
 
   const db = await getDb();
-  // Per-connection pragmas (initDb set these only on the foreground connection).
+  // Per-connection pragmas (idempotent; the freshly-opened-VM case defaults to 0).
   await db.execAsync("PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;");
 
   // Schema-guard: only proceed on a fully-migrated DB; never migrate from headless.
@@ -66,20 +71,25 @@ export async function runBackgroundCatchup(maxMs: number): Promise<CatchupResult
     "SELECT 1 AS n FROM schema_migrations WHERE name = ? LIMIT 1",
     REQUIRED_MIGRATION,
   );
-  if (migrated == null) return "skipped";
+  if (migrated == null) {
+    await markBgMeshWindowOk();
+    return "skipped";
+  }
 
-  // Kill-switch + sync-enabled re-check (JS side; native KaataBgMeshGate already
-  // gated the spawn, but defense in depth + the JS flag governs the JS path).
+  // Kill-switch + sync-enabled re-check (JS side; the native gate already passed).
   const [bgOn, shopOn] = await Promise.all([
     getAppMeta("bg_mesh_enabled"),
     getAppMeta("shop_mode_enabled"),
   ]);
-  if (bgOn !== "1" || shopOn !== "1") return "skipped";
+  if (bgOn !== "1" || shopOn !== "1") {
+    await markBgMeshWindowOk();
+    return "skipped";
+  }
 
-  // Prime the per-VM sync caches (installId / activeVault / account / localSelf).
-  // The event-log + projection hot path reads these SYNCHRONOUSLY and THROWS when
-  // unprimed (getInstallIdSync, getActiveVaultIdSync) — a fresh VM has them all
-  // null, so without this the first mesh write throws.
+  // Prime the per-VM sync caches (installId / activeVault / account / localSelf) —
+  // the event-log + projection hot path reads these SYNCHRONOUSLY and THROWS when
+  // unprimed. A throw here is a REAL failure: it propagates (the caller swallows it)
+  // and the breaker stays incremented, NOT cleared.
   const id = await ensureInstallId();
   setInstallIdCache(id);
   await primeActiveVaultId();
@@ -92,26 +102,26 @@ export async function runBackgroundCatchup(maxMs: number): Promise<CatchupResult
       "SELECT id FROM vaults WHERE archived_at IS NULL AND vault_trust_anchor_pubkey IS NOT NULL",
     )
   ).map((v) => v.id);
-  if (anchored.length === 0) return "skipped";
+  if (anchored.length === 0) {
+    await markBgMeshWindowOk();
+    return "skipped";
+  }
 
   // Bounded BT steady sync: open listeners + dial known peers + anti-entropy, then
-  // tear down. Reuses the proven steady machinery (dial gate runs because
-  // steadyRunning is set) for a single short window instead of persistently.
+  // tear down. Reuses the proven steady machinery for one short window.
   const { startBtcSteadySync, stopBtcSteadySync } = await import("./btc-steady");
   try {
     await startBtcSteadySync({ vaultIds: anchored });
     const deadline = Date.now() + maxMs;
     while (Date.now() < deadline) {
-      // Hand the radio back the instant the foreground mesh comes alive (the user
-      // reopened the app) — re-check the cross-VM heartbeat, not AppState.
+      // Hand the radio back the instant a foreground mesh comes alive (the user
+      // reopened the app). Poll fast so the foreground listener bind isn't blocked.
       if (await isForegroundMeshAlive()) break;
-      await new Promise((r) => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 250));
     }
   } finally {
     await stopBtcSteadySync();
   }
-  // Clean window — clear the crash-loop breaker (native incremented it before the
-  // spawn in Phase 2; harmless no-op in Phase 1 where it wasn't incremented).
   await markBgMeshWindowOk();
   return "ran";
 }

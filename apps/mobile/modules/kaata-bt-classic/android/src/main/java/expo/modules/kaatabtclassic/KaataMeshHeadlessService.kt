@@ -54,6 +54,21 @@ class KaataMeshHeadlessService : HeadlessJsTaskService() {
     }
   }
 
+  // Clear the crash-loop breaker NATIVELY when the JS task finishes cleanly — the
+  // Service Context is always valid here, unlike the JS markBgMeshWindowOk() which
+  // routes through appContext.reactContext and can be null at task-finish. Only a
+  // clean FINISH (the headless-entry task always resolves — it swallows its own
+  // errors) clears it; a VM crash/OOM that never finishes leaves the breaker
+  // incremented, which is exactly the catastrophic case the breaker guards.
+  override fun onHeadlessJsTaskFinish(taskId: Int) {
+    try {
+      KaataBgMeshGate.resetFailures(this)
+    } catch (e: Throwable) {
+      Log.w(TAG, "resetFailures on finish failed", e)
+    }
+    super.onHeadlessJsTaskFinish(taskId)
+  }
+
   // Not used by our overridden onStartCommand (we build the config inline), but
   // provided for completeness / the base class contract.
   override fun getTaskConfig(intent: Intent?): HeadlessJsTaskConfig = buildConfig()
@@ -63,7 +78,14 @@ class KaataMeshHeadlessService : HeadlessJsTaskService() {
       TASK_NAME,
       Arguments.createMap(),
       TASK_TIMEOUT_MS,
-      false, // isAllowedInForeground = false — this is NOT a foreground service
+      // isAllowedInForeground = TRUE: do NOT let RN's foreground check fire. On
+      // old-arch, startTask posts that check to the UI thread (UiThreadUtil always
+      // posts), and when the app is RESUMED it throws an IllegalStateException
+      // OUTSIDE our onStartCommand try/catch -> uncatchable main-thread crash of
+      // the LIVE process. With true, RN never throws; the JS single-mesh guard
+      // (runBackgroundCatchup -> isForegroundMeshAlive bail) makes the task a
+      // harmless no-op if a foreground mesh is already up.
+      true,
     )
 
   companion object {

@@ -24,8 +24,9 @@ import { runBackgroundCatchup } from "./bg-catchup";
 export const BG_CATCHUP_TASK = "kaata-bg-catchup";
 // OS minimum is 15min; the system treats this as a floor and batches wakeups.
 const MIN_INTERVAL_MIN = 15;
-// Hard window WELL under expo-background-task's ~30s OS wall, or WorkManager kills
-// the worker mid-sync (and possibly mid-write).
+// Bounded window. On Android the OS limiter is WorkManager (~10min worker limit),
+// NOT a 30s wall — so this short window is a deliberate battery / self-bound
+// choice, not an OS constraint. Raise it if periodic catch-up must clear a backlog.
 const WINDOW_MS = 25_000;
 
 // Defined at module top-level (import order via index.js) so it's registered when

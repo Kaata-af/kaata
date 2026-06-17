@@ -121,24 +121,16 @@ export const FIELD_HLC_INIT = { pms: 0, l: 0, did: "init" } as const;
 // if it's missing there too AND there are entries to backfill, the
 // migration throws rather than silently using the zero UUID.
 
-// #43 P2 structural guard: the killed-app background JS context (Phase 1
-// expo-background-task / Phase 2 HeadlessJS) runs on a SECOND Hermes VM with its
-// OWN sqlite connection. It MUST NEVER run migrations — two migration passes on
-// one file (some destructive: 007 DROP/RENAME) = corruption. The background entry
-// calls markHeadlessMode() before touching the DB; if any code path then reaches
-// initDb, throw loudly rather than double-migrate. The foreground app never calls
-// this, so initDb works normally there.
-let headlessMode = false;
-export function markHeadlessMode(): void {
-  headlessMode = true;
-}
-
+// #43 P2 data-safety: the killed-app background entry (bg-catchup) MUST NEVER run
+// migrations. On OLD-ARCH (newArchEnabled=false) the headless task REUSES the
+// app's singleton ReactContext when the process survived swipe-kill, so a JS
+// module latch shared across "contexts" is a footgun: a one-way "headless" latch
+// set by a background run permanently poisoned the foreground initDb() on reopen
+// (-> user stuck on DbInitFailedPrompt — a hard lockout). So there is NO latch.
+// The real, robust guard is in runBackgroundCatchup: it calls getDb() directly +
+// a schema-guard (SELECT schema_migrations '019_…') and NEVER calls initDb. initDb
+// is reached ONLY from the foreground boot (_layout), the sole legitimate migrator.
 export async function initDb(opts: { installId?: string } = {}): Promise<void> {
-  if (headlessMode) {
-    throw new Error(
-      "initDb must not run in the headless background context — it would double-run destructive migrations on a second connection (#43 P2 data-safety)",
-    );
-  }
   const db = await getDb();
   await db.execAsync(`
     PRAGMA journal_mode = WAL;

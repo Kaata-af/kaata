@@ -16,7 +16,11 @@ import android.util.Log
  *   - bg_mesh_enabled: the REMOTE kill-switch. Mirrored here from the /v1/check-in
  *     response (see app-meta-context.applyCheckIn). DEFAULT ABSENT => OFF, so the
  *     already-live 0.6.0 fleet sees ZERO behavior change until the backend flips
- *     it for a cohort; a bad rollout is reverted server-side with no APK push.
+ *     it for a cohort. NOTE: the mirror only updates on a FOREGROUND check-in, so
+ *     a flip reaches a device on its next foreground launch — a SWIPE-KILLED
+ *     device keeps running its last-known setting, bounded by the local breaker +
+ *     the bounded windows, until reopened. A hard fleet-wide stop still uses
+ *     min_supported_version force-update.
  *   - bg_mesh_fail_count: the LOCAL crash-loop breaker. The background entry calls
  *     markWindowOpen() BEFORE spawning a JS window; the JS clears it (markWindowOk)
  *     only after a CLEAN completion. A window that dies mid-boot (OOM on a low-end
@@ -44,7 +48,13 @@ object KaataBgMeshGate {
   // never sees the foreground app). Stale (> STALE) => foreground JS is gone
   // (swipe-killed) => the background path may run.
   private const val KEY_JS_ALIVE_AT = "bg_mesh_js_alive_at"
-  private const val JS_ALIVE_STALE_MS = 25_000L
+  // The foreground stamps every ~10s. Stale window = 4.5x that, so Doze /
+  // OEM throttling of the JS timer (even under the FGS wakelock) can't make a
+  // backgrounded-but-ALIVE mesh look dead and trigger a 2nd headless mesh on the
+  // one radio. The cost is only that a truly-killed phone's first headless window
+  // starts ~45-135s after the kill (stale window + the 90s FGS tick) — fine for
+  // background catch-up.
+  private const val JS_ALIVE_STALE_MS = 45_000L
 
   private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
