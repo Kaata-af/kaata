@@ -40,6 +40,11 @@ object KaataBgMeshGate {
   private const val PREFS = "kaata_fgs_prefs"
   private const val KEY_ENABLED = "bg_mesh_enabled"
   private const val KEY_FAIL_COUNT = "bg_mesh_fail_count"
+  // Cutover flag (DEFAULT OFF): when true, the background path runs the NATIVE
+  // MeshEngine (resident JVM, Briar-model) instead of spawning a headless-JS
+  // window. Mirrored from the check-in response like bg_mesh_enabled, so the
+  // cutover can be staged per-cohort from the backend. Off => current behavior.
+  private const val KEY_NATIVE_ENGINE = "native_engine_enabled"
   private const val MAX_FAILS = 3
   // Cross-VM heartbeat: the FOREGROUND JS (MeshController) stamps this every ~10s
   // while its mesh is live. The headless background entry reads it to know whether
@@ -78,6 +83,25 @@ object KaataBgMeshGate {
       prefs(ctx).edit().putBoolean(KEY_ENABLED, enabled).apply()
     } catch (e: Throwable) {
       Log.w(TAG, "setEnabled failed", e)
+    }
+  }
+
+  /** Cutover flag: run the native MeshEngine instead of the headless-JS window.
+   *  Fail-closed (default false on any error) so the legacy path stays the
+   *  default until the cutover is explicitly enabled. */
+  fun isNativeEngineEnabled(ctx: Context): Boolean =
+    try {
+      prefs(ctx).getBoolean(KEY_NATIVE_ENGINE, false)
+    } catch (e: Throwable) {
+      false
+    }
+
+  /** Mirror of the cutover flag; written from JS (foreground) on check-in. */
+  fun setNativeEngineEnabled(ctx: Context, enabled: Boolean) {
+    try {
+      prefs(ctx).edit().putBoolean(KEY_NATIVE_ENGINE, enabled).apply()
+    } catch (e: Throwable) {
+      Log.w(TAG, "setNativeEngineEnabled failed", e)
     }
   }
 

@@ -109,6 +109,25 @@ export function AppMetaProvider(props: { currentVersion: string; children: React
           if (__DEV__) console.warn("[app-meta] reconcileBgCatchup failed", err);
         }
       }
+      // #43 P2 cutover flag: when the native MeshEngine is enabled (per-cohort
+      // from the backend), mirror it to native AND inject the device seed so the
+      // post-kill engine can sign PoP. Default absent/OFF => legacy headless path,
+      // no seed injected — fully dark until the backend flips it.
+      if (resp.native_engine_enabled != null) {
+        await setAppMeta("native_engine_enabled", resp.native_engine_enabled ? "1" : "0");
+        try {
+          const bt = await import("../modules/kaata-bt-classic");
+          await bt.setNativeEngineEnabled(resp.native_engine_enabled);
+          if (resp.native_engine_enabled) {
+            const { ensureDeviceKey, getDeviceSeedB64 } = await import("./mesh/device-key");
+            await ensureDeviceKey();
+            const seed = await getDeviceSeedB64();
+            if (seed) await bt.setMeshDeviceSeed(seed);
+          }
+        } catch (err) {
+          if (__DEV__) console.warn("[app-meta] native engine mirror failed", err);
+        }
+      }
       // Rolling JWT refresh: backend opts to mint a fresh token whenever the
       // incoming one is past auth.RefreshIfOlderThan. Silent persist to
       // SecureStore; no UI surface. Skipped silently when absent / blank.

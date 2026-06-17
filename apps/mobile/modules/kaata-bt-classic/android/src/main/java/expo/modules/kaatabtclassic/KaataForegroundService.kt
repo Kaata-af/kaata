@@ -19,6 +19,7 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import expo.modules.kaatabtclassic.mesh.MeshEngine
 
 /**
  * Native START_STICKY foreground service for kaata "Nearby sync" — the Briar
@@ -100,6 +101,10 @@ class KaataForegroundService : Service() {
     // (JS alive) doesn't immediately spawn a redundant headless window.
     private const val BG_TICK_MS = 90_000L
     private const val BG_TICK_FIRST_MS = 30_000L
+
+    // Native MeshEngine window length per tick (< the gap to the next tick so a
+    // failed/long window can't pile up). 60s of in-process accept/dial per 90s.
+    private const val NATIVE_WINDOW_MS = 60_000L
 
     // Renewable-wakelock cadence (ported from Briar dont-kill-me-lib
     // AndroidWakeLockManagerImpl): rotate the lock every minute, each acquire
@@ -282,19 +287,48 @@ class KaataForegroundService : Service() {
     // Kill-switch + local crash-loop breaker (fail-closed; read with THIS Service
     // Context — appContext is dead post-kill).
     if (!KaataBgMeshGate.isEnabled(this)) return
-    // MIUI/Xiaomi already 5s-crashed this app's headless path once; default to
-    // Phase-1-only (expo-background-task) there until it's proven on-device.
-    if (isHostileOem()) return
     // Single-mesh: never spawn while a foreground JS mesh is alive (it owns the
     // radio + DB). The cross-VM heartbeat is the only reliable cross-context
     // signal (AppState is per-VM).
     if (KaataBgMeshGate.isForegroundAlive(this, System.currentTimeMillis())) return
+
+    // CUTOVER (flag DEFAULT OFF): when enabled, run the NATIVE MeshEngine in THIS
+    // process (resident JVM, Briar-model) — no JS VM, so it isn't subject to the
+    // headless-JS fragility and works on hostile OEMs too. Flag off => the legacy
+    // headless-JS path below, unchanged (still gated off on MIUI).
+    if (KaataBgMeshGate.isNativeEngineEnabled(this)) {
+      spawnNativeEngineWindow()
+      return
+    }
+
+    // MIUI/Xiaomi already 5s-crashed this app's headless path once; default to
+    // Phase-1-only (expo-background-task) there until it's proven on-device.
+    if (isHostileOem()) return
     try {
       startService(Intent(this, KaataMeshHeadlessService::class.java))
     } catch (e: Throwable) {
       // Background-start can be blocked on some OEMs — never let it crash the FGS.
       Log.w(TAG, "spawn headless window failed", e)
     }
+  }
+
+  @Volatile private var nativeEngineRunning = false
+
+  /** Run one bounded native MeshEngine window on a daemon thread (Briar-model:
+   *  in-process JVM accept/dial loops). Deduped so a tick can't overlap windows;
+   *  wrapped so a failure can never crash the FGS. */
+  private fun spawnNativeEngineWindow() {
+    if (nativeEngineRunning) return
+    nativeEngineRunning = true
+    Thread({
+      try {
+        MeshEngine.runWindow(applicationContext, NATIVE_WINDOW_MS)
+      } catch (e: Throwable) {
+        Log.w(TAG, "native engine window failed", e)
+      } finally {
+        nativeEngineRunning = false
+      }
+    }, "kaata-mesh-engine").apply { isDaemon = true }.start()
   }
 
   private fun isHostileOem(): Boolean {

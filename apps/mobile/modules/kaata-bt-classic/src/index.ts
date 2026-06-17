@@ -216,6 +216,27 @@ export async function setBgMeshEnabled(enabled: boolean): Promise<boolean> {
   }
 }
 
+/** Cutover flag (default OFF): run the native MeshEngine instead of headless JS. */
+export async function setNativeEngineEnabled(enabled: boolean): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  try {
+    return await getNative().setNativeEngineEnabled(enabled);
+  } catch {
+    return false;
+  }
+}
+
+/** Inject the device Ed25519 seed (std base64) for the post-kill native engine.
+ *  Stored AndroidKeyStore-encrypted natively. */
+export async function setMeshDeviceSeed(seedB64: string): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  try {
+    return await getNative().setMeshDeviceSeed(seedB64);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Clear the LOCAL background-mesh crash-loop breaker. Called on every foreground
  * launch so a device that tripped the breaker self-heals the instant the app is

@@ -14,6 +14,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
 import android.util.Base64
+import expo.modules.kaatabtclassic.mesh.KeystoreSeedStore
 import android.util.Log
 import androidx.core.content.ContextCompat
 import expo.modules.kotlin.Promise
@@ -327,6 +328,37 @@ class KaataBtClassicModule : Module() {
       } catch (e: Throwable) {
         Log.w(TAG, "setBgMeshEnabled failed", e)
         promise.reject(CodedException("E_BG_GATE", e.message ?: "setBgMeshEnabled failed", e))
+      }
+    }
+
+    // Cutover wiring (#43 P2 native engine). Mirror the native_engine_enabled flag
+    // from the check-in response; default OFF means the legacy headless path stays
+    // the default until explicitly enabled per-cohort. JS-alive => appCtx valid.
+    AsyncFunction("setNativeEngineEnabled") { enabled: Boolean, promise: Promise ->
+      try {
+        KaataBgMeshGate.setNativeEngineEnabled(appCtx, enabled)
+        promise.resolve(true)
+      } catch (e: Throwable) {
+        Log.w(TAG, "setNativeEngineEnabled failed", e)
+        promise.reject(CodedException("E_BG_GATE", e.message ?: "setNativeEngineEnabled failed", e))
+      }
+    }
+
+    // Inject the device Ed25519 seed (standard base64) so the post-kill native
+    // engine can sign proof-of-possession. Stored AndroidKeyStore-encrypted
+    // (KeystoreSeedStore) — never plaintext. Called from JS at foreground.
+    AsyncFunction("setMeshDeviceSeed") { seedB64: String, promise: Promise ->
+      try {
+        val seed = Base64.decode(seedB64, Base64.NO_WRAP)
+        if (seed.size != 32) {
+          promise.reject(CodedException("E_SEED", "seed must be 32 bytes (got ${seed.size})", null))
+        } else {
+          val ok = KeystoreSeedStore.setSeed(appCtx, seed)
+          promise.resolve(ok)
+        }
+      } catch (e: Throwable) {
+        Log.w(TAG, "setMeshDeviceSeed failed", e)
+        promise.reject(CodedException("E_SEED", e.message ?: "setMeshDeviceSeed failed", e))
       }
     }
 

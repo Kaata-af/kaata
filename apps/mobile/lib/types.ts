@@ -123,6 +123,12 @@ export type CheckInResponse = {
   // SharedPrefs (KaataBgMeshGate) so the background entry can read it post-kill.
   // Like force_update, treat with a fail-closed bias. Omitted/null = leave as-is.
   bg_mesh_enabled?: boolean | null;
+  // #43 P2 cutover flag (default ABSENT => OFF): when true the background path
+  // runs the NATIVE MeshEngine (resident JVM, Briar-model) instead of the
+  // headless-JS window. Mirrored to native (KaataBgMeshGate.native_engine_enabled)
+  // + the device seed is injected so the engine can sign post-kill. Staged
+  // per-cohort from the backend; omitted/null = leave as-is.
+  native_engine_enabled?: boolean | null;
   // Rolling JWT refresh. Backend returns this when an authenticated check-in
   // arrives with a session token older than RefreshIfOlderThan (7 days). The
   // mobile client overwrites SecureStore[kaata.session.jwt] silently — no UI

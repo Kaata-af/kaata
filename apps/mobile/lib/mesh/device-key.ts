@@ -153,6 +153,15 @@ export async function signWithDeviceKey(message: Uint8Array): Promise<Uint8Array
   return ed25519.sign(message, _cachedPrivkey);
 }
 
+// Returns the raw 32-byte device seed as standard base64, for injecting into
+// the NATIVE mesh engine (KeystoreSeedStore) so it can sign proof-of-possession
+// after a swipe-kill. The seed already lives in expo-secure-store; this only
+// moves it within the trusted boundary (native re-encrypts it under AndroidKeyStore).
+// null when no key exists yet. Used by the cutover seed-injection path only.
+export async function getDeviceSeedB64(): Promise<string | null> {
+  return await SecureStore.getItemAsync(SECURE_PRIVKEY_KEY);
+}
+
 // -------------------- backend registration --------------------
 
 // clearDeviceKey wipes the in-memory privkey cache. Called from auth.ts
