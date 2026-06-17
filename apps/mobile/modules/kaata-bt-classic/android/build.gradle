@@ -18,4 +18,13 @@ dependencies {
   // BluetoothAdapter / BluetoothServerSocket / RFCOMM ship in the Android
   // platform SDK. expo-modules-core comes transitively via the
   // expo-module-gradle-plugin.
+  //
+  // KaataMeshHeadlessService extends com.facebook.react.HeadlessJsTaskService and
+  // uses com.facebook.react.bridge.Arguments / jstasks.HeadlessJsTaskConfig (#43
+  // P2). expo-modules-core depends on react-android as `implementation` (not
+  // `api`), so those classes are NOT on this module's compile classpath
+  // transitively — declare react-android directly. No version: the
+  // react-native-gradle-plugin (applied by expo-module-gradle-plugin) resolves it,
+  // exactly as expo-modules-core's own build.gradle does.
+  implementation 'com.facebook.react:react-android'
 }
