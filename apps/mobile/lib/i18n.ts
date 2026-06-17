@@ -562,6 +562,9 @@ const en = {
   "vaultPair.twoWay.step1": "1. Let the other phone scan this code.",
   "vaultPair.twoWay.step2": "2. Then scan their code to finish.",
   "vaultPair.twoWay.scanTheirCode": "Scan their code",
+  "vaultPair.twoWay.splitHint": "Show your code and scan theirs — at the same time.",
+  "vaultPair.twoWay.yourCode": "Your code",
+  "vaultPair.twoWay.theirCode": "Their code",
   "vaultPair.twoWay.scanning.hint": "Point at the other phone's code",
   "vaultPair.twoWay.scanAgain": "Scan again",
   "vaultPair.twoWay.wrongCode":
@@ -1388,6 +1391,9 @@ const fa: Partial<Record<Key, string>> = {
   "vaultPair.twoWay.step1": "۱. بگذارید تلفون دیگر این کود را اسکن کند.",
   "vaultPair.twoWay.step2": "۲. سپس کود آن‌ها را اسکن کنید تا تمام شود.",
   "vaultPair.twoWay.scanTheirCode": "کود آن‌ها را اسکن کنید",
+  "vaultPair.twoWay.splitHint": "کود خود را نشان دهید و کود آن‌ها را اسکن کنید — هم‌زمان.",
+  "vaultPair.twoWay.yourCode": "کود شما",
+  "vaultPair.twoWay.theirCode": "کود آن‌ها",
   "vaultPair.twoWay.scanning.hint": "کمره را روی کود تلفون دیگر بگیرید",
   "vaultPair.twoWay.scanAgain": "دوباره اسکن کنید",
   "vaultPair.twoWay.wrongCode":

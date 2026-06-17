@@ -13,7 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import QRCode from "react-native-qrcode-svg";
 import { Button } from "../../components/Button";
@@ -77,7 +77,7 @@ export default function VaultPairScreen() {
   // BRIAR-STRICT two-way scan (owner side): after showing the QR, the owner
   // scans the JOINER's identity QR to pin their key. "scanning" mounts the
   // camera; "bound" confirms the joiner is pinned + can be admitted.
-  const [scanMode, setScanMode] = useState<"idle" | "scanning" | "bound">("idle");
+  const [scanMode, setScanMode] = useState<"idle" | "bound">("idle");
   const [boundName, setBoundName] = useState<string | null>(null);
   // Owner-side camera-permission explainer (first deny, canAskAgain still true).
   // Without this the "Scan their code" button is a silent dead-end on deny.
@@ -288,11 +288,9 @@ export default function VaultPairScreen() {
   useEffect(() => {
     if (payload && secondsLeft <= 0) {
       void stopHosting();
-      // Don't leave the camera mounted over a dead token (the scanning view
-      // out-ranks the expiry UI) — drop to the "Code expired" state. A token
-      // already BOUND stays terminal (the joiner may have been admitted).
-      setScanMode((m) => (m === "scanning" ? "idle" : m));
-      setCameraHelp(false);
+      // The split-screen camera slot renders the "expired" overlay itself once
+      // secondsLeft hits 0, so no scanMode change is needed (a BOUND token stays
+      // terminal — the joiner may already be admitted).
     }
   }, [payload, secondsLeft, stopHosting]);
 
@@ -387,65 +385,66 @@ export default function VaultPairScreen() {
     }
   }
 
-  // BRIAR-STRICT two-way scan (owner side). Tap "Scan their code" → request
-  // camera (route to settings if permanently denied) → mount the scanner.
-  async function onScanTheirCode() {
+  // Briar split-screen: the camera is LIVE alongside the QR. Request permission
+  // once the QR is up; the "Allow camera" prompt in the camera slot re-runs this
+  // (or routes to settings if permanently denied).
+  async function onRequestCamera() {
     let perm = cameraPermission;
-    if (!perm?.granted) {
-      perm = await requestCameraPermission();
+    if (!perm?.granted) perm = await requestCameraPermission();
+    if (!perm?.granted && perm && !perm.canAskAgain) {
+      void Linking.openSettings().catch(() => {});
     }
-    if (!perm?.granted) {
-      // OS will never re-prompt after "Don't ask again" — settings is the only
-      // recovery, matching pair-scan.tsx / MeshController.
-      if (perm && !perm.canAskAgain) {
-        void Linking.openSettings().catch(() => {});
-      } else {
-        // First deny (can still ask) — show the inline explainer instead of a
-        // silent no-op; its Allow button re-runs this request.
-        setCameraHelp(true);
-      }
-      return;
-    }
-    setCameraHelp(false);
-    ownerScanHandledRef.current = false;
-    setScanMode("scanning");
   }
+
+  // Auto-request the camera as soon as the QR is showing, so both halves of the
+  // split (your code + their camera) are live together with no extra tap.
+  useEffect(() => {
+    if (stage === "show-qr" && payload && cameraPermission && !cameraPermission.granted) {
+      if (cameraPermission.canAskAgain) void requestCameraPermission();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, payload, cameraPermission?.granted]);
 
   // Scanned the joiner's identity QR: pin their device pubkey onto THIS QR's
   // pending token. After this, the owner's pair-admission (claimPairNonce) will
   // admit exactly that one device — the out-of-band binding that makes the pair
-  // mutually authenticated.
+  // mutually authenticated. The camera stays live; on a wrong/garbage code we
+  // re-arm after a short debounce so it keeps scanning.
   const onJoinerBarcode = useCallback(
     async (result: { data?: string }) => {
       if (ownerScanHandledRef.current) return;
       if (!result?.data) return;
       ownerScanHandledRef.current = true;
+      const reArm = () => {
+        setTimeout(() => {
+          ownerScanHandledRef.current = false;
+        }, 1500);
+      };
       const decoded = decodeJoinerIdentityQr(result.data);
       if (!decoded.ok) {
-        setScanMode("idle");
         toast.push(t("vaultPair.twoWay.wrongCode"), "error");
+        reArm();
         return;
       }
       const nonce = payload?.shop_mode_token;
       if (!vault || !nonce) {
-        setScanMode("idle");
+        reArm();
         return;
       }
       try {
         const { bindExpectedJoiner } = await import("../../lib/mesh/local-pair");
         const ok = await bindExpectedJoiner(vault.id, nonce, decoded.payload.device_pubkey);
         if (!ok) {
-          // Token expired or already bound to a different joiner — re-issue.
-          setScanMode("idle");
           toast.push(t("vaultPair.issueFailed"), "error");
+          reArm();
           return;
         }
         setBoundName(decoded.payload.display_name.trim() || null);
         setScanMode("bound");
       } catch (err) {
         console.warn("[vault/pair] bindExpectedJoiner failed", err);
-        setScanMode("idle");
         toast.push(t("vaultPair.issueFailed"), "error");
+        reArm();
       }
     },
     [payload, vault, toast],
@@ -534,158 +533,106 @@ export default function VaultPairScreen() {
   const expired = secondsLeft <= 0;
   const encoded = payload ? encodePairQr(payload) : "";
 
-  // Phase 7: local-CA vaults can pair without sign-in on either side. We
-  // detect this from vault_trust_anchor_pubkey being populated and the
-  // current user being signed out — the instructions vary accordingly.
-  const isLocalCA = !!vault.vault_trust_anchor_pubkey;
-
-  // BRIAR-STRICT two-way scan: full-screen camera to scan the joiner's code.
-  if (scanMode === "scanning") {
-    return (
-      <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
-        <ScreenHeader
-          title={t("vaultPair.title")}
-          onBack={() => setScanMode("idle")}
-          isRTL={isRTL}
-          backLabel={t("common.back")}
-        />
-        <View style={styles.cameraWrap}>
-          <CameraView
-            style={StyleSheet.absoluteFill}
-            facing="back"
-            barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-            onBarcodeScanned={onJoinerBarcode}
-          />
-          <View style={styles.scannerReticle} pointerEvents="none" />
-          <View style={styles.scannerHint} pointerEvents="none">
-            <Text style={styles.scannerHintText}>{t("vaultPair.twoWay.scanning.hint")}</Text>
-          </View>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
-      {/* Phase 7 coherence: shared ScreenHeader replaces the bespoke
-          Cancel-text left button. Visual + a11y parity with other
-          settings sub-pages. */}
       <ScreenHeader
         title={t("vaultPair.title")}
         onBack={() => router.back()}
         isRTL={isRTL}
         backLabel={t("common.back")}
       />
+      {/* Briar-style split: YOUR code (top) + THEIR camera (bottom), both live
+          at once. The other phone shows the same kind of screen; you each scan
+          the other's code simultaneously. */}
+      <ScrollView contentContainerStyle={styles.splitBody} showsVerticalScrollIndicator={false}>
+        <Text style={[styles.splitHint, textDir(isRTL)]}>{t("vaultPair.twoWay.splitHint")}</Text>
 
-      <View style={styles.body}>
-        <Text style={[styles.headline, textDir(isRTL)]}>
-          {t("vaultPair.headline")}
-          {"\n"}
-          <Text style={styles.emph}>{vault.name}</Text>
-        </Text>
-        <Text style={[styles.bodyText, textDir(isRTL)]}>
-          {isLocalCA ? t("vaultPair.instructions.local") : t("vaultPair.instructions.server")}
-        </Text>
-
-        <View style={styles.qrCard}>
+        <Text style={[styles.splitLabel, textDir(isRTL)]}>{t("vaultPair.twoWay.yourCode")}</Text>
+        <View style={styles.qrCardSm}>
           {payload && !expired ? (
             <QRCode
               value={encoded}
-              size={260}
+              size={170}
               backgroundColor={colors.bgDefault}
               color={colors.textEmphasis}
             />
           ) : (
-            <View style={styles.qrPlaceholder}>
-              <Ionicons name="time-outline" size={48} color={colors.textMuted} />
-              <Text style={[styles.bodyText, { marginTop: 12 }]}>
+            <View style={styles.qrPlaceholderSm}>
+              <Ionicons name="time-outline" size={36} color={colors.textMuted} />
+              <Text style={[styles.bodyText, { marginTop: 8, textAlign: "center" }]}>
                 {expired ? t("vaultPair.codeExpired") : t("vaultPair.generating")}
               </Text>
             </View>
           )}
         </View>
-
-        {payload && !expired ? (
+        {payload && !expired && scanMode !== "bound" ? (
           <Text style={[styles.timerText, textDir(isRTL)]}>
             {t("vaultPair.expiresIn", { time: formatCountdown(secondsLeft) })}
           </Text>
         ) : null}
 
+        <Text style={[styles.splitLabel, textDir(isRTL), { marginTop: 18 }]}>
+          {t("vaultPair.twoWay.theirCode")}
+        </Text>
+        <View style={styles.splitCamera}>
+          {scanMode === "bound" ? (
+            <View style={styles.cameraOverlay}>
+              <Ionicons name="checkmark-circle" size={48} color={colors.textEmphasis} />
+              <Text style={[styles.boundHeadline, textDir(isRTL)]}>
+                {boundName
+                  ? t("vaultPair.twoWay.bound.headline", { name: boundName })
+                  : t("vaultPair.twoWay.bound.headlineNoName")}
+              </Text>
+            </View>
+          ) : expired ? (
+            <View style={styles.cameraOverlay}>
+              <Ionicons name="time-outline" size={40} color={colors.textMuted} />
+            </View>
+          ) : cameraPermission?.granted ? (
+            <>
+              <CameraView
+                style={StyleSheet.absoluteFill}
+                facing="back"
+                barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+                onBarcodeScanned={onJoinerBarcode}
+              />
+              <View style={styles.scannerReticle} pointerEvents="none" />
+            </>
+          ) : (
+            <View style={styles.cameraOverlay}>
+              <Ionicons name="camera-outline" size={40} color={colors.textMuted} />
+              <Text style={[styles.bodyText, { textAlign: "center", marginTop: 8 }]}>
+                {t("vaultPair.twoWay.camera.body")}
+              </Text>
+              <View style={{ height: 10 }} />
+              <Button label={t("vaultPair.twoWay.camera.allow")} onPress={onRequestCamera} />
+            </View>
+          )}
+        </View>
+
         {error ? <Text style={[styles.errorText, textDir(isRTL)]}>{error}</Text> : null}
 
-        <View style={{ height: 20 }} />
-        {/* Order matters: a BOUND token is terminal (the joiner may already be
-            admitted), so it wins over `expired`. Then expired, then the
-            camera-permission explainer, then the default two-way steps. */}
+        <View style={{ height: 18 }} />
         {scanMode === "bound" ? (
-          <View style={styles.boundCard}>
-            <Ionicons name="checkmark-circle" size={28} color={colors.textEmphasis} />
-            <Text style={[styles.boundHeadline, textDir(isRTL)]}>
-              {boundName
-                ? t("vaultPair.twoWay.bound.headline", { name: boundName })
-                : t("vaultPair.twoWay.bound.headlineNoName")}
-            </Text>
+          <>
             <Text style={[styles.bodyText, textDir(isRTL), { textAlign: "center" }]}>
               {t("vaultPair.twoWay.bound.body")}
             </Text>
             <View style={{ height: 12 }} />
             <Button label={t("common.done")} onPress={() => router.back()} />
             <View style={{ height: 8 }} />
-            {/* Recovery if the owner scanned the wrong phone — a token can't
-                rebind, so start over with a fresh QR. */}
             <Button
               label={t("vaultPair.twoWay.bound.startOver")}
               variant="secondary"
               onPress={onReissue}
             />
-          </View>
+          </>
         ) : expired ? (
           <Button label={t("vaultPair.generateNew")} onPress={onReissue} />
-        ) : cameraHelp ? (
-          <View style={styles.boundCard}>
-            <Ionicons name="camera-outline" size={28} color={colors.textEmphasis} />
-            <Text style={[styles.boundHeadline, textDir(isRTL)]}>
-              {t("vaultPair.twoWay.camera.headline")}
-            </Text>
-            <Text style={[styles.bodyText, textDir(isRTL), { textAlign: "center" }]}>
-              {t("vaultPair.twoWay.camera.body")}
-            </Text>
-            <View style={{ height: 12 }} />
-            <Button label={t("vaultPair.twoWay.camera.allow")} onPress={onScanTheirCode} />
-            <View style={{ height: 8 }} />
-            <Button
-              label={t("common.cancel")}
-              variant="secondary"
-              onPress={() => setCameraHelp(false)}
-            />
-          </View>
         ) : (
-          <>
-            {/* Briar-style two-way: tell the owner BOTH steps, then let them
-                scan the joiner's code back. Admission requires this scan. */}
-            <Text style={[styles.twoWayStep, textDir(isRTL)]}>{t("vaultPair.twoWay.step1")}</Text>
-            <Text style={[styles.twoWayStep, textDir(isRTL)]}>{t("vaultPair.twoWay.step2")}</Text>
-            <View style={{ height: 12 }} />
-            <Button label={t("vaultPair.twoWay.scanTheirCode")} onPress={onScanTheirCode} />
-            <View style={{ height: 10 }} />
-            <Button label={t("common.cancel")} variant="secondary" onPress={() => router.back()} />
-          </>
+          <Button label={t("common.cancel")} variant="secondary" onPress={() => router.back()} />
         )}
-
-        <Text style={[styles.fineprint, textDir(isRTL)]}>
-          {isLocalCA ? t("vaultPair.fineprint.local") : t("vaultPair.fineprint.server")}
-        </Text>
-        <Text style={[styles.fineprintEmph, textDir(isRTL)]}>
-          {t("vaultPair.role.committed", {
-            role:
-              role === "owner"
-                ? t("vaultPair.role.owner")
-                : role === "editor"
-                  ? t("vaultPair.role.editor")
-                  : t("vaultPair.role.viewer"),
-          })}
-        </Text>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -734,6 +681,50 @@ const styles = StyleSheet.create({
     minWidth: 300,
     minHeight: 300,
   },
+  // Briar split-screen pairing.
+  splitBody: { padding: 20, alignItems: "center", paddingBottom: 32 },
+  splitHint: {
+    fontSize: 13,
+    fontFamily: fonts.sansRegular,
+    color: colors.textSubtle,
+    textAlign: "center",
+    marginBottom: 14,
+    alignSelf: "stretch",
+  },
+  splitLabel: {
+    fontSize: 13,
+    fontFamily: fonts.sansSemi,
+    color: colors.textSubtle,
+    alignSelf: "stretch",
+    marginBottom: 8,
+  },
+  qrCardSm: {
+    padding: 14,
+    backgroundColor: colors.bgDefault,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  qrPlaceholderSm: {
+    width: 170,
+    height: 170,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.bgMuted,
+    borderRadius: 12,
+  },
+  splitCamera: {
+    width: 240,
+    height: 240,
+    borderRadius: 16,
+    overflow: "hidden",
+    backgroundColor: "#000",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cameraOverlay: { alignItems: "center", justifyContent: "center", padding: 16 },
   qrPlaceholder: {
     width: 260,
     height: 260,
