@@ -84,6 +84,10 @@ class KaataForegroundService : Service() {
     // FGS-start allowlist, and revives the service. Unlike Briar we DO auto-revive
     // (no DB-key privacy gate). Self-reschedules in the receiver.
     private const val REVIVAL_ALARM_MS = 15 * 60 * 1000L
+    // Near-immediate re-arm used by onTaskRemoved (swipe-from-recents). Short so
+    // the notification reappears within ~1s of the swipe instead of waiting out
+    // the 15-min backstop. Same PendingIntent → just reschedules it earlier.
+    private const val REVIVAL_BOUNCE_MS = 1000L
     private const val REVIVAL_ALARM_REQUEST = 0x6B62
 
     // Safe English fallbacks for the no-JS sticky-restart case. In practice the
@@ -140,6 +144,34 @@ class KaataForegroundService : Service() {
         }
       } catch (e: Throwable) {
         Log.w(TAG, "scheduleRevivalAlarm failed", e)
+      }
+    }
+
+    /**
+     * Fire the revival alarm almost immediately (~1s) instead of at the 15-min
+     * backstop cadence. Used by onTaskRemoved: when the user swipes the app from
+     * recents, START_STICKY + stopWithTask=false are NOT enough on hostile OEMs
+     * (MIUI/Xiaomi et al. routinely kill the process and suppress the sticky
+     * restart). Briar's BriarService re-arms itself on task removal; we do the
+     * same — but via an alarm BOUNCE rather than a direct startForegroundService,
+     * because on API 31+ starting an FGS from inside onTaskRemoved throws
+     * ForegroundServiceStartNotAllowedException (the task is being torn down, no
+     * allowlist). Alarm delivery, by contrast, grants a temporary FGS-start
+     * allowlist — exactly what ensureRunning() needs. The receiver re-arms the
+     * long backstop, so this collapses to "revive ASAP, then heartbeat as usual".
+     */
+    fun scheduleImmediateRevival(ctx: Context) {
+      try {
+        val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val at = SystemClock.elapsedRealtime() + REVIVAL_BOUNCE_MS
+        val pi = revivalPendingIntent(ctx)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+          am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pi)
+        } else {
+          am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pi)
+        }
+      } catch (e: Throwable) {
+        Log.w(TAG, "scheduleImmediateRevival failed", e)
       }
     }
 
@@ -345,7 +377,7 @@ class KaataForegroundService : Service() {
       // User turned Nearby sync off — clear the run-state + cancel the revival
       // alarm so we stay down (and don't get revived). Satisfy the 5s rule
       // defensively even on a stop command, then tear down.
-      prefs.edit().putBoolean(KEY_FGS_SHOULD_RUN, false).apply()
+      prefs.edit().putBoolean(KEY_FGS_SHOULD_RUN, false).commit()
       cancelRevivalAlarm(this)
       startForegroundSafely(buildNotification(prefs, intent))
       stopBgTicks()
@@ -387,10 +419,24 @@ class KaataForegroundService : Service() {
     // default and never spawns while a foreground JS mesh is alive.
     startBgTicks()
 
+    // On a swipe-kill → alarm revival the JS heartbeat is already stale, so run
+    // ONE native window NOW instead of waiting out BG_TICK_FIRST_MS (30s) + the
+    // heartbeat staleness — the first post-revive sync lands in seconds, not
+    // minutes. Same fail-closed gates as the tick (kill-switch + heartbeat +
+    // native flag), so on a normal foreground start (JS alive) it no-ops.
+    try {
+      maybeSpawnHeadless()
+    } catch (e: Throwable) {
+      Log.w(TAG, "immediate post-start window failed", e)
+    }
+
     // Record run-state + arm the Doze-exempt revival alarm (Briar parity P1b).
     // The alarm is the backstop for a HARD process kill the FGS+renewable-wakelock
     // couldn't prevent; the receiver gates actual revival on the bg-mesh switch.
-    prefs.edit().putBoolean(KEY_FGS_SHOULD_RUN, true).apply()
+    // commit(), not apply(): onTaskRemoved (and the alarm receiver in a fresh
+    // process after a hard kill) read this to decide whether to revive — it must
+    // be on disk before the task can be swiped, not racing an async flush.
+    prefs.edit().putBoolean(KEY_FGS_SHOULD_RUN, true).commit()
     scheduleRevivalAlarm(this)
 
     // START_STICKY: if the OS kills us under memory pressure, recreate the
@@ -398,6 +444,32 @@ class KaataForegroundService : Service() {
     // mesh itself resumes in JS via MeshController's auto-resume when the user
     // next foregrounds the app (kaata's mesh runs in JS, not native).
     return START_STICKY
+  }
+
+  /**
+   * The user swiped the app away from recents. THE fix for "the notification
+   * doesn't persist on swipe": stopWithTask=false + START_STICKY alone don't
+   * survive this on hostile OEMs, so — Briar BriarService parity — we re-arm
+   * ourselves the instant the task is removed. We can't startForegroundService
+   * directly here (API 31+ would throw ForegroundServiceStartNotAllowedException
+   * during teardown), so we bounce through a ~1s alarm whose delivery grants the
+   * FGS-start allowlist. Gated on KEY_FGS_SHOULD_RUN so a swipe AFTER the user
+   * turned Nearby sync off stays down.
+   */
+  override fun onTaskRemoved(rootIntent: Intent?) {
+    try {
+      val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+      if (prefs.getBoolean(KEY_FGS_SHOULD_RUN, false)) {
+        // The JS context dies with the task, so its heartbeat won't re-stamp —
+        // clear it now so the revived process's native window runs at once
+        // instead of waiting out the 45s staleness.
+        KaataBgMeshGate.clearJsAlive(this)
+        scheduleImmediateRevival(this)
+      }
+    } catch (e: Throwable) {
+      Log.w(TAG, "onTaskRemoved revival failed", e)
+    }
+    super.onTaskRemoved(rootIntent)
   }
 
   override fun onDestroy() {

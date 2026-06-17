@@ -44,9 +44,20 @@ object MeshEngine {
   )
 
   fun runWindow(context: Context, maxMs: Long) {
+    // Observability (#43): every precondition logs WHY it bailed at Log.i so the
+    // on-device tester (logcat tag "MeshEngine") can tell "ran and synced" from
+    // "never ran" from "ran but bailed on <reason>". No behavior change.
+    Log.i(TAG, "runWindow: start (maxMs=$maxMs)")
     val adapter =
-      (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter ?: return
-    if (!adapter.isEnabled) return
+      (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
+    if (adapter == null) {
+      Log.i(TAG, "runWindow: no bluetooth adapter — bail")
+      return
+    }
+    if (!adapter.isEnabled) {
+      Log.i(TAG, "runWindow: bluetooth is OFF — bail")
+      return
+    }
 
     val setupDb =
       try {
@@ -59,7 +70,12 @@ object MeshEngine {
     val vaults: List<MeshDb.Vault>
     val peersByVault: Map<String, List<String>>
     try {
-      identity = loadIdentity(setupDb, context) ?: return
+      val loaded = loadIdentity(setupDb, context)
+      if (loaded == null) {
+        Log.i(TAG, "runWindow: no device identity (seed/pubkey/install_id) — bail")
+        return
+      }
+      identity = loaded
       vaults = setupDb.listSyncableVaults()
       peersByVault =
         vaults.associate { v ->
@@ -68,7 +84,11 @@ object MeshEngine {
     } finally {
       setupDb.close()
     }
-    if (vaults.isEmpty()) return
+    if (vaults.isEmpty()) {
+      Log.i(TAG, "runWindow: no syncable vaults — bail")
+      return
+    }
+    Log.i(TAG, "runWindow: opening accept/dial on ${vaults.size} vault(s)")
 
     val deadline = System.currentTimeMillis() + maxMs
     val day = MeshDiscovery.dayNumber(System.currentTimeMillis())
@@ -118,10 +138,25 @@ object MeshEngine {
   }
 
   private fun loadIdentity(db: MeshDb, ctx: Context): Identity? {
-    val seed = KeystoreSeedStore.getSeed(ctx) ?: return null
-    if (seed.size != 32) return null
-    val pub = db.getAppMeta("mesh_device_ed25519_pubkey") ?: return null
-    val deviceId = db.getAppMeta("install_id") ?: return null
+    val seed = KeystoreSeedStore.getSeed(ctx)
+    if (seed == null) {
+      Log.i(TAG, "loadIdentity: device seed absent from keystore (setMeshDeviceSeed never ran?)")
+      return null
+    }
+    if (seed.size != 32) {
+      Log.i(TAG, "loadIdentity: device seed wrong size ${seed.size}")
+      return null
+    }
+    val pub = db.getAppMeta("mesh_device_ed25519_pubkey")
+    if (pub == null) {
+      Log.i(TAG, "loadIdentity: app_meta.mesh_device_ed25519_pubkey missing")
+      return null
+    }
+    val deviceId = db.getAppMeta("install_id")
+    if (deviceId == null) {
+      Log.i(TAG, "loadIdentity: app_meta.install_id missing")
+      return null
+    }
     val account =
       db.getAppMeta("account_id")
         ?: try {

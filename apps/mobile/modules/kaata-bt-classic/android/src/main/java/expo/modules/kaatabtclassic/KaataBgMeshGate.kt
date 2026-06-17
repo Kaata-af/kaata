@@ -77,10 +77,13 @@ object KaataBgMeshGate {
       false
     }
 
-  /** Mirror of the remote kill-switch; written from JS (foreground) on check-in. */
+  /** Mirror of the remote kill-switch; written from JS (foreground) on check-in.
+   *  commit() (synchronous), not apply(): this is a low-frequency toggle/check-in
+   *  write, and the FGS — possibly in a sticky-restart that already re-read prefs
+   *  — must see the new value immediately, with no apply() flush race. */
   fun setEnabled(ctx: Context, enabled: Boolean) {
     try {
-      prefs(ctx).edit().putBoolean(KEY_ENABLED, enabled).apply()
+      prefs(ctx).edit().putBoolean(KEY_ENABLED, enabled).commit()
     } catch (e: Throwable) {
       Log.w(TAG, "setEnabled failed", e)
     }
@@ -96,10 +99,13 @@ object KaataBgMeshGate {
       false
     }
 
-  /** Mirror of the cutover flag; written from JS (foreground) on check-in. */
+  /** Mirror of the cutover flag; written from JS (foreground) on check-in.
+   *  commit() for the same reason as setEnabled — the FGS must read it without
+   *  an apply() race, or the native window silently no-ops on KEY_NATIVE_ENGINE
+   *  defaulting false right after the toggle. */
   fun setNativeEngineEnabled(ctx: Context, enabled: Boolean) {
     try {
-      prefs(ctx).edit().putBoolean(KEY_NATIVE_ENGINE, enabled).apply()
+      prefs(ctx).edit().putBoolean(KEY_NATIVE_ENGINE, enabled).commit()
     } catch (e: Throwable) {
       Log.w(TAG, "setNativeEngineEnabled failed", e)
     }
@@ -139,6 +145,23 @@ object KaataBgMeshGate {
       prefs(ctx).edit().putLong(KEY_JS_ALIVE_AT, nowMs).apply()
     } catch (e: Throwable) {
       Log.w(TAG, "markJsAlive failed", e)
+    }
+  }
+
+  /**
+   * Clear the heartbeat so isForegroundAlive() reads false immediately. Called
+   * from KaataForegroundService.onTaskRemoved (a swipe-kill — the JS context dies
+   * with the task, so it will NOT re-stamp): without this, the post-revival native
+   * window is blocked for up to JS_ALIVE_STALE_MS (45s) waiting for the last
+   * heartbeat to age out, even though JS is already gone. commit() so the revived
+   * window — which may run within ~1s — sees it. NOT load-bearing for safety (the
+   * staleness window still fails safe), only for promptness after a swipe.
+   */
+  fun clearJsAlive(ctx: Context) {
+    try {
+      prefs(ctx).edit().putLong(KEY_JS_ALIVE_AT, 0L).commit()
+    } catch (e: Throwable) {
+      Log.w(TAG, "clearJsAlive failed", e)
     }
   }
 
