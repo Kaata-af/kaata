@@ -65,7 +65,7 @@ class MeshTrustParityTest {
   fun verify_peer_proof_matches_js() {
     val ev = events()
     val ok = MeshTrust.verifyPeerProof(vault, anchorPub, emptyList(), ev, emptyList(), editorPub)
-    assertEquals(MeshTrust.ProofVerdict.Ok("acct-editor", "editor"), ok)
+    assertEquals(MeshTrust.ProofVerdict.Ok("acct-editor", "editor", "editor-dev"), ok)
 
     val bad = MeshTrust.verifyPeerProof(vault, anchorPub, emptyList(), ev, emptyList(), attackerPub)
     assertEquals(MeshTrust.ProofVerdict.Fail("device_not_bound"), bad)

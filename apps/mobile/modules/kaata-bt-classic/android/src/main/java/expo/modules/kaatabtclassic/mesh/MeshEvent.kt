@@ -41,6 +41,29 @@ data class MeshEvent(
       payloadSchema = payloadSchema,
     )
 
+  /** Serialize back to the wire shape (WireMeshEvent) — inverse of fromWire.
+   *  Used to put our membership proof bundle into the Hello. */
+  fun toWire(): JSONObject =
+    JSONObject().apply {
+      put("event_id", eventId)
+      put("event_type", eventType)
+      put("vault_id", vaultId ?: JSONObject.NULL)
+      put("target_id", targetId)
+      put("relationship_id", relationshipId ?: JSONObject.NULL)
+      put("hlc", JSONObject().apply {
+        put("pms", hlcPms)
+        put("l", hlcL)
+        put("did", hlcDid)
+      })
+      put("device_id", deviceId)
+      put("author_seq", authorSeq ?: JSONObject.NULL)
+      put("actor_account_id", actorAccountId ?: JSONObject.NULL)
+      put("payload", payload)
+      put("schema_version", payloadSchema)
+      put("event_sig_b64", eventSigB64 ?: JSONObject.NULL)
+      put("signer_device_pubkey", signerDevicePubkey ?: JSONObject.NULL)
+    }
+
   companion object {
     fun fromWire(o: JSONObject): MeshEvent {
       val hlc = o.getJSONObject("hlc")

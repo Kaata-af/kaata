@@ -121,6 +121,37 @@ class MeshDb private constructor(private val db: SQLiteDatabase) {
     }
   }
 
+  /** The vault's trust anchor pubkey (owner device key, std base64). */
+  fun vaultAnchor(vaultId: String): String? {
+    db.rawQuery(
+      "SELECT vault_trust_anchor_pubkey FROM vaults WHERE id = ? LIMIT 1",
+      arrayOf(vaultId),
+    ).use { c ->
+      return if (c.moveToFirst() && !c.isNull(0)) c.getString(0) else null
+    }
+  }
+
+  /** Local membership events for a vault, HLC-ordered — the proof bundle we
+   *  present + the local set folded for verifyPeerProof (proof.ts
+   *  loadLocalMembershipEvents / buildOwnProofBundle). */
+  fun loadMembershipEvents(vaultId: String): List<MeshEvent> {
+    val out = ArrayList<MeshEvent>()
+    db.rawQuery(
+      "SELECT event_id, event_type, vault_id, target_id, relationship_id, " +
+        "hlc_physical_ms, hlc_logical, hlc_device_id, device_id, author_seq, " +
+        "actor_account_id, payload_json, payload_schema, event_sig_b64, signer_device_pubkey " +
+        "FROM event_log " +
+        "WHERE vault_id = ? AND event_type IN " +
+        "('vault_member_added','vault_member_role_changed','vault_member_removed'," +
+        "'vault_device_added','vault_device_removed') " +
+        "ORDER BY hlc_physical_ms ASC, hlc_logical ASC, hlc_device_id ASC, event_id ASC",
+      arrayOf(vaultId),
+    ).use { c ->
+      while (c.moveToNext()) out.add(MeshEvent.fromWire(rowToWireEvent(c)))
+    }
+    return out
+  }
+
   // --- write / ingest side (mirrors anti-entropy.ts applyIncomingBatch) -------
 
   fun getAppMeta(key: String): String? {

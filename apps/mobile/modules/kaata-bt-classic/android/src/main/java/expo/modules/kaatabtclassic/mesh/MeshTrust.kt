@@ -47,7 +47,9 @@ object MeshTrust {
   }
 
   sealed class ProofVerdict {
-    data class Ok(val accountId: String, val role: String) : ProofVerdict()
+    // device_id surfaced too (proof.ts verifyPeerMembership) — the handshake
+    // checks the peer's claimed device_id against this chain binding.
+    data class Ok(val accountId: String, val role: String, val deviceId: String) : ProofVerdict()
     data class Fail(val reason: String) : ProofVerdict()
   }
 
@@ -400,6 +402,6 @@ object MeshTrust {
     if (dev.removed) return ProofVerdict.Fail("device_removed")
     val member = state.members[dev.accountId]
     if (member == null || member.removed) return ProofVerdict.Fail("member_removed")
-    return ProofVerdict.Ok(member.accountId, member.role)
+    return ProofVerdict.Ok(member.accountId, member.role, dev.deviceId)
   }
 }
