@@ -34,7 +34,13 @@ dependencies {
   // lightweight low-level API (org.bouncycastle.crypto.*) is used DIRECTLY (no
   // JCE provider registration → no clash with Android's bundled BC), and it
   // ships every primitive @noble uses on the JS side, including RFC-5869 HKDF.
-  implementation 'org.bouncycastle:bcprov-jdk18on:1.78.1'
+  //
+  // MUST be the -jdk15to18 variant, NOT -jdk18on: the app's release classpath
+  // ALREADY pulls bcprov-jdk15to18:1.78.1 transitively (via bcpkix). Both
+  // variants contain identical org.bouncycastle.* classes, so adding -jdk18on
+  // produced a duplicate-class dexing failure in the full app build. Declaring
+  // the SAME coordinates as the existing transitive dep dedupes to one artifact.
+  implementation 'org.bouncycastle:bcprov-jdk15to18:1.78.1'
 
   // Unit tests: cross-language parity vectors prove the native crypto +
   // canonicalization match the JS byte-for-byte. org.json is stubbed in Android
