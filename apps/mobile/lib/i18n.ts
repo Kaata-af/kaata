@@ -454,6 +454,14 @@ const en = {
   "menu.sync.shopMode.fgsFailed":
     "Couldn't start Nearby sync — please allow notifications and try again.",
   "menu.sync.shopMode.startedToast": "Nearby sync on.",
+  // #43 P2 — background-sync sub-toggle. Nested under Nearby sync (it requires
+  // it). Lets a swipe-killed / closed app keep syncing to nearby phones.
+  "menu.sync.bgSync": "Sync in the background",
+  "menu.sync.bgSync.hint": "Keeps syncing even when Kaata is closed. Uses a little more battery.",
+  "menu.sync.bgSync.hintOff": "Only syncs while Kaata is open.",
+  "menu.sync.bgSync.onToast": "Background sync on.",
+  "menu.sync.bgSync.offToast": "Background sync off.",
+  "menu.sync.bgSync.failed": "Could not toggle background sync.",
   // Phase 6 — BLE permission rationale shown BEFORE the OS dialogs. Stock
   // Android's "find/connect/relative position of nearby devices?" copy
   // panics non-technical users; this dialog frames it in shopkeeper terms.
@@ -1279,6 +1287,13 @@ const fa: Partial<Record<Key, string>> = {
   "menu.sync.shopMode.failed": "تغییر همگام‌سازی نزدیک ناکام شد.",
   "menu.sync.shopMode.fgsFailed":
     "همگام‌سازی نزدیک شروع نشد — لطفاً اجازه اعلان‌ها را بدهید و دوباره امتحان کنید.",
+  "menu.sync.bgSync": "همگام‌سازی در پس‌زمینه",
+  "menu.sync.bgSync.hint":
+    "حتی وقتی کاتا بسته است همگام‌سازی ادامه می‌یابد. کمی بیشتر باتری مصرف می‌کند.",
+  "menu.sync.bgSync.hintOff": "فقط زمانی که کاتا باز است همگام‌سازی می‌شود.",
+  "menu.sync.bgSync.onToast": "همگام‌سازی پس‌زمینه روشن.",
+  "menu.sync.bgSync.offToast": "همگام‌سازی پس‌زمینه خاموش.",
+  "menu.sync.bgSync.failed": "تغییر همگام‌سازی پس‌زمینه ناکام شد.",
   "menu.ble.permRationale.title": "اجازه بلوتوث برای یافتن تلفون‌های نزدیک",
   "menu.ble.permRationale.body":
     "کاتا از بلوتوث برای یافتن تلفون دیگر شما و تلفون‌های کارمندان دکان استفاده می‌کند. اینترنت لازم نیست. ما هیچ‌گاه موقعیت شما را به اشتراک نمی‌گذاریم.",

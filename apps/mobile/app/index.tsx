@@ -136,6 +136,12 @@ export default function HomeScreen() {
   const [archivedVaults, setArchivedVaults] = useState<VaultListItem[]>([]);
   const [shopModeEnabled, setShopModeEnabled] = useState(false);
   const [shopModeBusy, setShopModeBusy] = useState(false);
+  // #43 P2 — background-sync toggle. Local app_meta flip (mirrored to the native
+  // KaataBgMeshGate) so a swipe-killed app keeps syncing. Survives check-ins
+  // because the backend omits bg_mesh_enabled (the mirror only overwrites when the
+  // response carries it). Default OFF.
+  const [bgMeshEnabled, setBgMeshEnabled] = useState(false);
+  const [bgMeshBusy, setBgMeshBusy] = useState(false);
   // Cloud backup channel — default ON when the key is unset (existing signed-in
   // installs synced unconditionally before the toggle). See AutoSync gate.
   const [cloudSyncEnabled, setCloudSyncEnabled] = useState(true);
@@ -191,7 +197,7 @@ export default function HomeScreen() {
     // previously meant setLoaded(true) never ran — an infinite spinner on
     // the ROOT screen with no retry and no back.
     try {
-      const [s, list, user, vaultId, accId, shopRaw, cloudRaw] = await Promise.all([
+      const [s, list, user, vaultId, accId, shopRaw, cloudRaw, bgMeshRaw] = await Promise.all([
         getLocalSelf(),
         listAllPeople(),
         getSessionUser(),
@@ -199,6 +205,7 @@ export default function HomeScreen() {
         getAppMeta("account_id"),
         getAppMeta("shop_mode_enabled"),
         getAppMeta("cloud_sync_enabled"),
+        getAppMeta("bg_mesh_enabled"),
       ]);
       setSelf(s);
       setAllPeople(list);
@@ -207,6 +214,7 @@ export default function HomeScreen() {
       setActiveAccountId(accId);
       setShopModeEnabled(shopRaw === "1");
       setCloudSyncEnabled(cloudRaw == null ? true : cloudRaw === "1");
+      setBgMeshEnabled(bgMeshRaw === "1");
 
       // D-ARCHIVED-VAULT-FILTER: helpers in lib/db.ts return the two slices
       // separately. Loading them in parallel keeps the first paint snappy.
@@ -785,6 +793,8 @@ export default function HomeScreen() {
         }}
         shopModeEnabled={shopModeEnabled}
         shopModeBusy={shopModeBusy}
+        bgMeshEnabled={bgMeshEnabled}
+        bgMeshBusy={bgMeshBusy}
         cloudSyncEnabled={cloudSyncEnabled}
         cloudSyncBusy={cloudSyncBusy}
         syncBusy={syncBusy}
@@ -941,6 +951,42 @@ export default function HomeScreen() {
             }
           } finally {
             setShopModeBusy(false);
+          }
+        }}
+        onToggleBgMesh={async (next) => {
+          // #43 P2 local enable for testing. Flips app_meta (JS reads it) AND
+          // mirrors to the native KaataBgMeshGate SharedPrefs so the killed-app
+          // HeadlessJS entry — which can't read the JS DB post-kill — sees it.
+          // Then reconciles the periodic catch-up registration. Same mechanism
+          // the check-in path uses; here it's user-driven instead of backend-
+          // driven. Survives check-ins (backend omits bg_mesh_enabled).
+          if (bgMeshBusy) return;
+          setBgMeshBusy(true);
+          setBgMeshEnabled(next); // optimistic — the Switch flip is the feedback
+          try {
+            await setAppMeta("bg_mesh_enabled", next ? "1" : "0");
+            try {
+              const bt = await import("../modules/kaata-bt-classic");
+              await bt.setBgMeshEnabled(next);
+            } catch (err) {
+              if (__DEV__) console.warn("[home] bg mesh native mirror failed", err);
+            }
+            try {
+              const { reconcileBgCatchup } = await import("../lib/mesh/bg-task");
+              await reconcileBgCatchup();
+            } catch (err) {
+              if (__DEV__) console.warn("[home] reconcileBgCatchup failed", err);
+            }
+            toast.push(
+              next ? t("menu.sync.bgSync.onToast") : t("menu.sync.bgSync.offToast"),
+              "success",
+            );
+          } catch (err) {
+            setBgMeshEnabled(!next); // revert
+            toast.push(t("menu.sync.bgSync.failed"), "error");
+            if (__DEV__) console.warn("[home] bg mesh toggle failed", err);
+          } finally {
+            setBgMeshBusy(false);
           }
         }}
         onToggleCloudSync={async (next) => {
