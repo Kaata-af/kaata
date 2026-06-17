@@ -11,8 +11,9 @@
 import "./_crypto-polyfill";
 import "./_ed25519-setup";
 
-import { AppState, Platform } from "react-native";
+import { Platform } from "react-native";
 
+import { isForegroundMeshAlive, markBgMeshWindowOk } from "../../modules/kaata-bt-classic";
 import { getAppMeta, markHeadlessMode } from "../db";
 import {
   getDb,
@@ -22,11 +23,6 @@ import {
   setInstallIdCache,
 } from "../db-tx";
 import { ensureInstallId } from "../install-id";
-
-// AppState.currentState is a mutable getter; reading it through a function keeps
-// TS from narrowing it to a constant after the early-return guard below (it CAN
-// change mid-window when the user reopens the app).
-const isForeground = (): boolean => (AppState.currentState as string) === "active";
 
 // The schema must be at this migration before the headless path runs the mesh.
 // If absent, the DB isn't fully migrated on THIS install yet — bail (NEVER run
@@ -53,8 +49,10 @@ export type CatchupResult = "ran" | "skipped";
  */
 export async function runBackgroundCatchup(maxMs: number): Promise<CatchupResult> {
   if (Platform.OS !== "android") return "skipped";
-  // Never collide with the foreground mesh.
-  if (isForeground()) return "skipped";
+  // Single-mesh guard: never run while the FOREGROUND JS mesh is alive (it owns
+  // the radio + DB). Uses the cross-VM heartbeat, NOT AppState — a headless VM's
+  // AppState is always "background", so it can't see the foreground app.
+  if (await isForegroundMeshAlive()) return "skipped";
 
   // A stray initDb from here must fail loudly, not double-migrate the 2nd connection.
   markHeadlessMode();
@@ -104,12 +102,16 @@ export async function runBackgroundCatchup(maxMs: number): Promise<CatchupResult
     await startBtcSteadySync({ vaultIds: anchored });
     const deadline = Date.now() + maxMs;
     while (Date.now() < deadline) {
-      // Hand the radio back the instant the user reopens the app (single-mesh).
-      if (isForeground()) break;
+      // Hand the radio back the instant the foreground mesh comes alive (the user
+      // reopened the app) — re-check the cross-VM heartbeat, not AppState.
+      if (await isForegroundMeshAlive()) break;
       await new Promise((r) => setTimeout(r, 1000));
     }
   } finally {
     await stopBtcSteadySync();
   }
+  // Clean window — clear the crash-loop breaker (native incremented it before the
+  // spawn in Phase 2; harmless no-op in Phase 1 where it wasn't incremented).
+  await markBgMeshWindowOk();
   return "ran";
 }

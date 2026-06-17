@@ -17,6 +17,7 @@ import { Platform } from "react-native";
 import * as BackgroundTask from "expo-background-task";
 import * as TaskManager from "expo-task-manager";
 
+import { markJsAlive } from "../../modules/kaata-bt-classic";
 import { getAppMeta } from "../db";
 import { runBackgroundCatchup } from "./bg-catchup";
 
@@ -47,6 +48,19 @@ TaskManager.defineTask(BG_CATCHUP_TASK, async () => {
  * (shop_mode_enabled) are both on — so the default-OFF live fleet never schedules
  * it until the backend flips the flag for a cohort. Idempotent + never throws.
  */
+/**
+ * Cross-VM single-mesh heartbeat: stamp "foreground JS mesh alive" so the headless
+ * background entry stays out while the live mesh owns the radio. Call ~every 10s
+ * from the foreground while shop mode is on. Best-effort; never throws.
+ */
+export async function heartbeatJsAlive(): Promise<void> {
+  try {
+    await markJsAlive();
+  } catch {
+    /* best-effort */
+  }
+}
+
 export async function reconcileBgCatchup(): Promise<void> {
   if (Platform.OS !== "android") return;
   try {

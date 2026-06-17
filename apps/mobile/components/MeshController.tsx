@@ -307,6 +307,18 @@ export function MeshController() {
       if (cancelled) return;
       setAccountId(id);
       setShopModeEnabled(raw === "1");
+      // #43 P2 cross-VM heartbeat: while the FOREGROUND mesh is live, stamp the
+      // heartbeat (~every 10s) so the headless background entry stays OUT (the
+      // single-mesh guard). When the app is swipe-killed this poll stops, the
+      // heartbeat goes stale (~25s), and the headless path may run. Only while
+      // shop mode is on (no point claiming the radio when sync is off).
+      if (raw === "1") {
+        void import("../lib/mesh/bg-task")
+          .then((m) => m.heartbeatJsAlive())
+          .catch(() => {
+            /* best-effort */
+          });
+      }
     };
     void poll();
     const t = setInterval(() => void poll(), APP_META_POLL_MS);

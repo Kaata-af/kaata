@@ -37,6 +37,14 @@ object KaataBgMeshGate {
   private const val KEY_ENABLED = "bg_mesh_enabled"
   private const val KEY_FAIL_COUNT = "bg_mesh_fail_count"
   private const val MAX_FAILS = 3
+  // Cross-VM heartbeat: the FOREGROUND JS (MeshController) stamps this every ~10s
+  // while its mesh is live. The headless background entry reads it to know whether
+  // a live JS mesh already owns the radio+DB — the single-mesh guard. AppState
+  // can't do this (it's per-JS-context: a headless VM is always "background" and
+  // never sees the foreground app). Stale (> STALE) => foreground JS is gone
+  // (swipe-killed) => the background path may run.
+  private const val KEY_JS_ALIVE_AT = "bg_mesh_js_alive_at"
+  private const val JS_ALIVE_STALE_MS = 25_000L
 
   private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -90,4 +98,28 @@ object KaataBgMeshGate {
       Log.w(TAG, "resetFailures failed", e)
     }
   }
+
+  /** Foreground JS heartbeat — call ~every 10s while the live mesh is running. */
+  fun markJsAlive(ctx: Context, nowMs: Long) {
+    try {
+      prefs(ctx).edit().putLong(KEY_JS_ALIVE_AT, nowMs).apply()
+    } catch (e: Throwable) {
+      Log.w(TAG, "markJsAlive failed", e)
+    }
+  }
+
+  /**
+   * Is a foreground JS mesh probably alive right now? The single-mesh guard: the
+   * background entry MUST NOT run a second mesh while the foreground one is live.
+   * Fail-SAFE here means returning TRUE on error (assume the foreground is alive →
+   * background stays out), since two meshes on one radio is the harm we avoid.
+   */
+  fun isForegroundAlive(ctx: Context, nowMs: Long): Boolean =
+    try {
+      val last = prefs(ctx).getLong(KEY_JS_ALIVE_AT, 0L)
+      last > 0L && (nowMs - last) < JS_ALIVE_STALE_MS
+    } catch (e: Throwable) {
+      Log.w(TAG, "isForegroundAlive failed — assume alive (stay out)", e)
+      true
+    }
 }

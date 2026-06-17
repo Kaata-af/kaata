@@ -230,6 +230,41 @@ export async function resetBgMeshFailures(): Promise<boolean> {
   }
 }
 
+/**
+ * Cross-VM single-mesh heartbeat (#43 P2). The FOREGROUND mesh calls this ~every
+ * 10s while live; the headless background entry reads isForegroundMeshAlive() and
+ * stays out while a live JS mesh owns the radio. Best-effort; never throws.
+ */
+export async function markJsAlive(): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  try {
+    return await getNative().markJsAlive();
+  } catch {
+    return false;
+  }
+}
+
+/** Read the heartbeat: is a foreground JS mesh probably alive right now?
+ *  Fail-safe TRUE (assume alive => background stays out). */
+export async function isForegroundMeshAlive(): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  try {
+    return await getNative().isForegroundAlive();
+  } catch {
+    return true;
+  }
+}
+
+/** Clear the crash-loop breaker after a CLEAN headless window. Best-effort. */
+export async function markBgMeshWindowOk(): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  try {
+    return await getNative().markBgMeshWindowOk();
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Event subscriptions (return { remove() } like the rest of the mesh adapters).
 // ---------------------------------------------------------------------------

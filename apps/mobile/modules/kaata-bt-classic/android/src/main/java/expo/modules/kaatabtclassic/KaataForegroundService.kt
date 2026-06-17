@@ -10,7 +10,9 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -72,6 +74,15 @@ class KaataForegroundService : Service() {
     private const val DEFAULT_TITLE = "Nearby sync is on"
     private const val DEFAULT_BODY = "Tap to open Kaata"
     private const val DEFAULT_CHANNEL_NAME = "Nearby sync"
+
+    // #43 P2: how often this resident FGS spawns a bounded headless mesh window
+    // after a swipe-kill. MUST be comfortably > KaataMeshHeadlessService's
+    // TASK_TIMEOUT_MS (60s) so windows never overlap (no two headless services).
+    // 90s => a killed phone syncs within ~90s of a peer's edit (vs Phase 1's
+    // ~15min, vs "never"). First tick is delayed so a normal foreground start
+    // (JS alive) doesn't immediately spawn a redundant headless window.
+    private const val BG_TICK_MS = 90_000L
+    private const val BG_TICK_FIRST_MS = 30_000L
   }
 
   // Partial wakelock held for the service's whole foreground lifetime, like
@@ -103,6 +114,61 @@ class KaataForegroundService : Service() {
     wakeLock = null
   }
 
+  // #43 P2: spawn a bounded headless mesh window on a tick so a SWIPE-KILLED phone
+  // keeps syncing (this FGS survives swipe-kill via START_STICKY + stopWithTask
+  // false; its Handler keeps ticking). All gating is fail-closed: nothing spawns
+  // unless the kill-switch is on AND no foreground JS mesh is alive AND the OEM
+  // isn't a known-hostile one.
+  private val bgHandler = Handler(Looper.getMainLooper())
+  private var bgTickScheduled = false
+
+  private val bgTick =
+    object : Runnable {
+      override fun run() {
+        try {
+          maybeSpawnHeadless()
+        } catch (e: Throwable) {
+          Log.w(TAG, "bgTick failed", e)
+        }
+        bgHandler.postDelayed(this, BG_TICK_MS)
+      }
+    }
+
+  private fun startBgTicks() {
+    if (bgTickScheduled) return
+    bgTickScheduled = true
+    bgHandler.postDelayed(bgTick, BG_TICK_FIRST_MS)
+  }
+
+  private fun stopBgTicks() {
+    bgHandler.removeCallbacks(bgTick)
+    bgTickScheduled = false
+  }
+
+  private fun maybeSpawnHeadless() {
+    // Kill-switch + local crash-loop breaker (fail-closed; read with THIS Service
+    // Context — appContext is dead post-kill).
+    if (!KaataBgMeshGate.isEnabled(this)) return
+    // MIUI/Xiaomi already 5s-crashed this app's headless path once; default to
+    // Phase-1-only (expo-background-task) there until it's proven on-device.
+    if (isHostileOem()) return
+    // Single-mesh: never spawn while a foreground JS mesh is alive (it owns the
+    // radio + DB). The cross-VM heartbeat is the only reliable cross-context
+    // signal (AppState is per-VM).
+    if (KaataBgMeshGate.isForegroundAlive(this, System.currentTimeMillis())) return
+    try {
+      startService(Intent(this, KaataMeshHeadlessService::class.java))
+    } catch (e: Throwable) {
+      // Background-start can be blocked on some OEMs — never let it crash the FGS.
+      Log.w(TAG, "spawn headless window failed", e)
+    }
+  }
+
+  private fun isHostileOem(): Boolean {
+    val m = (Build.MANUFACTURER ?: "").lowercase()
+    return m.contains("xiaomi") || m.contains("redmi") || m.contains("poco")
+  }
+
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -111,6 +177,7 @@ class KaataForegroundService : Service() {
     if (intent?.action == ACTION_STOP) {
       // Satisfy the 5s rule defensively even on a stop command, then tear down.
       startForegroundSafely(buildNotification(prefs, intent))
+      stopBgTicks()
       releaseWakeLock()
       stopForegroundCompat()
       stopSelf()
@@ -144,6 +211,11 @@ class KaataForegroundService : Service() {
     // mesh and the process is a harder kill target (Briar's wakeLockManager).
     acquireWakeLock()
 
+    // #43 P2: begin spawning bounded headless mesh windows so a swipe-killed phone
+    // keeps syncing. Self-gated (kill-switch + heartbeat + OEM) so it's dark by
+    // default and never spawns while a foreground JS mesh is alive.
+    startBgTicks()
+
     // START_STICKY: if the OS kills us under memory pressure, recreate the
     // service (null intent) and we re-post the notification from prefs. The
     // mesh itself resumes in JS via MeshController's auto-resume when the user
@@ -152,6 +224,7 @@ class KaataForegroundService : Service() {
   }
 
   override fun onDestroy() {
+    stopBgTicks()
     releaseWakeLock()
     stopForegroundCompat()
     super.onDestroy()

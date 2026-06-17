@@ -340,6 +340,37 @@ class KaataBtClassicModule : Module() {
       }
     }
 
+    // Cross-VM single-mesh heartbeat (#43 P2). The FOREGROUND mesh stamps this ~10s;
+    // the headless background entry reads isForegroundAlive() and stays OUT while a
+    // live JS mesh owns the radio. markBgMeshWindowOk clears the crash-loop breaker
+    // after a CLEAN headless window. All run while a JS context is alive => appCtx valid.
+    AsyncFunction("markJsAlive") { promise: Promise ->
+      try {
+        KaataBgMeshGate.markJsAlive(appCtx, System.currentTimeMillis())
+        promise.resolve(true)
+      } catch (e: Throwable) {
+        promise.reject(CodedException("E_BG_GATE", e.message ?: "markJsAlive failed", e))
+      }
+    }
+
+    AsyncFunction("isForegroundAlive") { promise: Promise ->
+      try {
+        promise.resolve(KaataBgMeshGate.isForegroundAlive(appCtx, System.currentTimeMillis()))
+      } catch (e: Throwable) {
+        // Fail-safe: assume alive so the background path stays out.
+        promise.resolve(true)
+      }
+    }
+
+    AsyncFunction("markBgMeshWindowOk") { promise: Promise ->
+      try {
+        KaataBgMeshGate.markWindowOk(appCtx)
+        promise.resolve(true)
+      } catch (e: Throwable) {
+        promise.reject(CodedException("E_BG_GATE", e.message ?: "markBgMeshWindowOk failed", e))
+      }
+    }
+
     // In-place title/body update as peer count changes. Uses startService (NOT
     // startForegroundService): updates can fire while the app is backgrounded,
     // and re-issuing startForegroundService from the background throws on API

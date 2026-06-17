@@ -24,38 +24,49 @@
 
 const { withAndroidManifest } = require("@expo/config-plugins");
 
-const SERVICE_NAME = "expo.modules.kaatabtclassic.KaataForegroundService";
-const SERVICE_TYPE = "connectedDevice";
-const STOP_WITH_TASK = "false";
+const FGS_NAME = "expo.modules.kaatabtclassic.KaataForegroundService";
+// #43 P2: the killed-app HeadlessJS mesh runner. Declared as a PLAIN background
+// <service> with NO android:foregroundServiceType — this is the load-bearing
+// MIUI-safety point: MIUI 5s-crashed this app once by treating a startService to
+// an FGS-shaped service as an FGS start that never called startForeground. This
+// service NEVER calls startForeground (the existing connectedDevice FGS owns
+// foreground); not declaring a type keeps the OS from expecting one.
+const HEADLESS_NAME = "expo.modules.kaatabtclassic.KaataMeshHeadlessService";
+
+// Each entry's attrs are upserted (idempotent across prebuilds).
+const SERVICES = [
+  {
+    "android:name": FGS_NAME,
+    "android:foregroundServiceType": "connectedDevice",
+    "android:exported": "false",
+    "android:stopWithTask": "false",
+  },
+  {
+    "android:name": HEADLESS_NAME,
+    // NO foregroundServiceType (see comment above).
+    "android:exported": "false",
+    "android:stopWithTask": "false",
+  },
+];
 
 module.exports = function withKaataForegroundService(config) {
   return withAndroidManifest(config, (cfg) => {
     const application = cfg.modResults?.manifest?.application?.[0];
     if (!application) return cfg;
+    if (!Array.isArray(application.service)) application.service = [];
 
-    if (!Array.isArray(application.service)) {
-      application.service = [];
+    for (const attrs of SERVICES) {
+      const existing = application.service.find(
+        (entry) => entry?.$ && entry.$["android:name"] === attrs["android:name"],
+      );
+      if (existing) {
+        // Reset attrs to match (and DROP any stale foregroundServiceType on the
+        // headless one if a prior version set it).
+        existing.$ = { ...attrs };
+      } else {
+        application.service.push({ $: { ...attrs } });
+      }
     }
-
-    // Idempotency: keep attributes in sync if a previous prebuild added it.
-    const existing = application.service.find(
-      (entry) => entry?.$ && entry.$["android:name"] === SERVICE_NAME,
-    );
-    if (existing) {
-      existing.$["android:foregroundServiceType"] = SERVICE_TYPE;
-      existing.$["android:exported"] = "false";
-      existing.$["android:stopWithTask"] = STOP_WITH_TASK;
-      return cfg;
-    }
-
-    application.service.push({
-      $: {
-        "android:name": SERVICE_NAME,
-        "android:foregroundServiceType": SERVICE_TYPE,
-        "android:exported": "false",
-        "android:stopWithTask": STOP_WITH_TASK,
-      },
-    });
 
     return cfg;
   });
