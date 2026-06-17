@@ -1,5 +1,6 @@
 package expo.modules.kaatabtclassic
 
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -14,6 +15,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -62,11 +64,26 @@ class KaataForegroundService : Service() {
     const val EXTRA_CHANNEL_NAME = "channelName"
     const val EXTRA_CHANNEL_DESC = "channelDesc"
 
-    private const val PREFS = "kaata_fgs_prefs"
+    // Public so KaataMeshAlarmReceiver can read the should-run flag with a plain
+    // Context after a process kill. Same file KaataBgMeshGate uses.
+    const val PREFS = "kaata_fgs_prefs"
     private const val KEY_TITLE = "title"
     private const val KEY_BODY = "body"
     private const val KEY_CHANNEL_NAME = "channelName"
     private const val KEY_CHANNEL_DESC = "channelDesc"
+
+    // Set true while the user wants Nearby sync running (ACTION_START), false on
+    // ACTION_STOP. The revival alarm reads it (with a plain Context, post-kill) to
+    // decide whether to bring the service back.
+    const val KEY_FGS_SHOULD_RUN = "fgs_should_run"
+
+    // Doze-exempt revival alarm (port of Briar's AndroidTaskScheduler 15-min
+    // setAndAllowWhileIdle backstop). If the OS hard-kills the process despite the
+    // FGS + renewable wakelock, this alarm fires, re-grants a temporary
+    // FGS-start allowlist, and revives the service. Unlike Briar we DO auto-revive
+    // (no DB-key privacy gate). Self-reschedules in the receiver.
+    private const val REVIVAL_ALARM_MS = 15 * 60 * 1000L
+    private const val REVIVAL_ALARM_REQUEST = 0x6B62
 
     // Safe English fallbacks for the no-JS sticky-restart case. In practice the
     // channel already exists (created by JS on a prior launch) and persisted
@@ -90,6 +107,54 @@ class KaataForegroundService : Service() {
     // (Huawei PowerGenie etc.) never sees a single long-held lock to drop.
     private const val LOCK_DURATION_MS = 60_000L
     private const val SAFETY_MARGIN_MS = 30_000L
+
+    // --- Revival alarm + run-state — callable from the FGS AND the receiver ---
+
+    /** (Re)start the FGS. Safe to call after a process kill — alarm delivery
+     *  grants a temporary FGS-start allowlist. Bare ACTION_START; onStartCommand
+     *  rebuilds the notification from persisted prefs (no JS needed). */
+    fun ensureRunning(ctx: Context) {
+      try {
+        val i = Intent(ctx, KaataForegroundService::class.java).apply { action = ACTION_START }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(i)
+        else ctx.startService(i)
+      } catch (e: Throwable) {
+        Log.w(TAG, "ensureRunning failed", e)
+      }
+    }
+
+    fun scheduleRevivalAlarm(ctx: Context) {
+      try {
+        val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val at = SystemClock.elapsedRealtime() + REVIVAL_ALARM_MS
+        val pi = revivalPendingIntent(ctx)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+          am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pi)
+        } else {
+          am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pi)
+        }
+      } catch (e: Throwable) {
+        Log.w(TAG, "scheduleRevivalAlarm failed", e)
+      }
+    }
+
+    fun cancelRevivalAlarm(ctx: Context) {
+      try {
+        val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        am.cancel(revivalPendingIntent(ctx))
+      } catch (e: Throwable) {
+        Log.w(TAG, "cancelRevivalAlarm failed", e)
+      }
+    }
+
+    private fun revivalPendingIntent(ctx: Context): PendingIntent {
+      val i = Intent(ctx, KaataMeshAlarmReceiver::class.java)
+      var flags = PendingIntent.FLAG_UPDATE_CURRENT
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        flags = flags or PendingIntent.FLAG_IMMUTABLE
+      }
+      return PendingIntent.getBroadcast(ctx, REVIVAL_ALARM_REQUEST, i, flags)
+    }
   }
 
   // RENEWABLE partial wakelock — direct port of Briar's dont-kill-me-lib
@@ -243,7 +308,11 @@ class KaataForegroundService : Service() {
     val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     if (intent?.action == ACTION_STOP) {
-      // Satisfy the 5s rule defensively even on a stop command, then tear down.
+      // User turned Nearby sync off — clear the run-state + cancel the revival
+      // alarm so we stay down (and don't get revived). Satisfy the 5s rule
+      // defensively even on a stop command, then tear down.
+      prefs.edit().putBoolean(KEY_FGS_SHOULD_RUN, false).apply()
+      cancelRevivalAlarm(this)
       startForegroundSafely(buildNotification(prefs, intent))
       stopBgTicks()
       releaseWakeLock()
@@ -283,6 +352,12 @@ class KaataForegroundService : Service() {
     // keeps syncing. Self-gated (kill-switch + heartbeat + OEM) so it's dark by
     // default and never spawns while a foreground JS mesh is alive.
     startBgTicks()
+
+    // Record run-state + arm the Doze-exempt revival alarm (Briar parity P1b).
+    // The alarm is the backstop for a HARD process kill the FGS+renewable-wakelock
+    // couldn't prevent; the receiver gates actual revival on the bg-mesh switch.
+    prefs.edit().putBoolean(KEY_FGS_SHOULD_RUN, true).apply()
+    scheduleRevivalAlarm(this)
 
     // START_STICKY: if the OS kills us under memory pressure, recreate the
     // service (null intent) and we re-post the notification from prefs. The
