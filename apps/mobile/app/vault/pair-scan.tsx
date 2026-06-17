@@ -8,17 +8,21 @@
 //             (bindExpectedJoiner) and admit exactly this device.
 //   - BOTTOM: a live camera scanning the OWNER's vault QR.
 //
-// On scanning the owner's QR we immediately:
-//   1. Add the vault row locally with the owner's trust anchor pubkey pinned
-//      (so it appears in the picker and the chain handshake can fold membership).
+// On scanning the owner's QR we PREP locally (no "joined" yet):
+//   1. Add the vault row with the owner's trust anchor pubkey pinned (the chain
+//      handshake folds membership against it; loadVaultTrustAnchor needs the row
+//      BEFORE we dial, so this can't be deferred).
 //   2. Write the joiner's own vault_members_mirror row + pin the owner as member
-//      so the Members tab and role-gate work immediately.
+//      so the Members tab + role-gate render correctly once sync lands.
 //   3. Persist the QR's shop_mode_token as the local pair_nonce — the joiner
-//      echoes it on its first BLE handshake; the OWNER verifies it against a live
-//      pair token (now gated on the key they scanned from our top QR) and EMITS
-//      the joiner's admission events into the chain. We mint NO credential.
-//   4. Flip shop_mode_enabled = '1' and dial the owner on a short backoff so the
-//      first sync lands within seconds of the owner scanning our code.
+//      echoes it on its first handshake; the OWNER verifies it against a live
+//      pair token (gated on the key they scanned from our top QR) and EMITS the
+//      joiner's admission into the chain. We mint NO credential.
+// Then we KEEP our identity QR on screen and dial the owner in the background.
+// The handshake is admitted ONLY after the owner scans us (claimPairNonce is
+// strict), so we reach "joined" — and flip shop_mode_enabled = '1' — ONLY on a
+// real successful handshake, never from the local prep alone. That's what makes
+// the two-way scan genuinely two-way instead of a one-sided optimistic write.
 
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -59,21 +63,33 @@ function deriveOfferedRole(payload: PairQrPayload): { role: PairQrRole; missing:
   return { role: "editor", missing: true };
 }
 
+/** The owner's display name from the QR (v=3), for the "ask {name} to scan"
+ *  copy. Falls back to the Owner role label on a legacy QR with no name. */
+function ownerNameOf(payload: PairQrPayload): string {
+  return payload.issuer_display_name?.trim() || t("vaultPair.role.owner");
+}
+
 type Step =
   // Briar split-screen: our identity QR (top) + live camera (bottom), both at
   // once. Stays here until the owner's QR is scanned.
   | { kind: "pairing" }
-  | { kind: "joining"; payload: PairQrPayload }
-  | {
-      kind: "joined";
-      vault_id: string;
-      vault_name: string;
-      /** Set when the immediate first-sync didn't complete — you're still joined
-       *  (pinned from the QR) and steady-sync retries in the background. Shown as
-       *  a small note (also carries the phase diagnostic). */
-      syncNote?: string;
-    }
+  // We scanned the owner's code + did local prep. We KEEP showing our identity
+  // QR (so the owner can scan it back) and dial in the background. The handshake
+  // is admitted ONLY after the owner scans us (claimPairNonce is strict), so
+  // this is a genuine "waiting for the other phone" state — NOT joined.
+  | { kind: "connecting"; payload: PairQrPayload }
+  // The dial window elapsed without admission (the owner likely hasn't scanned
+  // our code yet). Still NOT joined — keep the QR up + offer a retry.
+  | { kind: "awaiting"; payload: PairQrPayload; lastError?: string }
+  // Reached ONLY on a successful mutual handshake (real sync happened).
+  | { kind: "joined"; vault_id: string; vault_name: string }
   | { kind: "error"; message: string };
+
+// Once the owner has scanned us, the direct-MAC dial is admitted within one
+// round trip — so a tight backoff makes pairing feel instant. We keep retrying
+// for a generous window because the owner may take a moment to scan.
+const PAIR_DIAL_BACKOFF_MS = 1500;
+const PAIR_DIAL_DEADLINE_MS = 120_000;
 
 export default function VaultPairScanScreen() {
   const router = useRouter();
@@ -86,6 +102,17 @@ export default function VaultPairScanScreen() {
   // Guard against BarCodeScanner firing the callback multiple times before the
   // camera unmounts. First valid scan wins; a garbage/wrong code re-arms it.
   const handledRef = useRef(false);
+  // True while mounted — guards setStep after async awaits so a backed-out
+  // screen doesn't update state. Bumped epoch cancels an in-flight dial loop
+  // (on unmount OR when the user taps Retry, so loops never stack).
+  const mountedRef = useRef(true);
+  const dialEpochRef = useRef(0);
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      dialEpochRef.current++;
+    };
+  }, []);
 
   // Build our identity QR once: the OWNER scans this to pin our device key, so it
   // must be live alongside the camera (Briar's split). Loads the device key first
@@ -165,7 +192,6 @@ export default function VaultPairScanScreen() {
   // credential) then dial + steady sync. Idempotent + non-fatal — steady-sync
   // keeps retrying in the background even if the first dial doesn't land.
   async function doJoin(payload: PairQrPayload) {
-    setStep({ kind: "joining", payload });
     try {
       // Chain-native join (M4): every QR carries the owner's trust anchor pubkey
       // (vault_trust_anchor_pubkey). The joiner pins it, then on its first BLE
@@ -316,88 +342,18 @@ export default function VaultPairScanScreen() {
 
       await setActiveVaultId(payload.vault_id);
 
-      // Dial + sync. The owner claims our pair_nonce (gated on the key they
-      // scanned from our top QR) and emits our admission, then streams the ledger
-      // delta.
-      //
-      // BRIAR-STRICT LIVENESS: with the strict gate, our first dial is often
-      // refused — the owner may not have finished scanning our identity QR yet,
-      // so claimPairNonce defers (expected_joiner_pubkey not yet bound). A
-      // refused dial throws INSIDE the handshake, so we never cache the owner's
-      // MAC and steady-sync could only re-reach the owner via the slow classic
-      // inquiry fallback — a multi-minute stall. So we RE-DIAL the owner's pair
-      // listener (still up, dialed directly by issuer_bt_mac → fast) on a short
-      // backoff. As soon as the owner's scan binds our key, the next attempt is
-      // admitted — within seconds, regardless of who scanned first.
-      let syncNote: string | undefined;
-      const { joinPairOverBtc } = await import("../../lib/mesh/pair-btc");
-      const PAIR_DIAL_ATTEMPTS = 6;
-      const PAIR_DIAL_BACKOFF_MS = 5000;
-      let paired = false;
-      for (let attempt = 0; attempt < PAIR_DIAL_ATTEMPTS && !paired; attempt++) {
-        try {
-          await joinPairOverBtc({
-            vaultId: payload.vault_id,
-            pairNonce: payload.shop_mode_token,
-            hostMac: payload.issuer_bt_mac ?? null,
-            hostName: payload.issuer_bt_name ?? null,
-          });
-          paired = true;
-        } catch (err) {
-          syncNote = (err as Error)?.message ?? "first sync did not complete";
-          console.warn(
-            `[vault/pair-scan] pair dial ${attempt + 1}/${PAIR_DIAL_ATTEMPTS} failed (` +
-              `owner may not have scanned yet):`,
-            syncNote,
-          );
-          if (attempt < PAIR_DIAL_ATTEMPTS - 1) {
-            await new Promise((r) => setTimeout(r, PAIR_DIAL_BACKOFF_MS));
-          }
-        }
-      }
-      // Cleared on success so the "joined" screen shows the clean (not "syncing")
-      // copy; left set on exhaustion so steady-sync keeps retrying in the bg.
-      if (paired) syncNote = undefined;
-
-      // Start steady-state sync REGARDLESS of the first attempt — the reliable,
-      // self-retrying path (inquiry fallback; cached owner MAC). Idempotent.
-      await setAppMeta("shop_mode_enabled", "1");
-      try {
-        const mesh = await import("../../lib/mesh");
-        await mesh.startShopMode();
-        await mesh.notifyVaultSetChanged();
-      } catch (err) {
-        console.warn("[vault/pair-scan] could not start steady sync", err);
-      }
-
-      // HEAL the owner's first batch within THIS session (no relaunch needed).
-      // A couple of delayed catch-up sweeps re-run the role-gate once genesis has
-      // applied. Fire-and-forget; idempotent.
-      try {
-        const { sweepAllQuarantinedVaults } = await import("../../lib/projection/sweep");
-        for (const delay of [3000, 8000, 16000]) {
-          setTimeout(() => void sweepAllQuarantinedVaults(), delay);
-        }
-      } catch {
-        /* best-effort */
-      }
-
-      setStep({
-        kind: "joined",
-        vault_id: payload.vault_id,
-        vault_name: payload.vault_name,
-        syncNote,
-      });
-      toast.push(
-        syncNote ? t("vaultPairScan.toast.joinedSyncing") : t("vaultPairScan.toast.pairedNearby"),
-        syncNote ? "info" : "success",
-      );
+      // Prep is done. KEEP our identity QR on screen ("connecting") so the owner
+      // can scan it — that scan is what admits us — and dial in the background.
+      if (!mountedRef.current) return;
+      setStep({ kind: "connecting", payload });
+      void runDialLoop(payload);
     } catch (err) {
-      console.warn("[vault/pair-scan] join failed", err);
+      console.warn("[vault/pair-scan] join prep failed", err);
       // M-BTC-3.2: surface the real reason during this milestone (e.g. the
       // membership-chain verdict) — far more useful than generic copy while the
       // Bluetooth pair flow is being stabilized. TODO: localize once stable.
       const reason = (err as Error)?.message ?? "";
+      if (!mountedRef.current) return;
       setStep({
         kind: "error",
         message: reason
@@ -405,6 +361,77 @@ export default function VaultPairScanScreen() {
           : t("vaultPairScan.error.generic"),
       });
     }
+  }
+
+  // Dial the owner's pair listener until the handshake is ADMITTED, which only
+  // happens once the owner has scanned our identity QR (claimPairNonce is
+  // strict — see lib/mesh/local-pair.ts). Until then each dial is refused inside
+  // the handshake and we retry on a tight backoff. This is the ONLY path to the
+  // "joined" state — a refused/never-admitted dial never reports success, so the
+  // UI can't lie about a one-sided "join".
+  async function runDialLoop(payload: PairQrPayload) {
+    const myEpoch = ++dialEpochRef.current;
+    const { joinPairOverBtc } = await import("../../lib/mesh/pair-btc");
+    const deadline = Date.now() + PAIR_DIAL_DEADLINE_MS;
+    let lastError: string | undefined;
+    while (Date.now() < deadline) {
+      // Cancelled by unmount or a fresh Retry — stop this stale loop.
+      if (dialEpochRef.current !== myEpoch || !mountedRef.current) return;
+      try {
+        await joinPairOverBtc({
+          vaultId: payload.vault_id,
+          pairNonce: payload.shop_mode_token,
+          hostMac: payload.issuer_bt_mac ?? null,
+          hostName: payload.issuer_bt_name ?? null,
+        });
+        // SUCCESS — the owner scanned us, admitted us, and the ledger delta
+        // synced. Only here do we flip shop mode on + declare "joined".
+        if (dialEpochRef.current !== myEpoch || !mountedRef.current) return;
+        await onPairSucceeded(payload);
+        return;
+      } catch (err) {
+        lastError = (err as Error)?.message ?? "first sync did not complete";
+        console.warn(
+          "[vault/pair-scan] pair dial refused (owner may not have scanned yet):",
+          lastError,
+        );
+        await new Promise((r) => setTimeout(r, PAIR_DIAL_BACKOFF_MS));
+      }
+    }
+    // Window elapsed without admission — almost always "the owner hasn't scanned
+    // our code yet". Stay honest: NOT joined; keep the QR up + offer a retry.
+    if (dialEpochRef.current !== myEpoch || !mountedRef.current) return;
+    setStep({ kind: "awaiting", payload, lastError });
+  }
+
+  // Real pairing success. Turn on steady-state sync (the reliable self-retrying
+  // path) + schedule catch-up sweeps to heal the first batch, then declare
+  // "joined". Idempotent.
+  async function onPairSucceeded(payload: PairQrPayload) {
+    await setAppMeta("shop_mode_enabled", "1");
+    try {
+      const mesh = await import("../../lib/mesh");
+      await mesh.startShopMode();
+      await mesh.notifyVaultSetChanged();
+    } catch (err) {
+      console.warn("[vault/pair-scan] could not start steady sync", err);
+    }
+    try {
+      const { sweepAllQuarantinedVaults } = await import("../../lib/projection/sweep");
+      for (const delay of [3000, 8000, 16000]) {
+        setTimeout(() => void sweepAllQuarantinedVaults(), delay);
+      }
+    } catch {
+      /* best-effort */
+    }
+    if (!mountedRef.current) return;
+    setStep({ kind: "joined", vault_id: payload.vault_id, vault_name: payload.vault_name });
+    toast.push(t("vaultPairScan.toast.pairedNearby"), "success");
+  }
+
+  function onRetryConnect(payload: PairQrPayload) {
+    setStep({ kind: "connecting", payload });
+    void runDialLoop(payload);
   }
 
   function onRescan() {
@@ -484,13 +511,63 @@ export default function VaultPairScanScreen() {
         </ScrollView>
       ) : null}
 
-      {step.kind === "joining" ? (
-        <View style={styles.body}>
-          <ActivityIndicator color={colors.textEmphasis} size="large" />
-          <Text style={[styles.bodyText, { marginTop: 16, textAlign: "center" }]}>
-            {t("vaultPairScan.joining", { name: step.payload.vault_name })}
+      {step.kind === "connecting" || step.kind === "awaiting" ? (
+        // Briar-faithful: our identity QR stays UP so the owner can scan it —
+        // that scan is what admits us. We dial in the background; "joined" only
+        // shows once the handshake actually lands.
+        <ScrollView contentContainerStyle={styles.splitBody} showsVerticalScrollIndicator={false}>
+          <Text style={[styles.headline, textDir(isRTL)]}>
+            {step.kind === "connecting"
+              ? t("vaultPairScan.connecting.headline")
+              : t("vaultPairScan.awaiting.headline")}
           </Text>
-        </View>
+          <View style={styles.qrCardSm}>
+            {identityQr ? (
+              <QRCode
+                value={identityQr}
+                size={200}
+                backgroundColor={colors.bgDefault}
+                color={colors.textEmphasis}
+              />
+            ) : (
+              <View style={styles.qrPlaceholderSm}>
+                <ActivityIndicator color={colors.textMuted} />
+              </View>
+            )}
+          </View>
+          <View style={{ height: 14 }} />
+          <Text style={[styles.bodyText, textDir(isRTL), { textAlign: "center" }]}>
+            {step.kind === "connecting"
+              ? t("vaultPairScan.connecting.body", { name: ownerNameOf(step.payload) })
+              : t("vaultPairScan.awaiting.body", { name: ownerNameOf(step.payload) })}
+          </Text>
+          <View style={{ height: 16 }} />
+          {step.kind === "connecting" ? (
+            <View style={styles.statusRow}>
+              <ActivityIndicator color={colors.textEmphasis} />
+              <Text style={[styles.bodyText, { marginLeft: 8, alignSelf: "auto" }]}>
+                {t("vaultPairScan.connecting.status")}
+              </Text>
+            </View>
+          ) : (
+            <>
+              <Button label={t("common.tryAgain")} onPress={() => onRetryConnect(step.payload)} />
+              {step.lastError ? (
+                <Text
+                  style={[
+                    styles.bodyText,
+                    textDir(isRTL),
+                    { opacity: 0.5, fontSize: 12, marginTop: 10, textAlign: "center" },
+                  ]}
+                >
+                  {step.lastError}
+                </Text>
+              ) : null}
+            </>
+          )}
+          <View style={{ height: 14 }} />
+          <Button label={t("common.cancel")} variant="secondary" onPress={() => router.back()} />
+        </ScrollView>
       ) : null}
 
       {step.kind === "joined" ? (
@@ -502,15 +579,8 @@ export default function VaultPairScanScreen() {
             <Text style={styles.emph}>{step.vault_name}</Text>
           </Text>
           <Text style={[styles.bodyText, textDir(isRTL)]}>
-            {step.syncNote
-              ? t("vaultPairScan.joined.body.syncing")
-              : t("vaultPairScan.joined.body.local")}
+            {t("vaultPairScan.joined.body.local")}
           </Text>
-          {step.syncNote ? (
-            <Text style={[styles.bodyText, textDir(isRTL), { opacity: 0.55, fontSize: 12 }]}>
-              {step.syncNote}
-            </Text>
-          ) : null}
           <View style={{ height: 24 }} />
           <Button label={t("common.done")} onPress={onDone} />
         </View>
@@ -611,6 +681,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   cameraOverlay: { alignItems: "center", justifyContent: "center", padding: 16 },
+  statusRow: { flexDirection: "row", alignItems: "center", justifyContent: "center" },
   scannerReticle: {
     position: "absolute",
     top: "12%",

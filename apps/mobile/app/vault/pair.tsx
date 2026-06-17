@@ -13,7 +13,16 @@ import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  AppState,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import QRCode from "react-native-qrcode-svg";
 import { Button } from "../../components/Button";
@@ -79,6 +88,10 @@ export default function VaultPairScreen() {
   // camera; "bound" confirms the joiner is pinned + can be admitted.
   const [scanMode, setScanMode] = useState<"idle" | "bound">("idle");
   const [boundName, setBoundName] = useState<string | null>(null);
+  // Flips true when a joiner actually completes the handshake (onResult ok).
+  // Until then the owner must STAY on this screen — leaving tears down the
+  // RFCOMM listener the joiner is dialing — so we don't offer "Done" yet.
+  const [sessionPaired, setSessionPaired] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   // Dedupe the barcode callback (fires repeatedly until the camera unmounts).
   const ownerScanHandledRef = useRef(false);
@@ -309,6 +322,7 @@ export default function VaultPairScreen() {
     // A fresh nonce means any prior joiner-key binding is moot — reset the scan.
     setScanMode("idle");
     setBoundName(null);
+    setSessionPaired(false);
   }
 
   // M-BTC-3.2: host the pair window over Bluetooth Classic (RFCOMM). The owner
@@ -331,6 +345,7 @@ export default function VaultPairScreen() {
         pairNonce,
         onResult: (o) => {
           if (o.ok) {
+            setSessionPaired(true);
             toast.push(t("vaultPair.toast.paired"), "success");
             // M-BTC-3.3: bring up steady-state sync so future changes propagate
             // to the just-paired phone without re-scanning. Idempotent; the now-
@@ -579,9 +594,13 @@ export default function VaultPairScreen() {
             <View style={styles.cameraOverlay}>
               <Ionicons name="checkmark-circle" size={48} color={colors.textEmphasis} />
               <Text style={[styles.boundHeadline, textDir(isRTL)]}>
-                {boundName
-                  ? t("vaultPair.twoWay.bound.headline", { name: boundName })
-                  : t("vaultPair.twoWay.bound.headlineNoName")}
+                {sessionPaired
+                  ? boundName
+                    ? t("vaultPair.twoWay.paired.headline", { name: boundName })
+                    : t("vaultPair.twoWay.paired.headlineNoName")
+                  : boundName
+                    ? t("vaultPair.twoWay.bound.headline", { name: boundName })
+                    : t("vaultPair.twoWay.bound.headlineNoName")}
               </Text>
             </View>
           ) : expired ? (
@@ -614,19 +633,33 @@ export default function VaultPairScreen() {
 
         <View style={{ height: 18 }} />
         {scanMode === "bound" ? (
-          <>
-            <Text style={[styles.bodyText, textDir(isRTL), { textAlign: "center" }]}>
-              {t("vaultPair.twoWay.bound.body")}
-            </Text>
-            <View style={{ height: 12 }} />
-            <Button label={t("common.done")} onPress={() => router.back()} />
-            <View style={{ height: 8 }} />
-            <Button
-              label={t("vaultPair.twoWay.bound.startOver")}
-              variant="secondary"
-              onPress={onReissue}
-            />
-          </>
+          sessionPaired ? (
+            <>
+              <Text style={[styles.bodyText, textDir(isRTL), { textAlign: "center" }]}>
+                {t("vaultPair.twoWay.paired.body")}
+              </Text>
+              <View style={{ height: 12 }} />
+              <Button label={t("common.done")} onPress={() => router.back()} />
+            </>
+          ) : (
+            // Joiner not connected yet — KEEP the listener up. No "Done" here, or
+            // the owner tears it down before the joiner's dial lands.
+            <>
+              <ActivityIndicator color={colors.textEmphasis} />
+              <View style={{ height: 8 }} />
+              <Text style={[styles.bodyText, textDir(isRTL), { textAlign: "center" }]}>
+                {boundName
+                  ? t("vaultPair.twoWay.bound.connecting", { name: boundName })
+                  : t("vaultPair.twoWay.bound.connectingNoName")}
+              </Text>
+              <View style={{ height: 12 }} />
+              <Button
+                label={t("vaultPair.twoWay.bound.startOver")}
+                variant="secondary"
+                onPress={onReissue}
+              />
+            </>
+          )
         ) : expired ? (
           <Button label={t("vaultPair.generateNew")} onPress={onReissue} />
         ) : (

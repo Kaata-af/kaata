@@ -574,6 +574,14 @@ const en = {
     "Their phone is syncing. You can close this once the other phone shows it joined.",
   "vaultPair.twoWay.bound.headlineNoName": "Their phone can join now",
   "vaultPair.twoWay.bound.startOver": "Wrong phone? Start over",
+  // Owner must STAY on this screen until the joiner connects — leaving tears
+  // down the RFCOMM listener the joiner is dialing. Wait, don't show "Done".
+  "vaultPair.twoWay.bound.connecting": "Keep this screen open — {name}'s phone is connecting…",
+  "vaultPair.twoWay.bound.connectingNoName": "Keep this screen open — their phone is connecting…",
+  "vaultPair.twoWay.paired.headline": "Paired with {name}",
+  "vaultPair.twoWay.paired.headlineNoName": "Paired",
+  "vaultPair.twoWay.paired.body":
+    "You're connected. Changes sync over Bluetooth when the phones are nearby.",
   "vaultPair.twoWay.camera.headline": "Allow camera",
   "vaultPair.twoWay.camera.body": "Kaata needs the camera to scan the other phone's code.",
   "vaultPair.twoWay.camera.allow": "Allow camera",
@@ -652,6 +660,15 @@ const en = {
     "Both phones will sync over the internet, and over Bluetooth when nearby. Nearby sync is on.",
   "vaultPairScan.toast.pairedNearby": "Paired — now syncing nearby",
   "vaultPairScan.toast.joinedSyncing": "Joined — syncing in the background",
+  // Briar-faithful: after the joiner scans, KEEP showing its code so the owner
+  // can scan it back. Not "joined" until the mutual handshake actually lands.
+  "vaultPairScan.connecting.headline": "Now let them scan your code",
+  "vaultPairScan.connecting.body":
+    "Show this to {name}. Pairing finishes the moment they scan it on their phone.",
+  "vaultPairScan.connecting.status": "Connecting…",
+  "vaultPairScan.awaiting.headline": "Waiting for the other phone",
+  "vaultPairScan.awaiting.body":
+    "Ask {name} to scan this code on their phone — their screen has a camera too. Pairing finishes the moment they do.",
   "vaultPairScan.error.headline": "Couldn't pair",
   "vaultPairScan.error.signInRequired":
     "Sign in with the same Google account as the other phone first.",
@@ -1409,6 +1426,13 @@ const fa: Partial<Record<Key, string>> = {
     "تلفون آن‌ها در حال همگام‌سازی است. وقتی تلفون دیگر «پیوست» را نشان داد می‌توانید این را ببندید.",
   "vaultPair.twoWay.bound.headlineNoName": "تلفون آن‌ها اکنون می‌تواند بپیوندد",
   "vaultPair.twoWay.bound.startOver": "تلفون اشتباه؟ از نو شروع کنید",
+  "vaultPair.twoWay.bound.connecting": "این صفحه را باز نگه دارید — تلفون {name} در حال اتصال است…",
+  "vaultPair.twoWay.bound.connectingNoName":
+    "این صفحه را باز نگه دارید — تلفون آن‌ها در حال اتصال است…",
+  "vaultPair.twoWay.paired.headline": "جفت شد با {name}",
+  "vaultPair.twoWay.paired.headlineNoName": "جفت شد",
+  "vaultPair.twoWay.paired.body":
+    "متصل شدید. وقتی تلفون‌ها نزدیک باشند، تغییرات از طریق بلوتوث همگام می‌شوند.",
   "vaultPair.twoWay.camera.headline": "اجازه کمره",
   "vaultPair.twoWay.camera.body": "کاتا برای اسکن کود تلفون دیگر به کمره نیاز دارد.",
   "vaultPair.twoWay.camera.allow": "اجازه کمره",
@@ -1486,6 +1510,13 @@ const fa: Partial<Record<Key, string>> = {
     "دو تلفون با انترنت و نیز با بلوتوث در صورت نزدیکی همگام می‌شوند. همگام‌سازی نزدیک روشن شد.",
   "vaultPairScan.toast.pairedNearby": "جفت شد — در حال همگام‌سازی نزدیک",
   "vaultPairScan.toast.joinedSyncing": "عضو شدید — در حال همگام‌سازی در پس‌زمینه",
+  "vaultPairScan.connecting.headline": "حالا بگذارید کود شما را اسکن کنند",
+  "vaultPairScan.connecting.body":
+    "این را به {name} نشان دهید. به‌محض اینکه آن را در تلفون خود اسکن کنند، جفت‌سازی تمام می‌شود.",
+  "vaultPairScan.connecting.status": "در حال اتصال…",
+  "vaultPairScan.awaiting.headline": "در انتظار تلفون دیگر",
+  "vaultPairScan.awaiting.body":
+    "از {name} بخواهید این کود را در تلفون خود اسکن کند — صفحه آن‌ها هم کمره دارد. به‌محض اینکه اسکن کنند، جفت‌سازی تمام می‌شود.",
   "vaultPairScan.error.headline": "جفت‌سازی ناکام شد",
   "vaultPairScan.error.signInRequired": "ابتدا با همان حساب گوگل تلفون دیگر وارد شوید.",
   "vaultPairScan.error.accountMismatch":
