@@ -79,9 +79,53 @@ const canonBytes = canonicalizeEvent(sampleEvent);
 const canonStr = canonBytes.toString("utf8");
 const evtSig = ed.sign(canonBytes, edSeed); // signed by edSeed's device
 
+// --- replication planner (copied verbatim from lib/replication/planner.ts) ---
+function computeContiguous(seqs) {
+  const valid = seqs.filter((s) => Number.isInteger(s) && s >= 1);
+  if (valid.length === 0) return { frontier: 0, gaps: [] };
+  const sorted = [...new Set(valid)].sort((a, b) => a - b);
+  let frontier = 0;
+  let i = 0;
+  while (i < sorted.length && sorted[i] === frontier + 1) { frontier = sorted[i]; i++; }
+  const gaps = [];
+  let prev = frontier;
+  for (; i < sorted.length; i++) { const s = sorted[i]; if (s > prev + 1) gaps.push({ from_seq: prev + 1, to_seq: s - 1 }); prev = s; }
+  return { frontier, gaps };
+}
+function planRangesToSend(local, peer) {
+  const ranges = [];
+  for (const device of Object.keys(local).sort()) {
+    const have = local[device] ?? 0; const theirs = peer[device] ?? 0;
+    if (have > theirs) ranges.push({ device_id: device, from_seq: theirs + 1, to_seq: have });
+  }
+  return ranges;
+}
+function splitIntoBatches(ranges, batchSize) {
+  const batches = []; let current = []; let currentCount = 0;
+  for (const r of ranges) {
+    let from = r.from_seq;
+    while (from <= r.to_seq) {
+      const room = batchSize - currentCount; const take = Math.min(room, r.to_seq - from + 1);
+      current.push({ device_id: r.device_id, from_seq: from, to_seq: from + take - 1 });
+      currentCount += take; from += take;
+      if (currentCount === batchSize) { batches.push(current); current = []; currentCount = 0; }
+    }
+  }
+  if (current.length > 0) batches.push(current);
+  return batches;
+}
+const planner = {
+  contiguous_135_56: computeContiguous([1, 3, 5, 6]),
+  contiguous_23: computeContiguous([2, 3]),
+  contiguous_dups: computeContiguous([3, 1, 2, 2]),
+  ranges: planRangesToSend({ a: 5, b: 2 }, { a: 3 }),
+  batches: splitIntoBatches([{ device_id: "a", from_seq: 1, to_seq: 5 }], 2),
+};
+
 console.log(
   JSON.stringify(
     {
+      planner,
       ed25519: { seedHex: hex(edSeed), pubB64Std: b64(edPub), msgUtf8: edMsg.toString("utf8"), sigB64Std: b64(edSig) },
       x25519: { privAHex: hex(xPrivA), privBHex: hex(xPrivB), pubAHex: hex(xPubA), pubBHex: hex(xPubB), sharedHex: hex(xShared) },
       hkdf: { saltUtf8: "parity-salt-1234", infoUtf8: "kaata-mesh-aead-v2", outHex: hex(hkOut) },

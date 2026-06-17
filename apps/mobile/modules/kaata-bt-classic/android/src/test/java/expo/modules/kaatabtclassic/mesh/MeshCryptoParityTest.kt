@@ -121,4 +121,38 @@ class MeshCryptoParityTest {
     assertArrayEquals(hex(canonicalHex), canon)
     assertTrue(MeshEventSig.verifyEventSignature(canon, eventSigB64, edPubB64))
   }
+
+  @Test
+  fun planner_matches_js() {
+    // computeContiguous (vectors from gen-mesh-vectors.mjs)
+    val c1 = MeshPlanner.computeContiguous(listOf(1, 3, 5, 6))
+    assertEquals(1, c1.frontier)
+    assertEquals(listOf(2 to 2, 4 to 4), c1.gaps.map { it.fromSeq to it.toSeq })
+
+    val c2 = MeshPlanner.computeContiguous(listOf(2, 3))
+    assertEquals(0, c2.frontier)
+    assertEquals(listOf(1 to 1), c2.gaps.map { it.fromSeq to it.toSeq })
+
+    val c3 = MeshPlanner.computeContiguous(listOf(3, 1, 2, 2))
+    assertEquals(3, c3.frontier)
+    assertEquals(emptyList<Pair<Int, Int>>(), c3.gaps.map { it.fromSeq to it.toSeq })
+
+    // planRangesToSend
+    val ranges = MeshPlanner.planRangesToSend(mapOf("a" to 5, "b" to 2), mapOf("a" to 3))
+    assertEquals(
+      listOf(Triple("a", 4, 5), Triple("b", 1, 2)),
+      ranges.map { Triple(it.deviceId, it.fromSeq, it.toSeq) },
+    )
+
+    // splitIntoBatches
+    val batches = MeshPlanner.splitIntoBatches(listOf(MeshPlanner.SeqRange("a", 1, 5)), 2)
+    assertEquals(
+      listOf(
+        listOf(Triple("a", 1, 2)),
+        listOf(Triple("a", 3, 4)),
+        listOf(Triple("a", 5, 5)),
+      ),
+      batches.map { b -> b.map { Triple(it.deviceId, it.fromSeq, it.toSeq) } },
+    )
+  }
 }
