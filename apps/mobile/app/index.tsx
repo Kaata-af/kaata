@@ -977,6 +977,26 @@ export default function HomeScreen() {
             } catch (err) {
               if (__DEV__) console.warn("[home] reconcileBgCatchup failed", err);
             }
+            // CUTOVER TEST: this toggle also drives the native MeshEngine
+            // (native_engine_enabled) + injects the device seed so the post-kill
+            // engine can sign PoP. ON => background sync runs as the resident
+            // native engine (Briar-model, OEM-agnostic) instead of headless JS;
+            // OFF => disables both. (Until the backend emits native_engine_enabled,
+            // this user-driven flip is how the cutover is exercised.)
+            try {
+              const bt = await import("../modules/kaata-bt-classic");
+              await setAppMeta("native_engine_enabled", next ? "1" : "0");
+              await bt.setNativeEngineEnabled(next);
+              if (next) {
+                const { ensureDeviceKey, getDeviceSeedB64 } =
+                  await import("../lib/mesh/device-key");
+                await ensureDeviceKey();
+                const seed = await getDeviceSeedB64();
+                if (seed) await bt.setMeshDeviceSeed(seed);
+              }
+            } catch (err) {
+              if (__DEV__) console.warn("[home] native engine enable failed", err);
+            }
             toast.push(
               next ? t("menu.sync.bgSync.onToast") : t("menu.sync.bgSync.offToast"),
               "success",
