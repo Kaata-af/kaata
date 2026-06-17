@@ -121,6 +121,117 @@ class MeshDb private constructor(private val db: SQLiteDatabase) {
     }
   }
 
+  // --- write / ingest side (mirrors anti-entropy.ts applyIncomingBatch) -------
+
+  fun getAppMeta(key: String): String? {
+    db.rawQuery("SELECT value FROM app_meta WHERE key = ? LIMIT 1", arrayOf(key)).use { c ->
+      return if (c.moveToFirst()) c.getString(0) else null
+    }
+  }
+
+  fun installId(): String? = getAppMeta("install_id")
+
+  fun countUnknownActorQuarantine(vaultId: String, deviceId: String): Int {
+    db.rawQuery(
+      "SELECT COUNT(*) FROM event_log WHERE vault_id = ? AND device_id = ? " +
+        "AND quarantine_reason = 'unknown_actor'",
+      arrayOf(vaultId, deviceId),
+    ).use { c ->
+      return if (c.moveToFirst()) c.getInt(0) else 0
+    }
+  }
+
+  /**
+   * Slot pre-check (anti-entropy.ts resolveMeshAuthorSeq): if a DIFFERENT
+   * event_id already holds this (vault, device, author_seq) slot, sacrifice the
+   * SEQ (return null) — never the event. The (vault,device,author_seq) UNIQUE
+   * index would otherwise reject the insert.
+   */
+  private fun resolveAuthorSeq(event: MeshEvent): Int? {
+    val seq = event.authorSeq ?: return null
+    val vaultId = event.vaultId ?: return null
+    db.rawQuery(
+      "SELECT event_id FROM event_log WHERE vault_id = ? AND device_id = ? AND author_seq = ?",
+      arrayOf(vaultId, event.deviceId, seq.toString()),
+    ).use { c ->
+      if (c.moveToFirst() && c.getString(0) != event.eventId) return null
+    }
+    return seq
+  }
+
+  /** Durably ingest a signature-verified remote event (applied_at NULL — the JS
+   *  sweep applies it later via the role-gate). */
+  fun insertIngested(event: MeshEvent, ingestedAtMs: Long) {
+    insertRow(event, ingestedAtMs, resolveAuthorSeq(event), null)
+  }
+
+  /** Insert a bad-sig event tombstoned (author_seq NULL — never relayable). */
+  fun insertTombstoned(event: MeshEvent, tombstoneReason: String, ingestedAtMs: Long) {
+    insertRow(event, ingestedAtMs, null, tombstoneReason)
+  }
+
+  private fun insertRow(
+    event: MeshEvent,
+    ingestedAtMs: Long,
+    authorSeq: Int?,
+    tombstoneReason: String?,
+  ) {
+    db.beginTransaction()
+    try {
+      db.execSQL(
+        "INSERT OR IGNORE INTO event_log (" +
+          "event_id, event_type, vault_id, target_id, relationship_id, " +
+          "hlc_physical_ms, hlc_logical, hlc_device_id, " +
+          "device_id, author_user_id_local_only, actor_account_id, " +
+          "payload_json, payload_schema, " +
+          "appended_at, server_acked_at, rejected_at, origin, " +
+          "event_sig_b64, signer_device_pubkey, " +
+          "ingested_at, applied_at, quarantine_reason, tombstone_reason, author_seq" +
+          ") VALUES (?, ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?,  ?, ?,  ?, NULL, NULL, 'remote',  ?, ?,  ?, NULL, NULL, ?, ?)",
+        arrayOf<Any?>(
+          event.eventId,
+          event.eventType,
+          event.vaultId,
+          event.targetId,
+          event.relationshipId,
+          event.hlcPms,
+          event.hlcL,
+          event.hlcDid,
+          event.deviceId,
+          "", // author_user_id_local_only — local-only, "" for remote (matches JS)
+          event.actorAccountId,
+          event.payload.toString(),
+          event.payloadSchema.toLong(),
+          ingestedAtMs, // appended_at
+          event.eventSigB64,
+          event.signerDevicePubkey,
+          ingestedAtMs, // ingested_at
+          tombstoneReason,
+          authorSeq?.toLong(),
+        ),
+      )
+      bumpHlcFrontier(event)
+      db.setTransactionSuccessful()
+    } finally {
+      db.endTransaction()
+    }
+  }
+
+  /** Merge the event's HLC into our frontier (hlc_last), like the JS ingest. */
+  private fun bumpHlcFrontier(event: MeshEvent) {
+    val did = installId() ?: return
+    val prev = getAppMeta("hlc_last")?.let { MeshHlc.deserialize(it) }
+    val merged =
+      MeshHlc.tickReceive(prev, MeshHlc.Hlc(event.hlcPms, event.hlcL, event.hlcDid), nowMs(), did)
+    db.execSQL(
+      "INSERT INTO app_meta (key, value) VALUES ('hlc_last', ?) " +
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      arrayOf<Any?>(MeshHlc.serialize(merged)),
+    )
+  }
+
+  private fun nowMs(): Long = System.currentTimeMillis()
+
   // --- helpers ---------------------------------------------------------------
 
   private fun rowToWireEvent(c: android.database.Cursor): JSONObject {
