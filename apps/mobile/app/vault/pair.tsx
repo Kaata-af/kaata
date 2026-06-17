@@ -79,9 +79,6 @@ export default function VaultPairScreen() {
   // camera; "bound" confirms the joiner is pinned + can be admitted.
   const [scanMode, setScanMode] = useState<"idle" | "bound">("idle");
   const [boundName, setBoundName] = useState<string | null>(null);
-  // Owner-side camera-permission explainer (first deny, canAskAgain still true).
-  // Without this the "Scan their code" button is a silent dead-end on deny.
-  const [cameraHelp, setCameraHelp] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   // Dedupe the barcode callback (fires repeatedly until the camera unmounts).
   const ownerScanHandledRef = useRef(false);
@@ -312,7 +309,6 @@ export default function VaultPairScreen() {
     // A fresh nonce means any prior joiner-key binding is moot — reset the scan.
     setScanMode("idle");
     setBoundName(null);
-    setCameraHelp(false);
   }
 
   // M-BTC-3.2: host the pair window over Bluetooth Classic (RFCOMM). The owner
@@ -669,18 +665,6 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   emph: { fontFamily: fonts.sansSemi, color: colors.textEmphasis },
-  qrCard: {
-    marginTop: 24,
-    padding: 20,
-    backgroundColor: colors.bgDefault,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.borderDefault,
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: 300,
-    minHeight: 300,
-  },
   // Briar split-screen pairing.
   splitBody: { padding: 20, alignItems: "center", paddingBottom: 32 },
   splitHint: {
@@ -725,14 +709,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   cameraOverlay: { alignItems: "center", justifyContent: "center", padding: 16 },
-  qrPlaceholder: {
-    width: 260,
-    height: 260,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.bgMuted,
-    borderRadius: 12,
-  },
   timerText: {
     marginTop: 14,
     fontSize: 13,
@@ -761,30 +737,12 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   // Briar-style two-way scan UI ------------------------------------------
-  twoWayStep: {
-    fontSize: 13,
-    fontFamily: fonts.sansMedium,
-    color: colors.textDefault,
-    alignSelf: "stretch",
-    marginBottom: 4,
-  },
-  boundCard: {
-    alignSelf: "stretch",
-    alignItems: "center",
-    padding: 16,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.borderDefault,
-    backgroundColor: colors.bgMuted,
-    gap: 6,
-  },
   boundHeadline: {
     fontSize: 16,
     fontFamily: fonts.sansSemi,
     color: colors.textEmphasis,
     textAlign: "center",
   },
-  cameraWrap: { flex: 1, backgroundColor: "#000" },
   scannerReticle: {
     position: "absolute",
     top: "25%",
@@ -795,24 +753,6 @@ const styles = StyleSheet.create({
     borderColor: "#fff",
     borderRadius: 16,
     backgroundColor: "transparent",
-  },
-  scannerHint: {
-    position: "absolute",
-    bottom: 60,
-    left: 0,
-    right: 0,
-    alignItems: "center",
-    paddingHorizontal: 24,
-  },
-  scannerHintText: {
-    fontSize: 14,
-    fontFamily: fonts.sansMedium,
-    color: "#fff",
-    textAlign: "center",
-    backgroundColor: "rgba(0,0,0,0.55)",
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 999,
   },
   roleChip: {
     flexDirection: "row",
