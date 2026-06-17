@@ -35,4 +35,11 @@ dependencies {
   // JCE provider registration → no clash with Android's bundled BC), and it
   // ships every primitive @noble uses on the JS side, including RFC-5869 HKDF.
   implementation 'org.bouncycastle:bcprov-jdk18on:1.78.1'
+
+  // Unit tests: cross-language parity vectors prove the native crypto +
+  // canonicalization match the JS byte-for-byte. org.json is stubbed in Android
+  // unit tests, so pull the real impl; base64 is now pure-Kotlin (MeshBase64) so
+  // no Robolectric is needed.
+  testImplementation 'junit:junit:4.13.2'
+  testImplementation 'org.json:json:20231013'
 }

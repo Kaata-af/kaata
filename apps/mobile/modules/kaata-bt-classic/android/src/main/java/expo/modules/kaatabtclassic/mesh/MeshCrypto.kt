@@ -1,6 +1,5 @@
 package expo.modules.kaatabtclassic.mesh
 
-import android.util.Base64
 import org.bouncycastle.crypto.agreement.X25519Agreement
 import org.bouncycastle.crypto.digests.SHA256Digest
 import org.bouncycastle.crypto.digests.SHA512Digest
@@ -53,11 +52,9 @@ object MeshCrypto {
   class MeshCryptoError(message: String) : Exception(message)
 
   // --- base64url (matches aead.ts bytesToB64Url / b64UrlToBytes) -------------
-  fun b64UrlEncode(bytes: ByteArray): String =
-    Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+  fun b64UrlEncode(bytes: ByteArray): String = MeshBase64.encodeUrl(bytes)
 
-  fun b64UrlDecode(s: String): ByteArray =
-    Base64.decode(s, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+  fun b64UrlDecode(s: String): ByteArray = MeshBase64.decode(s)
 
   // --- hashes ---------------------------------------------------------------
   fun sha256(data: ByteArray): ByteArray {

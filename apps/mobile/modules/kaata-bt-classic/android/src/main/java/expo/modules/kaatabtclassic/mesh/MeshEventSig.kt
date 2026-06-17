@@ -1,6 +1,5 @@
 package expo.modules.kaatabtclassic.mesh
 
-import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -31,9 +30,9 @@ import org.json.JSONObject
 object MeshEventSig {
 
   // --- standard base64 (matches event-sig.ts btoa/atob) ----------------------
-  fun b64StdEncode(bytes: ByteArray): String = Base64.encodeToString(bytes, Base64.NO_WRAP)
+  fun b64StdEncode(bytes: ByteArray): String = MeshBase64.encodeStd(bytes)
 
-  fun b64StdDecode(s: String): ByteArray = Base64.decode(s, Base64.NO_WRAP)
+  fun b64StdDecode(s: String): ByteArray = MeshBase64.decode(s)
 
   // --- canonical JSON (matches event-sig.ts canonicalize) --------------------
 
