@@ -10,9 +10,10 @@
 // Phase 4 email-anchored token flow).
 
 import { Ionicons } from "@expo/vector-icons";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, Pressable, StyleSheet, Text, View } from "react-native";
+import { AppState, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import QRCode from "react-native-qrcode-svg";
 import { Button } from "../../components/Button";
@@ -25,14 +26,15 @@ import { textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import {
+  decodeJoinerIdentityQr,
   encodePairQr,
-  generateShopModeToken,
   PAIR_QR_TTL_MS,
   PAIR_QR_VERSION,
   type PairQrPayload,
   type PairQrRole,
 } from "../../lib/mesh/pair-qr";
 import { ensureDeviceKey, getDevicePubkey } from "../../lib/mesh/device-key";
+import { generatePairToken } from "../../lib/mesh/local-pair";
 import { buildLocalAccountId } from "../../lib/trust/account-id";
 import { getLocalSelf } from "../../lib/db";
 import { hostPairOverBtc, type HostPairHandle } from "../../lib/mesh/pair-btc";
@@ -72,13 +74,30 @@ export default function VaultPairScreen() {
   // unmount, QR expiry, and re-issue so the server + discoverable window don't
   // linger past the pair token they belong to.
   const pairHostRef = useRef<HostPairHandle | null>(null);
+  // BRIAR-STRICT two-way scan (owner side): after showing the QR, the owner
+  // scans the JOINER's identity QR to pin their key. "scanning" mounts the
+  // camera; "bound" confirms the joiner is pinned + can be admitted.
+  const [scanMode, setScanMode] = useState<"idle" | "scanning" | "bound">("idle");
+  const [boundName, setBoundName] = useState<string | null>(null);
+  // Owner-side camera-permission explainer (first deny, canAskAgain still true).
+  // Without this the "Scan their code" button is a silent dead-end on deny.
+  const [cameraHelp, setCameraHelp] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  // Dedupe the barcode callback (fires repeatedly until the camera unmounts).
+  const ownerScanHandledRef = useRef(false);
 
   const issueQr = useCallback(
     async (v: VaultLite, accId: string | null, chosenRole: PairQrRole): Promise<string | null> => {
       try {
-        const token = await generateShopModeToken();
+        // Atomic: generatePairToken mints the nonce AND persists the pending
+        // token in ONE SQLite transaction (local-pair.mutatePendingTokens), so
+        // pending_pair_tokens has a SINGLE race-free writer. Previously this file
+        // minted the nonce and wrote the token via a separate non-atomic
+        // read-modify-write on the same key, which could lose-update a concurrent
+        // claim/release/consume (mutatePendingTokens exists to prevent exactly
+        // that). bindExpectedJoiner/claimPairNonce later mutate this same token.
+        const { nonce: token, expires_at_ms: expires } = await generatePairToken(v.id, chosenRole);
         const now = Date.now();
-        const expires = now + PAIR_QR_TTL_MS;
         // In local-only mode (no Google sign-in — the offline-shopkeeper
         // path) accId is null, but the QR schema requires a non-empty
         // issuer_account_id. Synthesize a stable local ID from the device
@@ -160,21 +179,9 @@ export default function VaultPairScreen() {
               }
             : {}),
         };
-        // Persist the token locally with the SAME shape that
-        // lib/mesh/local-pair.ts's PendingPairToken / isPendingPairToken
-        // expects, so verifyPeerChain's pair-admission lookup
-        // (getLivePairTokenByNonce) finds it when the joiner connects over
-        // BLE and presents this nonce as pair_nonce. Without the canonical
-        // shape this list comes back empty and the owner refuses the
-        // joiner's BLE handshake silently.
-        await persistPendingPairToken({
-          nonce: token,
-          vault_id: v.id,
-          vault_name: v.name,
-          issued_at_ms: now,
-          expires_at_ms: expires,
-          role: chosenRole,
-        });
+        // (Token already persisted atomically by generatePairToken above — the
+        // owner's pair-admission lookup reads it via local-pair's canonical
+        // store; bindExpectedJoiner pins the scanned joiner key onto it.)
         setPayload(next);
         setSecondsLeft(Math.floor(PAIR_QR_TTL_MS / 1000));
         setError(null);
@@ -281,6 +288,11 @@ export default function VaultPairScreen() {
   useEffect(() => {
     if (payload && secondsLeft <= 0) {
       void stopHosting();
+      // Don't leave the camera mounted over a dead token (the scanning view
+      // out-ranks the expiry UI) — drop to the "Code expired" state. A token
+      // already BOUND stays terminal (the joiner may have been admitted).
+      setScanMode((m) => (m === "scanning" ? "idle" : m));
+      setCameraHelp(false);
     }
   }, [payload, secondsLeft, stopHosting]);
 
@@ -299,6 +311,10 @@ export default function VaultPairScreen() {
     await stopHosting(); // the old token's RFCOMM UUID is about to be replaced
     setPayload(null);
     setStage("pick-role");
+    // A fresh nonce means any prior joiner-key binding is moot — reset the scan.
+    setScanMode("idle");
+    setBoundName(null);
+    setCameraHelp(false);
   }
 
   // M-BTC-3.2: host the pair window over Bluetooth Classic (RFCOMM). The owner
@@ -370,6 +386,70 @@ export default function VaultPairScreen() {
       setIssuing(false);
     }
   }
+
+  // BRIAR-STRICT two-way scan (owner side). Tap "Scan their code" → request
+  // camera (route to settings if permanently denied) → mount the scanner.
+  async function onScanTheirCode() {
+    let perm = cameraPermission;
+    if (!perm?.granted) {
+      perm = await requestCameraPermission();
+    }
+    if (!perm?.granted) {
+      // OS will never re-prompt after "Don't ask again" — settings is the only
+      // recovery, matching pair-scan.tsx / MeshController.
+      if (perm && !perm.canAskAgain) {
+        void Linking.openSettings().catch(() => {});
+      } else {
+        // First deny (can still ask) — show the inline explainer instead of a
+        // silent no-op; its Allow button re-runs this request.
+        setCameraHelp(true);
+      }
+      return;
+    }
+    setCameraHelp(false);
+    ownerScanHandledRef.current = false;
+    setScanMode("scanning");
+  }
+
+  // Scanned the joiner's identity QR: pin their device pubkey onto THIS QR's
+  // pending token. After this, the owner's pair-admission (claimPairNonce) will
+  // admit exactly that one device — the out-of-band binding that makes the pair
+  // mutually authenticated.
+  const onJoinerBarcode = useCallback(
+    async (result: { data?: string }) => {
+      if (ownerScanHandledRef.current) return;
+      if (!result?.data) return;
+      ownerScanHandledRef.current = true;
+      const decoded = decodeJoinerIdentityQr(result.data);
+      if (!decoded.ok) {
+        setScanMode("idle");
+        toast.push(t("vaultPair.twoWay.wrongCode"), "error");
+        return;
+      }
+      const nonce = payload?.shop_mode_token;
+      if (!vault || !nonce) {
+        setScanMode("idle");
+        return;
+      }
+      try {
+        const { bindExpectedJoiner } = await import("../../lib/mesh/local-pair");
+        const ok = await bindExpectedJoiner(vault.id, nonce, decoded.payload.device_pubkey);
+        if (!ok) {
+          // Token expired or already bound to a different joiner — re-issue.
+          setScanMode("idle");
+          toast.push(t("vaultPair.issueFailed"), "error");
+          return;
+        }
+        setBoundName(decoded.payload.display_name.trim() || null);
+        setScanMode("bound");
+      } catch (err) {
+        console.warn("[vault/pair] bindExpectedJoiner failed", err);
+        setScanMode("idle");
+        toast.push(t("vaultPair.issueFailed"), "error");
+      }
+    },
+    [payload, vault, toast],
+  );
 
   if (!loaded || !vault) {
     return (
@@ -459,6 +539,32 @@ export default function VaultPairScreen() {
   // current user being signed out — the instructions vary accordingly.
   const isLocalCA = !!vault.vault_trust_anchor_pubkey;
 
+  // BRIAR-STRICT two-way scan: full-screen camera to scan the joiner's code.
+  if (scanMode === "scanning") {
+    return (
+      <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+        <ScreenHeader
+          title={t("vaultPair.title")}
+          onBack={() => setScanMode("idle")}
+          isRTL={isRTL}
+          backLabel={t("common.back")}
+        />
+        <View style={styles.cameraWrap}>
+          <CameraView
+            style={StyleSheet.absoluteFill}
+            facing="back"
+            barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+            onBarcodeScanned={onJoinerBarcode}
+          />
+          <View style={styles.scannerReticle} pointerEvents="none" />
+          <View style={styles.scannerHint} pointerEvents="none">
+            <Text style={styles.scannerHintText}>{t("vaultPair.twoWay.scanning.hint")}</Text>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       {/* Phase 7 coherence: shared ScreenHeader replaces the bespoke
@@ -508,10 +614,62 @@ export default function VaultPairScreen() {
         {error ? <Text style={[styles.errorText, textDir(isRTL)]}>{error}</Text> : null}
 
         <View style={{ height: 20 }} />
-        {expired ? (
+        {/* Order matters: a BOUND token is terminal (the joiner may already be
+            admitted), so it wins over `expired`. Then expired, then the
+            camera-permission explainer, then the default two-way steps. */}
+        {scanMode === "bound" ? (
+          <View style={styles.boundCard}>
+            <Ionicons name="checkmark-circle" size={28} color={colors.textEmphasis} />
+            <Text style={[styles.boundHeadline, textDir(isRTL)]}>
+              {boundName
+                ? t("vaultPair.twoWay.bound.headline", { name: boundName })
+                : t("vaultPair.twoWay.bound.headlineNoName")}
+            </Text>
+            <Text style={[styles.bodyText, textDir(isRTL), { textAlign: "center" }]}>
+              {t("vaultPair.twoWay.bound.body")}
+            </Text>
+            <View style={{ height: 12 }} />
+            <Button label={t("common.done")} onPress={() => router.back()} />
+            <View style={{ height: 8 }} />
+            {/* Recovery if the owner scanned the wrong phone — a token can't
+                rebind, so start over with a fresh QR. */}
+            <Button
+              label={t("vaultPair.twoWay.bound.startOver")}
+              variant="secondary"
+              onPress={onReissue}
+            />
+          </View>
+        ) : expired ? (
           <Button label={t("vaultPair.generateNew")} onPress={onReissue} />
+        ) : cameraHelp ? (
+          <View style={styles.boundCard}>
+            <Ionicons name="camera-outline" size={28} color={colors.textEmphasis} />
+            <Text style={[styles.boundHeadline, textDir(isRTL)]}>
+              {t("vaultPair.twoWay.camera.headline")}
+            </Text>
+            <Text style={[styles.bodyText, textDir(isRTL), { textAlign: "center" }]}>
+              {t("vaultPair.twoWay.camera.body")}
+            </Text>
+            <View style={{ height: 12 }} />
+            <Button label={t("vaultPair.twoWay.camera.allow")} onPress={onScanTheirCode} />
+            <View style={{ height: 8 }} />
+            <Button
+              label={t("common.cancel")}
+              variant="secondary"
+              onPress={() => setCameraHelp(false)}
+            />
+          </View>
         ) : (
-          <Button label={t("common.cancel")} variant="secondary" onPress={() => router.back()} />
+          <>
+            {/* Briar-style two-way: tell the owner BOTH steps, then let them
+                scan the joiner's code back. Admission requires this scan. */}
+            <Text style={[styles.twoWayStep, textDir(isRTL)]}>{t("vaultPair.twoWay.step1")}</Text>
+            <Text style={[styles.twoWayStep, textDir(isRTL)]}>{t("vaultPair.twoWay.step2")}</Text>
+            <View style={{ height: 12 }} />
+            <Button label={t("vaultPair.twoWay.scanTheirCode")} onPress={onScanTheirCode} />
+            <View style={{ height: 10 }} />
+            <Button label={t("common.cancel")} variant="secondary" onPress={() => router.back()} />
+          </>
         )}
 
         <Text style={[styles.fineprint, textDir(isRTL)]}>
@@ -538,59 +696,11 @@ function formatCountdown(seconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-// Pending-pair-token store. Used to track outstanding tokens the owner
-// has minted. The on-disk schema MUST match lib/mesh/local-pair.ts's
-// PendingPairToken type, because that module's read paths
-// (getLivePairTokenByNonce / getLocalPairNonceForVault) are canonical for
-// the chain pair-admission window. If the field names diverge,
-// local-pair.ts's strict isPendingPairToken validator silently drops every
-// token this file writes, the window never sees a live token, and the
-// owner refuses the joiner's BLE handshake. Symptom: joiner pairs fine
-// locally, owner sees nothing, no error.
-type PendingPairToken = {
-  nonce: string; // was "token" before v0.5.3 — renamed to match local-pair.ts
-  vault_id: string;
-  vault_name: string;
-  issued_at_ms: number;
-  expires_at_ms: number;
-  role?: PairQrRole;
-};
-
-const PENDING_PAIR_TOKENS_KEY = "pending_pair_tokens";
-
-async function persistPendingPairToken(t: PendingPairToken): Promise<void> {
-  const now = Date.now();
-  const raw = await getAppMeta(PENDING_PAIR_TOKENS_KEY);
-  let list: PendingPairToken[] = [];
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        for (const e of parsed) {
-          if (
-            e &&
-            typeof e === "object" &&
-            typeof e.nonce === "string" &&
-            typeof e.vault_id === "string" &&
-            typeof e.vault_name === "string" &&
-            typeof e.issued_at_ms === "number" &&
-            typeof e.expires_at_ms === "number" &&
-            e.expires_at_ms > now
-          ) {
-            list.push(e as PendingPairToken);
-          }
-        }
-      }
-    } catch {
-      // corrupted — start fresh
-      list = [];
-    }
-  }
-  // Replace any existing entry for the same vault+nonce; otherwise append.
-  const filtered = list.filter((e) => !(e.vault_id === t.vault_id && e.nonce === t.nonce));
-  filtered.push(t);
-  await setAppMeta(PENDING_PAIR_TOKENS_KEY, JSON.stringify(filtered));
-}
+// (The owner's pending-pair-token store now lives ENTIRELY in
+// lib/mesh/local-pair.ts — generatePairToken mints + persists atomically, and
+// bindExpectedJoiner/claimPairNonce mutate the same record in one txn. This
+// file used to keep a second, non-atomic writer of pending_pair_tokens; it was
+// removed to close a lost-update race against local-pair's atomic mutations.)
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
@@ -658,6 +768,60 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansSemi,
     color: colors.textSubtle,
     textAlign: "center",
+  },
+  // Briar-style two-way scan UI ------------------------------------------
+  twoWayStep: {
+    fontSize: 13,
+    fontFamily: fonts.sansMedium,
+    color: colors.textDefault,
+    alignSelf: "stretch",
+    marginBottom: 4,
+  },
+  boundCard: {
+    alignSelf: "stretch",
+    alignItems: "center",
+    padding: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    backgroundColor: colors.bgMuted,
+    gap: 6,
+  },
+  boundHeadline: {
+    fontSize: 16,
+    fontFamily: fonts.sansSemi,
+    color: colors.textEmphasis,
+    textAlign: "center",
+  },
+  cameraWrap: { flex: 1, backgroundColor: "#000" },
+  scannerReticle: {
+    position: "absolute",
+    top: "25%",
+    left: "12%",
+    right: "12%",
+    aspectRatio: 1,
+    borderWidth: 3,
+    borderColor: "#fff",
+    borderRadius: 16,
+    backgroundColor: "transparent",
+  },
+  scannerHint: {
+    position: "absolute",
+    bottom: 60,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  scannerHintText: {
+    fontSize: 14,
+    fontFamily: fonts.sansMedium,
+    color: "#fff",
+    textAlign: "center",
+    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
   },
   roleChip: {
     flexDirection: "row",

@@ -43,6 +43,13 @@ export type PendingPairToken = {
   issued_at_ms: number;
   expires_at_ms: number;
   consumed_at_ms?: number;
+  /**
+   * MISNOMER (kept for on-disk back-compat): this stores the base64 device
+   * PUBKEY that claimed the nonce, NOT a device_id. claimPairNonce /
+   * releasePairNonceClaim and the anti-entropy release call all read/write it
+   * as the pubkey (claimedPubkeyB64). NEVER compare it against the
+   * attacker-controllable peerHello.device_id — that would break the gate.
+   */
   consumed_by_device_id?: string;
   /**
    * D-PAIR-WITH-ROLE: role the owner committed to at QR-generation
@@ -55,6 +62,16 @@ export type PendingPairToken = {
    * D-PAIR-WITH-ROLE; the admission falls back to "editor" when unset.
    */
   role?: LocalVMCRole;
+  /**
+   * BRIAR-STRICT two-way scan: the joiner device pubkey the OWNER scanned
+   * out-of-band (the joiner's identity QR), pinned via bindExpectedJoiner.
+   * claimPairNonce admits ONLY a handshake whose PoP-claimed key equals this.
+   * Unset = the owner hasn't scanned the joiner yet → admission DEFERS (the
+   * joiner retries until the scan binds it). This is what makes admission
+   * require a physical, mutual face-to-face scan — closing the sniffed-nonce
+   * "attacker instead of legit joiner" gap that the CAS alone left open.
+   */
+  expected_joiner_pubkey?: string;
 };
 
 export type PairErrorReason =
@@ -242,6 +259,12 @@ export async function cancelPairToken(nonce: string): Promise<void> {
 }
 
 /**
+ * ⚠️ NOT AN ADMISSION PATH. Since the Briar-strict two-way scan, the ONLY way
+ * to admit a joiner is claimPairNonce (which enforces expected_joiner_pubkey).
+ * This lookup is kept for diagnostics / the QR countdown UI ONLY — wiring it
+ * back into admission would reintroduce the un-gated "nonce alone admits"
+ * weakness the two-way scan exists to close. Do not.
+ *
  * M2c chain handshake — owner-side pair-admission lookup.
  *
  * Returns the live (unexpired, unconsumed) pending pair token whose
@@ -271,6 +294,10 @@ export async function getLivePairTokenByNonce(
 }
 
 /**
+ * ⚠️ NOT THE ADMISSION CONSUME PATH. claimPairNonce now does the atomic
+ * claim+consume bound to the scanned key. This standalone consume is unused by
+ * admission and kept only for completeness; do not call it to "admit" a joiner.
+ *
  * Mark a pending pair token consumed without deleting it (single-use
  * semantics: the admission window for THIS nonce is now closed, but the GC
  * sweep can still see expires_at_ms and prune later). Called by
@@ -299,11 +326,19 @@ export async function consumePairNonce(nonce: string): Promise<void> {
  * sniffed/observed QR nonce admitted an unauthorized device alongside the
  * legit joiner. With the CAS, only one device per nonce can ever be admitted.
  *
- * NOTE (deferred hardening): the nonce still travels in the plaintext Hello, so
- * a passive sniffer who out-races the legit joiner can win the single claim and
- * be the one admitted. Preventing attacker-instead-of-legit needs binding the
- * nonce to the expected joiner out-of-band (or moving it into the PoP
- * transcript) — a protocol change beyond M4. The CAS closes the DOUBLE-admit.
+ * BRIAR-STRICT two-way scan (the deferred hardening, now SHIPPED): this no
+ * longer admits on nonce alone. The owner must have scanned the joiner's
+ * identity QR (bindExpectedJoiner pins expected_joiner_pubkey), and the claim
+ * succeeds ONLY when claimedDeviceKeyB64 === expected_joiner_pubkey. So a
+ * passive sniffer who replays the nonce with their OWN key is refused (key
+ * mismatch), AND an attacker who replays the nonce with the legit joiner's
+ * scanned key still fails the subsequent PoP (they lack that private key). The
+ * out-of-band scan is the binding the old note said was missing.
+ *
+ * When expected_joiner_pubkey is UNSET (owner hasn't scanned the joiner yet),
+ * the claim DEFERS (returns null) rather than admitting — the joiner simply
+ * retries until the owner's scan binds the key. Combined with the CAS this is
+ * single-use AND mutually-authenticated.
  */
 export async function claimPairNonce(
   vaultId: string,
@@ -316,6 +351,12 @@ export async function claimPairNonce(
   await mutatePendingTokens((tokens) =>
     tokens.map((t) => {
       if (t.vault_id !== vaultId || t.nonce !== nonce || t.expires_at_ms <= now) return t;
+      // BRIAR-STRICT GATE: refuse unless the owner pinned THIS exact key
+      // out-of-band by scanning the joiner's identity QR. Unset (not yet
+      // scanned) or a different key => no claim (defer / reject).
+      if (!t.expected_joiner_pubkey || t.expected_joiner_pubkey !== claimedDeviceKeyB64) {
+        return t;
+      }
       const unclaimed = t.consumed_at_ms == null || t.consumed_at_ms === 0;
       const mine = t.consumed_by_device_id === claimedDeviceKeyB64;
       if (unclaimed || mine) {
@@ -327,6 +368,43 @@ export async function claimPairNonce(
     }),
   );
   return claimed;
+}
+
+/**
+ * BRIAR-STRICT two-way scan — OWNER side. Called from vault/pair.tsx after the
+ * owner scans the joiner's identity QR. Atomically pins the joiner's device
+ * pubkey onto the live pending token for (vaultId, nonce) — the nonce of the QR
+ * the owner is currently showing. After this, the owner's pair-admission
+ * (claimPairNonce) will admit exactly that one device and no other.
+ *
+ * Idempotent: re-scanning the SAME joiner returns true. Refuses to REBIND a
+ * token already pinned to a DIFFERENT joiner (one QR == one scanned joiner; the
+ * owner re-issues a fresh QR for the next person). Returns true iff the token is
+ * now bound to joinerPubkeyB64.
+ */
+export async function bindExpectedJoiner(
+  vaultId: string,
+  nonce: string,
+  joinerPubkeyB64: string,
+): Promise<boolean> {
+  if (!nonce || !joinerPubkeyB64) return false;
+  const now = Date.now();
+  let bound = false;
+  await mutatePendingTokens((tokens) =>
+    tokens.map((t) => {
+      if (t.vault_id !== vaultId || t.nonce !== nonce || t.expires_at_ms <= now) return t;
+      // Already pinned to a different joiner — refuse to rebind (re-issue a QR).
+      if (t.expected_joiner_pubkey && t.expected_joiner_pubkey !== joinerPubkeyB64) return t;
+      // Already consumed (admission done): report success iff it was this joiner.
+      if (t.consumed_at_ms) {
+        bound = t.consumed_by_device_id === joinerPubkeyB64;
+        return t;
+      }
+      bound = true;
+      return { ...t, expected_joiner_pubkey: joinerPubkeyB64 };
+    }),
+  );
+  return bound;
 }
 
 /**

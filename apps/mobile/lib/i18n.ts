@@ -557,6 +557,22 @@ const en = {
 
   // Vault pair (owner side) — Phase 5 server-anchor + Phase 7 local-CA
   "vaultPair.title": "Pair a phone to this Kaata",
+  // Briar-style two-way scan — owner side (scan the joiner's code back).
+  "vaultPair.twoWay.step1": "1. Let the other phone scan this code.",
+  "vaultPair.twoWay.step2": "2. Then scan their code to finish.",
+  "vaultPair.twoWay.scanTheirCode": "Scan their code",
+  "vaultPair.twoWay.scanning.hint": "Point at the other phone's code",
+  "vaultPair.twoWay.scanAgain": "Scan again",
+  "vaultPair.twoWay.wrongCode":
+    "That's not the other phone's pairing code. Ask them to show their code, then scan it.",
+  "vaultPair.twoWay.bound.headline": "{name} can join now",
+  "vaultPair.twoWay.bound.body":
+    "Their phone is syncing. You can close this once the other phone shows it joined.",
+  "vaultPair.twoWay.bound.headlineNoName": "Their phone can join now",
+  "vaultPair.twoWay.bound.startOver": "Wrong phone? Start over",
+  "vaultPair.twoWay.camera.headline": "Allow camera",
+  "vaultPair.twoWay.camera.body": "Kaata needs the camera to scan the other phone's code.",
+  "vaultPair.twoWay.camera.allow": "Allow camera",
   "vaultPair.headline": "Pair another phone to",
   "vaultPair.instructions.local":
     "On the OTHER phone (the one you want to add):\n" +
@@ -605,6 +621,11 @@ const en = {
 
   // Vault pair (scanner side)
   "vaultPairScan.title": "Scan pairing code",
+  // Briar-style two-way scan — joiner side (show your code back to the owner).
+  "vaultPairScan.showIdentity.headline": "Show this to the shopkeeper",
+  "vaultPairScan.showIdentity.body":
+    "They scan this code to add you. Tap Continue after they've scanned it.",
+  "vaultPairScan.showIdentity.continue": "Continue",
   "vaultPairScan.permission.headline": "Camera access needed",
   "vaultPairScan.permission.body":
     "Kaata needs the camera to scan the pairing code shown on the other phone. We do not record or upload any photos.",
@@ -1362,6 +1383,21 @@ const fa: Partial<Record<Key, string>> = {
 
   // Vault pair (owner side)
   "vaultPair.title": "افزودن تلفون به این کاتا",
+  "vaultPair.twoWay.step1": "۱. بگذارید تلفون دیگر این کود را اسکن کند.",
+  "vaultPair.twoWay.step2": "۲. سپس کود آن‌ها را اسکن کنید تا تمام شود.",
+  "vaultPair.twoWay.scanTheirCode": "کود آن‌ها را اسکن کنید",
+  "vaultPair.twoWay.scanning.hint": "کمره را روی کود تلفون دیگر بگیرید",
+  "vaultPair.twoWay.scanAgain": "دوباره اسکن کنید",
+  "vaultPair.twoWay.wrongCode":
+    "این کود جفت‌سازی تلفون دیگر نیست. از آن‌ها بخواهید کودشان را نشان دهند، سپس اسکن کنید.",
+  "vaultPair.twoWay.bound.headline": "{name} اکنون می‌تواند بپیوندد",
+  "vaultPair.twoWay.bound.body":
+    "تلفون آن‌ها در حال همگام‌سازی است. وقتی تلفون دیگر «پیوست» را نشان داد می‌توانید این را ببندید.",
+  "vaultPair.twoWay.bound.headlineNoName": "تلفون آن‌ها اکنون می‌تواند بپیوندد",
+  "vaultPair.twoWay.bound.startOver": "تلفون اشتباه؟ از نو شروع کنید",
+  "vaultPair.twoWay.camera.headline": "اجازه کمره",
+  "vaultPair.twoWay.camera.body": "کاتا برای اسکن کود تلفون دیگر به کمره نیاز دارد.",
+  "vaultPair.twoWay.camera.allow": "اجازه کمره",
   "vaultPair.headline": "افزودن تلفون دیگر به",
   "vaultPair.instructions.local":
     "روی تلفون دیگر (همانی که می‌خواهید اضافه کنید):\n" +
@@ -1410,6 +1446,10 @@ const fa: Partial<Record<Key, string>> = {
 
   // Vault pair (scanner side)
   "vaultPairScan.title": "اسکن کود جفت‌سازی",
+  "vaultPairScan.showIdentity.headline": "این را به دکاندار نشان دهید",
+  "vaultPairScan.showIdentity.body":
+    "آن‌ها این کود را اسکن می‌کنند تا شما را اضافه کنند. پس از اسکن، روی ادامه بزنید.",
+  "vaultPairScan.showIdentity.continue": "ادامه",
   "vaultPairScan.permission.headline": "دسترسی دوربین لازم است",
   "vaultPairScan.permission.body":
     "کاتا برای اسکن کود جفت‌سازی روی تلفون دیگر به دوربین نیاز دارد. هیچ عکسی ذخیره یا فرستاده نمی‌شود.",

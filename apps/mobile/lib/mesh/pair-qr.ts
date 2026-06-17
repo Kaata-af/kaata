@@ -208,6 +208,77 @@ export function decodePairQr(raw: string): PairQrValidationResult {
   return { ok: true, payload };
 }
 
+// ---------------------------------------------------------------------
+// Briar-style two-way pair — JOINER IDENTITY QR (the reverse direction).
+//
+// After the joiner scans the owner's pair QR, the joiner DISPLAYS this so the
+// OWNER can scan it and pin the joiner's device pubkey OUT-OF-BAND. The owner
+// then admits ONLY a handshake whose PoP-proven key equals this scanned key
+// (local-pair.bindExpectedJoiner + the strict claimPairNonce). That closes the
+// "a sniffed/observed nonce admits an attacker instead of the legit joiner" gap
+// that one-way scan left open (documented as deferred hardening in local-pair).
+//
+// `kind: "joiner_identity"` discriminates it from the owner's pair QR (which has
+// no `kind`), so scanning the wrong code yields a clean "that's not their code"
+// error rather than a mis-parse.
+// ---------------------------------------------------------------------
+
+export type JoinerIdentityQrPayload = {
+  v: 1;
+  kind: "joiner_identity";
+  /** base64 Ed25519 device pubkey — the exact key the owner pins + admits. */
+  device_pubkey: string;
+  /** For the owner's confirmation UI ("Add <name>?"). Best-effort display only;
+   *  the chain name is stamped from the authenticated Hello, not from here. */
+  display_name: string;
+};
+
+export type JoinerIdentityValidationResult =
+  | { ok: true; payload: JoinerIdentityQrPayload }
+  | { ok: false; reason: "malformed" | "unsupported_version" | "wrong_kind" | "missing_field" };
+
+export function encodeJoinerIdentityQr(p: JoinerIdentityQrPayload): string {
+  const json = JSON.stringify(p);
+  if (json.length > PAIR_QR_MAX_PAYLOAD_BYTES) {
+    throw new Error("joiner_qr_payload_too_large");
+  }
+  return json;
+}
+
+export function decodeJoinerIdentityQr(raw: string): JoinerIdentityValidationResult {
+  if (typeof raw !== "string" || raw.length === 0) {
+    return { ok: false, reason: "malformed" };
+  }
+  if (raw.length > PAIR_QR_MAX_PAYLOAD_BYTES) {
+    return { ok: false, reason: "malformed" };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { ok: false, reason: "malformed" };
+  }
+  if (!parsed || typeof parsed !== "object") {
+    return { ok: false, reason: "malformed" };
+  }
+  const obj = parsed as Record<string, unknown>;
+  // Discriminate FIRST so an owner pair QR scanned here reports "wrong code"
+  // rather than failing a field check.
+  if (obj.kind !== "joiner_identity") {
+    return { ok: false, reason: "wrong_kind" };
+  }
+  if (obj.v !== 1) {
+    return { ok: false, reason: "unsupported_version" };
+  }
+  if (typeof obj.device_pubkey !== "string" || obj.device_pubkey.length === 0) {
+    return { ok: false, reason: "missing_field" };
+  }
+  if (typeof obj.display_name !== "string") {
+    return { ok: false, reason: "missing_field" };
+  }
+  return { ok: true, payload: obj as unknown as JoinerIdentityQrPayload };
+}
+
 /** Generate a 32-byte URL-safe base64 nonce via the platform CSPRNG. */
 export async function generateShopModeToken(): Promise<string> {
   const bytes = await Crypto.getRandomBytesAsync(32);
