@@ -87,6 +87,33 @@ const DRAG_COMMIT_FRACTION = 0.3;
 // Mid-stiffness: fast settle without overshoot.
 const RAIL_SPRING = { friction: 14, tension: 110 } as const;
 
+/**
+ * ONE sync toggle: enabling Nearby sync also turns on the native background
+ * engine (there is no foreground-only sync — sync IS background sync). Sets the
+ * bg-mesh + native-engine flags (JS app_meta + native SharedPrefs, both persist)
+ * and injects the device seed so the resident native engine can sign post-kill.
+ * Idempotent + best-effort; never throws into the toggle path.
+ */
+async function applyFullSync(enabled: boolean): Promise<void> {
+  try {
+    await setAppMeta("bg_mesh_enabled", enabled ? "1" : "0");
+    await setAppMeta("native_engine_enabled", enabled ? "1" : "0");
+    const bt = await import("../modules/kaata-bt-classic");
+    await bt.setBgMeshEnabled(enabled);
+    await bt.setNativeEngineEnabled(enabled);
+    if (enabled) {
+      const { ensureDeviceKey, getDeviceSeedB64 } = await import("../lib/mesh/device-key");
+      await ensureDeviceKey();
+      const seed = await getDeviceSeedB64();
+      if (seed) await bt.setMeshDeviceSeed(seed);
+    }
+    const { reconcileBgCatchup } = await import("../lib/mesh/bg-task");
+    await reconcileBgCatchup();
+  } catch (err) {
+    if (__DEV__) console.warn("[home] applyFullSync failed", err);
+  }
+}
+
 export default function HomeScreen() {
   const router = useRouter();
   const toast = useToast();
@@ -136,12 +163,6 @@ export default function HomeScreen() {
   const [archivedVaults, setArchivedVaults] = useState<VaultListItem[]>([]);
   const [shopModeEnabled, setShopModeEnabled] = useState(false);
   const [shopModeBusy, setShopModeBusy] = useState(false);
-  // #43 P2 — background-sync toggle. Local app_meta flip (mirrored to the native
-  // KaataBgMeshGate) so a swipe-killed app keeps syncing. Survives check-ins
-  // because the backend omits bg_mesh_enabled (the mirror only overwrites when the
-  // response carries it). Default OFF.
-  const [bgMeshEnabled, setBgMeshEnabled] = useState(false);
-  const [bgMeshBusy, setBgMeshBusy] = useState(false);
   // Cloud backup channel — default ON when the key is unset (existing signed-in
   // installs synced unconditionally before the toggle). See AutoSync gate.
   const [cloudSyncEnabled, setCloudSyncEnabled] = useState(true);
@@ -197,7 +218,7 @@ export default function HomeScreen() {
     // previously meant setLoaded(true) never ran — an infinite spinner on
     // the ROOT screen with no retry and no back.
     try {
-      const [s, list, user, vaultId, accId, shopRaw, cloudRaw, bgMeshRaw] = await Promise.all([
+      const [s, list, user, vaultId, accId, shopRaw, cloudRaw] = await Promise.all([
         getLocalSelf(),
         listAllPeople(),
         getSessionUser(),
@@ -205,7 +226,6 @@ export default function HomeScreen() {
         getAppMeta("account_id"),
         getAppMeta("shop_mode_enabled"),
         getAppMeta("cloud_sync_enabled"),
-        getAppMeta("bg_mesh_enabled"),
       ]);
       setSelf(s);
       setAllPeople(list);
@@ -214,7 +234,6 @@ export default function HomeScreen() {
       setActiveAccountId(accId);
       setShopModeEnabled(shopRaw === "1");
       setCloudSyncEnabled(cloudRaw == null ? true : cloudRaw === "1");
-      setBgMeshEnabled(bgMeshRaw === "1");
 
       // D-ARCHIVED-VAULT-FILTER: helpers in lib/db.ts return the two slices
       // separately. Loading them in parallel keeps the first paint snappy.
@@ -793,8 +812,6 @@ export default function HomeScreen() {
         }}
         shopModeEnabled={shopModeEnabled}
         shopModeBusy={shopModeBusy}
-        bgMeshEnabled={bgMeshEnabled}
-        bgMeshBusy={bgMeshBusy}
         cloudSyncEnabled={cloudSyncEnabled}
         cloudSyncBusy={cloudSyncBusy}
         syncBusy={syncBusy}
@@ -919,12 +936,9 @@ export default function HomeScreen() {
                 }
               }
               await mesh.startShopMode();
-              // UX critique #13: the 12-hour auto-off is documented in
-              // the hint copy but easy to miss. Confirm it explicitly on
-              // toggle-on so the user knows their phone won't broadcast
-              // forever. Skipped when the host opted into the battery
-              // exemption dialog path above (its own confirm covers the
-              // user mental model already).
+              // ONE toggle: also turn on the native background engine + inject
+              // the signing seed (sync IS background sync).
+              await applyFullSync(true);
               toast.push(t("menu.sync.shopMode.startedToast"), "success");
             } else {
               // userInitiated: this is the ONE path that clears the persisted
@@ -932,6 +946,7 @@ export default function HomeScreen() {
               // writes "0". Every other stop preserves intent so the mesh
               // auto-resumes on the next launch.
               await mesh.stopShopMode({ userInitiated: true });
+              await applyFullSync(false);
             }
           } catch (err) {
             const terminal = err instanceof Error && err.name === "ShopModeNotAvailableError";
@@ -951,62 +966,6 @@ export default function HomeScreen() {
             }
           } finally {
             setShopModeBusy(false);
-          }
-        }}
-        onToggleBgMesh={async (next) => {
-          // #43 P2 local enable for testing. Flips app_meta (JS reads it) AND
-          // mirrors to the native KaataBgMeshGate SharedPrefs so the killed-app
-          // HeadlessJS entry — which can't read the JS DB post-kill — sees it.
-          // Then reconciles the periodic catch-up registration. Same mechanism
-          // the check-in path uses; here it's user-driven instead of backend-
-          // driven. Survives check-ins (backend omits bg_mesh_enabled).
-          if (bgMeshBusy) return;
-          setBgMeshBusy(true);
-          setBgMeshEnabled(next); // optimistic — the Switch flip is the feedback
-          try {
-            await setAppMeta("bg_mesh_enabled", next ? "1" : "0");
-            try {
-              const bt = await import("../modules/kaata-bt-classic");
-              await bt.setBgMeshEnabled(next);
-            } catch (err) {
-              if (__DEV__) console.warn("[home] bg mesh native mirror failed", err);
-            }
-            try {
-              const { reconcileBgCatchup } = await import("../lib/mesh/bg-task");
-              await reconcileBgCatchup();
-            } catch (err) {
-              if (__DEV__) console.warn("[home] reconcileBgCatchup failed", err);
-            }
-            // CUTOVER TEST: this toggle also drives the native MeshEngine
-            // (native_engine_enabled) + injects the device seed so the post-kill
-            // engine can sign PoP. ON => background sync runs as the resident
-            // native engine (Briar-model, OEM-agnostic) instead of headless JS;
-            // OFF => disables both. (Until the backend emits native_engine_enabled,
-            // this user-driven flip is how the cutover is exercised.)
-            try {
-              const bt = await import("../modules/kaata-bt-classic");
-              await setAppMeta("native_engine_enabled", next ? "1" : "0");
-              await bt.setNativeEngineEnabled(next);
-              if (next) {
-                const { ensureDeviceKey, getDeviceSeedB64 } =
-                  await import("../lib/mesh/device-key");
-                await ensureDeviceKey();
-                const seed = await getDeviceSeedB64();
-                if (seed) await bt.setMeshDeviceSeed(seed);
-              }
-            } catch (err) {
-              if (__DEV__) console.warn("[home] native engine enable failed", err);
-            }
-            toast.push(
-              next ? t("menu.sync.bgSync.onToast") : t("menu.sync.bgSync.offToast"),
-              "success",
-            );
-          } catch (err) {
-            setBgMeshEnabled(!next); // revert
-            toast.push(t("menu.sync.bgSync.failed"), "error");
-            if (__DEV__) console.warn("[home] bg mesh toggle failed", err);
-          } finally {
-            setBgMeshBusy(false);
           }
         }}
         onToggleCloudSync={async (next) => {
@@ -1130,6 +1089,8 @@ export default function HomeScreen() {
           try {
             await setAppMeta("shop_mode_enabled", "1");
             setShopModeEnabled(true);
+            // ONE toggle: enable the native background engine + seed too.
+            await applyFullSync(true);
             await Linking.openSettings().catch(() => {
               /* user can navigate manually */
             });

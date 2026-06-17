@@ -94,9 +94,6 @@ export function ProfileSettingsSheet(props: {
   // Sync state
   shopModeEnabled: boolean;
   shopModeBusy?: boolean;
-  // #43 P2 — background-sync toggle (Android-only). Nested under Nearby sync.
-  bgMeshEnabled: boolean;
-  bgMeshBusy?: boolean;
   cloudSyncEnabled: boolean;
   cloudSyncBusy?: boolean;
   syncBusy?: boolean;
@@ -130,7 +127,6 @@ export function ProfileSettingsSheet(props: {
 
   // Sync
   onToggleShopMode: (next: boolean) => void;
-  onToggleBgMesh: (next: boolean) => void;
   onToggleCloudSync: (next: boolean) => void;
   onSyncNow: () => void;
   onRestoreFromCloud: () => void;
@@ -498,46 +494,6 @@ export function ProfileSettingsSheet(props: {
                   }}
                 />
               </View>
-
-              {/* #43 P2 — Background sync. Nested under Nearby sync: it requires
-                  shop mode (the bg path is gated on shop_mode_enabled too), so it
-                  only appears once Nearby sync is on. Android-only (the killed-app
-                  HeadlessJS + periodic catch-up are Android mechanisms). */}
-              {Platform.OS === "android" && props.shopModeEnabled ? (
-                <View style={[styles.toggleRow, rowDir(isRTL)]}>
-                  <Ionicons
-                    name="moon-outline"
-                    size={SETTINGS_ROW_ICON_SIZE}
-                    color={colors.textEmphasis}
-                    style={
-                      isRTL
-                        ? { marginLeft: SETTINGS_ROW_ICON_GAP }
-                        : { marginRight: SETTINGS_ROW_ICON_GAP }
-                    }
-                  />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.toggleTitle, textDir(isRTL)]}>
-                      {t("menu.sync.bgSync")}
-                    </Text>
-                    <Text style={[styles.toggleHint, textDir(isRTL)]}>
-                      {props.bgMeshEnabled
-                        ? t("menu.sync.bgSync.hint")
-                        : t("menu.sync.bgSync.hintOff")}
-                    </Text>
-                  </View>
-                  <Switch
-                    value={props.bgMeshEnabled}
-                    onValueChange={props.onToggleBgMesh}
-                    disabled={!!props.bgMeshBusy}
-                    accessibilityRole="switch"
-                    accessibilityLabel={t("menu.sync.bgSync")}
-                    accessibilityState={{
-                      checked: props.bgMeshEnabled,
-                      disabled: !!props.bgMeshBusy,
-                    }}
-                  />
-                </View>
-              ) : null}
 
               {/* Cloud backup toggle + Sync to cloud / Restore — signed-in only. */}
               {liveAccountId ? (
