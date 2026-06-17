@@ -152,6 +152,49 @@ class MeshDb private constructor(private val db: SQLiteDatabase) {
     return out
   }
 
+  data class Vault(val id: String, val anchorPubkeyB64: String)
+
+  data class KnownPeer(val deviceId: String, val mac: String, val lastSeenAt: Long)
+
+  /** Vaults the engine can sync: chain-anchored + not archived. */
+  fun listSyncableVaults(): List<Vault> {
+    val out = ArrayList<Vault>()
+    db.rawQuery(
+      "SELECT id, vault_trust_anchor_pubkey FROM vaults " +
+        "WHERE vault_trust_anchor_pubkey IS NOT NULL AND archived_at IS NULL",
+      null,
+    ).use { c ->
+      while (c.moveToNext()) if (!c.isNull(1)) out.add(Vault(c.getString(0), c.getString(1)))
+    }
+    return out
+  }
+
+  /** Cached dialable peer MACs for a vault (app_meta btc_known_peers, recent-first). */
+  fun knownPeers(vaultId: String): List<KnownPeer> {
+    val raw = getAppMeta("btc_known_peers") ?: return emptyList()
+    val out = ArrayList<KnownPeer>()
+    try {
+      val arr = org.json.JSONArray(raw)
+      for (i in 0 until arr.length()) {
+        val o = arr.optJSONObject(i) ?: continue
+        if (o.optString("vaultId") == vaultId) {
+          out.add(KnownPeer(o.optString("deviceId"), o.optString("mac"), o.optLong("lastSeenAt")))
+        }
+      }
+    } catch (e: Throwable) {
+      /* corrupt blob -> empty */
+    }
+    out.sortByDescending { it.lastSeenAt }
+    return out
+  }
+
+  /** Classic MAC shape, rejecting the all-zero + Android-masked sentinels
+   *  (btc-peers.ts isDialableMac). */
+  fun isDialableMac(mac: String): Boolean {
+    if (!Regex("^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$").matches(mac)) return false
+    return mac != "00:00:00:00:00:00" && mac != "02:00:00:00:00:00"
+  }
+
   // --- write / ingest side (mirrors anti-entropy.ts applyIncomingBatch) -------
 
   fun getAppMeta(key: String): String? {
@@ -161,6 +204,49 @@ class MeshDb private constructor(private val db: SQLiteDatabase) {
   }
 
   fun installId(): String? = getAppMeta("install_id")
+
+  fun setAppMeta(key: String, value: String) {
+    db.execSQL(
+      "INSERT INTO app_meta (key, value) VALUES (?, ?) " +
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      arrayOf<Any?>(key, value),
+    )
+  }
+
+  private val peersLock = Any()
+
+  /** Upsert (vaultId, deviceId) -> mac into btc_known_peers (post-handshake), so
+   *  future windows dial the peer directly. Matches btc-peers.ts addKnownPeer. */
+  fun addKnownPeer(vaultId: String, deviceId: String, mac: String) {
+    if (vaultId.isEmpty() || deviceId.isEmpty() || !isDialableMac(mac)) return
+    synchronized(peersLock) {
+      val raw = getAppMeta("btc_known_peers")
+      val arr =
+        try {
+          if (raw != null) org.json.JSONArray(raw) else org.json.JSONArray()
+        } catch (e: Throwable) {
+          org.json.JSONArray()
+        }
+      val kept = org.json.JSONArray()
+      for (i in 0 until arr.length()) {
+        val o = arr.optJSONObject(i) ?: continue
+        if (o.optString("vaultId") == vaultId && o.optString("deviceId") == deviceId) {
+          if (o.optString("mac") == mac) return // unchanged — skip the write
+          continue // drop the stale mapping; re-added below
+        }
+        kept.put(o)
+      }
+      kept.put(
+        JSONObject().apply {
+          put("vaultId", vaultId)
+          put("deviceId", deviceId)
+          put("mac", mac)
+          put("lastSeenAt", System.currentTimeMillis())
+        },
+      )
+      setAppMeta("btc_known_peers", kept.toString())
+    }
+  }
 
   fun countUnknownActorQuarantine(vaultId: String, deviceId: String): Int {
     db.rawQuery(
