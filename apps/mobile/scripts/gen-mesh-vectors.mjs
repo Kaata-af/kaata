@@ -114,6 +114,34 @@ function splitIntoBatches(ranges, batchSize) {
   if (current.length > 0) batches.push(current);
   return batches;
 }
+// --- HLC (copied verbatim from lib/hlc.ts) ---
+const MAX_FORWARD_DRIFT_MS = 60_000;
+function tickReceive(prev, remote, nowMs, deviceId) {
+  const last = prev ?? { pms: 0, l: 0, did: deviceId };
+  const remotePms = remote.pms - nowMs > MAX_FORWARD_DRIFT_MS ? nowMs : remote.pms;
+  const maxPms = Math.max(nowMs, last.pms, remotePms);
+  if (maxPms > last.pms && maxPms > remotePms) return { pms: maxPms, l: 0, did: deviceId };
+  if (maxPms === last.pms && maxPms === remotePms) return { pms: maxPms, l: Math.max(last.l, remote.l) + 1, did: deviceId };
+  if (maxPms === last.pms) return { pms: last.pms, l: last.l + 1, did: deviceId };
+  return { pms: remotePms, l: remote.l + 1, did: deviceId };
+}
+function compareHLC(a, b) {
+  if (a.pms !== b.pms) return a.pms - b.pms;
+  if (a.l !== b.l) return a.l - b.l;
+  if (a.did < b.did) return -1;
+  if (a.did > b.did) return 1;
+  return 0;
+}
+const sign = (n) => (n < 0 ? -1 : n > 0 ? 1 : 0);
+const hlc = {
+  recv_same_ms: tickReceive({ pms: 100, l: 2, did: "d1" }, { pms: 100, l: 5, did: "d2" }, 100, "d1"),
+  recv_remote_ahead: tickReceive({ pms: 100, l: 2, did: "d1" }, { pms: 200, l: 0, did: "d2" }, 150, "d1"),
+  recv_drift_clamp: tickReceive({ pms: 100, l: 0, did: "d1" }, { pms: 1000000, l: 0, did: "d2" }, 100, "d1"),
+  cmp_l: sign(compareHLC({ pms: 100, l: 2, did: "a" }, { pms: 100, l: 3, did: "a" })),
+  cmp_did: sign(compareHLC({ pms: 100, l: 2, did: "a" }, { pms: 100, l: 2, did: "b" })),
+  cmp_pms: sign(compareHLC({ pms: 200, l: 0, did: "a" }, { pms: 100, l: 9, did: "b" })),
+};
+
 const planner = {
   contiguous_135_56: computeContiguous([1, 3, 5, 6]),
   contiguous_23: computeContiguous([2, 3]),
@@ -125,6 +153,7 @@ const planner = {
 console.log(
   JSON.stringify(
     {
+      hlc,
       planner,
       ed25519: { seedHex: hex(edSeed), pubB64Std: b64(edPub), msgUtf8: edMsg.toString("utf8"), sigB64Std: b64(edSig) },
       x25519: { privAHex: hex(xPrivA), privBHex: hex(xPrivB), pubAHex: hex(xPubA), pubBHex: hex(xPubB), sharedHex: hex(xShared) },

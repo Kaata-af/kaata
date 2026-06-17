@@ -122,6 +122,29 @@ class MeshCryptoParityTest {
     assertTrue(MeshEventSig.verifyEventSignature(canon, eventSigB64, edPubB64))
   }
 
+  private fun sign(n: Int) = if (n < 0) -1 else if (n > 0) 1 else 0
+
+  @Test
+  fun hlc_matches_js() {
+    assertEquals(
+      MeshHlc.Hlc(100L, 6L, "d1"),
+      MeshHlc.tickReceive(MeshHlc.Hlc(100L, 2L, "d1"), MeshHlc.Hlc(100L, 5L, "d2"), 100L, "d1"),
+    )
+    assertEquals(
+      MeshHlc.Hlc(200L, 1L, "d1"),
+      MeshHlc.tickReceive(MeshHlc.Hlc(100L, 2L, "d1"), MeshHlc.Hlc(200L, 0L, "d2"), 150L, "d1"),
+    )
+    assertEquals(
+      MeshHlc.Hlc(100L, 1L, "d1"),
+      MeshHlc.tickReceive(MeshHlc.Hlc(100L, 0L, "d1"), MeshHlc.Hlc(1000000L, 0L, "d2"), 100L, "d1"),
+    )
+    assertEquals(-1, sign(MeshHlc.compareHLC(MeshHlc.Hlc(100L, 2L, "a"), MeshHlc.Hlc(100L, 3L, "a"))))
+    assertEquals(-1, sign(MeshHlc.compareHLC(MeshHlc.Hlc(100L, 2L, "a"), MeshHlc.Hlc(100L, 2L, "b"))))
+    assertEquals(1, sign(MeshHlc.compareHLC(MeshHlc.Hlc(200L, 0L, "a"), MeshHlc.Hlc(100L, 9L, "b"))))
+    val s = MeshHlc.serialize(MeshHlc.Hlc(100L, 6L, "d1"))
+    assertEquals(MeshHlc.Hlc(100L, 6L, "d1"), MeshHlc.deserialize(s))
+  }
+
   @Test
   fun planner_matches_js() {
     // computeContiguous (vectors from gen-mesh-vectors.mjs)
