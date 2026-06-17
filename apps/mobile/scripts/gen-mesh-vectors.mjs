@@ -7,6 +7,7 @@ import { sha512 } from "@noble/hashes/sha512";
 import { hkdf } from "@noble/hashes/hkdf";
 import { x25519 } from "@noble/curves/ed25519";
 import { chacha20poly1305 } from "@noble/ciphers/chacha";
+import { sha256 } from "@noble/hashes/sha2";
 import * as ed from "@noble/ed25519";
 
 ed.etc.sha512Sync = (...m) => sha512(ed.etc.concatBytes(...m));
@@ -150,9 +151,33 @@ const planner = {
   batches: splitIntoBatches([{ device_id: "a", from_seq: 1, to_seq: 5 }], 2),
 };
 
+// --- PoP v3 transcript (anti-entropy.ts buildPopMessageV3) ---
+function buildPopMessageV3(ids, popNonce, ownPub, peerPub) {
+  const enc = new TextEncoder();
+  const d = enc.encode("kaata-pop-v3");
+  const h = sha256(enc.encode([...ids].sort().join("\n")));
+  const n = enc.encode(popNonce);
+  const out = new Uint8Array(d.length + h.length + n.length + ownPub.length + peerPub.length);
+  let off = 0;
+  out.set(d, off); off += d.length;
+  out.set(h, off); off += h.length;
+  out.set(n, off); off += n.length;
+  out.set(ownPub, off); off += ownPub.length;
+  out.set(peerPub, off);
+  return out;
+}
+const pop = {
+  bundle: ["evt-b", "evt-a", "evt-c"],
+  popNonce: "nonce123",
+  ownPubHex: hex(fill(32, 0x33)),
+  peerPubHex: hex(fill(32, 0x44)),
+  transcriptHex: hex(buildPopMessageV3(["evt-b", "evt-a", "evt-c"], "nonce123", fill(32, 0x33), fill(32, 0x44))),
+};
+
 console.log(
   JSON.stringify(
     {
+      pop,
       hlc,
       planner,
       ed25519: { seedHex: hex(edSeed), pubB64Std: b64(edPub), msgUtf8: edMsg.toString("utf8"), sigB64Std: b64(edSig) },

@@ -122,6 +122,24 @@ class MeshCryptoParityTest {
     assertTrue(MeshEventSig.verifyEventSignature(canon, eventSigB64, edPubB64))
   }
 
+  @Test
+  fun pop_transcript_matches_js() {
+    val transcript =
+      MeshHandshake.buildPopMessageV3(
+        listOf("evt-b", "evt-a", "evt-c"),
+        "nonce123",
+        ByteArray(32) { 0x33.toByte() },
+        ByteArray(32) { 0x44.toByte() },
+      )
+    assertEquals(
+      "6b616174612d706f702d76331ad368e097d0d51fd3c67d1c86d2ec65736bc07d4cb2e0afaaa0ada19051c7d3" +
+        "6e6f6e6365313233" +
+        "3333333333333333333333333333333333333333333333333333333333333333" +
+        "4444444444444444444444444444444444444444444444444444444444444444",
+      toHex(transcript),
+    )
+  }
+
   private fun sign(n: Int) = if (n < 0) -1 else if (n > 0) 1 else 0
 
   @Test
