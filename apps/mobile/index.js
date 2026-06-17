@@ -41,5 +41,8 @@ import "./lib/mesh/bg-task";
 // as bg-task. Native KaataMeshHeadlessService spawns it post-swipe-kill; gated by
 // the Phase 0 kill-switch + cross-VM heartbeat so it's dark by default.
 import "./lib/mesh/headless-entry";
+// #46: per-sync notifications. Subscribes to ledger-applied at load so it's active
+// in both the foreground (when backgrounded) and the headless context.
+import "./lib/mesh/bg-notify";
 // eslint-disable-next-line import/no-unresolved
 import "expo-router/entry";
