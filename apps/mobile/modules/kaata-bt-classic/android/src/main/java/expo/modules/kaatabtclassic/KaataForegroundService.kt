@@ -83,29 +83,71 @@ class KaataForegroundService : Service() {
     // (JS alive) doesn't immediately spawn a redundant headless window.
     private const val BG_TICK_MS = 90_000L
     private const val BG_TICK_FIRST_MS = 30_000L
+
+    // Renewable-wakelock cadence (ported from Briar dont-kill-me-lib
+    // AndroidWakeLockManagerImpl): rotate the lock every minute, each acquire
+    // timed at duration+margin, so an OEM "wake lock held too long" killer
+    // (Huawei PowerGenie etc.) never sees a single long-held lock to drop.
+    private const val LOCK_DURATION_MS = 60_000L
+    private const val SAFETY_MARGIN_MS = 30_000L
   }
 
-  // Partial wakelock held for the service's whole foreground lifetime, like
-  // Briar (which wraps its FGS in dont-kill-me-lib's wakeLockManager). Without it,
-  // Doze-aggressive OEMs (MIUI/EMUI) can freeze the process CPU even with a
-  // foreground notification, and the process is a softer kill target on swipe.
+  // RENEWABLE partial wakelock — direct port of Briar's dont-kill-me-lib
+  // RenewableWakeLock + AndroidWakeLockManagerImpl. Instead of one long-held lock
+  // (which aggressive OEM power managers flag as "held too long" and silently
+  // drop, lowering our process priority and making us a soft kill target on
+  // swipe), we hold a SHORT timed lock and swap it for a fresh one every
+  // LOCK_DURATION_MS — acquiring the new one BEFORE releasing the old (zero gap).
+  // The tag is disguised as a system service the known OEM killers whitelist.
   private var wakeLock: PowerManager.WakeLock? = null
+  private val wakeHandler = Handler(Looper.getMainLooper())
+  private var wakeRenewScheduled = false
+
+  private val renewWakeLock =
+    object : Runnable {
+      override fun run() {
+        try {
+          val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+          val fresh =
+            pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, wakeLockTag()).apply {
+              setReferenceCounted(false)
+              acquire(LOCK_DURATION_MS + SAFETY_MARGIN_MS)
+            }
+          val old = wakeLock
+          wakeLock = fresh
+          try {
+            if (old?.isHeld == true) old.release()
+          } catch (e: Throwable) {
+            Log.w(TAG, "release old wakelock failed", e)
+          }
+        } catch (e: Throwable) {
+          Log.w(TAG, "renew wakelock failed", e)
+        }
+        wakeHandler.postDelayed(this, LOCK_DURATION_MS)
+      }
+    }
 
   private fun acquireWakeLock() {
-    if (wakeLock?.isHeld == true) return
+    if (wakeRenewScheduled) return
     try {
       val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
       wakeLock =
-        pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "kaata:mesh-fgs").apply {
+        pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, wakeLockTag()).apply {
           setReferenceCounted(false)
-          acquire()
+          // Timed acquire (duration + margin), like Briar — a self-releasing
+          // safety net if renew somehow never runs.
+          acquire(LOCK_DURATION_MS + SAFETY_MARGIN_MS)
         }
+      wakeRenewScheduled = true
+      wakeHandler.postDelayed(renewWakeLock, LOCK_DURATION_MS)
     } catch (e: Throwable) {
       Log.w(TAG, "acquireWakeLock failed", e)
     }
   }
 
   private fun releaseWakeLock() {
+    wakeHandler.removeCallbacks(renewWakeLock)
+    wakeRenewScheduled = false
     try {
       wakeLock?.let { if (it.isHeld) it.release() }
     } catch (e: Throwable) {
@@ -113,6 +155,32 @@ class KaataForegroundService : Service() {
     }
     wakeLock = null
   }
+
+  /**
+   * Disguise the wakelock tag as a system service the known OEM power-managers
+   * whitelist, so our lock isn't ignored/killed (port of dont-kill-me-lib
+   * AndroidWakeLockManagerImpl.getWakeLockTag): Huawei PowerGenie ->
+   * "LocationManagerService"; Evenwell/Asus -> "AudioIn"; else our package name.
+   */
+  private fun wakeLockTag(): String =
+    try {
+      val pm = packageManager
+      when {
+        isInstalled(pm, "com.huawei.powergenie") -> "LocationManagerService"
+        isInstalled(pm, "com.evenwell.PowerMonitor") -> "AudioIn"
+        else -> packageName
+      }
+    } catch (e: Throwable) {
+      packageName
+    }
+
+  private fun isInstalled(pm: android.content.pm.PackageManager, pkg: String): Boolean =
+    try {
+      pm.getPackageInfo(pkg, 0)
+      true
+    } catch (e: Throwable) {
+      false
+    }
 
   // #43 P2: spawn a bounded headless mesh window on a tick so a SWIPE-KILLED phone
   // keeps syncing (this FGS survives swipe-kill via START_STICKY + stopWithTask
