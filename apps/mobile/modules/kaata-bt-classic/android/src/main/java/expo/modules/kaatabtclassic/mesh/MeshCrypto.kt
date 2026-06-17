@@ -73,6 +73,16 @@ object MeshCrypto {
     return out
   }
 
+  /** HMAC-SHA256 (vault-digest.ts daily digest). */
+  fun hmacSha256(key: ByteArray, msg: ByteArray): ByteArray {
+    val mac = org.bouncycastle.crypto.macs.HMac(SHA256Digest())
+    mac.init(KeyParameter(key))
+    mac.update(msg, 0, msg.size)
+    val out = ByteArray(mac.macSize)
+    mac.doFinal(out, 0)
+    return out
+  }
+
   // --- Ed25519 identity (device-key.ts) -------------------------------------
   /** 32-byte Ed25519 public key from a 32-byte seed (== @noble getPublicKey). */
   fun ed25519PublicKeyFromSeed(seed: ByteArray): ByteArray {

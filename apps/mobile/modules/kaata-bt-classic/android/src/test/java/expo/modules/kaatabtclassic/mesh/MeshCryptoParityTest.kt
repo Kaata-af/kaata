@@ -140,6 +140,19 @@ class MeshCryptoParityTest {
     )
   }
 
+  @Test
+  fun discovery_matches_js() {
+    assertEquals("GPcBDytrX3E", MeshDiscovery.vaultDigest("vault-x", 20000L))
+    assertEquals(
+      "ad64840f-f91a-25e0-2261-45788bfdb85f",
+      MeshDiscovery.deriveRfcommUuid("steady:test"),
+    )
+    assertEquals(
+      "ae526168-3e2c-5050-fb47-bffc87918331",
+      MeshDiscovery.steadyUuid("vault-x", 20000L),
+    )
+  }
+
   private fun sign(n: Int) = if (n < 0) -1 else if (n > 0) 1 else 0
 
   @Test

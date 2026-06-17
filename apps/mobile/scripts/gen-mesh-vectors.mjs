@@ -8,6 +8,7 @@ import { hkdf } from "@noble/hashes/hkdf";
 import { x25519 } from "@noble/curves/ed25519";
 import { chacha20poly1305 } from "@noble/ciphers/chacha";
 import { sha256 } from "@noble/hashes/sha2";
+import { hmac } from "@noble/hashes/hmac";
 import * as ed from "@noble/ed25519";
 
 ed.etc.sha512Sync = (...m) => sha512(ed.etc.concatBytes(...m));
@@ -174,9 +175,28 @@ const pop = {
   transcriptHex: hex(buildPopMessageV3(["evt-b", "evt-a", "evt-c"], "nonce123", fill(32, 0x33), fill(32, 0x44))),
 };
 
+// --- discovery (transport-btc.ts deriveRfcommUuid + vault-digest.ts) ---
+function vaultDigest(vaultId, day) {
+  const key = new TextEncoder().encode(vaultId);
+  const msg = new TextEncoder().encode("kaata-mesh-day:" + String(day));
+  const mac = hmac(sha256, key, msg);
+  return b64url(mac.slice(0, 8));
+}
+function deriveRfcommUuid(secret) {
+  const h = sha256(new TextEncoder().encode("kaata-rfcomm-uuid:" + secret));
+  const hx = Array.from(h.slice(0, 16)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hx.slice(0,8)}-${hx.slice(8,12)}-${hx.slice(12,16)}-${hx.slice(16,20)}-${hx.slice(20,32)}`;
+}
+const discovery = {
+  digest_vaultx_20000: vaultDigest("vault-x", 20000),
+  uuid_steadytest: deriveRfcommUuid("steady:test"),
+  steadyUuid_vaultx_20000: deriveRfcommUuid("steady:" + vaultDigest("vault-x", 20000)),
+};
+
 console.log(
   JSON.stringify(
     {
+      discovery,
       pop,
       hlc,
       planner,
