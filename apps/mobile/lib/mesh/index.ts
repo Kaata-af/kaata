@@ -604,8 +604,12 @@ async function teardownRadios(opts: { skipFGS?: boolean } = {}): Promise<void> {
   }
   // M-BTC-3.3: stop steady-state Bluetooth Classic sync (listeners + dial loop).
   try {
-    const { stopBtcSteadySync } = await import("./btc-steady");
+    const { stopBtcSteadySync, resetPairPause } = await import("./btc-steady");
     await stopBtcSteadySync();
+    // A genuine teardown means no pair screen is live — clear any pair-pause that
+    // lost its resume (interrupted attempt) so a stuck count can't keep steady
+    // parked for ~6 min on the next start.
+    resetPairPause();
   } catch (err) {
     if (__DEV__) console.warn("[mesh] BTC steady-state stop threw, continuing", err);
   }

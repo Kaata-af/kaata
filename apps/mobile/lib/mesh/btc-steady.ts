@@ -478,6 +478,18 @@ export async function startBtcSteadySync(opts: { vaultIds: string[] }): Promise<
     });
 }
 
+/**
+ * Force the pair-pause balance to zero. Called on a genuine teardown (Nearby sync
+ * toggled off / background handoff): a pair pause whose resume was missed (an
+ * interrupted/abandoned attempt) would otherwise keep steady parked until the
+ * 360s safety timer. A full teardown means no pair screen is live, so a hard reset
+ * is safe and removes the minutes-long stall. Also clears the native pause gate.
+ */
+export function resetPairPause(): void {
+  pairPauseCount = 0;
+  void setPairingActive(false).catch(() => {});
+}
+
 /** Stop steady-state sync (idempotent). In-flight sessions drain on their own. */
 export async function stopBtcSteadySync(): Promise<void> {
   const s = steady;

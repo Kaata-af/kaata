@@ -41,6 +41,13 @@ const DISCOVERABLE_SEC = 300;
 // cleanup), auto-resume the steady loop after this long so sync can't stay
 // paused forever. Slightly longer than the discoverable window.
 const PAIR_PAUSE_SAFETY_MS = 360_000;
+// After a pair SESSION completes (success or not), resume steady this soon —
+// unless another attempt re-arms it (retries reset it, so we never resume
+// mid-retry and re-introduce radio contention). Bridges the gap where the owner's
+// side of a successful pair reported ok=false and the success-only resume didn't
+// fire. Must be > the joiner's dial-retry backoff so a retry sequence keeps it
+// armed; the joiner retries every ~1.5s, so 12s comfortably spans the gaps.
+const POST_RESULT_RESUME_MS = 12_000;
 // Cap the pair handshake+delta. The default is 5min; a hung peer would otherwise
 // pin the steady-sync pause (joiner) / the host listener that long. 60s is ample
 // for a pair + initial ledger transfer.
@@ -93,16 +100,35 @@ export async function hostPairOverBtc(opts: {
   const { pauseBtcSteadyForPairing, resumeBtcSteadyForPairing } = await import("./btc-steady");
   await pauseBtcSteadyForPairing();
   let resumed = false;
+  let resumeTimer: ReturnType<typeof setTimeout> | null = null;
   const doResume = () => {
     if (resumed) return;
     resumed = true;
+    if (resumeTimer) {
+      clearTimeout(resumeTimer);
+      resumeTimer = null;
+    }
     // resumeBtcSteadyForPairing is async (it restarts steady + re-opens the
     // listeners the pause closed). doResume is called from sync contexts (the
-    // safety-timer + the listener-throw catch), so fire-and-forget; resume wraps
+    // resume-timer + the listener-throw catch), so fire-and-forget; resume wraps
     // its restart in its own try/catch so this can never reject.
     void resumeBtcSteadyForPairing().catch(() => {});
   };
-  const safetyTimer = setTimeout(doResume, PAIR_PAUSE_SAFETY_MS);
+  // Re-armable resume so steady can't stay paused for minutes after a pair. The
+  // initial arm is the long "no joiner ever / missed stop()" failsafe. After ANY
+  // session completes we re-arm a SHORT timer: retries keep resetting it (so we
+  // never resume mid-retry and re-introduce radio contention), but once attempts
+  // STOP — the pair succeeded, or the joiner gave up — steady resumes within
+  // seconds instead of waiting out the 360s failsafe. Fixes the "paired but the
+  // owner's new edits don't sync for ~6 min" bug, where the owner's side of a
+  // successful pair reported ok=false (joiner admitted, then closed the socket)
+  // so the success-only doResume never fired.
+  const rearmResume = (ms: number) => {
+    if (resumed) return;
+    if (resumeTimer) clearTimeout(resumeTimer);
+    resumeTimer = setTimeout(doResume, ms);
+  };
+  rearmResume(PAIR_PAUSE_SAFETY_MS);
 
   let listener: BtcListenerHandle;
   try {
@@ -112,21 +138,19 @@ export async function hostPairOverBtc(opts: {
       onConnection: (conn) => {
         void runPairSession(conn, opts.vaultId, anchor).then((o) => {
           opts.onResult?.(o);
-          // First successful pair ENDS the useful pair window: the QR pair nonce
-          // is single-use (consumePairNonce after admission), so no second joiner
-          // can use this QR. Resume steady NOW (once-guarded) so the just-paired
-          // vault's steady listener comes back up and it syncs promptly — WITHOUT
-          // the owner having to leave the QR screen first (the "paired but doesn't
-          // sync while I'm still on the pair screen" bug). Seesaw-safe: pairing
-          // already succeeded, so there's no active pair inquiry for steady's dial
-          // to cross-cancel; the pair listener itself stays up (harmless) until
-          // the screen-leave stop().
+          // The QR pair nonce is single-use (consumePairNonce after admission), so
+          // a completed session ends the useful pair window. On a clean success,
+          // resume steady NOW so the just-paired vault syncs promptly. On a not-ok
+          // result (incl. the asymmetric case where the joiner got admitted but the
+          // owner saw a late close), DON'T resume immediately — a retry may follow
+          // — but re-arm the short timer so steady comes back in seconds once the
+          // attempts stop, not after the 360s failsafe.
           if (o.ok) doResume();
+          else rearmResume(POST_RESULT_RESUME_MS);
         });
       },
     });
   } catch (err) {
-    clearTimeout(safetyTimer);
     doResume();
     throw err;
   }
@@ -142,8 +166,7 @@ export async function hostPairOverBtc(opts: {
 
   return {
     stop: async () => {
-      clearTimeout(safetyTimer);
-      doResume();
+      doResume(); // clears resumeTimer + resumes steady (once-guarded)
       await listener.stop();
     },
   };
