@@ -220,6 +220,18 @@ let pendingRestartVaultIds: string[] | null = null;
 // within ~150ms of pairPauseCount going >0; this is just the safety ceiling.
 const PAIR_RADIO_WAIT_MS = 4_000;
 
+// Coalesce the steady restart after a pair. A RETRYING pair calls joinPairOverBtc
+// (joiner) over and over — each call balances pause→resume, so steady would fully
+// restart (close + reopen EVERY listener; 24 of them on a 12-vault test phone)
+// between each ~1.5s retry. That restart's teardown closes the socket the peer
+// JUST connected → "send/recv on closed BTC connection" kills both the steady
+// session AND the pair handshake mid-flight (the restart-loop the diagnostics
+// caught). Debounce: only restart once the pause/resume cycling actually STOPS
+// (pairing settled). Must exceed the joiner's retry gap so a retry burst stays
+// collapsed into a single restart.
+const RESUME_RESTART_DEBOUNCE_MS = 2_500;
+let resumeRestartTimer: ReturnType<typeof setTimeout> | null = null;
+
 /** The LIVE chain-anchored vault set — the SAME query notifyVaultSetChanged uses
  *  (index.ts). Resume restarts from THIS, not a stashable pointer, so a nulled
  *  pendingRestartVaultIds can never swallow the restart (the "paired but never
@@ -242,10 +254,12 @@ export function isBtcSteadyRunning(): boolean {
   return steadyRunning;
 }
 
-/** True while a QR pair window owns the radio. The watchdog must NOT restart
- *  steady mid-pair (it would cross-cancel the pair inquiry). */
+/** True while a QR pair window owns the radio OR the post-pair restart is still
+ *  settling (debounced). The watchdog must NOT restart steady in either case — it
+ *  would cross-cancel the pair inquiry, or pre-empt the debounced restart and
+ *  reintroduce the connection-killing flap. */
 export function isBtcPairPaused(): boolean {
-  return pairPauseCount > 0;
+  return pairPauseCount > 0 || resumeRestartTimer !== null;
 }
 
 /**
@@ -258,6 +272,12 @@ export function isBtcPairPaused(): boolean {
  * async + awaited by the pair screens.
  */
 export async function pauseBtcSteadyForPairing(): Promise<void> {
+  // A new pair window is grabbing the radio — cancel any pending debounced
+  // resume-restart so steady can't restart mid-pair (the connection-killing flap).
+  if (resumeRestartTimer) {
+    clearTimeout(resumeRestartTimer);
+    resumeRestartTimer = null;
+  }
   const firstPause = pairPauseCount === 0;
   pairPauseCount++;
   // Tell the NATIVE engine to yield the radio too (not just the JS steady loop).
@@ -329,16 +349,27 @@ export async function resumeBtcSteadyForPairing(): Promise<void> {
   if (pairPauseCount > 0) return; // another pair window still owns the radio
   // Last pair window closed → let the native engine use the radio again.
   void setPairingActive(false).catch(() => {});
-  // BRIAR PARITY (the "paired but never syncs" fix): restart from the LIVE
-  // anchored-vault DB query, NOT the stashable pendingRestartVaultIds pointer.
-  // The old pointer could be nulled by an interleaved stopBtcSteadySync (host
-  // re-issue, or onPairSucceeded→startShopMode racing the resume), silently
-  // swallowing the restart and parking steady until the 360s safety timer — the
-  // joiner showed members (written locally at pair time) but never synced again.
-  // Briar simply keeps its BT plugin ACTIVE through pairing; we reconstruct that
-  // guarantee by ALWAYS rebuilding the set from the DB on resume. Still respects a
-  // genuine toggle-OFF: shop_mode_enabled!="1" ⇒ the user turned Nearby sync off
-  // mid-window ⇒ don't auto-restart against an OFF intent.
+  // DEBOUNCE the restart (the connection-killing-flap fix). A retrying pair cycles
+  // pause→resume every ~1.5s; restarting steady on each resume tears down + reopens
+  // every listener and closes the socket the peer just connected. Arm a timer
+  // instead — the NEXT pause (next retry) cancels it, so the restart fires exactly
+  // ONCE, after the retries stop and pairing has truly settled. Steady stays
+  // cleanly DOWN during the whole pair window (radio free for the pair), then comes
+  // back once.
+  if (resumeRestartTimer) clearTimeout(resumeRestartTimer);
+  resumeRestartTimer = setTimeout(() => {
+    resumeRestartTimer = null;
+    void doResumeRestart();
+  }, RESUME_RESTART_DEBOUNCE_MS);
+}
+
+/** The actual post-pair steady restart, fired once the resume debounce settles.
+ *  Restarts from the LIVE anchored-vault DB query (Briar-parity: never the
+ *  stashable pendingRestartVaultIds pointer, which an interleaved stop could null
+ *  and swallow — the "paired but never syncs" stranding). Respects a genuine
+ *  shop_mode=OFF. Never throws (runs detached from a timer). */
+async function doResumeRestart(): Promise<void> {
+  if (pairPauseCount > 0) return; // a pair re-acquired the radio during the debounce
   pendingRestartVaultIds = null;
   let intent: string | null = null;
   try {
@@ -353,9 +384,6 @@ export async function resumeBtcSteadyForPairing(): Promise<void> {
   const vaultIds = await listAnchoredVaultIds();
   syncDiag(`pair done: resuming steady from DB (${vaultIds.length} vault(s))`);
   if (vaultIds.length === 0) return;
-  // CRITICAL: never let the restart throw — this runs inside the pair flow's
-  // finally (joinPairOverBtc) / doResume, and a rejection here would clobber the
-  // real pair result/error the screen needs to show.
   try {
     await startBtcSteadySync({ vaultIds });
   } catch (err) {
