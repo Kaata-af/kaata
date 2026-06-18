@@ -873,9 +873,17 @@ async function dialKnownPeer(
     let conn: BtcMeshConnection;
     try {
       conn = await dialBtcPeer({ mac, uuid: steadyUuid(vaultId, day), suppressFailures: true });
-    } catch {
+    } catch (err) {
+      // Diagnostic: a dial that fails to even CONNECT (vs a handshake failure,
+      // which shows as "session FAILED"). If every dial lands here with knownPeers>0
+      // and no "✓ CONNECTED", the listener side isn't answering — usually too many
+      // RFCOMM/SDP records (one per vault×day) for the radio to register.
+      syncDiag(
+        `dial✗ v=${vaultId.slice(0, 6)} peer=${deviceId.slice(0, 6)} d+${day - d}: ${(err as Error)?.message?.slice(0, 28) ?? "connect failed"}`,
+      );
       continue; // peer not listening on this day's UUID — try the next
     }
+    syncDiag(`dial→ connected v=${vaultId.slice(0, 6)} peer=${deviceId.slice(0, 6)}, handshaking`);
     // Connected. Reserve THIS (vault,peer) (dialing) so a concurrent
     // push/backstop pass won't open a second socket while we handshake; set a
     // cooldown too; then run the session FIRE-AND-FORGET so the dial pass moves
