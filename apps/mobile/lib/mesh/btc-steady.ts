@@ -67,10 +67,16 @@ const FIRST_KICK_JITTER_MS = 3_000;
 // waking an already-warm session to push the edit has zero thrash cost, so it
 // fires synchronously (see scheduleKick) for real-time latency.
 const KICK_DEBOUNCE_MS = 150;
-// Inquiry fallback for vaults with NO cached peer MAC (a newly created/paired
-// vault, or one whose peer MAC we never stored). A classic inquiry monopolizes
-// the radio (~8-12s), so throttle it hard and only do one vault per sweep.
-const INQUIRY_INTERVAL_MS = 150_000;
+// Inquiry fallback for vaults with NO cached peer MAC. This is the BOOTSTRAP for
+// the BT-MAC-asymmetry case: on modern Android the owner (accept-only side) can't
+// learn the joiner's MAC (own MAC hidden; accept socket masked), so it has no peer
+// to dial directly and MUST find the joiner by classic inquiry — then it learns
+// the joiner's real MAC from that dialed connection and caches it (direct-dial
+// forever after, like Briar). 45s (was 150s) so this first connection lands in
+// ~tens of seconds, not minutes. Inquiry monopolizes the radio ~8-12s, but only
+// runs while a vault is peerless — once a MAC is cached the vault drops out of the
+// inquiry set, so the cost is bounded to the bootstrap window.
+const INQUIRY_INTERVAL_MS = 45_000;
 const INQUIRY_DISCOVERY_MS = 8_000;
 // Steady sessions are now PERSISTENT (Briar-style): runAntiEntropySession keeps
 // one handshaken conn open and loops sync rounds, bounded by its own per-round

@@ -312,6 +312,22 @@ export default function VaultPairScanScreen() {
   // heal the first batch, then declare "joined". Idempotent.
   async function onPairSucceeded(payload: PairQrPayload) {
     await setAppMeta("shop_mode_enabled", "1");
+    // BT-MAC BOOTSTRAP (the steady-sync fix): on modern Android a phone can't read
+    // its own Bluetooth MAC, and the owner's accept socket only sees the masked
+    // 02:00:.. — so the OWNER never learns THIS device's address and can never dial
+    // us back (steady sync stays "Looking for nearby phones…"). The owner CAN find
+    // us by classic inquiry, but only while we're discoverable. So right after
+    // joining, advertise for the full window: the owner's steady inquiry then finds
+    // + dials us once, learns our real MAC from that connection, caches it, and
+    // dials directly forever after — both phones end up with each other's address,
+    // exactly like Briar. Best-effort (a declined prompt just falls back to us
+    // dialing the owner, which already works).
+    try {
+      const { requestDiscoverable } = await import("../../modules/kaata-bt-classic");
+      await requestDiscoverable(300);
+    } catch (err) {
+      console.warn("[vault/pair-scan] requestDiscoverable failed (non-fatal)", err);
+    }
     try {
       const mesh = await import("../../lib/mesh");
       await mesh.startShopMode();
