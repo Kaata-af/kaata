@@ -517,6 +517,18 @@ class KaataBtClassicModule : Module() {
     // Cutover wiring (#43 P2 native engine). Mirror the native_engine_enabled flag
     // from the check-in response; default OFF means the legacy headless path stays
     // the default until explicitly enabled per-cohort. JS-alive => appCtx valid.
+    // Pairing-active gate: while a QR pair is in progress, the native engine must
+    // yield the radio (else RFCOMM contention drops the pair socket — "read -1").
+    AsyncFunction("setPairingActive") { active: Boolean, promise: Promise ->
+      try {
+        KaataBgMeshGate.setPairingActive(appCtx, active)
+        promise.resolve(true)
+      } catch (e: Throwable) {
+        Log.w(TAG, "setPairingActive failed", e)
+        promise.reject(CodedException("E_BG_GATE", e.message ?: "setPairingActive failed", e))
+      }
+    }
+
     AsyncFunction("setNativeEngineEnabled") { enabled: Boolean, promise: Promise ->
       try {
         KaataBgMeshGate.setNativeEngineEnabled(appCtx, enabled)

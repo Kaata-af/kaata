@@ -38,7 +38,11 @@ import {
   type BtcListenerHandle,
   type BtcMeshConnection,
 } from "./transport-btc";
-import { isBtClassicSupported, onBtStateChanged } from "../../modules/kaata-bt-classic";
+import {
+  isBtClassicSupported,
+  onBtStateChanged,
+  setPairingActive,
+} from "../../modules/kaata-bt-classic";
 import { vaultDigest, advertiseDays, dayNumber } from "./vault-digest";
 import { addKnownPeer, listKnownPeers } from "./btc-peers";
 import { onLedgerApplied } from "../ledger-events";
@@ -214,6 +218,12 @@ const PAIR_RADIO_WAIT_MS = 4_000;
 export async function pauseBtcSteadyForPairing(): Promise<void> {
   const firstPause = pairPauseCount === 0;
   pairPauseCount++;
+  // Tell the NATIVE engine to yield the radio too (not just the JS steady loop).
+  // The resident engine is otherwise only gated by the 10s liveness heartbeat;
+  // during a pair we need a deterministic, immediate stop or its RFCOMM
+  // accept/dial contends with the pair and the owner drops the joiner's socket
+  // ("read ret -1"). Pairing gets the radio exclusively (Briar principle).
+  if (firstPause) void setPairingActive(true).catch(() => {});
   const s = steady;
   if (!s) return;
   quiesceSessions(s);
@@ -271,6 +281,8 @@ function quiesceSessions(s: SteadyState): void {
 export async function resumeBtcSteadyForPairing(): Promise<void> {
   pairPauseCount = Math.max(0, pairPauseCount - 1);
   if (pairPauseCount > 0) return; // another pair window still owns the radio
+  // Last pair window closed → let the native engine use the radio again.
+  void setPairingActive(false).catch(() => {});
   // LAST pair window closed: do ONE clean restart with the freshest desired
   // vault set (a kaata created mid-pair overwrote pendingRestartVaultIds via the
   // deferred startBtcSteadySync). This re-opens every vault's listener + re-arms
@@ -446,6 +458,12 @@ export async function startBtcSteadySync(opts: { vaultIds: string[] }): Promise<
       }
     })();
   });
+
+  // Backstop: clear any stale native pairing-active flag. We only reach here with
+  // pairPauseCount===0 (every pair-window path returned above), so no pair is in
+  // progress — this self-heals a flag left set by a pair that was killed before
+  // its resume ran (which would otherwise keep the native engine off forever).
+  void setPairingActive(false).catch(() => {});
 
   // Mark the steady session fully up. Reached ONLY on a successful start (every
   // superseded path returned above), and every start is under Shop Mode + the

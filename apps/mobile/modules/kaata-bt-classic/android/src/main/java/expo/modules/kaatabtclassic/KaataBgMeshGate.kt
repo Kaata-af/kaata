@@ -45,6 +45,12 @@ object KaataBgMeshGate {
   // window. Mirrored from the check-in response like bg_mesh_enabled, so the
   // cutover can be staged per-cohort from the backend. Off => current behavior.
   private const val KEY_NATIVE_ENGINE = "native_engine_enabled"
+  // Set true while a QR pair is in progress (any phone). The native engine MUST
+  // NOT touch the radio during a pair — RFCOMM accept/dial contention makes the
+  // owner drop the joiner's socket (the "read ret -1" pairing failure). Pairing
+  // already pauses the JS steady loop; this gives the native engine the same
+  // pause, deterministically (not dependent on the 10s liveness heartbeat).
+  private const val KEY_PAIRING_ACTIVE = "mesh_pairing_active"
   private const val MAX_FAILS = 3
   // Cross-VM heartbeat: the FOREGROUND JS (MeshController) stamps this every ~10s
   // while its mesh is live. The headless background entry reads it to know whether
@@ -136,6 +142,25 @@ object KaataBgMeshGate {
       prefs(ctx).edit().putInt(KEY_FAIL_COUNT, 0).apply()
     } catch (e: Throwable) {
       Log.w(TAG, "resetFailures failed", e)
+    }
+  }
+
+  /** Is a QR pair in progress? The native engine must yield the radio if so. */
+  fun isPairingActive(ctx: Context): Boolean =
+    try {
+      prefs(ctx).getBoolean(KEY_PAIRING_ACTIVE, false)
+    } catch (e: Throwable) {
+      false
+    }
+
+  /** Mark a pair in progress (true on pause, false on resume). commit() so the
+   *  resident engine sees it immediately — a pair starting must stop the engine
+   *  from racing the radio THIS instant, not after an async flush. */
+  fun setPairingActive(ctx: Context, active: Boolean) {
+    try {
+      prefs(ctx).edit().putBoolean(KEY_PAIRING_ACTIVE, active).commit()
+    } catch (e: Throwable) {
+      Log.w(TAG, "setPairingActive failed", e)
     }
   }
 

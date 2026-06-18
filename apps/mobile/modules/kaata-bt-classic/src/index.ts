@@ -216,6 +216,17 @@ export async function setBgMeshEnabled(enabled: boolean): Promise<boolean> {
   }
 }
 
+/** Mark a QR pair in progress so the native engine yields the radio (true on
+ *  pair start, false on end) — prevents RFCOMM contention dropping the pair. */
+export async function setPairingActive(active: boolean): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  try {
+    return await getNative().setPairingActive(active);
+  } catch {
+    return false;
+  }
+}
+
 /** Cutover flag (default OFF): run the native MeshEngine instead of headless JS. */
 export async function setNativeEngineEnabled(enabled: boolean): Promise<boolean> {
   if (Platform.OS !== "android") return false;

@@ -336,6 +336,10 @@ class KaataForegroundService : Service() {
     // radio + DB). The cross-VM heartbeat is the only reliable cross-context
     // signal (AppState is per-VM).
     if (KaataBgMeshGate.isForegroundAlive(this, System.currentTimeMillis())) return
+    // Pairing gets the radio EXCLUSIVELY (Briar principle). RFCOMM accept/dial
+    // contention during a QR pair makes the owner drop the joiner's socket
+    // ("read ret -1"). Never spawn the engine while a pair is in progress.
+    if (KaataBgMeshGate.isPairingActive(this)) return
 
     // CUTOVER (flag DEFAULT OFF): when enabled, run the NATIVE MeshEngine in THIS
     // process (resident JVM, Briar-model) — no JS VM, so it isn't subject to the
