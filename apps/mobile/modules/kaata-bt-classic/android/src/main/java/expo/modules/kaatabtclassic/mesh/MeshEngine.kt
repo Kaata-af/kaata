@@ -223,7 +223,7 @@ object MeshEngine {
             break // timeout or server closed
           }
         val peerMac = try { socket.remoteDevice?.address } catch (e: Throwable) { null }
-        runSession(socket.let { MeshConnection(it, peerMac) }, db, identity, vault, deadline, peerMac)
+        runSession(MeshConnection.fromBluetooth(socket, peerMac), db, identity, vault, deadline, peerMac)
       }
     } finally {
       db.close()
@@ -325,7 +325,7 @@ object MeshEngine {
       val device = adapter.getRemoteDevice(mac)
       val socket = device.createInsecureRfcommSocketToServiceRecord(uuid)
       socket.connect() // blocks; throws if peer isn't listening on this UUID
-      runSession(MeshConnection(socket, mac), db, identity, vault, deadline, mac)
+      runSession(MeshConnection.fromBluetooth(socket, mac), db, identity, vault, deadline, mac)
       true
     } catch (e: Throwable) {
       Log.d(TAG, "dial $mac failed: ${e.message}")

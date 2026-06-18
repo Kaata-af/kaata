@@ -5,6 +5,7 @@ import android.util.Log
 import org.json.JSONObject
 import java.io.InputStream
 import java.io.OutputStream
+import java.net.Socket
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
@@ -29,8 +30,11 @@ import java.util.concurrent.TimeUnit
  * That is exactly Briar's model — a plain blocking I/O thread per connection,
  * living as long as the (FGS) process, no JS runtime in the loop.
  */
-class MeshConnection(
-  private val socket: BluetoothSocket,
+class MeshConnection private constructor(
+  private val input: InputStream,
+  private val output: OutputStream,
+  private val closer: () -> Unit,
+  /** Remote address for cache/dedup — a BT MAC, or "ip:port" for LAN/hotspot. */
   val remoteMac: String?,
 ) {
   companion object {
@@ -40,13 +44,32 @@ class MeshConnection(
     val MAX_FRAME_BYTES = FRAME_HEADER_BYTES + MAX_PLAINTEXT_BYTES + MeshCrypto.TAG_BYTES
 
     private val CLOSED = Any() // sentinel pushed onto the queue on close
+
+    /** Wrap a Bluetooth RFCOMM socket. */
+    fun fromBluetooth(socket: BluetoothSocket, remoteMac: String?): MeshConnection =
+      MeshConnection(socket.inputStream, socket.outputStream, { socket.close() }, remoteMac)
+
+    /** Wrap a TCP socket (LAN / WiFi-hotspot). Same framing + AEAD as RFCOMM —
+     *  the protocol is transport-agnostic, so the handshake/anti-entropy modules
+     *  run over this unchanged. */
+    fun fromTcp(socket: Socket, remoteAddr: String?): MeshConnection =
+      MeshConnection(
+        socket.getInputStream(),
+        socket.getOutputStream(),
+        {
+          try {
+            socket.close()
+          } catch (e: Throwable) {
+            /* ignore */
+          }
+        },
+        remoteAddr,
+      )
   }
 
   /** Set by the handshake once verified. */
   @Volatile var remoteDeviceId: String? = null
 
-  private val input: InputStream = socket.inputStream
-  private val output: OutputStream = socket.outputStream
   private val queue = LinkedBlockingQueue<Any>()
   @Volatile private var aead: MeshCrypto.AeadContext? = null
   @Volatile private var closed = false
@@ -188,7 +211,7 @@ class MeshConnection(
   fun close() {
     markClosed()
     try {
-      socket.close()
+      closer()
     } catch (e: Throwable) {
       /* ignore */
     }
