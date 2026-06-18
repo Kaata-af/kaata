@@ -66,6 +66,7 @@ import {
   shouldPromptBatteryExemption,
   markBatteryExemptionPrompted,
   requestBatteryExemption,
+  isIgnoringBatteryOptimizations,
 } from "../lib/battery-exemption";
 import type { Direction, PersonWithBalance, Self } from "../lib/types";
 
@@ -902,6 +903,17 @@ export default function HomeScreen() {
             if (shouldPrompt) {
               setBatteryDialogOpen(true);
               return;
+            }
+            // Already saw the one-time explainer — but may still NOT be on the
+            // Doze whitelist (an older build only opened settings; or they
+            // declined). The exemption is the load-bearing swipe-survival
+            // permission, so re-assert the REAL intent on every enable until
+            // granted. No-ops (resolves true) when already exempt.
+            try {
+              const exempt = await isIgnoringBatteryOptimizations();
+              if (!exempt) await requestBatteryExemption();
+            } catch {
+              /* best-effort */
             }
           }
           setShopModeBusy(true);
