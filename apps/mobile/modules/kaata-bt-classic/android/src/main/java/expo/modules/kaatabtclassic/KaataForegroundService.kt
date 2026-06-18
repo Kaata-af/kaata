@@ -97,18 +97,25 @@ class KaataForegroundService : Service() {
     private const val DEFAULT_BODY = "Tap to open Kaata"
     private const val DEFAULT_CHANNEL_NAME = "Nearby sync"
 
-    // #43 P2: how often this resident FGS spawns a bounded headless mesh window
-    // after a swipe-kill. MUST be comfortably > KaataMeshHeadlessService's
-    // TASK_TIMEOUT_MS (60s) so windows never overlap (no two headless services).
-    // 90s => a killed phone syncs within ~90s of a peer's edit (vs Phase 1's
-    // ~15min, vs "never"). First tick is delayed so a normal foreground start
-    // (JS alive) doesn't immediately spawn a redundant headless window.
-    private const val BG_TICK_MS = 90_000L
-    private const val BG_TICK_FIRST_MS = 30_000L
+    // #43 P2: native-engine window cadence. The window length is just under the
+    // tick period, so windows run back-to-back with only a ~5s gap — the native
+    // accept server is effectively ALWAYS LISTENING. That is the Briar lesson:
+    // a peer's dial only lands if you're listening when it arrives, so the
+    // dominant latency was the old 30s dead gap (60s window / 90s tick). With
+    // near-continuous accept, a foreground peer's push-on-write dial connects
+    // within seconds instead of waiting out the gap. (Dialing stays battery-
+    // bounded via MeshEngine's exponential dial backoff.) First tick = one full
+    // period; the immediate post-start window (onStartCommand) covers t=0, so the
+    // gaps stay uniform. NOTE: for the LEGACY headless-JS path these also bound
+    // KaataMeshHeadlessService, which must finish within the window.
+    private const val BG_TICK_MS = 60_000L
+    private const val BG_TICK_FIRST_MS = 60_000L
 
-    // Native MeshEngine window length per tick (< the gap to the next tick so a
-    // failed/long window can't pile up). 60s of in-process accept/dial per 90s.
-    private const val NATIVE_WINDOW_MS = 60_000L
+    // Native MeshEngine window length per tick. 55s window / 60s tick => ~5s gap,
+    // i.e. near-continuous accept (see BG_TICK_MS). Must stay < BG_TICK_MS so a
+    // window always finishes before the next tick (nativeEngineRunning dedups any
+    // overlap anyway).
+    private const val NATIVE_WINDOW_MS = 55_000L
 
     // Renewable-wakelock cadence (ported from Briar dont-kill-me-lib
     // AndroidWakeLockManagerImpl): rotate the lock every minute, each acquire

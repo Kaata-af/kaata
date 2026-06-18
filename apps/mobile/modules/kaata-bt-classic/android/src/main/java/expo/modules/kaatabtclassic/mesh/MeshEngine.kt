@@ -32,9 +32,11 @@ import java.util.concurrent.ConcurrentHashMap
 object MeshEngine {
   private const val TAG = "MeshEngine"
   private const val SERVICE_NAME = "kaata-steady"
-  // Gap between dial sweeps inside a window — short, so a missed dial recovers in
-  // seconds rather than at the next 90s FGS tick.
-  private const val DIAL_SWEEP_BACKOFF_MS = 2_000L
+  // Dial-sweep backoff bounds (exponential, Briar BackoffImpl style): start fast
+  // so a present peer connects in ~2s, grow toward 30s when nobody answers so a
+  // lone phone doesn't burn the radio. Reset to the floor on a successful connect.
+  private const val DIAL_SWEEP_MIN_MS = 2_000L
+  private const val DIAL_SWEEP_MAX_MS = 30_000L
 
   /** "<peerDeviceId>:<vaultId>" of sessions in flight — never two at once. */
   private val activeSessions = ConcurrentHashMap.newKeySet<String>()
@@ -254,24 +256,34 @@ object MeshEngine {
             null
           }
         }
+      // Exponential backoff between sweeps (Briar's BackoffImpl pattern): fast
+      // first probe so a peer that IS there connects in ~2s, but back off toward
+      // 30s when nobody answers so a lone phone isn't hammering the radio every
+      // 2s for the whole window. Reset to the floor on any successful connect.
+      var backoff = DIAL_SWEEP_MIN_MS
       while (System.currentTimeMillis() < deadline) {
         // De-dup, cached first. Filter to dialable MACs (skip 02:00:..-style
         // placeholders the OS hands out when it hides the real address).
         val candidates = LinkedHashSet<String>()
         candidates.addAll(cached)
         candidates.addAll(bonded)
+        var connectedThisSweep = false
         for (mac in candidates) {
           if (System.currentTimeMillis() >= deadline) break
           if (!db.isDialableMac(mac)) continue
           // Already syncing this vault with someone? skip the rest of the sweep.
           for (uuid in dayUuids) {
             if (System.currentTimeMillis() >= deadline) break
-            if (tryDial(adapter, mac, uuid, db, identity, vault, deadline)) break
+            if (tryDial(adapter, mac, uuid, db, identity, vault, deadline)) {
+              connectedThisSweep = true
+              break
+            }
           }
         }
         if (System.currentTimeMillis() >= deadline) break
+        backoff = if (connectedThisSweep) DIAL_SWEEP_MIN_MS else minOf(backoff * 2, DIAL_SWEEP_MAX_MS)
         try {
-          Thread.sleep(DIAL_SWEEP_BACKOFF_MS)
+          Thread.sleep(backoff)
         } catch (e: InterruptedException) {
           break
         }
