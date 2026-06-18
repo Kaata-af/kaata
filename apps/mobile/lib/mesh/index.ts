@@ -84,7 +84,7 @@ import {
   onPeerFound as onLanPeerFound,
 } from "./discovery-lan";
 import { startLanListener, dialLanPeer } from "./transport-lan";
-import { markPeerSeen } from "./presence";
+import { markPeerSeen, onlineDeviceIds } from "./presence";
 import type { MeshConnection } from "./transport-interface";
 import { Platform } from "react-native";
 
@@ -187,6 +187,10 @@ type RunState = {
    *  invariant — if shop mode is on, no pair window is active, and steady ISN'T
    *  running, restart it. Makes any seesaw stranding self-heal within one tick. */
   steadyWatchdog: ReturnType<typeof setInterval> | null;
+  /** Periodic re-emit of the status snapshot so the UI peer count (presence-based,
+   *  ages out after 45s) reflects a peer CONNECTING and DISCONNECTING without a
+   *  dedicated event for either. */
+  statusEmitTimer: ReturnType<typeof setInterval> | null;
 };
 
 const state: RunState = {
@@ -203,7 +207,12 @@ const state: RunState = {
   lanKickTimer: null,
   lanKickVaults: new Set(),
   steadyWatchdog: null,
+  statusEmitTimer: null,
 };
+
+// How often to re-emit the status snapshot so the UI "phones nearby" count tracks
+// peers appearing/aging-out. 6s feels live without being chatty.
+const STATUS_EMIT_MS = 6_000;
 
 // How often the steady-sync watchdog re-asserts "if shop mode is on and no pair
 // is active, steady must be running". 15s self-heals a parked loop fast without
@@ -231,11 +240,15 @@ export function getShopModeStatus(): ShopModeStatus {
   return {
     enabled: state.running,
     lastActiveAt: cachedLastActiveAt,
-    // BUG-B: state.connections.size used to be the activePeers source
-    // and leaked monotonically because connections were never removed.
-    // liveSessionCount is incremented on handshake success and
-    // decremented on close — accurate AND bounded.
-    activePeers: state.liveSessionCount,
+    // Peer count = devices synced within the presence window (45s), across ALL
+    // transports. Presence (markPeerSeen) is fed by BOTH the LAN path
+    // (handlePeerConnection) AND Bluetooth steady (btc-steady onEstablished +
+    // per-tick refresh of live sessions) and is deduped by device_id. The old
+    // source (state.liveSessionCount) was incremented ONLY by the LAN path, so a
+    // Bluetooth-only sync — the common case — always read 0 and the UI was stuck on
+    // "Looking for nearby phones…" even with a live BTC session. liveSessionCount
+    // is still tracked for LAN internals but is no longer the UI count.
+    activePeers: onlineDeviceIds().length,
   };
 }
 
@@ -564,6 +577,14 @@ async function startShopModeBody(): Promise<void> {
     })();
   }, STEADY_WATCHDOG_MS);
 
+  // Periodic status re-emit so the UI peer count (presence-based, 45s window)
+  // reflects a peer connecting AND disconnecting — neither has a dedicated event,
+  // and a Bluetooth-only session's presence is refreshed by btc-steady's tick.
+  if (state.statusEmitTimer) clearInterval(state.statusEmitTimer);
+  state.statusEmitTimer = setInterval(() => {
+    if (state.running) emitStatusChange();
+  }, STATUS_EMIT_MS);
+
   console.log("[mesh.start] DONE — Nearby sync active");
 }
 
@@ -584,6 +605,10 @@ async function teardownRadios(opts: { skipFGS?: boolean } = {}): Promise<void> {
   if (state.steadyWatchdog) {
     clearInterval(state.steadyWatchdog);
     state.steadyWatchdog = null;
+  }
+  if (state.statusEmitTimer) {
+    clearInterval(state.statusEmitTimer);
+    state.statusEmitTimer = null;
   }
   // Mythos crash-diagnosis: stop the memory sampler when shop mode ends.
   try {

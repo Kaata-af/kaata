@@ -152,7 +152,7 @@ type SteadyState = {
    * cleared when the session ends. Sessions run fire-and-forget (NOT awaited by
    * the dial pass), so they live outside the tickRunning window.
    */
-  liveSessions: Map<string, { wake: () => void; close: () => void }>;
+  liveSessions: Map<string, { wake: () => void; close: () => void; deviceId: string }>;
   /**
    * EVERY connection a session is running on — added before the handshake,
    * removed when the session ends. liveSessions only holds ESTABLISHED sessions
@@ -720,6 +720,12 @@ async function openListeners(s: SteadyState): Promise<void> {
 
 /** Periodic backstop pass — respects each peer's cooldown/backoff. */
 async function steadyTick(s: SteadyState): Promise<void> {
+  // Keep presence FRESH for every live session so the UI "phones nearby" count
+  // (presence-based, 45s window) reflects an open BTC link. A persistent session
+  // is marked once at handshake; without this periodic refresh it ages out and the
+  // UI wrongly reverts to "Looking for nearby phones…" while still connected +
+  // syncing — the reported bug. The 15s tick is well inside the 45s window.
+  for (const sess of s.liveSessions.values()) markPeerSeen(sess.deviceId);
   await runDialPass(s, true);
 }
 
@@ -965,7 +971,7 @@ async function runSteadySession(
     }
   };
   let establishedKey: string | null = null;
-  let myEntry: { wake: () => void; close: () => void } | null = null;
+  let myEntry: { wake: () => void; close: () => void; deviceId: string } | null = null;
   let handshakeSucceeded = false;
   try {
     const r = await runAntiEntropySession(
@@ -1006,6 +1012,7 @@ async function runSteadySession(
           establishedKey = key;
           myEntry = {
             wake,
+            deviceId,
             // close() also wakes so a session parked in its inter-round wait
             // unwinds immediately (prompt radio handoff on pause/stop).
             close: () => {
