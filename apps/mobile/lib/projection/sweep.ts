@@ -44,6 +44,11 @@ import type { ApplyAlreadyIngestedVerdict } from "./replay";
 
 const SWEEP_DEBOUNCE_MS = 100;
 
+// Max fixpoint passes per sweep (see sweepQuarantine). A progressing pass
+// strictly shrinks the quarantine set, so convergence is fast; this is only an
+// absolute safety cap against an unforeseen apply/quarantine oscillation.
+const MAX_SWEEP_PASSES = 8;
+
 const pendingSweepVaults = new Set<string>();
 let sweepTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -156,64 +161,81 @@ type EventLogRow = {
  */
 async function sweepQuarantine(vaultId: string): Promise<void> {
   const db = await getDb();
-  // Uses idx_event_log_quarantine partial index (predicate matches
-  // exactly).
-  const rows = await db.getAllAsync<EventLogRow>(
-    `SELECT
-       event_id, event_type, vault_id, target_id, relationship_id,
-       hlc_physical_ms, hlc_logical, hlc_device_id,
-       device_id, author_user_id_local_only, actor_account_id,
-       payload_json, payload_schema,
-       appended_at, server_acked_at, rejected_at, origin,
-       event_sig_b64, signer_device_pubkey, ingested_at
-     FROM event_log
-     WHERE vault_id = ?
-       AND applied_at IS NULL
-       AND tombstone_reason IS NULL
-     ORDER BY hlc_physical_ms ASC, hlc_logical ASC, hlc_device_id ASC`,
-    vaultId,
-  );
+  let totalApplied = 0;
 
-  if (rows.length === 0) return;
-  console.log(`[sweep] vault=${vaultId.slice(0, 8)} rows=${rows.length}`);
+  // FIXPOINT: re-run the pass until one applies nothing new. A prerequisite (a
+  // member/device binding) can have a LATER HLC than the entries it authorizes —
+  // entries authored before the joiner was admitted. A single HLC-ascending pass
+  // then quarantines those entries, applies the binding later in the SAME pass,
+  // but never retries the entries until some future sweep — that is the
+  // "synced but invisible for ~10 min" delay the user hit. Looping until no
+  // progress cures ANY ordering in one invocation. Bounded by MAX_SWEEP_PASSES;
+  // each progressing pass strictly shrinks the quarantine set, so it converges.
+  for (let pass = 0; pass < MAX_SWEEP_PASSES; pass++) {
+    // Uses idx_event_log_quarantine partial index (predicate matches exactly).
+    const rows = await db.getAllAsync<EventLogRow>(
+      `SELECT
+         event_id, event_type, vault_id, target_id, relationship_id,
+         hlc_physical_ms, hlc_logical, hlc_device_id,
+         device_id, author_user_id_local_only, actor_account_id,
+         payload_json, payload_schema,
+         appended_at, server_acked_at, rejected_at, origin,
+         event_sig_b64, signer_device_pubkey, ingested_at
+       FROM event_log
+       WHERE vault_id = ?
+         AND applied_at IS NULL
+         AND tombstone_reason IS NULL
+       ORDER BY hlc_physical_ms ASC, hlc_logical ASC, hlc_device_id ASC`,
+      vaultId,
+    );
 
-  let applied = 0;
-  let stillQuarantined = 0;
-  let tombstoned = 0;
+    if (rows.length === 0) break;
+    if (pass === 0) console.log(`[sweep] vault=${vaultId.slice(0, 8)} rows=${rows.length}`);
 
-  for (const row of rows) {
-    const event = rowToLedgerEvent(row);
-    if (event == null) {
-      // payload_json parse failed at sweep time. Tombstone as schema_
-      // invalid — the row will never apply with a corrupt payload.
-      // (Loud-log at row level so logcat surfaces which event_id.)
-      console.error(
-        `[sweep] payload parse failed event=${row.event_id} type=${row.event_type} — tombstoning as schema_invalid`,
-      );
-      await applyVerdict(row.event_id, { kind: "tombstoned", reason: "schema_invalid" });
-      tombstoned++;
-      continue;
+    let applied = 0;
+    let stillQuarantined = 0;
+    let tombstoned = 0;
+
+    for (const row of rows) {
+      const event = rowToLedgerEvent(row);
+      if (event == null) {
+        // payload_json parse failed at sweep time. Tombstone as schema_
+        // invalid — the row will never apply with a corrupt payload.
+        // (Loud-log at row level so logcat surfaces which event_id.)
+        console.error(
+          `[sweep] payload parse failed event=${row.event_id} type=${row.event_type} — tombstoning as schema_invalid`,
+        );
+        await applyVerdict(row.event_id, { kind: "tombstoned", reason: "schema_invalid" });
+        tombstoned++;
+        continue;
+      }
+      let verdict: ApplyAlreadyIngestedVerdict;
+      try {
+        verdict = await applyAlreadyIngestedEvent(event);
+      } catch (err) {
+        // applyAlreadyIngestedEvent is supposed to catch and classify
+        // internally; an escape here is itself a bug. Log loud and
+        // bias to applier_throw quarantine so the next sweep retries.
+        console.error(`[sweep] applyAlreadyIngestedEvent threw for ${row.event_id}`, err);
+        verdict = { kind: "quarantined", reason: "applier_throw" };
+      }
+      await applyVerdict(row.event_id, verdict);
+      if (verdict.kind === "applied") applied++;
+      else if (verdict.kind === "tombstoned") tombstoned++;
+      else stillQuarantined++;
     }
-    let verdict: ApplyAlreadyIngestedVerdict;
-    try {
-      verdict = await applyAlreadyIngestedEvent(event);
-    } catch (err) {
-      // applyAlreadyIngestedEvent is supposed to catch and classify
-      // internally; an escape here is itself a bug. Log loud and
-      // bias to applier_throw quarantine so the next sweep retries.
-      console.error(`[sweep] applyAlreadyIngestedEvent threw for ${row.event_id}`, err);
-      verdict = { kind: "quarantined", reason: "applier_throw" };
-    }
-    await applyVerdict(row.event_id, verdict);
-    if (verdict.kind === "applied") applied++;
-    else if (verdict.kind === "tombstoned") tombstoned++;
-    else stillQuarantined++;
+
+    totalApplied += applied;
+    console.log(
+      `[sweep] vault=${vaultId.slice(0, 8)} pass=${pass} applied=${applied} stillQuarantined=${stillQuarantined} tombstoned=${tombstoned}`,
+    );
+    // No new application this pass → the rest genuinely can't apply yet (missing
+    // prerequisite not present at all). Stop; a future sweep retries once it
+    // arrives. Only re-loop when we made progress that might unblock more rows.
+    if (applied === 0) break;
   }
 
-  console.log(
-    `[sweep] vault=${vaultId.slice(0, 8)} applied=${applied} stillQuarantined=${stillQuarantined} tombstoned=${tombstoned}`,
-  );
-
+  const applied = totalApplied;
   // Mesh-ingested events become visible projections HERE (applyIncomingBatch
   // ingests, then this sweep applies). Notify the UI so a synced tally appears
   // without pull-to-refresh. origin="remote": these are peer events, never the
