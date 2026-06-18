@@ -311,6 +311,17 @@ export async function markJsAlive(): Promise<boolean> {
   }
 }
 
+/** Clear the heartbeat so the native engine takes over immediately on a
+ *  background handoff (UI unmount), instead of waiting 45s for it to go stale. */
+export async function clearJsAlive(): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  try {
+    return await getNative().clearJsAlive();
+  } catch {
+    return false;
+  }
+}
+
 /** Read the heartbeat: is a foreground JS mesh probably alive right now?
  *  Fail-safe TRUE (assume alive => background stays out). */
 export async function isForegroundMeshAlive(): Promise<boolean> {

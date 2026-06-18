@@ -525,6 +525,17 @@ class KaataBtClassicModule : Module() {
       }
     }
 
+    // Clear the JS heartbeat so the native engine takes over IMMEDIATELY on a
+    // background handoff (UI unmount), instead of waiting out the 45s staleness.
+    AsyncFunction("clearJsAlive") { promise: Promise ->
+      try {
+        KaataBgMeshGate.clearJsAlive(appCtx)
+        promise.resolve(true)
+      } catch (e: Throwable) {
+        promise.reject(CodedException("E_BG_GATE", e.message ?: "clearJsAlive failed", e))
+      }
+    }
+
     AsyncFunction("isForegroundAlive") { promise: Promise ->
       try {
         promise.resolve(KaataBgMeshGate.isForegroundAlive(appCtx, System.currentTimeMillis()))

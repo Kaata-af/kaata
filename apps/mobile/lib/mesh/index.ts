@@ -559,6 +559,17 @@ async function teardownRadios(opts: { skipFGS?: boolean } = {}): Promise<void> {
     } catch (err) {
       if (__DEV__) console.warn("[mesh] foreground service stop failed", err);
     }
+  } else {
+    // Background HANDOFF (skipFGS): we're keeping the native FGS + engine alive
+    // but releasing the JS radios. Clear the JS heartbeat so the native engine
+    // stops deferring to us and takes over NOW, instead of waiting out the ~45s
+    // staleness window with nobody meshing.
+    try {
+      const bt = await import("../../modules/kaata-bt-classic");
+      await bt.clearJsAlive();
+    } catch {
+      /* best-effort — staleness still hands off within 45s */
+    }
   }
   if (lanRestartTimer) {
     clearTimeout(lanRestartTimer);
@@ -622,7 +633,20 @@ async function teardownRadios(opts: { skipFGS?: boolean } = {}): Promise<void> {
  * next launch. Conflating the two is what made the toggle read OFF on every
  * reopen and forced a manual re-enable.
  */
-export async function stopShopMode(opts?: { userInitiated?: boolean }): Promise<void> {
+export async function stopShopMode(opts?: {
+  userInitiated?: boolean;
+  /**
+   * Background HANDOFF (Briar parity): release the JS-held radios but LEAVE the
+   * native foreground service + resident mesh engine running. Used by the UI
+   * unmount/teardown path (app swipe / Activity destroy / dev remount) so the
+   * "Nearby sync" notification does NOT vanish when the user closes the app —
+   * the native engine simply takes over. Briar's service is independent of the
+   * Activity; ours was coupled, which is exactly the "notification vanishes and
+   * comes back" flicker. Only a real stop (userInitiated toggle-off, or shop
+   * mode genuinely turning off) tears the FGS down.
+   */
+  keepForegroundService?: boolean;
+}): Promise<void> {
   // Capture whether we were actually running BEFORE we flip state.running.
   // If we were never running (process startup with shop_mode_enabled='0',
   // which is the common case), skip the foreground-service teardown
@@ -635,9 +659,9 @@ export async function stopShopMode(opts?: { userInitiated?: boolean }): Promise<
   state.generation++;
   state.running = false;
   emitStatusChange();
-  // BUG-J: shared teardown. skipFGS is false here (we want to actually
-  // stop the notification when shop mode goes off via user toggle).
-  await teardownRadios({ skipFGS: !wasRunning });
+  // BUG-J: shared teardown. Keep the FGS alive on a background handoff (so the
+  // notification survives app-close) and skip it when nothing was running.
+  await teardownRadios({ skipFGS: !wasRunning || opts?.keepForegroundService === true });
 
   // Only a deliberate user toggle-off clears the persisted intent (see the
   // doc comment above). Teardown paths must not, or auto-resume can't fire.

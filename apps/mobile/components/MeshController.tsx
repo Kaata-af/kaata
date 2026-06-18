@@ -473,10 +473,14 @@ export function MeshController() {
     };
   }, [shopModeEnabled]);
 
-  // True-unmount teardown only (root remount / dev fast-refresh): stop
-  // mesh if it is running so radios don't leak past the component. NOTE:
-  // stopShopMode() WITHOUT userInitiated leaves shop_mode_enabled set, so a
-  // remount auto-resumes — the intent only ever clears via the user toggle.
+  // True-unmount teardown (app close / Activity destroy / dev fast-refresh).
+  // BRIAR PARITY: this is a BACKGROUND HANDOFF, not a stop. We release the
+  // JS-held radios but KEEP the native foreground service + resident engine
+  // running (keepForegroundService) so the "Nearby sync" notification does NOT
+  // vanish when the user swipes the app away — the native engine takes over.
+  // Coupling the service to this unmount is exactly what caused the
+  // "notification vanishes and comes back" flicker. stopShopMode WITHOUT
+  // userInitiated also leaves shop_mode_enabled set, so a remount auto-resumes.
   useEffect(() => {
     return () => {
       if (startRetryTimerRef.current) {
@@ -484,7 +488,7 @@ export function MeshController() {
         startRetryTimerRef.current = null;
       }
       void import("../lib/mesh")
-        .then((m) => m.stopShopMode())
+        .then((m) => m.stopShopMode({ keepForegroundService: true }))
         .catch(() => {
           /* */
         });
