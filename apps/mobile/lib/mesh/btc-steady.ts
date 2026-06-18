@@ -110,6 +110,14 @@ function connKey(vaultId: string, deviceId: string): string {
   return `${deviceId}:${vaultId}`;
 }
 
+/** Order-independent vault-set equality, for the idempotent-restart guard. */
+function sameVaultSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sa = new Set(a);
+  for (const x of b) if (!sa.has(x)) return false;
+  return true;
+}
+
 type SteadyState = {
   listeners: BtcListenerHandle[];
   /** UTC day the current listeners were opened for (rollover refresh). */
@@ -409,6 +417,24 @@ export async function startBtcSteadySync(opts: { vaultIds: string[] }): Promise<
   if (pairPauseCount > 0) {
     pendingRestartVaultIds = opts.vaultIds;
     syncDiag("steady start DEFERRED (pair window owns radio)");
+    return;
+  }
+  // IDEMPOTENT: if steady is ALREADY running this exact vault set with live
+  // listeners, do NOT tear down + restart. The post-pair flow fires several restart
+  // triggers (startShopMode, notifyVaultSetChanged, the debounced resume, the
+  // watchdog); each redundant stop+start closes any connection mid-establishment —
+  // at 1 vault that alone killed every dial ("read ret -1": the peer accepted, then
+  // our restart — or theirs — dropped the socket). Briar never restarts an active
+  // plugin; this matches that. A genuine vault-set change still restarts (set
+  // differs); the BT-on handler still forces a real restart via stop()+start().
+  if (
+    steady &&
+    !steady.stopped &&
+    steadyRunning &&
+    steady.listeners.length > 0 &&
+    sameVaultSet(steady.vaultIds, opts.vaultIds)
+  ) {
+    syncDiag(`steady already running (${opts.vaultIds.length} vault(s)) — skip restart`);
     return;
   }
   await stopBtcSteadySync();

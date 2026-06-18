@@ -142,16 +142,15 @@ export default function DiagnosticsScreen() {
         ) : null}
 
         <Text style={styles.section}>NEARBY SYNC — LOG (newest first)</Text>
+        <Text style={styles.copyHint}>Long-press the log below → Select all → Copy</Text>
         {syncLines.length === 0 ? (
           <Text style={styles.muted}>
             No sync events yet — turn Nearby sync ON, pair two phones, then watch here.
           </Text>
         ) : (
-          syncLines.map((l, i) => (
-            <Text key={i} style={styles.mono}>
-              {l}
-            </Text>
-          ))
+          <Text style={styles.mono} selectable>
+            {syncLines.join("\n")}
+          </Text>
         )}
         <Pressable style={styles.refreshGhost} onPress={() => clearSyncDiag()}>
           <Text style={styles.refreshGhostText}>Clear sync log</Text>
@@ -260,6 +259,13 @@ const styles = StyleSheet.create({
     marginVertical: 1,
   },
   muted: { fontSize: 13, fontFamily: fonts.sansRegular, color: colors.textMuted },
+  copyHint: {
+    fontSize: 11,
+    fontFamily: fonts.sansRegular,
+    color: colors.textMuted,
+    marginBottom: 8,
+    fontStyle: "italic",
+  },
   warn: {
     fontFamily: fonts.monoRegular,
     fontSize: 12,
