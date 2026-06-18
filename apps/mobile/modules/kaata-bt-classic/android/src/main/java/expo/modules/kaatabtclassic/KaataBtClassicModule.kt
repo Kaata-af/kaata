@@ -41,6 +41,10 @@ private const val EVENT_DATA = "onRfcommData"
 private const val EVENT_CLOSED = "onRfcommClosed"
 private const val EVENT_DEVICE_FOUND = "onDeviceFound"
 private const val EVENT_DISCOVERY_FINISHED = "onDiscoveryFinished"
+// Bluetooth adapter on/off — lets steady sync react to the radio returning
+// instantly (re-open listeners + re-dial) instead of waiting out the slow
+// poll/backoff/inquiry cycle. Briar reacts to this in milliseconds.
+private const val EVENT_BT_STATE = "onBtStateChanged"
 
 private const val READ_BUF_BYTES = 4096
 
@@ -90,6 +94,36 @@ class KaataBtClassicModule : Module() {
   private val sockets = ConcurrentHashMap<String, SockState>()
 
   @Volatile private var discoveryReceiver: BroadcastReceiver? = null
+  @Volatile private var btStateReceiver: BroadcastReceiver? = null
+
+  /** Register a BluetoothAdapter on/off receiver that emits EVENT_BT_STATE, so
+   *  the JS steady-sync layer can re-open listeners + re-dial the instant BT
+   *  returns instead of waiting out its poll/backoff/inquiry cadence. Idempotent. */
+  private fun registerBtStateReceiver() {
+    if (btStateReceiver != null) return
+    val rcv = object : BroadcastReceiver() {
+      override fun onReceive(ctx: Context?, intent: Intent?) {
+        try {
+          if (intent?.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
+          val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
+          when (state) {
+            BluetoothAdapter.STATE_ON -> safeEmit(EVENT_BT_STATE, mapOf("state" to "on"))
+            BluetoothAdapter.STATE_OFF -> safeEmit(EVENT_BT_STATE, mapOf("state" to "off"))
+            else -> { /* TURNING_ON/OFF — ignore the transient states */ }
+          }
+        } catch (e: Throwable) {
+          Log.w(TAG, "btStateReceiver onReceive failed", e)
+        }
+      }
+    }
+    try {
+      val filter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
+      ContextCompat.registerReceiver(appCtx, rcv, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+      btStateReceiver = rcv
+    } catch (e: Throwable) {
+      Log.w(TAG, "registerBtStateReceiver failed", e)
+    }
+  }
 
   private val appCtx: Context
     get() = appContext.reactContext
@@ -177,7 +211,16 @@ class KaataBtClassicModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("KaataBtClassic")
 
-    Events(EVENT_ACCEPTED, EVENT_DATA, EVENT_CLOSED, EVENT_DEVICE_FOUND, EVENT_DISCOVERY_FINISHED)
+    Events(
+      EVENT_ACCEPTED,
+      EVENT_DATA,
+      EVENT_CLOSED,
+      EVENT_DEVICE_FOUND,
+      EVENT_DISCOVERY_FINISHED,
+      EVENT_BT_STATE,
+    )
+
+    OnCreate { registerBtStateReceiver() }
 
     Function("isAvailable") {
       try {
@@ -586,6 +629,14 @@ class KaataBtClassicModule : Module() {
     }
 
     OnDestroy {
+      btStateReceiver?.let {
+        try {
+          appCtx.unregisterReceiver(it)
+        } catch (_: Throwable) {
+          /* */
+        }
+      }
+      btStateReceiver = null
       // Cancel the scope so coroutines don't leak on HMR/rebind; tear down on a
       // throwaway scope (mirrors KaataGattServerModule).
       val prior = scope

@@ -375,3 +375,13 @@ export function onDiscoveryFinished(handler: () => void): EventSubscription {
   if (Platform.OS !== "android") return { remove: () => {} };
   return getNative().addListener("onDiscoveryFinished", () => handler());
 }
+
+/** Bluetooth adapter turned on/off. Lets steady sync re-open listeners + re-dial
+ *  the instant the radio returns instead of waiting out its poll/backoff cycle. */
+export function onBtStateChanged(handler: (state: "on" | "off") => void): EventSubscription {
+  if (Platform.OS !== "android") return { remove: () => {} };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return getNative().addListener("onBtStateChanged", (e: any) =>
+    handler((e?.state as "on" | "off") ?? "off"),
+  );
+}

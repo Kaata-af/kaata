@@ -38,7 +38,7 @@ import {
   type BtcListenerHandle,
   type BtcMeshConnection,
 } from "./transport-btc";
-import { isBtClassicSupported } from "../../modules/kaata-bt-classic";
+import { isBtClassicSupported, onBtStateChanged } from "../../modules/kaata-bt-classic";
 import { vaultDigest, advertiseDays, dayNumber } from "./vault-digest";
 import { addKnownPeer, listKnownPeers } from "./btc-peers";
 import { onLedgerApplied } from "../ledger-events";
@@ -155,6 +155,14 @@ type SteadyState = {
    * here so stopBtcSteadySync can remove it (no leak across auto-resume restart).
    */
   appStateSub: { remove: () => void } | null;
+  /**
+   * Bluetooth adapter on/off subscription. When BT is toggled off then on, the
+   * RFCOMM listeners die and the dial loop can't recover for minutes (15s dial →
+   * 90s fail-backoff → 150s inquiry, and the dead listener is never re-bound). On
+   * BT-on we fully restart steady sync (re-open listeners + re-dial) within ~ms,
+   * like Briar. Stored so stop can remove it.
+   */
+  btStateSub: { remove: () => void } | null;
 };
 
 let steady: SteadyState | null = null;
@@ -321,6 +329,7 @@ export async function startBtcSteadySync(opts: { vaultIds: string[] }): Promise<
     sessionConns: new Set(),
     dialing: new Set(),
     appStateSub: null,
+    btStateSub: null,
   };
   steady = s;
 
@@ -419,6 +428,25 @@ export async function startBtcSteadySync(opts: { vaultIds: string[] }): Promise<
     }
   });
 
+  // Bluetooth back ON: the listeners died while BT was off and the dial loop
+  // can't recover for minutes. Fully restart steady sync (re-open listeners +
+  // re-dial) immediately, like Briar's transport-state reactivity. Captured
+  // vaultIds because stop() nulls `steady`.
+  s.btStateSub = onBtStateChanged((state) => {
+    if (state !== "on") return;
+    if (steady !== s || s.stopped || pairPauseCount > 0) return;
+    const vaultIds = s.vaultIds;
+    if (__DEV__) console.log("[btc.steady] BT back on — restarting steady sync");
+    void (async () => {
+      try {
+        await stopBtcSteadySync();
+        await startBtcSteadySync({ vaultIds });
+      } catch (err) {
+        if (__DEV__) console.warn("[btc.steady] BT-on restart failed", err);
+      }
+    })();
+  });
+
   // Mark the steady session fully up. Reached ONLY on a successful start (every
   // superseded path returned above), and every start is under Shop Mode + the
   // FGS — so this is a safe proxy for "the wakelock is held" that lets
@@ -450,6 +478,10 @@ export async function stopBtcSteadySync(): Promise<void> {
   if (s.appStateSub) {
     s.appStateSub.remove();
     s.appStateSub = null;
+  }
+  if (s.btStateSub) {
+    s.btStateSub.remove();
+    s.btStateSub = null;
   }
   // Wake + close every session conn promptly so radios don't linger after stop.
   quiesceSessions(s);
