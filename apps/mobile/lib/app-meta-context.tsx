@@ -128,6 +128,33 @@ export function AppMetaProvider(props: { currentVersion: string; children: React
           if (__DEV__) console.warn("[app-meta] native engine mirror failed", err);
         }
       }
+      // SELF-HEAL. The backend does not send native_engine_enabled, so the mirror
+      // above never runs in practice — the flags are set ONLY when the user
+      // toggles Nearby sync on (app/index.tsx applyFullSync). That single write
+      // can be lost to a transient native failure or a SharedPrefs miss, after
+      // which the resident native engine silently reads the flag as false and
+      // never syncs. The LOCAL app_meta flags are the source of truth, so
+      // re-assert them to native SharedPrefs + re-inject the device seed on EVERY
+      // check-in/launch. Idempotent + best-effort.
+      try {
+        const [localBg, localNative] = await Promise.all([
+          getAppMeta("bg_mesh_enabled"),
+          getAppMeta("native_engine_enabled"),
+        ]);
+        if (localBg === "1" || localNative === "1") {
+          const bt = await import("../modules/kaata-bt-classic");
+          if (localBg === "1") await bt.setBgMeshEnabled(true);
+          if (localNative === "1") {
+            await bt.setNativeEngineEnabled(true);
+            const { ensureDeviceKey, getDeviceSeedB64 } = await import("./mesh/device-key");
+            await ensureDeviceKey();
+            const seed = await getDeviceSeedB64();
+            if (seed) await bt.setMeshDeviceSeed(seed);
+          }
+        }
+      } catch (err) {
+        if (__DEV__) console.warn("[app-meta] native flag self-heal failed", err);
+      }
       // Rolling JWT refresh: backend opts to mint a fresh token whenever the
       // incoming one is past auth.RefreshIfOlderThan. Silent persist to
       // SecureStore; no UI surface. Skipped silently when absent / blank.

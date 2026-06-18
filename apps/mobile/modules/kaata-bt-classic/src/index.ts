@@ -226,6 +226,29 @@ export async function setNativeEngineEnabled(enabled: boolean): Promise<boolean>
   }
 }
 
+/** Is this app on the OS battery-optimization (Doze) whitelist? Without it,
+ *  hostile OEMs kill the process on swipe before the revival alarm fires. */
+export async function isIgnoringBatteryOptimizations(): Promise<boolean> {
+  if (Platform.OS !== "android") return true;
+  try {
+    return await getNative().isIgnoringBatteryOptimizations();
+  } catch {
+    return false;
+  }
+}
+
+/** Fire the real OS battery-optimization exemption dialog (Briar parity).
+ *  Resolves true if already exempt (no dialog). Re-check
+ *  isIgnoringBatteryOptimizations() on resume to confirm the user granted it. */
+export async function requestIgnoreBatteryOptimizations(): Promise<boolean> {
+  if (Platform.OS !== "android") return true;
+  try {
+    return await getNative().requestIgnoreBatteryOptimizations();
+  } catch {
+    return false;
+  }
+}
+
 /** Inject the device Ed25519 seed (std base64) for the post-kill native engine.
  *  Stored AndroidKeyStore-encrypted natively. */
 export async function setMeshDeviceSeed(seedB64: string): Promise<boolean> {

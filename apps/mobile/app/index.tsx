@@ -65,6 +65,7 @@ import { syncOnce } from "../lib/sync";
 import {
   shouldPromptBatteryExemption,
   markBatteryExemptionPrompted,
+  requestBatteryExemption,
 } from "../lib/battery-exemption";
 import type { Direction, PersonWithBalance, Self } from "../lib/types";
 
@@ -1091,9 +1092,16 @@ export default function HomeScreen() {
             setShopModeEnabled(true);
             // ONE toggle: enable the native background engine + seed too.
             await applyFullSync(true);
-            await Linking.openSettings().catch(() => {
-              /* user can navigate manually */
-            });
+            // Fire the REAL Doze-exemption dialog (Briar parity). Without the OS
+            // whitelist, hostile OEMs kill the process on swipe before the FGS can
+            // revive — the load-bearing fix for "the notification doesn't persist".
+            // Falls back to the settings deep-link if the intent can't be fired.
+            const ok = await requestBatteryExemption().catch(() => false);
+            if (!ok) {
+              await Linking.openSettings().catch(() => {
+                /* user can navigate manually */
+              });
+            }
           } finally {
             setShopModeBusy(false);
           }

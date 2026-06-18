@@ -287,6 +287,56 @@ class KaataBtClassicModule : Module() {
       }
     }
 
+    // Battery-optimization (Doze) exemption — Briar parity. Without the OS doze
+    // whitelist, hostile OEMs (MIUI/Huawei/Xiaomi) kill the unwhitelisted process
+    // on swipe BEFORE the revival alarm can fire, so the FGS notification vanishes
+    // and the native engine never runs. REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is
+    // already declared in the manifest; kaata sideloads (GitHub Releases), so the
+    // Play-Store restriction on this intent does not apply.
+    AsyncFunction("isIgnoringBatteryOptimizations") { promise: Promise ->
+      try {
+        val pm = appCtx.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        val ok =
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+            pm.isIgnoringBatteryOptimizations(appCtx.packageName)
+          else true
+        promise.resolve(ok)
+      } catch (e: Throwable) {
+        Log.w(TAG, "isIgnoringBatteryOptimizations failed", e)
+        promise.resolve(false)
+      }
+    }
+
+    // Fire the real exemption intent (Settings.ACTION_REQUEST_IGNORE_BATTERY_
+    // OPTIMIZATIONS, package:<pkg>) — the system dialog Briar uses. Resolves true
+    // if already exempt (no dialog needed). The caller re-checks
+    // isIgnoringBatteryOptimizations() on resume to confirm the user granted it.
+    AsyncFunction("requestIgnoreBatteryOptimizations") { promise: Promise ->
+      try {
+        val pm = appCtx.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        val already =
+          Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+            pm.isIgnoringBatteryOptimizations(appCtx.packageName)
+        if (already) {
+          promise.resolve(true)
+        } else {
+          val activity = appContext.currentActivity
+            ?: throw CodedException("E_NO_ACTIVITY", "No current activity for battery exemption", null)
+          val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+            .setData(android.net.Uri.parse("package:" + appCtx.packageName))
+          activity.runOnUiThread { activity.startActivity(intent) }
+          promise.resolve(true)
+        }
+      } catch (e: CodedException) {
+        promise.reject(e)
+      } catch (e: Throwable) {
+        Log.w(TAG, "requestIgnoreBatteryOptimizations failed", e)
+        promise.reject(
+          CodedException("E_BATTERY_OPT", e.message ?: "requestIgnoreBatteryOptimizations failed", e),
+        )
+      }
+    }
+
     // -----------------------------------------------------------------------
     // Native foreground service (Briar-style START_STICKY). Replaces notifee's
     // JS-callback-bound FGS so the "Nearby sync" notification + process survive

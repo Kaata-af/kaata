@@ -32,6 +32,9 @@ import java.util.concurrent.ConcurrentHashMap
 object MeshEngine {
   private const val TAG = "MeshEngine"
   private const val SERVICE_NAME = "kaata-steady"
+  // Gap between dial sweeps inside a window — short, so a missed dial recovers in
+  // seconds rather than at the next 90s FGS tick.
+  private const val DIAL_SWEEP_BACKOFF_MS = 2_000L
 
   /** "<peerDeviceId>:<vaultId>" of sessions in flight — never two at once. */
   private val activeSessions = ConcurrentHashMap.newKeySet<String>()
@@ -90,33 +93,55 @@ object MeshEngine {
     }
     Log.i(TAG, "runWindow: opening accept/dial on ${vaults.size} vault(s)")
 
-    val deadline = System.currentTimeMillis() + maxMs
-    val day = MeshDiscovery.dayNumber(System.currentTimeMillis())
+    val now = System.currentTimeMillis()
+    val deadline = now + maxMs
+    // MULTI-DAY rendezvous: ADVERTISE on today+tomorrow's UUIDs and DIAL across
+    // yesterday/today/tomorrow, so two phones with clock skew or straddling a UTC
+    // midnight still meet on a shared UUID (the helpers are parity-tested; the
+    // engine just wasn't using them — it pinned a single UTC day before).
+    val advertiseDays = MeshDiscovery.advertiseDays(now)
+    val scanDays = MeshDiscovery.acceptableScanDays(now)
     val servers = ArrayList<BluetoothServerSocket>()
 
+    // ACCEPT: keep a server up for the WHOLE window on each (vault, advertiseDay)
+    // UUID — continuous listening means a peer's dial lands whenever it sweeps,
+    // instead of needing to hit a single 60s/90s window edge.
     for (v in vaults) {
-      val uuid =
+      for (d in advertiseDays) {
         try {
-          UUID.fromString(MeshDiscovery.steadyUuid(v.id, day))
+          val uuid = UUID.fromString(MeshDiscovery.steadyUuid(v.id, d))
+          val server = adapter.listenUsingInsecureRfcommWithServiceRecord(SERVICE_NAME, uuid)
+          servers.add(server)
+          Thread({ acceptLoop(server, context, identity, v, deadline) }, "kaata-mesh-accept")
+            .apply { isDaemon = true }
+            .start()
         } catch (e: Throwable) {
-          continue
+          Log.w(TAG, "listen failed v=${v.id} d=$d", e)
         }
-      // accept loop
+      }
+    }
+
+    // OS-level bonded devices are a cheap extra dial candidate (no radio cost to
+    // enumerate) for the case where btc_known_peers is empty but the phones are
+    // bonded. Insecure RFCOMM pairing doesn't bond, so this rarely helps the
+    // kaata flow — cached MACs are the primary source — but it's free.
+    val bonded =
       try {
-        val server = adapter.listenUsingInsecureRfcommWithServiceRecord(SERVICE_NAME, uuid)
-        servers.add(server)
-        Thread({ acceptLoop(server, context, identity, v, deadline) }, "kaata-mesh-accept")
-          .apply { isDaemon = true }
-          .start()
+        adapter.bondedDevices?.mapNotNull { it.address } ?: emptyList()
       } catch (e: Throwable) {
-        Log.w(TAG, "listen failed for vault ${v.id}", e)
+        emptyList()
       }
-      // dial cached peers
-      for (mac in peersByVault[v.id].orEmpty()) {
-        Thread({ dialPeer(context, adapter, mac, uuid, identity, v, deadline) }, "kaata-mesh-dial")
-          .apply { isDaemon = true }
-          .start()
-      }
+
+    // DIAL: one loop per vault. Each loop re-sweeps its candidate MACs across the
+    // scan-day UUIDs and RETRIES on a short backoff until the deadline — so a dial
+    // that misses the peer (peer momentarily busy / between accepts) is recovered
+    // within seconds instead of waiting for the next 90s FGS tick.
+    for (v in vaults) {
+      val cached = peersByVault[v.id].orEmpty()
+      Thread({ dialLoop(context, adapter, identity, v, scanDays, cached, bonded, deadline) },
+        "kaata-mesh-dial")
+        .apply { isDaemon = true }
+        .start()
     }
 
     // Hold the window open; closing the servers unblocks the accept loops.
@@ -198,16 +223,22 @@ object MeshEngine {
     }
   }
 
-  private fun dialPeer(
+  // Sweep this vault's candidate MACs across the scan-day UUIDs, retrying on a
+  // short backoff until the deadline. ONE db connection for the whole loop. A
+  // single dial is a one-shot (it lands only if the peer happens to be accepting
+  // at that instant); retrying turns "missed by a second" into "synced within a
+  // few seconds". Cached peers are dialed FIRST each sweep (the reliable target);
+  // bonded devices are a speculative fallback.
+  private fun dialLoop(
     ctx: Context,
     adapter: BluetoothAdapter,
-    mac: String,
-    uuid: UUID,
     identity: Identity,
     vault: MeshDb.Vault,
+    scanDays: List<Long>,
+    cached: List<String>,
+    bonded: List<String>,
     deadline: Long,
   ) {
-    if (System.currentTimeMillis() >= deadline) return
     val db =
       try {
         MeshDb.open(ctx)
@@ -215,15 +246,63 @@ object MeshEngine {
         return
       }
     try {
+      val dayUuids =
+        scanDays.mapNotNull {
+          try {
+            UUID.fromString(MeshDiscovery.steadyUuid(vault.id, it))
+          } catch (e: Throwable) {
+            null
+          }
+        }
+      while (System.currentTimeMillis() < deadline) {
+        // De-dup, cached first. Filter to dialable MACs (skip 02:00:..-style
+        // placeholders the OS hands out when it hides the real address).
+        val candidates = LinkedHashSet<String>()
+        candidates.addAll(cached)
+        candidates.addAll(bonded)
+        for (mac in candidates) {
+          if (System.currentTimeMillis() >= deadline) break
+          if (!db.isDialableMac(mac)) continue
+          // Already syncing this vault with someone? skip the rest of the sweep.
+          for (uuid in dayUuids) {
+            if (System.currentTimeMillis() >= deadline) break
+            if (tryDial(adapter, mac, uuid, db, identity, vault, deadline)) break
+          }
+        }
+        if (System.currentTimeMillis() >= deadline) break
+        try {
+          Thread.sleep(DIAL_SWEEP_BACKOFF_MS)
+        } catch (e: InterruptedException) {
+          break
+        }
+      }
+    } finally {
+      db.close()
+    }
+  }
+
+  /** One dial attempt. Returns true iff the socket connected (handshake/sync then
+   *  run inline); false on any failure so the caller tries the next day-UUID. */
+  private fun tryDial(
+    adapter: BluetoothAdapter,
+    mac: String,
+    uuid: UUID,
+    db: MeshDb,
+    identity: Identity,
+    vault: MeshDb.Vault,
+    deadline: Long,
+  ): Boolean {
+    if (System.currentTimeMillis() >= deadline) return false
+    return try {
       adapter.cancelDiscovery()
       val device = adapter.getRemoteDevice(mac)
       val socket = device.createInsecureRfcommSocketToServiceRecord(uuid)
       socket.connect() // blocks; throws if peer isn't listening on this UUID
       runSession(MeshConnection(socket, mac), db, identity, vault, deadline, mac)
+      true
     } catch (e: Throwable) {
       Log.d(TAG, "dial $mac failed: ${e.message}")
-    } finally {
-      db.close()
+      false
     }
   }
 

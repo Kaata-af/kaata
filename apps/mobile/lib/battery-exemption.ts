@@ -1,15 +1,36 @@
 // apps/mobile/lib/battery-exemption.ts
 //
-// One-shot battery optimization exemption prompt. Shown the FIRST time the
-// user enables Shop Mode. We can't programmatically request the exemption
-// (requires REQUEST_IGNORE_BATTERY_OPTIMIZATIONS which Play Store flags),
-// so we deep-link the user to Settings → Apps → Kaata → Battery via
-// Linking.openSettings().
+// Battery-optimization (Doze) exemption — Briar parity. This is the load-bearing
+// piece for swipe-survival: without the OS whitelist, hostile OEMs (MIUI/Huawei/
+// Xiaomi) kill the unwhitelisted process on swipe BEFORE the revival alarm can
+// fire, so the foreground-service notification vanishes and the native engine
+// never runs. We fire the REAL system intent
+// (Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS) via the native module —
+// kaata sideloads (GitHub Releases), so the old "Play Store flags this" note was
+// wrong. REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is already declared in the manifest.
 
 import { Platform } from "react-native";
 import { getAppMeta, setAppMeta } from "./db";
+import {
+  isIgnoringBatteryOptimizations as nativeIsIgnoring,
+  requestIgnoreBatteryOptimizations as nativeRequest,
+} from "../modules/kaata-bt-classic";
 
 const FLAG_KEY = "battery_exemption_prompted_at";
+
+/** True iff the app is already on the OS Doze whitelist (or non-Android). */
+export async function isIgnoringBatteryOptimizations(): Promise<boolean> {
+  if (Platform.OS !== "android") return true;
+  return nativeIsIgnoring();
+}
+
+/** Fire the system battery-optimization exemption dialog. Resolves true if
+ *  already exempt (no dialog). Re-check isIgnoringBatteryOptimizations on resume
+ *  — the user can dismiss the dialog without granting. */
+export async function requestBatteryExemption(): Promise<boolean> {
+  if (Platform.OS !== "android") return true;
+  return nativeRequest();
+}
 
 /**
  * True iff the platform is Android AND the user has never been shown the
