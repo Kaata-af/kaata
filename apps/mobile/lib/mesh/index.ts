@@ -181,6 +181,12 @@ type RunState = {
   /** Vaults edited within the current debounce window — so a burst across
    *  MULTIPLE vaults pushes ALL of them, not just the first. */
   lanKickVaults: Set<string>;
+  /** BRIAR-PARITY watchdog: Briar's BT plugin is simply ACTIVE whenever the radio
+   *  is on. kaata couples steady sync to a pair pause/resume seesaw that can leave
+   *  it parked (the "paired but never syncs" bug). This interval re-asserts the
+   *  invariant — if shop mode is on, no pair window is active, and steady ISN'T
+   *  running, restart it. Makes any seesaw stranding self-heal within one tick. */
+  steadyWatchdog: ReturnType<typeof setInterval> | null;
 };
 
 const state: RunState = {
@@ -196,7 +202,13 @@ const state: RunState = {
   unsubLanLedger: null,
   lanKickTimer: null,
   lanKickVaults: new Set(),
+  steadyWatchdog: null,
 };
+
+// How often the steady-sync watchdog re-asserts "if shop mode is on and no pair
+// is active, steady must be running". 15s self-heals a parked loop fast without
+// fighting a live pair window (which the watchdog skips).
+const STEADY_WATCHDOG_MS = 15_000;
 
 function makeConnKey(deviceId: string, vaultId: string): string {
   return `${deviceId}:${vaultId}`;
@@ -529,6 +541,29 @@ async function startShopModeBody(): Promise<void> {
   } catch {
     /* */
   }
+  // BRIAR-PARITY watchdog: keep steady sync ALIVE the way Briar keeps its BT
+  // plugin ACTIVE. If shop mode is on, no QR pair window owns the radio, and the
+  // steady loop somehow isn't running (a pair pause/resume seesaw stranded it),
+  // restart it from the live anchored-vault set. This is the backstop that makes
+  // the "paired, members show, but never syncs" failure self-heal in ≤15s instead
+  // of waiting out the 360s pair-pause safety timer.
+  if (state.steadyWatchdog) clearInterval(state.steadyWatchdog);
+  state.steadyWatchdog = setInterval(() => {
+    void (async () => {
+      if (!state.running) return;
+      try {
+        const { isBtcSteadyRunning, isBtcPairPaused } = await import("./btc-steady");
+        if (isBtcPairPaused() || isBtcSteadyRunning()) return; // pair active or healthy
+        const { syncDiag } = await import("./sync-diag");
+        syncDiag("watchdog: steady parked under shop mode — restarting");
+        console.warn("[mesh.watchdog] steady not running under shop mode — restarting");
+        await notifyVaultSetChanged();
+      } catch (err) {
+        console.warn("[mesh.watchdog] restart check failed", err);
+      }
+    })();
+  }, STEADY_WATCHDOG_MS);
+
   console.log("[mesh.start] DONE — Nearby sync active");
 }
 
@@ -545,6 +580,11 @@ async function startShopModeBody(): Promise<void> {
  * stopShopMode normally avoids via the wasRunning gate).
  */
 async function teardownRadios(opts: { skipFGS?: boolean } = {}): Promise<void> {
+  // Stop the Briar-parity steady watchdog so it can't restart steady after teardown.
+  if (state.steadyWatchdog) {
+    clearInterval(state.steadyWatchdog);
+    state.steadyWatchdog = null;
+  }
   // Mythos crash-diagnosis: stop the memory sampler when shop mode ends.
   try {
     const { stopMemProbe } = await import("./mem-probe");

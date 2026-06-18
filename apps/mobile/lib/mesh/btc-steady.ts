@@ -47,6 +47,9 @@ import { vaultDigest, advertiseDays, dayNumber } from "./vault-digest";
 import { addKnownPeer, listKnownPeers } from "./btc-peers";
 import { onLedgerApplied } from "../ledger-events";
 import { markPeerSeen } from "./presence";
+import { getDb } from "../db-tx";
+import { getAppMeta } from "../db";
+import { syncDiag } from "./sync-diag";
 
 const STEADY_SERVICE_NAME = "kaata-sync";
 // Backstop poll. Push-on-write (ledger-events) already covers the real-time case
@@ -189,6 +192,11 @@ let steady: SteadyState | null = null;
 // it would permit background dialing with no wakelock.
 let steadyRunning = false;
 
+// Last dial-pass summary emitted to the in-app diagnostic — only re-logged when
+// the (known peers / peerless vaults) counts CHANGE, so a stable state logs once
+// instead of every 15s tick (keeps the diag ring readable).
+let lastDialSummary = "";
+
 // Pause-for-pairing: a QR pair window needs EXCLUSIVE use of the single BT radio
 // (its inquiry/dial). While paused, the steady dial loop + inquiry fallback
 // short-circuit so they don't cross-cancel the pair's inquiry — the bug where a
@@ -211,6 +219,34 @@ let pendingRestartVaultIds: string[] | null = null;
 // the radio before letting the pair inquiry start. The aborting inquiry bails
 // within ~150ms of pairPauseCount going >0; this is just the safety ceiling.
 const PAIR_RADIO_WAIT_MS = 4_000;
+
+/** The LIVE chain-anchored vault set — the SAME query notifyVaultSetChanged uses
+ *  (index.ts). Resume restarts from THIS, not a stashable pointer, so a nulled
+ *  pendingRestartVaultIds can never swallow the restart (the "paired but never
+ *  syncs" stranding). Briar's plugin just stays ACTIVE; this reconstructs that. */
+async function listAnchoredVaultIds(): Promise<string[]> {
+  try {
+    const db = await getDb();
+    const rows = await db.getAllAsync<{ id: string }>(
+      `SELECT id FROM vaults WHERE archived_at IS NULL AND vault_trust_anchor_pubkey IS NOT NULL`,
+    );
+    return rows.map((r) => r.id);
+  } catch {
+    return [];
+  }
+}
+
+/** True while the steady loop is fully up (listeners open + dial timer armed).
+ *  Read by the shop-mode watchdog (index.ts) to self-heal a parked loop. */
+export function isBtcSteadyRunning(): boolean {
+  return steadyRunning;
+}
+
+/** True while a QR pair window owns the radio. The watchdog must NOT restart
+ *  steady mid-pair (it would cross-cancel the pair inquiry). */
+export function isBtcPairPaused(): boolean {
+  return pairPauseCount > 0;
+}
 
 /**
  * Acquire the radio for a QR pair window. Increments the pause (so no NEW steady
@@ -245,6 +281,10 @@ export async function pauseBtcSteadyForPairing(): Promise<void> {
   // listener set or re-close.)
   if (firstPause) {
     pendingRestartVaultIds = s.vaultIds;
+    // The loop is no longer truly "up" once we close the listeners — keep
+    // steadyRunning ACCURATE so the shop-mode watchdog (index.ts) can tell a
+    // parked loop from a healthy one (it skips while pairing, restarts otherwise).
+    steadyRunning = false;
     const listeners = s.listeners;
     s.listeners = [];
     for (const h of listeners) {
@@ -289,15 +329,30 @@ export async function resumeBtcSteadyForPairing(): Promise<void> {
   if (pairPauseCount > 0) return; // another pair window still owns the radio
   // Last pair window closed → let the native engine use the radio again.
   void setPairingActive(false).catch(() => {});
-  // LAST pair window closed: do ONE clean restart with the freshest desired
-  // vault set (a kaata created mid-pair overwrote pendingRestartVaultIds via the
-  // deferred startBtcSteadySync). This re-opens every vault's listener + re-arms
-  // dial/inquiry — i.e. brings steady back exactly as a normal start would, but
-  // only now that the radio is free. null ⇒ steady wasn't running / was toggled
-  // off during the window (stopBtcSteadySync cleared it) ⇒ don't auto-restart.
-  const vaultIds = pendingRestartVaultIds;
+  // BRIAR PARITY (the "paired but never syncs" fix): restart from the LIVE
+  // anchored-vault DB query, NOT the stashable pendingRestartVaultIds pointer.
+  // The old pointer could be nulled by an interleaved stopBtcSteadySync (host
+  // re-issue, or onPairSucceeded→startShopMode racing the resume), silently
+  // swallowing the restart and parking steady until the 360s safety timer — the
+  // joiner showed members (written locally at pair time) but never synced again.
+  // Briar simply keeps its BT plugin ACTIVE through pairing; we reconstruct that
+  // guarantee by ALWAYS rebuilding the set from the DB on resume. Still respects a
+  // genuine toggle-OFF: shop_mode_enabled!="1" ⇒ the user turned Nearby sync off
+  // mid-window ⇒ don't auto-restart against an OFF intent.
   pendingRestartVaultIds = null;
-  if (!vaultIds) return;
+  let intent: string | null = null;
+  try {
+    intent = await getAppMeta("shop_mode_enabled");
+  } catch {
+    intent = "1"; // DB read failed — assume ON (safer to over-restart than strand)
+  }
+  if (intent !== "1") {
+    syncDiag("pair done: shop mode OFF — steady stays down");
+    return;
+  }
+  const vaultIds = await listAnchoredVaultIds();
+  syncDiag(`pair done: resuming steady from DB (${vaultIds.length} vault(s))`);
+  if (vaultIds.length === 0) return;
   // CRITICAL: never let the restart throw — this runs inside the pair flow's
   // finally (joinPairOverBtc) / doResume, and a rejection here would clobber the
   // real pair result/error the screen needs to show.
@@ -325,6 +380,7 @@ export async function startBtcSteadySync(opts: { vaultIds: string[] }): Promise<
   // MeshController shop_mode poll.
   if (pairPauseCount > 0) {
     pendingRestartVaultIds = opts.vaultIds;
+    syncDiag("steady start DEFERRED (pair window owns radio)");
     return;
   }
   await stopBtcSteadySync();
@@ -477,6 +533,7 @@ export async function startBtcSteadySync(opts: { vaultIds: string[] }): Promise<
   // runDialPass dial while backgrounded (#43). Cleared in stopBtcSteadySync.
   steadyRunning = true;
 
+  syncDiag(`steady RUNNING: ${opts.vaultIds.length} vault(s), ${s.listeners.length} listener(s)`);
   if (__DEV__)
     console.log("[btc.steady] started", {
       vaults: opts.vaultIds.length,
@@ -678,11 +735,13 @@ async function runDialPass(s: SteadyState, respectCooldown: boolean): Promise<vo
 
     const now = Date.now();
     const peerless: string[] = [];
+    let knownCount = 0;
     for (const vaultId of s.vaultIds) {
       if (s.stopped || steady !== s) break;
       const anchor = await loadVaultTrustAnchor(vaultId);
       if (!anchor) continue;
       const peers = await listKnownPeers(vaultId);
+      knownCount += peers.length;
       if (peers.length === 0) peerless.push(vaultId);
       for (const peer of peers) {
         if (s.stopped || steady !== s) break;
@@ -698,6 +757,14 @@ async function runDialPass(s: SteadyState, respectCooldown: boolean): Promise<vo
         if (respectCooldown && now < (s.skipUntil.get(key) ?? 0)) continue;
         await dialKnownPeer(s, vaultId, anchor, peer.deviceId, peer.mac);
       }
+    }
+
+    // Diagnostic heartbeat: proves the dial loop is alive and shows whether it has
+    // a dialable peer. Only emitted on change so it doesn't flood the ring.
+    const summary = `dial pass: vaults=${s.vaultIds.length} knownPeers=${knownCount} peerless=${peerless.length} live=${s.liveSessions.size}`;
+    if (summary !== lastDialSummary) {
+      lastDialSummary = summary;
+      syncDiag(summary);
     }
 
     // Inquiry fallback (backstop only, not push-kicks): a vault with NO cached
@@ -744,8 +811,10 @@ async function inquireForPeer(s: SteadyState, vaultId: string): Promise<void> {
       shouldAbort: () => pairPauseCount > 0,
     });
   } catch {
+    syncDiag(`inquiry: no co-member found v=${vaultId.slice(0, 6)}`);
     return; // no co-member found this sweep — retry after INQUIRY_INTERVAL_MS
   }
+  syncDiag(`inquiry: found + dialing v=${vaultId.slice(0, 6)}`);
   if (s.stopped || steady !== s) {
     try {
       await conn.close();
@@ -887,6 +956,9 @@ async function runSteadySession(
             },
           };
           s.liveSessions.set(key, myEntry);
+          syncDiag(
+            `✓ CONNECTED v=${vaultId.slice(0, 6)} peer=${deviceId.slice(0, 6)} ${isOutbound ? "(we dialed)" : "(accepted)"}`,
+          );
           markPeerSeen(deviceId); // presence: this device is reachable now
           // Cache the MAC AS SOON AS the peer is identified so a peerless vault
           // becomes non-peerless for the session's lifetime — otherwise the
@@ -909,6 +981,7 @@ async function runSteadySession(
         await addKnownPeer({ vaultId, deviceId: conn.remoteDeviceId, mac: conn.remoteMac });
       }
     }
+    syncDiag(`sync round v=${vaultId.slice(0, 6)} sent=${r.sent} recv=${r.received}`);
     if (__DEV__)
       console.log("[btc.steady] session ended", {
         vault: vaultId.slice(0, 8),
@@ -918,6 +991,7 @@ async function runSteadySession(
         durationMs: r.durationMs,
       });
   } catch (err) {
+    syncDiag(`✗ session FAILED v=${vaultId.slice(0, 6)}: ${(err as Error).message.slice(0, 44)}`);
     if (__DEV__) console.warn("[btc.steady] session failed:", (err as Error).message);
     // Connected but the HANDSHAKE failed (peer outdated / removed / AEAD missing).
     // conn.remoteDeviceId is null here, so back off on the dialed deviceId instead

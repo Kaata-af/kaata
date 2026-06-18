@@ -20,6 +20,9 @@ import { ScreenHeader } from "../components/SettingsScreen";
 import { colors } from "../lib/colors";
 import { fonts } from "../lib/fonts";
 import { getDb } from "../lib/db-tx";
+import { getAppMeta } from "../lib/db";
+import { getSyncDiagLines, onSyncDiag, clearSyncDiag } from "../lib/mesh/sync-diag";
+import { isBtcSteadyRunning, isBtcPairPaused } from "../lib/mesh/btc-steady";
 import {
   getLastExitReasons,
   getMemorySnapshot,
@@ -56,8 +59,26 @@ export default function DiagnosticsScreen() {
   const [exits, setExits] = useState<ProcessExitReason[]>([]);
   const [samples, setSamples] = useState<MemRow[]>([]);
   const [now, setNow] = useState<Record<string, unknown>>({});
+  const [syncLines, setSyncLines] = useState<string[]>([]);
+  const [syncSnap, setSyncSnap] = useState<{ steady: boolean; paused: boolean; shop: string }>({
+    steady: false,
+    paused: false,
+    shop: "?",
+  });
+
+  const refreshSync = useCallback(async () => {
+    setSyncLines(getSyncDiagLines());
+    let shop = "?";
+    try {
+      shop = (await getAppMeta("shop_mode_enabled")) ?? "0";
+    } catch {
+      /* */
+    }
+    setSyncSnap({ steady: isBtcSteadyRunning(), paused: isBtcPairPaused(), shop });
+  }, []);
 
   const load = useCallback(async () => {
+    void refreshSync();
     try {
       setExits(getLastExitReasons());
     } catch {
@@ -87,6 +108,17 @@ export default function DiagnosticsScreen() {
     void load();
   }, [load]);
 
+  // Live-update the sync log: push-driven on each new line, plus a 2s poll so the
+  // running/paused snapshot stays fresh while the user watches.
+  useEffect(() => {
+    const off = onSyncDiag(() => void refreshSync());
+    const t = setInterval(() => void refreshSync(), 2000);
+    return () => {
+      off();
+      clearInterval(t);
+    };
+  }, [refreshSync]);
+
   return (
     <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
       <ScreenHeader title="Diagnostics" onBack={() => router.back()} isRTL={false} />
@@ -95,6 +127,35 @@ export default function DiagnosticsScreen() {
           Screenshot this after a crash and send it. The top block says WHY the app died last time;
           the table is the memory slope while sync was on.
         </Text>
+
+        {/* ---- Nearby sync (BT steady) live state + log ---- */}
+        <Text style={styles.section}>NEARBY SYNC — STATE</Text>
+        <Text style={styles.mono}>
+          shop mode: {syncSnap.shop === "1" ? "ON" : "OFF"} · steady loop:{" "}
+          {syncSnap.steady ? "RUNNING" : "STOPPED"} · pairing: {syncSnap.paused ? "YES" : "no"}
+        </Text>
+        {syncSnap.shop === "1" && !syncSnap.steady && !syncSnap.paused ? (
+          <Text style={styles.warn}>
+            ⚠ shop mode ON but steady loop STOPPED — this is the no-sync state (the watchdog should
+            restart it within 15s).
+          </Text>
+        ) : null}
+
+        <Text style={styles.section}>NEARBY SYNC — LOG (newest first)</Text>
+        {syncLines.length === 0 ? (
+          <Text style={styles.muted}>
+            No sync events yet — turn Nearby sync ON, pair two phones, then watch here.
+          </Text>
+        ) : (
+          syncLines.map((l, i) => (
+            <Text key={i} style={styles.mono}>
+              {l}
+            </Text>
+          ))
+        )}
+        <Pressable style={styles.refreshGhost} onPress={() => clearSyncDiag()}>
+          <Text style={styles.refreshGhostText}>Clear sync log</Text>
+        </Pressable>
 
         {/* ---- Last exit reasons ---- */}
         <Text style={styles.section}>WHY THE APP DIED (most recent first)</Text>
@@ -199,6 +260,23 @@ const styles = StyleSheet.create({
     marginVertical: 1,
   },
   muted: { fontSize: 13, fontFamily: fonts.sansRegular, color: colors.textMuted },
+  warn: {
+    fontFamily: fonts.monoRegular,
+    fontSize: 12,
+    color: colors.danger,
+    marginTop: 6,
+    lineHeight: 17,
+  },
+  refreshGhost: {
+    marginTop: 12,
+    alignSelf: "flex-start",
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderDefault,
+  },
+  refreshGhostText: { color: colors.textMuted, fontSize: 13, fontFamily: fonts.sansSemi },
   refresh: {
     marginTop: 28,
     alignSelf: "flex-start",
