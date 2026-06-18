@@ -67,6 +67,9 @@ import {
   markBatteryExemptionPrompted,
   requestBatteryExemption,
   isIgnoringBatteryOptimizations,
+  shouldPromptOemAutostart,
+  markOemAutostartPrompted,
+  openOemAutostartSettings,
 } from "../lib/battery-exemption";
 import type { Direction, PersonWithBalance, Self } from "../lib/types";
 
@@ -178,6 +181,10 @@ export default function HomeScreen() {
   // time the user toggles Shop Mode on. After resolution we record the
   // prompt in app_meta so it never re-prompts.
   const [batteryDialogOpen, setBatteryDialogOpen] = useState(false);
+  // OEM autostart / protected-apps prompt (MIUI/EMUI etc.) — the killer the Doze
+  // whitelist doesn't cover. Shown once, after the battery step, only on a device
+  // that actually has such a screen.
+  const [oemDialogOpen, setOemDialogOpen] = useState(false);
   // BLE "Don't ask again" recovery — the OS suppresses the permission
   // dialog, so the only path forward is system settings.
   const [bleSettingsDialogOpen, setBleSettingsDialogOpen] = useState(false);
@@ -915,6 +922,9 @@ export default function HomeScreen() {
             } catch {
               /* best-effort */
             }
+            // One-time OEM autostart prompt (MIUI/EMUI etc.) on devices that have
+            // such a screen — fires after this toggle-on completes (below).
+            if (await shouldPromptOemAutostart()) setOemDialogOpen(true);
           }
           setShopModeBusy(true);
           // Optimistic flip — revert on failure.
@@ -1117,6 +1127,9 @@ export default function HomeScreen() {
           } finally {
             setShopModeBusy(false);
           }
+          // After the battery step, the OEM autostart screen (MIUI/EMUI) is the
+          // remaining real-world killer — prompt once on devices that have it.
+          if (await shouldPromptOemAutostart()) setOemDialogOpen(true);
         }}
         onCancel={async () => {
           setBatteryDialogOpen(false);
@@ -1124,6 +1137,27 @@ export default function HomeScreen() {
           // Skip path: leave Nearby sync OFF. The toggle in the
           // hamburger sheet stays in its original (off) position because
           // shopModeEnabled was never mutated.
+        }}
+      />
+
+      {/* OEM autostart / protected-apps (MIUI/EMUI/ColorOS…) — the killer the Doze
+          whitelist doesn't stop. Shown once after the battery step on devices that
+          have such a screen. We can't detect whether the user granted it (unlike
+          battery), so we just open the screen and mark prompted either way. */}
+      <ConfirmDialog
+        visible={oemDialogOpen}
+        title={t("menu.oemAutostart.title")}
+        description={t("menu.oemAutostart.description")}
+        confirmLabel={t("menu.oemAutostart.confirm")}
+        cancelLabel={t("menu.battery.skip")}
+        onConfirm={async () => {
+          setOemDialogOpen(false);
+          await markOemAutostartPrompted();
+          await openOemAutostartSettings().catch(() => false);
+        }}
+        onCancel={async () => {
+          setOemDialogOpen(false);
+          await markOemAutostartPrompted();
         }}
       />
 

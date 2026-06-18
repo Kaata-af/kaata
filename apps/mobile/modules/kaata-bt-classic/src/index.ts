@@ -249,6 +249,29 @@ export async function requestIgnoreBatteryOptimizations(): Promise<boolean> {
   }
 }
 
+/** Does this device have an OEM autostart/protected-apps screen we can open
+ *  (Xiaomi/Huawei/Oppo/Vivo/OnePlus)? The #1 real-world background-sync killer
+ *  that the Doze whitelist alone doesn't stop. */
+export async function oemAutostartAvailable(): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  try {
+    return await getNative().oemAutostartAvailable();
+  } catch {
+    return false;
+  }
+}
+
+/** Open the OEM autostart/protected-apps screen so the user can whitelist Kaata.
+ *  Resolves false if no such screen exists on this device. */
+export async function openOemAutostartSettings(): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  try {
+    return await getNative().openOemAutostartSettings();
+  } catch {
+    return false;
+  }
+}
+
 /** Inject the device Ed25519 seed (std base64) for the post-kill native engine.
  *  Stored AndroidKeyStore-encrypted natively. */
 export async function setMeshDeviceSeed(seedB64: string): Promise<boolean> {

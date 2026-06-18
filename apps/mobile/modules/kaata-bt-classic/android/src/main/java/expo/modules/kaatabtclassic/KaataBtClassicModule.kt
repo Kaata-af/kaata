@@ -101,6 +101,57 @@ class KaataBtClassicModule : Module() {
     return mgr.adapter ?: throw CodedException("E_NO_BT", "No Bluetooth adapter on this device", null)
   }
 
+  /**
+   * OEM autostart / protected-apps screens — the #1 real-world process killer for
+   * background sync (battery whitelist alone does NOT stop MIUI/EMUI autostart
+   * killers). Intents ported from Briar's dont-kill-me-lib (Xiaomi securitycenter,
+   * Huawei systemmanager) plus the common Oppo/Vivo/OnePlus equivalents.
+   * Most-specific first; EVERY candidate is queryIntentActivities-guarded before
+   * launch so a wrong class on a device that doesn't have it can never crash.
+   */
+  private fun oemAutostartIntents(): List<Intent> {
+    val brand = (Build.BRAND ?: "").lowercase()
+    val mfr = (Build.MANUFACTURER ?: "").lowercase()
+    fun comp(pkg: String, cls: String) = Intent().setClassName(pkg, cls)
+    val out = ArrayList<Intent>()
+    when {
+      brand.contains("xiaomi") || brand.contains("redmi") || brand.contains("poco") ||
+        mfr.contains("xiaomi") -> {
+        out.add(comp("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"))
+        out.add(comp("com.miui.securitycenter", "com.miui.securityscan.ui.settings.SettingsActivity"))
+      }
+      mfr.contains("huawei") || brand.contains("honor") -> {
+        out.add(comp("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"))
+        out.add(comp("com.huawei.systemmanager", "com.huawei.systemmanager.power.ui.HwPowerManagerActivity"))
+      }
+      mfr.contains("oppo") || mfr.contains("realme") -> {
+        out.add(comp("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity"))
+        out.add(comp("com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity"))
+        out.add(comp("com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity"))
+      }
+      mfr.contains("vivo") -> {
+        out.add(comp("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"))
+        out.add(comp("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity"))
+      }
+      mfr.contains("oneplus") -> {
+        out.add(comp("com.oneplus.security", "com.oneplus.security.chainlaunch.view.ChainLaunchAppListActivity"))
+      }
+    }
+    return out
+  }
+
+  /** The first OEM autostart intent that actually resolves on THIS device, or null. */
+  private fun resolvableOemAutostartIntent(): Intent? {
+    val pm = appCtx.packageManager
+    return oemAutostartIntents().firstOrNull {
+      try {
+        pm.queryIntentActivities(it, PackageManager.MATCH_DEFAULT_ONLY).isNotEmpty()
+      } catch (e: Throwable) {
+        false
+      }
+    }
+  }
+
   private fun ensureConnectPermission() {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
     val ok = ContextCompat.checkSelfPermission(
@@ -334,6 +385,45 @@ class KaataBtClassicModule : Module() {
         promise.reject(
           CodedException("E_BATTERY_OPT", e.message ?: "requestIgnoreBatteryOptimizations failed", e),
         )
+      }
+    }
+
+    // True iff this device has an OEM autostart/protected-apps screen we can open
+    // (Xiaomi/Huawei/Oppo/Vivo/OnePlus). Lets the UI prompt only when relevant.
+    AsyncFunction("oemAutostartAvailable") { promise: Promise ->
+      try {
+        promise.resolve(resolvableOemAutostartIntent() != null)
+      } catch (e: Throwable) {
+        promise.resolve(false)
+      }
+    }
+
+    // Open the OEM autostart/protected-apps screen so the user can whitelist Kaata
+    // for background auto-start (the killer the Doze whitelist doesn't cover).
+    // Resolves false if no such screen exists on this device.
+    AsyncFunction("openOemAutostartSettings") { promise: Promise ->
+      try {
+        val intent = resolvableOemAutostartIntent()
+        if (intent == null) {
+          promise.resolve(false)
+        } else {
+          val activity = appContext.currentActivity
+            ?: throw CodedException("E_NO_ACTIVITY", "No current activity for OEM settings", null)
+          intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+          activity.runOnUiThread {
+            try {
+              activity.startActivity(intent)
+            } catch (e: Throwable) {
+              Log.w(TAG, "openOemAutostartSettings startActivity failed", e)
+            }
+          }
+          promise.resolve(true)
+        }
+      } catch (e: CodedException) {
+        promise.reject(e)
+      } catch (e: Throwable) {
+        Log.w(TAG, "openOemAutostartSettings failed", e)
+        promise.reject(CodedException("E_OEM_AUTOSTART", e.message ?: "openOemAutostartSettings failed", e))
       }
     }
 

@@ -14,9 +14,12 @@ import { getAppMeta, setAppMeta } from "./db";
 import {
   isIgnoringBatteryOptimizations as nativeIsIgnoring,
   requestIgnoreBatteryOptimizations as nativeRequest,
+  oemAutostartAvailable as nativeOemAvailable,
+  openOemAutostartSettings as nativeOpenOem,
 } from "../modules/kaata-bt-classic";
 
 const FLAG_KEY = "battery_exemption_prompted_at";
+const OEM_FLAG_KEY = "oem_autostart_prompted_at";
 
 /** True iff the app is already on the OS Doze whitelist (or non-Android). */
 export async function isIgnoringBatteryOptimizations(): Promise<boolean> {
@@ -47,4 +50,27 @@ export async function shouldPromptBatteryExemption(): Promise<boolean> {
 
 export async function markBatteryExemptionPrompted(): Promise<void> {
   await setAppMeta(FLAG_KEY, String(Date.now()));
+}
+
+// OEM autostart / protected-apps — the killer the Doze whitelist doesn't cover
+// (MIUI/EMUI auto-start managers). We prompt ONCE (it can't be detected as
+// granted, unlike battery optimization), the first time sync is enabled on a
+// device that has such a screen.
+
+/** True iff this device has an OEM autostart screen AND we haven't prompted yet. */
+export async function shouldPromptOemAutostart(): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  const seen = await getAppMeta(OEM_FLAG_KEY);
+  if (seen) return false;
+  return nativeOemAvailable();
+}
+
+export async function markOemAutostartPrompted(): Promise<void> {
+  await setAppMeta(OEM_FLAG_KEY, String(Date.now()));
+}
+
+/** Open the OEM autostart/protected-apps screen. No-op (false) if none exists. */
+export async function openOemAutostartSettings(): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  return nativeOpenOem();
 }

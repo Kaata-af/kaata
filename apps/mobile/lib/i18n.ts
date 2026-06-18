@@ -495,6 +495,12 @@ const en = {
     "Nearby sync needs Android to keep Kaata's Bluetooth scan running while your phone is locked or in your pocket. Next: Settings → Battery → Unrestricted.",
   "menu.battery.confirm": "Open settings",
   "menu.battery.skip": "Skip — turn off Nearby sync",
+  // OEM autostart / protected-apps (MIUI/EMUI/ColorOS…). The battery whitelist
+  // alone doesn't stop these phones from killing background apps.
+  "menu.oemAutostart.title": "Allow Kaata to auto-start",
+  "menu.oemAutostart.description":
+    "Your phone's brand can still stop Kaata in the background even with battery access. On the next screen, find Kaata and turn ON auto-start (or \"don't restrict / allow background\").",
+  "menu.oemAutostart.confirm": "Open auto-start settings",
   // Phase 6 — wifi-upgrade prompt. Surfaced when initial sync is estimated
   // to take >2min over BLE. Body is BLE-aware ("on the same wifi" is the
   // actual requirement); "Cancel sync" was dropped because it was the
@@ -1372,6 +1378,10 @@ const fa: Partial<Record<Key, string>> = {
     "همگام‌سازی نزدیک نیاز دارد که اندروید اجازه دهد بلوتوث کاتا حتی وقت قفل بودن تلفون فعال بماند. بعد: تنظیمات ← باتری ← بدون محدودیت.",
   "menu.battery.confirm": "باز کردن تنظیمات",
   "menu.battery.skip": "رد کردن — همگام‌سازی نزدیک خاموش",
+  "menu.oemAutostart.title": "اجازهٔ خودکار-اجرا به کاتا",
+  "menu.oemAutostart.description":
+    "برند تلفون شما می‌تواند حتی با دسترسی باتری هم کاتا را در پس‌زمینه متوقف کند. در صفحهٔ بعد، کاتا را پیدا کنید و «خودکار-اجرا» را روشن کنید (یا «بدون محدودیت / اجازهٔ پس‌زمینه»).",
+  "menu.oemAutostart.confirm": "باز کردن تنظیمات خودکار-اجرا",
   "wifiUpgrade.title": "همگام‌سازی ~{count} ثبت — حدود {min} دقیقه با بلوتوث",
   "wifiUpgrade.body": "هر دو تلفون را به یک وای‌فای وصل کنید تا در چند ثانیه تمام شود.",
   "wifiUpgrade.tryWifi": "امتحان وای‌فای",

@@ -271,7 +271,10 @@ class KaataForegroundService : Service() {
    * AndroidWakeLockManagerImpl.getWakeLockTag): Huawei PowerGenie ->
    * "LocationManagerService"; Evenwell/Asus -> "AudioIn"; else our package name.
    */
-  private fun wakeLockTag(): String =
+  // Cached: the renewal hot path runs every 60s and the tag never changes for the
+  // process lifetime — Briar looks it up once at construction, not per renewal
+  // (the PackageManager lookups can block 10-50ms on low-end devices).
+  private val cachedWakeLockTag: String by lazy {
     try {
       val pm = packageManager
       when {
@@ -282,6 +285,9 @@ class KaataForegroundService : Service() {
     } catch (e: Throwable) {
       packageName
     }
+  }
+
+  private fun wakeLockTag(): String = cachedWakeLockTag
 
   private fun isInstalled(pm: android.content.pm.PackageManager, pkg: String): Boolean =
     try {

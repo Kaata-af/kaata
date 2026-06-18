@@ -41,6 +41,11 @@ object MeshEngine {
   /** "<peerDeviceId>:<vaultId>" of sessions in flight — never two at once. */
   private val activeSessions = ConcurrentHashMap.newKeySet<String>()
 
+  /** Is a session (accept or dial) already running for this vault? Used to skip
+   *  redundant dials while a sync is in flight. */
+  private fun hasActiveSessionForVault(vaultId: String): Boolean =
+    activeSessions.any { it.endsWith(":$vaultId") }
+
   private data class Identity(
     val seed: ByteArray,
     val pubkeyB64: String,
@@ -262,6 +267,16 @@ object MeshEngine {
       // 2s for the whole window. Reset to the floor on any successful connect.
       var backoff = DIAL_SWEEP_MIN_MS
       while (System.currentTimeMillis() < deadline) {
+        // Already syncing this vault (we dialed it last sweep, or accepted an
+        // inbound dial)? Don't pile on a redundant dial — wait out the backoff.
+        if (hasActiveSessionForVault(vault.id)) {
+          try {
+            Thread.sleep(backoff)
+          } catch (e: InterruptedException) {
+            break
+          }
+          continue
+        }
         // De-dup, cached first. Filter to dialable MACs (skip 02:00:..-style
         // placeholders the OS hands out when it hides the real address).
         val candidates = LinkedHashSet<String>()

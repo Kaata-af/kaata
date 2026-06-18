@@ -45,7 +45,28 @@ class KaataMeshAlarmReceiver : BroadcastReceiver() {
       KaataForegroundService.scheduleRevivalAlarm(context)
       // Only actually revive when the user opted into background sync.
       if (KaataBgMeshGate.isEnabled(context)) {
-        KaataForegroundService.ensureRunning(context)
+        // Hold a brief partial wakelock across the FGS start (Briar wraps onAlarm
+        // in runWakefully): the broadcast itself is Doze-exempt, but Doze can
+        // re-engage before startForegroundService completes on a slow/hostile
+        // device, killing the revival. Self-timed so it can never leak.
+        var wl: android.os.PowerManager.WakeLock? = null
+        try {
+          val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+          wl = pm?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "kaata:alarm-revival")
+          wl?.setReferenceCounted(false)
+          wl?.acquire(10_000L)
+        } catch (e: Throwable) {
+          Log.w("KaataMeshAlarm", "revival wakelock failed", e)
+        }
+        try {
+          KaataForegroundService.ensureRunning(context)
+        } finally {
+          try {
+            if (wl?.isHeld == true) wl.release()
+          } catch (e: Throwable) {
+            /* self-timed acquire will release it */
+          }
+        }
       }
     } catch (e: Throwable) {
       Log.w("KaataMeshAlarm", "onReceive failed", e)
