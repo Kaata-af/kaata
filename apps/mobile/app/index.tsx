@@ -707,7 +707,11 @@ export default function HomeScreen() {
             <Text style={styles.loadErrorRetryText}>{t("common.tryAgain")}</Text>
           </Pressable>
         </View>
-      ) : loaded ? (
+      ) : loaded && screenWidth > 0 ? (
+        // screenWidth>0 gate: on some devices (Xiaomi/MIUI) useWindowDimensions
+        // returns 0 for the first frame(s); rendering the rail at width 0 paints
+        // blank-white until a swipe forces a re-layout (the reported bug). Showing
+        // the spinner until width resolves makes the main page appear on its own.
         <GestureDetector gesture={swipeGesture}>
           <Animated.View
             style={[styles.rail, { width: screenWidth * 2, transform: [{ translateX }] }]}
@@ -784,7 +788,10 @@ export default function HomeScreen() {
           }}
           style={({ pressed }) => [styles.fabInner, pressed && { opacity: 0.85 }]}
         >
-          <Ionicons name="add" size={26} color={colors.textInverted} />
+          {/* Search icon, not +: the FAB opens the search-or-add screen (person/new)
+              with the people list + keyboard focused. Matee: "the add button should
+              be a search button". onPress already routes to that unified screen. */}
+          <Ionicons name="search" size={24} color={colors.textInverted} />
         </Pressable>
       </Animated.View>
 
@@ -1328,7 +1335,12 @@ function TabPage(props: {
         renderItem={renderRow}
         keyExtractor={(p) => p.id}
         ListHeaderComponent={header}
-        contentContainerStyle={{ paddingBottom: props.paddingBottom }}
+        // Single horizontal inset for ALL list content (header + card rows) lives
+        // HERE, not as per-cell marginHorizontal — per-cell margins on a
+        // virtualized list can render the card's side borders inconsistently at the
+        // screen edges (the "contacts edges cut off" report). totalBlock + cardRow
+        // therefore no longer set their own horizontal inset.
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: props.paddingBottom }}
         initialNumToRender={12}
         windowSize={7}
         // A shopkeeper's contact list is small; cell-clipping buys nothing and is
@@ -1485,7 +1497,7 @@ const styles = StyleSheet.create({
     // one-shot migration prompt — see that file for the full architecture.
     flexDirection: "row",
   },
-  totalBlock: { paddingHorizontal: 16, marginBottom: 20 },
+  totalBlock: { marginBottom: 20 }, // horizontal inset now from FlatList contentContainerStyle
   totalLabel: {
     fontSize: 11,
     fontFamily: fonts.sansSemi,
@@ -1510,7 +1522,8 @@ const styles = StyleSheet.create({
   // Per-row card-edge emulation for the virtualized list — together the
   // rows render identically to the old single bordered-card container.
   cardRow: {
-    marginHorizontal: 16,
+    // No marginHorizontal — the 16px inset is on the FlatList contentContainerStyle
+    // so the card's side borders sit cleanly at one consistent edge.
     borderLeftWidth: 1,
     borderRightWidth: 1,
     borderColor: colors.borderDefault,
