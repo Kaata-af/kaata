@@ -29,7 +29,6 @@ import { ProfileSettingsSheet, type VaultListItem } from "../components/ProfileS
 import { Tabs } from "../components/Tabs";
 import { useToast, useToastOffset } from "../components/Toast";
 import { UpdateBanner } from "../components/UpdateBanner";
-import { BackupNagBanner } from "../components/BackupNagBanner";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
 import { getCurrentCurrencySymbol } from "../lib/currency";
@@ -688,11 +687,6 @@ export default function HomeScreen() {
       </View>
 
       <UpdateBanner />
-      <BackupNagBanner
-        activeVaultId={activeVaultId}
-        signedOut={sessionUser == null}
-        onPress={() => setSettingsVisible(true)}
-      />
 
       <View style={styles.tabsWrap}>
         <Tabs<Direction> tabs={buildTabs()} value={direction} onChange={setDirection} />

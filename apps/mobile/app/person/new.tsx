@@ -54,6 +54,7 @@ export default function PersonAddOrFindScreen() {
   // Inline errors — modal screen, toasts can't render above it (Toast.tsx).
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const nameRef = useRef<TextInput>(null);
   const phoneRef = useRef<TextInput>(null);
   // Synchronous re-entry guard — `busy` state can't stop a same-frame
   // double-tap (setState is async); see entry/new.tsx.
@@ -113,6 +114,15 @@ export default function PersonAddOrFindScreen() {
     };
     // toast/router/t are stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Focus the name field via ref + delay, NOT autoFocus: on a stack-modal screen
+  // autoFocus fires before the slide-in finishes, so focus succeeds but the soft
+  // keyboard never opens on Android (the user has to tap the field again). 280ms
+  // clears the modal animation. (Same pattern the edit screens use — see CLAUDE.md.)
+  useEffect(() => {
+    const tmr = setTimeout(() => nameRef.current?.focus(), 280);
+    return () => clearTimeout(tmr);
   }, []);
 
   const trimmed = name.trim();
@@ -217,13 +227,13 @@ export default function PersonAddOrFindScreen() {
             </Text>
             <View style={styles.inputWrap}>
               <TextInput
+                ref={nameRef}
                 style={[styles.inputInner, textDir(isRTL)]}
                 value={name}
                 onChangeText={setName}
                 placeholder={t("personAdd.name.placeholder")}
                 placeholderTextColor={colors.textMuted}
                 accessibilityLabel={t("personEdit.name.label")}
-                autoFocus
                 autoCorrect={false}
                 autoCapitalize="words"
                 maxLength={50}
