@@ -19,7 +19,7 @@ import { CountryPickerSheet } from "../../components/CountryPickerSheet";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
-import { createPerson, getActiveVaultArchivedState, listAllPeople } from "../../lib/db";
+import { createPerson, getActiveVaultArchivedState, listAllPeopleForSearch } from "../../lib/db";
 import { toAsciiDigits } from "../../lib/digits";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
@@ -105,7 +105,8 @@ export default function PersonAddOrFindScreen() {
         router.replace("/vault/archived");
         return;
       }
-      const list = await listAllPeople();
+      // Search/add must find people with ZERO tallies too (home hides them).
+      const list = await listAllPeopleForSearch();
       if (cancelled) return;
       setPeople(list);
     })();

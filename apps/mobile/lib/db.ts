@@ -28,6 +28,7 @@ import {
 } from "./event-log";
 import { buildLocalAccountId } from "./trust/account-id";
 import { normalizePhone } from "./phone";
+import { writePersonToPhoneBook } from "./contacts-sync";
 import type {
   CreatePersonResult,
   Direction,
@@ -3114,6 +3115,12 @@ export async function createPerson(
     vaultId,
   });
 
+  // Keep the phone book "one with" the app: best-effort, fire-and-forget, deduped.
+  // Never blocks/affects the ledger result (Matee: "adding contacts should add it
+  // in phone"). A phone contact PICKED via ContactsPickerSheet already exists, so
+  // writePersonToPhoneBook dedups and won't duplicate it.
+  void writePersonToPhoneBook(name, phoneE164).catch(() => {});
+
   await bumpUsageCounter("customers_added");
   return { ok: true, id };
 }
@@ -3173,6 +3180,27 @@ export async function listPeople(direction: Direction): Promise<PersonWithBalanc
 // just wants to find or add a contact. Sorted most-recently-active first so
 // the quick-switcher pre-populates with familiar names.
 export async function listAllPeople(): Promise<PersonWithBalance[]> {
+  const db = await getDb();
+  const rows = await selectAllPeopleRaw(db);
+  // HOME list: only people with TALLIES (≥1 entry) — phone-book contacts and
+  // freshly-added people with no transactions don't clutter the main page; they
+  // stay findable via the search/add flow (listAllPeopleForSearch). Sorted by
+  // modified date (most-recent entry first), name as tie-break. (Matee: "only the
+  // ones that has some tallies" + "sorted by modified date".)
+  return rows
+    .filter((p) => p.last_entry_at != null)
+    .sort((a, b) => {
+      const at = a.last_entry_at ?? 0;
+      const bt = b.last_entry_at ?? 0;
+      if (at !== bt) return bt - at;
+      return a.name.localeCompare(b.name);
+    });
+}
+
+// Every active person INCLUDING zero-tally (no entries yet) — for the search/add
+// flow so a freshly-added or phone-imported contact is findable before they have
+// any ledger activity. The home list (listAllPeople) excludes zero-tally people.
+export async function listAllPeopleForSearch(): Promise<PersonWithBalance[]> {
   const db = await getDb();
   const rows = await selectAllPeopleRaw(db);
   rows.sort((a, b) => {

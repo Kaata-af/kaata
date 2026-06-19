@@ -91,6 +91,11 @@ const DRAG_COMMIT_FRACTION = 0.3;
 // Mid-stiffness: fast settle without overshoot.
 const RAIL_SPRING = { friction: 14, tension: 110 } as const;
 
+// Home list ordering: most-recently-modified (last entry) first, name as
+// tie-break. Module-level pure comparator (stable identity, safe outside memo deps).
+const sortByModified = (a: PersonWithBalance, b: PersonWithBalance): number =>
+  (b.last_entry_at ?? 0) - (a.last_entry_at ?? 0) || a.name.localeCompare(b.name);
+
 /**
  * ONE sync toggle: enabling Nearby sync also turns on the native background
  * engine (there is no foreground-only sync — sync IS background sync). Sets the
@@ -427,21 +432,16 @@ export default function HomeScreen() {
     }, [toast]),
   );
 
-  // Filter + sort once per data change. Same rules as listPeople() used to
-  // apply server-side: collect descending by balance, pay ascending (most
-  // negative first), name as tie-breaker.
+  // Split by direction, then sort by MODIFIED DATE (most-recent entry first),
+  // name as tie-breaker. (Matee: "the contacts should be listed and sorted by
+  // modified date.") allPeople is already tallied-only (listAllPeople), so every
+  // row has a last_entry_at. sortByModified is a module-level pure comparator.
   const collectPeople = useMemo(
-    () =>
-      allPeople
-        .filter((p) => p.balance >= 0)
-        .sort((a, b) => b.balance - a.balance || a.name.localeCompare(b.name)),
+    () => allPeople.filter((p) => p.balance >= 0).sort(sortByModified),
     [allPeople],
   );
   const payPeople = useMemo(
-    () =>
-      allPeople
-        .filter((p) => p.balance < 0)
-        .sort((a, b) => a.balance - b.balance || a.name.localeCompare(b.name)),
+    () => allPeople.filter((p) => p.balance < 0).sort(sortByModified),
     [allPeople],
   );
 
