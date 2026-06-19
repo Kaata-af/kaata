@@ -82,6 +82,7 @@
           "icon": "./assets/icon.png"
         }
       ],
+      "./plugins/withBackupRules",
       "./plugins/withNearbyWifiNeverForLocation",
       "./plugins/withKaataForegroundService",
       "./plugins/withBleAdvertiser",
