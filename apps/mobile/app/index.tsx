@@ -536,6 +536,18 @@ export default function HomeScreen() {
           setPendingAccountDecision({ args, resolve });
         });
       });
+      // Restore-on-sign-in: automatically load the account's vaults/kaatas from
+      // the server (Matee: "if it's on, it should load your vaults/kaatas once you
+      // sign in"). Idempotent + safe — a first-time account lists ZERO server
+      // vaults (no-op, local data untouched); a fresh phone loads its backed-up
+      // vaults; an already-synced phone re-applies idempotently. Recovery failure
+      // must not break the sign-in, so it's caught.
+      try {
+        const { recoverAllVaults } = await import("../lib/recovery");
+        await recoverAllVaults();
+      } catch (err) {
+        if (__DEV__) console.warn("[home] post-sign-in recovery failed (non-fatal)", err);
+      }
       await load();
       setTimeout(() => toast.push(t("menu.account.signIn.toast"), "success"), 240);
     } catch (err) {
@@ -1001,6 +1013,11 @@ export default function HomeScreen() {
           setCloudSyncEnabled(next); // optimistic
           try {
             await setAppMeta("cloud_sync_enabled", next ? "1" : "0");
+            // Kick a sync immediately instead of waiting up to 10s for AutoSync's
+            // poll, so "turn on backup" visibly backs up NOW (Matee: "once someone
+            // turns backup on it should just take over and do it"). Fire-and-forget;
+            // the scheduler then takes over the ongoing automated backup.
+            if (next) void syncOnce({ verifyConvergence: false }).catch(() => {});
             toast.push(
               next ? t("menu.sync.cloud.onToast") : t("menu.sync.cloud.offToast"),
               "success",
