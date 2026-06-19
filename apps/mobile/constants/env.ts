@@ -13,3 +13,10 @@ export const BACKEND_URL_FALLBACK = process.env.EXPO_PUBLIC_BACKEND_URL || "http
 export const GOOGLE_WEB_CLIENT_ID =
   process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ||
   "987359341353-3bjb28b0hksu9l0ubaogk3p0d7aftjv1.apps.googleusercontent.com";
+
+// SOLO_STORE_MODE gates the multi-employee / device-mesh surface for the
+// single-shopkeeper release. When "1", hides the Nearby (Bluetooth/WiFi) sync
+// toggle + the kaata-pairing entry points — a lone shopkeeper has no use for them
+// and they read as broken/confusing. Cloud backup (the solo-relevant sync) stays.
+// Build-time, like the other EXPO_PUBLIC_ flags; set in eas.json preview/production.
+export const SOLO_STORE_MODE = process.env.EXPO_PUBLIC_SOLO_STORE_MODE === "1";

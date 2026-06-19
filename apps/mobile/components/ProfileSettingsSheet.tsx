@@ -30,6 +30,7 @@ import {
 } from "../lib/design-tokens";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
+import { SOLO_STORE_MODE } from "../constants/env";
 import { t } from "../lib/i18n";
 import { useMembersCount, useLastSyncedRelative } from "../lib/use-vault-summary";
 import { NavRow, SectionGap, SectionHeader } from "./SettingsScreen";
@@ -363,61 +364,70 @@ export function ProfileSettingsSheet(props: {
 
               <SectionGap />
 
-              {/* ============ SECTION 3: KAATAS ============ */}
-              <SectionHeader label={t("menu.allKaatas")} isRTL={isRTL} />
-              {activeVaults.length === 0 ? (
-                <Text style={[styles.emptyHint, textDir(isRTL)]}>{t("menu.allKaatas.empty")}</Text>
-              ) : (
-                activeVaults.map((v) => {
-                  const isActive = v.id === props.activeVaultId;
-                  return (
+              {/* ============ SECTION 3: KAATAS ============
+                  Hidden in SOLO_STORE_MODE: the kaata list is redundant with the
+                  top-left vault switcher (VaultPickerSheet), and pairing/scan are
+                  multi-employee surfaces a lone shopkeeper doesn't need. (Matee:
+                  "the vaults/kaatas are listed in the settings too, it's not
+                  needed, I see them on the vault/kaata switcher.") */}
+              {!SOLO_STORE_MODE ? (
+                <>
+                  <SectionHeader label={t("menu.allKaatas")} isRTL={isRTL} />
+                  {activeVaults.length === 0 ? (
+                    <Text style={[styles.emptyHint, textDir(isRTL)]}>
+                      {t("menu.allKaatas.empty")}
+                    </Text>
+                  ) : (
+                    activeVaults.map((v) => {
+                      const isActive = v.id === props.activeVaultId;
+                      return (
+                        <NavRow
+                          key={v.id}
+                          icon={isActive ? "checkmark-circle" : "ellipse-outline"}
+                          iconColor={isActive ? colors.textEmphasis : colors.textMuted}
+                          label={v.name}
+                          bold={isActive}
+                          onPress={
+                            isActive
+                              ? () => props.onDismiss()
+                              : chained(() => props.onSelectVault(v.id))
+                          }
+                          isRTL={isRTL}
+                        />
+                      );
+                    })
+                  )}
+                  <NavRow
+                    icon="add-circle-outline"
+                    label={t("menu.allKaatas.add")}
+                    onPress={chained(props.onAddVault)}
+                    isRTL={isRTL}
+                    emphasis
+                  />
+                  <NavRow
+                    icon="qr-code-outline"
+                    label={t("menu.allKaatas.scan")}
+                    hint={t("menu.allKaatas.scan.hint")}
+                    onPress={chained(props.onScanPairingCode)}
+                    isRTL={isRTL}
+                    // UX-fix #4: the Kaatas section ends here when nothing
+                    // else (manage / archived) trails — the archived row
+                    // sits behind a SectionGap so it doesn't influence
+                    // this row's divider. When `hasManageable`, the manage
+                    // row is the last in-section row and carries `isLast`.
+                    isLast={!hasManageable}
+                  />
+                  {hasManageable ? (
                     <NavRow
-                      key={v.id}
-                      icon={isActive ? "checkmark-circle" : "ellipse-outline"}
-                      iconColor={isActive ? colors.textEmphasis : colors.textMuted}
-                      label={v.name}
-                      bold={isActive}
-                      onPress={
-                        isActive
-                          ? () => props.onDismiss()
-                          : chained(() => props.onSelectVault(v.id))
-                      }
+                      icon="cog-outline"
+                      label={t("menu.thisKaata.settings")}
+                      hint={pluralizeMembers(membersCount)}
+                      onPress={chained(props.onManageCurrentKaata)}
                       isRTL={isRTL}
+                      isLast
                     />
-                  );
-                })
-              )}
-              <NavRow
-                icon="add-circle-outline"
-                label={t("menu.allKaatas.add")}
-                onPress={chained(props.onAddVault)}
-                isRTL={isRTL}
-                emphasis
-              />
-              <NavRow
-                icon="qr-code-outline"
-                label={t("menu.allKaatas.scan")}
-                hint={t("menu.allKaatas.scan.hint")}
-                onPress={chained(props.onScanPairingCode)}
-                isRTL={isRTL}
-                // UX-fix #4: the Kaatas section ends here when nothing
-                // else (manage / archived) trails — the archived row
-                // sits behind a SectionGap so it doesn't influence
-                // this row's divider. When `hasManageable`, the manage
-                // row is the last in-section row and carries `isLast`.
-                isLast={!hasManageable}
-              />
-              {hasManageable ? (
-                <NavRow
-                  icon="cog-outline"
-                  label={t("menu.thisKaata.settings")}
-                  hint={pluralizeMembers(membersCount)}
-                  onPress={chained(props.onManageCurrentKaata)}
-                  isRTL={isRTL}
-                  isLast
-                />
-              ) : null}
-              {/* D-ARCHIVED-SCREEN — muted "Archived (N) >" footer link
+                  ) : null}
+                  {/* D-ARCHIVED-SCREEN — muted "Archived (N) >" footer link
                   to /vault/archived. Renders only when the user has at
                   least one archived Kaata. Placed below the manage row
                   so primary actions (select / add / scan / manage) stay
@@ -431,23 +441,25 @@ export function ProfileSettingsSheet(props: {
                   SectionGap above the archived row so it reads as a
                   distinct footer section rather than "yet another row"
                   in the Kaatas list. */}
-              {hasArchived ? (
-                <>
+                  {hasArchived ? (
+                    <>
+                      <SectionGap />
+                      <NavRow
+                        icon="archive-outline"
+                        iconColor={colors.textMuted}
+                        label={t("menu.allKaatas.archived.view", {
+                          count: archivedCount,
+                        })}
+                        onPress={chained(() => props.onOpenArchived?.())}
+                        isRTL={isRTL}
+                        isLast
+                      />
+                    </>
+                  ) : null}
+
                   <SectionGap />
-                  <NavRow
-                    icon="archive-outline"
-                    iconColor={colors.textMuted}
-                    label={t("menu.allKaatas.archived.view", {
-                      count: archivedCount,
-                    })}
-                    onPress={chained(() => props.onOpenArchived?.())}
-                    isRTL={isRTL}
-                    isLast
-                  />
                 </>
               ) : null}
-
-              <SectionGap />
 
               {/* ============ SECTION 4: SYNC ============ */}
               <SectionHeader
@@ -455,45 +467,50 @@ export function ProfileSettingsSheet(props: {
                 trailing={lastSynced.ms == null ? t("menu.sync.header.never") : lastSynced.label}
                 isRTL={isRTL}
               />
-              <View style={[styles.toggleRow, rowDir(isRTL)]}>
-                <Ionicons
-                  name="bluetooth-outline"
-                  size={SETTINGS_ROW_ICON_SIZE}
-                  color={colors.textEmphasis}
-                  style={
-                    isRTL
-                      ? { marginLeft: SETTINGS_ROW_ICON_GAP }
-                      : { marginRight: SETTINGS_ROW_ICON_GAP }
-                  }
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.toggleTitle, textDir(isRTL)]}>
-                    {t("menu.sync.shopMode")}
-                  </Text>
-                  <Text style={[styles.toggleHint, textDir(isRTL)]}>
-                    {!props.shopModeEnabled
-                      ? t("menu.sync.shopMode.hint")
-                      : (props.activePeers ?? 0) === 0
-                        ? t("menu.sync.shopMode.hintLooking")
-                        : (props.activePeers ?? 0) === 1
-                          ? t("menu.sync.shopMode.hintOnePeer")
-                          : t("menu.sync.shopMode.hintWithPeers", {
-                              count: props.activePeers ?? 0,
-                            })}
-                  </Text>
+              {/* Nearby (Bluetooth/WiFi mesh) toggle — hidden in SOLO_STORE_MODE;
+                  a single shopkeeper has no other phones to sync with. Cloud
+                  backup (below) is the solo-relevant sync. */}
+              {!SOLO_STORE_MODE ? (
+                <View style={[styles.toggleRow, rowDir(isRTL)]}>
+                  <Ionicons
+                    name="bluetooth-outline"
+                    size={SETTINGS_ROW_ICON_SIZE}
+                    color={colors.textEmphasis}
+                    style={
+                      isRTL
+                        ? { marginLeft: SETTINGS_ROW_ICON_GAP }
+                        : { marginRight: SETTINGS_ROW_ICON_GAP }
+                    }
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.toggleTitle, textDir(isRTL)]}>
+                      {t("menu.sync.shopMode")}
+                    </Text>
+                    <Text style={[styles.toggleHint, textDir(isRTL)]}>
+                      {!props.shopModeEnabled
+                        ? t("menu.sync.shopMode.hint")
+                        : (props.activePeers ?? 0) === 0
+                          ? t("menu.sync.shopMode.hintLooking")
+                          : (props.activePeers ?? 0) === 1
+                            ? t("menu.sync.shopMode.hintOnePeer")
+                            : t("menu.sync.shopMode.hintWithPeers", {
+                                count: props.activePeers ?? 0,
+                              })}
+                    </Text>
+                  </View>
+                  <Switch
+                    value={props.shopModeEnabled}
+                    onValueChange={props.onToggleShopMode}
+                    disabled={!!props.shopModeBusy}
+                    accessibilityRole="switch"
+                    accessibilityLabel={t("menu.sync.shopMode")}
+                    accessibilityState={{
+                      checked: props.shopModeEnabled,
+                      disabled: !!props.shopModeBusy,
+                    }}
+                  />
                 </View>
-                <Switch
-                  value={props.shopModeEnabled}
-                  onValueChange={props.onToggleShopMode}
-                  disabled={!!props.shopModeBusy}
-                  accessibilityRole="switch"
-                  accessibilityLabel={t("menu.sync.shopMode")}
-                  accessibilityState={{
-                    checked: props.shopModeEnabled,
-                    disabled: !!props.shopModeBusy,
-                  }}
-                />
-              </View>
+              ) : null}
 
               {/* Cloud backup toggle + Sync to cloud / Restore — signed-in only. */}
               {liveAccountId ? (

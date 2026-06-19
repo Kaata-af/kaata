@@ -20,7 +20,8 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://api.kaata.af"
+        "EXPO_PUBLIC_BACKEND_URL": "https://api.kaata.af",
+        "EXPO_PUBLIC_SOLO_STORE_MODE": "1"
       }
     },
     "production": {
@@ -29,7 +30,8 @@
       },
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://api.kaata.af"
+        "EXPO_PUBLIC_BACKEND_URL": "https://api.kaata.af",
+        "EXPO_PUBLIC_SOLO_STORE_MODE": "1"
       }
     }
   },
