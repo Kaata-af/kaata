@@ -31,6 +31,11 @@ type Config struct {
 	// invalidates all currently-issued sessions, forcing every user to
 	// sign in again.
 	SessionJWTSecret string
+	// AdminAPIKey: operator-only shared secret guarding the /v1/admin/* analytics
+	// endpoints. When empty, the admin routes return 404 (feature disabled) — so a
+	// deployment without the key simply has no admin surface. Generate with
+	// `openssl rand -hex 32` and set in the backend env (Dokploy).
+	AdminAPIKey string
 }
 
 func Load() Config {
@@ -45,6 +50,7 @@ func Load() Config {
 		// SESSION_JWT_SECRET for compatibility with v0.4 deployments that
 		// haven't rotated their .env yet.
 		SessionJWTSecret: firstNonEmpty(os.Getenv("JWT_SECRET"), os.Getenv("SESSION_JWT_SECRET")),
+		AdminAPIKey:      os.Getenv("ADMIN_API_KEY"),
 	}
 }
 

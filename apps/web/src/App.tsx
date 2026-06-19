@@ -3,6 +3,7 @@ import { Route, Routes, useLocation } from "react-router-dom";
 import { CookieConsent } from "./components/CookieConsent";
 import { ToastProvider } from "./components/Toast";
 import { fireVisitOnce, getSource } from "./lib/analytics";
+import { Admin } from "./pages/Admin";
 import { CustomerView } from "./pages/CustomerView";
 import { Download } from "./pages/Download";
 import { Home } from "./pages/Home";
@@ -29,6 +30,9 @@ export function App() {
             informational, mirrors what's behind the token. Actual accept
             happens in the mobile app via POST /v1/vaults/invites/accept. */}
         <Route path="/i/:token" element={<Invite />} />
+        {/* Operator analytics dashboard. Backend gates GET /v1/admin/stats with
+            the ADMIN_API_KEY shared secret; this page just collects/sends it. */}
+        <Route path="/admin" element={<Admin />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
       <CookieConsent />

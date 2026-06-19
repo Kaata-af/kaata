@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 
+	"github.com/matee/kaata-backend/internal/admin"
 	"github.com/matee/kaata-backend/internal/auth"
 	"github.com/matee/kaata-backend/internal/checkin"
 	"github.com/matee/kaata-backend/internal/config"
@@ -87,6 +88,8 @@ func main() {
 
 	authSvc := auth.NewService(pool, cfg.GoogleWebClientID, cfg.SessionJWTSecret)
 	authH := auth.NewHandler(authSvc)
+
+	adminH := admin.NewHandler(admin.NewService(pool))
 	authenticator := auth.NewSessionAuthenticator(authSvc, cfg.SessionJWTSecret)
 	// Wire the cache so SignOut purges the cached revocation entry instead of
 	// leaving up to 60s of valid-looking auth in front of a deleted credential.
@@ -192,6 +195,13 @@ func main() {
 	r.Post("/v1/visit", visitH.Visit)
 	r.Get("/v1/download", visitH.Download)
 	r.Post("/v1/auth/google", authH.GoogleSignIn)
+	// Operator-only analytics dashboard (admin.kaata.af / /admin web page).
+	// AdminKeyMiddleware 404s the whole group when ADMIN_API_KEY is unset, so a
+	// deployment without the key has no admin surface at all.
+	r.Group(func(pr chi.Router) {
+		pr.Use(httpx.AdminKeyMiddleware(cfg.AdminAPIKey))
+		pr.Get("/v1/admin/stats", adminH.Stats)
+	})
 	// Public invite landing read (kaata.af/i/<token>). 30/hr per IP caps
 	// token-enumeration attempts; the handler still returns a uniform 404
 	// on bad tokens so the limit does not leak token-existence either.
