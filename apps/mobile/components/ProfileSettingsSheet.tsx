@@ -461,12 +461,18 @@ export function ProfileSettingsSheet(props: {
                 </>
               ) : null}
 
-              {/* ============ SECTION 4: SYNC ============ */}
-              <SectionHeader
-                label={t("menu.sync")}
-                trailing={lastSynced.ms == null ? t("menu.sync.header.never") : lastSynced.label}
-                isRTL={isRTL}
-              />
+              {/* ============ SECTION 4: SYNC ============
+                  Header renders only when the section has content. In
+                  SOLO_STORE_MODE the Nearby toggle is hidden and Cloud backup is
+                  signed-in-only, so a signed-out solo user (a common state) would
+                  otherwise see an orphaned header above an empty gap. */}
+              {!SOLO_STORE_MODE || liveAccountId ? (
+                <SectionHeader
+                  label={t("menu.sync")}
+                  trailing={lastSynced.ms == null ? t("menu.sync.header.never") : lastSynced.label}
+                  isRTL={isRTL}
+                />
+              ) : null}
               {/* Nearby (Bluetooth/WiFi mesh) toggle — hidden in SOLO_STORE_MODE;
                   a single shopkeeper has no other phones to sync with. Cloud
                   backup (below) is the solo-relevant sync. */}
@@ -584,7 +590,9 @@ export function ProfileSettingsSheet(props: {
                 />
               ) : null}
 
-              <SectionGap />
+              {/* Gap before About only when the SYNC section actually rendered
+                  content (else the after-Preferences gap already separates them). */}
+              {!SOLO_STORE_MODE || liveAccountId ? <SectionGap /> : null}
 
               {/* ============ SECTION 5: ABOUT ============ */}
               <SectionHeader label={t("menu.about")} isRTL={isRTL} />

@@ -108,7 +108,7 @@ func (s *Service) GetStats(ctx context.Context) (Stats, error) {
 		       COUNT(*) FILTER (WHERE kind = 'download'),
 		       COUNT(DISTINCT claimed_by_install_id) FILTER (WHERE claimed_by_install_id IS NOT NULL)
 		FROM web_visits
-		GROUP BY source
+		GROUP BY COALESCE(source, '(direct)')
 		ORDER BY 2 DESC
 		LIMIT 20
 	`)
