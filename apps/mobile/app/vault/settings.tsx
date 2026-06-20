@@ -60,7 +60,12 @@ import {
   setActiveVaultId,
 } from "../../lib/db-tx";
 import { setCurrentCurrency } from "../../lib/currency";
-import { getAppMeta, setAppMeta } from "../../lib/db";
+import {
+  getAppMeta,
+  listActiveVaults,
+  listAllVaultsIncludingArchived,
+  setAppMeta,
+} from "../../lib/db";
 import { resolveAccountIdCandidates } from "../../lib/effective-account";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
@@ -471,7 +476,32 @@ export default function VaultSettingsScreen() {
       // here would not survive the router.replace below (the toast
       // viewport unmounts before the queue tick fires).
       queuePendingToast(t("vaultSettings.toast.left"), "success");
-      router.replace("/");
+
+      // D-POST-LEAVE-SWITCH: the kaata I just left must stop being the active
+      // one (it's gone from the switcher list too). If it was active, move to
+      // another kaata I'm still in; if none remain, clear the pointer and route
+      // to restore/create. Mirrors D-POST-ARCHIVE-SWITCH. (Matee: "I leave a
+      // kaata ... but it still shows in the switcher and still opened.")
+      if (getActiveVaultIdSyncMaybe() === vault.id) {
+        // listActiveVaults already excludes the just-left vault (revoked
+        // membership) + archived; filter the id too for belt-and-suspenders
+        // (server-anchored leaves don't update the local mirror immediately).
+        const remaining = (await listActiveVaults()).filter((v) => v.id !== vault.id);
+        if (remaining.length > 0) {
+          await setActiveVaultId(remaining[0].id);
+          router.replace("/");
+        } else {
+          await clearActiveVaultId();
+          const anyArchived = (await listAllVaultsIncludingArchived()).some((v) => v.archived);
+          if (anyArchived) {
+            router.replace("/vault/archived");
+          } else {
+            router.replace({ pathname: "/vault/new", params: { forced: "1" } });
+          }
+        }
+      } else {
+        router.replace("/");
+      }
     } catch (err) {
       console.warn("[vault/settings] leave failed", err);
       toast.push(t("vaultSettings.toast.leaveFailed"), "error");

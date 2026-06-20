@@ -29,6 +29,7 @@ import {
   findPhoneConflictInVault,
 } from "./event-log";
 import { buildLocalAccountId } from "./trust/account-id";
+import { resolveAccountIdCandidates } from "./effective-account";
 import { normalizePhone } from "./phone";
 import { joinName, writePersonToPhoneBook } from "./contacts-sync";
 import type {
@@ -2860,18 +2861,42 @@ export async function healActiveVaultId(): Promise<void> {
     "SELECT id, archived_at FROM vaults WHERE id = ?",
     activeId,
   );
-  if (row && row.archived_at == null) return; // valid + active — common case, no-op
-  if (__DEV__) {
-    console.warn(
-      `[heal] active vault ${activeId} is ${row ? "archived" : "missing"} — repairing`,
-    );
+  let reason: string | null = null;
+  if (!row) reason = "missing";
+  else if (row.archived_at != null) reason = "archived";
+  else {
+    // The vault exists + isn't archived, but did I LEAVE it? (revoked
+    // membership for my id and no active row.) A left-but-still-active vault
+    // would otherwise stay "open" in the app even though it's gone from the
+    // switcher list. (Matee: "I leave a kaata ... but it still opened in the
+    // app".) Self-heals the already-stuck state on the next launch.
+    const candidates = await resolveAccountIdCandidates(getAccountIdSync());
+    if (candidates.length > 0) {
+      const ph = candidates.map(() => "?").join(",");
+      const active = await db.getFirstAsync(
+        `SELECT 1 FROM vault_members_mirror
+          WHERE vault_id = ? AND account_id IN (${ph}) AND revoked_at IS NULL LIMIT 1`,
+        activeId,
+        ...candidates,
+      );
+      if (!active) {
+        const revoked = await db.getFirstAsync(
+          `SELECT 1 FROM vault_members_mirror
+            WHERE vault_id = ? AND account_id IN (${ph}) AND revoked_at IS NOT NULL LIMIT 1`,
+          activeId,
+          ...candidates,
+        );
+        if (revoked) reason = "left";
+      }
+    }
   }
-  const next = await db.getFirstAsync<{ id: string }>(
-    `SELECT id FROM vaults WHERE archived_at IS NULL
-      ORDER BY updated_at DESC, name COLLATE NOCASE LIMIT 1`,
-  );
-  if (next) {
-    await setActiveVaultId(next.id);
+  if (!reason) return; // valid + active + still a member — common case, no-op
+  if (__DEV__) console.warn(`[heal] active vault ${activeId} is ${reason} — repairing`);
+  // Pick the next valid vault to land on — listActiveVaults already excludes
+  // archived AND left vaults, so this never re-selects a bad one.
+  const remaining = (await listActiveVaults()).filter((v) => v.id !== activeId);
+  if (remaining.length > 0) {
+    await setActiveVaultId(remaining[0].id);
   } else {
     await clearActiveVaultId();
   }
@@ -3615,16 +3640,40 @@ export type VaultListRow = {
 
 export async function listActiveVaults(): Promise<VaultListRow[]> {
   const db = await getDb();
-  const rows = await db.getAllAsync<{
-    id: string;
-    name: string;
-    archived_at: number | null;
-  }>(
-    `SELECT id, name, archived_at
-       FROM vaults
-      WHERE archived_at IS NULL
-      ORDER BY name COLLATE NOCASE`,
-  );
+  // Exclude kaatas I've LEFT / been removed from: a vault where I have a REVOKED
+  // membership row and NO active one. Vaults with no membership rows at all
+  // (a local solo store, empty mirror) stay visible — I'm the implicit owner.
+  // Matched against ALL of my account ids (Google + device-key) so a kaata I
+  // was paired into (membership keyed by the device-key id) is filtered out
+  // after I leave even when signed in. If my id can't be resolved, don't filter
+  // (show every non-archived vault — local-only-must-keep-working invariant).
+  // (Matee: "I leave a kaata ... but it still shows in the switcher".)
+  const candidates = await resolveAccountIdCandidates(getAccountIdSync());
+  let rows: { id: string; name: string; archived_at: number | null }[];
+  if (candidates.length > 0) {
+    const ph = candidates.map(() => "?").join(",");
+    rows = await db.getAllAsync(
+      `SELECT v.id, v.name, v.archived_at
+         FROM vaults v
+        WHERE v.archived_at IS NULL
+          AND NOT (
+            EXISTS (SELECT 1 FROM vault_members_mirror m
+                     WHERE m.vault_id = v.id AND m.account_id IN (${ph})
+                       AND m.revoked_at IS NOT NULL)
+            AND NOT EXISTS (SELECT 1 FROM vault_members_mirror m
+                     WHERE m.vault_id = v.id AND m.account_id IN (${ph})
+                       AND m.revoked_at IS NULL)
+          )
+        ORDER BY v.name COLLATE NOCASE`,
+      ...candidates,
+      ...candidates,
+    );
+  } else {
+    rows = await db.getAllAsync(
+      `SELECT id, name, archived_at FROM vaults
+        WHERE archived_at IS NULL ORDER BY name COLLATE NOCASE`,
+    );
+  }
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
