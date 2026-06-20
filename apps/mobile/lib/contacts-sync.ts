@@ -23,6 +23,42 @@ function digitsOf(s: string): string {
   return (s ?? "").replace(/[^\d]/g, "");
 }
 
+/** Last-8-digit key for deduping a phone across +93 / leading-0 format variance.
+ *  Empty string when there's no number (callers treat empty as "no match"). */
+export function phoneKey(phone: string | null | undefined): string {
+  return digitsOf(phone ?? "").slice(-8);
+}
+
+export type DeviceContact = { name: string; phone: string | null };
+
+/** Read the device phone book (name + first number) for the WhatsApp-style inline
+ *  "add from your contacts" search. Best-effort: returns [] on no permission or any
+ *  read error (the add screen still works — you can type a new name). */
+export async function readDeviceContacts(): Promise<DeviceContact[]> {
+  try {
+    const perm = await Contacts.getPermissionsAsync();
+    let granted = perm.granted;
+    if (!granted && perm.canAskAgain) {
+      granted = (await Contacts.requestPermissionsAsync()).granted;
+    }
+    if (!granted) return [];
+    const { data } = await Contacts.getContactsAsync({
+      fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers],
+      sort: Contacts.SortTypes.FirstName,
+    });
+    const out: DeviceContact[] = [];
+    for (const c of data) {
+      const name = (c.name ?? "").trim();
+      if (!name) continue;
+      out.push({ name, phone: c.phoneNumbers?.[0]?.number?.trim() || null });
+    }
+    return out;
+  } catch (err) {
+    if (__DEV__) console.warn("[contacts-sync] readDeviceContacts failed:", err);
+    return [];
+  }
+}
+
 /** True if a phone contact already has this number (last-8-digit match tolerates
  *  +93 / leading-0 differences). On any read failure returns false — we'd rather
  *  risk a rare duplicate than skip a wanted write. */

@@ -20,6 +20,7 @@ import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
 import { createPerson, getActiveVaultArchivedState, listAllPeopleForSearch } from "../../lib/db";
+import { readDeviceContacts, phoneKey, type DeviceContact } from "../../lib/contacts-sync";
 import { toAsciiDigits } from "../../lib/digits";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
@@ -50,6 +51,8 @@ export default function PersonAddOrFindScreen() {
   const [pickerVisible, setPickerVisible] = useState(false);
   const [contactsVisible, setContactsVisible] = useState(false);
   const [people, setPeople] = useState<PersonWithBalance[] | null>(null);
+  // Device phone book, loaded best-effort for the inline "from your phone" search.
+  const [deviceContacts, setDeviceContacts] = useState<DeviceContact[]>([]);
   const [busy, setBusy] = useState(false);
   // Inline errors — modal screen, toasts can't render above it (Toast.tsx).
   const [phoneError, setPhoneError] = useState<string | null>(null);
@@ -117,6 +120,19 @@ export default function PersonAddOrFindScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Load the device phone book once, best-effort + non-blocking, so typing a name
+  // surfaces matching phone contacts inline (WhatsApp-style "one with the phone
+  // book"). Dedup against app people happens at search time.
+  useEffect(() => {
+    let cancelled = false;
+    void readDeviceContacts().then((c) => {
+      if (!cancelled) setDeviceContacts(c);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Focus the name field via ref + delay, NOT autoFocus: on a stack-modal screen
   // autoFocus fires before the slide-in finishes, so focus succeeds but the soft
   // keyboard never opens on Android (the user has to tap the field again). 280ms
@@ -135,6 +151,29 @@ export default function PersonAddOrFindScreen() {
   const hiddenResultCount = results.length - visibleResults.length;
   const exact = useMemo(() => (people ? hasExactMatch(name, people) : undefined), [people, name]);
   const isCreating = trimmed.length > 0 && !exact;
+
+  // Phone-book matches for the current query, deduped against people already in
+  // this kaata (last-8-digit phone match) so we never offer a contact you already
+  // have. Only while typing — an empty query would dump the whole phone book.
+  const appPhoneKeys = useMemo(() => {
+    const s = new Set<string>();
+    for (const p of people ?? []) {
+      const k = phoneKey(p.phone);
+      if (k) s.add(k);
+    }
+    return s;
+  }, [people]);
+  const deviceResults = useMemo(() => {
+    const q = trimmed.toLowerCase();
+    if (q.length === 0) return [];
+    return deviceContacts
+      .filter((c) => c.name.toLowerCase().includes(q))
+      .filter((c) => {
+        const k = phoneKey(c.phone);
+        return !k || !appPhoneKeys.has(k);
+      })
+      .slice(0, 20);
+  }, [deviceContacts, appPhoneKeys, trimmed]);
 
   function openPerson(id: string) {
     router.replace({ pathname: "/person/[id]", params: { id } });
@@ -201,7 +240,8 @@ export default function PersonAddOrFindScreen() {
   }
 
   const showRecentOrMatches = results.length > 0;
-  const showNoMatchesText = !showRecentOrMatches && trimmed.length > 0 && people !== null;
+  const showNoMatchesText =
+    !showRecentOrMatches && deviceResults.length === 0 && trimmed.length > 0 && people !== null;
   const showEmptyState = people !== null && people.length === 0 && trimmed.length === 0;
 
   return (
@@ -328,6 +368,44 @@ export default function PersonAddOrFindScreen() {
                   {t("personAdd.moreResults", { count: hiddenResultCount })}
                 </Text>
               ) : null}
+            </View>
+          ) : null}
+
+          {/* Inline phone-book matches — the app's contacts ARE the phone book
+              (Matee: "like WhatsApp, one with the actual phone contacts"). Tapping
+              one fills the name + number; the user then taps Add. Deduped against
+              people already in this kaata. */}
+          {deviceResults.length > 0 ? (
+            <View style={styles.section}>
+              <Text style={[styles.sectionLabel, textDir(isRTL)]}>
+                {t("personAdd.section.fromPhone")}
+              </Text>
+              <View style={styles.list}>
+                {deviceResults.map((c, i) => (
+                  <View key={`dev-${c.name}-${c.phone ?? ""}-${i}`}>
+                    <Pressable
+                      onPress={() => onContactPicked(c)}
+                      accessibilityRole="button"
+                      style={({ pressed }) => [
+                        styles.row,
+                        rowDir(isRTL),
+                        pressed && { backgroundColor: colors.bgMuted },
+                      ]}
+                    >
+                      <View style={styles.rowLeft}>
+                        <Text style={[styles.rowName, textDir(isRTL)]} numberOfLines={1}>
+                          {c.name}
+                        </Text>
+                        <Text style={[styles.rowSub, textDir(isRTL)]} numberOfLines={1}>
+                          {c.phone ?? t("contacts.noPhone")}
+                        </Text>
+                      </View>
+                      <Ionicons name="add-circle-outline" size={20} color={colors.textMuted} />
+                    </Pressable>
+                    {i < deviceResults.length - 1 ? <View style={styles.divider} /> : null}
+                  </View>
+                ))}
+              </View>
             </View>
           ) : null}
 
