@@ -16,6 +16,7 @@
 // "saved" differently if it ever wants to.
 
 import { getDb } from "./db-tx";
+import { resolveAccountIdCandidates } from "./effective-account";
 import {
   appendVaultMemberRemoved,
   appendVaultMemberRoleChanged,
@@ -225,54 +226,54 @@ export async function leaveVaultRouted(
   vaultId: string,
   accountId: string | null,
 ): Promise<{ ok: true; result: VaultOpResult } | { ok: false; error: LeaveVaultError }> {
-  // Resolve the acting account id once: prefer the passed one (a Google account
-  // id after sign-in); fall back to the deterministic local device-key id so a
-  // SIGNED-OUT member of a local-CA vault can still leave — the mirror row for a
-  // paired phone is keyed by that id, not by a Google id. Mirrors the same
-  // resolution use-vault-role.ts does, so role lookups and this leave agree.
-  let effectiveAccountId = accountId;
-  if (!effectiveAccountId) {
-    try {
-      const [deviceKeyMod, accountIdMod] = await Promise.all([
-        import("./mesh/device-key"),
-        import("./trust/account-id"),
-      ]);
-      await deviceKeyMod.ensureDeviceKey();
-      const pub = deviceKeyMod.getDevicePubkey();
-      if (pub) effectiveAccountId = accountIdMod.buildLocalAccountId(pub);
-    } catch {
-      /* fall through; handled as no_account below */
-    }
-  }
+  // Resolve EVERY account id that represents me — the passed Google account id
+  // AND the deterministic local device-key id. A local-CA vault created before
+  // sign-in keys its owner row by the device-key id, while the passed id is the
+  // Google one; matching only one of them was why a solo owner got
+  // "not_member" → "Failed to leave". Match membership against all of them.
+  const candidates = await resolveAccountIdCandidates(accountId);
 
   if (await isLocalCAVault(vaultId)) {
-    if (!effectiveAccountId) return { ok: false, error: { kind: "no_account" } };
+    if (candidates.length === 0) return { ok: false, error: { kind: "no_account" } };
 
     const db = await getDb();
-    const me = await db.getFirstAsync<{ role: string; revoked_at: number | null }>(
-      `SELECT role, revoked_at FROM vault_members_mirror
-        WHERE vault_id = ? AND account_id = ?`,
+    const placeholders = candidates.map(() => "?").join(",");
+    // Prefer a non-revoked row, but fetch my account_id so the removal targets
+    // exactly the row that exists.
+    const me = await db.getFirstAsync<{
+      account_id: string;
+      role: string;
+      revoked_at: number | null;
+    }>(
+      `SELECT account_id, role, revoked_at FROM vault_members_mirror
+        WHERE vault_id = ? AND account_id IN (${placeholders})
+        ORDER BY (revoked_at IS NULL) DESC
+        LIMIT 1`,
       vaultId,
-      effectiveAccountId,
+      ...candidates,
     );
     if (!me || me.revoked_at != null) {
       return { ok: false, error: { kind: "not_member" } };
     }
     if (me.role === "owner") {
-      const owners = await db.getFirstAsync<{ n: number }>(
+      // Last-owner gate counts OTHER owners (not any of my ids), so a corrupted
+      // dual-id solo store doesn't look co-owned.
+      const otherOwners = await db.getFirstAsync<{ n: number }>(
         `SELECT COUNT(*) AS n FROM vault_members_mirror
           WHERE vault_id = ?
             AND role = 'owner'
-            AND revoked_at IS NULL`,
+            AND revoked_at IS NULL
+            AND account_id NOT IN (${placeholders})`,
         vaultId,
+        ...candidates,
       );
-      if ((owners?.n ?? 0) <= 1) {
+      if ((otherOwners?.n ?? 0) === 0) {
         return { ok: false, error: { kind: "last_owner" } };
       }
     }
     const { event_id } = await appendVaultMemberRemoved({
       targetVaultId: vaultId,
-      accountId: effectiveAccountId,
+      accountId: me.account_id,
     });
     return { ok: true, result: { kind: "local", eventId: event_id } };
   }
@@ -287,11 +288,12 @@ export async function leaveVaultRouted(
     return { ok: true, result: { kind: "server" } };
   } catch (serverErr) {
     if (__DEV__) console.warn("[vault-router] server leave failed; leaving locally", serverErr);
-    if (!effectiveAccountId) return { ok: false, error: { kind: "no_account" } };
+    const fallbackAccountId = candidates[0];
+    if (!fallbackAccountId) return { ok: false, error: { kind: "no_account" } };
     try {
       const { event_id } = await appendVaultMemberRemoved({
         targetVaultId: vaultId,
-        accountId: effectiveAccountId,
+        accountId: fallbackAccountId,
       });
       return { ok: true, result: { kind: "local", eventId: event_id } };
     } catch (localErr) {

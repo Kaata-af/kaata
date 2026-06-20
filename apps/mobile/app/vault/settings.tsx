@@ -61,6 +61,7 @@ import {
 } from "../../lib/db-tx";
 import { setCurrentCurrency } from "../../lib/currency";
 import { getAppMeta, setAppMeta } from "../../lib/db";
+import { resolveAccountIdCandidates } from "../../lib/effective-account";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { type LocalePref, setLocale, t } from "../../lib/i18n";
@@ -402,24 +403,28 @@ export default function VaultSettingsScreen() {
   // last-owner-leaves transition that would leave the vault ownerless.
   async function isLastOwner(): Promise<boolean> {
     if (!vault) return false;
-    // "Can't just leave" = there is no SECOND active owner to hold the kaata.
+    // "Can't just leave" = there is no OTHER active owner to hold the kaata.
     //
-    // We COUNT active owner rows rather than match one to my account id. The
-    // old "owners[0].account_id === accountId" check broke when the device's
-    // app_meta account_id (a Google id after sign-in) differed from the
-    // mirror's owner row (keyed by the local device-key id on a local-CA
-    // vault) — a sole owner then looked like "not the last owner", skipped the
-    // dialog, and fell through to leaveVaultRouted → no_account/not_member →
-    // "Failed to leave". Counting is robust to that mismatch and to the
-    // empty-mirror / signed-out solo case (0 or 1 owner → leaving ends the
-    // kaata → "Archive instead?"). (Matee: "I still get failed to leave".)
+    // We count active owner rows that are NOT me — me being ANY of my account
+    // ids (the Google account_id AND the local device-key id; see
+    // resolveAccountIdCandidates). A plain "count < 2" broke on a corrupted
+    // solo store that had BOTH a device-key owner row and a Google-id owner row
+    // (both me) → count 2 → looked like a co-owned vault → fell through to
+    // leaveVaultRouted → "Failed to leave". Excluding all of my ids means: if
+    // nobody ELSE owns this kaata, leaving ends it → route to "Archive
+    // instead?" and never error. (Matee: "leave still says failed to leave".)
+    const candidates = await resolveAccountIdCandidates(accountId);
+    if (candidates.length === 0) return true; // no identity → lone local owner
     const db = await getDb();
-    const owners = await db.getFirstAsync<{ n: number }>(
+    const placeholders = candidates.map(() => "?").join(",");
+    const otherOwners = await db.getFirstAsync<{ n: number }>(
       `SELECT COUNT(*) AS n FROM vault_members_mirror
-        WHERE vault_id = ? AND role = 'owner' AND revoked_at IS NULL`,
+        WHERE vault_id = ? AND role = 'owner' AND revoked_at IS NULL
+          AND account_id NOT IN (${placeholders})`,
       vault.id,
+      ...candidates,
     );
-    return (owners?.n ?? 0) < 2;
+    return (otherOwners?.n ?? 0) === 0;
   }
 
   async function onLeave() {

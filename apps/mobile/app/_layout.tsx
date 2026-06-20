@@ -97,6 +97,7 @@ import {
   decrementPendingUsage,
   getAppMeta,
   getLocalSelf,
+  healActiveVaultId,
   initDb,
   readPendingUsage,
 } from "../lib/db";
@@ -307,6 +308,12 @@ export default function RootLayout() {
         // Phase 2: Migration 007 writes app_meta.active_vault_id for any
         // install that had ledger state. Prime the in-memory cache NOW
         // so every subsequent query can use getActiveVaultIdSync().
+        await primeActiveVaultId();
+        // Self-heal a dangling active-vault pointer (left by a partially-failed
+        // leave/archive) before anything reads it — switches to a valid vault
+        // or clears it. No-op in the normal case. Re-prime so the cache picks
+        // up any repair.
+        await healActiveVaultId();
         await primeActiveVaultId();
         // Prime account_id cache so post-sign-in event appends stamp
         // actor_account_id directly.

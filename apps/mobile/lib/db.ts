@@ -4,6 +4,7 @@ import {
   _resetAccountIdCacheForReset,
   _resetActiveVaultIdCacheForReset,
   _resetDbHandleForReset,
+  clearActiveVaultId,
   getAccountIdSync,
   getActiveVaultId,
   getActiveVaultIdSync,
@@ -11,6 +12,7 @@ import {
   getAppMetaInTx,
   getDb as getDbFromTx,
   refreshLocalSelfUserIdCache,
+  setActiveVaultId,
   setActiveVaultIdCache,
   setAppMetaInTx,
 } from "./db-tx";
@@ -2811,14 +2813,22 @@ export async function getLocalSelf(): Promise<Self | null> {
   // The local-self user row is the device identity, shared across vaults.
   const vaultId = getActiveVaultIdSyncMaybe();
   if (vaultId) {
+    // COALESCE to vaults.name so the home header NEVER blanks to the user's own
+    // name when the active vault has no shop_profile row (or a null shop_name).
+    // That happened after a partially-failed leave: the vaults row + name
+    // survived but the shop_profile name didn't, so the switcher showed the
+    // user's name instead of the kaata's. The vault's own name is the correct
+    // fallback. (Matee: "switcher shows my name instead of the kaata name".)
     const row = await db.getFirstAsync<Self>(
-      `SELECT u.id           AS user_id,
-              u.display_name AS name,
-              sp.shop_name   AS shop_name
+      `SELECT u.id            AS user_id,
+              u.display_name  AS name,
+              COALESCE(sp.shop_name, v.name) AS shop_name
        FROM users u
        LEFT JOIN shop_profile sp ON sp.vault_id = ?
+       LEFT JOIN vaults v        ON v.id = ?
        WHERE u.is_local_self = 1
        LIMIT 1`,
+      vaultId,
       vaultId,
     );
     return row ?? null;
@@ -2834,6 +2844,37 @@ export async function getLocalSelf(): Promise<Self | null> {
      LIMIT 1`,
   );
   return row ?? null;
+}
+
+// Self-heal a dangling active-vault pointer on launch. If app_meta.active_vault_id
+// points at a vault that no longer exists or has been archived (e.g. left behind
+// by a partially-failed leave/archive), switch to the most-recently-updated
+// surviving non-archived vault, or clear the pointer when none remain. Idempotent
+// + ZERO-DATA-LOSS: it only moves/clears the active POINTER, never deletes ledger
+// data, and is a no-op in the normal case (pointer already valid + active).
+export async function healActiveVaultId(): Promise<void> {
+  const activeId = getActiveVaultIdSyncMaybe();
+  if (!activeId) return; // pre-onboarding or already clear — nothing to heal
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ id: string; archived_at: number | null }>(
+    "SELECT id, archived_at FROM vaults WHERE id = ?",
+    activeId,
+  );
+  if (row && row.archived_at == null) return; // valid + active — common case, no-op
+  if (__DEV__) {
+    console.warn(
+      `[heal] active vault ${activeId} is ${row ? "archived" : "missing"} — repairing`,
+    );
+  }
+  const next = await db.getFirstAsync<{ id: string }>(
+    `SELECT id FROM vaults WHERE archived_at IS NULL
+      ORDER BY updated_at DESC, name COLLATE NOCASE LIMIT 1`,
+  );
+  if (next) {
+    await setActiveVaultId(next.id);
+  } else {
+    await clearActiveVaultId();
+  }
 }
 
 export async function createSelfProfile(
