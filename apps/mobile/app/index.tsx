@@ -6,13 +6,12 @@ import {
   ActivityIndicator,
   Animated,
   BackHandler,
-  FlatList,
   Image,
   Linking,
-  type ListRenderItemInfo,
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -215,6 +214,8 @@ export default function HomeScreen() {
   // .setValue() per frame; transforms are still GPU-composited via useNativeDriver
   // on the consumer side.
   const translateX = useRef(new Animated.Value(0)).current;
+  // One-shot guard for the MIUI initial-transform commit (see effect below).
+  const committedInitialTransform = useRef(false);
 
   // Timestamp of the last hardware back press while home is focused. Lives
   // OUTSIDE the useFocusEffect callback so it persists across re-subscriptions —
@@ -459,6 +460,24 @@ export default function HomeScreen() {
     animation.start();
     return () => animation.stop();
   }, [direction, screenWidth, translateX]);
+
+  // MIUI/Xiaomi blank-screen-until-swipe fix. With useNativeDriver, an
+  // Animated.View's INITIAL transform isn't pushed to the native layer until the
+  // first animation runs; on some OEMs (reported on Xiaomi Mi 10T / MIUI, not on
+  // the Samsungs tested) the rail paints blank-white until the user swipes (which
+  // triggers the spring above). Force the initial transform to commit once
+  // screenWidth resolves, via a 0ms native-driven timing — the page then appears on
+  // its own. One-shot so it never disturbs the tap/swipe choreography. (Community
+  // fix for RN native-driver initial-frame on Android OEMs.)
+  useEffect(() => {
+    if (committedInitialTransform.current || screenWidth <= 0) return;
+    committedInitialTransform.current = true;
+    Animated.timing(translateX, {
+      toValue: direction === "collect" ? 0 : -screenWidth,
+      duration: 0,
+      useNativeDriver: true,
+    }).start();
+  }, [screenWidth, direction, translateX]);
 
   // The swipe gesture. activeOffsetX requires ~24px of horizontal movement
   // before the pan claims the touch — keeps small vertical drags falling
@@ -1290,80 +1309,22 @@ function TabPage(props: {
   const totalLabel =
     props.direction === "collect" ? t("home.total.label.collect") : t("home.total.label.pay");
 
-  // Virtualized rows. The old ScrollView + .map mounted EVERY person — and
-  // home mounts both tab pages at once, so a 200-person book meant 400 rows
-  // on every cold start / focus. The bordered-card look is emulated per-row
-  // (side borders on each row, top/bottom borders + radii on the first/last)
-  // because FlatList can't wrap its virtualized children in a styled View.
+  // The home list is TALLIES-ONLY (listAllPeople filters to people with entries),
+  // so it's short — rendered as ONE real bordered CARD (ScrollView + map), not the
+  // old per-row border emulation. That emulation drew the card edges as ASYMMETRIC
+  // per-row borders (first row top-only, last row bottom-only), which Android RN
+  // renders wrong together with borderRadius — the first/last edges + corners
+  // vanished (the "edges of the whole div are missing" report, twice). A single
+  // View with uniform borderWidth + overflow:hidden has no asymmetry and clips the
+  // rounded corners cleanly. overflow:hidden is safe here (it wraps a normal View,
+  // not an intrinsic-height FlatList cell — that was the unrelated blank-row bug).
   const { people, onPersonPress, onPersonLongPress } = props;
-  const renderRow = useCallback(
-    ({ item, index }: ListRenderItemInfo<PersonWithBalance>) => (
-      <View
-        style={[
-          styles.cardRow,
-          index === 0 && styles.cardRowFirst,
-          index === people.length - 1 && styles.cardRowLast,
-        ]}
-      >
-        {index > 0 ? <View style={styles.divider} /> : null}
-        <PersonRow person={item} onPress={onPersonPress} onLongPress={onPersonLongPress} />
-      </View>
-    ),
-    [people.length, onPersonPress, onPersonLongPress],
-  );
-
-  const header = (
-    <>
-      <View style={styles.totalBlock}>
-        <Text style={[styles.totalLabel, textDir(isRTL)]}>{totalLabel}</Text>
-        <View style={[styles.totalRow, rowDir(isRTL)]}>
-          <Text style={styles.totalAmount}>{formatAmount(total)}</Text>
-          <Text style={styles.totalAfn}>{getCurrentCurrencySymbol()}</Text>
-        </View>
-        <Text style={[styles.totalSub, textDir(isRTL)]}>
-          {active === 0
-            ? props.people.length === 0
-              ? t("home.empty.noOneYet")
-              : t("home.empty.allSettled")
-            : t(active === 1 ? "home.from.someone" : "home.from.many", { count: active })}
-        </Text>
-      </View>
-      {props.people.length === 0 ? (
-        <EmptyState
-          title={
-            props.direction === "collect"
-              ? t("home.empty.collect.title")
-              : t("home.empty.pay.title")
-          }
-          subtitle={
-            props.direction === "collect"
-              ? t("home.empty.collect.subtitle")
-              : t("home.empty.pay.subtitle")
-          }
-        />
-      ) : null}
-    </>
-  );
 
   return (
     <View style={{ width: props.width }}>
-      <FlatList
-        data={people}
-        renderItem={renderRow}
-        keyExtractor={(p) => p.id}
-        ListHeaderComponent={header}
-        // Single horizontal inset for ALL list content (header + card rows) lives
-        // HERE, not as per-cell marginHorizontal — per-cell margins on a
-        // virtualized list can render the card's side borders inconsistently at the
-        // screen edges (the "contacts edges cut off" report). totalBlock + cardRow
-        // therefore no longer set their own horizontal inset.
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: props.paddingBottom }}
-        initialNumToRender={12}
-        windowSize={7}
-        // A shopkeeper's contact list is small; cell-clipping buys nothing and is
-        // a known Android source of blank rows. Disable it (insurance alongside
-        // the overflow:hidden removal on the first/last card rows).
-        removeClippedSubviews={false}
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ paddingBottom: props.paddingBottom }}
         refreshControl={
           <RefreshControl
             refreshing={props.refreshing}
@@ -1372,7 +1333,46 @@ function TabPage(props: {
             tintColor={colors.textSubtle}
           />
         }
-      />
+      >
+        <View style={styles.totalBlock}>
+          <Text style={[styles.totalLabel, textDir(isRTL)]}>{totalLabel}</Text>
+          <View style={[styles.totalRow, rowDir(isRTL)]}>
+            <Text style={styles.totalAmount}>{formatAmount(total)}</Text>
+            <Text style={styles.totalAfn}>{getCurrentCurrencySymbol()}</Text>
+          </View>
+          <Text style={[styles.totalSub, textDir(isRTL)]}>
+            {active === 0
+              ? props.people.length === 0
+                ? t("home.empty.noOneYet")
+                : t("home.empty.allSettled")
+              : t(active === 1 ? "home.from.someone" : "home.from.many", { count: active })}
+          </Text>
+        </View>
+
+        {people.length === 0 ? (
+          <EmptyState
+            title={
+              props.direction === "collect"
+                ? t("home.empty.collect.title")
+                : t("home.empty.pay.title")
+            }
+            subtitle={
+              props.direction === "collect"
+                ? t("home.empty.collect.subtitle")
+                : t("home.empty.pay.subtitle")
+            }
+          />
+        ) : (
+          <View style={styles.peopleCard}>
+            {people.map((item, index) => (
+              <View key={item.id}>
+                {index > 0 ? <View style={styles.divider} /> : null}
+                <PersonRow person={item} onPress={onPersonPress} onLongPress={onPersonLongPress} />
+              </View>
+            ))}
+          </View>
+        )}
+      </ScrollView>
     </View>
   );
 }
@@ -1514,7 +1514,7 @@ const styles = StyleSheet.create({
     // one-shot migration prompt — see that file for the full architecture.
     flexDirection: "row",
   },
-  totalBlock: { marginBottom: 20 }, // horizontal inset now from FlatList contentContainerStyle
+  totalBlock: { marginHorizontal: 16, marginBottom: 20 },
   totalLabel: {
     fontSize: 11,
     fontFamily: fonts.sansSemi,
@@ -1536,32 +1536,18 @@ const styles = StyleSheet.create({
     color: colors.textSubtle,
     marginTop: 4,
   },
-  // Per-row card-edge emulation for the virtualized list — together the
-  // rows render identically to the old single bordered-card container.
-  cardRow: {
-    // No marginHorizontal — the 16px inset is on the FlatList contentContainerStyle
-    // so the card's side borders sit cleanly at one consistent edge.
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
+  // The people list is ONE bordered card (uniform border on all 4 sides +
+  // overflow:hidden to clip the rounded corners). overflow:hidden is safe on this
+  // plain wrapper View (the old blank-row bug was overflow:hidden on intrinsic-
+  // height FlatList CELLS — this is not a cell). Replaces the per-row border
+  // emulation, whose asymmetric first/last borders Android rendered wrong.
+  peopleCard: {
+    marginHorizontal: 16,
+    borderWidth: 1,
     borderColor: colors.borderDefault,
+    borderRadius: 12,
+    overflow: "hidden",
     backgroundColor: colors.bgDefault,
-  },
-  // NOTE: no `overflow: "hidden"` here. On Android, overflow:hidden +
-  // borderRadius on an intrinsic-height FlatList cell (no getItemLayout) makes
-  // the cell paint blank/white when it's first measured at ~0 height and the
-  // clip never re-expands — which blanked exactly the first and last rows (the
-  // only ones with these styles): both rows with 2 contacts, the first with 3+.
-  // The radii round the visible border corners without clipping; PersonRow has
-  // no content that bleeds past the corner, so nothing needs clipping.
-  cardRowFirst: {
-    borderTopWidth: 1,
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
-  },
-  cardRowLast: {
-    borderBottomWidth: 1,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
   },
   divider: { height: 1, backgroundColor: colors.borderDefault },
   fab: {
