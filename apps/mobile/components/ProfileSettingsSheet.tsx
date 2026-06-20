@@ -344,6 +344,30 @@ export function ProfileSettingsSheet(props: {
 
               <SectionGap />
 
+              {/* ============ CURRENT KAATA ============
+                  Settings for the ACTIVE kaata (rename, currency, members, archive),
+                  clearly separated from the USER/ACCOUNT settings. Moved here from
+                  the vault switcher (now switch-only) so "user settings vs
+                  current-kaata settings" is explicit (Matee's ask). Shown whenever
+                  there is a manageable active vault — in solo mode too, so the lone
+                  shopkeeper can still rename their kaata / change currency. */}
+              {hasManageable ? (
+                <>
+                  <SectionHeader label={t("menu.currentKaata")} isRTL={isRTL} />
+                  <NavRow
+                    icon="cog-outline"
+                    label={t("menu.thisKaata.settings")}
+                    // Member count only when it means something (multi-member);
+                    // a solo shopkeeper doesn't think in "1 member".
+                    hint={membersCount > 1 ? pluralizeMembers(membersCount) : undefined}
+                    onPress={chained(props.onManageCurrentKaata)}
+                    isRTL={isRTL}
+                    isLast
+                  />
+                  <SectionGap />
+                </>
+              ) : null}
+
               {/* ============ SECTION 2: PREFERENCES ============
                   UX critique #2/7: previously rendered a "Preferences"
                   SectionHeader AND a NavRow labeled "Preferences" right
@@ -415,18 +439,10 @@ export function ProfileSettingsSheet(props: {
                     // sits behind a SectionGap so it doesn't influence
                     // this row's divider. When `hasManageable`, the manage
                     // row is the last in-section row and carries `isLast`.
-                    isLast={!hasManageable}
+                    // "Manage this Kaata" moved to the CURRENT KAATA section above;
+                    // scan is the last in-section row before the archived footer.
+                    isLast={!hasArchived}
                   />
-                  {hasManageable ? (
-                    <NavRow
-                      icon="cog-outline"
-                      label={t("menu.thisKaata.settings")}
-                      hint={pluralizeMembers(membersCount)}
-                      onPress={chained(props.onManageCurrentKaata)}
-                      isRTL={isRTL}
-                      isLast
-                    />
-                  ) : null}
                   {/* D-ARCHIVED-SCREEN — muted "Archived (N) >" footer link
                   to /vault/archived. Renders only when the user has at
                   least one archived Kaata. Placed below the manage row

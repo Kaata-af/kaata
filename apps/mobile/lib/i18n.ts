@@ -357,6 +357,7 @@ const en = {
   // rest of the menu.thisKaata.* keys belonged to the deleted hamburger
   // sheet; removed to keep the translation surface honest.
   "menu.thisKaata.settings": "Manage this Kaata",
+  "menu.currentKaata": "Current Kaata",
   "menu.allKaatas": "All Kaatas",
   "menu.allKaatas.empty": "No Kaatas yet.",
   "menu.allKaatas.empty.withArchived": "No active Kaatas.",
@@ -1271,6 +1272,7 @@ const fa: Partial<Record<Key, string>> = {
   "menu.title.profile": "پروفایل و تنظیمات",
   "menu.title.vaultSwitcher": "تعویض کاتا",
   "menu.thisKaata.settings": "مدیریت این کاتا",
+  "menu.currentKaata": "کاتای فعلی",
   "menu.allKaatas": "همه کاتاها",
   "menu.allKaatas.empty": "هنوز کاتایی نیست.",
   "menu.allKaatas.empty.withArchived": "کاتای فعال وجود ندارد.",

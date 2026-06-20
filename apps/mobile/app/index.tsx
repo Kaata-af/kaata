@@ -1123,7 +1123,6 @@ export default function HomeScreen() {
           }
         }}
         onAddVault={() => router.push("/vault/new")}
-        onManageCurrent={() => router.push("/vault/settings")}
         onDismiss={() => setVaultPickerVisible(false)}
       />
 

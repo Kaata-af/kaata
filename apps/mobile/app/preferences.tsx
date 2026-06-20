@@ -196,42 +196,9 @@ export default function PreferencesScreen() {
         />
 
         <SectionGap />
-
-        {/* ============ APPEARANCE (placeholder) ============
-            Theme toggle isn't shipped yet — the app is hard-coded light.
-            Row renders disabled with a "Coming soon" trailing so users
-            know the slot exists. When dark mode lands, drop the disabled
-            flag and wire up an OptionSheet (Light / Dark / System) using
-            the same pattern as language. */}
-        <SectionHeader label={t("preferences.appearance.section")} isRTL={isRTL} />
-        <NavRow
-          icon="color-palette-outline"
-          label={t("preferences.appearance.theme")}
-          hint={t("preferences.appearance.themeHint")}
-          trailing={t("preferences.comingSoon")}
-          onPress={() => {}}
-          isRTL={isRTL}
-          disabled
-          isLast
-        />
-
-        <SectionGap />
-
-        {/* ============ NOTIFICATIONS (placeholder) ============
-            Push notifications aren't shipped yet. Phase 8+. */}
-        <SectionHeader label={t("preferences.notifications.section")} isRTL={isRTL} />
-        <NavRow
-          icon="notifications-outline"
-          label={t("preferences.notifications.reminders")}
-          hint={t("preferences.notifications.remindersHint")}
-          trailing={t("preferences.comingSoon")}
-          onPress={() => {}}
-          isRTL={isRTL}
-          disabled
-          isLast
-        />
-
-        <SectionGap />
+        {/* Removed the Appearance/Theme + Notifications "coming soon" placeholders
+            — Matee: "remove themes completely, I don't like themes" + declutter.
+            When dark mode / notifications actually ship, add real sections. */}
 
         {/* Mythos crash-diagnosis. Plain-English label so a shopkeeper
             who's been asked to "open diagnostics and screenshot it" can

@@ -67,7 +67,6 @@ export function VaultPickerSheet(props: {
   onViewArchived?: () => void;
   onSelectVault: (vaultId: string) => void;
   onAddVault: () => void;
-  onManageCurrent: () => void;
   onDismiss: () => void;
 }) {
   const [rendered, setRendered] = useState(false);
@@ -131,15 +130,8 @@ export function VaultPickerSheet(props: {
   const activeVaults = useMemo(() => props.vaults.filter((v) => !v.archived), [props.vaults]);
   const archivedCount = props.archivedCount ?? 0;
   const hasArchived = archivedCount > 0;
-
-  // Has a current vault to manage? Only show the "Manage current kaata"
-  // row when activeVaultId is set AND that vault is in the (active) list.
-  // On a brand-new install before onboarding completes a vault, the row
-  // would be a dead-end — hide it.
-  const hasManageable = useMemo(
-    () => props.activeVaultId != null && activeVaults.some((v) => v.id === props.activeVaultId),
-    [props.activeVaultId, activeVaults],
-  );
+  // NOTE: "Manage current kaata" moved OUT of the switcher into ProfileSettingsSheet
+  // (Matee: "make the kaata switcher just the kaata switcher, no settings in it").
 
   if (!rendered) return null;
 
@@ -233,27 +225,8 @@ export function VaultPickerSheet(props: {
                 onPress={chained(props.onAddVault)}
                 isRTL={isRTL}
                 emphasis
-                isLast={!hasManageable && !hasArchived}
+                isLast={!hasArchived}
               />
-
-              {/* "Manage current kaata" — Phase 7 D-TOP-LEFT-SWITCHER.
-                  Replaces the former hamburger-menu "This Kaata > Settings"
-                  entry. SectionGap above creates a visual break between the
-                  vault list (selection / add) and the meta-action (manage).
-                  Hidden if no manageable active vault — see hasManageable
-                  computation above. */}
-              {hasManageable ? (
-                <>
-                  <View style={styles.sectionGap} />
-                  <PickerItem
-                    icon="settings-outline"
-                    label={t("vaultPicker.manage")}
-                    onPress={chained(props.onManageCurrent)}
-                    isRTL={isRTL}
-                    isLast={!hasArchived}
-                  />
-                </>
-              ) : null}
 
               {/* D-VAULTPICKER-CLEANUP: compact "Archived (n) >" footer
                   row. Only rendered when the caller reports >= 1 archived
