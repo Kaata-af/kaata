@@ -58,6 +58,15 @@
       "expo-font",
       "expo-localization",
       [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#000000",
+          "dark": { "backgroundColor": "#000000" }
+        }
+      ],
+      [
         "expo-contacts",
         {
           "contactsPermission": "Kaata uses your contacts to make adding customers faster — just pick from your phone book instead of typing names and numbers."

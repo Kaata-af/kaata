@@ -44,5 +44,17 @@ import "./lib/mesh/headless-entry";
 // #46: per-sync notifications. Subscribes to ledger-applied at load so it's active
 // in both the foreground (when backgrounded) and the headless context.
 import "./lib/mesh/bg-notify";
+
+// Keep the native (black, branded) splash up until the React tree has actually
+// mounted + drawn its first frame — app/_layout.tsx calls hideAsync() once the
+// app (or an error / restart screen) is ready. Without this the native splash
+// auto-dismisses the moment the JS bundle loads, and on some Android ROMs
+// (Xiaomi/MIUI) the Activity then shows its bare WHITE window background —
+// covering even the status + nav bars — until a touch forces the first draw
+// (the "blank white until I swipe" bug). Calling preventAutoHideAsync at the
+// entry is the earliest possible point.
+import * as SplashScreen from "expo-splash-screen";
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
 // eslint-disable-next-line import/no-unresolved
 import "expo-router/entry";

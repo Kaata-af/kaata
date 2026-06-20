@@ -17,6 +17,7 @@ import "../lib/mesh/foreground-bootstrap";
 import * as Application from "expo-application";
 import * as Network from "expo-network";
 import { Stack } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import {
@@ -525,6 +526,41 @@ export default function RootLayout() {
     return () => clearTimeout(timer);
   }, [pendingSyncNav, appReady, fontsReady, dbReady]);
 
+  // Hide the native splash once a REAL surface is about to render — the app, or
+  // an error card. (The RTL restart prompt is an early return before this hook,
+  // so MigrationPrompt hides the splash itself.) We hold the splash across the
+  // whole boot (index.js preventAutoHideAsync) so the Activity's white window
+  // background never shows; removing it only AFTER the tree has had a frame to
+  // lay out also forces the window redraw that some MIUI builds otherwise defer
+  // until the first touch — the "blank white until I swipe" bug, where even the
+  // status + nav bars showed the bare white window.
+  useEffect(() => {
+    const showsRealSurface =
+      bootError !== null || dbReady === false || (appReady && fontsReady && dbReady === true);
+    if (!showsRealSurface) return;
+    // Double rAF: let the just-mounted tree commit + lay out a frame before we
+    // pull the splash, so what's revealed underneath is already drawn.
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        SplashScreen.hideAsync().catch(() => {});
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+    };
+  }, [bootError, dbReady, appReady, fontsReady]);
+
+  // Safety net: never let the held native splash outlive a pathological boot.
+  // If we somehow haven't hidden it within 15s (a step hung without throwing),
+  // hide anyway so the BootSplash spinner / an error surface becomes visible
+  // instead of a frozen splash. Idempotent with the effect above.
+  useEffect(() => {
+    const t = setTimeout(() => SplashScreen.hideAsync().catch(() => {}), 15000);
+    return () => clearTimeout(t);
+  }, []);
+
   // Render gates, in priority order:
   //   1. dbReady === false  → migrations failed. Show an error card. NEVER
   //      mount the Stack — any screen touching db will throw "no such table".
@@ -758,6 +794,12 @@ const bootSplashStyles = StyleSheet.create({
 // RTL containers, so the broken-flexDirection problem doesn't affect this
 // screen visually.
 function MigrationPrompt() {
+  // This is rendered via an early return BEFORE RootLayout's splash-hide
+  // effect, so hide the held native splash here or it would cover this prompt
+  // forever (index.js holds it up until we explicitly hide).
+  useEffect(() => {
+    SplashScreen.hideAsync().catch(() => {});
+  }, []);
   return (
     <View style={migrationStyles.container}>
       <View style={migrationStyles.card}>
