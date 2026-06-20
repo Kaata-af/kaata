@@ -60,6 +60,7 @@ import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { useVaultPermission, useVaultRole } from "../../lib/use-vault-role";
+import { SOLO_STORE_MODE } from "../../constants/env";
 import type { VaultRole } from "../../lib/events";
 
 type VaultRow = {
@@ -514,34 +515,28 @@ export default function VaultSettingsScreen() {
           <SectionGap />
 
           {/* ============ MEMBERS ============
-              Phase 7 UX critique #4: chevron-forward trailing icons
-              dropped — ProfileSettingsSheet's NavRows don't carry them
-              either, and we want every settings surface to read the
-              same. The row's tap affordance is implicit + announced
-              via accessibilityRole="button". */}
-          <SectionHeader label={t("vaultSettings.section.members")} isRTL={isRTL} />
-          {/* Phase 8 D-UI-UNIFICATION: collapsed two duplicate entry points
-              ("Invite people" + "Add another phone") into the Members
-              screen itself, which now owns the offline-first "Add member"
-              QR flow + the demoted "Send invite link" online affordance.
-              Two entry points from two different screens confused shop-
-              keepers — there's now exactly one. */}
-          <NavRow
-            icon="people-outline"
-            label={t("vaultSettings.row.members")}
-            hint={
-              memberCount === 1
-                ? t("vaultSettings.row.members.hint.one")
-                : t("vaultSettings.row.members.hint.many", {
-                    count: memberCount,
-                  })
-            }
-            onPress={() => router.push("/vault/members")}
-            isRTL={isRTL}
-            isLast
-          />
-
-          <SectionGap />
+              Hidden in SOLO_STORE_MODE — members/pairing is the multi-employee
+              mesh surface a lone shopkeeper doesn't use. */}
+          {!SOLO_STORE_MODE ? (
+            <>
+              <SectionHeader label={t("vaultSettings.section.members")} isRTL={isRTL} />
+              <NavRow
+                icon="people-outline"
+                label={t("vaultSettings.row.members")}
+                hint={
+                  memberCount === 1
+                    ? t("vaultSettings.row.members.hint.one")
+                    : t("vaultSettings.row.members.hint.many", {
+                        count: memberCount,
+                      })
+                }
+                onPress={() => router.push("/vault/members")}
+                isRTL={isRTL}
+                isLast
+              />
+              <SectionGap />
+            </>
+          ) : null}
 
           {/* ============ ACTIVITY ============ */}
           <SectionHeader label={t("vaultSettings.section.activity")} isRTL={isRTL} />
@@ -573,13 +568,16 @@ export default function VaultSettingsScreen() {
           {role === "owner" ? (
             <>
               <SectionHeader label={t("vaultSettings.section.danger")} isRTL={isRTL} />
-              <NavRow
-                icon="key-outline"
-                label={t("vaultSettings.row.transfer")}
-                onPress={() => setTransferConfirm(true)}
-                isRTL={isRTL}
-                disabled={busy !== null}
-              />
+              {/* Transfer ownership is a multi-account action — hidden in solo. */}
+              {!SOLO_STORE_MODE ? (
+                <NavRow
+                  icon="key-outline"
+                  label={t("vaultSettings.row.transfer")}
+                  onPress={() => setTransferConfirm(true)}
+                  isRTL={isRTL}
+                  disabled={busy !== null}
+                />
+              ) : null}
               <NavRow
                 icon="exit-outline"
                 label={t("vaultSettings.row.leave")}

@@ -257,8 +257,25 @@ export async function leaveVaultRouted(
     return { ok: true, result: { kind: "local", eventId: event_id } };
   }
 
-  await apiLeaveVault(vaultId);
-  return { ok: true, result: { kind: "server" } };
+  // Server-anchored vault: try the server endpoint when we can, but DON'T hard-fail
+  // when offline or signed-out (apiLeaveVault throws "not signed in" → the old
+  // "Failed to leave"). Fall back to the local-first removal event so the user
+  // leaves on-device immediately; it reconciles to the server on the next sync.
+  // (Matee: "Leave kaata should work + do eventual consistency if offline.")
+  try {
+    await apiLeaveVault(vaultId);
+    return { ok: true, result: { kind: "server" } };
+  } catch (serverErr) {
+    if (__DEV__) console.warn("[vault-router] server leave failed; leaving locally", serverErr);
+    if (!accountId) return { ok: false, error: { kind: "no_account" } };
+    try {
+      const { event_id } = await appendVaultMemberRemoved({ targetVaultId: vaultId, accountId });
+      return { ok: true, result: { kind: "local", eventId: event_id } };
+    } catch (localErr) {
+      if (__DEV__) console.warn("[vault-router] local leave fallback failed", localErr);
+      return { ok: false, error: { kind: "not_member" } };
+    }
+  }
 }
 
 // ---------- transfer ownership ----------
