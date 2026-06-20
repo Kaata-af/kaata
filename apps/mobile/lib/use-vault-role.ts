@@ -14,6 +14,7 @@
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { getDb } from "./db-tx";
+import { resolveAccountIdCandidates } from "./effective-account";
 import { invalidateRoleGateCache } from "./projection/role-gate";
 import { canPerformAction, type VaultAction, type VaultRole } from "./vault-roles";
 
@@ -39,38 +40,33 @@ export function invalidateVaultRoleCache(vaultId?: string): void {
 const LOCAL_OWNER_DEFAULT: VaultRole = "owner";
 
 async function readRoleFromDb(vaultId: string, accountId: string | null): Promise<VaultRole> {
-  let effectiveAccountId = accountId;
-  // Local-CA (signed-out) install: the device isn't tied to a Google account,
-  // but after a QR pair it DOES have a vault_members_mirror row keyed by the
-  // deterministic device-pubkey account id. Resolve that so a paired EDITOR or
-  // VIEWER phone reads its TRUE role instead of blindly assuming owner (the bug
-  // where the settings header showed "owner" on the editor phone). A solo
-  // install has no mirror row → falls through to LOCAL_OWNER_DEFAULT below,
-  // preserving the local-only-must-keep-working invariant.
-  if (!effectiveAccountId) {
-    try {
-      const [deviceKeyMod, accountIdMod] = await Promise.all([
-        import("./mesh/device-key"),
-        import("./trust/account-id"),
-      ]);
-      await deviceKeyMod.ensureDeviceKey();
-      const pub = deviceKeyMod.getDevicePubkey();
-      if (pub) effectiveAccountId = accountIdMod.buildLocalAccountId(pub);
-    } catch {
-      /* fall through to the owner default below */
-    }
-  }
-  if (!effectiveAccountId) return LOCAL_OWNER_DEFAULT;
+  // Resolve EVERY id that represents me — the Google account_id AND the
+  // deterministic device-key id. A kaata you were paired into keys your
+  // vault_members_mirror row by the DEVICE-KEY id, but once you sign in the
+  // passed accountId is the GOOGLE id. Looking up by the Google id alone missed
+  // the device-keyed row, fell through to the owner default, and showed/gated a
+  // paired EDITOR (or VIEWER) as OWNER. Matching against all of my ids reads my
+  // TRUE role. A solo install with no mirror row still falls through to
+  // LOCAL_OWNER_DEFAULT (local-only-must-keep-working invariant).
+  // (Matee: "kaata settings always say owner ... even when I'm an editor".)
+  const candidates = await resolveAccountIdCandidates(accountId);
+  if (candidates.length === 0) return LOCAL_OWNER_DEFAULT;
   const db = await getDb();
-  const row = await db.getFirstAsync<{ role: VaultRole }>(
-    `SELECT role FROM vault_members_mirror
-     WHERE vault_id = ? AND account_id = ?
-       AND revoked_at IS NULL
-     LIMIT 1`,
+  const placeholders = candidates.map(() => "?").join(",");
+  const rows = await db.getAllAsync<{ account_id: string; role: VaultRole }>(
+    `SELECT account_id, role FROM vault_members_mirror
+     WHERE vault_id = ? AND account_id IN (${placeholders})
+       AND revoked_at IS NULL`,
     vaultId,
-    effectiveAccountId,
+    ...candidates,
   );
-  return row?.role ?? LOCAL_OWNER_DEFAULT;
+  if (rows.length === 0) return LOCAL_OWNER_DEFAULT;
+  // Usually exactly one row. If a corrupted dual-id state has several, prefer
+  // the one for my primary (passed) id, else the first — deterministic, and it
+  // reflects my actual granted role rather than over-assuming owner.
+  const primary = candidates[0];
+  const chosen = rows.find((r) => r.account_id === primary) ?? rows[0];
+  return chosen.role;
 }
 
 // Primer for the cache. auth.ts calls this after seeding vault_members_mirror
