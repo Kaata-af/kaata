@@ -210,12 +210,21 @@ export default function HomeScreen() {
   const [signOutConfirm, setSignOutConfirm] = useState(false);
 
   // Rail position: 0 = collect tab visible, -screenWidth = pay tab visible.
-  // We use a non-native Animated.Value because the gesture's onUpdate calls
-  // .setValue() per frame; transforms are still GPU-composited via useNativeDriver
-  // on the consumer side.
+  //
+  // JS-DRIVEN ON PURPOSE (useNativeDriver:false everywhere translateX is
+  // animated). The Xiaomi/MIUI "blank page until you swipe" bug is the
+  // native-driver initial-frame problem: with useNativeDriver:true an
+  // Animated.View's starting transform isn't pushed to the native layer until
+  // the first animation/interaction, so on some OEMs the rail paints blank
+  // until a swipe kicks it. The 0ms-timing commit hack we tried did NOT fix it
+  // on the Mi 10T. JS-driven Animated resolves the current value into a plain
+  // style on every React render, so the very first paint already has
+  // transform: translateX(0) (collect visible) — no native commit required.
+  // Cost is ~nil here: the pan gesture is runOnJS(true) and already calls
+  // .setValue() on the JS thread, so we weren't getting the UI-thread win
+  // anyway; only the short tab-switch/spring-back springs move to JS, which is
+  // imperceptible for a single transform.
   const translateX = useRef(new Animated.Value(0)).current;
-  // One-shot guard for the MIUI initial-transform commit (see effect below).
-  const committedInitialTransform = useRef(false);
 
   // Timestamp of the last hardware back press while home is focused. Lives
   // OUTSIDE the useFocusEffect callback so it persists across re-subscriptions —
@@ -454,30 +463,17 @@ export default function HomeScreen() {
     const target = direction === "collect" ? 0 : -screenWidth;
     const animation = Animated.spring(translateX, {
       toValue: target,
-      useNativeDriver: true,
+      useNativeDriver: false, // see translateX decl — JS-driven to fix MIUI blank-on-mount
       ...RAIL_SPRING,
     });
     animation.start();
     return () => animation.stop();
   }, [direction, screenWidth, translateX]);
 
-  // MIUI/Xiaomi blank-screen-until-swipe fix. With useNativeDriver, an
-  // Animated.View's INITIAL transform isn't pushed to the native layer until the
-  // first animation runs; on some OEMs (reported on Xiaomi Mi 10T / MIUI, not on
-  // the Samsungs tested) the rail paints blank-white until the user swipes (which
-  // triggers the spring above). Force the initial transform to commit once
-  // screenWidth resolves, via a 0ms native-driven timing — the page then appears on
-  // its own. One-shot so it never disturbs the tap/swipe choreography. (Community
-  // fix for RN native-driver initial-frame on Android OEMs.)
-  useEffect(() => {
-    if (committedInitialTransform.current || screenWidth <= 0) return;
-    committedInitialTransform.current = true;
-    Animated.timing(translateX, {
-      toValue: direction === "collect" ? 0 : -screenWidth,
-      duration: 0,
-      useNativeDriver: true,
-    }).start();
-  }, [screenWidth, direction, translateX]);
+  // (The old 0ms native-driver "commit the initial transform" effect was
+  // removed — it didn't fix the Mi 10T blank-on-mount. The rail is now
+  // JS-driven so the first paint already carries the correct transform; see the
+  // translateX declaration above.)
 
   // The swipe gesture. activeOffsetX requires ~24px of horizontal movement
   // before the pan claims the touch — keeps small vertical drags falling
@@ -522,7 +518,7 @@ export default function HomeScreen() {
           // case, so we only need this branch here.
           Animated.spring(translateX, {
             toValue: baseAt(direction),
-            useNativeDriver: true,
+            useNativeDriver: false, // see translateX decl — JS-driven to fix MIUI blank-on-mount
             ...RAIL_SPRING,
           }).start();
         }

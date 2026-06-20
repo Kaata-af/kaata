@@ -402,24 +402,24 @@ export default function VaultSettingsScreen() {
   // last-owner-leaves transition that would leave the vault ownerless.
   async function isLastOwner(): Promise<boolean> {
     if (!vault) return false;
-    // Signed-out / local-only solo store: with no Google account bound there's
-    // no membership row at all, so the lone shopkeeper IS the only (implicit)
-    // owner — "leaving" their one kaata = ending it. Treat as last owner so
-    // they get the "Archive instead?" dialog rather than a "Failed to leave"
-    // toast (the old early-return-false skipped the gate and fell through to
-    // leaveVaultRouted's no_account error). (Matee: "I still get failed to
-    // leave".)
-    if (!accountId) return true;
+    // "Can't just leave" = there is no SECOND active owner to hold the kaata.
+    //
+    // We COUNT active owner rows rather than match one to my account id. The
+    // old "owners[0].account_id === accountId" check broke when the device's
+    // app_meta account_id (a Google id after sign-in) differed from the
+    // mirror's owner row (keyed by the local device-key id on a local-CA
+    // vault) — a sole owner then looked like "not the last owner", skipped the
+    // dialog, and fell through to leaveVaultRouted → no_account/not_member →
+    // "Failed to leave". Counting is robust to that mismatch and to the
+    // empty-mirror / signed-out solo case (0 or 1 owner → leaving ends the
+    // kaata → "Archive instead?"). (Matee: "I still get failed to leave".)
     const db = await getDb();
-    const owners = await db.getAllAsync<{ account_id: string }>(
-      `SELECT account_id FROM vault_members_mirror
-        WHERE vault_id = ?
-          AND role = 'owner'
-          AND revoked_at IS NULL`,
+    const owners = await db.getFirstAsync<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM vault_members_mirror
+        WHERE vault_id = ? AND role = 'owner' AND revoked_at IS NULL`,
       vault.id,
     );
-    if (owners.length === 0) return true; // 0-owner edge case — treat as last owner
-    return owners.length === 1 && owners[0].account_id === accountId;
+    return (owners?.n ?? 0) < 2;
   }
 
   async function onLeave() {
