@@ -30,7 +30,7 @@ import {
   View,
 } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { initialWindowMetrics, SafeAreaProvider } from "react-native-safe-area-context";
 import { AutoSync } from "../components/AutoSync";
 import { MeshController } from "../components/MeshController";
 import { ProjectionConflictsListener } from "../components/ProjectionConflictsListener";
@@ -584,7 +584,14 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
+      {/* initialMetrics is load-bearing, not an optimization: without it
+          SafeAreaProvider renders NOTHING until it asynchronously measures
+          window insets, and on some Android ROMs (Xiaomi/MIUI) that measure
+          callback is deferred until the first touch — so the whole app area is
+          blank-white until you swipe (the reported bug; the system bars render
+          fine, they're just white-on-white). Seeding initialWindowMetrics makes
+          insets available synchronously on the first frame. */}
+      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
         <ToastProvider>
           <AppMetaProvider currentVersion={currentVersion}>
             <StatusBar style="dark" />
