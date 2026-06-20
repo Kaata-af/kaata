@@ -1,12 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
-  ScrollView,
+  SectionList,
   StyleSheet,
   Text,
   TextInput,
@@ -14,85 +15,77 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
-import { ContactsPickerSheet, type PickedContact } from "../../components/ContactsPickerSheet";
 import { CountryPickerSheet } from "../../components/CountryPickerSheet";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
+import {
+  joinName,
+  phoneKey,
+  readDeviceContacts,
+  type DeviceContact,
+} from "../../lib/contacts-sync";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
 import { createPerson, getActiveVaultArchivedState, listAllPeopleForSearch } from "../../lib/db";
-import { readDeviceContacts, phoneKey, type DeviceContact } from "../../lib/contacts-sync";
 import { toAsciiDigits } from "../../lib/digits";
-import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
+import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
 import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
 import { t } from "../../lib/i18n";
 import { getCountry, getCurrentDefaultCountryCode, inferCountryFromE164 } from "../../lib/phone";
-import { hasExactMatch, searchPeople } from "../../lib/search";
+import { searchContacts } from "../../lib/search";
 import type { PersonWithBalance } from "../../lib/types";
 
-// Hybrid add-or-find: the name field doubles as a live fuzzy search. Existing
-// matches surface inline; the WhatsApp field appears as soon as the typed
-// name doesn't exactly match anyone (i.e. you're in create-mode), so phone
-// is collected up-front instead of being deferred to the edit screen.
+// At least this many digits before the phone field narrows the list — typing
+// "7" or "70" otherwise matches half the book.
+const PHONE_SEARCH_MIN_DIGITS = 3;
+
+// One row in the merged contacts list. App people open on tap; device contacts
+// are created (and added to the ledger) on tap.
+type Row =
+  | { kind: "app"; person: PersonWithBalance }
+  | { kind: "device"; contact: DeviceContact };
+
+type Section = { key: string; title: string; data: Row[] };
+
+// Add-or-find screen. The form (first name + last name + number + Add button)
+// lives fixed at the top; below it is one virtualized list that merges the
+// people already in this kaata with the device's whole phone book — typing in
+// EITHER the name fields or the number field filters both (Matee: "list all
+// contacts below the recents", "the phone field should act like the name field
+// too"). The app's contacts are kept "one with" the phone book: creating a
+// person here also writes them to the device Contacts app (see contacts-sync).
 export default function PersonAddOrFindScreen() {
   const router = useRouter();
   const toast = useToast();
   // Subscribes to locale changes — flipping language in Settings live-updates
-  // this screen if it happens to be focused; otherwise the screen mounts
-  // fresh on next nav and picks up the new locale anyway.
+  // this screen if it happens to be focused.
   const isRTL = useIsRTL();
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   // Initial country defaults to the user's preference (set in Preferences).
-  // Module-global was hydrated during _layout init, so this is synchronously
-  // correct on mount. The picker can still be changed per-entry.
   const [countryCode, setCountryCode] = useState(getCurrentDefaultCountryCode);
   const [pickerVisible, setPickerVisible] = useState(false);
-  const [contactsVisible, setContactsVisible] = useState(false);
   const [people, setPeople] = useState<PersonWithBalance[] | null>(null);
-  // Device phone book, loaded best-effort for the inline "from your phone" search.
+  // Device phone book + its permission state (null = still loading).
   const [deviceContacts, setDeviceContacts] = useState<DeviceContact[]>([]);
+  const [contactsGranted, setContactsGranted] = useState<boolean | null>(null);
+  const [contactsCanAsk, setContactsCanAsk] = useState(true);
   const [busy, setBusy] = useState(false);
   // Inline errors — modal screen, toasts can't render above it (Toast.tsx).
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const nameRef = useRef<TextInput>(null);
+  const firstNameRef = useRef<TextInput>(null);
+  const lastNameRef = useRef<TextInput>(null);
   const phoneRef = useRef<TextInput>(null);
   // Synchronous re-entry guard — `busy` state can't stop a same-frame
   // double-tap (setState is async); see entry/new.tsx.
   const savingRef = useRef(false);
   const country = getCountry(countryCode);
 
-  // Pulls a name + phone from the device's contacts picker. If the phone is
-  // E.164-shaped (starts with +), we also infer the country and strip the
-  // dial code so the picker UI is consistent.
-  function onContactPicked(c: PickedContact) {
-    setName(c.name);
-    setPhoneError(null);
-    if (c.phone) {
-      // Contacts saved from a Persian keyboard can carry Persian/Arabic-
-      // Indic digits — transliterate before any ASCII-digit matching.
-      const rawPhone = toAsciiDigits(c.phone.trim());
-      if (rawPhone.startsWith("+")) {
-        const inferred = inferCountryFromE164(rawPhone);
-        const dial = getCountry(inferred).dialCode;
-        setCountryCode(inferred);
-        setPhone(rawPhone.startsWith(dial) ? rawPhone.slice(dial.length).trim() : rawPhone);
-      } else {
-        // National-format number; leave the user's selected country alone
-        // and just drop the leading 0 if present (Afghan trunk prefix).
-        const cleaned = rawPhone.replace(/[^\d]/g, "");
-        setPhone(cleaned.startsWith("0") ? cleaned.slice(1) : cleaned);
-      }
-    } else {
-      setPhone("");
-    }
-  }
-
-  // D-DEFENSIVE-ARCHIVED-GUARD: see entry/new.tsx for rationale.
-  // A mesh-sourced vault_setting_set can land between home's load() and
-  // this screen's mount; bail before any DB write can be attempted.
+  // D-DEFENSIVE-ARCHIVED-GUARD: see entry/new.tsx. A mesh-sourced archive can
+  // land between home's load() and this screen's mount; bail before any write.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -116,45 +109,58 @@ export default function PersonAddOrFindScreen() {
     return () => {
       cancelled = true;
     };
-    // toast/router/t are stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load the device phone book once, best-effort + non-blocking, so typing a name
-  // surfaces matching phone contacts inline (WhatsApp-style "one with the phone
-  // book"). Dedup against app people happens at search time.
+  // Load the device phone book once, best-effort + non-blocking.
   useEffect(() => {
     let cancelled = false;
-    void readDeviceContacts().then((c) => {
-      if (!cancelled) setDeviceContacts(c);
+    void readDeviceContacts().then((res) => {
+      if (cancelled) return;
+      setDeviceContacts(res.contacts);
+      setContactsGranted(res.granted);
+      setContactsCanAsk(res.canAskAgain);
     });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  // Focus the name field via ref + delay, NOT autoFocus: on a stack-modal screen
-  // autoFocus fires before the slide-in finishes, so focus succeeds but the soft
-  // keyboard never opens on Android (the user has to tap the field again). 280ms
-  // clears the modal animation. (Same pattern the edit screens use — see CLAUDE.md.)
+  // Focus the first-name field via ref + delay, NOT autoFocus: on a stack-modal
+  // screen autoFocus fires before the slide-in finishes, so focus succeeds but
+  // the soft keyboard never opens on Android. 280ms clears the animation.
   useEffect(() => {
-    const tmr = setTimeout(() => nameRef.current?.focus(), 280);
+    const tmr = setTimeout(() => firstNameRef.current?.focus(), 280);
     return () => clearTimeout(tmr);
   }, []);
 
-  const trimmed = name.trim();
-  const results = useMemo(() => (people ? searchPeople(name, people) : []), [people, name]);
-  // Cap the rendered matches — this list lives inside a ScrollView (no
-  // virtualization possible without restructuring the form) and an empty
-  // query returns the entire book. Typing narrows; 30 rows is plenty.
-  const visibleResults = useMemo(() => results.slice(0, 30), [results]);
-  const hiddenResultCount = results.length - visibleResults.length;
-  const exact = useMemo(() => (people ? hasExactMatch(name, people) : undefined), [people, name]);
-  const isCreating = trimmed.length > 0 && !exact;
+  // Retry contacts access when the permission affordance is tapped: re-ask if we
+  // still can, otherwise send the user to system settings.
+  async function onRequestContacts() {
+    if (contactsGranted === false && !contactsCanAsk) {
+      void Linking.openSettings();
+      return;
+    }
+    const res = await readDeviceContacts();
+    setDeviceContacts(res.contacts);
+    setContactsGranted(res.granted);
+    setContactsCanAsk(res.canAskAgain);
+    if (!res.granted && !res.canAskAgain) void Linking.openSettings();
+  }
 
-  // Phone-book matches for the current query, deduped against people already in
-  // this kaata (last-8-digit phone match) so we never offer a contact you already
-  // have. Only while typing — an empty query would dump the whole phone book.
+  const nameQuery = joinName(firstName, lastName);
+  const phoneDigits = toAsciiDigits(phone).replace(/\D/g, "");
+  const phoneFilter = phoneDigits.length >= PHONE_SEARCH_MIN_DIGITS ? phoneDigits : "";
+  const querying = nameQuery.length > 0 || phoneFilter.length > 0;
+
+  // Defer the values the (potentially large) phone-book filter runs on, so each
+  // keystroke stays responsive while the list catches up (React concurrent).
+  const dName = useDeferredValue(nameQuery);
+  const dPhone = useDeferredValue(phoneFilter);
+  const dQuerying = dName.length > 0 || dPhone.length > 0;
+
+  // Phone keys of people already in this kaata, to dedup the device book against
+  // the ledger (never offer to add someone you already have).
   const appPhoneKeys = useMemo(() => {
     const s = new Set<string>();
     for (const p of people ?? []) {
@@ -163,24 +169,50 @@ export default function PersonAddOrFindScreen() {
     }
     return s;
   }, [people]);
-  const deviceResults = useMemo(() => {
-    const q = trimmed.toLowerCase();
-    if (q.length === 0) return [];
-    return deviceContacts
-      .filter((c) => c.name.toLowerCase().includes(q))
-      .filter((c) => {
+
+  const dedupedDevice = useMemo(
+    () =>
+      deviceContacts.filter((c) => {
         const k = phoneKey(c.phone);
         return !k || !appPhoneKeys.has(k);
-      })
-      .slice(0, 20);
-  }, [deviceContacts, appPhoneKeys, trimmed]);
+      }),
+    [deviceContacts, appPhoneKeys],
+  );
+
+  const sections = useMemo<Section[]>(() => {
+    const out: Section[] = [];
+    const appList = people ?? [];
+    const appMatches = dQuerying ? searchContacts(dName, dPhone, appList) : appList;
+    if (appMatches.length > 0) {
+      out.push({
+        key: "app",
+        title: dQuerying ? t("personAdd.section.matches") : t("personAdd.section.recent"),
+        data: appMatches.map((person) => ({ kind: "app", person })),
+      });
+    }
+    const deviceMatches = dQuerying
+      ? searchContacts(dName, dPhone, dedupedDevice)
+      : dedupedDevice;
+    if (deviceMatches.length > 0) {
+      out.push({
+        key: "device",
+        title: dQuerying ? t("personAdd.section.fromPhone") : t("personAdd.section.allContacts"),
+        data: deviceMatches.map((contact) => ({ kind: "device", contact })),
+      });
+    }
+    return out;
+  }, [people, dedupedDevice, dQuerying, dName, dPhone]);
 
   function openPerson(id: string) {
     router.replace({ pathname: "/person/[id]", params: { id } });
   }
 
-  async function createAndOpen() {
-    if (savingRef.current || !trimmed || people === null) return;
+  // Shared create path for both the form's Add button and a tapped device
+  // contact. Best-effort phone-book write happens inside createPerson.
+  async function runCreate(first: string, last: string | null, phoneInput: string, cc: string) {
+    if (savingRef.current || people === null) return;
+    const fn = first.trim();
+    if (!fn) return; // first name is required to create
     savingRef.current = true;
     setBusy(true);
     setPhoneError(null);
@@ -198,7 +230,7 @@ export default function PersonAddOrFindScreen() {
         router.replace("/vault/archived");
         return;
       }
-      const result = await createPerson(trimmed, phone.trim() || null, countryCode);
+      const result = await createPerson(fn, last?.trim() || null, phoneInput.trim() || null, cc);
       if (!result.ok) {
         if (result.error === "phone_invalid") {
           setPhoneError(t("personAdd.phone.invalid"));
@@ -209,10 +241,6 @@ export default function PersonAddOrFindScreen() {
       }
       openPerson(result.id);
     } catch (err) {
-      // Mythos Fix Set C: distinguish the signing-unavailable failure
-      // (Fix Set A's new throw) from generic storage errors so the user
-      // gets an actionable message ("reopen the app") instead of the
-      // opaque "Couldn't save."
       if (err instanceof EventSigningUnavailableError) {
         setSaveError(t("entry.signingUnavailable"));
       } else if (err instanceof RoleGateRejectionError) {
@@ -226,23 +254,117 @@ export default function PersonAddOrFindScreen() {
     }
   }
 
-  // Name Done key:
-  //   exact match  → open that person
-  //   creating     → advance to phone field
-  //   empty        → no-op
-  function onNameSubmit() {
-    if (!people) return;
-    if (exact) {
-      openPerson(exact.id);
-    } else if (trimmed.length > 0) {
-      phoneRef.current?.focus();
-    }
+  function onAddPressed() {
+    void runCreate(firstName, lastName, phone, countryCode);
   }
 
-  const showRecentOrMatches = results.length > 0;
-  const showNoMatchesText =
-    !showRecentOrMatches && deviceResults.length === 0 && trimmed.length > 0 && people !== null;
-  const showEmptyState = people !== null && people.length === 0 && trimmed.length === 0;
+  // Tapping a phone contact creates it directly (its name + number) and opens
+  // the new person — the fastest path from "browse my phone" to "in the ledger".
+  // The form above stays for people who AREN'T in the phone book yet.
+  function onDeviceContactTap(c: DeviceContact) {
+    let cc = countryCode;
+    let national = "";
+    if (c.phone) {
+      const raw = toAsciiDigits(c.phone.trim());
+      if (raw.startsWith("+")) {
+        cc = inferCountryFromE164(raw);
+        const dial = getCountry(cc).dialCode;
+        national = raw.startsWith(dial) ? raw.slice(dial.length).trim() : raw;
+      } else {
+        // National-format: drop a leading trunk 0; createPerson re-prefixes the
+        // dial code for the selected country.
+        const cleaned = raw.replace(/[^\d]/g, "");
+        national = cleaned.startsWith("0") ? cleaned.slice(1) : cleaned;
+      }
+    }
+    void runCreate(c.firstName, c.lastName, national, cc);
+  }
+
+  const addLabel = nameQuery.length > 0 ? t("personAdd.add", { name: nameQuery }) : t("personAdd.title");
+  const canAdd = firstName.trim().length > 0;
+
+  function renderItem({ item }: { item: Row }) {
+    if (item.kind === "app") {
+      const p = item.person;
+      return (
+        <Pressable
+          onPress={() => openPerson(p.id)}
+          style={({ pressed }) => [styles.row, rowDir(isRTL), pressed && styles.rowPressed]}
+        >
+          <View style={styles.rowLeft}>
+            <Text style={[styles.rowName, textDir(isRTL)]} numberOfLines={1}>
+              {p.name}
+            </Text>
+            <Text style={[styles.rowSub, textDir(isRTL)]} numberOfLines={1}>
+              {p.phone ?? t("contacts.noPhone")}
+            </Text>
+          </View>
+          <RightAmount balance={p.balance} hasEntries={p.last_entry_at !== null} />
+        </Pressable>
+      );
+    }
+    const c = item.contact;
+    return (
+      <Pressable
+        onPress={() => onDeviceContactTap(c)}
+        accessibilityRole="button"
+        disabled={busy}
+        style={({ pressed }) => [styles.row, rowDir(isRTL), pressed && styles.rowPressed]}
+      >
+        <View style={styles.rowLeft}>
+          <Text style={[styles.rowName, textDir(isRTL)]} numberOfLines={1}>
+            {c.name}
+          </Text>
+          <Text style={[styles.rowSub, textDir(isRTL)]} numberOfLines={1}>
+            {c.phone ?? t("contacts.noPhone")}
+          </Text>
+        </View>
+        <Ionicons name="add-circle-outline" size={22} color={colors.textMuted} />
+      </Pressable>
+    );
+  }
+
+  function renderEmpty() {
+    if (people === null) {
+      return (
+        <View style={styles.centered}>
+          <ActivityIndicator color={colors.textDefault} />
+        </View>
+      );
+    }
+    if (querying) {
+      return (
+        <View style={styles.noMatchSection}>
+          <Text style={[styles.noMatchText, textDir(isRTL)]}>
+            {t("personAdd.noMatch", { query: nameQuery || phone })}
+          </Text>
+        </View>
+      );
+    }
+    return (
+      <View style={styles.emptyHint}>
+        <Text style={styles.emptyTitle}>{t("personAdd.empty.title")}</Text>
+        <Text style={styles.emptySub}>{t("personAdd.empty.subtitle")}</Text>
+      </View>
+    );
+  }
+
+  // Footer affordance to grant contacts access when the book is unavailable, so
+  // the device-contacts section isn't just silently missing.
+  function renderFooter() {
+    if (contactsGranted !== false) return null;
+    return (
+      <Pressable
+        onPress={onRequestContacts}
+        style={({ pressed }) => [styles.permRow, rowDir(isRTL), pressed && styles.rowPressed]}
+      >
+        <Ionicons name="people-outline" size={18} color={colors.textSubtle} />
+        <Text style={[styles.permText, textDir(isRTL)]}>
+          {contactsCanAsk ? t("personAdd.contacts.allow") : t("personAdd.contacts.openSettings")}
+        </Text>
+      </Pressable>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -258,231 +380,104 @@ export default function PersonAddOrFindScreen() {
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={styles.scrollContent}
-        >
-          <View style={styles.field}>
-            <Text style={[styles.label, textDir(isRTL)]}>
-              {t("personEdit.name.label")} <Text style={styles.required}>*</Text>
-            </Text>
-            <View style={styles.inputWrap}>
-              <TextInput
-                ref={nameRef}
-                style={[styles.inputInner, textDir(isRTL)]}
-                value={name}
-                onChangeText={setName}
-                placeholder={t("personAdd.name.placeholder")}
-                placeholderTextColor={colors.textMuted}
-                accessibilityLabel={t("personEdit.name.label")}
-                autoCorrect={false}
-                autoCapitalize="words"
-                maxLength={50}
-                returnKeyType={exact ? "go" : trimmed.length > 0 ? "next" : "default"}
-                onSubmitEditing={onNameSubmit}
-                submitBehavior="submit"
-              />
-              {name.length > 0 ? (
-                <Pressable
-                  onPress={() => setName("")}
-                  hitSlop={8}
-                  style={styles.clearBtn}
-                  accessibilityRole="button"
-                  accessibilityLabel={t("common.cancel")}
-                >
-                  <Ionicons name="close-circle" size={18} color={colors.textMuted} />
-                </Pressable>
-              ) : null}
-            </View>
-            <Pressable
-              onPress={() => setContactsVisible(true)}
-              hitSlop={8}
-              style={({ pressed }) => [
-                styles.pickFromContacts,
-                rowDir(isRTL),
-                // alignSelf must be picked at render-time because we've
-                // disabled Yoga's RTL handling (allowRTL(false)); flex-start
-                // no longer resolves to the script's start edge, it's always
-                // physical left.
-                { alignSelf: isRTL ? "flex-end" : "flex-start" },
-                pressed && { opacity: 0.6 },
-              ]}
-            >
-              <Ionicons name="person-circle-outline" size={16} color={colors.textSubtle} />
-              <Text style={styles.pickFromContactsText}>{t("personAdd.pickContact")}</Text>
-              <Ionicons
-                name={isRTL ? "chevron-back" : "chevron-forward"}
-                size={14}
-                color={colors.textMuted}
-              />
-            </Pressable>
+        {/* Fixed form — name (first + last), number, Add. Kept OUT of the list
+            so the inputs never remount on a list re-render (Android focus loss). */}
+        <View style={styles.form}>
+          <View style={styles.nameRow}>
+            <TextInput
+              ref={firstNameRef}
+              style={[styles.nameInput, textDir(isRTL)]}
+              value={firstName}
+              onChangeText={setFirstName}
+              placeholder={t("personAdd.firstName.placeholder")}
+              placeholderTextColor={colors.textMuted}
+              accessibilityLabel={t("personEdit.firstName.label")}
+              autoCorrect={false}
+              autoCapitalize="words"
+              maxLength={40}
+              returnKeyType="next"
+              onSubmitEditing={() => lastNameRef.current?.focus()}
+              submitBehavior="submit"
+            />
+            <TextInput
+              ref={lastNameRef}
+              style={[styles.nameInput, textDir(isRTL)]}
+              value={lastName}
+              onChangeText={setLastName}
+              placeholder={t("personAdd.lastName.placeholder")}
+              placeholderTextColor={colors.textMuted}
+              accessibilityLabel={t("personEdit.lastName.label")}
+              autoCorrect={false}
+              autoCapitalize="words"
+              maxLength={40}
+              returnKeyType="next"
+              onSubmitEditing={() => phoneRef.current?.focus()}
+              submitBehavior="submit"
+            />
           </View>
 
-          {people === null ? (
-            <View style={styles.centered}>
-              <ActivityIndicator color={colors.textDefault} />
-            </View>
+          {/* Phone row stays physical-LTR even in Persian: Western digits render
+              LTR via Unicode bidi and are entered left-to-right. */}
+          <View style={styles.phoneRow}>
+            <Pressable
+              onPress={() => setPickerVisible(true)}
+              style={({ pressed }) => [styles.countryBtn, pressed && { backgroundColor: colors.bgMuted }]}
+            >
+              <Text style={styles.countryFlag}>{country.flag}</Text>
+              <Text style={styles.countryDial}>{country.dialCode}</Text>
+              <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
+            </Pressable>
+            <TextInput
+              ref={phoneRef}
+              style={[styles.phoneInput, phoneError ? styles.inputError : null]}
+              value={phone}
+              onChangeText={(v) => {
+                setPhoneError(null);
+                setPhone(v);
+              }}
+              placeholder={country.code === "AF" ? "70 123 4567" : t("personAdd.phone.placeholderGeneric")}
+              placeholderTextColor={colors.textMuted}
+              accessibilityLabel={t("personEdit.phone.label")}
+              keyboardType="phone-pad"
+              returnKeyType="done"
+              onSubmitEditing={onAddPressed}
+            />
+          </View>
+
+          {phoneError ? (
+            <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
+              {phoneError}
+            </Text>
+          ) : null}
+          {saveError ? (
+            <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
+              {saveError}
+            </Text>
           ) : null}
 
-          {showEmptyState ? (
-            <View style={styles.emptyHint}>
-              <Text style={styles.emptyTitle}>{t("personAdd.empty.title")}</Text>
-              <Text style={styles.emptySub}>{t("personAdd.empty.subtitle")}</Text>
-            </View>
-          ) : null}
+          <View style={{ height: 10 }} />
+          <Button label={addLabel} onPress={onAddPressed} loading={busy} disabled={!canAdd} />
+        </View>
 
-          {showRecentOrMatches ? (
-            <View style={styles.section}>
-              <Text style={[styles.sectionLabel, textDir(isRTL)]}>
-                {trimmed.length > 0
-                  ? t("personAdd.section.matches")
-                  : t("personAdd.section.recent")}
-              </Text>
-              <View style={styles.list}>
-                {visibleResults.map((p, i) => (
-                  <View key={p.id}>
-                    <Pressable
-                      onPress={() => openPerson(p.id)}
-                      style={({ pressed }) => [
-                        styles.row,
-                        rowDir(isRTL),
-                        pressed && { backgroundColor: colors.bgMuted },
-                      ]}
-                    >
-                      <View style={styles.rowLeft}>
-                        <Text style={[styles.rowName, textDir(isRTL)]} numberOfLines={1}>
-                          {p.name}
-                        </Text>
-                        <Text style={[styles.rowSub, textDir(isRTL)]} numberOfLines={1}>
-                          {p.phone ?? t("contacts.noPhone")}
-                        </Text>
-                      </View>
-                      <RightAmount balance={p.balance} hasEntries={p.last_entry_at !== null} />
-                    </Pressable>
-                    {i < visibleResults.length - 1 ? <View style={styles.divider} /> : null}
-                  </View>
-                ))}
-              </View>
-              {hiddenResultCount > 0 ? (
-                <Text style={[styles.noMatchText, { marginTop: 8 }, textDir(isRTL)]}>
-                  {t("personAdd.moreResults", { count: hiddenResultCount })}
-                </Text>
-              ) : null}
-            </View>
-          ) : null}
-
-          {/* Inline phone-book matches — the app's contacts ARE the phone book
-              (Matee: "like WhatsApp, one with the actual phone contacts"). Tapping
-              one fills the name + number; the user then taps Add. Deduped against
-              people already in this kaata. */}
-          {deviceResults.length > 0 ? (
-            <View style={styles.section}>
-              <Text style={[styles.sectionLabel, textDir(isRTL)]}>
-                {t("personAdd.section.fromPhone")}
-              </Text>
-              <View style={styles.list}>
-                {deviceResults.map((c, i) => (
-                  <View key={`dev-${c.name}-${c.phone ?? ""}-${i}`}>
-                    <Pressable
-                      onPress={() => onContactPicked(c)}
-                      accessibilityRole="button"
-                      style={({ pressed }) => [
-                        styles.row,
-                        rowDir(isRTL),
-                        pressed && { backgroundColor: colors.bgMuted },
-                      ]}
-                    >
-                      <View style={styles.rowLeft}>
-                        <Text style={[styles.rowName, textDir(isRTL)]} numberOfLines={1}>
-                          {c.name}
-                        </Text>
-                        <Text style={[styles.rowSub, textDir(isRTL)]} numberOfLines={1}>
-                          {c.phone ?? t("contacts.noPhone")}
-                        </Text>
-                      </View>
-                      <Ionicons name="add-circle-outline" size={20} color={colors.textMuted} />
-                    </Pressable>
-                    {i < deviceResults.length - 1 ? <View style={styles.divider} /> : null}
-                  </View>
-                ))}
-              </View>
-            </View>
-          ) : null}
-
-          {showNoMatchesText ? (
-            <View style={styles.noMatchSection}>
-              <Text style={styles.noMatchText}>{t("personAdd.noMatch", { query: trimmed })}</Text>
-            </View>
-          ) : null}
-
-          {isCreating ? (
-            <>
-              <View style={styles.field}>
-                <Text style={[styles.label, textDir(isRTL)]}>{t("personEdit.phone.label")}</Text>
-                {/* Phone row deliberately stays physical-LTR even in
-                    Persian: Western digits render left-to-right via Unicode
-                    bidi regardless of the container, and Persian users
-                    enter phone numbers digit-by-digit from the left. The
-                    label and hint above/below flip via textDir to follow
-                    reading order; only the input field itself + country
-                    button stay anchored LTR. */}
-                <View style={styles.phoneRow}>
-                  <Pressable
-                    onPress={() => setPickerVisible(true)}
-                    style={({ pressed }) => [
-                      styles.countryBtn,
-                      pressed && { backgroundColor: colors.bgMuted },
-                    ]}
-                  >
-                    <Text style={styles.countryFlag}>{country.flag}</Text>
-                    <Text style={styles.countryDial}>{country.dialCode}</Text>
-                    <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
-                  </Pressable>
-                  <TextInput
-                    ref={phoneRef}
-                    style={[styles.phoneInput, phoneError ? styles.inputError : null]}
-                    value={phone}
-                    onChangeText={(v) => {
-                      setPhoneError(null);
-                      setPhone(v);
-                    }}
-                    placeholder={
-                      country.code === "AF"
-                        ? "70 123 4567"
-                        : t("personAdd.phone.placeholderGeneric")
-                    }
-                    placeholderTextColor={colors.textMuted}
-                    accessibilityLabel={t("personEdit.phone.label")}
-                    keyboardType="phone-pad"
-                    returnKeyType="done"
-                    onSubmitEditing={createAndOpen}
-                  />
-                </View>
-                {phoneError ? (
-                  <Text
-                    style={[styles.fieldError, textDir(isRTL)]}
-                    accessibilityLiveRegion="polite"
-                  >
-                    {phoneError}
-                  </Text>
-                ) : null}
-                <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("personAdd.phone.hint")}</Text>
-              </View>
-
-              {saveError ? (
-                <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
-                  {saveError}
-                </Text>
-              ) : null}
-              <View style={{ height: 8 }} />
-              <Button
-                label={t("personAdd.add", { name: trimmed })}
-                onPress={createAndOpen}
-                loading={busy}
-              />
-            </>
-          ) : null}
-        </ScrollView>
+        <SectionList
+          sections={sections}
+          keyExtractor={(item) =>
+            item.kind === "app" ? `app-${item.person.id}` : `dev-${item.contact.id}`
+          }
+          renderItem={renderItem}
+          renderSectionHeader={({ section }) => (
+            <Text style={[styles.sectionLabel, textDir(isRTL)]}>{section.title}</Text>
+          )}
+          ListEmptyComponent={renderEmpty}
+          ListFooterComponent={renderFooter}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          stickySectionHeadersEnabled={false}
+          contentContainerStyle={styles.listContent}
+          initialNumToRender={15}
+          windowSize={11}
+          removeClippedSubviews={Platform.OS === "android"}
+        />
       </KeyboardAvoidingView>
 
       <CountryPickerSheet
@@ -491,18 +486,11 @@ export default function PersonAddOrFindScreen() {
         onSelect={(c) => setCountryCode(c)}
         onDismiss={() => setPickerVisible(false)}
       />
-
-      <ContactsPickerSheet
-        visible={contactsVisible}
-        onPick={onContactPicked}
-        onDismiss={() => setContactsVisible(false)}
-      />
     </SafeAreaView>
   );
 }
 
-// Right-aligned amount cell — uses + / − prefix to convey direction without
-// breaking the monochrome palette.
+// Right-aligned amount cell — + / − prefix conveys direction in a monochrome UI.
 function RightAmount(props: { balance: number; hasEntries: boolean }) {
   if (!props.hasEntries) {
     return <Text style={styles.rightMuted}>{t("personAdd.rightAmount.new")}</Text>;
@@ -534,25 +522,17 @@ const styles = StyleSheet.create({
   cancel: { fontSize: 15, fontFamily: fonts.sansMedium, color: colors.textSubtle, minWidth: 60 },
   title: { fontSize: 15, fontFamily: fonts.sansSemi, color: colors.textEmphasis },
 
-  scrollContent: { padding: 16, paddingBottom: 32 },
-
-  field: { marginBottom: 16 },
-  label: {
-    fontSize: 13,
-    fontFamily: fonts.sansMedium,
-    color: colors.textDefault,
-    marginBottom: 8,
+  // Fixed top form.
+  form: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderDefault,
   },
-  required: { color: colors.danger },
-  fieldHint: {
-    fontSize: 12,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    marginTop: 6,
-  },
-
-  // Single-line bordered input (matches the rest of the app's text inputs).
-  input: {
+  nameRow: { flexDirection: "row", gap: 10, marginBottom: 10 },
+  nameInput: {
+    flex: 1,
     minHeight: 44,
     borderWidth: 1,
     borderColor: colors.borderDefault,
@@ -563,8 +543,6 @@ const styles = StyleSheet.create({
     color: colors.textEmphasis,
     backgroundColor: colors.bgDefault,
   },
-  // Compound phone input: country picker button on the left + national-number
-  // text input on the right, joined into one visual unit.
   phoneRow: { flexDirection: "row", gap: 8 },
   countryBtn: {
     flexDirection: "row",
@@ -578,11 +556,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgDefault,
   },
   countryFlag: { fontSize: 18 },
-  countryDial: {
-    fontSize: 14,
-    fontFamily: fonts.monoMedium,
-    color: colors.textEmphasis,
-  },
+  countryDial: { fontSize: 14, fontFamily: fonts.monoMedium, color: colors.textEmphasis },
   phoneInput: {
     flex: 1,
     minHeight: 44,
@@ -595,43 +569,49 @@ const styles = StyleSheet.create({
     color: colors.textEmphasis,
     backgroundColor: colors.bgDefault,
   },
-  // Wrapper that holds the input + inline clear button (name field only).
-  inputWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    minHeight: 44,
-    borderWidth: 1,
-    borderColor: colors.borderDefault,
-    borderRadius: 8,
-    backgroundColor: colors.bgDefault,
-    paddingRight: 6,
-  },
-  inputInner: {
-    flex: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    fontSize: 15,
-    fontFamily: fonts.sansRegular,
-    color: colors.textEmphasis,
-  },
-  clearBtn: { padding: 6 },
-  pickFromContacts: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 10,
-    paddingVertical: 4,
-    // alignSelf is set inline based on isRTL — see usage site.
-  },
-  pickFromContactsText: {
-    fontSize: 13,
+  inputError: { borderColor: colors.danger, backgroundColor: "rgba(220, 38, 38, 0.04)" },
+  fieldError: {
+    fontSize: 12,
     fontFamily: fonts.sansMedium,
-    color: colors.textSubtle,
+    color: colors.danger,
+    marginTop: 8,
   },
 
-  centered: { alignItems: "center", paddingVertical: 16 },
+  // Merged contacts list.
+  listContent: { paddingBottom: 32, flexGrow: 1 },
+  sectionLabel: {
+    fontSize: 11,
+    fontFamily: fonts.sansSemi,
+    color: colors.textSubtle,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 6,
+    backgroundColor: colors.bgDefault,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderDefault,
+    backgroundColor: colors.bgDefault,
+  },
+  rowPressed: { backgroundColor: colors.bgMuted },
+  rowLeft: { flex: 1, marginRight: 12 },
+  rowName: { fontSize: 15, fontFamily: fonts.sansSemi, color: colors.textEmphasis },
+  rowSub: { fontSize: 12, fontFamily: fonts.sansRegular, color: colors.textSubtle, marginTop: 2 },
 
-  emptyHint: { paddingTop: 8, paddingBottom: 12, alignItems: "center" },
+  rightAmountRow: { flexDirection: "row", alignItems: "baseline", gap: 2 },
+  rightSign: { fontSize: 14, fontFamily: fonts.monoMedium, color: colors.textDefault, marginRight: 2 },
+  rightAmount: { fontSize: 14, fontFamily: fonts.monoSemi, color: colors.textEmphasis },
+  rightAfn: { fontSize: 11, fontFamily: fonts.sansMedium, color: colors.textMuted, marginLeft: 2 },
+  rightMuted: { fontSize: 12, fontFamily: fonts.sansMedium, color: colors.textMuted },
+
+  centered: { alignItems: "center", paddingVertical: 24 },
+  emptyHint: { paddingTop: 24, paddingHorizontal: 16, alignItems: "center" },
   emptyTitle: { fontSize: 14, fontFamily: fonts.sansSemi, color: colors.textEmphasis },
   emptySub: {
     fontSize: 12,
@@ -640,68 +620,15 @@ const styles = StyleSheet.create({
     marginTop: 4,
     textAlign: "center",
   },
-
-  section: { marginBottom: 16 },
-  sectionLabel: {
-    fontSize: 11,
-    fontFamily: fonts.sansSemi,
-    color: colors.textSubtle,
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-    marginBottom: 6,
-  },
-  list: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.borderDefault,
-    overflow: "hidden",
-    backgroundColor: colors.bgDefault,
-  },
-  divider: { height: 1, backgroundColor: colors.borderDefault },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  rowLeft: { flex: 1, marginRight: 12 },
-  rowName: { fontSize: 15, fontFamily: fonts.sansSemi, color: colors.textEmphasis },
-  rowSub: {
-    fontSize: 12,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    marginTop: 2,
-  },
-
-  rightAmountRow: { flexDirection: "row", alignItems: "baseline", gap: 2 },
-  rightSign: {
-    fontSize: 14,
-    fontFamily: fonts.monoMedium,
-    color: colors.textDefault,
-    marginRight: 2,
-  },
-  rightAmount: { fontSize: 14, fontFamily: fonts.monoSemi, color: colors.textEmphasis },
-  rightAfn: {
-    fontSize: 11,
-    fontFamily: fonts.sansMedium,
-    color: colors.textMuted,
-    marginLeft: 2,
-  },
-  rightMuted: { fontSize: 12, fontFamily: fonts.sansMedium, color: colors.textMuted },
-
-  noMatchSection: { paddingVertical: 4, marginBottom: 8 },
+  noMatchSection: { paddingVertical: 16, paddingHorizontal: 16 },
   noMatchText: { fontSize: 13, fontFamily: fonts.sansRegular, color: colors.textSubtle },
 
-  // Mirrors FormField's error treatment — see entry/new.tsx.
-  inputError: {
-    borderColor: colors.danger,
-    backgroundColor: "rgba(220, 38, 38, 0.04)",
+  permRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
   },
-  fieldError: {
-    fontSize: 12,
-    fontFamily: fonts.sansMedium,
-    color: colors.danger,
-    marginTop: 6,
-    marginBottom: 6,
-  },
+  permText: { flex: 1, fontSize: 13, fontFamily: fonts.sansMedium, color: colors.textSubtle },
 });

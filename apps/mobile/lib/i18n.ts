@@ -169,11 +169,13 @@ const en = {
   // Person edit / add
   "personEdit.title": "Edit person",
   "personEdit.name.label": "Name",
+  "personEdit.firstName.label": "First name",
+  "personEdit.lastName.label": "Last name",
   "personEdit.phone.label": "WhatsApp number",
   "personEdit.save": "Save changes",
   "personAdd.title": "Add or find person",
-  "personAdd.name.placeholder": "Type to search or add",
-  "personAdd.pickContact": "or pick from your contacts",
+  "personAdd.firstName.placeholder": "First name",
+  "personAdd.lastName.placeholder": "Last name (optional)",
   "personAdd.add": "Add {name}",
   "personAdd.phone.hint": "Needed to send pings on WhatsApp.",
   "personAdd.phone.invalid": "Couldn't read that phone number. Try +93 70 123 4567.",
@@ -181,6 +183,7 @@ const en = {
   "personAdd.section.matches": "Matches",
   "personAdd.section.recent": "Recent",
   "personAdd.section.fromPhone": "From your phone",
+  "personAdd.section.allContacts": "All contacts",
   "personAdd.noMatch": 'No one matches "{query}".',
   "personAdd.empty.title": "No one here yet",
   "personAdd.empty.subtitle": "Type a name above to add your first person.",
@@ -188,6 +191,10 @@ const en = {
   "personAdd.rightAmount.settled": "settled",
   "personAdd.personNotFound": "Person not found.",
   "personAdd.phone.placeholderGeneric": "Phone number",
+  // Inline affordance shown in place of the device-contacts list when the
+  // contacts permission isn't granted (so the list isn't silently empty).
+  "personAdd.contacts.allow": "Allow contacts access to add from your phone book",
+  "personAdd.contacts.openSettings": "Enable contacts access in Settings",
   // Overflow row under the truncated Matches list — invites the user to
   // refine the search instead of scrolling an unbounded result set.
   "personAdd.moreResults": "+{count} more — keep typing to narrow",
@@ -1124,11 +1131,13 @@ const fa: Partial<Record<Key, string>> = {
   // Person edit / add
   "personEdit.title": "ویرایش شخص",
   "personEdit.name.label": "نام",
+  "personEdit.firstName.label": "نام",
+  "personEdit.lastName.label": "تخلص",
   "personEdit.phone.label": "شماره واتساپ",
   "personEdit.save": "ذخیره تغییرات",
   "personAdd.title": "افزودن یا یافتن شخص",
-  "personAdd.name.placeholder": "برای جستجو یا افزودن تایپ کنید",
-  "personAdd.pickContact": "یا از مخاطبین تلفون انتخاب کنید",
+  "personAdd.firstName.placeholder": "نام",
+  "personAdd.lastName.placeholder": "تخلص (اختیاری)",
   "personAdd.add": "افزودن {name}",
   "personAdd.phone.hint": "برای ارسال یادآوری در واتساپ لازم است.",
   "personAdd.phone.invalid": "این شماره را نتوانستم بخوانم. مثلاً +93 70 123 4567.",
@@ -1136,6 +1145,7 @@ const fa: Partial<Record<Key, string>> = {
   "personAdd.section.matches": "نتایج",
   "personAdd.section.recent": "اخیر",
   "personAdd.section.fromPhone": "از مخاطبین تلفن",
+  "personAdd.section.allContacts": "همه مخاطبین",
   "personAdd.noMatch": "هیچ‌کس با «{query}» مطابقت نمی‌کند.",
   "personAdd.empty.title": "هنوز کسی نیست",
   "personAdd.empty.subtitle": "نام را در بالا تایپ کنید تا اولین شخص را اضافه کنید.",
@@ -1143,6 +1153,9 @@ const fa: Partial<Record<Key, string>> = {
   "personAdd.rightAmount.settled": "تصفیه",
   "personAdd.personNotFound": "این شخص پیدا نشد.",
   "personAdd.phone.placeholderGeneric": "شماره تلفون",
+  // Inline affordance when contacts permission isn't granted.
+  "personAdd.contacts.allow": "برای افزودن از دفترچه تلفن، اجازهٔ دسترسی به مخاطبین را بدهید",
+  "personAdd.contacts.openSettings": "دسترسی به مخاطبین را در تنظیمات فعال کنید",
   // Overflow row under the truncated Matches list.
   "personAdd.moreResults": "{count}+ نتیجهٔ دیگر — برای محدود کردن، بیشتر تایپ کنید",
 

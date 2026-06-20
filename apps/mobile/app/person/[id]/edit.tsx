@@ -16,6 +16,7 @@ import { Button } from "../../../components/Button";
 import { CountryPickerSheet } from "../../../components/CountryPickerSheet";
 import { useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
+import { splitName } from "../../../lib/contacts-sync";
 import { getPerson, updatePerson } from "../../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../../lib/event-log";
@@ -29,7 +30,8 @@ export default function EditPersonScreen() {
   const toast = useToast();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [loaded, setLoaded] = useState(false);
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   // Defaults to the user's preferred country. Overwritten on load via
   // inferCountryFromE164(person.phone) when the existing contact has a
@@ -42,7 +44,8 @@ export default function EditPersonScreen() {
   const [nameError, setNameError] = useState<string | null>(null);
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const nameRef = useRef<TextInput>(null);
+  const firstNameRef = useRef<TextInput>(null);
+  const lastNameRef = useRef<TextInput>(null);
   const phoneRef = useRef<TextInput>(null);
   // Synchronous re-entry guard — `busy` state can't stop a same-frame
   // double-tap (setState is async); see entry/new.tsx.
@@ -53,7 +56,12 @@ export default function EditPersonScreen() {
     if (!id) return;
     getPerson(id).then((p) => {
       if (p) {
-        setName(p.name);
+        // kaata stores one display_name; the edit UI shows it as first + last
+        // (matching the phone Contacts app). Split on the first space: single-
+        // word names keep an empty last name. See contacts-sync.splitName.
+        const s = splitName(p.name);
+        setFirstName(s.firstName);
+        setLastName(s.lastName ?? "");
         if (p.phone) {
           // Split stored E.164 into (country, national) so the picker shows
           // the right flag and the input shows just the national digits.
@@ -72,14 +80,14 @@ export default function EditPersonScreen() {
   // Reliable keyboard pop-up on Android — see entry/[id]/edit for context.
   useEffect(() => {
     if (!loaded) return;
-    const focusTimer = setTimeout(() => nameRef.current?.focus(), 280);
+    const focusTimer = setTimeout(() => firstNameRef.current?.focus(), 280);
     return () => clearTimeout(focusTimer);
   }, [loaded]);
 
   async function onSave() {
     if (savingRef.current || !id) return;
-    const trimmed = name.trim();
-    if (!trimmed) {
+    const fn = firstName.trim();
+    if (!fn) {
       setNameError(t("onboarding.nameRequired"));
       return;
     }
@@ -87,7 +95,7 @@ export default function EditPersonScreen() {
     setBusy(true);
     setSaveError(null);
     try {
-      const result = await updatePerson(id, trimmed, phone.trim() || null, countryCode);
+      const result = await updatePerson(id, fn, lastName.trim() || null, phone.trim() || null, countryCode);
       if (!result.ok) {
         if (result.error === "phone_invalid") {
           setPhoneError(t("personAdd.phone.invalid"));
@@ -142,23 +150,41 @@ export default function EditPersonScreen() {
           <Text style={[styles.label, textDir(isRTL)]}>
             {t("personEdit.name.label")} <Text style={styles.required}>*</Text>
           </Text>
-          <TextInput
-            ref={nameRef}
-            style={[styles.input, textDir(isRTL), nameError ? styles.inputError : null]}
-            value={name}
-            onChangeText={(v) => {
-              setNameError(null);
-              setName(v);
-            }}
-            placeholder={t("personEdit.name.label")}
-            placeholderTextColor={colors.textMuted}
-            accessibilityLabel={t("personEdit.name.label")}
-            autoCapitalize="words"
-            maxLength={50}
-            returnKeyType="next"
-            onSubmitEditing={() => phoneRef.current?.focus()}
-            submitBehavior="submit"
-          />
+          <View style={styles.nameRow}>
+            <TextInput
+              ref={firstNameRef}
+              style={[styles.nameInput, textDir(isRTL), nameError ? styles.inputError : null]}
+              value={firstName}
+              onChangeText={(v) => {
+                setNameError(null);
+                setFirstName(v);
+              }}
+              placeholder={t("personAdd.firstName.placeholder")}
+              placeholderTextColor={colors.textMuted}
+              accessibilityLabel={t("personEdit.firstName.label")}
+              autoCapitalize="words"
+              autoCorrect={false}
+              maxLength={40}
+              returnKeyType="next"
+              onSubmitEditing={() => lastNameRef.current?.focus()}
+              submitBehavior="submit"
+            />
+            <TextInput
+              ref={lastNameRef}
+              style={[styles.nameInput, textDir(isRTL)]}
+              value={lastName}
+              onChangeText={setLastName}
+              placeholder={t("personAdd.lastName.placeholder")}
+              placeholderTextColor={colors.textMuted}
+              accessibilityLabel={t("personEdit.lastName.label")}
+              autoCapitalize="words"
+              autoCorrect={false}
+              maxLength={40}
+              returnKeyType="next"
+              onSubmitEditing={() => phoneRef.current?.focus()}
+              submitBehavior="submit"
+            />
+          </View>
           {nameError ? (
             <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
               {nameError}
@@ -248,6 +274,20 @@ const styles = StyleSheet.create({
   },
   required: { color: colors.danger },
   input: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    fontFamily: fonts.sansRegular,
+    color: colors.textEmphasis,
+    backgroundColor: colors.bgDefault,
+  },
+  // First + last name, side by side (matches the phone Contacts app).
+  nameRow: { flexDirection: "row", gap: 10 },
+  nameInput: {
+    flex: 1,
     minHeight: 44,
     borderWidth: 1,
     borderColor: colors.borderDefault,

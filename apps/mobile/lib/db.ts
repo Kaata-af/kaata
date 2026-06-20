@@ -28,7 +28,7 @@ import {
 } from "./event-log";
 import { buildLocalAccountId } from "./trust/account-id";
 import { normalizePhone } from "./phone";
-import { writePersonToPhoneBook } from "./contacts-sync";
+import { joinName, writePersonToPhoneBook } from "./contacts-sync";
 import type {
   CreatePersonResult,
   Direction,
@@ -3074,12 +3074,17 @@ export async function updateSelfProfile(name: string, shopName: string | null): 
 }
 
 // Creates a person with a single 'peer' relationship via event-sourced
-// person_added (Phase 2). Public API + return type unchanged.
+// person_added (Phase 2). Return type unchanged.
+//
+// Name is supplied as first + last (matching the phone Contacts app); kaata
+// stores a single display_name, so we join here and split again only for the
+// phone-book write. lastName is optional (single-word names are normal).
 //
 // Per-vault phone uniqueness check runs OUTSIDE the event append so we can
 // return a structured CreatePersonResult error before burning an HLC tick.
 export async function createPerson(
-  name: string,
+  firstName: string,
+  lastName: string | null,
   phone: string | null,
   countryCode?: string,
 ): Promise<CreatePersonResult> {
@@ -3087,6 +3092,7 @@ export async function createPerson(
   const localSelf = await getLocalSelfUserId(db);
   if (!localSelf) throw new Error("local user not yet created");
   const vaultId = getActiveVaultIdSync();
+  const name = joinName(firstName, lastName);
 
   let phoneE164: string | null = null;
   if (phone && phone.length > 0) {
@@ -3117,9 +3123,9 @@ export async function createPerson(
 
   // Keep the phone book "one with" the app: best-effort, fire-and-forget, deduped.
   // Never blocks/affects the ledger result (Matee: "adding contacts should add it
-  // in phone"). A phone contact PICKED via ContactsPickerSheet already exists, so
+  // in phone"). A phone contact tapped from the inline list already exists, so
   // writePersonToPhoneBook dedups and won't duplicate it.
-  void writePersonToPhoneBook(name, phoneE164).catch(() => {});
+  void writePersonToPhoneBook(firstName, lastName, phoneE164).catch(() => {});
 
   await bumpUsageCounter("customers_added");
   return { ok: true, id };
@@ -3389,12 +3395,14 @@ export async function softDeleteEntry(id: string): Promise<void> {
 
 export async function updatePerson(
   id: string,
-  name: string,
+  firstName: string,
+  lastName: string | null,
   phone: string | null,
   countryCode?: string,
 ): Promise<UpdatePersonResult> {
   const db = await getDb();
   const vaultId = getActiveVaultIdSync();
+  const name = joinName(firstName, lastName);
 
   // Cross-vault safety: a stale UI passing a user_id from a different vault
   // must not silently mutate that user globally. Verify the user has at
@@ -3457,6 +3465,14 @@ export async function updatePerson(
       vaultId,
       phoneE164: nextPhone,
     });
+  }
+
+  // When a number is newly set/changed, mirror it into the phone book too so the
+  // app's contacts stay "one with" the device (same best-effort, deduped, fire-
+  // and-forget contract as createPerson). No-op when clearing a number, when the
+  // contact already exists in the book, or without write permission.
+  if (phoneChanged && nextPhone) {
+    void writePersonToPhoneBook(firstName, lastName, nextPhone).catch(() => {});
   }
 
   return { ok: true };
