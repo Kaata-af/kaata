@@ -56,11 +56,11 @@ import { NavRow, SectionGap, SectionHeader } from "./SettingsScreen";
 // Phase 7 founder spec — sections, top to bottom:
 //   1. ACCOUNT  — signed-in avatar+email OR Sign in with Google button.
 //      Sign out + Switch account when signed in.
-//   2. PREFERENCES — single NavRow opening /preferences (one tap row, no
-//      duplicated section-header → identical-label row pair).
+//   2. CURRENT KAATA — "Manage this Kaata" → /vault/settings, which holds the
+//      kaata's name/currency/members AND the former Preferences (language /
+//      region / diagnostics). Settings = Account (here) + Kaata (that screen).
 //   3. KAATAS — list of all vaults with current bolded + checkmark;
-//      "+ Add a Kaata" + "Scan a pairing code"; "Manage this Kaata" link
-//      to /vault/settings.
+//      "+ Add a Kaata" + "Scan a pairing code". (Hidden in SOLO_STORE_MODE.)
 //   4. SYNC — Nearby sync toggle (NO sign-in gate per Phase 7 Part B);
 //      Sync to cloud / Restore from cloud (signed-in only — server sync
 //      requires auth, mesh does NOT).
@@ -109,9 +109,6 @@ export function ProfileSettingsSheet(props: {
   onSignIn: () => void;
   onSignOut: () => void;
   onSwitchAccount: () => void;
-
-  // Preferences
-  onOpenPreferences: () => void;
 
   // Kaatas
   onSelectVault: (vaultId: string) => void;
@@ -368,25 +365,12 @@ export function ProfileSettingsSheet(props: {
                 </>
               ) : null}
 
-              {/* ============ SECTION 2: PREFERENCES ============
-                  UX critique #2/7: previously rendered a "Preferences"
-                  SectionHeader AND a NavRow labeled "Preferences" right
-                  beneath it — duplicate styling for a single tap target.
-                  Now: the section is the row. The NavRow's own label +
-                  hint carries the full affordance; the section header
-                  above it would just repeat the same word. We keep a
-                  SectionGap on either side so the row visually reads as
-                  its own section between Account and Kaatas. */}
-              <NavRow
-                icon="options-outline"
-                label={t("profile.menu.preferences")}
-                hint={t("profile.menu.preferencesHint")}
-                onPress={chained(props.onOpenPreferences)}
-                isRTL={isRTL}
-                isLast
-              />
-
-              <SectionGap />
+              {/* Preferences (language / region / currency / diagnostics) moved
+                  into "Manage this Kaata" (/vault/settings) — settings now split
+                  cleanly into Account (this sheet) + Kaata (that screen). Matee:
+                  "the preferences stuff is all kaata settings ... manage this
+                  kaata should include all the stuff that we now have in the
+                  preferences." */}
 
               {/* ============ SECTION 3: KAATAS ============
                   Hidden in SOLO_STORE_MODE: the kaata list is redundant with the

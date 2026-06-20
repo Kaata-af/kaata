@@ -831,8 +831,9 @@ export default function HomeScreen() {
           former hamburger entries migrated here per D-PROFILE-SLIDER /
           D-KILL-HAMBURGER:
             * Profile (sign-in/out, switch account)
-            * Preferences (links to /preferences route)
-            * Kaatas (vault list, add, manage)
+            * Kaatas (vault list, add, "Manage this Kaata" → /vault/settings,
+              which now also holds the former Preferences: language / region /
+              currency / diagnostics)
             * Sync (Nearby toggle — Phase 7 NO sign-in gate, plus
               sync-to-cloud / restore-from-cloud)
             * About (version + build)
@@ -875,7 +876,6 @@ export default function HomeScreen() {
           setTimeout(() => setSignOutConfirm(true), 220);
         }}
         onSwitchAccount={runGoogleSignIn}
-        onOpenPreferences={() => router.push("/preferences")}
         onSelectVault={async (vaultId) => {
           try {
             await setActiveVaultId(vaultId);

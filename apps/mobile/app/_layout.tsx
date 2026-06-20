@@ -613,19 +613,12 @@ export default function RootLayout() {
                   inline from ProfileSettingsSheet now — the screen had
                   become a redundant extra modal hop on top of the sheet
                   that already exposed every account action. */}
-              {/* Phase 7 settings-adjacent sub-pages — all registered as
-                  Stack cards (no presentation override) to give a
-                  consistent push-pop feel with a single back-arrow
-                  header per screen. We earlier tried
-                  `presentation: "modal"` for preferences and hit the
-                  same Android partial-height-sheet bug that bit
-                  vault/new — SafeAreaView pushed content above the
-                  visible area and the top of the form was clipped.
-                  Cards are clean, positioning is correct, and
-                  router.back() returns to the home host (the parent
-                  ProfileSettingsSheet is already dismissed by the
-                  chained() 220ms defer before the push lands). */}
-              <Stack.Screen name="preferences" />
+              {/* Phase 7 settings-adjacent sub-pages — registered as Stack
+                  cards (no presentation override) for a consistent push-pop
+                  feel with a single back-arrow header per screen. (The old
+                  /preferences card was folded into /vault/settings — language /
+                  region / currency / diagnostics now live under "Manage this
+                  Kaata".) */}
               {/* Mythos crash-diagnosis screen — card presentation like
                   the other settings sub-pages. */}
               <Stack.Screen name="diagnostics" />

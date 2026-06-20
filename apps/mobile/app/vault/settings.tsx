@@ -1,6 +1,8 @@
-// Vault settings — Phase 7 redesigned to match the settings design language
-// shared across ProfileSettingsSheet + preferences + the other vault/*
-// surfaces. Owner-only writes; editors/viewers see read-only surface with
+// Vault settings — "Manage this Kaata". Phase 7 design language shared across
+// ProfileSettingsSheet + the other vault/* surfaces. This screen also absorbed
+// the former standalone Preferences (language / region / diagnostics) so
+// settings split cleanly into Account (the sheet) + Kaata (here).
+// Owner-only writes; editors/viewers see read-only surface with
 // inline "View only" hints rather than hidden controls.
 //
 // Permission gates: every action consults useVaultPermission(). Non-owners
@@ -30,7 +32,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { CountryPickerSheet } from "../../components/CountryPickerSheet";
 import { FormField } from "../../components/FormField";
+import { OptionSheet } from "../../components/OptionSheet";
 import {
   EmptyHint,
   NavRow,
@@ -55,10 +59,16 @@ import {
   getDb,
   setActiveVaultId,
 } from "../../lib/db-tx";
-import { getAppMeta } from "../../lib/db";
+import { setCurrentCurrency } from "../../lib/currency";
+import { getAppMeta, setAppMeta } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
-import { t } from "../../lib/i18n";
+import { type LocalePref, setLocale, t } from "../../lib/i18n";
+import {
+  getCountry,
+  getCurrentDefaultCountryCode,
+  setCurrentDefaultCountryCode,
+} from "../../lib/phone";
 import { useVaultPermission, useVaultRole } from "../../lib/use-vault-role";
 import { SOLO_STORE_MODE } from "../../constants/env";
 import type { VaultRole } from "../../lib/events";
@@ -69,6 +79,12 @@ type VaultRow = {
   currency: string;
   archived_at: number | null;
 };
+
+const LANGUAGE_OPTIONS: ReadonlyArray<{ value: LocalePref; labelKey: string }> = [
+  { value: "system", labelKey: "settings.language.option.system" },
+  { value: "en", labelKey: "settings.language.option.en" },
+  { value: "fa", labelKey: "settings.language.option.fa" },
+];
 
 export default function VaultSettingsScreen() {
   const router = useRouter();
@@ -83,6 +99,12 @@ export default function VaultSettingsScreen() {
   const [vault, setVault] = useState<VaultRow | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [memberCount, setMemberCount] = useState<number>(0);
+
+  // Preferences folded in from the old standalone screen.
+  const [localePref, setLocalePref] = useState<LocalePref>("system");
+  const [langSheetVisible, setLangSheetVisible] = useState(false);
+  const [countryCode, setCountryCode] = useState<string>(getCurrentDefaultCountryCode);
+  const [countrySheetVisible, setCountrySheetVisible] = useState(false);
 
   // Owner-editable fields. Auto-commit on blur.
   const [name, setName] = useState("");
@@ -137,6 +159,12 @@ export default function VaultSettingsScreen() {
 
           const accId = await getAppMeta("account_id");
           setAccountId(accId);
+
+          // Folded-in preferences: language pref (app_meta) + default country
+          // (synchronous module getter, already hydrated at app init).
+          const storedPref = await getAppMeta("locale_pref");
+          setLocalePref(storedPref === "en" || storedPref === "fa" ? storedPref : "system");
+          setCountryCode(getCurrentDefaultCountryCode());
 
           const count = await db.getFirstAsync<{ n: number }>(
             `SELECT COUNT(*) AS n FROM vault_members_mirror
@@ -216,6 +244,18 @@ export default function VaultSettingsScreen() {
       await changeVaultCurrency(vault.id, next);
       setVault({ ...vault, currency: next });
       setCurrency(next);
+      // The active kaata's currency is also what amounts render in
+      // (getCurrentCurrencySymbol reads the global default). Mirror it so
+      // changing currency here actually changes what the shopkeeper sees —
+      // otherwise the per-vault picker silently had no visible effect. (Solo:
+      // one kaata = one display currency.) Guard on the ACTIVE vault: this
+      // screen can be opened for a non-active (e.g. archived) vault via the
+      // ?id= param, and editing THAT vault must not repaint the home screen's
+      // currency.
+      if (vault.id === getActiveVaultIdSyncMaybe()) {
+        setCurrentCurrency(next);
+        await setAppMeta("default_currency", next);
+      }
       toast.push(t("vaultSettings.toast.currencyUpdated"), "success");
     } catch (err) {
       console.warn("[vault/settings] patch currency failed", err);
@@ -224,6 +264,24 @@ export default function VaultSettingsScreen() {
     } finally {
       setSavingCurrency(false);
     }
+  }
+
+  async function pickLanguage(value: LocalePref) {
+    setLangSheetVisible(false);
+    if (value === localePref) return;
+    setLocalePref(value);
+    setLocale(value);
+    await setAppMeta("locale_pref", value);
+    toast.push(t("settings.language.changed"), "success");
+  }
+
+  async function pickCountry(code: string) {
+    setCountrySheetVisible(false);
+    if (code === countryCode) return;
+    setCountryCode(code);
+    setCurrentDefaultCountryCode(code);
+    await setAppMeta("default_country_code", code);
+    toast.push(t("preferences.country.changed"), "success");
   }
 
   async function onArchive() {
@@ -343,7 +401,15 @@ export default function VaultSettingsScreen() {
   // last-owner so we don't accidentally allow the user to "complete" a
   // last-owner-leaves transition that would leave the vault ownerless.
   async function isLastOwner(): Promise<boolean> {
-    if (!vault || !accountId) return false;
+    if (!vault) return false;
+    // Signed-out / local-only solo store: with no Google account bound there's
+    // no membership row at all, so the lone shopkeeper IS the only (implicit)
+    // owner — "leaving" their one kaata = ending it. Treat as last owner so
+    // they get the "Archive instead?" dialog rather than a "Failed to leave"
+    // toast (the old early-return-false skipped the gate and fell through to
+    // leaveVaultRouted's no_account error). (Matee: "I still get failed to
+    // leave".)
+    if (!accountId) return true;
     const db = await getDb();
     const owners = await db.getAllAsync<{ account_id: string }>(
       `SELECT account_id FROM vault_members_mirror
@@ -449,6 +515,13 @@ export default function VaultSettingsScreen() {
     );
   }
 
+  const selectedLangLabelKey =
+    LANGUAGE_OPTIONS.find((o) => o.value === localePref)?.labelKey ??
+    "settings.language.option.system";
+  const languageValue = t(selectedLangLabelKey as Parameters<typeof t>[0]);
+  const prefCountry = getCountry(countryCode);
+  const countryValue = `${prefCountry.flag}  ${prefCountry.name}`;
+
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <ScreenHeader
@@ -514,29 +587,53 @@ export default function VaultSettingsScreen() {
 
           <SectionGap />
 
+          {/* ============ PREFERENCES ============
+              Folded in from the old standalone Preferences screen (Matee: "the
+              preferences stuff is all kaata settings ... manage this kaata
+              should include all the stuff that we now have in the
+              preferences"). Settings now split cleanly into Account (the sheet)
+              + Kaata (this screen). */}
+          <SectionHeader label={t("vaultSettings.section.preferences")} isRTL={isRTL} />
+          <NavRow
+            icon="language-outline"
+            label={t("settings.language.label")}
+            trailing={languageValue}
+            onPress={() => setLangSheetVisible(true)}
+            isRTL={isRTL}
+          />
+          <NavRow
+            icon="flag-outline"
+            label={t("preferences.country.label")}
+            hint={t("preferences.country.hint")}
+            trailing={countryValue}
+            onPress={() => setCountrySheetVisible(true)}
+            isRTL={isRTL}
+            isLast
+          />
+
+          <SectionGap />
+
           {/* ============ MEMBERS ============
-              Hidden in SOLO_STORE_MODE — members/pairing is the multi-employee
-              mesh surface a lone shopkeeper doesn't use. */}
-          {!SOLO_STORE_MODE ? (
-            <>
-              <SectionHeader label={t("vaultSettings.section.members")} isRTL={isRTL} />
-              <NavRow
-                icon="people-outline"
-                label={t("vaultSettings.row.members")}
-                hint={
-                  memberCount === 1
-                    ? t("vaultSettings.row.members.hint.one")
-                    : t("vaultSettings.row.members.hint.many", {
-                        count: memberCount,
-                      })
-                }
-                onPress={() => router.push("/vault/members")}
-                isRTL={isRTL}
-                isLast
-              />
-              <SectionGap />
-            </>
-          ) : null}
+              Shown in solo mode too: sharing the ledger (adding a family member
+              or a second phone) is a solo-store feature, and the lone owner
+              needs to find where to add people. (Matee: "where did the members
+              settings go? where I added members".) */}
+          <SectionHeader label={t("vaultSettings.section.members")} isRTL={isRTL} />
+          <NavRow
+            icon="people-outline"
+            label={t("vaultSettings.row.members")}
+            hint={
+              memberCount === 1
+                ? t("vaultSettings.row.members.hint.one")
+                : t("vaultSettings.row.members.hint.many", {
+                    count: memberCount,
+                  })
+            }
+            onPress={() => router.push("/vault/members")}
+            isRTL={isRTL}
+            isLast
+          />
+          <SectionGap />
 
           {/* ============ ACTIVITY ============ */}
           <SectionHeader label={t("vaultSettings.section.activity")} isRTL={isRTL} />
@@ -551,11 +648,21 @@ export default function VaultSettingsScreen() {
               }
               onPress={() => router.push("/vault/audit-log")}
               isRTL={isRTL}
-              isLast
             />
           ) : (
             <EmptyHint label={t("vaultSettings.row.audit.viewerEmpty")} isRTL={isRTL} />
           )}
+          {/* Diagnostics — folded in from Preferences. Plain-English label so a
+              shopkeeper asked to "open diagnostics and screenshot it" can find
+              it. Shown to everyone (troubleshooting isn't role-gated). */}
+          <NavRow
+            icon="pulse-outline"
+            label={t("preferences.diagnostics.row")}
+            hint={t("preferences.diagnostics.rowHint")}
+            onPress={() => router.push("/diagnostics")}
+            isRTL={isRTL}
+            isLast
+          />
 
           <SectionGap />
 
@@ -688,15 +795,33 @@ export default function VaultSettingsScreen() {
         onConfirm={onTransfer}
         onCancel={() => setTransferConfirm(false)}
       />
+
+      {/* Folded-in preferences pickers. */}
+      <OptionSheet
+        visible={langSheetVisible}
+        title={t("settings.language.label")}
+        options={LANGUAGE_OPTIONS.map((o) => ({
+          key: o.value,
+          label: t(o.labelKey as Parameters<typeof t>[0]),
+        }))}
+        selected={localePref}
+        onSelect={(k) => pickLanguage(k as LocalePref)}
+        onDismiss={() => setLangSheetVisible(false)}
+        isRTL={isRTL}
+      />
+      <CountryPickerSheet
+        visible={countrySheetVisible}
+        selectedCode={countryCode}
+        onSelect={pickCountry}
+        onDismiss={() => setCountrySheetVisible(false)}
+      />
     </SafeAreaView>
   );
 }
 
-// Currency picker. For Phase 4 we keep it as a simple cycling list — a full
-// CurrencyPickerSheet exists in preferences.tsx but it's tied to the global
-// pref, not a per-vault setting. Building a dedicated vault-currency sheet
-// is straightforward but deferred; this inline cycler is enough to verify
-// the patch + event flow end-to-end.
+// Currency picker. A simple chip list — enough to verify the patch + event
+// flow end-to-end. (Changing it also mirrors to the global display currency
+// when this is the active vault; see commitCurrency.)
 function CurrencyPicker(props: {
   value: string;
   disabled: boolean;

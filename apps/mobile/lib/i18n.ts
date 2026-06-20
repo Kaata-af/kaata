@@ -94,8 +94,7 @@ const en = {
   // Profile menu — only keys referenced by ProfileSettingsSheet remain.
   // The signedInAs/notSignedIn/account/accountHint keys belonged to the
   // killed /account screen (Phase 7 D-ACCOUNT-PAGE-ROLE) and were dropped.
-  "profile.menu.preferences": "Preferences",
-  "profile.menu.preferencesHint": "Language, currency, region",
+  // The preferences row was folded into /vault/settings (Manage this Kaata).
 
   // Phase 4.1: "different Google account on this phone?" prompt.
   // (Other account.* keys belonged to the killed /account screen.)
@@ -743,6 +742,7 @@ const en = {
   "vaultSettings.role.editor": "Editor",
   "vaultSettings.role.viewer": "Viewer",
   "vaultSettings.section.details": "Details",
+  "vaultSettings.section.preferences": "Preferences",
   "vaultSettings.section.members": "Members",
   "vaultSettings.section.activity": "Activity",
   "vaultSettings.section.danger": "Danger zone",
@@ -1061,9 +1061,8 @@ const fa: Partial<Record<Key, string>> = {
   // docs/tour-redesign.md for the postmortem.
 
   // Profile menu — only the live keys remain (Phase 7 D-ACCOUNT-PAGE-ROLE
-  // killed the /account screen and its dependent strings).
-  "profile.menu.preferences": "تنظیمات",
-  "profile.menu.preferencesHint": "زبان، ارز، منطقه",
+  // killed the /account screen and its dependent strings; the preferences row
+  // was folded into /vault/settings).
 
   // Phase 4.1: "different Google account on this phone?" prompt.
   "account.differentAccount.title": "حساب گوگل متفاوت در این تلفن",
@@ -1606,6 +1605,7 @@ const fa: Partial<Record<Key, string>> = {
   "vaultSettings.role.editor": "ویرایشگر",
   "vaultSettings.role.viewer": "بیننده",
   "vaultSettings.section.details": "مشخصات",
+  "vaultSettings.section.preferences": "ترجیحات",
   "vaultSettings.section.members": "اعضا",
   "vaultSettings.section.activity": "فعالیت",
   "vaultSettings.section.danger": "ناحیه خطرناک",
