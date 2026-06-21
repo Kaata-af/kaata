@@ -24,6 +24,8 @@
 
 import { Platform } from "react-native";
 
+import { IS_EXPO_GO } from "../expo-go";
+
 export const SHOP_MODE_CHANNEL_ID = "shop-mode";
 export const SHOP_MODE_NOTIFICATION_ID = "shop-mode-fg";
 
@@ -35,6 +37,9 @@ let notifeeLoadAttempted = false;
 
 function getNotifee(): NotifeeModule | null {
   if (Platform.OS !== "android") return null;
+  // Expo Go has no notifee native module — require() throws at load and RN
+  // LogBox shows it as a dismissable error. Skip; every caller handles null.
+  if (IS_EXPO_GO) return null;
   if (notifeeLoadAttempted) return notifeeModule;
   notifeeLoadAttempted = true;
   try {

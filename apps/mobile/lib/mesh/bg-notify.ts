@@ -12,6 +12,7 @@
 import { AppState, Platform } from "react-native";
 
 import { getAppMeta } from "../db";
+import { IS_EXPO_GO } from "../expo-go";
 import { getDb } from "../db-tx";
 import { onLedgerApplied } from "../ledger-events";
 
@@ -27,6 +28,9 @@ let flushTimer: ReturnType<typeof setTimeout> | null = null;
 // foreground.ts / foreground-bootstrap.ts.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getNotifee(): any | null {
+  // Expo Go lacks the notifee native module — require() throws at load and
+  // surfaces in LogBox. Skip there; callers already null-check.
+  if (IS_EXPO_GO) return null;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     return require("@notifee/react-native");

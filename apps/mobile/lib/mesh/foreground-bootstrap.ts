@@ -29,13 +29,21 @@
 
 import { Platform } from "react-native";
 
+import { IS_EXPO_GO } from "../expo-go";
+
 export const SHOP_MODE_CHANNEL_ID = "shop-mode";
 
 // Marker the rest of the app can import to assert bootstrap ran. Tests
 // and adb logcat triage use this as a sanity check.
 export const FOREGROUND_BOOTSTRAP_LOADED = true;
 
-if (Platform.OS === "android") {
+// In Expo Go the notifee native module is absent, so the require() below would
+// throw "Notifee native module not found." at module load — RN's dev LogBox
+// then surfaces that as a red error to dismiss on every launch. Skip the whole
+// notifee bootstrap there (mesh/FGS is a dev-build-only feature anyway). This
+// branch is UNCHANGED in real builds, where IS_EXPO_GO is false. (Matches this
+// module's own header note: "Expo Go without the native module → no-op".)
+if (Platform.OS === "android" && !IS_EXPO_GO) {
   try {
     // require, not import, so Metro doesn't try to resolve notifee when
     // bundling for web. Same pattern as foreground.ts::getNotifee.

@@ -93,6 +93,7 @@ if (NEEDS_RESTART_FOR_LTR) {
 import { checkIn } from "../lib/api";
 import { AppMetaProvider, useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
+import { IS_EXPO_GO } from "../lib/expo-go";
 import {
   decrementPendingUsage,
   getAppMeta,
@@ -462,7 +463,11 @@ export default function RootLayout() {
   // so a tap that cold-starts the app from "killed" needs the separate
   // getInitialNotification check (UX critique L-cold-start).
   useEffect(() => {
-    if (Platform.OS !== "android") return;
+    // Expo Go has no notifee native module; requiring it throws at load and
+    // RN LogBox shows it as a dismissable red error. Skip there — same gate as
+    // foreground-bootstrap/foreground/bg-notify so no site is the "first
+    // requirer" that re-triggers the throw. No-op-only in Expo Go.
+    if (Platform.OS !== "android" || IS_EXPO_GO) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let notifee: any;
     try {
