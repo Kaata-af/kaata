@@ -17,10 +17,10 @@ import { Chip } from "../../components/Chip";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { EmptyState } from "../../components/EmptyState";
 import { EntryRow } from "../../components/EntryRow";
-import { useToast, useToastOffset } from "../../components/Toast";
+import { queuePendingToast, useToast, useToastOffset } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
-import { getLocalSelf, getPerson, listEntries, softDeleteEntry } from "../../lib/db";
+import { archivePerson, getLocalSelf, getPerson, listEntries, softDeleteEntry } from "../../lib/db";
 import { getActiveVaultIdSyncMaybe } from "../../lib/db-tx";
 import { useLedgerRefresh } from "../../lib/ledger-events";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
@@ -47,6 +47,8 @@ export default function PersonDetailScreen() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [sheetFor, setSheetFor] = useState<Entry | null>(null);
   const [confirmDeleteFor, setConfirmDeleteFor] = useState<Entry | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) {
@@ -267,6 +269,25 @@ export default function PersonDetailScreen() {
             ) : null}
           </>
         }
+        ListFooterComponent={
+          // Remove (soft-archive) the contact. iOS-Contacts-style: a quiet
+          // destructive action at the very bottom of the person's page — hard
+          // to hit by accident, easy to find on purpose.
+          <Pressable
+            onPress={() => setConfirmRemove(true)}
+            disabled={removing}
+            accessibilityRole="button"
+            accessibilityLabel={t("person.remove.action")}
+            style={({ pressed }) => [
+              styles.removeBtn,
+              rowDir(isRTL),
+              (pressed || removing) && { opacity: 0.6 },
+            ]}
+          >
+            <Ionicons name="trash-outline" size={16} color={colors.danger} />
+            <Text style={styles.removeText}>{t("person.remove.action")}</Text>
+          </Pressable>
+        }
       />
 
       {entries.length > 0 ? (
@@ -347,6 +368,38 @@ export default function PersonDetailScreen() {
         }}
         onCancel={() => setConfirmDeleteFor(null)}
       />
+
+      {/* Remove-contact confirm. Soft-archive (recoverable, frees the phone for
+          re-adding); the copy is stronger when there's still an unsettled
+          balance so the user can't hide money owed without noticing. */}
+      <ConfirmDialog
+        visible={confirmRemove}
+        title={t("person.remove.title", { name: person.name })}
+        description={
+          person.balance !== 0
+            ? t("person.remove.descriptionBalance", { name: person.name })
+            : t("person.remove.description", { name: person.name })
+        }
+        confirmLabel={t("person.remove.confirm")}
+        destructive
+        onConfirm={async () => {
+          if (removing) return;
+          setRemoving(true);
+          setConfirmRemove(false);
+          try {
+            await archivePerson(person.id);
+            // Toast survives the navigation by riding the pending queue; the
+            // person screen below is now invalid (archived), so land on home.
+            queuePendingToast(t("person.remove.done", { name: person.name }), "success");
+            router.replace("/");
+          } catch (err) {
+            console.warn("[person] archivePerson failed", err);
+            setRemoving(false);
+            toast.push(t("person.remove.failed"), "error");
+          }
+        }}
+        onCancel={() => setConfirmRemove(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -371,6 +424,16 @@ const styles = StyleSheet.create({
   },
   info: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 20 },
   name: { fontSize: 22, fontFamily: fonts.sansBold, color: colors.textEmphasis },
+  removeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 28,
+    marginHorizontal: 16,
+    paddingVertical: 12,
+  },
+  removeText: { fontSize: 14, fontFamily: fonts.sansMedium, color: colors.danger },
   phone: {
     fontSize: 13,
     fontFamily: fonts.monoRegular,
