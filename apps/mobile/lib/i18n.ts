@@ -416,8 +416,9 @@ const en = {
   "menu.sync.minAgo": "{n} min ago",
   "menu.sync.hrAgo": "{n} hr ago",
   "menu.sync.dayAgo": "{n} d ago",
-  "menu.sync.now": "Sync now",
-  "menu.sync.restore": "Restore from cloud",
+  "menu.sync.status.busy": "Backing up…",
+  "menu.sync.status.never": "Not backed up yet — will back up when online.",
+  "menu.sync.status.ok": "Backed up • {when}",
   "menu.sync.cloud": "Cloud backup",
   "menu.sync.cloud.hint":
     "Backs up this Kaata and syncs it to your other phones over the internet.",
@@ -1326,8 +1327,9 @@ const fa: Partial<Record<Key, string>> = {
   "menu.sync.minAgo": "{n} دقیقه پیش",
   "menu.sync.hrAgo": "{n} ساعت پیش",
   "menu.sync.dayAgo": "{n} روز پیش",
-  "menu.sync.now": "همگام‌سازی حالا",
-  "menu.sync.restore": "بازیابی از کلاد",
+  "menu.sync.status.busy": "در حال پشتیبان‌گیری…",
+  "menu.sync.status.never": "هنوز پشتیبان‌گیری نشده — هنگام اتصال انجام می‌شود.",
+  "menu.sync.status.ok": "پشتیبان‌گیری شد • {when}",
   "menu.sync.cloud": "پشتیبان‌گیری ابری",
   "menu.sync.cloud.hint":
     "این کاتا را پشتیبان می‌گیرد و از طریق اینترنت با تلفون‌های دیگرتان همگام می‌کند.",

@@ -914,7 +914,6 @@ export default function HomeScreen() {
           // Modal has fully unmounted (Android Modal-stacking).
           setTimeout(() => setSignOutConfirm(true), 220);
         }}
-        onSwitchAccount={runGoogleSignIn}
         onSelectVault={async (vaultId) => {
           try {
             await setActiveVaultId(vaultId);
@@ -929,46 +928,6 @@ export default function HomeScreen() {
         onScanPairingCode={() => router.push("/vault/pair-scan")}
         onManageCurrentKaata={() => router.push("/vault/settings")}
         onOpenPreferences={() => router.push("/preferences")}
-        onSyncNow={async () => {
-          if (syncBusy) return;
-          setSyncBusy(true);
-          let resultMsg: { msg: string; kind: "success" | "error" } | null = null;
-          try {
-            // Manual sync is the natural moment for the (advisory) vector
-            // convergence check — the user is explicitly asking "am I in
-            // sync?". See lib/replication/server-vector.ts.
-            const result = await syncOnce({ verifyConvergence: true });
-            resultMsg = {
-              msg: t("menu.sync.done", {
-                pulled: result.pulled,
-                pushed: result.pushed,
-              }),
-              kind: "success",
-            };
-          } catch (err) {
-            console.warn("[home] syncOnce failed", err);
-            resultMsg = { msg: t("menu.sync.failed"), kind: "error" };
-          } finally {
-            setSyncBusy(false);
-          }
-          // Close the sheet BEFORE pushing the toast — the toast viewport
-          // is a plain absolute View (per CLAUDE.md), so anything queued
-          // while a stack-modal sheet is open is silently swallowed.
-          // Modal-exit duration is ~220ms; we defer the push to match.
-          if (resultMsg) {
-            const { msg, kind } = resultMsg;
-            setSettingsVisible(false);
-            setTimeout(() => toast.push(msg, kind), 240);
-          }
-        }}
-        // D-BACKUP-RESTORE-FLOW: route to the in-app /restore confirm
-        // screen, NOT /onboarding/restore. The onboarding screen probes
-        // both snapshot + v0.4-backup AND expects to set onboarding_step
-        // on completion — running it post-onboarding would leave the
-        // ledger in a half-restored state with stale stamps. The new
-        // /restore route reuses lib/restore's snapshot path with copy
-        // tuned for the "I have local data to replace" mental model.
-        onRestoreFromCloud={() => router.push("/restore")}
         onToggleShopMode={async (next) => {
           if (shopModeBusy) return;
           // Phase 7 D-SHOP-MODE-UNGATING: account_id is NOT required.

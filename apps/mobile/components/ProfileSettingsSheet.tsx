@@ -3,7 +3,6 @@ import { BlurView } from "expo-blur";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Animated,
   Dimensions,
   Image,
@@ -109,7 +108,6 @@ export function ProfileSettingsSheet(props: {
   // Profile
   onSignIn: () => void;
   onSignOut: () => void;
-  onSwitchAccount: () => void;
 
   // Kaatas
   onSelectVault: (vaultId: string) => void;
@@ -130,8 +128,6 @@ export function ProfileSettingsSheet(props: {
   // Sync
   onToggleShopMode: (next: boolean) => void;
   onToggleCloudSync: (next: boolean) => void;
-  onSyncNow: () => void;
-  onRestoreFromCloud: () => void;
 
   // Dismiss
   onDismiss: () => void;
@@ -312,18 +308,15 @@ export function ProfileSettingsSheet(props: {
                       and uses `danger` color. Tap routes through the host's
                       onSignOut which now opens a ConfirmDialog before
                       actually wiping the session. */}
+                  {/* "Switch account" removed (Matee): to use another Google
+                      account, sign out then sign in — the kaatas you have stay
+                      on the phone (each backs up to its own account). */}
                   <NavRow
                     icon="log-out-outline"
                     label={t("menu.account.signOut")}
                     onPress={chained(props.onSignOut)}
                     isRTL={isRTL}
                     danger
-                  />
-                  <NavRow
-                    icon="swap-horizontal-outline"
-                    label={t("menu.account.switch")}
-                    onPress={chained(props.onSwitchAccount)}
-                    isRTL={isRTL}
                     isLast
                   />
                 </>
@@ -531,7 +524,10 @@ export function ProfileSettingsSheet(props: {
                 </View>
               ) : null}
 
-              {/* Cloud backup toggle + Sync to cloud / Restore — signed-in only. */}
+              {/* Cloud backup toggle + automatic-backup status — signed-in only.
+                  "Sync now" and "Restore from cloud" buttons removed (Matee):
+                  backup is automatic, and a new phone restores on sign-in.
+                  Recovery lives in onboarding, not here. */}
               {liveAccountId ? (
                 <>
                   <View style={[styles.toggleRow, rowDir(isRTL)]}>
@@ -567,26 +563,17 @@ export function ProfileSettingsSheet(props: {
                       }}
                     />
                   </View>
-                  <NavRow
-                    icon="cloud-upload-outline"
-                    label={t("menu.sync.now")}
-                    onPress={() => {
-                      // Stays open like the deprecated "Sync now" — host
-                      // shows an inline spinner. Host closes + toasts after
-                      // a 240ms defer for the Modal exit.
-                      props.onSyncNow();
-                    }}
-                    trailing={props.syncBusy ? <ActivityIndicator size="small" /> : undefined}
-                    isRTL={isRTL}
-                    disabled={!!props.syncBusy}
-                  />
-                  <NavRow
-                    icon="cloud-download-outline"
-                    label={t("menu.sync.restore")}
-                    onPress={chained(props.onRestoreFromCloud)}
-                    isRTL={isRTL}
-                    isLast
-                  />
+                  {/* Automatic-backup status line (replaces the Sync-now button):
+                      backup runs on its own; this just shows where it stands. */}
+                  {props.cloudSyncEnabled ? (
+                    <Text style={[styles.syncStatus, textDir(isRTL)]}>
+                      {props.syncBusy
+                        ? t("menu.sync.status.busy")
+                        : lastSynced.ms == null
+                          ? t("menu.sync.status.never")
+                          : t("menu.sync.status.ok", { when: lastSynced.label })}
+                    </Text>
+                  ) : null}
                 </>
               ) : null}
 
@@ -751,6 +738,14 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
     marginTop: 2,
+  },
+  // Automatic-backup status line (under the cloud-backup toggle).
+  syncStatus: {
+    fontSize: 12,
+    fontFamily: fonts.sansRegular,
+    color: colors.textSubtle,
+    paddingHorizontal: SETTINGS_ROW_PADDING_X,
+    paddingBottom: 12,
   },
 
   // About ------------------------------------------------------------------
