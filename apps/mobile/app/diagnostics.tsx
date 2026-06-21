@@ -13,14 +13,14 @@
 
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { DevSettings, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ScreenHeader } from "../components/SettingsScreen";
 import { colors } from "../lib/colors";
 import { fonts } from "../lib/fonts";
 import { getDb } from "../lib/db-tx";
-import { getAppMeta } from "../lib/db";
+import { getAppMeta, resetAllLocalData } from "../lib/db";
 import { getSyncDiagLines, onSyncDiag, clearSyncDiag } from "../lib/mesh/sync-diag";
 import { isBtcSteadyRunning, isBtcPairPaused } from "../lib/mesh/btc-steady";
 import {
@@ -65,6 +65,8 @@ export default function DiagnosticsScreen() {
     paused: false,
     shop: "?",
   });
+  // DEV-only: two-tap arm→confirm for the destructive reset button below.
+  const [resetArmed, setResetArmed] = useState(false);
 
   const refreshSync = useCallback(async () => {
     setSyncLines(getSyncDiagLines());
@@ -118,6 +120,26 @@ export default function DiagnosticsScreen() {
       clearInterval(t);
     };
   }, [refreshSync]);
+
+  // DEV-only: wipe kaata.db (all ledger + onboarding state) and reload so the
+  // app boots back into onboarding. __DEV__-gated at the call site so it can
+  // never ship. resetAllLocalData drops every table + clears cached handles;
+  // DevSettings.reload re-runs initDb() which recreates the schema from scratch.
+  const onResetPress = useCallback(() => {
+    if (!resetArmed) {
+      setResetArmed(true);
+      setTimeout(() => setResetArmed(false), 4000);
+      return;
+    }
+    void (async () => {
+      try {
+        await resetAllLocalData();
+      } catch (err) {
+        console.warn("[diagnostics] resetAllLocalData failed", err);
+      }
+      DevSettings.reload();
+    })();
+  }, [resetArmed]);
 
   return (
     <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
@@ -212,6 +234,24 @@ export default function DiagnosticsScreen() {
         <Pressable style={styles.refresh} onPress={() => void load()}>
           <Text style={styles.refreshText}>Refresh</Text>
         </Pressable>
+
+        {__DEV__ ? (
+          <>
+            <Text style={styles.section}>DEV ONLY</Text>
+            <Text style={styles.copyHint}>
+              Wipes kaata.db (all ledger + onboarding state) and reloads, so you land back on
+              onboarding. Never ships — __DEV__ gated.
+            </Text>
+            <Pressable
+              style={[styles.dangerBtn, resetArmed && styles.dangerBtnArmed]}
+              onPress={onResetPress}
+            >
+              <Text style={[styles.dangerBtnText, resetArmed && styles.dangerBtnTextArmed]}>
+                {resetArmed ? "Tap again to wipe & reload" : "Reset all data"}
+              </Text>
+            </Pressable>
+          </>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -292,4 +332,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgInverted,
   },
   refreshText: { color: colors.textInverted, fontSize: 14, fontFamily: fonts.sansSemi },
+  dangerBtn: {
+    marginTop: 12,
+    alignSelf: "flex-start",
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.danger,
+  },
+  dangerBtnArmed: { backgroundColor: colors.danger },
+  dangerBtnText: { color: colors.danger, fontSize: 14, fontFamily: fonts.sansSemi },
+  dangerBtnTextArmed: { color: colors.textInverted },
 });
