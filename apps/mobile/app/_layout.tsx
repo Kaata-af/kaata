@@ -471,6 +471,14 @@ export default function RootLayout() {
     } catch {
       return;
     }
+    // Expo Go: notifee's native module is absent. foreground-bootstrap.ts
+    // already triggered the first (failed) module load at the top of this
+    // file, so this SECOND require resolves to undefined WITHOUT throwing —
+    // Metro hands back the errored module's empty exports. The bare
+    // try/catch above only covers the throw-on-first-load case, so guard
+    // .default explicitly or `notifee.default.onForegroundEvent` below
+    // crashes with "Cannot read property 'default' of undefined".
+    if (!notifee?.default) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const unsub = notifee.default.onForegroundEvent(({ type, detail }: any) => {
       if (
