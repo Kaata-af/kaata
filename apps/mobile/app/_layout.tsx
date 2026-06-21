@@ -112,7 +112,7 @@ import { configureGoogleSignIn } from "../lib/auth";
 import { initCurrencyFromPref } from "../lib/currency";
 import { initDefaultCountryFromPref } from "../lib/phone";
 import { useAppFontsWithError } from "../lib/fonts";
-import { initLocaleFromPref } from "../lib/i18n";
+import { getLocale, initLocaleFromPref } from "../lib/i18n";
 import { ensureInstallId, getInstalledAtUnixMs } from "../lib/install-id";
 import { sweepAllQuarantinedVaults } from "../lib/projection/sweep";
 import { type BootError, forceRestart, toBootError } from "../lib/boot-error";
@@ -1150,7 +1150,17 @@ function BackgroundCheckIn({ installId }: { installId: string }) {
           install_id: installId,
           app_version: currentVersion,
           platform: Platform.OS === "android" ? "android" : Platform.OS === "ios" ? "ios" : "web",
-          device_locale: "en-US",
+          // Real device (OS) locale, e.g. "fa-AF"/"en-US" — was hardcoded
+          // "en-US" before (a dead signal). app_locale below is the in-app
+          // language the user actually chose, which is what the dashboard splits on.
+          device_locale: (() => {
+            try {
+              return require("expo-localization").getLocales()[0]?.languageTag ?? "unknown";
+            } catch {
+              return "unknown";
+            }
+          })(),
+          app_locale: getLocale(),
           installed_at_unix_ms: installedAtMs ?? undefined,
           has_onboarded: Boolean(self),
           phones_invalid_count: invalidStr ? Number(invalidStr) : undefined,

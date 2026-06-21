@@ -39,6 +39,10 @@ type Request struct {
 	AppVersion   string `json:"app_version"`
 	Platform     string `json:"platform"`
 	DeviceLocale string `json:"device_locale"`
+	// AppLocale is the resolved IN-APP language ('en'/'fa') — what the user
+	// actually runs the app in, distinct from the OS DeviceLocale. Drives the
+	// language split on the admin dashboard. Empty from older clients.
+	AppLocale string `json:"app_locale"`
 
 	// Wall-clock device timestamp from the moment the install_id was first
 	// minted. Sent on every check-in; backend stores once on INSERT, never
@@ -152,18 +156,23 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 			install_id, app_version, platform, device_locale, check_in_count,
 			migration_001_phones_invalid, migration_001_phones_conflict,
 			usage_entries_created, usage_customers_added, usage_shares_sent,
-			installed_at, has_onboarded, last_activity_at
+			installed_at, has_onboarded, last_activity_at, app_locale
 		)
 		VALUES (
 			$1, $2, $3, $4, 1, $5, $6,
 			COALESCE($7, 0), COALESCE($8, 0), COALESCE($9, 0),
 			COALESCE($10, NOW()),
 			COALESCE($11, FALSE),
-			CASE WHEN $12::boolean THEN NOW() ELSE NULL END
+			CASE WHEN $12::boolean THEN NOW() ELSE NULL END,
+			NULLIF($13, '')
 		)
 		ON CONFLICT (install_id) DO UPDATE
 		SET last_seen_at   = NOW(),
 		    app_version    = EXCLUDED.app_version,
+		    -- app_locale tracks the CURRENT in-app language: take the latest
+		    -- non-empty value (the user can switch language), keep the old one
+		    -- when a check-in omits it (older client).
+		    app_locale     = COALESCE(NULLIF(EXCLUDED.app_locale, ''), installs.app_locale),
 		    -- platform/device_locale backfill: a previous /v1/auth/google call
 		    -- can stub-insert an installs row before the first real check-in
 		    -- (because auth races first check-in on a fresh install). The stub
@@ -193,9 +202,23 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 	`, req.InstallID, req.AppVersion, req.Platform, req.DeviceLocale,
 		req.PhonesInvalidCount, req.PhonesConflictCount,
 		req.UsageEntriesCreated, req.UsageCustomersAdded, req.UsageSharesSent,
-		installedAt, req.HasOnboarded, hadUsage,
+		installedAt, req.HasOnboarded, hadUsage, req.AppLocale,
 	); err != nil {
 		return Response{}, err
+	}
+
+	// Record today's activity for DAU/WAU/MAU + retention. One row per
+	// (install, UTC day); ON CONFLICT keeps it idempotent across multiple
+	// launches in a day. The installs row above guarantees the FK target exists.
+	// Best-effort: an analytics write must never fail a check-in, so we log and
+	// continue (the response still carries update/announcement metadata).
+	if _, err := s.pool.Exec(ctx, `
+		INSERT INTO install_active_days (install_id, active_date, had_usage)
+		VALUES ($1, (NOW() AT TIME ZONE 'UTC')::date, $2)
+		ON CONFLICT (install_id, active_date)
+		DO UPDATE SET had_usage = install_active_days.had_usage OR EXCLUDED.had_usage
+	`, req.InstallID, hadUsage); err != nil {
+		log.Printf("[checkin] active-day record failed for install %s: %v", req.InstallID, err)
 	}
 
 	// Deferred-deep-link attribution. On a fresh install (source still NULL),

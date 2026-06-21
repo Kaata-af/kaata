@@ -20,6 +20,10 @@ export async function checkIn(payload: {
   app_version: string;
   platform: string;
   device_locale: string;
+  // The resolved IN-APP language ('en'/'fa') — what the user actually runs the
+  // app in (distinct from device_locale, the OS locale). Powers the language
+  // split on the admin dashboard. ~6 bytes; optional so old payloads are valid.
+  app_locale?: string;
   // Wall-clock device timestamp from the moment ensureInstallId() first ran.
   // Sent on every check-in (cheap, ~13 bytes). Backend stores it once on
   // INSERT, never overwrites. Lets the admin show "installed N days ago"
