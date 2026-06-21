@@ -146,7 +146,7 @@ export default function OnboardingAuthScreen() {
             busy && { opacity: 0.6 },
           ]}
         >
-          <View style={styles.cardIcon}>
+          <View style={[styles.cardIcon, isRTL && styles.cardIconRTL]}>
             {busy ? (
               <ActivityIndicator color={colors.textInverted} />
             ) : (
@@ -174,7 +174,7 @@ export default function OnboardingAuthScreen() {
           disabled={busy}
           style={({ pressed }) => [styles.card, styles.cardGhost, pressed && { opacity: 0.85 }]}
         >
-          <View style={styles.cardIcon}>
+          <View style={[styles.cardIcon, isRTL && styles.cardIconRTL]}>
             <NinjaIcon size={36} />
           </View>
           <Text style={[styles.cardTitle, textDir(isRTL)]}>
@@ -237,6 +237,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 12,
   },
+  // In Dari (RTL) the card icon mirrors to the right edge so it lines up with
+  // the right-aligned title/body. Without this it stays at the column's
+  // cross-start (left) because the app is LTR-locked at the Yoga level, leaving
+  // a left icon above right-aligned text — the "not properly RTL" look.
+  cardIconRTL: { alignSelf: "flex-end" },
   cardTitle: {
     fontSize: 16,
     fontFamily: fonts.sansSemi,

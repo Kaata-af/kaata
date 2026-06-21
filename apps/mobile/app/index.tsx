@@ -872,10 +872,12 @@ export default function HomeScreen() {
           }}
           style={({ pressed }) => [styles.fabInner, pressed && { opacity: 0.85 }]}
         >
-          {/* Search icon, not +: the FAB opens the search-or-add screen (person/new)
-              with the people list + keyboard focused. Matee: "the add button should
-              be a search button". onPress already routes to that unified screen. */}
-          <Ionicons name="search" size={24} color={colors.textInverted} />
+          {/* "+" (add): this FAB is the primary "create anything" action — it
+              opens the search-or-add screen (person/new) where you find an
+              existing contact OR add a new one to start a tally. Matee: it's the
+              everything button, not just search, so a plus reads truer than a
+              magnifying glass. */}
+          <Ionicons name="add" size={30} color={colors.textInverted} />
         </Pressable>
       </Animated.View>
       ) : null}
