@@ -609,6 +609,15 @@ export function ProfileSettingsSheet(props: {
 
               {/* ============ SECTION 5: ABOUT ============ */}
               <SectionHeader label={t("menu.about")} isRTL={isRTL} />
+              {/* App health / diagnostics — lives next to About (Matee). A
+                  troubleshooting surface, not a user preference. */}
+              <NavRow
+                icon="pulse-outline"
+                label={t("preferences.diagnostics.row")}
+                hint={t("preferences.diagnostics.rowHint")}
+                onPress={chained(() => router.push("/diagnostics"))}
+                isRTL={isRTL}
+              />
               <View style={[styles.aboutRow, rowDir(isRTL)]}>
                 <Ionicons
                   name="information-circle-outline"

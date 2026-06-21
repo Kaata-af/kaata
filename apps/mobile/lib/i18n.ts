@@ -157,15 +157,6 @@ const en = {
   "person.delete.confirm": "Delete",
   "person.sheet.edit": "Edit",
   "person.sheet.delete": "Delete",
-  "person.remove.action": "Remove contact",
-  "person.remove.title": "Remove {name}?",
-  "person.remove.description":
-    "This hides {name} and their history from your kaata. You can add them again later.",
-  "person.remove.descriptionBalance":
-    "{name} still has an unsettled balance. This hides them and their history from your kaata. Remove anyway?",
-  "person.remove.confirm": "Remove",
-  "person.remove.done": "{name} removed",
-  "person.remove.failed": "Couldn't remove. Please try again.",
   "person.row.noEntries": "no entries yet",
   "person.row.settled": "settled",
 
@@ -375,7 +366,7 @@ const en = {
   "menu.thisKaata.settings": "Manage this Kaata",
   "menu.currentKaata": "Current Kaata",
   "menu.preferences": "Preferences",
-  "menu.preferences.hint": "Language, country, app health",
+  "menu.preferences.hint": "Language, country",
   "menu.allKaatas": "All Kaatas",
   "menu.allKaatas.empty": "No Kaatas yet.",
   "menu.allKaatas.empty.withArchived": "No active Kaatas.",
@@ -1129,15 +1120,6 @@ const fa: Partial<Record<Key, string>> = {
   "person.delete.confirm": "حذف",
   "person.sheet.edit": "ویرایش",
   "person.sheet.delete": "حذف",
-  "person.remove.action": "حذف مخاطب",
-  "person.remove.title": "{name} حذف شود؟",
-  "person.remove.description":
-    "این کار {name} و سوابق او را از کاتای شما پنهان می‌کند. بعداً می‌توانید دوباره اضافه کنید.",
-  "person.remove.descriptionBalance":
-    "{name} هنوز حساب تسویه‌نشده دارد. این کار او و سوابقش را از کاتای شما پنهان می‌کند. با این حال حذف شود؟",
-  "person.remove.confirm": "حذف",
-  "person.remove.done": "{name} حذف شد",
-  "person.remove.failed": "حذف نشد. دوباره تلاش کنید.",
   "person.row.noEntries": "هنوز ثبتی نیست",
   "person.row.settled": "تصفیه",
 
@@ -1307,7 +1289,7 @@ const fa: Partial<Record<Key, string>> = {
   "menu.thisKaata.settings": "مدیریت این کاتا",
   "menu.currentKaata": "کاتای فعلی",
   "menu.preferences": "ترجیحات",
-  "menu.preferences.hint": "زبان، کشور، وضعیت برنامه",
+  "menu.preferences.hint": "زبان، کشور",
   "menu.allKaatas": "همه کاتاها",
   "menu.allKaatas.empty": "هنوز کاتایی نیست.",
   "menu.allKaatas.empty.withArchived": "کاتای فعال وجود ندارد.",

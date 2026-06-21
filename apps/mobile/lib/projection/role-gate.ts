@@ -36,6 +36,7 @@
 
 import type { SQLiteTx } from "../db-tx";
 import { getAccountIdSync } from "../db-tx";
+import { resolveAccountIdCandidates } from "../effective-account";
 import { verifyEventSignature, type SignableEvent } from "../event-sig";
 import type { EventType, LedgerEvent, VaultRole } from "../events";
 import { compareHLC, type HLC } from "../hlc";
@@ -101,6 +102,12 @@ function meetsRequirement(actor: VaultRole, required: "owner" | "editor"): boole
   if (required === "owner") return actor === "owner";
   // required === "editor": editor or owner satisfies it
   return actor === "owner" || actor === "editor";
+}
+
+// Privilege rank for picking the highest role across this device's account-id
+// candidates (local-origin multi-id resolution). null = no membership.
+function rankRole(r: VaultRole | null): number {
+  return r === "owner" ? 3 : r === "editor" ? 2 : r === "viewer" ? 1 : 0;
 }
 
 // ---------- LRU role cache ----------
@@ -957,6 +964,28 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
   if (role === undefined) {
     role = await resolveRoleAt(tx, event.vault_id, actorAccountId, event.hlc, event.event_id);
     cacheSet(key, role);
+  }
+
+  // LOCAL/backfill multi-id resolution: a vault created BEFORE Google sign-in
+  // keys its owner membership by the device-key account id, but actorAccountId
+  // here is the Google id we stamped at sign-in (or vice-versa). If the primary
+  // id doesn't resolve to a sufficient role, try this device's OTHER account-id
+  // candidates and keep the highest role. This ONLY loosens the already-trusted
+  // local path — remote events were signature-verified above and never reach
+  // this branch (event.origin === "remote" is excluded), so peer impersonation
+  // stays blocked. Fixes owner-only ops (e.g. archiving the pre-sign-in "Main"
+  // kaata) being wrongly rejected with the repeated "your role changed" toast.
+  if (event.origin !== "remote" && (role == null || !meetsRequirement(role, requirement))) {
+    try {
+      const candidates = await resolveAccountIdCandidates(actorAccountId);
+      for (const cand of candidates) {
+        if (cand === actorAccountId) continue;
+        const candRole = await resolveRoleAt(tx, event.vault_id, cand, event.hlc, event.event_id);
+        if (rankRole(candRole) > rankRole(role)) role = candRole;
+      }
+    } catch {
+      /* keep the primary-id role if candidate resolution fails */
+    }
   }
 
   if (role == null) {

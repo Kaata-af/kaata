@@ -9,7 +9,7 @@
 // Sections, top to bottom:
 //   1. LANGUAGE      — System default / English / دری
 //   2. REGION        — default country code for new contacts' phone numbers
-//   3. APP HEALTH    — diagnostics (memory + crash info)
+// (App health / diagnostics lives in the settings sheet next to About.)
 //
 // Auto-commit (no Save): picking an option writes app_meta + flips the
 // in-memory module setter and closes the sheet; the page re-renders in place.
@@ -124,19 +124,6 @@ export default function PreferencesScreen() {
           hint={t("preferences.country.hint")}
           trailing={countryValue}
           onPress={() => setCountrySheetVisible(true)}
-          isRTL={isRTL}
-          isLast
-        />
-
-        <SectionGap />
-
-        {/* ============ APP HEALTH (diagnostics) ============ */}
-        <SectionHeader label={t("preferences.diagnostics.section")} isRTL={isRTL} />
-        <NavRow
-          icon="pulse-outline"
-          label={t("preferences.diagnostics.row")}
-          hint={t("preferences.diagnostics.rowHint")}
-          onPress={() => router.push("/diagnostics")}
           isRTL={isRTL}
           isLast
         />
