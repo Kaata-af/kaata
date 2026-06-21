@@ -4,7 +4,7 @@
 // table + hand-rolled bars. The key comes from the build-time VITE_ADMIN_API_KEY
 // or, failing that, a paste-once login stored in localStorage.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BACKEND_URL, ADMIN_API_KEY } from "../env";
 
 type DayCount = { day: string; count: number };
@@ -14,15 +14,24 @@ type Stats = {
   onboarded: number;
   with_entries: number;
   with_shares: number;
-  active: number;
+  active_7d: number;
+  active_30d: number;
+  ever_active: number;
+  distinct_accounts: number;
   entries_sum: number;
   customers_sum: number;
   shares_sum: number;
   visits: number;
   downloads: number;
+  raw_visits: number;
+  excluded_installs: number;
+  excluded_visits: number;
   installs_by_day: DayCount[];
   by_source: SourceRow[];
+  generated_at: string;
 };
+
+const REFRESH_MS = 20000;
 
 const TOKEN_KEY = "kaata_admin_token";
 
@@ -39,13 +48,21 @@ export function Admin() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  // Abort the prior in-flight request before issuing a new one so an auto-
+  // refresh tick (or a manual Refresh) can't race a slow previous fetch.
+  const abortRef = useRef<AbortController | null>(null);
 
   const load = useCallback(async (tok: string) => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setLoading(true);
     setError(null);
     try {
       const res = await fetch(`${BACKEND_URL}/v1/admin/stats`, {
         headers: { Authorization: `Bearer ${tok}` },
+        signal: ctrl.signal,
       });
       if (res.status === 401) {
         setError("Wrong admin key.");
@@ -58,15 +75,34 @@ export function Admin() {
         return;
       }
       setStats((await res.json()) as Stats);
-    } catch {
+      setLastUpdated(Date.now());
+    } catch (e) {
+      // A superseded request aborts — that's expected, not an error.
+      if ((e as Error)?.name === "AbortError") return;
       setError("Couldn't reach the backend.");
     } finally {
-      setLoading(false);
+      if (abortRef.current === ctrl) setLoading(false);
     }
   }, []);
 
+  // Auto-refresh: poll every REFRESH_MS while the tab is visible (pause in
+  // background tabs so we don't hammer the DB), and refresh immediately when the
+  // operator returns to the tab. Manual Refresh + the interval share load().
   useEffect(() => {
-    if (token) void load(token);
+    if (!token) return;
+    void load(token);
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") void load(token);
+    }, REFRESH_MS);
+    const onVis = () => {
+      if (document.visibilityState === "visible") void load(token);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+      abortRef.current?.abort();
+    };
   }, [token, load]);
 
   if (!token) {
@@ -107,6 +143,11 @@ export function Admin() {
       <header className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold">Kaata analytics</h1>
         <div className="flex items-center gap-3">
+          {lastUpdated ? (
+            <span className="text-xs text-neutral-400" title="Auto-refreshes every 20s while this tab is open">
+              updated {new Date(lastUpdated).toLocaleTimeString()}
+            </span>
+          ) : null}
           <button
             onClick={() => void load(token)}
             className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
@@ -131,21 +172,39 @@ export function Admin() {
         <p className="text-neutral-500">Loading…</p>
       ) : (
         <div className="flex flex-col gap-8">
-          {/* Headline cards */}
+          {/* Headline cards — honest numbers: "active" is now last-7-days, and
+              "signed-in" collapses one person's many installs to a real human. */}
           <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Card label="Installs" value={stats.installs_total} />
             <Card
-              label="Onboarded"
-              value={stats.onboarded}
-              sub={pct(stats.onboarded, stats.installs_total)}
+              label="Active (7d)"
+              value={stats.active_7d}
+              sub={`${pct(stats.active_7d, stats.installs_total)} · 30d: ${stats.active_30d}`}
             />
+            <Card label="Signed-in" value={stats.distinct_accounts} sub="unique accounts" />
             <Card
-              label="Active"
-              value={stats.active}
-              sub={pct(stats.active, stats.installs_total)}
+              label="Installs"
+              value={stats.installs_total}
+              sub={`${stats.onboarded} onboarded`}
             />
             <Card label="Web visits" value={stats.visits} sub={`${stats.downloads} downloads`} />
           </section>
+
+          {/* Signal-quality line: how much was filtered as operator/bot noise so
+              the operator can trust what's left. */}
+          {stats.excluded_installs > 0 || stats.excluded_visits > 0 ? (
+            <p className="-mt-6 text-xs text-neutral-400">
+              Filtered out: {stats.excluded_installs} operator/test installs ·{" "}
+              {stats.excluded_visits} bot/operator web hits
+              {stats.raw_visits > stats.visits
+                ? ` · ${stats.raw_visits} raw visits → ${stats.visits} after de-duping refreshes`
+                : ""}
+            </p>
+          ) : (
+            <p className="-mt-6 text-xs text-amber-600">
+              No operator exclusions active — set OPERATOR_ACCOUNT_IDS on the backend to remove your
+              own test devices from these numbers.
+            </p>
+          )}
 
           {/* Funnel */}
           <section>
@@ -161,7 +220,7 @@ export function Admin() {
                 total={stats.installs_total}
               />
               <FunnelBar label="Shared" n={stats.with_shares} total={stats.installs_total} />
-              <FunnelBar label="Active" n={stats.active} total={stats.installs_total} />
+              <FunnelBar label="Active (7d)" n={stats.active_7d} total={stats.installs_total} />
             </div>
           </section>
 
@@ -177,7 +236,7 @@ export function Admin() {
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-400">
               Installs / day (last 30)
             </h2>
-            <DayBars data={[...stats.installs_by_day].reverse()} />
+            <DayBars data={stats.installs_by_day} />
           </section>
 
           {/* Source attribution */}

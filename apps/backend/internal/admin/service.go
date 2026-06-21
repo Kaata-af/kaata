@@ -6,13 +6,35 @@ package admin
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Service struct{ pool *pgxpool.Pool }
+// botUARegex matches obvious non-human user agents (matched against a lowercased
+// User-Agent). WhatsApp / Facebook link-preview fetchers are included on purpose:
+// sharing the download link over WhatsApp triggers a preview fetch that is NOT a
+// real visitor and otherwise inflates the visit count.
+const botUARegex = `bot|crawl|spider|slurp|curl|wget|headless|python-requests|go-http-client|facebookexternalhit|whatsapp|preview|monitoring|uptime`
 
-func NewService(pool *pgxpool.Pool) *Service { return &Service{pool: pool} }
+type Service struct {
+	pool               *pgxpool.Pool
+	operatorAccountIDs []string
+	operatorIPs        []string
+}
+
+// NewService wires the analytics service. operatorAccountIDs / operatorIPs are
+// the operator's own identifiers (config), filtered out of every aggregate so
+// the dashboard reflects real users, not the dev's test devices.
+func NewService(pool *pgxpool.Pool, operatorAccountIDs, operatorIPs []string) *Service {
+	if operatorAccountIDs == nil {
+		operatorAccountIDs = []string{}
+	}
+	if operatorIPs == nil {
+		operatorIPs = []string{}
+	}
+	return &Service{pool: pool, operatorAccountIDs: operatorAccountIDs, operatorIPs: operatorIPs}
+}
 
 type DayCount struct {
 	Day   string `json:"day"`
@@ -27,64 +49,111 @@ type SourceRow struct {
 }
 
 type Stats struct {
-	// Funnel (installs): total → onboarded → made an entry → shared → still active.
+	// Funnel (installs): total → onboarded → made an entry → shared → active.
 	InstallsTotal int64 `json:"installs_total"`
 	Onboarded     int64 `json:"onboarded"`
 	WithEntries   int64 `json:"with_entries"`
 	WithShares    int64 `json:"with_shares"`
-	Active        int64 `json:"active"`
-	// Lifetime usage sums across all installs.
+	// Active = used a feature within the window. active_7d is the HONEST
+	// headline; ever_active is the old "touched a feature ever" number (kept
+	// for continuity, no longer labelled "active"). distinct_accounts is the
+	// true signed-in-human count (collapses one person's many installs).
+	Active7d         int64 `json:"active_7d"`
+	Active30d        int64 `json:"active_30d"`
+	EverActive       int64 `json:"ever_active"`
+	DistinctAccounts int64 `json:"distinct_accounts"`
+	// Lifetime usage sums across all (non-operator) installs.
 	EntriesSum   int64 `json:"entries_sum"`
 	CustomersSum int64 `json:"customers_sum"`
 	SharesSum    int64 `json:"shares_sum"`
-	// Web funnel.
+	// Web funnel — deduped per (ip, user_agent, hour) and filtered of bots +
+	// operator IPs. raw_visits is the pre-dedup/pre-filter total.
 	Visits    int64 `json:"visits"`
 	Downloads int64 `json:"downloads"`
+	RawVisits int64 `json:"raw_visits"`
+	// Signal quality: how much was removed as operator/bot noise.
+	ExcludedInstalls int64 `json:"excluded_installs"`
+	ExcludedVisits   int64 `json:"excluded_visits"`
 	// Time series + attribution.
 	InstallsByDay []DayCount  `json:"installs_by_day"`
 	BySource      []SourceRow `json:"by_source"`
+	// Server "as of" timestamp (RFC3339) so the dashboard can show freshness.
+	GeneratedAt string `json:"generated_at"`
 }
 
 func (s *Service) GetStats(ctx context.Context) (Stats, error) {
 	var st Stats
 
+	// Installs funnel. `keep` = NOT an operator install (operator account_ids in
+	// $1; NULL-account local-only installs are kept). Computed once, then every
+	// metric FILTERs on it. "active" is now RECENCY-WINDOWED via last_activity_at
+	// instead of the old "ever touched a feature" (which counted every reinstall
+	// of one dev phone). excluded_installs reports the noise we filtered.
 	if err := s.pool.QueryRow(ctx, `
 		SELECT
-		  COUNT(*),
-		  COUNT(*) FILTER (WHERE has_onboarded),
-		  COUNT(*) FILTER (WHERE usage_entries_created > 0),
-		  COUNT(*) FILTER (WHERE usage_shares_sent > 0),
-		  COUNT(*) FILTER (WHERE last_activity_at IS NOT NULL),
-		  COALESCE(SUM(usage_entries_created), 0),
-		  COALESCE(SUM(usage_customers_added), 0),
-		  COALESCE(SUM(usage_shares_sent), 0)
-		FROM installs
-	`).Scan(
-		&st.InstallsTotal, &st.Onboarded, &st.WithEntries, &st.WithShares, &st.Active,
-		&st.EntriesSum, &st.CustomersSum, &st.SharesSum,
+		  COUNT(*) FILTER (WHERE keep),
+		  COUNT(*) FILTER (WHERE keep AND has_onboarded),
+		  COUNT(*) FILTER (WHERE keep AND usage_entries_created > 0),
+		  COUNT(*) FILTER (WHERE keep AND usage_shares_sent > 0),
+		  COUNT(*) FILTER (WHERE keep AND last_activity_at >= NOW() - INTERVAL '7 days'),
+		  COUNT(*) FILTER (WHERE keep AND last_activity_at >= NOW() - INTERVAL '30 days'),
+		  COUNT(*) FILTER (WHERE keep AND last_activity_at IS NOT NULL),
+		  COUNT(DISTINCT account_id) FILTER (WHERE keep AND account_id IS NOT NULL),
+		  COALESCE(SUM(usage_entries_created) FILTER (WHERE keep), 0),
+		  COALESCE(SUM(usage_customers_added) FILTER (WHERE keep), 0),
+		  COALESCE(SUM(usage_shares_sent) FILTER (WHERE keep), 0),
+		  COUNT(*) FILTER (WHERE NOT keep)
+		FROM (
+		  SELECT *, (account_id IS NULL OR account_id::text <> ALL($1::text[])) AS keep
+		  FROM installs
+		) i
+	`, s.operatorAccountIDs).Scan(
+		&st.InstallsTotal, &st.Onboarded, &st.WithEntries, &st.WithShares,
+		&st.Active7d, &st.Active30d, &st.EverActive, &st.DistinctAccounts,
+		&st.EntriesSum, &st.CustomersSum, &st.SharesSum, &st.ExcludedInstalls,
 	); err != nil {
 		return st, err
 	}
 
+	// Web funnel. `keep` = not an operator IP ($1) and not an obvious bot ($2,
+	// matched against lowercased UA). Visits/downloads are DEDUPED by
+	// (ip, user_agent, hour) so 20 refreshes or re-clicks count once. raw_visits
+	// + excluded_visits expose how much noise was removed.
 	if err := s.pool.QueryRow(ctx, `
+		WITH w AS (
+		  SELECT kind, ip, user_agent, visited_at,
+		         (
+		           (ip IS NULL OR ip <> ALL($1::text[]))
+		           AND (user_agent IS NULL OR lower(user_agent) !~ $2)
+		         ) AS keep
+		  FROM web_visits
+		)
 		SELECT
+		  COUNT(DISTINCT (ip, user_agent, date_trunc('hour', visited_at))) FILTER (WHERE keep AND kind = 'visit'),
+		  COUNT(DISTINCT (ip, user_agent, date_trunc('hour', visited_at))) FILTER (WHERE keep AND kind = 'download'),
 		  COUNT(*) FILTER (WHERE kind = 'visit'),
-		  COUNT(*) FILTER (WHERE kind = 'download')
-		FROM web_visits
-	`).Scan(&st.Visits, &st.Downloads); err != nil {
+		  COUNT(*) FILTER (WHERE NOT keep)
+		FROM w
+	`, s.operatorIPs, botUARegex).Scan(&st.Visits, &st.Downloads, &st.RawVisits, &st.ExcludedVisits); err != nil {
 		return st, err
 	}
 
-	// Installs per day (last 30 days), newest first. installed_at is device wall
-	// clock; fall back to first_seen_at (server) when the device didn't report one.
+	// Installs per day — DENSE rolling 30-day calendar (zero-fill gap days),
+	// UTC-pinned so device wall clocks can't shift a row into the wrong day,
+	// ascending so the frontend renders left→right without reversing. Operator
+	// installs excluded.
 	rows, err := s.pool.Query(ctx, `
-		SELECT to_char(date_trunc('day', COALESCE(installed_at, first_seen_at)), 'YYYY-MM-DD') AS day,
-		       COUNT(*)
-		FROM installs
-		GROUP BY day
-		ORDER BY day DESC
-		LIMIT 30
-	`)
+		WITH days AS (
+		  SELECT generate_series((CURRENT_DATE - INTERVAL '29 days')::date, CURRENT_DATE, INTERVAL '1 day')::date AS d
+		)
+		SELECT to_char(days.d, 'YYYY-MM-DD') AS day, COUNT(i.install_id)
+		FROM days
+		LEFT JOIN installs i
+		  ON date_trunc('day', COALESCE(i.installed_at, i.first_seen_at) AT TIME ZONE 'UTC')::date = days.d
+		 AND (i.account_id IS NULL OR i.account_id::text <> ALL($1::text[]))
+		GROUP BY days.d
+		ORDER BY days.d ASC
+	`, s.operatorAccountIDs)
 	if err != nil {
 		return st, err
 	}
@@ -101,17 +170,26 @@ func (s *Service) GetStats(ctx context.Context) (Stats, error) {
 		return st, err
 	}
 
-	// Web visits/downloads + attributed installs per marketing source.
+	// Web visits/downloads + attributed installs per source — same dedup + bot +
+	// operator-IP filter as the headline web counts.
 	srows, err := s.pool.Query(ctx, `
-		SELECT COALESCE(source, '(direct)') AS source,
-		       COUNT(*) FILTER (WHERE kind = 'visit'),
-		       COUNT(*) FILTER (WHERE kind = 'download'),
-		       COUNT(DISTINCT claimed_by_install_id) FILTER (WHERE claimed_by_install_id IS NOT NULL)
-		FROM web_visits
-		GROUP BY COALESCE(source, '(direct)')
+		WITH w AS (
+		  SELECT COALESCE(source, '(direct)') AS source, kind, ip, user_agent, visited_at, claimed_by_install_id,
+		         (
+		           (ip IS NULL OR ip <> ALL($1::text[]))
+		           AND (user_agent IS NULL OR lower(user_agent) !~ $2)
+		         ) AS keep
+		  FROM web_visits
+		)
+		SELECT source,
+		       COUNT(DISTINCT (ip, user_agent, date_trunc('hour', visited_at))) FILTER (WHERE keep AND kind = 'visit'),
+		       COUNT(DISTINCT (ip, user_agent, date_trunc('hour', visited_at))) FILTER (WHERE keep AND kind = 'download'),
+		       COUNT(DISTINCT claimed_by_install_id) FILTER (WHERE keep AND claimed_by_install_id IS NOT NULL)
+		FROM w
+		GROUP BY source
 		ORDER BY 2 DESC
 		LIMIT 20
-	`)
+	`, s.operatorIPs, botUARegex)
 	if err != nil {
 		return st, err
 	}
@@ -135,5 +213,6 @@ func (s *Service) GetStats(ctx context.Context) (Stats, error) {
 	if st.BySource == nil {
 		st.BySource = []SourceRow{}
 	}
+	st.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
 	return st, nil
 }

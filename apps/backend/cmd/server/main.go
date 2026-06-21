@@ -89,7 +89,7 @@ func main() {
 	authSvc := auth.NewService(pool, cfg.GoogleWebClientID, cfg.SessionJWTSecret)
 	authH := auth.NewHandler(authSvc)
 
-	adminH := admin.NewHandler(admin.NewService(pool))
+	adminH := admin.NewHandler(admin.NewService(pool, cfg.OperatorAccountIDs, cfg.OperatorIPs))
 	authenticator := auth.NewSessionAuthenticator(authSvc, cfg.SessionJWTSecret)
 	// Wire the cache so SignOut purges the cached revocation entry instead of
 	// leaving up to 60s of valid-looking auth in front of a deleted credential.

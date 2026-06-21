@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -36,6 +37,15 @@ type Config struct {
 	// deployment without the key simply has no admin surface. Generate with
 	// `openssl rand -hex 32` and set in the backend env (Dokploy).
 	AdminAPIKey string
+	// OperatorAccountIDs / OperatorIPs: analytics noise filter. Your OWN
+	// signed-in account UUID(s) and home/office IP(s) are excluded from the
+	// admin dashboard aggregates so test devices and reinstalls don't inflate
+	// the funnel. Comma-separated env values. Excluded at QUERY time, so it's
+	// retroactive (fixes already-recorded rows the moment you set it) and fully
+	// reversible (clear the env → rows reappear). account_id is the robust key
+	// because it survives reinstalls once you've signed in on a test device.
+	OperatorAccountIDs []string
+	OperatorIPs        []string
 }
 
 func Load() Config {
@@ -49,9 +59,25 @@ func Load() Config {
 		// Read from JWT_SECRET first (Phase 2 canonical name), falling back to
 		// SESSION_JWT_SECRET for compatibility with v0.4 deployments that
 		// haven't rotated their .env yet.
-		SessionJWTSecret: firstNonEmpty(os.Getenv("JWT_SECRET"), os.Getenv("SESSION_JWT_SECRET")),
-		AdminAPIKey:      os.Getenv("ADMIN_API_KEY"),
+		SessionJWTSecret:   firstNonEmpty(os.Getenv("JWT_SECRET"), os.Getenv("SESSION_JWT_SECRET")),
+		AdminAPIKey:        os.Getenv("ADMIN_API_KEY"),
+		OperatorAccountIDs: splitCSV(os.Getenv("OPERATOR_ACCOUNT_IDS")),
+		OperatorIPs:        splitCSV(os.Getenv("OPERATOR_IPS")),
 	}
+}
+
+// splitCSV parses a comma-separated env value into a trimmed, non-empty slice.
+// ALWAYS returns a non-nil slice (empty when unset) so pgx encodes it as an
+// empty SQL array rather than NULL — `x <> ALL('{}')` excludes nothing, which is
+// the safe default; `x <> ALL(NULL)` is NULL/false and would exclude everything.
+func splitCSV(v string) []string {
+	out := []string{}
+	for _, p := range strings.Split(v, ",") {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func getenv(key, def string) string {
