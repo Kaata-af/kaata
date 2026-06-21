@@ -482,7 +482,14 @@ export function ProfileSettingsSheet(props: {
                   a single shopkeeper has no other phones to sync with. Cloud
                   backup (below) is the solo-relevant sync. */}
               {!SOLO_STORE_MODE ? (
-                <View style={[styles.toggleRow, rowDir(isRTL)]}>
+                <View
+                  style={[
+                    styles.toggleRow,
+                    rowDir(isRTL),
+                    // Last sync row only when no cloud toggle and no dev BT row follow.
+                    !liveAccountId && !__DEV__ ? styles.toggleRowLast : null,
+                  ]}
+                >
                   <Ionicons
                     name="bluetooth-outline"
                     size={SETTINGS_ROW_ICON_SIZE}
@@ -529,7 +536,16 @@ export function ProfileSettingsSheet(props: {
                   Recovery lives in onboarding, not here. */}
               {liveAccountId ? (
                 <>
-                  <View style={[styles.toggleRow, rowDir(isRTL)]}>
+                  {/* Drop the hairline divider when this is the last sync row
+                      (production: no __DEV__ BT row follows) so there's no stray
+                      gray line sitting above the section gap. */}
+                  <View
+                    style={[
+                      styles.toggleRow,
+                      rowDir(isRTL),
+                      __DEV__ ? null : styles.toggleRowLast,
+                    ]}
+                  >
                     <Ionicons
                       name="cloud-outline"
                       size={SETTINGS_ROW_ICON_SIZE}
@@ -722,6 +738,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.borderSubtle,
   },
+  // Suppresses the hairline divider on the last sync toggle so it doesn't leave
+  // a stray gray line above the section gap.
+  toggleRowLast: { borderBottomWidth: 0 },
   toggleTitle: {
     fontSize: 15,
     fontFamily: fonts.sansSemi,

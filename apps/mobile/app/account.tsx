@@ -1,7 +1,8 @@
 // Account — the user's PERSONAL settings (one place, per Matee). Edits the
-// device identity (first/last name + phone), folds in the personal preferences
-// (language + default country), and links to archived kaatas. Distinct from
-// "Manage this Kaata" (per-kaata: name, currency, members).
+// device identity (first/last name + phone) and folds in the personal
+// preferences (language + default country). Distinct from "Manage this Kaata"
+// (per-kaata: name, currency, members). Archived kaatas live in the kaata
+// switcher, not here (Matee).
 //
 // Name + phone are saved via updateSelfProfile (name is event-sourced when a
 // kaata is active so shared members see it; phone is device-local identity).
@@ -300,18 +301,6 @@ export default function AccountScreen() {
             hint={t("preferences.country.hint")}
             trailing={`${prefC.flag}  ${prefC.name}`}
             onPress={() => setPrefCountryVisible(true)}
-            isRTL={isRTL}
-            isLast
-          />
-
-          <SectionGap />
-
-          {/* ============ KAATAS ============ */}
-          <SectionHeader label={t("account.kaatas.section")} isRTL={isRTL} />
-          <NavRow
-            icon="archive-outline"
-            label={t("account.archived.row")}
-            onPress={() => router.push("/vault/archived")}
             isRTL={isRTL}
             isLast
           />

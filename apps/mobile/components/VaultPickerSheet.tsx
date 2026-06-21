@@ -128,6 +128,8 @@ export function VaultPickerSheet(props: {
   // routes to /vault/archived. Belt-and-suspenders: still filter
   // defensively in case a stale caller wires an unfiltered list.
   const activeVaults = useMemo(() => props.vaults.filter((v) => !v.archived), [props.vaults]);
+  const archivedCount = props.archivedCount ?? 0;
+  const hasArchived = archivedCount > 0;
   // NOTE: "Manage current kaata" moved OUT of the switcher into ProfileSettingsSheet
   // (Matee: "make the kaata switcher just the kaata switcher, no settings in it").
 
@@ -217,17 +219,35 @@ export function VaultPickerSheet(props: {
 
               {/* "+ Add a Kaata" — emphasis styling lifts it above the
                   vault rows so it reads as an action, not another vault. */}
-              {/* "+ Add a Kaata" is the last switcher action. Archived kaatas
-                  moved to the Account screen (Matee) — the switcher is for
-                  switching ACTIVE kaatas only. */}
               <PickerItem
                 icon="add-circle-outline"
                 label={t("menu.allKaatas.add")}
                 onPress={chained(props.onAddVault)}
                 isRTL={isRTL}
                 emphasis
-                isLast
+                isLast={!hasArchived}
               />
+
+              {/* Compact "Archived (n) >" footer. Only rendered when the caller
+                  reports >= 1 archived vault. Tapping routes to /vault/archived
+                  (the dedicated list + Restore actions). Archived lives here in
+                  the switcher (Matee: "move the archived ones back to the
+                  switcher like it was before"), not on the Account screen. */}
+              {hasArchived ? (
+                <>
+                  <View style={styles.sectionGap} />
+                  <PickerItem
+                    icon="archive-outline"
+                    iconColor={colors.textMuted}
+                    label={t("menu.allKaatas.archived.view", {
+                      count: archivedCount,
+                    })}
+                    onPress={chained(() => props.onViewArchived?.())}
+                    isRTL={isRTL}
+                    isLast
+                  />
+                </>
+              ) : null}
             </ScrollView>
           </View>
         </SafeAreaView>
