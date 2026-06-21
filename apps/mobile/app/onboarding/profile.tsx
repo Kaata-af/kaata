@@ -49,20 +49,18 @@ export default function OnboardingProfileScreen() {
   // CountryPickerSheet. normalizePhone uses this country on submit.
   const [countryCode, setCountryCode] = useState(getCurrentDefaultCountryCode);
   const [pickerVisible, setPickerVisible] = useState(false);
-  const [shopName, setShopName] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
   const [phoneError, setPhoneError] = useState<string | null>(null);
-  // v0.5.3: shop (Kaata) name is OPTIONAL. The user can install Kaata
-  // just to JOIN someone else's kaata — the "Join an existing kaata"
-  // link below skips vault creation entirely. When shop is left empty
-  // and the user taps Continue, a placeholder "My kaata" vault is minted
-  // so they have somewhere to land; they can rename it from settings.
+  // The kaata name is NOT collected during onboarding — creating an account
+  // never forces creating a kaata. createSelfProfile makes only the local-self
+  // user; the user creates / joins / restores their first kaata afterwards
+  // (from the "no kaatas yet" home screen, or the "Join an existing kaata"
+  // link below → pair-scan).
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
   const nameRef = useRef<TextInput>(null);
   const phoneRef = useRef<TextInput>(null);
-  const shopRef = useRef<TextInput>(null);
   // Synchronous re-entry guard — `busy` state can't stop a same-frame
   // double-tap (setState is async); see entry/new.tsx.
   const savingRef = useRef(false);
@@ -89,7 +87,6 @@ export default function OnboardingProfileScreen() {
     if (savingRef.current) return;
     const trimmedName = name.trim();
     const trimmedPhone = phone.trim();
-    const trimmedShop = shopName.trim();
 
     if (!trimmedName) {
       setNameError(t("onboardingProfile.nameRequired"));
@@ -117,7 +114,11 @@ export default function OnboardingProfileScreen() {
     setSubmitError(null);
     setBusy(true);
     try {
-      await createSelfProfile(trimmedName, trimmedShop, normalizedPhone);
+      // No kaata name → createSelfProfile creates only the local-self user, no
+      // vault. The user makes their first kaata from the "no kaatas" home
+      // screen (or by pairing/restoring). (Matee: account creation must not
+      // force creating a kaata.)
+      await createSelfProfile(trimmedName, "", normalizedPhone);
       await setAppMeta("onboarding_step", "done");
       await setAppMeta("onboarding_pending_name", "");
       await setAppMeta("onboarding_pending_email", "");
@@ -145,11 +146,10 @@ export default function OnboardingProfileScreen() {
   }
 
   async function onJoinExisting() {
-    // v0.5.3 "I'll join an existing kaata" path: create the local-self
-    // user (with whatever fields they filled in) and route directly to
-    // the QR scanner instead of home. The placeholder vault that
-    // createSelfProfile mints stays in the background — if they pair
-    // into someone else's kaata it gets switched as the active vault.
+    // "I'll join an existing kaata" path: create the local-self user (name +
+    // optional phone) and route straight to the QR scanner. No kaata is minted
+    // here — pair-scan creates the joined vault. If they back out without
+    // pairing they have zero kaatas and land on the "no kaatas yet" screen.
     await finalize("/vault/pair-scan");
   }
 
@@ -249,8 +249,8 @@ export default function OnboardingProfileScreen() {
                 accessibilityLabel={t("onboarding.phone.label")}
                 keyboardType="phone-pad"
                 autoCorrect={false}
-                returnKeyType="next"
-                onSubmitEditing={() => shopRef.current?.focus()}
+                returnKeyType="done"
+                onSubmitEditing={onSubmit}
                 submitBehavior="submit"
               />
             </View>
@@ -261,17 +261,6 @@ export default function OnboardingProfileScreen() {
             ) : null}
           </View>
           <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("onboarding.phone.hint")}</Text>
-
-          <FormField
-            ref={shopRef}
-            label={t("onboarding.shop.labelOptional")}
-            value={shopName}
-            onChangeText={setShopName}
-            placeholder={t("onboarding.shop.placeholder")}
-            returnKeyType="done"
-            onSubmitEditing={onSubmit}
-          />
-          <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("onboarding.shop.hint")}</Text>
 
           {submitError ? (
             <Text style={[styles.submitError, textDir(isRTL)]} accessibilityLiveRegion="polite">

@@ -34,11 +34,6 @@ const en = {
   "onboarding.phone.placeholder": "+93 7…",
   "onboarding.phone.hint":
     "Used so staff can find you in their contacts when pairing. Not verified, not shared.",
-  "onboarding.shop.label": "Store or business name",
-  "onboarding.shop.labelOptional": "Kaata name (optional)",
-  "onboarding.shop.placeholder": "Shop Sultan",
-  "onboarding.shop.hint":
-    "Skip if you're joining an existing kaata. You can create or rename later.",
   "onboarding.continue": "Continue",
   "onboarding.nameRequired": "Name required",
 
@@ -334,6 +329,11 @@ const en = {
   "fgs.connectedMany": "Connected to {count} phones nearby",
 
   "home.loadFailed": "Couldn't load your Kaata data. Your entries are safe — try again.",
+  "home.noKaata.title": "No kaatas yet",
+  "home.noKaata.subtitle": "Create your first kaata to start tracking who owes what.",
+  "home.noKaata.create": "Create a kaata",
+  "home.noKaata.join": "Join an existing kaata",
+  "home.noKaata.archived": "View archived kaatas ({count})",
 
   "common.cancel": "Cancel",
   "common.back": "Back",
@@ -374,6 +374,8 @@ const en = {
   // sheet; removed to keep the translation surface honest.
   "menu.thisKaata.settings": "Manage this Kaata",
   "menu.currentKaata": "Current Kaata",
+  "menu.preferences": "Preferences",
+  "menu.preferences.hint": "Language, country, app health",
   "menu.allKaatas": "All Kaatas",
   "menu.allKaatas.empty": "No Kaatas yet.",
   "menu.allKaatas.empty.withArchived": "No active Kaatas.",
@@ -751,7 +753,6 @@ const en = {
   "vaultSettings.role.editor": "Editor",
   "vaultSettings.role.viewer": "Viewer",
   "vaultSettings.section.details": "Details",
-  "vaultSettings.section.preferences": "Preferences",
   "vaultSettings.section.members": "Members",
   "vaultSettings.section.activity": "Activity",
   "vaultSettings.section.danger": "Danger zone",
@@ -1016,11 +1017,6 @@ const fa: Partial<Record<Key, string>> = {
   "onboarding.phone.placeholder": "+93 7…",
   "onboarding.phone.hint":
     "برای اینکه کارمندان شما را در مخاطبین خود پیدا کنند. تأیید نمی‌شود و به اشتراک گذاشته نمی‌شود.",
-  "onboarding.shop.label": "نام دکان یا تجارت",
-  "onboarding.shop.labelOptional": "نام کاتا (اختیاری)",
-  "onboarding.shop.placeholder": "دکان سلطان",
-  "onboarding.shop.hint":
-    "اگر به کاتای موجود می‌پیوندید، رد کنید. بعداً می‌توانید بسازید یا نامگذاری کنید.",
   "onboarding.continue": "ادامه",
   "onboarding.nameRequired": "نام لازم است",
 
@@ -1229,6 +1225,11 @@ const fa: Partial<Record<Key, string>> = {
   "fgs.connectedMany": "به {count} تلفون نزدیک وصل است",
 
   "home.loadFailed": "داده‌های کاتای شما بارگیری نشد. ثبت‌های شما محفوظ است — دوباره امتحان کنید.",
+  "home.noKaata.title": "هنوز کاتایی نیست",
+  "home.noKaata.subtitle": "اولین کاتای خود را بسازید تا حساب‌وکتاب را شروع کنید.",
+  "home.noKaata.create": "ساختن کاتا",
+  "home.noKaata.join": "پیوستن به یک کاتای موجود",
+  "home.noKaata.archived": "کاتاهای بایگانی‌شده ({count})",
 
   // Settings — only "settings.saved" remains (person/edit auto-save toast).
   "settings.saved": "ذخیره شد",
@@ -1305,6 +1306,8 @@ const fa: Partial<Record<Key, string>> = {
   "menu.title.vaultSwitcher": "تعویض کاتا",
   "menu.thisKaata.settings": "مدیریت این کاتا",
   "menu.currentKaata": "کاتای فعلی",
+  "menu.preferences": "ترجیحات",
+  "menu.preferences.hint": "زبان، کشور، وضعیت برنامه",
   "menu.allKaatas": "همه کاتاها",
   "menu.allKaatas.empty": "هنوز کاتایی نیست.",
   "menu.allKaatas.empty.withArchived": "کاتای فعال وجود ندارد.",
@@ -1623,7 +1626,6 @@ const fa: Partial<Record<Key, string>> = {
   "vaultSettings.role.editor": "ویرایشگر",
   "vaultSettings.role.viewer": "بیننده",
   "vaultSettings.section.details": "مشخصات",
-  "vaultSettings.section.preferences": "ترجیحات",
   "vaultSettings.section.members": "اعضا",
   "vaultSettings.section.activity": "فعالیت",
   "vaultSettings.section.danger": "ناحیه خطرناک",

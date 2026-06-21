@@ -1,7 +1,8 @@
 // Vault settings — "Manage this Kaata". Phase 7 design language shared across
-// ProfileSettingsSheet + the other vault/* surfaces. This screen also absorbed
-// the former standalone Preferences (language / region / diagnostics) so
-// settings split cleanly into Account (the sheet) + Kaata (here).
+// ProfileSettingsSheet + the other vault/* surfaces. Settings are split into
+// three: Account (ProfileSettingsSheet) + USER preferences (/preferences:
+// language, default country, app health) + Kaata (THIS screen: name, currency
+// (per-kaata), members, danger zone). Language/country/diagnostics are NOT here.
 // Owner-only writes; editors/viewers see read-only surface with
 // inline "View only" hints rather than hidden controls.
 //
@@ -19,12 +20,11 @@
 
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -32,7 +32,6 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
-import { CountryPickerSheet } from "../../components/CountryPickerSheet";
 import { FormField } from "../../components/FormField";
 import { OptionSheet } from "../../components/OptionSheet";
 import {
@@ -59,7 +58,7 @@ import {
   getDb,
   setActiveVaultId,
 } from "../../lib/db-tx";
-import { setCurrentCurrency } from "../../lib/currency";
+import { CURRENCIES, getCurrencyName, setCurrentCurrency } from "../../lib/currency";
 import {
   getAppMeta,
   listActiveVaults,
@@ -69,12 +68,7 @@ import {
 import { resolveAccountIdCandidates } from "../../lib/effective-account";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
-import { type LocalePref, setLocale, t } from "../../lib/i18n";
-import {
-  getCountry,
-  getCurrentDefaultCountryCode,
-  setCurrentDefaultCountryCode,
-} from "../../lib/phone";
+import { t } from "../../lib/i18n";
 import { useVaultPermission, useVaultRole } from "../../lib/use-vault-role";
 import { SOLO_STORE_MODE } from "../../constants/env";
 import type { VaultRole } from "../../lib/events";
@@ -85,12 +79,6 @@ type VaultRow = {
   currency: string;
   archived_at: number | null;
 };
-
-const LANGUAGE_OPTIONS: ReadonlyArray<{ value: LocalePref; labelKey: string }> = [
-  { value: "system", labelKey: "settings.language.option.system" },
-  { value: "en", labelKey: "settings.language.option.en" },
-  { value: "fa", labelKey: "settings.language.option.fa" },
-];
 
 export default function VaultSettingsScreen() {
   const router = useRouter();
@@ -106,16 +94,11 @@ export default function VaultSettingsScreen() {
   const [accountId, setAccountId] = useState<string | null>(null);
   const [memberCount, setMemberCount] = useState<number>(0);
 
-  // Preferences folded in from the old standalone screen.
-  const [localePref, setLocalePref] = useState<LocalePref>("system");
-  const [langSheetVisible, setLangSheetVisible] = useState(false);
-  const [countryCode, setCountryCode] = useState<string>(getCurrentDefaultCountryCode);
-  const [countrySheetVisible, setCountrySheetVisible] = useState(false);
-
   // Owner-editable fields. Auto-commit on blur.
   const [name, setName] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
   const [currency, setCurrency] = useState<string>("AFN");
+  const [currencySheetVisible, setCurrencySheetVisible] = useState(false);
   const [savingName, setSavingName] = useState(false);
   const [savingCurrency, setSavingCurrency] = useState(false);
 
@@ -165,12 +148,6 @@ export default function VaultSettingsScreen() {
 
           const accId = await getAppMeta("account_id");
           setAccountId(accId);
-
-          // Folded-in preferences: language pref (app_meta) + default country
-          // (synchronous module getter, already hydrated at app init).
-          const storedPref = await getAppMeta("locale_pref");
-          setLocalePref(storedPref === "en" || storedPref === "fa" ? storedPref : "system");
-          setCountryCode(getCurrentDefaultCountryCode());
 
           const count = await db.getFirstAsync<{ n: number }>(
             `SELECT COUNT(*) AS n FROM vault_members_mirror
@@ -272,24 +249,6 @@ export default function VaultSettingsScreen() {
     }
   }
 
-  async function pickLanguage(value: LocalePref) {
-    setLangSheetVisible(false);
-    if (value === localePref) return;
-    setLocalePref(value);
-    setLocale(value);
-    await setAppMeta("locale_pref", value);
-    toast.push(t("settings.language.changed"), "success");
-  }
-
-  async function pickCountry(code: string) {
-    setCountrySheetVisible(false);
-    if (code === countryCode) return;
-    setCountryCode(code);
-    setCurrentDefaultCountryCode(code);
-    await setAppMeta("default_country_code", code);
-    toast.push(t("preferences.country.changed"), "success");
-  }
-
   async function onArchive() {
     if (!vault || !canArchive) return;
     setArchiveConfirm(false);
@@ -356,9 +315,9 @@ export default function VaultSettingsScreen() {
         return;
       }
       queuePendingToast(t("vaultSettings.archive.successNeedNew"), "success");
-      // UX-fix #1: signal the forced-create context so vault/new can
-      // hide the back chevron (no parent to pop to) and adjust copy.
-      router.replace({ pathname: "/vault/new", params: { forced: "1" } });
+      // No kaatas left → home's "no kaatas yet" screen (deliberate create/join,
+      // no silent auto-create). (Matee.)
+      router.replace("/");
     } catch (err) {
       console.warn("[vault/settings] archive failed", err);
       // Localized copy only — err.message is HTTP/internal jargon.
@@ -496,7 +455,8 @@ export default function VaultSettingsScreen() {
           if (anyArchived) {
             router.replace("/vault/archived");
           } else {
-            router.replace({ pathname: "/vault/new", params: { forced: "1" } });
+            // No kaatas left → home's "no kaatas yet" screen.
+            router.replace("/");
           }
         }
       } else {
@@ -550,12 +510,7 @@ export default function VaultSettingsScreen() {
     );
   }
 
-  const selectedLangLabelKey =
-    LANGUAGE_OPTIONS.find((o) => o.value === localePref)?.labelKey ??
-    "settings.language.option.system";
-  const languageValue = t(selectedLangLabelKey as Parameters<typeof t>[0]);
-  const prefCountry = getCountry(countryCode);
-  const countryValue = `${prefCountry.flag}  ${prefCountry.name}`;
+  const currencyValue = `${CURRENCIES.find((c) => c.code === currency)?.symbol ?? ""}  ${getCurrencyName(currency)}`.trim();
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
@@ -611,37 +566,17 @@ export default function VaultSettingsScreen() {
             {!canRename ? (
               <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("vaultSettings.viewOnly")}</Text>
             ) : null}
-
-            <CurrencyPicker
-              value={currency}
-              disabled={!canRename || savingCurrency}
-              onChange={commitCurrency}
-              isRTL={isRTL}
-            />
           </View>
-
-          <SectionGap />
-
-          {/* ============ PREFERENCES ============
-              Folded in from the old standalone Preferences screen (Matee: "the
-              preferences stuff is all kaata settings ... manage this kaata
-              should include all the stuff that we now have in the
-              preferences"). Settings now split cleanly into Account (the sheet)
-              + Kaata (this screen). */}
-          <SectionHeader label={t("vaultSettings.section.preferences")} isRTL={isRTL} />
+          {/* Currency is PER-KAATA. Row→sheet picker so it matches the default-
+              country picker in user Preferences (Matee: "currency options and
+              default country options should match"). Language + default country +
+              app health are USER preferences and live in /preferences, NOT here. */}
           <NavRow
-            icon="language-outline"
-            label={t("settings.language.label")}
-            trailing={languageValue}
-            onPress={() => setLangSheetVisible(true)}
-            isRTL={isRTL}
-          />
-          <NavRow
-            icon="flag-outline"
-            label={t("preferences.country.label")}
-            hint={t("preferences.country.hint")}
-            trailing={countryValue}
-            onPress={() => setCountrySheetVisible(true)}
+            icon="cash-outline"
+            label={t("vaultSettings.currency.label")}
+            trailing={currencyValue}
+            onPress={() => setCurrencySheetVisible(true)}
+            disabled={!canRename || savingCurrency}
             isRTL={isRTL}
             isLast
           />
@@ -683,21 +618,11 @@ export default function VaultSettingsScreen() {
               }
               onPress={() => router.push("/vault/audit-log")}
               isRTL={isRTL}
+              isLast
             />
           ) : (
             <EmptyHint label={t("vaultSettings.row.audit.viewerEmpty")} isRTL={isRTL} />
           )}
-          {/* Diagnostics — folded in from Preferences. Plain-English label so a
-              shopkeeper asked to "open diagnostics and screenshot it" can find
-              it. Shown to everyone (troubleshooting isn't role-gated). */}
-          <NavRow
-            icon="pulse-outline"
-            label={t("preferences.diagnostics.row")}
-            hint={t("preferences.diagnostics.rowHint")}
-            onPress={() => router.push("/diagnostics")}
-            isRTL={isRTL}
-            isLast
-          />
 
           <SectionGap />
 
@@ -831,68 +756,24 @@ export default function VaultSettingsScreen() {
         onCancel={() => setTransferConfirm(false)}
       />
 
-      {/* Folded-in preferences pickers. */}
+      {/* Per-kaata currency picker — row→sheet, matching the country picker. */}
       <OptionSheet
-        visible={langSheetVisible}
-        title={t("settings.language.label")}
-        options={LANGUAGE_OPTIONS.map((o) => ({
-          key: o.value,
-          label: t(o.labelKey as Parameters<typeof t>[0]),
+        visible={currencySheetVisible}
+        title={t("vaultSettings.currency.label")}
+        options={CURRENCIES.map((c) => ({
+          key: c.code,
+          label: getCurrencyName(c.code),
+          leading: c.symbol,
         }))}
-        selected={localePref}
-        onSelect={(k) => pickLanguage(k as LocalePref)}
-        onDismiss={() => setLangSheetVisible(false)}
+        selected={currency}
+        onSelect={(code) => {
+          setCurrencySheetVisible(false);
+          void commitCurrency(code);
+        }}
+        onDismiss={() => setCurrencySheetVisible(false)}
         isRTL={isRTL}
       />
-      <CountryPickerSheet
-        visible={countrySheetVisible}
-        selectedCode={countryCode}
-        onSelect={pickCountry}
-        onDismiss={() => setCountrySheetVisible(false)}
-      />
     </SafeAreaView>
-  );
-}
-
-// Currency picker. A simple chip list — enough to verify the patch + event
-// flow end-to-end. (Changing it also mirrors to the global display currency
-// when this is the active vault; see commitCurrency.)
-function CurrencyPicker(props: {
-  value: string;
-  disabled: boolean;
-  onChange: (code: string) => void;
-  isRTL: boolean;
-}) {
-  const OPTIONS = ["AFN", "USD", "EUR", "PKR", "IRR"];
-  return (
-    <View style={{ marginBottom: 12 }}>
-      <Text style={[styles.label, textDir(props.isRTL)]}>{t("vaultSettings.currency.label")}</Text>
-      <View style={[styles.currencyRow, rowDir(props.isRTL)]}>
-        {OPTIONS.map((code) => {
-          const selected = code === props.value;
-          return (
-            <Pressable
-              key={code}
-              onPress={() => props.onChange(code)}
-              disabled={props.disabled}
-              style={({ pressed }) => [
-                styles.currencyChip,
-                selected && styles.currencyChipSelected,
-                props.disabled && { opacity: 0.5 },
-                pressed && { backgroundColor: colors.bgMuted },
-              ]}
-            >
-              <Text style={[styles.currencyChipText, selected && styles.currencyChipTextSelected]}>
-                {code}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-      {props.disabled ? (
-        <Text style={[styles.fieldHint, textDir(props.isRTL)]}>{t("vaultSettings.viewOnly")}</Text>
-      ) : null}
-    </View>
   );
 }
 
@@ -936,16 +817,9 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
 
-  // Form inset for FormField + CurrencyPicker -----------------------------
+  // Form inset for the name FormField.
   formInset: { paddingHorizontal: 20, paddingTop: 4 },
 
-  // Inline form atoms -----------------------------------------------------
-  label: {
-    fontSize: 13,
-    fontFamily: fonts.sansMedium,
-    color: colors.textDefault,
-    marginBottom: 8,
-  },
   fieldHint: {
     fontSize: 12,
     fontFamily: fonts.sansRegular,
@@ -953,25 +827,4 @@ const styles = StyleSheet.create({
     marginTop: 0,
     marginBottom: 12,
   },
-
-  // CurrencyPicker --------------------------------------------------------
-  currencyRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  currencyChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: colors.borderDefault,
-    borderRadius: 8,
-    backgroundColor: colors.bgDefault,
-  },
-  currencyChipSelected: {
-    borderColor: colors.textEmphasis,
-    backgroundColor: colors.bgInverted,
-  },
-  currencyChipText: {
-    fontSize: 13,
-    fontFamily: fonts.monoMedium,
-    color: colors.textEmphasis,
-  },
-  currencyChipTextSelected: { color: colors.textInverted },
 });

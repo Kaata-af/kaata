@@ -22,6 +22,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import Constants from "expo-constants";
 import { BottomSheet } from "../components/BottomSheet";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
 import { PersonRow } from "../components/PersonRow";
 import { ProfileSettingsSheet, type VaultListItem } from "../components/ProfileSettingsSheet";
@@ -715,11 +716,50 @@ export default function HomeScreen() {
 
       <UpdateBanner />
 
-      <View style={styles.tabsWrap}>
-        <Tabs<Direction> tabs={buildTabs()} value={direction} onChange={setDirection} />
-      </View>
+      {/* Tabs only when there's an active kaata; the no-kaatas empty state
+          below stands in for the whole ledger area otherwise. */}
+      {activeVaultId ? (
+        <View style={styles.tabsWrap}>
+          <Tabs<Direction> tabs={buildTabs()} value={direction} onChange={setDirection} />
+        </View>
+      ) : null}
 
-      {loaded && loadError && allPeople.length === 0 ? (
+      {loaded && !activeVaultId ? (
+        // No kaatas yet — a fresh account that hasn't created one, or one where
+        // the last kaata was just left/archived. A DELIBERATE "create your
+        // first kaata" screen; the app never silently auto-creates a kaata.
+        // (Matee: "don't auto-create ... make a default screen for when there
+        // are no kaatas, like onboarding the user to make a kaata".)
+        <View style={styles.noKaataWrap}>
+          <Ionicons name="albums-outline" size={44} color={colors.textMuted} />
+          <View style={{ height: 16 }} />
+          <Text style={styles.noKaataTitle}>{t("home.noKaata.title")}</Text>
+          <View style={{ height: 6 }} />
+          <Text style={styles.noKaataSub}>{t("home.noKaata.subtitle")}</Text>
+          <View style={{ height: 24 }} />
+          <View style={styles.noKaataBtnWrap}>
+            <Button label={t("home.noKaata.create")} onPress={() => router.push("/vault/new")} />
+          </View>
+          <Pressable
+            onPress={() => router.push("/vault/pair-scan")}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.noKaataLink, pressed && { opacity: 0.6 }]}
+          >
+            <Text style={styles.noKaataLinkText}>{t("home.noKaata.join")}</Text>
+          </Pressable>
+          {archivedVaults.length > 0 ? (
+            <Pressable
+              onPress={() => router.push("/vault/archived")}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.noKaataLink, pressed && { opacity: 0.6 }]}
+            >
+              <Text style={styles.noKaataLinkText}>
+                {t("home.noKaata.archived", { count: archivedVaults.length })}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : loaded && loadError && allPeople.length === 0 ? (
         // Load failed with nothing cached to show. Rendering the rail here
         // would show "0" totals — the false data-loss signal this audience
         // is most sensitive to. A later successful retry clears this.
@@ -784,6 +824,8 @@ export default function HomeScreen() {
        * prompt. If the Activity were RTL, RN would silently reinterpret
        * `right` as `left` (the v0.2.4 bug).
        */}
+      {/* FAB only when there's an active kaata to add people into. */}
+      {activeVaultId ? (
       <Animated.View
         style={[
           styles.fab,
@@ -821,6 +863,7 @@ export default function HomeScreen() {
           <Ionicons name="search" size={24} color={colors.textInverted} />
         </Pressable>
       </Animated.View>
+      ) : null}
 
       {/* Phase 7 — unified settings sheet replaces HamburgerMenuSheet +
           ProfileMenuSheet. Opens from the profile chip top-RIGHT. All
@@ -885,6 +928,7 @@ export default function HomeScreen() {
         onAddVault={() => router.push("/vault/new")}
         onScanPairingCode={() => router.push("/vault/pair-scan")}
         onManageCurrentKaata={() => router.push("/vault/settings")}
+        onOpenPreferences={() => router.push("/preferences")}
         onSyncNow={async () => {
           if (syncBusy) return;
           setSyncBusy(true);
@@ -1480,6 +1524,33 @@ const styles = StyleSheet.create({
   // marginBottom:16 keeps the rail from feeling glued to the tab strip.
   tabsWrap: { paddingHorizontal: 16, marginTop: 2, marginBottom: 16 },
   loadingFill: { flex: 1, alignItems: "center", justifyContent: "center" },
+  // No-kaatas empty state (fresh account / after leaving the last kaata).
+  noKaataWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+  },
+  noKaataTitle: {
+    fontSize: 18,
+    fontFamily: fonts.sansSemi,
+    color: colors.textEmphasis,
+    textAlign: "center",
+  },
+  noKaataSub: {
+    fontSize: 14,
+    fontFamily: fonts.sansRegular,
+    color: colors.textSubtle,
+    textAlign: "center",
+  },
+  noKaataBtnWrap: { alignSelf: "stretch" },
+  noKaataLink: { paddingVertical: 12 },
+  noKaataLinkText: {
+    fontSize: 14,
+    fontFamily: fonts.sansMedium,
+    color: colors.textSubtle,
+    textAlign: "center",
+  },
   loadErrorText: {
     fontSize: 14,
     fontFamily: fonts.sansRegular,

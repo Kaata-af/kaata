@@ -2907,15 +2907,12 @@ export async function createSelfProfile(
   shopName: string,
   phone?: string | null,
 ): Promise<void> {
-  // v0.5.3 Briar-style onboarding: shopName is now OPTIONAL (founder
-  // reversed the Phase 7 "always required" stance — too many users want
-  // to install Kaata to JOIN an existing kaata, not create one). When
-  // shopName is empty we still mint a default vault (so the user has
-  // somewhere to land if they DON'T pair into another kaata immediately)
-  // but with a generic name they can rename later. The "Join an existing
-  // kaata" path in profile.tsx routes the user straight to pair-scan
-  // and the placeholder vault gets used or replaced based on whether
-  // they pair into a remote vault or fall back to the local default.
+  // Onboarding creates the local-self user and NO kaata. shopName is the
+  // kaata name; onboarding no longer collects one and passes "", so a fresh
+  // account is created vault-less and lands on the "no kaatas yet" home screen
+  // to deliberately create / pair / restore its first kaata (no silent
+  // auto-create). A vault is minted here ONLY when a non-empty shopName is
+  // supplied (no current caller does) — see shouldMintVault below.
   //
   // Phone is OPTIONAL — no OTP gate, no verification. It's stored in
   // users.phone_e164 for future "search your contacts to add a person"
@@ -2926,9 +2923,7 @@ export async function createSelfProfile(
   if (!trimmedName) {
     throw new Error("createSelfProfile: name is required");
   }
-  // Empty shop name → mint a placeholder. The user sees this in the
-  // home header as "My kaata" until they either rename it (vault/settings)
-  // or pair into someone else's kaata (which becomes their active vault).
+  // Only used when shouldMintVault (i.e. a non-empty shopName was supplied).
   const effectiveShopName = trimmedShop || "My kaata";
   const db = await getDb();
   const now = Date.now();
@@ -2941,19 +2936,22 @@ export async function createSelfProfile(
   const existingVaultId = await getActiveVaultId();
   let vaultId = existingVaultId;
 
-  // M4: the owner's device pubkey is the mesh trust anchor for every
-  // vault — there is NO server-anchored path anymore. Every live vault
-  // MUST be chain-anchored (loadVaultTrustAnchor non-null), because the
-  // membership chain is the sole trust path; an anchor-less vault would
-  // have no verification at all. So ensureDeviceKey failure here is
-  // FATAL — we refuse to create an anchor-less vault rather than fall
-  // back to a (now non-existent) server-anchored path. ensureDeviceKey
-  // runs OUTSIDE the txn so the throw aborts before any row is written.
-  // (In practice it never fails after a fresh install — the only
-  // realistic failure is the user wiping SecureStore mid-process, which
-  // we can't recover from regardless.)
-  let trustAnchorPubkey: string;
-  {
+  // Onboarding NO LONGER creates a kaata. We mint a vault here ONLY when a
+  // kaata name is explicitly supplied — and the onboarding screen no longer
+  // collects one, so a fresh account passes "" and gets NO vault. A fresh
+  // account therefore lands on the "no kaatas yet" home screen and creates /
+  // pairs / restores its first kaata deliberately (no silent auto-create).
+  // Mid-onboarding upgraders (existingVaultId set by migration 007) keep their
+  // vault and only get the trust-anchor backfill below. (Matee: "remove the
+  // store name field ... don't auto-create a kaata called Main".)
+  const shouldMintVault = !existingVaultId && trimmedShop.length > 0;
+
+  // M4: the owner's device pubkey is the mesh trust anchor for every vault.
+  // Only needed when we actually touch a vault (mint a new one or backfill an
+  // existing one's anchor); a vault-less fresh account skips it entirely.
+  // ensureDeviceKey runs OUTSIDE the txn so a throw aborts before any write.
+  let trustAnchorPubkey: string | null = null;
+  if (shouldMintVault || existingVaultId) {
     const deviceKey = await import("./mesh/device-key");
     await deviceKey.ensureDeviceKey();
     const pk = deviceKey.getDevicePubkey();
@@ -2975,7 +2973,7 @@ export async function createSelfProfile(
       now,
     );
 
-    if (!vaultId) {
+    if (shouldMintVault) {
       vaultId = Crypto.randomUUID();
       await db.runAsync(
         `INSERT INTO vaults
@@ -2988,16 +2986,28 @@ export async function createSelfProfile(
         effectiveShopName,
         now,
         now,
-        trustAnchorPubkey, // always non-null (fatal if unavailable, above)
+        trustAnchorPubkey, // non-null when shouldMintVault (set above)
       );
       await setAppMetaInTx(db, "active_vault_id", vaultId);
       await setAppMetaInTx(db, "default_vault_id", vaultId);
-    } else {
+      // shop_profile row for the just-minted vault, seeded with the name.
+      await db.runAsync(
+        `INSERT OR REPLACE INTO shop_profile
+           (vault_id, owner_name, shop_name, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        vaultId,
+        trimmedName,
+        effectiveShopName,
+        now,
+        now,
+      );
+    } else if (existingVaultId && trustAnchorPubkey) {
       // Backfill the trust anchor on a pre-existing vault row that was
       // minted before the anchor column existed (e.g. a mid-onboarding
       // upgrader from migration 007's bootstrap vault). COALESCE keeps an
       // existing non-NULL value so a re-run of onboarding doesn't clobber
-      // an already-anchored vault.
+      // an already-anchored vault. The existing vault keeps its own
+      // shop_profile (don't overwrite it here).
       await db.runAsync(
         `UPDATE vaults
             SET vault_trust_anchor_pubkey = COALESCE(vault_trust_anchor_pubkey, ?)
@@ -3006,20 +3016,8 @@ export async function createSelfProfile(
         vaultId,
       );
     }
-
-    // shop_profile always has a row per vault — onboarding sets the
-    // first one with the user-chosen name. Phase 7: no fallback to the
-    // user's name (the field is required upstream).
-    await db.runAsync(
-      `INSERT OR REPLACE INTO shop_profile
-         (vault_id, owner_name, shop_name, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?)`,
-      vaultId,
-      trimmedName,
-      effectiveShopName,
-      now,
-      now,
-    );
+    // Fresh account with no kaata name: only the local-self user row is
+    // written — no vault, no shop_profile. (The user creates a kaata later.)
   });
 
   // M4: no self-VMC issuance. Trust comes from the genesis
@@ -3046,7 +3044,7 @@ export async function createSelfProfile(
   // restore reconstructs the local self from app_meta.account_id + a fresh
   // onboarding pass (the device has to re-mint its own self user row anyway
   // because users.id is device-local for the self row).
-  if (vaultId) {
+  if (shouldMintVault && vaultId) {
     try {
       await appendShopProfileUpdated({
         vaultId,
@@ -3071,7 +3069,7 @@ export async function createSelfProfile(
   // authenticate the owner's ledger events. Best-effort: a transient
   // failure leaves the local user/vault intact; runGenesisBackfill is the
   // self-heal safety net that re-emits on a later launch.
-  if (vaultId) {
+  if (shouldMintVault && vaultId && trustAnchorPubkey) {
     try {
       await appendVaultMemberAdded({
         targetVaultId: vaultId,

@@ -53,18 +53,19 @@ import { NavRow, SectionGap, SectionHeader } from "./SettingsScreen";
 // so signing in / out / toggling Shop Mode from a pushed screen and
 // returning never shows a stale paint.
 //
-// Phase 7 founder spec — sections, top to bottom:
+// Sections, top to bottom (settings = Account + USER preferences + Kaata):
 //   1. ACCOUNT  — signed-in avatar+email OR Sign in with Google button.
 //      Sign out + Switch account when signed in.
-//   2. CURRENT KAATA — "Manage this Kaata" → /vault/settings, which holds the
-//      kaata's name/currency/members AND the former Preferences (language /
-//      region / diagnostics). Settings = Account (here) + Kaata (that screen).
-//   3. KAATAS — list of all vaults with current bolded + checkmark;
+//   2. PREFERENCES — user-level: language + default country + app health
+//      (→ /preferences). NOT per-kaata.
+//   3. CURRENT KAATA — "Manage this Kaata" → /vault/settings: the kaata's
+//      name + currency (per-kaata) + members + danger zone.
+//   4. KAATAS — list of all vaults with current bolded + checkmark;
 //      "+ Add a Kaata" + "Scan a pairing code". (Hidden in SOLO_STORE_MODE.)
-//   4. SYNC — Nearby sync toggle (NO sign-in gate per Phase 7 Part B);
+//   5. SYNC — Nearby sync toggle (NO sign-in gate per Phase 7 Part B);
 //      Sync to cloud / Restore from cloud (signed-in only — server sync
 //      requires auth, mesh does NOT).
-//   5. ABOUT — version + build info.
+//   6. ABOUT — version + build info.
 
 const OFFSCREEN = 600;
 const EXIT_DURATION_MS = 220;
@@ -122,6 +123,9 @@ export function ProfileSettingsSheet(props: {
    */
   onScanPairingCode: () => void;
   onManageCurrentKaata: () => void;
+
+  // Preferences (user-level: language / default country / app health)
+  onOpenPreferences: () => void;
 
   // Sync
   onToggleShopMode: (next: boolean) => void;
@@ -341,6 +345,22 @@ export function ProfileSettingsSheet(props: {
 
               <SectionGap />
 
+              {/* ============ PREFERENCES (USER-level) ============
+                  Language + default country + app health — the USER's own
+                  settings, distinct from any kaata. (Matee: "language is users
+                  preferences, default country too ... not mixing this with kaata
+                  settings.") Currency is per-kaata and lives under CURRENT KAATA. */}
+              <NavRow
+                icon="options-outline"
+                label={t("menu.preferences")}
+                hint={t("menu.preferences.hint")}
+                onPress={chained(props.onOpenPreferences)}
+                isRTL={isRTL}
+                isLast
+              />
+
+              <SectionGap />
+
               {/* ============ CURRENT KAATA ============
                   Settings for the ACTIVE kaata (rename, currency, members, archive),
                   clearly separated from the USER/ACCOUNT settings. Moved here from
@@ -364,13 +384,6 @@ export function ProfileSettingsSheet(props: {
                   <SectionGap />
                 </>
               ) : null}
-
-              {/* Preferences (language / region / currency / diagnostics) moved
-                  into "Manage this Kaata" (/vault/settings) — settings now split
-                  cleanly into Account (this sheet) + Kaata (that screen). Matee:
-                  "the preferences stuff is all kaata settings ... manage this
-                  kaata should include all the stuff that we now have in the
-                  preferences." */}
 
               {/* ============ SECTION 3: KAATAS ============
                   Hidden in SOLO_STORE_MODE: the kaata list is redundant with the
