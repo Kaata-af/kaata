@@ -545,10 +545,16 @@ export function ProfileSettingsSheet(props: {
                       <Text style={[styles.toggleTitle, textDir(isRTL)]}>
                         {t("menu.sync.cloud")}
                       </Text>
+                      {/* The hint IS the live backup status when ON (no separate
+                          status line + stray divider). When OFF, the off hint. */}
                       <Text style={[styles.toggleHint, textDir(isRTL)]}>
-                        {props.cloudSyncEnabled
-                          ? t("menu.sync.cloud.hint")
-                          : t("menu.sync.cloud.hintOff")}
+                        {!props.cloudSyncEnabled
+                          ? t("menu.sync.cloud.hintOff")
+                          : props.syncBusy
+                            ? t("menu.sync.status.busy")
+                            : lastSynced.ms == null
+                              ? t("menu.sync.status.never")
+                              : t("menu.sync.status.ok", { when: lastSynced.label })}
                       </Text>
                     </View>
                     <Switch
@@ -563,17 +569,6 @@ export function ProfileSettingsSheet(props: {
                       }}
                     />
                   </View>
-                  {/* Automatic-backup status line (replaces the Sync-now button):
-                      backup runs on its own; this just shows where it stands. */}
-                  {props.cloudSyncEnabled ? (
-                    <Text style={[styles.syncStatus, textDir(isRTL)]}>
-                      {props.syncBusy
-                        ? t("menu.sync.status.busy")
-                        : lastSynced.ms == null
-                          ? t("menu.sync.status.never")
-                          : t("menu.sync.status.ok", { when: lastSynced.label })}
-                    </Text>
-                  ) : null}
                 </>
               ) : null}
 
@@ -739,15 +734,6 @@ const styles = StyleSheet.create({
     color: colors.textSubtle,
     marginTop: 2,
   },
-  // Automatic-backup status line (under the cloud-backup toggle).
-  syncStatus: {
-    fontSize: 12,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    paddingHorizontal: SETTINGS_ROW_PADDING_X,
-    paddingBottom: 12,
-  },
-
   // About ------------------------------------------------------------------
   aboutRow: {
     flexDirection: "row",

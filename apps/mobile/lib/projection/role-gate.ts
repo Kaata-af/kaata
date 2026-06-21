@@ -986,6 +986,36 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
     } catch {
       /* keep the primary-id role if candidate resolution fails */
     }
+
+    // TRUST-ANCHOR OWNER carve-out. If the role still doesn't meet the
+    // requirement, check whether THIS device is the vault's trust anchor — i.e.
+    // the device that MINTED this local-CA vault (vaults.vault_trust_anchor_pubkey
+    // == our device pubkey). The anchor device IS the root of trust / owner of
+    // its own vault by construction, so its LOCAL owner-ops are legitimate even
+    // when account-id binding has drifted (device-key rotated after a reinstall,
+    // or the owner membership row is keyed by an id that's no longer
+    // resolvable). This is the real reason the "Main" kaata couldn't be archived
+    // ("failed to archive" + repeated "your role changed"). Remote events never
+    // reach here, and a paired NON-owner device's pubkey != the anchor, so it
+    // stays gated — impersonation is still blocked.
+    if (role == null || !meetsRequirement(role, requirement)) {
+      try {
+        const deviceKeyMod = await import("../mesh/device-key");
+        await deviceKeyMod.ensureDeviceKey();
+        const myPub = deviceKeyMod.getDevicePubkey();
+        if (myPub) {
+          const anchorRow = await tx.getFirstAsync<{ vault_trust_anchor_pubkey: string | null }>(
+            "SELECT vault_trust_anchor_pubkey FROM vaults WHERE id = ?",
+            event.vault_id,
+          );
+          if (anchorRow?.vault_trust_anchor_pubkey === myPub) {
+            return { ok: true };
+          }
+        }
+      } catch {
+        /* fall through to normal gating if the anchor can't be read */
+      }
+    }
   }
 
   if (role == null) {
