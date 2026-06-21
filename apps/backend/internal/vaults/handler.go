@@ -130,6 +130,8 @@ func mapServiceError(err error) (int, string) {
 		return http.StatusBadRequest, err.Error()
 	case errors.Is(err, ErrInvitePending):
 		return http.StatusConflict, err.Error()
+	case errors.Is(err, ErrTooManyPendingInvites):
+		return http.StatusTooManyRequests, err.Error()
 	case errors.Is(err, ErrInviteNotFound):
 		return http.StatusNotFound, err.Error()
 	case errors.Is(err, ErrInviteEmailMismatch):

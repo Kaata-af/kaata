@@ -171,21 +171,22 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 
 // Phase 4 typed errors. Handler maps each to a specific HTTP status.
 var (
-	ErrNotFound            = errors.New("vault not found")
-	ErrNotMember           = errors.New("caller is not a member of this vault")
-	ErrNotOwner            = errors.New("owner role required")
-	ErrLastOwner           = errors.New("cannot remove the last owner — transfer ownership first")
-	ErrTargetNotMember     = errors.New("target account is not a member of this vault")
-	ErrSelfTransfer        = errors.New("cannot transfer ownership to yourself")
-	ErrAlreadyArchived     = errors.New("vault is already archived")
-	ErrInvalidRole         = errors.New("role must be one of owner, editor, viewer")
-	ErrInvalidDemote       = errors.New("demote_self_to must be one of editor, leave")
-	ErrInvalidEmail        = errors.New("invite_email is required and must contain '@'")
-	ErrInvitePending       = errors.New("a pending invitation for this email already exists")
-	ErrInviteNotFound      = errors.New("invite not found, already accepted, revoked, or expired")
-	ErrInviteRateLimited   = errors.New("too many accept attempts in the last hour")
-	ErrInviteAutoRevoked   = errors.New("invite auto-revoked after too many attempts")
-	ErrInviteEmailMismatch = errors.New("email does not match invitation")
+	ErrNotFound              = errors.New("vault not found")
+	ErrNotMember             = errors.New("caller is not a member of this vault")
+	ErrNotOwner              = errors.New("owner role required")
+	ErrLastOwner             = errors.New("cannot remove the last owner — transfer ownership first")
+	ErrTargetNotMember       = errors.New("target account is not a member of this vault")
+	ErrSelfTransfer          = errors.New("cannot transfer ownership to yourself")
+	ErrAlreadyArchived       = errors.New("vault is already archived")
+	ErrInvalidRole           = errors.New("role must be one of owner, editor, viewer")
+	ErrInvalidDemote         = errors.New("demote_self_to must be one of editor, leave")
+	ErrInvalidEmail          = errors.New("invite_email is required and must contain '@'")
+	ErrInvitePending         = errors.New("a pending invitation for this email already exists")
+	ErrInviteNotFound        = errors.New("invite not found, already accepted, revoked, or expired")
+	ErrInviteRateLimited     = errors.New("too many accept attempts in the last hour")
+	ErrInviteAutoRevoked     = errors.New("invite auto-revoked after too many attempts")
+	ErrInviteEmailMismatch   = errors.New("email does not match invitation")
+	ErrTooManyPendingInvites = errors.New("too many pending invites for this vault")
 	// Phase 4.1: unarchive + archive-purge error sentinels.
 	ErrVaultPurged = errors.New("vault was permanently purged after the 30-day archive grace — cannot recover")
 	ErrNotArchived = errors.New("vault is not archived")
@@ -200,6 +201,11 @@ const (
 	inviteSoftCap            = 5
 	inviteLifetimeAttemptCap = 20
 	inviteTokenBytes         = 32
+	// maxPendingLinkInvites caps un-accepted, un-expired LINK invites per
+	// vault. Email invites are already deduped by the unique (vault, email)
+	// index; link invites have no such key, so without a cap a compromised
+	// long-lived owner session could accumulate unbounded claimable links.
+	maxPendingLinkInvites = 20
 )
 
 // VaultListing is the shape returned by GET /v1/vaults.
@@ -1120,9 +1126,17 @@ func (s *Service) CreateInvite(ctx context.Context, in CreateInviteInput) (Creat
 	if in.Role != "editor" && in.Role != "viewer" {
 		return CreateInviteResult{}, ErrInvalidRole
 	}
-	normalized := NormalizeInviteEmail(in.Email)
-	if normalized == "" || !strings.Contains(normalized, "@") {
-		return CreateInviteResult{}, ErrInvalidEmail
+	// Link invite: an empty email means "shareable link" — the token IS the
+	// secret and whoever opens the link and signs in (with ANY Google account)
+	// claims the role. Email invites (non-empty) stay email-bound. The role is
+	// fixed at create time, so a link can only ever grant editor/viewer.
+	linkInvite := strings.TrimSpace(in.Email) == ""
+	var normalized string
+	if !linkInvite {
+		normalized = NormalizeInviteEmail(in.Email)
+		if normalized == "" || !strings.Contains(normalized, "@") {
+			return CreateInviteResult{}, ErrInvalidEmail
+		}
 	}
 
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
@@ -1135,6 +1149,35 @@ func (s *Service) CreateInvite(ctx context.Context, in CreateInviteInput) (Creat
 		return CreateInviteResult{}, err
 	}
 
+	// Link invites have no unique (vault, email) dedup key, so bound their
+	// accumulation explicitly. Counts only live, claimable links.
+	if linkInvite {
+		// Serialize concurrent link-invite creation for this vault so the cap is
+		// a hard invariant, not racy: under ReadCommitted two concurrent creates
+		// could both read pending=N-1 and both insert, overshooting. Locking the
+		// vault row makes count+insert atomic (same trick as countActiveOwners).
+		if _, err := tx.Exec(ctx, `
+			SELECT 1 FROM vaults WHERE vault_id = $1::uuid FOR UPDATE
+		`, in.VaultID); err != nil {
+			return CreateInviteResult{}, fmt.Errorf("lock vault for invite cap: %w", err)
+		}
+		var pending int
+		if err := tx.QueryRow(ctx, `
+			SELECT COUNT(*) FROM vault_members
+			 WHERE vault_id = $1::uuid
+			   AND invite_token_hash IS NOT NULL
+			   AND invite_email IS NULL
+			   AND accepted_at IS NULL
+			   AND revoked_at IS NULL
+			   AND invite_expires_at > NOW()
+		`, in.VaultID).Scan(&pending); err != nil {
+			return CreateInviteResult{}, fmt.Errorf("count pending link invites: %w", err)
+		}
+		if pending >= maxPendingLinkInvites {
+			return CreateInviteResult{}, ErrTooManyPendingInvites
+		}
+	}
+
 	// Mint a 32-byte URL-safe token. We return the PLAINTEXT in the
 	// response URL (one-time, to the inviter) and persist only the
 	// SHA-256 hash. See hashInviteToken for the threat-model rationale.
@@ -1145,12 +1188,18 @@ func (s *Service) CreateInvite(ctx context.Context, in CreateInviteInput) (Creat
 	tokenHash := hashInviteToken(token)
 	expiresAt := time.Now().Add(inviteTTL)
 
+	// NULL (not "") for link invites so the IS NULL predicates (pending-link
+	// count, accept's link detection) and the email unique index all agree.
+	var emailArg any
+	if !linkInvite {
+		emailArg = normalized
+	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO vault_members (
 			vault_id, role, invited_by, invited_at,
 			invite_email, invite_token_hash, invite_expires_at, invite_attempts
 		) VALUES ($1::uuid, $2, $3::uuid, NOW(), $4, $5, $6, 0)
-	`, in.VaultID, in.Role, in.InviterAccID, normalized, tokenHash, expiresAt)
+	`, in.VaultID, in.Role, in.InviterAccID, emailArg, tokenHash, expiresAt)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -1159,9 +1208,13 @@ func (s *Service) CreateInvite(ctx context.Context, in CreateInviteInput) (Creat
 		return CreateInviteResult{}, fmt.Errorf("insert invite: %w", err)
 	}
 
-	if _, err := writeAudit(ctx, tx, in.VaultID, &in.InviterAccID, "invite_issued", nil, map[string]any{
-		"target_email": normalized, "role": in.Role,
-	}); err != nil {
+	auditMeta := map[string]any{"role": in.Role}
+	if linkInvite {
+		auditMeta["kind"] = "link"
+	} else {
+		auditMeta["target_email"] = normalized
+	}
+	if _, err := writeAudit(ctx, tx, in.VaultID, &in.InviterAccID, "invite_issued", nil, auditMeta); err != nil {
 		return CreateInviteResult{}, err
 	}
 
@@ -1225,7 +1278,7 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 		acceptedBy  *string
 	)
 	err = tx.QueryRow(ctx, `
-		SELECT id, vault_id::text, role, invite_email,
+		SELECT id, vault_id::text, role, COALESCE(invite_email, ''),
 		       invite_expires_at, invite_attempts, accepted_at, revoked_at,
 		       account_id::text
 		  FROM vault_members WHERE invite_token_hash = $1 FOR UPDATE
@@ -1236,6 +1289,20 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 		return AcceptInviteResult{}, ErrInviteNotFound
 	case err != nil:
 		return AcceptInviteResult{}, fmt.Errorf("lookup invite: %w", err)
+	}
+	// Reject invites for an archived (or vanished) vault — a stale link
+	// forwarded after the owner archived. Uniform ErrInviteNotFound, matching
+	// InviteInfo's archived_at filter.
+	var vaultArchived bool
+	switch archErr := tx.QueryRow(ctx, `
+		SELECT archived_at IS NOT NULL FROM vaults WHERE vault_id = $1::uuid
+	`, vaultID).Scan(&vaultArchived); {
+	case errors.Is(archErr, pgx.ErrNoRows):
+		return AcceptInviteResult{}, ErrInviteNotFound
+	case archErr != nil:
+		return AcceptInviteResult{}, fmt.Errorf("check vault archived: %w", archErr)
+	case vaultArchived:
+		return AcceptInviteResult{}, ErrInviteNotFound
 	}
 	// Idempotent retry: a flaky mobile network can drop the RESPONSE of a
 	// successful accept, so the client re-sends the same token. If THIS account
@@ -1271,18 +1338,50 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 	// the HTTP layer (see handler.go mapServiceError) so the attacker
 	// also cannot distinguish "token unknown" from "token real, wrong
 	// email" from outside.
-	var callerEmail string
-	err = tx.QueryRow(ctx, `
-		SELECT COALESCE(email_normalized, LOWER(email))
-		  FROM accounts WHERE id = $1::uuid
-	`, in.AccountID).Scan(&callerEmail)
-	if err != nil {
-		return AcceptInviteResult{}, fmt.Errorf("lookup caller email: %w", err)
+	// LINK invite (invite_email IS NULL → "" here): the token itself is the
+	// secret, so any signed-in account may claim it. Skip the email match.
+	// EMAIL invite (non-empty): the caller's Google email must match.
+	if inviteEmail != "" {
+		var callerEmail string
+		err = tx.QueryRow(ctx, `
+			SELECT COALESCE(email_normalized, LOWER(email))
+			  FROM accounts WHERE id = $1::uuid
+		`, in.AccountID).Scan(&callerEmail)
+		if err != nil {
+			return AcceptInviteResult{}, fmt.Errorf("lookup caller email: %w", err)
+		}
+		if NormalizeInviteEmail(callerEmail) != inviteEmail {
+			// Commit nothing (no attempts bump, no audit log) so the caller
+			// cannot use the wrong-email arm to confirm the token is real.
+			return AcceptInviteResult{}, ErrInviteEmailMismatch
+		}
 	}
-	if NormalizeInviteEmail(callerEmail) != inviteEmail {
-		// Commit nothing (no attempts bump, no audit log) so the caller
-		// cannot use the wrong-email arm to confirm the token is real.
-		return AcceptInviteResult{}, ErrInviteEmailMismatch
+
+	// Already an active member (e.g. the OWNER opened their own link, or someone
+	// already in the vault tapped it): never create a duplicate membership row
+	// or silently change their role. Return their CURRENT role and leave the
+	// invite UNCONSUMED for the intended recipient. (Role changes go through the
+	// explicit role-change flow, not invites.)
+	var existingRole string
+	existErr := tx.QueryRow(ctx, `
+		SELECT role FROM vault_members
+		 WHERE vault_id = $1::uuid AND account_id = $2::uuid
+		   AND accepted_at IS NOT NULL AND revoked_at IS NULL
+		 LIMIT 1
+	`, vaultID, in.AccountID).Scan(&existingRole)
+	switch {
+	case existErr == nil:
+		var vaultName string
+		if err := tx.QueryRow(ctx, `
+			SELECT name FROM vaults WHERE vault_id = $1::uuid
+		`, vaultID).Scan(&vaultName); err != nil {
+			return AcceptInviteResult{}, fmt.Errorf("lookup vault name: %w", err)
+		}
+		return AcceptInviteResult{VaultID: vaultID, VaultName: vaultName, Role: existingRole}, nil
+	case errors.Is(existErr, pgx.ErrNoRows):
+		// not a member yet — proceed with the accept
+	default:
+		return AcceptInviteResult{}, fmt.Errorf("check existing membership: %w", existErr)
 	}
 
 	newAttempts := attempts + 1
