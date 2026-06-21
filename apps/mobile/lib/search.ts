@@ -52,34 +52,66 @@ export function searchPeople<T extends { name: string }>(query: string, people: 
   return scored.map((x) => x.p);
 }
 
-// Combined name-OR-phone search for the add screen, where both the name fields
-// and the phone field drive the same live list (Matee: "the phone field should
-// act like the name field too"). Works over both app people and device contacts.
-//   - nameQuery scores via scoreMatch on the name.
-//   - phoneQuery (ASCII digits only; "" = no phone filter) matches as a substring
-//     of the item's phone digits — typing "70123" finds +93 70 123 ....
-//   - When BOTH are present an item must satisfy BOTH (so adding a name narrows a
-//     phone match and vice-versa). When neither is present the input list is
-//     returned unchanged (caller decides ordering, e.g. recency).
-// Ranking follows the name score; phone-only matches sort by name.
+// Boost so a FIELD match (first→first, last→last) always outranks a loose
+// whole-name fallback. Larger than any scoreNormalized tier (max 10_000).
+const FIELD_MATCH_BONUS = 100_000;
+
+// Field-aware name score. The add screen has separate First / Last inputs, so a
+// query typed in the LAST-name field must rank people whose LAST name matches
+// ("Omar Safi", "Marwa Safi") ABOVE people whose FIRST name happens to match
+// ("Safi Ullah Rahimi") — the old whole-name scorer did the opposite. fq/lq are
+// already normalized. The item's stored name is split on the first space into
+// (first token, rest) — good enough for "First Last(+)" names. A field that
+// matches its column gets FIELD_MATCH_BONUS; if neither field matches we fall
+// back to a loose whole-name match (lower, no bonus) so a contact is still
+// findable, just below the precise matches.
+function scoreNameFielded(fq: string, lq: string, fullName: string): number {
+  const n = normalize(fullName);
+  const sp = n.indexOf(" ");
+  const first = sp === -1 ? n : n.slice(0, sp);
+  const last = sp === -1 ? "" : n.slice(sp + 1);
+  if (fq && lq) {
+    const fs = scoreNormalized(fq, first);
+    const ls = scoreNormalized(lq, last);
+    if (fs > 0 && ls > 0) return FIELD_MATCH_BONUS + fs + ls;
+    return scoreNormalized(normalize(`${fq} ${lq}`), n); // loose fallback
+  }
+  if (lq) {
+    const ls = scoreNormalized(lq, last);
+    if (ls > 0) return FIELD_MATCH_BONUS + ls;
+    return scoreNormalized(lq, n); // loose fallback (e.g. matches a first name)
+  }
+  const fs = scoreNormalized(fq, first);
+  if (fs > 0) return FIELD_MATCH_BONUS + fs;
+  return scoreNormalized(fq, n);
+}
+
+// Field-aware name-AND/OR-phone search for the add screen. The first-name and
+// last-name inputs each drive matching against the corresponding part of a
+// contact's name (see scoreNameFielded); the phone field (ASCII digits, "" =
+// off) matches as a substring of the item's phone digits. Name filter and phone
+// filter are ANDed. Empty everything → input list unchanged (caller orders by
+// recency). Works over both app people and device contacts.
 export function searchContacts<T extends { name: string; phone?: string | null }>(
-  nameQuery: string,
+  firstQuery: string,
+  lastQuery: string,
   phoneQuery: string,
   items: T[],
 ): T[] {
-  const nq = normalize(nameQuery);
+  const fq = normalize(firstQuery);
+  const lq = normalize(lastQuery);
   const pq = toAsciiDigits(phoneQuery ?? "").replace(/\D/g, "");
-  if (!nq && !pq) return items;
+  if (!fq && !lq && !pq) return items;
   const scored: { item: T; s: number }[] = [];
   for (const it of items) {
-    let nameScore = 0;
-    if (nq) {
-      nameScore = scoreNormalized(nq, it.name);
-      if (nameScore <= 0) continue;
-    }
     if (pq) {
       const d = toAsciiDigits(it.phone ?? "").replace(/\D/g, "");
       if (!d || !d.includes(pq)) continue;
+    }
+    let nameScore = 0;
+    if (fq || lq) {
+      nameScore = scoreNameFielded(fq, lq, it.name);
+      if (nameScore <= 0) continue;
     }
     scored.push({ item: it, s: nameScore });
   }

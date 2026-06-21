@@ -155,9 +155,12 @@ export default function PersonAddOrFindScreen() {
 
   // Defer the values the (potentially large) phone-book filter runs on, so each
   // keystroke stays responsive while the list catches up (React concurrent).
-  const dName = useDeferredValue(nameQuery);
+  // First + last are deferred SEPARATELY so the search can rank by field (a
+  // last-name query ranks last-name matches above first-name ones).
+  const dFirst = useDeferredValue(firstName.trim());
+  const dLast = useDeferredValue(lastName.trim());
   const dPhone = useDeferredValue(phoneFilter);
-  const dQuerying = dName.length > 0 || dPhone.length > 0;
+  const dQuerying = dFirst.length > 0 || dLast.length > 0 || dPhone.length > 0;
 
   // Phone keys of people already in this kaata, to dedup the device book against
   // the ledger (never offer to add someone you already have).
@@ -182,7 +185,7 @@ export default function PersonAddOrFindScreen() {
   const sections = useMemo<Section[]>(() => {
     const out: Section[] = [];
     const appList = people ?? [];
-    const appMatches = dQuerying ? searchContacts(dName, dPhone, appList) : appList;
+    const appMatches = dQuerying ? searchContacts(dFirst, dLast, dPhone, appList) : appList;
     if (appMatches.length > 0) {
       out.push({
         key: "app",
@@ -191,7 +194,7 @@ export default function PersonAddOrFindScreen() {
       });
     }
     const deviceMatches = dQuerying
-      ? searchContacts(dName, dPhone, dedupedDevice)
+      ? searchContacts(dFirst, dLast, dPhone, dedupedDevice)
       : dedupedDevice;
     if (deviceMatches.length > 0) {
       out.push({
@@ -201,7 +204,7 @@ export default function PersonAddOrFindScreen() {
       });
     }
     return out;
-  }, [people, dedupedDevice, dQuerying, dName, dPhone]);
+  }, [people, dedupedDevice, dQuerying, dFirst, dLast, dPhone]);
 
   function openPerson(id: string) {
     router.replace({ pathname: "/person/[id]", params: { id } });

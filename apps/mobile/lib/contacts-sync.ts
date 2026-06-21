@@ -54,6 +54,26 @@ export function joinName(firstName: string, lastName: string | null): string {
   return `${(firstName ?? "").trim()} ${(lastName ?? "").trim()}`.trim();
 }
 
+/** A single name token, with literal "null"/"undefined" garbage treated as
+ *  empty. Some Android contact providers report a nameless contact's fields as
+ *  the strings "null"/"null null" (the native layer stringifies null). */
+function cleanToken(s: string | null | undefined): string {
+  const t = (s ?? "").trim();
+  const low = t.toLowerCase();
+  return !t || low === "null" || low === "undefined" ? "" : t;
+}
+
+/** Clean a whole name string by dropping any "null"/"undefined" tokens. So
+ *  "null null" → "", "null Safi" → "Safi", "Omar Safi" → "Omar Safi". */
+function cleanName(s: string | null | undefined): string {
+  return (s ?? "")
+    .split(/\s+/)
+    .map((p) => cleanToken(p))
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+}
+
 // A device phone-book entry, normalized for the inline add-screen list. `name` is
 // the combined display string (what we show); firstName/lastName are kept apart
 // for the phone-book round-trip + structured creation. `id` is the stable
@@ -101,9 +121,12 @@ export async function readDeviceContacts(): Promise<DeviceContactsResult> {
     const out: DeviceContact[] = [];
     const seen = new Set<string>();
     for (const c of data) {
-      let firstName = (c.firstName ?? "").trim();
-      let lastName = (c.lastName ?? "").trim() || null;
-      const display = (c.name ?? "").trim() || joinName(firstName, lastName);
+      let firstName = cleanToken(c.firstName);
+      let lastName = cleanToken(c.lastName) || null;
+      // Skip nameless contacts (and the "null null" garbage some Android
+      // providers emit for a contact with no name) — cleanName drops "null"
+      // tokens, so an all-null contact resolves to "" and is skipped.
+      const display = cleanName(c.name) || joinName(firstName, lastName);
       if (!display) continue;
       // Some Android contacts expose only the combined `name` (no structured
       // first/last). Derive the split so the phone-book round-trip still works.
