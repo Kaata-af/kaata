@@ -58,6 +58,13 @@ const (
 	syncPushLimit      = 1000
 	syncPushWindow     = time.Hour
 
+	// AcceptInvite: 50/hr per account. A real user accepts a handful of
+	// invites ever, so 50/hr is far above legitimate use but stops an
+	// authenticated attacker from hammering many distinct tokens across
+	// vaults. Pairs with the per-token soft/lifetime caps inside AcceptInvite.
+	acceptInviteLimit  = 50
+	acceptInviteWindow = time.Hour
+
 	// Phase 5 mesh:
 	//   issueVMC: 60/hr per account. Well-behaved clients refresh once per
 	//   60-day VMC lifetime; bursts come from "joined N vaults" or recovery
@@ -197,6 +204,9 @@ var (
 	InviteInfoWindow   = inviteInfoWindow
 	SyncPushLimit      = syncPushLimit
 	SyncPushWindow     = syncPushWindow
+
+	AcceptInviteLimit  = acceptInviteLimit
+	AcceptInviteWindow = acceptInviteWindow
 
 	IssueVMCLimit     = issueVMCLimit
 	IssueVMCWindow    = issueVMCWindow

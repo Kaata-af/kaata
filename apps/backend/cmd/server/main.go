@@ -235,7 +235,8 @@ func main() {
 		// pipes.
 		pr.With(httpx.RateLimitPerAccount(httpx.CreateInviteLimit, httpx.CreateInviteWindow)).
 			Post("/v1/vaults/{vault_id}/invites", vaultsH.CreateInvite)
-		pr.Post("/v1/vaults/invites/accept", vaultsH.AcceptInvite)
+		pr.With(httpx.RateLimitPerAccount(httpx.AcceptInviteLimit, httpx.AcceptInviteWindow)).
+			Post("/v1/vaults/invites/accept", vaultsH.AcceptInvite)
 		pr.Get("/v1/vaults/invites/pending", vaultsH.PendingInvites)
 		// Mesh: device-key registration. Rare (per-install lifecycle) but
 		// we cap as a brake against a buggy retry loop.

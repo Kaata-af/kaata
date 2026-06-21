@@ -1195,7 +1195,8 @@ type AcceptInviteResult struct {
 }
 
 func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (AcceptInviteResult, error) {
-	if in.Token == "" {
+	if in.Token == "" || len(in.Token) > 512 {
+		// Symmetric with InviteInfo's guard: never SHA-256 an oversized token.
 		return AcceptInviteResult{}, ErrInviteNotFound
 	}
 	if in.AccountID == "" {
@@ -1221,18 +1222,34 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 		attempts    int
 		acceptedAt  *time.Time
 		revokedAt   *time.Time
+		acceptedBy  *string
 	)
 	err = tx.QueryRow(ctx, `
 		SELECT id, vault_id::text, role, invite_email,
-		       invite_expires_at, invite_attempts, accepted_at, revoked_at
+		       invite_expires_at, invite_attempts, accepted_at, revoked_at,
+		       account_id::text
 		  FROM vault_members WHERE invite_token_hash = $1 FOR UPDATE
 	`, tokenHash).Scan(&memberID, &vaultID, &role, &inviteEmail,
-		&expiresAt, &attempts, &acceptedAt, &revokedAt)
+		&expiresAt, &attempts, &acceptedAt, &revokedAt, &acceptedBy)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return AcceptInviteResult{}, ErrInviteNotFound
 	case err != nil:
 		return AcceptInviteResult{}, fmt.Errorf("lookup invite: %w", err)
+	}
+	// Idempotent retry: a flaky mobile network can drop the RESPONSE of a
+	// successful accept, so the client re-sends the same token. If THIS account
+	// already accepted it, return success rather than "invite not found". A
+	// DIFFERENT account still falls through to ErrInviteNotFound below, so we
+	// never reveal that the token was consumed by someone else.
+	if acceptedAt != nil && acceptedBy != nil && *acceptedBy == in.AccountID {
+		var vaultName string
+		if err := tx.QueryRow(ctx, `
+			SELECT name FROM vaults WHERE vault_id = $1::uuid
+		`, vaultID).Scan(&vaultName); err != nil {
+			return AcceptInviteResult{}, fmt.Errorf("lookup vault name: %w", err)
+		}
+		return AcceptInviteResult{VaultID: vaultID, VaultName: vaultName, Role: role}, nil
 	}
 	if acceptedAt != nil || revokedAt != nil || time.Now().After(expiresAt) {
 		return AcceptInviteResult{}, ErrInviteNotFound
