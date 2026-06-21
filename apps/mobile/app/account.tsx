@@ -196,12 +196,13 @@ export default function AccountScreen() {
             <Text style={[styles.label, textDir(isRTL)]}>
               {t("personEdit.name.label")} <Text style={styles.required}>*</Text>
             </Text>
-            <View style={styles.nameRow}>
+            <View style={[styles.nameRow, rowDir(isRTL)]}>
               <TextInput
                 style={[styles.nameInput, textDir(isRTL), nameError ? styles.inputError : null]}
                 value={firstName}
                 onChangeText={(v) => {
                   setNameError(null);
+                  setSaveError(null);
                   setFirstName(v);
                 }}
                 placeholder={t("personAdd.firstName.placeholder")}
@@ -257,6 +258,7 @@ export default function AccountScreen() {
                 value={phone}
                 onChangeText={(v) => {
                   setPhoneError(null);
+                  setSaveError(null);
                   setPhone(v);
                 }}
                 placeholder={

@@ -868,6 +868,7 @@ export default function HomeScreen() {
               toast.push(t("entry.noActiveVault"), "error");
               return;
             }
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
             router.push("/person/new");
           }}
           style={({ pressed }) => [styles.fabInner, pressed && { opacity: 0.85 }]}

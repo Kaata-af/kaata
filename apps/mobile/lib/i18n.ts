@@ -1108,7 +1108,7 @@ const fa: Partial<Record<Key, string>> = {
   "home.empty.pay.title": "هنوز از کسی قرضدار نیستید",
   "home.empty.pay.subtitle":
     "وقتی جنس می‌گیرید یا پول قرض می‌کنید، از صفحه آن شخص ثبت کنید — همین‌جا ظاهر می‌شود.",
-  "home.from.someone": "از {count} نفر",
+  "home.from.someone": "از یک نفر",
   "home.from.many": "از {count} نفر",
   "home.empty.noOneYet": "هنوز کسی نیست",
   "home.empty.allSettled": "همه تصفیه شده",
