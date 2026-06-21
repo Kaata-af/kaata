@@ -146,6 +146,21 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
   );
 
   if (rows.length === 0) {
+    // Empty outbox = every event we've authored is already server-acked, so
+    // this vault is fully backed up. Stamp last_push_at so the status reads
+    // "Backed up" instead of a permanent "Not backed up yet". Without this, a
+    // fully-synced vault (steady state, or one restored on sign-in) reads
+    // max(last_pull_at=0, last_push_at=0) = "never" forever even while online.
+    //
+    // This is honest, not optimistic: we only reach here with a JWT (checked
+    // above) AND — because the scheduler gates on Network.isConnected and runs
+    // pull before push — only when we're actually online and pull just
+    // succeeded this cycle. A real backup failure (403 non-member, offline,
+    // transient) makes pull throw first, so push never runs and the timestamp
+    // never advances. An empty outbox NEVER includes unacked local events
+    // (those keep rows.length > 0 until the server confirms them), so we never
+    // claim "backed up" for data the server doesn't have.
+    await markPushDone(vaultId);
     return { pushed: 0, duplicates: 0, rejected: 0 };
   }
 
