@@ -10,8 +10,19 @@ import { Home } from "./pages/Home";
 import { Invite } from "./pages/Invite";
 import { NotFound } from "./pages/NotFound";
 
+// The operator dashboard lives on its own subdomain (admin.kaata.af): cleaner,
+// conventional, and it isolates the admin's localStorage (the API key) from the
+// public marketing origin. Same SPA bundle serves both hosts; we just route the
+// admin host's root straight to the dashboard. kaata.af/admin keeps working too
+// so nothing breaks before the DNS/Dokploy domain is live.
+const IS_ADMIN_HOST =
+  typeof window !== "undefined" && window.location.hostname.split(".")[0] === "admin";
+
 export function App() {
   useEffect(() => {
+    // Don't fire the public visit beacon on the admin host — that's operator
+    // traffic and would pollute the very analytics the dashboard reports.
+    if (IS_ADMIN_HOST) return;
     // Stash the source from ?s= into localStorage before firing the beacon
     // so the recorded visit carries it even if a later page in this session
     // doesn't include the query param.
@@ -22,20 +33,28 @@ export function App() {
   return (
     <ToastProvider>
       <ScrollManager />
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/download" element={<Download />} />
-        <Route path="/v/:token" element={<CustomerView />} />
-        {/* Phase 4: vault-invite landing. Public, no auth — purely
-            informational, mirrors what's behind the token. Actual accept
-            happens in the mobile app via POST /v1/vaults/invites/accept. */}
-        <Route path="/i/:token" element={<Invite />} />
-        {/* Operator analytics dashboard. Backend gates GET /v1/admin/stats with
-            the ADMIN_API_KEY shared secret; this page just collects/sends it. */}
-        <Route path="/admin" element={<Admin />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-      <CookieConsent />
+      {IS_ADMIN_HOST ? (
+        <Routes>
+          {/* admin.kaata.af — the whole subdomain is the dashboard. */}
+          <Route path="/" element={<Admin />} />
+          <Route path="*" element={<Admin />} />
+        </Routes>
+      ) : (
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/download" element={<Download />} />
+          <Route path="/v/:token" element={<CustomerView />} />
+          {/* Phase 4: vault-invite landing. Public, no auth — purely
+              informational, mirrors what's behind the token. Actual accept
+              happens in the mobile app via POST /v1/vaults/invites/accept. */}
+          <Route path="/i/:token" element={<Invite />} />
+          {/* Legacy path on the main host — kept working through the
+              admin.kaata.af transition. */}
+          <Route path="/admin" element={<Admin />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      )}
+      {IS_ADMIN_HOST ? null : <CookieConsent />}
     </ToastProvider>
   );
 }
