@@ -605,62 +605,77 @@ export default function HomeScreen() {
             name truncates at numberOfLines:1 instead of pushing the
             profile button off-screen. hitSlop:8 widens the tap target
             without enlarging the visual box. */}
-        <Pressable
-          onPress={() => {
-            // Mutual exclusion: close the settings sheet first so the
-            // Android Modal stack stays at depth 1. The 220ms defer
-            // matches ProfileSettingsSheet's EXIT_DURATION_MS so the
-            // closing sheet's <Modal> unmounts BEFORE the picker's mounts.
-            // Without this defer, both Modals are mounted for ~180ms
-            // during the close animation and Android renders the second
-            // one blank-but-tappable (UX critique #5, same shape as the
-            // BottomSheet chained() defer).
-            if (settingsVisible) {
-              setSettingsVisible(false);
-              setTimeout(() => setVaultPickerVisible(true), 220);
-            } else {
-              setVaultPickerVisible(true);
-            }
-          }}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel={t("menu.title.vaultSwitcher")}
-          style={({ pressed }) => [
-            styles.headerTitleBlock,
-            rowDir(isRTL),
-            pressed && { opacity: 0.5 },
-          ]}
-        >
-          <View style={styles.headerTitleTextCol}>
-            {self ? (
-              <Text
-                style={[styles.headerTitle, textDir(isRTL)]}
-                numberOfLines={1}
-                allowFontScaling={false}
-              >
-                {self.shop_name ?? self.name}
-              </Text>
-            ) : null}
-          </View>
-          {/* Chevron hint — subtle, sits on the title's cap-height
-              optical center. The 16px glyph's geometric center is at
-              row-center; the 28px title's optical center sits ~2px
-              above its geometric center (Latin caps have descender
-              headroom they don't use), so a small marginTop:3 nudges
-              the chevron up onto the cap-height line. Hidden when self
-              is null (pre-onboarding) so the placeholder header doesn't
-              show a misleading affordance. The chevron stays on the
-              trailing edge of the title in both LTR and RTL — rowDir
-              on the parent flips it. */}
-          {self ? (
+        {vaults.length > 0 ? (
+          <Pressable
+            onPress={() => {
+              // Mutual exclusion: close the settings sheet first so the
+              // Android Modal stack stays at depth 1. The 220ms defer
+              // matches ProfileSettingsSheet's EXIT_DURATION_MS so the
+              // closing sheet's <Modal> unmounts BEFORE the picker's mounts.
+              // Without this defer, both Modals are mounted for ~180ms
+              // during the close animation and Android renders the second
+              // one blank-but-tappable (UX critique #5, same shape as the
+              // BottomSheet chained() defer).
+              if (settingsVisible) {
+                setSettingsVisible(false);
+                setTimeout(() => setVaultPickerVisible(true), 220);
+              } else {
+                setVaultPickerVisible(true);
+              }
+            }}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={t("menu.title.vaultSwitcher")}
+            style={({ pressed }) => [
+              styles.headerTitleBlock,
+              rowDir(isRTL),
+              pressed && { opacity: 0.5 },
+            ]}
+          >
+            <View style={styles.headerTitleTextCol}>
+              {self ? (
+                <Text
+                  style={[styles.headerTitle, textDir(isRTL)]}
+                  numberOfLines={1}
+                  allowFontScaling={false}
+                >
+                  {self.shop_name ?? self.name}
+                </Text>
+              ) : null}
+            </View>
+            {/* Chevron hint — subtle, sits on the title's cap-height
+                optical center. The 16px glyph's geometric center is at
+                row-center; the 28px title's optical center sits ~2px
+                above its geometric center (Latin caps have descender
+                headroom they don't use), so a small marginTop:3 nudges
+                the chevron up onto the cap-height line. The chevron stays
+                on the trailing edge of the title in both LTR and RTL —
+                rowDir on the parent flips it. */}
             <Ionicons
               name="chevron-down"
               size={16}
               color={colors.textSubtle}
               style={isRTL ? { marginRight: 4, marginTop: 3 } : { marginLeft: 4, marginTop: 3 }}
             />
-          ) : null}
-        </Pressable>
+          </Pressable>
+        ) : (
+          // No kaatas yet — there's nothing to switch between, so the title is
+          // plain text: no chevron, not a button (Matee). The user's own name
+          // shows here (shop_name is null until a kaata exists).
+          <View style={[styles.headerTitleBlock, rowDir(isRTL)]}>
+            <View style={styles.headerTitleTextCol}>
+              {self ? (
+                <Text
+                  style={[styles.headerTitle, textDir(isRTL)]}
+                  numberOfLines={1}
+                  allowFontScaling={false}
+                >
+                  {self.shop_name ?? self.name}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        )}
 
         {/* Non-tappable spacer fills the gap between the switcher and the
             profile, pushing the avatar to the edge. The switcher Pressable

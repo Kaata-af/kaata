@@ -306,7 +306,7 @@ export default function PersonAddOrFindScreen() {
           onPress={() => openPerson(p.id)}
           style={({ pressed }) => [styles.row, rowDir(isRTL), pressed && styles.rowPressed]}
         >
-          <View style={styles.rowLeft}>
+          <View style={[styles.rowLeft, isRTL && styles.rowLeftRTL]}>
             <Text style={[styles.rowName, textDir(isRTL)]} numberOfLines={1}>
               {p.name}
             </Text>
@@ -398,7 +398,10 @@ export default function PersonAddOrFindScreen() {
         {/* Fixed form — name (first + last), number, Add. Kept OUT of the list
             so the inputs never remount on a list re-render (Android focus loss). */}
         <View style={styles.form}>
-          <View style={styles.nameRow}>
+          {/* In Dari the two name fields mirror: first name sits at the start
+              (right) edge, last name to its left. rowDir flips the pair; each
+              input's own textDir right-aligns what's typed. */}
+          <View style={[styles.nameRow, rowDir(isRTL)]}>
             <TextInput
               ref={firstNameRef}
               style={[styles.nameInput, textDir(isRTL)]}
@@ -645,6 +648,9 @@ const styles = StyleSheet.create({
   },
   rowPressed: { backgroundColor: colors.bgMuted },
   rowLeft: { flex: 1, marginRight: 12 },
+  // RTL: the row is row-reversed, so the name block sits on the right and the
+  // amount/add icon on the left — the gap belongs on the left edge instead.
+  rowLeftRTL: { marginRight: 0, marginLeft: 12 },
   rowName: { fontSize: 15, fontFamily: fonts.sansSemi, color: colors.textEmphasis },
   rowSub: { fontSize: 12, fontFamily: fonts.sansRegular, color: colors.textSubtle, marginTop: 2 },
 

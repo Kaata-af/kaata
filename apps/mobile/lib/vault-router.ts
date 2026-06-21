@@ -310,6 +310,11 @@ export type TransferOwnershipError =
   | { kind: "self_target" }
   | { kind: "not_member"; accountId: string }
   | { kind: "noop_demotion" }
+  // We couldn't resolve which owner row in the mirror represents "me" (account-id
+  // drift to an id we can't bridge, in a vault with other owners). We ABORT
+  // before emitting any event rather than demote the wrong/no row and leave the
+  // vault with two owners. The caller surfaces a generic "transfer failed".
+  | { kind: "not_owner" }
   // Engineering critique 1.d: the second event (self-demote) threw AFTER
   // the first event (promote target) committed. We compensated by emitting
   // a role-change to roll the target back to its prior role, but the user
@@ -322,6 +327,79 @@ export type TransferOwnershipError =
   // owner). The user can recover by re-opening members and demoting one
   // of them manually. Surfaces a distinct toast directing them there.
   | { kind: "partial_unrecovered"; promotedAccountId: string };
+
+// True iff THIS device minted the given local-CA vault (its pubkey is the
+// vault's trust anchor). The minting device is the vault's root of trust /
+// original owner by construction, so it can resolve "which owner row is me"
+// even when account-id binding has drifted away from every id it now presents
+// (device-key rotated after a reinstall) — the same reason the role-gate has a
+// trust-anchor carve-out. Best-effort; returns false if anything is unreadable.
+async function deviceIsVaultTrustAnchor(
+  db: Awaited<ReturnType<typeof getDb>>,
+  vaultId: string,
+): Promise<boolean> {
+  try {
+    const mod = await import("./mesh/device-key");
+    await mod.ensureDeviceKey();
+    const myPub = mod.getDevicePubkey();
+    if (!myPub) return false;
+    const row = await db.getFirstAsync<{ vault_trust_anchor_pubkey: string | null }>(
+      "SELECT vault_trust_anchor_pubkey FROM vaults WHERE id = ?",
+      vaultId,
+    );
+    return row?.vault_trust_anchor_pubkey === myPub;
+  } catch {
+    return false;
+  }
+}
+
+// Resolve which account_id the CURRENT owner ("me") is keyed under, so a
+// transfer demotes the real owner row instead of writing a spurious editor row
+// under a drifted id (which would leave the vault with two owners).
+//   1. Prefer the candidate id (Google / device-key) that holds a live owner row.
+//   2. Fully-drifted "Main"-style vault — none of my ids is an owner, but I
+//      minted it (trust anchor) and the vault is genuinely SOLO: exactly one
+//      non-revoked owner and NO other non-revoked members besides the transfer
+//      target. That lone owner is me under a rotated-away id, so demote it. The
+//      solo guard (members.length === 1) ensures we never demote a legitimate
+//      co-owner we can't positively identify in a shared vault.
+//   3. No drift bridged → return the passed id. The caller verifies the result
+//      is actually a live owner and ABORTS the transfer if not (never emits a
+//      demote against a non-owner row, which would create a two-owner state).
+async function resolveSelfDemoteAccountId(
+  db: Awaited<ReturnType<typeof getDb>>,
+  vaultId: string,
+  selfAccountId: string,
+  candidates: string[],
+  excludeAccountId: string,
+): Promise<string> {
+  if (candidates.length > 0) {
+    const ph = candidates.map(() => "?").join(",");
+    const owned = await db.getFirstAsync<{ account_id: string }>(
+      `SELECT account_id FROM vault_members_mirror
+        WHERE vault_id = ? AND role = 'owner' AND revoked_at IS NULL
+          AND account_id IN (${ph})
+        LIMIT 1`,
+      vaultId,
+      ...candidates,
+    );
+    if (owned) return owned.account_id;
+  }
+  if (await deviceIsVaultTrustAnchor(db, vaultId)) {
+    const members = await db.getAllAsync<{ account_id: string; role: VaultRole }>(
+      `SELECT account_id, role FROM vault_members_mirror
+        WHERE vault_id = ? AND revoked_at IS NULL AND account_id != ?`,
+      vaultId,
+      excludeAccountId,
+    );
+    const owners = members.filter((m) => m.role === "owner");
+    // Genuinely solo: the lone owner is the only remaining member (besides the
+    // target). In a shared vault (extra members or co-owners) we can't be sure
+    // the lone owner is me, so we don't guess.
+    if (owners.length === 1 && members.length === 1) return owners[0].account_id;
+  }
+  return selfAccountId;
+}
 
 /**
  * Routes ownership transfer. For local-CA vaults we emit TWO
@@ -386,6 +464,19 @@ export async function transferVaultOwnership(
   if (await isLocalCAVault(vaultId)) {
     const db = await getDb();
 
+    // Resolve EVERY id that represents me (passed Google id + the deterministic
+    // device-key id). The self-demote below MUST target the id ownership is
+    // ACTUALLY keyed under — the same account-id-drift class that broke
+    // leave/archive/role. Demoting the raw passed id when the owner row sits
+    // under a different id of mine leaves the vault with TWO owners (the old
+    // row stays owner) and silently corrupts membership.
+    const candidates = await resolveAccountIdCandidates(selfAccountId);
+    // Self-target guard, candidate-aware: the target must not be ANY of my ids,
+    // not just the one the caller happened to pass.
+    if (candidates.includes(toAccountId)) {
+      return { ok: false, error: { kind: "self_target" } };
+    }
+
     // Membership check: target must already be a non-revoked member of
     // the mirror. The events.ts role-gate would reject the emit on an
     // unknown account anyway, but pre-checking lets us produce a typed
@@ -403,6 +494,32 @@ export async function transferVaultOwnership(
     }
     const targetPriorRole = tgt.role;
 
+    // Which of MY ids actually holds ownership? Demote THAT id, not the raw
+    // passed one (see candidate comment above). Computed BEFORE the promote so
+    // the trust-anchor fallback sees the pre-transfer owner set.
+    const demoteAccountId = await resolveSelfDemoteAccountId(
+      db,
+      vaultId,
+      selfAccountId,
+      candidates,
+      toAccountId,
+    );
+
+    // Safety gate: the id we're about to demote MUST currently be a live owner.
+    // If resolution fell through (drift we couldn't bridge), demoteAccountId is
+    // a non-owner id and demoting it would be a 0-row no-op — promoting the
+    // target while the real owner row stays owner = a silent TWO-OWNER state
+    // reported as success. Abort BEFORE emitting anything instead.
+    const demoteOwns = await db.getFirstAsync<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM vault_members_mirror
+        WHERE vault_id = ? AND account_id = ? AND role = 'owner' AND revoked_at IS NULL`,
+      vaultId,
+      demoteAccountId,
+    );
+    if ((demoteOwns?.n ?? 0) === 0) {
+      return { ok: false, error: { kind: "not_owner" } };
+    }
+
     // 1. Promote target to owner. This must happen FIRST so event 2's
     //    wouldDropLastOwner check sees two owners and passes.
     await appendVaultMemberRoleChanged({
@@ -418,7 +535,7 @@ export async function transferVaultOwnership(
     try {
       const e2 = await appendVaultMemberRoleChanged({
         targetVaultId: vaultId,
-        accountId: selfAccountId,
+        accountId: demoteAccountId,
         role: demoteSelfTo,
       });
       secondEventId = e2.event_id;
