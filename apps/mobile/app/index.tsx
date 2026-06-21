@@ -927,7 +927,7 @@ export default function HomeScreen() {
         onAddVault={() => router.push("/vault/new")}
         onScanPairingCode={() => router.push("/vault/pair-scan")}
         onManageCurrentKaata={() => router.push("/vault/settings")}
-        onOpenPreferences={() => router.push("/preferences")}
+        onOpenAccount={() => router.push("/account")}
         onToggleShopMode={async (next) => {
           if (shopModeBusy) return;
           // Phase 7 D-SHOP-MODE-UNGATING: account_id is NOT required.

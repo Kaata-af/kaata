@@ -366,8 +366,8 @@ const en = {
   // sheet; removed to keep the translation surface honest.
   "menu.thisKaata.settings": "Manage this Kaata",
   "menu.currentKaata": "Current Kaata",
-  "menu.preferences": "Preferences",
-  "menu.preferences.hint": "Language, country",
+  "menu.account.settings": "Account settings",
+  "menu.account.settings.hint": "Name, phone, language",
   "menu.allKaatas": "All Kaatas",
   "menu.allKaatas.empty": "No Kaatas yet.",
   "menu.allKaatas.empty.withArchived": "No active Kaatas.",
@@ -536,6 +536,13 @@ const en = {
   "menu.account.signOut": "Sign out",
   "menu.account.signOut.toast": "Signed out",
   "menu.account.signOut.failed": "Couldn't sign out — try again",
+  // Account screen (personal: name / phone / language / country / archived).
+  "account.title": "Account",
+  "account.profile.section": "Your details",
+  "account.preferences.section": "Preferences",
+  "account.kaatas.section": "Kaatas",
+  "account.archived.row": "Archived kaatas",
+  "account.save": "Save changes",
   // Phase 7 UX critique #6 — sign-out is destructive (kills server sync
   // until next sign-in), so it gets a ConfirmDialog gate per the
   // documented contract in design-tokens.ts. The body interpolates the
@@ -1291,8 +1298,8 @@ const fa: Partial<Record<Key, string>> = {
   "menu.title.vaultSwitcher": "تعویض کاتا",
   "menu.thisKaata.settings": "مدیریت این کاتا",
   "menu.currentKaata": "کاتای فعلی",
-  "menu.preferences": "ترجیحات",
-  "menu.preferences.hint": "زبان، کشور",
+  "menu.account.settings": "تنظیمات حساب",
+  "menu.account.settings.hint": "نام، شماره، زبان",
   "menu.allKaatas": "همه کاتاها",
   "menu.allKaatas.empty": "هنوز کاتایی نیست.",
   "menu.allKaatas.empty.withArchived": "کاتای فعال وجود ندارد.",
@@ -1421,6 +1428,13 @@ const fa: Partial<Record<Key, string>> = {
   "menu.account.signOut": "خروج",
   "menu.account.signOut.toast": "خروج انجام شد",
   "menu.account.signOut.failed": "خروج ناموفق — دوباره کوشش کنید",
+  // Account screen.
+  "account.title": "حساب",
+  "account.profile.section": "مشخصات شما",
+  "account.preferences.section": "ترجیحات",
+  "account.kaatas.section": "کاتاها",
+  "account.archived.row": "کاتاهای بایگانی‌شده",
+  "account.save": "ذخیره تغییرات",
   "menu.account.signOut.confirm.title": "خارج می‌شوید؟",
   "menu.account.signOut.confirm.body":
     "از حساب {email} خارج می‌شوید. کاتاهای محلی روی تلفون می‌مانند، اما تا ورود دوباره همگام‌سازی و بازیابی کلاد کار نمی‌کند.",

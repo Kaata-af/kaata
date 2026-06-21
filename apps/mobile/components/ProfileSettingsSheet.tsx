@@ -54,10 +54,9 @@ import { NavRow, SectionGap, SectionHeader } from "./SettingsScreen";
 //
 // Sections, top to bottom (settings = Account + USER preferences + Kaata):
 //   1. ACCOUNT  — signed-in avatar+email OR Sign in with Google button.
-//      Sign out + Switch account when signed in.
-//   2. PREFERENCES — user-level: language + default country + app health
-//      (→ /preferences). NOT per-kaata.
-//   3. CURRENT KAATA — "Manage this Kaata" → /vault/settings: the kaata's
+//      Sign out when signed in. "Account settings" row → /account (personal:
+//      name + phone + language + default country + archived kaatas).
+//   2. CURRENT KAATA — "Manage this Kaata" → /vault/settings: the kaata's
 //      name + currency (per-kaata) + members + danger zone.
 //   4. KAATAS — list of all vaults with current bolded + checkmark;
 //      "+ Add a Kaata" + "Scan a pairing code". (Hidden in SOLO_STORE_MODE.)
@@ -122,8 +121,8 @@ export function ProfileSettingsSheet(props: {
   onScanPairingCode: () => void;
   onManageCurrentKaata: () => void;
 
-  // Preferences (user-level: language / default country / app health)
-  onOpenPreferences: () => void;
+  // Account settings (personal: name / phone / language / country / archived)
+  onOpenAccount: () => void;
 
   // Sync
   onToggleShopMode: (next: boolean) => void;
@@ -338,16 +337,16 @@ export function ProfileSettingsSheet(props: {
 
               <SectionGap />
 
-              {/* ============ PREFERENCES (USER-level) ============
-                  Language + default country + app health — the USER's own
-                  settings, distinct from any kaata. (Matee: "language is users
-                  preferences, default country too ... not mixing this with kaata
-                  settings.") Currency is per-kaata and lives under CURRENT KAATA. */}
+              {/* ============ ACCOUNT SETTINGS (personal) ============
+                  The user's own settings — edit name + phone, language, default
+                  country, archived kaatas. Distinct from a kaata (currency etc.
+                  live under CURRENT KAATA). (Matee: "a better account settings
+                  that includes the preferences in it, cuz those are personal".) */}
               <NavRow
-                icon="options-outline"
-                label={t("menu.preferences")}
-                hint={t("menu.preferences.hint")}
-                onPress={chained(props.onOpenPreferences)}
+                icon="person-circle-outline"
+                label={t("menu.account.settings")}
+                hint={t("menu.account.settings.hint")}
+                onPress={chained(props.onOpenAccount)}
                 isRTL={isRTL}
                 isLast
               />

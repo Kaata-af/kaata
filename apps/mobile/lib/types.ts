@@ -68,6 +68,7 @@ export type Self = {
   user_id: string;
   name: string;
   shop_name: string | null;
+  phone: string | null;
 };
 
 export type Person = {

@@ -2823,6 +2823,7 @@ export async function getLocalSelf(): Promise<Self | null> {
     const row = await db.getFirstAsync<Self>(
       `SELECT u.id            AS user_id,
               u.display_name  AS name,
+              u.phone_e164    AS phone,
               COALESCE(sp.shop_name, v.name) AS shop_name
        FROM users u
        LEFT JOIN shop_profile sp ON sp.vault_id = ?
@@ -2839,6 +2840,7 @@ export async function getLocalSelf(): Promise<Self | null> {
   const row = await db.getFirstAsync<Self>(
     `SELECT u.id           AS user_id,
             u.display_name AS name,
+            u.phone_e164   AS phone,
             NULL           AS shop_name
      FROM users u
      WHERE u.is_local_self = 1
@@ -3092,18 +3094,50 @@ export async function createSelfProfile(
 // Setting shopName to null/"" is treated as "no change to shop_name" since
 // shop_profile is now an always-present row per vault — clearing the name
 // is not a user gesture the UI supports.
-export async function updateSelfProfile(name: string, shopName: string | null): Promise<void> {
+export async function updateSelfProfile(
+  name: string,
+  shopName: string | null,
+  phone?: string | null,
+): Promise<void> {
   const db = await getDb();
   const self = await getLocalSelfUserId(db);
   if (!self) throw new Error("local user not yet created");
-  const vaultId = getActiveVaultIdSync();
+  // Tolerate no active vault (a fresh account with no kaata yet can still edit
+  // its own name/phone). With a vault, the name change is event-sourced so
+  // shared members see it + it replays; without one we update the local-self
+  // row directly (device-local identity).
+  const vaultId = getActiveVaultIdSyncMaybe();
 
-  // Self display_name change goes through the event log (person_renamed
-  // applier handles it — no special case for is_local_self).
-  await appendPersonRenamed({ userId: self, vaultId, name });
+  // Phone is device-local self identity (users.phone_e164, set directly at
+  // onboarding, not event-sourced). `undefined` = leave unchanged; null/"" =
+  // clear. The UNIQUE constraint can throw if it collides with a contact's
+  // number — the caller surfaces that.
+  if (phone !== undefined) {
+    await db.runAsync(
+      "UPDATE users SET phone_e164 = ?, updated_at = ? WHERE id = ?",
+      phone || null,
+      Date.now(),
+      self,
+    );
+  }
 
-  // Shop name update — only emit when non-empty AND different from current.
-  if (shopName && shopName.length > 0) {
+  if (vaultId) {
+    // Self display_name change goes through the event log (person_renamed
+    // applier handles it — no special case for is_local_self).
+    await appendPersonRenamed({ userId: self, vaultId, name });
+  } else {
+    await db.runAsync(
+      "UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?",
+      name,
+      Date.now(),
+      self,
+    );
+  }
+
+  // Shop name update — only emit when there's a vault + a non-empty value
+  // different from current. (The Account screen passes null; shop/kaata name is
+  // edited in Manage-this-Kaata.)
+  if (vaultId && shopName && shopName.length > 0) {
     const current = await db.getFirstAsync<{ shop_name: string | null }>(
       "SELECT shop_name FROM shop_profile WHERE vault_id = ?",
       vaultId,
