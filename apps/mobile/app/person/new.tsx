@@ -7,7 +7,7 @@ import {
   Linking,
   Platform,
   Pressable,
-  SectionList,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -39,6 +39,11 @@ import type { PersonWithBalance } from "../../lib/types";
 // At least this many digits before the phone field narrows the list — typing
 // "7" or "70" otherwise matches half the book.
 const PHONE_SEARCH_MIN_DIGITS = 3;
+
+// Max device contacts rendered in the "All contacts" card at once. The list is
+// a plain card (not virtualized), so a huge phone book would jank; typing
+// filters well under this. A truncation hint shows when the book is larger.
+const DEVICE_LIST_CAP = 80;
 
 // One row in the merged contacts list. App people open on tap; device contacts
 // are created (and added to the ledger) on tap.
@@ -182,7 +187,13 @@ export default function PersonAddOrFindScreen() {
     [deviceContacts, appPhoneKeys],
   );
 
-  const sections = useMemo<Section[]>(() => {
+  // Each section renders as ONE bordered card (no virtualization), so cap the
+  // device list when not searching — a full phone book (hundreds/thousands of
+  // rows) mounted at once would jank. Typing narrows it well under the cap.
+  const { sections, deviceTruncated } = useMemo<{
+    sections: Section[];
+    deviceTruncated: boolean;
+  }>(() => {
     const out: Section[] = [];
     const appList = people ?? [];
     const appMatches = dQuerying ? searchContacts(dFirst, dLast, dPhone, appList) : appList;
@@ -193,17 +204,18 @@ export default function PersonAddOrFindScreen() {
         data: appMatches.map((person) => ({ kind: "app", person })),
       });
     }
-    const deviceMatches = dQuerying
+    const deviceFull = dQuerying
       ? searchContacts(dFirst, dLast, dPhone, dedupedDevice)
       : dedupedDevice;
-    if (deviceMatches.length > 0) {
+    const deviceShown = deviceFull.slice(0, DEVICE_LIST_CAP);
+    if (deviceShown.length > 0) {
       out.push({
         key: "device",
         title: dQuerying ? t("personAdd.section.fromPhone") : t("personAdd.section.allContacts"),
-        data: deviceMatches.map((contact) => ({ kind: "device", contact })),
+        data: deviceShown.map((contact) => ({ kind: "device", contact })),
       });
     }
-    return out;
+    return { sections: out, deviceTruncated: deviceFull.length > deviceShown.length };
   }, [people, dedupedDevice, dQuerying, dFirst, dLast, dPhone]);
 
   function openPerson(id: string) {
@@ -462,25 +474,40 @@ export default function PersonAddOrFindScreen() {
           <Button label={addLabel} onPress={onAddPressed} loading={busy} disabled={!canAdd} />
         </View>
 
-        <SectionList
-          sections={sections}
-          keyExtractor={(item) =>
-            item.kind === "app" ? `app-${item.person.id}` : `dev-${item.contact.id}`
-          }
-          renderItem={renderItem}
-          renderSectionHeader={({ section }) => (
-            <Text style={[styles.sectionLabel, textDir(isRTL)]}>{section.title}</Text>
-          )}
-          ListEmptyComponent={renderEmpty}
-          ListFooterComponent={renderFooter}
+        {/* Each section is its OWN bordered card (Recent / All contacts), like
+            the home people list (Matee). A single card container per section
+            avoids the Android per-row asymmetric-border bug. */}
+        <ScrollView
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          stickySectionHeadersEnabled={false}
           contentContainerStyle={styles.listContent}
-          initialNumToRender={15}
-          windowSize={11}
-          removeClippedSubviews={Platform.OS === "android"}
-        />
+        >
+          {people === null || sections.length === 0
+            ? renderEmpty()
+            : sections.map((section) => (
+                <View key={section.key} style={styles.section}>
+                  <Text style={[styles.sectionLabel, textDir(isRTL)]}>{section.title}</Text>
+                  <View style={styles.peopleCard}>
+                    {section.data.map((item, index) => (
+                      <View
+                        key={
+                          item.kind === "app" ? `app-${item.person.id}` : `dev-${item.contact.id}`
+                        }
+                      >
+                        {index > 0 ? <View style={styles.divider} /> : null}
+                        {renderItem({ item })}
+                      </View>
+                    ))}
+                  </View>
+                  {section.key === "device" && deviceTruncated ? (
+                    <Text style={[styles.moreHint, textDir(isRTL)]}>
+                      {t("personAdd.moreContacts")}
+                    </Text>
+                  ) : null}
+                </View>
+              ))}
+          {renderFooter()}
+        </ScrollView>
       </KeyboardAvoidingView>
 
       <CountryPickerSheet
@@ -580,8 +607,9 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
 
-  // Merged contacts list.
+  // Merged contacts list — each section is its own bordered card.
   listContent: { paddingBottom: 32, flexGrow: 1 },
+  section: { marginBottom: 4 },
   sectionLabel: {
     fontSize: 11,
     fontFamily: fonts.sansSemi,
@@ -591,15 +619,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 6,
+  },
+  peopleCard: {
+    marginHorizontal: 16,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: 12,
+    overflow: "hidden",
     backgroundColor: colors.bgDefault,
+  },
+  divider: { height: 1, backgroundColor: colors.borderDefault },
+  moreHint: {
+    fontSize: 12,
+    fontFamily: fonts.sansRegular,
+    color: colors.textSubtle,
+    paddingHorizontal: 16,
+    paddingTop: 8,
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderDefault,
     backgroundColor: colors.bgDefault,
   },
   rowPressed: { backgroundColor: colors.bgMuted },

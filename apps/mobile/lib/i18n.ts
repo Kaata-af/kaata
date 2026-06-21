@@ -192,6 +192,7 @@ const en = {
   // Overflow row under the truncated Matches list — invites the user to
   // refine the search instead of scrolling an unbounded result set.
   "personAdd.moreResults": "+{count} more — keep typing to narrow",
+  "personAdd.moreContacts": "Type a name or number to find more contacts.",
 
   // Entry
   "entry.amount.label": "Amount (AFN)",
@@ -1154,6 +1155,7 @@ const fa: Partial<Record<Key, string>> = {
   "personAdd.contacts.openSettings": "دسترسی به مخاطبین را در تنظیمات فعال کنید",
   // Overflow row under the truncated Matches list.
   "personAdd.moreResults": "{count}+ نتیجهٔ دیگر — برای محدود کردن، بیشتر تایپ کنید",
+  "personAdd.moreContacts": "برای یافتن مخاطبین بیشتر، نام یا شماره را تایپ کنید.",
 
   // Entry
   "entry.amount.label": "مقدار (AFN)",

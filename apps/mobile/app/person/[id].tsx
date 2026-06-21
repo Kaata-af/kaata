@@ -4,9 +4,8 @@ import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
-  FlatList,
-  type ListRenderItemInfo,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -78,27 +77,6 @@ export default function PersonDetailScreen() {
   // Live refresh: re-load when a sync applies events for the active vault, so a
   // remote entry/payment for this person appears without navigating away/back.
   useLedgerRefresh(getActiveVaultIdSyncMaybe(), load);
-
-  // Virtualized entry rows — power users accumulate hundreds of entries,
-  // and the old ScrollView + .map mounted all of them. Card-edge emulation
-  // per row, same approach as home's TabPage.
-  const renderEntryRow = useCallback(
-    ({ item, index }: ListRenderItemInfo<Entry>) => (
-      <View
-        style={[
-          styles.cardRow,
-          index === 0 && styles.cardRowFirst,
-          index === entries.length - 1 && styles.cardRowLast,
-        ]}
-      >
-        {index > 0 ? <View style={styles.divider} /> : null}
-        {/* setSheetFor is referentially stable — keeps the memoized
-            EntryRow from re-rendering on unrelated screen renders. */}
-        <EntryRow entry={item} onPress={setSheetFor} />
-      </View>
-    ),
-    [entries.length],
-  );
 
   if (!person) {
     // Pre-load: spinner. Post-load null (stale id, person archived remotely
@@ -177,26 +155,21 @@ export default function PersonDetailScreen() {
         </Pressable>
       </View>
 
-      <FlatList
-        data={entries}
-        renderItem={renderEntryRow}
-        keyExtractor={(e) => e.id}
-        initialNumToRender={12}
-        windowSize={7}
-        // Android-only blank-row bug: with removeClippedSubviews defaulting to
-        // true, a row wrapped in an overflow:"hidden" card (cardRowFirst/Last,
-        // needed for the rounded corners) gets its subviews detached and never
-        // repainted when the list reorders — e.g. adding a 2nd entry pushes the
-        // old row from index 0 to 1, flipping its style, and it renders blank
-        // but still takes space. Same fix + same cardRow pattern as the home
-        // person list (app/index.tsx). The list is bounded by windowSize so
-        // disabling clipping costs effectively nothing here.
-        removeClippedSubviews={false}
+      {/* One person's tallies are bounded, so render them as ONE bordered card
+          (ScrollView + map), exactly like the home people list. The old
+          FlatList + per-row cardRowFirst/cardRowLast emulation caused the
+          blank-row bug: adding a 2nd entry shifted the old row from index 0 to
+          1, flipping its style, and Android painted it blank until a remount
+          ("the old one shows blank text after the second one is added, fixed
+          by going back and returning"). A single uniform card has no per-row
+          style flip, so it can't happen. */}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={{
           paddingBottom: (entries.length > 0 ? 96 : 24) + insets.bottom,
         }}
-        ListHeaderComponent={
-          <>
+      >
+        <View>
             <View style={styles.info}>
               <Text style={[styles.name, textDir(isRTL)]}>{person.name}</Text>
               {person.phone ? (
@@ -261,13 +234,24 @@ export default function PersonDetailScreen() {
                 </Pressable>
               </View>
             </View>
+        </View>
 
-            {entries.length === 0 ? (
-              <EmptyState title={t("person.empty.title")} subtitle={t("person.empty.subtitle")} />
-            ) : null}
-          </>
-        }
-      />
+        {entries.length === 0 ? (
+          <EmptyState title={t("person.empty.title")} subtitle={t("person.empty.subtitle")} />
+        ) : (
+          <View style={styles.entriesCard}>
+            {entries.map((item, index) => (
+              <View key={item.id}>
+                {index > 0 ? <View style={styles.divider} /> : null}
+                {/* setSheetFor is referentially stable — keeps the memoized
+                    EntryRow from re-rendering on unrelated screen renders.
+                    Opens the edit/delete sheet on TAP-AND-HOLD only. */}
+                <EntryRow entry={item} onLongPress={setSheetFor} />
+              </View>
+            ))}
+          </View>
+        )}
+      </ScrollView>
 
       {entries.length > 0 ? (
         <Animated.View
@@ -415,26 +399,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgDefault,
   },
   actionText: { fontSize: 14, fontFamily: fonts.sansSemi, color: colors.textEmphasis },
-  // Per-row card-edge emulation for the virtualized list — together the
-  // rows render identically to the old single bordered-card container.
-  cardRow: {
+  // One bordered card around all tallies (same as the home people list). No
+  // per-row corner emulation, so no blank-row-on-reorder bug.
+  entriesCard: {
     marginHorizontal: 16,
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
+    marginTop: 8,
+    borderWidth: 1,
     borderColor: colors.borderDefault,
+    borderRadius: 12,
+    overflow: "hidden",
     backgroundColor: colors.bgDefault,
-  },
-  cardRowFirst: {
-    borderTopWidth: 1,
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
-    overflow: "hidden",
-  },
-  cardRowLast: {
-    borderBottomWidth: 1,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
-    overflow: "hidden",
   },
   divider: { height: 1, backgroundColor: colors.borderDefault },
   pingBar: {

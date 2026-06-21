@@ -17,7 +17,7 @@ import type { Entry } from "../lib/types";
 // parents can pass a stable handler — see PersonRow for rationale.
 export const EntryRow = memo(function EntryRow(props: {
   entry: Entry;
-  onPress: (entry: Entry) => void;
+  onLongPress: (entry: Entry) => void;
 }) {
   const isRTL = useIsRTL();
   const { entry } = props;
@@ -27,13 +27,13 @@ export const EntryRow = memo(function EntryRow(props: {
 
   return (
     <Pressable
-      onPress={() => props.onPress(entry)}
-      // Same handler on long-press with a short delay so a sustained finger
-      // press opens the sheet *while still holding*, not only on release.
-      // Pressable cancels the press if the finger moves enough to start a
-      // scroll, so this doesn't fight the list's vertical scroll gesture.
-      onLongPress={() => props.onPress(entry)}
-      delayLongPress={100}
+      // A plain TAP does nothing (a tally is informational); the edit/delete
+      // sheet opens only on TAP-AND-HOLD (Matee) — mirrors the home contact
+      // rows. delayLongPress 250ms so a quick tap doesn't accidentally trigger
+      // it; Pressable cancels if the finger moves enough to start a scroll, so
+      // it doesn't fight the list's vertical scroll.
+      onLongPress={() => props.onLongPress(entry)}
+      delayLongPress={250}
       accessibilityRole="button"
       style={({ pressed }) => [
         styles.row,
