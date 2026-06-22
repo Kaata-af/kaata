@@ -53,6 +53,17 @@ type LocaleCount struct {
 	Count  int64  `json:"count"`
 }
 
+// SeriesPoint is one time bucket of the activity series. The bucket width
+// (hour/day/week/month) is chosen by the caller, so usage can be inspected at
+// any granularity. Active = distinct devices with ledger activity in the bucket
+// (from events.server_received_at, which has the timestamp precision
+// install_active_days — date-only — lacks).
+type SeriesPoint struct {
+	T        string `json:"t"`
+	Installs int64  `json:"installs"`
+	Active   int64  `json:"active"`
+}
+
 type Stats struct {
 	// Funnel (installs): total → onboarded → made an entry → shared → active.
 	InstallsTotal int64 `json:"installs_total"`
@@ -81,10 +92,9 @@ type Stats struct {
 	ExcludedVisits   int64 `json:"excluded_visits"`
 	// Engagement — from install_active_days. Accrues from the day per-day
 	// tracking deploys; 0 until then (frontend shows a "collecting since" state).
-	DAU      int64      `json:"dau"`
-	WAU      int64      `json:"wau"`
-	MAU      int64      `json:"mau"`
-	DauByDay []DayCount `json:"dau_by_day"`
+	DAU int64 `json:"dau"`
+	WAU int64 `json:"wau"`
+	MAU int64 `json:"mau"`
 	// Day-N retention as raw eligible/retained counts — frontend divides so a
 	// 0/0 window renders "—" rather than a misleading 0%.
 	RetD1Eligible  int64 `json:"ret_d1_eligible"`
@@ -95,27 +105,44 @@ type Stats struct {
 	RetD30Retained int64 `json:"ret_d30_retained"`
 	// Segmentation: installs by in-app language ('fa'/'en'/'unknown').
 	Languages []LocaleCount `json:"languages"`
-	// Time series + attribution. The day-series span the requested window.
-	InstallsByDay []DayCount  `json:"installs_by_day"`
-	BySource      []SourceRow `json:"by_source"`
-	// Days echoes the timeline window the series cover (so the UI can label it).
-	Days int `json:"days"`
+	// Bucketed activity series — installs + active devices per time bucket. The
+	// bucket width is the caller's granularity choice (hour/day/week/month).
+	Series []SeriesPoint `json:"series"`
+	Bucket string        `json:"bucket"`
+	Points int           `json:"points"`
+	// Attribution.
+	BySource []SourceRow `json:"by_source"`
 	// Server "as of" timestamp (RFC3339) so the dashboard can show freshness.
 	GeneratedAt string `json:"generated_at"`
 }
 
-// GetStats computes the dashboard aggregates over a `days`-day timeline window
-// (drives the installs/day + DAU/day series). The point-in-time KPIs
-// (active_7d/30d, DAU/WAU/MAU, retention) use their own fixed windows.
-func (s *Service) GetStats(ctx context.Context, days int) (Stats, error) {
-	if days < 1 {
-		days = 30
+// bucketSpec maps a granularity to the date_trunc field, generate_series step
+// interval, and a to_char label format.
+var bucketSpec = map[string]struct{ field, interval, format string }{
+	"hour":  {"hour", "1 hour", `YYYY-MM-DD"T"HH24:00`},
+	"day":   {"day", "1 day", "YYYY-MM-DD"},
+	"week":  {"week", "1 week", "YYYY-MM-DD"},
+	"month": {"month", "1 month", "YYYY-MM"},
+}
+
+// GetStats computes the dashboard aggregates. `bucket` (hour/day/week/month) +
+// `points` define the activity time series window; the point-in-time KPIs
+// (active_7d/30d, DAU/WAU/MAU, retention, language) use their own fixed windows.
+func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stats, error) {
+	spec, ok := bucketSpec[bucket]
+	if !ok {
+		bucket = "day"
+		spec = bucketSpec["day"]
 	}
-	if days > 365 {
-		days = 365
+	if points < 1 {
+		points = 30
+	}
+	if points > 744 { // bound the series (e.g. 744 hourly = 31 days)
+		points = 744
 	}
 	var st Stats
-	st.Days = days
+	st.Bucket = bucket
+	st.Points = points
 
 	// Installs funnel. `keep` = NOT an operator install (operator account_ids in
 	// $1; NULL-account local-only installs are kept). Computed once, then every
@@ -171,32 +198,48 @@ func (s *Service) GetStats(ctx context.Context, days int) (Stats, error) {
 		return st, err
 	}
 
-	// Installs per day — DENSE rolling 30-day calendar (zero-fill gap days),
-	// UTC-pinned so device wall clocks can't shift a row into the wrong day,
-	// ascending so the frontend renders left→right without reversing. Operator
-	// installs excluded.
+	// Activity series — new installs + distinct active devices per time BUCKET
+	// (granularity from $2 date_trunc field / $3 step interval / $5 label fmt),
+	// dense + zero-filled + ascending. Installs come from installs.installed_at;
+	// "active" comes from events.server_received_at (full timestamp precision —
+	// install_active_days is date-only, so events are what make HOURLY possible).
+	// Operator excluded on both.
 	rows, err := s.pool.Query(ctx, `
-		WITH days AS (
-		  SELECT generate_series((CURRENT_DATE - ($2 - 1) * INTERVAL '1 day')::date, CURRENT_DATE, INTERVAL '1 day')::date AS d
+		WITH buckets AS (
+		  SELECT generate_series(
+		    date_trunc($2, NOW() AT TIME ZONE 'UTC') - ($4 - 1) * $3::interval,
+		    date_trunc($2, NOW() AT TIME ZONE 'UTC'),
+		    $3::interval
+		  ) AS b
+		),
+		ins AS (
+		  SELECT date_trunc($2, COALESCE(installed_at, first_seen_at) AT TIME ZONE 'UTC') AS b, COUNT(*) AS n
+		  FROM installs
+		  WHERE (account_id IS NULL OR account_id::text <> ALL($1::text[]))
+		  GROUP BY 1
+		),
+		act AS (
+		  SELECT date_trunc($2, server_received_at AT TIME ZONE 'UTC') AS b, COUNT(DISTINCT device_id) AS n
+		  FROM events
+		  WHERE (account_id IS NULL OR account_id::text <> ALL($1::text[]))
+		  GROUP BY 1
 		)
-		SELECT to_char(days.d, 'YYYY-MM-DD') AS day, COUNT(i.install_id)
-		FROM days
-		LEFT JOIN installs i
-		  ON date_trunc('day', COALESCE(i.installed_at, i.first_seen_at) AT TIME ZONE 'UTC')::date = days.d
-		 AND (i.account_id IS NULL OR i.account_id::text <> ALL($1::text[]))
-		GROUP BY days.d
-		ORDER BY days.d ASC
-	`, s.operatorAccountIDs, days)
+		SELECT to_char(buckets.b, $5), COALESCE(ins.n, 0), COALESCE(act.n, 0)
+		FROM buckets
+		LEFT JOIN ins ON ins.b = buckets.b
+		LEFT JOIN act ON act.b = buckets.b
+		ORDER BY buckets.b ASC
+	`, s.operatorAccountIDs, spec.field, spec.interval, points, spec.format)
 	if err != nil {
 		return st, err
 	}
 	for rows.Next() {
-		var d DayCount
-		if err := rows.Scan(&d.Day, &d.Count); err != nil {
+		var p SeriesPoint
+		if err := rows.Scan(&p.T, &p.Installs, &p.Active); err != nil {
 			rows.Close()
 			return st, err
 		}
-		st.InstallsByDay = append(st.InstallsByDay, d)
+		st.Series = append(st.Series, p)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -215,37 +258,6 @@ func (s *Service) GetStats(ctx context.Context, days int) (Stats, error) {
 		JOIN installs i ON i.install_id = ad.install_id
 		WHERE (i.account_id IS NULL OR i.account_id::text <> ALL($1::text[]))
 	`, s.operatorAccountIDs).Scan(&st.DAU, &st.WAU, &st.MAU); err != nil {
-		return st, err
-	}
-
-	// DAU per day across the window (dense, zero-filled, ascending).
-	drows, err := s.pool.Query(ctx, `
-		WITH days AS (
-		  SELECT generate_series((CURRENT_DATE - ($2 - 1) * INTERVAL '1 day')::date, CURRENT_DATE, INTERVAL '1 day')::date AS d
-		),
-		act AS (
-		  SELECT ad.active_date, ad.install_id
-		  FROM install_active_days ad
-		  JOIN installs i ON i.install_id = ad.install_id
-		  WHERE (i.account_id IS NULL OR i.account_id::text <> ALL($1::text[]))
-		)
-		SELECT to_char(days.d, 'YYYY-MM-DD'), COUNT(DISTINCT act.install_id)
-		FROM days LEFT JOIN act ON act.active_date = days.d
-		GROUP BY days.d ORDER BY days.d ASC
-	`, s.operatorAccountIDs, days)
-	if err != nil {
-		return st, err
-	}
-	for drows.Next() {
-		var d DayCount
-		if err := drows.Scan(&d.Day, &d.Count); err != nil {
-			drows.Close()
-			return st, err
-		}
-		st.DauByDay = append(st.DauByDay, d)
-	}
-	drows.Close()
-	if err := drows.Err(); err != nil {
 		return st, err
 	}
 
@@ -334,14 +346,11 @@ func (s *Service) GetStats(ctx context.Context, days int) (Stats, error) {
 	}
 
 	// Never emit JSON null for the slices — the dashboard expects arrays.
-	if st.InstallsByDay == nil {
-		st.InstallsByDay = []DayCount{}
+	if st.Series == nil {
+		st.Series = []SeriesPoint{}
 	}
 	if st.BySource == nil {
 		st.BySource = []SourceRow{}
-	}
-	if st.DauByDay == nil {
-		st.DauByDay = []DayCount{}
 	}
 	if st.Languages == nil {
 		st.Languages = []LocaleCount{}

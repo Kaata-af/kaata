@@ -21,9 +21,9 @@ import {
 } from "recharts";
 import { BACKEND_URL, ADMIN_API_KEY } from "../env";
 
-type DayCount = { day: string; count: number };
 type SourceRow = { source: string; visits: number; downloads: number; attributed: number };
 type LocaleCount = { locale: string; count: number };
+type SeriesPoint = { t: string; installs: number; active: number };
 type Stats = {
   installs_total: number;
   onboarded: number;
@@ -44,7 +44,6 @@ type Stats = {
   dau: number;
   wau: number;
   mau: number;
-  dau_by_day: DayCount[];
   ret_d1_eligible: number;
   ret_d1_retained: number;
   ret_d7_eligible: number;
@@ -52,18 +51,22 @@ type Stats = {
   ret_d30_eligible: number;
   ret_d30_retained: number;
   languages: LocaleCount[];
-  installs_by_day: DayCount[];
+  series: SeriesPoint[];
+  bucket: string;
+  points: number;
   by_source: SourceRow[];
-  days: number;
   generated_at: string;
 };
 
-const RANGE_OPTIONS = [
-  { label: "7d", days: 7 },
-  { label: "30d", days: 30 },
-  { label: "90d", days: 90 },
-  { label: "1y", days: 365 },
+// Granularity presets — let the operator inspect usage by hour/day/week/month.
+// Each picks a sensible window (points × bucket).
+const GRANULARITY = [
+  { label: "Hourly", bucket: "hour", points: 48 },
+  { label: "Daily", bucket: "day", points: 30 },
+  { label: "Weekly", bucket: "week", points: 26 },
+  { label: "Monthly", bucket: "month", points: 12 },
 ];
+
 
 const REFRESH_MS = 20000;
 
@@ -107,9 +110,9 @@ export function Admin() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
-  // Timeline window driving the day-series. Changing it re-keys `load` (below),
-  // which re-runs the fetch effect with the new ?days.
-  const [days, setDays] = useState(30);
+  // Granularity (index into GRANULARITY) driving the activity series. Changing
+  // it re-keys `load`, which re-runs the fetch effect with the new bucket/points.
+  const [granIdx, setGranIdx] = useState(1); // Daily
   // Abort the prior in-flight request before issuing a new one so an auto-
   // refresh tick (or a manual Refresh) can't race a slow previous fetch.
   const abortRef = useRef<AbortController | null>(null);
@@ -122,10 +125,11 @@ export function Admin() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${BACKEND_URL}/v1/admin/stats?days=${days}`, {
-        headers: { Authorization: `Bearer ${tok}` },
-        signal: ctrl.signal,
-      });
+      const g = GRANULARITY[granIdx];
+      const res = await fetch(
+        `${BACKEND_URL}/v1/admin/stats?bucket=${g.bucket}&points=${g.points}`,
+        { headers: { Authorization: `Bearer ${tok}` }, signal: ctrl.signal },
+      );
       if (res.status === 401) {
         setError("Wrong admin key.");
         localStorage.removeItem(TOKEN_KEY);
@@ -146,7 +150,7 @@ export function Admin() {
         if (abortRef.current === ctrl) setLoading(false);
       }
     },
-    [days],
+    [granIdx],
   );
 
   // Users drill-down. Fetched on load + manual refresh only (NOT on the 20s
@@ -225,14 +229,14 @@ export function Admin() {
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">Kaata analytics</h1>
         <div className="flex items-center gap-3">
-          {/* Timeline control — drives every day-series via ?days. */}
+          {/* Granularity control — inspect usage by hour/day/week/month. */}
           <div className="flex items-center rounded-lg border border-neutral-200 p-0.5 text-xs">
-            {RANGE_OPTIONS.map((o) => (
+            {GRANULARITY.map((o, i) => (
               <button
-                key={o.days}
-                onClick={() => setDays(o.days)}
+                key={o.bucket}
+                onClick={() => setGranIdx(i)}
                 className={`rounded-md px-2.5 py-1 font-medium ${
-                  days === o.days
+                  granIdx === i
                     ? "bg-neutral-900 text-white"
                     : "text-neutral-500 hover:text-neutral-800"
                 }`}
@@ -348,20 +352,23 @@ export function Admin() {
             <Card label="Shares sent" value={stats.shares_sum} />
           </section>
 
-          {/* Trends over the selected window */}
+          {/* Trends — bucketed by the selected granularity (hour/day/week/month) */}
           <section className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             <Trend
-              title={`Installs / day (${stats.days}d)`}
-              data={stats.installs_by_day}
+              title={`New installs · ${GRANULARITY[granIdx].label}`}
+              data={stats.series}
+              dataKey="installs"
               color="#171717"
               kind="area"
+              empty="No installs in this window."
             />
             <Trend
-              title={`Active users / day (${stats.days}d)`}
-              data={stats.dau_by_day}
+              title={`Active users · ${GRANULARITY[granIdx].label}`}
+              data={stats.series}
+              dataKey="active"
               color="#2563eb"
               kind="line"
-              empty="Active-user history builds from the day per-day tracking deployed."
+              empty="No ledger activity in this window."
             />
           </section>
 
@@ -532,17 +539,28 @@ function FunnelBar(props: { label: string; n: number; total: number }) {
 const LANG_COLORS: Record<string, string> = { fa: "#16a34a", en: "#2563eb", unknown: "#d4d4d4" };
 const LANG_LABEL: Record<string, string> = { fa: "Dari", en: "English", unknown: "Unknown" };
 
-// Trend renders a window-spanning day series as a recharts area or line chart.
-// Shows the empty-state message when every point is zero (e.g. DAU before the
-// per-day tracking has accrued any data).
+// fmtTick shortens a bucket label for the x-axis. Labels are
+// "YYYY-MM-DD\"T\"HH:00" (hour), "YYYY-MM-DD" (day/week) or "YYYY-MM" (month).
+function fmtTick(t: string): string {
+  if (t.includes("T")) {
+    const [date, time] = t.split("T");
+    return `${date.slice(5)} ${time}`; // "MM-DD HH:00"
+  }
+  if (t.length === 7) return t; // "YYYY-MM" (month)
+  return t.slice(5); // "MM-DD"
+}
+
+// Trend renders the bucketed series as a recharts area or line chart for one
+// metric (dataKey). Shows the empty-state message when every point is zero.
 function Trend(props: {
   title: string;
-  data: DayCount[];
+  data: SeriesPoint[];
+  dataKey: "installs" | "active";
   color: string;
   kind: "area" | "line";
   empty?: string;
 }) {
-  const hasData = props.data.some((d) => d.count > 0);
+  const hasData = props.data.some((d) => d[props.dataKey] > 0);
   return (
     <div className="rounded-xl border border-neutral-200 p-4">
       <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
@@ -558,8 +576,8 @@ function Trend(props: {
             <AreaChart data={props.data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f5" vertical={false} />
               <XAxis
-                dataKey="day"
-                tickFormatter={(d: string) => d.slice(5)}
+                dataKey="t"
+                tickFormatter={fmtTick}
                 tick={{ fontSize: 10, fill: "#a3a3a3" }}
                 minTickGap={28}
               />
@@ -567,7 +585,7 @@ function Trend(props: {
               <Tooltip contentStyle={{ fontSize: 12 }} />
               <Area
                 type="monotone"
-                dataKey="count"
+                dataKey={props.dataKey}
                 stroke={props.color}
                 fill={props.color}
                 fillOpacity={0.1}
@@ -578,14 +596,20 @@ function Trend(props: {
             <LineChart data={props.data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f5" vertical={false} />
               <XAxis
-                dataKey="day"
-                tickFormatter={(d: string) => d.slice(5)}
+                dataKey="t"
+                tickFormatter={fmtTick}
                 tick={{ fontSize: 10, fill: "#a3a3a3" }}
                 minTickGap={28}
               />
               <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "#a3a3a3" }} width={28} />
               <Tooltip contentStyle={{ fontSize: 12 }} />
-              <Line type="monotone" dataKey="count" stroke={props.color} strokeWidth={2} dot={false} />
+              <Line
+                type="monotone"
+                dataKey={props.dataKey}
+                stroke={props.color}
+                strokeWidth={2}
+                dot={false}
+              />
             </LineChart>
           )}
         </ResponsiveContainer>

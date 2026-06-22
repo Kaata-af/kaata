@@ -13,14 +13,19 @@ func NewHandler(svc *Service) *Handler { return &Handler{svc: svc} }
 
 // Stats — GET /v1/admin/stats. Mounted behind httpx.AdminKeyMiddleware.
 func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
-	// ?days = timeline window for the day-series (clamped in GetStats). Default 30.
-	days := 30
-	if v := r.URL.Query().Get("days"); v != "" {
+	// ?bucket = hour|day|week|month, ?points = how many buckets back. Both
+	// validated/clamped in GetStats. Defaults: day × 30.
+	bucket := r.URL.Query().Get("bucket")
+	if bucket == "" {
+		bucket = "day"
+	}
+	points := 30
+	if v := r.URL.Query().Get("points"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
-			days = n
+			points = n
 		}
 	}
-	st, err := h.svc.GetStats(r.Context(), days)
+	st, err := h.svc.GetStats(r.Context(), bucket, points)
 	if err != nil {
 		httpx.Error(w, http.StatusInternalServerError, "stats query failed")
 		return
