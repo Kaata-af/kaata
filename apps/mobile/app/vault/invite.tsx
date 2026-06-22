@@ -17,6 +17,7 @@
 // the user sees inline feedback before the round-trip.
 
 import { Ionicons } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import * as Network from "expo-network";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
@@ -48,7 +49,7 @@ import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { useVaultPermission } from "../../lib/use-vault-role";
-import { createVaultInvite } from "../../lib/vault-api";
+import { createVaultInvite, listVaults } from "../../lib/vault-api";
 import type { VaultRole } from "../../lib/events";
 
 type InviteResult = {
@@ -79,6 +80,11 @@ export default function VaultInviteScreen() {
   // who goes offline gets a clear disabled CTA instead of an opaque API
   // error. `null` = unknown (initial state), treated as online until resolved.
   const [online, setOnline] = useState<boolean | null>(null);
+  // Pre-flight: is this kaata registered on the server yet? A local-CA kaata
+  // that hasn't synced can't be shared (the API 404s). null = checking/unknown
+  // (optimistic — allow, the 404 toast is the backstop); false = confirmed not
+  // synced → disable Create + show a banner instead of a post-tap error.
+  const [vaultOnServer, setVaultOnServer] = useState<boolean | null>(null);
   // Synchronous re-entry guard — `busy` state can't stop a same-frame
   // double-tap (setState is async); see entry/new.tsx. Double-submit
   // here mints duplicate server links.
@@ -103,6 +109,26 @@ export default function VaultInviteScreen() {
       setHasJwt(!!jwt);
     })();
   }, [router, toast]);
+
+  // Pre-flight vault-on-server check: once we have a vault + JWT + connectivity,
+  // confirm the kaata is registered server-side so we can disable Create + warn
+  // BEFORE the owner picks a role and taps (instead of a post-submit 404 toast).
+  // Best-effort — on any error we leave it null (optimistic, 404 is the backstop).
+  useEffect(() => {
+    if (!vaultId || !hasJwt || online === false) return;
+    let alive = true;
+    (async () => {
+      try {
+        const vaults = await listVaults();
+        if (alive) setVaultOnServer(vaults.some((v) => v.vault_id === vaultId));
+      } catch {
+        if (alive) setVaultOnServer(null);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [vaultId, hasJwt, online]);
 
   // Snapshot network state on mount. Best-effort: if expo-network throws
   // (rare, but defensively) we treat the user as offline so the form
@@ -162,17 +188,9 @@ export default function VaultInviteScreen() {
 
   async function onCopy() {
     if (!result) return;
-    // UX critique #12: Without expo-clipboard, the cleanest fallback is
-    // the system share sheet (which includes "Copy" on both iOS and
-    // Android). The toast no longer claims "Link ready to share" when
-    // it actually opened a share sheet — the user is in the sheet
-    // already, so the toast says the link is in a sharable state.
     try {
-      await Share.share({
-        message: result.invite_url,
-        url: result.invite_url,
-      });
-      toast.push(t("invite.copy.fallback"), "success");
+      await Clipboard.setStringAsync(result.invite_url);
+      toast.push(t("invite.copy.done"), "success");
     } catch {
       toast.push(t("invite.copy.unavailable"), "error");
     }
@@ -216,7 +234,9 @@ export default function VaultInviteScreen() {
             <View
               style={[
                 styles.disclosure,
-                online === false || hasJwt === false ? styles.disclosureOffline : null,
+                online === false || hasJwt === false || vaultOnServer === false
+                  ? styles.disclosureOffline
+                  : null,
               ]}
             >
               <Ionicons
@@ -225,10 +245,16 @@ export default function VaultInviteScreen() {
                     ? "person-circle-outline"
                     : online === false
                       ? "cloud-offline-outline"
-                      : "information-circle-outline"
+                      : vaultOnServer === false
+                        ? "sync-outline"
+                        : "information-circle-outline"
                 }
                 size={18}
-                color={online === false || hasJwt === false ? colors.danger : colors.textSubtle}
+                color={
+                  online === false || hasJwt === false || vaultOnServer === false
+                    ? colors.danger
+                    : colors.textSubtle
+                }
                 style={isRTL ? { marginLeft: 10 } : { marginRight: 10 }}
               />
               <Text style={[styles.disclosureText, textDir(isRTL)]}>
@@ -236,7 +262,9 @@ export default function VaultInviteScreen() {
                   ? t("invite.signInRequired")
                   : online === false
                     ? t("invite.offline.banner")
-                    : t("invite.online.banner")}
+                    : vaultOnServer === false
+                      ? t("invite.link.notOnServer")
+                      : t("invite.online.banner")}
               </Text>
             </View>
           ) : null}
@@ -299,7 +327,8 @@ export default function VaultInviteScreen() {
                     online === false ||
                     online === null ||
                     hasJwt === false ||
-                    hasJwt === null
+                    hasJwt === null ||
+                    vaultOnServer === false
                   }
                 />
               </View>
@@ -398,9 +427,9 @@ function RolePill(props: {
 function formatExpires(epochMs: number): string {
   const diff = epochMs - Date.now();
   if (diff <= 0) return t("invite.expiresIn.soon");
-  const days = Math.ceil(diff / (24 * 3600_000));
-  if (days <= 1) return t("invite.expiresIn.lessThanDay");
-  return t("invite.expiresIn.days", { days });
+  const hours = Math.floor(diff / 3600_000);
+  if (hours < 24) return t("invite.expiresIn.hours", { hours: Math.max(1, hours) });
+  return t("invite.expiresIn.days", { days: Math.floor(hours / 24) });
 }
 
 const styles = StyleSheet.create({

@@ -267,9 +267,9 @@ function roleLabel(role: PendingInvite["role"]): string {
 function formatExpires(epochMs: number): string {
   const diff = epochMs - Date.now();
   if (diff <= 0) return t("invite.expiresIn.soon");
-  const days = Math.ceil(diff / (24 * 3600_000));
-  if (days <= 1) return t("invite.expiresIn.lessThanDay");
-  return t("invite.expiresIn.days", { days });
+  const hours = Math.floor(diff / 3600_000);
+  if (hours < 24) return t("invite.expiresIn.hours", { hours: Math.max(1, hours) });
+  return t("invite.expiresIn.days", { days: Math.floor(hours / 24) });
 }
 
 const styles = StyleSheet.create({
