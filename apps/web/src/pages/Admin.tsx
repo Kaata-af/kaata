@@ -1,14 +1,29 @@
-// Operator analytics dashboard — /admin (Matee: "make a dashboard that I can check
-// the analytics in a better way"). Reads GET /v1/admin/stats (guarded by the
-// backend's ADMIN_API_KEY shared secret). Lean: no BI deps, Tailwind cards + a
-// table + hand-rolled bars. The key comes from the build-time VITE_ADMIN_API_KEY
-// or, failing that, a paste-once login stored in localStorage.
+// Operator analytics dashboard — admin.kaata.af (Matee: a proper growth
+// dashboard). Reads GET /v1/admin/stats?days=N and /v1/admin/users (guarded by
+// the backend's ADMIN_API_KEY). Charts via recharts; this whole page is
+// lazy-loaded (App.tsx) so recharts never ships in the public marketing bundle.
+// The key comes from build-time VITE_ADMIN_API_KEY or a paste-once login.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { BACKEND_URL, ADMIN_API_KEY } from "../env";
 
 type DayCount = { day: string; count: number };
 type SourceRow = { source: string; visits: number; downloads: number; attributed: number };
+type LocaleCount = { locale: string; count: number };
 type Stats = {
   installs_total: number;
   onboarded: number;
@@ -26,10 +41,29 @@ type Stats = {
   raw_visits: number;
   excluded_installs: number;
   excluded_visits: number;
+  dau: number;
+  wau: number;
+  mau: number;
+  dau_by_day: DayCount[];
+  ret_d1_eligible: number;
+  ret_d1_retained: number;
+  ret_d7_eligible: number;
+  ret_d7_retained: number;
+  ret_d30_eligible: number;
+  ret_d30_retained: number;
+  languages: LocaleCount[];
   installs_by_day: DayCount[];
   by_source: SourceRow[];
+  days: number;
   generated_at: string;
 };
+
+const RANGE_OPTIONS = [
+  { label: "7d", days: 7 },
+  { label: "30d", days: 30 },
+  { label: "90d", days: 90 },
+  { label: "1y", days: 365 },
+];
 
 const REFRESH_MS = 20000;
 
@@ -73,18 +107,22 @@ export function Admin() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  // Timeline window driving the day-series. Changing it re-keys `load` (below),
+  // which re-runs the fetch effect with the new ?days.
+  const [days, setDays] = useState(30);
   // Abort the prior in-flight request before issuing a new one so an auto-
   // refresh tick (or a manual Refresh) can't race a slow previous fetch.
   const abortRef = useRef<AbortController | null>(null);
 
-  const load = useCallback(async (tok: string) => {
-    abortRef.current?.abort();
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
+  const load = useCallback(
+    async (tok: string) => {
+      abortRef.current?.abort();
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${BACKEND_URL}/v1/admin/stats`, {
+      const res = await fetch(`${BACKEND_URL}/v1/admin/stats?days=${days}`, {
         headers: { Authorization: `Bearer ${tok}` },
         signal: ctrl.signal,
       });
@@ -104,10 +142,12 @@ export function Admin() {
       // A superseded request aborts — that's expected, not an error.
       if ((e as Error)?.name === "AbortError") return;
       setError("Couldn't reach the backend.");
-    } finally {
-      if (abortRef.current === ctrl) setLoading(false);
-    }
-  }, []);
+      } finally {
+        if (abortRef.current === ctrl) setLoading(false);
+      }
+    },
+    [days],
+  );
 
   // Users drill-down. Fetched on load + manual refresh only (NOT on the 20s
   // poll) — it's a heavier query (joins + snapshot parse) and the user list is
@@ -181,12 +221,31 @@ export function Admin() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl p-6">
-      <header className="mb-6 flex items-center justify-between">
+    <div className="mx-auto max-w-6xl p-6">
+      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">Kaata analytics</h1>
         <div className="flex items-center gap-3">
+          {/* Timeline control — drives every day-series via ?days. */}
+          <div className="flex items-center rounded-lg border border-neutral-200 p-0.5 text-xs">
+            {RANGE_OPTIONS.map((o) => (
+              <button
+                key={o.days}
+                onClick={() => setDays(o.days)}
+                className={`rounded-md px-2.5 py-1 font-medium ${
+                  days === o.days
+                    ? "bg-neutral-900 text-white"
+                    : "text-neutral-500 hover:text-neutral-800"
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
           {lastUpdated ? (
-            <span className="text-xs text-neutral-400" title="Auto-refreshes every 20s while this tab is open">
+            <span
+              className="text-xs text-neutral-400"
+              title="Auto-refreshes every 20s while this tab is open"
+            >
               updated {new Date(lastUpdated).toLocaleTimeString()}
             </span>
           ) : null}
@@ -251,6 +310,19 @@ export function Admin() {
             </p>
           )}
 
+          {/* Engagement — from per-day activity. Fills in from the day the
+              per-day tracking deployed (0 before that). */}
+          <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Card label="DAU" value={stats.dau} sub="active today" />
+            <Card label="WAU" value={stats.wau} sub="last 7 days" />
+            <Card label="MAU" value={stats.mau} sub="last 30 days" />
+            <Card
+              label="Stickiness"
+              valueText={stats.mau ? Math.round((stats.dau / stats.mau) * 100) + "%" : "—"}
+              sub="DAU / MAU"
+            />
+          </section>
+
           {/* Funnel */}
           <section>
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-400">
@@ -276,12 +348,27 @@ export function Admin() {
             <Card label="Shares sent" value={stats.shares_sum} />
           </section>
 
-          {/* Installs per day */}
-          <section>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-400">
-              Installs / day (last 30)
-            </h2>
-            <DayBars data={stats.installs_by_day} />
+          {/* Trends over the selected window */}
+          <section className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <Trend
+              title={`Installs / day (${stats.days}d)`}
+              data={stats.installs_by_day}
+              color="#171717"
+              kind="area"
+            />
+            <Trend
+              title={`Active users / day (${stats.days}d)`}
+              data={stats.dau_by_day}
+              color="#2563eb"
+              kind="line"
+              empty="Active-user history builds from the day per-day tracking deployed."
+            />
+          </section>
+
+          {/* Language split + retention */}
+          <section className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <LanguageSplit languages={stats.languages} />
+            <RetentionCard stats={stats} />
           </section>
 
           {/* Source attribution */}
@@ -411,13 +498,15 @@ export function Admin() {
   );
 }
 
-function Card(props: { label: string; value: number; sub?: string }) {
+function Card(props: { label: string; value?: number; valueText?: string; sub?: string }) {
   return (
     <div className="rounded-xl border border-neutral-200 p-4">
       <div className="text-xs font-medium uppercase tracking-wide text-neutral-400">
         {props.label}
       </div>
-      <div className="mt-1 text-2xl font-bold tabular-nums">{props.value.toLocaleString()}</div>
+      <div className="mt-1 text-2xl font-bold tabular-nums">
+        {props.valueText ?? (props.value ?? 0).toLocaleString()}
+      </div>
       {props.sub ? <div className="mt-0.5 text-xs text-neutral-400">{props.sub}</div> : null}
     </div>
   );
@@ -440,24 +529,155 @@ function FunnelBar(props: { label: string; n: number; total: number }) {
   );
 }
 
-function DayBars(props: { data: DayCount[] }) {
-  const max = Math.max(1, ...props.data.map((d) => d.count));
-  if (props.data.length === 0) return <p className="text-sm text-neutral-400">No installs yet.</p>;
+const LANG_COLORS: Record<string, string> = { fa: "#16a34a", en: "#2563eb", unknown: "#d4d4d4" };
+const LANG_LABEL: Record<string, string> = { fa: "Dari", en: "English", unknown: "Unknown" };
+
+// Trend renders a window-spanning day series as a recharts area or line chart.
+// Shows the empty-state message when every point is zero (e.g. DAU before the
+// per-day tracking has accrued any data).
+function Trend(props: {
+  title: string;
+  data: DayCount[];
+  color: string;
+  kind: "area" | "line";
+  empty?: string;
+}) {
+  const hasData = props.data.some((d) => d.count > 0);
   return (
-    <div className="flex h-32 items-end gap-1">
-      {props.data.map((d) => (
-        <div
-          key={d.day}
-          className="flex flex-1 flex-col items-center gap-1"
-          title={`${d.day}: ${d.count}`}
-        >
-          <div
-            className="w-full rounded-t bg-neutral-800"
-            style={{ height: `${Math.max(2, Math.round((d.count / max) * 100))}%` }}
-          />
-          <div className="text-[8px] text-neutral-400">{d.day.slice(5)}</div>
+    <div className="rounded-xl border border-neutral-200 p-4">
+      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+        {props.title}
+      </div>
+      {!hasData && props.empty ? (
+        <div className="flex h-[180px] items-center justify-center px-6 text-center text-xs text-neutral-400">
+          {props.empty}
         </div>
-      ))}
+      ) : (
+        <ResponsiveContainer width="100%" height={180}>
+          {props.kind === "area" ? (
+            <AreaChart data={props.data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f5" vertical={false} />
+              <XAxis
+                dataKey="day"
+                tickFormatter={(d: string) => d.slice(5)}
+                tick={{ fontSize: 10, fill: "#a3a3a3" }}
+                minTickGap={28}
+              />
+              <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "#a3a3a3" }} width={28} />
+              <Tooltip contentStyle={{ fontSize: 12 }} />
+              <Area
+                type="monotone"
+                dataKey="count"
+                stroke={props.color}
+                fill={props.color}
+                fillOpacity={0.1}
+                strokeWidth={2}
+              />
+            </AreaChart>
+          ) : (
+            <LineChart data={props.data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f5" vertical={false} />
+              <XAxis
+                dataKey="day"
+                tickFormatter={(d: string) => d.slice(5)}
+                tick={{ fontSize: 10, fill: "#a3a3a3" }}
+                minTickGap={28}
+              />
+              <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "#a3a3a3" }} width={28} />
+              <Tooltip contentStyle={{ fontSize: 12 }} />
+              <Line type="monotone" dataKey="count" stroke={props.color} strokeWidth={2} dot={false} />
+            </LineChart>
+          )}
+        </ResponsiveContainer>
+      )}
     </div>
   );
 }
+
+function LanguageSplit(props: { languages: LocaleCount[] }) {
+  const total = props.languages.reduce((s, l) => s + l.count, 0);
+  return (
+    <div className="rounded-xl border border-neutral-200 p-4">
+      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+        Language
+      </div>
+      {total === 0 ? (
+        <div className="flex h-[180px] items-center justify-center text-xs text-neutral-400">
+          No data yet.
+        </div>
+      ) : (
+        <div className="flex items-center gap-4">
+          <ResponsiveContainer width="50%" height={180}>
+            <PieChart>
+              <Pie
+                data={props.languages}
+                dataKey="count"
+                nameKey="locale"
+                innerRadius={45}
+                outerRadius={70}
+                paddingAngle={2}
+              >
+                {props.languages.map((l) => (
+                  <Cell key={l.locale} fill={LANG_COLORS[l.locale] ?? "#d4d4d4"} />
+                ))}
+              </Pie>
+              <Tooltip contentStyle={{ fontSize: 12 }} />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="flex flex-col gap-1.5 text-sm">
+            {props.languages.map((l) => (
+              <div key={l.locale} className="flex items-center gap-2">
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ background: LANG_COLORS[l.locale] ?? "#d4d4d4" }}
+                />
+                <span className="font-medium">{LANG_LABEL[l.locale] ?? l.locale}</span>
+                <span className="text-neutral-400">
+                  {l.count} ({pct(l.count, total)})
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RetentionCard(props: { stats: Stats }) {
+  const s = props.stats;
+  const rows = [
+    { label: "D1", ret: s.ret_d1_retained, elig: s.ret_d1_eligible },
+    { label: "D7", ret: s.ret_d7_retained, elig: s.ret_d7_eligible },
+    { label: "D30", ret: s.ret_d30_retained, elig: s.ret_d30_eligible },
+  ];
+  const any = rows.some((r) => r.elig > 0);
+  return (
+    <div className="rounded-xl border border-neutral-200 p-4">
+      <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+        Retention
+      </div>
+      {!any ? (
+        <div className="flex h-[160px] items-center justify-center px-6 text-center text-xs text-neutral-400">
+          Builds from the day per-day tracking deployed — needs installs old enough to measure.
+        </div>
+      ) : (
+        <div className="grid grid-cols-3 gap-3">
+          {rows.map((r) => (
+            <div key={r.label} className="rounded-lg bg-neutral-50 p-3 text-center">
+              <div className="text-xs text-neutral-400">{r.label}</div>
+              <div className="mt-1 text-2xl font-bold tabular-nums">
+                {r.elig ? Math.round((r.ret / r.elig) * 100) + "%" : "—"}
+              </div>
+              <div className="text-[10px] text-neutral-400">
+                {r.ret}/{r.elig}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default Admin;

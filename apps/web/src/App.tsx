@@ -1,14 +1,20 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
 import { CookieConsent } from "./components/CookieConsent";
 import { ToastProvider } from "./components/Toast";
 import { fireVisitOnce, getSource } from "./lib/analytics";
-import { Admin } from "./pages/Admin";
 import { CustomerView } from "./pages/CustomerView";
 import { Download } from "./pages/Download";
 import { Home } from "./pages/Home";
 import { Invite } from "./pages/Invite";
 import { NotFound } from "./pages/NotFound";
+
+// Lazy + code-split: the admin dashboard pulls in recharts, which must NOT ship
+// in the public marketing bundle. Only loaded when an admin route is hit.
+const Admin = lazy(() => import("./pages/Admin"));
+const AdminFallback = (
+  <div className="p-6 text-sm text-neutral-400">Loading dashboard…</div>
+);
 
 // The operator dashboard lives on its own subdomain (admin.kaata.af): cleaner,
 // conventional, and it isolates the admin's localStorage (the API key) from the
@@ -34,11 +40,13 @@ export function App() {
     <ToastProvider>
       <ScrollManager />
       {IS_ADMIN_HOST ? (
-        <Routes>
-          {/* admin.kaata.af — the whole subdomain is the dashboard. */}
-          <Route path="/" element={<Admin />} />
-          <Route path="*" element={<Admin />} />
-        </Routes>
+        <Suspense fallback={AdminFallback}>
+          <Routes>
+            {/* admin.kaata.af — the whole subdomain is the dashboard. */}
+            <Route path="/" element={<Admin />} />
+            <Route path="*" element={<Admin />} />
+          </Routes>
+        </Suspense>
       ) : (
         <Routes>
           <Route path="/" element={<Home />} />
@@ -50,7 +58,14 @@ export function App() {
           <Route path="/i/:token" element={<Invite />} />
           {/* Legacy path on the main host — kept working through the
               admin.kaata.af transition. */}
-          <Route path="/admin" element={<Admin />} />
+          <Route
+            path="/admin"
+            element={
+              <Suspense fallback={AdminFallback}>
+                <Admin />
+              </Suspense>
+            }
+          />
           <Route path="*" element={<NotFound />} />
         </Routes>
       )}
