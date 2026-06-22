@@ -23,10 +23,12 @@ import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { getCountry, getCurrentDefaultCountryCode, normalizePhone } from "../../lib/phone";
 
-// Onboarding final form step — name + shop. NEITHER field is prefilled
-// from the Google profile (intentional UX call: shopkeepers' Google
-// account is typically their formal name, not their shop persona).
-// The email subtitle is the only Google-derived UI element.
+// Onboarding final form step — name + shop. The name IS prefilled from the
+// Google profile name stashed at sign-in (onboarding_pending_name) so a
+// returning user isn't forced to retype it; they can edit before saving. (A
+// user who had backed-up data never reaches this screen — restore rehydrates
+// their saved self-profile and routing skips onboarding.) The email subtitle
+// is the other Google-derived UI element.
 //
 // On successful submit:
 //   1. createSelfProfile() writes users + shop_profile rows
@@ -69,6 +71,13 @@ export default function OnboardingProfileScreen() {
     (async () => {
       const email = await getAppMeta("onboarding_pending_email");
       if (email) setSignedInEmail(email);
+      // Prefill the name from the Google identity stashed at sign-in so a
+      // returning user isn't asked to retype it. (For a user who actually had
+      // backed-up data, restore brings their saved profile back and this screen
+      // is skipped entirely — this prefill covers the account-but-no-vault case.)
+      // The user can still edit it before saving.
+      const pendingName = await getAppMeta("onboarding_pending_name");
+      if (pendingName) setName((prev) => (prev ? prev : pendingName));
     })();
   }, []);
 

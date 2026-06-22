@@ -41,8 +41,6 @@ import { Button } from "../../components/Button";
 import { FormField } from "../../components/FormField";
 import { ScreenHeader } from "../../components/SettingsScreen";
 import { useToast } from "../../components/Toast";
-import { getBackendUrl } from "../../lib/api";
-import { getSessionJWT } from "../../lib/auth";
 import { colors } from "../../lib/colors";
 import { CURRENCIES, DEFAULT_CURRENCY, getCurrencyName } from "../../lib/currency";
 import {
@@ -60,6 +58,7 @@ import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { ensureDeviceKey, getDevicePubkey } from "../../lib/mesh/device-key";
 import { buildLocalAccountId } from "../../lib/trust/account-id";
+import { createVaultOnServer } from "../../lib/vault-api";
 
 const NAME_MAX = 50;
 
@@ -298,18 +297,39 @@ export default function VaultNewScreen() {
         console.warn("[vault/new] notifyVaultSetChanged failed", err);
       }
 
-      // Fire-and-forget server registration. Skipped for local-only
-      // installs; deferred to the next sign-in + sync. Phase 7: we
-      // also send the trust anchor pubkey so the server can publish
-      // it on GET /v1/vaults for cross-device discovery.
+      // Fire-and-forget server registration — but now DURABLE. Skipped for
+      // local-only installs. createVaultOnServer is idempotent (409 = already
+      // registered = success); on success we stamp registered_with_server_at so
+      // reconcileVaultRegistrations() (lib/sync/reconcile.ts) stops retrying. If
+      // it fails (offline / 5xx / app killed mid-request), the column stays NULL
+      // and the next sync sweep re-registers it. This is what closes the old
+      // silent data-loss hole where a failed POST here was never retried.
       if (accountId) {
-        registerVaultWithServer(vaultId, trimmedShop, currency, now, trustAnchorPubkey).catch(
-          (err) => {
-            // Not fatal — vault still works locally and AutoSync's
-            // vaults-reconcile pass will retry on the next pull.
-            console.warn("[vault/new] server register failed", err);
-          },
-        );
+        void (async () => {
+          try {
+            await createVaultOnServer({
+              vault_id: vaultId,
+              name: trimmedShop,
+              currency,
+              created_at_ms: now,
+              vault_trust_anchor_pubkey: trustAnchorPubkey,
+            });
+            const regDb = await getDb();
+            const ts = Date.now();
+            await regDb.runAsync(
+              `UPDATE vaults
+                  SET registered_with_server_at = COALESCE(registered_with_server_at, ?),
+                      updated_at = ?
+                WHERE id = ?`,
+              ts,
+              ts,
+              vaultId,
+            );
+          } catch (err) {
+            // Not fatal — the sync sweep's register-reconcile retries durably.
+            console.warn("[vault/new] server register failed (sweep will retry)", err);
+          }
+        })();
       }
 
       toast.push(t("vaultNew.created", { name: trimmedShop }), "success");
@@ -442,55 +462,6 @@ export default function VaultNewScreen() {
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
-}
-
-// Fire-and-forget POST /v1/vaults. Inlined here (not added to vault-api.ts)
-// because the create flow has no other call sites in Phase 5.2 — promote
-// when a second screen needs the same call.
-async function registerVaultWithServer(
-  vaultId: string,
-  name: string,
-  currency: string,
-  createdAtMs: number,
-  vaultTrustAnchorPubkey?: string,
-): Promise<void> {
-  const jwt = await getSessionJWT();
-  if (!jwt) return;
-  const baseUrl = await getBackendUrl();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15_000);
-  try {
-    const res = await fetch(`${baseUrl}/v1/vaults`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${jwt}`,
-      },
-      body: JSON.stringify({
-        vault_id: vaultId,
-        name,
-        currency,
-        created_at_ms: createdAtMs,
-        // Phase 7: forward the trust anchor when set so the server's
-        // GET /v1/vaults can publish it for cross-device discovery.
-        // Older backends ignore the unknown field.
-        ...(vaultTrustAnchorPubkey ? { vault_trust_anchor_pubkey: vaultTrustAnchorPubkey } : {}),
-      }),
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      // 409 = vault_id collision (essentially impossible with v4 UUID).
-      // Surface the body in the console for triage and move on — the next
-      // reconcile pass will resolve any divergence.
-      let body = "";
-      try {
-        body = (await res.text()).slice(0, 200);
-      } catch {}
-      throw new Error(`POST /v1/vaults: ${res.status} ${body}`);
-    }
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 const styles = StyleSheet.create({

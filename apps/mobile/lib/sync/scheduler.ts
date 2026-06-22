@@ -29,12 +29,18 @@ import {
 } from "./errors";
 import { pullEvents } from "./pull";
 import { pushEvents } from "./push";
+import { fullBackupSweep } from "./reconcile";
 import { onLedgerApplied } from "../ledger-events";
 
 const FOREGROUND_INTERVAL_MS = 5_000;
 const BACKGROUND_INTERVAL_MS = 30_000;
 const BACKOFF_BASE_MS = 1_000;
 const BACKOFF_MAX_MS = 60_000;
+// The per-tick syncOnce only covers the ACTIVE vault. The full sweep
+// (register-reconcile + pull/push EVERY vault) runs on mount, on foreground
+// resume, and every SWEEP_EVERY_N successful ticks (~1 min at the 5s
+// foreground interval) so unregistered / non-active vaults still back up.
+const SWEEP_EVERY_N = 12;
 // Push-on-write: after a LOCAL edit, run a sync cycle within ~1s instead of
 // waiting out the poll interval — matches the mesh channel's latency so the
 // cloud channel is near-real-time too. Debounced to coalesce edit bursts.
@@ -124,12 +130,36 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
 
   let kickTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Full backup sweep (register-reconcile + all-vault pull/push). Self-guarded
+  // and best-effort: it swallows its own per-vault errors so it can run
+  // fire-and-forget alongside the active-vault tick without touching the
+  // scheduler's backoff state. cyclesSinceSweep paces the periodic run.
+  let sweepInFlight = false;
+  let cyclesSinceSweep = 0;
+  const runSweep = (): void => {
+    if (stopped || sweepInFlight) return;
+    sweepInFlight = true;
+    void (async () => {
+      try {
+        await fullBackupSweep();
+      } catch (err) {
+        console.warn("[sync] backup sweep failed (non-fatal)", err);
+      } finally {
+        sweepInFlight = false;
+        cyclesSinceSweep = 0;
+      }
+    })();
+  };
+
   const appStateSub = AppState.addEventListener("change", (s) => {
     const wasActive = currentAppState === "active";
     currentAppState = s;
     // Foreground kick: sync immediately on resume instead of waiting out the
     // in-flight background interval (up to 30s of stale data after unlock).
-    if (!wasActive && s === "active") scheduleNext(0);
+    if (!wasActive && s === "active") {
+      scheduleNext(0);
+      runSweep(); // also reconcile/back up non-active vaults on resume
+    }
   });
 
   const scheduleNext = (delayMs: number): void => {
@@ -178,6 +208,8 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
       // runs the (advisory) check instead of waiting another full window.
       if (verifyConvergence) cyclesSinceConvergenceCheck = 0;
       backoffAttempt = 0;
+      // Periodic full sweep so non-active / not-yet-registered vaults back up.
+      if (++cyclesSinceSweep >= SWEEP_EVERY_N) runSweep();
       scheduleNext(currentInterval());
     } catch (err) {
       if (err instanceof SessionExpiredError) {
@@ -221,8 +253,12 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
     }
   };
 
-  // Kick off immediately on mount.
+  // Kick off immediately on mount. Also run a full sweep right away so any
+  // vault that never registered (created offline, or whose create-time POST
+  // failed) gets registered + backed up on the first signed-in session after
+  // this fix ships — not just newly-created ones.
   scheduleNext(0);
+  runSweep();
 
   return () => {
     stopped = true;

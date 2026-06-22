@@ -25,7 +25,13 @@ import Constants from "expo-constants";
 
 import { checkIn } from "./api";
 import { getAppMeta, setAppMeta } from "./db";
-import { ACTIVE_VAULT_META_KEY, getAccountIdSync, getDb, setActiveVaultIdCache } from "./db-tx";
+import {
+  ACTIVE_VAULT_META_KEY,
+  getAccountIdSync,
+  getDb,
+  refreshAccountIdCache,
+  setActiveVaultIdCache,
+} from "./db-tx";
 import { ensureInstallId } from "./install-id";
 import { fetchSnapshot, restoreFromSnapshot } from "./restore";
 import { ensureDeviceKey, registerDeviceKey } from "./mesh/device-key";
@@ -173,6 +179,20 @@ async function pinServerWitnessKeys(): Promise<void> {
  * server_seq 0.
  */
 async function seedVaultFromListing(v: VaultListing): Promise<void> {
+  // NEVER seed with a null account_id — a vault row with account_id NULL is
+  // invisible to account-scoped local queries (a real data-loss path). The
+  // cache can be cold here if the launch check-in raced this restore, so
+  // re-prime from app_meta; if there's STILL no account, skip seeding (we're
+  // mid-recovery for a signed-in account, so this is purely defensive — the
+  // snapshot path or a later sweep will pick the vault up once primed).
+  let accountId = getAccountIdSync();
+  if (!accountId) accountId = await refreshAccountIdCache();
+  if (!accountId) {
+    console.warn("[recovery] skip seed — no account_id resolved", v.vault_id.slice(0, 8));
+    return;
+  }
+  // registered_with_server_at is set (the server already knows this vault — it
+  // came back from GET /v1/vaults), so the reconcile loop won't re-POST it.
   const db = await getDb();
   await db.runAsync(
     `INSERT OR IGNORE INTO vaults
@@ -185,7 +205,7 @@ async function seedVaultFromListing(v: VaultListing): Promise<void> {
     v.currency ?? "AFN",
     v.created_at_ms,
     v.created_at_ms,
-    getAccountIdSync(),
+    accountId,
     v.created_at_ms,
     v.vault_epoch,
     v.vault_trust_anchor_pubkey ?? null,

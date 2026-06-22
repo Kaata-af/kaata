@@ -33,6 +33,7 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
+import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { colors } from "../../lib/colors";
 import { getAppMeta, setAppMeta } from "../../lib/db";
 import { textDir, useIsRTL } from "../../lib/direction";
@@ -60,6 +61,9 @@ export default function OnboardingRestoreScreen() {
   const [retryNonce, setRetryNonce] = useState(0);
   // Synchronous re-entry guard for the restore action — see entry/new.tsx.
   const restoringRef = useRef(false);
+  // Confirmation gate for "Start fresh" on the data-found screen — discarding
+  // a found backup from this device shouldn't be a one-tap mistake.
+  const [confirmFresh, setConfirmFresh] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -146,14 +150,19 @@ export default function OnboardingRestoreScreen() {
     }
   }
 
-  async function onStartFresh() {
-    // The user explicitly chose to ignore the cloud copy. Don't fetch
-    // again on the next launch — stamp a flag the next restore-check can
-    // read to short-circuit. The flag is per-account so signing out and
-    // into a different account still triggers the restore prompt.
-    const accountId = await getAppMeta("account_id");
-    if (accountId) {
-      await setAppMeta(`restore_skipped_for_account_${accountId}`, "1");
+  async function onStartFresh(opts: { persistSkip: boolean }) {
+    // Only persist the per-account skip flag for a DELIBERATE choice on the
+    // "we found your data" screen. From the ERROR screen we must NOT persist
+    // it: the restore failed (often transiently), and a permanent skip would
+    // strand the account's server data — the next launch should re-probe and
+    // offer restore again. (The cloud copy is never deleted here either way;
+    // this flag only controls whether we re-prompt.) The flag is per-account
+    // so signing into a different account still triggers the restore prompt.
+    if (opts.persistSkip) {
+      const accountId = await getAppMeta("account_id");
+      if (accountId) {
+        await setAppMeta(`restore_skipped_for_account_${accountId}`, "1");
+      }
     }
     await setAppMeta("onboarding_step", "profile");
     router.replace("/onboarding/profile");
@@ -205,7 +214,9 @@ export default function OnboardingRestoreScreen() {
           <Button
             variant="secondary"
             label={t("onboardingRestore.startFresh")}
-            onPress={onStartFresh}
+            // From the error screen: do NOT persist the skip — the restore
+            // failed (likely transient), so the next launch should re-offer it.
+            onPress={() => onStartFresh({ persistSkip: false })}
           />
         </View>
       </SafeAreaView>
@@ -241,7 +252,7 @@ export default function OnboardingRestoreScreen() {
         <View style={styles.gap} />
 
         <Pressable
-          onPress={onStartFresh}
+          onPress={() => setConfirmFresh(true)}
           style={({ pressed }) => [styles.card, styles.cardGhost, pressed && { opacity: 0.85 }]}
         >
           <View style={styles.cardIcon}>
@@ -253,6 +264,19 @@ export default function OnboardingRestoreScreen() {
           <Text style={[styles.cardBody, textDir(isRTL)]}>{t("onboardingRestore.fresh.body")}</Text>
         </Pressable>
       </View>
+
+      <ConfirmDialog
+        visible={confirmFresh}
+        title={t("onboardingRestore.fresh.confirmTitle")}
+        description={t("onboardingRestore.fresh.confirmBody")}
+        confirmLabel={t("onboardingRestore.startFresh")}
+        cancelLabel={t("common.cancel")}
+        onConfirm={() => {
+          setConfirmFresh(false);
+          void onStartFresh({ persistSkip: true });
+        }}
+        onCancel={() => setConfirmFresh(false)}
+      />
     </SafeAreaView>
   );
 }

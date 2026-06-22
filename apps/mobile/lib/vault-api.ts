@@ -120,6 +120,41 @@ export async function listVaults(): Promise<VaultListing[]> {
 }
 
 // ---------------------------------------------------------------------------
+// POST /v1/vaults — register a locally-created vault with the server so it
+// gets a vault_members owner row. Without that row the vault is invisible to
+// GET /v1/vaults (no restore on reinstall) and every sync push 403s — i.e. the
+// vault silently never backs up. IDEMPOTENT: 409 (vault already registered) is
+// treated as success, so the reconcile loop can safely call this every sweep
+// until registered_with_server_at is stamped.
+// ---------------------------------------------------------------------------
+
+export async function createVaultOnServer(args: {
+  vault_id: string;
+  name: string;
+  currency: string;
+  created_at_ms: number;
+  vault_trust_anchor_pubkey?: string | null;
+}): Promise<void> {
+  try {
+    await httpThrowing("POST", "/v1/vaults", {
+      vault_id: args.vault_id,
+      name: args.name,
+      currency: args.currency,
+      created_at_ms: args.created_at_ms,
+      ...(args.vault_trust_anchor_pubkey
+        ? { vault_trust_anchor_pubkey: args.vault_trust_anchor_pubkey }
+        : {}),
+    });
+  } catch (err) {
+    // 409 = a vault row with this id already exists server-side (registered on
+    // a prior attempt, or by the sign-in pending_vault_registration). That's
+    // the success state for our purposes — stop retrying.
+    if (err instanceof ApiError && err.status === 409) return;
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // PATCH / archive / leave / transfer
 // ---------------------------------------------------------------------------
 

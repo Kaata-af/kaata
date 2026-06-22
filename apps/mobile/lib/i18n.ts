@@ -74,6 +74,9 @@ const en = {
     "Bring back all {count} of your ledgers — people, entries, and shop — on this phone.",
   "onboardingRestore.fresh.title": "Start fresh",
   "onboardingRestore.fresh.body": "Ignore the cloud copy and set up a clean ledger on this phone.",
+  "onboardingRestore.fresh.confirmTitle": "Start with a clean ledger?",
+  "onboardingRestore.fresh.confirmBody":
+    "Your backed-up kaatas stay safe in the cloud, but they won't be restored to this phone now. You can sign in again later to restore them.",
   "onboardingRestore.restoring": "Restoring your kaata…",
   "onboardingRestore.tryAgain": "Try again",
   "onboardingRestore.startFresh": "Start fresh",
@@ -1070,6 +1073,9 @@ const fa: Partial<Record<Key, string>> = {
   "onboardingRestore.fresh.title": "شروع تازه",
   "onboardingRestore.fresh.body":
     "نسخهٔ ابری را نادیده بگیرید و یک کاتای تمیز روی این تلفن بسازید.",
+  "onboardingRestore.fresh.confirmTitle": "با یک دفتر تمیز شروع می‌کنید؟",
+  "onboardingRestore.fresh.confirmBody":
+    "کاتاهای پشتیبان‌گرفته‌شدهٔ شما در ابر امن می‌مانند، اما اکنون روی این تلفن بازگردانی نمی‌شوند. می‌توانید بعداً دوباره وارد شوید تا آن‌ها را بازگردانی کنید.",
   "onboardingRestore.restoring": "در حال بازیابی کاتای شما…",
   "onboardingRestore.tryAgain": "دوباره تلاش کنید",
   "onboardingRestore.startFresh": "شروع تازه",
@@ -1760,7 +1766,8 @@ const fa: Partial<Record<Key, string>> = {
     "بیننده‌ها همه‌چیز این کاتا را می‌بینند — همه مانده‌ها و شماره‌ها — اما نمی‌توانند تغییری بدهند.",
   "invite.link.editorDisclosure": "ویرایشگرها می‌توانند در این کاتا ثبت اضافه و ویرایش کنند.",
   "invite.link.ready": "لینک آماده شد",
-  "invite.link.readySub": "هر کسی این لینک را داشته باشد می‌تواند به‌عنوان {role} بپیوندد. انقضا {when}.",
+  "invite.link.readySub":
+    "هر کسی این لینک را داشته باشد می‌تواند به‌عنوان {role} بپیوندد. انقضا {when}.",
   "invite.shareWhatsapp": "اشتراک در واتساپ",
   "invite.tooMany": "لینک‌های باز این کاتا زیاد است. اول چند تا را استفاده یا لغو کنید.",
   "invite.section.invitee": "دعوت‌شده",
