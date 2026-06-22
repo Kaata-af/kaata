@@ -61,6 +61,7 @@ import { fonts } from "../lib/fonts";
 import { formatAmount } from "../lib/format";
 import { t } from "../lib/i18n";
 import { syncOnce } from "../lib/sync";
+import { useActiveVaultCanWrite } from "../lib/use-vault-role";
 import {
   shouldPromptBatteryExemption,
   markBatteryExemptionPrompted,
@@ -164,6 +165,10 @@ export default function HomeScreen() {
   const [vaultPickerVisible, setVaultPickerVisible] = useState(false);
   const [activeVaultId, setActiveVaultIdState] = useState<string | null>(null);
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
+  // Viewer read-only gate: false only when I'm a viewer on the active (shared)
+  // vault. Hides write affordances (FAB, long-press edit/delete). Defaults true
+  // for local-only / owner / editor.
+  const canWrite = useActiveVaultCanWrite(activeVaultId);
   // D-ARCHIVED-VAULT-FILTER: the picker and settings sheet consume only
   // non-archived vaults; the archived sub-section (toggle-revealed) reads
   // `archivedVaults`. Two arrays > one array + per-render filter — the
@@ -682,6 +687,17 @@ export default function HomeScreen() {
             hugs its content (name + chevron) instead of flex:1-ing across the
             whole row, so tapping the empty middle no longer opens the kaata
             picker (it used to: the switcher's tap target spanned to the avatar). */}
+        {/* Read-only badge — shown when I'm a viewer on this (shared) kaata, so
+            the absent FAB / write actions are explained rather than mysterious. */}
+        {activeVaultId && !canWrite ? (
+          <View style={[styles.readOnlyBadge, isRTL ? { marginRight: 8 } : { marginLeft: 8 }]}>
+            <Ionicons name="eye-outline" size={12} color={colors.textSubtle} />
+            <Text style={styles.readOnlyBadgeText} allowFontScaling={false}>
+              {t("readonly.badge")}
+            </Text>
+          </View>
+        ) : null}
+
         <View style={{ flex: 1 }} pointerEvents="none" />
 
         {/* Profile chip — top-RIGHT. Phase 7: opens the unified
@@ -806,7 +822,7 @@ export default function HomeScreen() {
               refreshing={refreshing}
               onRefresh={onRefresh}
               onPersonPress={openPerson}
-              onPersonLongPress={setSheetFor}
+              onPersonLongPress={canWrite ? setSheetFor : undefined}
             />
             <TabPage
               direction="pay"
@@ -816,7 +832,7 @@ export default function HomeScreen() {
               refreshing={refreshing}
               onRefresh={onRefresh}
               onPersonPress={openPerson}
-              onPersonLongPress={setSheetFor}
+              onPersonLongPress={canWrite ? setSheetFor : undefined}
             />
           </Animated.View>
         </GestureDetector>
@@ -839,8 +855,9 @@ export default function HomeScreen() {
        * prompt. If the Activity were RTL, RN would silently reinterpret
        * `right` as `left` (the v0.2.4 bug).
        */}
-      {/* FAB only when there's an active kaata to add people into. */}
-      {activeVaultId ? (
+      {/* FAB only when there's an active kaata AND I can write to it (hidden for
+          a viewer on a shared kaata — their writes are refused anyway). */}
+      {activeVaultId && canWrite ? (
       <Animated.View
         style={[
           styles.fab,
@@ -1317,7 +1334,8 @@ function TabPage(props: {
   refreshing: boolean;
   onRefresh: () => void;
   onPersonPress: (person: PersonWithBalance) => void;
-  onPersonLongPress: (person: PersonWithBalance) => void;
+  // Omitted for a viewer (read-only) — long-press opens the edit/delete sheet.
+  onPersonLongPress?: (person: PersonWithBalance) => void;
 }) {
   const isRTL = useIsRTL();
   const total = props.people.reduce((sum, p) => sum + Math.abs(p.balance), 0);
@@ -1468,6 +1486,21 @@ const styles = StyleSheet.create({
   // future tweaks easy. The headerSubname style was removed alongside
   // its JSX (Phase 7 founder feedback — the user-name subtitle is gone).
   profileBtn: {},
+  // Read-only badge in the header (viewer on a shared kaata).
+  readOnlyBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: colors.bgMuted,
+  },
+  readOnlyBadgeText: {
+    fontSize: 11,
+    fontFamily: fonts.sansMedium,
+    color: colors.textSubtle,
+  },
   // Phase 7: initial-letter chip rendered when signedIn user has no
   // Google avatar URL. Same visual weight as the avatar slot (32x32
   // bgMuted circle) so signed-in users always see a circular chip

@@ -143,6 +143,7 @@ const en = {
 
   // Person detail
   "person.action.iGave": "I gave",
+  "readonly.badge": "View only",
   "person.action.iReceived": "I received",
   "person.balance.theyOwe": "THEY OWE YOU",
   "person.balance.youOwe": "YOU OWE THEM",
@@ -1126,6 +1127,7 @@ const fa: Partial<Record<Key, string>> = {
 
   // Person detail
   "person.action.iGave": "دادم",
+  "readonly.badge": "فقط دیدن",
   "person.action.iReceived": "گرفتم",
   "person.balance.theyOwe": "از شما قرضدار",
   "person.balance.youOwe": "از او قرضدار",

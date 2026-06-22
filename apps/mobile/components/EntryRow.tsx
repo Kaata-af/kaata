@@ -17,7 +17,8 @@ import type { Entry } from "../lib/types";
 // parents can pass a stable handler — see PersonRow for rationale.
 export const EntryRow = memo(function EntryRow(props: {
   entry: Entry;
-  onLongPress: (entry: Entry) => void;
+  // Omitted for a viewer (read-only) — tap-and-hold opens the edit/delete sheet.
+  onLongPress?: (entry: Entry) => void;
 }) {
   const isRTL = useIsRTL();
   const { entry } = props;
@@ -32,7 +33,7 @@ export const EntryRow = memo(function EntryRow(props: {
       // rows. delayLongPress 250ms so a quick tap doesn't accidentally trigger
       // it; Pressable cancels if the finger moves enough to start a scroll, so
       // it doesn't fight the list's vertical scroll.
-      onLongPress={() => props.onLongPress(entry)}
+      onLongPress={props.onLongPress ? () => props.onLongPress?.(entry) : undefined}
       delayLongPress={250}
       accessibilityRole="button"
       style={({ pressed }) => [

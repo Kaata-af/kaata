@@ -13,7 +13,7 @@
 
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { getDb } from "./db-tx";
+import { getAccountIdSync, getDb } from "./db-tx";
 import { resolveAccountIdCandidates } from "./effective-account";
 import { invalidateRoleGateCache } from "./projection/role-gate";
 import { canPerformAction, type VaultAction, type VaultRole } from "./vault-roles";
@@ -133,6 +133,41 @@ export function useVaultPermission(
 ): boolean {
   const role = useVaultRole(vaultId, accountId);
   return useCallback(() => canPerformAction(role, action), [role, action])();
+}
+
+/**
+ * Whether the active user can WRITE to `vaultId` — false ONLY for a viewer on a
+ * shared vault. Resolves the account id internally (so screens that don't track
+ * it can gate write affordances with one line), defaults to true (local-only /
+ * owner), and re-reads on focus. Use it to hide the FAB, give/receive, edit, and
+ * entry-edit affordances for a viewer — the role-gate + server already REFUSE a
+ * viewer's writes; this just stops them seeing buttons that would only fail.
+ */
+export function useActiveVaultCanWrite(vaultId: string | null): boolean {
+  const [canWrite, setCanWrite] = useState(true);
+  const reread = useCallback(() => {
+    let cancelled = false;
+    if (!vaultId) {
+      setCanWrite(true);
+      return () => {
+        cancelled = true;
+      };
+    }
+    readRoleFromDb(vaultId, getAccountIdSync())
+      .then((role) => {
+        if (!cancelled) setCanWrite(canPerformAction(role, "entry.create"));
+      })
+      .catch(() => {
+        // Never lock the user out on a transient DB error (local-only invariant).
+        if (!cancelled) setCanWrite(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [vaultId]);
+  useEffect(() => reread(), [reread]);
+  useFocusEffect(reread);
+  return canWrite;
 }
 
 // Re-exported for callers that want the pure function without pulling in

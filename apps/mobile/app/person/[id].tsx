@@ -27,6 +27,7 @@ import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
 import { t } from "../../lib/i18n";
 import { shareKaataViaWhatsApp } from "../../lib/share";
+import { useActiveVaultCanWrite } from "../../lib/use-vault-role";
 import type { Entry, PersonWithBalance, Self } from "../../lib/types";
 
 export default function PersonDetailScreen() {
@@ -46,6 +47,9 @@ export default function PersonDetailScreen() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [sheetFor, setSheetFor] = useState<Entry | null>(null);
   const [confirmDeleteFor, setConfirmDeleteFor] = useState<Entry | null>(null);
+  // Viewer read-only gate: false only when I'm a viewer on the active (shared)
+  // kaata. Hides give/receive, edit-person, and entry edit/delete.
+  const canWrite = useActiveVaultCanWrite(getActiveVaultIdSyncMaybe());
 
   const load = useCallback(async () => {
     if (!id) {
@@ -144,15 +148,24 @@ export default function PersonDetailScreen() {
             color={colors.textEmphasis}
           />
         </Pressable>
-        <Pressable
-          onPress={() => router.push({ pathname: "/person/[id]/edit", params: { id: person.id } })}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel={t("person.sheet.edit")}
-          style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.5 }]}
-        >
-          <Ionicons name="create-outline" size={20} color={colors.textEmphasis} />
-        </Pressable>
+        {canWrite ? (
+          <Pressable
+            onPress={() => router.push({ pathname: "/person/[id]/edit", params: { id: person.id } })}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={t("person.sheet.edit")}
+            style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.5 }]}
+          >
+            <Ionicons name="create-outline" size={20} color={colors.textEmphasis} />
+          </Pressable>
+        ) : (
+          <View style={styles.readOnlyChip}>
+            <Ionicons name="eye-outline" size={12} color={colors.textSubtle} />
+            <Text style={styles.readOnlyChipText} allowFontScaling={false}>
+              {t("readonly.badge")}
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* One person's tallies are bounded, so render them as ONE bordered card
@@ -198,42 +211,44 @@ export default function PersonDetailScreen() {
              * auto-reverse children and "I gave" would land on the left
              * (the v0.2.4 bug).
              */}
-            <View style={styles.actions}>
-              <View style={styles.actionBtnWrap}>
-                <Pressable
-                  onPress={() =>
-                    router.push({
-                      pathname: "/entry/new",
-                      params: { personId: person.id, type: "payment" },
-                    })
-                  }
-                  style={({ pressed }) => [
-                    styles.actionBtn,
-                    pressed && { backgroundColor: colors.bgMuted },
-                  ]}
-                >
-                  <Ionicons name="arrow-down-outline" size={16} color={colors.textEmphasis} />
-                  <Text style={styles.actionText}>{t("person.action.iReceived")}</Text>
-                </Pressable>
+            {canWrite ? (
+              <View style={styles.actions}>
+                <View style={styles.actionBtnWrap}>
+                  <Pressable
+                    onPress={() =>
+                      router.push({
+                        pathname: "/entry/new",
+                        params: { personId: person.id, type: "payment" },
+                      })
+                    }
+                    style={({ pressed }) => [
+                      styles.actionBtn,
+                      pressed && { backgroundColor: colors.bgMuted },
+                    ]}
+                  >
+                    <Ionicons name="arrow-down-outline" size={16} color={colors.textEmphasis} />
+                    <Text style={styles.actionText}>{t("person.action.iReceived")}</Text>
+                  </Pressable>
+                </View>
+                <View style={styles.actionBtnWrap}>
+                  <Pressable
+                    onPress={() =>
+                      router.push({
+                        pathname: "/entry/new",
+                        params: { personId: person.id, type: "debt" },
+                      })
+                    }
+                    style={({ pressed }) => [
+                      styles.actionBtn,
+                      pressed && { backgroundColor: colors.bgMuted },
+                    ]}
+                  >
+                    <Ionicons name="arrow-up-outline" size={16} color={colors.textEmphasis} />
+                    <Text style={styles.actionText}>{t("person.action.iGave")}</Text>
+                  </Pressable>
+                </View>
               </View>
-              <View style={styles.actionBtnWrap}>
-                <Pressable
-                  onPress={() =>
-                    router.push({
-                      pathname: "/entry/new",
-                      params: { personId: person.id, type: "debt" },
-                    })
-                  }
-                  style={({ pressed }) => [
-                    styles.actionBtn,
-                    pressed && { backgroundColor: colors.bgMuted },
-                  ]}
-                >
-                  <Ionicons name="arrow-up-outline" size={16} color={colors.textEmphasis} />
-                  <Text style={styles.actionText}>{t("person.action.iGave")}</Text>
-                </Pressable>
-              </View>
-            </View>
+            ) : null}
         </View>
 
         {entries.length === 0 ? (
@@ -246,7 +261,7 @@ export default function PersonDetailScreen() {
                 {/* setSheetFor is referentially stable — keeps the memoized
                     EntryRow from re-rendering on unrelated screen renders.
                     Opens the edit/delete sheet on TAP-AND-HOLD only. */}
-                <EntryRow entry={item} onLongPress={setSheetFor} />
+                <EntryRow entry={item} onLongPress={canWrite ? setSheetFor : undefined} />
               </View>
             ))}
           </View>
@@ -352,6 +367,21 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
+  },
+  // Read-only chip shown in place of the edit button for a viewer.
+  readOnlyChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: colors.bgMuted,
+  },
+  readOnlyChipText: {
+    fontSize: 11,
+    fontFamily: fonts.sansMedium,
+    color: colors.textSubtle,
   },
   info: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 20 },
   name: { fontSize: 22, fontFamily: fonts.sansBold, color: colors.textEmphasis },
