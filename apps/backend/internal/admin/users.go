@@ -1,0 +1,256 @@
+package admin
+
+import (
+	"context"
+	"encoding/json"
+	"time"
+)
+
+// Operator user drill-down: who's actually using kaata. For each signed-in
+// account we surface their identity (Google name + email), their kaatas (names,
+// role, members) and per-kaata activity COUNTS (tallies, customers) — but NEVER
+// the tally contents themselves (Matee: "just not the tallies, but number of
+// tallies of each kaata should be shown"). The shopkeeper's ledger name + phone
+// come from the latest server snapshot (only present for backed-up vaults);
+// everything else is structured-table data. Operator's own accounts are
+// excluded via the same OPERATOR_ACCOUNT_IDS allowlist as the stats.
+
+type KaataMember struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+	Role  string `json:"role"`
+}
+
+type UserKaata struct {
+	VaultID       string        `json:"vault_id"`
+	Name          string        `json:"name"`
+	Role          string        `json:"role"`
+	Archived      bool          `json:"archived"`
+	MemberCount   int           `json:"member_count"`
+	TallyCount    int64         `json:"tally_count"`
+	CustomerCount int64         `json:"customer_count"`
+	Members       []KaataMember `json:"members"`
+}
+
+type UserRow struct {
+	AccountID   string `json:"account_id"`
+	Name        string `json:"name"`
+	Email       string `json:"email"`
+	Locale      string `json:"locale"`
+	CreatedAt   string `json:"created_at"`
+	LastLoginAt string `json:"last_login_at"`
+	// LedgerName / LedgerPhone come from the self user in the latest snapshot of
+	// a vault this account owns — the name/phone the shopkeeper entered in-app.
+	// Empty when the account has no backed-up vault (e.g. never synced).
+	LedgerName  string      `json:"ledger_name"`
+	LedgerPhone string      `json:"ledger_phone"`
+	Kaatas      []UserKaata `json:"kaatas"`
+}
+
+type UsersResult struct {
+	Users       []UserRow `json:"users"`
+	GeneratedAt string    `json:"generated_at"`
+}
+
+// snapDoc is the minimal slice of vault_snapshots.snapshot we parse to recover
+// the shopkeeper's in-app name + phone (the self user).
+type snapDoc struct {
+	Users []struct {
+		PhoneE164   *string `json:"phone_e164"`
+		DisplayName string  `json:"display_name"`
+		IsLocalSelf int     `json:"is_local_self"`
+		AccountID   *string `json:"account_id"`
+	} `json:"users"`
+}
+
+func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
+	out := UsersResult{Users: []UserRow{}}
+
+	// 1. Accounts = the app's signed-in users (operator excluded).
+	byID := map[string]*UserRow{}
+	order := []string{}
+	rows, err := s.pool.Query(ctx, `
+		SELECT a.id::text, COALESCE(a.name, ''), a.email, COALESCE(a.locale, ''),
+		       a.created_at, a.last_login_at
+		FROM accounts a
+		WHERE a.id::text <> ALL($1::text[])
+		ORDER BY a.last_login_at DESC
+		LIMIT 1000
+	`, s.operatorAccountIDs)
+	if err != nil {
+		return out, err
+	}
+	for rows.Next() {
+		var u UserRow
+		var created, lastLogin time.Time
+		if err := rows.Scan(&u.AccountID, &u.Name, &u.Email, &u.Locale, &created, &lastLogin); err != nil {
+			rows.Close()
+			return out, err
+		}
+		u.CreatedAt = created.UTC().Format(time.RFC3339)
+		u.LastLoginAt = lastLogin.UTC().Format(time.RFC3339)
+		u.Kaatas = []UserKaata{}
+		byID[u.AccountID] = &u
+		order = append(order, u.AccountID)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
+	if len(order) == 0 {
+		out.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
+		return out, nil
+	}
+
+	// 2. Per-vault members (name/email/role) — built once, attached to every
+	//    member's kaata entry below.
+	members := map[string][]KaataMember{}
+	mrows, err := s.pool.Query(ctx, `
+		SELECT vm.vault_id::text, COALESCE(a.name, ''), a.email, vm.role
+		FROM vault_members vm
+		JOIN accounts a ON a.id = vm.account_id
+		WHERE vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL
+		  AND vm.account_id IS NOT NULL
+	`)
+	if err != nil {
+		return out, err
+	}
+	for mrows.Next() {
+		var vid string
+		var m KaataMember
+		if err := mrows.Scan(&vid, &m.Name, &m.Email, &m.Role); err != nil {
+			mrows.Close()
+			return out, err
+		}
+		members[vid] = append(members[vid], m)
+	}
+	mrows.Close()
+	if err := mrows.Err(); err != nil {
+		return out, err
+	}
+
+	// 3. Per-vault activity COUNTS from the event log (never the contents). Net
+	//    tallies = created - deleted; net customers = added - archived.
+	type counts struct{ tallies, customers int64 }
+	vcounts := map[string]counts{}
+	crows, err := s.pool.Query(ctx, `
+		SELECT vault_id::text,
+		  COUNT(*) FILTER (WHERE event_type = 'entry_created')
+		    - COUNT(*) FILTER (WHERE event_type = 'entry_deleted')  AS tallies,
+		  COUNT(*) FILTER (WHERE event_type = 'person_added')
+		    - COUNT(*) FILTER (WHERE event_type = 'person_archived') AS customers
+		FROM events
+		GROUP BY vault_id
+	`)
+	if err != nil {
+		return out, err
+	}
+	for crows.Next() {
+		var vid string
+		var c counts
+		if err := crows.Scan(&vid, &c.tallies, &c.customers); err != nil {
+			crows.Close()
+			return out, err
+		}
+		vcounts[vid] = c
+	}
+	crows.Close()
+	if err := crows.Err(); err != nil {
+		return out, err
+	}
+
+	// 4. Memberships → attach each kaata to its member account(s). A shared vault
+	//    legitimately appears under each member's list.
+	krows, err := s.pool.Query(ctx, `
+		SELECT vm.account_id::text, v.vault_id::text, v.name, vm.role,
+		       (v.archived_at IS NOT NULL) AS archived
+		FROM vault_members vm
+		JOIN vaults v ON v.vault_id = vm.vault_id
+		WHERE vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL
+		  AND vm.account_id IS NOT NULL
+		ORDER BY v.name
+	`)
+	if err != nil {
+		return out, err
+	}
+	for krows.Next() {
+		var acct string
+		var k UserKaata
+		if err := krows.Scan(&acct, &k.VaultID, &k.Name, &k.Role, &k.Archived); err != nil {
+			krows.Close()
+			return out, err
+		}
+		u := byID[acct]
+		if u == nil {
+			continue // operator-excluded or unknown account
+		}
+		k.Members = members[k.VaultID]
+		if k.Members == nil {
+			k.Members = []KaataMember{}
+		}
+		k.MemberCount = len(k.Members)
+		if c, ok := vcounts[k.VaultID]; ok {
+			if c.tallies < 0 {
+				c.tallies = 0
+			}
+			if c.customers < 0 {
+				c.customers = 0
+			}
+			k.TallyCount = c.tallies
+			k.CustomerCount = c.customers
+		}
+		u.Kaatas = append(u.Kaatas, k)
+	}
+	krows.Close()
+	if err := krows.Err(); err != nil {
+		return out, err
+	}
+
+	// 5. Best-effort: recover each shopkeeper's in-app name + phone from the
+	//    latest snapshot's self user. Missing/unparseable snapshots just leave
+	//    the fields blank — never an error (these are backed-up vaults only).
+	s.enrichLedgerIdentity(ctx, byID)
+
+	for _, id := range order {
+		out.Users = append(out.Users, *byID[id])
+	}
+	out.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
+	return out, nil
+}
+
+// enrichLedgerIdentity reads the latest snapshot per vault and, for its
+// self user, fills the owning account's ledger name + phone. Best-effort.
+func (s *Service) enrichLedgerIdentity(ctx context.Context, byID map[string]*UserRow) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT ON (vault_id) snapshot
+		FROM vault_snapshots
+		ORDER BY vault_id, up_to_server_seq DESC
+	`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return
+		}
+		var doc snapDoc
+		if json.Unmarshal(raw, &doc) != nil {
+			continue
+		}
+		for _, su := range doc.Users {
+			if su.IsLocalSelf != 1 || su.AccountID == nil {
+				continue
+			}
+			if u := byID[*su.AccountID]; u != nil {
+				if u.LedgerName == "" {
+					u.LedgerName = su.DisplayName
+				}
+				if u.LedgerPhone == "" && su.PhoneE164 != nil {
+					u.LedgerPhone = *su.PhoneE164
+				}
+			}
+		}
+	}
+}

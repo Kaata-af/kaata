@@ -33,6 +33,30 @@ type Stats = {
 
 const REFRESH_MS = 20000;
 
+type KaataMember = { name: string; email: string; role: string };
+type UserKaata = {
+  vault_id: string;
+  name: string;
+  role: string;
+  archived: boolean;
+  member_count: number;
+  tally_count: number;
+  customer_count: number;
+  members: KaataMember[];
+};
+type UserRow = {
+  account_id: string;
+  name: string;
+  email: string;
+  locale: string;
+  created_at: string;
+  last_login_at: string;
+  ledger_name: string;
+  ledger_phone: string;
+  kaatas: UserKaata[];
+};
+type UsersResult = { users: UserRow[]; generated_at: string };
+
 const TOKEN_KEY = "kaata_admin_token";
 
 function pct(n: number, d: number): string {
@@ -85,12 +109,30 @@ export function Admin() {
     }
   }, []);
 
+  // Users drill-down. Fetched on load + manual refresh only (NOT on the 20s
+  // poll) — it's a heavier query (joins + snapshot parse) and the user list is
+  // browsed, not watched live. Expandable per row.
+  const [users, setUsers] = useState<UserRow[] | null>(null);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const loadUsers = useCallback(async (tok: string) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/v1/admin/users`, {
+        headers: { Authorization: `Bearer ${tok}` },
+      });
+      if (!res.ok) return;
+      setUsers(((await res.json()) as UsersResult).users);
+    } catch {
+      // Non-fatal: the stats dashboard still renders without the user list.
+    }
+  }, []);
+
   // Auto-refresh: poll every REFRESH_MS while the tab is visible (pause in
   // background tabs so we don't hammer the DB), and refresh immediately when the
   // operator returns to the tab. Manual Refresh + the interval share load().
   useEffect(() => {
     if (!token) return;
     void load(token);
+    void loadUsers(token);
     const id = setInterval(() => {
       if (document.visibilityState === "visible") void load(token);
     }, REFRESH_MS);
@@ -103,7 +145,7 @@ export function Admin() {
       document.removeEventListener("visibilitychange", onVis);
       abortRef.current?.abort();
     };
-  }, [token, load]);
+  }, [token, load, loadUsers]);
 
   if (!token) {
     return (
@@ -149,7 +191,10 @@ export function Admin() {
             </span>
           ) : null}
           <button
-            onClick={() => void load(token)}
+            onClick={() => {
+              void load(token);
+              void loadUsers(token);
+            }}
             className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
           >
             {loading ? "Refreshing…" : "Refresh"}
@@ -271,6 +316,94 @@ export function Admin() {
                 ) : null}
               </tbody>
             </table>
+          </section>
+
+          {/* ===== USERS DRILL-DOWN — who's actually using the app ===== */}
+          <section>
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-400">
+              Users {users ? `(${users.length})` : ""}
+            </h2>
+            {users === null ? (
+              <p className="text-sm text-neutral-400">Loading users…</p>
+            ) : users.length === 0 ? (
+              <p className="text-sm text-neutral-400">
+                No signed-in users yet. Local-only installs (never signed in) don't appear here —
+                their ledger never reaches the server.
+              </p>
+            ) : (
+              <div className="overflow-hidden rounded-xl border border-neutral-200">
+                {users.map((u, i) => {
+                  const open = !!expanded[u.account_id];
+                  const totalTallies = u.kaatas.reduce((s, k) => s + k.tally_count, 0);
+                  return (
+                    <div key={u.account_id} className={i > 0 ? "border-t border-neutral-100" : ""}>
+                      <button
+                        onClick={() =>
+                          setExpanded((e) => ({ ...e, [u.account_id]: !e[u.account_id] }))
+                        }
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-neutral-50"
+                      >
+                        <span className="text-neutral-400">{open ? "▾" : "▸"}</span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 truncate text-sm font-medium">
+                            {u.ledger_name || u.name || "(no name)"}
+                            {u.locale ? (
+                              <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-neutral-500">
+                                {u.locale}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="truncate text-xs text-neutral-400">
+                            {u.email}
+                            {u.ledger_phone ? ` · ${u.ledger_phone}` : ""}
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right text-xs text-neutral-400">
+                          {u.kaatas.length} kaata{u.kaatas.length === 1 ? "" : "s"} · {totalTallies}{" "}
+                          tallies
+                        </div>
+                      </button>
+                      {open ? (
+                        <div className="bg-neutral-50 px-4 pb-3 pl-10">
+                          {u.kaatas.length === 0 ? (
+                            <p className="py-2 text-xs text-neutral-400">No kaatas backed up yet.</p>
+                          ) : (
+                            u.kaatas.map((k) => (
+                              <div
+                                key={k.vault_id}
+                                className="border-b border-neutral-100 py-2 last:border-0"
+                              >
+                                <div className="flex items-center gap-2 text-sm">
+                                  <span className="font-medium">{k.name}</span>
+                                  <span className="rounded bg-neutral-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-neutral-600">
+                                    {k.role}
+                                  </span>
+                                  {k.archived ? (
+                                    <span className="text-[10px] font-semibold uppercase text-amber-600">
+                                      archived
+                                    </span>
+                                  ) : null}
+                                  <span className="ml-auto text-xs tabular-nums text-neutral-500">
+                                    {k.tally_count} tallies · {k.customer_count} customers
+                                  </span>
+                                </div>
+                                <div className="mt-1 text-xs text-neutral-400">
+                                  {k.member_count} member{k.member_count === 1 ? "" : "s"}
+                                  {k.members.length > 0
+                                    ? ": " +
+                                      k.members.map((m) => `${m.name || m.email} (${m.role})`).join(", ")
+                                    : ""}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </section>
         </div>
       )}
