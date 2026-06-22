@@ -28,12 +28,10 @@ import {
   Share,
   StyleSheet,
   Text,
-  type TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
-import { FormField } from "../../components/FormField";
 import {
   EmptyHint,
   NavRow,
@@ -73,21 +71,17 @@ export default function VaultInviteScreen() {
   // checks via requireJwt(), so we mirror that contract in the UI gate.
   // `null` = unknown until the effect resolves.
   const [hasJwt, setHasJwt] = useState<boolean | null>(null);
-  const [email, setEmail] = useState("");
-  const [emailError, setEmailError] = useState<string | null>(null);
   const [role, setRole] = useState<VaultRole>("editor");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<InviteResult | null>(null);
   // D-UI-UNIFICATION: online gate. We snapshot connectivity once at
-  // mount; the form submit is also gated by the live state so a user
-  // who goes offline mid-edit gets a clear disabled CTA instead of an
-  // opaque API error. `null` = unknown (initial state), treated as
-  // online for UI purposes until the check resolves.
+  // mount; the create CTA is also gated by the live state so a user
+  // who goes offline gets a clear disabled CTA instead of an opaque API
+  // error. `null` = unknown (initial state), treated as online until resolved.
   const [online, setOnline] = useState<boolean | null>(null);
-  const emailRef = useRef<TextInput>(null);
   // Synchronous re-entry guard — `busy` state can't stop a same-frame
   // double-tap (setState is async); see entry/new.tsx. Double-submit
-  // here creates duplicate server invites.
+  // here mints duplicate server links.
   const submittingRef = useRef(false);
 
   const canInvite = useVaultPermission(vaultId, accountId, "vault.invite_member");
@@ -108,11 +102,6 @@ export default function VaultInviteScreen() {
       setAccountId(accId);
       setHasJwt(!!jwt);
     })();
-    // Slight delay before focusing — pushed-screen slide-in needs to
-    // finish or the soft keyboard never opens on Android (the recurring
-    // kaata pattern).
-    const timer = setTimeout(() => emailRef.current?.focus(), 280);
-    return () => clearTimeout(timer);
   }, [router, toast]);
 
   // Snapshot network state on mount. Best-effort: if expo-network throws
@@ -133,68 +122,37 @@ export default function VaultInviteScreen() {
     };
   }, []);
 
-  function validateEmail(s: string): string | null {
-    const trimmed = s.trim();
-    if (!trimmed) return t("invite.email.required");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
-      return t("invite.email.invalid");
-    }
-    return null;
-  }
-
   async function onSubmit() {
     if (!canInvite) return;
     if (busy || submittingRef.current) return;
     if (!hasJwt) {
-      // Email invites are server-mediated (the server holds the invite
-      // token until the recipient signs in to accept) and the API requires
-      // a Bearer JWT. A local-only user with no account_id can't reach
-      // those endpoints. Surface a clear toast and route them to the QR
-      // pair flow instead of letting them tap Submit and get
-      // "POST /v1/vaults/.../invites: 401 — not signed in" as the toast.
+      // Link invites are server-mediated (the server holds the token until the
+      // recipient signs in to claim it) and the API requires a Bearer JWT. A
+      // local-only user can't reach those endpoints — route them to QR pair.
       toast.push(t("invite.signInRequired"), "error");
       return;
     }
-    const err = validateEmail(email);
-    if (err) {
-      setEmailError(err);
-      return;
-    }
-    setEmailError(null);
     submittingRef.current = true;
     setBusy(true);
     try {
-      const r = await createVaultInvite(vaultId, {
-        email: email.trim(),
-        role,
-      });
+      // Empty email mints a LINK invite: the token is the secret, and whoever
+      // opens the link + signs in (with any Google account) claims this role.
+      const r = await createVaultInvite(vaultId, { email: "", role });
       setResult(r);
       toast.push(t("invite.created"), "success");
     } catch (e) {
       const msg = e instanceof Error ? e.message : t("invite.failed");
-      // Sanitize server error messages so the user doesn't see raw URLs
-      // like "POST /v1/vaults/<uuid>/invites: 404 — vault_not_found".
-      // Pattern-match on substrings the backend returns; fall back to a
-      // generic "couldn't send invite — try again" toast.
-      if (msg.includes("already_member")) {
-        // Must be checked BEFORE the broad includes("already") below —
-        // "already_member" contains "already", so the old order made
-        // this branch dead code and showed "already invited" instead.
-        setEmailError(t("invite.email.alreadyMember"));
-      } else if (msg.includes("already_invited") || msg.includes("already")) {
-        setEmailError(t("invite.email.alreadyInvited"));
-      } else if (msg.includes("not signed in") || msg.includes("401")) {
+      // Never surface raw URLs; map known substrings to clean toasts.
+      if (msg.includes("not signed in") || msg.includes("401")) {
         toast.push(t("invite.signInRequired"), "error");
+      } else if (msg.includes("too many") || msg.includes("429")) {
+        toast.push(t("invite.tooMany"), "error");
       } else if (msg.includes("vault_not_found") || msg.includes("404") || msg.includes("403")) {
-        // The most common case for local-CA users who DID sign in once
-        // but never registered THIS vault with the server: the vault
-        // exists locally but the server has no record, so /v1/vaults/<id>
-        // returns 404. Tell them to sync first, or use QR pair.
+        // local-CA vault not yet registered server-side — must sync first.
         toast.push(t("invite.vaultNotOnServer"), "error");
       } else {
-        // Generic fallback. Never surface the raw URL.
         toast.push(t("invite.failed"), "error");
-        if (__DEV__) console.warn("[vault/invite] submit failed:", msg);
+        if (__DEV__) console.warn("[vault/invite] create link failed:", msg);
       }
     } finally {
       submittingRef.current = false;
@@ -298,26 +256,8 @@ export default function VaultInviteScreen() {
 
           {!result ? (
             <>
-              <SectionHeader label={t("invite.section.invitee")} isRTL={isRTL} />
               <View style={styles.formInset}>
-                <FormField
-                  ref={emailRef}
-                  label={t("invite.email.label")}
-                  required
-                  value={email}
-                  editable={canInvite && !busy}
-                  onChangeText={(s) => {
-                    setEmail(s);
-                    if (emailError) setEmailError(null);
-                  }}
-                  placeholder={t("invite.email.placeholder")}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  returnKeyType="next"
-                  error={emailError}
-                />
-                <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("invite.gmailDotHint")}</Text>
+                <Text style={[styles.intro, textDir(isRTL)]}>{t("invite.link.intro")}</Text>
               </View>
 
               <SectionGap />
@@ -340,9 +280,18 @@ export default function VaultInviteScreen() {
                   />
                 </View>
 
+                {/* Disclosure: a viewer can READ the entire ledger (every
+                    customer balance + phone number). The owner should know
+                    what the link grants before sharing it. */}
+                <Text style={[styles.fieldHint, textDir(isRTL)]}>
+                  {role === "viewer"
+                    ? t("invite.link.viewerDisclosure")
+                    : t("invite.link.editorDisclosure")}
+                </Text>
+
                 <View style={{ height: 24 }} />
                 <Button
-                  label={t("invite.submit")}
+                  label={t("invite.link.create")}
                   onPress={onSubmit}
                   loading={busy}
                   disabled={
@@ -357,21 +306,20 @@ export default function VaultInviteScreen() {
             </>
           ) : (
             <>
-              {/* Result: invitation summary mirrors ProfileSettingsSheet's
-                  identity row (avatar + name + sub). */}
+              {/* Result: the shareable link is ready. */}
               <View style={[styles.identityRow, rowDir(isRTL)]}>
                 <View
                   style={[styles.identityAvatar, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}
                 >
-                  <Ionicons name="checkmark" size={22} color={colors.textEmphasis} />
+                  <Ionicons name="link" size={22} color={colors.textEmphasis} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.identityName, textDir(isRTL)]} numberOfLines={1}>
-                    {t("invite.result.sent")}
+                    {t("invite.link.ready")}
                   </Text>
-                  <Text style={[styles.identitySub, textDir(isRTL)]} numberOfLines={1}>
-                    {t("invite.result.sub", {
-                      email: result.invite_email,
+                  <Text style={[styles.identitySub, textDir(isRTL)]} numberOfLines={2}>
+                    {t("invite.link.readySub", {
+                      role: t(role === "viewer" ? "invite.role.viewer" : "invite.role.editor"),
                       when: formatExpires(result.expires_at),
                     })}
                   </Text>
@@ -387,26 +335,29 @@ export default function VaultInviteScreen() {
                   </Text>
                 </View>
               </View>
-              <NavRow icon="copy-outline" label={t("invite.copy")} onPress={onCopy} isRTL={isRTL} />
               <NavRow
-                icon="share-outline"
-                label={t("invite.share")}
+                icon="logo-whatsapp"
+                label={t("invite.shareWhatsapp")}
                 onPress={onShare}
                 isRTL={isRTL}
                 emphasis
+              />
+              <NavRow
+                icon="copy-outline"
+                label={t("invite.copy")}
+                onPress={onCopy}
+                isRTL={isRTL}
                 isLast
               />
 
               <SectionGap />
               <View style={styles.formInset}>
                 <Button
-                  label={t("invite.again")}
+                  label={t("invite.link.createAnother")}
                   variant="secondary"
                   onPress={() => {
                     setResult(null);
-                    setEmail("");
                     setRole("editor");
-                    setTimeout(() => emailRef.current?.focus(), 100);
                   }}
                 />
               </View>
@@ -457,6 +408,13 @@ const styles = StyleSheet.create({
 
   scrollContent: { paddingBottom: 48 },
   formInset: { paddingHorizontal: 20, paddingTop: 4 },
+
+  intro: {
+    fontSize: 14,
+    fontFamily: fonts.sansRegular,
+    color: colors.textDefault,
+    lineHeight: 20,
+  },
 
   fieldHint: {
     fontSize: 12,

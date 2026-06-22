@@ -884,6 +884,17 @@ const en = {
 
   // Vault invite — Phase 7 UX critique #8 (translated).
   "invite.title": "Invite member",
+  "invite.link.intro":
+    "Create a link to share this Kaata. Send it to one person — they open it, sign in, and join.",
+  "invite.link.create": "Create link",
+  "invite.link.createAnother": "Create another link",
+  "invite.link.viewerDisclosure":
+    "Viewers can see everything in this Kaata — all balances and phone numbers — but can't make changes.",
+  "invite.link.editorDisclosure": "Editors can add and edit tallies in this Kaata.",
+  "invite.link.ready": "Link ready",
+  "invite.link.readySub": "Anyone with this link can join as {role}. Expires {when}.",
+  "invite.shareWhatsapp": "Share on WhatsApp",
+  "invite.tooMany": "Too many open links for this Kaata. Use or revoke some first.",
   "invite.section.invitee": "Invitee",
   "invite.section.role": "Role",
   "invite.section.shareLink": "Share link",
@@ -1735,6 +1746,17 @@ const fa: Partial<Record<Key, string>> = {
 
   // Invite — Persian
   "invite.title": "دعوت عضو",
+  "invite.link.intro":
+    "یک لینک برای اشتراک این کاتا بسازید. آن را به یک نفر بفرستید — او لینک را باز می‌کند، وارد می‌شود و می‌پیوندد.",
+  "invite.link.create": "ساختن لینک",
+  "invite.link.createAnother": "ساختن لینک دیگر",
+  "invite.link.viewerDisclosure":
+    "بیننده‌ها همه‌چیز این کاتا را می‌بینند — همه مانده‌ها و شماره‌ها — اما نمی‌توانند تغییری بدهند.",
+  "invite.link.editorDisclosure": "ویرایشگرها می‌توانند در این کاتا ثبت اضافه و ویرایش کنند.",
+  "invite.link.ready": "لینک آماده شد",
+  "invite.link.readySub": "هر کسی این لینک را داشته باشد می‌تواند به‌عنوان {role} بپیوندد. انقضا {when}.",
+  "invite.shareWhatsapp": "اشتراک در واتساپ",
+  "invite.tooMany": "لینک‌های باز این کاتا زیاد است. اول چند تا را استفاده یا لغو کنید.",
   "invite.section.invitee": "دعوت‌شده",
   "invite.section.role": "نقش",
   "invite.section.shareLink": "لینک اشتراک",
