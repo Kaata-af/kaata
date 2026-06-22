@@ -36,6 +36,12 @@ const snapshotEventThreshold = 1000
 // membershipCacheTTL mirrors the auth middleware's revocation cache TTL.
 const membershipCacheTTL = 60 * time.Second
 
+// maxFutureHLCSkewMS bounds how far ahead of server time a pushed event's HLC
+// may be. 48h is far beyond any real device clock drift, so a merely-skewed
+// clock is never rejected; it only blocks gross future-dating. Events past this
+// are rejected with RejectReasonFutureHLC, which the client treats as retryable.
+const maxFutureHLCSkewMS int64 = 48 * 60 * 60 * 1000
+
 // pullCacheTTL is how long a (vault, after, limit) page lives in memory.
 // Events are append-only so the cache key naturally avoids stale data.
 const pullCacheTTL = 60 * time.Second
@@ -250,8 +256,27 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 		return a.EventID < b.EventID
 	})
 
+	nowMS := time.Now().UnixMilli()
+
 	for i := range ordered {
 		ev := ordered[i]
+		// HLC future-clamp: reject events dated implausibly far ahead of server
+		// time. Real device clocks drift by minutes/hours, never 2 days; this
+		// blocks an editor from FUTURE-dating events (to dominate last-write-wins
+		// or survive a later revocation) without touching legitimate past-dated
+		// offline batches. The window is deliberately WIDE so a merely-skewed
+		// clock is never rejected. The client treats this reject as RETRYABLE
+		// (no rejected_at) so the event is never DROPPED — it re-pushes and is
+		// accepted once server time advances to within the window of the device's
+		// (monotonic, ratchet-forward) HLC. A gross skew therefore DELAYS that
+		// vault's sync (until real time catches up) but never loses the event.
+		if ev.HLC.PhysicalMS > nowMS+maxFutureHLCSkewMS {
+			rejected = append(rejected, RejectedEvent{
+				EventID: ev.EventID,
+				Reason:  RejectReasonFutureHLC,
+			})
+			continue
+		}
 		// Phase 4 lawful-at-HLC ACL + Phase 4.1 retroactive binding.
 		// We evaluate the author's role AT THE EVENT'S HLC time per
 		// vault_audit_log — so a recently-demoted editor's offline
@@ -552,20 +577,35 @@ func (s *Service) checkMembership(ctx context.Context, vaultID, accountID string
 		}
 	}
 	var role string
+	var archived bool
 	err := s.pool.QueryRow(ctx, `
-		SELECT role
-		FROM vault_members
-		WHERE vault_id = $1::uuid
-		  AND account_id = $2::uuid
-		  AND accepted_at IS NOT NULL
-		  AND revoked_at IS NULL
+		SELECT m.role, (v.archived_at IS NOT NULL)
+		FROM vault_members m
+		JOIN vaults v ON v.vault_id = m.vault_id
+		WHERE m.vault_id = $1::uuid
+		  AND m.account_id = $2::uuid
+		  AND m.accepted_at IS NOT NULL
+		  AND m.revoked_at IS NULL
 		LIMIT 1
-	`, vaultID, accountID).Scan(&role)
+	`, vaultID, accountID).Scan(&role, &archived)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		role = ""
 	case err != nil:
 		return "", err
+	}
+	// Archived kaata: only the OWNER retains sync access, so non-owner members
+	// are cut off immediately ("archive = stop sharing") instead of keeping
+	// access for the 30-day purge grace. Owner-exempt keeps the owner's reads /
+	// restore / any push working. (Archive & unarchive themselves are owner-only
+	// REST endpoints in the vaults package — requireOwner, setting/clearing
+	// vaults.archived_at directly — so they never route through this gate.) No
+	// membership row is revoked, so the M2 chain stays consistent. NOTE: this
+	// role is cached for membershipCacheTTL, and Unarchive doesn't invalidate
+	// that cache, so a non-owner's PUSH gate can lag ≤60s after unarchive —
+	// self-healing, never data loss (reads use the uncached fresh path).
+	if archived && role != "owner" {
+		role = ""
 	}
 	s.membership.Add(key, membershipEntry{checkedAt: now, role: role})
 	return role, nil
@@ -574,29 +614,34 @@ func (s *Service) checkMembership(ctx context.Context, vaultID, accountID string
 // checkMembershipFresh never caches — used by pull and snapshot read paths
 // where revocation needs to land within a single request.
 func (s *Service) checkMembershipFresh(ctx context.Context, accountID, vaultID string) error {
-	var exists bool
-	if err := s.pool.QueryRow(ctx, `
-		SELECT EXISTS (SELECT 1 FROM vaults WHERE vault_id = $1::uuid)
-	`, vaultID).Scan(&exists); err != nil {
+	var archived bool
+	switch err := s.pool.QueryRow(ctx, `
+		SELECT (archived_at IS NOT NULL) FROM vaults WHERE vault_id = $1::uuid
+	`, vaultID).Scan(&archived); {
+	case errors.Is(err, pgx.ErrNoRows):
+		return ErrVaultNotFound
+	case err != nil:
 		return fmt.Errorf("membership: vault lookup: %w", err)
 	}
-	if !exists {
-		return ErrVaultNotFound
-	}
 
-	var isMember bool
-	if err := s.pool.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM vault_members
-			 WHERE vault_id = $1::uuid
-			   AND account_id = $2::uuid
-			   AND accepted_at IS NOT NULL
-			   AND revoked_at IS NULL
-		)
-	`, vaultID, accountID).Scan(&isMember); err != nil {
+	var role string
+	switch err := s.pool.QueryRow(ctx, `
+		SELECT role FROM vault_members
+		 WHERE vault_id = $1::uuid
+		   AND account_id = $2::uuid
+		   AND accepted_at IS NOT NULL
+		   AND revoked_at IS NULL
+		 LIMIT 1
+	`, vaultID, accountID).Scan(&role); {
+	case errors.Is(err, pgx.ErrNoRows):
+		return ErrNotMember
+	case err != nil:
 		return fmt.Errorf("membership: member lookup: %w", err)
 	}
-	if !isMember {
+
+	// Archived kaata: only the owner keeps read access (for restore/unarchive).
+	// Non-owner members are denied — same cutoff the push gate applies.
+	if archived && role != "owner" {
 		return ErrNotMember
 	}
 	return nil

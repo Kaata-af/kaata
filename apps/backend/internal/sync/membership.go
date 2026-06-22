@@ -59,6 +59,12 @@ import (
 // membership events that fail chain verification.
 const RejectReasonMembershipUnverified = "membership_unverified"
 
+// RejectReasonFutureHLC is the per-event rejection reason for an event whose HLC
+// physical time is implausibly far ahead of the server clock (> maxFutureHLCSkewMS).
+// The client MUST treat this as retryable (leave the event unacked, do NOT
+// tombstone it) so a temporarily-wrong device clock can't permanently drop it.
+const RejectReasonFutureHLC = "future_hlc"
+
 // witnessFreshnessWindowMS — a witness's issued_at_ms must be within ±7
 // days of the event's hlc_physical_ms (§2: limits replay of a leaked
 // witness while tolerating offline queuing after an online witness fetch).

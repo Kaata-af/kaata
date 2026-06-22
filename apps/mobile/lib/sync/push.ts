@@ -275,6 +275,15 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
         }
         continue;
       }
+      // future_hlc is NOT a verdict on the event — only on the device clock
+      // being implausibly far ahead of server time. Stamping rejected_at would
+      // permanently drop a valid event over a clock skew. Leave it unacked (no
+      // rejected_at, no conflict row) so it re-pushes on later cycles and is
+      // accepted once server time catches up to the device's (ratchet-forward)
+      // HLC. A gross skew delays this vault's sync but never drops the event.
+      if (r.reason === "future_hlc") {
+        continue;
+      }
       await db.runAsync("UPDATE event_log SET rejected_at = ? WHERE event_id = ?", now, r.event_id);
       await db.runAsync(
         `INSERT INTO projection_conflicts (kind, detail_json, vault_id, created_at)
