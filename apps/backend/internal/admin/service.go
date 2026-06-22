@@ -48,6 +48,11 @@ type SourceRow struct {
 	Attributed int64  `json:"attributed"`
 }
 
+type LocaleCount struct {
+	Locale string `json:"locale"`
+	Count  int64  `json:"count"`
+}
+
 type Stats struct {
 	// Funnel (installs): total → onboarded → made an entry → shared → active.
 	InstallsTotal int64 `json:"installs_total"`
@@ -74,15 +79,43 @@ type Stats struct {
 	// Signal quality: how much was removed as operator/bot noise.
 	ExcludedInstalls int64 `json:"excluded_installs"`
 	ExcludedVisits   int64 `json:"excluded_visits"`
-	// Time series + attribution.
+	// Engagement — from install_active_days. Accrues from the day per-day
+	// tracking deploys; 0 until then (frontend shows a "collecting since" state).
+	DAU      int64      `json:"dau"`
+	WAU      int64      `json:"wau"`
+	MAU      int64      `json:"mau"`
+	DauByDay []DayCount `json:"dau_by_day"`
+	// Day-N retention as raw eligible/retained counts — frontend divides so a
+	// 0/0 window renders "—" rather than a misleading 0%.
+	RetD1Eligible  int64 `json:"ret_d1_eligible"`
+	RetD1Retained  int64 `json:"ret_d1_retained"`
+	RetD7Eligible  int64 `json:"ret_d7_eligible"`
+	RetD7Retained  int64 `json:"ret_d7_retained"`
+	RetD30Eligible int64 `json:"ret_d30_eligible"`
+	RetD30Retained int64 `json:"ret_d30_retained"`
+	// Segmentation: installs by in-app language ('fa'/'en'/'unknown').
+	Languages []LocaleCount `json:"languages"`
+	// Time series + attribution. The day-series span the requested window.
 	InstallsByDay []DayCount  `json:"installs_by_day"`
 	BySource      []SourceRow `json:"by_source"`
+	// Days echoes the timeline window the series cover (so the UI can label it).
+	Days int `json:"days"`
 	// Server "as of" timestamp (RFC3339) so the dashboard can show freshness.
 	GeneratedAt string `json:"generated_at"`
 }
 
-func (s *Service) GetStats(ctx context.Context) (Stats, error) {
+// GetStats computes the dashboard aggregates over a `days`-day timeline window
+// (drives the installs/day + DAU/day series). The point-in-time KPIs
+// (active_7d/30d, DAU/WAU/MAU, retention) use their own fixed windows.
+func (s *Service) GetStats(ctx context.Context, days int) (Stats, error) {
+	if days < 1 {
+		days = 30
+	}
+	if days > 365 {
+		days = 365
+	}
 	var st Stats
+	st.Days = days
 
 	// Installs funnel. `keep` = NOT an operator install (operator account_ids in
 	// $1; NULL-account local-only installs are kept). Computed once, then every
@@ -144,7 +177,7 @@ func (s *Service) GetStats(ctx context.Context) (Stats, error) {
 	// installs excluded.
 	rows, err := s.pool.Query(ctx, `
 		WITH days AS (
-		  SELECT generate_series((CURRENT_DATE - INTERVAL '29 days')::date, CURRENT_DATE, INTERVAL '1 day')::date AS d
+		  SELECT generate_series((CURRENT_DATE - ($2 - 1) * INTERVAL '1 day')::date, CURRENT_DATE, INTERVAL '1 day')::date AS d
 		)
 		SELECT to_char(days.d, 'YYYY-MM-DD') AS day, COUNT(i.install_id)
 		FROM days
@@ -153,7 +186,7 @@ func (s *Service) GetStats(ctx context.Context) (Stats, error) {
 		 AND (i.account_id IS NULL OR i.account_id::text <> ALL($1::text[]))
 		GROUP BY days.d
 		ORDER BY days.d ASC
-	`, s.operatorAccountIDs)
+	`, s.operatorAccountIDs, days)
 	if err != nil {
 		return st, err
 	}
@@ -167,6 +200,100 @@ func (s *Service) GetStats(ctx context.Context) (Stats, error) {
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
+		return st, err
+	}
+
+	// Engagement: DAU (today) / WAU (7d) / MAU (30d) — distinct non-operator
+	// installs that phoned home in the window. From install_active_days (accrues
+	// from deploy day; 0 until then).
+	if err := s.pool.QueryRow(ctx, `
+		SELECT
+		  COUNT(DISTINCT ad.install_id) FILTER (WHERE ad.active_date >= CURRENT_DATE),
+		  COUNT(DISTINCT ad.install_id) FILTER (WHERE ad.active_date >= CURRENT_DATE - 6),
+		  COUNT(DISTINCT ad.install_id) FILTER (WHERE ad.active_date >= CURRENT_DATE - 29)
+		FROM install_active_days ad
+		JOIN installs i ON i.install_id = ad.install_id
+		WHERE (i.account_id IS NULL OR i.account_id::text <> ALL($1::text[]))
+	`, s.operatorAccountIDs).Scan(&st.DAU, &st.WAU, &st.MAU); err != nil {
+		return st, err
+	}
+
+	// DAU per day across the window (dense, zero-filled, ascending).
+	drows, err := s.pool.Query(ctx, `
+		WITH days AS (
+		  SELECT generate_series((CURRENT_DATE - ($2 - 1) * INTERVAL '1 day')::date, CURRENT_DATE, INTERVAL '1 day')::date AS d
+		),
+		act AS (
+		  SELECT ad.active_date, ad.install_id
+		  FROM install_active_days ad
+		  JOIN installs i ON i.install_id = ad.install_id
+		  WHERE (i.account_id IS NULL OR i.account_id::text <> ALL($1::text[]))
+		)
+		SELECT to_char(days.d, 'YYYY-MM-DD'), COUNT(DISTINCT act.install_id)
+		FROM days LEFT JOIN act ON act.active_date = days.d
+		GROUP BY days.d ORDER BY days.d ASC
+	`, s.operatorAccountIDs, days)
+	if err != nil {
+		return st, err
+	}
+	for drows.Next() {
+		var d DayCount
+		if err := drows.Scan(&d.Day, &d.Count); err != nil {
+			drows.Close()
+			return st, err
+		}
+		st.DauByDay = append(st.DauByDay, d)
+	}
+	drows.Close()
+	if err := drows.Err(); err != nil {
+		return st, err
+	}
+
+	// Day-N retention (eligible = had the chance; retained = active on exactly
+	// day d0+N). Raw counts; frontend divides. Meaningful only for installs first
+	// seen AFTER per-day tracking deployed.
+	if err := s.pool.QueryRow(ctx, `
+		WITH base AS (
+		  SELECT i.install_id, i.first_seen_at::date AS d0
+		  FROM installs i
+		  WHERE (i.account_id IS NULL OR i.account_id::text <> ALL($1::text[]))
+		)
+		SELECT
+		  COUNT(*) FILTER (WHERE d0 <= CURRENT_DATE - 1),
+		  COUNT(*) FILTER (WHERE d0 <= CURRENT_DATE - 1  AND EXISTS (SELECT 1 FROM install_active_days a WHERE a.install_id = base.install_id AND a.active_date = base.d0 + 1)),
+		  COUNT(*) FILTER (WHERE d0 <= CURRENT_DATE - 7),
+		  COUNT(*) FILTER (WHERE d0 <= CURRENT_DATE - 7  AND EXISTS (SELECT 1 FROM install_active_days a WHERE a.install_id = base.install_id AND a.active_date = base.d0 + 7)),
+		  COUNT(*) FILTER (WHERE d0 <= CURRENT_DATE - 30),
+		  COUNT(*) FILTER (WHERE d0 <= CURRENT_DATE - 30 AND EXISTS (SELECT 1 FROM install_active_days a WHERE a.install_id = base.install_id AND a.active_date = base.d0 + 30))
+		FROM base
+	`, s.operatorAccountIDs).Scan(
+		&st.RetD1Eligible, &st.RetD1Retained,
+		&st.RetD7Eligible, &st.RetD7Retained,
+		&st.RetD30Eligible, &st.RetD30Retained,
+	); err != nil {
+		return st, err
+	}
+
+	// Language split — installs by in-app language (app_locale).
+	lrows, err := s.pool.Query(ctx, `
+		SELECT COALESCE(NULLIF(app_locale, ''), 'unknown') AS locale, COUNT(*)
+		FROM installs
+		WHERE (account_id IS NULL OR account_id::text <> ALL($1::text[]))
+		GROUP BY 1 ORDER BY 2 DESC
+	`, s.operatorAccountIDs)
+	if err != nil {
+		return st, err
+	}
+	for lrows.Next() {
+		var lc LocaleCount
+		if err := lrows.Scan(&lc.Locale, &lc.Count); err != nil {
+			lrows.Close()
+			return st, err
+		}
+		st.Languages = append(st.Languages, lc)
+	}
+	lrows.Close()
+	if err := lrows.Err(); err != nil {
 		return st, err
 	}
 
@@ -212,6 +339,12 @@ func (s *Service) GetStats(ctx context.Context) (Stats, error) {
 	}
 	if st.BySource == nil {
 		st.BySource = []SourceRow{}
+	}
+	if st.DauByDay == nil {
+		st.DauByDay = []DayCount{}
+	}
+	if st.Languages == nil {
+		st.Languages = []LocaleCount{}
 	}
 	st.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
 	return st, nil
