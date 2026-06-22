@@ -16,11 +16,13 @@ const AdminFallback = (
   <div className="p-6 text-sm text-neutral-400">Loading dashboard…</div>
 );
 
-// The operator dashboard lives on its own subdomain (admin.kaata.af): cleaner,
-// conventional, and it isolates the admin's localStorage (the API key) from the
-// public marketing origin. Same SPA bundle serves both hosts; we just route the
-// admin host's root straight to the dashboard. kaata.af/admin keeps working too
-// so nothing breaks before the DNS/Dokploy domain is live.
+// The operator dashboard lives ONLY on its own subdomain (admin.kaata.af):
+// cleaner, conventional, and it isolates the admin's localStorage (the API key)
+// from the public marketing origin. The same SPA bundle serves both hosts; we
+// route the admin host's root straight to the dashboard. The old kaata.af/admin
+// path has been retired now that the subdomain is live — on the public host
+// /admin is just a 404 like any other unknown path, so the dashboard surface
+// (and its recharts chunk) is never reachable from the marketing origin.
 const IS_ADMIN_HOST =
   typeof window !== "undefined" && window.location.hostname.split(".")[0] === "admin";
 
@@ -56,16 +58,8 @@ export function App() {
               informational, mirrors what's behind the token. Actual accept
               happens in the mobile app via POST /v1/vaults/invites/accept. */}
           <Route path="/i/:token" element={<Invite />} />
-          {/* Legacy path on the main host — kept working through the
-              admin.kaata.af transition. */}
-          <Route
-            path="/admin"
-            element={
-              <Suspense fallback={AdminFallback}>
-                <Admin />
-              </Suspense>
-            }
-          />
+          {/* No /admin route on the public host — the dashboard lives solely on
+              admin.kaata.af (see IS_ADMIN_HOST above). /admin → 404 here. */}
           <Route path="*" element={<NotFound />} />
         </Routes>
       )}
