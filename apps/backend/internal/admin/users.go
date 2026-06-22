@@ -45,14 +45,53 @@ type UserRow struct {
 	// LedgerName / LedgerPhone come from the self user in the latest snapshot of
 	// a vault this account owns — the name/phone the shopkeeper entered in-app.
 	// Empty when the account has no backed-up vault (e.g. never synced).
-	LedgerName  string      `json:"ledger_name"`
-	LedgerPhone string      `json:"ledger_phone"`
-	Kaatas      []UserKaata `json:"kaatas"`
+	LedgerName  string `json:"ledger_name"`
+	LedgerPhone string `json:"ledger_phone"`
+	// Device/telemetry fields, folded in from the account's installs. Platform /
+	// AppVersion / Source come from the account's MOST RECENT install; InstalledAt
+	// is the earliest, LastActivityAt the latest real usage, HasOnboarded true if
+	// any install onboarded, InstallCount how many devices/reinstalls.
+	Platform       string      `json:"platform"`
+	AppVersion     string      `json:"app_version"`
+	InstalledAt    string      `json:"installed_at"`
+	LastActivityAt string      `json:"last_activity_at"`
+	HasOnboarded   bool        `json:"has_onboarded"`
+	Source         string      `json:"source"`
+	InstallCount   int         `json:"install_count"`
+	Kaatas         []UserKaata `json:"kaatas"`
+}
+
+// InstallRow is a device that has NOT signed in (account_id IS NULL). We only
+// ever have install-level telemetry for these — NO name/phone/ledger, because
+// without sign-in the ledger never syncs off the device (kaata's core privacy
+// promise). This is the "users without the ones signing in" view: everything we
+// legitimately know about an anonymous install, and nothing we don't.
+type InstallRow struct {
+	InstallID      string `json:"install_id"`
+	Platform       string `json:"platform"`
+	AppVersion     string `json:"app_version"`
+	Locale         string `json:"locale"`
+	InstalledAt    string `json:"installed_at"`
+	FirstSeen      string `json:"first_seen"`
+	LastSeen       string `json:"last_seen"`
+	LastActivityAt string `json:"last_activity_at"`
+	HasOnboarded   bool   `json:"has_onboarded"`
+	Source         string `json:"source"`
+	Attribution    string `json:"attribution_method"`
+	UsageEntries   int64  `json:"usage_entries"`
+	UsageCustomers int64  `json:"usage_customers"`
+	UsageShares    int64  `json:"usage_shares"`
+	CheckInCount   int    `json:"check_in_count"`
 }
 
 type UsersResult struct {
-	Users       []UserRow `json:"users"`
-	GeneratedAt string    `json:"generated_at"`
+	Users []UserRow `json:"users"`
+	// AnonymousInstalls = devices that never signed in. Telemetry only.
+	AnonymousInstalls []InstallRow `json:"anonymous_installs"`
+	SignedInCount     int          `json:"signed_in_count"`
+	AnonymousCount    int          `json:"anonymous_count"`
+	TotalInstalls     int          `json:"total_installs"`
+	GeneratedAt       string       `json:"generated_at"`
 }
 
 // snapDoc is the minimal slice of vault_snapshots.snapshot we parse to recover
@@ -105,10 +144,9 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 	if err := rows.Err(); err != nil {
 		return out, err
 	}
-	if len(order) == 0 {
-		out.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
-		return out, nil
-	}
+	// 1b. Fold device telemetry (platform, app version, install timeline, source)
+	//     from the installs table into each signed-in account. Best-effort.
+	s.enrichInstallTelemetry(ctx, byID)
 
 	// 2. Per-vault members (name/email/role) — built once, attached to every
 	//    member's kaata entry below.
@@ -222,8 +260,135 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 	for _, id := range order {
 		out.Users = append(out.Users, *byID[id])
 	}
+
+	// 7. The "users without the ones signing in" — anonymous installs that never
+	//    created an account. Telemetry only (no name/phone exists server-side).
+	out.AnonymousInstalls = s.fetchAnonymousInstalls(ctx)
+
+	out.SignedInCount = len(out.Users)
+	out.AnonymousCount = len(out.AnonymousInstalls)
+	signedInInstalls := 0
+	for i := range out.Users {
+		signedInInstalls += out.Users[i].InstallCount
+	}
+	out.TotalInstalls = signedInInstalls + out.AnonymousCount
 	out.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
 	return out, nil
+}
+
+// enrichInstallTelemetry folds device-level telemetry from the installs table
+// into each signed-in account: platform/version/source from the MOST RECENT
+// install, and timeline aggregates (install count, first install, last activity,
+// onboarded) across all the account's installs. Best-effort — a missing install
+// just leaves the fields blank. Operator accounts are already absent from byID,
+// so the unfiltered queries below only ever touch shown accounts.
+func (s *Service) enrichInstallTelemetry(ctx context.Context, byID map[string]*UserRow) {
+	if len(byID) == 0 {
+		return
+	}
+	// Latest install per account → platform / version / source / locale fallback.
+	lrows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT ON (account_id) account_id::text,
+		       COALESCE(platform, ''), COALESCE(app_version, ''),
+		       COALESCE(source, ''),
+		       COALESCE(NULLIF(app_locale, ''), COALESCE(device_locale, ''))
+		FROM installs
+		WHERE account_id IS NOT NULL
+		ORDER BY account_id, last_seen_at DESC NULLS LAST
+	`)
+	if err == nil {
+		for lrows.Next() {
+			var acct, platform, ver, source, locale string
+			if lrows.Scan(&acct, &platform, &ver, &source, &locale) != nil {
+				break
+			}
+			if u := byID[acct]; u != nil {
+				u.Platform = platform
+				u.AppVersion = ver
+				u.Source = source
+				if u.Locale == "" {
+					u.Locale = locale
+				}
+			}
+		}
+		lrows.Close()
+	}
+	// Aggregates per account → install count, first install, last activity, onboarded.
+	arows, err := s.pool.Query(ctx, `
+		SELECT account_id::text, COUNT(*),
+		       MIN(installed_at), MAX(last_activity_at), bool_or(has_onboarded)
+		FROM installs
+		WHERE account_id IS NOT NULL
+		GROUP BY account_id
+	`)
+	if err == nil {
+		for arows.Next() {
+			var acct string
+			var cnt int64
+			var firstInstall, lastActivity *time.Time
+			var onboarded bool
+			if arows.Scan(&acct, &cnt, &firstInstall, &lastActivity, &onboarded) != nil {
+				break
+			}
+			if u := byID[acct]; u != nil {
+				u.InstallCount = int(cnt)
+				u.HasOnboarded = onboarded
+				if firstInstall != nil {
+					u.InstalledAt = firstInstall.UTC().Format(time.RFC3339)
+				}
+				if lastActivity != nil {
+					u.LastActivityAt = lastActivity.UTC().Format(time.RFC3339)
+				}
+			}
+		}
+		arows.Close()
+	}
+}
+
+// fetchAnonymousInstalls returns every install that has not signed in
+// (account_id IS NULL). Telemetry only — these can't carry name/phone (no sync
+// without sign-in) and can't be operator-filtered (no account, and installs
+// don't store an IP), so a few of the operator's own pre-sign-in test installs
+// may appear here.
+func (s *Service) fetchAnonymousInstalls(ctx context.Context) []InstallRow {
+	out := []InstallRow{}
+	rows, err := s.pool.Query(ctx, `
+		SELECT install_id::text, COALESCE(platform, ''), COALESCE(app_version, ''),
+		       COALESCE(NULLIF(app_locale, ''), COALESCE(device_locale, '')),
+		       installed_at, first_seen_at, last_seen_at, last_activity_at,
+		       has_onboarded, COALESCE(source, ''), COALESCE(attribution_method, ''),
+		       usage_entries_created, usage_customers_added, usage_shares_sent,
+		       check_in_count
+		FROM installs
+		WHERE account_id IS NULL
+		ORDER BY last_seen_at DESC NULLS LAST
+		LIMIT 1000
+	`)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var r InstallRow
+		var installedAt, lastActivity *time.Time
+		var firstSeen, lastSeen time.Time
+		if rows.Scan(&r.InstallID, &r.Platform, &r.AppVersion, &r.Locale,
+			&installedAt, &firstSeen, &lastSeen, &lastActivity,
+			&r.HasOnboarded, &r.Source, &r.Attribution,
+			&r.UsageEntries, &r.UsageCustomers, &r.UsageShares, &r.CheckInCount) != nil {
+			return out
+		}
+		r.FirstSeen = firstSeen.UTC().Format(time.RFC3339)
+		r.LastSeen = lastSeen.UTC().Format(time.RFC3339)
+		if installedAt != nil {
+			r.InstalledAt = installedAt.UTC().Format(time.RFC3339)
+		}
+		if lastActivity != nil {
+			r.LastActivityAt = lastActivity.UTC().Format(time.RFC3339)
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 // enrichLedgerIdentity reads the latest snapshot per vault and, for its

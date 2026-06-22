@@ -91,15 +91,57 @@ type UserRow = {
   last_seen: string;
   ledger_name: string;
   ledger_phone: string;
+  platform: string;
+  app_version: string;
+  installed_at: string;
+  last_activity_at: string;
+  has_onboarded: boolean;
+  source: string;
+  install_count: number;
   kaatas: UserKaata[];
 };
-type UsersResult = { users: UserRow[]; generated_at: string };
+// An install that never signed in — telemetry only, no name/phone (the ledger
+// never leaves the device without sign-in + sync).
+type InstallRow = {
+  install_id: string;
+  platform: string;
+  app_version: string;
+  locale: string;
+  installed_at: string;
+  first_seen: string;
+  last_seen: string;
+  last_activity_at: string;
+  has_onboarded: boolean;
+  source: string;
+  attribution_method: string;
+  usage_entries: number;
+  usage_customers: number;
+  usage_shares: number;
+  check_in_count: number;
+};
+type UsersResult = {
+  users: UserRow[];
+  anonymous_installs: InstallRow[];
+  signed_in_count: number;
+  anonymous_count: number;
+  total_installs: number;
+  generated_at: string;
+};
 
 const TOKEN_KEY = "kaata_admin_token";
 
 function pct(n: number, d: number): string {
   if (!d) return "—";
   return Math.round((n / d) * 100) + "%";
+}
+
+// Short absolute date for timeline fields (installed / last active). "—" when
+// the field is empty (older installs predate the column).
+function fmtDate(iso: string): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
 // "last seen" relative label + whether the user is effectively online now
@@ -172,6 +214,7 @@ export function Admin() {
   // poll) — it's a heavier query (joins + snapshot parse) and the user list is
   // browsed, not watched live. Expandable per row.
   const [users, setUsers] = useState<UserRow[] | null>(null);
+  const [anon, setAnon] = useState<InstallRow[] | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const loadUsers = useCallback(async (tok: string) => {
     try {
@@ -179,7 +222,9 @@ export function Admin() {
         headers: { Authorization: `Bearer ${tok}` },
       });
       if (!res.ok) return;
-      setUsers(((await res.json()) as UsersResult).users);
+      const data = (await res.json()) as UsersResult;
+      setUsers(data.users);
+      setAnon(data.anonymous_installs ?? []);
     } catch {
       // Non-fatal: the stats dashboard still renders without the user list.
     }
@@ -436,8 +481,8 @@ export function Admin() {
               <p className="text-sm text-neutral-400">Loading users…</p>
             ) : users.length === 0 ? (
               <p className="text-sm text-neutral-400">
-                No signed-in users yet. Local-only installs (never signed in) don't appear here —
-                their ledger never reaches the server.
+                No signed-in users yet. Devices that never signed in are listed under “Not signed
+                in” below.
               </p>
             ) : (
               <div className="overflow-hidden rounded-xl border border-neutral-200">
@@ -487,6 +532,23 @@ export function Admin() {
                       </button>
                       {open ? (
                         <div className="bg-neutral-50 px-4 pb-3 pl-10">
+                          {/* Device / install telemetry folded in from the
+                              account's installs. */}
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 border-b border-neutral-100 py-2 text-xs text-neutral-500">
+                            <span>
+                              {u.platform || "—"}
+                              {u.app_version ? ` · v${u.app_version}` : ""}
+                            </span>
+                            <span>installed {fmtDate(u.installed_at)}</span>
+                            <span>last active {fmtDate(u.last_activity_at)}</span>
+                            {u.source ? <span>via {u.source}</span> : null}
+                            <span>
+                              {u.install_count} device{u.install_count === 1 ? "" : "s"}
+                            </span>
+                            {!u.has_onboarded ? (
+                              <span className="text-amber-600">not onboarded</span>
+                            ) : null}
+                          </div>
                           {u.kaatas.length === 0 ? (
                             <p className="py-2 text-xs text-neutral-400">No kaatas backed up yet.</p>
                           ) : (
@@ -524,6 +586,95 @@ export function Admin() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </section>
+
+          {/* ===== NOT SIGNED IN — anonymous installs (telemetry only) ===== */}
+          <section>
+            <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-neutral-400">
+              Not signed in {anon ? `(${anon.length})` : ""}
+            </h2>
+            <p className="mb-3 text-xs text-neutral-400">
+              Devices using the app without signing in. We only have on-device telemetry for these —
+              no names or phone numbers, because the ledger never leaves the phone without sign-in.
+            </p>
+            {anon === null ? (
+              <p className="text-sm text-neutral-400">Loading…</p>
+            ) : anon.length === 0 ? (
+              <p className="text-sm text-neutral-400">No anonymous installs.</p>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-neutral-200">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-neutral-200 text-left text-xs text-neutral-400">
+                      <th className="px-4 py-2 font-medium">Device</th>
+                      <th className="px-4 py-2 font-medium">App</th>
+                      <th className="px-4 py-2 font-medium">Lang</th>
+                      <th className="px-4 py-2 font-medium">Installed</th>
+                      <th className="px-4 py-2 font-medium">Last seen</th>
+                      <th className="px-4 py-2 text-right font-medium">Entries</th>
+                      <th className="px-4 py-2 text-right font-medium">Customers</th>
+                      <th className="px-4 py-2 text-right font-medium">Shares</th>
+                      <th className="px-4 py-2 font-medium">Source</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {anon.map((d) => {
+                      const seen = lastSeenInfo(d.last_seen);
+                      return (
+                        <tr key={d.install_id} className="border-b border-neutral-100 last:border-0">
+                          <td className="px-4 py-2 font-mono text-xs text-neutral-500">
+                            {d.install_id.slice(0, 8)}
+                            {!d.has_onboarded ? (
+                              <span className="ml-2 text-[10px] font-semibold uppercase text-amber-600">
+                                no onboard
+                              </span>
+                            ) : null}
+                          </td>
+                          <td className="px-4 py-2 text-xs text-neutral-500">
+                            {d.platform || "—"}
+                            {d.app_version ? ` · v${d.app_version}` : ""}
+                          </td>
+                          <td className="px-4 py-2">
+                            {d.locale ? (
+                              <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-neutral-500">
+                                {d.locale}
+                              </span>
+                            ) : (
+                              <span className="text-neutral-300">—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2 text-xs text-neutral-500">
+                            {fmtDate(d.installed_at)}
+                          </td>
+                          <td className="px-4 py-2 text-xs">
+                            <span className="flex items-center gap-1.5">
+                              <span
+                                className={`h-2 w-2 rounded-full ${
+                                  seen.online ? "bg-green-500" : "bg-neutral-300"
+                                }`}
+                              />
+                              <span className={seen.online ? "font-medium text-green-600" : "text-neutral-500"}>
+                                {seen.online ? "online" : seen.label}
+                              </span>
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums text-neutral-600">
+                            {d.usage_entries}
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums text-neutral-600">
+                            {d.usage_customers}
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums text-neutral-600">
+                            {d.usage_shares}
+                          </td>
+                          <td className="px-4 py-2 text-xs text-neutral-500">{d.source || "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </section>
