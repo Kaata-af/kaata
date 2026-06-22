@@ -129,6 +129,59 @@ The mobile app's local SQLite has an `app_meta` key-value table that holds:
 
 Ledger data (shopkeeper, customers, entries) is **never** sent to the backend. Only the install ID, app version, platform, and locale leave the device. The backend has no schema for ledger data in v0.
 
+## Admin dashboard (admin.kaata.af)
+
+The operator analytics dashboard is **not a separate service**. It's the same
+`kaata-web` bundle: the SPA checks `window.location.hostname` and, when the first
+label is `admin`, renders the dashboard at `/` instead of the marketing site
+(`IS_ADMIN_HOST` in `apps/web/src/App.tsx`). It reads `GET /v1/admin/{stats,users}`
+on the **existing** backend (`api.kaata.af`, via `VITE_BACKEND_URL`). recharts is
+code-split so it never ships in the public bundle, and `kaata.af/admin` is
+retired — `/admin` on the public host is a 404.
+
+**Backend gating.** The admin routes are wrapped in `AdminKeyMiddleware`
+(`apps/backend/internal/httpx/admin_auth.go`): when `ADMIN_API_KEY` is unset the
+whole group **404s** (no admin surface at all). When set, every request needs
+`Authorization: Bearer <ADMIN_API_KEY>` (constant-time compared). `OPERATOR_ACCOUNT_IDS`
+(CSV of `accounts.id`) filters your own accounts out of the aggregates;
+`OPERATOR_IPS` (CSV) drops your own web visits. Anonymous installs (never signed
+in) **cannot** be operator-filtered (no account, no stored IP).
+
+**One-time setup:**
+
+1. **Cloudflare DNS** — add an `admin` record mirroring whatever `kaata.af`/`www`
+   points at. ⚠️ Set it to **DNS only (grey cloud)** first: Dokploy/Traefik issues
+   the Let's Encrypt cert over an HTTP-01 challenge on `:80`, which the orange-cloud
+   proxy intercepts. Once the cert issues, flip it back to **Proxied (orange)** to
+   match `kaata.af`.
+2. **Dokploy → `kaata-web` Application → Domains** — add `admin.kaata.af`, path `/`,
+   same container port as the existing `kaata.af` entry, HTTPS on (Let's Encrypt).
+   Then **redeploy `kaata-web`** so the latest admin code is built. No build-arg
+   change needed (`VITE_BACKEND_URL=https://api.kaata.af` already set). **Do NOT**
+   set `VITE_ADMIN_API_KEY` — it would bake the secret into the public JS. The
+   dashboard uses a paste-once login (stored in the admin subdomain's `localStorage`).
+3. **Dokploy → `kaata-backend` Application → Environment** — set
+   `ADMIN_API_KEY=$(openssl rand -hex 32)` and
+   `OPERATOR_ACCOUNT_IDS=<your account uuid>`, then **redeploy** (env-only changes
+   don't auto-trigger). Look up your account id with:
+   ```sql
+   SELECT id, email, name FROM accounts WHERE LOWER(email) = LOWER('<your-google-email>');
+   ```
+
+**Verify:**
+
+```
+curl -s -o /dev/null -w "%{http_code}\n" https://api.kaata.af/v1/admin/stats               # expect 401 (or 404 if key unset)
+curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer <KEY>" \
+  "https://api.kaata.af/v1/admin/stats?bucket=day&points=30"                                # expect 200
+```
+
+Then open `https://admin.kaata.af`, paste the key once. The dashboard shows the
+funnel, DAU/WAU/MAU, retention, language split, source attribution, a signed-in
+users drill-down (identity + kaatas + tally counts + last-seen), and a "Not
+signed in" table of anonymous installs (telemetry only — no name/phone, because
+the ledger never leaves the device without sign-in + sync).
+
 ## Operational sanity checks
 
 ```sql
