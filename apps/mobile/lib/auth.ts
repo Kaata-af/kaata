@@ -393,8 +393,22 @@ async function postSignInHousekeeping(args: {
   const db = await getDb();
   const now = Date.now();
 
+  // Only mark the vault server-registered when the backend CONFIRMED it — i.e.
+  // it returned a default_vault_id (the vault it registered via the pending
+  // block, or the account's existing canonical vault). When defaultVaultId is
+  // null, the backend did NOT register a vault for us this round (e.g. we sent
+  // no pending block because the active vault was already flagged, or it was a
+  // mid-onboarding sign-in), so stamping registered_with_server_at here would
+  // be a LIE that permanently locks the vault out of the reconcile safety net
+  // (reconcile only retries vaults where the flag IS NULL). Leave it NULL and
+  // let reconcileVaultRegistrations do the real POST + stamp. account_id is
+  // always safe to bind.
+  const regStamp = args.defaultVaultId != null ? now : null;
+
   await db.withTransactionAsync(async () => {
-    // Stamp the vault as server-registered + bound to this account.
+    // Bind the vault to this account; stamp registered ONLY when confirmed
+    // (regStamp != null). COALESCE(..., null) leaves an existing value as-is and
+    // sets nothing when not confirmed — never clobbers, never lies.
     await db.runAsync(
       `UPDATE vaults
           SET account_id                = ?,
@@ -402,7 +416,7 @@ async function postSignInHousekeeping(args: {
               updated_at                = ?
         WHERE id = ?`,
       accountId,
-      now,
+      regStamp,
       now,
       vaultId,
     );

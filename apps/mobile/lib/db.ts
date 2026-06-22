@@ -68,6 +68,7 @@ const MIGRATION_016 = "016_mem_samples_diagnostics";
 const MIGRATION_017 = "017_crash_outbox";
 const MIGRATION_018 = "018_event_author_seq";
 const MIGRATION_019 = "019_vault_device_registry";
+const MIGRATION_020 = "020_reregister_bootstrap_vaults";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -302,6 +303,14 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
     } catch (err) {
       console.error("[init] runMigration019 failed:", err);
       throw new Error("runMigration019 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_020))) {
+    try {
+      await runMigration020(db);
+    } catch (err) {
+      console.error("[init] runMigration020 failed:", err);
+      throw new Error("runMigration020 failed: " + String(err));
     }
   }
 }
@@ -2706,6 +2715,42 @@ async function runMigration019(db: SQLite.SQLiteDatabase): Promise<void> {
     await db.runAsync(
       `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
       MIGRATION_019,
+      Date.now(),
+    );
+  });
+}
+
+// 020 — heal installs whose backup silently never worked.
+//
+// Bootstrap vaults minted by migration 007 (the pre-vaults-table upgrade path —
+// i.e. "I already had kaatas+tallies" users) were created with
+// vault_trust_anchor_pubkey NULL. The registration-reconcile safety net filtered
+// on `vault_trust_anchor_pubkey = <ourPubkey>`, and `NULL = value` is never true
+// in SQL, so those vaults were silently skipped forever: never registered with
+// the server, never pushed, "will back up when online" permanently, and nothing
+// to restore on reinstall.
+//
+// reconcile.ts is now fixed to also match NULL-anchor own-vaults. This migration
+// just makes sure ANY such vault is re-evaluated on next sync, including the
+// edge case where a prior buggy postSignInHousekeeping stamped
+// registered_with_server_at on a NULL-anchor vault the server never actually
+// stored (a "lying" flag that would still exclude it from reconcile). We reset
+// registered_with_server_at = NULL for NULL-anchor vaults so reconcile re-POSTs
+// them (idempotent — createVaultOnServer treats 409 "already there" as success
+// and re-stamps + adopts the anchor). DATA-SAFE: only nulls a status flag; it
+// never touches users / relationships / entries / events. A genuinely-registered
+// bootstrap vault just gets one harmless idempotent re-POST on the next sweep.
+async function runMigration020(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `UPDATE vaults
+          SET registered_with_server_at = NULL
+        WHERE vault_trust_anchor_pubkey IS NULL
+          AND archived_at IS NULL`,
+    );
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_020,
       Date.now(),
     );
   });

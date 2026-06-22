@@ -77,36 +77,69 @@ export async function reconcileVaultRegistrations(): Promise<void> {
   if (!ourPubkey) return;
 
   const db = await getDb();
-  // NOTE: archived own vaults are intentionally INCLUDED — unarchive is a real
-  // flow and their data must survive a reinstall.
+  // Ownership predicate: a vault is ours if its anchor is OUR device pubkey, OR
+  // its anchor is NULL **and it isn't a joined vault**. A NULL anchor occurs on
+  // a self-minted bootstrap vault (migration 007 created the default vault
+  // WITHOUT the anchor column; pre-anchor createSelfProfile likewise) — THE bug:
+  // the earlier `anchor = ?` filter alone silently excluded every such vault
+  // because `NULL = '<pubkey>'` is never true in SQL, so the "I already had
+  // kaatas" users never backed up. But a NULL anchor can ALSO appear on a vault
+  // we JOINED (a legacy server-anchored or anchor-less pair payload), and we
+  // must NOT POST-register or anchor-backfill someone else's vault. Joined
+  // vaults always carry a vault_members_mirror row identifying a FOREIGN owner
+  // (or our own non-owner membership), so the NOT EXISTS guard excludes them.
+  // archived own vaults are intentionally INCLUDED (unarchive is real; their
+  // data must survive a reinstall). Binds: ourPubkey, accountId, accountId.
   const rows = await db.getAllAsync<OwnedVault>(
     `SELECT id, name, currency, created_at, vault_trust_anchor_pubkey, account_id
        FROM vaults
       WHERE registered_with_server_at IS NULL
-        AND vault_trust_anchor_pubkey = ?`,
+        AND (
+          vault_trust_anchor_pubkey = ?
+          OR (
+            vault_trust_anchor_pubkey IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM vault_members_mirror m
+               WHERE m.vault_id = vaults.id
+                 AND m.revoked_at IS NULL
+                 AND (
+                   (m.role = 'owner' AND m.account_id <> ?)
+                   OR (m.account_id = ? AND m.role <> 'owner')
+                 )
+            )
+          )
+        )`,
     ourPubkey,
+    accountId,
+    accountId,
   );
 
   for (const v of rows) {
     try {
+      // For a NULL-anchor bootstrap vault, adopt THIS device as the anchor
+      // (we own it) so the server publishes a real anchor and future
+      // sweeps/mesh see a consistent row.
+      const anchor = v.vault_trust_anchor_pubkey ?? ourPubkey;
       await createVaultOnServer({
         vault_id: v.id,
         name: v.name,
         currency: v.currency || "AFN",
         created_at_ms: v.created_at,
-        vault_trust_anchor_pubkey: v.vault_trust_anchor_pubkey,
+        vault_trust_anchor_pubkey: anchor,
       });
       const now = Date.now();
-      // Stamp registered + back-fill account_id (COALESCE leaves an already-set
-      // owner account untouched — never nulls a column that was set).
+      // Stamp registered + back-fill account_id AND the anchor (COALESCE leaves
+      // an already-set value untouched — never nulls a column that was set).
       await db.runAsync(
         `UPDATE vaults
             SET registered_with_server_at = COALESCE(registered_with_server_at, ?),
                 account_id                = COALESCE(account_id, ?),
+                vault_trust_anchor_pubkey = COALESCE(vault_trust_anchor_pubkey, ?),
                 updated_at                = ?
           WHERE id = ?`,
         now,
         accountId,
+        ourPubkey,
         now,
         v.id,
       );
