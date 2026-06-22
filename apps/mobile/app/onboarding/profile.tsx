@@ -53,9 +53,8 @@ export default function OnboardingProfileScreen() {
   const [phoneError, setPhoneError] = useState<string | null>(null);
   // The kaata name is NOT collected during onboarding — creating an account
   // never forces creating a kaata. createSelfProfile makes only the local-self
-  // user; the user creates / joins / restores their first kaata afterwards
-  // (from the "no kaatas yet" home screen, or the "Join an existing kaata"
-  // link below → pair-scan).
+  // user; the user creates their first kaata afterwards from the "no kaatas yet"
+  // home screen, or JOINS one by opening an invite link (no join option here).
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
@@ -143,14 +142,6 @@ export default function OnboardingProfileScreen() {
 
   async function onSubmit() {
     await finalize("/");
-  }
-
-  async function onJoinExisting() {
-    // "I'll join an existing kaata" path: create the local-self user (name +
-    // optional phone) and route straight to the QR scanner. No kaata is minted
-    // here — pair-scan creates the joined vault. If they back out without
-    // pairing they have zero kaatas and land on the "no kaatas yet" screen.
-    await finalize("/vault/pair-scan");
   }
 
   async function onBack() {
@@ -270,17 +261,6 @@ export default function OnboardingProfileScreen() {
 
           <View style={{ height: 12 }} />
           <Button label={t("onboardingProfile.continue")} onPress={onSubmit} loading={busy} />
-
-          <View style={{ height: 14 }} />
-          <Pressable
-            onPress={onJoinExisting}
-            disabled={busy}
-            style={({ pressed }) => [styles.joinLink, pressed && { opacity: 0.6 }]}
-          >
-            <Text style={[styles.joinLinkText, textDir(isRTL)]}>
-              {t("onboardingProfile.joinExisting")}
-            </Text>
-          </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -342,16 +322,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginBottom: 14,
     lineHeight: 17,
-  },
-  joinLink: {
-    alignItems: "center",
-    paddingVertical: 10,
-  },
-  joinLinkText: {
-    fontSize: 14,
-    fontFamily: fonts.sansMedium,
-    color: colors.textSubtle,
-    textDecorationLine: "underline",
   },
   submitError: {
     fontSize: 13,
