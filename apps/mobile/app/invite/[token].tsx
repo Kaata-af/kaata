@@ -34,6 +34,7 @@ import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import {
   acceptVaultInvite,
+  ApiError,
   declineVaultInviteLocally,
   lookupPendingInvite,
   type PendingInvite,
@@ -128,10 +129,18 @@ export default function InviteAcceptScreen() {
       toast.push(t("inviteAccept.joinedToast", { name: invite.vault_name }), "success");
       router.replace("/");
     } catch (err) {
-      // Raw err.message stays in the console for debugging; the user
-      // sees the localized fallback only.
+      // Raw err.message stays in the console for debugging; the user sees a
+      // localized message chosen from the backend's structured error_code.
       console.warn("[invite] accept failed", err);
-      setErrorMsg(t("inviteAccept.error.acceptFailed"));
+      const code = err instanceof ApiError ? err.code : "";
+      if (code === "invite_not_found") {
+        // Link expired, revoked, or already used (collapsed code, by design).
+        setErrorMsg(t("inviteAccept.error.expired"));
+      } else if (code === "rate_limited") {
+        setErrorMsg(t("inviteAccept.error.rateLimited"));
+      } else {
+        setErrorMsg(t("inviteAccept.error.acceptFailed"));
+      }
       setStage("error");
     }
   }

@@ -49,7 +49,7 @@ import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { useVaultPermission } from "../../lib/use-vault-role";
-import { createVaultInvite, listVaults } from "../../lib/vault-api";
+import { ApiError, createVaultInvite, listVaults } from "../../lib/vault-api";
 import type { VaultRole } from "../../lib/events";
 
 type InviteResult = {
@@ -167,18 +167,25 @@ export default function VaultInviteScreen() {
       setResult(r);
       toast.push(t("invite.created"), "success");
     } catch (e) {
-      const msg = e instanceof Error ? e.message : t("invite.failed");
-      // Never surface raw URLs; map known substrings to clean toasts.
-      if (msg.includes("not signed in") || msg.includes("401")) {
+      // Branch on the backend's structured error_code / status, not prose.
+      const code = e instanceof ApiError ? e.code : "";
+      const status = e instanceof ApiError ? e.status : 0;
+      if (status === 401 || (e instanceof Error && e.message.includes("not signed in"))) {
         toast.push(t("invite.signInRequired"), "error");
-      } else if (msg.includes("too many") || msg.includes("429")) {
+      } else if (code === "too_many_invites" || code === "rate_limited" || status === 429) {
         toast.push(t("invite.tooMany"), "error");
-      } else if (msg.includes("vault_not_found") || msg.includes("404") || msg.includes("403")) {
+      } else if (
+        code === "vault_not_found" ||
+        code === "not_member" ||
+        code === "owner_only" ||
+        status === 404 ||
+        status === 403
+      ) {
         // local-CA vault not yet registered server-side — must sync first.
         toast.push(t("invite.vaultNotOnServer"), "error");
       } else {
         toast.push(t("invite.failed"), "error");
-        if (__DEV__) console.warn("[vault/invite] create link failed:", msg);
+        if (__DEV__) console.warn("[vault/invite] create link failed:", e);
       }
     } finally {
       submittingRef.current = false;

@@ -965,6 +965,7 @@ const en = {
     "This invitation isn't visible on your account. The invite is anchored to a specific email — try signing in with the Google account that received the invitation.",
   "inviteAccept.error.expired": "This invitation has expired. Ask the inviter for a new one.",
   "inviteAccept.error.loadFailed": "Failed to load invitation",
+  "inviteAccept.error.rateLimited": "Too many attempts. Please try again later.",
   "inviteAccept.error.acceptFailed": "Failed to accept invitation",
 
   // Vault audit log — Phase 7 UX critique #8 (translated).
@@ -1826,6 +1827,7 @@ const fa: Partial<Record<Key, string>> = {
     "این دعوت در حساب شما دیده نمی‌شود. دعوت به یک ایمیل مشخص گره خورده است — با همان حساب گوگلی وارد شوید که دعوت را دریافت کرده است.",
   "inviteAccept.error.expired": "این دعوت منقضی شده است. از دعوت‌کننده بخواهید دعوت جدید بفرستد.",
   "inviteAccept.error.loadFailed": "بار کردن دعوت ناکام شد",
+  "inviteAccept.error.rateLimited": "تلاش‌های زیاد. کمی بعد دوباره امتحان کنید.",
   "inviteAccept.error.acceptFailed": "پذیرفتن دعوت ناکام شد",
 
   // Audit log — Persian

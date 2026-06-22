@@ -103,54 +103,63 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 // Phase 4 routes
 // ---------------------------------------------------------------------------
 
-func mapServiceError(err error) (int, string) {
+// writeServiceError maps a service error to (status, error_code, message) and
+// writes a structured response. Handlers call this instead of mapServiceError +
+// httpx.Error so every error carries a stable error_code for the client.
+func writeServiceError(w http.ResponseWriter, err error) {
+	status, code, msg := mapServiceError(err)
+	httpx.ErrorCode(w, status, code, msg)
+}
+
+// mapServiceError returns (HTTP status, stable error_code, human message).
+// error_code is the client's branch key — keep it stable even if messages change.
+func mapServiceError(err error) (int, string, string) {
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return http.StatusNotFound, "vault not found"
+		return http.StatusNotFound, "vault_not_found", "vault not found"
 	case errors.Is(err, ErrNotMember):
-		return http.StatusForbidden, "not a member of this vault"
+		return http.StatusForbidden, "not_member", "not a member of this vault"
 	case errors.Is(err, ErrNotOwner):
-		return http.StatusForbidden, "owner role required"
+		return http.StatusForbidden, "owner_only", "owner role required"
 	case errors.Is(err, ErrLastOwner):
-		return http.StatusConflict, err.Error()
+		return http.StatusConflict, "last_owner", err.Error()
 	case errors.Is(err, ErrTargetNotMember):
-		return http.StatusNotFound, "target account is not a member of this vault"
+		return http.StatusNotFound, "target_not_member", "target account is not a member of this vault"
 	case errors.Is(err, ErrAlreadyArchived):
-		return http.StatusConflict, "vault is already archived"
+		return http.StatusConflict, "already_archived", "vault is already archived"
 	case errors.Is(err, ErrNotArchived):
-		return http.StatusConflict, "vault is not archived"
+		return http.StatusConflict, "not_archived", "vault is not archived"
 	case errors.Is(err, ErrVaultPurged):
 		// 410 Gone is the semantically precise code: the resource
 		// existed, was deleted, and is never coming back.
-		return http.StatusGone, err.Error()
-	case errors.Is(err, ErrInvalidRole),
-		errors.Is(err, ErrInvalidDemote),
-		errors.Is(err, ErrInvalidEmail),
-		errors.Is(err, ErrSelfTransfer):
-		return http.StatusBadRequest, err.Error()
+		return http.StatusGone, "vault_purged", err.Error()
+	case errors.Is(err, ErrInvalidRole):
+		return http.StatusBadRequest, "invalid_role", err.Error()
+	case errors.Is(err, ErrInvalidDemote):
+		return http.StatusBadRequest, "invalid_demote", err.Error()
+	case errors.Is(err, ErrInvalidEmail):
+		return http.StatusBadRequest, "invalid_email", err.Error()
+	case errors.Is(err, ErrSelfTransfer):
+		return http.StatusBadRequest, "self_transfer", err.Error()
 	case errors.Is(err, ErrInvitePending):
-		return http.StatusConflict, err.Error()
+		return http.StatusConflict, "invite_pending", err.Error()
 	case errors.Is(err, ErrTooManyPendingInvites):
-		return http.StatusTooManyRequests, err.Error()
+		return http.StatusTooManyRequests, "too_many_invites", err.Error()
 	case errors.Is(err, ErrInviteNotFound):
-		return http.StatusNotFound, err.Error()
+		return http.StatusNotFound, "invite_not_found", err.Error()
 	case errors.Is(err, ErrInviteEmailMismatch):
-		// SECURITY: collapsed to the same 404 response as ErrInviteNotFound
-		// so an attacker holding a stolen-but-stale token cannot use the
-		// email-mismatch arm to confirm the token is real. The signed-in
-		// caller whose email does not match the invitation sees the same
-		// shape as if the token had been revoked or expired. UX cost: a
-		// legitimate user signed in with the wrong Google account gets a
-		// generic "invite not found" — acceptable because the pending-invites
-		// list (`/v1/vaults/invites/pending`) already shows them the binding
-		// is to a different email.
-		return http.StatusNotFound, "invite not found"
+		// SECURITY: collapsed to the SAME response (status, code, message) as
+		// ErrInviteNotFound so an attacker holding a stolen-but-stale token
+		// cannot use the email-mismatch arm to confirm the token is real. The
+		// signed-in caller whose email does not match sees the same shape as a
+		// revoked/expired token. (Pending-invites list shows the real binding.)
+		return http.StatusNotFound, "invite_not_found", "invite not found"
 	case errors.Is(err, ErrInviteAutoRevoked):
-		return http.StatusTooManyRequests, err.Error()
+		return http.StatusTooManyRequests, "rate_limited", err.Error()
 	case errors.Is(err, ErrInviteRateLimited):
-		return http.StatusTooManyRequests, err.Error()
+		return http.StatusTooManyRequests, "rate_limited", err.Error()
 	default:
-		return http.StatusInternalServerError, "internal error"
+		return http.StatusInternalServerError, "internal_error", "internal error"
 	}
 }
 
@@ -225,8 +234,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		Currency:  req.Currency,
 	})
 	if err != nil {
-		status, msg := mapServiceError(err)
-		httpx.Error(w, status, msg)
+		writeServiceError(w, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, res)
@@ -244,8 +252,7 @@ func (h *Handler) Archive(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := h.svc.Archive(r.Context(), vaultID, claims.AccountID)
 	if err != nil {
-		status, msg := mapServiceError(err)
-		httpx.Error(w, status, msg)
+		writeServiceError(w, err)
 		return
 	}
 	if res.Status == "pending" {
@@ -271,8 +278,7 @@ func (h *Handler) Unarchive(w http.ResponseWriter, r *http.Request) {
 	}
 	epoch, err := h.svc.Unarchive(r.Context(), vaultID, claims.AccountID)
 	if err != nil {
-		status, msg := mapServiceError(err)
-		httpx.Error(w, status, msg)
+		writeServiceError(w, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, map[string]any{
@@ -292,8 +298,7 @@ func (h *Handler) Leave(w http.ResponseWriter, r *http.Request) {
 	}
 	epoch, err := h.svc.Leave(r.Context(), vaultID, claims.AccountID)
 	if err != nil {
-		status, msg := mapServiceError(err)
-		httpx.Error(w, status, msg)
+		writeServiceError(w, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, map[string]any{
@@ -335,8 +340,7 @@ func (h *Handler) TransferOwnership(w http.ResponseWriter, r *http.Request) {
 		DemoteSelfTo: req.DemoteSelfTo,
 	})
 	if err != nil {
-		status, msg := mapServiceError(err)
-		httpx.Error(w, status, msg)
+		writeServiceError(w, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, map[string]any{"vault_id": vaultID, "vault_epoch": epoch})
@@ -370,8 +374,7 @@ func (h *Handler) SetMemberRole(w http.ResponseWriter, r *http.Request) {
 
 	epoch, err := h.svc.SetMemberRole(r.Context(), vaultID, claims.AccountID, targetID, req.Role)
 	if err != nil {
-		status, msg := mapServiceError(err)
-		httpx.Error(w, status, msg)
+		writeServiceError(w, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, map[string]any{
@@ -412,8 +415,7 @@ func (h *Handler) RevokeMember(w http.ResponseWriter, r *http.Request) {
 		TargetID: targetID, RevokedReason: req.Reason,
 	})
 	if err != nil {
-		status, msg := mapServiceError(err)
-		httpx.Error(w, status, msg)
+		writeServiceError(w, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, map[string]any{
@@ -453,8 +455,7 @@ func (h *Handler) AuditLog(w http.ResponseWriter, r *http.Request) {
 
 	page, err := h.svc.AuditLog(r.Context(), vaultID, claims.AccountID, sinceID, limit)
 	if err != nil {
-		status, msg := mapServiceError(err)
-		httpx.Error(w, status, msg)
+		writeServiceError(w, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, page)
@@ -498,8 +499,7 @@ func (h *Handler) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		Email: req.Email, Role: req.Role,
 	})
 	if err != nil {
-		status, msg := mapServiceError(err)
-		httpx.Error(w, status, msg)
+		writeServiceError(w, err)
 		return
 	}
 	httpx.JSON(w, http.StatusCreated, createInviteResponse{
@@ -541,8 +541,7 @@ func (h *Handler) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		// promise a moment at which retry will succeed — the inviter must
 		// re-issue the invite. Pre-fix this returned "Retry-After: 3600",
 		// which was a lie and encouraged clients to spin pointlessly.
-		status, msg := mapServiceError(err)
-		httpx.Error(w, status, msg)
+		writeServiceError(w, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, res)

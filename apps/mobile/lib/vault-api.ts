@@ -18,6 +18,21 @@ const TIMEOUT_MS = 15_000;
 // Common helpers
 // ---------------------------------------------------------------------------
 
+// Thrown by httpThrowing on a non-2xx response. Carries the HTTP status + the
+// backend's stable error_code so callers branch on `err.code` / `err.status`
+// instead of fragile prose-substring matching of the message. Extends Error so
+// existing `instanceof Error` / `.message` handling keeps working.
+export class ApiError extends Error {
+  status: number;
+  code: string;
+  constructor(status: number, code: string, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
 async function requireJwt(): Promise<string> {
   const jwt = await getSessionJWT();
   if (!jwt) throw new Error("not signed in");
@@ -47,12 +62,22 @@ async function http(method: string, path: string, body?: unknown): Promise<Respo
 async function httpThrowing(method: string, path: string, body?: unknown): Promise<unknown> {
   const res = await http(method, path, body);
   if (!res.ok) {
-    let msg = `${method} ${path}: ${res.status}`;
+    let code = "";
+    let serverMsg = "";
     try {
       const text = await res.text();
-      if (text) msg = `${msg} — ${text.slice(0, 200)}`;
+      if (text) {
+        try {
+          const parsed = JSON.parse(text) as { error?: string; error_code?: string };
+          code = parsed.error_code ?? "";
+          serverMsg = parsed.error ?? "";
+        } catch {
+          serverMsg = text.slice(0, 200); // non-JSON body (e.g. proxy/rate-limit)
+        }
+      }
     } catch {}
-    throw new Error(msg);
+    const msg = `${method} ${path}: ${res.status}${serverMsg ? ` — ${serverMsg}` : ""}`;
+    throw new ApiError(res.status, code, msg);
   }
   const ct = res.headers.get("Content-Type") ?? "";
   if (ct.includes("application/json")) {
