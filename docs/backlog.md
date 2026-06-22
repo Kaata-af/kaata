@@ -80,8 +80,13 @@ worth labeling.
 
 ## Admin dashboard
 
-**Status:** deferred. Build whenever we want to _look_ at the data
-without writing SQL by hand.
+**Status:** BUILT (2026-06). Operator dashboard at `admin.kaata.af` (also
+`kaata.af/admin`): funnel, DAU/WAU/MAU, retention, language split, source
+attribution, and a users drill-down (names/emails/kaatas/tally counts +
+last-seen). Backend `GET /v1/admin/{stats,users}` gated by `ADMIN_API_KEY`
+(routes 404 when unset); operator's own data filtered via `OPERATOR_ACCOUNT_IDS`.
+Per-day activity from `install_active_days` + `installs.app_locale`. recharts,
+code-split. The notes below are the original deferral rationale, kept for history.
 
 All the data we'd want to see is already being captured:
 `installs.installed_at`, `last_seen_at`, `last_activity_at`,
@@ -97,6 +102,57 @@ Likely surface: a `/admin` route on the web app (behind a simple shared
 secret / basic auth — auth is fine for the operator-only case), reading
 from `VITE_BACKEND_URL` against a new admin endpoint group on the Go
 backend.
+
+---
+
+## Bulk import / export (so people can do real accounting)
+
+**Status:** deferred (validated 2026-06 — schema is accounting-grade; a few
+prerequisites must land before the feature ships). Read this before building it.
+
+**The core schema is sound — do NOT rebuild it:**
+
+- Money is `INTEGER` (`entries.amount_afn`) — no float, no rounding drift.
+- Each entry already carries a real, editable **transaction date**
+  (`occurred_at_ms` in the event payload) distinct from `created_at` — so
+  importing historical rows can keep their true dates.
+- Direction (`debt`=I gave / `payment`=I received), free-text note, soft-delete,
+  and the immutable `event_log` audit trail are all present.
+
+**Prerequisites to land BEFORE the import feature (cheap now, painful to
+retrofit once real ledgers exist):**
+
+1. **Deterministic import event_ids (BLOCKER, code not schema).** Events get
+   random `event_id`s (`Crypto.randomUUID`, lib/event-log.ts) and dedup is by
+   `event_id`, so re-running an import file (or a retry/double-tap) **silently
+   doubles the ledger**. The import path MUST mint deterministic ids — UUIDv5
+   over (vault_id + a stable per-row natural key) — so INSERT-OR-IGNORE makes
+   re-import a true no-op. Also reuse-or-skip people by phone (createPerson
+   already returns `phone_conflict`; import must not blindly append `person_added`).
+2. **Per-entry currency.** `vaults.currency` is only a display label (no
+   conversion). Append-only migration: `ALTER TABLE entries ADD COLUMN currency
+   TEXT` (nullable = vault default → existing rows untouched) + add to the
+   entry_created/amended payload. Ship the column now even without a conversion
+   engine, so mixed-currency import/export is lossless.
+3. **Reference number / source id.** Append-only migration: `entries.reference_no
+   TEXT` (+ `source_external_id` for import provenance), both nullable + in the
+   payload. Needed for reconciliation and to preserve a source system's IDs.
+
+**Export** has no schema blocker — only single-person WhatsApp text share exists
+today (lib/share.ts). Build a CSV export (avoid xlsx — no RN binary support):
+query the projected entries, **sort by `occurred_at_ms`** (never `created_at`/HLC),
+compute running balance per person app-side, write via expo-file-system + Share.
+Add a paged query for large vaults (listEntries/listAllPeople load everything).
+
+**Do NOT backdate the HLC** — `hlc_physical_ms` is the causal merge/ordering
+clock, not the business date. `occurred_at_ms` is the authoritative transaction
+date for all sorting, reports, and export.
+
+**Deferred within this (not required for v1):** category/tag, opening-balance
+entry type, partial/installment settlement (`entry_settled` is reserved). Add
+nullable columns when interviews demand them.
+
+Full analysis: the schema-import-export-fitness workflow (2026-06).
 
 ---
 
