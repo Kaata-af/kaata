@@ -115,6 +115,17 @@ export function configureGoogleSignIn(): void {
   });
 }
 
+// One interactive Google sign-in attempt → its ID token (or null if the result
+// carried none). The library wraps the payload under `data` on newer versions
+// and inline on older ones, so we read defensively.
+async function signInForIdToken(lib: GoogleSigninModule): Promise<string | null> {
+  const result = await lib.GoogleSignin.signIn();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data: any = (result as any).data ?? result;
+  const tok: unknown = data?.idToken;
+  return typeof tok === "string" && tok.length > 0 ? tok : null;
+}
+
 // SignIn opens Google's native sign-in sheet, gets an ID token, posts it
 // to /v1/auth/google, and stores the resulting session JWT + display user
 // in SecureStore. Returns the user profile for immediate display.
@@ -137,13 +148,33 @@ export async function signInWithGoogle(
   }
 
   await lib.GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-  const result = await lib.GoogleSignin.signIn();
 
-  // The library wraps the actual user payload under `data`. Older versions
-  // returned the user inline; we read defensively.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const data: any = (result as any).data ?? result;
-  const idToken: string | null | undefined = data.idToken;
+  // Clear any cached Google session BEFORE signing in. Two reasons:
+  //   1. RELIABILITY (fixes "sign-in didn't work, try again"): a stale cached
+  //      session sometimes makes signIn() resolve WITHOUT a fresh idToken (a
+  //      silent re-auth), so the old code threw "no ID token" and the user had
+  //      to retry. signOut() forces a fresh interactive sign-in that always
+  //      mints a token.
+  //   2. ACCOUNT SWITCHING: it shows the account picker every time, the intent
+  //      the configure() comment states (offlineAccess:false alone doesn't do
+  //      this).
+  // signOut() never throws a cancellation, so the user-cancel path below is
+  // unaffected. If the first attempt STILL yields no token (transient), we
+  // sign out and try once more before giving up.
+  try {
+    await lib.GoogleSignin.signOut();
+  } catch {
+    // nothing cached — fine
+  }
+  let idToken = await signInForIdToken(lib);
+  if (!idToken) {
+    try {
+      await lib.GoogleSignin.signOut();
+    } catch {
+      // ignore
+    }
+    idToken = await signInForIdToken(lib);
+  }
   if (!idToken) {
     throw new Error("Google returned no ID token; check OAuth client config.");
   }
@@ -223,15 +254,30 @@ export async function signInWithGoogle(
   // the field and follow up with POST /v1/vaults after onboarding/profile.
   const pendingVaultRegistration = await loadPendingVaultRegistration();
 
-  const res = await fetch(`${baseUrl}/v1/auth/google`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      install_id: installId,
-      id_token: idToken,
-      pending_vault_registration: pendingVaultRegistration,
-    }),
-  });
+  // Timeout the backend round-trip so a cold/slow server fails fast (with a
+  // retryable error) instead of hanging the sign-in screen indefinitely.
+  const authController = new AbortController();
+  const authTimer = setTimeout(() => authController.abort(), 20_000);
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}/v1/auth/google`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        install_id: installId,
+        id_token: idToken,
+        pending_vault_registration: pendingVaultRegistration,
+      }),
+      signal: authController.signal,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("Sign-in timed out — check your connection and try again.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(authTimer);
+  }
   if (!res.ok) {
     let detail = "";
     try {

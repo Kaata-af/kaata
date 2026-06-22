@@ -34,6 +34,7 @@ import {
 } from "./db-tx";
 import { ensureInstallId } from "./install-id";
 import { fetchSnapshot, restoreFromSnapshot } from "./restore";
+import { pullEvents } from "./sync/pull";
 import { ensureDeviceKey, registerDeviceKey } from "./mesh/device-key";
 import { scheduleSweep } from "./projection/sweep";
 import { emitWitnessedSelfAdmission, witnessEmitPendingKey } from "./trust/backfill";
@@ -94,11 +95,27 @@ export async function recoverAllVaults(): Promise<RecoveryResult> {
       if (snapshot) {
         await restoreFromSnapshot(snapshot, { setActiveDefault: false });
       } else {
-        // No server snapshot yet (cron lag / brand-new vault). Seed a minimal
-        // vault row from the listing — pinning the original anchor — so it's
-        // recognized + mesh-eligible; the next server pull (no cursor → from 0)
-        // fills the events incl. the membership chain.
+        // No server snapshot yet (cron lag / brand-new / low-activity vault —
+        // the snapshot endpoint 404s until the cron or push-threshold builds
+        // one). Seed a minimal vault row from the listing, pinning the original
+        // anchor, so it's recognized + mesh-eligible.
         await seedVaultFromListing(v);
+      }
+      // CRITICAL (fixes "kaata restored but contacts + entries missing"): pull
+      // the vault's FULL event history to completion now, so the ledger is
+      // populated when recovery finishes — not just the vault shell. The
+      // no-snapshot path above seeds ONLY the vault row; without this pull the
+      // kaata restores EMPTY and only fills in if/when a later sync tick happens
+      // to cover it. pullEvents drains to has_more=false; a freshly-seeded vault
+      // has cursor 0 so it fetches everything. Idempotent after a snapshot
+      // restore (events dedupe by event_id; the cursor skips what's already in).
+      // Best-effort: the vault row + cursor exist either way, so a transient
+      // pull failure just defers the rest to the scheduler/sweep — don't fail
+      // the whole vault over it.
+      try {
+        await pullEvents(v.vault_id);
+      } catch (err) {
+        console.warn(`[recovery] initial pull failed for ${v.vault_id.slice(0, 8)}`, err);
       }
       // Bind THIS device into the chain so it can author + mesh. Best-effort:
       // server read/write works via account ACL without it.
