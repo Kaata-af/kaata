@@ -88,6 +88,7 @@ type UserRow = {
   locale: string;
   created_at: string;
   last_login_at: string;
+  last_seen: string;
   ledger_name: string;
   ledger_phone: string;
   kaatas: UserKaata[];
@@ -99,6 +100,20 @@ const TOKEN_KEY = "kaata_admin_token";
 function pct(n: number, d: number): string {
   if (!d) return "—";
   return Math.round((n / d) * 100) + "%";
+}
+
+// "last seen" relative label + whether the user is effectively online now
+// (checked in within 10 min — the app re-checks-in on foreground).
+function lastSeenInfo(iso: string): { label: string; online: boolean } {
+  if (!iso) return { label: "never", online: false };
+  const ms = Date.now() - new Date(iso).getTime();
+  const online = ms >= 0 && ms < 10 * 60_000;
+  let label: string;
+  if (ms < 60_000) label = "just now";
+  else if (ms < 3_600_000) label = `${Math.floor(ms / 60_000)}m ago`;
+  else if (ms < 86_400_000) label = `${Math.floor(ms / 3_600_000)}h ago`;
+  else label = `${Math.floor(ms / 86_400_000)}d ago`;
+  return { label, online };
 }
 
 export function Admin() {
@@ -429,6 +444,7 @@ export function Admin() {
                 {users.map((u, i) => {
                   const open = !!expanded[u.account_id];
                   const totalTallies = u.kaatas.reduce((s, k) => s + k.tally_count, 0);
+                  const seen = lastSeenInfo(u.last_seen);
                   return (
                     <div key={u.account_id} className={i > 0 ? "border-t border-neutral-100" : ""}>
                       <button
@@ -453,8 +469,20 @@ export function Admin() {
                           </div>
                         </div>
                         <div className="shrink-0 text-right text-xs text-neutral-400">
-                          {u.kaatas.length} kaata{u.kaatas.length === 1 ? "" : "s"} · {totalTallies}{" "}
-                          tallies
+                          <div className="flex items-center justify-end gap-1.5">
+                            <span
+                              className={`h-2 w-2 rounded-full ${
+                                seen.online ? "bg-green-500" : "bg-neutral-300"
+                              }`}
+                            />
+                            <span className={seen.online ? "font-medium text-green-600" : ""}>
+                              {seen.online ? "online" : seen.label}
+                            </span>
+                          </div>
+                          <div className="mt-0.5">
+                            {u.kaatas.length} kaata{u.kaatas.length === 1 ? "" : "s"} · {totalTallies}{" "}
+                            tallies
+                          </div>
                         </div>
                       </button>
                       {open ? (

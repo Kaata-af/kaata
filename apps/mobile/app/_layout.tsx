@@ -18,7 +18,7 @@ import * as Application from "expo-application";
 import * as Network from "expo-network";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { StatusBar } from "expo-status-bar";
+import { setStatusBarStyle, StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -615,6 +615,7 @@ export default function RootLayout() {
         <ToastProvider>
           <AppMetaProvider currentVersion={currentVersion}>
             <StatusBar style="dark" />
+            <ForceDarkStatusBar />
             {installId ? <BackgroundCheckIn installId={installId} /> : null}
             <AutoSync />
             {/* Phase 6: reactively starts mesh sync (BLE primary +
@@ -1104,11 +1105,29 @@ const migrationStyles = StyleSheet.create({
   },
 });
 
+// Belt-and-suspenders over <StatusBar style="dark"/>: the boot splash sets light
+// (white) status-bar icons on its black background, and on some Android ROMs the
+// declarative re-apply when the main tree mounts loses the race — leaving white
+// icons invisible on kaata's white UI (Matee). Forcing the style imperatively in
+// an effect, a tick after the splash has fully unmounted, guarantees dark
+// (visible) icons. The app is always light-themed (userInterfaceStyle: light),
+// so dark icons are unconditionally correct.
+function ForceDarkStatusBar() {
+  useEffect(() => {
+    setStatusBarStyle("dark", true);
+  }, []);
+  return null;
+}
+
 function BackgroundCheckIn({ installId }: { installId: string }) {
   const { applyCheckIn } = useAppMeta();
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    let lastRunMs = 0;
+    const FOREGROUND_THROTTLE_MS = 5 * 60_000;
+    const run = async () => {
+      if (cancelled) return;
+      lastRunMs = Date.now();
       try {
         const netState = await Network.getNetworkStateAsync();
         if (!netState.isConnected) return;
@@ -1191,9 +1210,26 @@ function BackgroundCheckIn({ installId }: { installId: string }) {
           console.warn("[BackgroundCheckIn] check-in failed", err);
         }
       }
-    })();
+    };
+
+    void run(); // cold launch / mount
+
+    // Re-run on background→active so "last seen" on the dashboard reflects the
+    // user simply opening / returning to the app — no task (entry, etc.) needed.
+    // Throttled so rapid app-switching doesn't spam the backend; the check-in is
+    // idempotent + best-effort.
+    let lastState = AppState.currentState;
+    const sub = AppState.addEventListener("change", (next) => {
+      const cameToForeground = lastState.match(/inactive|background/) != null && next === "active";
+      lastState = next;
+      if (cameToForeground && Date.now() - lastRunMs > FOREGROUND_THROTTLE_MS) {
+        void run();
+      }
+    });
+
     return () => {
       cancelled = true;
+      sub.remove();
     };
   }, [installId, applyCheckIn]);
   return null;

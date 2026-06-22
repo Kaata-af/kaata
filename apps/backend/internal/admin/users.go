@@ -39,6 +39,9 @@ type UserRow struct {
 	Locale      string `json:"locale"`
 	CreatedAt   string `json:"created_at"`
 	LastLoginAt string `json:"last_login_at"`
+	// LastSeen = most recent check-in across the account's installs (just opening
+	// the app updates it — no task needed). Empty if the account has no install.
+	LastSeen string `json:"last_seen"`
 	// LedgerName / LedgerPhone come from the self user in the latest snapshot of
 	// a vault this account owns — the name/phone the shopkeeper entered in-app.
 	// Empty when the account has no backed-up vault (e.g. never synced).
@@ -71,10 +74,11 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 	order := []string{}
 	rows, err := s.pool.Query(ctx, `
 		SELECT a.id::text, COALESCE(a.name, ''), a.email, COALESCE(a.locale, ''),
-		       a.created_at, a.last_login_at
+		       a.created_at, a.last_login_at,
+		       (SELECT MAX(i.last_seen_at) FROM installs i WHERE i.account_id = a.id) AS last_seen
 		FROM accounts a
 		WHERE a.id::text <> ALL($1::text[])
-		ORDER BY a.last_login_at DESC
+		ORDER BY last_seen DESC NULLS LAST, a.last_login_at DESC
 		LIMIT 1000
 	`, s.operatorAccountIDs)
 	if err != nil {
@@ -83,12 +87,16 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 	for rows.Next() {
 		var u UserRow
 		var created, lastLogin time.Time
-		if err := rows.Scan(&u.AccountID, &u.Name, &u.Email, &u.Locale, &created, &lastLogin); err != nil {
+		var lastSeen *time.Time
+		if err := rows.Scan(&u.AccountID, &u.Name, &u.Email, &u.Locale, &created, &lastLogin, &lastSeen); err != nil {
 			rows.Close()
 			return out, err
 		}
 		u.CreatedAt = created.UTC().Format(time.RFC3339)
 		u.LastLoginAt = lastLogin.UTC().Format(time.RFC3339)
+		if lastSeen != nil {
+			u.LastSeen = lastSeen.UTC().Format(time.RFC3339)
+		}
 		u.Kaatas = []UserKaata{}
 		byID[u.AccountID] = &u
 		order = append(order, u.AccountID)
