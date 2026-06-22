@@ -30,6 +30,8 @@ const en = {
   "onboarding.subtitle": "A quiet ledger between you and the people you trust.",
   "onboarding.name.label": "Your name",
   "onboarding.name.placeholder": "Sultan",
+  "onboarding.lastName.label": "Last name",
+  "onboarding.lastName.placeholder": "Ahmadi",
   "onboarding.phone.label": "Phone number (optional)",
   "onboarding.phone.placeholder": "+93 7…",
   "onboarding.phone.hint":
@@ -1032,6 +1034,8 @@ const fa: Partial<Record<Key, string>> = {
   "onboarding.subtitle": "یک دفتر آرام میان شما و کسانی که اعتماد دارید.",
   "onboarding.name.label": "نام شما",
   "onboarding.name.placeholder": "سلطان",
+  "onboarding.lastName.label": "تخلص",
+  "onboarding.lastName.placeholder": "احمدی",
   "onboarding.phone.label": "شماره تلفون (اختیاری)",
   "onboarding.phone.placeholder": "+93 7…",
   "onboarding.phone.hint":

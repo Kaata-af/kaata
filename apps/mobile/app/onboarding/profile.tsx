@@ -44,6 +44,7 @@ export default function OnboardingProfileScreen() {
   const router = useRouter();
   const isRTL = useIsRTL();
   const [name, setName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   // Country dial-code for the phone field — same compound field as person/new
   // and person/[id]/edit. Defaults to the user's preference (hydrated at
@@ -61,6 +62,7 @@ export default function OnboardingProfileScreen() {
   const [busy, setBusy] = useState(false);
   const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
   const nameRef = useRef<TextInput>(null);
+  const lastNameRef = useRef<TextInput>(null);
   const phoneRef = useRef<TextInput>(null);
   // Synchronous re-entry guard — `busy` state can't stop a same-frame
   // double-tap (setState is async); see entry/new.tsx.
@@ -71,13 +73,20 @@ export default function OnboardingProfileScreen() {
     (async () => {
       const email = await getAppMeta("onboarding_pending_email");
       if (email) setSignedInEmail(email);
-      // Prefill the name from the Google identity stashed at sign-in so a
-      // returning user isn't asked to retype it. (For a user who actually had
-      // backed-up data, restore brings their saved profile back and this screen
-      // is skipped entirely — this prefill covers the account-but-no-vault case.)
-      // The user can still edit it before saving.
-      const pendingName = await getAppMeta("onboarding_pending_name");
-      if (pendingName) setName((prev) => (prev ? prev : pendingName));
+      // Prefill name + last name from the Google identity stashed at sign-in so
+      // a returning user isn't asked to retype it. (A user who actually had
+      // backed-up data has this screen skipped entirely — restore rehydrates
+      // their saved profile; this prefill covers the account-but-no-vault case.)
+      // Google gives one "name" string, so split on the first space into
+      // first / rest. The user can still edit both before saving.
+      const pendingName = (await getAppMeta("onboarding_pending_name"))?.trim();
+      if (pendingName) {
+        const sp = pendingName.indexOf(" ");
+        const first = sp === -1 ? pendingName : pendingName.slice(0, sp);
+        const rest = sp === -1 ? "" : pendingName.slice(sp + 1).trim();
+        setName((prev) => (prev ? prev : first));
+        if (rest) setLastName((prev) => (prev ? prev : rest));
+      }
     })();
   }, []);
 
@@ -94,6 +103,7 @@ export default function OnboardingProfileScreen() {
   async function finalize(targetRoute: "/" | "/vault/pair-scan"): Promise<void> {
     if (savingRef.current) return;
     const trimmedName = name.trim();
+    const trimmedLast = lastName.trim();
     const trimmedPhone = phone.trim();
 
     if (!trimmedName) {
@@ -102,6 +112,9 @@ export default function OnboardingProfileScreen() {
       return;
     }
     setNameError(null);
+    // Last name is optional. Stored combined into the single display_name the
+    // data model uses everywhere ("First Last"); no schema change.
+    const fullName = trimmedLast ? `${trimmedName} ${trimmedLast}` : trimmedName;
 
     // Normalize to E.164 like every other phone write path. Without this,
     // the raw string ("0700123456", spaces, typos) landed verbatim in
@@ -126,7 +139,7 @@ export default function OnboardingProfileScreen() {
       // vault. The user makes their first kaata from the "no kaatas" home
       // screen (or by pairing/restoring). (Matee: account creation must not
       // force creating a kaata.)
-      await createSelfProfile(trimmedName, "", normalizedPhone);
+      await createSelfProfile(fullName, "", normalizedPhone);
       await setAppMeta("onboarding_step", "done");
       await setAppMeta("onboarding_pending_name", "");
       await setAppMeta("onboarding_pending_email", "");
@@ -209,9 +222,21 @@ export default function OnboardingProfileScreen() {
             placeholder={t("onboarding.name.placeholder")}
             autoCapitalize="words"
             returnKeyType="next"
-            onSubmitEditing={() => phoneRef.current?.focus()}
+            onSubmitEditing={() => lastNameRef.current?.focus()}
             submitBehavior="submit"
             error={nameError}
+          />
+
+          <FormField
+            ref={lastNameRef}
+            label={t("onboarding.lastName.label")}
+            value={lastName}
+            onChangeText={setLastName}
+            placeholder={t("onboarding.lastName.placeholder")}
+            autoCapitalize="words"
+            returnKeyType="next"
+            onSubmitEditing={() => phoneRef.current?.focus()}
+            submitBehavior="submit"
           />
 
           {/* Phone with country picker — same compound field as person/new and
