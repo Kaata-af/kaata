@@ -35,7 +35,11 @@ import { AutoSync } from "../components/AutoSync";
 import { MeshController } from "../components/MeshController";
 import { ProjectionConflictsListener } from "../components/ProjectionConflictsListener";
 import { ToastProvider } from "../components/Toast";
-import { ensureShopModeChannel, SHOP_MODE_NOTIFICATION_ID } from "../lib/mesh/foreground";
+import {
+  ensureShopModeChannel,
+  SHOP_MODE_NOTIFICATION_ID,
+  stopShopModeForegroundService,
+} from "../lib/mesh/foreground";
 
 // ============================================================================
 // I18nManager neutralization + one-shot migration. The architecture:
@@ -101,7 +105,9 @@ import {
   healActiveVaultId,
   initDb,
   readPendingUsage,
+  setAppMeta,
 } from "../lib/db";
+import { SOLO_STORE_MODE } from "../constants/env";
 import {
   primeActiveVaultId,
   refreshAccountIdCache,
@@ -392,6 +398,21 @@ export default function RootLayout() {
         await ensureShopModeChannel();
       } catch (err) {
         if (__DEV__) console.warn("[init] ensureShopModeChannel", err);
+      }
+
+      // SOLO_STORE_MODE: Nearby sync isn't even toggleable in this build, but a
+      // stale shop_mode_enabled="1" (from a prior non-solo build) + the START_STICKY
+      // native foreground service means the OS keeps re-posting the "Nearby sync"
+      // notification with no way to turn it off. Kill it EARLY on every boot — clear
+      // the flag so MeshController never restarts it, and stop the native FGS so the
+      // notification disappears now (not after the 10s app-meta poll). Best-effort.
+      if (SOLO_STORE_MODE) {
+        try {
+          await setAppMeta("shop_mode_enabled", "0");
+          await stopShopModeForegroundService();
+        } catch (err) {
+          if (__DEV__) console.warn("[init] solo-mode FGS kill failed", err);
+        }
       }
 
       // Everything that's supposed to run before the Stack mounts has

@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -150,7 +151,9 @@ export default function PersonDetailScreen() {
         </Pressable>
         {canWrite ? (
           <Pressable
-            onPress={() => router.push({ pathname: "/person/[id]/edit", params: { id: person.id } })}
+            onPress={() =>
+              router.push({ pathname: "/person/[id]/edit", params: { id: person.id } })
+            }
             hitSlop={8}
             accessibilityRole="button"
             accessibilityLabel={t("person.sheet.edit")}
@@ -183,72 +186,72 @@ export default function PersonDetailScreen() {
         }}
       >
         <View>
-            <View style={styles.info}>
-              <Text style={[styles.name, textDir(isRTL)]}>{person.name}</Text>
-              {person.phone ? (
-                <Text style={[styles.phone, textDir(isRTL)]}>{person.phone}</Text>
-              ) : null}
-              <View style={{ height: 16 }} />
-              {chipLabel && chipVariant ? (
-                <Chip label={chipLabel} variant={chipVariant} />
-              ) : entries.length > 0 ? (
-                <Chip label={t("person.balance.settled")} variant="neutral" />
-              ) : null}
-              <View style={[styles.balanceRow, rowDir(isRTL)]}>
-                <Text style={[styles.balance, !hasBalance && { color: colors.textMuted }]}>
-                  {formatAmount(abs)}
-                </Text>
-                <Text style={styles.balanceAfn}>{getCurrentCurrencySymbol()}</Text>
+          <View style={styles.info}>
+            <Text style={[styles.name, textDir(isRTL)]}>{person.name}</Text>
+            {person.phone ? (
+              <Text style={[styles.phone, textDir(isRTL)]}>{person.phone}</Text>
+            ) : null}
+            <View style={{ height: 16 }} />
+            {chipLabel && chipVariant ? (
+              <Chip label={chipLabel} variant={chipVariant} />
+            ) : entries.length > 0 ? (
+              <Chip label={t("person.balance.settled")} variant="neutral" />
+            ) : null}
+            <View style={[styles.balanceRow, rowDir(isRTL)]}>
+              <Text style={[styles.balance, !hasBalance && { color: colors.textMuted }]}>
+                {formatAmount(abs)}
+              </Text>
+              <Text style={styles.balanceAfn}>{getCurrentCurrencySymbol()}</Text>
+            </View>
+          </View>
+
+          {/*
+           * INVARIANT: "I gave" on the RIGHT, "I received" on the LEFT.
+           * Right-hand-is-giving cultural rule. The actions style below uses
+           * `flexDirection: "row"` and relies on the Activity being LTR —
+           * that's guaranteed by _layout.tsx's I18nManager neutralization +
+           * one-shot migration prompt. If the Activity were RTL, Yoga would
+           * auto-reverse children and "I gave" would land on the left
+           * (the v0.2.4 bug).
+           */}
+          {canWrite ? (
+            <View style={styles.actions}>
+              <View style={styles.actionBtnWrap}>
+                <Pressable
+                  onPress={() =>
+                    router.push({
+                      pathname: "/entry/new",
+                      params: { personId: person.id, type: "payment" },
+                    })
+                  }
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    pressed && { backgroundColor: colors.bgMuted },
+                  ]}
+                >
+                  <Ionicons name="arrow-down-outline" size={16} color={colors.textEmphasis} />
+                  <Text style={styles.actionText}>{t("person.action.iReceived")}</Text>
+                </Pressable>
+              </View>
+              <View style={styles.actionBtnWrap}>
+                <Pressable
+                  onPress={() =>
+                    router.push({
+                      pathname: "/entry/new",
+                      params: { personId: person.id, type: "debt" },
+                    })
+                  }
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    pressed && { backgroundColor: colors.bgMuted },
+                  ]}
+                >
+                  <Ionicons name="arrow-up-outline" size={16} color={colors.textEmphasis} />
+                  <Text style={styles.actionText}>{t("person.action.iGave")}</Text>
+                </Pressable>
               </View>
             </View>
-
-            {/*
-             * INVARIANT: "I gave" on the RIGHT, "I received" on the LEFT.
-             * Right-hand-is-giving cultural rule. The actions style below uses
-             * `flexDirection: "row"` and relies on the Activity being LTR —
-             * that's guaranteed by _layout.tsx's I18nManager neutralization +
-             * one-shot migration prompt. If the Activity were RTL, Yoga would
-             * auto-reverse children and "I gave" would land on the left
-             * (the v0.2.4 bug).
-             */}
-            {canWrite ? (
-              <View style={styles.actions}>
-                <View style={styles.actionBtnWrap}>
-                  <Pressable
-                    onPress={() =>
-                      router.push({
-                        pathname: "/entry/new",
-                        params: { personId: person.id, type: "payment" },
-                      })
-                    }
-                    style={({ pressed }) => [
-                      styles.actionBtn,
-                      pressed && { backgroundColor: colors.bgMuted },
-                    ]}
-                  >
-                    <Ionicons name="arrow-down-outline" size={16} color={colors.textEmphasis} />
-                    <Text style={styles.actionText}>{t("person.action.iReceived")}</Text>
-                  </Pressable>
-                </View>
-                <View style={styles.actionBtnWrap}>
-                  <Pressable
-                    onPress={() =>
-                      router.push({
-                        pathname: "/entry/new",
-                        params: { personId: person.id, type: "debt" },
-                      })
-                    }
-                    style={({ pressed }) => [
-                      styles.actionBtn,
-                      pressed && { backgroundColor: colors.bgMuted },
-                    ]}
-                  >
-                    <Ionicons name="arrow-up-outline" size={16} color={colors.textEmphasis} />
-                    <Text style={styles.actionText}>{t("person.action.iGave")}</Text>
-                  </Pressable>
-                </View>
-              </View>
-            ) : null}
+          ) : null}
         </View>
 
         {entries.length === 0 ? (
@@ -270,6 +273,7 @@ export default function PersonDetailScreen() {
 
       {entries.length > 0 ? (
         <Animated.View
+          pointerEvents="box-none"
           style={[
             styles.pingBar,
             { paddingBottom: 20 + insets.bottom, transform: [{ translateY: toastOffset }] },
@@ -442,11 +446,15 @@ const styles = StyleSheet.create({
   },
   divider: { height: 1, backgroundColor: colors.borderDefault },
   pingBar: {
+    // Transparent container — NO opaque white background. The old
+    // backgroundColor: colors.bgDefault painted a big white rectangle behind the
+    // button. The button floats over the content (the ScrollView reserves
+    // paddingBottom so entries never sit under it); pointerEvents="box-none" lets
+    // touches in the empty area pass through.
     position: "absolute",
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: colors.bgDefault,
     paddingHorizontal: 16,
     paddingTop: 12,
   },
@@ -459,6 +467,16 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: colors.bgInverted,
     paddingHorizontal: 16,
+    // Subtle lift so the floating button reads cleanly without a backing bar.
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOpacity: 0.18,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 4 },
+      },
+      android: { elevation: 6 },
+    }),
   },
   pingButtonLabel: {
     color: colors.textInverted,
