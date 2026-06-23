@@ -21,7 +21,13 @@ import { EventSigningUnavailableError } from "../../lib/event-log";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
-import { getCountry, getCurrentDefaultCountryCode, normalizePhone } from "../../lib/phone";
+import { updateAccountPhone } from "../../lib/auth";
+import {
+  getCountry,
+  getCurrentDefaultCountryCode,
+  inferCountryFromE164,
+  normalizePhone,
+} from "../../lib/phone";
 
 // Onboarding final form step — name + shop. The name IS prefilled from the
 // Google profile name stashed at sign-in (onboarding_pending_name) so a
@@ -87,6 +93,22 @@ export default function OnboardingProfileScreen() {
         setName((prev) => (prev ? prev : first));
         if (rest) setLastName((prev) => (prev ? prev : rest));
       }
+      // BUG-1: prefill the phone from the account-level value returned at sign-in
+      // (stashed as onboarding_pending_phone). Stored E.164 → infer the country
+      // and show the national part, mirroring the Account screen. User can edit.
+      const pendingPhone = (await getAppMeta("onboarding_pending_phone"))?.trim();
+      if (pendingPhone) {
+        const inferred = inferCountryFromE164(pendingPhone);
+        const dial = getCountry(inferred).dialCode;
+        setCountryCode(inferred);
+        setPhone((prev) =>
+          prev
+            ? prev
+            : pendingPhone.startsWith(dial)
+              ? pendingPhone.slice(dial.length)
+              : pendingPhone,
+        );
+      }
     })();
   }, []);
 
@@ -140,9 +162,13 @@ export default function OnboardingProfileScreen() {
       // screen (or by pairing/restoring). (Matee: account creation must not
       // force creating a kaata.)
       await createSelfProfile(fullName, "", normalizedPhone);
+      // BUG-1: back the phone up to the account so it survives a reinstall.
+      // Best-effort + signed-in-only (no-ops for offline onboarding).
+      void updateAccountPhone(normalizedPhone);
       await setAppMeta("onboarding_step", "done");
       await setAppMeta("onboarding_pending_name", "");
       await setAppMeta("onboarding_pending_email", "");
+      await setAppMeta("onboarding_pending_phone", "");
       router.replace(targetRoute);
     } catch (err) {
       // createSelfProfile rarely throws — DB constraint violations are
@@ -171,6 +197,7 @@ export default function OnboardingProfileScreen() {
     // if they then choose offline, no stale subtitle persists.
     await setAppMeta("onboarding_pending_name", "");
     await setAppMeta("onboarding_pending_email", "");
+    await setAppMeta("onboarding_pending_phone", "");
     await setAppMeta("onboarding_step", "auth");
     router.replace("/onboarding/auth");
   }

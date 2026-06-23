@@ -1,0 +1,14 @@
+-- Migration 023: account-level phone number.
+--
+-- The shopkeeper's own phone is set in-app (onboarding / Account screen) and
+-- stored in the mobile users.phone_e164 row — but that is DEVICE-LOCAL. The
+-- local-self user is deliberately NOT event-sourced (it has no person_added
+-- event), so the phone never reaches the server projection / snapshot and is
+-- lost on every reinstall. Persist it at the ACCOUNT level so it round-trips:
+-- the client PUTs it on save (PUT /v1/account/phone) and /v1/auth/google
+-- returns it on sign-in for prefill. Account-scoped (not vault-scoped) so it
+-- survives the account-but-no-kaata case too.
+--
+-- Nullable, no format constraint — the client normalizes to E.164 before
+-- sending and the value is display/identity only (never an ACL key).
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS phone_e164 TEXT;

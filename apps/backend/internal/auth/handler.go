@@ -101,6 +101,41 @@ func (h *Handler) GoogleSignIn(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, result)
 }
 
+type updatePhoneRequest struct {
+	Phone string `json:"phone"`
+}
+
+// UpdatePhone — PUT /v1/account/phone (PROTECTED).
+//
+// Body: { phone } — E.164 string, or "" to clear. Persists the shopkeeper's own
+// phone at the account level so it survives a reinstall (the mobile
+// users.phone_e164 is device-local and never reaches the server). Returned by
+// /v1/auth/google on the next sign-in for prefill.
+func (h *Handler) UpdatePhone(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ClaimsFromContext(r.Context())
+	if !ok {
+		httpx.Error(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	// Phone is a short string; 4 KiB is generous and caps abuse.
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+	var req updatePhoneRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	if len(req.Phone) > 32 {
+		httpx.Error(w, http.StatusBadRequest, "phone too long")
+		return
+	}
+	if err := h.svc.UpdateAccountPhone(r.Context(), claims.AccountID, req.Phone); err != nil {
+		log.Printf("account/phone update failed for account %s: %v", claims.AccountID, err)
+		httpx.Error(w, http.StatusInternalServerError, "update phone failed")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // SignOut — POST /v1/auth/signout (PROTECTED).
 //
 // Deletes auth_credentials(install_id, provider). The JWT is not blacklisted;

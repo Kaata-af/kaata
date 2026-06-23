@@ -23,6 +23,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { updateAccountPhone } from "../lib/auth";
 import { Button } from "../components/Button";
 import { CountryPickerSheet } from "../components/CountryPickerSheet";
 import { OptionSheet } from "../components/OptionSheet";
@@ -120,6 +121,9 @@ export default function AccountScreen() {
     setSaveError(null);
     try {
       await updateSelfProfile(joinName(fn, lastName.trim() || null), null, normalizedPhone);
+      // BUG-1: mirror the phone to the account server-side so it survives a
+      // reinstall (the local users.phone_e164 is device-local). Best-effort.
+      void updateAccountPhone(normalizedPhone);
       toast.push(t("settings.saved"), "success");
       router.back();
     } catch (err) {

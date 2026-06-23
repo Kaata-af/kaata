@@ -39,6 +39,7 @@ import { getAppMeta, setAppMeta } from "../../lib/db";
 import { textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
+import { adoptAccountPhoneToSelf } from "../../lib/auth";
 import { recoverAllVaults } from "../../lib/recovery";
 import { RestoreSessionExpiredError, RestoreTimeoutError } from "../../lib/restore";
 import { listVaults } from "../../lib/vault-api";
@@ -128,6 +129,15 @@ export default function OnboardingRestoreScreen() {
         await setAppMeta("onboarding_step", "done");
         await setAppMeta("onboarding_pending_name", "");
         await setAppMeta("onboarding_pending_email", "");
+        // BUG-1: the restored self user comes back WITHOUT a phone (the self
+        // phone is device-local + never event-sourced) AND this screen skips the
+        // profile form that would prefill it. Adopt the account-level phone
+        // (stashed at sign-in from /v1/auth/google) onto the restored self row so
+        // it survives the reinstall. Best-effort; runs after recovery created the
+        // self row (the sign-in-time reconcile ran before that row existed).
+        const pendingPhone = (await getAppMeta("onboarding_pending_phone"))?.trim() || null;
+        if (pendingPhone) await adoptAccountPhoneToSelf(pendingPhone);
+        await setAppMeta("onboarding_pending_phone", "");
         router.replace("/");
         return;
       }

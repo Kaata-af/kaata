@@ -51,6 +51,11 @@ type User struct {
 	Email      string `json:"email,omitempty"`
 	Name       string `json:"name,omitempty"`
 	PictureURL string `json:"picture_url,omitempty"`
+	// Phone is the account-level phone the shopkeeper saved (E.164), returned so
+	// a reinstalled device can prefill it on sign-in. Empty when none stored.
+	// Unlike email/name/picture (Google-asserted) this is user-supplied via
+	// PUT /v1/account/phone — Google sign-in never provides a phone number.
+	Phone string `json:"phone,omitempty"`
 }
 
 // PendingVaultRegistration lets a mobile install that already minted
@@ -158,6 +163,16 @@ func (s *Service) SignInWithGoogle(
 	})
 	if err != nil {
 		return GoogleSignInResult{}, fmt.Errorf("resolve account: %w", err)
+	}
+
+	// Read the account-level phone (set via PUT /v1/account/phone on a prior
+	// device) so the response can prefill it on a reinstalled device. COALESCE
+	// to '' so a NULL column scans cleanly into the non-pointer string.
+	var accountPhone string
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(phone_e164, '') FROM accounts WHERE id = $1::uuid
+	`, accountID).Scan(&accountPhone); err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("read account phone: %w", err)
 	}
 
 	// (3) Ensure installs row exists.
@@ -341,8 +356,29 @@ func (s *Service) SignInWithGoogle(
 			Email:      email,
 			Name:       name,
 			PictureURL: picture,
+			Phone:      accountPhone,
 		},
 	}, nil
+}
+
+// UpdateAccountPhone upserts the account-level phone (E.164), or clears it when
+// phone is empty. Stored on accounts.phone_e164 so it round-trips to a
+// reinstalled device via the /v1/auth/google response. Identity/display only —
+// never an ACL key — so no uniqueness or format constraint here (the client
+// normalizes before sending).
+func (s *Service) UpdateAccountPhone(ctx context.Context, accountID, phone string) error {
+	var val any
+	if strings.TrimSpace(phone) == "" {
+		val = nil
+	} else {
+		val = phone
+	}
+	if _, err := s.pool.Exec(ctx, `
+		UPDATE accounts SET phone_e164 = $2 WHERE id = $1::uuid
+	`, accountID, val); err != nil {
+		return fmt.Errorf("update account phone: %w", err)
+	}
+	return nil
 }
 
 // SignOut removes the auth_credentials row for (install_id, provider).

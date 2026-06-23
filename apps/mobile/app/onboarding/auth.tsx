@@ -45,6 +45,10 @@ export default function OnboardingAuthScreen() {
       // their formal/legal name, not their shop persona).
       if (user.name) await setAppMeta("onboarding_pending_name", user.name);
       if (user.email) await setAppMeta("onboarding_pending_email", user.email);
+      // BUG-1: the account-level phone (saved on a prior device, returned by
+      // /v1/auth/google) — stash it so the profile screen can prefill it like
+      // the name. Google itself never provides a phone; this is the only source.
+      if (user.phone) await setAppMeta("onboarding_pending_phone", user.phone);
       // Phase 5.1: if the user signed in BECAUSE a kaata://pair/<token>
       // deep link triggered the "needs sign-in" gate, hand off back to
       // that deep link rather than the restore probe — the pair flow is
@@ -124,6 +128,7 @@ export default function OnboardingAuthScreen() {
     // show "Signed in as X" even though the user is now choosing offline.
     await setAppMeta("onboarding_pending_name", "");
     await setAppMeta("onboarding_pending_email", "");
+    await setAppMeta("onboarding_pending_phone", "");
     await setAppMeta("onboarding_step", "profile");
     router.replace("/onboarding/profile");
   }

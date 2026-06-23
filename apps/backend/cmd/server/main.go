@@ -229,6 +229,9 @@ func main() {
 	r.Group(func(pr chi.Router) {
 		pr.Use(authenticator.Middleware())
 		pr.Post("/v1/auth/signout", authH.SignOut)
+		// Account-level phone: persists the shopkeeper's own number server-side so
+		// it survives a reinstall (the device-local users.phone_e164 never syncs).
+		pr.Put("/v1/account/phone", authH.UpdatePhone)
 		// Vault management (Phase 4). All routes share the same protected
 		// group; the lawful-at-HLC ACL gates the sync push path separately.
 		pr.Get("/v1/vaults", vaultsH.List)

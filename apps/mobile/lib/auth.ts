@@ -61,6 +61,9 @@ export type SessionUser = {
   email?: string;
   name?: string;
   picture_url?: string;
+  // Account-level phone (E.164) the shopkeeper saved on a prior device, echoed
+  // back by /v1/auth/google so a reinstall can prefill it. Absent when none.
+  phone?: string;
 };
 
 // Phase 4.1: thrown when the user dismisses the "different account on this
@@ -311,6 +314,15 @@ export async function signInWithGoogle(
     console.warn("[auth] post-sign-in housekeeping failed", err);
   }
 
+  // Account-level phone round-trip (BUG-1: phone survives reinstall). The local
+  // self phone is device-local + never event-sourced, so it must be backed up
+  // out-of-band. Best-effort, never blocks the session.
+  try {
+    await reconcileAccountPhone(body.user?.phone ?? null);
+  } catch (err) {
+    console.warn("[auth] account phone reconcile failed", err);
+  }
+
   // Phase 5: register the device's Ed25519 public key with the backend so
   // mesh peers can verify our signatures. Fire-and-forget — failures here
   // must not block the sign-in. The next check-in defensively re-runs and
@@ -520,6 +532,84 @@ async function postSignInHousekeeping(args: {
     // missing the event only degrades backend ACL re-attribution — never
     // blocks the user.
     console.warn("[auth] appendAccountBound failed", err);
+  }
+}
+
+// ---------- account-level phone (BUG-1: phone survives reinstall) ----------
+
+// Persist the shopkeeper's own phone at the ACCOUNT level on the server so it
+// round-trips to a reinstalled device (the local users.phone_e164 is device-
+// local and never event-sourced). Signed-in only + best-effort: a local-only
+// user keeps the phone on-device and this no-ops; a network failure is swallowed
+// (the value is already saved locally; a later edit / sign-in re-pushes it).
+// Pass null/"" to clear the stored phone.
+export async function updateAccountPhone(phone: string | null): Promise<void> {
+  const jwt = await SecureStore.getItemAsync(SESSION_KEY);
+  if (!jwt) return;
+  try {
+    const baseUrl = await getBackendUrl();
+    await fetch(`${baseUrl}/v1/account/phone`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${jwt}`,
+      },
+      body: JSON.stringify({ phone: phone ?? "" }),
+    });
+  } catch {
+    // network failure — local value stands; re-pushed on the next save / sign-in
+  }
+}
+
+// Adopt a backed-up account phone onto the local self row, but ONLY when the
+// self has no phone yet (never clobber a device-local edit). Best-effort: the
+// users.phone_e164 UNIQUE constraint can throw if a contact already holds the
+// number — swallow it. Exported so the RESTORE flow can call it AFTER
+// recoverAllVaults has (re)created the self row: on a reinstall the sign-in-time
+// reconcile below runs BEFORE that row exists, and the restored self comes back
+// without a phone (the self phone is device-local, never event-sourced).
+export async function adoptAccountPhoneToSelf(phone: string | null): Promise<void> {
+  if (!phone || phone.length === 0) return;
+  try {
+    const db = await getDb();
+    await db.runAsync(
+      "UPDATE users SET phone_e164 = ?, updated_at = ? WHERE is_local_self = 1 AND phone_e164 IS NULL",
+      phone,
+      Date.now(),
+    );
+  } catch (err) {
+    // UNIQUE collision with a contact's number, or transient — leave the self
+    // phone NULL; the user can re-enter it in Account. Never blocks sign-in.
+    console.warn("[auth] adoptAccountPhoneToSelf failed", err);
+  }
+}
+
+// Reconcile the device-local self phone against the account-level phone returned
+// at sign-in. Two directions, both best-effort:
+//   - server HAS a phone, local self has NONE  → adopt it onto the local self row
+//     (covers an already-onboarded device whose self row exists but has no phone)
+//   - local self HAS a phone, server has NONE  → back it up to the account
+//     (covers an EXISTING user signing in for the first time)
+// When there's no local self row yet (fresh install, pre-onboarding) this no-ops;
+// the onboarding profile screen prefills from onboarding_pending_phone, and the
+// restore flow calls adoptAccountPhoneToSelf after rebuilding the self row.
+// DIVERGENCE: when BOTH sides hold DIFFERENT phones (changed on another device)
+// neither branch fires — we keep the local value and don't clobber either side.
+// That's intentional: an explicit edit in Account/onboarding ALWAYS re-pushes via
+// updateAccountPhone, so this sign-in reconcile only fills the "never backed up /
+// never restored" gap rather than fighting an explicit edit.
+async function reconcileAccountPhone(serverPhone: string | null): Promise<void> {
+  const db = await getDb();
+  const self = await db.getFirstAsync<{ phone_e164: string | null }>(
+    "SELECT phone_e164 FROM users WHERE is_local_self = 1 LIMIT 1",
+  );
+  if (!self) return; // no self row yet — onboarding_pending_phone covers prefill
+  const localPhone = self.phone_e164 ?? null;
+  const serverHas = !!serverPhone && serverPhone.length > 0;
+  if (serverHas && !localPhone) {
+    await adoptAccountPhoneToSelf(serverPhone);
+  } else if (localPhone && !serverHas) {
+    await updateAccountPhone(localPhone);
   }
 }
 
