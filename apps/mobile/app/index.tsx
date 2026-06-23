@@ -19,7 +19,6 @@ import {
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import Constants from "expo-constants";
 import { BottomSheet } from "../components/BottomSheet";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Button } from "../components/Button";
@@ -60,7 +59,6 @@ import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { formatAmount } from "../lib/format";
 import { t } from "../lib/i18n";
-import { syncOnce } from "../lib/sync";
 import { useActiveVaultCanWrite } from "../lib/use-vault-role";
 import {
   shouldPromptBatteryExemption,
@@ -179,9 +177,6 @@ export default function HomeScreen() {
   const [shopModeBusy, setShopModeBusy] = useState(false);
   // Cloud backup channel — default ON when the key is unset (existing signed-in
   // installs synced unconditionally before the toggle). See AutoSync gate.
-  const [cloudSyncEnabled, setCloudSyncEnabled] = useState(true);
-  const [cloudSyncBusy, setCloudSyncBusy] = useState(false);
-  const [syncBusy, setSyncBusy] = useState(false);
   // Phase 6: live peer count for the Sync toggle subtitle. Subscribed
   // via mesh.onShopModeStatusChange() in the mount effect below so the
   // UI updates without a 10s app_meta poll lag.
@@ -214,7 +209,7 @@ export default function HomeScreen() {
   // visibly changes for several seconds (auth chip/avatar + restored kaatas only
   // appear at the very end). "signingIn" covers the Google handshake + backend +
   // registration; "restoring" covers recoverAllVaults (which can take a while).
-  const [authPhase, setAuthPhase] = useState<null | "signingIn" | "restoring">(null);
+  const [authPhase, setAuthPhase] = useState<null | "signingIn" | "restoring" | "signingOut">(null);
   // UX critique #6 — sign-out is destructive enough to warrant a ConfirmDialog
   // per the documented contract in design-tokens.ts. The sheet's danger-styled
   // NavRow opens this dialog; only on confirmation do we actually wipe the
@@ -253,14 +248,13 @@ export default function HomeScreen() {
     // previously meant setLoaded(true) never ran — an infinite spinner on
     // the ROOT screen with no retry and no back.
     try {
-      const [s, list, user, vaultId, accId, shopRaw, cloudRaw] = await Promise.all([
+      const [s, list, user, vaultId, accId, shopRaw] = await Promise.all([
         getLocalSelf(),
         listAllPeople(),
         getSessionUser(),
         getActiveVaultId(),
         getAppMeta("account_id"),
         getAppMeta("shop_mode_enabled"),
-        getAppMeta("cloud_sync_enabled"),
       ]);
       setSelf(s);
       setAllPeople(list);
@@ -268,7 +262,6 @@ export default function HomeScreen() {
       setActiveVaultIdState(vaultId);
       setActiveAccountId(accId);
       setShopModeEnabled(shopRaw === "1");
-      setCloudSyncEnabled(cloudRaw == null ? true : cloudRaw === "1");
 
       // D-ARCHIVED-VAULT-FILTER: helpers in lib/db.ts return the two slices
       // separately. Loading them in parallel keeps the first paint snappy.
@@ -950,16 +943,7 @@ export default function HomeScreen() {
         }}
         shopModeEnabled={shopModeEnabled}
         shopModeBusy={shopModeBusy}
-        cloudSyncEnabled={cloudSyncEnabled}
-        cloudSyncBusy={cloudSyncBusy}
-        syncBusy={syncBusy}
         activePeers={meshActivePeers}
-        appVersion={Constants.expoConfig?.version ?? "0.0.0"}
-        buildNumber={
-          Constants.expoConfig?.android?.versionCode != null
-            ? String(Constants.expoConfig.android.versionCode)
-            : undefined
-        }
         onDismiss={() => setSettingsVisible(false)}
         onSignIn={runGoogleSignIn}
         onSignOut={() => {
@@ -1077,32 +1061,6 @@ export default function HomeScreen() {
             }
           } finally {
             setShopModeBusy(false);
-          }
-        }}
-        onToggleCloudSync={async (next) => {
-          // Pure app_meta flip — no native perms. AutoSync's 10s poll picks it
-          // up and starts/stops the cloud scheduler; the mesh channels are
-          // unaffected (independent — no single point of failure).
-          if (cloudSyncBusy) return;
-          setCloudSyncBusy(true);
-          setCloudSyncEnabled(next); // optimistic
-          try {
-            await setAppMeta("cloud_sync_enabled", next ? "1" : "0");
-            // Kick a sync immediately instead of waiting up to 10s for AutoSync's
-            // poll, so "turn on backup" visibly backs up NOW (Matee: "once someone
-            // turns backup on it should just take over and do it"). Fire-and-forget;
-            // the scheduler then takes over the ongoing automated backup.
-            if (next) void syncOnce({ verifyConvergence: false }).catch(() => {});
-            toast.push(
-              next ? t("menu.sync.cloud.onToast") : t("menu.sync.cloud.offToast"),
-              "success",
-            );
-          } catch (err) {
-            setCloudSyncEnabled(!next); // revert
-            toast.push(t("menu.sync.cloud.failed"), "error");
-            if (__DEV__) console.warn("[home] cloud sync toggle failed", err);
-          } finally {
-            setCloudSyncBusy(false);
           }
         }}
       />
@@ -1333,6 +1291,9 @@ export default function HomeScreen() {
         destructive
         onConfirm={async () => {
           setSignOutConfirm(false);
+          // Sign-out hits the backend + clears the session + reloads; show the
+          // same overlay as sign-in so the screen doesn't look frozen.
+          setAuthPhase("signingOut");
           try {
             await signOut();
             await load();
@@ -1340,6 +1301,8 @@ export default function HomeScreen() {
           } catch (err) {
             console.warn("[home] signOut failed", err);
             setTimeout(() => toast.push(t("menu.account.signOut.failed"), "error"), 240);
+          } finally {
+            setAuthPhase(null);
           }
         }}
         onCancel={() => setSignOutConfirm(false)}
@@ -1355,7 +1318,9 @@ export default function HomeScreen() {
           <Text style={[styles.authOverlayText, textDir(isRTL)]}>
             {authPhase === "restoring"
               ? t("menu.account.signIn.restoring")
-              : t("menu.account.signIn.signingIn")}
+              : authPhase === "signingOut"
+                ? t("menu.account.signOut.pending")
+                : t("menu.account.signIn.signingIn")}
           </Text>
         </View>
       ) : null}

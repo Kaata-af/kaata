@@ -31,7 +31,7 @@ import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { SOLO_STORE_MODE } from "../constants/env";
 import { t } from "../lib/i18n";
-import { useMembersCount, useLastSyncedRelative } from "../lib/use-vault-summary";
+import { useMembersCount } from "../lib/use-vault-summary";
 import { NavRow, SectionGap, SectionHeader } from "./SettingsScreen";
 
 // ProfileSettingsSheet — Phase 7 unified settings surface.
@@ -60,10 +60,9 @@ import { NavRow, SectionGap, SectionHeader } from "./SettingsScreen";
 //      name + currency (per-kaata) + members + danger zone.
 //   4. KAATAS — list of all vaults with current bolded + checkmark;
 //      "+ Add a Kaata" + "Scan a pairing code". (Hidden in SOLO_STORE_MODE.)
-//   5. SYNC — Nearby sync toggle (NO sign-in gate per Phase 7 Part B);
-//      Sync to cloud / Restore from cloud (signed-in only — server sync
-//      requires auth, mesh does NOT).
-//   6. ABOUT — version + build info.
+//   5. SYNC — Nearby (Bluetooth/WiFi mesh) toggle only (hidden in
+//      SOLO_STORE_MODE). Cloud backup is now AUTOMATIC for signed-in users —
+//      there is no toggle. App health + version moved to the Account screen.
 
 const OFFSCREEN = 600;
 const EXIT_DURATION_MS = 220;
@@ -91,17 +90,10 @@ export function ProfileSettingsSheet(props: {
   archivedCount?: number;
   onOpenArchived?: () => void;
 
-  // Sync state
+  // Sync state (Nearby/mesh only — cloud backup is now automatic, no toggle)
   shopModeEnabled: boolean;
   shopModeBusy?: boolean;
-  cloudSyncEnabled: boolean;
-  cloudSyncBusy?: boolean;
-  syncBusy?: boolean;
   activePeers?: number;
-
-  // About
-  appVersion: string;
-  buildNumber?: string;
 
   // --- Actions ---
   // Profile
@@ -126,7 +118,6 @@ export function ProfileSettingsSheet(props: {
 
   // Sync
   onToggleShopMode: (next: boolean) => void;
-  onToggleCloudSync: (next: boolean) => void;
 
   // Dismiss
   onDismiss: () => void;
@@ -198,7 +189,6 @@ export function ProfileSettingsSheet(props: {
   }
 
   const membersCount = useMembersCount(props.activeVaultId);
-  const lastSynced = useLastSyncedRelative(props.activeVaultId);
 
   // D-ARCHIVED-SCREEN: host pre-filters props.vaults to active rows.
   // Belt-and-suspenders defensive filter. Archived rows live on
@@ -215,15 +205,6 @@ export function ProfileSettingsSheet(props: {
   );
 
   if (!rendered) return null;
-
-  // Phase 7 UX critique #2 (Eng C3): About section line is translatable.
-  // Falls back to the no-build form when buildNumber is missing.
-  const aboutLine = props.buildNumber
-    ? t("menu.about.versionLineWithBuild", {
-        version: props.appVersion,
-        build: props.buildNumber,
-      })
-    : t("menu.about.versionLine", { version: props.appVersion });
 
   return (
     <Modal
@@ -466,28 +447,21 @@ export function ProfileSettingsSheet(props: {
                 </>
               ) : null}
 
-              {/* ============ SECTION 4: SYNC ============
-                  Header renders only when the section has content. In
-                  SOLO_STORE_MODE the Nearby toggle is hidden and Cloud backup is
-                  signed-in-only, so a signed-out solo user (a common state) would
-                  otherwise see an orphaned header above an empty gap. */}
-              {!SOLO_STORE_MODE || liveAccountId ? (
-                <SectionHeader
-                  label={t("menu.sync")}
-                  trailing={lastSynced.ms == null ? t("menu.sync.header.never") : lastSynced.label}
-                  isRTL={isRTL}
-                />
-              ) : null}
-              {/* Nearby (Bluetooth/WiFi mesh) toggle — hidden in SOLO_STORE_MODE;
-                  a single shopkeeper has no other phones to sync with. Cloud
-                  backup (below) is the solo-relevant sync. */}
+              {/* ============ SECTION 4: SYNC (Nearby/mesh only) ============
+                  Cloud backup is now automatic for signed-in users (no toggle).
+                  This section is ONLY the Nearby (Bluetooth/WiFi) mesh toggle,
+                  which is hidden in SOLO_STORE_MODE — so in the production solo
+                  build the whole section is absent (the header + gap gate on
+                  !SOLO_STORE_MODE). The dev Bluetooth-test row keeps its own
+                  __DEV__ gate inside. */}
+              {!SOLO_STORE_MODE ? <SectionHeader label={t("menu.sync")} isRTL={isRTL} /> : null}
               {!SOLO_STORE_MODE ? (
                 <View
                   style={[
                     styles.toggleRow,
                     rowDir(isRTL),
-                    // Last sync row only when no cloud toggle and no dev BT row follow.
-                    !liveAccountId && !__DEV__ ? styles.toggleRowLast : null,
+                    // Last sync row when no dev BT row follows.
+                    !__DEV__ ? styles.toggleRowLast : null,
                   ]}
                 >
                   <Ionicons
@@ -530,62 +504,8 @@ export function ProfileSettingsSheet(props: {
                 </View>
               ) : null}
 
-              {/* Cloud backup toggle + automatic-backup status — signed-in only.
-                  "Sync now" and "Restore from cloud" buttons removed (Matee):
-                  backup is automatic, and a new phone restores on sign-in.
-                  Recovery lives in onboarding, not here. */}
-              {liveAccountId ? (
-                <>
-                  {/* Drop the hairline divider when this is the last sync row
-                      (production: no __DEV__ BT row follows) so there's no stray
-                      gray line sitting above the section gap. */}
-                  <View
-                    style={[
-                      styles.toggleRow,
-                      rowDir(isRTL),
-                      __DEV__ ? null : styles.toggleRowLast,
-                    ]}
-                  >
-                    <Ionicons
-                      name="cloud-outline"
-                      size={SETTINGS_ROW_ICON_SIZE}
-                      color={colors.textEmphasis}
-                      style={
-                        isRTL
-                          ? { marginLeft: SETTINGS_ROW_ICON_GAP }
-                          : { marginRight: SETTINGS_ROW_ICON_GAP }
-                      }
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.toggleTitle, textDir(isRTL)]}>
-                        {t("menu.sync.cloud")}
-                      </Text>
-                      {/* The hint IS the live backup status when ON (no separate
-                          status line + stray divider). When OFF, the off hint. */}
-                      <Text style={[styles.toggleHint, textDir(isRTL)]}>
-                        {!props.cloudSyncEnabled
-                          ? t("menu.sync.cloud.hintOff")
-                          : props.syncBusy
-                            ? t("menu.sync.status.busy")
-                            : lastSynced.ms == null
-                              ? t("menu.sync.status.never")
-                              : t("menu.sync.status.ok", { when: lastSynced.label })}
-                      </Text>
-                    </View>
-                    <Switch
-                      value={props.cloudSyncEnabled}
-                      onValueChange={props.onToggleCloudSync}
-                      disabled={!!props.cloudSyncBusy}
-                      accessibilityRole="switch"
-                      accessibilityLabel={t("menu.sync.cloud")}
-                      accessibilityState={{
-                        checked: props.cloudSyncEnabled,
-                        disabled: !!props.cloudSyncBusy,
-                      }}
-                    />
-                  </View>
-                </>
-              ) : null}
+              {/* Cloud backup is automatic for signed-in users — no toggle
+                  (Matee). App health + version moved to the Account screen. */}
 
               {/* DEV-only: Bluetooth Classic (RFCOMM) transport test. Gated
                   behind __DEV__ so it never appears in preview/production builds
@@ -599,31 +519,6 @@ export function ProfileSettingsSheet(props: {
                   isLast
                 />
               ) : null}
-
-              {/* Gap before About only when the SYNC section actually rendered
-                  content (else the after-Preferences gap already separates them). */}
-              {!SOLO_STORE_MODE || liveAccountId ? <SectionGap /> : null}
-
-              {/* ============ SECTION 5: ABOUT ============ */}
-              <SectionHeader label={t("menu.about")} isRTL={isRTL} />
-              {/* App health / diagnostics — lives next to About (Matee). A
-                  troubleshooting surface, not a user preference. */}
-              <NavRow
-                icon="pulse-outline"
-                label={t("preferences.diagnostics.row")}
-                hint={t("preferences.diagnostics.rowHint")}
-                onPress={chained(() => router.push("/diagnostics"))}
-                isRTL={isRTL}
-              />
-              <View style={[styles.aboutRow, rowDir(isRTL)]}>
-                <Ionicons
-                  name="information-circle-outline"
-                  size={20}
-                  color={colors.textMuted}
-                  style={isRTL ? { marginLeft: 12 } : { marginRight: 12 }}
-                />
-                <Text style={[styles.aboutText, textDir(isRTL)]}>{aboutLine}</Text>
-              </View>
             </ScrollView>
           </View>
         </SafeAreaView>

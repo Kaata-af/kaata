@@ -35,28 +35,23 @@ import { startSyncScheduler } from "../lib/sync";
 export function AutoSync() {
   const [accountId, setAccountId] = useState<string | null>(null);
   const [vaultId, setVaultId] = useState<string | null>(null);
-  // Cloud backup opt-in. Default ON when the key is unset so existing signed-in
-  // installs keep syncing (they synced unconditionally before this gate); only
-  // an explicit "0" (toggle off) stops the cloud channel. The mesh channels
-  // (BT/LAN) are independent — turning cloud off never affects Nearby sync.
-  const [cloudEnabled, setCloudEnabled] = useState(true);
 
-  // Re-read account_id + active_vault_id periodically. The cheap-and-
-  // cheerful approach until AppMetaContext exposes them reactively.
-  // The scheduler mount/unmount is idempotent, and the polling cost is
-  // two app_meta SELECTs every 10s. Phase 4 should wire observers.
+  // Cloud backup is now UNCONDITIONAL for signed-in users — there is no opt-out
+  // toggle (Matee: "it should just get it by default when a user signs in").
+  // Re-read account_id + active_vault_id periodically. The cheap-and-cheerful
+  // approach until AppMetaContext exposes them reactively. The scheduler
+  // mount/unmount is idempotent, and the polling cost is two app_meta SELECTs
+  // every 10s. Phase 4 should wire observers.
   useEffect(() => {
     let cancelled = false;
     const poll = async () => {
-      const [id, vault, cloud] = await Promise.all([
+      const [id, vault] = await Promise.all([
         getAppMeta("account_id"),
         getAppMeta(ACTIVE_VAULT_META_KEY),
-        getAppMeta("cloud_sync_enabled"),
       ]);
       if (cancelled) return;
       setAccountId(id);
       setVaultId(vault);
-      setCloudEnabled(cloud == null ? true : cloud === "1");
     };
     poll();
     const t = setInterval(poll, 10_000);
@@ -69,10 +64,9 @@ export function AutoSync() {
   useEffect(() => {
     if (!accountId) return; // local-only mode — sync stays dormant
     if (!vaultId) return; // no active vault yet — wait
-    if (!cloudEnabled) return; // cloud backup turned off — mesh still runs
     const stop = startSyncScheduler({ accountId });
     return stop;
-  }, [accountId, vaultId, cloudEnabled]);
+  }, [accountId, vaultId]);
 
   return null;
 }

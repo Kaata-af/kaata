@@ -545,6 +545,7 @@ const en = {
   "menu.account.signIn.signingIn": "Signing in…",
   "menu.account.signIn.restoring": "Restoring your kaatas…",
   "menu.account.signOut": "Sign out",
+  "menu.account.signOut.pending": "Signing out…",
   "menu.account.signOut.toast": "Signed out",
   "menu.account.signOut.failed": "Couldn't sign out — try again",
   // Account screen (personal: name / phone / language / country / archived).
@@ -1461,6 +1462,7 @@ const fa: Partial<Record<Key, string>> = {
   "menu.account.signIn.signingIn": "در حال ورود…",
   "menu.account.signIn.restoring": "در حال بازیابی کاتاها…",
   "menu.account.signOut": "خروج",
+  "menu.account.signOut.pending": "در حال خروج…",
   "menu.account.signOut.toast": "خروج انجام شد",
   "menu.account.signOut.failed": "خروج ناموفق — دوباره کوشش کنید",
   // Account screen.

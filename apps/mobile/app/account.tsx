@@ -9,6 +9,7 @@
 // Language + default country auto-commit (no Save) like the old Preferences.
 
 import { Ionicons } from "@expo/vector-icons";
+import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -177,6 +178,16 @@ export default function AccountScreen() {
   const languageValue = t(selectedLangLabelKey as Parameters<typeof t>[0]);
   const prefC = getCountry(prefCountry);
 
+  // App version + build for the About row (moved here from the settings sheet).
+  const appVersion = Constants.expoConfig?.version ?? "0.0.0";
+  const buildNumber =
+    Constants.expoConfig?.android?.versionCode != null
+      ? String(Constants.expoConfig.android.versionCode)
+      : undefined;
+  const aboutLine = buildNumber
+    ? t("menu.about.versionLineWithBuild", { version: appVersion, build: buildNumber })
+    : t("menu.about.versionLine", { version: appVersion });
+
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <ScreenHeader
@@ -310,6 +321,29 @@ export default function AccountScreen() {
             isRTL={isRTL}
             isLast
           />
+
+          <SectionGap />
+
+          {/* ============ ABOUT (app health + version) — moved here from the
+              settings sheet (Matee). ============ */}
+          <SectionHeader label={t("menu.about")} isRTL={isRTL} />
+          <NavRow
+            icon="pulse-outline"
+            label={t("preferences.diagnostics.row")}
+            hint={t("preferences.diagnostics.rowHint")}
+            onPress={() => router.push("/diagnostics")}
+            isRTL={isRTL}
+            isLast
+          />
+          <View style={[styles.aboutRow, rowDir(isRTL)]}>
+            <Ionicons
+              name="information-circle-outline"
+              size={20}
+              color={colors.textMuted}
+              style={isRTL ? { marginLeft: 12 } : { marginRight: 12 }}
+            />
+            <Text style={[styles.aboutText, textDir(isRTL)]}>{aboutLine}</Text>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -397,5 +431,17 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansMedium,
     color: colors.danger,
     marginTop: 6,
+  },
+  aboutRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+  },
+  aboutText: {
+    flex: 1,
+    fontSize: 12,
+    fontFamily: fonts.sansRegular,
+    color: colors.textSubtle,
   },
 });
