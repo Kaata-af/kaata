@@ -15,21 +15,21 @@ import (
 
 const ProviderGoogle = "google"
 
-// maxTokenAge is the freshness window for a Google ID token's `iat`. It's a
-// defense-in-depth replay check ON TOP OF idtoken.Validate's `exp` check (which
-// already enforces Google's 1-hour validity using server time). The previous
-// 5-minute window was too tight for the field: cheap Android devices routinely
-// have minutes of clock skew, so a phone whose clock is behind made `age` look
-// large and every sign-in 401'd as "stale" — an intermittent, undiagnosable
-// auth failure. 15 minutes tolerates realistic skew + a slow cold-backend
-// round-trip while still bounding replay well under the 1-hour token lifetime.
-const maxTokenAge = 15 * time.Minute
+// maxTokenAge is a GENEROUS outer bound on a Google ID token's `iat` — set to
+// the token's own lifetime so it defers entirely to idtoken.Validate's `exp`
+// check (the authoritative freshness guard, enforced against server time). It
+// is NOT a tight "minted within minutes" replay window anymore: that broke
+// real sign-ins whenever the BACKEND host clock drifted ahead of real time
+// (`iat` is Google's accurate timestamp, so `time.Since(iat)` ballooned and
+// every token 401'd as "stale" — the exact production outage). At 1h this can
+// never reject a token Validate already accepted; it only fires on gross host
+// clock skew, and then the logged age says so. Fix the host's NTP, not this.
+const maxTokenAge = time.Hour
 
-// maxClockSkewAhead tolerates a device clock that runs AHEAD of the server
-// (token `iat` in the "future" from the server's view). 30s was far too tight
-// for real phones; 5 minutes covers ordinary skew without accepting an
-// implausibly future-dated (forged) token.
-const maxClockSkewAhead = 5 * time.Minute
+// maxClockSkewAhead tolerates a token `iat` that looks future-dated from the
+// server (host clock running behind). Generous (15m) so ordinary skew never
+// blocks sign-in, while still rejecting an implausibly future-dated forgery.
+const maxClockSkewAhead = 15 * time.Minute
 
 type Service struct {
 	pool              *pgxpool.Pool
@@ -107,24 +107,31 @@ func (s *Service) SignInWithGoogle(
 		return GoogleSignInResult{}, errors.New("google account email is not verified")
 	}
 
-	// iat staleness: a Google ID token is valid for 1 hour, but the sign-in
-	// flow is supposed to mint and POST within seconds. >5min is a replay
-	// candidate. Missing iat is also a fail — Google always sets it; absence
-	// indicates a malformed/forged token slipping past the signature check
-	// (defense in depth).
+	// iat sanity: Google always sets `iat`; absence indicates a malformed/forged
+	// token slipping past the signature check (defense in depth). We do NOT use a
+	// tight "minted within minutes" window anymore — it was rejecting legitimate
+	// sign-ins whenever the BACKEND host clock drifted ahead of real time (NTP),
+	// because `iat` is Google's accurate timestamp and `time.Since(iat)` then
+	// looks large. The authoritative freshness guard is the token's `exp`, which
+	// idtoken.Validate already enforces against server time (Google tokens live
+	// ~1h). maxTokenAge is kept only as a generous outer bound (≈ token lifetime)
+	// so it can never reject a token that Validate already accepted; if it ever
+	// DOES fire, the logged age tells us the host clock is grossly skewed.
 	iatAny, ok := payload.Claims["iat"].(float64)
 	if !ok {
 		return GoogleSignInResult{}, errors.New("google id token missing iat claim")
 	}
 	iat := time.Unix(int64(iatAny), 0)
 	age := time.Since(iat)
-	// Reject excessive negative skew too: a token claiming to be issued far
-	// in the future is either a clock-skew bug or a forgery attempt.
+	// Reject an implausibly future-dated token (forgery / gross skew), with a
+	// tolerant window for ordinary clock skew. Log the actual age for diagnosis.
 	if age < -maxClockSkewAhead {
-		return GoogleSignInResult{}, errors.New("google id token iat is in the future")
+		return GoogleSignInResult{}, fmt.Errorf(
+			"google id token iat is in the future (age %s; host clock likely behind)", age)
 	}
 	if age > maxTokenAge {
-		return GoogleSignInResult{}, errors.New("google id token is stale (iat > 5min)")
+		return GoogleSignInResult{}, fmt.Errorf(
+			"google id token is stale (iat age %s > %s; host clock likely ahead / NTP)", age, maxTokenAge)
 	}
 
 	email, _ := payload.Claims["email"].(string)
