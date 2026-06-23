@@ -9,12 +9,17 @@
 //                  projection_conflicts row so the local projection can be
 //                  reconciled (or surfaced to the user) on next read
 //
-// Per plan: pull-then-push ordering is enforced by the scheduler.
+// pushEvents is called independently of pull: the scheduler's per-tick syncOnce
+// runs push even when pull failed, and every local write fires an immediate
+// pull-free pushVaultNow. The ack write-transaction therefore holds applyEventMutex
+// (see below) to serialize against concurrent applyEvent / pull tx on the single
+// shared SQLite connection.
 
 import { getBackendUrl } from "../api";
 import { getSessionJWT } from "../auth";
 import { getAppMeta, setAppMeta } from "../db";
 import { getDb, getInstallIdSync } from "../db-tx";
+import { applyEventMutex } from "../projection";
 import { notifyProjectionConflictsChanged } from "../projection-conflicts";
 import { markPushDone } from "./cursor";
 import {
@@ -153,14 +158,11 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
     // fully-synced vault (steady state, or one restored on sign-in) reads
     // max(last_pull_at=0, last_push_at=0) = "never" forever even while online.
     //
-    // This is honest, not optimistic: we only reach here with a JWT (checked
-    // above) AND — because the scheduler gates on Network.isConnected and runs
-    // pull before push — only when we're actually online and pull just
-    // succeeded this cycle. A real backup failure (403 non-member, offline,
-    // transient) makes pull throw first, so push never runs and the timestamp
-    // never advances. An empty outbox NEVER includes unacked local events
-    // (those keep rows.length > 0 until the server confirms them), so we never
-    // claim "backed up" for data the server doesn't have.
+    // This is honest, not optimistic: an empty outbox means every locally
+    // authored event for this vault is already server-acked (unacked rows keep
+    // rows.length > 0 until the server confirms them), so we never claim "backed
+    // up" for data the server doesn't have. (The backup-status UI was since
+    // removed — backup is now automatic — so this timestamp is informational.)
     await markPushDone(vaultId);
     return { pushed: 0, duplicates: 0, rejected: 0 };
   }
@@ -246,70 +248,88 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
   const now = Date.now();
   let hadPermissionRejection = false;
 
-  await db.withTransactionAsync(async () => {
-    for (const eventId of acceptedSet) {
-      await db.runAsync(
-        "UPDATE event_log SET server_acked_at = ? WHERE event_id = ?",
-        now,
-        eventId,
-      );
-    }
-    for (const eventId of duplicatesSet) {
-      await db.runAsync(
-        "UPDATE event_log SET server_acked_at = ? WHERE event_id = ?",
-        now,
-        eventId,
-      );
-    }
-    for (const r of rejectedList) {
-      // seq_conflict is NOT a verdict on the event — only on its seq claim
-      // (a different event_id already holds that (vault, device, seq) slot
-      // on the server; pathological — install-id clone or local reset).
-      // Stamping rejected_at would permanently exile a valid event from
-      // the server. Instead: drop our seq claim and let the next cycle
-      // re-push the event seq-less. Also advance the per-vault assignment
-      // floor past the contested slot — without it, nextAuthorSeqInTx's
-      // MAX()+1 would re-mint the same seq for every future append and
-      // loop a rejection round-trip per event forever.
-      if (r.reason === "seq_conflict") {
-        const strippedSeq = rows.find((row) => row.event_id === r.event_id)?.author_seq ?? null;
-        await db.runAsync("UPDATE event_log SET author_seq = NULL WHERE event_id = ?", r.event_id);
-        if (strippedSeq != null) {
-          const floorKey = `author_seq_floor:${vaultId}`;
-          const existing = Number((await getAppMeta(floorKey)) ?? "0");
-          const nextFloor = Math.max(Number.isFinite(existing) ? existing : 0, strippedSeq + 1);
-          await setAppMeta(floorKey, String(nextFloor));
+  // Serialize the ack/reject/conflict WRITE TRANSACTION under the same mutex as
+  // applyEvent + pull's patch tx. expo-sqlite's withTransactionAsync is
+  // NON-exclusive on the single shared connection, so a push BEGIN that interleaves
+  // with a concurrent applyEvent BEGIN tears one of them into autocommit (silent
+  // corruption). This was latently safe while push ran serially under the
+  // scheduler's inFlight guard; now that writes fire an immediate, un-debounced
+  // pushVaultNow (and drainAllOutboxes runs pushes in parallel), the tx MUST hold
+  // the mutex. Only the DB tx is wrapped — the network round-trip above stays
+  // outside, so the parallel-drain latency goal is preserved.
+  await applyEventMutex.runExclusive(() =>
+    db.withTransactionAsync(async () => {
+      for (const eventId of acceptedSet) {
+        await db.runAsync(
+          "UPDATE event_log SET server_acked_at = ? WHERE event_id = ?",
+          now,
+          eventId,
+        );
+      }
+      for (const eventId of duplicatesSet) {
+        await db.runAsync(
+          "UPDATE event_log SET server_acked_at = ? WHERE event_id = ?",
+          now,
+          eventId,
+        );
+      }
+      for (const r of rejectedList) {
+        // seq_conflict is NOT a verdict on the event — only on its seq claim
+        // (a different event_id already holds that (vault, device, seq) slot
+        // on the server; pathological — install-id clone or local reset).
+        // Stamping rejected_at would permanently exile a valid event from
+        // the server. Instead: drop our seq claim and let the next cycle
+        // re-push the event seq-less. Also advance the per-vault assignment
+        // floor past the contested slot — without it, nextAuthorSeqInTx's
+        // MAX()+1 would re-mint the same seq for every future append and
+        // loop a rejection round-trip per event forever.
+        if (r.reason === "seq_conflict") {
+          const strippedSeq = rows.find((row) => row.event_id === r.event_id)?.author_seq ?? null;
+          await db.runAsync(
+            "UPDATE event_log SET author_seq = NULL WHERE event_id = ?",
+            r.event_id,
+          );
+          if (strippedSeq != null) {
+            const floorKey = `author_seq_floor:${vaultId}`;
+            const existing = Number((await getAppMeta(floorKey)) ?? "0");
+            const nextFloor = Math.max(Number.isFinite(existing) ? existing : 0, strippedSeq + 1);
+            await setAppMeta(floorKey, String(nextFloor));
+          }
+          continue;
         }
-        continue;
-      }
-      // future_hlc is NOT a verdict on the event — only on the device clock
-      // being implausibly far ahead of server time. Stamping rejected_at would
-      // permanently drop a valid event over a clock skew. Leave it unacked (no
-      // rejected_at, no conflict row) so it re-pushes on later cycles and is
-      // accepted once server time catches up to the device's (ratchet-forward)
-      // HLC. A gross skew delays this vault's sync but never drops the event.
-      if (r.reason === "future_hlc") {
-        continue;
-      }
-      await db.runAsync("UPDATE event_log SET rejected_at = ? WHERE event_id = ?", now, r.event_id);
-      await db.runAsync(
-        `INSERT INTO projection_conflicts (kind, detail_json, vault_id, created_at)
+        // future_hlc is NOT a verdict on the event — only on the device clock
+        // being implausibly far ahead of server time. Stamping rejected_at would
+        // permanently drop a valid event over a clock skew. Leave it unacked (no
+        // rejected_at, no conflict row) so it re-pushes on later cycles and is
+        // accepted once server time catches up to the device's (ratchet-forward)
+        // HLC. A gross skew delays this vault's sync but never drops the event.
+        if (r.reason === "future_hlc") {
+          continue;
+        }
+        await db.runAsync(
+          "UPDATE event_log SET rejected_at = ? WHERE event_id = ?",
+          now,
+          r.event_id,
+        );
+        await db.runAsync(
+          `INSERT INTO projection_conflicts (kind, detail_json, vault_id, created_at)
          VALUES (?, ?, ?, ?)`,
-        "event_rejected_by_server",
-        JSON.stringify({
-          event_id: r.event_id,
-          reason: r.reason,
-          current_role: r.current_role ?? null,
-          required_role: r.required_role ?? null,
-        }),
-        vaultId,
-        now,
-      );
-      if (r.reason === "insufficient_role") {
-        hadPermissionRejection = true;
+          "event_rejected_by_server",
+          JSON.stringify({
+            event_id: r.event_id,
+            reason: r.reason,
+            current_role: r.current_role ?? null,
+            required_role: r.required_role ?? null,
+          }),
+          vaultId,
+          now,
+        );
+        if (r.reason === "insufficient_role") {
+          hadPermissionRejection = true;
+        }
       }
-    }
-  });
+    }),
+  );
 
   // Stamp last_push_at for the indicator widget.
   await markPushDone(vaultId);

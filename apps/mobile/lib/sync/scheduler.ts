@@ -87,8 +87,19 @@ export async function syncOnce(
   // indicator). Joined vaults are left untouched and pull/push normally.
   await ensureVaultRegistered(vaultId);
 
-  // Pull-then-push. Non-negotiable per plan C1.
-  const pullRes = await pullEvents(vaultId);
+  // Pull-then-push, BUT push is NOT gated behind a successful pull. Previously a
+  // transient pull failure (30s timeout, 5xx, offline blip) threw before push
+  // ran, so the just-saved edits' push was dropped and the active kaata's newest
+  // tally/contact never left the device. Push is append-only + idempotent and
+  // needs no fresh pull cursor, so we ALWAYS push, then re-raise any pull error
+  // afterward (preserving the scheduler's backoff / SessionExpired handling).
+  let pullErr: unknown = null;
+  let pulled = 0;
+  try {
+    pulled = (await pullEvents(vaultId)).pulled;
+  } catch (err) {
+    pullErr = err;
+  }
   const pushRes = await pushEvents(vaultId);
 
   // Sync v2 M1: advisory convergence check (docs/sync-v2-architecture.md
@@ -102,12 +113,53 @@ export async function syncOnce(
     void checkConvergence(vaultId);
   }
 
+  // Surface a pull error only now that push has run, so the scheduler still
+  // backs off / handles SessionExpired but the data made it out first.
+  if (pullErr) throw pullErr;
+
   return {
-    pulled: pullRes.pulled,
+    pulled,
     pushed: pushRes.pushed,
     rejected: pushRes.rejected,
     duplicates: pushRes.duplicates,
   };
+}
+
+// Immediate, PULL-FREE push of one vault's outbox. The write-kick and the
+// boot/resume/background drains call this so a just-saved edit reaches the server
+// within a single round-trip — no 1s debounce, no pull-then-push gate, and
+// OUTSIDE the scheduler tick's inFlight guard so it can never be swallowed.
+// Best-effort + idempotent (pushEvents dedups server-side); a failure just leaves
+// the rows unacked for the next attempt. Safe to call after the scheduler stops.
+//
+// Per-vault coalescing: a burst of rapid writes ("add a tally AND a contact")
+// would otherwise fan out N concurrent full-batch pushes for the same vault. We
+// keep ONE push in flight per vault and set a dirty flag instead; when it
+// finishes, a single trailing push drains whatever arrived meanwhile. Collapses a
+// K-write burst to ~2 pushes while still capturing every edit (pushEvents always
+// reads the current unacked outbox).
+const pushInFlight = new Set<string>();
+const pushDirty = new Set<string>();
+async function pushVaultNow(vaultId: string): Promise<void> {
+  if (pushInFlight.has(vaultId)) {
+    pushDirty.add(vaultId);
+    return;
+  }
+  pushInFlight.add(vaultId);
+  try {
+    if (!(await getSessionJWT())) return;
+    const net = await Network.getNetworkStateAsync();
+    if (!net.isConnected) return;
+    await ensureVaultRegistered(vaultId);
+    await pushEvents(vaultId);
+  } catch (err) {
+    if (__DEV__) console.warn("[sync] pushVaultNow failed", vaultId.slice(0, 8), err);
+  } finally {
+    pushInFlight.delete(vaultId);
+    // A write arrived while this push was in flight — drain it once more so the
+    // tail of a burst is never left unacked.
+    if (pushDirty.delete(vaultId)) void pushVaultNow(vaultId);
+  }
 }
 
 export type StartSyncSchedulerOpts = {
@@ -162,14 +214,13 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
     })();
   };
 
-  // Best-effort flush of EVERY vault that has unacked events, used when the app
-  // goes to background/inactive. Without it, a recent edit in a NON-active vault
-  // (only drained by the ~60s sweep) is lost if the OS kills the app before the
-  // next sweep — the exact data-loss the user hit (a tally + note edits made in
-  // vaults he'd navigated away from, then closed the app). Fire-and-forget: the
-  // OS may suspend us mid-flush, but combined with the per-write kick below most
-  // events are already pushed, so this only needs to catch the last ~1s.
-  const flushAllPendingVaults = async (): Promise<void> => {
+  // Push-only drain of EVERY vault that has unacked events. Runs on boot-mount,
+  // foreground-resume, app-background, and scheduler teardown so any leftover
+  // unacked rows (active AND non-active vaults) reach the server within ~one
+  // round-trip instead of waiting up to the ~60s sweep. PUSH-ONLY (no pull) so a
+  // scarce launch/background window is spent UPLOADING, not pulling. Parallel +
+  // best-effort with per-vault isolation; safe to call during teardown.
+  const drainAllOutboxes = async (): Promise<void> => {
     try {
       if (!(await getSessionJWT())) return;
       const net = await Network.getNetworkStateAsync();
@@ -180,14 +231,9 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
           WHERE server_acked_at IS NULL AND rejected_at IS NULL
             AND tombstone_reason IS NULL AND vault_id IS NOT NULL`,
       );
-      // Flush vaults in PARALLEL (allSettled) — the OS grants only a short
-      // background window, and awaiting serially lets one slow vault starve the
-      // rest. Each per-vault failure is swallowed so one can't reject the batch.
-      await Promise.allSettled(
-        rows.map((r) => (stopped ? Promise.resolve() : syncOnce({ vaultId: r.vault_id }))),
-      );
+      await Promise.allSettled(rows.map((r) => pushVaultNow(r.vault_id)));
     } catch (err) {
-      if (__DEV__) console.warn("[sync] background flush failed", err);
+      if (__DEV__) console.warn("[sync] drain-all-outboxes failed", err);
     }
   };
 
@@ -199,10 +245,11 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
     if (!wasActive && s === "active") {
       scheduleNext(0);
       runSweep(); // also reconcile/back up non-active vaults on resume
+      void drainAllOutboxes(); // catch up any leftover unacked rows immediately
     } else if (wasActive && s !== "active") {
-      // Going to background/inactive: flush every vault with pending events so
-      // recent non-active-vault edits survive an imminent app kill.
-      void flushAllPendingVaults();
+      // Going to background/inactive: push every vault with pending events so
+      // recent edits survive an imminent app kill.
+      void drainAllOutboxes();
     }
   });
 
@@ -245,7 +292,16 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
   };
   const unsubLedger = onLedgerApplied((vaultId, origin) => {
     if (origin !== "local") return;
-    if (vaultId) pendingKickVaults.add(vaultId);
+    if (vaultId) {
+      // Fire an IMMEDIATE pull-free push so the just-saved edit is durable within
+      // ~one round-trip — before the 1s debounce, and outside the tick's inFlight
+      // guard, so it can't be swallowed. This is the load-bearing "back up every
+      // edit, fast" fix: each write pushes individually, so a burst's tail (e.g.
+      // "add a tally AND a contact") is never dropped. The kick below stays as a
+      // coalescing backstop + the active-vault pull cadence.
+      void pushVaultNow(vaultId);
+      pendingKickVaults.add(vaultId);
+    }
     scheduleKick();
   });
 
@@ -332,11 +388,17 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
   // Kick off immediately on mount. Also run a full sweep right away so any
   // vault that never registered (created offline, or whose create-time POST
   // failed) gets registered + backed up on the first signed-in session after
-  // this fix ships — not just newly-created ones.
+  // this fix ships — not just newly-created ones. And drain every outbox so any
+  // edits left unacked by a previously-killed session catch up at once.
   scheduleNext(0);
   runSweep();
+  void drainAllOutboxes();
 
   return () => {
+    // Best-effort flush before teardown. The scheduler restarts when the active
+    // vault switches (AutoSync), and stop() must not silently drop a pending
+    // edit for the kaata that was just active. pushVaultNow is safe post-stop.
+    void drainAllOutboxes();
     stopped = true;
     if (timer) {
       clearTimeout(timer);
