@@ -66,6 +66,12 @@ func (h *Handler) GoogleSignIn(w http.ResponseWriter, r *http.Request) {
 	result, err := h.svc.SignInWithGoogle(r.Context(), req.InstallID, req.IDToken, req.PendingVaultRegistration)
 	if err != nil {
 		msg := err.Error()
+		// Log the REAL cause of EVERY non-200 server-side (response bodies stay
+		// generic — nothing leaks to the client). Without this, a misconfigured
+		// GOOGLE_WEB_CLIENT_ID, an audience mismatch, clock-skew staleness, and a
+		// DB error are all indistinguishable "401 google sign-in failed" lines in
+		// the logs — which is exactly what stalled diagnosing the auth outage.
+		log.Printf("auth/google failed for install %s: %v", req.InstallID, err)
 		// Vault collision is the one error class that's safe to surface
 		// verbatim — the client UI keys on it to recover. Everything else
 		// goes through a generic error after server-side logging so
@@ -87,7 +93,7 @@ func (h *Handler) GoogleSignIn(w http.ResponseWriter, r *http.Request) {
 		case strings.Contains(msg, "pending_vault_registration"):
 			httpx.Error(w, http.StatusBadRequest, msg)
 		default:
-			log.Printf("google sign-in failed for install %s: %v", req.InstallID, err)
+			// (already logged above with the underlying error)
 			httpx.Error(w, http.StatusUnauthorized, "google sign-in failed")
 		}
 		return

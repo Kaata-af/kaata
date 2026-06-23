@@ -15,12 +15,21 @@ import (
 
 const ProviderGoogle = "google"
 
-// maxTokenAge is the freshness window for a Google ID token's `iat`.
-// Google tokens are valid for 1 hour, so a `iat` older than 5 minutes
-// almost always means: the token was minted at sign-in, then the user
-// spent N minutes on a confirmation screen before submission. Anything
-// older than that is replay or clock-skew abuse.
-const maxTokenAge = 5 * time.Minute
+// maxTokenAge is the freshness window for a Google ID token's `iat`. It's a
+// defense-in-depth replay check ON TOP OF idtoken.Validate's `exp` check (which
+// already enforces Google's 1-hour validity using server time). The previous
+// 5-minute window was too tight for the field: cheap Android devices routinely
+// have minutes of clock skew, so a phone whose clock is behind made `age` look
+// large and every sign-in 401'd as "stale" — an intermittent, undiagnosable
+// auth failure. 15 minutes tolerates realistic skew + a slow cold-backend
+// round-trip while still bounding replay well under the 1-hour token lifetime.
+const maxTokenAge = 15 * time.Minute
+
+// maxClockSkewAhead tolerates a device clock that runs AHEAD of the server
+// (token `iat` in the "future" from the server's view). 30s was far too tight
+// for real phones; 5 minutes covers ordinary skew without accepting an
+// implausibly future-dated (forged) token.
+const maxClockSkewAhead = 5 * time.Minute
 
 type Service struct {
 	pool              *pgxpool.Pool
@@ -111,7 +120,7 @@ func (s *Service) SignInWithGoogle(
 	age := time.Since(iat)
 	// Reject excessive negative skew too: a token claiming to be issued far
 	// in the future is either a clock-skew bug or a forgery attempt.
-	if age < -30*time.Second {
+	if age < -maxClockSkewAhead {
 		return GoogleSignInResult{}, errors.New("google id token iat is in the future")
 	}
 	if age > maxTokenAge {

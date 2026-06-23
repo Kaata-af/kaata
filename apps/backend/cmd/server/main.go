@@ -46,6 +46,21 @@ func main() {
 			minJWTSecretLen, len(cfg.SessionJWTSecret))
 	}
 
+	// Google sign-in is the ONLY way to create an account + turn on cloud backup.
+	// Every POST /v1/auth/google validates the ID token's audience against
+	// GOOGLE_WEB_CLIENT_ID. If it's unset, the service returns "google web client
+	// id not configured" which the handler maps to a generic 401 — so EVERY
+	// sign-in fails, cloud backup silently never works, and the logs show only an
+	// opaque 401. That exact misconfiguration shipped silently before. Fail loud
+	// in production; warn in dev (where Google auth usually isn't exercised). The
+	// value must match the mobile app's EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID.
+	if cfg.GoogleWebClientID == "" {
+		if os.Getenv("KAATA_ENV") == "production" {
+			log.Fatal("GOOGLE_WEB_CLIENT_ID must be set in production — without it every Google sign-in returns 401 and cloud backup never works. Set it to the OAuth Web client ID that matches the mobile app.")
+		}
+		log.Println("[warn] GOOGLE_WEB_CLIENT_ID is unset — Google sign-in will 401. OK for local dev; REQUIRED in production.")
+	}
+
 	// SEC M1: BACKEND_DEVICE_ID stamps the hlc_device_id / device_id of
 	// every server-emitted vault event. The zero-UUID fallback is fine
 	// for single-replica dev (no collision possible), but in production
