@@ -33,6 +33,22 @@ export class SyncTimeoutError extends Error {
   }
 }
 
+// 403 from a sync endpoint (pull/push) for a vault the server has no accepted,
+// non-revoked owner membership row for — i.e. the vault was never registered
+// via POST /v1/vaults. NOT a permanent failure: the scheduler reacts by kicking
+// a registration sweep and retrying on the normal cadence (no backoff escalation,
+// no crash report). Distinct from PermissionRejectedError, which is a per-event
+// role verdict on an already-registered vault. Without this dedicated type a 403
+// fell through to a plain Error → mis-classified as "unexpected" → blind backoff
+// + a crash report every tick, while the backup status read "Not backed up yet"
+// forever because the cycle aborted before push could stamp last_push_at.
+export class VaultNotRegisteredError extends Error {
+  constructor(message = "vault not registered on server") {
+    super(message);
+    this.name = "VaultNotRegisteredError";
+  }
+}
+
 // 429 or any 5xx. Scheduler reads retryAfterMs (set by the thrower from
 // Retry-After header when present) and uses max(retryAfterMs, next backoff
 // slot) for the next attempt.

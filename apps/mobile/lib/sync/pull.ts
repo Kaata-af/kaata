@@ -14,7 +14,12 @@ import type { LedgerEvent } from "../events";
 import { isKnownEventType } from "../events";
 import { applyEvent, applyEventMutex } from "../projection";
 import { getLastPulledServerSeq, setLastPulledServerSeq } from "./cursor";
-import { SessionExpiredError, SyncTimeoutError, SyncTransientError } from "./errors";
+import {
+  SessionExpiredError,
+  SyncTimeoutError,
+  SyncTransientError,
+  VaultNotRegisteredError,
+} from "./errors";
 
 const PULL_TIMEOUT_MS = 30_000;
 const DEFAULT_BATCH_LIMIT = 200;
@@ -126,6 +131,16 @@ async function fetchOnePage(
   if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
     const retryAfter = parseRetryAfter(res.headers.get("Retry-After"));
     throw new SyncTransientError(res.status, retryAfter);
+  }
+  // 403 = the server has no accepted owner membership for this vault yet (it was
+  // never registered via POST /v1/vaults). Type it so the scheduler kicks a
+  // registration sweep + retries on the normal cadence instead of treating it as
+  // an "unexpected" error (blind backoff + a crash report every tick) — and so a
+  // pre-registration tick doesn't bury the cycle before push can stamp the
+  // backup indicator. The scheduler registers the active vault before pulling
+  // (see syncOnce → ensureVaultRegistered), so this is the residual safety net.
+  if (res.status === 403) {
+    throw new VaultNotRegisteredError();
   }
   if (!res.ok) {
     throw new Error(`pull failed: ${res.status}`);

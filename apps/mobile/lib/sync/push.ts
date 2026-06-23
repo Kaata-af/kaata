@@ -22,6 +22,7 @@ import {
   SessionExpiredError,
   SyncTimeoutError,
   SyncTransientError,
+  VaultNotRegisteredError,
 } from "./errors";
 
 const PUSH_TIMEOUT_MS = 30_000;
@@ -226,6 +227,12 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
   if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
     const retryAfter = parseRetryAfter(res.headers.get("Retry-After"));
     throw new SyncTransientError(res.status, retryAfter);
+  }
+  // 403 = no accepted owner membership for this vault yet (unregistered). Same
+  // typed handling as pull: the scheduler kicks a registration sweep + retries,
+  // rather than misreading it as an unexpected fatal error.
+  if (res.status === 403) {
+    throw new VaultNotRegisteredError();
   }
   if (!res.ok) {
     throw new Error(`push failed: ${res.status}`);

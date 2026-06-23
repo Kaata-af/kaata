@@ -557,6 +557,19 @@ export default function HomeScreen() {
           setPendingAccountDecision({ args, resolve });
         });
       });
+      // Register-on-sign-in: durably POST every owned-but-unregistered LOCAL
+      // vault to the server NOW, while the user is guaranteed online and engaged
+      // — instead of relying on vault/new's fire-and-forget POST or the delayed
+      // background sweep. This is what makes an EXISTING user's kaata actually
+      // back up (and therefore restorable on reinstall): without the server
+      // owner-membership row, every push 403s and GET /v1/vaults omits the vault.
+      // Idempotent (409 = already registered = success); best-effort.
+      try {
+        const { reconcileVaultRegistrations } = await import("../lib/sync/reconcile");
+        await reconcileVaultRegistrations();
+      } catch (err) {
+        if (__DEV__) console.warn("[home] post-sign-in registration failed (non-fatal)", err);
+      }
       // Restore-on-sign-in: automatically load the account's vaults/kaatas from
       // the server (Matee: "if it's on, it should load your vaults/kaatas once you
       // sign in"). Idempotent + safe — a first-time account lists ZERO server
@@ -858,46 +871,46 @@ export default function HomeScreen() {
       {/* FAB only when there's an active kaata AND I can write to it (hidden for
           a viewer on a shared kaata — their writes are refused anyway). */}
       {activeVaultId && canWrite ? (
-      <Animated.View
-        style={[
-          styles.fab,
-          { bottom: 20 + insets.bottom, transform: [{ translateY: toastOffset }] },
-        ]}
-        pointerEvents="box-none"
-      >
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={t("personAdd.title")}
-          // D-DEFENSIVE-ARCHIVED-GUARD: D-POST-ARCHIVE-SWITCH should
-          // normally keep the active vault writable, but a mesh-sourced
-          // archive event can race the FAB tap; refuse here and tell the
-          // user where to go instead. Cheap 1-row DB read; we don't
-          // memoize because the answer can change between renders and
-          // the UX cost of a stale "yes, write" is higher than a 1ms
-          // SELECT.
-          onPress={async () => {
-            const guard = await getActiveVaultArchivedState();
-            if (guard.state === "archived") {
-              toast.push(t("home.fab.blockedArchived"), "error");
-              return;
-            }
-            if (guard.state === "none") {
-              toast.push(t("entry.noActiveVault"), "error");
-              return;
-            }
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
-            router.push("/person/new");
-          }}
-          style={({ pressed }) => [styles.fabInner, pressed && { opacity: 0.85 }]}
+        <Animated.View
+          style={[
+            styles.fab,
+            { bottom: 20 + insets.bottom, transform: [{ translateY: toastOffset }] },
+          ]}
+          pointerEvents="box-none"
         >
-          {/* "+" (add): this FAB is the primary "create anything" action — it
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t("personAdd.title")}
+            // D-DEFENSIVE-ARCHIVED-GUARD: D-POST-ARCHIVE-SWITCH should
+            // normally keep the active vault writable, but a mesh-sourced
+            // archive event can race the FAB tap; refuse here and tell the
+            // user where to go instead. Cheap 1-row DB read; we don't
+            // memoize because the answer can change between renders and
+            // the UX cost of a stale "yes, write" is higher than a 1ms
+            // SELECT.
+            onPress={async () => {
+              const guard = await getActiveVaultArchivedState();
+              if (guard.state === "archived") {
+                toast.push(t("home.fab.blockedArchived"), "error");
+                return;
+              }
+              if (guard.state === "none") {
+                toast.push(t("entry.noActiveVault"), "error");
+                return;
+              }
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+              router.push("/person/new");
+            }}
+            style={({ pressed }) => [styles.fabInner, pressed && { opacity: 0.85 }]}
+          >
+            {/* "+" (add): this FAB is the primary "create anything" action — it
               opens the search-or-add screen (person/new) where you find an
               existing contact OR add a new one to start a tally. Matee: it's the
               everything button, not just search, so a plus reads truer than a
               magnifying glass. */}
-          <Ionicons name="add" size={30} color={colors.textInverted} />
-        </Pressable>
-      </Animated.View>
+            <Ionicons name="add" size={30} color={colors.textInverted} />
+          </Pressable>
+        </Animated.View>
       ) : null}
 
       {/* Phase 7 — unified settings sheet replaces HamburgerMenuSheet +

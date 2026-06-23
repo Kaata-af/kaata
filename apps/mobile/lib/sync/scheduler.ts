@@ -26,10 +26,11 @@ import {
   SessionExpiredError,
   SyncTimeoutError,
   SyncTransientError,
+  VaultNotRegisteredError,
 } from "./errors";
 import { pullEvents } from "./pull";
 import { pushEvents } from "./push";
-import { fullBackupSweep } from "./reconcile";
+import { ensureVaultRegistered, fullBackupSweep } from "./reconcile";
 import { onLedgerApplied } from "../ledger-events";
 
 const FOREGROUND_INTERVAL_MS = 5_000;
@@ -75,6 +76,16 @@ export async function syncOnce(
   if (!net.isConnected) {
     return { pulled: 0, pushed: 0, rejected: 0, duplicates: 0 };
   }
+
+  // Register the active vault server-side BEFORE pulling it (when it's an OWNED,
+  // not-yet-registered vault). An unregistered owned vault 403s on pull, which
+  // aborts this cycle before push can stamp last_push_at — the "Not backed up yet
+  // while online" bug (the backup status reads max(last_pull_at, last_push_at)
+  // and both stay 0). Doing it here (eager + awaited) brings the vault up on the
+  // first online tick instead of depending on the periodic fullBackupSweep (which
+  // also skips the active vault's own push, so it could never stamp the
+  // indicator). Joined vaults are left untouched and pull/push normally.
+  await ensureVaultRegistered(vaultId);
 
   // Pull-then-push. Non-negotiable per plan C1.
   const pullRes = await pullEvents(vaultId);
@@ -219,6 +230,18 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
       }
 
       if (err instanceof PermissionRejectedError) {
+        backoffAttempt = 0;
+        scheduleNext(currentInterval());
+        return;
+      }
+
+      if (err instanceof VaultNotRegisteredError) {
+        // The active vault has no server membership yet (registration POST hasn't
+        // landed — e.g. a transient 5xx during this tick's ensureVaultRegistered).
+        // syncOnce retries the registration on the next tick, so treat this as a
+        // soft state: normal cadence, no backoff escalation, no crash report
+        // (it's expected for a freshly-created vault or one whose registration
+        // was reset by migration 020).
         backoffAttempt = 0;
         scheduleNext(currentInterval());
         return;

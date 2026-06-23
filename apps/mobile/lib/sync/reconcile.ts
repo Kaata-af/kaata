@@ -151,6 +151,37 @@ export async function reconcileVaultRegistrations(): Promise<void> {
   }
 }
 
+// Ensure ONE specific vault (normally the active one) is registered server-side
+// BEFORE the scheduler pulls/pushes it. An unregistered vault 403s on pull,
+// which aborts the sync cycle before push can stamp last_push_at — so the backup
+// status reads "Not backed up yet" forever even while online, and the periodic
+// fullBackupSweep (the only other reconcile caller) explicitly SKIPS the active
+// vault's pull/push, so it can never self-heal the status either. Calling this
+// eagerly + awaited at the top of syncOnce closes that gap: the very first online
+// tick registers the active vault, then pulls/pushes it.
+//
+// Cheap in steady state: a single SELECT once the vault is registered. When it
+// isn't, it delegates to reconcileVaultRegistrations (idempotent; 409 = already
+// there = success). The caller ALWAYS proceeds to pull/push afterwards — we do
+// NOT gate sync on the outcome, because reconcile only POSTs vaults THIS DEVICE
+// OWNS: a JOINED vault (member via invite/pair) keeps registered_with_server_at
+// NULL by design (pair-scan.tsx) yet IS a server-side member, so it must still
+// pull/push (it won't 403). For an OWNED vault, registering here makes the
+// subsequent pull succeed and push stamp the backup indicator in the SAME tick.
+// The residual "owned but registration POST failed this tick" case 403s on pull
+// and is handled softly by the scheduler (VaultNotRegisteredError) — never a
+// crash-report or a silent skip.
+export async function ensureVaultRegistered(vaultId: string): Promise<void> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ registered_with_server_at: number | null }>(
+    "SELECT registered_with_server_at FROM vaults WHERE id = ?",
+    vaultId,
+  );
+  // Already registered, or not a local row we track → nothing to do.
+  if (!row || row.registered_with_server_at != null) return;
+  await reconcileVaultRegistrations();
+}
+
 // Reconcile registrations, then pull+push every registered vault that still
 // needs it — EXCLUDING the active vault (the scheduler's per-tick syncOnce
 // already covers it, so syncing it here would just double request volume). A
