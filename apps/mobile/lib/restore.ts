@@ -228,7 +228,7 @@ export async function restoreFromSnapshot(
   // false per vault and picks ONE active/default after the loop (the snapshot's
   // is_default is server-hard-coded to 1 for every vault, so a naive loop would
   // make the last-restored vault active + mark them all default).
-  opts: { setActiveDefault?: boolean } = {},
+  opts: { setActiveDefault?: boolean; localSelfId?: string | null } = {},
 ): Promise<{
   ok: true;
   applied_events: number;
@@ -237,6 +237,27 @@ export async function restoreFromSnapshot(
   const setActiveDefault = opts.setActiveDefault ?? true;
   const db = await getDb();
   let appliedEvents = 0;
+
+  // The self user is never event-sourced, so the server stores every relationship
+  // with user_a_id="" and every entry with proposed_by_user_id="" — both FK
+  // columns that point at users(id). We remap those empty refs to the local self
+  // (user_a is the self by construction in this data model) so the inserts don't
+  // violate the foreign key (which would silently drop the contact/entry). Prefer
+  // the id the caller resolved; else look up an existing self row.
+  let localSelfId: string | null = opts.localSelfId ?? null;
+  if (!localSelfId) {
+    const selfRow = await db.getFirstAsync<{ id: string }>(
+      "SELECT id FROM users WHERE is_local_self = 1 LIMIT 1",
+    );
+    localSelfId = selfRow?.id ?? null;
+  }
+  // If we still have no self id AND there are relationships to remap, fail loudly
+  // rather than inserting user_a_id=NULL (a cryptic FK/NOT NULL rollback of the
+  // whole vault). Unreachable via recoverAllVaults (it mints the self first); this
+  // guards a future direct caller that forgets to.
+  if (!localSelfId && snapshot.relationships.length > 0) {
+    throw new Error("restoreFromSnapshot: no local-self row to remap relationship user_a_id");
+  }
 
   // M5: PIN THE ORIGINAL ANCHOR. The INSERT OR REPLACE below would otherwise
   // drop vault_trust_anchor_pubkey to NULL. A recovered device verifies peers
@@ -281,10 +302,11 @@ export async function restoreFromSnapshot(
       anchorToWrite,
     );
 
-    // 2. Seed users. is_local_self stays as-recorded in the snapshot —
-    //    if this device's onboarding hasn't completed yet, a snapshot
-    //    user with is_local_self=1 is fine; the next onboarding pass
-    //    will NOT re-mint a self row because getLocalSelf() returns it.
+    // 2. Seed users (the CONTACTS). The snapshot NEVER carries an is_local_self=1
+    //    row — the self user is not event-sourced and the backend projection sets
+    //    is_local_self=false for every user — so the local self is minted
+    //    separately by recovery (lib/recovery.ts ensureLocalSelfForRestore) and the
+    //    empty user_a_id below is remapped to it.
     for (const u of snapshot.users) {
       await db.runAsync(
         `INSERT OR REPLACE INTO users (
@@ -319,7 +341,10 @@ export async function restoreFromSnapshot(
       );
     }
 
-    // 4. Seed relationships.
+    // 4. Seed relationships. user_a is the self by construction; the server
+    //    stores it empty (the self id never round-trips), so remap "" → the local
+    //    self id to satisfy the NOT NULL REFERENCES users(id) FK. Without this the
+    //    insert throws under foreign_keys=ON and the contact is dropped.
     for (const r of snapshot.relationships) {
       await db.runAsync(
         `INSERT OR REPLACE INTO relationships (
@@ -327,7 +352,7 @@ export async function restoreFromSnapshot(
            created_at, updated_at, archived_at
          ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?)`,
         r.id,
-        r.user_a_id,
+        r.user_a_id || localSelfId,
         r.user_b_id,
         r.context,
         r.vault_id,
@@ -355,7 +380,10 @@ export async function restoreFromSnapshot(
         e.created_at,
         e.updated_at,
         e.deleted_at,
-        e.proposed_by_user_id,
+        // The server stores the proposer as "" (FK to users(id), nullable). Map
+        // "" → NULL, matching the pull-path entry applier (projection/entries.ts),
+        // so the FK holds; readers coalesce a null proposer to the local self.
+        e.proposed_by_user_id || null,
         e.current_event_id,
         e.is_deleted,
         e.is_settled,

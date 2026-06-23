@@ -22,15 +22,18 @@
 
 import { Platform } from "react-native";
 import Constants from "expo-constants";
+import * as Crypto from "expo-crypto";
 
 import { checkIn } from "./api";
 import { getAppMeta, setAppMeta } from "./db";
+import { t } from "./i18n";
 import {
   ACTIVE_VAULT_META_KEY,
   getAccountIdSync,
   getDb,
   refreshAccountIdCache,
   setActiveVaultIdCache,
+  setLocalSelfUserIdCache,
 } from "./db-tx";
 import { ensureInstallId } from "./install-id";
 import { fetchSnapshot, restoreFromSnapshot } from "./restore";
@@ -89,11 +92,25 @@ export async function recoverAllVaults(): Promise<RecoveryResult> {
 
   const live = listings.filter((v) => v.archived_at_ms == null);
 
+  // Ensure the local-self identity row exists BEFORE any vault's events apply.
+  // The self user is never event-sourced, so the server stores every
+  // relationship with user_a_id="" (and every entry with proposed_by_user_id="");
+  // relationships.user_a_id is NOT NULL REFERENCES users(id) with foreign_keys=ON,
+  // so applying a person_added/snapshot relationship while no self row exists
+  // violates the FK and the contact is DROPPED. That is exactly why a fresh-install
+  // restore (no self yet) comes back with empty contacts/tallies, while a home
+  // sign-in (self already exists) restores fine. We mint a fresh-UUID self up front
+  // and remap the empty server reference to it (restoreFromSnapshot for the
+  // snapshot path; applyPersonAdded resolves the existing self row for the pull
+  // path). Returns null when there's nothing to restore.
+  const localSelf = live.length > 0 ? await ensureLocalSelfForRestore() : null;
+  const localSelfId = localSelf?.id ?? null;
+
   for (const v of live) {
     try {
       const snapshot = await fetchSnapshot({ defaultVaultId: v.vault_id });
       if (snapshot) {
-        await restoreFromSnapshot(snapshot, { setActiveDefault: false });
+        await restoreFromSnapshot(snapshot, { setActiveDefault: false, localSelfId });
       } else {
         // No server snapshot yet (cron lag / brand-new / low-activity vault —
         // the snapshot endpoint 404s until the cron or push-threshold builds
@@ -148,6 +165,12 @@ export async function recoverAllVaults(): Promise<RecoveryResult> {
     await setAppMeta(ACTIVE_VAULT_META_KEY, activeVaultId);
     await setAppMeta("default_vault_id", activeVaultId);
     setActiveVaultIdCache(activeVaultId);
+    // Refine the JUST-MINTED self's display name from the restored, event-sourced
+    // shop_profile.owner_name (the self row was minted pre-loop with only the
+    // Google name available). Gated on `minted` so we NEVER clobber the name on an
+    // already-onboarded device (the home sign-in path, where the self pre-existed
+    // and the user may have set a name different from their shop owner_name).
+    if (localSelf?.minted) await refineLocalSelfName(localSelf.id);
   }
 
   // M5 (review fix — MED): sweep each recovered vault so any witnessed
@@ -226,5 +249,85 @@ async function seedVaultFromListing(v: VaultListing): Promise<void> {
     v.created_at_ms,
     v.vault_epoch,
     v.vault_trust_anchor_pubkey ?? null,
+  );
+}
+
+/**
+ * Ensure the local-self (is_local_self=1) user row exists BEFORE recovery applies
+ * any vault's events, and return its id. The self user is never event-sourced, so
+ * it is absent from every server snapshot AND the server stores every relationship
+ * with user_a_id="" / every entry with proposed_by_user_id="" (the original self
+ * id never round-trips). relationships.user_a_id is NOT NULL REFERENCES users(id)
+ * with foreign_keys=ON, so a relationship can only be inserted once a self row
+ * exists to point at. We mint a FRESH-UUID self (the original id is unrecoverable)
+ * and the restore paths remap the empty server reference to it: the snapshot path
+ * via restoreFromSnapshot(localSelfId), the pull path via applyPersonAdded's
+ * existing-self-row lookup. No-op (returns the existing id) when a self row is
+ * already present — the home-screen sign-in path, where the user onboarded first.
+ *
+ * Phone is left NULL (the caller's adoptAccountPhoneToSelf fills it post-restore
+ * under its own UNIQUE-collision guard). The display name is seeded from the
+ * Google name stashed at sign-in; refineLocalSelfName upgrades it to the restored
+ * shop_profile.owner_name after the loop.
+ */
+async function ensureLocalSelfForRestore(): Promise<{ id: string; minted: boolean }> {
+  const db = await getDb();
+  const existing = await db.getFirstAsync<{ id: string }>(
+    "SELECT id FROM users WHERE is_local_self = 1 LIMIT 1",
+  );
+  if (existing) {
+    setLocalSelfUserIdCache(existing.id);
+    return { id: existing.id, minted: false };
+  }
+
+  // No self row → mint one. Resolve account_id robustly (cache may be cold) so the
+  // self row binds to the account; it self-heals on the next sign-in regardless.
+  let accountId = getAccountIdSync();
+  if (!accountId) accountId = await refreshAccountIdCache();
+  const pendingName = (await getAppMeta("onboarding_pending_name"))?.trim() || null;
+  const googleSub = (await getAppMeta("account_google_sub")) || null;
+  const selfId = Crypto.randomUUID();
+  const now = Date.now();
+
+  // Placeholder display_name: the Google name if we have it, else the user's own
+  // localized "you" label (refined to owner_name post-restore). NOT NULL column,
+  // so never empty. Phone NULL → the UNIQUE(phone_e164) constraint can't abort this.
+  const displayName = pendingName || t("recovery.selfPlaceholderName");
+  await db.runAsync(
+    `INSERT INTO users (
+       id, phone_e164, display_name, is_local_self, google_sub, account_id,
+       created_at, updated_at, archived_at
+     ) VALUES (?, NULL, ?, 1, ?, ?, ?, ?, NULL)`,
+    selfId,
+    displayName,
+    googleSub,
+    accountId,
+    now,
+    now,
+  );
+  setLocalSelfUserIdCache(selfId);
+  console.warn(`[recovery] minted local-self ${selfId.slice(0, 8)} for restore`);
+  return { id: selfId, minted: true };
+}
+
+/**
+ * Upgrade the freshly-minted self's display_name to the restored, event-sourced
+ * shop_profile.owner_name (the user's real in-app name) now that vaults are in.
+ * Only touches a self row whose name is still the Google/placeholder seed; never
+ * clobbers a name the user already had. Best-effort.
+ */
+async function refineLocalSelfName(selfId: string): Promise<void> {
+  const db = await getDb();
+  const ownerRow = await db.getFirstAsync<{ owner_name: string | null }>(
+    `SELECT owner_name FROM shop_profile
+      WHERE owner_name IS NOT NULL AND TRIM(owner_name) <> '' LIMIT 1`,
+  );
+  const ownerName = ownerRow?.owner_name?.trim();
+  if (!ownerName) return;
+  await db.runAsync(
+    "UPDATE users SET display_name = ?, updated_at = ? WHERE id = ? AND is_local_self = 1",
+    ownerName,
+    Date.now(),
+    selfId,
   );
 }

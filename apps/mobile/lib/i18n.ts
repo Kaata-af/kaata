@@ -38,6 +38,9 @@ const en = {
     "Used so staff can find you in their contacts when pairing. Not verified, not shared.",
   "onboarding.continue": "Continue",
   "onboarding.nameRequired": "Name required",
+  // Fallback display name for a self identity reconstructed during cloud restore
+  // when neither the Google name nor the restored owner name is available (rare).
+  "recovery.selfPlaceholderName": "You",
 
   // Onboarding step 1 — language picker. Only shown when device locale
   // isn't already Persian/Dari.
@@ -1042,6 +1045,7 @@ const fa: Partial<Record<Key, string>> = {
     "برای اینکه کارمندان شما را در مخاطبین خود پیدا کنند. تأیید نمی‌شود و به اشتراک گذاشته نمی‌شود.",
   "onboarding.continue": "ادامه",
   "onboarding.nameRequired": "نام لازم است",
+  "recovery.selfPlaceholderName": "شما",
 
   // Onboarding step 1 — language picker
   "onboardingLanguage.title": "زبان خود را برگزینید",

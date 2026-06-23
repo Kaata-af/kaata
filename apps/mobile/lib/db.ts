@@ -3011,14 +3011,31 @@ export async function createSelfProfile(
   }
 
   await db.withTransactionAsync(async () => {
-    await db.runAsync(
-      "INSERT INTO users (id, phone_e164, display_name, is_local_self, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-      userId,
-      trimmedPhone || null,
-      trimmedName,
-      now,
-      now,
+    // Idempotent self: a prior flow may have already created the local-self row —
+    // notably a cloud restore that minted it (lib/recovery.ts ensureLocalSelfForRestore)
+    // before the user backed out via "Start fresh". Reuse + update that row rather
+    // than inserting a SECOND is_local_self=1 row (which would orphan one of them).
+    const existingSelf = await db.getFirstAsync<{ id: string }>(
+      "SELECT id FROM users WHERE is_local_self = 1 LIMIT 1",
     );
+    if (existingSelf) {
+      await db.runAsync(
+        "UPDATE users SET display_name = ?, phone_e164 = ?, updated_at = ? WHERE id = ?",
+        trimmedName,
+        trimmedPhone || null,
+        now,
+        existingSelf.id,
+      );
+    } else {
+      await db.runAsync(
+        "INSERT INTO users (id, phone_e164, display_name, is_local_self, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
+        userId,
+        trimmedPhone || null,
+        trimmedName,
+        now,
+        now,
+      );
+    }
 
     if (shouldMintVault) {
       vaultId = Crypto.randomUUID();
@@ -3087,10 +3104,11 @@ export async function createSelfProfile(
   //
   // The local-self person is intentionally NOT emitted as a person_added —
   // person_added events carry a relationship which the local-self has none of
-  // (it's the "user_a" side of every relationship, not a customer). Phase 3
-  // restore reconstructs the local self from app_meta.account_id + a fresh
-  // onboarding pass (the device has to re-mint its own self user row anyway
-  // because users.id is device-local for the self row).
+  // (it's the "user_a" side of every relationship, not a customer). Because of
+  // that, the self never reaches the server and the server stores every
+  // relationship with user_a_id="" — so a cloud restore mints a FRESH self row
+  // (lib/recovery.ts ensureLocalSelfForRestore) and remaps that empty ref to it;
+  // the device's self users.id is device-local and not preserved across reinstall.
   if (shouldMintVault && vaultId) {
     try {
       await appendShopProfileUpdated({

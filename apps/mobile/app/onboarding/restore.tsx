@@ -122,10 +122,11 @@ export default function OnboardingRestoreScreen() {
     try {
       const result = await recoverAllVaults();
       if (result.recovered.length > 0) {
-        // At least one vault came back. Mark onboarding done — the restored
-        // snapshot already contains the local self user so we don't need the
-        // profile screen. Going straight to home matches the user's mental
-        // model: "my data is back, take me to it."
+        // At least one vault came back. Mark onboarding done — recovery rebuilt
+        // the ledger AND minted the local-self identity (the snapshot can't carry
+        // it), so getLocalSelf() is non-null and home won't bounce back here; the
+        // profile screen is unnecessary. Going straight to home matches the user's
+        // mental model: "my data is back, take me to it."
         await setAppMeta("onboarding_step", "done");
         await setAppMeta("onboarding_pending_name", "");
         await setAppMeta("onboarding_pending_email", "");
