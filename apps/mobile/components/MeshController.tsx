@@ -446,7 +446,14 @@ export function MeshController() {
           // re-entering here after home's direct start call is harmless.
           await ensurePermsAndStart.current();
         } else {
-          await mesh.stopShopMode();
+          // userInitiated: true PERSISTS the off-intent (clears
+          // shop_mode_enabled). Without it, stopShopMode stops the radios but
+          // leaves the flag "1", so the 10s poll re-reads "1", re-enters this
+          // effect with wantOn=true, and re-posts the "Nearby sync" foreground
+          // notification — i.e. the notification keeps coming back after the
+          // user turns Nearby sync off. (The unmount handoff at the bottom of
+          // this file is a SEPARATE path and correctly keeps the FGS alive.)
+          await mesh.stopShopMode({ userInitiated: true });
         }
         // #43 P2 Phase 1: register/unregister the periodic background catch-up to
         // match (shop_mode_enabled × bg_mesh_enabled). No-op unless the remote
