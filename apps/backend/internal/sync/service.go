@@ -533,6 +533,52 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 			s.invalidatePullCacheForVault(in.VaultID)
 		}
 
+		// S1 data-loss fix: mirror the reserved 'archived_at' vault setting onto
+		// the vaults.archived_at COLUMN. A modern local-CA vault is archived by
+		// emitting a vault_setting_set{key:'archived_at'} event (lib/vault-router.ts)
+		// — it never calls the explicit Archive endpoint — and the in-memory
+		// VaultSettings projection never reached the column, so GET /v1/vaults
+		// reported the vault as live and a reinstall+restore resurrected it as a
+		// live kaata. Recompute the column from the HLC-LATEST archived_at event so
+		// this is order-independent + LWW-correct (handles archive→unarchive toggles
+		// and out-of-order delivery), matching the mobile applier
+		// (lib/projection/vault_settings.ts). Empty/non-numeric value clears it
+		// (unarchived); a numeric ms value sets it.
+		if ev.EventType == "vault_setting_set" {
+			var vss struct {
+				Key string `json:"key"`
+			}
+			if json.Unmarshal(ev.Payload, &vss) == nil && vss.Key == "archived_at" {
+				if _, uerr := tx.Exec(ctx, `
+					UPDATE vaults v SET archived_at = sub.ts
+					FROM (
+						SELECT CASE
+							-- Anchor archived_at to SERVER time, NOT the client's
+							-- ms value: the archive-purge cron hard-deletes vaults
+							-- where archived_at < NOW() - 30 days, so writing a
+							-- backdated/clock-skewed client timestamp could purge a
+							-- freshly-archived vault instantly. Recovery + GET
+							-- /v1/vaults only care whether archived_at IS NULL, so
+							-- NOW() on archive / NULL on unarchive is sufficient and
+							-- matches the explicit Archive endpoint's semantics.
+							WHEN COALESCE(e.payload->>'value', '') = '' THEN NULL
+							WHEN e.payload->>'value' ~ '^[0-9]+$' THEN NOW()
+							ELSE NULL
+						END AS ts
+						FROM events e
+						WHERE e.vault_id = $1::uuid
+						  AND e.event_type = 'vault_setting_set'
+						  AND e.payload->>'key' = 'archived_at'
+						ORDER BY e.hlc_physical_ms DESC, e.hlc_logical DESC, e.hlc_device_id DESC
+						LIMIT 1
+					) sub
+					WHERE v.vault_id = $1::uuid
+				`, in.VaultID); uerr != nil {
+					return nil, fmt.Errorf("mirror archived_at for vault %s: %w", in.VaultID, uerr)
+				}
+			}
+		}
+
 		accepted = append(accepted, AcceptedEvent{
 			EventID:   ev.EventID,
 			ServerSeq: nextSeq,
