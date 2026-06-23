@@ -30,6 +30,7 @@ import { Linking, Platform } from "react-native";
 
 import { ConfirmDialog } from "./ConfirmDialog";
 import { useToast } from "./Toast";
+import { SOLO_STORE_MODE } from "../constants/env";
 import { getAppMeta, setAppMeta } from "../lib/db";
 import { t } from "../lib/i18n";
 import { hasBlePermissions, requestBlePermissions } from "../lib/mesh/ble-permissions";
@@ -425,7 +426,13 @@ export function MeshController() {
   // the advertise call → process killed. The accountId is still surfaced
   // (it influences the cloud-sync paths) but no longer gates mesh.
   useEffect(() => {
-    const wantOn = shopModeEnabled;
+    // SOLO_STORE_MODE hides the Nearby-sync toggle entirely (ProfileSettingsSheet),
+    // so a stale shop_mode_enabled="1" would keep the foreground "Nearby sync"
+    // notification running with NO switch to turn it off — exactly the reported
+    // bug. Force the intent OFF in solo builds: wantOn=false drives the else-branch
+    // below, which stops the FGS (if running) AND clears the persisted flag
+    // (userInitiated:true), so the notification goes away and never auto-resumes.
+    const wantOn = shopModeEnabled && !SOLO_STORE_MODE;
     console.log("[mesh.toggle] effect fired wantOn=", wantOn);
     // A fresh intent (or an off-flip) cancels any pending auto-resume retry
     // and resets the backoff so a new toggle-on isn't blocked by a previous
