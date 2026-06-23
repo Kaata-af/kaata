@@ -69,6 +69,7 @@ const MIGRATION_017 = "017_crash_outbox";
 const MIGRATION_018 = "018_event_author_seq";
 const MIGRATION_019 = "019_vault_device_registry";
 const MIGRATION_020 = "020_reregister_bootstrap_vaults";
+const MIGRATION_021 = "021_unstick_rejected_ledger_events";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -311,6 +312,14 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
     } catch (err) {
       console.error("[init] runMigration020 failed:", err);
       throw new Error("runMigration020 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_021))) {
+    try {
+      await runMigration021(db);
+    } catch (err) {
+      console.error("[init] runMigration021 failed:", err);
+      throw new Error("runMigration021 failed: " + String(err));
     }
   }
 }
@@ -2751,6 +2760,37 @@ async function runMigration020(db: SQLite.SQLiteDatabase): Promise<void> {
     await db.runAsync(
       `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
       MIGRATION_020,
+      Date.now(),
+    );
+  });
+}
+
+// Migration 021: un-stick LEDGER events that were permanently exiled from the
+// push outbox by a rejected_at stamp. The server used to reject entries authored
+// before Google sign-in (unauthored_pre_binding) and post-restore owner-key drift
+// (insufficient_role); push.ts stamped rejected_at, which the outbox excludes and
+// which was NEVER cleared — so a user-visible tally/contact silently never backed
+// up and went missing on the next restore. push.ts no longer stamps rejected_at
+// for those reasons; this clears the already-stuck rows so they re-enter the
+// outbox and back up. Scoped to USER ledger events (entries/people/shop profile)
+// — never membership/device/binding rows, which have their own lifecycle.
+// DATA-SAFE: only flips a sync flag; never touches ledger content.
+async function runMigration021(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `UPDATE event_log
+          SET rejected_at = NULL
+        WHERE rejected_at IS NOT NULL
+          AND tombstone_reason IS NULL
+          AND event_type IN (
+            'entry_created', 'entry_amended', 'entry_deleted',
+            'person_added', 'person_renamed', 'person_archived',
+            'person_unarchived', 'person_phone_changed', 'shop_profile_updated'
+          )`,
+    );
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_021,
       Date.now(),
     );
   });

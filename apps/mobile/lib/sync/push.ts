@@ -306,6 +306,21 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
         if (r.reason === "future_hlc") {
           continue;
         }
+        // unauthored_pre_binding is NOT a verdict on the event — it's a transient
+        // batch-ordering miss. Events authored BEFORE Google sign-in carry
+        // actor_account_id=NULL; the server attributes them via a covering
+        // account_bound, but account_bound has a LATER HLC and is processed later
+        // in the same HLC-ordered push batch, so an early entry is rejected before
+        // its binding commits server-side. Stamping rejected_at would PERMANENTLY
+        // exile the entry from backup (the outbox excludes rejected_at rows and it
+        // is never cleared) → "half my entries went missing on restore". Leave it
+        // unacked so the NEXT push — after account_bound is committed — re-attempts
+        // and is accepted. Same treatment for insufficient_role on our OWN
+        // pre-binding edits, which is the post-restore account/owner-key drift, not
+        // a real authorization failure; a permanent drop there is silent data loss.
+        if (r.reason === "unauthored_pre_binding" || r.reason === "insufficient_role") {
+          continue;
+        }
         await db.runAsync(
           "UPDATE event_log SET rejected_at = ? WHERE event_id = ?",
           now,

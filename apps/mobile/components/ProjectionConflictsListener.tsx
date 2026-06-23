@@ -37,16 +37,22 @@ export function ProjectionConflictsListener() {
       return;
     }
     const seen = seenRef.current;
-    let fresh = 0;
     let firstFresh: ProjectionConflictRow | null = null;
     for (const row of rows) {
-      if (!seen.has(row.id)) {
-        seen.add(row.id);
-        if (firstFresh === null) firstFresh = row;
-        fresh++;
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      // Only toast rejections of USER-actionable events (a tally / contact edit
+      // the user just made). INTERNAL membership/device/binding events
+      // (vault_member_added, vault_device_added, account_bound, …) are
+      // re-bound automatically on restore via the witnessed self-admission +
+      // quarantine sweep; surfacing "Your role changed — that change couldn't be
+      // saved" for that self-healing churn was an alarming false alarm on every
+      // restore. Keep them marked seen (so we never toast them) but skip the toast.
+      if (firstFresh === null && isUserActionableConflict(row)) {
+        firstFresh = row;
       }
     }
-    if (fresh === 0 || firstFresh === null) return;
+    if (firstFresh === null) return;
 
     // Pick copy based on the conflict kind / detail.reason. Local-role-
     // gate refusals get specific "view only" copy; server-side rejections
@@ -64,4 +70,14 @@ export function ProjectionConflictsListener() {
   }, [rows, toast]);
 
   return null;
+}
+
+// A conflict is worth a user-facing toast only when it's about an event the user
+// directly authored (a tally or a contact change). Internal membership / device /
+// binding events (vault_*, account_bound) are sync plumbing that re-binds itself
+// on restore — toasting them reads as a scary "your change couldn't be saved".
+function isUserActionableConflict(row: ProjectionConflictRow): boolean {
+  const type = typeof row.detail.event_type === "string" ? row.detail.event_type : "";
+  if (!type) return true; // unknown → surface it rather than swallow a real reject
+  return !(type.startsWith("vault_") || type === "account_bound");
 }
