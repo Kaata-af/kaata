@@ -20,7 +20,7 @@ import { AppState, type AppStateStatus } from "react-native";
 import * as Network from "expo-network";
 
 import { clearLocalSession, getSessionJWT } from "../auth";
-import { getActiveVaultIdSyncMaybe } from "../db-tx";
+import { getActiveVaultIdSyncMaybe, getDb } from "../db-tx";
 import {
   PermissionRejectedError,
   SessionExpiredError,
@@ -162,6 +162,35 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
     })();
   };
 
+  // Best-effort flush of EVERY vault that has unacked events, used when the app
+  // goes to background/inactive. Without it, a recent edit in a NON-active vault
+  // (only drained by the ~60s sweep) is lost if the OS kills the app before the
+  // next sweep — the exact data-loss the user hit (a tally + note edits made in
+  // vaults he'd navigated away from, then closed the app). Fire-and-forget: the
+  // OS may suspend us mid-flush, but combined with the per-write kick below most
+  // events are already pushed, so this only needs to catch the last ~1s.
+  const flushAllPendingVaults = async (): Promise<void> => {
+    try {
+      if (!(await getSessionJWT())) return;
+      const net = await Network.getNetworkStateAsync();
+      if (!net.isConnected) return;
+      const db = await getDb();
+      const rows = await db.getAllAsync<{ vault_id: string }>(
+        `SELECT DISTINCT vault_id FROM event_log
+          WHERE server_acked_at IS NULL AND rejected_at IS NULL
+            AND tombstone_reason IS NULL AND vault_id IS NOT NULL`,
+      );
+      // Flush vaults in PARALLEL (allSettled) — the OS grants only a short
+      // background window, and awaiting serially lets one slow vault starve the
+      // rest. Each per-vault failure is swallowed so one can't reject the batch.
+      await Promise.allSettled(
+        rows.map((r) => (stopped ? Promise.resolve() : syncOnce({ vaultId: r.vault_id }))),
+      );
+    } catch (err) {
+      if (__DEV__) console.warn("[sync] background flush failed", err);
+    }
+  };
+
   const appStateSub = AppState.addEventListener("change", (s) => {
     const wasActive = currentAppState === "active";
     currentAppState = s;
@@ -170,6 +199,10 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
     if (!wasActive && s === "active") {
       scheduleNext(0);
       runSweep(); // also reconcile/back up non-active vaults on resume
+    } else if (wasActive && s !== "active") {
+      // Going to background/inactive: flush every vault with pending events so
+      // recent non-active-vault edits survive an imminent app kill.
+      void flushAllPendingVaults();
     }
   });
 
@@ -179,20 +212,40 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
     timer = setTimeout(tick, delayMs);
   };
 
-  // Push-on-write: a LOCAL ledger edit schedules a near-immediate sync cycle.
-  // Only local writes (a remote-applied event already came from a sync — kicking
-  // on it would loop) and only the active vault (the scheduler is single-vault).
+  // Push-on-write: a LOCAL ledger edit schedules a near-immediate sync of the
+  // AUTHORING vault — NOT just the active one. The old code kicked only when the
+  // write hit the active vault, so an edit in any other vault waited up to ~60s
+  // for the sweep and was lost if the app closed first (the user's missing tally
+  // + note edits, authored in vaults he'd navigated away from). We now collect
+  // every locally-written vault and drain them ~1s later: the active vault via
+  // the normal tick (pull-then-push), the rest via a targeted syncOnce each.
+  const pendingKickVaults = new Set<string>();
+  const drainKickVaults = async (): Promise<void> => {
+    const active = getActiveVaultIdSyncMaybe();
+    const vaults = Array.from(pendingKickVaults);
+    pendingKickVaults.clear();
+    for (const vid of vaults) {
+      if (stopped) return;
+      if (vid === active) continue; // covered by the tick scheduled below
+      try {
+        await syncOnce({ vaultId: vid });
+      } catch (err) {
+        if (__DEV__) console.warn("[sync] kick drain failed", vid.slice(0, 8), err);
+      }
+    }
+  };
   const scheduleKick = (): void => {
     if (stopped || kickTimer) return; // coalesce a burst into one cycle
     kickTimer = setTimeout(() => {
       kickTimer = null;
       if (stopped) return;
-      scheduleNext(0); // tick guards inFlight, so this collapses into a run
+      scheduleNext(0); // active vault: tick guards inFlight, collapses into a run
+      void drainKickVaults(); // non-active authoring vaults
     }, KICK_DEBOUNCE_MS);
   };
   const unsubLedger = onLedgerApplied((vaultId, origin) => {
     if (origin !== "local") return;
-    if (vaultId !== getActiveVaultIdSyncMaybe()) return;
+    if (vaultId) pendingKickVaults.add(vaultId);
     scheduleKick();
   });
 

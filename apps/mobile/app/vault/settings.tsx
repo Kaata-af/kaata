@@ -256,6 +256,21 @@ export default function VaultSettingsScreen() {
     try {
       await archiveVaultRouted(vault.id);
 
+      // Promptly + durably push the just-authored archive event (a
+      // vault_setting_set) so the server learns the vault is archived even if the
+      // user closes the app right after — otherwise it resurrects as a live kaata
+      // on reinstall+restore. FIRE-AND-FORGET (void, not awaited) so a slow link
+      // never holds the user on this screen; the per-write kick + background flush
+      // are the backstops. Offline / transient just falls back to those.
+      void (async () => {
+        try {
+          const { syncOnce } = await import("../../lib/sync");
+          await syncOnce({ vaultId: vault.id });
+        } catch (err) {
+          if (__DEV__) console.warn("[vault/settings] archive flush failed", err);
+        }
+      })();
+
       // D-POST-ARCHIVE-SWITCH: the applier has updated vaults.archived_at
       // synchronously via archiveVaultRouted. Decide what the active
       // vault should be now and where to route:
@@ -510,7 +525,8 @@ export default function VaultSettingsScreen() {
     );
   }
 
-  const currencyValue = `${CURRENCIES.find((c) => c.code === currency)?.symbol ?? ""}  ${getCurrencyName(currency)}`.trim();
+  const currencyValue =
+    `${CURRENCIES.find((c) => c.code === currency)?.symbol ?? ""}  ${getCurrencyName(currency)}`.trim();
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
