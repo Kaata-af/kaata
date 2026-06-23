@@ -398,12 +398,31 @@ async function postSignInHousekeeping(args: {
   // reads from this cache, which was only set when the next app launch
   // primed it from app_meta.
   setAccountIdCache(accountId);
-  const vaultId = args.defaultVaultId ?? (await getActiveVaultId());
-  if (!vaultId) return; // mid-onboarding: no local vault yet
   const providerSub = args.providerSub;
-
   const db = await getDb();
   const now = Date.now();
+
+  // Persist the account binding to app_meta UNCONDITIONALLY — BEFORE the
+  // no-vault early-return below. This is load-bearing, not just display:
+  //   - AutoSync mounts the sync scheduler off app_meta.account_id, so without
+  //     this an onboarding "continue with Google" user (who has no vault yet)
+  //     never starts syncing → "Not backed up yet" forever and nothing backs up.
+  //   - onboarding/restore.tsx gates its restore probe on app_meta.account_id, so
+  //     a null value makes a returning user's restore silently skip → their
+  //     kaatas come back EMPTY.
+  //   - _layout.tsx reprimes the in-memory cache from app_meta on every launch,
+  //     so the in-memory-only setAccountIdCache (above) is lost on relaunch.
+  // The old code wrote it ONLY inside the vault-bound transaction below, which a
+  // no-vault onboarding sign-in never reaches. account_id is valid regardless of
+  // whether a local vault exists yet. [bug fix 2026-06-23]
+  await setAppMetaInTx(db, "account_id", accountId);
+  if (providerSub) {
+    await setAppMetaInTx(db, "account_google_sub", providerSub);
+  }
+  await setAppMetaInTx(db, "account_last_seen_at", String(now));
+
+  const vaultId = args.defaultVaultId ?? (await getActiveVaultId());
+  if (!vaultId) return; // mid-onboarding: no local vault yet — vault binding deferred
 
   // Only mark the vault server-registered when the backend CONFIRMED it — i.e.
   // it returned a default_vault_id (the vault it registered via the pending
@@ -475,27 +494,15 @@ async function postSignInHousekeeping(args: {
       providerSub,
       now,
     );
-    // Persist account-level metadata for any screen that needs it without
-    // a SecureStore roundtrip. Display info; not load-bearing.
-    await setAppMetaInTx(db, "account_id", accountId);
-    if (providerSub) {
-      await setAppMetaInTx(db, "account_google_sub", providerSub);
-    }
+    // account_id / account_google_sub / account_last_seen_at are already
+    // persisted unconditionally above (before the vault gate), so they're not
+    // re-written here. account_bound_at is the first-bind marker — keep it in
+    // the vault-bound tx since it pairs with the appendAccountBound emission.
     const boundAt = await getAppMetaInTx(db, "account_bound_at");
     if (!boundAt) {
       await setAppMetaInTx(db, "account_bound_at", String(now));
     }
   });
-
-  // Phase 4.1: heartbeat. account_last_seen_at gates the "different
-  // account on this phone?" prompt — outside a 30-day window we treat
-  // the next sign-in as fresh. Lives OUTSIDE the binding transaction
-  // so a failure to write the heartbeat does not roll back the binding.
-  try {
-    await setAppMetaInTx(db, "account_last_seen_at", String(now));
-  } catch (err) {
-    console.warn("[auth] account_last_seen_at write failed", err);
-  }
 
   // Emit account_bound on first ever sign-in for this install. Idempotent
   // at the local layer — appendAccountBound dedupes against the existing
