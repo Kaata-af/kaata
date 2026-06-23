@@ -209,6 +209,12 @@ export default function HomeScreen() {
     resolve: (choice: DifferentAccountChoice) => void;
   } | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
+  // Loading overlay for the in-app sign-in chain (handshake → register → restore →
+  // reload). Without it the user taps "Sign in", the sheet closes, and nothing
+  // visibly changes for several seconds (auth chip/avatar + restored kaatas only
+  // appear at the very end). "signingIn" covers the Google handshake + backend +
+  // registration; "restoring" covers recoverAllVaults (which can take a while).
+  const [authPhase, setAuthPhase] = useState<null | "signingIn" | "restoring">(null);
   // UX critique #6 — sign-out is destructive enough to warrant a ConfirmDialog
   // per the documented contract in design-tokens.ts. The sheet's danger-styled
   // NavRow opens this dialog; only on confirmation do we actually wipe the
@@ -551,6 +557,7 @@ export default function HomeScreen() {
   async function runGoogleSignIn() {
     if (authBusy) return;
     setAuthBusy(true);
+    setAuthPhase("signingIn");
     try {
       await signInWithGoogle(async (args) => {
         return new Promise<DifferentAccountChoice>((resolve) => {
@@ -576,6 +583,7 @@ export default function HomeScreen() {
       // vaults (no-op, local data untouched); a fresh phone loads its backed-up
       // vaults; an already-synced phone re-applies idempotently. Recovery failure
       // must not break the sign-in, so it's caught.
+      setAuthPhase("restoring");
       try {
         const { recoverAllVaults } = await import("../lib/recovery");
         await recoverAllVaults();
@@ -591,6 +599,7 @@ export default function HomeScreen() {
       setTimeout(() => toast.push(t("menu.account.signIn.failed"), "error"), 240);
     } finally {
       setAuthBusy(false);
+      setAuthPhase(null);
     }
   }
 
@@ -1335,6 +1344,21 @@ export default function HomeScreen() {
         }}
         onCancel={() => setSignOutConfirm(false)}
       />
+
+      {/* Sign-in / restore loading overlay. Plain absolute-fill View (no Modal —
+          the settings sheet has already closed, so there's no Modal-stacking risk)
+          covering the screen while the multi-step sign-in chain runs, so the user
+          gets clear feedback instead of a frozen-looking screen. */}
+      {authPhase ? (
+        <View style={styles.authOverlay} pointerEvents="auto">
+          <ActivityIndicator size="large" color={colors.textInverted} />
+          <Text style={[styles.authOverlayText, textDir(isRTL)]}>
+            {authPhase === "restoring"
+              ? t("menu.account.signIn.restoring")
+              : t("menu.account.signIn.signingIn")}
+          </Text>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -1426,6 +1450,21 @@ function TabPage(props: {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
+  authOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 16,
+    zIndex: 100,
+  },
+  authOverlayText: {
+    fontSize: 15,
+    fontFamily: fonts.sansMedium,
+    color: colors.textInverted,
+    textAlign: "center",
+    paddingHorizontal: 32,
+  },
   // Header — D-HEADER-CLEANUP. iOS 17 "large title" pattern, borderless,
   // typography-driven. Shop name is the visual anchor (28px display).
   // After the user-name subtitle was removed, both clusters now center
