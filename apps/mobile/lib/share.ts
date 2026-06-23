@@ -1,9 +1,62 @@
 import { Linking } from "react-native";
+import { getBackendUrl } from "./api";
 import { getCurrentCurrencySymbol } from "./currency";
 import { bumpUsageCounter } from "./db";
 import { formatAmount } from "./format";
-import { t } from "./i18n";
-import type { Self } from "./types";
+import { getLocale, t } from "./i18n";
+import type { Entry, Self } from "./types";
+
+// Max entries carried in a shared snapshot. The backend caps at 500; a customer
+// only needs the recent history, and it keeps the stored packet small.
+const MAX_SHARED_ENTRIES = 100;
+const SHARE_UPLOAD_TIMEOUT_MS = 8_000;
+
+// Upload a small read-only snapshot of one person's ledger to the backend and
+// return the public link (kaata.af/v/<token>) the customer can open to see the
+// FULL ledger. Best-effort: returns null on any failure (offline / slow / error)
+// so the WhatsApp share still works as a plain text message without a link.
+async function uploadSharedLedger(args: {
+  person: { name: string };
+  balance: number;
+  entries: Entry[];
+  self: Self | null;
+}): Promise<string | null> {
+  const snapshot = {
+    v: 1,
+    shop: args.self?.shop_name ?? args.self?.name ?? "Kaata",
+    person: args.person.name,
+    currency: getCurrentCurrencySymbol(),
+    balance: args.balance,
+    locale: getLocale(),
+    entries: args.entries.slice(0, MAX_SHARED_ENTRIES).map((e) => ({
+      type: e.type,
+      amount: e.amount_afn,
+      note: e.note,
+      date: e.created_at,
+    })),
+    generated_at: Date.now(),
+  };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SHARE_UPLOAD_TIMEOUT_MS);
+  try {
+    const baseUrl = await getBackendUrl();
+    const res = await fetch(`${baseUrl}/v1/shared`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(snapshot),
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { url?: string; token?: string };
+    return typeof body.url === "string" && body.url.length > 0 ? body.url : null;
+  } catch (err) {
+    if (__DEV__) console.warn("[share] uploadSharedLedger failed (sharing without link)", err);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // WhatsApp ping. Wording, sign and color emoji are all framed from the
 // *receiver's* perspective — banking convention, since they're the one
@@ -13,16 +66,16 @@ import type { Self } from "./types";
 // A short action line ("Please settle when you can." etc.) sits alongside
 // the number so users who don't intuit "owe" still get a clear ask.
 //
-// Message body uses the SENDER's locale (the shopkeeper composing it).
-// The receiver may be on a different locale, but the message is one block
-// of text sent verbatim, so it's whatever the sender's kaata is set to.
-// Returns true when WhatsApp opened; false when it couldn't (not
-// installed / disabled). Callers surface the failure — the ping bar is
-// the app's primary share CTA and a silent no-op tap reads as "broken".
+// Message body uses the SENDER's locale. The footer now carries a link to the
+// FULL ledger on kaata.af (a stored snapshot) instead of a "sent via" tagline,
+// so the customer can open the complete transaction list. The link is
+// best-effort: if the upload fails (offline), the message still sends without it.
+// Returns true when WhatsApp opened.
 export async function shareKaataViaWhatsApp(
   person: { name: string; phone: string | null },
   balance: number,
   self: Self | null,
+  entries: Entry[],
 ): Promise<boolean> {
   const accountWith = self?.shop_name ?? self?.name ?? "Kaata";
   const currency = getCurrentCurrencySymbol();
@@ -45,8 +98,16 @@ export async function shareKaataViaWhatsApp(
     lines.push(t("share.settled.cta"));
   }
 
+  // "See the full ledger on kaata.af" + link. Falls back to the plain tagline
+  // when the snapshot upload couldn't produce a link (offline / error).
+  const link = await uploadSharedLedger({ person, balance, entries, self });
   lines.push("");
-  lines.push(t("share.footer"));
+  if (link) {
+    lines.push(t("share.fullLedger"));
+    lines.push(link);
+  } else {
+    lines.push(t("share.footer"));
+  }
 
   const text = lines.join("\n");
   const phone = person.phone ? person.phone.replace(/[^0-9+]/g, "") : "";

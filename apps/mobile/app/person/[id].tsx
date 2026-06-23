@@ -285,6 +285,7 @@ export default function PersonDetailScreen() {
                 { name: person.name, phone: person.phone },
                 person.balance,
                 self,
+                entries,
               );
               if (!ok) toast.push(t("share.whatsappUnavailable"), "error");
             }}

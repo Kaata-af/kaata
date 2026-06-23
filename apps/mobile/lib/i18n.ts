@@ -288,6 +288,7 @@ const en = {
   "share.settled.line": "🤝 Our kaata is fully settled.",
   "share.settled.cta": "Thank you.",
   "share.footer": "— Sent via Kaata.af",
+  "share.fullLedger": "See the full ledger on kaata.af:",
 
   // Brand
   "brand.wordmark": "kaata.",
@@ -1297,6 +1298,7 @@ const fa: Partial<Record<Key, string>> = {
   "share.settled.line": "🤝 کاتای ما کاملاً تصفیه شده.",
   "share.settled.cta": "تشکر.",
   "share.footer": "پیام از طرف kaata.af",
+  "share.fullLedger": "کاتای مکمل را در kaata.af ببینید:",
 
   // Brand
   "brand.wordmark": "کاتا.",

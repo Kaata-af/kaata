@@ -21,6 +21,7 @@ import (
 	"github.com/matee/kaata-backend/internal/db"
 	"github.com/matee/kaata-backend/internal/httpx"
 	"github.com/matee/kaata-backend/internal/mesh"
+	"github.com/matee/kaata-backend/internal/shared"
 	syncapi "github.com/matee/kaata-backend/internal/sync"
 	"github.com/matee/kaata-backend/internal/vaults"
 	"github.com/matee/kaata-backend/internal/visit"
@@ -143,6 +144,10 @@ func main() {
 	vaultsSvc := vaults.NewService(pool)
 	vaultsH := vaults.NewHandler(vaultsSvc)
 
+	// Shared ledger snapshots ("see the full ledger on kaata.af"): store a small
+	// per-person snapshot behind a short token; serve it as JSON + a tiny SSR shell.
+	sharedH := shared.NewHandler(shared.NewService(pool), cfg.WebBaseURL)
+
 	// Sync (Phase 3). The service holds membership + page LRUs (60s TTL);
 	// the snapshot cron uses its own dedicated 4-conn Postgres pool so a
 	// slow snapshot replay can't starve user-facing request connections.
@@ -210,6 +215,15 @@ func main() {
 	r.Post("/v1/visit", visitH.Visit)
 	r.Get("/v1/download", visitH.Download)
 	r.Post("/v1/auth/google", authH.GoogleSignIn)
+	// Shared ledger ("see the full ledger on kaata.af"). All PUBLIC: the share
+	// link is meant to be opened by a customer with no app/account. POST is
+	// rate-limited per IP; GET-by-token + the SSR view are open (opaque tokens).
+	r.With(httpx.RateLimitPerIP(httpx.ShareCreateLimit, httpx.ShareCreateWindow)).
+		Post("/v1/shared", sharedH.Create)
+	r.Get("/v1/shared/{token}", sharedH.Get)
+	// SSR preview shell — see deploy note: kaata.af/v/* must route to the backend
+	// for the OG preview; otherwise the SPA's /v/:token fallback renders it.
+	r.Get("/v/{token}", sharedH.View)
 	// Operator-only analytics dashboard (admin.kaata.af / /admin web page).
 	// AdminKeyMiddleware 404s the whole group when ADMIN_API_KEY is unset, so a
 	// deployment without the key has no admin surface at all.

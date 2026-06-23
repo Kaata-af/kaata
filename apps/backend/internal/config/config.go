@@ -20,6 +20,9 @@ type Config struct {
 	// kaata-0.1.0.apk). Changing it requires only a backend env update —
 	// QR codes pointing at /v1/download?s=... keep working.
 	APKDownloadURL string
+	// WebBaseURL: canonical public site origin (e.g. https://kaata.af). Used to
+	// build shared-ledger links (kaata.af/v/<token>) + their OG preview URLs.
+	WebBaseURL string
 	// GoogleWebClientID: the OAuth2 Web client ID from Google Cloud Console.
 	// Used as the AUDIENCE when verifying Google ID tokens posted to
 	// /v1/auth/google. Mobile (via @react-native-google-signin) requests
@@ -55,6 +58,7 @@ func Load() Config {
 		BackendPort:         getenv("BACKEND_PORT", "8080"),
 		MigrateToBackendURL: os.Getenv("MIGRATE_TO_BACKEND_URL"),
 		APKDownloadURL:      getenv("APK_DOWNLOAD_URL", "http://localhost:3000/downloads/kaata-0.1.0.apk"),
+		WebBaseURL:          getenv("WEB_BASE_URL", "https://kaata.af"),
 		GoogleWebClientID:   os.Getenv("GOOGLE_WEB_CLIENT_ID"),
 		// Read from JWT_SECRET first (Phase 2 canonical name), falling back to
 		// SESSION_JWT_SECRET for compatibility with v0.4 deployments that

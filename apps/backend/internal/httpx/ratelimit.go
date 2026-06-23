@@ -75,6 +75,10 @@ const (
 	issueVMCWindow    = time.Hour
 	registerKeyLimit  = 5
 	registerKeyWindow = time.Hour
+	// shareCreate: a shopkeeper sharing ledgers via WhatsApp. Generous (one per
+	// ping) but capped per IP so the public POST can't be used to flood storage.
+	shareCreateLimit  = 120
+	shareCreateWindow = time.Hour
 )
 
 // keyByAccount pulls the authenticated account_id off the request via the
@@ -212,4 +216,7 @@ var (
 	IssueVMCWindow    = issueVMCWindow
 	RegisterKeyLimit  = registerKeyLimit
 	RegisterKeyWindow = registerKeyWindow
+
+	ShareCreateLimit  = shareCreateLimit
+	ShareCreateWindow = shareCreateWindow
 )
