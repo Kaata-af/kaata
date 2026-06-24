@@ -35,11 +35,7 @@ import { AutoSync } from "../components/AutoSync";
 import { MeshController } from "../components/MeshController";
 import { ProjectionConflictsListener } from "../components/ProjectionConflictsListener";
 import { ToastProvider } from "../components/Toast";
-import {
-  ensureShopModeChannel,
-  SHOP_MODE_NOTIFICATION_ID,
-  stopShopModeForegroundService,
-} from "../lib/mesh/foreground";
+import { stopShopModeForegroundService } from "../lib/mesh/foreground";
 
 // ============================================================================
 // I18nManager neutralization + one-shot migration. The architecture:
@@ -97,7 +93,6 @@ if (NEEDS_RESTART_FOR_LTR) {
 import { checkIn } from "../lib/api";
 import { AppMetaProvider, useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
-import { IS_EXPO_GO } from "../lib/expo-go";
 import {
   decrementPendingUsage,
   getAppMeta,
@@ -236,12 +231,6 @@ export default function RootLayout() {
   // fresh" on the restore screen for the current account.
   const [accountId, setAccountId] = useState<string | null>(null);
   const [restoreSkipped, setRestoreSkipped] = useState(false);
-  // Cold-start FGS-notification tap intent. The old implementation pushed
-  // the route after a fixed 250ms — but the Stack mounts only after fonts
-  // + migrations (1-3s on target devices), so expo-router threw "navigate
-  // before mounting" into an empty catch and the tap silently did nothing.
-  // Stash the intent and navigate from the effect below once ready.
-  const [pendingSyncNav, setPendingSyncNav] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -388,18 +377,6 @@ export default function RootLayout() {
       });
       if (aborted) return;
 
-      // 8. Foreground-service channel. The bootstrap module already
-      //    creates it at module load (see foreground-bootstrap.ts) — this
-      //    call is idempotent + belt-and-suspenders. We treat it as
-      //    non-fatal so a transient miss here doesn't lock the user out
-      //    of the app entirely; the worst case is Shop Mode toggle
-      //    failing until the next launch.
-      try {
-        await ensureShopModeChannel();
-      } catch (err) {
-        if (__DEV__) console.warn("[init] ensureShopModeChannel", err);
-      }
-
       // SOLO_STORE_MODE: Nearby sync isn't even toggleable in this build, but a
       // stale shop_mode_enabled="1" (from a prior non-solo build) + the START_STICKY
       // native foreground service means the OS keeps re-posting the "Nearby sync"
@@ -478,99 +455,12 @@ export default function RootLayout() {
     return () => sub.remove();
   }, []);
 
-  // Phase 5.1: route notification taps on the Shop Mode foreground-service
-  // notification into the hamburger menu's Sync section. We open the home
-  // route with ?menu=sync; the home screen reads that param on mount and
-  // auto-opens the sheet. The handler is registered separately from the
-  // init effect so it stays subscribed even after the splash animation.
-  //
-  // Phase 6: ALSO handle the cold-start case via getInitialNotification —
-  // notifee's onForegroundEvent only fires while the JS engine is alive,
-  // so a tap that cold-starts the app from "killed" needs the separate
-  // getInitialNotification check (UX critique L-cold-start).
-  useEffect(() => {
-    // Expo Go has no notifee native module; requiring it throws at load and
-    // RN LogBox shows it as a dismissable red error. Skip there — same gate as
-    // foreground-bootstrap/foreground/bg-notify so no site is the "first
-    // requirer" that re-triggers the throw. No-op-only in Expo Go.
-    if (Platform.OS !== "android" || IS_EXPO_GO) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let notifee: any;
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      notifee = require("@notifee/react-native");
-    } catch {
-      return;
-    }
-    // Expo Go: notifee's native module is absent. foreground-bootstrap.ts
-    // already triggered the first (failed) module load at the top of this
-    // file, so this SECOND require resolves to undefined WITHOUT throwing —
-    // Metro hands back the errored module's empty exports. The bare
-    // try/catch above only covers the throw-on-first-load case, so guard
-    // .default explicitly or `notifee.default.onForegroundEvent` below
-    // crashes with "Cannot read property 'default' of undefined".
-    if (!notifee?.default) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const unsub = notifee.default.onForegroundEvent(({ type, detail }: any) => {
-      if (
-        (type === notifee.EventType.PRESS || type === notifee.EventType.ACTION_PRESS) &&
-        detail.notification?.id === SHOP_MODE_NOTIFICATION_ID &&
-        detail.pressAction?.id === "open-shop-mode-settings"
-      ) {
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const { router } = require("expo-router");
-          // navigate (NOT push): push stacked a duplicate home instance on
-          // every notification tap while the app was open — each re-running
-          // the full home load — and hardware back then stepped through the
-          // stale copies before exiting.
-          router.navigate("/?menu=sync");
-        } catch {
-          /* */
-        }
-      }
-    });
-
-    // Phase 6 cold-start handler: if the app was launched via the
-    // notification tap (the JS engine wasn't alive when the user tapped),
-    // getInitialNotification resolves with the notification + pressAction.
-    // We defer the router.push so the Stack has had a chance to mount.
-    void (async () => {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const fg = await import("../lib/mesh/foreground");
-        const initial = await fg.getInitialShopModeNotification();
-        if (initial?.pressActionId === "open-shop-mode-settings") {
-          setPendingSyncNav(true);
-        }
-      } catch {
-        /* */
-      }
-    })();
-
-    return () => {
-      if (typeof unsub === "function") unsub();
-    };
-  }, []);
-
-  // Deliver the stashed cold-start notification intent once the Stack is
-  // actually mounted (same readiness gates as the render below).
-  useEffect(() => {
-    if (!pendingSyncNav || !appReady || !fontsReady || dbReady !== true) return;
-    setPendingSyncNav(false);
-    // One frame's grace so the Stack's first commit has happened before
-    // we navigate into it.
-    const timer = setTimeout(() => {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { router } = require("expo-router");
-        router.navigate("/?menu=sync");
-      } catch {
-        /* */
-      }
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [pendingSyncNav, appReady, fontsReady, dbReady]);
+  // PARKED: notification-tap routing for the "Nearby sync" foreground-service
+  // notification lived here — open `/?menu=sync` when the user tapped it
+  // (both while running and on cold start). The notification is parked
+  // (lib/mesh/foreground.ts), so it never posts and never gets tapped; the
+  // handlers + the pendingSyncNav state they drove were removed. Restore from
+  // git history when reviving Nearby sync.
 
   // Hide the native splash once a REAL surface is about to render — the app, or
   // an error card. (The RTL restart prompt is an early return before this hook,

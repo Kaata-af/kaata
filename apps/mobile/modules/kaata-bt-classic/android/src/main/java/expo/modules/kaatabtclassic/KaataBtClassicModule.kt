@@ -616,13 +616,21 @@ class KaataBtClassicModule : Module() {
     // startService command is allowed. Best-effort — failures are ignored.
     AsyncFunction("updateMeshForegroundService") { title: String, body: String, promise: Promise ->
       try {
-        val intent = Intent(appCtx, KaataForegroundService::class.java).apply {
-          action = KaataForegroundService.ACTION_START
-          putExtra(KaataForegroundService.EXTRA_TITLE, title)
-          putExtra(KaataForegroundService.EXTRA_BODY, body)
+        // An UPDATE must never START the service. If the FGS isn't already in the
+        // foreground, startService(ACTION_START) below would CREATE it and post
+        // the "Nearby sync" notification from a stopped/parked state — the leak
+        // behind "the notification is always up". Only update a live service.
+        if (!KaataForegroundService.isForeground) {
+          promise.resolve(false)
+        } else {
+          val intent = Intent(appCtx, KaataForegroundService::class.java).apply {
+            action = KaataForegroundService.ACTION_START
+            putExtra(KaataForegroundService.EXTRA_TITLE, title)
+            putExtra(KaataForegroundService.EXTRA_BODY, body)
+          }
+          appCtx.startService(intent)
+          promise.resolve(true)
         }
-        appCtx.startService(intent)
-        promise.resolve(true)
       } catch (_: Throwable) {
         promise.resolve(false)
       }

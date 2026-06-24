@@ -1,83 +1,52 @@
 // apps/mobile/lib/mesh/foreground.ts
 //
-// Foreground-service facade for the rest of the codebase (mesh/index.ts,
-// MeshController, _layout.tsx). The FGS itself is now a NATIVE START_STICKY
-// service (modules/kaata-bt-classic KaataForegroundService) — the Briar model —
-// so the "Nearby sync" notification + process survive app close / MIUI process
-// death. notifee is kept ONLY for the notification channel + the Android 13+
-// POST_NOTIFICATIONS prompt + cold-start tap inspection; it no longer owns the
-// foreground service (its JS-callback-bound FGS was the thing that vanished on
-// close and tripped the 5s ForegroundServiceDidNotStartInTime crash on restart).
+// Foreground-service facade for the "Nearby sync" mesh notification.
 //
-// On non-Android platforms (web, iOS for now) every export is a no-op —
-// mesh is Android-only in Phase 6.
+// ⚠️  PARKED — the mesh / Nearby-sync subsystem is parked, so this module no
+// longer posts the persistent "Nearby sync is on" foreground-service
+// notification. The functions that did the work are kept as no-op stubs with
+// their real implementations preserved verbatim in the `PARKED — uncomment to
+// revive` blocks, so reviving the feature is a local uncomment, not a git dig:
 //
-// FGS TYPE DECLARATION (Android 14+):
-//   - The native service is declared with `connectedDevice` (ONLY) via the
-//     config plugin plugins/withKaataForegroundService.js, and
-//     KaataForegroundService passes the matching type to startForeground (or it
-//     throws on API 34+). connectedDevice = we hold open RFCOMM links to nearby
-//     phones. We deliberately avoid dataSync: on Android 14+ a dataSync FGS is
-//     capped at ~6h/day and auto-stopped, which would kill always-on sync (this
-//     is also why Briar uses connectedDevice only).
-//   - app.json declares FOREGROUND_SERVICE_CONNECTED_DEVICE.
+//   • startShopModeForegroundService — promoted the app to a foreground service
+//     and posted the notification (via the native KaataForegroundService).
+//   • updateShopModeNotification     — updated the notification body as the peer
+//     count changed. THIS was the leak behind "the notification is always up":
+//     the native updateMeshForegroundService issues startService(ACTION_START),
+//     which CREATES the service (posting the notification + arming the revival
+//     alarm) when it isn't already running — and stopShopMode()'s status emit
+//     fired it on every launch.
+//   • ensureShopModeChannel          — created the notifee notification channel.
+//   • getInitialShopModeNotification — inspected a cold-start notification tap.
+//
+// To revive: restore those bodies + getNotifee below, and re-enable the call
+// sites (foreground-bootstrap.ts createChannel, _layout.tsx's channel +
+// notification-tap handlers, MeshController's status-driven update). The native
+// KaataForegroundService (modules/kaata-bt-classic) is untouched + revive-ready.
+//
+// stopShopModeForegroundService stays LIVE: it only TEARS DOWN a leftover native
+// FGS (clears its run-flag + cancels the revival alarm) — that's what kills any
+// notification still running on a device upgrading from a pre-park build. It
+// never posts anything.
+//
+// On non-Android platforms every export is a no-op.
 
 import { Platform } from "react-native";
-
-import { MESH_PARKED } from "../../constants/env";
-import { IS_EXPO_GO } from "../expo-go";
 
 export const SHOP_MODE_CHANNEL_ID = "shop-mode";
 export const SHOP_MODE_NOTIFICATION_ID = "shop-mode-fg";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type NotifeeModule = any;
+export type ShopModeNotificationOpts = {
+  title?: string;
+  body?: string;
+};
 
-let notifeeModule: NotifeeModule | null = null;
-let notifeeLoadAttempted = false;
-
-function getNotifee(): NotifeeModule | null {
-  if (Platform.OS !== "android") return null;
-  // Expo Go has no notifee native module — require() throws at load and RN
-  // LogBox shows it as a dismissable error. Skip; every caller handles null.
-  if (IS_EXPO_GO) return null;
-  if (notifeeLoadAttempted) return notifeeModule;
-  notifeeLoadAttempted = true;
-  try {
-    // require() — not import() — so Metro doesn't try to resolve on web.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    notifeeModule = require("@notifee/react-native");
-    return notifeeModule;
-  } catch (err) {
-    // Notifee not installed (e.g. running in Expo Go) — degrade gracefully.
-    // Shop Mode still "works" but will be killed by Doze within minutes of
-    // backgrounding.
-    if (__DEV__) {
-      console.warn("[mesh/foreground] notifee not available:", err);
-    }
-    return null;
-  }
-}
-
-/**
- * Create the persistent low-importance notification channel.
- * Must be called once at app startup (idempotent — channel ID is the key).
- * Low importance = silent + no heads-up, but the notification IS visible
- * in the shade and the service stays foreground.
- *
- * Channel name uses the BLE-primary "Nearby sync" wording so a shopkeeper
- * navigating Settings → Apps → Kaata → Notifications can find / mute
- * what they actually see in the app UI.
- */
+/** PARKED no-op (was: create the low-importance "Nearby sync" notifee channel). */
 export async function ensureShopModeChannel(): Promise<void> {
+  /* PARKED — uncomment to revive (also un-park getNotifee at the bottom)
   const notifee = getNotifee();
   if (!notifee) return;
   try {
-    // Lazy import keeps this module a leaf for foreground-bootstrap's
-    // module-load registration (no static i18n → db chain). The bootstrap
-    // call runs before the locale pref loads (English); _layout's later
-    // ensureShopModeChannel() call re-applies with the loaded locale —
-    // notifee createChannel updates the existing channel's name in place.
     const { t } = await import("../i18n");
     await notifee.default.createChannel({
       id: SHOP_MODE_CHANNEL_ID,
@@ -90,74 +59,26 @@ export async function ensureShopModeChannel(): Promise<void> {
   } catch (err) {
     if (__DEV__) console.warn("[mesh/foreground] ensureShopModeChannel failed", err);
   }
+  */
 }
 
-// NOTE: there is intentionally NO `registerShopModeForegroundTask` here.
-//
-// Foreground-service task registration is owned by
-// `lib/mesh/foreground-bootstrap.ts`, which runs `registerForegroundService`
-// at JS-module load time — BEFORE the React tree mounts and before any
-// component can issue `Context.startForegroundService`. Notifee documents
-// that the callback MUST be registered once at module top level; calling
-// `registerForegroundService` again from inside a React effect (or
-// anywhere else) would replace notifee's already-pending JS promise with
-// a fresh one, breaking the contract that keeps the FGS alive.
-//
-// Engineering critique (foreground.ts dead-code removal): a previous
-// version of this file exported `registerShopModeForegroundTask` for use
-// from `_layout.tsx`'s init effect. After moving the registration to
-// `foreground-bootstrap.ts`, the function became unused — but leaving it
-// exported was a foot-gun: a future contributor reading both files might
-// have called it from a useEffect, re-running registration after notifee
-// already had a live FGS callback. Removed entirely so the only path is
-// via the bootstrap module.
-
-export type ShopModeNotificationOpts = {
-  title?: string;
-  body?: string;
-};
-
-/**
- * Promote the JS process to a foreground service with a persistent
- * notification. Returns true if the foreground service was actually
- * started; false on web / iOS / Expo Go.
- *
- * Android 13+ requires POST_NOTIFICATIONS at runtime; we request it on
- * the first start so the tray notification actually appears. Android 14+
- * also requires the FGS to declare a foregroundServiceType — the native
- * service uses `connectedDevice` (we hold RFCOMM links to nearby phones).
- */
+/** PARKED no-op (was: promote to a foreground service + post the notification). */
 export async function startShopModeForegroundService(
   opts?: ShopModeNotificationOpts,
 ): Promise<boolean> {
+  void opts; // PARKED — see revive block
+  return false;
+  /* PARKED — uncomment to revive
   if (Platform.OS !== "android") return false;
-
-  // Mesh is parked (MESH_PARKED): never post the "Nearby sync" foreground
-  // notification. This is the SINGLE choke point every FGS start flows through
-  // (mesh/index.ts startShopMode, the home-screen direct start, cold-start
-  // auto-resume) — no-oping here guarantees the notification can't appear no
-  // matter what calls it. And because we never start, the native service never
-  // sets KEY_FGS_SHOULD_RUN, so its 15-min revival alarm never revives it.
-  if (MESH_PARKED) return false;
-
-  // Apply the localized channel name (notifee path). The native service also
-  // creates the channel as a no-JS fallback, but this seeds the user's
-  // language. Idempotent — safe to call on every start / cold-start auto-resume.
   await ensureShopModeChannel();
-
-  // Android 13+ POST_NOTIFICATIONS so the tray notification is actually
-  // visible. The foreground service runs without it, but the notification
-  // would be hidden. notifee.requestPermission is idempotent.
+  // Android 13+ POST_NOTIFICATIONS so the tray notification is actually visible.
   try {
     const notifee = getNotifee();
     if (notifee) await notifee.default.requestPermission();
   } catch (err) {
     if (__DEV__) console.warn("[mesh/foreground] requestPermission failed", err);
   }
-
   // Hand off to the NATIVE START_STICKY service (modules/kaata-bt-classic).
-  // Title/body are the controlled-trust copy (only pre-paired phones sync);
-  // channelName/Desc seed the native channel for the no-JS sticky-restart case.
   try {
     const { t } = await import("../i18n");
     const bt = await import("../../modules/kaata-bt-classic");
@@ -171,20 +92,13 @@ export async function startShopModeForegroundService(
     if (__DEV__) console.warn("[mesh/foreground] startShopModeForegroundService failed", err);
     return false;
   }
+  */
 }
 
-/**
- * Update the foreground-service notification's title/body in-place.
- * Notifee re-emits with the same notification id, which Android treats
- * as an update (no extra tray entry, no sound).
- *
- * Used by MeshController as it observes status changes:
- *   - 0 peers           → "Looking for nearby phones…"
- *   - 1 peer            → "Connected to {name}'s phone"
- *   - 2+ peers          → "Connected to {n} phones"
- *   - idle after activity → "Last synced {rel}"
- */
+/** PARKED no-op (was: update the notification body — the leak; see header). */
 export async function updateShopModeNotification(opts: ShopModeNotificationOpts): Promise<void> {
+  void opts; // PARKED — see revive block
+  /* PARKED — uncomment to revive
   if (Platform.OS !== "android") return;
   try {
     const { t } = await import("../i18n");
@@ -196,17 +110,17 @@ export async function updateShopModeNotification(opts: ShopModeNotificationOpts)
   } catch (err) {
     if (__DEV__) console.warn("[mesh/foreground] updateShopModeNotification failed", err);
   }
+  */
 }
 
 /**
- * Cancel the foreground-service notification, which lets Android demote
- * the process back to "background" priority. Idempotent.
+ * LIVE. Tear down a leftover native foreground service: clears its run-flag and
+ * cancels the Doze-exempt revival alarm so a notification left running by a
+ * pre-park build dies on first launch and can't resurrect. Never posts anything.
+ * Idempotent; no-op off Android.
  */
 export async function stopShopModeForegroundService(): Promise<void> {
   if (Platform.OS !== "android") return;
-  // Native stopService -> onDestroy removes the notification. This also drops
-  // the old notifee.stopForegroundService() call, which itself was a MIUI crash
-  // vector (it spawned a HeadlessJS task the OS misread as an FGS start).
   try {
     const bt = await import("../../modules/kaata-bt-classic");
     await bt.stopMeshForegroundService();
@@ -215,17 +129,12 @@ export async function stopShopModeForegroundService(): Promise<void> {
   }
 }
 
-/**
- * Cold-start helper: if the app was launched by tapping our notification,
- * notifee.getInitialNotification() resolves with the notification + the
- * pressAction. Caller uses this to deep-link to `?menu=sync` on first
- * frame, since onForegroundEvent only fires after JS engine init.
- *
- * Returns null when not a notification-tap launch or on non-Android.
- */
+/** PARKED no-op (was: inspect a cold-start notification tap). */
 export async function getInitialShopModeNotification(): Promise<{
   pressActionId: string | null;
 } | null> {
+  return null;
+  /* PARKED — uncomment to revive (also un-park getNotifee below)
   const notifee = getNotifee();
   if (!notifee) return null;
   try {
@@ -239,4 +148,26 @@ export async function getInitialShopModeNotification(): Promise<{
     if (__DEV__) console.warn("[mesh/foreground] getInitialNotification failed", err);
     return null;
   }
+  */
 }
+
+/* PARKED — uncomment to revive: the notifee module resolver used by the parked
+   functions above. Also re-add `import { IS_EXPO_GO } from "../expo-go";`.
+
+type NotifeeModule = any;
+let notifeeModule: NotifeeModule | null = null;
+let notifeeLoadAttempted = false;
+function getNotifee(): NotifeeModule | null {
+  if (Platform.OS !== "android") return null;
+  if (IS_EXPO_GO) return null;
+  if (notifeeLoadAttempted) return notifeeModule;
+  notifeeLoadAttempted = true;
+  try {
+    notifeeModule = require("@notifee/react-native");
+    return notifeeModule;
+  } catch (err) {
+    if (__DEV__) console.warn("[mesh/foreground] notifee not available:", err);
+    return null;
+  }
+}
+*/

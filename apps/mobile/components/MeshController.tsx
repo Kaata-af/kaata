@@ -260,21 +260,10 @@ export function MeshController() {
         mesh.onShopModeStatusChange?.((s) => {
           if (cancelled) return;
           setActivePeers(s.activePeers);
-          // Update the persistent notification body to match real state.
-          void (async () => {
-            try {
-              const fg = await import("../lib/mesh/foreground");
-              const body =
-                s.activePeers === 0
-                  ? t("fgs.waiting")
-                  : s.activePeers === 1
-                    ? t("fgs.connectedOne")
-                    : t("fgs.connectedMany", { count: s.activePeers });
-              await fg.updateShopModeNotification({ body });
-            } catch (err) {
-              if (__DEV__) console.warn("[mesh-ctl] updateShopModeNotification failed", err);
-            }
-          })();
+          // PARKED: the persistent "Nearby sync" notification is parked
+          // (lib/mesh/foreground.ts), so there's no foreground-service body to
+          // update here. The status→notification-body update lived here; restore
+          // it (see git history) when reviving Nearby sync.
         }) ?? null;
     })();
     return () => {

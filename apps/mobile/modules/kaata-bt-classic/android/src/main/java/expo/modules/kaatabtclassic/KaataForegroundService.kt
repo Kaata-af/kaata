@@ -57,6 +57,19 @@ class KaataForegroundService : Service() {
     // Arbitrary stable non-zero notification id.
     const val NOTIF_ID = 0x6B61
 
+    // True ONLY while this service is actually in the foreground (startForeground
+    // succeeded and it hasn't been torn down). updateMeshForegroundService reads
+    // this so an in-place UPDATE can never START the service: a status-change
+    // update on a stopped/parked mesh used to restart the FGS via
+    // startService(ACTION_START), re-posting the "Nearby sync" notification. An
+    // update must only touch a service that is already running. @Volatile: written
+    // on the main thread (onStartCommand/onDestroy), read from the module's
+    // AsyncFunction thread.
+    @Volatile
+    @JvmStatic
+    var isForeground: Boolean = false
+      private set
+
     const val ACTION_START = "expo.modules.kaatabtclassic.FGS_START"
     const val ACTION_STOP = "expo.modules.kaatabtclassic.FGS_STOP"
 
@@ -400,6 +413,7 @@ class KaataForegroundService : Service() {
       stopBgTicks()
       releaseWakeLock()
       stopForegroundCompat()
+      isForeground = false
       stopSelf()
       return START_NOT_STICKY
     }
@@ -422,10 +436,14 @@ class KaataForegroundService : Service() {
       // Do NOT return START_STICKY here: that would loop a never-foregrounded
       // service the OS keeps re-killing. Stop cleanly; MeshController's JS
       // auto-resume restarts us properly next time the app is foregrounded.
+      isForeground = false
       releaseWakeLock()
       stopSelf()
       return START_NOT_STICKY
     }
+    // We're genuinely in the foreground now — let updateMeshForegroundService
+    // through (it no-ops until this is true so an update can't start the FGS).
+    isForeground = true
 
     // In the foreground now — hold the partial wakelock so Doze can't freeze the
     // mesh and the process is a harder kill target (Briar's wakeLockManager).
@@ -490,6 +508,7 @@ class KaataForegroundService : Service() {
   }
 
   override fun onDestroy() {
+    isForeground = false
     stopBgTicks()
     releaseWakeLock()
     stopForegroundCompat()
