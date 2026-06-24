@@ -628,10 +628,28 @@ class KaataBtClassicModule : Module() {
       }
     }
 
-    // Stop the service (user toggled Nearby sync off). stopService -> onDestroy
-    // removes the notification; not subject to the 5s startForeground rule.
+    // Stop the service (user toggled Nearby sync off, or a SOLO_STORE_MODE boot
+    // kill). We MUST run the same teardown the ACTION_STOP branch of
+    // onStartCommand does — clear KEY_FGS_SHOULD_RUN and cancel the Doze-exempt
+    // revival alarm — BEFORE/alongside stopService. A plain stopService routes
+    // only to onDestroy(), which deliberately does NOT clear the flag or cancel
+    // the alarm (so a legitimate swipe-away can still revive via onTaskRemoved).
+    // Without this, the ~15-min revival alarm (armed on every FGS start) keeps
+    // firing, reads should-run=true, re-arms itself, and RESURRECTS the "Nearby
+    // sync" notification minutes after every stop — the "notification is always
+    // there even though the feature is parked" bug. We clear the prefs + cancel
+    // the alarm directly (no ACTION_STOP round-trip) so it works even when the
+    // service isn't currently running and is never subject to the API 31+
+    // background FGS-start block. The background HANDOFF path (skipFGS /
+    // keepForegroundService) never calls this, so swipe-away revival is preserved.
     AsyncFunction("stopMeshForegroundService") { promise: Promise ->
       try {
+        appCtx
+          .getSharedPreferences(KaataForegroundService.PREFS, Context.MODE_PRIVATE)
+          .edit()
+          .putBoolean(KaataForegroundService.KEY_FGS_SHOULD_RUN, false)
+          .commit()
+        KaataForegroundService.cancelRevivalAlarm(appCtx)
         appCtx.stopService(Intent(appCtx, KaataForegroundService::class.java))
         promise.resolve(true)
       } catch (e: Throwable) {
