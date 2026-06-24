@@ -115,9 +115,10 @@ a{color:inherit;text-decoration:none;}
 .ramt.payment{color:var(--green);}
 .empty,.err{color:var(--mut);font-size:14px;padding:28px 4px;text-align:center;}
 .asof{margin-top:24px;text-align:center;font-size:12px;color:var(--mut);font-variant-numeric:tabular-nums;}
-.foot{margin-top:8px;text-align:center;font-size:12px;color:var(--mut);}
-.foot a{color:var(--sub);font-weight:600;}
-.foot .sep{margin:0 8px;color:var(--line);}
+.foot{margin-top:22px;text-align:center;}
+.foottag{font-size:12px;color:var(--mut);}
+.foottag a{color:var(--sub);font-weight:700;}
+.footcta{display:inline-block;margin-top:13px;font-size:13px;font-weight:600;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:9px;padding:9px 16px;}
 .sk{background:var(--hair);border-radius:5px;animation:pulse 1.5s ease-in-out infinite;}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
 </style>
@@ -141,7 +142,10 @@ a{color:inherit;text-decoration:none;}
     <div class="row"><div class="rmeta"><div class="sk" style="width:88px;height:13px"></div><div class="sk" style="width:110px;height:11px;margin-top:9px"></div></div><div class="sk" style="width:54px;height:14px"></div></div>
   </div>
   <div class="asof" id="asof"></div>
-  <div class="foot"><span id="foottag"></span> <a href="{{.Origin}}"><b>kaata.</b></a><span class="sep">·</span><a href="{{.Origin}}/download" id="getapp"></a></div>
+  <div class="foot">
+    <div class="foottag"><span id="foottag"></span> <a href="{{.Origin}}"><b>kaata.</b></a></div>
+    <a class="footcta" href="{{.Origin}}/download" id="getapp"></a>
+  </div>
 </div>
 <script>
 (function(){

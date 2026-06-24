@@ -269,19 +269,22 @@ function Ledger({ data: d }: { data: SharedLedger }) {
       <p className="mt-6 text-center text-[12px] tabular-nums" style={{ color: C.mut }}>
         {L.asOf} {fmtDate(d.generated_at, rtl)}
       </p>
-      {/* Quiet footer — brand demoted off the top; carries the growth nudge. */}
-      <p className="mt-2 text-center text-[12px]" style={{ color: C.mut }}>
-        {L.tag}{" "}
-        <Link to="/" className="font-bold" style={{ color: C.sub }}>
-          kaata.
-        </Link>
-        <span className="mx-2" style={{ color: C.line }}>
-          ·
-        </span>
-        <Link to="/download" className="font-semibold" style={{ color: C.sub }}>
+      {/* Quiet footer — brand nudge on one line, the CTA as its own button below. */}
+      <div className="mt-[22px] text-center">
+        <p className="text-[12px]" style={{ color: C.mut }}>
+          {L.tag}{" "}
+          <Link to="/" className="font-bold" style={{ color: C.sub }}>
+            kaata.
+          </Link>
+        </p>
+        <Link
+          to="/download"
+          className="mt-[13px] inline-block rounded-[9px] border bg-white px-4 py-[9px] text-[13px] font-semibold"
+          style={{ borderColor: C.line, color: C.ink }}
+        >
           {L.getApp}
         </Link>
-      </p>
+      </div>
     </section>
   );
 }
