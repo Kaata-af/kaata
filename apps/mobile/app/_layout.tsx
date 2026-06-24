@@ -107,7 +107,7 @@ import {
   readPendingUsage,
   setAppMeta,
 } from "../lib/db";
-import { SOLO_STORE_MODE } from "../constants/env";
+import { MESH_PARKED, SOLO_STORE_MODE } from "../constants/env";
 import {
   primeActiveVaultId,
   refreshAccountIdCache,
@@ -406,12 +406,17 @@ export default function RootLayout() {
       // notification with no way to turn it off. Kill it EARLY on every boot — clear
       // the flag so MeshController never restarts it, and stop the native FGS so the
       // notification disappears now (not after the 10s app-meta poll). Best-effort.
-      if (SOLO_STORE_MODE) {
+      if (MESH_PARKED || SOLO_STORE_MODE) {
         try {
           await setAppMeta("shop_mode_enabled", "0");
+          // With MESH_PARKED this also runs on devices upgrading from a pre-park
+          // build that left the native FGS running + its revival alarm armed:
+          // stopShopModeForegroundService now clears KEY_FGS_SHOULD_RUN and
+          // cancels that alarm, so the stale "Nearby sync" notification dies on
+          // the first launch of the parked build and can't come back.
           await stopShopModeForegroundService();
         } catch (err) {
-          if (__DEV__) console.warn("[init] solo-mode FGS kill failed", err);
+          if (__DEV__) console.warn("[init] parked/solo FGS kill failed", err);
         }
       }
 

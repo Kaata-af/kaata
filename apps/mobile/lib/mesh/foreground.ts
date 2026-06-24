@@ -24,6 +24,7 @@
 
 import { Platform } from "react-native";
 
+import { MESH_PARKED } from "../../constants/env";
 import { IS_EXPO_GO } from "../expo-go";
 
 export const SHOP_MODE_CHANNEL_ID = "shop-mode";
@@ -130,6 +131,14 @@ export async function startShopModeForegroundService(
   opts?: ShopModeNotificationOpts,
 ): Promise<boolean> {
   if (Platform.OS !== "android") return false;
+
+  // Mesh is parked (MESH_PARKED): never post the "Nearby sync" foreground
+  // notification. This is the SINGLE choke point every FGS start flows through
+  // (mesh/index.ts startShopMode, the home-screen direct start, cold-start
+  // auto-resume) — no-oping here guarantees the notification can't appear no
+  // matter what calls it. And because we never start, the native service never
+  // sets KEY_FGS_SHOULD_RUN, so its 15-min revival alarm never revives it.
+  if (MESH_PARKED) return false;
 
   // Apply the localized channel name (notifee path). The native service also
   // creates the channel as a no-JS fallback, but this seeds the user's

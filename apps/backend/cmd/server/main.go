@@ -32,6 +32,17 @@ import (
 // large enough that off-the-shelf JWT crackers are useless.
 const minJWTSecretLen = 32
 
+// Version / Commit are injected at build time via the Dockerfile's
+// -ldflags "-X main.Version=... -X main.Commit=..." (build args VERSION / COMMIT).
+// They default to dev/unknown for local runs and are surfaced on /v1/health so the
+// EXACT deployed build is verifiable from outside with a single curl — turning an
+// invisible "did my redeploy actually ship the new code?" into an observable fact.
+// Set COMMIT=$(git rev-parse --short HEAD) as a Dokploy build arg to see the SHA.
+var (
+	Version = "dev"
+	Commit  = "unknown"
+)
+
 func main() {
 	cfg := config.Load()
 
@@ -203,7 +214,11 @@ func main() {
 	// installs must continue to work forever) and uses OptionalMiddleware to
 	// opportunistically refresh JWTs for installs that ARE signed in.
 	r.Get("/v1/health", func(w http.ResponseWriter, _ *http.Request) {
-		httpx.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		httpx.JSON(w, http.StatusOK, map[string]string{
+			"status":  "ok",
+			"version": Version,
+			"commit":  Commit,
+		})
 	})
 	r.Group(func(pr chi.Router) {
 		pr.Use(authenticator.OptionalMiddleware())

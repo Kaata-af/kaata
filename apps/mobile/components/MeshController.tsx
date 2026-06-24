@@ -30,7 +30,7 @@ import { Linking, Platform } from "react-native";
 
 import { ConfirmDialog } from "./ConfirmDialog";
 import { useToast } from "./Toast";
-import { SOLO_STORE_MODE } from "../constants/env";
+import { MESH_PARKED, SOLO_STORE_MODE } from "../constants/env";
 import { getAppMeta, setAppMeta } from "../lib/db";
 import { t } from "../lib/i18n";
 import { hasBlePermissions, requestBlePermissions } from "../lib/mesh/ble-permissions";
@@ -432,7 +432,7 @@ export function MeshController() {
     // bug. Force the intent OFF in solo builds: wantOn=false drives the else-branch
     // below, which stops the FGS (if running) AND clears the persisted flag
     // (userInitiated:true), so the notification goes away and never auto-resumes.
-    const wantOn = shopModeEnabled && !SOLO_STORE_MODE;
+    const wantOn = shopModeEnabled && !SOLO_STORE_MODE && !MESH_PARKED;
     console.log("[mesh.toggle] effect fired wantOn=", wantOn);
     // A fresh intent (or an off-flip) cancels any pending auto-resume retry
     // and resets the backoff so a new toggle-on isn't blocked by a previous

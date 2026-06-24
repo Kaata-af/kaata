@@ -20,3 +20,17 @@ export const GOOGLE_WEB_CLIENT_ID =
 // and they read as broken/confusing. Cloud backup (the solo-relevant sync) stays.
 // Build-time, like the other EXPO_PUBLIC_ flags; set in eas.json preview/production.
 export const SOLO_STORE_MODE = process.env.EXPO_PUBLIC_SOLO_STORE_MODE === "1";
+
+// MESH_PARKED hard-disables the offline Bluetooth/Wi-Fi "Nearby sync" mesh (and
+// its persistent foreground-service notification) WITHOUT deleting any feature
+// code — the whole subsystem is parked until a future release. Unlike
+// SOLO_STORE_MODE this is deliberately NOT env-driven: it's a compile-time
+// constant, so the mesh stays off in EVERY build and profile regardless of
+// whether the eas.json env got baked in correctly. Honored at the single FGS
+// start choke point (lib/mesh/foreground.ts -> startShopModeForegroundService),
+// by MeshController's wantOn gate, and by _layout.tsx's boot teardown (which
+// stops any leftover native FGS + cancels its revival alarm). Because we never
+// START the service while parked, KEY_FGS_SHOULD_RUN is never set, so the native
+// 15-min revival alarm can never resurrect the notification either. Flip to
+// false to bring Nearby sync back.
+export const MESH_PARKED = true;
