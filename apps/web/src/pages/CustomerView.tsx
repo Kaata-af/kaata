@@ -50,10 +50,9 @@ const C = {
 // not the viewer's browser — the message they're reading was composed in it.
 const LABELS = {
   en: {
-    owe: "Balance to settle",
-    credit: "In your favour",
-    settled: "All settled",
-    account: "Account",
+    owe: "owes",
+    credit: "is owed",
+    settled: "is settled",
     tx: "Transactions",
     empty: "No transactions yet.",
     error: "This shared ledger has expired or doesn’t exist.",
@@ -65,10 +64,9 @@ const LABELS = {
     getApp: "Get the app",
   },
   fa: {
-    owe: "مانده برای تصفیه",
-    credit: "به نفع شما",
-    settled: "تصفیه شده",
-    account: "حساب",
+    owe: "بدهکار است",
+    credit: "طلبکار است",
+    settled: "تسویه شده",
     tx: "معاملات",
     empty: "هنوز معامله‌ای نیست.",
     error: "این کاتای مشترک منقضی شده یا وجود ندارد.",
@@ -113,6 +111,14 @@ function fmtDate(ms: number, rtl: boolean): string {
   } catch {
     return "";
   }
+}
+
+// First grapheme of the shop name, for the monogram brand mark. Spread to count
+// by code point (Persian letters are BMP, so this is safe); uppercase is a no-op
+// for Arabic-script letters.
+function firstLetter(s: string): string {
+  const first = [...s.trim()][0];
+  return first ? first.toUpperCase() : "";
 }
 
 export function CustomerView() {
@@ -160,7 +166,6 @@ function Ledger({ data: d }: { data: SharedLedger }) {
   const L = pickLabels(d.locale);
   const dir = d.balance > 0 ? "owe" : d.balance < 0 ? "credit" : "settled";
   const accent = dir === "owe" ? C.red : dir === "credit" ? C.green : C.ink;
-  const dotColor = dir === "owe" ? C.red : dir === "credit" ? C.green : C.mut;
 
   return (
     <section
@@ -168,28 +173,33 @@ function Ledger({ data: d }: { data: SharedLedger }) {
       lang={rtl ? "fa" : "en"}
       style={rtl ? { fontFamily: PERSIAN_FONT } : undefined}
     >
-      {/* Statement card — shop is the letterhead, the balance is the hero,
-          the counterparty is a clearly-labelled account line below it. */}
+      {/* Statement card — the shop reads as a branded letterhead (monogram +
+          name); the counterparty + balance read as a plain "<person> owes
+          <amount>" statement, the hero of the page. */}
       <div className="rounded-2xl border bg-white px-6 py-[26px]" style={{ borderColor: C.line }}>
         {d.shop ? (
-          <p className="text-[15px] font-semibold tracking-[-0.01em]" style={{ color: C.ink }}>
-            {d.shop}
-          </p>
+          <div className="flex items-center gap-[11px]">
+            <div
+              className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[10px] text-base font-semibold uppercase leading-none text-white"
+              style={{ background: C.ink }}
+            >
+              {firstLetter(d.shop)}
+            </div>
+            <p className="min-w-0 text-[15px] font-semibold tracking-[-0.01em]" style={{ color: C.ink }}>
+              {d.shop}
+            </p>
+          </div>
         ) : null}
 
-        <div className="mt-[22px]">
-          <div
-            className="flex items-center gap-[7px] text-[11px] font-semibold uppercase tracking-[0.08em]"
-            style={{ color: C.sub }}
-          >
-            <span
-              className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-              style={{ background: dotColor }}
-            />
-            <span>{L[dir]}</span>
-          </div>
+        <div className="mt-6">
+          <p className="text-[15px]" style={{ color: C.sub }}>
+            <span className="font-semibold" style={{ color: C.ink }}>
+              {d.person}
+            </span>{" "}
+            {L[dir]}
+          </p>
           <p
-            className="mt-2.5 flex items-baseline gap-2 text-[40px] font-semibold leading-none tracking-[-0.025em] tabular-nums"
+            className="mt-2 flex items-baseline gap-2 text-[40px] font-semibold leading-none tracking-[-0.025em] tabular-nums"
             style={{ color: accent }}
           >
             {fmtAmount(d.balance, rtl)}
@@ -197,21 +207,6 @@ function Ledger({ data: d }: { data: SharedLedger }) {
               {d.currency}
             </span>
           </p>
-        </div>
-
-        <div
-          className="mt-5 flex items-baseline gap-[9px] border-t pt-[18px]"
-          style={{ borderColor: C.hair }}
-        >
-          <span
-            className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.08em]"
-            style={{ color: C.mut }}
-          >
-            {L.account}
-          </span>
-          <span className="text-sm font-medium" style={{ color: C.sub }}>
-            {d.person}
-          </span>
         </div>
       </div>
 
@@ -301,13 +296,13 @@ function LedgerSkeleton() {
   return (
     <section aria-hidden="true" className="animate-pulse">
       <div className="rounded-2xl border bg-white px-6 py-[26px]" style={{ borderColor: C.line }}>
-        <Bar className="h-4 w-40" />
-        <div className="mt-[22px]">
-          <Bar className="h-2.5 w-28" />
-          <Bar className="mt-2.5 h-10 w-44" />
+        <div className="flex items-center gap-[11px]">
+          <div className="h-[38px] w-[38px] shrink-0 rounded-[10px]" style={{ background: C.hair }} />
+          <Bar className="h-4 w-44" />
         </div>
-        <div className="mt-5 border-t pt-[18px]" style={{ borderColor: C.hair }}>
-          <Bar className="h-3 w-36" />
+        <div className="mt-6">
+          <Bar className="h-3 w-32" />
+          <Bar className="mt-2.5 h-10 w-40" />
         </div>
       </div>
       <Bar className="mb-3 mt-7 h-2.5 w-24" />

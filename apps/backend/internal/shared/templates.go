@@ -90,19 +90,16 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:"Inter","Vazirma
 a{color:inherit;text-decoration:none;}
 .wrap{max-width:520px;margin:0 auto;padding:40px 22px 56px;}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:26px 24px;}
-.shop{font-size:15px;font-weight:600;letter-spacing:-.01em;color:var(--ink);}
-.bal{margin-top:22px;}
-.ballabel{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:600;color:var(--sub);text-transform:uppercase;letter-spacing:.08em;}
-.dot{width:6px;height:6px;border-radius:50%;background:var(--mut);flex:0 0 auto;}
-.bal.owe .dot{background:var(--red);}
-.bal.credit .dot{background:var(--green);}
-.balance{margin-top:10px;font-size:40px;font-weight:600;letter-spacing:-.025em;line-height:1;display:flex;align-items:baseline;gap:8px;font-variant-numeric:tabular-nums;}
-.bal.owe .balance{color:var(--red);}
-.bal.credit .balance{color:var(--green);}
+.brandrow{display:flex;align-items:center;gap:11px;}
+.logo{width:38px;height:38px;border-radius:10px;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:600;line-height:1;flex:0 0 auto;text-transform:uppercase;}
+.shopname{font-size:15px;font-weight:600;letter-spacing:-.01em;color:var(--ink);min-width:0;}
+.statement{margin-top:24px;}
+.stmt{font-size:15px;color:var(--sub);}
+.stmt .who{font-weight:600;color:var(--ink);}
+.balance{margin-top:8px;font-size:40px;font-weight:600;letter-spacing:-.025em;line-height:1;display:flex;align-items:baseline;gap:8px;font-variant-numeric:tabular-nums;}
+.statement.owe .balance{color:var(--red);}
+.statement.credit .balance{color:var(--green);}
 .cur{font-size:17px;font-weight:500;color:var(--mut);letter-spacing:0;}
-.party{margin-top:20px;padding-top:18px;border-top:1px solid var(--hair);display:flex;align-items:baseline;gap:9px;}
-.plabel{font-size:11px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.08em;flex:0 0 auto;}
-.pname{font-size:14px;font-weight:500;color:var(--sub);}
 .sectionhead{display:flex;align-items:baseline;justify-content:space-between;margin:28px 4px 12px;}
 .sectiontitle{font-size:11px;color:var(--sub);text-transform:uppercase;letter-spacing:.08em;font-weight:600;}
 .sectioncount{font-size:11px;color:var(--mut);font-weight:500;font-variant-numeric:tabular-nums;}
@@ -128,14 +125,10 @@ a{color:inherit;text-decoration:none;}
 <body>
 <div class="wrap">
   <div class="card">
-    {{if .Shop}}<div class="shop">{{.Shop}}</div>{{end}}
-    <div class="bal {{.Direction}}">
-      <div class="ballabel"><span class="dot"></span><span id="balLabel"></span></div>
+    {{if .Shop}}<div class="brandrow"><div class="logo">{{.ShopInitial}}</div><div class="shopname">{{.Shop}}</div></div>{{end}}
+    <div class="statement {{.Direction}}">
+      <div class="stmt"><span class="who">{{.Person}}</span> <span id="stmtVerb"></span></div>
       <div class="balance">{{.AbsBalance}}<span class="cur">{{.Currency}}</span></div>
-    </div>
-    <div class="party">
-      <span class="plabel" id="acctLabel"></span>
-      <span class="pname">{{.Person}}</span>
     </div>
   </div>
   <div class="sectionhead">
@@ -156,16 +149,15 @@ a{color:inherit;text-decoration:none;}
   var rtl = {{.RTL}};
   var apiBase = {{.APIBase}};
   var L = rtl ? {
-    owe:"مانده برای تصفیه", credit:"به نفع شما", settled:"تصفیه شده",
+    owe:"بدهکار است", credit:"طلبکار است", settled:"تسویه شده",
     tx:"معاملات", empty:"معامله‌ای نیست", err:"بارگذاری ناموفق بود",
-    debt:"خرید نسیه", payment:"پرداخت", asOf:"تا تاریخ", getapp:"دریافت اپ", tag:"حساب‌های خود را رایگان نگه دارید با", acct:"حساب"
+    debt:"خرید نسیه", payment:"پرداخت", asOf:"تا تاریخ", getapp:"دریافت اپ", tag:"حساب‌های خود را رایگان نگه دارید با"
   } : {
-    owe:"Balance to settle", credit:"In your favour", settled:"All settled",
+    owe:"owes", credit:"is owed", settled:"is settled",
     tx:"Transactions", empty:"No transactions yet.", err:"Couldn't load this ledger.",
-    debt:"Credit", payment:"Payment", asOf:"As of", getapp:"Get the app", tag:"Keep your own ledger, free with", acct:"Account"
+    debt:"Credit", payment:"Payment", asOf:"As of", getapp:"Get the app", tag:"Keep your own ledger, free with"
   };
-  document.getElementById('balLabel').textContent = L[dir] || L.settled;
-  document.getElementById('acctLabel').textContent = L.acct;
+  document.getElementById('stmtVerb').textContent = L[dir] || L.settled;
   document.getElementById('txTitle').textContent = L.tx;
   document.getElementById('getapp').textContent = L.getapp;
   document.getElementById('foottag').textContent = L.tag;
