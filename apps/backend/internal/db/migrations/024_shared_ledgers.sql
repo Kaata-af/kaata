@@ -1,23 +1,21 @@
--- Migration 024: shared ledger snapshots ("see the full ledger on kaata.af").
+-- Migration 024: NEUTRALIZED — superseded by 025_shared_ledger_snapshots.sql.
 --
--- When a shopkeeper taps the WhatsApp ping, the mobile app POSTs a small
--- read-only snapshot of one person's ledger (shop name, person name, balance,
--- the list of entries) to POST /v1/shared and gets back a short opaque token.
--- The WhatsApp message links to kaata.af/v/<token>; the web client fetches
--- GET /v1/shared/<token> and renders the full list (the backend only stores +
--- serves the small packet, and SSRs a tiny preview shell for the link).
+-- This migration originally tried to create the WhatsApp "see the full ledger"
+-- snapshot store as:
+--     CREATE TABLE IF NOT EXISTS shared_ledgers (token, payload, expires_at);
+--     CREATE INDEX  IF NOT EXISTS idx_shared_ledgers_expires ON shared_ledgers (expires_at);
+-- but a table literally named `shared_ledgers` ALREADY EXISTS from migration 021
+-- (a different, two-party-tab schema with no `expires_at` column). So:
+--   * the CREATE TABLE IF NOT EXISTS was a no-op against 021's table, and
+--   * the CREATE INDEX on the non-existent `expires_at` column HARD-ERRORED
+--     ('column "expires_at" does not exist').
+-- db.Migrate() runs each file's whole body in one transaction (see db.go), so the
+-- error rolled the transaction back: 024 was NEVER recorded as applied on ANY
+-- database, and worse, it aborted the entire migration chain at boot.
 --
--- The payload is JSONB (validated/size-capped at the handler). Rows expire
--- (expires_at) so the table self-prunes; a viewer can't enumerate tokens
--- (opaque random) and the link is unauthenticated by design (it's a share).
-CREATE TABLE IF NOT EXISTS shared_ledgers (
-  token       TEXT PRIMARY KEY,
-  payload     JSONB NOT NULL,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  expires_at  TIMESTAMPTZ NOT NULL
-);
-
--- Hot path: GET by token (PK already covers it). This index supports the
--- periodic expiry prune (DELETE WHERE expires_at < NOW()).
-CREATE INDEX IF NOT EXISTS idx_shared_ledgers_expires
-  ON shared_ledgers (expires_at);
+-- Because 024 never successfully applied anywhere, rewriting its body (rather than
+-- adding yet another migration) does NOT violate the append-only rule — that rule
+-- protects migrations already recorded in schema_migrations, and this one isn't.
+-- The body is now an intentional no-op so the chain can progress to 025, which
+-- creates the snapshot table under a non-colliding name (`shared_ledger_snapshots`).
+SELECT 1;

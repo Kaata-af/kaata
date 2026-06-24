@@ -45,7 +45,7 @@ func (s *Service) Create(ctx context.Context, payload []byte) (string, error) {
 			return "", err
 		}
 		tag, err := s.pool.Exec(ctx, `
-			INSERT INTO shared_ledgers (token, payload, expires_at)
+			INSERT INTO shared_ledger_snapshots (token, payload, expires_at)
 			VALUES ($1, $2::jsonb, NOW() + $3::interval)
 			ON CONFLICT (token) DO NOTHING
 		`, token, string(payload), shareTTL.String())
@@ -65,7 +65,7 @@ func (s *Service) Create(ctx context.Context, payload []byte) (string, error) {
 func (s *Service) Get(ctx context.Context, token string) ([]byte, error) {
 	var payload []byte
 	err := s.pool.QueryRow(ctx, `
-		SELECT payload FROM shared_ledgers
+		SELECT payload FROM shared_ledger_snapshots
 		WHERE token = $1 AND expires_at > NOW()
 	`, token).Scan(&payload)
 	switch {
@@ -80,7 +80,7 @@ func (s *Service) Get(ctx context.Context, token string) ([]byte, error) {
 // PruneExpired deletes expired rows. Best-effort housekeeping; safe to call
 // periodically. Returns the number of rows removed.
 func (s *Service) PruneExpired(ctx context.Context) (int64, error) {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM shared_ledgers WHERE expires_at < NOW()`)
+	tag, err := s.pool.Exec(ctx, `DELETE FROM shared_ledger_snapshots WHERE expires_at < NOW()`)
 	if err != nil {
 		return 0, fmt.Errorf("prune shared ledgers: %w", err)
 	}
