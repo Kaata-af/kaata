@@ -2,6 +2,17 @@
 # domain binding and TLS termination — this just serves the static bundle
 # on :80 with SPA fallback so /v/:token and any other future client-side
 # routes resolve to index.html.
+#
+# SHARED-LEDGER PREVIEWS: for a per-customer WhatsApp link card (the balance,
+# not the generic site box-logo), kaata.af/v/* must be routed to the BACKEND's
+# SSR handler at the OUTER proxy (Dokploy: add a path route Host=kaata.af +
+# PathPrefix=/v → kaata-backend, ABOVE the catch-all → kaata-web). Set
+# PUBLIC_API_BASE_URL=https://api.kaata.af on the backend so that SSR page's
+# inline fetch hits the API directly — then ONLY /v/* needs routing, not /v1/*.
+# Until that route exists, /v/* falls back here to the SPA (apps/web/src/pages/
+# CustomerView.tsx) — same data, but the WhatsApp card shows the generic site
+# preview. This routing is NOT encoded in Caddy on purpose: a wrong backend
+# upstream here would 502 /v/* on deploy; the SPA fallback must stay safe.
 
 :80 {
 	root * /srv

@@ -23,6 +23,14 @@ type Config struct {
 	// WebBaseURL: canonical public site origin (e.g. https://kaata.af). Used to
 	// build shared-ledger links (kaata.af/v/<token>) + their OG preview URLs.
 	WebBaseURL string
+	// PublicAPIBaseURL: the backend's OWN public origin (e.g. https://api.kaata.af),
+	// baked into the shared-ledger SSR page so its inline script fetches the
+	// snapshot from an absolute URL. This lets kaata.af/v/<token> be the only path
+	// that needs routing to the backend — the page then talks to the API directly
+	// (CORS-enabled) instead of relying on kaata.af/v1/* also being proxied here.
+	// Empty (default) → the script uses a relative /v1/... fetch, which is correct
+	// for local dev (SSR + API are same-origin) or when /v1/* is proxied too.
+	PublicAPIBaseURL string
 	// GoogleWebClientID: the OAuth2 Web client ID from Google Cloud Console.
 	// Used as the AUDIENCE when verifying Google ID tokens posted to
 	// /v1/auth/google. Mobile (via @react-native-google-signin) requests
@@ -59,6 +67,7 @@ func Load() Config {
 		MigrateToBackendURL: os.Getenv("MIGRATE_TO_BACKEND_URL"),
 		APKDownloadURL:      getenv("APK_DOWNLOAD_URL", "http://localhost:3000/downloads/kaata-0.1.0.apk"),
 		WebBaseURL:          getenv("WEB_BASE_URL", "https://kaata.af"),
+		PublicAPIBaseURL:    os.Getenv("PUBLIC_API_BASE_URL"),
 		GoogleWebClientID:   os.Getenv("GOOGLE_WEB_CLIENT_ID"),
 		// Read from JWT_SECRET first (Phase 2 canonical name), falling back to
 		// SESSION_JWT_SECRET for compatibility with v0.4 deployments that

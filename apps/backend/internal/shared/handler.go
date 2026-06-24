@@ -20,10 +20,15 @@ const maxPayload = 128 << 10 // 128 KiB
 type Handler struct {
 	svc        *Service
 	webBaseURL string // canonical site origin, e.g. https://kaata.af (for OG url)
+	apiBaseURL string // backend's own public origin, e.g. https://api.kaata.af; "" → relative fetch
 }
 
-func NewHandler(svc *Service, webBaseURL string) *Handler {
-	return &Handler{svc: svc, webBaseURL: strings.TrimRight(webBaseURL, "/")}
+func NewHandler(svc *Service, webBaseURL, apiBaseURL string) *Handler {
+	return &Handler{
+		svc:        svc,
+		webBaseURL: strings.TrimRight(webBaseURL, "/"),
+		apiBaseURL: strings.TrimRight(apiBaseURL, "/"),
+	}
 }
 
 // sharePayload is the snapshot shape the mobile app sends and the SSR shell
@@ -132,17 +137,25 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 	}
 	rtl := strings.HasPrefix(p.Locale, "fa") || strings.HasPrefix(p.Locale, "ps")
 
+	// Format the balance once, in the snapshot's locale, so the instant
+	// server-painted hero matches the JS-rendered (fa-AF) row amounts.
+	absBal := absFmt(p.Balance)
+	if rtl {
+		absBal = localizeNum(absBal)
+	}
+
 	data := viewData{
 		Token:      token,
 		Shop:       p.Shop,
 		Person:     p.Person,
 		Currency:   p.Currency,
-		AbsBalance: absFmt(p.Balance),
+		AbsBalance: absBal,
 		Direction:  dir,
 		RTL:        rtl,
 		Origin:     h.webBaseURL,
+		APIBase:    h.apiBaseURL,
 		OGTitle:    ogTitle(p),
-		OGDesc:     ogDesc(p, dir),
+		OGDesc:     ogDesc(absBal, p.Currency, dir, rtl),
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=300")
@@ -160,6 +173,7 @@ type viewData struct {
 	Direction  string // owe | credit | settled
 	RTL        bool
 	Origin     string
+	APIBase    string // absolute API origin for the inline fetch; "" → relative
 	OGTitle    string
 	OGDesc     string
 }
@@ -171,8 +185,22 @@ func ogTitle(p sharePayload) string {
 	return p.Person + " — Kaata"
 }
 
-func ogDesc(p sharePayload, dir string) string {
-	amt := absFmt(p.Balance) + " " + p.Currency
+// ogDesc is the WhatsApp/social preview line — per-person and to-the-point so the
+// link card itself carries the balance (no image; the box logo is gone). Phrased
+// from the RECEIVER's (customer's) view and localized to the shopkeeper's language.
+// absBal is the already-locale-formatted balance string (Persian digits for fa).
+func ogDesc(absBal, currency, dir string, rtl bool) string {
+	amt := absBal + " " + currency
+	if rtl {
+		switch dir {
+		case "owe":
+			return "مانده برای تصفیه: " + amt
+		case "credit":
+			return "به نفع شما: " + amt
+		default:
+			return "حساب صاف است — چیزی باقی نمانده."
+		}
+	}
 	switch dir {
 	case "owe":
 		return "Balance to settle: " + amt
