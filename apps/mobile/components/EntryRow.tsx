@@ -54,14 +54,17 @@ export const EntryRow = memo(function EntryRow(props: {
         <Ionicons name={icon} size={16} color={colors.textDefault} />
       </View>
       <View style={styles.middle}>
-        <View style={[styles.amountRow, rowDir(isRTL)]}>
-          <Text style={styles.amount}>{formatAmount(entry.amount_afn)}</Text>
-          <Text style={styles.afn}>{getCurrentCurrencySymbol()}</Text>
-        </View>
-        <View style={[styles.metaRow, rowDir(isRTL)]}>
-          <Text style={styles.verb}>{verb}</Text>
-          <Text style={styles.dot}>·</Text>
-          <Text style={styles.when}>{formatRelative(entry.created_at)}</Text>
+        {/* Amount on the leading end, "verb · date" on the trailing end. */}
+        <View style={[styles.topRow, rowDir(isRTL)]}>
+          <View style={[styles.amountRow, rowDir(isRTL)]}>
+            <Text style={styles.amount}>{formatAmount(entry.amount_afn)}</Text>
+            <Text style={styles.afn}>{getCurrentCurrencySymbol()}</Text>
+          </View>
+          <View style={[styles.metaRow, rowDir(isRTL)]}>
+            <Text style={styles.verb}>{verb}</Text>
+            <Text style={styles.dot}>·</Text>
+            <Text style={styles.when}>{formatRelative(entry.created_at)}</Text>
+          </View>
         </View>
         {entry.note ? (
           <View>
@@ -110,6 +113,12 @@ const styles = StyleSheet.create({
   iconWrapLTR: { marginRight: 12 },
   iconWrapRTL: { marginLeft: 12 },
   middle: { flex: 1 },
+  topRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
   amountRow: { flexDirection: "row", alignItems: "baseline", gap: 4 },
   amount: {
     fontSize: 15,
@@ -124,8 +133,7 @@ const styles = StyleSheet.create({
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 2,
-    flexWrap: "wrap",
+    flexShrink: 0,
   },
   verb: {
     fontSize: 12,

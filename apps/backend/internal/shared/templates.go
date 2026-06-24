@@ -107,10 +107,11 @@ a{color:inherit;text-decoration:none;}
 .row:last-child{border-bottom:none;}
 .ic{width:32px;height:32px;border-radius:8px;background:var(--hair);color:var(--sub);display:flex;align-items:center;justify-content:center;flex:0 0 auto;}
 .rmid{min-width:0;flex:1;}
+.rtop{display:flex;align-items:baseline;justify-content:space-between;gap:10px;}
 .ramtrow{display:flex;align-items:baseline;gap:4px;}
 .ramt{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--ink);}
 .rcur{font-size:11px;font-weight:500;color:var(--mut);}
-.rmeta{display:flex;align-items:center;flex-wrap:wrap;margin-top:2px;}
+.rmeta{display:flex;align-items:baseline;white-space:nowrap;flex:0 0 auto;}
 .rverb{font-size:12px;font-weight:500;color:var(--sub);}
 .rsep{font-size:12px;color:var(--mut);margin:0 5px;}
 .rwhen{font-size:12px;color:var(--mut);}
@@ -140,9 +141,9 @@ a{color:inherit;text-decoration:none;}
     <span class="sectioncount" id="txCount"></span>
   </div>
   <div class="rows" id="entries">
-    <div class="row"><div class="ic"></div><div class="rmid"><div class="sk" style="width:74px;height:14px"></div><div class="sk" style="width:150px;height:11px;margin-top:7px"></div></div></div>
-    <div class="row"><div class="ic"></div><div class="rmid"><div class="sk" style="width:88px;height:14px"></div><div class="sk" style="width:120px;height:11px;margin-top:7px"></div></div></div>
-    <div class="row"><div class="ic"></div><div class="rmid"><div class="sk" style="width:64px;height:14px"></div><div class="sk" style="width:140px;height:11px;margin-top:7px"></div></div></div>
+    <div class="row"><div class="ic"></div><div class="rmid"><div class="rtop"><div class="sk" style="width:60px;height:14px"></div><div class="sk" style="width:128px;height:11px"></div></div></div></div>
+    <div class="row"><div class="ic"></div><div class="rmid"><div class="rtop"><div class="sk" style="width:68px;height:14px"></div><div class="sk" style="width:120px;height:11px"></div></div></div></div>
+    <div class="row"><div class="ic"></div><div class="rmid"><div class="rtop"><div class="sk" style="width:54px;height:14px"></div><div class="sk" style="width:132px;height:11px"></div></div></div></div>
   </div>
   <div class="foot">
     <div class="foottag"><span id="foottag"></span> <a href="{{.Origin}}"><b>kaata.</b></a></div>
@@ -186,9 +187,11 @@ a{color:inherit;text-decoration:none;}
           html += '<div class="row">'
             + '<div class="ic">'+(gave?UP:DOWN)+'</div>'
             + '<div class="rmid">'
-            +   '<div class="ramtrow"><span class="ramt">'+fmtAmt(e.amount)+'</span><span class="rcur">'+esc(cur)+'</span></div>'
-            +   '<div class="rmeta"><span class="rverb">'+(gave?L.debt:L.payment)+'</span>'
-            +     '<span class="rsep">·</span><span class="rwhen">'+esc(fmtDate(e.date))+'</span>'
+            +   '<div class="rtop">'
+            +     '<div class="ramtrow"><span class="ramt">'+fmtAmt(e.amount)+'</span><span class="rcur">'+esc(cur)+'</span></div>'
+            +     '<div class="rmeta"><span class="rverb">'+(gave?L.debt:L.payment)+'</span>'
+            +       '<span class="rsep">·</span><span class="rwhen">'+esc(fmtDate(e.date))+'</span>'
+            +     '</div>'
             +   '</div>'
             +   (e.note ? '<div class="rnote">'+esc(e.note)+'</div>' : '')
             + '</div>'

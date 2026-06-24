@@ -282,26 +282,28 @@ function Ledger({ data: d }: { data: SharedLedger }) {
                   {gave ? <ArrowUp /> : <ArrowDown />}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="flex items-baseline gap-1">
-                    <span
-                      className="text-[15px] font-semibold tabular-nums"
-                      style={{ color: C.ink, fontFamily: MONO }}
-                    >
-                      {fmtAmount(e.amount, rtl)}
-                    </span>
-                    <span className="text-[11px] font-medium" style={{ color: C.mut }}>
-                      {d.currency}
-                    </span>
-                  </p>
-                  <p className="mt-0.5 flex flex-wrap items-center text-[12px]">
-                    <span className="font-medium" style={{ color: C.sub }}>
-                      {gave ? L.debt : L.payment}
-                    </span>
-                    <span className="mx-[5px]" style={{ color: C.mut }}>
-                      ·
-                    </span>
-                    <span style={{ color: C.mut }}>{fmtDate(e.date, rtl)}</span>
-                  </p>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <p className="flex items-baseline gap-1">
+                      <span
+                        className="text-[15px] font-semibold tabular-nums"
+                        style={{ color: C.ink, fontFamily: MONO }}
+                      >
+                        {fmtAmount(e.amount, rtl)}
+                      </span>
+                      <span className="text-[11px] font-medium" style={{ color: C.mut }}>
+                        {d.currency}
+                      </span>
+                    </p>
+                    <p className="flex shrink-0 items-center whitespace-nowrap text-[12px]">
+                      <span className="font-medium" style={{ color: C.sub }}>
+                        {gave ? L.debt : L.payment}
+                      </span>
+                      <span className="mx-[5px]" style={{ color: C.mut }}>
+                        ·
+                      </span>
+                      <span style={{ color: C.mut }}>{fmtDate(e.date, rtl)}</span>
+                    </p>
+                  </div>
                   {e.note ? <NoteLine text={e.note} more={L.more} less={L.less} /> : null}
                 </div>
               </div>
@@ -348,9 +350,9 @@ function LedgerSkeleton() {
             style={{ borderColor: C.hair }}
           >
             <div className="h-8 w-8 shrink-0 rounded-lg" style={{ background: C.hair }} />
-            <div className="min-w-0 flex-1 space-y-2">
-              <Bar className="h-3.5 w-20" />
-              <Bar className="h-2.5 w-32" />
+            <div className="flex min-w-0 flex-1 items-center justify-between">
+              <Bar className="h-3.5 w-16" />
+              <Bar className="h-2.5 w-28" />
             </div>
           </div>
         ))}
