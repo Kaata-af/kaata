@@ -118,7 +118,6 @@ a{color:inherit;text-decoration:none;}
 .foot{margin-top:22px;text-align:center;}
 .foottag{font-size:12px;color:var(--mut);}
 .foottag a{color:var(--sub);font-weight:700;}
-.footcta{display:inline-block;margin-top:13px;font-size:13px;font-weight:600;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:9px;padding:9px 16px;}
 .sk{background:var(--hair);border-radius:5px;animation:pulse 1.5s ease-in-out infinite;}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
 </style>
@@ -144,7 +143,6 @@ a{color:inherit;text-decoration:none;}
   <div class="asof" id="asof"></div>
   <div class="foot">
     <div class="foottag"><span id="foottag"></span> <a href="{{.Origin}}"><b>kaata.</b></a></div>
-    <a class="footcta" href="{{.Origin}}/download" id="getapp"></a>
   </div>
 </div>
 <script>
@@ -155,15 +153,14 @@ a{color:inherit;text-decoration:none;}
   var L = rtl ? {
     owe:"بدهکار است", credit:"طلبکار است", settled:"تسویه شده",
     tx:"معاملات", empty:"معامله‌ای نیست", err:"بارگذاری ناموفق بود",
-    debt:"خرید نسیه", payment:"پرداخت", asOf:"تا تاریخ", getapp:"دریافت اپ", tag:"حساب‌های خود را رایگان نگه دارید با"
+    debt:"خرید نسیه", payment:"پرداخت", asOf:"تا تاریخ", tag:"قدرت‌گرفته از"
   } : {
     owe:"owes", credit:"is owed", settled:"is settled",
     tx:"Transactions", empty:"No transactions yet.", err:"Couldn't load this ledger.",
-    debt:"Credit", payment:"Payment", asOf:"As of", getapp:"Get the app", tag:"Keep your own ledger, free with"
+    debt:"Credit", payment:"Payment", asOf:"As of", tag:"Powered by"
   };
   document.getElementById('stmtVerb').textContent = L[dir] || L.settled;
   document.getElementById('txTitle').textContent = L.tx;
-  document.getElementById('getapp').textContent = L.getapp;
   document.getElementById('foottag').textContent = L.tag;
   function esc(s){var d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
   function fmtDate(ms){try{return new Date(ms).toLocaleDateString(rtl?'fa-AF':undefined,{year:'numeric',month:'short',day:'numeric'});}catch(e){return '';}}

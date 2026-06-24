@@ -60,8 +60,7 @@ const LABELS = {
     payment: "Payment",
     asOf: "As of",
     home: "Go to kaata.af",
-    tag: "Keep your own ledger, free with",
-    getApp: "Get the app",
+    tag: "Powered by",
   },
   fa: {
     owe: "بدهکار است",
@@ -74,8 +73,7 @@ const LABELS = {
     payment: "پرداخت",
     asOf: "تا تاریخ",
     home: "رفتن به kaata.af",
-    tag: "حساب‌های خود را رایگان نگه دارید با",
-    getApp: "دریافت اپ",
+    tag: "قدرت‌گرفته از",
   },
 } as const;
 
@@ -269,22 +267,13 @@ function Ledger({ data: d }: { data: SharedLedger }) {
       <p className="mt-6 text-center text-[12px] tabular-nums" style={{ color: C.mut }}>
         {L.asOf} {fmtDate(d.generated_at, rtl)}
       </p>
-      {/* Quiet footer — brand nudge on one line, the CTA as its own button below. */}
-      <div className="mt-[22px] text-center">
-        <p className="text-[12px]" style={{ color: C.mut }}>
-          {L.tag}{" "}
-          <Link to="/" className="font-bold" style={{ color: C.sub }}>
-            kaata.
-          </Link>
-        </p>
-        <Link
-          to="/download"
-          className="mt-[13px] inline-block rounded-[9px] border bg-white px-4 py-[9px] text-[13px] font-semibold"
-          style={{ borderColor: C.line, color: C.ink }}
-        >
-          {L.getApp}
+      {/* Quiet footer — a single brand nudge line, nothing more. */}
+      <p className="mt-[22px] text-center text-[12px]" style={{ color: C.mut }}>
+        {L.tag}{" "}
+        <Link to="/" className="font-bold" style={{ color: C.sub }}>
+          kaata.
         </Link>
-      </div>
+      </p>
     </section>
   );
 }
