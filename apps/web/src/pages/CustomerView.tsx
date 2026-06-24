@@ -173,7 +173,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
           </p>
         ) : null}
 
-        <div className="mt-[22px]">
+        <div className="mt-[18px] border-t pt-[18px]" style={{ borderColor: C.line }}>
           <p className="text-[15px]" style={{ color: C.sub }}>
             <span className="font-semibold" style={{ color: C.ink }}>
               {d.person}
@@ -271,7 +271,7 @@ function LedgerSkeleton() {
         <div className="flex justify-center">
           <Bar className="h-4 w-44" />
         </div>
-        <div className="mt-[22px]">
+        <div className="mt-[18px] border-t pt-[18px]" style={{ borderColor: C.line }}>
           <Bar className="h-3 w-32" />
           <Bar className="mt-2.5 h-10 w-40" />
         </div>

@@ -91,7 +91,7 @@ a{color:inherit;text-decoration:none;}
 .wrap{max-width:520px;margin:0 auto;padding:40px 22px 56px;}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:26px 24px;}
 .shophead{font-size:17px;font-weight:700;letter-spacing:-.01em;color:var(--ink);text-align:center;}
-.statement{margin-top:22px;}
+.statement{margin-top:18px;padding-top:18px;border-top:1px solid var(--line);}
 .stmt{font-size:15px;color:var(--sub);}
 .stmt .who{font-weight:600;color:var(--ink);}
 .balance{margin-top:8px;font-size:40px;font-weight:600;letter-spacing:-.025em;line-height:1;display:flex;align-items:baseline;gap:8px;font-variant-numeric:tabular-nums;}
