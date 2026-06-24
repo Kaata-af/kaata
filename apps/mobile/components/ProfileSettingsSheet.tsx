@@ -52,15 +52,18 @@ import { NavRow, SectionGap, SectionHeader } from "./SettingsScreen";
 // so signing in / out / toggling Shop Mode from a pushed screen and
 // returning never shows a stale paint.
 //
-// Sections, top to bottom (settings = Account + USER preferences + Kaata):
-//   1. ACCOUNT  — signed-in avatar+email OR Sign in with Google button.
-//      Sign out when signed in. "Account settings" row → /account (personal:
-//      name + phone + language + default country + archived kaatas).
+// Sections, top to bottom. Each is separated from the next by a single
+// SectionGap rendered at the TOP of the following section, so the last
+// rendered section never trails an orphaned gap (matters in SOLO_STORE_MODE
+// where KAATAS + SYNC are absent):
+//   1. ACCOUNT — signed-in avatar+email OR Sign in with Google button.
+//      "Account settings" row → /account (personal: name + phone + language +
+//      default country + archived kaatas). Sign out (when signed in) is last.
 //   2. CURRENT KAATA — "Manage this Kaata" → /vault/settings: the kaata's
 //      name + currency (per-kaata) + members + danger zone.
-//   4. KAATAS — list of all vaults with current bolded + checkmark;
+//   3. KAATAS — list of all vaults with current bolded + checkmark;
 //      "+ Add a Kaata" + "Scan a pairing code". (Hidden in SOLO_STORE_MODE.)
-//   5. SYNC — Nearby (Bluetooth/WiFi mesh) toggle only (hidden in
+//   4. SYNC — Nearby (Bluetooth/WiFi mesh) toggle only (hidden in
 //      SOLO_STORE_MODE). Cloud backup is now AUTOMATIC for signed-in users —
 //      there is no toggle. App health + version moved to the Account screen.
 
@@ -291,6 +294,16 @@ export function ProfileSettingsSheet(props: {
                   {/* "Switch account" removed (Matee): to use another Google
                       account, sign out then sign in — the kaatas you have stay
                       on the phone (each backs up to its own account). */}
+                  {/* Account settings belongs UNDER the ACCOUNT section (Matee):
+                      the user's own name + phone, language, default country,
+                      archived kaatas. Sits above the destructive "Sign out". */}
+                  <NavRow
+                    icon="person-circle-outline"
+                    label={t("menu.account.settings")}
+                    hint={t("menu.account.settings.hint")}
+                    onPress={chained(props.onOpenAccount)}
+                    isRTL={isRTL}
+                  />
                   <NavRow
                     icon="log-out-outline"
                     label={t("menu.account.signOut")}
@@ -311,28 +324,18 @@ export function ProfileSettingsSheet(props: {
                     onPress={chained(props.onSignIn)}
                     isRTL={isRTL}
                     emphasis
+                  />
+                  {/* Editable while signed out too — it's the local identity. */}
+                  <NavRow
+                    icon="person-circle-outline"
+                    label={t("menu.account.settings")}
+                    hint={t("menu.account.settings.hint")}
+                    onPress={chained(props.onOpenAccount)}
+                    isRTL={isRTL}
                     isLast
                   />
                 </>
               )}
-
-              <SectionGap />
-
-              {/* ============ ACCOUNT SETTINGS (personal) ============
-                  The user's own settings — edit name + phone, language, default
-                  country, archived kaatas. Distinct from a kaata (currency etc.
-                  live under CURRENT KAATA). (Matee: "a better account settings
-                  that includes the preferences in it, cuz those are personal".) */}
-              <NavRow
-                icon="person-circle-outline"
-                label={t("menu.account.settings")}
-                hint={t("menu.account.settings.hint")}
-                onPress={chained(props.onOpenAccount)}
-                isRTL={isRTL}
-                isLast
-              />
-
-              <SectionGap />
 
               {/* ============ CURRENT KAATA ============
                   Settings for the ACTIVE kaata (rename, currency, members, archive),
@@ -343,6 +346,7 @@ export function ProfileSettingsSheet(props: {
                   shopkeeper can still rename their kaata / change currency. */}
               {hasManageable ? (
                 <>
+                  <SectionGap />
                   <SectionHeader label={t("menu.currentKaata")} isRTL={isRTL} />
                   <NavRow
                     icon="cog-outline"
@@ -354,7 +358,6 @@ export function ProfileSettingsSheet(props: {
                     isRTL={isRTL}
                     isLast
                   />
-                  <SectionGap />
                 </>
               ) : null}
 
@@ -366,6 +369,7 @@ export function ProfileSettingsSheet(props: {
                   needed, I see them on the vault/kaata switcher.") */}
               {!SOLO_STORE_MODE ? (
                 <>
+                  <SectionGap />
                   <SectionHeader label={t("menu.allKaatas")} isRTL={isRTL} />
                   {activeVaults.length === 0 ? (
                     <Text style={[styles.emptyHint, textDir(isRTL)]}>
@@ -442,8 +446,6 @@ export function ProfileSettingsSheet(props: {
                       />
                     </>
                   ) : null}
-
-                  <SectionGap />
                 </>
               ) : null}
 
@@ -454,70 +456,73 @@ export function ProfileSettingsSheet(props: {
                   build the whole section is absent (the header + gap gate on
                   !SOLO_STORE_MODE). The dev Bluetooth-test row keeps its own
                   __DEV__ gate inside. */}
-              {!SOLO_STORE_MODE ? <SectionHeader label={t("menu.sync")} isRTL={isRTL} /> : null}
               {!SOLO_STORE_MODE ? (
-                <View
-                  style={[
-                    styles.toggleRow,
-                    rowDir(isRTL),
-                    // Last sync row when no dev BT row follows.
-                    !__DEV__ ? styles.toggleRowLast : null,
-                  ]}
-                >
-                  <Ionicons
-                    name="bluetooth-outline"
-                    size={SETTINGS_ROW_ICON_SIZE}
-                    color={colors.textEmphasis}
-                    style={
-                      isRTL
-                        ? { marginLeft: SETTINGS_ROW_ICON_GAP }
-                        : { marginRight: SETTINGS_ROW_ICON_GAP }
-                    }
-                  />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.toggleTitle, textDir(isRTL)]}>
-                      {t("menu.sync.shopMode")}
-                    </Text>
-                    <Text style={[styles.toggleHint, textDir(isRTL)]}>
-                      {!props.shopModeEnabled
-                        ? t("menu.sync.shopMode.hint")
-                        : (props.activePeers ?? 0) === 0
-                          ? t("menu.sync.shopMode.hintLooking")
-                          : (props.activePeers ?? 0) === 1
-                            ? t("menu.sync.shopMode.hintOnePeer")
-                            : t("menu.sync.shopMode.hintWithPeers", {
-                                count: props.activePeers ?? 0,
-                              })}
-                    </Text>
+                <>
+                  <SectionGap />
+                  <SectionHeader label={t("menu.sync")} isRTL={isRTL} />
+                  <View
+                    style={[
+                      styles.toggleRow,
+                      rowDir(isRTL),
+                      // Last sync row when no dev BT row follows.
+                      !__DEV__ ? styles.toggleRowLast : null,
+                    ]}
+                  >
+                    <Ionicons
+                      name="bluetooth-outline"
+                      size={SETTINGS_ROW_ICON_SIZE}
+                      color={colors.textEmphasis}
+                      style={
+                        isRTL
+                          ? { marginLeft: SETTINGS_ROW_ICON_GAP }
+                          : { marginRight: SETTINGS_ROW_ICON_GAP }
+                      }
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.toggleTitle, textDir(isRTL)]}>
+                        {t("menu.sync.shopMode")}
+                      </Text>
+                      <Text style={[styles.toggleHint, textDir(isRTL)]}>
+                        {!props.shopModeEnabled
+                          ? t("menu.sync.shopMode.hint")
+                          : (props.activePeers ?? 0) === 0
+                            ? t("menu.sync.shopMode.hintLooking")
+                            : (props.activePeers ?? 0) === 1
+                              ? t("menu.sync.shopMode.hintOnePeer")
+                              : t("menu.sync.shopMode.hintWithPeers", {
+                                  count: props.activePeers ?? 0,
+                                })}
+                      </Text>
+                    </View>
+                    <Switch
+                      value={props.shopModeEnabled}
+                      onValueChange={props.onToggleShopMode}
+                      disabled={!!props.shopModeBusy}
+                      accessibilityRole="switch"
+                      accessibilityLabel={t("menu.sync.shopMode")}
+                      accessibilityState={{
+                        checked: props.shopModeEnabled,
+                        disabled: !!props.shopModeBusy,
+                      }}
+                    />
                   </View>
-                  <Switch
-                    value={props.shopModeEnabled}
-                    onValueChange={props.onToggleShopMode}
-                    disabled={!!props.shopModeBusy}
-                    accessibilityRole="switch"
-                    accessibilityLabel={t("menu.sync.shopMode")}
-                    accessibilityState={{
-                      checked: props.shopModeEnabled,
-                      disabled: !!props.shopModeBusy,
-                    }}
-                  />
-                </View>
-              ) : null}
 
-              {/* Cloud backup is automatic for signed-in users — no toggle
-                  (Matee). App health + version moved to the Account screen. */}
+                  {/* Cloud backup is automatic for signed-in users — no toggle
+                      (Matee). App health + version moved to the Account screen. */}
 
-              {/* DEV-only: Bluetooth Classic (RFCOMM) transport test. Gated
-                  behind __DEV__ so it never appears in preview/production builds
-                  now that RFCOMM is the real mesh transport. */}
-              {__DEV__ ? (
-                <NavRow
-                  icon="bluetooth-outline"
-                  label="Bluetooth test (dev)"
-                  onPress={() => router.push("/dev/btc-test")}
-                  isRTL={isRTL}
-                  isLast
-                />
+                  {/* DEV-only: Bluetooth Classic (RFCOMM) transport test. Gated
+                      behind __DEV__ so it never appears in preview/production
+                      builds now that RFCOMM is the real mesh transport. */}
+                  {__DEV__ ? (
+                    <NavRow
+                      icon="bluetooth-outline"
+                      label="Bluetooth test (dev)"
+                      onPress={() => router.push("/dev/btc-test")}
+                      isRTL={isRTL}
+                      isLast
+                    />
+                  ) : null}
+                </>
               ) : null}
             </ScrollView>
           </View>
