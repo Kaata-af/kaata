@@ -163,12 +163,12 @@ function Ledger({ data: d }: { data: SharedLedger }) {
     >
       {/* Statement card — the shop name is the centered header; the counterparty
           + balance read as a plain "<person> owes <amount>" statement below it. */}
-      <div
-        className="rounded-2xl border bg-white px-6 py-[26px] text-center"
-        style={{ borderColor: C.line }}
-      >
+      <div className="rounded-2xl border bg-white px-6 py-[26px]" style={{ borderColor: C.line }}>
         {d.shop ? (
-          <p className="text-[17px] font-bold tracking-[-0.01em]" style={{ color: C.ink }}>
+          <p
+            className="text-center text-[17px] font-bold tracking-[-0.01em]"
+            style={{ color: C.ink }}
+          >
             {d.shop}
           </p>
         ) : null}
@@ -181,7 +181,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
             {L[dir]}
           </p>
           <p
-            className="mt-2 flex items-baseline justify-center gap-2 text-[40px] font-semibold leading-none tracking-[-0.025em] tabular-nums"
+            className="mt-2 flex items-baseline gap-2 text-[40px] font-semibold leading-none tracking-[-0.025em] tabular-nums"
             style={{ color: accent }}
           >
             {fmtAmount(d.balance, rtl)}
@@ -271,7 +271,7 @@ function LedgerSkeleton() {
         <div className="flex justify-center">
           <Bar className="h-4 w-44" />
         </div>
-        <div className="mt-[22px] flex flex-col items-center">
+        <div className="mt-[22px]">
           <Bar className="h-3 w-32" />
           <Bar className="mt-2.5 h-10 w-40" />
         </div>
