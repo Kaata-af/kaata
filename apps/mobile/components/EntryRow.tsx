@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { memo } from "react";
+import { memo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
 import { getCurrentCurrencySymbol } from "../lib/currency";
@@ -26,6 +26,13 @@ export const EntryRow = memo(function EntryRow(props: {
   const icon = isGave ? "arrow-up-outline" : "arrow-down-outline";
   const verb = isGave ? t("person.action.iGave") : t("person.action.iReceived");
 
+  // Note expansion: clamped to 2 lines; a TAP expands/collapses, but only once
+  // we've measured that the note actually overflows (`clipped`). A plain tap on
+  // a note-less / short-note row still does nothing (a tally is informational).
+  const [measured, setMeasured] = useState(false);
+  const [clipped, setClipped] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
   return (
     <Pressable
       // A plain TAP does nothing (a tally is informational); the edit/delete
@@ -33,6 +40,7 @@ export const EntryRow = memo(function EntryRow(props: {
       // rows. delayLongPress 250ms so a quick tap doesn't accidentally trigger
       // it; Pressable cancels if the finger moves enough to start a scroll, so
       // it doesn't fight the list's vertical scroll.
+      onPress={clipped ? () => setExpanded((v) => !v) : undefined}
       onLongPress={props.onLongPress ? () => props.onLongPress?.(entry) : undefined}
       delayLongPress={250}
       accessibilityRole="button"
@@ -54,15 +62,30 @@ export const EntryRow = memo(function EntryRow(props: {
           <Text style={styles.verb}>{verb}</Text>
           <Text style={styles.dot}>·</Text>
           <Text style={styles.when}>{formatRelative(entry.created_at)}</Text>
-          {entry.note ? (
-            <>
-              <Text style={styles.dot}>·</Text>
-              <Text style={[styles.note, textDir(isRTL)]} numberOfLines={1}>
-                {entry.note}
-              </Text>
-            </>
-          ) : null}
         </View>
+        {entry.note ? (
+          <View>
+            <Text
+              style={[styles.note, textDir(isRTL)]}
+              numberOfLines={!measured ? undefined : expanded ? undefined : 2}
+              // Full note for screen readers, regardless of the visual clamp.
+              accessibilityLabel={entry.note}
+              onTextLayout={(e) => {
+                if (!measured) {
+                  setClipped(e.nativeEvent.lines.length > 2);
+                  setMeasured(true);
+                }
+              }}
+            >
+              {entry.note}
+            </Text>
+            {clipped ? (
+              <Text style={[styles.more, textDir(isRTL)]}>
+                {expanded ? t("common.less") : t("common.more")}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
       </View>
     </Pressable>
   );
@@ -121,9 +144,15 @@ const styles = StyleSheet.create({
     color: colors.textSubtle,
   },
   note: {
-    flex: 1,
-    fontSize: 12,
+    fontSize: 13,
     fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
+    color: colors.textDefault,
+    marginTop: 3,
+  },
+  more: {
+    fontSize: 12,
+    fontFamily: fonts.sansSemi,
+    color: colors.textEmphasis,
+    marginTop: 2,
   },
 });

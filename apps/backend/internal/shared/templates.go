@@ -114,7 +114,10 @@ a{color:inherit;text-decoration:none;}
 .rverb{font-size:12px;font-weight:500;color:var(--sub);}
 .rsep{font-size:12px;color:var(--mut);margin:0 5px;}
 .rwhen{font-size:12px;color:var(--mut);}
-.rnote{font-size:12px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw;}
+.rnote{font-size:13px;color:var(--sub);margin-top:3px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.row.open .rnote{-webkit-line-clamp:unset;overflow:visible;}
+.rmore{display:inline-block;margin-top:3px;font-size:12px;font-weight:600;color:var(--ink);cursor:pointer;}
+.row[role=button]{cursor:pointer;}
 .empty,.err{color:var(--mut);font-size:14px;padding:28px 4px;text-align:center;}
 .foot{margin-top:26px;text-align:center;}
 .foottag{font-size:12px;color:var(--mut);}
@@ -153,11 +156,11 @@ a{color:inherit;text-decoration:none;}
   var L = rtl ? {
     owe:"بدهکار است", credit:"طلبکار است", settled:"تسویه شده",
     tx:"معاملات", empty:"معامله‌ای نیست", err:"بارگذاری ناموفق بود",
-    debt:"دادم", payment:"گرفتم", tag:"قدرت‌گرفته از"
+    debt:"دادم", payment:"گرفتم", tag:"قدرت‌گرفته از", more:"بیشتر", less:"کمتر"
   } : {
     owe:"owes", credit:"is owed", settled:"is settled",
     tx:"Transactions", empty:"No transactions yet.", err:"Couldn't load this ledger.",
-    debt:"I gave", payment:"I received", tag:"Powered by"
+    debt:"I gave", payment:"I received", tag:"Powered by", more:"more", less:"less"
   };
   var UP='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="7"/><polyline points="6 13 12 7 18 13"/></svg>';
   var DOWN='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="17"/><polyline points="18 11 12 17 6 11"/></svg>';
@@ -186,12 +189,35 @@ a{color:inherit;text-decoration:none;}
             +   '<div class="ramtrow"><span class="ramt">'+fmtAmt(e.amount)+'</span><span class="rcur">'+esc(cur)+'</span></div>'
             +   '<div class="rmeta"><span class="rverb">'+(gave?L.debt:L.payment)+'</span>'
             +     '<span class="rsep">·</span><span class="rwhen">'+esc(fmtDate(e.date))+'</span>'
-            +     (e.note ? '<span class="rsep">·</span><span class="rnote">'+esc(e.note)+'</span>' : '')
             +   '</div>'
+            +   (e.note ? '<div class="rnote">'+esc(e.note)+'</div>' : '')
             + '</div>'
           + '</div>';
         }
         el.innerHTML = html;
+        // Note on its own line, clamped to 2. Only notes that actually overflow
+        // become tap-to-expand (a "more"/"less" cue, measured — not guessed).
+        el.querySelectorAll('.rnote').forEach(function(n){
+          if(n.scrollHeight > n.clientHeight + 1){
+            var row = n.closest('.row');
+            row.setAttribute('role','button'); row.tabIndex = 0;
+            var m = document.createElement('span');
+            m.className = 'rmore'; m.textContent = L.more;
+            n.insertAdjacentElement('afterend', m);
+          }
+        });
+        el.addEventListener('click', function(ev){
+          var r = ev.target.closest('.row[role="button"]'); if(!r) return;
+          var open = r.classList.toggle('open');
+          var m = r.querySelector('.rmore'); if(m){ m.textContent = open ? L.less : L.more; }
+        });
+        el.addEventListener('keydown', function(ev){
+          if(ev.key !== 'Enter' && ev.key !== ' ') return;
+          var r = ev.target.closest('.row[role="button"]'); if(!r) return;
+          ev.preventDefault();
+          var open = r.classList.toggle('open');
+          var m = r.querySelector('.rmore'); if(m){ m.textContent = open ? L.less : L.more; }
+        });
       }
     })
     .catch(function(){ document.getElementById('entries').innerHTML = '<div class="err">'+L.err+'</div>'; });

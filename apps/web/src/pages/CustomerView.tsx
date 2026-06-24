@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { BACKEND_URL } from "../env";
 
@@ -60,6 +60,8 @@ const LABELS = {
     payment: "I received",
     home: "Go to kaata.af",
     tag: "Powered by",
+    more: "more",
+    less: "less",
   },
   fa: {
     owe: "بدهکار است",
@@ -72,6 +74,8 @@ const LABELS = {
     payment: "گرفتم",
     home: "رفتن به kaata.af",
     tag: "قدرت‌گرفته از",
+    more: "بیشتر",
+    less: "کمتر",
   },
 } as const;
 
@@ -97,6 +101,41 @@ function ArrowDown() {
       <line x1="12" y1="5" x2="12" y2="17" />
       <polyline points="18 11 12 17 6 11" />
     </svg>
+  );
+}
+
+// Note on its own line, clamped to 2 lines; a "more"/"less" toggle appears only
+// when the text actually overflows (measured against the clamp, not guessed).
+const CLAMP: CSSProperties = {
+  display: "-webkit-box",
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: "vertical",
+  overflow: "hidden",
+};
+function NoteLine({ text, more, less }: { text: string; more: string; less: string }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [clipped, setClipped] = useState(false);
+  const [open, setOpen] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el) setClipped(el.scrollHeight > el.clientHeight + 1);
+  }, [text]);
+  return (
+    <div className="mt-[3px]">
+      <p ref={ref} className="text-[13px]" style={{ color: C.sub, ...(open ? {} : CLAMP) }}>
+        {text}
+      </p>
+      {clipped ? (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="mt-[3px] text-[12px] font-semibold"
+          style={{ color: C.ink }}
+        >
+          {open ? less : more}
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -262,17 +301,8 @@ function Ledger({ data: d }: { data: SharedLedger }) {
                       ·
                     </span>
                     <span style={{ color: C.mut }}>{fmtDate(e.date, rtl)}</span>
-                    {e.note ? (
-                      <>
-                        <span className="mx-[5px]" style={{ color: C.mut }}>
-                          ·
-                        </span>
-                        <span className="truncate" style={{ color: C.mut, maxWidth: "46vw" }}>
-                          {e.note}
-                        </span>
-                      </>
-                    ) : null}
                   </p>
+                  {e.note ? <NoteLine text={e.note} more={L.more} less={L.less} /> : null}
                 </div>
               </div>
             );

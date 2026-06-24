@@ -150,6 +150,8 @@ const en = {
   "home.empty.allSettled": "everyone settled",
 
   // Person detail
+  "common.more": "more",
+  "common.less": "less",
   "person.action.iGave": "I gave",
   "readonly.badge": "View only",
   "person.action.iReceived": "I received",
@@ -1154,6 +1156,8 @@ const fa: Partial<Record<Key, string>> = {
   "home.empty.allSettled": "همه تصفیه شده",
 
   // Person detail
+  "common.more": "بیشتر",
+  "common.less": "کمتر",
   "person.action.iGave": "دادم",
   "readonly.badge": "فقط دیدن",
   "person.action.iReceived": "گرفتم",
