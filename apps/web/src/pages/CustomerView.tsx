@@ -56,8 +56,8 @@ const LABELS = {
     tx: "Transactions",
     empty: "No transactions yet.",
     error: "This shared ledger has expired or doesn’t exist.",
-    debt: "Credit",
-    payment: "Payment",
+    debt: "I gave",
+    payment: "I received",
     home: "Go to kaata.af",
     tag: "Powered by",
   },
@@ -68,18 +68,37 @@ const LABELS = {
     tx: "معاملات",
     empty: "هنوز معامله‌ای نیست.",
     error: "این کاتای مشترک منقضی شده یا وجود ندارد.",
-    debt: "خرید نسیه",
-    payment: "پرداخت",
+    debt: "دادم",
+    payment: "گرفتم",
     home: "رفتن به kaata.af",
     tag: "قدرت‌گرفته از",
   },
 } as const;
 
-// Vazirmatn (the mobile app's Persian face) is only wired to `html[lang="fa"]`
-// in globals.css, but this page's content language is the SNAPSHOT's locale —
-// independent of the viewer's site language. Apply the Persian stack inline so
-// a Dari ledger always renders in Vazirmatn even on an English-chrome visit.
-const PERSIAN_FONT = '"Vazirmatn","Inter",system-ui,-apple-system,sans-serif';
+// Match the mobile app's typography: Vazirmatn for text (one face for Latin +
+// Persian), JetBrains Mono for numbers. Both are bundled by the web app
+// (Fontsource, see main.tsx); the SSR shell self-hosts them at /fonts/.
+const APP_SANS = '"Vazirmatn","Inter",system-ui,-apple-system,sans-serif';
+const MONO = '"JetBrains Mono","Vazirmatn",ui-monospace,Menlo,monospace';
+
+// Direction arrows, mirroring the app's EntryRow: up = "I gave", down =
+// "I received" (no +/− signs, no colour — the arrow carries the direction).
+function ArrowUp() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="19" x2="12" y2="7" />
+      <polyline points="6 13 12 7 18 13" />
+    </svg>
+  );
+}
+function ArrowDown() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="5" x2="12" y2="17" />
+      <polyline points="18 11 12 17 6 11" />
+    </svg>
+  );
+}
 
 function isRTL(locale: string) {
   return locale.startsWith("fa") || locale.startsWith("ps");
@@ -156,11 +175,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
   const accent = dir === "owe" ? C.red : dir === "credit" ? C.green : C.ink;
 
   return (
-    <section
-      dir={rtl ? "rtl" : "ltr"}
-      lang={rtl ? "fa" : "en"}
-      style={rtl ? { fontFamily: PERSIAN_FONT } : undefined}
-    >
+    <section dir={rtl ? "rtl" : "ltr"} lang={rtl ? "fa" : "en"} style={{ fontFamily: APP_SANS }}>
       {/* Statement card — the shop name is the centered header; the counterparty
           + balance read as a plain "<person> owes <amount>" statement below it. */}
       <div className="rounded-2xl border bg-white px-6 py-[26px]" style={{ borderColor: C.line }}>
@@ -181,11 +196,11 @@ function Ledger({ data: d }: { data: SharedLedger }) {
             {L[dir]}
           </p>
           <p
-            className="mt-2 flex items-baseline gap-2 text-[40px] font-semibold leading-none tracking-[-0.025em] tabular-nums"
-            style={{ color: accent }}
+            className="mt-2 flex items-baseline gap-[7px] text-[38px] font-semibold leading-none tracking-[-0.02em] tabular-nums"
+            style={{ color: accent, fontFamily: MONO }}
           >
             {fmtAmount(d.balance, rtl)}
-            <span className="text-[17px] font-medium" style={{ color: C.mut }}>
+            <span className="text-[16px] font-medium" style={{ color: C.mut, fontFamily: APP_SANS }}>
               {d.currency}
             </span>
           </p>
@@ -201,7 +216,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
           {L.tx}
         </p>
         {d.entries.length > 0 ? (
-          <p className="text-[11px] font-medium tabular-nums" style={{ color: C.mut }}>
+          <p className="text-[11px] font-medium tabular-nums" style={{ color: C.mut, fontFamily: MONO }}>
             {fmtAmount(d.entries.length, rtl)}
           </p>
         ) : null}
@@ -214,33 +229,51 @@ function Ledger({ data: d }: { data: SharedLedger }) {
           </p>
         ) : (
           d.entries.map((e, i) => {
-            const isPayment = e.type === "payment";
+            const gave = e.type !== "payment"; // debt → "I gave" (up); payment → "I received" (down)
             return (
               <div
                 key={i}
-                className="flex items-center justify-between gap-3.5 border-b px-[18px] py-[15px] last:border-b-0"
+                className="flex items-center gap-3 border-b px-4 py-[13px] last:border-b-0"
                 style={{ borderColor: C.hair }}
               >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium" style={{ color: C.ink }}>
-                    {isPayment ? L.payment : L.debt}
+                <div
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+                  style={{ background: C.hair, color: C.sub }}
+                >
+                  {gave ? <ArrowUp /> : <ArrowDown />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-baseline gap-1">
+                    <span
+                      className="text-[15px] font-semibold tabular-nums"
+                      style={{ color: C.ink, fontFamily: MONO }}
+                    >
+                      {fmtAmount(e.amount, rtl)}
+                    </span>
+                    <span className="text-[11px] font-medium" style={{ color: C.mut }}>
+                      {d.currency}
+                    </span>
                   </p>
-                  {e.note ? (
-                    <p className="mt-[3px] truncate text-[13px]" style={{ color: C.sub }}>
-                      {e.note}
-                    </p>
-                  ) : null}
-                  <p className="mt-1 text-[12px] tabular-nums" style={{ color: C.mut }}>
-                    {fmtDate(e.date, rtl)}
+                  <p className="mt-0.5 flex flex-wrap items-center text-[12px]">
+                    <span className="font-medium" style={{ color: C.sub }}>
+                      {gave ? L.debt : L.payment}
+                    </span>
+                    <span className="mx-[5px]" style={{ color: C.mut }}>
+                      ·
+                    </span>
+                    <span style={{ color: C.mut }}>{fmtDate(e.date, rtl)}</span>
+                    {e.note ? (
+                      <>
+                        <span className="mx-[5px]" style={{ color: C.mut }}>
+                          ·
+                        </span>
+                        <span className="truncate" style={{ color: C.mut, maxWidth: "46vw" }}>
+                          {e.note}
+                        </span>
+                      </>
+                    ) : null}
                   </p>
                 </div>
-                <p
-                  className="whitespace-nowrap text-sm font-semibold tabular-nums tracking-[-0.01em]"
-                  style={{ color: isPayment ? C.green : C.red }}
-                >
-                  {isPayment ? "−" : "+"}
-                  {fmtAmount(e.amount, rtl)}
-                </p>
               </div>
             );
           })
@@ -281,14 +314,14 @@ function LedgerSkeleton() {
         {[0, 1, 2].map((i) => (
           <div
             key={i}
-            className="flex items-center justify-between border-b px-[18px] py-[15px] last:border-b-0"
+            className="flex items-center gap-3 border-b px-4 py-[13px] last:border-b-0"
             style={{ borderColor: C.hair }}
           >
-            <div className="space-y-2.5">
+            <div className="h-8 w-8 shrink-0 rounded-lg" style={{ background: C.hair }} />
+            <div className="min-w-0 flex-1 space-y-2">
               <Bar className="h-3.5 w-20" />
-              <Bar className="h-2.5 w-28" />
+              <Bar className="h-2.5 w-32" />
             </div>
-            <Bar className="h-3.5 w-14" />
           </div>
         ))}
       </div>

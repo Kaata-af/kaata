@@ -72,6 +72,7 @@ const viewHTML = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f9fafb">
+<link rel="stylesheet" href="/fonts/ledger.css">
 <title>{{.OGTitle}}</title>
 <meta name="description" content="{{.OGDesc}}">
 <meta property="og:type" content="website">
@@ -83,10 +84,10 @@ const viewHTML = `<!doctype html>
 <meta name="twitter:title" content="{{.OGTitle}}">
 <meta name="twitter:description" content="{{.OGDesc}}">
 <style>
-:root{--bg:#f9fafb;--card:#fff;--ink:#101828;--sub:#475467;--mut:#98a2b3;--line:#eaecf0;--hair:#f2f4f7;--red:#b42318;--green:#067647;}
+:root{--bg:#f9fafb;--card:#fff;--ink:#101828;--sub:#475467;--mut:#98a2b3;--line:#eaecf0;--hair:#f2f4f7;--red:#b42318;--green:#067647;--mono:'JetBrains Mono','Vazirmatn',ui-monospace,'Menlo',monospace;}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:"Inter","Vazirmatn",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Vazirmatn",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
 a{color:inherit;text-decoration:none;}
 .wrap{max-width:520px;margin:0 auto;padding:40px 22px 56px;}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:26px 24px;}
@@ -94,23 +95,26 @@ a{color:inherit;text-decoration:none;}
 .statement{margin-top:18px;padding-top:18px;border-top:1px solid var(--line);}
 .stmt{font-size:15px;color:var(--sub);}
 .stmt .who{font-weight:600;color:var(--ink);}
-.balance{margin-top:8px;font-size:40px;font-weight:600;letter-spacing:-.025em;line-height:1;display:flex;align-items:baseline;gap:8px;font-variant-numeric:tabular-nums;}
+.balance{margin-top:8px;font-family:var(--mono);font-size:38px;font-weight:600;letter-spacing:-.02em;line-height:1;display:flex;align-items:baseline;gap:7px;font-variant-numeric:tabular-nums;}
 .statement.owe .balance{color:var(--red);}
 .statement.credit .balance{color:var(--green);}
-.cur{font-size:17px;font-weight:500;color:var(--mut);letter-spacing:0;}
+.cur{font-family:"Vazirmatn",sans-serif;font-size:16px;font-weight:500;color:var(--mut);letter-spacing:0;}
 .sectionhead{display:flex;align-items:baseline;justify-content:space-between;margin:28px 4px 12px;}
 .sectiontitle{font-size:11px;color:var(--sub);text-transform:uppercase;letter-spacing:.08em;font-weight:600;}
-.sectioncount{font-size:11px;color:var(--mut);font-weight:500;font-variant-numeric:tabular-nums;}
+.sectioncount{font-family:var(--mono);font-size:11px;color:var(--mut);font-weight:500;}
 .rows{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden;}
-.row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:15px 18px;border-bottom:1px solid var(--hair);}
+.row{display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--hair);}
 .row:last-child{border-bottom:none;}
-.rmeta{min-width:0;}
-.rkind{font-size:14px;font-weight:500;}
-.rnote{font-size:13px;color:var(--sub);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60vw;}
-.rdate{font-size:12px;color:var(--mut);margin-top:4px;font-variant-numeric:tabular-nums;}
-.ramt{font-size:14px;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums;letter-spacing:-.01em;}
-.ramt.debt{color:var(--red);}
-.ramt.payment{color:var(--green);}
+.ic{width:32px;height:32px;border-radius:8px;background:var(--hair);color:var(--sub);display:flex;align-items:center;justify-content:center;flex:0 0 auto;}
+.rmid{min-width:0;flex:1;}
+.ramtrow{display:flex;align-items:baseline;gap:4px;}
+.ramt{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--ink);}
+.rcur{font-size:11px;font-weight:500;color:var(--mut);}
+.rmeta{display:flex;align-items:center;flex-wrap:wrap;margin-top:2px;}
+.rverb{font-size:12px;font-weight:500;color:var(--sub);}
+.rsep{font-size:12px;color:var(--mut);margin:0 5px;}
+.rwhen{font-size:12px;color:var(--mut);}
+.rnote{font-size:12px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw;}
 .empty,.err{color:var(--mut);font-size:14px;padding:28px 4px;text-align:center;}
 .foot{margin-top:26px;text-align:center;}
 .foottag{font-size:12px;color:var(--mut);}
@@ -133,9 +137,9 @@ a{color:inherit;text-decoration:none;}
     <span class="sectioncount" id="txCount"></span>
   </div>
   <div class="rows" id="entries">
-    <div class="row"><div class="rmeta"><div class="sk" style="width:92px;height:13px"></div><div class="sk" style="width:130px;height:11px;margin-top:9px"></div></div><div class="sk" style="width:54px;height:14px"></div></div>
-    <div class="row"><div class="rmeta"><div class="sk" style="width:78px;height:13px"></div><div class="sk" style="width:150px;height:11px;margin-top:9px"></div></div><div class="sk" style="width:54px;height:14px"></div></div>
-    <div class="row"><div class="rmeta"><div class="sk" style="width:88px;height:13px"></div><div class="sk" style="width:110px;height:11px;margin-top:9px"></div></div><div class="sk" style="width:54px;height:14px"></div></div>
+    <div class="row"><div class="ic"></div><div class="rmid"><div class="sk" style="width:74px;height:14px"></div><div class="sk" style="width:150px;height:11px;margin-top:7px"></div></div></div>
+    <div class="row"><div class="ic"></div><div class="rmid"><div class="sk" style="width:88px;height:14px"></div><div class="sk" style="width:120px;height:11px;margin-top:7px"></div></div></div>
+    <div class="row"><div class="ic"></div><div class="rmid"><div class="sk" style="width:64px;height:14px"></div><div class="sk" style="width:140px;height:11px;margin-top:7px"></div></div></div>
   </div>
   <div class="foot">
     <div class="foottag"><span id="foottag"></span> <a href="{{.Origin}}"><b>kaata.</b></a></div>
@@ -149,12 +153,14 @@ a{color:inherit;text-decoration:none;}
   var L = rtl ? {
     owe:"بدهکار است", credit:"طلبکار است", settled:"تسویه شده",
     tx:"معاملات", empty:"معامله‌ای نیست", err:"بارگذاری ناموفق بود",
-    debt:"خرید نسیه", payment:"پرداخت", tag:"قدرت‌گرفته از"
+    debt:"دادم", payment:"گرفتم", tag:"قدرت‌گرفته از"
   } : {
     owe:"owes", credit:"is owed", settled:"is settled",
     tx:"Transactions", empty:"No transactions yet.", err:"Couldn't load this ledger.",
-    debt:"Credit", payment:"Payment", tag:"Powered by"
+    debt:"I gave", payment:"I received", tag:"Powered by"
   };
+  var UP='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="7"/><polyline points="6 13 12 7 18 13"/></svg>';
+  var DOWN='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="17"/><polyline points="18 11 12 17 6 11"/></svg>';
   document.getElementById('stmtVerb').textContent = L[dir] || L.settled;
   document.getElementById('txTitle').textContent = L.tx;
   document.getElementById('foottag').textContent = L.tag;
@@ -169,15 +175,21 @@ a{color:inherit;text-decoration:none;}
       if(list.length){ document.getElementById('txCount').textContent = fmtAmt(list.length); }
       if(!list.length){ el.innerHTML = '<div class="empty">'+L.empty+'</div>'; }
       else {
+        var cur = (p && p.currency) || '';
         var html = '';
         for(var i=0;i<list.length;i++){
           var e = list[i];
-          var sign = e.type === 'payment' ? '−' : '+';
-          html += '<div class="row"><div class="rmeta">'
-            + '<div class="rkind">'+(e.type==='payment'?L.payment:L.debt)+'</div>'
-            + (e.note ? '<div class="rnote">'+esc(e.note)+'</div>' : '')
-            + '<div class="rdate">'+esc(fmtDate(e.date))+'</div>'
-            + '</div><div class="ramt '+(e.type==='payment'?'payment':'debt')+'">'+sign+fmtAmt(e.amount)+'</div></div>';
+          var gave = e.type !== 'payment'; // debt → "I gave" (up); payment → "I received" (down)
+          html += '<div class="row">'
+            + '<div class="ic">'+(gave?UP:DOWN)+'</div>'
+            + '<div class="rmid">'
+            +   '<div class="ramtrow"><span class="ramt">'+fmtAmt(e.amount)+'</span><span class="rcur">'+esc(cur)+'</span></div>'
+            +   '<div class="rmeta"><span class="rverb">'+(gave?L.debt:L.payment)+'</span>'
+            +     '<span class="rsep">·</span><span class="rwhen">'+esc(fmtDate(e.date))+'</span>'
+            +     (e.note ? '<span class="rsep">·</span><span class="rnote">'+esc(e.note)+'</span>' : '')
+            +   '</div>'
+            + '</div>'
+          + '</div>';
         }
         el.innerHTML = html;
       }
