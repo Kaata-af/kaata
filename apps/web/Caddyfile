@@ -1,35 +1,50 @@
 # Container-internal Caddyfile. Dokploy's outer proxy handles the kaata.af
-# domain binding and TLS termination — this just serves the static bundle
-# on :80 with SPA fallback so /v/:token and any other future client-side
-# routes resolve to index.html.
-#
-# SHARED-LEDGER PREVIEWS: for a per-customer WhatsApp link card (the balance,
-# not the generic site box-logo), kaata.af/v/* must be routed to the BACKEND's
-# SSR handler at the OUTER proxy (Dokploy: add a path route Host=kaata.af +
-# PathPrefix=/v → kaata-backend, ABOVE the catch-all → kaata-web). Set
-# PUBLIC_API_BASE_URL=https://api.kaata.af on the backend so that SSR page's
-# inline fetch hits the API directly — then ONLY /v/* needs routing, not /v1/*.
-# Until that route exists, /v/* falls back here to the SPA (apps/web/src/pages/
-# CustomerView.tsx) — same data, but the WhatsApp card shows the generic site
-# preview. This routing is NOT encoded in Caddy on purpose: a wrong backend
-# upstream here would 502 /v/* on deploy; the SPA fallback must stay safe.
+# domain binding and TLS termination. This serves the static SPA on :80 AND
+# proxies the shared-ledger SSR to the Go backend, so WhatsApp link cards show
+# the per-customer balance instead of the generic site box-logo.
 
 :80 {
-	root * /srv
 	encode gzip
-	try_files {path} /index.html
-	file_server
 
-	# Aggressive cache for hashed asset files (Vite emits content-hashed names).
-	@hashed_assets path /assets/*
-	header @hashed_assets Cache-Control "public, max-age=31536000, immutable"
+	# Shared-ledger preview. The share link is kaata.af/v/<token>, but the
+	# per-customer SSR (per-person og:title/og:description, NO box-logo image) is
+	# rendered by the Go backend — reachable publicly at api.kaata.af. Proxy the
+	# SSR page and the snapshot API its inline script fetches there. The Host
+	# header is rewritten to api.kaata.af so the outer proxy routes to the BACKEND
+	# (leaving it as kaata.af would route back to THIS web service — a loop).
+	# On any backend error, handle_errors below serves the SPA instead, so this
+	# can never hard-fail the page (worst case = today's generic preview).
+	@sharessr path /v/* /v1/shared/*
+	handle @sharessr {
+		reverse_proxy https://api.kaata.af {
+			header_up Host api.kaata.af
+		}
+	}
 
-	# APK downloads: force correct MIME + Content-Disposition so the browser
-	# downloads the file rather than guessing (some browsers render unknown
-	# MIME types as text). Removed once we move distribution off-domain.
-	@apk path *.apk
-	header @apk {
-		Content-Type "application/vnd.android.package-archive"
-		Content-Disposition "attachment"
+	# Everything else: the static SPA bundle with client-side routing fallback.
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+
+		# Aggressive cache for hashed asset files (Vite emits content-hashed names).
+		@hashed_assets path /assets/*
+		header @hashed_assets Cache-Control "public, max-age=31536000, immutable"
+
+		# APK downloads: force correct MIME + Content-Disposition so the browser
+		# downloads the file rather than guessing.
+		@apk path *.apk
+		header @apk {
+			Content-Type "application/vnd.android.package-archive"
+			Content-Disposition "attachment"
+		}
+	}
+
+	# Backend unreachable / 5xx → fall back to the SPA shell (its React
+	# /v/:token view still renders the ledger from the API directly).
+	handle_errors {
+		root * /srv
+		rewrite * /index.html
+		file_server
 	}
 }
