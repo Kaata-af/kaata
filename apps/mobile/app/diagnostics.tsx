@@ -11,13 +11,16 @@
 // screenshots after a crash. Reachable from the menu (a hidden/diagnostic
 // nav row) or directly at /diagnostics.
 
+import * as Clipboard from "expo-clipboard";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { DevSettings, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ScreenHeader } from "../components/SettingsScreen";
+import { useToast } from "../components/Toast";
 import { colors } from "../lib/colors";
+import { buildDiagnosticsReport } from "../lib/diagnostics-report";
 import { fonts } from "../lib/fonts";
 import { getDb } from "../lib/db-tx";
 import { getAppMeta, resetAllLocalData } from "../lib/db";
@@ -56,6 +59,8 @@ function mb(kb: number | null | undefined): string {
 
 export default function DiagnosticsScreen() {
   const router = useRouter();
+  const toast = useToast();
+  const [copyingReport, setCopyingReport] = useState(false);
   const [exits, setExits] = useState<ProcessExitReason[]>([]);
   const [samples, setSamples] = useState<MemRow[]>([]);
   const [now, setNow] = useState<Record<string, unknown>>({});
@@ -110,6 +115,23 @@ export default function DiagnosticsScreen() {
     void load();
   }, [load]);
 
+  // Copy the full App-health report (versions + device + memory + crash history)
+  // to the clipboard so the user can paste it to us — replaces the old "screenshot
+  // this" flow. Best-effort; never throws.
+  const onCopyReport = useCallback(async () => {
+    if (copyingReport) return;
+    setCopyingReport(true);
+    try {
+      await Clipboard.setStringAsync(await buildDiagnosticsReport());
+      toast.push("Copied — paste it to us", "success");
+    } catch (err) {
+      console.warn("[diagnostics] copy report failed", err);
+      toast.push("Couldn’t copy", "error");
+    } finally {
+      setCopyingReport(false);
+    }
+  }, [copyingReport, toast]);
+
   // Live-update the sync log: push-driven on each new line, plus a 2s poll so the
   // running/paused snapshot stays fresh while the user watches.
   useEffect(() => {
@@ -146,9 +168,16 @@ export default function DiagnosticsScreen() {
       <ScreenHeader title="Diagnostics" onBack={() => router.back()} isRTL={false} />
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={styles.hint}>
-          Screenshot this after a crash and send it. The top block says WHY the app died last time;
-          the table is the memory slope while sync was on.
+          Tap “Copy report” and send it to us. The top block says WHY the app died last time; the
+          table is the memory slope while sync was on.
         </Text>
+        <Pressable
+          style={[styles.copyReport, copyingReport && { opacity: 0.6 }]}
+          onPress={onCopyReport}
+          disabled={copyingReport}
+        >
+          <Text style={styles.copyReportText}>{copyingReport ? "Copying…" : "Copy report"}</Text>
+        </Pressable>
 
         {/* ---- Nearby sync (BT steady) live state + log ---- */}
         <Text style={styles.section}>NEARBY SYNC — STATE</Text>
@@ -264,9 +293,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
-    marginBottom: 20,
+    marginBottom: 12,
     lineHeight: 18,
   },
+  copyReport: {
+    alignSelf: "flex-start",
+    marginBottom: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: colors.bgInverted,
+  },
+  copyReportText: { color: colors.textInverted, fontSize: 14, fontFamily: fonts.sansSemi },
   section: {
     fontSize: 11,
     fontFamily: fonts.sansSemi,
