@@ -23,6 +23,15 @@ type Config struct {
 	// WebBaseURL: canonical public site origin (e.g. https://kaata.af). Used to
 	// build shared-ledger links (kaata.af/v/<token>) + their OG preview URLs.
 	WebBaseURL string
+	// ShareLinkBaseURL: the origin used to BUILD the WhatsApp share link
+	// (`url` in POST /v1/shared) and its og:url. Defaults to WebBaseURL
+	// (kaata.af). Per-customer WhatsApp previews require the share link to
+	// resolve to the backend's SSR page (GET /v/<token>); the backend already
+	// serves that on its own domain, so setting this to the backend's public
+	// origin (e.g. https://api.kaata.af) makes previews work WITHOUT routing
+	// kaata.af/v/* to the backend. The page's chrome links still point at the
+	// canonical site (WebBaseURL). Empty → fall back to WebBaseURL.
+	ShareLinkBaseURL string
 	// PublicAPIBaseURL: the backend's OWN public origin (e.g. https://api.kaata.af),
 	// baked into the shared-ledger SSR page so its inline script fetches the
 	// snapshot from an absolute URL. This lets kaata.af/v/<token> be the only path
@@ -67,6 +76,7 @@ func Load() Config {
 		MigrateToBackendURL: os.Getenv("MIGRATE_TO_BACKEND_URL"),
 		APKDownloadURL:      getenv("APK_DOWNLOAD_URL", "http://localhost:3000/downloads/kaata-0.1.0.apk"),
 		WebBaseURL:          getenv("WEB_BASE_URL", "https://kaata.af"),
+		ShareLinkBaseURL:    os.Getenv("SHARE_LINK_BASE_URL"),
 		PublicAPIBaseURL:    os.Getenv("PUBLIC_API_BASE_URL"),
 		GoogleWebClientID:   os.Getenv("GOOGLE_WEB_CLIENT_ID"),
 		// Read from JWT_SECRET first (Phase 2 canonical name), falling back to

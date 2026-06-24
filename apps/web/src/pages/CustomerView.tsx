@@ -4,13 +4,14 @@ import { BACKEND_URL } from "../env";
 
 // /v/:token — the customer-facing shared ledger ("see the full ledger on
 // kaata.af"). The shopkeeper's app POSTs a small snapshot to the backend and
-// shares kaata.af/v/<token> over WhatsApp; this React page fetches the full
-// snapshot from GET /v1/shared/<token> and renders the transaction list.
+// shares the link over WhatsApp; this React page fetches the full snapshot from
+// GET /v1/shared/<token> and renders it as a quiet, statement-style page.
 //
-// This is a FOCUSED, single-purpose page — a slim brand bar instead of the full
-// marketing chrome, so a customer opening a debt reminder sees the balance, not
-// a nav. In production it's the fallback: when kaata.af/v/* is routed to the
-// backend SSR shell (for per-customer WhatsApp previews) the customer sees that
+// Information hierarchy mirrors the backend SSR shell (internal/shared/
+// templates.go): the SHOP is the letterhead, the balance is the hero, and the
+// counterparty is a clearly-labelled "Account" line — so the two names never
+// compete. In production it's the fallback: when the share link resolves to the
+// backend SSR (for per-customer WhatsApp previews) the customer sees that
 // instead; the two are kept visually in sync.
 
 type SharedEntry = {
@@ -33,6 +34,18 @@ type SharedLedger = {
 
 type Phase = { kind: "loading" } | { kind: "error" } | { kind: "ready"; data: SharedLedger };
 
+// Quiet-fintech palette (cool grays + muted semantic), matched to the SSR shell.
+const C = {
+  bg: "#f9fafb",
+  ink: "#101828",
+  sub: "#475467",
+  mut: "#98a2b3",
+  line: "#eaecf0",
+  hair: "#f2f4f7",
+  red: "#b42318",
+  green: "#067647",
+};
+
 // Content language follows the SHOPKEEPER's locale (carried in the snapshot),
 // not the viewer's browser — the message they're reading was composed in it.
 const LABELS = {
@@ -40,6 +53,7 @@ const LABELS = {
     owe: "Balance to settle",
     credit: "In your favour",
     settled: "All settled",
+    account: "Account",
     tx: "Transactions",
     empty: "No transactions yet.",
     error: "This shared ledger has expired or doesn’t exist.",
@@ -48,11 +62,13 @@ const LABELS = {
     asOf: "As of",
     home: "Go to kaata.af",
     tag: "Keep your own ledger, free with",
+    getApp: "Get the app",
   },
   fa: {
     owe: "مانده برای تصفیه",
     credit: "به نفع شما",
     settled: "تصفیه شده",
+    account: "حساب",
     tx: "معاملات",
     empty: "هنوز معامله‌ای نیست.",
     error: "این کاتای مشترک منقضی شده یا وجود ندارد.",
@@ -61,6 +77,7 @@ const LABELS = {
     asOf: "تا تاریخ",
     home: "رفتن به kaata.af",
     tag: "حساب‌های خود را رایگان نگه دارید با",
+    getApp: "دریافت اپ",
   },
 } as const;
 
@@ -124,34 +141,17 @@ export function CustomerView() {
   }, [token]);
 
   return (
-    <main className="flex min-h-screen flex-col bg-neutral-50">
-      <ShareBar />
-      {phase.kind === "loading" ? (
-        <LedgerSkeleton />
-      ) : phase.kind === "error" ? (
-        <LedgerError />
-      ) : (
-        <Ledger data={phase.data} />
-      )}
+    <main className="min-h-screen" style={{ background: C.bg, color: C.ink }}>
+      <div className="mx-auto w-full max-w-[520px] px-[22px] pb-14 pt-10">
+        {phase.kind === "loading" ? (
+          <LedgerSkeleton />
+        ) : phase.kind === "error" ? (
+          <LedgerError />
+        ) : (
+          <Ledger data={phase.data} />
+        )}
+      </div>
     </main>
-  );
-}
-
-// Slim brand bar — the focused-page chrome. Just the wordmark and a single
-// "get the app" growth CTA; no marketing nav.
-function ShareBar() {
-  return (
-    <header className="mx-auto flex h-14 w-full max-w-xl items-center justify-between px-5">
-      <Link to="/" className="text-base font-extrabold tracking-tight text-neutral-900">
-        kaata.
-      </Link>
-      <Link
-        to="/download"
-        className="rounded-lg bg-neutral-900 px-3 py-1.5 text-[13px] font-semibold text-white transition-colors hover:bg-neutral-800"
-      >
-        Get the app
-      </Link>
-    </header>
   );
 }
 
@@ -159,68 +159,107 @@ function Ledger({ data: d }: { data: SharedLedger }) {
   const rtl = isRTL(d.locale);
   const L = pickLabels(d.locale);
   const dir = d.balance > 0 ? "owe" : d.balance < 0 ? "credit" : "settled";
-  const balColor =
-    dir === "owe" ? "text-red-600" : dir === "credit" ? "text-green-600" : "text-neutral-900";
+  const accent = dir === "owe" ? C.red : dir === "credit" ? C.green : C.ink;
+  const dotColor = dir === "owe" ? C.red : dir === "credit" ? C.green : C.mut;
 
   return (
     <section
       dir={rtl ? "rtl" : "ltr"}
       lang={rtl ? "fa" : "en"}
       style={rtl ? { fontFamily: PERSIAN_FONT } : undefined}
-      className="mx-auto w-full max-w-xl flex-1 px-5 pb-12 pt-2"
     >
-      {/* Hero — who + how much */}
-      <div className="rounded-[18px] border border-neutral-200 bg-white p-6 shadow-sm">
-        {d.shop ? <p className="text-[13px] font-medium text-neutral-500">{d.shop}</p> : null}
-        <p className="mt-0.5 text-[21px] font-semibold tracking-tight text-neutral-900">
-          {d.person}
-        </p>
+      {/* Statement card — shop is the letterhead, the balance is the hero,
+          the counterparty is a clearly-labelled account line below it. */}
+      <div className="rounded-2xl border bg-white px-6 py-[26px]" style={{ borderColor: C.line }}>
+        {d.shop ? (
+          <p className="text-[15px] font-semibold tracking-[-0.01em]" style={{ color: C.ink }}>
+            {d.shop}
+          </p>
+        ) : null}
 
-        <p className="mt-[22px] text-[11px] font-semibold uppercase tracking-wider text-neutral-500">
-          {L[dir]}
-        </p>
-        <p className={`mt-1.5 flex items-baseline gap-2 ${balColor}`}>
-          <span className="text-[42px] font-bold leading-none tracking-tight tabular-nums">
+        <div className="mt-[22px]">
+          <div
+            className="flex items-center gap-[7px] text-[11px] font-semibold uppercase tracking-[0.08em]"
+            style={{ color: C.sub }}
+          >
+            <span
+              className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+              style={{ background: dotColor }}
+            />
+            <span>{L[dir]}</span>
+          </div>
+          <p
+            className="mt-2.5 flex items-baseline gap-2 text-[40px] font-semibold leading-none tracking-[-0.025em] tabular-nums"
+            style={{ color: accent }}
+          >
             {fmtAmount(d.balance, rtl)}
+            <span className="text-[17px] font-medium" style={{ color: C.mut }}>
+              {d.currency}
+            </span>
+          </p>
+        </div>
+
+        <div
+          className="mt-5 flex items-baseline gap-[9px] border-t pt-[18px]"
+          style={{ borderColor: C.hair }}
+        >
+          <span
+            className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.08em]"
+            style={{ color: C.mut }}
+          >
+            {L.account}
           </span>
-          <span className="text-[19px] font-semibold text-neutral-400">{d.currency}</span>
-        </p>
+          <span className="text-sm font-medium" style={{ color: C.sub }}>
+            {d.person}
+          </span>
+        </div>
       </div>
 
       {/* Transaction history */}
-      <div className="mb-2.5 mt-[26px] flex items-baseline justify-between px-1">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{L.tx}</p>
+      <div className="mb-3 mt-7 flex items-baseline justify-between px-1">
+        <p
+          className="text-[11px] font-semibold uppercase tracking-[0.08em]"
+          style={{ color: C.sub }}
+        >
+          {L.tx}
+        </p>
         {d.entries.length > 0 ? (
-          <p className="text-[11px] font-medium tabular-nums text-neutral-400">
+          <p className="text-[11px] font-medium tabular-nums" style={{ color: C.mut }}>
             {fmtAmount(d.entries.length, rtl)}
           </p>
         ) : null}
       </div>
 
-      <div className="overflow-hidden rounded-[18px] border border-neutral-200 bg-white">
+      <div className="overflow-hidden rounded-2xl border bg-white" style={{ borderColor: C.line }}>
         {d.entries.length === 0 ? (
-          <p className="p-6 text-center text-sm text-neutral-500">{L.empty}</p>
+          <p className="p-7 text-center text-sm" style={{ color: C.mut }}>
+            {L.empty}
+          </p>
         ) : (
           d.entries.map((e, i) => {
             const isPayment = e.type === "payment";
             return (
               <div
                 key={i}
-                className="flex items-center justify-between gap-3 border-b border-neutral-100 px-4 py-3.5 last:border-b-0"
+                className="flex items-center justify-between gap-3.5 border-b px-[18px] py-[15px] last:border-b-0"
+                style={{ borderColor: C.hair }}
               >
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold text-neutral-900">
+                  <p className="text-sm font-medium" style={{ color: C.ink }}>
                     {isPayment ? L.payment : L.debt}
                   </p>
                   {e.note ? (
-                    <p className="mt-0.5 truncate text-[13px] text-neutral-500">{e.note}</p>
+                    <p className="mt-[3px] truncate text-[13px]" style={{ color: C.sub }}>
+                      {e.note}
+                    </p>
                   ) : null}
-                  <p className="mt-0.5 text-[11px] text-neutral-400">{fmtDate(e.date, rtl)}</p>
+                  <p className="mt-1 text-[12px] tabular-nums" style={{ color: C.mut }}>
+                    {fmtDate(e.date, rtl)}
+                  </p>
                 </div>
                 <p
-                  className={`whitespace-nowrap text-[15px] font-bold tabular-nums ${
-                    isPayment ? "text-green-600" : "text-red-600"
-                  }`}
+                  className="whitespace-nowrap text-sm font-semibold tabular-nums tracking-[-0.01em]"
+                  style={{ color: isPayment ? C.green : C.red }}
                 >
                   {isPayment ? "−" : "+"}
                   {fmtAmount(e.amount, rtl)}
@@ -232,43 +271,58 @@ function Ledger({ data: d }: { data: SharedLedger }) {
       </div>
 
       {/* Snapshot freshness — a point-in-time copy, so stamp when it was taken. */}
-      <p className="mt-[22px] text-center text-[11px] text-neutral-400">
+      <p className="mt-6 text-center text-[12px] tabular-nums" style={{ color: C.mut }}>
         {L.asOf} {fmtDate(d.generated_at, rtl)}
       </p>
-      {/* Quiet growth nudge — replaces the old nonsensical "see your ledger on kaata.af". */}
-      <Link
-        to="/"
-        className="mt-3.5 block text-center text-xs text-neutral-400 transition-colors hover:text-neutral-600"
-      >
-        {L.tag} <span className="font-extrabold text-neutral-500">kaata.</span>
-      </Link>
+      {/* Quiet footer — brand demoted off the top; carries the growth nudge. */}
+      <p className="mt-2 text-center text-[12px]" style={{ color: C.mut }}>
+        {L.tag}{" "}
+        <Link to="/" className="font-bold" style={{ color: C.sub }}>
+          kaata.
+        </Link>
+        <span className="mx-2" style={{ color: C.line }}>
+          ·
+        </span>
+        <Link to="/download" className="font-semibold" style={{ color: C.sub }}>
+          {L.getApp}
+        </Link>
+      </p>
     </section>
   );
 }
 
-// Mirrors the ready layout (hero card + four rows) so the page doesn't reflow
-// when data lands. `animate-pulse` gives the placeholders a soft shimmer.
+// Mirrors the ready layout (statement card + three rows) so the page doesn't
+// reflow when data lands. `animate-pulse` gives the placeholders a soft shimmer.
+function Bar({ className }: { className: string }) {
+  return <div className={`rounded ${className}`} style={{ background: C.hair }} />;
+}
+
 function LedgerSkeleton() {
   return (
-    <section aria-hidden="true" className="mx-auto w-full max-w-xl flex-1 animate-pulse px-5 pb-12 pt-2">
-      <div className="rounded-[18px] border border-neutral-200 bg-white p-6 shadow-sm">
-        <div className="h-3.5 w-24 rounded bg-neutral-100" />
-        <div className="mt-2 h-5 w-40 rounded bg-neutral-100" />
-        <div className="mt-7 h-2.5 w-28 rounded bg-neutral-100" />
-        <div className="mt-2.5 h-10 w-48 rounded-lg bg-neutral-100" />
+    <section aria-hidden="true" className="animate-pulse">
+      <div className="rounded-2xl border bg-white px-6 py-[26px]" style={{ borderColor: C.line }}>
+        <Bar className="h-4 w-40" />
+        <div className="mt-[22px]">
+          <Bar className="h-2.5 w-28" />
+          <Bar className="mt-2.5 h-10 w-44" />
+        </div>
+        <div className="mt-5 border-t pt-[18px]" style={{ borderColor: C.hair }}>
+          <Bar className="h-3 w-36" />
+        </div>
       </div>
-      <div className="mb-2.5 mt-[26px] h-2.5 w-24 rounded bg-neutral-100" />
-      <div className="overflow-hidden rounded-[18px] border border-neutral-200 bg-white">
-        {[0, 1, 2, 3].map((i) => (
+      <Bar className="mb-3 mt-7 h-2.5 w-24" />
+      <div className="overflow-hidden rounded-2xl border bg-white" style={{ borderColor: C.line }}>
+        {[0, 1, 2].map((i) => (
           <div
             key={i}
-            className="flex items-center justify-between border-b border-neutral-100 px-4 py-3.5 last:border-b-0"
+            className="flex items-center justify-between border-b px-[18px] py-[15px] last:border-b-0"
+            style={{ borderColor: C.hair }}
           >
-            <div className="space-y-2">
-              <div className="h-3.5 w-20 rounded bg-neutral-100" />
-              <div className="h-2.5 w-28 rounded bg-neutral-100" />
+            <div className="space-y-2.5">
+              <Bar className="h-3.5 w-20" />
+              <Bar className="h-2.5 w-28" />
             </div>
-            <div className="h-4 w-14 rounded bg-neutral-100" />
+            <Bar className="h-3.5 w-14" />
           </div>
         ))}
       </div>
@@ -278,11 +332,12 @@ function LedgerSkeleton() {
 
 function LedgerError() {
   return (
-    <section className="mx-auto w-full max-w-md flex-1 px-6 py-24 text-center">
-      <p className="text-neutral-600">{LABELS.en.error}</p>
+    <section className="px-2 py-20 text-center">
+      <p style={{ color: C.sub }}>{LABELS.en.error}</p>
       <Link
         to="/"
-        className="mt-6 inline-block text-sm font-semibold text-neutral-900 hover:underline"
+        className="mt-6 inline-block text-sm font-semibold hover:underline"
+        style={{ color: C.ink }}
       >
         {LABELS.en.home}
       </Link>

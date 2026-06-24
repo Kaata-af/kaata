@@ -157,7 +157,7 @@ func main() {
 
 	// Shared ledger snapshots ("see the full ledger on kaata.af"): store a small
 	// per-person snapshot behind a short token; serve it as JSON + a tiny SSR shell.
-	sharedH := shared.NewHandler(shared.NewService(pool), cfg.WebBaseURL, cfg.PublicAPIBaseURL)
+	sharedH := shared.NewHandler(shared.NewService(pool), cfg.WebBaseURL, cfg.ShareLinkBaseURL, cfg.PublicAPIBaseURL)
 
 	// Sync (Phase 3). The service holds membership + page LRUs (60s TTL);
 	// the snapshot cron uses its own dedicated 4-conn Postgres pool so a

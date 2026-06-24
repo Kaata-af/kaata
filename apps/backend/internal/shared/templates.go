@@ -71,78 +71,84 @@ const viewHTML = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#fafaf9">
+<meta name="theme-color" content="#f9fafb">
 <title>{{.OGTitle}}</title>
 <meta name="description" content="{{.OGDesc}}">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Kaata">
 <meta property="og:title" content="{{.OGTitle}}">
 <meta property="og:description" content="{{.OGDesc}}">
-<meta property="og:url" content="{{.Origin}}/v/{{.Token}}">
+<meta property="og:url" content="{{.ShareURL}}">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="{{.OGTitle}}">
 <meta name="twitter:description" content="{{.OGDesc}}">
 <style>
-:root{--bg:#fafaf9;--card:#fff;--ink:#1c1917;--sub:#78716c;--mut:#a8a29e;--line:#e7e5e4;--hair:#f1f0ef;--red:#dc2626;--green:#16a34a;}
+:root{--bg:#f9fafb;--card:#fff;--ink:#101828;--sub:#475467;--mut:#98a2b3;--line:#eaecf0;--hair:#f2f4f7;--red:#b42318;--green:#067647;}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:"Vazirmatn",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Inter","Vazirmatn",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
 a{color:inherit;text-decoration:none;}
-.bar{max-width:600px;margin:0 auto;height:56px;padding:0 20px;display:flex;align-items:center;justify-content:space-between;}
-.brand{font-size:16px;font-weight:800;letter-spacing:-.3px;}
-.getapp{font-size:13px;font-weight:600;color:#fff;background:var(--ink);padding:7px 13px;border-radius:9px;}
-.wrap{max-width:600px;margin:0 auto;padding:8px 20px 40px;}
-.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px;box-shadow:0 1px 2px rgba(28,25,23,.04);}
-.shop{font-size:13px;font-weight:500;color:var(--sub);}
-.person{font-size:21px;font-weight:600;margin-top:2px;letter-spacing:-.2px;}
-.ballabel{font-size:11px;color:var(--sub);margin-top:22px;text-transform:uppercase;letter-spacing:.6px;font-weight:600;}
-.balance{font-size:42px;font-weight:700;margin-top:6px;letter-spacing:-1px;line-height:1;display:flex;align-items:baseline;gap:7px;}
-.balance.owe{color:var(--red);}
-.balance.credit{color:var(--green);}
-.cur{font-size:19px;font-weight:600;color:var(--mut);letter-spacing:0;}
-.sectionhead{display:flex;align-items:baseline;justify-content:space-between;margin:26px 4px 10px;}
-.sectiontitle{font-size:11px;color:var(--sub);text-transform:uppercase;letter-spacing:.6px;font-weight:600;}
+.wrap{max-width:520px;margin:0 auto;padding:40px 22px 56px;}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:26px 24px;}
+.shop{font-size:15px;font-weight:600;letter-spacing:-.01em;color:var(--ink);}
+.bal{margin-top:22px;}
+.ballabel{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:600;color:var(--sub);text-transform:uppercase;letter-spacing:.08em;}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--mut);flex:0 0 auto;}
+.bal.owe .dot{background:var(--red);}
+.bal.credit .dot{background:var(--green);}
+.balance{margin-top:10px;font-size:40px;font-weight:600;letter-spacing:-.025em;line-height:1;display:flex;align-items:baseline;gap:8px;font-variant-numeric:tabular-nums;}
+.bal.owe .balance{color:var(--red);}
+.bal.credit .balance{color:var(--green);}
+.cur{font-size:17px;font-weight:500;color:var(--mut);letter-spacing:0;}
+.party{margin-top:20px;padding-top:18px;border-top:1px solid var(--hair);display:flex;align-items:baseline;gap:9px;}
+.plabel{font-size:11px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.08em;flex:0 0 auto;}
+.pname{font-size:14px;font-weight:500;color:var(--sub);}
+.sectionhead{display:flex;align-items:baseline;justify-content:space-between;margin:28px 4px 12px;}
+.sectiontitle{font-size:11px;color:var(--sub);text-transform:uppercase;letter-spacing:.08em;font-weight:600;}
 .sectioncount{font-size:11px;color:var(--mut);font-weight:500;font-variant-numeric:tabular-nums;}
-.rows{background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden;}
-.row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--hair);}
+.rows{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden;}
+.row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:15px 18px;border-bottom:1px solid var(--hair);}
 .row:last-child{border-bottom:none;}
 .rmeta{min-width:0;}
-.rkind{font-size:14px;font-weight:600;}
-.rnote{font-size:13px;color:var(--sub);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:62vw;}
-.rdate{font-size:11px;color:var(--mut);margin-top:3px;}
-.ramt{font-size:15px;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums;}
+.rkind{font-size:14px;font-weight:500;}
+.rnote{font-size:13px;color:var(--sub);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60vw;}
+.rdate{font-size:12px;color:var(--mut);margin-top:4px;font-variant-numeric:tabular-nums;}
+.ramt{font-size:14px;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums;letter-spacing:-.01em;}
 .ramt.debt{color:var(--red);}
 .ramt.payment{color:var(--green);}
-.empty,.err{color:var(--sub);font-size:14px;padding:24px 4px;text-align:center;}
-.asof{margin-top:22px;text-align:center;font-size:11px;color:var(--mut);}
-.foot{margin-top:14px;text-align:center;font-size:12px;color:var(--mut);}
-.foot b{font-weight:800;color:var(--sub);}
-.sk{background:var(--line);border-radius:6px;animation:pulse 1.4s ease-in-out infinite;}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.empty,.err{color:var(--mut);font-size:14px;padding:28px 4px;text-align:center;}
+.asof{margin-top:24px;text-align:center;font-size:12px;color:var(--mut);font-variant-numeric:tabular-nums;}
+.foot{margin-top:8px;text-align:center;font-size:12px;color:var(--mut);}
+.foot a{color:var(--sub);font-weight:600;}
+.foot .sep{margin:0 8px;color:var(--line);}
+.sk{background:var(--hair);border-radius:5px;animation:pulse 1.5s ease-in-out infinite;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
 </style>
 </head>
 <body>
-<div class="bar">
-  <a class="brand" href="{{.Origin}}">kaata.</a>
-  <a class="getapp" href="{{.Origin}}/download" id="getapp">Get the app</a>
-</div>
 <div class="wrap">
   <div class="card">
     {{if .Shop}}<div class="shop">{{.Shop}}</div>{{end}}
-    <div class="person">{{.Person}}</div>
-    <div class="ballabel" id="balLabel"></div>
-    <div class="balance {{.Direction}}">{{.AbsBalance}}<span class="cur">{{.Currency}}</span></div>
+    <div class="bal {{.Direction}}">
+      <div class="ballabel"><span class="dot"></span><span id="balLabel"></span></div>
+      <div class="balance">{{.AbsBalance}}<span class="cur">{{.Currency}}</span></div>
+    </div>
+    <div class="party">
+      <span class="plabel" id="acctLabel"></span>
+      <span class="pname">{{.Person}}</span>
+    </div>
   </div>
   <div class="sectionhead">
     <span class="sectiontitle" id="txTitle"></span>
     <span class="sectioncount" id="txCount"></span>
   </div>
   <div class="rows" id="entries">
-    <div class="row"><div class="rmeta"><div class="sk" style="width:92px;height:13px"></div><div class="sk" style="width:130px;height:11px;margin-top:8px"></div></div><div class="sk" style="width:58px;height:15px"></div></div>
-    <div class="row"><div class="rmeta"><div class="sk" style="width:78px;height:13px"></div><div class="sk" style="width:150px;height:11px;margin-top:8px"></div></div><div class="sk" style="width:58px;height:15px"></div></div>
-    <div class="row"><div class="rmeta"><div class="sk" style="width:88px;height:13px"></div><div class="sk" style="width:110px;height:11px;margin-top:8px"></div></div><div class="sk" style="width:58px;height:15px"></div></div>
+    <div class="row"><div class="rmeta"><div class="sk" style="width:92px;height:13px"></div><div class="sk" style="width:130px;height:11px;margin-top:9px"></div></div><div class="sk" style="width:54px;height:14px"></div></div>
+    <div class="row"><div class="rmeta"><div class="sk" style="width:78px;height:13px"></div><div class="sk" style="width:150px;height:11px;margin-top:9px"></div></div><div class="sk" style="width:54px;height:14px"></div></div>
+    <div class="row"><div class="rmeta"><div class="sk" style="width:88px;height:13px"></div><div class="sk" style="width:110px;height:11px;margin-top:9px"></div></div><div class="sk" style="width:54px;height:14px"></div></div>
   </div>
   <div class="asof" id="asof"></div>
-  <a class="foot" href="{{.Origin}}"><span id="foottag"></span> <b>kaata.</b></a>
+  <div class="foot"><span id="foottag"></span> <a href="{{.Origin}}"><b>kaata.</b></a><span class="sep">·</span><a href="{{.Origin}}/download" id="getapp"></a></div>
 </div>
 <script>
 (function(){
@@ -152,13 +158,14 @@ a{color:inherit;text-decoration:none;}
   var L = rtl ? {
     owe:"مانده برای تصفیه", credit:"به نفع شما", settled:"تصفیه شده",
     tx:"معاملات", empty:"معامله‌ای نیست", err:"بارگذاری ناموفق بود",
-    debt:"خرید نسیه", payment:"پرداخت", asOf:"تا تاریخ", getapp:"دریافت اپ", tag:"حساب‌های خود را رایگان نگه دارید با"
+    debt:"خرید نسیه", payment:"پرداخت", asOf:"تا تاریخ", getapp:"دریافت اپ", tag:"حساب‌های خود را رایگان نگه دارید با", acct:"حساب"
   } : {
     owe:"Balance to settle", credit:"In your favour", settled:"All settled",
     tx:"Transactions", empty:"No transactions yet.", err:"Couldn't load this ledger.",
-    debt:"Credit", payment:"Payment", asOf:"As of", getapp:"Get the app", tag:"Keep your own ledger, free with"
+    debt:"Credit", payment:"Payment", asOf:"As of", getapp:"Get the app", tag:"Keep your own ledger, free with", acct:"Account"
   };
   document.getElementById('balLabel').textContent = L[dir] || L.settled;
+  document.getElementById('acctLabel').textContent = L.acct;
   document.getElementById('txTitle').textContent = L.tx;
   document.getElementById('getapp').textContent = L.getapp;
   document.getElementById('foottag').textContent = L.tag;
@@ -197,7 +204,7 @@ const notFoundHTML = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kaata</title>
-<style>body{margin:0;background:#fafaf9;color:#1c1917;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px;}a{color:#1c1917;font-weight:700;text-decoration:none;}</style>
-</head><body><div><div style="font-size:18px;font-weight:800;letter-spacing:-.3px">kaata.</div>
-<p style="color:#78716c;max-width:320px;line-height:1.5">This shared ledger has expired or doesn’t exist.</p>
+<style>body{margin:0;background:#f9fafb;color:#101828;font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px;-webkit-font-smoothing:antialiased;}a{color:#475467;font-weight:600;text-decoration:none;}</style>
+</head><body><div><div style="font-size:16px;font-weight:700;letter-spacing:-.01em">kaata.</div>
+<p style="color:#475467;max-width:320px;line-height:1.55">This shared ledger has expired or doesn’t exist.</p>
 <p><a href="{{.Origin}}">Go to kaata.af</a></p></div></body></html>`

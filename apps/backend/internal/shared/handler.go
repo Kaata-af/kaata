@@ -18,16 +18,23 @@ import (
 const maxPayload = 128 << 10 // 128 KiB
 
 type Handler struct {
-	svc        *Service
-	webBaseURL string // canonical site origin, e.g. https://kaata.af (for OG url)
-	apiBaseURL string // backend's own public origin, e.g. https://api.kaata.af; "" → relative fetch
+	svc          *Service
+	webBaseURL   string // canonical site origin, e.g. https://kaata.af (chrome links)
+	shareBaseURL string // origin the share link + og:url resolve to (defaults to webBaseURL)
+	apiBaseURL   string // backend's own public origin, e.g. https://api.kaata.af; "" → relative fetch
 }
 
-func NewHandler(svc *Service, webBaseURL, apiBaseURL string) *Handler {
+func NewHandler(svc *Service, webBaseURL, shareLinkBaseURL, apiBaseURL string) *Handler {
+	web := strings.TrimRight(webBaseURL, "/")
+	share := strings.TrimRight(shareLinkBaseURL, "/")
+	if share == "" {
+		share = web
+	}
 	return &Handler{
-		svc:        svc,
-		webBaseURL: strings.TrimRight(webBaseURL, "/"),
-		apiBaseURL: strings.TrimRight(apiBaseURL, "/"),
+		svc:          svc,
+		webBaseURL:   web,
+		shareBaseURL: share,
+		apiBaseURL:   strings.TrimRight(apiBaseURL, "/"),
 	}
 }
 
@@ -81,7 +88,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.JSON(w, http.StatusOK, map[string]string{
 		"token": token,
-		"url":   h.webBaseURL + "/v/" + token,
+		"url":   h.shareBaseURL + "/v/" + token,
 	})
 }
 
@@ -153,6 +160,7 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 		Direction:  dir,
 		RTL:        rtl,
 		Origin:     h.webBaseURL,
+		ShareURL:   h.shareBaseURL + "/v/" + token,
 		APIBase:    h.apiBaseURL,
 		OGTitle:    ogTitle(p),
 		OGDesc:     ogDesc(absBal, p.Currency, dir, rtl),
@@ -172,7 +180,8 @@ type viewData struct {
 	AbsBalance string
 	Direction  string // owe | credit | settled
 	RTL        bool
-	Origin     string
+	Origin     string // canonical site origin for chrome links (kaata.af)
+	ShareURL   string // this page's own canonical URL (for og:url)
 	APIBase    string // absolute API origin for the inline fetch; "" → relative
 	OGTitle    string
 	OGDesc     string
