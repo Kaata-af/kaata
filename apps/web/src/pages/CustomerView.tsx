@@ -58,7 +58,6 @@ const LABELS = {
     error: "This shared ledger has expired or doesn’t exist.",
     debt: "Credit",
     payment: "Payment",
-    asOf: "As of",
     home: "Go to kaata.af",
     tag: "Powered by",
   },
@@ -71,7 +70,6 @@ const LABELS = {
     error: "این کاتای مشترک منقضی شده یا وجود ندارد.",
     debt: "خرید نسیه",
     payment: "پرداخت",
-    asOf: "تا تاریخ",
     home: "رفتن به kaata.af",
     tag: "قدرت‌گرفته از",
   },
@@ -109,14 +107,6 @@ function fmtDate(ms: number, rtl: boolean): string {
   } catch {
     return "";
   }
-}
-
-// First grapheme of the shop name, for the monogram brand mark. Spread to count
-// by code point (Persian letters are BMP, so this is safe); uppercase is a no-op
-// for Arabic-script letters.
-function firstLetter(s: string): string {
-  const first = [...s.trim()][0];
-  return first ? first.toUpperCase() : "";
 }
 
 export function CustomerView() {
@@ -171,25 +161,19 @@ function Ledger({ data: d }: { data: SharedLedger }) {
       lang={rtl ? "fa" : "en"}
       style={rtl ? { fontFamily: PERSIAN_FONT } : undefined}
     >
-      {/* Statement card — the shop reads as a branded letterhead (monogram +
-          name); the counterparty + balance read as a plain "<person> owes
-          <amount>" statement, the hero of the page. */}
-      <div className="rounded-2xl border bg-white px-6 py-[26px]" style={{ borderColor: C.line }}>
+      {/* Statement card — the shop name is the centered header; the counterparty
+          + balance read as a plain "<person> owes <amount>" statement below it. */}
+      <div
+        className="rounded-2xl border bg-white px-6 py-[26px] text-center"
+        style={{ borderColor: C.line }}
+      >
         {d.shop ? (
-          <div className="flex items-center gap-[11px]">
-            <div
-              className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[10px] text-base font-semibold uppercase leading-none text-white"
-              style={{ background: C.ink }}
-            >
-              {firstLetter(d.shop)}
-            </div>
-            <p className="min-w-0 text-[15px] font-semibold tracking-[-0.01em]" style={{ color: C.ink }}>
-              {d.shop}
-            </p>
-          </div>
+          <p className="text-[17px] font-bold tracking-[-0.01em]" style={{ color: C.ink }}>
+            {d.shop}
+          </p>
         ) : null}
 
-        <div className="mt-6">
+        <div className="mt-[22px]">
           <p className="text-[15px]" style={{ color: C.sub }}>
             <span className="font-semibold" style={{ color: C.ink }}>
               {d.person}
@@ -197,7 +181,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
             {L[dir]}
           </p>
           <p
-            className="mt-2 flex items-baseline gap-2 text-[40px] font-semibold leading-none tracking-[-0.025em] tabular-nums"
+            className="mt-2 flex items-baseline justify-center gap-2 text-[40px] font-semibold leading-none tracking-[-0.025em] tabular-nums"
             style={{ color: accent }}
           >
             {fmtAmount(d.balance, rtl)}
@@ -263,12 +247,8 @@ function Ledger({ data: d }: { data: SharedLedger }) {
         )}
       </div>
 
-      {/* Snapshot freshness — a point-in-time copy, so stamp when it was taken. */}
-      <p className="mt-6 text-center text-[12px] tabular-nums" style={{ color: C.mut }}>
-        {L.asOf} {fmtDate(d.generated_at, rtl)}
-      </p>
-      {/* Quiet footer — a single brand nudge line, nothing more. */}
-      <p className="mt-[22px] text-center text-[12px]" style={{ color: C.mut }}>
+      {/* Quiet footer — a single brand line, nothing more. */}
+      <p className="mt-[26px] text-center text-[12px]" style={{ color: C.mut }}>
         {L.tag}{" "}
         <Link to="/" className="font-bold" style={{ color: C.sub }}>
           kaata.
@@ -288,11 +268,10 @@ function LedgerSkeleton() {
   return (
     <section aria-hidden="true" className="animate-pulse">
       <div className="rounded-2xl border bg-white px-6 py-[26px]" style={{ borderColor: C.line }}>
-        <div className="flex items-center gap-[11px]">
-          <div className="h-[38px] w-[38px] shrink-0 rounded-[10px]" style={{ background: C.hair }} />
+        <div className="flex justify-center">
           <Bar className="h-4 w-44" />
         </div>
-        <div className="mt-6">
+        <div className="mt-[22px] flex flex-col items-center">
           <Bar className="h-3 w-32" />
           <Bar className="mt-2.5 h-10 w-40" />
         </div>

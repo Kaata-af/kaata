@@ -152,19 +152,18 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := viewData{
-		Token:       token,
-		Shop:        p.Shop,
-		ShopInitial: firstLetter(p.Shop),
-		Person:      p.Person,
-		Currency:    p.Currency,
-		AbsBalance:  absBal,
-		Direction:   dir,
-		RTL:         rtl,
-		Origin:      h.webBaseURL,
-		ShareURL:    h.shareBaseURL + "/v/" + token,
-		APIBase:     h.apiBaseURL,
-		OGTitle:     ogTitle(p),
-		OGDesc:      ogDesc(absBal, p.Currency, dir, rtl),
+		Token:      token,
+		Shop:       p.Shop,
+		Person:     p.Person,
+		Currency:   p.Currency,
+		AbsBalance: absBal,
+		Direction:  dir,
+		RTL:        rtl,
+		Origin:     h.webBaseURL,
+		ShareURL:   h.shareBaseURL + "/v/" + token,
+		APIBase:    h.apiBaseURL,
+		OGTitle:    ogTitle(p),
+		OGDesc:     ogDesc(absBal, p.Currency, dir, rtl),
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=300")
@@ -174,28 +173,18 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 }
 
 type viewData struct {
-	Token       string
-	Shop        string
-	ShopInitial string // first letter of Shop, for the monogram brand mark
-	Person      string
-	Currency    string
-	AbsBalance  string
-	Direction   string // owe | credit | settled
-	RTL         bool
-	Origin      string // canonical site origin for chrome links (kaata.af)
-	ShareURL    string // this page's own canonical URL (for og:url)
-	APIBase     string // absolute API origin for the inline fetch; "" → relative
-	OGTitle     string
-	OGDesc      string
-}
-
-// firstLetter returns the first (uppercased) rune of s, for the shop monogram.
-// Persian/Arabic letters have no case, so ToUpper is a harmless no-op there.
-func firstLetter(s string) string {
-	for _, r := range strings.TrimSpace(s) {
-		return strings.ToUpper(string(r))
-	}
-	return ""
+	Token      string
+	Shop       string
+	Person     string
+	Currency   string
+	AbsBalance string
+	Direction  string // owe | credit | settled
+	RTL        bool
+	Origin     string // canonical site origin for chrome links (kaata.af)
+	ShareURL   string // this page's own canonical URL (for og:url)
+	APIBase    string // absolute API origin for the inline fetch; "" → relative
+	OGTitle    string
+	OGDesc     string
 }
 
 func ogTitle(p sharePayload) string {

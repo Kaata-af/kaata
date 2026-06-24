@@ -90,13 +90,11 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:"Inter","Vazirma
 a{color:inherit;text-decoration:none;}
 .wrap{max-width:520px;margin:0 auto;padding:40px 22px 56px;}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:26px 24px;}
-.brandrow{display:flex;align-items:center;gap:11px;}
-.logo{width:38px;height:38px;border-radius:10px;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:600;line-height:1;flex:0 0 auto;text-transform:uppercase;}
-.shopname{font-size:15px;font-weight:600;letter-spacing:-.01em;color:var(--ink);min-width:0;}
-.statement{margin-top:24px;}
+.shophead{font-size:17px;font-weight:700;letter-spacing:-.01em;color:var(--ink);text-align:center;}
+.statement{margin-top:22px;text-align:center;}
 .stmt{font-size:15px;color:var(--sub);}
 .stmt .who{font-weight:600;color:var(--ink);}
-.balance{margin-top:8px;font-size:40px;font-weight:600;letter-spacing:-.025em;line-height:1;display:flex;align-items:baseline;gap:8px;font-variant-numeric:tabular-nums;}
+.balance{margin-top:8px;font-size:40px;font-weight:600;letter-spacing:-.025em;line-height:1;display:flex;align-items:baseline;justify-content:center;gap:8px;font-variant-numeric:tabular-nums;}
 .statement.owe .balance{color:var(--red);}
 .statement.credit .balance{color:var(--green);}
 .cur{font-size:17px;font-weight:500;color:var(--mut);letter-spacing:0;}
@@ -114,8 +112,7 @@ a{color:inherit;text-decoration:none;}
 .ramt.debt{color:var(--red);}
 .ramt.payment{color:var(--green);}
 .empty,.err{color:var(--mut);font-size:14px;padding:28px 4px;text-align:center;}
-.asof{margin-top:24px;text-align:center;font-size:12px;color:var(--mut);font-variant-numeric:tabular-nums;}
-.foot{margin-top:22px;text-align:center;}
+.foot{margin-top:26px;text-align:center;}
 .foottag{font-size:12px;color:var(--mut);}
 .foottag a{color:var(--sub);font-weight:700;}
 .sk{background:var(--hair);border-radius:5px;animation:pulse 1.5s ease-in-out infinite;}
@@ -125,7 +122,7 @@ a{color:inherit;text-decoration:none;}
 <body>
 <div class="wrap">
   <div class="card">
-    {{if .Shop}}<div class="brandrow"><div class="logo">{{.ShopInitial}}</div><div class="shopname">{{.Shop}}</div></div>{{end}}
+    {{if .Shop}}<div class="shophead">{{.Shop}}</div>{{end}}
     <div class="statement {{.Direction}}">
       <div class="stmt"><span class="who">{{.Person}}</span> <span id="stmtVerb"></span></div>
       <div class="balance">{{.AbsBalance}}<span class="cur">{{.Currency}}</span></div>
@@ -140,7 +137,6 @@ a{color:inherit;text-decoration:none;}
     <div class="row"><div class="rmeta"><div class="sk" style="width:78px;height:13px"></div><div class="sk" style="width:150px;height:11px;margin-top:9px"></div></div><div class="sk" style="width:54px;height:14px"></div></div>
     <div class="row"><div class="rmeta"><div class="sk" style="width:88px;height:13px"></div><div class="sk" style="width:110px;height:11px;margin-top:9px"></div></div><div class="sk" style="width:54px;height:14px"></div></div>
   </div>
-  <div class="asof" id="asof"></div>
   <div class="foot">
     <div class="foottag"><span id="foottag"></span> <a href="{{.Origin}}"><b>kaata.</b></a></div>
   </div>
@@ -153,11 +149,11 @@ a{color:inherit;text-decoration:none;}
   var L = rtl ? {
     owe:"بدهکار است", credit:"طلبکار است", settled:"تسویه شده",
     tx:"معاملات", empty:"معامله‌ای نیست", err:"بارگذاری ناموفق بود",
-    debt:"خرید نسیه", payment:"پرداخت", asOf:"تا تاریخ", tag:"قدرت‌گرفته از"
+    debt:"خرید نسیه", payment:"پرداخت", tag:"قدرت‌گرفته از"
   } : {
     owe:"owes", credit:"is owed", settled:"is settled",
     tx:"Transactions", empty:"No transactions yet.", err:"Couldn't load this ledger.",
-    debt:"Credit", payment:"Payment", asOf:"As of", tag:"Powered by"
+    debt:"Credit", payment:"Payment", tag:"Powered by"
   };
   document.getElementById('stmtVerb').textContent = L[dir] || L.settled;
   document.getElementById('txTitle').textContent = L.tx;
@@ -185,7 +181,6 @@ a{color:inherit;text-decoration:none;}
         }
         el.innerHTML = html;
       }
-      if(p && p.generated_at){ document.getElementById('asof').textContent = L.asOf + ' ' + fmtDate(p.generated_at); }
     })
     .catch(function(){ document.getElementById('entries').innerHTML = '<div class="err">'+L.err+'</div>'; });
 })();
