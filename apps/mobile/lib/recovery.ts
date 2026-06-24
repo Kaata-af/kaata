@@ -134,6 +134,20 @@ export async function recoverAllVaults(): Promise<RecoveryResult> {
       } catch (err) {
         console.warn(`[recovery] initial pull failed for ${v.vault_id.slice(0, 8)}`, err);
       }
+      // Re-key ownership to the recovered account FIRST. A pre-sign-in local-CA
+      // vault's chain owner is keyed by a device-key sentinel (the original
+      // anchor), which is gone after a reinstall — so the role-gate doesn't
+      // recognize the recovered Google account as owner, the device self-admission
+      // barrier rejects ("Your role changed" toast), and the chain/server diverge.
+      // When the SERVER confirms THIS account owns the vault (v.role === 'owner'),
+      // emit a real owner admission so the chain + gate agree and the subsequent
+      // self-admission binds. Strictly gated to server-confirmed-owner → it can
+      // never be a self-promotion. Best-effort; runs before emitWitnessedSelfAdmission.
+      try {
+        await reestablishOwnerIfConfirmed(v);
+      } catch (err) {
+        console.warn(`[recovery] owner re-key failed for ${v.vault_id.slice(0, 8)}`, err);
+      }
       // Bind THIS device into the chain so it can author + mesh. Best-effort:
       // server read/write works via account ACL without it.
       try {
@@ -330,4 +344,68 @@ async function refineLocalSelfName(selfId: string): Promise<void> {
     Date.now(),
     selfId,
   );
+}
+
+/**
+ * Re-establish the recovered account as a chain OWNER of a vault the server
+ * confirms it owns. A pre-sign-in local-CA vault's owner is keyed in the chain by
+ * a device-key sentinel (buildLocalAccountId of the original anchor); after a
+ * reinstall that sentinel + its device key are gone, so the role-gate no longer
+ * resolves the recovered Google account to owner, the vault_device_added
+ * self-admission barrier rejects it ("Your role changed" toast), and the mesh
+ * chain has no owner row for this account. Emitting a real owner
+ * vault_member_added{accountId, owner} reconciles the local chain with the
+ * server's confirmed ownership so the device binds + authors cleanly.
+ *
+ * SECURITY: gated STRICTLY to v.role === 'owner' — the SERVER's authoritative
+ * answer from GET /v1/vaults. This is never a self-elevation: the server already
+ * considers this account the owner; we only mirror that into the local chain.
+ * Idempotent: skipped when this account is already an active (non-removed) chain
+ * member. The local role-gate accepts the emission on its cold-start null-role
+ * path; when it pushes, the server accepts it because the account IS the
+ * already-registered owner.
+ */
+async function reestablishOwnerIfConfirmed(v: VaultListing): Promise<void> {
+  if (v.role !== "owner") return;
+  const accountId = getAccountIdSync();
+  if (!accountId) return;
+  const db = await getDb();
+  const added = await db.getFirstAsync<{ event_id: string }>(
+    `SELECT event_id FROM event_log
+       WHERE vault_id = ? AND event_type = 'vault_member_added' AND target_id = ?
+         AND applied_at IS NOT NULL AND quarantine_reason IS NULL
+       LIMIT 1`,
+    v.vault_id,
+    accountId,
+  );
+  const removed = await db.getFirstAsync<{ event_id: string }>(
+    `SELECT event_id FROM event_log
+       WHERE vault_id = ? AND event_type = 'vault_member_removed' AND target_id = ?
+         AND applied_at IS NOT NULL AND quarantine_reason IS NULL
+       LIMIT 1`,
+    v.vault_id,
+    accountId,
+  );
+  // Already an active owner in the chain (added, not later removed) → nothing to do.
+  if (added && !removed) return;
+  const { appendVaultMemberAdded } = await import("./event-log");
+  const { event_id } = await appendVaultMemberAdded({
+    targetVaultId: v.vault_id,
+    accountId,
+    role: "owner",
+    backfillSynthetic: true,
+  });
+  // LOCAL-ONLY: this admission exists purely to reconcile the LOCAL chain (so the
+  // device self-admission barrier + role-gate resolve this account to owner). The
+  // server already holds the canonical owner membership from registration, and a
+  // PUSH of this synthetic, non-witnessed owner-add would be rejected
+  // (membership_unverified) — exiling it via rejected_at and littering conflicts.
+  // Mark it server-acked so it never enters the push outbox; its job is done once
+  // it applies locally.
+  await db.runAsync(
+    "UPDATE event_log SET server_acked_at = ? WHERE event_id = ?",
+    Date.now(),
+    event_id,
+  );
+  console.warn(`[recovery] re-keyed owner to recovered account for ${v.vault_id.slice(0, 8)}`);
 }
