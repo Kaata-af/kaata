@@ -79,6 +79,11 @@ const (
 	// ping) but capped per IP so the public POST can't be used to flood storage.
 	shareCreateLimit  = 120
 	shareCreateWindow = time.Hour
+
+	// waitlistJoin: a visitor leaving an email on the download page. A handful
+	// per IP is plenty; the cap stops the public POST from flooding the table.
+	waitlistJoinLimit  = 20
+	waitlistJoinWindow = time.Hour
 )
 
 // keyByAccount pulls the authenticated account_id off the request via the
@@ -219,4 +224,7 @@ var (
 
 	ShareCreateLimit  = shareCreateLimit
 	ShareCreateWindow = shareCreateWindow
+
+	WaitlistJoinLimit  = waitlistJoinLimit
+	WaitlistJoinWindow = waitlistJoinWindow
 )

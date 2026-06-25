@@ -1,13 +1,19 @@
-// Platform icons + the "coming soon" store badges for the download page.
-// Android is the only live channel (the APK, via <DownloadButton>); Google Play
-// and the App Store are shown as muted, non-interactive "coming soon" badges so
-// visitors know they're on the roadmap without a dead link. Brand names stay in
-// Latin in both locales for recognizability; only "Coming soon" is translated.
-// Layout uses logical flow (no physical left/right), so it flips cleanly under
-// the page's RTL (dir="rtl") for Persian.
+// Platform options for the download page.
+//
+// Android is the only live channel (the APK, via <DownloadButton>). Google Play
+// and the App Store are shown as refined "coming soon" badges that double as the
+// entry point to a small email waitlist: tapping a badge selects that platform
+// and focuses the email field, so a visitor can ask to be notified when that
+// store goes live. Brand names stay Latin in both locales for recognizability.
+//
+// Layout uses logical utilities (text-start, ms-*) so it flips cleanly under the
+// page's RTL (dir="rtl") for Persian; the email input is forced LTR since
+// addresses read left-to-right regardless of page direction.
 
-import { type ReactNode } from "react";
+import { type FormEvent, type ReactNode, useRef, useState } from "react";
 
+import { joinWaitlist, type WaitlistPlatform } from "../lib/api";
+import { getSource } from "../lib/analytics";
 import { useI18n } from "../lib/i18n";
 
 type IconProps = { className?: string };
@@ -36,36 +42,126 @@ export function AppleIcon({ className }: IconProps) {
   );
 }
 
-function ComingSoonBadge({ icon, name, soon }: { icon: ReactNode; name: string; soon: string }) {
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+function StoreBadge({
+  icon,
+  name,
+  soon,
+  selected,
+  onSelect,
+}: {
+  icon: ReactNode;
+  name: string;
+  soon: string;
+  selected: boolean;
+  onSelect: () => void;
+}) {
   return (
-    <div
-      aria-disabled="true"
-      className="flex items-center gap-3 px-5 py-3.5 rounded-lg border border-neutral-200 bg-neutral-50 text-neutral-400 select-none cursor-default"
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      className={`group flex items-center gap-3 px-4 py-3 rounded-xl border bg-white text-start transition-colors ${
+        selected
+          ? "border-neutral-900 ring-1 ring-neutral-900"
+          : "border-neutral-200 hover:border-neutral-400"
+      }`}
     >
-      <span className="shrink-0">{icon}</span>
-      <span className="flex flex-col leading-tight">
-        <span className="text-sm font-semibold text-neutral-500">{name}</span>
-        <span className="text-xs">{soon}</span>
+      <span className="text-neutral-800 shrink-0">{icon}</span>
+      <span className="flex flex-col leading-tight min-w-0">
+        <span className="text-[11px] font-medium uppercase tracking-wider text-neutral-400">
+          {soon}
+        </span>
+        <span className="text-sm font-semibold text-neutral-900 truncate">{name}</span>
       </span>
-    </div>
+    </button>
   );
 }
 
 export function ComingSoonStores() {
   const { t } = useI18n();
-  const soon = t("download.comingSoon");
+  const emailRef = useRef<HTMLInputElement>(null);
+  const [platform, setPlatform] = useState<WaitlistPlatform>("stores");
+  const [email, setEmail] = useState("");
+  const [sending, setSending] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function select(p: WaitlistPlatform) {
+    setPlatform(p);
+    // Give the muted "coming soon" badges a real job: jump straight to signup.
+    emailRef.current?.focus();
+  }
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    const trimmed = email.trim();
+    if (!EMAIL_RE.test(trimmed)) {
+      setError(t("download.waitlistInvalid"));
+      return;
+    }
+    setSending(true);
+    setError(null);
+    const ok = await joinWaitlist(trimmed, platform, getSource());
+    setSending(false);
+    if (ok) setDone(true);
+    else setError(t("download.waitlistError"));
+  }
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <ComingSoonBadge
-        icon={<GooglePlayIcon className="w-6 h-6" />}
-        name={t("download.playStore")}
-        soon={soon}
-      />
-      <ComingSoonBadge
-        icon={<AppleIcon className="w-6 h-6" />}
-        name={t("download.appStore")}
-        soon={soon}
-      />
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <StoreBadge
+          icon={<GooglePlayIcon className="w-6 h-6" />}
+          name={t("download.playStore")}
+          soon={t("download.comingSoon")}
+          selected={platform === "android"}
+          onSelect={() => select("android")}
+        />
+        <StoreBadge
+          icon={<AppleIcon className="w-6 h-6" />}
+          name={t("download.appStore")}
+          soon={t("download.comingSoon")}
+          selected={platform === "ios"}
+          onSelect={() => select("ios")}
+        />
+      </div>
+
+      <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4 sm:p-5">
+        <p className="text-sm font-semibold text-neutral-900">{t("download.waitlistTitle")}</p>
+        <p className="mt-1 text-sm text-neutral-600 leading-relaxed">{t("download.waitlistSub")}</p>
+
+        {done ? (
+          <p className="mt-3 text-sm font-medium text-green-700">{t("download.waitlistDone")}</p>
+        ) : (
+          <form onSubmit={onSubmit} className="mt-3 flex flex-col sm:flex-row gap-2" noValidate>
+            <input
+              ref={emailRef}
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              dir="ltr"
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setError(null);
+              }}
+              placeholder={t("download.waitlistEmailPlaceholder")}
+              aria-label={t("download.waitlistEmailPlaceholder")}
+              className="flex-1 min-w-0 rounded-lg border border-neutral-300 bg-white px-4 py-3 text-base text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:border-neutral-900"
+            />
+            <button
+              type="submit"
+              disabled={sending}
+              className="shrink-0 rounded-lg bg-neutral-900 text-white font-semibold px-6 py-3 hover:bg-neutral-800 transition-colors disabled:opacity-60"
+            >
+              {sending ? t("download.waitlistSending") : t("download.waitlistButton")}
+            </button>
+          </form>
+        )}
+        {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
+      </div>
     </div>
   );
 }

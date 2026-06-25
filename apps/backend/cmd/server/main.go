@@ -25,6 +25,7 @@ import (
 	syncapi "github.com/matee/kaata-backend/internal/sync"
 	"github.com/matee/kaata-backend/internal/vaults"
 	"github.com/matee/kaata-backend/internal/visit"
+	"github.com/matee/kaata-backend/internal/waitlist"
 )
 
 // minJWTSecretLen is the floor below which we refuse to boot. HS256 with a
@@ -147,6 +148,8 @@ func main() {
 	visitSvc := visit.NewService(pool, cfg.APKDownloadURL)
 	visitH := visit.NewHandler(visitSvc)
 
+	waitlistH := waitlist.NewHandler(waitlist.NewService(pool))
+
 	// Mythos crash-reporter. Public + anonymous (same group as check-in)
 	// so local-only installs can report why they died.
 	crashSvc := crashreport.NewService(pool)
@@ -229,6 +232,10 @@ func main() {
 	})
 	r.Post("/v1/visit", visitH.Visit)
 	r.Get("/v1/download", visitH.Download)
+	// Waitlist: email opt-in for the "coming soon" app-store channels. Public +
+	// rate-limited per IP (the email is the only PII; idempotent server-side).
+	r.With(httpx.RateLimitPerIP(httpx.WaitlistJoinLimit, httpx.WaitlistJoinWindow)).
+		Post("/v1/waitlist", waitlistH.Join)
 	r.Post("/v1/auth/google", authH.GoogleSignIn)
 	// Shared ledger ("see the full ledger on kaata.af"). All PUBLIC: the share
 	// link is meant to be opened by a customer with no app/account. POST is

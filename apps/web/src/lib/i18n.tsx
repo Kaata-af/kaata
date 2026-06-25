@@ -79,6 +79,15 @@ const en = {
   "download.playStore": "Google Play",
   "download.appStore": "App Store",
   "download.stepsTitle": "How to install the APK",
+  "download.waitlistTitle": "Want a heads-up?",
+  "download.waitlistSub":
+    "Leave your email and we'll tell you the moment the iPhone and Play Store apps are ready.",
+  "download.waitlistEmailPlaceholder": "you@example.com",
+  "download.waitlistButton": "Notify me",
+  "download.waitlistSending": "Sending…",
+  "download.waitlistDone": "You're on the list — we'll be in touch.",
+  "download.waitlistError": "Couldn't sign you up. Please try again.",
+  "download.waitlistInvalid": "Enter a valid email address.",
 
   // Not found
   "notFound.kicker": "404",
@@ -202,6 +211,15 @@ const fa: Record<keyof typeof en, string> = {
   "download.playStore": "Google Play",
   "download.appStore": "App Store",
   "download.stepsTitle": "نحوهٔ نصب فایل APK",
+  "download.waitlistTitle": "می‌خواهید باخبر شوید؟",
+  "download.waitlistSub":
+    "ایمیل‌تان را بگذارید تا همین که نسخهٔ آیفون و پلی‌ستور آماده شد، خبرتان کنیم.",
+  "download.waitlistEmailPlaceholder": "you@example.com",
+  "download.waitlistButton": "خبرم کن",
+  "download.waitlistSending": "در حال ارسال…",
+  "download.waitlistDone": "ثبت شد — به‌زودی در تماس می‌شویم.",
+  "download.waitlistError": "ثبت نشد. دوباره تلاش کنید.",
+  "download.waitlistInvalid": "یک ایمیل معتبر وارد کنید.",
 
   // Not found
   "notFound.kicker": "۴۰۴",
