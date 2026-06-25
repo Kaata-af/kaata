@@ -41,16 +41,9 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Network from "expo-network";
 import { useRouter } from "expo-router";
 import { useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { RestoreProgress, restoreProgressLabel } from "../components/RestoreProgress";
 import { ScreenHeader } from "../components/SettingsScreen";
 import { useToast } from "../components/Toast";
 import { signOut } from "../lib/auth";
@@ -58,7 +51,7 @@ import { colors } from "../lib/colors";
 import { textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { t } from "../lib/i18n";
-import { recoverAllVaults } from "../lib/recovery";
+import { recoverAllVaults, type RecoveryProgress } from "../lib/recovery";
 import { RestoreSessionExpiredError, RestoreTimeoutError } from "../lib/restore";
 
 type Phase = { kind: "confirm" } | { kind: "restoring" };
@@ -68,6 +61,9 @@ export default function RestoreScreen() {
   const isRTL = useIsRTL();
   const toast = useToast();
   const [phase, setPhase] = useState<Phase>({ kind: "confirm" });
+  // Live recovery progress, driven by recoverAllVaults's onProgress callback —
+  // powers the determinate progress bar in the "restoring" phase.
+  const [progress, setProgress] = useState<RecoveryProgress | null>(null);
   // Synchronous re-entry guard — see entry/new.tsx. Without it a
   // double-tap during the network precheck started two concurrent
   // restoreFromSnapshot transactions.
@@ -90,8 +86,9 @@ export default function RestoreScreen() {
   async function onConfirm() {
     if (confirmingRef.current) return;
     confirmingRef.current = true;
-    // Flip to the spinner BEFORE the network precheck — the confirm
+    // Flip to the progress bar BEFORE the network precheck — the confirm
     // button must leave the screen the moment the first tap lands.
+    setProgress(null);
     setPhase({ kind: "restoring" });
     // UX critique #5 (Eng C5): cheap network precheck so users on a flaky
     // connection don't sit on the spinner for the full 30 s timeout.
@@ -112,7 +109,7 @@ export default function RestoreScreen() {
       // not just the default. recoverAllVaults never throws for a single
       // vault's failure — it returns a per-vault outcome (only a total
       // inability to list the account's vaults bubbles up here).
-      const result = await recoverAllVaults();
+      const result = await recoverAllVaults({ onProgress: setProgress });
       if (result.recovered.length > 0) {
         exitToHomeWithToast(
           t("restore.toast.successVaults", { count: String(result.recovered.length) }),
@@ -173,7 +170,12 @@ export default function RestoreScreen() {
           backLabel={t("common.back")}
         />
         <View style={styles.center}>
-          <ActivityIndicator color={colors.textDefault} />
+          <RestoreProgress
+            fraction={progress?.fraction ?? 0}
+            label={progress ? restoreProgressLabel(progress) : t("restoreProgress.preparing")}
+            tone="dark"
+            isRTL={isRTL}
+          />
         </View>
       </SafeAreaView>
     );
@@ -229,7 +231,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
   scrollContent: { flexGrow: 1, justifyContent: "center" },
   content: { padding: 24 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32 },
   iconWrap: {
     width: 64,
     height: 64,

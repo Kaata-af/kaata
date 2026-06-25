@@ -25,12 +25,15 @@ import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
 import { PersonRow } from "../components/PersonRow";
 import { ProfileSettingsSheet, type VaultListItem } from "../components/ProfileSettingsSheet";
+import { RestoreProgress, restoreProgressLabel } from "../components/RestoreProgress";
 import { Tabs } from "../components/Tabs";
 import { useToast, useToastOffset } from "../components/Toast";
 import { UpdateBanner } from "../components/UpdateBanner";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
 import { getCurrentCurrencySymbol } from "../lib/currency";
+// Type-only — the recovery module itself stays a lazy dynamic import below.
+import type { RecoveryProgress } from "../lib/recovery";
 import { VaultPickerSheet } from "../components/VaultPickerSheet";
 import {
   type DifferentAccountChoice,
@@ -210,6 +213,9 @@ export default function HomeScreen() {
   // appear at the very end). "signingIn" covers the Google handshake + backend +
   // registration; "restoring" covers recoverAllVaults (which can take a while).
   const [authPhase, setAuthPhase] = useState<null | "signingIn" | "restoring" | "signingOut">(null);
+  // Live recovery progress for the determinate bar shown during the "restoring"
+  // leg of the sign-in chain (the other legs have no measurable progress).
+  const [authProgress, setAuthProgress] = useState<RecoveryProgress | null>(null);
   // UX critique #6 — sign-out is destructive enough to warrant a ConfirmDialog
   // per the documented contract in design-tokens.ts. The sheet's danger-styled
   // NavRow opens this dialog; only on confirmation do we actually wipe the
@@ -576,10 +582,11 @@ export default function HomeScreen() {
       // vaults (no-op, local data untouched); a fresh phone loads its backed-up
       // vaults; an already-synced phone re-applies idempotently. Recovery failure
       // must not break the sign-in, so it's caught.
+      setAuthProgress(null);
       setAuthPhase("restoring");
       try {
         const { recoverAllVaults } = await import("../lib/recovery");
-        await recoverAllVaults();
+        await recoverAllVaults({ onProgress: setAuthProgress });
       } catch (err) {
         if (__DEV__) console.warn("[home] post-sign-in recovery failed (non-fatal)", err);
       }
@@ -593,6 +600,7 @@ export default function HomeScreen() {
     } finally {
       setAuthBusy(false);
       setAuthPhase(null);
+      setAuthProgress(null);
     }
   }
 
@@ -1314,14 +1322,29 @@ export default function HomeScreen() {
           gets clear feedback instead of a frozen-looking screen. */}
       {authPhase ? (
         <View style={styles.authOverlay} pointerEvents="auto">
-          <ActivityIndicator size="large" color={colors.textInverted} />
-          <Text style={[styles.authOverlayText, textDir(isRTL)]}>
-            {authPhase === "restoring"
-              ? t("menu.account.signIn.restoring")
-              : authPhase === "signingOut"
-                ? t("menu.account.signOut.pending")
-                : t("menu.account.signIn.signingIn")}
-          </Text>
+          {authPhase === "restoring" ? (
+            // Determinate bar — recovery reports real per-vault progress.
+            <RestoreProgress
+              fraction={authProgress?.fraction ?? 0}
+              label={
+                authProgress
+                  ? restoreProgressLabel(authProgress)
+                  : t("menu.account.signIn.restoring")
+              }
+              tone="light"
+              isRTL={isRTL}
+            />
+          ) : (
+            // Handshake / sign-out have no measurable progress → spinner.
+            <>
+              <ActivityIndicator size="large" color={colors.textInverted} />
+              <Text style={[styles.authOverlayText, textDir(isRTL)]}>
+                {authPhase === "signingOut"
+                  ? t("menu.account.signOut.pending")
+                  : t("menu.account.signIn.signingIn")}
+              </Text>
+            </>
+          )}
         </View>
       ) : null}
     </SafeAreaView>

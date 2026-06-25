@@ -464,6 +464,15 @@ const en = {
   "restore.toast.sessionExpired": "Signed out. Sign in again to restore.",
   "restore.toast.timeout": "Restore timed out. Check your connection.",
   "restore.toast.generic": "Restore failed.",
+  // Progress-bar status lines shown while recoverAllVaults runs (the shared
+  // RestoreProgress component on the in-app, onboarding, and sign-in surfaces).
+  "restoreProgress.preparing": "Preparing…",
+  "restoreProgress.finding": "Finding your kaatas…",
+  // Multi-vault accounts: which kaata of how many is restoring right now.
+  "restoreProgress.vault": "Restoring kaata {current} of {total}…",
+  // Single-vault accounts read better without the "1 of 1".
+  "restoreProgress.vaultOne": "Restoring your kaata…",
+  "restoreProgress.finishing": "Finishing up…",
   // Phase 6: BLE is now the PRIMARY transport. Toggle copy must match — a
   // shopkeeper reading "over WiFi" on a cellular-only phone is exactly the
   // user we built BLE for, and the old copy would make them never turn it
@@ -1409,6 +1418,12 @@ const fa: Partial<Record<Key, string>> = {
   "restore.toast.sessionExpired": "خارج شدید. برای بازیابی دوباره وارد شوید.",
   "restore.toast.timeout": "بازیابی به وقفه خورد. اتصال خود را بررسی کنید.",
   "restore.toast.generic": "بازیابی ناکام شد.",
+  // Progress-bar status lines (RestoreProgress).
+  "restoreProgress.preparing": "در حال آماده‌سازی…",
+  "restoreProgress.finding": "در حال یافتن کاتاهای شما…",
+  "restoreProgress.vault": "در حال بازیابی کاتای {current} از {total}…",
+  "restoreProgress.vaultOne": "در حال بازیابی کاتای شما…",
+  "restoreProgress.finishing": "در حال نهایی‌سازی…",
   // Phase 6: BLE-primary copy. Persian uses "بلوتوث" (Bluetooth) — it's a
   // loanword every Afghan shopkeeper recognizes; "اینترنت/وای‌فای نیاز ندارد"
   // makes the no-connectivity benefit explicit.

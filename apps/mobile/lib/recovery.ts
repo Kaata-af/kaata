@@ -53,15 +53,61 @@ export type RecoveryResult = {
   activeVaultId: string | null;
 };
 
+// Coarse recovery stages, surfaced to the UI so the restore screens can show a
+// REAL (not faked) progress bar instead of an indeterminate spinner. The
+// per-vault loop is the dominant cost, so the bulk of the 0..1 range is spent
+// there; prep/list/finalize bookend it.
+export type RecoveryProgressPhase = "preparing" | "listing" | "restoring" | "finalizing" | "done";
+
+export type RecoveryProgress = {
+  phase: RecoveryProgressPhase;
+  /** Monotonic completion estimate in [0, 1]. Never regresses. */
+  fraction: number;
+  /** 1-based index of the vault currently restoring (0 outside the loop). */
+  vaultIndex: number;
+  /** Total live vaults being restored (0 until the listing resolves). */
+  vaultTotal: number;
+};
+
+export type RecoverOptions = {
+  /** Optional progress sink. A throwing sink can never break recovery. */
+  onProgress?: (p: RecoveryProgress) => void;
+};
+
+// Fraction anchors for the progress model. Prep + listing share the first slice;
+// the per-vault loop owns the long middle; finalize closes it out.
+const PROGRESS_LOOP_START = 0.16;
+const PROGRESS_LOOP_END = 0.92;
+
 /**
  * Recover every vault the signed-in account is a member of. Idempotent: safe to
  * re-run (restore is INSERT OR REPLACE / OR IGNORE; the witnessed bind diffs
  * against the already-chained state). Returns a per-vault outcome; never throws
  * for a single vault's failure (only for a total inability to list).
  */
-export async function recoverAllVaults(): Promise<RecoveryResult> {
+export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<RecoveryResult> {
   const recovered: string[] = [];
   const failed: RecoveryResult["failed"] = [];
+
+  // Progress emitter. `vaultTotal` is captured by reference and filled in once
+  // the listing resolves. `lastFraction` enforces monotonicity so a later,
+  // smaller estimate can never visibly rewind the bar.
+  const onProgress = opts.onProgress;
+  let vaultTotal = 0;
+  let lastFraction = 0;
+  const emit = (phase: RecoveryProgressPhase, fraction: number, vaultIndex = 0) => {
+    if (!onProgress) return;
+    const f = Math.max(lastFraction, Math.min(1, fraction));
+    lastFraction = f;
+    try {
+      onProgress({ phase, fraction: f, vaultIndex, vaultTotal });
+    } catch (err) {
+      // A misbehaving sink must never abort recovery.
+      if (__DEV__) console.warn("[recovery] onProgress threw", err);
+    }
+  };
+
+  emit("preparing", 0.02);
 
   // Fresh device key, registered with the server, BEFORE any witness call.
   await ensureDeviceKey();
@@ -70,6 +116,7 @@ export async function recoverAllVaults(): Promise<RecoveryResult> {
   } catch (err) {
     console.warn("[recovery] registerDeviceKey failed (witnessed bind may 404)", err);
   }
+  emit("preparing", 0.05);
 
   // M5 (review fix — HIGH): PIN the server witness keys BEFORE ingesting any
   // witnessed membership events. A factory-reset device has EMPTY pinned keys;
@@ -78,6 +125,7 @@ export async function recoverAllVaults(): Promise<RecoveryResult> {
   // until an incidental later sweep. The launch BackgroundCheckIn that normally
   // pins them RACES this restore — so we do our own awaited check-in here.
   await pinServerWitnessKeys();
+  emit("listing", 0.1);
 
   let listings: VaultListing[];
   try {
@@ -91,6 +139,10 @@ export async function recoverAllVaults(): Promise<RecoveryResult> {
   }
 
   const live = listings.filter((v) => v.archived_at_ms == null);
+  vaultTotal = live.length;
+  // Per-vault width of the loop's slice of the bar (0 when nothing to restore).
+  const slice = live.length > 0 ? (PROGRESS_LOOP_END - PROGRESS_LOOP_START) / live.length : 0;
+  emit("listing", 0.14);
 
   // Ensure the local-self identity row exists BEFORE any vault's events apply.
   // The self user is never event-sourced, so the server stores every
@@ -106,7 +158,11 @@ export async function recoverAllVaults(): Promise<RecoveryResult> {
   const localSelf = live.length > 0 ? await ensureLocalSelfForRestore() : null;
   const localSelfId = localSelf?.id ?? null;
 
+  let vaultIdx = 0;
   for (const v of live) {
+    // Base fraction for this vault's slice; sub-steps below advance within it.
+    const base = PROGRESS_LOOP_START + vaultIdx * slice;
+    emit("restoring", base, vaultIdx + 1);
     try {
       const snapshot = await fetchSnapshot({ defaultVaultId: v.vault_id });
       if (snapshot) {
@@ -118,6 +174,8 @@ export async function recoverAllVaults(): Promise<RecoveryResult> {
         // anchor, so it's recognized + mesh-eligible.
         await seedVaultFromListing(v);
       }
+      // Snapshot base is in; the pull below brings the tail. ~half the slice.
+      emit("restoring", base + slice * 0.45, vaultIdx + 1);
       // CRITICAL (fixes "kaata restored but contacts + entries missing"): pull
       // the vault's FULL event history to completion now, so the ledger is
       // populated when recovery finishes — not just the vault shell. The
@@ -134,6 +192,8 @@ export async function recoverAllVaults(): Promise<RecoveryResult> {
       } catch (err) {
         console.warn(`[recovery] initial pull failed for ${v.vault_id.slice(0, 8)}`, err);
       }
+      // Ledger pulled; only the (best-effort) membership binds remain.
+      emit("restoring", base + slice * 0.8, vaultIdx + 1);
       // Re-key ownership to the recovered account FIRST. A pre-sign-in local-CA
       // vault's chain owner is keyed by a device-key sentinel (the original
       // anchor), which is gone after a reinstall — so the role-gate doesn't
@@ -167,7 +227,13 @@ export async function recoverAllVaults(): Promise<RecoveryResult> {
       });
       console.warn(`[recovery] vault ${v.vault_id.slice(0, 8)} failed`, err);
     }
+    // Close this vault's slice regardless of outcome so a single failure
+    // doesn't strand the bar; the next vault picks up from here.
+    vaultIdx++;
+    emit("restoring", PROGRESS_LOOP_START + vaultIdx * slice, Math.min(vaultIdx + 1, vaultTotal));
   }
+
+  emit("finalizing", PROGRESS_LOOP_END);
 
   // Pick ONE active/default after the loop: the original default if it was
   // recovered, else the first recovered vault.
@@ -193,6 +259,7 @@ export async function recoverAllVaults(): Promise<RecoveryResult> {
   // apply immediately, rather than waiting for an incidental later pull.
   for (const vaultId of recovered) scheduleSweep(vaultId);
 
+  emit("done", 1);
   return { recovered, failed, activeVaultId };
 }
 

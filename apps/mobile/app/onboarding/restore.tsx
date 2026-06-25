@@ -34,13 +34,14 @@ import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { RestoreProgress, restoreProgressLabel } from "../../components/RestoreProgress";
 import { colors } from "../../lib/colors";
 import { getAppMeta, setAppMeta } from "../../lib/db";
 import { textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { adoptAccountPhoneToSelf } from "../../lib/auth";
-import { recoverAllVaults } from "../../lib/recovery";
+import { recoverAllVaults, type RecoveryProgress } from "../../lib/recovery";
 import { RestoreSessionExpiredError, RestoreTimeoutError } from "../../lib/restore";
 import { listVaults } from "../../lib/vault-api";
 
@@ -62,6 +63,8 @@ export default function OnboardingRestoreScreen() {
   const [retryNonce, setRetryNonce] = useState(0);
   // Synchronous re-entry guard for the restore action — see entry/new.tsx.
   const restoringRef = useRef(false);
+  // Live recovery progress for the determinate bar in the "restoring" phase.
+  const [progress, setProgress] = useState<RecoveryProgress | null>(null);
   // Confirmation gate for "Start fresh" on the data-found screen — discarding
   // a found backup from this device shouldn't be a one-tap mistake.
   const [confirmFresh, setConfirmFresh] = useState(false);
@@ -118,9 +121,10 @@ export default function OnboardingRestoreScreen() {
   async function onRestore() {
     if (restoringRef.current) return;
     restoringRef.current = true;
+    setProgress(null);
     setPhase({ kind: "restoring" });
     try {
-      const result = await recoverAllVaults();
+      const result = await recoverAllVaults({ onProgress: setProgress });
       if (result.recovered.length > 0) {
         // At least one vault came back. Mark onboarding done — recovery rebuilt
         // the ledger AND minted the local-self identity (the snapshot can't carry
@@ -195,9 +199,12 @@ export default function OnboardingRestoreScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.center}>
-          <ActivityIndicator color={colors.textDefault} />
-          <View style={styles.gap} />
-          <Text style={[styles.subtitle, textDir(isRTL)]}>{t("onboardingRestore.restoring")}</Text>
+          <RestoreProgress
+            fraction={progress?.fraction ?? 0}
+            label={progress ? restoreProgressLabel(progress) : t("onboardingRestore.restoring")}
+            tone="dark"
+            isRTL={isRTL}
+          />
         </View>
       </SafeAreaView>
     );
@@ -313,6 +320,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 32,
   },
   title: {
     fontSize: 22,
