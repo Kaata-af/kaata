@@ -1,5 +1,6 @@
 import { DownloadButton } from "../components/DownloadButton";
 import { SiteFooter, SiteHeader } from "../components/SiteChrome";
+import { ComingSoonStores } from "../components/StoreButtons";
 import { useI18n, type TKey } from "../lib/i18n";
 
 // Step copy matches the dialogs modern Android actually shows (the per-app
@@ -25,7 +26,17 @@ export function Download() {
         </h1>
         <p className="mt-4 text-base text-neutral-600 leading-relaxed">{t("download.sub")}</p>
 
-        <ol className="mt-10 space-y-5">
+        {/* Platform options: Android APK is live (primary); the stores are
+            shown as muted "coming soon" badges. */}
+        <div className="mt-10 space-y-3">
+          <DownloadButton />
+          <ComingSoonStores />
+        </div>
+
+        <h2 className="mt-14 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+          {t("download.stepsTitle")}
+        </h2>
+        <ol className="mt-5 space-y-5">
           {STEP_KEYS.map((key, i) => (
             <li key={key} className="flex gap-4 items-start">
               <div className="flex-shrink-0 w-7 h-7 rounded-full border border-neutral-300 bg-white text-neutral-700 font-semibold flex items-center justify-center text-xs font-mono mt-0.5">
@@ -35,10 +46,6 @@ export function Download() {
             </li>
           ))}
         </ol>
-
-        <div className="mt-12">
-          <DownloadButton />
-        </div>
       </section>
 
       <SiteFooter />

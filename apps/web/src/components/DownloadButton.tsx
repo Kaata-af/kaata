@@ -1,6 +1,7 @@
 import { APK_DOWNLOAD_URL, APK_VERSION } from "../env";
 import { reportDownloadClick } from "../lib/analytics";
 import { useI18n } from "../lib/i18n";
+import { AndroidIcon } from "./StoreButtons";
 import { useToast } from "./Toast";
 
 export function DownloadButton() {
@@ -18,8 +19,9 @@ export function DownloadButton() {
         reportDownloadClick();
         push(t("download.toast"), "success");
       }}
-      className="block w-full bg-neutral-900 text-white font-semibold px-8 py-4 rounded-lg hover:bg-neutral-800 transition-colors text-center text-base"
+      className="flex items-center justify-center gap-2.5 w-full bg-neutral-900 text-white font-semibold px-8 py-4 rounded-lg hover:bg-neutral-800 transition-colors text-center text-base"
     >
+      <AndroidIcon className="w-5 h-5 shrink-0" />
       {t("download.button", { version: APK_VERSION })}
     </a>
   );

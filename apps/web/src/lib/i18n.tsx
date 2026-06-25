@@ -66,8 +66,8 @@ const en = {
 
   // Download page
   "download.title": "Install Kaata",
-  "download.sub": "Side-load the APK directly. Coming soon to the Play Store.",
-  "download.step1": 'Tap "Download APK" below.',
+  "download.sub": "Get the Android app now — the iPhone and Play Store versions are coming soon.",
+  "download.step1": 'Tap "Download APK" above.',
   "download.step2": "Open the downloaded file.",
   "download.step3":
     'If your phone says it can\'t install unknown apps from this source, tap Settings, turn on "Allow from this source", then go back.',
@@ -75,6 +75,10 @@ const en = {
   "download.step5": "Tap Install.",
   "download.button": "Download APK · v{version}",
   "download.toast": "Starting download — install when ready.",
+  "download.comingSoon": "Coming soon",
+  "download.playStore": "Google Play",
+  "download.appStore": "App Store",
+  "download.stepsTitle": "How to install the APK",
 
   // Not found
   "notFound.kicker": "404",
@@ -184,8 +188,8 @@ const fa: Record<keyof typeof en, string> = {
 
   // Download page
   "download.title": "نصب کاتا",
-  "download.sub": "فایل APK را مستقیم نصب کنید. به‌زودی در پلی‌ستور.",
-  "download.step1": "روی «دانلود APK» در پایین بزنید.",
+  "download.sub": "همین حالا نسخهٔ اندروید را بگیرید — نسخهٔ آیفون و پلی‌ستور به‌زودی می‌آید.",
+  "download.step1": "روی «دانلود APK» در بالا بزنید.",
   "download.step2": "فایل دانلودشده را باز کنید.",
   "download.step3":
     "اگر تلفون گفت از این منبع اجازهٔ نصب ندارد، روی «تنظیمات» بزنید، «اجازه از این منبع» را روشن کنید و برگردید.",
@@ -194,6 +198,10 @@ const fa: Record<keyof typeof en, string> = {
   "download.step5": "روی نصب بزنید.",
   "download.button": "دانلود APK · نسخه {version}",
   "download.toast": "دانلود شروع شد — بعد از تکمیل نصب کنید.",
+  "download.comingSoon": "به‌زودی",
+  "download.playStore": "Google Play",
+  "download.appStore": "App Store",
+  "download.stepsTitle": "نحوهٔ نصب فایل APK",
 
   // Not found
   "notFound.kicker": "۴۰۴",
