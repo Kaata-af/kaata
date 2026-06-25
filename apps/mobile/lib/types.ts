@@ -58,6 +58,17 @@ export type Entry = {
   settled_at: number | null;
 };
 
+// Max characters a tally note can hold. Enforced on input (TextInput maxLength)
+// AND defensively re-clamped at save time. The `note` column itself is plain
+// TEXT (no DB limit), and the shared-ledger snapshot only caps total bytes
+// (128 KiB, see backend handler.go maxPayload) and entry count — so this is the
+// single source of truth. Worst case is ~105 KB at the 100-entry (share.ts
+// MAX_SHARED_ENTRIES) × 500-char max for 2-byte UTF-8 (Dari/Persian, our users)
+// — under the 128 KiB cap with graceful overflow, but raising either this limit
+// or MAX_SHARED_ENTRIES must re-check that bound. The row preview clamps to one
+// line + tap-to-expand, so length here is free to grow.
+export const ENTRY_NOTE_MAX_LENGTH = 500;
+
 // View types — what the rest of the app sees.
 
 // Home-screen tab identifier. Not a property of a person — only a filter

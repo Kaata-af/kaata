@@ -89,7 +89,16 @@ const MONO = '"JetBrains Mono","Vazirmatn",ui-monospace,Menlo,monospace';
 // "I received" (no +/− signs, no colour — the arrow carries the direction).
 function ArrowUp() {
   return (
-    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      viewBox="0 0 24 24"
+      width="15"
+      height="15"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <line x1="12" y1="19" x2="12" y2="7" />
       <polyline points="6 13 12 7 18 13" />
     </svg>
@@ -97,44 +106,131 @@ function ArrowUp() {
 }
 function ArrowDown() {
   return (
-    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      viewBox="0 0 24 24"
+      width="15"
+      height="15"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <line x1="12" y1="5" x2="12" y2="17" />
       <polyline points="18 11 12 17 6 11" />
     </svg>
   );
 }
 
-// Note on its own line, clamped to 2 lines; a "more"/"less" toggle appears only
+// Note on its own line, clamped to 1 line; a "more"/"less" toggle appears only
 // when the text actually overflows (measured against the clamp, not guessed).
 const CLAMP: CSSProperties = {
   display: "-webkit-box",
-  WebkitLineClamp: 2,
+  WebkitLineClamp: 1,
   WebkitBoxOrient: "vertical",
   overflow: "hidden",
 };
-function NoteLine({ text, more, less }: { text: string; more: string; less: string }) {
-  const ref = useRef<HTMLParagraphElement>(null);
+// One transaction row. The WHOLE row is tappable to expand a clipped note —
+// matching the app's EntryRow and the SSR shell, where the row (not a tiny
+// link) is the target — with a quiet hover/press tint as the affordance. Rows
+// with no note, or a note that fits on one line, are inert (no pointer, no tint).
+function Row({
+  e,
+  currency,
+  rtl,
+  L,
+}: {
+  e: SharedEntry;
+  currency: string;
+  rtl: boolean;
+  L: ReturnType<typeof pickLabels>;
+}) {
+  const gave = e.type !== "payment"; // debt → "I gave" (up); payment → "I received" (down)
+  const noteRef = useRef<HTMLParagraphElement>(null);
   const [clipped, setClipped] = useState(false);
   const [open, setOpen] = useState(false);
   useLayoutEffect(() => {
-    const el = ref.current;
+    const el = noteRef.current;
     if (el) setClipped(el.scrollHeight > el.clientHeight + 1);
-  }, [text]);
+  }, [e.note]);
+  const interactive = clipped;
+  const toggle = () => setOpen((v) => !v);
   return (
-    <div className="mt-[3px]">
-      <p ref={ref} className="text-[13px]" style={{ color: C.sub, ...(open ? {} : CLAMP) }}>
-        {text}
-      </p>
-      {clipped ? (
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className="mt-[3px] text-[12px] font-semibold"
-          style={{ color: C.ink }}
-        >
-          {open ? less : more}
-        </button>
-      ) : null}
+    <div
+      className={
+        "flex items-center gap-3 border-b px-4 py-[13px] last:border-b-0" +
+        (interactive
+          ? // hover is a whisper (page-bg gray) so the --hair icon chip stays
+            // visible on top of it; active firms up to --line for press feedback.
+            " cursor-pointer transition-colors hover:bg-[#f9fafb] active:bg-[#eaecf0]"
+          : "")
+      }
+      style={{ borderColor: C.hair }}
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onClick={interactive ? toggle : undefined}
+      onKeyDown={
+        interactive
+          ? (ev) => {
+              if (ev.key === "Enter" || ev.key === " ") {
+                ev.preventDefault();
+                toggle();
+              }
+            }
+          : undefined
+      }
+    >
+      <div
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+        style={{ background: C.hair, color: C.sub }}
+      >
+        {gave ? <ArrowUp /> : <ArrowDown />}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline justify-between gap-3">
+          <p className="flex items-baseline gap-1">
+            {/* Bold (not semibold) — the amount is the row's anchor, a clear
+                step above the medium-weight "verb · date" meta beside it. */}
+            <span
+              className="text-[15px] font-bold tabular-nums"
+              style={{ color: C.ink, fontFamily: MONO }}
+            >
+              {fmtAmount(e.amount, rtl)}
+            </span>
+            <span className="text-[11px] font-medium" style={{ color: C.mut }}>
+              {currency}
+            </span>
+          </p>
+          <p className="flex shrink-0 items-center whitespace-nowrap text-[12px]">
+            <span className="font-medium" style={{ color: C.sub }}>
+              {gave ? L.debt : L.payment}
+            </span>
+            <span className="mx-[5px]" style={{ color: C.mut }}>
+              ·
+            </span>
+            <span style={{ color: C.mut }}>{fmtDate(e.date, rtl)}</span>
+          </p>
+        </div>
+        {e.note ? (
+          <div className="mt-[5px]">
+            <p
+              ref={noteRef}
+              className="text-[13px] leading-[18px]"
+              style={{ color: C.sub, ...(open ? {} : CLAMP) }}
+            >
+              {e.note}
+            </p>
+            {clipped ? (
+              <span
+                className="mt-[4px] inline-block text-[12px] font-semibold"
+                style={{ color: C.ink }}
+              >
+                {open ? L.less : L.more}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -239,7 +335,10 @@ function Ledger({ data: d }: { data: SharedLedger }) {
             style={{ color: accent, fontFamily: MONO }}
           >
             {fmtAmount(d.balance, rtl)}
-            <span className="text-[16px] font-medium" style={{ color: C.mut, fontFamily: APP_SANS }}>
+            <span
+              className="text-[16px] font-medium"
+              style={{ color: C.mut, fontFamily: APP_SANS }}
+            >
               {d.currency}
             </span>
           </p>
@@ -255,7 +354,10 @@ function Ledger({ data: d }: { data: SharedLedger }) {
           {L.tx}
         </p>
         {d.entries.length > 0 ? (
-          <p className="text-[11px] font-medium tabular-nums" style={{ color: C.mut, fontFamily: MONO }}>
+          <p
+            className="text-[11px] font-medium tabular-nums"
+            style={{ color: C.mut, fontFamily: MONO }}
+          >
             {fmtAmount(d.entries.length, rtl)}
           </p>
         ) : null}
@@ -267,48 +369,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
             {L.empty}
           </p>
         ) : (
-          d.entries.map((e, i) => {
-            const gave = e.type !== "payment"; // debt → "I gave" (up); payment → "I received" (down)
-            return (
-              <div
-                key={i}
-                className="flex items-center gap-3 border-b px-4 py-[13px] last:border-b-0"
-                style={{ borderColor: C.hair }}
-              >
-                <div
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-                  style={{ background: C.hair, color: C.sub }}
-                >
-                  {gave ? <ArrowUp /> : <ArrowDown />}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <p className="flex items-baseline gap-1">
-                      <span
-                        className="text-[15px] font-semibold tabular-nums"
-                        style={{ color: C.ink, fontFamily: MONO }}
-                      >
-                        {fmtAmount(e.amount, rtl)}
-                      </span>
-                      <span className="text-[11px] font-medium" style={{ color: C.mut }}>
-                        {d.currency}
-                      </span>
-                    </p>
-                    <p className="flex shrink-0 items-center whitespace-nowrap text-[12px]">
-                      <span className="font-medium" style={{ color: C.sub }}>
-                        {gave ? L.debt : L.payment}
-                      </span>
-                      <span className="mx-[5px]" style={{ color: C.mut }}>
-                        ·
-                      </span>
-                      <span style={{ color: C.mut }}>{fmtDate(e.date, rtl)}</span>
-                    </p>
-                  </div>
-                  {e.note ? <NoteLine text={e.note} more={L.more} less={L.less} /> : null}
-                </div>
-              </div>
-            );
-          })
+          d.entries.map((e, i) => <Row key={i} e={e} currency={d.currency} rtl={rtl} L={L} />)
         )}
       </div>
 

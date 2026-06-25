@@ -21,7 +21,7 @@ import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
-import type { EntryType, PersonWithBalance } from "../../lib/types";
+import { ENTRY_NOTE_MAX_LENGTH, type EntryType, type PersonWithBalance } from "../../lib/types";
 
 export default function NewEntryScreen() {
   const router = useRouter();
@@ -121,7 +121,12 @@ export default function NewEntryScreen() {
         router.replace("/vault/archived");
         return;
       }
-      await createEntry(personId, type, intAmount, note.trim().slice(0, 100) || null);
+      await createEntry(
+        personId,
+        type,
+        intAmount,
+        note.trim().slice(0, ENTRY_NOTE_MAX_LENGTH) || null,
+      );
       toast.push(t("entry.saved"), "success");
       router.back();
     } catch (err) {
@@ -246,7 +251,7 @@ export default function NewEntryScreen() {
             onChangeText={setNote}
             placeholder={t("entry.note.placeholder")}
             placeholderTextColor={colors.textMuted}
-            maxLength={100}
+            maxLength={ENTRY_NOTE_MAX_LENGTH}
             accessibilityLabel={t("entry.note.label")}
             returnKeyType="done"
             onSubmitEditing={onSave}

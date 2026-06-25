@@ -21,7 +21,7 @@ import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../../lib/event-log";
 import { fonts } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
-import type { EntryType } from "../../../lib/types";
+import { ENTRY_NOTE_MAX_LENGTH, type EntryType } from "../../../lib/types";
 
 export default function EditEntryScreen() {
   const router = useRouter();
@@ -80,7 +80,7 @@ export default function EditEntryScreen() {
     setBusy(true);
     setSaveError(null);
     try {
-      await updateEntry(id, intAmount, note.trim().slice(0, 100) || null);
+      await updateEntry(id, intAmount, note.trim().slice(0, ENTRY_NOTE_MAX_LENGTH) || null);
       toast.push(t("entry.updated"), "success");
       router.back();
     } catch (err) {
@@ -189,7 +189,7 @@ export default function EditEntryScreen() {
             onChangeText={setNote}
             placeholder={t("entry.note.placeholder")}
             placeholderTextColor={colors.textMuted}
-            maxLength={100}
+            maxLength={ENTRY_NOTE_MAX_LENGTH}
             accessibilityLabel={t("entry.note.label")}
             returnKeyType="done"
             onSubmitEditing={onSave}

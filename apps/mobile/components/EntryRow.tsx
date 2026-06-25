@@ -26,7 +26,7 @@ export const EntryRow = memo(function EntryRow(props: {
   const icon = isGave ? "arrow-up-outline" : "arrow-down-outline";
   const verb = isGave ? t("person.action.iGave") : t("person.action.iReceived");
 
-  // Note expansion: clamped to 2 lines; a TAP expands/collapses, but only once
+  // Note expansion: clamped to 1 line; a TAP expands/collapses, but only once
   // we've measured that the note actually overflows (`clipped`). A plain tap on
   // a note-less / short-note row still does nothing (a tally is informational).
   const [measured, setMeasured] = useState(false);
@@ -70,12 +70,12 @@ export const EntryRow = memo(function EntryRow(props: {
           <View>
             <Text
               style={[styles.note, textDir(isRTL)]}
-              numberOfLines={!measured ? undefined : expanded ? undefined : 2}
+              numberOfLines={!measured ? undefined : expanded ? undefined : 1}
               // Full note for screen readers, regardless of the visual clamp.
               accessibilityLabel={entry.note}
               onTextLayout={(e) => {
                 if (!measured) {
-                  setClipped(e.nativeEvent.lines.length > 2);
+                  setClipped(e.nativeEvent.lines.length > 1);
                   setMeasured(true);
                 }
               }}
@@ -122,7 +122,9 @@ const styles = StyleSheet.create({
   amountRow: { flexDirection: "row", alignItems: "baseline", gap: 4 },
   amount: {
     fontSize: 15,
-    fontFamily: fonts.monoSemi,
+    // Bold (not semibold) so the number is unmistakably the row's anchor,
+    // a clear step above the medium-weight "verb · date" meta beside it.
+    fontFamily: fonts.monoBold,
     color: colors.textEmphasis,
   },
   afn: {
@@ -155,12 +157,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: fonts.sansRegular,
     color: colors.textDefault,
-    marginTop: 3,
+    // A touch lower + a comfortable line-height so the note reads as its own
+    // line rather than crowding the amount above it.
+    marginTop: 5,
+    lineHeight: 18,
   },
   more: {
     fontSize: 12,
     fontFamily: fonts.sansSemi,
     color: colors.textEmphasis,
-    marginTop: 2,
+    marginTop: 4,
   },
 });
