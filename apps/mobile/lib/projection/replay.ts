@@ -36,7 +36,8 @@ import * as SQLite from "expo-sqlite";
 import type { LedgerEvent } from "../events";
 import { getDb } from "../db";
 import { APPLIERS } from "./index";
-import { isKnownEventType } from "../events";
+import { MissingPrereqError } from "./errors";
+import { isKnownEventType, isUserLedgerEventType } from "../events";
 import type { RoleGateResult } from "./role-gate";
 import { checkRoleForEvent } from "./role-gate";
 import type { QuarantineReason, TombstoneReason } from "../ingest-types";
@@ -92,6 +93,12 @@ export type ApplyAlreadyIngestedVerdict =
  * refactor touches every projection file.
  */
 function classifyApplierThrow(err: unknown): ApplyAlreadyIngestedVerdict {
+  // Typed prerequisite signal — the applier KNOWS the referenced row
+  // (entry/person to mutate) isn't on disk yet. Authoritative, not
+  // message-string-dependent. Cured by a later sweep once the create lands.
+  if (err instanceof MissingPrereqError) {
+    return { kind: "quarantined", reason: "missing_prereq" };
+  }
   const msg = err instanceof Error ? err.message : String(err);
   const lower = msg.toLowerCase();
   if (
@@ -118,9 +125,22 @@ function classifyApplierThrow(err: unknown): ApplyAlreadyIngestedVerdict {
  *   bad_signature → tombstone (signature doesn't verify against the
  *      pinned credential; this row should never have been ingested
  *      under the new pipeline, but legacy rows may exist).
+ *
+ * CRITICAL CARVE-OUT (tallies never disappear): a tombstone is a PERMANENT,
+ * never-retried, never-cleared terminal state. For USER LEDGER DATA (the entry,
+ * person, and shop_profile event families) we must NEVER reach it on a
+ * signature condition. The server itself accepts and re-ships unsigned legacy
+ * user events (pre-Phase-8 rows pushed before signing was wired); routing those
+ * to a tombstone on the server-pull → sweep path would permanently bury exactly
+ * the tallies this whole fix exists to save. The OLD applyEvent pull path
+ * always quarantined a role-gate refusal (retryable) regardless of reason —
+ * preserve that for user data here. Membership/device/vault events still
+ * tombstone on a bad/absent signature: those are an attack surface, the server
+ * holds their canonical copy, and a forged one must never apply.
  */
 function classifyRoleGateRefusal(
   result: Extract<RoleGateResult, { ok: false }>,
+  eventType: string,
 ): ApplyAlreadyIngestedVerdict {
   switch (result.reason) {
     case "insufficient_role":
@@ -128,9 +148,13 @@ function classifyRoleGateRefusal(
     case "unknown_actor":
       return { kind: "quarantined", reason: "unknown_actor" };
     case "unsigned_event":
-      return { kind: "tombstoned", reason: "unsigned_event" };
     case "bad_signature":
-      return { kind: "tombstoned", reason: "bad_signature" };
+      // User data → quarantine (retryable / never permanently buried). The
+      // reason label is cosmetic; role_insufficient matches the old pull path.
+      if (isUserLedgerEventType(eventType)) {
+        return { kind: "quarantined", reason: "role_insufficient" };
+      }
+      return { kind: "tombstoned", reason: result.reason };
   }
 }
 
@@ -176,7 +200,7 @@ export async function applyAlreadyIngestedEvent(
       // 1. role-gate. Read-only on credentials and role-events.
       const gate = await checkRoleForEvent(db as SQLiteTx, event);
       if (!gate.ok) {
-        verdict = classifyRoleGateRefusal(gate);
+        verdict = classifyRoleGateRefusal(gate, event.event_type);
         return; // commit the txn — gate doesn't mutate state.
       }
 

@@ -19,6 +19,7 @@ import { getBackendUrl } from "../api";
 import { getSessionJWT } from "../auth";
 import { getAppMeta, setAppMeta } from "../db";
 import { getDb, getInstallIdSync } from "../db-tx";
+import { isUserLedgerEventType } from "../events";
 import { applyEventMutex } from "../projection";
 import { notifyProjectionConflictsChanged } from "../projection-conflicts";
 import { markPushDone } from "./cursor";
@@ -319,6 +320,19 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
         // pre-binding edits, which is the post-restore account/owner-key drift, not
         // a real authorization failure; a permanent drop there is silent data loss.
         if (r.reason === "unauthored_pre_binding" || r.reason === "insufficient_role") {
+          continue;
+        }
+        // SAFETY NET (tallies never disappear): never PERMANENTLY reject a
+        // user-ledger event over an UNHANDLED reason. Leave it unacked so it
+        // re-pushes next cycle rather than vanishing from backup. Only
+        // non-user events fall through to the permanent rejected_at below.
+        const rejectedType = rows.find((row) => row.event_id === r.event_id)?.event_type;
+        if (rejectedType != null && isUserLedgerEventType(rejectedType)) {
+          if (__DEV__) {
+            console.warn(
+              `[sync.push] user-ledger event ${r.event_id} rejected (${r.reason}) — leaving unacked for retry, not exiling`,
+            );
+          }
           continue;
         }
         await db.runAsync(

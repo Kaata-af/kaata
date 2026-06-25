@@ -1,18 +1,24 @@
 // Pull events from the server. Loops with the cursor (sync_state.
-// last_pulled_server_seq) until the server returns has_more=false, applying
-// each batch via applyEvent({origin: 'remote'}). After each batch commits,
-// we advance the cursor.
+// last_pulled_server_seq) until the server returns has_more=false. Each page is
+// DURABLY INGESTED into event_log (applied_at=NULL) via the shared ingest path
+// (lib/projection/ingest-row.ts), THEN — after the full drain — applied by one
+// sweep pass. The cursor advances on DURABLE INGESTION, never on apply success,
+// so an event that can't apply yet (missing person/relationship, un-healed
+// membership chain) is quarantined-and-retried by the sweep instead of being
+// rolled back and skipped (the old applyEvent-direct path's permanent-loss bug).
 //
-// applyEvent is idempotent by event_id, so a crash between "batch applied"
-// and "cursor advanced" just re-applies the batch on next pull — the
-// projection is unchanged.
+// Ingestion is idempotent by event_id (INSERT OR IGNORE), so a crash between
+// "page ingested" and "cursor advanced" just re-ingests the page on next pull —
+// the projection is unchanged.
 
 import { getBackendUrl } from "../api";
 import { getSessionJWT } from "../auth";
-import { getDb } from "../db-tx";
-import type { LedgerEvent } from "../events";
-import { isKnownEventType } from "../events";
-import { applyEvent, applyEventMutex } from "../projection";
+import {
+  ingestPulledEvents,
+  mapPulledWireToEvent,
+  type PulledWireEvent,
+} from "../projection/ingest-row";
+import { sweepVaultNow } from "../projection/sweep";
 import { getLastPulledServerSeq, setLastPulledServerSeq } from "./cursor";
 import {
   SessionExpiredError,
@@ -69,11 +75,20 @@ export async function pullEvents(vaultId: string): Promise<PullResult> {
 
   // Drain to has_more=false. The scheduler will catch SessionExpired /
   // transient errors and back off.
+  //
+  // Each page is DURABLY INGESTED (ingestBatch → event_log rows, applied_at
+  // NULL) before the cursor advances — so the cursor is a "durably-ingested"
+  // watermark and can never skip an event that isn't on disk. The actual apply
+  // happens via the sweep AFTER the full drain (one fixpoint pass that resolves
+  // create-before-amend / membership-before-entry ordering at once), so a page
+  // whose person hasn't arrived yet doesn't block the entries that depend on it.
+  let ingestedAny = false;
   for (;;) {
     const batch = await fetchOnePage(baseUrl, jwt, vaultId, cursor, DEFAULT_BATCH_LIMIT);
 
     if (batch.events.length > 0) {
-      await applyBatch(vaultId, batch.events);
+      await ingestBatch(vaultId, batch.events);
+      ingestedAny = true;
       totalPulled += batch.events.length;
     }
 
@@ -83,6 +98,17 @@ export async function pullEvents(vaultId: string): Promise<PullResult> {
     }
 
     if (!batch.has_more) break;
+  }
+
+  // Apply everything we just ingested. Best-effort: the rows are durable, so a
+  // sweep failure here only defers application to the next debounced /
+  // cold-launch / foreground sweepAllQuarantinedVaults — never loses data.
+  if (ingestedAny) {
+    try {
+      await sweepVaultNow(vaultId);
+    } catch (err) {
+      console.warn(`[sync.pull] post-pull sweep failed for ${vaultId.slice(0, 8)}`, err);
+    }
   }
 
   return { pulled: totalPulled };
@@ -157,98 +183,23 @@ async function fetchOnePage(
   };
 }
 
-async function applyBatch(vaultId: string, wireEvents: WirePulledEvent[]): Promise<void> {
-  const db = await getDb();
+// Durably INGEST one pulled page into event_log (applied_at=NULL). NO apply
+// here — apply is the sweep's job after the full drain. This is the crux of the
+// data-loss fix: an event that can't apply yet (its person/relationship hasn't
+// arrived, the membership chain hasn't healed) still lands as a durable row and
+// is retried by the sweep, instead of throwing inside applyEvent — which used
+// to roll back the event_log INSERT and let the cursor skip it forever.
+//
+// ingestPulledEvents serializes the whole page in one transaction under
+// applyEventMutex, marks each row server_acked (it IS on the server — we just
+// pulled it) so it never re-pushes, and back-fills author_seq onto any
+// pre-existing duplicate row.
+async function ingestBatch(vaultId: string, wireEvents: WirePulledEvent[]): Promise<void> {
   const now = Date.now();
-
-  for (const w of wireEvents) {
-    if (!isKnownEventType(w.event_type)) {
-      // Unknown event types from a future client build land here.
-      continue;
-    }
-
-    // Server returns target_id / relationship_id as top-level envelope
-    // fields (added in the Phase 3 schema migration that introduced the
-    // columns). Every applier keyed off envelope target_id —
-    // entry_amended / entry_deleted / person_renamed / person_archived /
-    // person_phone_changed / shop_profile_updated — silently no-ops if
-    // these are empty, so the projection would diverge from the server's
-    // view. Trust the wire here.
-    const event = {
-      event_id: w.event_id,
-      event_type: w.event_type,
-      vault_id: vaultId,
-      target_id: w.target_id ?? "",
-      relationship_id: w.relationship_id ?? null,
-      hlc: w.hlc,
-      device_id: w.device_id,
-      author_user_id_local_only: "",
-      actor_account_id: w.account_id ?? null,
-      payload: w.payload,
-      payload_schema: w.schema_version,
-      appended_at: now,
-      server_acked_at: now,
-      rejected_at: null,
-      origin: "remote" as const,
-      author_seq: sanitizeAuthorSeq(w.author_seq),
-      // M2: carry the signature so the role-gate can authenticate membership
-      // events pulled over HTTPS (and the chain verifier can fold them).
-      event_sig_b64: typeof w.event_sig_b64 === "string" ? w.event_sig_b64 : null,
-      signer_device_pubkey:
-        typeof w.signer_device_pubkey === "string" ? w.signer_device_pubkey : null,
-    } as unknown as LedgerEvent;
-
-    try {
-      await applyEvent(event, { origin: "remote" });
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn(`[sync.pull] applyEvent failed for ${w.event_id} (${w.event_type})`, err);
-    }
-  }
-
-  // For pulled events that ended up in event_log without a stamp (e.g. a
-  // duplicate INSERT OR IGNORE matched an already-existing locally-authored
-  // row), patch server_acked_at so they don't get pushed again. Same pass
-  // backfills author_seq onto rows that pre-exist WITHOUT one (a mesh-
-  // ingested copy arrived before the author's seq reached us via the
-  // server) — the author's assignment is authoritative, and without this
-  // the row stays invisible to the version vector forever. UPDATE OR
-  // IGNORE: if another row already holds that (vault, device, seq) slot
-  // (legacy backfill divergence), keep ours NULL rather than corrupt the
-  // unique index — the advisory vector simply keeps understating until M3
-  // gap-repair.
-  // Serialized behind the same mutex as applyEvent — expo-sqlite's
-  // withTransactionAsync is non-exclusive and this patch tx must not
-  // interleave with a concurrent user-save transaction.
-  await applyEventMutex.runExclusive(() =>
-    db.withTransactionAsync(async () => {
-      for (const w of wireEvents) {
-        await db.runAsync(
-          `UPDATE event_log SET server_acked_at = ?
-            WHERE event_id = ? AND server_acked_at IS NULL`,
-          now,
-          w.event_id,
-        );
-        const wireSeq = sanitizeAuthorSeq(w.author_seq);
-        if (wireSeq != null) {
-          await db.runAsync(
-            `UPDATE OR IGNORE event_log SET author_seq = ?
-              WHERE event_id = ? AND author_seq IS NULL`,
-            wireSeq,
-            w.event_id,
-          );
-        }
-      }
-    }),
+  const events = wireEvents.map((w) =>
+    mapPulledWireToEvent(w as unknown as PulledWireEvent, vaultId),
   );
-}
-
-// Author seqs are positive integers by contract. The M1 backend enforces
-// this on push, but this replica must not trust any wire blindly — M3's
-// untrusted mesh peers feed the same envelope path, and computeContiguous
-// is only defined over 1..n.
-function sanitizeAuthorSeq(raw: unknown): number | null {
-  return typeof raw === "number" && Number.isInteger(raw) && raw >= 1 ? raw : null;
+  await ingestPulledEvents(events, now);
 }
 
 function parseRetryAfter(raw: string | null): number | null {

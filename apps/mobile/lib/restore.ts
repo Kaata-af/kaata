@@ -6,14 +6,18 @@
 // transaction. The multi-vault recovery driver (lib/recovery.ts) calls these
 // per vault; the in-app + onboarding restore screens go through that driver.
 //
-// The tail + membership events funnel through applyEvent({origin: 'remote'})
-// so the HLC frontier advances correctly, the event_log accumulates the
-// canonical history, and the projection appliers are the only thing touching
-// the ledger tables. The only DB write that is NOT routed through applyEvent
-// is the snapshot's prior projection-state seed (restoreFromSnapshot writes the
-// snapshot rows directly inside the transaction before replaying post-snapshot
-// events on top — see the long comment block in restoreFromSnapshot for why
-// re-emitting every snapshot row as a synthetic event would be wrong).
+// The tail + membership events are DURABLY INGESTED via the shared ingest path
+// (lib/projection/ingest-row.ts) — the same one server-pull uses — so the HLC
+// frontier advances at ingest and event_log accumulates the canonical history,
+// and then APPLIED by one sweep pass (quarantine-and-retry on any missing
+// prerequisite). They are NOT applied directly: a tail entry whose person is
+// itself in the tail used to throw inside applyEvent, roll the event_log row
+// back, and let the cursor skip it forever — the restore data-loss bug this
+// path now closes. The only DB write that is NOT an event is the snapshot's
+// prior projection-state seed (restoreFromSnapshot writes the snapshot rows
+// directly inside the transaction before the tail rides on top — see the long
+// comment block in restoreFromSnapshot for why re-emitting every snapshot row
+// as a synthetic event would be wrong).
 
 import { getBackendUrl } from "./api";
 import { getSessionJWT } from "./auth";
@@ -24,9 +28,15 @@ import {
   setActiveVaultIdCache,
   setAppMetaInTx,
 } from "./db-tx";
-import { applyEvent } from "./event-log";
 import type { LedgerEvent } from "./events";
-import { compareHLC, deserializeHLC, serializeHLC } from "./hlc";
+import { compareHLC, deserializeHLC, serializeHLC, type HLC } from "./hlc";
+import { serializeFieldHLCs, type FieldHLCMap } from "./projection/field-hlc";
+import {
+  ingestPulledEvents,
+  mapPulledWireToEvent,
+  type PulledWireEvent,
+} from "./projection/ingest-row";
+import { sweepVaultNow } from "./projection/sweep";
 import { setLastPulledServerSeq } from "./sync/cursor";
 
 const SNAPSHOT_TIMEOUT_MS = 30_000;
@@ -238,6 +248,33 @@ export async function restoreFromSnapshot(
   const db = await getDb();
   let appliedEvents = 0;
 
+  // Snapshot rows carry NO per-field HLCs (the backend projection tracks
+  // hlcAmount/hlcNote/… but marks them json:"-", so they never reach the wire).
+  // A snapshot-seeded row left with field_hlcs=NULL collapses to an empty map →
+  // every field floor is FIELD_HLC_INIT (below every real HLC) → ANY
+  // post-snapshot amend, even one OLDER than the value baked into the snapshot,
+  // wins LWW and corrupts the restored figure. We seed a CONSERVATIVE floor at
+  // the row's updated_at as a partial mitigation.
+  //
+  // CAVEAT (this is a mitigation, NOT exact — see backlog): updated_at is a
+  // single per-row timestamp, not the per-field winner HLC. For a never-amended
+  // entry it is the backdated occurred_at (below the true create HLC); for an
+  // amended entry it is the latest-writing event's HLC across ANY field (above
+  // an individual field whose own winner is older). So the floor can be slightly
+  // low (a narrow stale-amend window survives) or slightly high (a legitimately-
+  // newer out-of-order amend for one field is skipped). BOTH require a
+  // cross-device, out-of-order amend whose HLC lands in that gap — impossible
+  // for a solo single-device user (monotonic HLC, in-order tail), and strictly
+  // better than the pre-fix NULL (where every stale amend corrupted). The exact
+  // fix is to serialize the four per-field HLCs in the snapshot wire and seed
+  // them verbatim — deferred (backend change). l/did are zeroed.
+  const floorFieldHLCs = (fields: string[], updatedAtMs: number): string => {
+    const floor: HLC = { pms: updatedAtMs, l: 0, did: "" };
+    const map: FieldHLCMap = {};
+    for (const f of fields) map[f] = floor;
+    return serializeFieldHLCs(map);
+  };
+
   // The self user is never event-sourced, so the server stores every relationship
   // with user_a_id="" and every entry with proposed_by_user_id="" — both FK
   // columns that point at users(id). We remap those empty refs to the local self
@@ -312,8 +349,8 @@ export async function restoreFromSnapshot(
         `INSERT OR REPLACE INTO users (
            id, phone_e164, display_name, is_local_self,
            google_sub, account_id,
-           created_at, updated_at, archived_at
-         ) VALUES (?, ?, ?, ?,  ?, ?,  ?, ?, ?)`,
+           created_at, updated_at, archived_at, field_hlcs
+         ) VALUES (?, ?, ?, ?,  ?, ?,  ?, ?, ?, ?)`,
         u.id,
         u.phone_e164,
         u.display_name,
@@ -323,6 +360,7 @@ export async function restoreFromSnapshot(
         u.created_at,
         u.updated_at,
         u.archived_at,
+        floorFieldHLCs(["display_name", "phone_e164"], u.updated_at),
       );
     }
 
@@ -369,8 +407,8 @@ export async function restoreFromSnapshot(
            id, vault_id, relationship_id, type, amount_afn, note,
            created_at, updated_at, deleted_at, proposed_by_user_id,
            current_event_id, is_deleted, is_settled,
-           accepted_at, disputed_at, disputed_reason, settled_at
-         ) VALUES (?, ?, ?, ?, ?, ?,  ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?, ?)`,
+           accepted_at, disputed_at, disputed_reason, settled_at, field_hlcs
+         ) VALUES (?, ?, ?, ?, ?, ?,  ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?, ?, ?)`,
         e.id,
         e.vault_id,
         e.relationship_id,
@@ -391,6 +429,7 @@ export async function restoreFromSnapshot(
         e.disputed_at,
         e.disputed_reason,
         e.settled_at,
+        floorFieldHLCs(["amount_afn", "note", "type", "occurred_at_ms"], e.updated_at),
       );
     }
 
@@ -414,40 +453,35 @@ export async function restoreFromSnapshot(
   // Prime the in-memory cache (single-vault path only; the driver primes once).
   if (setActiveDefault) setActiveVaultIdCache(snapshot.vault.id);
 
-  // M5: ingest the vault's full membership chain (genesis + member/device
-  // events) so a RECOVERED device has them in event_log — its proof bundle is
-  // then complete and it can fold its own membership to MESH (the ledger
-  // projection collapses these; the tail only has post-cursor events).
-  // Idempotent by event_id (applyEvent → INSERT OR IGNORE); HLC drives merge
-  // order, so ingesting before the tail is fine even if they overlap.
-  for (const ev of snapshot.membership_events ?? []) {
-    try {
-      await applyEvent(ev, { origin: "remote" });
-    } catch (err) {
-      console.warn("[restore] skipping bad membership event", ev.event_id, ev.event_type, err);
-    }
-  }
-
-  // 7. Replay the post-snapshot event tail. Each event goes through
-  //    applyEvent which opens its own transaction — we don't bundle them
-  //    into the same tx as the snapshot seed because a single bad event
-  //    in the tail (corrupt payload, unknown type from a newer server)
-  //    shouldn't blow away the snapshot itself. Instead we accept what
-  //    we can and surface the failure count to the caller.
+  // 7. DURABLY INGEST the membership chain + the post-snapshot event tail, then
+  //    apply them via one sweep pass. This is the restore-side half of the
+  //    fundamental data-loss fix: events go in as durable event_log rows
+  //    (applied_at=NULL) via the SAME ingest path as server-pull, so a tail
+  //    event that can't apply yet (its person/relationship is itself in the
+  //    tail, or the membership chain hasn't healed) is QUARANTINED and retried
+  //    by the sweep — NOT swallowed by a try/catch while the cursor below
+  //    advances past it forever (the old applyEvent-direct loop's silent-loss
+  //    bug, which is exactly how "the latest tallies didn't come back").
   //
-  //    Order: events are pre-sorted (server_seq ASC) by the backend. We
-  //    don't re-sort here — the backend's order is authoritative.
-  for (const ev of snapshot.events) {
-    try {
-      const { applied } = await applyEvent(ev, { origin: "remote" });
-      if (applied) appliedEvents += 1;
-    } catch (err) {
-      // Skip unknown event types / projection errors. The sync worker
-      // will re-fetch from the cursor we seed below; transient failures
-      // get a second chance on the next sync tick.
-      console.warn("[restore] skipping bad tail event", ev.event_id, ev.event_type, err);
-    }
-  }
+  //    Membership first (genesis + member/device adds) so a RECOVERED device's
+  //    proof bundle is complete and the role-gate can authenticate the tail's
+  //    signed entries during the sweep; both are idempotent by event_id and HLC
+  //    drives merge order, so the split is safe even if they overlap.
+  //
+  //    Wire shape note: snapshot.{events,membership_events} arrive in the
+  //    backend PulledEvent JSON shape (account_id / schema_version / nullable
+  //    target_id), NOT the LedgerEvent shape — mapPulledWireToEvent normalizes
+  //    them exactly as the pull path does (the old loop passed them raw to
+  //    applyEvent, silently dropping actor_account_id / payload_schema).
+  const now = Date.now();
+  const membershipEvents = (snapshot.membership_events ?? []).map((ev) =>
+    mapPulledWireToEvent(ev as unknown as PulledWireEvent, snapshot.vault.id),
+  );
+  const tailEvents = snapshot.events.map((ev) =>
+    mapPulledWireToEvent(ev as unknown as PulledWireEvent, snapshot.vault.id),
+  );
+  await ingestPulledEvents(membershipEvents, now);
+  appliedEvents += await ingestPulledEvents(tailEvents, now);
 
   // 8. Seed the pull cursor to snapshot_server_seq. Without this, the
   //    very next sync tick starts pulling from after_server_seq=0 and
@@ -467,6 +501,18 @@ export async function restoreFromSnapshot(
     }
   }
   await setLastPulledServerSeq(snapshot.vault.id, cursor);
+
+  // Apply the durably-ingested membership + tail now (one fixpoint sweep pass:
+  // create-before-amend, membership-before-entry resolve in a single pass), so
+  // the restored ledger is populated when this returns — not just the snapshot
+  // base. Best-effort: the rows are durable, so a sweep failure here only defers
+  // application to recoverAllVaults' end-of-loop scheduleSweep / the cold-launch
+  // sweepAllQuarantinedVaults. Nothing can be lost.
+  try {
+    await sweepVaultNow(snapshot.vault.id);
+  } catch (err) {
+    console.warn("[restore] post-restore sweep failed", snapshot.vault.id.slice(0, 8), err);
+  }
 
   return {
     ok: true,

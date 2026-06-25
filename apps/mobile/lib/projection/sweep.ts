@@ -106,6 +106,20 @@ export async function sweepAllQuarantinedVaults(): Promise<void> {
   for (const r of rows) scheduleSweep(r.vault_id);
 }
 
+/**
+ * Sweep one vault NOW and await it (under the same mutex as the debounced
+ * sweeps). Used by the server-pull + restore paths right after they durably
+ * INGEST a batch, so the freshly-ingested rows are APPLIED to the projection
+ * before control returns — the user sees their restored/synced tallies
+ * immediately instead of waiting for the next debounced/lifecycle sweep. Any
+ * row that still can't apply (missing prereq / role not yet healed) stays
+ * durably quarantined and is retried by the cold-launch / foreground
+ * sweepAllQuarantinedVaults — never lost.
+ */
+export async function sweepVaultNow(vaultId: string): Promise<void> {
+  await sweepMutex.runExclusive(() => sweepQuarantine(vaultId));
+}
+
 async function runScheduledSweeps(vaultIds: string[]): Promise<void> {
   // The mutex protects all sweeps + applyIncomingBatch from
   // interleaving. We hold it for the WHOLE batch (one acquisition,

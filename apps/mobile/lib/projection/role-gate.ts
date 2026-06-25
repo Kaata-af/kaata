@@ -435,6 +435,33 @@ function isWitnessCapableMembershipEvent(event: LedgerEvent): boolean {
   return w != null && typeof w === "object";
 }
 
+// Event types the ANCHOR RESTORE carve-out may authenticate: the user-DATA and
+// vault-CONFIG events whose author is the vault owner. EXCLUDES every
+// membership/device event (vault_member_* / vault_device_*) and account_bound —
+// those keep their dedicated genesis/witness authentication so the carve-out can
+// never be used to forge ownership or membership. (entry_* / person_* /
+// shop_profile_updated / vault_setting_set are all owner-or-editor writes the
+// vault's own anchor is trivially authorized to make.)
+function isAnchorAuthableEventType(t: string): boolean {
+  return !t.startsWith("vault_member_") && !t.startsWith("vault_device_") && t !== "account_bound";
+}
+
+// True iff `pubkey` is THIS vault's pinned trust anchor (the device that minted
+// it). The anchor is the vault's root of trust + owner by construction; an event
+// whose signature verifies against it is genuinely from the owner device.
+async function isVaultAnchorPubkey(
+  tx: SQLiteTx,
+  vaultId: string,
+  pubkey: string | null,
+): Promise<boolean> {
+  if (!pubkey) return false;
+  const row = await tx.getFirstAsync<{ vault_trust_anchor_pubkey: string | null }>(
+    "SELECT vault_trust_anchor_pubkey FROM vaults WHERE id = ? LIMIT 1",
+    vaultId,
+  );
+  return row?.vault_trust_anchor_pubkey != null && row.vault_trust_anchor_pubkey === pubkey;
+}
+
 async function serverWitnessKeys(tx: SQLiteTx): Promise<string[]> {
   const rows = await tx.getAllAsync<{ value: string }>(
     `SELECT value FROM app_meta
@@ -712,6 +739,12 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
     // M2: genesis-bootstrap — the anchor's own first owner self-admission,
     // authenticated on the anchor identity (see isGenesisBootstrapEvent).
     let genesisBootstrap = false;
+    // Restore carve-out: a non-membership event signed by the vault's OWN
+    // pinned trust anchor (the device that minted a pre-sign-in vault), whose
+    // device binding never entered the chain server-side and so is absent from
+    // this restored device's registry. Authenticated on the anchor identity
+    // itself (see the anchorAuthenticated accept after signature verification).
+    let anchorAuthenticated = false;
     const cred = await lookupSignerCredential(
       tx,
       event.vault_id,
@@ -758,6 +791,31 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
         // anchor binding yet) authenticates on the anchor identity itself.
         // Defer the accept until AFTER signature verification below.
         genesisBootstrap = true;
+      } else if (
+        isAnchorAuthableEventType(event.event_type) &&
+        (await isVaultAnchorPubkey(tx, event.vault_id, signerPubkey)) &&
+        !(await isRemovedDevice(tx, event.vault_id, signerPubkey))
+      ) {
+        // ANCHOR RESTORE carve-out: a NON-membership event (entry_* / person_* /
+        // shop_profile_updated / vault_setting_set) signed by THIS vault's own
+        // pinned trust anchor. On a reinstalled solo device the original
+        // anchor's device binding never entered the chain server-side (the
+        // pre-sign-in genesis is keyed by a local sentinel that the server's
+        // genesis ACL rejects — membership.go), so the anchor pubkey is absent
+        // from vault_device_registry and these own-history events (e.g. the user
+        // deleting a duplicate tally) quarantine forever as unknown_actor. The
+        // anchor is the vault's owner BY CONSTRUCTION, so we authenticate it on
+        // the anchor identity itself — deferred until AFTER signature
+        // verification below, exactly like genesis. Membership/device events are
+        // EXCLUDED (kept on their genesis/witness paths) so this can't be used to
+        // forge ownership changes. The !isRemovedDevice guard (security-review
+        // must-fix) ensures a retired/compromised anchor key cannot author
+        // forever once a device-removal flow exists — a no-op for the legitimate
+        // restore (the anchor has no registry row yet). Stronger follow-up
+        // (deferred): also scope to events whose hlc predates the post-restore
+        // re-keyed owner admission, so it only blesses genuine PRE-restore
+        // own-history, never a newly-authored anchor-signed event.
+        anchorAuthenticated = true;
       } else {
         // No binding yet (the peer's admission hasn't been gossiped to
         // us). We can still cryptographically verify the signature
@@ -813,6 +871,22 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
       // self-admission. Accept — applyVaultMemberAdded seeds the anchor
       // device binding, so every subsequent owner event authenticates via
       // the registry normally.
+      return { ok: true };
+    }
+
+    if (anchorAuthenticated) {
+      // Signature verified against the vault's pinned trust anchor pubkey, so
+      // this event genuinely came from the device that MINTED the vault — its
+      // owner by construction, at EVERY hlc. Grant directly; we must NOT defer
+      // to resolveRoleAt, because the post-restore re-keyed owner admission
+      // (recovery.ts reestablishOwnerIfConfirmed) has a LATER hlc than this
+      // historical event, so a lawful-at-hlc role lookup returns null and the
+      // event would wrongly stay quarantined forever (own-history deletes/edits
+      // invisible on a reinstalled solo device — the "deleted duplicates come
+      // back after restore" bug). Only non-membership events reach here (the
+      // else-if above gates on isAnchorAuthableEventType), so this cannot forge
+      // ownership/membership; only the anchor's own private key could produce
+      // this signature, so it cannot widen the attack surface to other peers.
       return { ok: true };
     }
 

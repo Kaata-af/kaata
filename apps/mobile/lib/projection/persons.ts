@@ -11,6 +11,7 @@ import type {
   PersonRenamedEvent,
   PersonUnarchivedEvent,
 } from "../events";
+import { MissingPrereqError } from "./errors";
 import { compareFieldHLC, parseFieldHLCs, serializeFieldHLCs, type FieldHLCMap } from "./field-hlc";
 
 export async function applyPersonAdded(tx: SQLiteTx, event: PersonAddedEvent): Promise<void> {
@@ -77,7 +78,19 @@ export async function applyPersonRenamed(tx: SQLiteTx, event: PersonRenamedEvent
     `SELECT field_hlcs FROM users WHERE id = ?`,
     event.target_id,
   );
-  if (row == null) return; // out-of-order rename before add; drop and let sync redeliver
+  if (row == null) {
+    // Out-of-order rename before the person_added. On the REMOTE/sweep path the
+    // event is durably ingested, so throwing QUARANTINES (missing_prereq) for
+    // retry rather than dropping the rename forever (a silent return is counted
+    // {applied} by the sweep → never re-applied = lost edit). LOCAL keeps the
+    // benign no-op.
+    if (event.origin === "remote") {
+      throw new MissingPrereqError(
+        `person_renamed ${event.event_id}: target user ${event.target_id} not found (missing prereq)`,
+      );
+    }
+    return;
+  }
 
   const current: FieldHLCMap = parseFieldHLCs(row.field_hlcs);
   if (compareFieldHLC(current, "display_name", event.hlc) === "skip") return;
@@ -110,7 +123,17 @@ export async function applyPersonPhoneChanged(
     `SELECT field_hlcs FROM users WHERE id = ?`,
     event.target_id,
   );
-  if (row == null) return;
+  if (row == null) {
+    // Out-of-order phone-change before the person_added — same rationale as
+    // applyPersonRenamed: throw to quarantine-and-retry on the remote/sweep
+    // path, benign no-op for local.
+    if (event.origin === "remote") {
+      throw new MissingPrereqError(
+        `person_phone_changed ${event.event_id}: target user ${event.target_id} not found (missing prereq)`,
+      );
+    }
+    return;
+  }
 
   const current: FieldHLCMap = parseFieldHLCs(row.field_hlcs);
   if (compareFieldHLC(current, "phone_e164", event.hlc) === "skip") return;
@@ -140,7 +163,7 @@ export async function applyPersonArchived(tx: SQLiteTx, event: PersonArchivedEve
     throw new Error(`person_archived event ${event.event_id} missing envelope vault_id`);
   }
 
-  await tx.runAsync(
+  const res = await tx.runAsync(
     `UPDATE relationships
         SET archived_at = ?, updated_at = ?
       WHERE id = ? AND vault_id = ?`,
@@ -149,6 +172,15 @@ export async function applyPersonArchived(tx: SQLiteTx, event: PersonArchivedEve
     event.relationship_id,
     event.vault_id,
   );
+  // 0 rows ⇒ the relationship isn't on disk yet (archive before its person_added,
+  // cross-batch). On remote/sweep, throw so it quarantines+retries — a silent
+  // no-op is counted {applied} and never retried, resurrecting the archived
+  // contact when the add later applies. LOCAL/backfill keep the no-op.
+  if ((res?.changes ?? 0) === 0 && event.origin === "remote") {
+    throw new MissingPrereqError(
+      `person_archived ${event.event_id}: relationship ${event.relationship_id} not found (missing prereq)`,
+    );
+  }
 
   const remaining = await tx.getFirstAsync<{ n: number }>(
     `SELECT COUNT(*) AS n FROM relationships
@@ -174,7 +206,7 @@ export async function applyPersonUnarchived(
   if (event.vault_id == null) {
     throw new Error(`person_unarchived event ${event.event_id} missing envelope vault_id`);
   }
-  await tx.runAsync(
+  const res = await tx.runAsync(
     `UPDATE relationships
         SET archived_at = NULL, updated_at = ?
       WHERE id = ? AND vault_id = ?`,
@@ -182,4 +214,12 @@ export async function applyPersonUnarchived(
     event.relationship_id,
     event.vault_id,
   );
+  // 0 rows ⇒ relationship not on disk yet (unarchive before its add). Remote →
+  // quarantine+retry rather than a silent {applied} no-op that loses the
+  // unarchive when the add later lands. LOCAL/backfill keep the no-op.
+  if ((res?.changes ?? 0) === 0 && event.origin === "remote") {
+    throw new MissingPrereqError(
+      `person_unarchived ${event.event_id}: relationship ${event.relationship_id} not found (missing prereq)`,
+    );
+  }
 }

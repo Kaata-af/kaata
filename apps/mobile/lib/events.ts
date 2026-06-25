@@ -288,3 +288,27 @@ export function isKnownEventType(t: string): t is EventType {
   // Set.has accepts any value; no narrowing cast needed.
   return (KNOWN_EVENT_TYPES as ReadonlySet<string>).has(t);
 }
+
+// Event types that carry the user's actual LEDGER DATA (tallies, contacts, shop
+// profile) — as opposed to membership / device / vault-config / account events.
+// These must NEVER be permanently discarded (push rejected_at, or a sweep
+// tombstone) over a recoverable condition: the product invariant is "a tally
+// never disappears". Membership/device/vault events are NOT here — the server
+// holds their canonical copy and a genuinely-bad one of those must not loop or
+// resurface forever.
+const USER_LEDGER_EVENT_TYPES: ReadonlySet<string> = new Set<string>([
+  "entry_created",
+  "entry_amended",
+  "entry_deleted",
+  "entry_settled",
+  "person_added",
+  "person_renamed",
+  "person_phone_changed",
+  "person_archived",
+  "person_unarchived",
+  "shop_profile_updated",
+]);
+
+export function isUserLedgerEventType(t: string): boolean {
+  return USER_LEDGER_EVENT_TYPES.has(t);
+}

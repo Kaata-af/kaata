@@ -15,6 +15,7 @@
 
 import type { SQLiteTx } from "../db-tx";
 import type { EntryAmendedEvent, EntryCreatedEvent, EntryDeletedEvent } from "../events";
+import { MissingPrereqError } from "./errors";
 import { compareFieldHLC, parseFieldHLCs, serializeFieldHLCs, type FieldHLCMap } from "./field-hlc";
 
 export async function applyEntryCreated(tx: SQLiteTx, event: EntryCreatedEvent): Promise<void> {
@@ -81,9 +82,20 @@ export async function applyEntryAmended(tx: SQLiteTx, event: EntryAmendedEvent):
     event.target_id,
   );
   if (row == null) {
-    // Out-of-order delivery (amend before create). Drop — sync will
-    // re-deliver after create lands. Throwing would roll back the
-    // event_log INSERT and we'd re-fetch the same event forever.
+    // Out-of-order delivery (amend before its create). On the REMOTE/sweep
+    // path the event is already durably ingested (event_log row exists), so
+    // throwing here does NOT lose it — it QUARANTINES (missing_prereq) and the
+    // sweep retries once the create lands (HLC order makes create sort first,
+    // so they heal in one fixpoint pass). The old silent `return` was counted
+    // as {applied} by the sweep → the amend left quarantine permanently and was
+    // never re-applied → silent edit loss. LOCAL/backfill origin keeps the
+    // benign no-op (a local amend's target always exists; a synthetic backfill
+    // replays in order), so we never break those callers.
+    if (event.origin === "remote") {
+      throw new MissingPrereqError(
+        `entry_amended ${event.event_id}: target entry ${event.target_id} not found (missing prereq)`,
+      );
+    }
     return;
   }
 
@@ -156,7 +168,7 @@ export async function applyEntryDeleted(tx: SQLiteTx, event: EntryDeletedEvent):
   // deleted_at / updated_at come from event.hlc.pms so a backfilled delete
   // restores the original entries.deleted_at byte-identical (replay
   // invariant). For live deletes hlc.pms is nowMs.
-  await tx.runAsync(
+  const res = await tx.runAsync(
     `UPDATE entries
        SET is_deleted       = 1,
            deleted_at       = ?,
@@ -168,4 +180,15 @@ export async function applyEntryDeleted(tx: SQLiteTx, event: EntryDeletedEvent):
     event.event_id,
     event.target_id,
   );
+  // 0 rows changed ⇒ the entry isn't on disk yet (delete arrived before its
+  // create, cross-batch). On the REMOTE/sweep path, throw so it QUARANTINES and
+  // retries once the create lands — a silent return is counted {applied} and
+  // never retried, so the entry would RESURRECT (un-deleted) when the create
+  // later applies. LOCAL/backfill keep the harmless no-op (a local delete's
+  // target exists; backfill replays the create first).
+  if ((res?.changes ?? 0) === 0 && event.origin === "remote") {
+    throw new MissingPrereqError(
+      `entry_deleted ${event.event_id}: target entry ${event.target_id} not found (missing prereq)`,
+    );
+  }
 }

@@ -2034,37 +2034,6 @@ function sanitizeWireAuthorSeq(v: unknown): number | null {
   return typeof v === "number" && Number.isInteger(v) && v >= 1 ? v : null;
 }
 
-/**
- * M3.5 author_seq slot pre-check for mesh ingest. Returns the event's author
- * seq, or null if a DIFFERENT event_id already occupies the
- * (vault, author_device, seq) slot — in which case we sacrifice the SEQ, never
- * the event (mirrors projection/index.ts:342-363 and pull.ts's UPDATE OR
- * IGNORE). Honest relays forward the author's verbatim seq, so in a fresh
- * system this never fires; if it does, the event still ingests (PK) but is
- * invisible to the version vector until the conflict resolves.
- */
-async function resolveMeshAuthorSeq(
-  db: Awaited<ReturnType<typeof getDb>>,
-  event: LedgerEvent,
-): Promise<number | null> {
-  const seq = event.author_seq ?? null;
-  if (seq == null || event.vault_id == null) return null;
-  const slot = await db.getFirstAsync<{ event_id: string }>(
-    `SELECT event_id FROM event_log
-      WHERE vault_id = ? AND device_id = ? AND author_seq = ?`,
-    event.vault_id,
-    event.device_id,
-    seq,
-  );
-  if (slot && slot.event_id !== event.event_id) {
-    console.warn(
-      `[mesh.ingest] author_seq slot ${event.device_id}#${seq} held by ${slot.event_id} — sacrificing seq for ${event.event_id}`,
-    );
-    return null;
-  }
-  return seq;
-}
-
 async function applyIncomingBatch(
   expectedVaultId: string,
   events: WireMeshEvent[],
@@ -2080,6 +2049,19 @@ async function applyIncomingBatch(
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { verifyAndIngest } = require("../ingest-types") as {
     verifyAndIngest: (event: LedgerEvent, ctx: IngestContextType) => Promise<IngestVerdictType>;
+  };
+  // The durable-ingest INSERT (event_log row + author_seq slot pre-check + HLC
+  // frontier bump) is SHARED with the server-pull / restore paths so the two
+  // replication channels can never silently diverge (the root lesson of the
+  // 2026-06-25 restore data-loss bug). Lazy-required to match the sweep import.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { ingestRowInTx } = require("../projection/ingest-row") as {
+    ingestRowInTx: (
+      tx: Awaited<ReturnType<typeof getDb>>,
+      event: LedgerEvent,
+      ingestedAtMs: number,
+      serverAckedAt: number | null,
+    ) => Promise<boolean>;
   };
 
   let ingested = 0;
@@ -2113,58 +2095,14 @@ async function applyIncomingBatch(
         return row?.c ?? 0;
       },
       insertIngested: async (event: LedgerEvent, ingestedAtMs: number) => {
+        // Durable INSERT (event_log row, applied_at=NULL) + author_seq slot
+        // pre-check + HLC frontier bump, in one txn. Shared with the
+        // server-pull / restore paths via ingestRowInTx so the durability
+        // contract is identical everywhere. serverAckedAt=null: a mesh-relayed
+        // event is NOT necessarily on the server yet, so it must remain in the
+        // push outbox until the server acks it.
         await db.withTransactionAsync(async () => {
-          // M3.5: persist the author's canonical seq so our version vector
-          // advances contiguously. Slot pre-check (mirrors
-          // projection/index.ts:342-363): if a DIFFERENT event_id already
-          // holds this (vault, author, seq) slot, sacrifice the SEQ — never
-          // the event. In a fresh honest system this never fires.
-          const authorSeq = await resolveMeshAuthorSeq(db, event);
-          await db.runAsync(
-            // INSERT OR IGNORE: a re-received event is an idempotent no-op on
-            // the event_id PK. The (vault,device,author_seq) UNIQUE index can't
-            // fire here — resolveMeshAuthorSeq already sacrificed the seq to
-            // NULL inside this same txn if the slot was taken.
-            `INSERT OR IGNORE INTO event_log (
-               event_id, event_type, vault_id, target_id, relationship_id,
-               hlc_physical_ms, hlc_logical, hlc_device_id,
-               device_id, author_user_id_local_only, actor_account_id,
-               payload_json, payload_schema,
-               appended_at, server_acked_at, rejected_at, origin,
-               event_sig_b64, signer_device_pubkey,
-               ingested_at, applied_at, quarantine_reason, tombstone_reason, author_seq
-             ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?,  ?, ?,  ?, ?, ?, ?,  ?, ?,  ?, NULL, NULL, NULL, ?)`,
-            event.event_id,
-            event.event_type,
-            event.vault_id,
-            event.target_id,
-            event.relationship_id,
-            event.hlc.pms,
-            event.hlc.l,
-            event.hlc.did,
-            event.device_id,
-            event.author_user_id_local_only ?? "",
-            event.actor_account_id,
-            JSON.stringify(event.payload),
-            event.payload_schema,
-            ingestedAtMs,
-            null,
-            null,
-            "remote",
-            event.event_sig_b64 ?? null,
-            event.signer_device_pubkey ?? null,
-            ingestedAtMs,
-            authorSeq,
-          );
-          // HLC frontier bump (per-row inside the same txn as the
-          // INSERT). tickReceive merges the event's HLC into our
-          // frontier; this is the previous applyEvent's line 217
-          // semantics, kept intact under the ingest path. (M3.5 keeps the
-          // hlc_last PROJECTION cursor — it's independent of the summary.)
-          const prevRaw = await getAppMetaInTx(db, HLC_LAST_KEY);
-          const prev = prevRaw ? deserializeHLC(prevRaw) : null;
-          const merged = tickReceive(prev, event.hlc, Date.now(), getInstallIdSync());
-          await setAppMetaInTx(db, HLC_LAST_KEY, serializeHLC(merged));
+          await ingestRowInTx(db, event, ingestedAtMs, null);
         });
       },
       insertTombstoned: async (event: LedgerEvent, tombstoneReason, ingestedAtMs: number) => {
