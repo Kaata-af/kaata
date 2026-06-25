@@ -112,16 +112,19 @@ a{color:inherit;text-decoration:none;}
 .ramt{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--ink);}
 .rcur{font-size:11px;font-weight:500;color:var(--mut);}
 .rmeta{display:flex;align-items:baseline;white-space:nowrap;flex:0 0 auto;}
-.rverb{font-size:12px;font-weight:500;color:var(--sub);}
-.rsep{font-size:12px;color:var(--mut);margin:0 5px;}
 .rwhen{font-size:12px;color:var(--mut);}
-.rnote{font-size:13px;line-height:18px;color:var(--sub);margin-top:5px;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;}
-.row.open .rnote{-webkit-line-clamp:unset;overflow:visible;}
-.rmore{display:inline-block;margin-top:4px;font-size:12px;font-weight:600;color:var(--ink);cursor:pointer;}
+.rnoterow{display:flex;align-items:baseline;gap:6px;min-width:0;margin-top:5px;}
+.rnote{flex:1;min-width:0;font-size:13px;line-height:18px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.row.open .rnote{white-space:normal;overflow:visible;text-overflow:clip;}
+.rmore{flex:0 0 auto;font-size:12px;font-weight:600;color:var(--ink);cursor:pointer;}
+/* Every row darkens on press (parity with the app's rows), whether or not it
+   expands; hover + pointer only on a clipped row that can open. The --hair icon
+   chip stays visible on the lighter active tint. */
+.row:active{background:var(--line);}
 .row[role=button]{cursor:pointer;}
-/* hover is a whisper (page-bg) so the --hair icon chip stays visible on it;
-   active firms up to --line for press feedback. */
 .row[role=button]:hover{background:var(--bg);}
+/* press must win over hover on interactive rows: equal specificity to :hover,
+   placed after it (matches web, where Tailwind emits active after hover). */
 .row[role=button]:active{background:var(--line);}
 .empty,.err{color:var(--mut);font-size:14px;padding:28px 4px;text-align:center;}
 .foot{margin-top:26px;text-align:center;}
@@ -158,6 +161,9 @@ a{color:inherit;text-decoration:none;}
   var dir = {{.Direction}};
   var rtl = {{.RTL}};
   var apiBase = {{.APIBase}};
+  // iOS Safari only fires :active when an ancestor has a touch listener; this
+  // empty one lets every row show its tap-darken on iOS. Harmless elsewhere.
+  document.addEventListener('touchstart', function(){}, {passive:true});
   var L = rtl ? {
     owe:"بدهکار است", credit:"طلبکار است", settled:"تسویه شده",
     tx:"معاملات", empty:"معامله‌ای نیست", err:"بارگذاری ناموفق بود",
@@ -189,23 +195,21 @@ a{color:inherit;text-decoration:none;}
           var e = list[i];
           var gave = e.type !== 'payment'; // debt → "I gave" (up); payment → "I received" (down)
           html += '<div class="row">'
-            + '<div class="ic">'+(gave?UP:DOWN)+'</div>'
+            + '<div class="ic" role="img" aria-label="'+esc(gave?L.debt:L.payment)+'">'+(gave?UP:DOWN)+'</div>'
             + '<div class="rmid">'
             +   '<div class="rtop">'
             +     '<div class="ramtrow"><span class="ramt">'+fmtAmt(e.amount)+'</span><span class="rcur">'+esc(cur)+'</span></div>'
-            +     '<div class="rmeta"><span class="rverb">'+(gave?L.debt:L.payment)+'</span>'
-            +       '<span class="rsep">·</span><span class="rwhen">'+esc(fmtDate(e.date))+'</span>'
-            +     '</div>'
+            +     '<div class="rmeta"><span class="rwhen">'+esc(fmtDate(e.date))+'</span></div>'
             +   '</div>'
-            +   (e.note ? '<div class="rnote">'+esc(e.note)+'</div>' : '')
+            +   (e.note ? '<div class="rnoterow"><div class="rnote">'+esc(e.note)+'</div></div>' : '')
             + '</div>'
           + '</div>';
         }
         el.innerHTML = html;
-        // Note on its own line, clamped to 1. Only notes that actually overflow
-        // become tap-to-expand (a "more"/"less" cue, measured — not guessed).
+        // Note + cue on one line. Only notes that actually overflow the single
+        // line become tap-to-expand (a "more"/"less" cue, measured — not guessed).
         el.querySelectorAll('.rnote').forEach(function(n){
-          if(n.scrollHeight > n.clientHeight + 1){
+          if(n.scrollWidth > n.clientWidth + 1){
             var row = n.closest('.row');
             row.setAttribute('role','button'); row.tabIndex = 0;
             var m = document.createElement('span');

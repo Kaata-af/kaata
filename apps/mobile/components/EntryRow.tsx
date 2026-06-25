@@ -50,24 +50,29 @@ export const EntryRow = memo(function EntryRow(props: {
         pressed && { backgroundColor: colors.bgMuted },
       ]}
     >
-      <View style={[styles.iconWrap, isRTL ? styles.iconWrapRTL : styles.iconWrapLTR]}>
+      <View
+        style={[styles.iconWrap, isRTL ? styles.iconWrapRTL : styles.iconWrapLTR]}
+        // Direction is shown by the arrow alone — there's no "I gave/received"
+        // label anymore — so carry it for screen readers here.
+        accessible
+        accessibilityLabel={verb}
+      >
         <Ionicons name={icon} size={16} color={colors.textDefault} />
       </View>
       <View style={styles.middle}>
-        {/* Amount on the leading end, "verb · date" on the trailing end. */}
+        {/* Amount on the leading end, date on the trailing end — the arrow
+            carries direction, so the verb label is gone. */}
         <View style={[styles.topRow, rowDir(isRTL)]}>
           <View style={[styles.amountRow, rowDir(isRTL)]}>
             <Text style={styles.amount}>{formatAmount(entry.amount_afn)}</Text>
             <Text style={styles.afn}>{getCurrentCurrencySymbol()}</Text>
           </View>
-          <View style={[styles.metaRow, rowDir(isRTL)]}>
-            <Text style={styles.verb}>{verb}</Text>
-            <Text style={styles.dot}>·</Text>
-            <Text style={styles.when}>{formatRelative(entry.created_at)}</Text>
-          </View>
+          <Text style={styles.when}>{formatRelative(entry.created_at)}</Text>
         </View>
         {entry.note ? (
-          <View>
+          // Note + its more/less cue share ONE line: the note truncates to a
+          // single line and the cue trails it (only when the note overflows).
+          <View style={[styles.noteRow, rowDir(isRTL)]}>
             <Text
               style={[styles.note, textDir(isRTL)]}
               numberOfLines={!measured ? undefined : expanded ? undefined : 1}
@@ -83,9 +88,7 @@ export const EntryRow = memo(function EntryRow(props: {
               {entry.note}
             </Text>
             {clipped ? (
-              <Text style={[styles.more, textDir(isRTL)]}>
-                {expanded ? t("common.less") : t("common.more")}
-              </Text>
+              <Text style={styles.more}>{expanded ? t("common.less") : t("common.more")}</Text>
             ) : null}
           </View>
         ) : null}
@@ -123,7 +126,7 @@ const styles = StyleSheet.create({
   amount: {
     fontSize: 15,
     // Bold (not semibold) so the number is unmistakably the row's anchor,
-    // a clear step above the medium-weight "verb · date" meta beside it.
+    // a clear step above the date beside it.
     fontFamily: fonts.monoBold,
     color: colors.textEmphasis,
   },
@@ -132,40 +135,30 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansMedium,
     color: colors.textMuted,
   },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexShrink: 0,
-  },
-  verb: {
-    fontSize: 12,
-    fontFamily: fonts.sansMedium,
-    color: colors.textDefault,
-  },
-  dot: {
-    fontSize: 12,
-    fontFamily: fonts.sansRegular,
-    color: colors.textMuted,
-    marginHorizontal: 5,
-  },
   when: {
     fontSize: 12,
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
+    flexShrink: 0,
+  },
+  // Note + cue share one line; the cue trails the single-line (truncating) note.
+  // A touch below the amount row, baseline-aligned so the cue sits on the text.
+  noteRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    marginTop: 5,
+    gap: 6,
   },
   note: {
+    flex: 1,
     fontSize: 13,
     fontFamily: fonts.sansRegular,
     color: colors.textDefault,
-    // A touch lower + a comfortable line-height so the note reads as its own
-    // line rather than crowding the amount above it.
-    marginTop: 5,
     lineHeight: 18,
   },
   more: {
     fontSize: 12,
     fontFamily: fonts.sansSemi,
     color: colors.textEmphasis,
-    marginTop: 4,
   },
 });

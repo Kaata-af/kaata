@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { BACKEND_URL } from "../env";
 
@@ -122,18 +122,12 @@ function ArrowDown() {
   );
 }
 
-// Note on its own line, clamped to 1 line; a "more"/"less" toggle appears only
-// when the text actually overflows (measured against the clamp, not guessed).
-const CLAMP: CSSProperties = {
-  display: "-webkit-box",
-  WebkitLineClamp: 1,
-  WebkitBoxOrient: "vertical",
-  overflow: "hidden",
-};
-// One transaction row. The WHOLE row is tappable to expand a clipped note —
-// matching the app's EntryRow and the SSR shell, where the row (not a tiny
-// link) is the target — with a quiet hover/press tint as the affordance. Rows
-// with no note, or a note that fits on one line, are inert (no pointer, no tint).
+// One transaction row. The note and its "more"/"less" cue share a single line —
+// the note truncates and the cue trails it — and the WHOLE row is tappable to
+// expand a clipped note (matching the app's EntryRow and the SSR shell). Every
+// row darkens on press for tactile feedback, just like the app's list rows, even
+// when there's nothing to expand. Direction is carried by the arrow alone (the
+// old "I gave/received" label is gone), exposed to screen readers via aria-label.
 function Row({
   e,
   currency,
@@ -149,21 +143,22 @@ function Row({
   const noteRef = useRef<HTMLParagraphElement>(null);
   const [clipped, setClipped] = useState(false);
   const [open, setOpen] = useState(false);
+  // Single-line truncation → overflow is horizontal; measure width, not height.
   useLayoutEffect(() => {
     const el = noteRef.current;
-    if (el) setClipped(el.scrollHeight > el.clientHeight + 1);
+    if (el) setClipped(el.scrollWidth > el.clientWidth + 1);
   }, [e.note]);
   const interactive = clipped;
   const toggle = () => setOpen((v) => !v);
   return (
     <div
       className={
-        "flex items-center gap-3 border-b px-4 py-[13px] last:border-b-0" +
-        (interactive
-          ? // hover is a whisper (page-bg gray) so the --hair icon chip stays
-            // visible on top of it; active firms up to --line for press feedback.
-            " cursor-pointer transition-colors hover:bg-[#f9fafb] active:bg-[#eaecf0]"
-          : "")
+        // Every row darkens on press (active) for tactile feedback — parity with
+        // the app's rows — whether or not it expands. hover + pointer only when
+        // there's a clipped note to open. The --hair icon chip stays visible on
+        // the lighter active tint.
+        "flex items-center gap-3 border-b px-4 py-[13px] transition-colors last:border-b-0 active:bg-[#eaecf0]" +
+        (interactive ? " cursor-pointer hover:bg-[#f9fafb]" : "")
       }
       style={{ borderColor: C.hair }}
       role={interactive ? "button" : undefined}
@@ -183,14 +178,15 @@ function Row({
       <div
         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
         style={{ background: C.hair, color: C.sub }}
+        role="img"
+        aria-label={gave ? L.debt : L.payment}
       >
         {gave ? <ArrowUp /> : <ArrowDown />}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-3">
           <p className="flex items-baseline gap-1">
-            {/* Bold (not semibold) — the amount is the row's anchor, a clear
-                step above the medium-weight "verb · date" meta beside it. */}
+            {/* Bold (not semibold) — the amount is the row's anchor. */}
             <span
               className="text-[15px] font-bold tabular-nums"
               style={{ color: C.ink, fontFamily: MONO }}
@@ -201,30 +197,25 @@ function Row({
               {currency}
             </span>
           </p>
-          <p className="flex shrink-0 items-center whitespace-nowrap text-[12px]">
-            <span className="font-medium" style={{ color: C.sub }}>
-              {gave ? L.debt : L.payment}
-            </span>
-            <span className="mx-[5px]" style={{ color: C.mut }}>
-              ·
-            </span>
-            <span style={{ color: C.mut }}>{fmtDate(e.date, rtl)}</span>
+          {/* Date only — the arrow carries direction. */}
+          <p className="shrink-0 whitespace-nowrap text-[12px]" style={{ color: C.mut }}>
+            {fmtDate(e.date, rtl)}
           </p>
         </div>
         {e.note ? (
-          <div className="mt-[5px]">
+          <div className="mt-[5px] flex items-baseline gap-1.5">
             <p
               ref={noteRef}
-              className="text-[13px] leading-[18px]"
-              style={{ color: C.sub, ...(open ? {} : CLAMP) }}
+              className={
+                "min-w-0 flex-1 text-[13px] leading-[18px]" +
+                (open ? " whitespace-normal break-words" : " truncate")
+              }
+              style={{ color: C.sub }}
             >
               {e.note}
             </p>
             {clipped ? (
-              <span
-                className="mt-[4px] inline-block text-[12px] font-semibold"
-                style={{ color: C.ink }}
-              >
+              <span className="shrink-0 text-[12px] font-semibold" style={{ color: C.ink }}>
                 {open ? L.less : L.more}
               </span>
             ) : null}
@@ -266,6 +257,15 @@ function fmtDate(ms: number, rtl: boolean): string {
 export function CustomerView() {
   const { token } = useParams<{ token: string }>();
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
+
+  // iOS Safari only fires :active on an element if some ancestor has a touch
+  // listener; this empty one lets every row show its tap-darken on iOS (Android
+  // applies :active on tap regardless). Harmless on desktop.
+  useEffect(() => {
+    const noop = () => {};
+    document.addEventListener("touchstart", noop, { passive: true });
+    return () => document.removeEventListener("touchstart", noop);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
