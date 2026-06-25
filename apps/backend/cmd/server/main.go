@@ -253,6 +253,7 @@ func main() {
 		pr.Use(httpx.AdminKeyMiddleware(cfg.AdminAPIKey))
 		pr.Get("/v1/admin/stats", adminH.Stats)
 		pr.Get("/v1/admin/users", adminH.Users)
+		pr.Get("/v1/admin/waitlist", adminH.Waitlist)
 	})
 	// Public invite landing read (kaata.af/i/<token>). 30/hr per IP caps
 	// token-enumeration attempts; the handler still returns a uniform 404
