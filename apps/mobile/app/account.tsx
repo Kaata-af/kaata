@@ -9,9 +9,6 @@
 // Language + default country auto-commit (no Save) like the old Preferences.
 
 import { Ionicons } from "@expo/vector-icons";
-import * as Application from "expo-application";
-import * as Clipboard from "expo-clipboard";
-import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -34,7 +31,6 @@ import { NavRow, ScreenHeader, SectionGap, SectionHeader } from "../components/S
 import { useToast } from "../components/Toast";
 import { colors } from "../lib/colors";
 import { joinName, splitName } from "../lib/contacts-sync";
-import { buildDiagnosticsReport } from "../lib/diagnostics-report";
 import { getAppMeta, getLocalSelf, setAppMeta, updateSelfProfile } from "../lib/db";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../lib/event-log";
@@ -61,7 +57,6 @@ export default function AccountScreen() {
   const insets = useSafeAreaInsets();
 
   const [loaded, setLoaded] = useState(false);
-  const [copyingHealth, setCopyingHealth] = useState(false);
   // Profile (editable).
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -165,23 +160,6 @@ export default function AccountScreen() {
     toast.push(t("preferences.country.changed"), "success");
   }
 
-  // One-tap: assemble the full App-health report (versions + device + memory +
-  // crash history) and put it on the clipboard so the user can paste it straight
-  // into a chat to us — no screenshots, no adb. Best-effort; never throws.
-  async function onCopyHealth() {
-    if (copyingHealth) return;
-    setCopyingHealth(true);
-    try {
-      await Clipboard.setStringAsync(await buildDiagnosticsReport());
-      toast.push(t("account.appHealth.copied"), "success");
-    } catch (err) {
-      console.warn("[account] copy app-health failed", err);
-      toast.push(t("account.appHealth.copyFailed"), "error");
-    } finally {
-      setCopyingHealth(false);
-    }
-  }
-
   if (!loaded) {
     return (
       <SafeAreaView style={styles.container} edges={["top"]}>
@@ -198,21 +176,6 @@ export default function AccountScreen() {
     "settings.language.option.system";
   const languageValue = t(selectedLangLabelKey as Parameters<typeof t>[0]);
   const prefC = getCountry(prefCountry);
-
-  // Version + build for the App-health row. Prefer the NATIVE (installed APK)
-  // value — the truth about what's actually running — falling back to the JS
-  // bundle (app.json via expo-constants) where native is unavailable. The Copy
-  // button's report carries BOTH, so a stale build (native ≠ JS) is obvious.
-  const appVersion =
-    Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? "0.0.0";
-  const buildNumber =
-    Application.nativeBuildVersion ??
-    (Constants.expoConfig?.android?.versionCode != null
-      ? String(Constants.expoConfig.android.versionCode)
-      : undefined);
-  const aboutLine = buildNumber
-    ? t("menu.about.versionLineWithBuild", { version: appVersion, build: buildNumber })
-    : t("menu.about.versionLine", { version: appVersion });
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -354,9 +317,8 @@ export default function AccountScreen() {
           <View style={styles.healthSpacer} />
 
           {/* ============ APP HEALTH (bottom-pinned) ============
-              Version now lives here. The Copy button bundles versions (native +
-              JS) + device + memory + crash history to the clipboard so a user can
-              paste it straight to us — no screenshots, no adb. */}
+              Just an entry point into /diagnostics, which now owns the version +
+              build details and the copy-report flow. */}
           <SectionHeader label={t("account.appHealth.section")} isRTL={isRTL} />
           <NavRow
             icon="pulse-outline"
@@ -366,36 +328,6 @@ export default function AccountScreen() {
             isRTL={isRTL}
             isLast
           />
-          <View style={styles.healthFooter}>
-            <View style={[styles.aboutRow, rowDir(isRTL)]}>
-              <Ionicons
-                name="information-circle-outline"
-                size={18}
-                color={colors.textMuted}
-                style={isRTL ? { marginLeft: 10 } : { marginRight: 10 }}
-              />
-              <Text style={[styles.aboutText, textDir(isRTL)]}>{aboutLine}</Text>
-            </View>
-            <Pressable
-              onPress={onCopyHealth}
-              disabled={copyingHealth}
-              accessibilityRole="button"
-              accessibilityLabel={t("account.appHealth.copy")}
-              style={({ pressed }) => [
-                styles.copyBtn,
-                rowDir(isRTL),
-                pressed && { backgroundColor: colors.bgMuted },
-                copyingHealth && { opacity: 0.6 },
-              ]}
-            >
-              {copyingHealth ? (
-                <ActivityIndicator size="small" color={colors.textDefault} />
-              ) : (
-                <Ionicons name="copy-outline" size={16} color={colors.textDefault} />
-              )}
-              <Text style={styles.copyBtnText}>{t("account.appHealth.copy")}</Text>
-            </Pressable>
-          </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -487,30 +419,4 @@ const styles = StyleSheet.create({
   // Pushes the App-health section to the bottom; minHeight keeps a little air
   // between it and Preferences when the page is short enough not to scroll.
   healthSpacer: { flex: 1, minHeight: 24 },
-  healthFooter: { paddingHorizontal: 20, paddingTop: 4 },
-  aboutRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-  },
-  aboutText: {
-    flex: 1,
-    fontSize: 12,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-  },
-  copyBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    alignSelf: "flex-start",
-    marginTop: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.borderDefault,
-    backgroundColor: colors.bgDefault,
-  },
-  copyBtnText: { fontSize: 13, fontFamily: fonts.sansSemi, color: colors.textDefault },
 });

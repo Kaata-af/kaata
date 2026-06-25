@@ -28,6 +28,7 @@ import {
   SyncTransientError,
   VaultNotRegisteredError,
 } from "./errors";
+import { clearLastSyncError, recordLastSyncError } from "./last-error";
 import { pullEvents } from "./pull";
 import { pushEvents } from "./push";
 import { ensureVaultRegistered, fullBackupSweep } from "./reconcile";
@@ -174,6 +175,9 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let backoffAttempt = 0;
   let inFlight = false;
+  // Whether the previous tick failed — so we clear the persisted last-sync-error
+  // exactly once on recovery instead of writing app_meta every successful tick.
+  let lastTickFailed = false;
   let currentAppState: AppStateStatus = AppState.currentState;
 
   // M2 membership chain: one-shot chain-genesis backfill (+ pending
@@ -328,10 +332,20 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
       // runs the (advisory) check instead of waiting another full window.
       if (verifyConvergence) cyclesSinceConvergenceCheck = 0;
       backoffAttempt = 0;
+      // Recovered — drop any persisted last-sync-error from the App-health report.
+      if (lastTickFailed) {
+        lastTickFailed = false;
+        void clearLastSyncError();
+      }
       // Periodic full sweep so non-active / not-yet-registered vaults back up.
       if (++cyclesSinceSweep >= SWEEP_EVERY_N) runSweep();
       scheduleNext(currentInterval());
     } catch (err) {
+      // Persist the failure for the App-health report (user copies + sends it to
+      // us). Best-effort, fire-and-forget; cleared on the next successful tick.
+      lastTickFailed = true;
+      void recordLastSyncError(err);
+
       if (err instanceof SessionExpiredError) {
         await clearLocalSession().catch(() => {});
         stopped = true;

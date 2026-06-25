@@ -19,9 +19,13 @@ import Constants from "expo-constants";
 import { Platform } from "react-native";
 
 import { MESH_PARKED } from "../constants/env";
+import { getBackendUrl } from "./api";
+import { isSignedIn } from "./auth";
 import { getAppMeta } from "./db";
 import { getActiveVaultIdSyncMaybe, getDb } from "./db-tx";
 import { getLocale } from "./i18n";
+import { getSyncIndicator } from "./sync/cursor";
+import { getLastSyncError } from "./sync/last-error";
 
 function mb(kb: number | null | undefined): string {
   if (kb == null) return "—";
@@ -61,6 +65,11 @@ export function nativeVersionLabel(): { version: string; build: string } {
 export async function buildDiagnosticsReport(): Promise<string> {
   const lines: string[] = [];
   const push = (s: string) => lines.push(s);
+  const section = (title: string) => {
+    push("");
+    push(title);
+  };
+  const fmtMaybe = (ms: number | null | undefined): string => (ms ? fmtTime(ms) : "never");
 
   push("Kaata — App health");
 
@@ -75,22 +84,73 @@ export async function buildDiagnosticsReport(): Promise<string> {
   if (versionMismatch) {
     push("⚠ native/JS version mismatch — likely a stale build (rebuild from clean)");
   }
-
-  // --- Platform ---
-  push(`Platform: ${Platform.OS} ${String(Platform.Version)}`);
-
-  // --- App state ---
+  // What the server says is the latest available — if it's ahead of the native
+  // build, the user is on an old APK (the "fixes did nothing" confound).
   try {
-    const accountId = await getAppMeta("account_id");
-    push(`Signed in: ${accountId ? "yes" : "no"}`);
+    const latest = await getAppMeta("latest_known_version");
+    if (latest && latest !== nat.version) {
+      push(`Latest available (server): ${latest} — this build may be outdated`);
+    }
   } catch {
-    push("Signed in: —");
+    /* omit */
+  }
+
+  // --- Platform + applied schema (a low schema name = stale build / failed migration) ---
+  push(`Platform: ${Platform.OS} ${String(Platform.Version)}`);
+  try {
+    const db = await getDb();
+    const top = await db.getFirstAsync<{ name: string }>(
+      "SELECT name FROM schema_migrations ORDER BY name DESC LIMIT 1",
+    );
+    const cnt = await db.getFirstAsync<{ c: number }>(
+      "SELECT COUNT(*) AS c FROM schema_migrations",
+    );
+    push(`Schema: ${top?.name ?? "—"} (${cnt?.c ?? 0} applied)`);
+  } catch {
+    push("Schema: —");
+  }
+
+  // --- Account / backup wiring ---
+  // install_id is the join key to back-end telemetry + crash_reports; account_id
+  // is the opaque cloud-account id (NOT email / Google sub). "Live session" is a
+  // boolean derived from the JWT presence — the JWT itself is never included.
+  section("Account / backup");
+  let accountId: string | null = null;
+  try {
+    accountId = (await getAppMeta("account_id")) || null;
+    push(`Account: ${accountId ?? "local-only"}`);
+  } catch {
+    push("Account: —");
   }
   try {
-    const vid = getActiveVaultIdSyncMaybe();
-    push(`Active kaata: ${vid ? vid.slice(0, 8) : "none"}`);
+    push(`Live session: ${(await isSignedIn()) ? "yes" : "no"}`);
   } catch {
-    push("Active kaata: —");
+    push("Live session: —");
+  }
+  try {
+    push(`Install: ${(await getAppMeta("install_id")) ?? "—"}`);
+  } catch {
+    push("Install: —");
+  }
+  try {
+    push(`Backend: ${await getBackendUrl()}`);
+  } catch {
+    push("Backend: —");
+  }
+  try {
+    const last = await getAppMeta("last_checkin_at");
+    push(`Last check-in: ${fmtMaybe(last ? Number(last) : null)}`);
+  } catch {
+    push("Last check-in: —");
+  }
+  try {
+    const inst = await getAppMeta("installed_at_unix_ms");
+    if (inst) {
+      const days = Math.floor((Date.now() - Number(inst)) / 86_400_000);
+      push(`Installed: ${fmtTime(Number(inst))} (~${days}d ago)`);
+    }
+  } catch {
+    /* omit */
   }
   try {
     const pref = (await getAppMeta("locale_pref")) ?? "system";
@@ -100,7 +160,120 @@ export async function buildDiagnosticsReport(): Promise<string> {
   }
   push(`Nearby sync: ${MESH_PARKED ? "parked" : "enabled"}`);
 
+  // --- Sync / vault state (the "is this device actually backing up" block) ---
+  section("Sync");
+  const vaultId = (() => {
+    try {
+      return getActiveVaultIdSyncMaybe();
+    } catch {
+      return null;
+    }
+  })();
+  push(`Active kaata: ${vaultId ? vaultId.slice(0, 8) : "none"}`);
+  // Per-vault server registration. A NULL registered_with_server_at on an owned
+  // vault is the silent-403 root cause of reinstall data loss.
+  try {
+    const db = await getDb();
+    const vaults = await db.getAllAsync<{ id: string; registered_with_server_at: number | null }>(
+      "SELECT id, registered_with_server_at FROM vaults WHERE archived_at IS NULL",
+    );
+    if (vaults.length > 0) {
+      push(
+        "Vaults: " +
+          vaults
+            .map(
+              (v) =>
+                `${v.id.slice(0, 8)}${v.id === vaultId ? "*" : ""}=${v.registered_with_server_at ? "reg" : "UNREG"}`,
+            )
+            .join(" "),
+      );
+    }
+  } catch {
+    /* omit */
+  }
+  if (vaultId) {
+    try {
+      const ind = await getSyncIndicator(vaultId);
+      push(
+        `Sync: push=${fmtMaybe(ind.lastPushAt?.getTime())} pull=${fmtMaybe(ind.lastPullAt?.getTime())} seq=${ind.lastPulledServerSeq}`,
+      );
+    } catch {
+      push("Sync: —");
+    }
+    try {
+      const db = await getDb();
+      const unsent = await db.getFirstAsync<{ c: number }>(
+        "SELECT COUNT(*) AS c FROM event_log WHERE vault_id = ? AND server_acked_at IS NULL AND rejected_at IS NULL",
+        vaultId,
+      );
+      const rejected = await db.getFirstAsync<{ c: number }>(
+        "SELECT COUNT(*) AS c FROM event_log WHERE vault_id = ? AND rejected_at IS NOT NULL",
+        vaultId,
+      );
+      push(`Unsent events: ${unsent?.c ?? "—"}  ·  Rejected: ${rejected?.c ?? "—"}`);
+    } catch {
+      push("Unsent/rejected events: —");
+    }
+  }
+  // Orphan events with no vault can never push — surface only when present.
+  try {
+    const db = await getDb();
+    const orphan = await db.getFirstAsync<{ c: number }>(
+      "SELECT COUNT(*) AS c FROM event_log WHERE vault_id IS NULL",
+    );
+    if ((orphan?.c ?? 0) > 0) {
+      push(`⚠ Unassigned events: ${orphan?.c} (cannot back up)`);
+    }
+  } catch {
+    /* omit */
+  }
+  try {
+    const le = await getLastSyncError();
+    if (le) {
+      push(`Last sync error: ${le.name} @ ${fmtTime(le.at)}`);
+      if (le.message && le.message !== le.name) push(`  ${le.message}`);
+    } else {
+      push("Last sync error: none");
+    }
+  } catch {
+    /* omit */
+  }
+  if (accountId) {
+    try {
+      if (await getAppMeta(`restore_skipped_for_account_${accountId}`)) {
+        push("Restore skipped by user: yes");
+      }
+    } catch {
+      /* omit */
+    }
+  }
+
+  // --- Ledger size (counts only — never names / phones / amounts / notes) ---
+  section("Ledger");
+  try {
+    if (vaultId) {
+      const db = await getDb();
+      const people = await db.getFirstAsync<{ c: number }>(
+        "SELECT COUNT(DISTINCT user_b_id) AS c FROM relationships WHERE vault_id = ? AND archived_at IS NULL",
+        vaultId,
+      );
+      const entries = await db.getFirstAsync<{ c: number }>(
+        "SELECT COUNT(*) AS c FROM entries WHERE vault_id = ? AND deleted_at IS NULL",
+        vaultId,
+      );
+      const kaatas = await db.getFirstAsync<{ c: number }>(
+        "SELECT COUNT(*) AS c FROM vaults WHERE archived_at IS NULL",
+      );
+      push(`people=${people?.c ?? "—"} entries=${entries?.c ?? "—"} kaatas=${kaatas?.c ?? "—"}`);
+    } else {
+      push("people=0 entries=0 (no active kaata)");
+    }
+  } catch {
+    push("Ledger: —");
+  }
+
   // --- Memory right now + why it died (native module; best-effort) ---
+  section("Memory");
   try {
     const { getMemorySnapshot, getLastExitReasons } = await import("../modules/kaata-gatt-server");
     try {
@@ -154,6 +327,7 @@ export async function buildDiagnosticsReport(): Promise<string> {
     /* no samples table / not android — fine, omit the slope */
   }
 
+  push("");
   push(`Generated: ${fmtTime(Date.now())}`);
   return lines.join("\n");
 }

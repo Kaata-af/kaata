@@ -583,14 +583,9 @@ const en = {
   "menu.account.localOnlyHint": "Sign in to enable backup + sync across phones.",
   // ABOUT section
   "menu.about": "About",
-  "menu.about.versionLine": "Version {version}",
-  "menu.about.versionLineWithBuild": "Version {version} · build {build}",
   "account.appHealth.section": "App health",
   "account.appHealth.details": "Detailed diagnostics",
   "account.appHealth.detailsHint": "Memory & crash info",
-  "account.appHealth.copy": "Copy debug info",
-  "account.appHealth.copied": "Copied — paste it to us",
-  "account.appHealth.copyFailed": "Couldn’t copy debug info",
 
   // Vault create (Phase 5.2 — Add a Kaata)
   "vaultNew.title": "Create a Kaata",
@@ -1508,14 +1503,9 @@ const fa: Partial<Record<Key, string>> = {
   "menu.account.switch": "تعویض حساب گوگل",
   "menu.account.localOnlyHint": "برای پشتیبان‌گیری و همگام‌سازی بین تلفون‌ها وارد شوید.",
   "menu.about": "درباره",
-  "menu.about.versionLine": "نسخه {version}",
-  "menu.about.versionLineWithBuild": "نسخه {version} · بیلد {build}",
   "account.appHealth.section": "وضعیت برنامه",
   "account.appHealth.details": "عیب‌یابی مفصل",
   "account.appHealth.detailsHint": "اطلاعات حافظه و خرابی",
-  "account.appHealth.copy": "کپی اطلاعات اشکال‌زدایی",
-  "account.appHealth.copied": "کپی شد — برای ما بفرستید",
-  "account.appHealth.copyFailed": "کپی اطلاعات ناموفق بود",
 
   // Vault create (Phase 5.2)
   "vaultNew.title": "ایجاد کاتای جدید",
