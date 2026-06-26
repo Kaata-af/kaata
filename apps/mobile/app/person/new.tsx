@@ -47,9 +47,7 @@ const DEVICE_LIST_CAP = 80;
 
 // One row in the merged contacts list. App people open on tap; device contacts
 // are created (and added to the ledger) on tap.
-type Row =
-  | { kind: "app"; person: PersonWithBalance }
-  | { kind: "device"; contact: DeviceContact };
+type Row = { kind: "app"; person: PersonWithBalance } | { kind: "device"; contact: DeviceContact };
 
 type Section = { key: string; title: string; data: Row[] };
 
@@ -249,6 +247,8 @@ export default function PersonAddOrFindScreen() {
       if (!result.ok) {
         if (result.error === "phone_invalid") {
           setPhoneError(t("personAdd.phone.invalid"));
+        } else if (result.error === "phone_is_self") {
+          setPhoneError(t("personAdd.phone.isSelf"));
         } else if (result.error === "phone_conflict") {
           setPhoneError(t("personAdd.phone.conflict", { name: result.existing.name }));
         }
@@ -295,7 +295,8 @@ export default function PersonAddOrFindScreen() {
     void runCreate(c.firstName, c.lastName, national, cc);
   }
 
-  const addLabel = nameQuery.length > 0 ? t("personAdd.add", { name: nameQuery }) : t("personAdd.title");
+  const addLabel =
+    nameQuery.length > 0 ? t("personAdd.add", { name: nameQuery }) : t("personAdd.title");
   const canAdd = firstName.trim().length > 0;
 
   function renderItem({ item }: { item: Row }) {
@@ -439,7 +440,10 @@ export default function PersonAddOrFindScreen() {
           <View style={styles.phoneRow}>
             <Pressable
               onPress={() => setPickerVisible(true)}
-              style={({ pressed }) => [styles.countryBtn, pressed && { backgroundColor: colors.bgMuted }]}
+              style={({ pressed }) => [
+                styles.countryBtn,
+                pressed && { backgroundColor: colors.bgMuted },
+              ]}
             >
               <Text style={styles.countryFlag}>{country.flag}</Text>
               <Text style={styles.countryDial}>{country.dialCode}</Text>
@@ -453,7 +457,9 @@ export default function PersonAddOrFindScreen() {
                 setPhoneError(null);
                 setPhone(v);
               }}
-              placeholder={country.code === "AF" ? "70 123 4567" : t("personAdd.phone.placeholderGeneric")}
+              placeholder={
+                country.code === "AF" ? "70 123 4567" : t("personAdd.phone.placeholderGeneric")
+              }
               placeholderTextColor={colors.textMuted}
               accessibilityLabel={t("personEdit.phone.label")}
               keyboardType="phone-pad"
@@ -655,7 +661,12 @@ const styles = StyleSheet.create({
   rowSub: { fontSize: 12, fontFamily: fonts.sansRegular, color: colors.textSubtle, marginTop: 2 },
 
   rightAmountRow: { flexDirection: "row", alignItems: "baseline", gap: 2 },
-  rightSign: { fontSize: 14, fontFamily: fonts.monoMedium, color: colors.textDefault, marginRight: 2 },
+  rightSign: {
+    fontSize: 14,
+    fontFamily: fonts.monoMedium,
+    color: colors.textDefault,
+    marginRight: 2,
+  },
   rightAmount: { fontSize: 14, fontFamily: fonts.monoSemi, color: colors.textEmphasis },
   rightAfn: { fontSize: 11, fontFamily: fonts.sansMedium, color: colors.textMuted, marginLeft: 2 },
   rightMuted: { fontSize: 12, fontFamily: fonts.sansMedium, color: colors.textMuted },

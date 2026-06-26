@@ -95,10 +95,18 @@ export default function EditPersonScreen() {
     setBusy(true);
     setSaveError(null);
     try {
-      const result = await updatePerson(id, fn, lastName.trim() || null, phone.trim() || null, countryCode);
+      const result = await updatePerson(
+        id,
+        fn,
+        lastName.trim() || null,
+        phone.trim() || null,
+        countryCode,
+      );
       if (!result.ok) {
         if (result.error === "phone_invalid") {
           setPhoneError(t("personAdd.phone.invalid"));
+        } else if (result.error === "phone_is_self") {
+          setPhoneError(t("personAdd.phone.isSelf"));
         } else {
           setPhoneError(t("personAdd.phone.conflict", { name: result.existing.name }));
         }

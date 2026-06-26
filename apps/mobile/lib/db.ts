@@ -3301,6 +3301,19 @@ export async function createPerson(
     if (!np) {
       return { ok: false, error: "phone_invalid" };
     }
+    // Phone is canonical economic identity: one phone = one actor. The
+    // shopkeeper (local-self) cannot be added as their own counterparty.
+    // This explicit check is deterministic — unlike the contact-dup scan
+    // below, it does NOT depend on the self-row already sitting in a
+    // relationship, so it also blocks the very first self-numbered contact
+    // (which previously slipped through before any relationship existed).
+    const self = await db.getFirstAsync<{ phone_e164: string | null }>(
+      "SELECT phone_e164 FROM users WHERE id = ? LIMIT 1",
+      localSelf,
+    );
+    if (self?.phone_e164 && self.phone_e164 === np) {
+      return { ok: false, error: "phone_is_self" };
+    }
     const conflict = await findPhoneConflictInVault(np, vaultId, null);
     if (conflict) {
       return {
@@ -3637,6 +3650,16 @@ export async function updatePerson(
     const np = normalizePhone(phone, countryCode);
     if (!np) return { ok: false, error: "phone_invalid" };
     if (np !== (current.phone_e164 ?? null)) {
+      // A contact can never take over the shopkeeper's own number (one phone =
+      // one actor). Mirrors createPerson. Note: a contact that already holds the
+      // self's number from before this check existed keeps it until edited away —
+      // we only block a *change* into the self's number, not unrelated edits.
+      const self = await db.getFirstAsync<{ phone_e164: string | null }>(
+        "SELECT phone_e164 FROM users WHERE is_local_self = 1 LIMIT 1",
+      );
+      if (self?.phone_e164 && self.phone_e164 === np) {
+        return { ok: false, error: "phone_is_self" };
+      }
       const conflict = await findPhoneConflictInVault(np, vaultId, id);
       if (conflict) {
         return {

@@ -363,6 +363,7 @@ export async function findPhoneConflictInVault(
      WHERE u.phone_e164 = ?
        AND r.vault_id   = ?
        AND r.archived_at IS NULL
+       AND u.is_local_self = 0
        ${excludeUserId ? "AND u.id != ?" : ""}
      LIMIT 1`;
   const row = excludeUserId

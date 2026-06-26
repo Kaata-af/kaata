@@ -195,6 +195,18 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
     console.warn("[sync] chain backfill kickoff failed (non-fatal)", err);
   });
 
+  // One-time historical cleanup: null the phone on any CONTACT that wrongly
+  // carries the shopkeeper's own number (the pre-guard "first self-numbered
+  // contact" leak). Emits a real person_phone_changed event so the fix is
+  // durable + pushes — see lib/self-phone-scrub.ts for why this can't be a
+  // db.ts migration. Fire-and-forget, app_meta-gated, non-fatal by contract.
+  void (async () => {
+    const { ensureSelfPhoneContactsScrubbed } = await import("../self-phone-scrub");
+    await ensureSelfPhoneContactsScrubbed();
+  })().catch((err) => {
+    console.warn("[sync] self-phone scrub kickoff failed (non-fatal)", err);
+  });
+
   let kickTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Full backup sweep (register-reconcile + all-vault pull/push). Self-guarded

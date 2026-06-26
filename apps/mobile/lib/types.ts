@@ -100,11 +100,16 @@ export type PersonWithBalance = Person & {
 export type CreatePersonResult =
   | { ok: true; id: string }
   | { ok: false; error: "phone_invalid" }
+  // The entered number is the shopkeeper's own (the local-self). One phone =
+  // one actor; you can't be your own counterparty. Distinct from phone_conflict
+  // (a duplicate *contact*) so the UI can say "that's your own number".
+  | { ok: false; error: "phone_is_self" }
   | { ok: false; error: "phone_conflict"; existing: { id: string; name: string } };
 
 export type UpdatePersonResult =
   | { ok: true }
   | { ok: false; error: "phone_invalid" }
+  | { ok: false; error: "phone_is_self" }
   | { ok: false; error: "phone_conflict"; existing: { id: string; name: string } };
 
 export type CheckInResponse = {
