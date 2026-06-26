@@ -1367,6 +1367,10 @@ function TabPage(props: {
   const active = props.people.filter((p) => p.balance !== 0).length;
   const totalLabel =
     props.direction === "collect" ? t("home.total.label.collect") : t("home.total.label.pay");
+  // The hero total is the main page's direction cue: the collect color when
+  // it's money to collect, the pay color when it's money to pay. (Matches the
+  // person balance number and the web ledger.)
+  const totalColor = props.direction === "collect" ? colors.collectStrong : colors.payStrong;
 
   // The home list is TALLIES-ONLY (listAllPeople filters to people with entries),
   // so it's short — rendered as ONE real bordered CARD (ScrollView + map), not the
@@ -1396,7 +1400,7 @@ function TabPage(props: {
         <View style={styles.totalBlock}>
           <Text style={[styles.totalLabel, textDir(isRTL)]}>{totalLabel}</Text>
           <View style={[styles.totalRow, rowDir(isRTL)]}>
-            <Text style={styles.totalAmount}>{formatAmount(total)}</Text>
+            <Text style={[styles.totalAmount, { color: totalColor }]}>{formatAmount(total)}</Text>
             <Text style={styles.totalAfn}>{getCurrentCurrencySymbol()}</Text>
           </View>
           <Text style={[styles.totalSub, textDir(isRTL)]}>

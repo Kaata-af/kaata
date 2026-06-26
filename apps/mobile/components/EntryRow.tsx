@@ -25,6 +25,12 @@ export const EntryRow = memo(function EntryRow(props: {
   const isGave = entry.type === "debt";
   const icon = isGave ? "arrow-up-outline" : "arrow-down-outline";
   const verb = isGave ? t("person.action.iGave") : t("person.action.iReceived");
+  // Direction by color (Khatabook flow): "I gave" = value out → pay side;
+  // "I received" = value in → collect side. Same axis as the balance, so one
+  // color always means "money toward you".
+  const tint = isGave
+    ? { bg: colors.payBg, fg: colors.payStrong }
+    : { bg: colors.collectBg, fg: colors.collectStrong };
 
   // Note expansion: clamped to 1 line; a TAP expands/collapses, but only once
   // we've measured that the note actually overflows (`clipped`). A plain tap on
@@ -51,13 +57,18 @@ export const EntryRow = memo(function EntryRow(props: {
       ]}
     >
       <View
-        style={[styles.iconWrap, isRTL ? styles.iconWrapRTL : styles.iconWrapLTR]}
-        // Direction is shown by the arrow alone — there's no "I gave/received"
-        // label anymore — so carry it for screen readers here.
+        style={[
+          styles.iconWrap,
+          { backgroundColor: tint.bg },
+          isRTL ? styles.iconWrapRTL : styles.iconWrapLTR,
+        ]}
+        // Direction is shown by the arrow's shape AND its color (red = I gave /
+        // money out, green = I received / money in) — there's no text label —
+        // so carry it for screen readers here.
         accessible
         accessibilityLabel={verb}
       >
-        <Ionicons name={icon} size={16} color={colors.textDefault} />
+        <Ionicons name={icon} size={16} color={tint.fg} />
       </View>
       <View style={styles.middle}>
         {/* Amount on the leading end, date on the trailing end — the arrow

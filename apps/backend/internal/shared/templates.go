@@ -84,7 +84,10 @@ const viewHTML = `<!doctype html>
 <meta name="twitter:title" content="{{.OGTitle}}">
 <meta name="twitter:description" content="{{.OGDesc}}">
 <style>
-:root{--bg:#f9fafb;--card:#fff;--ink:#101828;--sub:#475467;--mut:#98a2b3;--line:#eaecf0;--hair:#f2f4f7;--red:#b42318;--green:#067647;--mono:'JetBrains Mono','Vazirmatn',ui-monospace,'Menlo',monospace;}
+/* Direction palette "Emerald Vault & Garnet" — refined deep emerald + garnet,
+   Khatabook flow (credit = money toward you, owe = money away). Hand-kept in
+   sync with apps/web/src/theme.ts + apps/mobile/lib/colors.ts. */
+:root{--bg:#f9fafb;--card:#fff;--ink:#101828;--sub:#475467;--mut:#98a2b3;--line:#eaecf0;--hair:#f2f4f7;--owe:#A3203A;--owebg:#F8EAEC;--credit:#0C745A;--creditbg:#E8F4EF;--mono:'JetBrains Mono','Vazirmatn',ui-monospace,'Menlo',monospace;}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:"Vazirmatn",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
@@ -96,8 +99,8 @@ a{color:inherit;text-decoration:none;}
 .stmt{font-size:15px;color:var(--sub);}
 .stmt .who{font-weight:600;color:var(--ink);}
 .balance{margin-top:8px;font-family:var(--mono);font-size:38px;font-weight:600;letter-spacing:-.02em;line-height:1;display:flex;align-items:baseline;gap:7px;font-variant-numeric:tabular-nums;}
-.statement.owe .balance{color:var(--red);}
-.statement.credit .balance{color:var(--green);}
+.statement.owe .balance{color:var(--owe);}
+.statement.credit .balance{color:var(--credit);}
 .cur{font-family:"Vazirmatn",sans-serif;font-size:16px;font-weight:500;color:var(--mut);letter-spacing:0;}
 .sectionhead{display:flex;align-items:baseline;justify-content:space-between;margin:28px 4px 12px;}
 .sectiontitle{font-size:11px;color:var(--sub);text-transform:uppercase;letter-spacing:.08em;font-weight:600;}
@@ -106,6 +109,10 @@ a{color:inherit;text-decoration:none;}
 .row{display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--hair);transition:background .12s ease;}
 .row:last-child{border-bottom:none;}
 .ic{width:32px;height:32px;border-radius:8px;background:var(--hair);color:var(--sub);display:flex;align-items:center;justify-content:center;flex:0 0 auto;}
+/* Tinted arrow chip carries direction (Khatabook flow): "I gave" = value out
+   → owe color; "I received" = value in → credit color. Same axis as balance. */
+.ic.gave{background:var(--owebg);color:var(--owe);}
+.ic.recv{background:var(--creditbg);color:var(--credit);}
 .rmid{min-width:0;flex:1;}
 .rtop{display:flex;align-items:baseline;justify-content:space-between;gap:10px;}
 .ramtrow{display:flex;align-items:baseline;gap:4px;}
@@ -195,7 +202,7 @@ a{color:inherit;text-decoration:none;}
           var e = list[i];
           var gave = e.type !== 'payment'; // debt → "I gave" (up); payment → "I received" (down)
           html += '<div class="row">'
-            + '<div class="ic" role="img" aria-label="'+esc(gave?L.debt:L.payment)+'">'+(gave?UP:DOWN)+'</div>'
+            + '<div class="ic '+(gave?'gave':'recv')+'" role="img" aria-label="'+esc(gave?L.debt:L.payment)+'">'+(gave?UP:DOWN)+'</div>'
             + '<div class="rmid">'
             +   '<div class="rtop">'
             +     '<div class="ramtrow"><span class="ramt">'+fmtAmt(e.amount)+'</span><span class="rcur">'+esc(cur)+'</span></div>'

@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import { ledger } from "./src/theme";
 
 // Design system mirrors the mobile app (apps/mobile/lib/colors.ts).
 // Most neutrals come straight from Tailwind's built-in `neutral` palette,
@@ -18,8 +19,12 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        collect: { bg: "#ECFDF5", text: "#065F46" },
-        pay: { bg: "#FEF3C7", text: "#78350F" },
+        // Direction tokens come from the shared ledger palette (src/theme.ts),
+        // mirrored in CustomerView + the mobile app. collect = money toward you;
+        // pay = money away. `strong` is the accent for numbers/arrows; `bg`/`text`
+        // are the soft chip pair.
+        collect: { bg: ledger.collectBg, text: ledger.collectText, strong: ledger.collectStrong },
+        pay: { bg: ledger.payBg, text: ledger.payText, strong: ledger.payStrong },
         danger: "#DC2626",
       },
       fontFamily: {

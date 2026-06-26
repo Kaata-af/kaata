@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { BACKEND_URL } from "../env";
+import { ledger } from "../theme";
 
 // /v/:token — the customer-facing shared ledger ("see the full ledger on
 // kaata.af"). The shopkeeper's app POSTs a small snapshot to the backend and
@@ -34,7 +35,10 @@ type SharedLedger = {
 
 type Phase = { kind: "loading" } | { kind: "error" } | { kind: "ready"; data: SharedLedger };
 
-// Quiet-fintech palette (cool grays + muted semantic), matched to the SSR shell.
+// Quiet-fintech palette: cool grays here, the semantic pair from the shared
+// ledger palette (src/theme.ts). owe = you owe (a liability), credit = you're
+// owed (an asset) — read from the viewer's side; a refined red/green pair, not
+// the generic bright primaries.
 const C = {
   bg: "#f9fafb",
   ink: "#101828",
@@ -42,8 +46,10 @@ const C = {
   mut: "#98a2b3",
   line: "#eaecf0",
   hair: "#f2f4f7",
-  red: "#b42318",
-  green: "#067647",
+  owe: ledger.payStrong,
+  oweBg: ledger.payBg,
+  credit: ledger.collectStrong,
+  creditBg: ledger.collectBg,
 };
 
 // Content language follows the SHOPKEEPER's locale (carried in the snapshot),
@@ -86,7 +92,8 @@ const APP_SANS = '"Vazirmatn","Inter",system-ui,-apple-system,sans-serif';
 const MONO = '"JetBrains Mono","Vazirmatn",ui-monospace,Menlo,monospace';
 
 // Direction arrows, mirroring the app's EntryRow: up = "I gave", down =
-// "I received" (no +/− signs, no colour — the arrow carries the direction).
+// "I received" (no +/− signs). They inherit currentColor, which the tinted
+// row chip sets to red (gave / money out) or green (received / money in).
 function ArrowUp() {
   return (
     <svg
@@ -177,7 +184,12 @@ function Row({
     >
       <div
         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-        style={{ background: C.hair, color: C.sub }}
+        // Tinted chip carries direction (Khatabook flow): "I gave" = value out
+        // → owe side; "I received" = value in → credit side. Same axis as the
+        // balance, so one color always means "money toward you".
+        style={
+          gave ? { background: C.oweBg, color: C.owe } : { background: C.creditBg, color: C.credit }
+        }
         role="img"
         aria-label={gave ? L.debt : L.payment}
       >
@@ -307,7 +319,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
   const rtl = isRTL(d.locale);
   const L = pickLabels(d.locale);
   const dir = d.balance > 0 ? "owe" : d.balance < 0 ? "credit" : "settled";
-  const accent = dir === "owe" ? C.red : dir === "credit" ? C.green : C.ink;
+  const accent = dir === "owe" ? C.owe : dir === "credit" ? C.credit : C.ink;
 
   return (
     <section dir={rtl ? "rtl" : "ltr"} lang={rtl ? "fa" : "en"} style={{ fontFamily: APP_SANS }}>

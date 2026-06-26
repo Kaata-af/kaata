@@ -86,7 +86,7 @@ export function PhoneMockupHome() {
             To collect
           </p>
           <div className="flex items-baseline gap-1.5 mt-1">
-            <p className="text-[32px] font-bold font-mono text-neutral-900 leading-none -tracking-tight">
+            <p className="text-[32px] font-bold font-mono text-collect-strong leading-none -tracking-tight">
               6,220
             </p>
             <p className="text-[11px] text-neutral-400 font-medium">AFN</p>
@@ -192,7 +192,7 @@ export function PhoneMockupOffline() {
             To collect
           </p>
           <div className="flex items-baseline gap-1.5 mt-1">
-            <p className="text-[32px] font-bold font-mono text-neutral-900 leading-none -tracking-tight">
+            <p className="text-[32px] font-bold font-mono text-collect-strong leading-none -tracking-tight">
               5,800
             </p>
             <p className="text-[11px] text-neutral-400 font-medium">AFN</p>

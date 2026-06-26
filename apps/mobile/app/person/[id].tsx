@@ -123,7 +123,6 @@ export default function PersonDetailScreen() {
   const abs = Math.abs(person.balance);
   // Direction is derived from the running net — not from any URL param or
   // person-level property. balance > 0 → they owe me; balance < 0 → I owe them.
-  const hasBalance = person.balance !== 0;
   const chipLabel =
     person.balance > 0
       ? t("person.balance.theyOwe")
@@ -132,6 +131,15 @@ export default function PersonDetailScreen() {
         : null;
   const chipVariant: "collect" | "pay" | null =
     person.balance > 0 ? "collect" : person.balance < 0 ? "pay" : null;
+  // The hero balance carries the direction cue: the collect color when they
+  // owe me (to collect), the pay color when I owe them (to pay), muted gray
+  // when settled.
+  const balanceColor =
+    person.balance > 0
+      ? colors.collectStrong
+      : person.balance < 0
+        ? colors.payStrong
+        : colors.textMuted;
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -198,9 +206,7 @@ export default function PersonDetailScreen() {
               <Chip label={t("person.balance.settled")} variant="neutral" />
             ) : null}
             <View style={[styles.balanceRow, rowDir(isRTL)]}>
-              <Text style={[styles.balance, !hasBalance && { color: colors.textMuted }]}>
-                {formatAmount(abs)}
-              </Text>
+              <Text style={[styles.balance, { color: balanceColor }]}>{formatAmount(abs)}</Text>
               <Text style={styles.balanceAfn}>{getCurrentCurrencySymbol()}</Text>
             </View>
           </View>
@@ -224,12 +230,11 @@ export default function PersonDetailScreen() {
                       params: { personId: person.id, type: "payment" },
                     })
                   }
-                  style={({ pressed }) => [
-                    styles.actionBtn,
-                    pressed && { backgroundColor: colors.bgMuted },
-                  ]}
+                  style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
                 >
-                  <Ionicons name="arrow-down-outline" size={16} color={colors.textEmphasis} />
+                  <View style={styles.actionIconCoin}>
+                    <Ionicons name="arrow-down-outline" size={16} color={colors.textInverted} />
+                  </View>
                   <Text style={styles.actionText}>{t("person.action.iReceived")}</Text>
                 </Pressable>
               </View>
@@ -241,12 +246,11 @@ export default function PersonDetailScreen() {
                       params: { personId: person.id, type: "debt" },
                     })
                   }
-                  style={({ pressed }) => [
-                    styles.actionBtn,
-                    pressed && { backgroundColor: colors.bgMuted },
-                  ]}
+                  style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
                 >
-                  <Ionicons name="arrow-up-outline" size={16} color={colors.textEmphasis} />
+                  <View style={styles.actionIconCoin}>
+                    <Ionicons name="arrow-up-outline" size={16} color={colors.textInverted} />
+                  </View>
                   <Text style={styles.actionText}>{t("person.action.iGave")}</Text>
                 </Pressable>
               </View>
@@ -426,14 +430,46 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.borderDefault,
-    backgroundColor: colors.bgDefault,
+    gap: 9,
+    paddingVertical: 13,
+    borderRadius: 12,
+    // Solid primary-button fill — same high-affordance language as the FAB and
+    // the share button, deliberately NOT the red/green direction color. These
+    // are the two most-used actions, so they must read as obvious, tappable
+    // buttons; direction is carried by the arrow, the label, and the
+    // left/right position (I received LEFT, I gave RIGHT). The arrow rides in a
+    // soft inner "coin" and the lift is a soft, diffuse shadow — refined and
+    // premium rather than a flat black slab. Height (~52) matches the share bar.
+    backgroundColor: colors.bgInverted,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOpacity: 0.16,
+        shadowRadius: 14,
+        shadowOffset: { width: 0, height: 5 },
+      },
+      android: { elevation: 4 },
+    }),
   },
-  actionText: { fontSize: 14, fontFamily: fonts.sansSemi, color: colors.textEmphasis },
+  // Subtle scale + dim on press — a tactile, considered feel for a button
+  // tapped all day, instead of a flat opacity blink.
+  actionBtnPressed: { opacity: 0.9, transform: [{ scale: 0.985 }] },
+  // Soft translucent circle that gives the arrow a deliberate home on the dark
+  // fill — the key "refined" detail vs a bare floating arrow.
+  actionIconCoin: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "rgba(255,255,255,0.13)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionText: {
+    fontSize: 15,
+    fontFamily: fonts.sansSemi,
+    color: colors.textInverted,
+    letterSpacing: 0.2,
+  },
   // One bordered card around all tallies (same as the home people list). No
   // per-row corner emulation, so no blank-row-on-reorder bug.
   entriesCard: {
