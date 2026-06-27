@@ -264,6 +264,80 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
 }
 
 /**
+ * Materialize a freshly-JOINED vault (via online invite-accept) into local state
+ * so it is visible and syncable.
+ *
+ * The /v1/vaults/invites/accept response carries only {vault_id, vault_name,
+ * role}; nothing in the accept path creates the local `vaults` row. The home
+ * screen builds its vault list from that table, so without a row it can't see
+ * the joined vault and silently reverts the active pointer — the member can
+ * neither view nor sync the shared ledger. This seeds the row from the
+ * authoritative GET /v1/vaults listing (or a snapshot when one already exists)
+ * and pulls the event history (membership chain + ledger), exactly like the
+ * no-snapshot branch of recoverAllVaults for a single vault.
+ *
+ * Idempotent (INSERT OR IGNORE + event dedupe), so re-accepting / re-launching
+ * is safe. Best-effort: returns false if the vault couldn't be seeded (e.g. a
+ * brief read-after-write lag where the accept committed but the listing hasn't
+ * caught up). The caller should still set the active pointer in that case — the
+ * next launch's reconcile/recovery seeds the row later.
+ */
+export async function recoverJoinedVault(vaultId: string): Promise<boolean> {
+  // The accepting user is already signed-in + onboarded, so a local-self row
+  // exists; call defensively (no-op when present) so a pulled relationship/entry
+  // can never violate the users FK mid-apply (see ensureLocalSelfForRestore).
+  const { id: localSelfId } = await ensureLocalSelfForRestore();
+
+  let listings: VaultListing[];
+  try {
+    listings = await listVaults();
+  } catch (err) {
+    console.warn("[recovery] joined-vault listing failed", err);
+    return false;
+  }
+
+  const v = listings.find((x) => x.vault_id === vaultId && x.archived_at_ms == null);
+  if (!v) {
+    // Accept committed server-side but the listing doesn't reflect it yet (rare
+    // read-after-write lag). The caller still sets the pointer; the next launch
+    // recovery/reconcile will seed the row.
+    console.warn("[recovery] joined vault absent from listing", vaultId.slice(0, 8));
+    return false;
+  }
+
+  try {
+    const snapshot = await fetchSnapshot({ defaultVaultId: v.vault_id });
+    if (snapshot) {
+      await restoreFromSnapshot(snapshot, { setActiveDefault: false, localSelfId });
+    } else {
+      await seedVaultFromListing(v);
+    }
+  } catch (err) {
+    // Even if the snapshot restore failed, fall back to a bare seed so the row
+    // exists and the vault is at least visible + sync-targeted.
+    console.warn("[recovery] joined vault seed failed; falling back to bare seed", err);
+    try {
+      await seedVaultFromListing(v);
+    } catch (seedErr) {
+      console.warn("[recovery] joined vault bare seed failed", seedErr);
+      return false;
+    }
+  }
+
+  // Pull the full history now: a freshly-seeded vault has cursor 0, so this
+  // fetches the membership chain + ledger and projects them (pullEvents sweeps
+  // internally). Best-effort — the row + cursor exist either way, so a transient
+  // pull failure just defers the tail to the scheduler/sweep.
+  try {
+    await pullEvents(v.vault_id);
+  } catch (err) {
+    console.warn("[recovery] joined vault initial pull failed", err);
+  }
+
+  return true;
+}
+
+/**
  * Do one awaited check-in to fetch + PIN the server witness pubkeys, so
  * witnessed membership events ingested during recovery verify (not quarantine).
  * Best-effort: offline → witnessed events quarantine and heal on the next

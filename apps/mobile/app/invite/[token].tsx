@@ -14,9 +14,13 @@
 //      token. If not found (different email account, expired, revoked),
 //      surface the error and offer to switch accounts.
 //   4. User confirms → POST /v1/vaults/invites/accept with {token,
-//      install_id}. On success, the new vault is added to the local
-//      vaults table + vault_members_mirror is seeded, setActiveVaultId
-//      switches to it, and we route home.
+//      install_id}. The accept response carries ONLY {vault_id, vault_name,
+//      role} — it does NOT seed any local state — so we then materialize the
+//      vault locally: recoverJoinedVault() seeds the `vaults` row from
+//      GET /v1/vaults and pulls its history (membership chain + ledger).
+//      Only then does setActiveVaultId switch to it and we route home; the
+//      home screen lists from the local `vaults` table, so without that seed
+//      it would not see the joined vault and would revert the active pointer.
 
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -101,9 +105,19 @@ export default function InviteAcceptScreen() {
     setStage("accepting");
     try {
       const result = await acceptVaultInvite(token);
-      // The accept call has already seeded vaults + vault_members_mirror
-      // for the new vault locally (via the response payload). Switch to
-      // it so the home screen lands in the freshly-joined vault.
+      // Materialize the joined vault LOCALLY before switching to it. The accept
+      // response carries only {vault_id, vault_name, role}; nothing else creates
+      // the local `vaults` row, and the home screen lists from that table — so
+      // without this it can't see the joined vault and silently reverts the
+      // active pointer. recoverJoinedVault seeds the row from the server listing
+      // and pulls the history. Best-effort: even if it fails we still set the
+      // pointer, so a later launch recovery/reconcile heals the row.
+      try {
+        const { recoverJoinedVault } = await import("../../lib/recovery");
+        await recoverJoinedVault(result.vault_id);
+      } catch (err) {
+        console.warn("[invite] joined-vault materialization failed (non-fatal)", err);
+      }
       await setActiveVaultId(result.vault_id);
       await setAppMeta(PENDING_TOKEN_KEY, "");
 
