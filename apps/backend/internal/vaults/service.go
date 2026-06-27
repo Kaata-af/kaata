@@ -627,23 +627,15 @@ func (s *Service) Leave(ctx context.Context, vaultID, accountID string) (int64, 
 	if err != nil {
 		return 0, err
 	}
-	auditID, err := writeAudit(ctx, tx, vaultID, &accountID, "member_left", &accountID, map[string]any{
+	// The signed vault_member_removed event is authored CLIENT-side (the
+	// leaver's device, lib/vault-router.ts) and propagates via the membership
+	// chain; the server only records the audit row + the revoked_at above. We
+	// do NOT server-emit an unsigned mirror event — peers correctly tombstone
+	// unsigned membership events (see vaults/event_emit removal note).
+	if _, err := writeAudit(ctx, tx, vaultID, &accountID, "member_left", &accountID, map[string]any{
 		"role_at_leave": role,
-	})
-	if err != nil {
-		return 0, err
-	}
-	// Phase 4.1: server-emit vault_member_removed so peer devices learn
-	// of this departure via /v1/sync/pull without needing the GET /v1/vaults
-	// reconcile path.
-	if err := emitVaultMemberEvents(ctx, tx, vaultID, accountID, auditID, []emitSpec{
-		{
-			EventType: "vault_member_removed",
-			TargetID:  accountID,
-			Payload:   map[string]any{"account_id": accountID},
-		},
 	}); err != nil {
-		return 0, fmt.Errorf("emit vault_member_removed (self-leave): %w", err)
+		return 0, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("commit tx: %w", err)
@@ -730,39 +722,16 @@ func (s *Service) TransferOwnership(ctx context.Context, in TransferInput) (int6
 	if err != nil {
 		return 0, err
 	}
-	auditID, err := writeAudit(ctx, tx, in.VaultID, &in.AccountID, "ownership_transferred", &in.ToAccountID, map[string]any{
+	// Authoritative ownership change is the vault_members writes + audit row
+	// above. We do NOT server-emit unsigned vault_member_* mirror events: peers
+	// correctly tombstone unsigned membership events, so they never applied
+	// (see vaults/event_emit removal note). On the client, server-anchored
+	// transfer routes through lib/vault-router.ts which authors the signed
+	// chain events that actually propagate.
+	if _, err := writeAudit(ctx, tx, in.VaultID, &in.AccountID, "ownership_transferred", &in.ToAccountID, map[string]any{
 		"from": in.AccountID, "to": in.ToAccountID, "demote_self_to": in.DemoteSelfTo,
-	})
-	if err != nil {
+	}); err != nil {
 		return 0, err
-	}
-	// Phase 4.1: server-emit. Two events, ordered promote-other first
-	// (logical 0) and then demote/leave self (logical 1). This avoids
-	// any mid-pull "ownerless" gap a slow replica might observe; see
-	// design D-SERVER-EMIT-VAULT-EVENTS §2.
-	specs := []emitSpec{
-		{
-			EventType: "vault_member_role_changed",
-			TargetID:  in.ToAccountID,
-			Payload:   map[string]any{"account_id": in.ToAccountID, "role": "owner"},
-		},
-	}
-	switch in.DemoteSelfTo {
-	case "editor":
-		specs = append(specs, emitSpec{
-			EventType: "vault_member_role_changed",
-			TargetID:  in.AccountID,
-			Payload:   map[string]any{"account_id": in.AccountID, "role": "editor"},
-		})
-	case "leave":
-		specs = append(specs, emitSpec{
-			EventType: "vault_member_removed",
-			TargetID:  in.AccountID,
-			Payload:   map[string]any{"account_id": in.AccountID},
-		})
-	}
-	if err := emitVaultMemberEvents(ctx, tx, in.VaultID, in.AccountID, auditID, specs); err != nil {
-		return 0, fmt.Errorf("emit transfer events: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("commit tx: %w", err)
@@ -847,20 +816,13 @@ func (s *Service) SetMemberRole(ctx context.Context, vaultID, callerID, targetID
 	if err != nil {
 		return 0, err
 	}
-	auditID, err := writeAudit(ctx, tx, vaultID, &callerID, "role_changed", &targetID, map[string]any{
+	// Authoritative role flip is the vault_members UPDATE + audit row above. No
+	// server-emit: unsigned mirror events are tombstoned by peers; the signed
+	// vault_member_role_changed authored client-side carries the new role.
+	if _, err := writeAudit(ctx, tx, vaultID, &callerID, "role_changed", &targetID, map[string]any{
 		"from": oldRole, "to": newRole,
-	})
-	if err != nil {
-		return 0, err
-	}
-	if err := emitVaultMemberEvents(ctx, tx, vaultID, callerID, auditID, []emitSpec{
-		{
-			EventType: "vault_member_role_changed",
-			TargetID:  targetID,
-			Payload:   map[string]any{"account_id": targetID, "role": newRole},
-		},
 	}); err != nil {
-		return 0, fmt.Errorf("emit vault_member_role_changed: %w", err)
+		return 0, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("commit tx: %w", err)
@@ -940,20 +902,13 @@ func (s *Service) RevokeMember(ctx context.Context, in RevokeInput) (int64, erro
 	if err != nil {
 		return 0, err
 	}
-	auditID, err := writeAudit(ctx, tx, in.VaultID, &in.CallerID, "member_revoked", &in.TargetID, map[string]any{
+	// Authoritative revoke is the vault_members UPDATE + audit row above. No
+	// server-emit: unsigned mirror events are tombstoned by peers; the signed
+	// vault_member_removed authored client-side carries the revocation.
+	if _, err := writeAudit(ctx, tx, in.VaultID, &in.CallerID, "member_revoked", &in.TargetID, map[string]any{
 		"revoked_role": targetRole, "reason": reason,
-	})
-	if err != nil {
-		return 0, err
-	}
-	if err := emitVaultMemberEvents(ctx, tx, in.VaultID, in.CallerID, auditID, []emitSpec{
-		{
-			EventType: "vault_member_removed",
-			TargetID:  in.TargetID,
-			Payload:   map[string]any{"account_id": in.TargetID},
-		},
 	}); err != nil {
-		return 0, fmt.Errorf("emit vault_member_removed: %w", err)
+		return 0, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("commit tx: %w", err)
@@ -1426,26 +1381,16 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 		return AcceptInviteResult{}, fmt.Errorf("bump vault_epoch: %w", err)
 	}
 
-	auditID, err := writeAudit(ctx, tx, vaultID, nil, "invite_accepted", &in.AccountID, map[string]any{
+	// The accepting device authors its OWN signed, server-witnessed
+	// vault_member_added (+ vault_device_added) via lib/trust/backfill.ts after
+	// this call returns; that signed event is what other members apply. We do
+	// NOT server-emit an unsigned vault_member_added here — peers tombstone
+	// unsigned membership events (see vaults/event_emit removal note). The
+	// authoritative ACL row was written into vault_members above.
+	if _, err := writeAudit(ctx, tx, vaultID, nil, "invite_accepted", &in.AccountID, map[string]any{
 		"role": role, "install_id": in.InstallID,
-	})
-	if err != nil {
-		return AcceptInviteResult{}, err
-	}
-
-	// Phase 4.1: server-emit vault_member_added. The accepting account is
-	// the actor; the audit log row's actor_id is intentionally NULL (the
-	// audit-log convention treats the invitee as a passive target of the
-	// invite system) but the EVENTS row's account_id is the accepting
-	// account so projection on other devices can attribute the join.
-	if err := emitVaultMemberEvents(ctx, tx, vaultID, in.AccountID, auditID, []emitSpec{
-		{
-			EventType: "vault_member_added",
-			TargetID:  in.AccountID,
-			Payload:   map[string]any{"account_id": in.AccountID, "role": role},
-		},
 	}); err != nil {
-		return AcceptInviteResult{}, fmt.Errorf("emit vault_member_added: %w", err)
+		return AcceptInviteResult{}, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {

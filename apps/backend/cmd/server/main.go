@@ -193,13 +193,6 @@ func main() {
 	// 5-minute cron tick generates snapshots.
 	syncSvc.SetSnapshotTrigger(syncapi.BuildPushSnapshotTrigger(ctx, snapshotPool, syncSvc))
 
-	// Phase 4.1: vaults/event_emit.go uses this hook so server-emitted
-	// vault_member_* events bump the same per-vault pending-snapshot
-	// counter PushEvents drives.
-	vaults.SetServerEmitSnapshotHook(func(vaultID string) {
-		syncSvc.BumpSnapshotPending(vaultID)
-	})
-
 	// --- router -------------------------------------------------------------
 
 	r := chi.NewRouter()
