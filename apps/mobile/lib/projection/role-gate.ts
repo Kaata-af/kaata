@@ -462,6 +462,53 @@ async function isVaultAnchorPubkey(
   return row?.vault_trust_anchor_pubkey != null && row.vault_trust_anchor_pubkey === pubkey;
 }
 
+// The HLC of the post-restore re-keyed owner admission for the CURRENT signed-in
+// account, or null if this vault has no such admission. After a reinstall,
+// recovery.ts reestablishOwnerIfConfirmed emits a fresh-"now"-HLC owner
+// vault_member_added keyed to getAccountIdSync() — strictly LATER than any
+// genuine pre-restore own-history the original anchor authored. We read it from
+// the APPLIED event_log (the fold's source), same as resolveRoleAt, so it agrees
+// with the chain verdict.
+async function rekeyedOwnerAdmissionHlc(tx: SQLiteTx, vaultId: string): Promise<HLC | null> {
+  const accountId = getAccountIdSync();
+  if (!accountId) return null;
+  const row = await tx.getFirstAsync<{
+    hlc_physical_ms: number;
+    hlc_logical: number;
+    hlc_device_id: string;
+  }>(
+    `SELECT hlc_physical_ms, hlc_logical, hlc_device_id
+       FROM event_log
+      WHERE vault_id = ?
+        AND target_id = ?
+        AND event_type IN ('vault_member_added', 'vault_member_role_changed')
+        AND json_extract(payload_json, '$.role') = 'owner'
+        AND applied_at IS NOT NULL
+        AND quarantine_reason IS NULL
+      ORDER BY hlc_physical_ms DESC, hlc_logical DESC, hlc_device_id DESC
+      LIMIT 1`,
+    vaultId,
+    accountId,
+  );
+  if (row == null) return null;
+  return { pms: row.hlc_physical_ms, l: row.hlc_logical, did: row.hlc_device_id };
+}
+
+// True iff `eventHlc` PREDATES the post-restore re-keyed owner admission (or no
+// such admission exists). Scopes the anchor-restore carve-out to genuine
+// PRE-restore own-history: once the recovered account re-establishes ownership
+// via the chain, the original anchor key is no longer an authoring authority, so
+// a later-HLC anchor-signed event is a retired/compromised-key forgery, not
+// own-history, and must NOT be blessed by the carve-out.
+async function anchorEventPrecedesRekey(
+  tx: SQLiteTx,
+  vaultId: string,
+  eventHlc: HLC,
+): Promise<boolean> {
+  const boundary = await rekeyedOwnerAdmissionHlc(tx, vaultId);
+  return boundary == null || compareHLC(eventHlc, boundary) < 0;
+}
+
 async function serverWitnessKeys(tx: SQLiteTx): Promise<string[]> {
   const rows = await tx.getAllAsync<{ value: string }>(
     `SELECT value FROM app_meta
@@ -794,7 +841,8 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
       } else if (
         isAnchorAuthableEventType(event.event_type) &&
         (await isVaultAnchorPubkey(tx, event.vault_id, signerPubkey)) &&
-        !(await isRemovedDevice(tx, event.vault_id, signerPubkey))
+        !(await isRemovedDevice(tx, event.vault_id, signerPubkey)) &&
+        (await anchorEventPrecedesRekey(tx, event.vault_id, event.hlc))
       ) {
         // ANCHOR RESTORE carve-out: a NON-membership event (entry_* / person_* /
         // shop_profile_updated / vault_setting_set) signed by THIS vault's own
@@ -811,10 +859,11 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
         // forge ownership changes. The !isRemovedDevice guard (security-review
         // must-fix) ensures a retired/compromised anchor key cannot author
         // forever once a device-removal flow exists — a no-op for the legitimate
-        // restore (the anchor has no registry row yet). Stronger follow-up
-        // (deferred): also scope to events whose hlc predates the post-restore
-        // re-keyed owner admission, so it only blesses genuine PRE-restore
-        // own-history, never a newly-authored anchor-signed event.
+        // restore (the anchor has no registry row yet). And anchorEventPrecedesRekey
+        // scopes this to events whose hlc PREDATES the post-restore re-keyed owner
+        // admission (recovery.ts reestablishOwnerIfConfirmed), so it only blesses
+        // genuine PRE-restore own-history — a newly-authored ("now"-HLC)
+        // anchor-signed event lands at/after the boundary and is refused below.
         anchorAuthenticated = true;
       } else {
         // No binding yet (the peer's admission hasn't been gossiped to
@@ -877,16 +926,19 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
     if (anchorAuthenticated) {
       // Signature verified against the vault's pinned trust anchor pubkey, so
       // this event genuinely came from the device that MINTED the vault — its
-      // owner by construction, at EVERY hlc. Grant directly; we must NOT defer
-      // to resolveRoleAt, because the post-restore re-keyed owner admission
-      // (recovery.ts reestablishOwnerIfConfirmed) has a LATER hlc than this
-      // historical event, so a lawful-at-hlc role lookup returns null and the
-      // event would wrongly stay quarantined forever (own-history deletes/edits
-      // invisible on a reinstalled solo device — the "deleted duplicates come
-      // back after restore" bug). Only non-membership events reach here (the
-      // else-if above gates on isAnchorAuthableEventType), so this cannot forge
-      // ownership/membership; only the anchor's own private key could produce
-      // this signature, so it cannot widen the attack surface to other peers.
+      // owner by construction. The else-if above already scoped this to events
+      // whose hlc PREDATES the post-restore re-keyed owner admission, so we grant
+      // directly here; we must NOT defer to resolveRoleAt, because that re-key
+      // admission (recovery.ts reestablishOwnerIfConfirmed) has a LATER hlc than
+      // this pre-restore historical event, so a lawful-at-hlc role lookup returns
+      // null and the event would wrongly stay quarantined forever (own-history
+      // deletes/edits invisible on a reinstalled solo device — the "deleted
+      // duplicates come back after restore" bug). Only non-membership events reach
+      // here (isAnchorAuthableEventType), so this cannot forge ownership/membership;
+      // only the anchor's own private key could produce this signature. NOTE: a
+      // forgery that BACKDATES its hlc below the re-key boundary would still pass —
+      // that residual vector is the separate ingest-time HLC-clamp's job; this
+      // scoping closes the common "compromised key authoring current writes" case.
       return { ok: true };
     }
 
