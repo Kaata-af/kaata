@@ -81,27 +81,51 @@ export const EntryRow = memo(function EntryRow(props: {
           <Text style={styles.when}>{formatRelative(entry.created_at)}</Text>
         </View>
         {entry.note ? (
-          // Note + its more/less cue share ONE line: the note truncates to a
-          // single line and the cue trails it (only when the note overflows).
-          <View style={[styles.noteRow, rowDir(isRTL)]}>
-            <Text
-              style={[styles.note, textDir(isRTL)]}
-              numberOfLines={!measured ? undefined : expanded ? undefined : 1}
-              // Full note for screen readers, regardless of the visual clamp.
-              accessibilityLabel={entry.note}
-              onTextLayout={(e) => {
-                if (!measured) {
-                  setClipped(e.nativeEvent.lines.length > 1);
-                  setMeasured(true);
-                }
-              }}
-            >
+          expanded ? (
+            // Expanded: the full note renders as a single text block, with the
+            // "less" cue flowing INLINE at the very end of the text. A nested
+            // <Text> stays in the text flow, so the cue trails the last word
+            // instead of floating in a baseline-aligned column to the right of
+            // the first line (which is what a flex sibling did — and a
+            // multi-line flex child under alignItems:'baseline' also clipped the
+            // text on Android). A plain block <Text> wraps cleanly, every line.
+            <Text style={[styles.noteBlock, textDir(isRTL)]} accessibilityLabel={entry.note}>
               {entry.note}
+              {"  "}
+              <Text style={styles.more}>{t("common.less")}</Text>
             </Text>
-            {clipped ? (
-              <Text style={styles.more}>{expanded ? t("common.less") : t("common.more")}</Text>
-            ) : null}
-          </View>
+          ) : (
+            // Collapsed: the note clamps to ONE line and the "more" cue trails
+            // it on the SAME line — shown only once we've measured the note
+            // overflows. The first paint renders unclamped so onTextLayout can
+            // count the true line span, then it clamps to 1.
+            //
+            // The flex:1 lives on a wrapping <View>, NOT on the <Text> itself:
+            // on iOS a flex:1 <Text numberOfLines={1}> computes its full
+            // (untruncated) width during layout and won't cede room to a row
+            // sibling, which bumped the cue onto its own line below. A View
+            // wrapper gives the <Text> a definite width to ellipsize within and
+            // keeps the cue inline at the end of the truncated line.
+            <View style={[styles.noteRow, rowDir(isRTL)]}>
+              <View style={styles.noteFlex}>
+                <Text
+                  style={[styles.note, textDir(isRTL)]}
+                  numberOfLines={measured ? 1 : undefined}
+                  // Full note for screen readers, regardless of the visual clamp.
+                  accessibilityLabel={entry.note}
+                  onTextLayout={(e) => {
+                    if (!measured) {
+                      setClipped(e.nativeEvent.lines.length > 1);
+                      setMeasured(true);
+                    }
+                  }}
+                >
+                  {entry.note}
+                </Text>
+              </View>
+              {measured && clipped ? <Text style={styles.more}>{t("common.more")}</Text> : null}
+            </View>
+          )
         ) : null}
       </View>
     </Pressable>
@@ -153,15 +177,32 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   // Note + cue share one line; the cue trails the single-line (truncating) note.
-  // A touch below the amount row, baseline-aligned so the cue sits on the text.
+  // alignItems:'center', NOT 'baseline' — a flex:1 child (the note wrapper)
+  // under baseline alignment is mis-measured by Yoga and shoves the trailing
+  // cue onto its own line below. This mirrors the proven home PersonRow row
+  // (center-aligned, flex:1 text wrapper + trailing amount on one line).
   noteRow: {
     flexDirection: "row",
-    alignItems: "baseline",
+    alignItems: "center",
     marginTop: 5,
     gap: 6,
   },
   note: {
-    flex: 1,
+    fontSize: 13,
+    fontFamily: fonts.sansRegular,
+    color: colors.textDefault,
+    lineHeight: 18,
+  },
+  // The flex lives on this wrapper (see the collapsed branch), not on the
+  // truncating <Text>, so the cue stays inline at the end of the clamped line.
+  // minWidth:0 lets it shrink below the note's intrinsic width on every engine.
+  noteFlex: { flex: 1, minWidth: 0 },
+  // Expanded note: a free-flowing block (no flex / no baseline row), so a
+  // multi-line note renders every line and the inline "less" cue trails the
+  // last word. Same type as `note` minus the flex:1 (which would stretch a
+  // child of the column-direction `middle` view vertically).
+  noteBlock: {
+    marginTop: 5,
     fontSize: 13,
     fontFamily: fonts.sansRegular,
     color: colors.textDefault,

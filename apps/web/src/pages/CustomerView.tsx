@@ -225,10 +225,21 @@ function Row({
               style={{ color: C.sub }}
             >
               {e.note}
+              {/* Expanded: the "less" cue flows INLINE at the end of the wrapped
+                  text (inside the same <p>), so it trails the last word instead
+                  of floating in a baseline-aligned column to the right of line 1. */}
+              {clipped && open ? (
+                <span className="text-[12px] font-semibold" style={{ color: C.ink }}>
+                  {" "}
+                  {L.less}
+                </span>
+              ) : null}
             </p>
-            {clipped ? (
+            {/* Collapsed: the note truncates to one line and the "more" cue
+                trails it at the end of that line. */}
+            {clipped && !open ? (
               <span className="shrink-0 text-[12px] font-semibold" style={{ color: C.ink }}>
-                {open ? L.less : L.more}
+                {L.more}
               </span>
             ) : null}
           </div>

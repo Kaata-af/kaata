@@ -122,8 +122,14 @@ a{color:inherit;text-decoration:none;}
 .rwhen{font-size:12px;color:var(--mut);}
 .rnoterow{display:flex;align-items:baseline;gap:6px;min-width:0;margin-top:5px;}
 .rnote{flex:1;min-width:0;font-size:13px;line-height:18px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.row.open .rnote{white-space:normal;overflow:visible;text-overflow:clip;}
 .rmore{flex:0 0 auto;font-size:12px;font-weight:600;color:var(--ink);cursor:pointer;}
+/* Expanded: the row opens, the note wraps, and the "more"/"less" cue flows
+   INLINE at the end of the text — a block container with inline children, so the
+   cue trails the last word instead of floating in a baseline-aligned column to
+   the right of line 1 (which is what the flex sibling did). */
+.row.open .rnoterow{display:block;}
+.row.open .rnote{display:inline;white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:break-word;}
+.row.open .rmore{display:inline;margin-inline-start:6px;}
 /* Every row darkens on press (parity with the app's rows), whether or not it
    expands; hover + pointer only on a clipped row that can open. The --hair icon
    chip stays visible on the lighter active tint. */
