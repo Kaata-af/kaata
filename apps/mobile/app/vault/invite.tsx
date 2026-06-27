@@ -1,14 +1,15 @@
 // Vault invite — Phase 7 redesigned to match the settings design language.
 //
-// Phase 8 D-UI-UNIFICATION: this screen is no longer the PRIMARY add-
-// member affordance. In-person QR pair (vault/pair.tsx) is. This
-// screen survives for cross-account, not-physically-present invitations:
-// shopkeeper wants to add an accountant who lives in another city.
-// Requires sign-in + internet (the server holds the invite token until
-// the recipient signs in to accept). On offline, the form is rendered
-// in a disabled state with a clear "switch to in-person flow" CTA —
-// previously the user could fill out a form and hit an opaque API
-// error on submit, which was the worst possible UX.
+// This is the add-member affordance: an online invite link the recipient
+// opens (deep link kaata://invite/<token>) and accepts after signing in.
+// It works cross-account and not-physically-present (shopkeeper adds an
+// accountant in another city). Requires sign-in + internet (the server
+// holds the invite token until the recipient signs in to accept). When
+// offline, the form is rendered in a disabled state with a clear
+// disclosure so the user isn't left to hit an opaque API error on submit.
+//
+// (The old in-person QR pair, vault/pair.tsx, was the former primary
+// affordance; it is PARKED with the rest of the offline mesh.)
 //
 // Owner-only modal screen. Collects an email + a role (editor / viewer),
 // POSTs to /v1/vaults/:vault_id/invites, and shows the resulting share URL
@@ -276,6 +277,10 @@ export default function VaultInviteScreen() {
             </View>
           ) : null}
 
+          {/* PARKED (mesh): in-person QR pair fallback (vault/pair), parked with
+              the rest of mesh. When offline / not signed in the invite screen
+              now just shows its disabled-state disclosure above. Re-add when
+              mesh ships again.
           {(online === false || hasJwt === false) && !result ? (
             <View style={styles.formInset}>
               <Pressable
@@ -288,6 +293,7 @@ export default function VaultInviteScreen() {
               </Pressable>
             </View>
           ) : null}
+          */}
 
           {!result ? (
             <>

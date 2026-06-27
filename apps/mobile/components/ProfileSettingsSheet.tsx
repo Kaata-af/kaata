@@ -107,13 +107,12 @@ export function ProfileSettingsSheet(props: {
   onSelectVault: (vaultId: string) => void;
   onAddVault: () => void;
   /**
-   * Phase 7 UX critique #4 — Scan a pairing code (other-phone entry
-   * point into the local-CA pair flow). Previously the owner-side QR
-   * screen pointed at "Open Menu → Pair another phone → Scan" which
-   * didn't exist anywhere in the unified surfaces. This callback wires
-   * to /vault/pair-scan.
+   * PARKED (mesh): "Scan a pairing code" (entry into the offline QR pair
+   * flow at /vault/pair-scan) is parked with the rest of mesh, so the row
+   * that consumed this is commented out below. Kept optional on the type so
+   * callers don't have to pass it; re-wire it when mesh ships again.
    */
-  onScanPairingCode: () => void;
+  onScanPairingCode?: () => void;
   onManageCurrentKaata: () => void;
 
   // Account settings (personal: name / phone / language / country / archived)
@@ -401,22 +400,25 @@ export function ProfileSettingsSheet(props: {
                     onPress={chained(props.onAddVault)}
                     isRTL={isRTL}
                     emphasis
+                    // Last in-section row before the archived footer now that
+                    // the parked scan row below no longer renders. The archived
+                    // row sits behind a SectionGap so it doesn't influence this
+                    // row's divider.
+                    isLast={!hasArchived}
                   />
+                  {/* PARKED (mesh): "Scan a pairing code" opened the offline QR
+                      scan (vault/pair-scan), parked with the rest of mesh.
+                      Re-add when mesh ships again. (props.onScanPairingCode is
+                      kept on the type but is no longer consumed.)
                   <NavRow
                     icon="qr-code-outline"
                     label={t("menu.allKaatas.scan")}
                     hint={t("menu.allKaatas.scan.hint")}
                     onPress={chained(props.onScanPairingCode)}
                     isRTL={isRTL}
-                    // UX-fix #4: the Kaatas section ends here when nothing
-                    // else (manage / archived) trails — the archived row
-                    // sits behind a SectionGap so it doesn't influence
-                    // this row's divider. When `hasManageable`, the manage
-                    // row is the last in-section row and carries `isLast`.
-                    // "Manage this Kaata" moved to the CURRENT KAATA section above;
-                    // scan is the last in-section row before the archived footer.
                     isLast={!hasArchived}
                   />
+                  */}
                   {/* D-ARCHIVED-SCREEN — muted "Archived (N) >" footer link
                   to /vault/archived. Renders only when the user has at
                   least one archived Kaata. Placed below the manage row

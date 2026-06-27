@@ -794,6 +794,10 @@ export default function HomeScreen() {
           <View style={styles.noKaataBtnWrap}>
             <Button label={t("home.noKaata.create")} onPress={() => router.push("/vault/new")} />
           </View>
+          {/* PARKED (mesh): "Join an existing kaata" opened the offline QR scan
+              (vault/pair-scan), parked with the rest of mesh. Joining online
+              happens by opening an invite link (kaata://invite/<token>). Re-add
+              when mesh ships again.
           <Pressable
             onPress={() => router.push("/vault/pair-scan")}
             accessibilityRole="button"
@@ -801,6 +805,7 @@ export default function HomeScreen() {
           >
             <Text style={styles.noKaataLinkText}>{t("home.noKaata.join")}</Text>
           </Pressable>
+          */}
           {archivedVaults.length > 0 ? (
             <Pressable
               onPress={() => router.push("/vault/archived")}
@@ -974,7 +979,6 @@ export default function HomeScreen() {
           }
         }}
         onAddVault={() => router.push("/vault/new")}
-        onScanPairingCode={() => router.push("/vault/pair-scan")}
         onManageCurrentKaata={() => router.push("/vault/settings")}
         onOpenAccount={() => router.push("/account")}
         onToggleShopMode={async (next) => {

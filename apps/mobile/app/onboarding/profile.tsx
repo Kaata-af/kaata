@@ -122,7 +122,7 @@ export default function OnboardingProfileScreen() {
     return () => clearTimeout(t);
   }, []);
 
-  async function finalize(targetRoute: "/" | "/vault/pair-scan"): Promise<void> {
+  async function finalize(targetRoute: "/"): Promise<void> {
     if (savingRef.current) return;
     const trimmedName = name.trim();
     const trimmedLast = lastName.trim();
