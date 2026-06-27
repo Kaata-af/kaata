@@ -99,10 +99,15 @@ type UserRow = {
   install_count: number;
   kaatas: UserKaata[];
 };
-// An install that never signed in — telemetry only, no name/phone (the ledger
-// never leaves the device without sign-in + sync).
+// An install — signed in or not. As of the migration-028 build it reports the
+// shopkeeper's OWN profile (self_name / self_phone / shop_name) on check-in, so
+// the dashboard shows who's using the app regardless of sign-in. Still never
+// customer data — the ledger itself stays on the device.
 type InstallRow = {
   install_id: string;
+  self_name: string;
+  self_phone: string;
+  shop_name: string;
   platform: string;
   app_version: string;
   locale: string;
@@ -638,8 +643,9 @@ export function Admin() {
               Not signed in {anon ? `(${anon.length})` : ""}
             </h2>
             <p className="mb-3 text-xs text-neutral-400">
-              Devices using the app without signing in. We only have on-device telemetry for these —
-              no names or phone numbers, because the ledger never leaves the phone without sign-in.
+              Devices using the app without signing in. Each reports the shopkeeper&apos;s own name,
+              phone, and shop on check-in (their customer ledger never leaves the phone), so you can
+              reach the people actually using kaata.
             </p>
             {anon === null ? (
               <p className="text-sm text-neutral-400">Loading…</p>
@@ -650,6 +656,8 @@ export function Admin() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-neutral-200 text-left text-xs text-neutral-400">
+                      <th className="px-4 py-2 font-medium">Name / Shop</th>
+                      <th className="px-4 py-2 font-medium">Phone</th>
                       <th className="px-4 py-2 font-medium">Device</th>
                       <th className="px-4 py-2 font-medium">App</th>
                       <th className="px-4 py-2 font-medium">Lang</th>
@@ -669,6 +677,17 @@ export function Admin() {
                           key={d.install_id}
                           className="border-b border-neutral-100 last:border-0"
                         >
+                          <td className="px-4 py-2">
+                            <div className="text-sm font-medium text-neutral-700">
+                              {d.self_name || <span className="text-neutral-300">(no name)</span>}
+                            </div>
+                            {d.shop_name ? (
+                              <div className="text-xs text-neutral-400">{d.shop_name}</div>
+                            ) : null}
+                          </td>
+                          <td className="px-4 py-2 text-xs text-neutral-600" dir="ltr">
+                            {d.self_phone || <span className="text-neutral-300">—</span>}
+                          </td>
                           <td className="px-4 py-2 font-mono text-xs text-neutral-500">
                             {d.install_id.slice(0, 8)}
                             {!d.has_onboarded ? (

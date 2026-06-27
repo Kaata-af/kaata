@@ -32,6 +32,13 @@ export async function checkIn(payload: {
   // True once the user has created a shop profile. Lets the admin see
   // "installed but never onboarded" vs. "set up + actively using".
   has_onboarded?: boolean;
+  // The shopkeeper's OWN self profile (their name / phone / shop) — NEVER their
+  // customers. Lets the admin dashboard show who's using the app even when they
+  // never signed in (operator outreach for churn interviews). Sent once
+  // onboarded; omitted on a brand-new install with no self user yet.
+  self_name?: string;
+  self_phone?: string;
+  shop_name?: string;
   phones_invalid_count?: number;
   phones_conflict_count?: number;
   // Deltas since the last successful check-in. Omit (or send 0) when there

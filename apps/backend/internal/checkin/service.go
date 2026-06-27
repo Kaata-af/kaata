@@ -62,6 +62,16 @@ type Request struct {
 	PhonesInvalidCount  *int `json:"phones_invalid_count,omitempty"`
 	PhonesConflictCount *int `json:"phones_conflict_count,omitempty"`
 
+	// The install's OWN self profile (the shopkeeper themselves — NEVER their
+	// customers). Lets the admin dashboard show who's using the app even when
+	// they never signed in (Matee: churn outreach). Sent every check-in once
+	// onboarded; the server keeps the latest non-empty value (the user can
+	// rename their shop or fix their phone), and an omitting/older client never
+	// clobbers a value we already have.
+	SelfName  *string `json:"self_name,omitempty"`
+	SelfPhone *string `json:"self_phone,omitempty"`
+	ShopName  *string `json:"shop_name,omitempty"`
+
 	// Usage counters. DELTAS since the previous successful check-in (mobile
 	// resets its local counters on receiving a 2xx). Backend ADDS — never
 	// overwrites — so a dropped response that triggers a retry double-counts
@@ -156,7 +166,8 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 			install_id, app_version, platform, device_locale, check_in_count,
 			migration_001_phones_invalid, migration_001_phones_conflict,
 			usage_entries_created, usage_customers_added, usage_shares_sent,
-			installed_at, has_onboarded, last_activity_at, app_locale
+			installed_at, has_onboarded, last_activity_at, app_locale,
+			self_name, self_phone, shop_name
 		)
 		VALUES (
 			$1, $2, $3, $4, 1, $5, $6,
@@ -164,7 +175,8 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 			COALESCE($10, NOW()),
 			COALESCE($11, FALSE),
 			CASE WHEN $12::boolean THEN NOW() ELSE NULL END,
-			NULLIF($13, '')
+			NULLIF($13, ''),
+			NULLIF($14, ''), NULLIF($15, ''), NULLIF($16, '')
 		)
 		ON CONFLICT (install_id) DO UPDATE
 		SET last_seen_at   = NOW(),
@@ -198,11 +210,19 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 		    last_activity_at = CASE
 		      WHEN $12::boolean THEN NOW()
 		      ELSE installs.last_activity_at
-		    END
+		    END,
+		    -- self_name/self_phone/shop_name track the CURRENT self profile:
+		    -- take the latest non-empty value (the user can rename their shop or
+		    -- fix their phone), keep the old one when a check-in omits it (older
+		    -- client, or a brand-new install that hasn't onboarded yet).
+		    self_name  = COALESCE(NULLIF(EXCLUDED.self_name,  ''), installs.self_name),
+		    self_phone = COALESCE(NULLIF(EXCLUDED.self_phone, ''), installs.self_phone),
+		    shop_name  = COALESCE(NULLIF(EXCLUDED.shop_name,  ''), installs.shop_name)
 	`, req.InstallID, req.AppVersion, req.Platform, req.DeviceLocale,
 		req.PhonesInvalidCount, req.PhonesConflictCount,
 		req.UsageEntriesCreated, req.UsageCustomersAdded, req.UsageSharesSent,
 		installedAt, req.HasOnboarded, hadUsage, req.AppLocale,
+		req.SelfName, req.SelfPhone, req.ShopName,
 	); err != nil {
 		return Response{}, err
 	}

@@ -61,13 +61,21 @@ type UserRow struct {
 	Kaatas         []UserKaata `json:"kaatas"`
 }
 
-// InstallRow is a device that has NOT signed in (account_id IS NULL). We only
-// ever have install-level telemetry for these — NO name/phone/ledger, because
-// without sign-in the ledger never syncs off the device (kaata's core privacy
-// promise). This is the "users without the ones signing in" view: everything we
+// InstallRow is a device that has NOT signed in (account_id IS NULL). We have
+// install-level telemetry plus the shopkeeper's OWN self profile (name / phone /
+// shop, reported on check-in — migration 028) so the dashboard can show who's
+// using the app even without sign-in. The customer ledger still never leaves the
+// device. This is the "users without the ones signing in" view: everything we
 // legitimately know about an anonymous install, and nothing we don't.
 type InstallRow struct {
-	InstallID      string `json:"install_id"`
+	InstallID string `json:"install_id"`
+	// SelfName / SelfPhone / ShopName: the shopkeeper's OWN profile, reported on
+	// check-in (migration 028). Present even for installs that never signed in —
+	// this is how the dashboard now shows who's using the app regardless of
+	// sign-in. NEVER customer data; the customer ledger still stays on-device.
+	SelfName       string `json:"self_name"`
+	SelfPhone      string `json:"self_phone"`
+	ShopName       string `json:"shop_name"`
 	Platform       string `json:"platform"`
 	AppVersion     string `json:"app_version"`
 	Locale         string `json:"locale"`
@@ -286,20 +294,25 @@ func (s *Service) enrichInstallTelemetry(ctx context.Context, byID map[string]*U
 	if len(byID) == 0 {
 		return
 	}
-	// Latest install per account → platform / version / source / locale fallback.
+	// Latest install per account → platform / version / source / locale fallback,
+	// plus the self profile (name/phone) the device reports on check-in. The self
+	// profile is a FALLBACK only: it fills LedgerName/LedgerPhone for accounts
+	// that signed in but never backed up a vault (so no snapshot to read from);
+	// the snapshot enrich below overrides it when a backed-up name/phone exists.
 	lrows, err := s.pool.Query(ctx, `
 		SELECT DISTINCT ON (account_id) account_id::text,
 		       COALESCE(platform, ''), COALESCE(app_version, ''),
 		       COALESCE(source, ''),
-		       COALESCE(NULLIF(app_locale, ''), COALESCE(device_locale, ''))
+		       COALESCE(NULLIF(app_locale, ''), COALESCE(device_locale, '')),
+		       COALESCE(self_name, ''), COALESCE(self_phone, '')
 		FROM installs
 		WHERE account_id IS NOT NULL
 		ORDER BY account_id, last_seen_at DESC NULLS LAST
 	`)
 	if err == nil {
 		for lrows.Next() {
-			var acct, platform, ver, source, locale string
-			if lrows.Scan(&acct, &platform, &ver, &source, &locale) != nil {
+			var acct, platform, ver, source, locale, selfName, selfPhone string
+			if lrows.Scan(&acct, &platform, &ver, &source, &locale, &selfName, &selfPhone) != nil {
 				break
 			}
 			if u := byID[acct]; u != nil {
@@ -308,6 +321,12 @@ func (s *Service) enrichInstallTelemetry(ctx context.Context, byID map[string]*U
 				u.Source = source
 				if u.Locale == "" {
 					u.Locale = locale
+				}
+				if u.LedgerName == "" {
+					u.LedgerName = selfName
+				}
+				if u.LedgerPhone == "" {
+					u.LedgerPhone = selfPhone
 				}
 			}
 		}
@@ -358,7 +377,8 @@ func (s *Service) fetchAnonymousInstalls(ctx context.Context) []InstallRow {
 		       installed_at, first_seen_at, last_seen_at, last_activity_at,
 		       has_onboarded, COALESCE(source, ''), COALESCE(attribution_method, ''),
 		       usage_entries_created, usage_customers_added, usage_shares_sent,
-		       check_in_count
+		       check_in_count,
+		       COALESCE(self_name, ''), COALESCE(self_phone, ''), COALESCE(shop_name, '')
 		FROM installs
 		WHERE account_id IS NULL
 		ORDER BY last_seen_at DESC NULLS LAST
@@ -375,7 +395,8 @@ func (s *Service) fetchAnonymousInstalls(ctx context.Context) []InstallRow {
 		if rows.Scan(&r.InstallID, &r.Platform, &r.AppVersion, &r.Locale,
 			&installedAt, &firstSeen, &lastSeen, &lastActivity,
 			&r.HasOnboarded, &r.Source, &r.Attribution,
-			&r.UsageEntries, &r.UsageCustomers, &r.UsageShares, &r.CheckInCount) != nil {
+			&r.UsageEntries, &r.UsageCustomers, &r.UsageShares, &r.CheckInCount,
+			&r.SelfName, &r.SelfPhone, &r.ShopName) != nil {
 			return out
 		}
 		r.FirstSeen = firstSeen.UTC().Format(time.RFC3339)
@@ -417,10 +438,13 @@ func (s *Service) enrichLedgerIdentity(ctx context.Context, byID map[string]*Use
 				continue
 			}
 			if u := byID[*su.AccountID]; u != nil {
-				if u.LedgerName == "" {
+				// Snapshot is the authoritative backed-up identity — override the
+				// per-install self fallback when the snapshot actually carries a
+				// value (empty snapshot fields never clobber a good fallback).
+				if su.DisplayName != "" {
 					u.LedgerName = su.DisplayName
 				}
-				if u.LedgerPhone == "" && su.PhoneE164 != nil {
+				if su.PhoneE164 != nil && *su.PhoneE164 != "" {
 					u.LedgerPhone = *su.PhoneE164
 				}
 			}

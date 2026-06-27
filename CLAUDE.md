@@ -28,11 +28,12 @@ No test files exist in the repo yet.
 
 ### Mobile-first, backend is a thin phone-home
 
-The mobile app is local-first: every ledger feature (people, entries, balances, WhatsApp share) hits only SQLite. **Ledger data never leaves the device** in v1. The only network call is `POST /v1/check-in` on every launch, non-blocking, 5-second timeout — used solely to:
+The mobile app is local-first: every ledger feature (people, entries, balances, WhatsApp share) hits only SQLite. **The customer ledger never leaves the device** in v1. The only network call is `POST /v1/check-in` on every launch, non-blocking, 5-second timeout — used solely to:
 
 1. Record an anonymous install (UUID generated locally on first run, persisted in `app_meta.install_id` forever)
 2. Receive update + announcement metadata for the banner
-3. Send opaque telemetry deltas (usage counters, has_onboarded, attribution IP for QR matching) — never ledger content
+3. Send opaque telemetry deltas (usage counters, has_onboarded, attribution IP for QR matching) — never customer ledger content
+4. Send the shopkeeper's **OWN** self profile (`self_name` / `self_phone` / `shop_name`, from `getLocalSelf()`) so the admin dashboard can show who's using the app **regardless of sign-in** (operator outreach for churn interviews). Stored on the `installs` row (migration 028, latest-non-empty/COALESCE semantics). **Scope is the local-self user only — never customers/suppliers.** This is a deliberate narrowing of the old "no name/phone leaves the device without sign-in" stance; `apps/backend/internal/admin/users.go` also uses these as a fallback for signed-in accounts that never backed up a vault (snapshot identity still wins when present).
 
 The check-in path lives in `apps/mobile/lib/api.ts` and `apps/mobile/app/_layout.tsx`'s `BackgroundCheckIn` component. The response is persisted to `app_meta` and consumed by `apps/mobile/components/UpdateBanner.tsx`. **`force_update` is held in memory only — never persisted** so an updated client cannot be falsely locked out by a stale flag.
 

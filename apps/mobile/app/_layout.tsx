@@ -1098,6 +1098,11 @@ function BackgroundCheckIn({ installId }: { installId: string }) {
           app_locale: getLocale(),
           installed_at_unix_ms: installedAtMs ?? undefined,
           has_onboarded: Boolean(self),
+          // Report the shopkeeper's OWN profile so the admin dashboard can show
+          // who's using the app regardless of sign-in (never customer data).
+          self_name: self?.name || undefined,
+          self_phone: self?.phone || undefined,
+          shop_name: self?.shop_name || undefined,
           phones_invalid_count: invalidStr ? Number(invalidStr) : undefined,
           phones_conflict_count: conflictStr ? Number(conflictStr) : undefined,
           usage_entries_created: usage.entries_created,
