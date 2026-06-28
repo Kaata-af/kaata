@@ -55,7 +55,7 @@
   .panel{display:flex;align-items:stretch;border-radius:20px;border:1.5px solid;overflow:hidden;flex:1;min-height:0;}
   .panel.no{background:var(--garnet-bg);border-color:#EBC9CF;}
   .panel.yes{background:var(--emerald-bg);border-color:#C3E2D7;}
-  .panel-cap{flex:1;padding:6mm 7mm;display:flex;flex-direction:column;justify-content:center;gap:7px;}
+  .panel-cap{flex:1;padding:5mm 6mm;display:flex;flex-direction:column;justify-content:center;gap:7px;}
   .badge{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;
     border-radius:999px;font-size:18px;font-weight:700;color:#fff;line-height:1;}
   .badge.garnet{background:var(--garnet);}
@@ -64,10 +64,10 @@
   .panel.no .cap-big{color:var(--garnet-text);}
   .panel.yes .cap-big{color:var(--emerald-text);}
   .cap-sub{font-size:14.5px;line-height:1.5;color:#4a4a4a;font-weight:500;}
-  .panel-art{width:102mm;position:relative;overflow:hidden;border-inline-start:1px solid rgba(0,0,0,.08);}
+  .panel-art{width:116mm;position:relative;overflow:hidden;border-inline-start:1px solid rgba(0,0,0,.08);}
   .panel-art img.band-photo{width:100%;height:100%;object-fit:cover;object-position:center;display:block;}
   .panel-art.logo{display:flex;align-items:center;justify-content:center;}
-  .panel-art.logo img{width:52mm;height:52mm;border-radius:14mm;display:block;}
+  .panel-art.logo img{width:60mm;height:60mm;border-radius:16mm;display:block;}
 
   /* ---------- value props ---------- */
   .props{margin-top:6mm;display:flex;gap:4mm;}
@@ -96,14 +96,13 @@
   .b-title{font-weight:700;font-size:32px;line-height:1.15;letter-spacing:-.5px;margin:0;}
   .b-title .hl-accent{color:var(--emerald);}
   .qr-card{margin-top:5mm;background:#fff;border:1.5px solid var(--border);border-radius:22px;
-    padding:6mm;display:flex;align-items:center;gap:6mm;}
-  .qr-card .qimg{width:42mm;height:42mm;display:block;}
-  .qr-meta{text-align:start;}
-  .qr-meta .l1{display:flex;align-items:center;gap:8px;font-size:17px;font-weight:700;}
-  .qr-meta .l1 .dot{width:7px;height:7px;border-radius:999px;background:var(--emerald);}
-  .qr-meta .l2{font-size:14px;color:var(--muted);font-weight:600;margin-top:5px;}
-  .qr-meta .l2 b{color:var(--ink);}
-  .qr-meta .l3{font-size:12.5px;color:var(--subtle);font-weight:500;margin-top:5px;}
+    padding:7mm 9mm;display:flex;flex-direction:column;align-items:center;}
+  .qr-row{display:flex;align-items:center;gap:8mm;}
+  .qr-row .qr-logo{width:46mm;height:46mm;border-radius:12mm;display:block;}
+  .qr-row .qimg{width:50mm;height:50mm;display:block;}
+  .qr-cap{margin-top:6mm;font-size:16px;font-weight:700;color:var(--ink);}
+  .qr-cap b{color:var(--ink);}
+  .qr-note{font-size:12.5px;color:var(--subtle);font-weight:500;margin-top:4px;}
 
   .contact{margin-top:6mm;display:flex;align-items:center;justify-content:center;gap:12px;
     border:1.5px solid var(--border);border-radius:16px;padding:12px 16px;background:var(--bg-muted);
@@ -201,12 +200,12 @@
     <div class="qr-block">
       <h2 class="b-title">برای نصب، <span class="hl-accent">اسکن کنید</span></h2>
       <div class="qr-card">
-        <img class="qimg" src="{{QR_URI}}" alt="QR" />
-        <div class="qr-meta">
-          <div class="l1"><span class="dot"></span><span>دانلود برای اندروید</span></div>
-          <div class="l2">یا به <b>kaata.af</b> بروید</div>
-          <div class="l3">فعلاً فقط برای اندروید</div>
+        <div class="qr-row">
+          <img class="qr-logo" src="data:image/png;base64,{{LOGO}}" alt="" />
+          <img class="qimg" src="{{QR_URI}}" alt="QR" />
         </div>
+        <div class="qr-cap">دانلود برای اندروید · <b>kaata.af</b></div>
+        <div class="qr-note">فعلاً فقط برای اندروید</div>
       </div>
     </div>
   </div>
