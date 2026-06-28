@@ -113,7 +113,7 @@ import { configureGoogleSignIn } from "../lib/auth";
 import { initCurrencyFromPref } from "../lib/currency";
 import { initDefaultCountryFromPref } from "../lib/phone";
 import { useAppFontsWithError } from "../lib/fonts";
-import { getLocale, initLocaleFromPref } from "../lib/i18n";
+import { getLocale, initLocaleFromPref, t } from "../lib/i18n";
 import { ensureInstallId, getInstalledAtUnixMs } from "../lib/install-id";
 import { sweepAllQuarantinedVaults } from "../lib/projection/sweep";
 import { type BootError, forceRestart, toBootError } from "../lib/boot-error";
@@ -680,7 +680,7 @@ function BootSplash() {
           during this black splash the default dark icons were invisible
           (dark-on-black) for the full 1-3s migration-heavy boot. */}
       <StatusBar style="light" />
-      <Text style={bootSplashStyles.wordmark}>kaata.</Text>
+      <Text style={bootSplashStyles.wordmark}>{t("brand.wordmark")}</Text>
       <View style={bootSplashStyles.spacer} />
       <ActivityIndicator color={colors.textInverted} />
       {showCopy ? (
@@ -748,7 +748,7 @@ function MigrationPrompt() {
   return (
     <View style={migrationStyles.container}>
       <View style={migrationStyles.card}>
-        <Text style={migrationStyles.wordmark}>kaata.</Text>
+        <Text style={migrationStyles.wordmark}>{t("brand.wordmark")}</Text>
         <View style={migrationStyles.spacer} />
         <Text style={migrationStyles.heading}>Almost ready</Text>
         <Text style={migrationStyles.headingFa}>تقریباً آماده</Text>
@@ -802,7 +802,7 @@ function DbInitFailedPrompt() {
   return (
     <View style={migrationStyles.container}>
       <View style={migrationStyles.card}>
-        <Text style={migrationStyles.wordmark}>kaata.</Text>
+        <Text style={migrationStyles.wordmark}>{t("brand.wordmark")}</Text>
         <View style={migrationStyles.spacer} />
         <Text style={migrationStyles.heading}>Couldn&apos;t open your Kaata data</Text>
         <Text style={migrationStyles.headingFa}>داده‌های کاتای شما باز نشد</Text>
@@ -867,7 +867,7 @@ function BootFailedPrompt({ error }: { error: BootError }) {
   return (
     <View style={migrationStyles.container}>
       <View style={migrationStyles.card}>
-        <Text style={migrationStyles.wordmark}>kaata.</Text>
+        <Text style={migrationStyles.wordmark}>{t("brand.wordmark")}</Text>
         <View style={migrationStyles.spacer} />
         <Text style={migrationStyles.heading}>Couldn&apos;t start</Text>
         <Text style={migrationStyles.headingFa}>کاتا شروع نشد</Text>

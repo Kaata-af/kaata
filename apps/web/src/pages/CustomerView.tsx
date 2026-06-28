@@ -66,6 +66,7 @@ const LABELS = {
     payment: "I received",
     home: "Go to kaata.af",
     tag: "Powered by",
+    wordmark: "kaata.",
     more: "more",
     less: "less",
   },
@@ -80,6 +81,7 @@ const LABELS = {
     payment: "گرفتم",
     home: "رفتن به kaata.af",
     tag: "قدرت‌گرفته از",
+    wordmark: "کاتا.",
     more: "بیشتر",
     less: "کمتر",
   },
@@ -400,7 +402,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
       <p className="mt-[26px] text-center text-[12px]" style={{ color: C.mut }}>
         {L.tag}{" "}
         <Link to="/" className="font-bold" style={{ color: C.sub }}>
-          kaata.
+          {L.wordmark}
         </Link>
       </p>
     </section>

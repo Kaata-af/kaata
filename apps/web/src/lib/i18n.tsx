@@ -22,6 +22,10 @@ export type Lang = "en" | "fa";
 const LANG_KEY = "kaata_lang";
 
 const en = {
+  // Brand wordmark — Latin in English, Dari script in Persian. Mirrors the
+  // mobile app's brand.wordmark key and the door-to-door flyer.
+  "brand.wordmark": "kaata.",
+
   // Header / nav
   "nav.product": "Product",
   "nav.how": "How it works",
@@ -154,6 +158,8 @@ const en = {
 
 const fa: Record<keyof typeof en, string> = {
   // Header / nav
+  "brand.wordmark": "کاتا.",
+
   "nav.product": "امکانات",
   "nav.how": "طرز کار",
   "nav.download": "دانلود",

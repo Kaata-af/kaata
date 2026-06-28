@@ -25,7 +25,13 @@ export function SiteHeader() {
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2 md:justify-self-start">
           <img src="/logo.png" alt="" className="w-6 h-6" />
-          <span className="text-base font-bold tracking-tight text-neutral-900">kaata.</span>
+          {/* Persian wordmark (کاتا.) drops tracking-tight — negative
+              letter-spacing breaks Arabic-script joining. */}
+          <span
+            className={`text-base font-bold text-neutral-900 ${lang === "fa" ? "" : "tracking-tight"}`}
+          >
+            {t("brand.wordmark")}
+          </span>
         </Link>
 
         {/* Center nav (desktop only) */}
@@ -87,14 +93,18 @@ function useScrolled(threshold: number): boolean {
 }
 
 export function SiteFooter() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   return (
     <footer className="border-t border-neutral-200 bg-white">
       <div className="max-w-6xl mx-auto px-6 py-16 grid md:grid-cols-3 gap-12 md:gap-6">
         <div>
           <Link to="/" className="flex items-center gap-2">
             <img src="/logo.png" alt="" className="w-7 h-7" />
-            <span className="text-lg font-bold tracking-tight text-neutral-900">kaata.</span>
+            <span
+              className={`text-lg font-bold text-neutral-900 ${lang === "fa" ? "" : "tracking-tight"}`}
+            >
+              {t("brand.wordmark")}
+            </span>
           </Link>
           <p className="mt-4 text-sm text-neutral-500 max-w-xs leading-relaxed">
             {t("footer.tagline")}
