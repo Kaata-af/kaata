@@ -29,12 +29,14 @@ def b64(p: pathlib.Path) -> str:
 def jpg_uri(p: pathlib.Path) -> str:
     return "data:image/jpeg;base64," + b64(p)
 
-# The two panel photos live in assets/ which is deliberately kept out of git
-# (binary bloat). A fresh clone must drop them in before building.
-for need in ("panel-notebook.jpg", "panel-app.jpg"):
-    if not (ASSETS / need).exists():
-        sys.exit(f"missing source photo: assets/{need}\n"
-                 f"assets/ is gitignored — see marketing/flyer/README.md for the two photos to add.")
+# Panel photos live in assets/ which is deliberately kept out of git (binary
+# bloat). A fresh clone must drop them in before building. The "after" panel is
+# a row of one-or-more app screenshots: assets/panel-app-1.jpg, -2.jpg, ...
+if not (ASSETS / "panel-notebook.jpg").exists():
+    sys.exit("missing assets/panel-notebook.jpg — assets/ is gitignored, see README.md")
+APP_SHOTS = sorted(ASSETS.glob("panel-app-*.jpg"))
+if not APP_SHOTS:
+    sys.exit("no assets/panel-app-*.jpg screenshots found — assets/ is gitignored, see README.md")
 
 # --- QR (segno, high error-correction for print durability) ----------------
 import segno
@@ -52,11 +54,14 @@ subs = {
     "{{VAZIR_LA_700}}": b64(FONTS / "vazirmatn-latin-700-normal.woff2"),
     "{{LOGO}}": b64(LOGO),
     "{{IMG_NOTEBOOK}}": jpg_uri(ASSETS / "panel-notebook.jpg"),
-    "{{IMG_APP}}": jpg_uri(ASSETS / "panel-app.jpg"),
+    "{{APP_SHOTS}}": "\n      ".join(
+        f'<div class="shot"><img src="{jpg_uri(p)}" alt="" /></div>' for p in APP_SHOTS
+    ),
     "{{QR_URI}}": qr_uri,
     "{{URL}}": URL,
     "{{SLUG}}": SLUG,
 }
+print(f"app screenshots: {len(APP_SHOTS)}")
 html = tpl
 for k, v in subs.items():
     html = html.replace(k, v)

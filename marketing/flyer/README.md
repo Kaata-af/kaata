@@ -9,7 +9,7 @@ and a big tracked QR code on the back.
 | `flyer.template.html` | ✅ | editable layout + Dari copy (placeholders for fonts/photos/QR) |
 | `build_flyer.py` | ✅ | generates the flyer from the template |
 | `README.md` | ✅ | this file |
-| `assets/panel-*.jpg` | ❌ gitignored | the two source photos (see below) |
+| `assets/panel-*.jpg` | ❌ gitignored | source photos: ledger + app screenshots (see below) |
 | `flyer.pdf` / `flyer.html` | ❌ gitignored | generated print files |
 | `preview-1.png` / `preview-2.png` | ❌ gitignored | generated page previews |
 
@@ -25,16 +25,19 @@ This produces `flyer.pdf` (print this), `flyer.html` (open in any browser →
 Ctrl/Cmd+P), and `preview-1/2.png`. All are gitignored.
 
 ### Source photos (`assets/`, gitignored)
-The build embeds two photos. A fresh clone must drop them in first, or the build
+The build embeds the photos. A fresh clone must drop them in first, or the build
 exits with a clear message:
-- `assets/panel-notebook.jpg` — the "before": worn handwritten paper ledgers.
-- `assets/panel-app.jpg` — the "after": a kaata home-screen screenshot.
+- `assets/panel-notebook.jpg` — the "before", shown **full-width**, so use a
+  **landscape** crop of the worn paper ledgers.
+- `assets/panel-app-1.jpg`, `panel-app-2.jpg`, … — the "after": a row of
+  **portrait** app screenshots shown side by side. Add/remove files to change
+  the row; `build_flyer.py` picks up every `panel-app-*.jpg` in sorted order.
 
 To re-shoot/swap, drop new files at those paths and rebuild. Tips:
-- Keep them ~1000–1400 px on the long edge (good print quality, small embed).
-- `panel-app.jpg` should be cropped to the top of the home screen (header +
-  the green "To collect" balance + the people list); the build crops it
-  further to fill its panel via `object-position` (tweak in the template).
+- App screenshots: crop the status bar off the top; cards display portrait at a
+  uniform height. **Redact phone numbers / personal data yourself** before use —
+  the build does not (e.g. `-fill white -draw "rectangle x1,y1 x2,y2"`).
+- Keep images ~700–1800 px on the long edge (good print, small embed).
 - A phone HEIC converts with `convert IMG.HEIC -auto-orient out.jpg`.
 
 ## Two things to do before a big print run
