@@ -1,0 +1,11 @@
+# Generated, self-contained build outputs — regenerate with build_flyer.py.
+flyer.html
+flyer.pdf
+preview-*.png
+
+# Source panel photos embedded into the flyer. Kept out of git to avoid
+# bloating the repo with image binaries. Drop the photos here to rebuild
+# (see README.md):
+#   assets/panel-notebook.jpg   — the paper-ledger "before" shot
+#   assets/panel-app.jpg        — the kaata app "after" screenshot
+assets/

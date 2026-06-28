@@ -20,10 +20,21 @@ HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 FONTS = REPO / "apps/web/public/fonts"
 LOGO  = REPO / "apps/web/public/logo.png"
+ASSETS = HERE / "assets"           # panel photos — gitignored, see README
 CHROME = "google-chrome"
 
 def b64(p: pathlib.Path) -> str:
     return base64.b64encode(p.read_bytes()).decode()
+
+def jpg_uri(p: pathlib.Path) -> str:
+    return "data:image/jpeg;base64," + b64(p)
+
+# The two panel photos live in assets/ which is deliberately kept out of git
+# (binary bloat). A fresh clone must drop them in before building.
+for need in ("panel-notebook.jpg", "panel-app.jpg"):
+    if not (ASSETS / need).exists():
+        sys.exit(f"missing source photo: assets/{need}\n"
+                 f"assets/ is gitignored — see marketing/flyer/README.md for the two photos to add.")
 
 # --- QR (segno, high error-correction for print durability) ----------------
 import segno
@@ -40,6 +51,8 @@ subs = {
     "{{VAZIR_LA_400}}": b64(FONTS / "vazirmatn-latin-400-normal.woff2"),
     "{{VAZIR_LA_700}}": b64(FONTS / "vazirmatn-latin-700-normal.woff2"),
     "{{LOGO}}": b64(LOGO),
+    "{{IMG_NOTEBOOK}}": jpg_uri(ASSETS / "panel-notebook.jpg"),
+    "{{IMG_APP}}": jpg_uri(ASSETS / "panel-app.jpg"),
     "{{QR_URI}}": qr_uri,
     "{{URL}}": URL,
     "{{SLUG}}": SLUG,

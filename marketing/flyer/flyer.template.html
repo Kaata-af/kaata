@@ -52,17 +52,16 @@
   .headline .hl-accent{color:var(--emerald);}
   .subhead{margin:9px 0 0;font-size:17px;line-height:1.6;color:var(--muted);font-weight:500;max-width:155mm;}
 
-  /* ---------- meme panels ---------- */
+  /* ---------- meme panels (real photos) ---------- */
   .meme{margin-top:6.5mm;display:flex;flex-direction:column;gap:5mm;flex:1;}
   .panel{display:flex;align-items:stretch;border-radius:22px;border:1.5px solid;overflow:hidden;flex:1;}
   .panel.no{background:var(--garnet-bg);border-color:#EBC9CF;}
   .panel.yes{background:var(--emerald-bg);border-color:#C3E2D7;}
   .panel-cap{flex:1;padding:6mm 7mm;display:flex;flex-direction:column;justify-content:center;gap:5px;}
-  .panel-art{width:56mm;display:flex;align-items:center;justify-content:center;position:relative;
-    border-inline-start:1.5px dashed rgba(0,0,0,.10);}
-  .panel.no .panel-art{background:rgba(163,32,58,.05);}
-  .panel.yes .panel-art{background:rgba(12,116,90,.05);}
-  .panel-art svg{width:100%;height:auto;max-height:51mm;display:block;}
+  .panel-art{width:64mm;position:relative;overflow:hidden;border-inline-start:1px solid rgba(0,0,0,.08);}
+  .panel-art img{width:100%;height:100%;object-fit:cover;display:block;}
+  .panel.no  .panel-art img{object-position:50% 42%;} /* the frayed handwritten ledgers */
+  .panel.yes .panel-art img{object-position:50% 0;}   /* app: header + green balance + names */
 
   .badge{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;
     border-radius:999px;font-size:19px;font-weight:700;color:#fff;line-height:1;}
@@ -151,42 +150,7 @@
         <div class="cap-tag">روشِ قدیمی</div>
       </div>
       <div class="panel-art">
-        <!-- character: turning away, palm-out "no" -->
-        <svg viewBox="0 0 230 250" xmlns="http://www.w3.org/2000/svg">
-          <g fill="none" stroke="#171717" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
-            <!-- torso / perahan -->
-            <path d="M70 250 C66 196 70 160 88 148 L142 148 C160 160 164 196 160 250 Z" fill="#fff"/>
-            <!-- collar -->
-            <path d="M101 150 L115 168 L129 150" fill="none"/>
-            <!-- neck -->
-            <path d="M104 132 L104 150 M126 132 L126 150" fill="#fff"/>
-            <!-- head (turned slightly away) -->
-            <circle cx="118" cy="96" r="40" fill="#fff"/>
-            <!-- cap -->
-            <path d="M80 86 a40 32 0 0 1 78 -4 q-39 -14 -78 4 Z" fill="#171717" stroke="#171717"/>
-            <path d="M80 86 q40 -18 78 -4" fill="none"/>
-            <!-- beard -->
-            <path d="M92 110 q26 30 52 2 q-4 26 -26 26 q-22 0 -26 -28 Z" fill="#EDEDED"/>
-            <!-- eyes glancing away -->
-            <circle cx="102" cy="92" r="3.6" fill="#171717" stroke="none"/>
-            <circle cx="126" cy="90" r="3.6" fill="#171717" stroke="none"/>
-            <!-- annoyed brows (angled down toward centre) -->
-            <path d="M96 78 L113 85 M136 76 L120 84" fill="none" stroke-width="4.5"/>
-            <!-- frown -->
-            <path d="M104 125 q14 -12 28 0" fill="none" stroke-width="5"/>
-            <!-- raised arm pushing toward caption (right) -->
-            <path d="M150 158 C176 150 196 132 196 112" fill="none"/>
-            <!-- open "stop" hand -->
-            <g fill="#fff">
-              <rect x="176" y="58" width="44" height="52" rx="15"/>
-              <rect x="180" y="34" width="9.5" height="32" rx="4.7"/>
-              <rect x="192" y="30" width="9.5" height="36" rx="4.7"/>
-              <rect x="204" y="33" width="9.5" height="33" rx="4.7"/>
-              <rect x="215" y="40" width="9" height="28" rx="4.5"/>
-              <rect x="166" y="70" width="22" height="11" rx="5.5"/>
-            </g>
-          </g>
-        </svg>
+        <img src="{{IMG_NOTEBOOK}}" alt="" />
       </div>
     </div>
 
@@ -199,32 +163,7 @@
         <div class="cap-tag">روشِ آرام</div>
       </div>
       <div class="panel-art">
-        <!-- character: smiling, pointing toward caption (right) -->
-        <svg viewBox="0 0 230 250" xmlns="http://www.w3.org/2000/svg">
-          <g fill="none" stroke="#171717" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M70 250 C66 196 70 160 88 148 L142 148 C160 160 164 196 160 250 Z" fill="#fff"/>
-            <path d="M101 150 L115 168 L129 150" fill="none"/>
-            <path d="M104 132 L104 150 M126 132 L126 150" fill="#fff"/>
-            <circle cx="112" cy="96" r="40" fill="#fff"/>
-            <path d="M74 86 a40 32 0 0 1 78 -4 q-39 -14 -78 4 Z" fill="#171717" stroke="#171717"/>
-            <path d="M74 86 q40 -18 78 -4" fill="none"/>
-            <path d="M86 110 q26 30 52 2 q-4 26 -26 26 q-22 0 -26 -28 Z" fill="#EDEDED"/>
-            <!-- happy eyes -->
-            <circle cx="100" cy="90" r="3.6" fill="#171717" stroke="none"/>
-            <circle cx="124" cy="90" r="3.6" fill="#171717" stroke="none"/>
-            <path d="M92 80 q9 -5 17 -1 M119 79 q9 -4 16 1" fill="none" stroke-width="4.5"/>
-            <!-- smile -->
-            <path d="M100 114 q14 14 30 1" fill="none" stroke-width="5"/>
-            <!-- arm extended, pointing right toward caption -->
-            <path d="M150 160 C176 156 196 142 206 124" fill="none"/>
-            <!-- pointing hand -->
-            <g fill="#fff">
-              <rect x="176" y="104" width="36" height="40" rx="13"/>
-              <rect x="204" y="116" width="34" height="13" rx="6.5"/>
-              <rect x="182" y="96" width="11" height="20" rx="5.5"/>
-            </g>
-          </g>
-        </svg>
+        <img src="{{IMG_APP}}" alt="" />
       </div>
     </div>
 
