@@ -134,6 +134,18 @@ export default function OnboardingProfileScreen() {
       return;
     }
     setNameError(null);
+
+    // Phone is REQUIRED during onboarding (Matee). Empty → inline error +
+    // focus, same affordance as the name field above. The number is the
+    // canonical identity the rest of the data model keys on, and it's how
+    // staff find the shopkeeper when pairing — so we no longer let it be
+    // skipped at sign-up.
+    if (!trimmedPhone) {
+      setPhoneError(t("onboarding.phone.required"));
+      phoneRef.current?.focus();
+      return;
+    }
+
     // Last name is optional. Stored combined into the single display_name the
     // data model uses everywhere ("First Last"); no schema change.
     const fullName = trimmedLast ? `${trimmedName} ${trimmedLast}` : trimmedName;
@@ -142,14 +154,11 @@ export default function OnboardingProfileScreen() {
     // the raw string ("0700123456", spaces, typos) landed verbatim in
     // users.phone_e164 — the column the data model treats as canonical
     // identity — with zero feedback for typos.
-    let normalizedPhone: string | null = null;
-    if (trimmedPhone) {
-      normalizedPhone = normalizePhone(trimmedPhone, countryCode);
-      if (!normalizedPhone) {
-        setPhoneError(t("personAdd.phone.invalid"));
-        phoneRef.current?.focus();
-        return;
-      }
+    const normalizedPhone = normalizePhone(trimmedPhone, countryCode);
+    if (!normalizedPhone) {
+      setPhoneError(t("personAdd.phone.invalid"));
+      phoneRef.current?.focus();
+      return;
     }
     setPhoneError(null);
 
@@ -271,7 +280,10 @@ export default function OnboardingProfileScreen() {
               render LTR via Unicode bidi regardless of locale); the label and
               hint flip via textDir to follow reading order. */}
           <View>
-            <Text style={[styles.fieldLabel, textDir(isRTL)]}>{t("onboarding.phone.label")}</Text>
+            <Text style={[styles.fieldLabel, textDir(isRTL)]}>
+              {t("onboarding.phone.label")}
+              <Text style={styles.required}> *</Text>
+            </Text>
             <View style={styles.phoneRow}>
               <Pressable
                 onPress={() => setPickerVisible(true)}
@@ -397,6 +409,7 @@ const styles = StyleSheet.create({
     color: colors.textDefault,
     marginBottom: 8,
   },
+  required: { color: colors.danger },
   phoneRow: { flexDirection: "row", gap: 8 },
   countryBtn: {
     flexDirection: "row",

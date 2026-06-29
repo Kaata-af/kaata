@@ -32,7 +32,8 @@ const en = {
   "onboarding.name.placeholder": "Sultan",
   "onboarding.lastName.label": "Last name",
   "onboarding.lastName.placeholder": "Ahmadi",
-  "onboarding.phone.label": "Phone number (optional)",
+  "onboarding.phone.label": "Phone number",
+  "onboarding.phone.required": "Phone number is required",
   "onboarding.phone.placeholder": "+93 7…",
   "onboarding.phone.hint":
     "Used so staff can find you in their contacts when pairing. Not verified, not shared.",
@@ -590,14 +591,21 @@ const en = {
   "account.appHealth.detailsHint": "Memory & crash info",
 
   // Vault create (Phase 5.2 — Add a Kaata)
-  "vaultNew.title": "Create a Kaata",
+  // Copy fix: real users typed a CUSTOMER's name here (treating a "Kaata"
+  // as a single person's tab), so the admin dashboard's shop_name —
+  // sourced from the active vault's name — filled with tally/person names
+  // instead of shops. The screen now asks plainly for the SHOP name: a
+  // question title + a concrete "Shop name" field label + an example
+  // placeholder. The product still calls the container a "Kaata"
+  // everywhere else; only this naming step is shop-framed.
+  "vaultNew.title": "What's your shop called?",
   // UX-fix #1: forced post-archive-last entry-point title. The back
   // chevron is hidden in this mode (no parent to pop to); the title
   // shifts to a directive framing so the screen reads as "you must
   // complete this".
-  "vaultNew.titleForced": "Create a Kaata to continue",
-  "vaultNew.name.label": "Kaata name",
-  "vaultNew.name.placeholder": "My new shop",
+  "vaultNew.titleForced": "Name your shop to continue",
+  "vaultNew.name.label": "Shop name",
+  "vaultNew.name.placeholder": "e.g. Ahmad General Store",
   "vaultNew.name.required": "Name is required",
   "vaultNew.currency.label": "Currency",
   "vaultNew.currency.hint":
@@ -1057,7 +1065,8 @@ const fa: Partial<Record<Key, string>> = {
   "onboarding.name.placeholder": "سلطان",
   "onboarding.lastName.label": "تخلص",
   "onboarding.lastName.placeholder": "احمدی",
-  "onboarding.phone.label": "شماره تلفون (اختیاری)",
+  "onboarding.phone.label": "شماره تلفون",
+  "onboarding.phone.required": "شماره تلفون لازم است",
   "onboarding.phone.placeholder": "+93 7…",
   "onboarding.phone.hint":
     "برای اینکه کارمندان شما را در مخاطبین خود پیدا کنند. تأیید نمی‌شود و به اشتراک گذاشته نمی‌شود.",
@@ -1511,11 +1520,12 @@ const fa: Partial<Record<Key, string>> = {
   "account.appHealth.details": "عیب‌یابی مفصل",
   "account.appHealth.detailsHint": "اطلاعات حافظه و خرابی",
 
-  // Vault create (Phase 5.2)
-  "vaultNew.title": "ایجاد کاتای جدید",
-  "vaultNew.titleForced": "برای ادامه یک کاتا بسازید",
-  "vaultNew.name.label": "نام کاتا",
-  "vaultNew.name.placeholder": "دکان جدید من",
+  // Vault create (Phase 5.2). Shop-framed to stop users naming the kaata
+  // after a customer — see the English block's note.
+  "vaultNew.title": "نام دکان شما چیست؟",
+  "vaultNew.titleForced": "برای ادامه، نام دکان را بنویسید",
+  "vaultNew.name.label": "نام دکان",
+  "vaultNew.name.placeholder": "مثلاً دکان عمومی احمد",
   "vaultNew.name.required": "نام لازم است",
   "vaultNew.currency.label": "ارز",
   "vaultNew.currency.hint": "پیش‌فرض برای تمام مبالغ این کاتا. بعداً در تنظیمات قابل تغییر است.",
