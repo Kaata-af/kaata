@@ -126,7 +126,7 @@ export async function refreshLocalSelfUserIdCache(): Promise<string | null> {
 // wrote its id to app_meta.active_vault_id during the same transaction that
 // backfilled every existing entries.vault_id / relationships.vault_id row.
 //
-// Like install_id, this is hot-path: every listPeople / getPerson / listEntries
+// Like install_id, this is hot-path: every listAllPeople / getPerson / listEntries
 // needs it. We prime the cache once during boot (primeActiveVaultId, awaited
 // from _layout.tsx right after initDb) and serve it synchronously thereafter.
 //

@@ -29,7 +29,9 @@ export const PersonRow = memo(function PersonRow(props: {
   const subtitle = !person.last_entry_at
     ? t("person.row.noEntries")
     : person.balance === 0
-      ? t("person.row.settled")
+      ? // Settled rows keep their relative date too ("settled 3d ago") so the
+        // list still reads as a timeline and a freshly-cleared tally is obvious.
+        t("person.row.settledAgo", { time: formatRelative(person.last_entry_at) })
       : formatRelative(person.last_entry_at);
 
   return (

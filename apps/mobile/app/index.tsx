@@ -98,6 +98,28 @@ const RAIL_SPRING = { friction: 14, tension: 110 } as const;
 const sortByModified = (a: PersonWithBalance, b: PersonWithBalance): number =>
   (b.last_entry_at ?? 0) - (a.last_entry_at ?? 0) || a.name.localeCompare(b.name);
 
+// Which tab a person belongs to. Direction is DERIVED from the ledger, never
+// stored (CLAUDE.md "direction-free" model).
+//   balance > 0 → they owe me → collect
+//   balance < 0 → I owe them  → pay
+//   balance === 0 (SETTLED) → STAY on the side they were on before being
+//     settled, instead of always falling into collect. With the balance exactly
+//     0 the most-recent entry is necessarily the one that zeroed it, so the
+//     prior side is the OPPOSITE of that entry's effect: a 'payment' (I
+//     received) cleared a debt they owed me → collect; a 'debt' (I gave) cleared
+//     what I owed them → pay. Adding a new tally makes the balance non-zero
+//     again and re-files them by sign on the next load. Fallback when the entry
+//     type is unknown (e.g. a person with no entries) is collect, the prior
+//     default — those rows are filtered off the home list anyway.
+const personSide = (p: PersonWithBalance): Direction =>
+  p.balance > 0
+    ? "collect"
+    : p.balance < 0
+      ? "pay"
+      : p.last_entry_type === "debt"
+        ? "pay"
+        : "collect";
+
 /**
  * ONE sync toggle: enabling Nearby sync also turns on the native background
  * engine (there is no foreground-only sync — sync IS background sync). Sets the
@@ -458,11 +480,11 @@ export default function HomeScreen() {
   // modified date.") allPeople is already tallied-only (listAllPeople), so every
   // row has a last_entry_at. sortByModified is a module-level pure comparator.
   const collectPeople = useMemo(
-    () => allPeople.filter((p) => p.balance >= 0).sort(sortByModified),
+    () => allPeople.filter((p) => personSide(p) === "collect").sort(sortByModified),
     [allPeople],
   );
   const payPeople = useMemo(
-    () => allPeople.filter((p) => p.balance < 0).sort(sortByModified),
+    () => allPeople.filter((p) => personSide(p) === "pay").sort(sortByModified),
     [allPeople],
   );
 

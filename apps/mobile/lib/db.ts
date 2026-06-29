@@ -34,7 +34,6 @@ import { normalizePhone } from "./phone";
 import { joinName, writePersonToPhoneBook } from "./contacts-sync";
 import type {
   CreatePersonResult,
-  Direction,
   Entry,
   EntryType,
   PersonWithBalance,
@@ -3363,7 +3362,18 @@ async function selectAllPeopleRaw(db: SQLite.SQLiteDatabase): Promise<PersonWith
               WHEN e.deleted_at IS NULL AND e.type = 'payment' THEN -e.amount_afn
               ELSE 0
             END), 0) AS balance,
-            MAX(CASE WHEN e.deleted_at IS NULL THEN e.created_at END) AS last_entry_at
+            MAX(CASE WHEN e.deleted_at IS NULL THEN e.created_at END) AS last_entry_at,
+            -- Type of the most-recent non-deleted entry. Only meaningful for a
+            -- SETTLED person (balance 0): that entry is the one that zeroed them,
+            -- so the side they were on before is the opposite of its effect (see
+            -- PersonWithBalance.last_entry_type and the home-screen personSide()).
+            (SELECT le.type
+               FROM entries le
+              WHERE le.relationship_id = r.id
+                AND le.vault_id        = ?
+                AND le.deleted_at IS NULL
+              ORDER BY le.created_at DESC, le.id DESC
+              LIMIT 1) AS last_entry_type
      FROM relationships r
      INNER JOIN users u ON u.id = r.user_b_id
      LEFT JOIN entries e
@@ -3372,27 +3382,10 @@ async function selectAllPeopleRaw(db: SQLite.SQLiteDatabase): Promise<PersonWith
      WHERE r.vault_id   = ?
        AND r.archived_at IS NULL
      GROUP BY u.id`,
-    vaultId,
-    vaultId,
+    vaultId, // last_entry_type correlated subquery (appears first in SELECT)
+    vaultId, // LEFT JOIN entries e ON ... e.vault_id = ?
+    vaultId, // WHERE r.vault_id = ?
   );
-}
-
-// Returns every person with their signed net balance, filtered to one
-// direction of the ledger.
-//   balance > 0 → they owe me (To collect tab)
-//   balance < 0 → I owe them   (To pay tab)
-//   balance == 0 → settled or brand new — shown in collect by default so they're findable.
-export async function listPeople(direction: Direction): Promise<PersonWithBalance[]> {
-  const db = await getDb();
-  const rows = await selectAllPeopleRaw(db);
-  if (direction === "collect") {
-    return rows
-      .filter((p) => p.balance >= 0)
-      .sort((a, b) => b.balance - a.balance || a.name.localeCompare(b.name));
-  }
-  return rows
-    .filter((p) => p.balance < 0)
-    .sort((a, b) => a.balance - b.balance || a.name.localeCompare(b.name));
 }
 
 // Returns every active person, regardless of which tab they'd land in.

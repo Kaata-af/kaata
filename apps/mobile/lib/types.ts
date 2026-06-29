@@ -95,6 +95,15 @@ export type Person = {
 export type PersonWithBalance = Person & {
   balance: number;
   last_entry_at: number | null;
+  // Type of the most-recent non-deleted entry (the one with max created_at).
+  // Used ONLY to decide which tab a SETTLED (balance === 0) person stays on:
+  // with the balance exactly 0, the latest entry is necessarily the one that
+  // zeroed it, so the side they were on before is the OPPOSITE of that entry's
+  // effect — a 'payment' (I received) cleared a debt they owed me (collect
+  // side); a 'debt' (I gave) cleared what I owed them (pay side). null when the
+  // person has no entries. Optional because single-person queries (getPerson)
+  // don't select it; the home split (selectAllPeopleRaw) does.
+  last_entry_type?: EntryType | null;
 };
 
 export type CreatePersonResult =
