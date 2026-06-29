@@ -55,12 +55,13 @@ To re-shoot/swap, drop new files at those paths and rebuild. Tips:
   safely on any home/office printer — no full-bleed setup needed.
 
 ## How the QR works
-The QR encodes `https://api.kaata.af/v1/download?s=<slug>`. One scan → the
-backend logs a `download` web_visit with the source, then 302-redirects straight
-to the current APK on GitHub Releases (verified live: `kaata-0.8.2.apk`).
-Attribution to a concrete install is by IP + a 60-minute window (see
-`apps/backend/internal/checkin/service.go`) — "good enough for store-by-store",
-not exact. ECC level **H** is used so the code still scans if smudged/creased.
+The QR encodes `https://www.kaata.af/download?s=<slug>` — it opens the web
+download page (where the visitor taps "Download APK"). The page reads the `?s=`
+source param, stickies it, and reports it to the backend, so scans → installs
+are still attributable per batch in `/admin` (IP + 60-min window). Because this
+goes through the page, attribution depends on the visitor's browser running JS —
+slightly less robust than a direct link, but it shows install instructions
+first. ECC level **H** is used so the code still scans if smudged/creased.
 
 ## Honesty guardrails baked into the copy
 - Only the **Android** APK is live → the flyer says "فقط برای اندروید".

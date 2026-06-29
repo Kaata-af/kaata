@@ -13,7 +13,7 @@ import base64, pathlib, subprocess, sys
 
 # ---- per-batch knob -------------------------------------------------------
 SLUG = "d2d_kabul_01"                       # door-to-door, Kabul, batch 01
-URL  = f"https://api.kaata.af/v1/download?s={SLUG}"
+URL  = f"https://www.kaata.af/download?s={SLUG}"
 # ---------------------------------------------------------------------------
 
 HERE = pathlib.Path(__file__).resolve().parent
