@@ -161,13 +161,29 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 		nonZero(req.UsageCustomersAdded) ||
 		nonZero(req.UsageSharesSent)
 
+	// Backfill installs.account_id from the authenticated caller. The
+	// account↔install link is normally stamped at Google sign-in
+	// (auth.GoogleSignIn UPDATEs installs.account_id), but that's a
+	// one-shot: an install that signed in on an older build, only ever
+	// refreshed its JWT since, or whose install row was created by an
+	// anonymous check-in before sign-in, can be left with account_id NULL.
+	// The admin dashboard aggregates onboarding/timeline stats over
+	// `installs WHERE account_id IS NOT NULL GROUP BY account_id`, so an
+	// unlinked install makes a genuinely signed-in + active account show as
+	// "not onboarded" (zero matching install rows → bool_or has no row).
+	// Stamping it here — backfill-only, never clobbering an existing link —
+	// self-heals every affected account on its next authenticated check-in.
+	// The handler only puts an account_id in the context when the JWT's
+	// install_id matches this request, so this can't mislink installs.
+	actorAccountID := ActorAccountIDFromContext(ctx)
+
 	if _, err := s.pool.Exec(ctx, `
 		INSERT INTO installs (
 			install_id, app_version, platform, device_locale, check_in_count,
 			migration_001_phones_invalid, migration_001_phones_conflict,
 			usage_entries_created, usage_customers_added, usage_shares_sent,
 			installed_at, has_onboarded, last_activity_at, app_locale,
-			self_name, self_phone, shop_name
+			self_name, self_phone, shop_name, account_id
 		)
 		VALUES (
 			$1, $2, $3, $4, 1, $5, $6,
@@ -176,10 +192,16 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 			COALESCE($11, FALSE),
 			CASE WHEN $12::boolean THEN NOW() ELSE NULL END,
 			NULLIF($13, ''),
-			NULLIF($14, ''), NULLIF($15, ''), NULLIF($16, '')
+			NULLIF($14, ''), NULLIF($15, ''), NULLIF($16, ''),
+			NULLIF($17, '')::uuid
 		)
 		ON CONFLICT (install_id) DO UPDATE
 		SET last_seen_at   = NOW(),
+		    -- Backfill-only: link the install to its authenticated account
+		    -- when it isn't already linked. COALESCE keeps any existing link
+		    -- (sign-in / account-switch re-stamps it authoritatively), so a
+		    -- check-in never overwrites a good value — it only fills NULLs.
+		    account_id     = COALESCE(installs.account_id, NULLIF($17, '')::uuid),
 		    app_version    = EXCLUDED.app_version,
 		    -- app_locale tracks the CURRENT in-app language: take the latest
 		    -- non-empty value (the user can switch language), keep the old one
@@ -222,7 +244,7 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 		req.PhonesInvalidCount, req.PhonesConflictCount,
 		req.UsageEntriesCreated, req.UsageCustomersAdded, req.UsageSharesSent,
 		installedAt, req.HasOnboarded, hadUsage, req.AppLocale,
-		req.SelfName, req.SelfPhone, req.ShopName,
+		req.SelfName, req.SelfPhone, req.ShopName, actorAccountID,
 	); err != nil {
 		return Response{}, err
 	}
