@@ -9,6 +9,12 @@
       content="Kaata is a digital kaata book. Track what people owe you and what you owe them. Send a friendly reminder over WhatsApp in two taps. Works offline."
     />
     <meta name="theme-color" content="#ffffff" />
+    <!-- Force a light render even on dark-mode phones. The `only` keyword is
+         what disables Chrome's Auto Dark Theme for Web Contents, which otherwise
+         algorithmically darkens our white #ffffff page on Android dark mode.
+         Plain `light` is not always enough — `only light` is the documented
+         opt-out. Mirrored in CSS (globals.css) belt-and-suspenders. -->
+    <meta name="color-scheme" content="only light" />
     <!-- Open Graph — the kaata.af growth loop is people sharing the link on
          WhatsApp; without these tags the preview card renders bare. og:image
          must be an absolute URL or WhatsApp ignores it. -->

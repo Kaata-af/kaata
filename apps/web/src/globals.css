@@ -4,6 +4,10 @@
 
 html,
 body {
+  /* `only light` opts the page out of Chrome's Auto Dark Theme on Android, so
+     the white background below is never algorithmically darkened on dark-mode
+     phones. Mirrors the <meta name="color-scheme"> tag in index.html. */
+  color-scheme: only light;
   background: #ffffff;
   color: #171717;
   font-family:

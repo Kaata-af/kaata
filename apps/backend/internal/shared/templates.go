@@ -72,6 +72,9 @@ const viewHTML = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f9fafb">
+<!-- "only light" disables Chrome's Auto Dark Theme on Android, which would
+     otherwise darken this light page when the phone is in dark mode. -->
+<meta name="color-scheme" content="only light">
 <link rel="stylesheet" href="/fonts/ledger.css">
 <title>{{.OGTitle}}</title>
 <meta name="description" content="{{.OGDesc}}">
@@ -253,6 +256,7 @@ a{color:inherit;text-decoration:none;}
 const notFoundHTML = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="only light">
 <title>Kaata</title>
 <style>body{margin:0;background:#f9fafb;color:#101828;font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px;-webkit-font-smoothing:antialiased;}a{color:#475467;font-weight:600;text-decoration:none;}</style>
 </head><body><div><div style="font-size:16px;font-weight:700;letter-spacing:-.01em">kaata.</div>
