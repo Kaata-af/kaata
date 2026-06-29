@@ -145,7 +145,7 @@ const SUPPORT_CONTACT = "support@kaata.af";
 //      language" tap), in which case start at the auth step.
 function pickInitialRoute(args: {
   hasOnboarded: boolean;
-  onboardingStep: "language" | "auth" | "profile" | "done" | null;
+  onboardingStep: "language" | "auth" | "profile" | "kaata" | "done" | null;
   deviceIsPersian: boolean;
   accountId: string | null;
   restoreSkipped: boolean;
@@ -167,6 +167,9 @@ function pickInitialRoute(args: {
   // No self exists — ignore step='done' (treat as stale).
   if (args.onboardingStep === "auth") return "onboarding/auth";
   if (args.onboardingStep === "profile") return "onboarding/profile";
+  // The kaata step mints self + first vault, so hasOnboarded is still false
+  // here (the early-return above never fires) and we land on it correctly.
+  if (args.onboardingStep === "kaata") return "onboarding/kaata";
   if (args.onboardingStep === "language") return "onboarding/language";
   // Fresh install — skip language for Persian-locale devices.
   return args.deviceIsPersian ? "onboarding/auth" : "onboarding/language";
@@ -214,11 +217,11 @@ export default function RootLayout() {
   const [dbReady, setDbReady] = useState<boolean | null>(null);
   const [installId, setInstallId] = useState<string | null>(null);
   const [hasOnboarded, setHasOnboarded] = useState(false);
-  // Resumable onboarding step: 'language' | 'auth' | 'profile' | 'done' | null.
-  // Read from app_meta on launch so a force-quit mid-flow returns the
-  // user to the screen they were last on, not back to step 1.
+  // Resumable onboarding step: 'language' | 'auth' | 'profile' | 'kaata' |
+  // 'done' | null. Read from app_meta on launch so a force-quit mid-flow
+  // returns the user to the screen they were last on, not back to step 1.
   const [onboardingStep, setOnboardingStep] = useState<
-    "language" | "auth" | "profile" | "done" | null
+    "language" | "auth" | "profile" | "kaata" | "done" | null
   >(null);
   // Device-locale-driven flag: if the device is already Persian/Dari, we
   // SKIP the language picker (their language is already correct; asking
@@ -361,7 +364,13 @@ export default function RootLayout() {
         }
         // Validate the step value — only the four known states pass
         // through.
-        if (oStep === "language" || oStep === "auth" || oStep === "profile" || oStep === "done") {
+        if (
+          oStep === "language" ||
+          oStep === "auth" ||
+          oStep === "profile" ||
+          oStep === "kaata" ||
+          oStep === "done"
+        ) {
           setOnboardingStep(oStep);
         }
       });
@@ -578,6 +587,10 @@ export default function RootLayout() {
                   re-trigger sign-in mid-restore. */}
               <Stack.Screen name="onboarding/restore" options={{ gestureEnabled: false }} />
               <Stack.Screen name="onboarding/profile" options={{ gestureEnabled: false }} />
+              {/* Kaata step — collects the shop name + currency and mints the
+                  shopkeeper's first vault. Gestures off (forward-only flow);
+                  it has an explicit on-screen Back to the profile step. */}
+              <Stack.Screen name="onboarding/kaata" options={{ gestureEnabled: false }} />
               <Stack.Screen name="onboarding/index" />
               <Stack.Screen
                 name="update-prompt"

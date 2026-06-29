@@ -16,12 +16,10 @@ import { Button } from "../../components/Button";
 import { CountryPickerSheet } from "../../components/CountryPickerSheet";
 import { FormField } from "../../components/FormField";
 import { colors } from "../../lib/colors";
-import { createSelfProfile, getAppMeta, setAppMeta } from "../../lib/db";
-import { EventSigningUnavailableError } from "../../lib/event-log";
+import { getAppMeta, setAppMeta } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
-import { updateAccountPhone } from "../../lib/auth";
 import {
   getCountry,
   getCurrentDefaultCountryCode,
@@ -29,18 +27,23 @@ import {
   normalizePhone,
 } from "../../lib/phone";
 
-// Onboarding final form step — name + shop. The name IS prefilled from the
+// Onboarding identity step — name + phone. The name IS prefilled from the
 // Google profile name stashed at sign-in (onboarding_pending_name) so a
 // returning user isn't forced to retype it; they can edit before saving. (A
 // user who had backed-up data never reaches this screen — restore rehydrates
 // their saved self-profile and routing skips onboarding.) The email subtitle
 // is the other Google-derived UI element.
 //
-// On successful submit:
-//   1. createSelfProfile() writes users + shop_profile rows
-//   2. app_meta is updated: onboarding_step='done', clear pending values
-//   3. router.replace('/') — home renders. (The previous guided tour
-//      was removed; see docs/tour-redesign.md for the postmortem.)
+// This step does NOT create the local-self user. It stashes the entered
+// identity in app_meta and advances to the kaata step (onboarding/kaata.tsx),
+// which collects the shop name and then mints self + first vault together.
+// Self-creation is deferred there on purpose: hasOnboarded is derived from
+// "a local_self row exists", so creating the self here would flip the user to
+// "onboarded" and routing would skip the kaata step. Keeping self + vault
+// creation atomic in the next step guarantees a fresh account lands on home
+// WITH a kaata, never the confusing empty "create a kaata" state.
+//
+// On submit: stash name/phone -> onboarding_step='kaata' -> /onboarding/kaata.
 //
 // Back button: returns to /onboarding/auth so the user can switch auth
 // choice without force-quitting. Doesn't preserve typed input — that's
@@ -60,10 +63,10 @@ export default function OnboardingProfileScreen() {
   const [pickerVisible, setPickerVisible] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
   const [phoneError, setPhoneError] = useState<string | null>(null);
-  // The kaata name is NOT collected during onboarding — creating an account
-  // never forces creating a kaata. createSelfProfile makes only the local-self
-  // user; the user creates their first kaata afterwards from the "no kaatas yet"
-  // home screen, or JOINS one by opening an invite link (no join option here).
+  // The kaata name is collected on the NEXT step (onboarding/kaata.tsx), which
+  // also mints the self + first vault. A user who JOINS an existing kaata via
+  // an invite link never reaches that step — accepting the invite creates the
+  // self and routing then short-circuits to home (no join option here).
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
@@ -79,13 +82,17 @@ export default function OnboardingProfileScreen() {
     (async () => {
       const email = await getAppMeta("onboarding_pending_email");
       if (email) setSignedInEmail(email);
-      // Prefill name + last name from the Google identity stashed at sign-in so
-      // a returning user isn't asked to retype it. (A user who actually had
-      // backed-up data has this screen skipped entirely — restore rehydrates
-      // their saved profile; this prefill covers the account-but-no-vault case.)
-      // Google gives one "name" string, so split on the first space into
-      // first / rest. The user can still edit both before saving.
-      const pendingName = (await getAppMeta("onboarding_pending_name"))?.trim();
+      // Prefill name + last name. Prefer what the user actually typed on this
+      // step (stashed as onboarding_self_name when they advanced to the kaata
+      // step) so tapping Back from the kaata step restores their input — vital
+      // for offline users, who have no Google name to fall back on. Otherwise
+      // fall back to the Google identity stashed at sign-in so a returning user
+      // isn't asked to retype it. (A user who actually had backed-up data has
+      // this screen skipped entirely — restore rehydrates their saved profile.)
+      // The name is one string, so split on the first space into first / rest.
+      const pendingName =
+        (await getAppMeta("onboarding_self_name"))?.trim() ||
+        (await getAppMeta("onboarding_pending_name"))?.trim();
       if (pendingName) {
         const sp = pendingName.indexOf(" ");
         const first = sp === -1 ? pendingName : pendingName.slice(0, sp);
@@ -93,10 +100,13 @@ export default function OnboardingProfileScreen() {
         setName((prev) => (prev ? prev : first));
         if (rest) setLastName((prev) => (prev ? prev : rest));
       }
-      // BUG-1: prefill the phone from the account-level value returned at sign-in
-      // (stashed as onboarding_pending_phone). Stored E.164 → infer the country
-      // and show the national part, mirroring the Account screen. User can edit.
-      const pendingPhone = (await getAppMeta("onboarding_pending_phone"))?.trim();
+      // BUG-1: prefill the phone — the user's typed value if they're returning
+      // from the kaata step (onboarding_self_phone), else the account-level
+      // value returned at sign-in (onboarding_pending_phone). Stored E.164 →
+      // infer the country and show the national part. User can edit.
+      const pendingPhone =
+        (await getAppMeta("onboarding_self_phone"))?.trim() ||
+        (await getAppMeta("onboarding_pending_phone"))?.trim();
       if (pendingPhone) {
         const inferred = inferCountryFromE164(pendingPhone);
         const dial = getCountry(inferred).dialCode;
@@ -122,7 +132,7 @@ export default function OnboardingProfileScreen() {
     return () => clearTimeout(t);
   }, []);
 
-  async function finalize(targetRoute: "/"): Promise<void> {
+  async function finalize(): Promise<void> {
     if (savingRef.current) return;
     const trimmedName = name.trim();
     const trimmedLast = lastName.trim();
@@ -166,31 +176,20 @@ export default function OnboardingProfileScreen() {
     setSubmitError(null);
     setBusy(true);
     try {
-      // No kaata name → createSelfProfile creates only the local-self user, no
-      // vault. The user makes their first kaata from the "no kaatas" home
-      // screen (or by pairing/restoring). (Matee: account creation must not
-      // force creating a kaata.)
-      await createSelfProfile(fullName, "", normalizedPhone);
-      // BUG-1: back the phone up to the account so it survives a reinstall.
-      // Best-effort + signed-in-only (no-ops for offline onboarding).
-      void updateAccountPhone(normalizedPhone);
-      await setAppMeta("onboarding_step", "done");
-      await setAppMeta("onboarding_pending_name", "");
-      await setAppMeta("onboarding_pending_email", "");
-      await setAppMeta("onboarding_pending_phone", "");
-      router.replace(targetRoute);
+      // Don't create the local-self user here — that's deferred to the kaata
+      // step so "self exists" (which flips hasOnboarded) coincides with "has a
+      // kaata", guaranteeing a fresh account lands on home WITH a kaata instead
+      // of the confusing empty "create a kaata" state. Stash the entered
+      // identity (resume-safe across a force-quit) for that step to consume.
+      await setAppMeta("onboarding_self_name", fullName);
+      await setAppMeta("onboarding_self_phone", normalizedPhone);
+      await setAppMeta("onboarding_step", "kaata");
+      router.replace("/onboarding/kaata");
     } catch (err) {
-      // createSelfProfile rarely throws — DB constraint violations are
-      // the realistic case (e.g. a stale self user row from a partial
-      // earlier reset). Surface inline so the user knows their tap
-      // landed but something failed; falls back to a generic message.
-      console.warn("[onboarding/profile] createSelfProfile failed", err);
-      // Mythos Fix Set C: signing-unavailable gets an actionable message.
-      if (err instanceof EventSigningUnavailableError) {
-        setSubmitError(t("entry.signingUnavailable"));
-      } else {
-        setSubmitError(t("entry.saveFailed"));
-      }
+      // setAppMeta failing is the only realistic case here (storage error);
+      // surface inline so the user knows their tap landed but something failed.
+      console.warn("[onboarding/profile] advance to kaata step failed", err);
+      setSubmitError(t("entry.saveFailed"));
     } finally {
       savingRef.current = false;
       setBusy(false);
@@ -198,7 +197,7 @@ export default function OnboardingProfileScreen() {
   }
 
   async function onSubmit() {
-    await finalize("/");
+    await finalize();
   }
 
   async function onBack() {

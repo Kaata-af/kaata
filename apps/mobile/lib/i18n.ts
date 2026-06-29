@@ -69,6 +69,20 @@ const en = {
   "onboardingProfile.shopRequired": "Please name your Kaata",
   "onboardingProfile.joinExisting": "I'll join an existing kaata instead",
 
+  // Onboarding kaata step (app/onboarding/kaata.tsx) — name the shop + pick a
+  // currency, then mint the shopkeeper's first vault. Shop-framed so users
+  // don't mistake "a kaata" for a single customer's tab.
+  "onboardingKaata.title": "Set up your shop",
+  "onboardingKaata.subtitle":
+    "Your kaata is your shop's ledger book. Name it so you can keep everyone's accounts in one place.",
+  "onboardingKaata.name.label": "Shop name",
+  "onboardingKaata.name.placeholder": "e.g. Ahmad General Store",
+  "onboardingKaata.name.required": "Shop name is required",
+  "onboardingKaata.currency.label": "Currency",
+  "onboardingKaata.currency.hint":
+    "Default for all amounts in this kaata. You can change it later in settings.",
+  "onboardingKaata.submit": "Create my kaata",
+
   // Onboarding restore (inserted between auth and profile when the
   // backend has existing ledger state for the signed-in account).
   "onboardingRestore.title": "We found your kaata",
@@ -337,7 +351,7 @@ const en = {
 
   "home.loadFailed": "Couldn't load your Kaata data. Your entries are safe — try again.",
   "home.noKaata.title": "No kaatas yet",
-  "home.noKaata.subtitle": "Create your first kaata to start tracking who owes what.",
+  "home.noKaata.subtitle": "Set up your shop's kaata to start your ledger.",
   "home.noKaata.create": "Create a kaata",
   "home.noKaata.join": "Join an existing kaata",
   "home.noKaata.archived": "View archived kaatas ({count})",
@@ -1099,6 +1113,17 @@ const fa: Partial<Record<Key, string>> = {
   "onboardingProfile.shopRequired": "لطفاً برای کاتای خود نام بگذارید",
   "onboardingProfile.joinExisting": "به جای آن به کاتای موجود می‌پیوندم",
 
+  "onboardingKaata.title": "دکان خود را راه‌اندازی کنید",
+  "onboardingKaata.subtitle":
+    "کاتای شما دفتر حساب دکان شماست. آن را نام بگذارید تا حساب همه را در یک جا نگه دارید.",
+  "onboardingKaata.name.label": "نام دکان",
+  "onboardingKaata.name.placeholder": "مثلاً دکان عمومی احمد",
+  "onboardingKaata.name.required": "نام دکان لازم است",
+  "onboardingKaata.currency.label": "ارز",
+  "onboardingKaata.currency.hint":
+    "پیش‌فرض برای تمام مبالغ این کاتا. بعداً در تنظیمات قابل تغییر است.",
+  "onboardingKaata.submit": "ساختن کاتا",
+
   // Onboarding restore
   "onboardingRestore.title": "کاتای شما پیدا شد",
   "onboardingRestore.subtitleVaults": "{count} دفتر ذخیره‌شده در حساب شما را بازیابی کنید.",
@@ -1280,7 +1305,7 @@ const fa: Partial<Record<Key, string>> = {
 
   "home.loadFailed": "داده‌های کاتای شما بارگیری نشد. ثبت‌های شما محفوظ است — دوباره امتحان کنید.",
   "home.noKaata.title": "هنوز کاتایی نیست",
-  "home.noKaata.subtitle": "اولین کاتای خود را بسازید تا حساب‌وکتاب را شروع کنید.",
+  "home.noKaata.subtitle": "کاتای دکان خود را بسازید تا دفتر حساب‌تان شروع شود.",
   "home.noKaata.create": "ساختن کاتا",
   "home.noKaata.join": "پیوستن به یک کاتای موجود",
   "home.noKaata.archived": "کاتاهای بایگانی‌شده ({count})",

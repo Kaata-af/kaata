@@ -2992,13 +2992,14 @@ export async function createSelfProfile(
   name: string,
   shopName: string,
   phone?: string | null,
+  currency?: string | null,
 ): Promise<void> {
-  // Onboarding creates the local-self user and NO kaata. shopName is the
-  // kaata name; onboarding no longer collects one and passes "", so a fresh
-  // account is created vault-less and lands on the "no kaatas yet" home screen
-  // to deliberately create / pair / restore its first kaata (no silent
-  // auto-create). A vault is minted here ONLY when a non-empty shopName is
-  // supplied (no current caller does) — see shouldMintVault below.
+  // Creates the local-self user and, when a kaata name is supplied, mints the
+  // shopkeeper's first vault in the SAME transaction. The onboarding kaata
+  // step (app/onboarding/kaata.tsx) is the caller that passes a non-empty
+  // shopName + currency; a vault is minted ONLY then (see shouldMintVault
+  // below). Callers that pass "" create just the local-self user (e.g. a
+  // pair/restore flow that mints its own vaults). currency defaults to AFN.
   //
   // Phone is OPTIONAL — no OTP gate, no verification. It's stored in
   // users.phone_e164 for future "search your contacts to add a person"
@@ -3011,6 +3012,7 @@ export async function createSelfProfile(
   }
   // Only used when shouldMintVault (i.e. a non-empty shopName was supplied).
   const effectiveShopName = trimmedShop || "My kaata";
+  const effectiveCurrency = (currency ?? "").trim() || "AFN";
   const db = await getDb();
   const now = Date.now();
   const userId = Crypto.randomUUID();
@@ -3084,9 +3086,10 @@ export async function createSelfProfile(
             is_default, account_id, registered_with_server_at,
             vault_epoch, hlc_logical, hlc_wall_ms,
             vault_trust_anchor_pubkey)
-         VALUES (?, ?, 'AFN', ?, ?, NULL, 1, NULL, NULL, 0, 0, 0, ?)`,
+         VALUES (?, ?, ?, ?, ?, NULL, 1, NULL, NULL, 0, 0, 0, ?)`,
         vaultId,
         effectiveShopName,
+        effectiveCurrency,
         now,
         now,
         trustAnchorPubkey, // non-null when shouldMintVault (set above)
