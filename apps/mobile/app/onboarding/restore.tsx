@@ -35,6 +35,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { RestoreProgress, restoreProgressLabel } from "../../components/RestoreProgress";
+import { requestImmediateCheckIn } from "../../lib/checkin-trigger";
 import { colors } from "../../lib/colors";
 import { getAppMeta, setAppMeta } from "../../lib/db";
 import { textDir, useIsRTL } from "../../lib/direction";
@@ -143,6 +144,12 @@ export default function OnboardingRestoreScreen() {
         const pendingPhone = (await getAppMeta("onboarding_pending_phone"))?.trim() || null;
         if (pendingPhone) await adoptAccountPhoneToSelf(pendingPhone);
         await setAppMeta("onboarding_pending_phone", "");
+        // Push the restored identity + onboarded state to the backend now, so
+        // this signed-in user doesn't read as "not onboarded" on the admin
+        // dashboard until their next launch. (recovery only fired a minimal
+        // witness-pin check-in with no identity fields.) Best-effort; offline
+        // no-ops and self-heals on the next online check-in.
+        requestImmediateCheckIn();
         router.replace("/");
         return;
       }

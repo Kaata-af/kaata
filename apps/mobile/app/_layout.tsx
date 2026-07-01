@@ -91,6 +91,7 @@ if (NEEDS_RESTART_FOR_LTR) {
   _I18nManager.forceRTL(false);
 }
 import { checkIn } from "../lib/api";
+import { subscribeCheckInRequests } from "../lib/checkin-trigger";
 import { AppMetaProvider, useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
 import {
@@ -1148,6 +1149,18 @@ function BackgroundCheckIn({ installId }: { installId: string }) {
 
     void run(); // cold launch / mount
 
+    // Imperative trigger: an identity-creating flow (onboarding completion via
+    // createSelfProfile) can ask for an immediate check-in the moment the
+    // local-self is committed. This closes the gap where the launch check-in
+    // fired BEFORE the self existed (so has_onboarded=false, no name/phone) and
+    // nothing re-fired in-session — leaving an offline-onboarded user invisible
+    // on the admin dashboard until their next cold launch. Deliberately NOT
+    // throttled (unlike the foreground path): it's a one-shot response to a
+    // real state change, not a chatty liveness ping.
+    const unsubImmediate = subscribeCheckInRequests(() => {
+      void run();
+    });
+
     // Re-run on background→active so "last seen" on the dashboard reflects the
     // user simply opening / returning to the app — no task (entry, etc.) needed.
     // Throttled so rapid app-switching doesn't spam the backend; the check-in is
@@ -1164,6 +1177,7 @@ function BackgroundCheckIn({ installId }: { installId: string }) {
     return () => {
       cancelled = true;
       sub.remove();
+      unsubImmediate();
     };
   }, [installId, applyCheckIn]);
   return null;

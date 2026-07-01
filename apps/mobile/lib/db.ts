@@ -28,6 +28,7 @@ import {
   appendVaultMemberAdded,
   findPhoneConflictInVault,
 } from "./event-log";
+import { requestImmediateCheckIn } from "./checkin-trigger";
 import { buildLocalAccountId } from "./trust/account-id";
 import { resolveAccountIdCandidates } from "./effective-account";
 import { normalizePhone } from "./phone";
@@ -3187,6 +3188,15 @@ export async function createSelfProfile(
       console.warn("[db] createSelfProfile: genesis vault_member_added emit failed", err);
     }
   }
+
+  // Push the freshly-created identity to the backend right now. The only other
+  // check-in triggers are cold launch + throttled foreground, so without this an
+  // offline (not-signed-in) user who onboards mid-session stays "not onboarded"
+  // with no name/phone on the admin dashboard until their NEXT launch — the
+  // launch check-in already ran while getLocalSelf() was still null. Synchronous
+  // + best-effort: no-ops if BackgroundCheckIn isn't mounted or the device is
+  // offline (the next online check-in self-heals because the self now exists).
+  requestImmediateCheckIn();
 }
 
 // Updates the local-self user's display name and shop name. Both can be

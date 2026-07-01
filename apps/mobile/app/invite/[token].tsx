@@ -30,6 +30,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { useToast } from "../../components/Toast";
 import { getSessionJWT } from "../../lib/auth";
+import { requestImmediateCheckIn } from "../../lib/checkin-trigger";
 import { colors } from "../../lib/colors";
 import { setActiveVaultId } from "../../lib/db-tx";
 import { setAppMeta } from "../../lib/db";
@@ -140,6 +141,12 @@ export default function InviteAcceptScreen() {
         console.warn("[invite] witness emission failed (backfill path will retry)", err);
       }
       setStage("done");
+      // Push the joined-vault membership + onboarded state to the backend now.
+      // recoverJoinedVault created the local-self; without an immediate check-in
+      // this signed-in user could still read as "not onboarded" on the admin
+      // dashboard until their next launch (the only other check-in triggers are
+      // cold launch + throttled foreground). Best-effort; no-ops if offline.
+      requestImmediateCheckIn();
       toast.push(t("inviteAccept.joinedToast", { name: invite.vault_name }), "success");
       router.replace("/");
     } catch (err) {
