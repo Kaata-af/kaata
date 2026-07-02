@@ -1,7 +1,6 @@
 import { useRouter } from "expo-router";
 import { ScrollView, StyleSheet, Text } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { KaataConceptCard } from "../components/KaataConceptCard";
 import { ScreenHeader } from "../components/SettingsScreen";
 import { colors } from "../lib/colors";
 import { textDir, useIsRTL } from "../lib/direction";
@@ -10,7 +9,8 @@ import { t } from "../lib/i18n";
 
 // Permanent "How kaata works" guide — linked from the settings sheet's Help
 // section. Re-readable any time (useful when the phone is handed to staff).
-// Static content only: the concept diagram + four short paragraphs covering
+// Text-only (Matee: no diagram — the concept lands via clear onboarding copy
+// + the post-create success screen): four short paragraphs covering
 // kaata → tally → entries → multiple kaatas. Deliberately not an overlay
 // tour (docs/tour-redesign.md) and deliberately short — shopkeepers read
 // this once, standing behind a counter.
@@ -28,7 +28,6 @@ export default function GuideScreen() {
         backLabel={t("common.back")}
       />
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <KaataConceptCard />
         <Text style={[styles.para, textDir(isRTL)]}>{t("guide.p1")}</Text>
         <Text style={[styles.para, textDir(isRTL)]}>{t("guide.p2")}</Text>
         <Text style={[styles.para, textDir(isRTL)]}>{t("guide.p3")}</Text>

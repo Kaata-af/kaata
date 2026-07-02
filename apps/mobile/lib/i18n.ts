@@ -62,7 +62,11 @@ const en = {
   "onboardingMode.back": "Back",
 
   // Onboarding profile (last step before the tour)
-  "onboardingProfile.title": "Almost done",
+  // Was "Almost done" — mistimed once the kaata step landed after this
+  // screen, and it described progress instead of saying what the screen IS.
+  "onboardingProfile.title": "Introduce yourself",
+  "onboardingProfile.subtitle":
+    "Your name and number — so the people you keep accounts with know it's you.",
   "onboardingProfile.signedInHint": "Signed in as {email}",
   "onboardingProfile.continue": "Continue",
   "onboardingProfile.nameRequired": "Please enter your name",
@@ -83,28 +87,15 @@ const en = {
     "Default for all amounts in this kaata. You can change it later in settings.",
   "onboardingKaata.submit": "Create my kaata",
 
-  // Kaata concept diagram (components/KaataConceptCard.tsx) — the shared
-  // "kaata vs tally" visual used by onboarding, the one-time guide sheet,
-  // and the settings guide screen. Born from users creating a tally contact
-  // where they should have created/named their kaata.
-  "kaataConcept.title": "Your kaata",
-  "kaataConcept.subtitle": "your whole shop in one book",
-  "kaataConcept.exampleA": "Karim",
-  "kaataConcept.exampleB": "Zahra",
-  "kaataConcept.caption": "Inside it, one tally per customer — everyone you keep accounts with.",
-
-  // One-time guide sheet (components/KaataGuideSheet.tsx) — shown once on
-  // home to users who onboarded before the concept diagram existed.
-  "guideSheet.title": "A quick note",
-  "guideSheet.body":
-    "“{name}” is your kaata — your whole shop's book. Each person you add with + is a tally inside it, one per customer.",
-  // Non-owner variant (invite-accept editor/viewer on someone else's kaata):
-  // neutral phrasing — it's not THEIR shop's book, and the rename link is
-  // hidden for them (owner-only permission).
-  "guideSheet.bodyShared":
-    "“{name}” is a kaata — a shop's whole book. Each person added with + is a tally inside it, one per customer.",
-  "guideSheet.rename": "Not your shop's name? Rename it",
-  "guideSheet.gotIt": "Got it",
+  // Onboarding completion (app/onboarding/success.tsx) — the game-style
+  // "you made it" moment after the first kaata is created. This is where
+  // the kaata concept lands: celebrate + show the shop name + one line of
+  // what-next. Replaced the concept-diagram approach (Matee: teaching
+  // belongs in a success message, not a mid-form card).
+  "onboardingSuccess.title": "Your kaata is ready!",
+  "onboardingSuccess.body":
+    "This is your shop's book. Add a tally for each customer with the + button.",
+  "onboardingSuccess.cta": "Open my kaata",
 
   // Permanent guide screen (app/guide.tsx), linked from the settings sheet.
   "guide.title": "How kaata works",
@@ -1143,7 +1134,9 @@ const fa: Partial<Record<Key, string>> = {
   "onboardingMode.back": "برگشت",
 
   // Onboarding profile
-  "onboardingProfile.title": "تقریباً تمام",
+  "onboardingProfile.title": "خودتان را معرفی کنید",
+  "onboardingProfile.subtitle":
+    "نام و شماره شما — تا کسانی که با آن‌ها حساب دارید بدانند شما هستید.",
   "onboardingProfile.signedInHint": "وارد شده به نام {email}",
   "onboardingProfile.continue": "ادامه",
   "onboardingProfile.nameRequired": "لطفاً نام خود را وارد کنید",
@@ -1161,21 +1154,10 @@ const fa: Partial<Record<Key, string>> = {
     "پیش‌فرض برای تمام مبالغ این کاتا. بعداً در تنظیمات قابل تغییر است.",
   "onboardingKaata.submit": "ساختن کاتا",
 
-  // Kaata concept diagram
-  "kaataConcept.title": "کاتای شما",
-  "kaataConcept.subtitle": "تمام دکان شما در یک دفتر",
-  "kaataConcept.exampleA": "کریم",
-  "kaataConcept.exampleB": "زهرا",
-  "kaataConcept.caption": "در داخل آن، برای هر مشتری یک حساب — همه کسانی که با آن‌ها حساب دارید.",
-
-  // One-time guide sheet
-  "guideSheet.title": "یک نکته کوتاه",
-  "guideSheet.body":
-    "«{name}» کاتای شماست — دفتر تمام دکان شما. هر کسی را که با دکمه + اضافه می‌کنید، یک حساب در داخل آن است؛ برای هر مشتری یکی.",
-  "guideSheet.bodyShared":
-    "«{name}» یک کاتاست — دفتر کامل یک دکان. هر کسی که با دکمه + اضافه شود، یک حساب در داخل آن است؛ برای هر مشتری یکی.",
-  "guideSheet.rename": "نام دکان شما نیست؟ تغییرش دهید",
-  "guideSheet.gotIt": "فهمیدم",
+  // Onboarding completion (success screen)
+  "onboardingSuccess.title": "کاتای شما آماده است!",
+  "onboardingSuccess.body": "این دفتر دکان شماست. با دکمه + برای هر مشتری یک حساب اضافه کنید.",
+  "onboardingSuccess.cta": "باز کردن کاتای من",
 
   // Permanent guide screen
   "guide.title": "کاتا چطور کار می‌کند",

@@ -592,6 +592,10 @@ export default function RootLayout() {
                   shopkeeper's first vault. Gestures off (forward-only flow);
                   it has an explicit on-screen Back to the profile step. */}
               <Stack.Screen name="onboarding/kaata" options={{ gestureEnabled: false }} />
+              {/* Completion ceremony after the kaata step. Pure celebration —
+                  onboarding_step is already 'done' when it mounts, so a
+                  force-quit here just lands home on relaunch. */}
+              <Stack.Screen name="onboarding/success" options={{ gestureEnabled: false }} />
               <Stack.Screen name="onboarding/index" />
               <Stack.Screen
                 name="update-prompt"

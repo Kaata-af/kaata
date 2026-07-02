@@ -237,6 +237,9 @@ export default function OnboardingProfileScreen() {
           showsVerticalScrollIndicator={false}
         >
           <Text style={[styles.title, textDir(isRTL)]}>{t("onboardingProfile.title")}</Text>
+          {/* Why-we-ask subtitle — offline users got NO context here before
+              (the only subtitle was the signed-in-as hint). */}
+          <Text style={[styles.subtitle, textDir(isRTL)]}>{t("onboardingProfile.subtitle")}</Text>
           {signedInEmail ? (
             <Text style={[styles.subtitle, textDir(isRTL)]}>
               {t("onboardingProfile.signedInHint", { email: signedInEmail })}
