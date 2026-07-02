@@ -526,6 +526,23 @@ export function ProfileSettingsSheet(props: {
                   ) : null}
                 </>
               ) : null}
+
+              {/* ============ HELP ============
+                  Permanent home for the kaata-vs-tally guide (app/guide.tsx).
+                  Always rendered — re-readable any time, e.g. when the phone
+                  is handed to staff. Same content as the onboarding concept
+                  card + the one-time KaataGuideSheet, so a user who dismissed
+                  the sheet can always find it again. */}
+              <SectionGap />
+              <SectionHeader label={t("menu.help")} isRTL={isRTL} />
+              <NavRow
+                icon="help-circle-outline"
+                label={t("menu.guide")}
+                hint={t("menu.guide.hint")}
+                onPress={chained(() => router.push("/guide"))}
+                isRTL={isRTL}
+                isLast
+              />
             </ScrollView>
           </View>
         </SafeAreaView>

@@ -83,6 +83,39 @@ const en = {
     "Default for all amounts in this kaata. You can change it later in settings.",
   "onboardingKaata.submit": "Create my kaata",
 
+  // Kaata concept diagram (components/KaataConceptCard.tsx) — the shared
+  // "kaata vs tally" visual used by onboarding, the one-time guide sheet,
+  // and the settings guide screen. Born from users creating a tally contact
+  // where they should have created/named their kaata.
+  "kaataConcept.title": "Your kaata",
+  "kaataConcept.subtitle": "your whole shop in one book",
+  "kaataConcept.exampleA": "Karim",
+  "kaataConcept.exampleB": "Zahra",
+  "kaataConcept.caption": "Inside it, one tally per customer — everyone you keep accounts with.",
+
+  // One-time guide sheet (components/KaataGuideSheet.tsx) — shown once on
+  // home to users who onboarded before the concept diagram existed.
+  "guideSheet.title": "A quick note",
+  "guideSheet.body":
+    "“{name}” is your kaata — your whole shop's book. Each person you add with + is a tally inside it, one per customer.",
+  // Non-owner variant (invite-accept editor/viewer on someone else's kaata):
+  // neutral phrasing — it's not THEIR shop's book, and the rename link is
+  // hidden for them (owner-only permission).
+  "guideSheet.bodyShared":
+    "“{name}” is a kaata — a shop's whole book. Each person added with + is a tally inside it, one per customer.",
+  "guideSheet.rename": "Not your shop's name? Rename it",
+  "guideSheet.gotIt": "Got it",
+
+  // Permanent guide screen (app/guide.tsx), linked from the settings sheet.
+  "guide.title": "How kaata works",
+  "guide.p1": "A kaata is your shop's ledger book. One kaata holds all the accounts of one shop.",
+  "guide.p2":
+    "Each person you keep accounts with — customer or supplier — gets one tally inside your kaata. Add them with the + button.",
+  "guide.p3":
+    "On a person's tally, record I gave when you hand over money or goods, and I received when they pay you back. The balance updates by itself.",
+  "guide.p4":
+    "Running more than one shop? Create another kaata and switch between them by tapping the kaata name at the top of the home screen.",
+
   // Onboarding restore (inserted between auth and profile when the
   // backend has existing ledger state for the signed-in account).
   "onboardingRestore.title": "We found your kaata",
@@ -155,7 +188,8 @@ const en = {
   "home.total.label.collect": "To collect",
   "home.total.label.pay": "To pay",
   "home.empty.collect.title": "Nothing to collect yet",
-  "home.empty.collect.subtitle": "Tap the + button to add someone you keep accounts with.",
+  "home.empty.collect.subtitle":
+    "Tap + to add a tally for someone you keep accounts with — one per customer.",
   "home.empty.pay.title": "You owe no one yet",
   "home.empty.pay.subtitle":
     "When you take goods or borrow money, log it from that person's page and they'll appear here.",
@@ -397,6 +431,9 @@ const en = {
   "menu.currentKaata": "Current Kaata",
   "menu.account.settings": "Account settings",
   "menu.account.settings.hint": "Name, phone, language",
+  "menu.help": "Help",
+  "menu.guide": "How kaata works",
+  "menu.guide.hint": "Kaatas, tallies, and how they fit",
   "menu.allKaatas": "All Kaatas",
   "menu.allKaatas.empty": "No Kaatas yet.",
   "menu.allKaatas.empty.withArchived": "No active Kaatas.",
@@ -1124,6 +1161,32 @@ const fa: Partial<Record<Key, string>> = {
     "پیش‌فرض برای تمام مبالغ این کاتا. بعداً در تنظیمات قابل تغییر است.",
   "onboardingKaata.submit": "ساختن کاتا",
 
+  // Kaata concept diagram
+  "kaataConcept.title": "کاتای شما",
+  "kaataConcept.subtitle": "تمام دکان شما در یک دفتر",
+  "kaataConcept.exampleA": "کریم",
+  "kaataConcept.exampleB": "زهرا",
+  "kaataConcept.caption": "در داخل آن، برای هر مشتری یک حساب — همه کسانی که با آن‌ها حساب دارید.",
+
+  // One-time guide sheet
+  "guideSheet.title": "یک نکته کوتاه",
+  "guideSheet.body":
+    "«{name}» کاتای شماست — دفتر تمام دکان شما. هر کسی را که با دکمه + اضافه می‌کنید، یک حساب در داخل آن است؛ برای هر مشتری یکی.",
+  "guideSheet.bodyShared":
+    "«{name}» یک کاتاست — دفتر کامل یک دکان. هر کسی که با دکمه + اضافه شود، یک حساب در داخل آن است؛ برای هر مشتری یکی.",
+  "guideSheet.rename": "نام دکان شما نیست؟ تغییرش دهید",
+  "guideSheet.gotIt": "فهمیدم",
+
+  // Permanent guide screen
+  "guide.title": "کاتا چطور کار می‌کند",
+  "guide.p1": "کاتا دفتر حساب دکان شماست. یک کاتا تمام حساب‌های یک دکان را نگه می‌دارد.",
+  "guide.p2":
+    "هر کسی که با او حساب دارید — مشتری یا تأمین‌کننده — یک حساب در داخل کاتای شما دارد. با دکمه + اضافه‌شان کنید.",
+  "guide.p3":
+    "در حساب هر شخص، وقتی پول یا جنس می‌دهید «دادم» و وقتی پس می‌گیرید «گرفتم» را ثبت کنید. بیلانس خودش محاسبه می‌شود.",
+  "guide.p4":
+    "بیش از یک دکان دارید؟ کاتای دیگری بسازید و با زدن روی نام کاتا در بالای صفحه اصلی بین آن‌ها جابه‌جا شوید.",
+
   // Onboarding restore
   "onboardingRestore.title": "کاتای شما پیدا شد",
   "onboardingRestore.subtitleVaults": "{count} دفتر ذخیره‌شده در حساب شما را بازیابی کنید.",
@@ -1186,7 +1249,8 @@ const fa: Partial<Record<Key, string>> = {
   "home.total.label.collect": "قابل وصول",
   "home.total.label.pay": "قابل پرداخت",
   "home.empty.collect.title": "هنوز چیزی برای وصول نیست",
-  "home.empty.collect.subtitle": "روی دکمه + بزنید تا کسی را اضافه کنید که با او حساب دارید.",
+  "home.empty.collect.subtitle":
+    "با دکمه + برای کسی که با او حساب دارید یک حساب بسازید — برای هر مشتری یکی.",
   "home.empty.pay.title": "هنوز از کسی قرضدار نیستید",
   "home.empty.pay.subtitle":
     "وقتی جنس می‌گیرید یا پول قرض می‌کنید، از صفحه آن شخص ثبت کنید — همین‌جا ظاهر می‌شود.",
@@ -1388,6 +1452,9 @@ const fa: Partial<Record<Key, string>> = {
   "menu.currentKaata": "کاتای فعلی",
   "menu.account.settings": "تنظیمات حساب",
   "menu.account.settings.hint": "نام، شماره، زبان",
+  "menu.help": "راهنما",
+  "menu.guide": "کاتا چطور کار می‌کند",
+  "menu.guide.hint": "کاتا، حساب‌ها و طرز کارشان",
   "menu.allKaatas": "همه کاتاها",
   "menu.allKaatas.empty": "هنوز کاتایی نیست.",
   "menu.allKaatas.empty.withArchived": "کاتای فعال وجود ندارد.",

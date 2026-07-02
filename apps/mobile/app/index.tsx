@@ -23,6 +23,7 @@ import { BottomSheet } from "../components/BottomSheet";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
+import { KaataGuideSheet } from "../components/KaataGuideSheet";
 import { PersonRow } from "../components/PersonRow";
 import { ProfileSettingsSheet, type VaultListItem } from "../components/ProfileSettingsSheet";
 import { RestoreProgress, restoreProgressLabel } from "../components/RestoreProgress";
@@ -62,7 +63,7 @@ import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { formatAmount } from "../lib/format";
 import { t } from "../lib/i18n";
-import { useActiveVaultCanWrite } from "../lib/use-vault-role";
+import { useActiveVaultCanWrite, useVaultPermission } from "../lib/use-vault-role";
 import {
   shouldPromptBatteryExemption,
   markBatteryExemptionPrompted,
@@ -198,6 +199,40 @@ export default function HomeScreen() {
   // picker no longer needs to know what archive means.
   const [vaults, setVaults] = useState<VaultListItem[]>([]);
   const [archivedVaults, setArchivedVaults] = useState<VaultListItem[]>([]);
+  // One-time kaata guide sheet (kaata-vs-tally explainer) for users who
+  // onboarded before the onboarding concept card existed, or who arrived via
+  // restore / invite-accept and skipped the onboarding kaata step entirely.
+  // Gated by app_meta.kaata_guide_seen — onboarding/kaata.tsx writes "1" for
+  // new-flow users, so they never see this. Checked ONCE per mount
+  // (guideCheckedRef): a vault switch mid-session must not re-trigger it.
+  // Shown immediately after the async read (no artificial delay) so it can't
+  // land in the same frame as a user-opened sheet — the Android two-Modal
+  // blank-render trap documented in BottomSheet.tsx.
+  const [guideVisible, setGuideVisible] = useState(false);
+  const guideCheckedRef = useRef(false);
+  // Rename is owner-only (vault.rename in lib/vault-roles.ts). An
+  // invite-accept member (editor/viewer on someone else's kaata) is part of
+  // this sheet's audience, and for them the rename link would dead-end in
+  // vault/settings' read-only name field — so the sheet hides the link and
+  // swaps to the shared-kaata body copy when this is false. "" vaultId only
+  // occurs while activeVaultId is null, when the sheet can't show anyway.
+  const canRenameActiveVault = useVaultPermission(
+    activeVaultId ?? "",
+    activeAccountId,
+    "vault.rename",
+  );
+  useEffect(() => {
+    if (!loaded || !activeVaultId || guideCheckedRef.current) return;
+    guideCheckedRef.current = true;
+    void (async () => {
+      try {
+        const seen = await getAppMeta("kaata_guide_seen");
+        if (seen !== "1") setGuideVisible(true);
+      } catch {
+        // Unreadable app_meta — skip quietly; the next launch re-checks.
+      }
+    })();
+  }, [loaded, activeVaultId]);
   const [shopModeEnabled, setShopModeEnabled] = useState(false);
   const [shopModeBusy, setShopModeBusy] = useState(false);
   // Cloud backup channel — default ON when the key is unset (existing signed-in
@@ -965,6 +1000,20 @@ export default function HomeScreen() {
           lives inside startShopMode() (throws ShopModeNotAvailableError
           when the device has no vault with a trust anchor; caught
           below and surfaced as a toast). */}
+      {/* One-time kaata-vs-tally explainer — see the guideVisible state block
+          for gating. Rename routes to vault/settings (where rename lives);
+          every dismissal path marks the guide seen so it never re-nags. */}
+      <KaataGuideSheet
+        visible={guideVisible}
+        kaataName={self?.shop_name ?? vaults.find((v) => v.id === activeVaultId)?.name ?? ""}
+        canRename={canRenameActiveVault}
+        onRename={() => router.push("/vault/settings")}
+        onDismiss={() => {
+          setGuideVisible(false);
+          void setAppMeta("kaata_guide_seen", "1");
+        }}
+      />
+
       <ProfileSettingsSheet
         visible={settingsVisible}
         signedInUser={sessionUser}

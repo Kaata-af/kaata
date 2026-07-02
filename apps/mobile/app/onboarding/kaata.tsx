@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { FormField } from "../../components/FormField";
+import { KaataConceptCard } from "../../components/KaataConceptCard";
 import { updateAccountPhone } from "../../lib/auth";
 import { colors } from "../../lib/colors";
 import { CURRENCIES, DEFAULT_CURRENCY, getCurrencyName } from "../../lib/currency";
@@ -89,17 +90,12 @@ export default function OnboardingKaataScreen() {
     }
   }, [loaded, selfName, router]);
 
-  // Focus the shop-name field via ref + delayed setTimeout (NOT autoFocus).
-  // Per CLAUDE.md, autoFocus inside a Stack screen fires before the screen's
-  // presentation animation finishes and the soft keyboard fails to open on
-  // Android. Gate on `loaded && selfName` so it doesn't fire on the bail-out
-  // branch above.
-  useEffect(() => {
-    if (loaded && selfName) {
-      const tm = setTimeout(() => shopRef.current?.focus(), 280);
-      return () => clearTimeout(tm);
-    }
-  }, [loaded, selfName]);
+  // Deliberately NO auto-focus on this screen (unlike the profile step): the
+  // concept card above the form is the one moment we teach "kaata = your whole
+  // shop, tallies live inside it", and an auto-opened keyboard would cover it.
+  // The user taps the field themselves after reading. (Data behind this:
+  // most early users created a tally contact where they should have created
+  // their kaata — the mental model needs the few seconds of screen time.)
 
   async function onCreate() {
     if (savingRef.current) return;
@@ -127,6 +123,11 @@ export default function OnboardingKaataScreen() {
       // profile step, because the self is created here.
       void updateAccountPhone(selfPhone ?? null);
       await setAppMeta("onboarding_step", "done");
+      // This user just saw the concept card above — mark the one-time home
+      // guide sheet (KaataGuideSheet) as already-covered so it only ever
+      // shows to users who onboarded BEFORE the card existed (or who arrived
+      // via restore/invite and skipped this screen).
+      await setAppMeta("kaata_guide_seen", "1");
       // Clear the onboarding scratch values now that they're persisted into
       // the self user + vault.
       await setAppMeta("onboarding_self_name", "");
@@ -184,6 +185,12 @@ export default function OnboardingKaataScreen() {
         >
           <Text style={[styles.title, textDir(isRTL)]}>{t("onboardingKaata.title")}</Text>
           <Text style={[styles.subtitle, textDir(isRTL)]}>{t("onboardingKaata.subtitle")}</Text>
+
+          <View style={{ height: 18 }} />
+          {/* The kaata-vs-tally mental-model diagram. Teaching at the exact
+              moment of naming — users who read "kaata" as one person's tab
+              typed a customer name here. See KaataConceptCard for context. */}
+          <KaataConceptCard />
 
           <View style={styles.spacer} />
 

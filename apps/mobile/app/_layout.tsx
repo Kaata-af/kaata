@@ -616,6 +616,9 @@ export default function RootLayout() {
               {/* Mythos crash-diagnosis screen — card presentation like
                   the other settings sub-pages. */}
               <Stack.Screen name="account" />
+              {/* "How kaata works" static guide — reachable from the settings
+                  sheet's Help section. */}
+              <Stack.Screen name="guide" />
               <Stack.Screen name="diagnostics" />
               {/* D-BACKUP-RESTORE-FLOW: in-app "Restore from cloud"
                   confirm. Distinct from onboarding/restore (no Start-
