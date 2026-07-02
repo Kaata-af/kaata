@@ -7,11 +7,14 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/matee/kaata-backend/internal/admin"
 	"github.com/matee/kaata-backend/internal/auth"
@@ -43,6 +46,46 @@ var (
 	Version = "dev"
 	Commit  = "unknown"
 )
+
+// Per-IP budgets for the public anonymous POSTs that previously had no cap.
+// Declared here (not in httpx) because they are main-wiring policy, same as
+// the route table itself. All are per-IP, so remember Afghan users are often
+// behind carrier CGNAT — one IP can front many real shopkeepers. Budgets are
+// therefore generous multiples of organic traffic, sized to stop loops and
+// disk-fill abuse, not to shave legitimate bursts.
+const (
+	// Google sign-in: each request costs an ID-token signature check and,
+	// on success, an account+vault transaction. Organic rate is a handful
+	// per install lifetime; 60/hr absorbs a CGNAT cell without letting an
+	// attacker hammer token validation for free.
+	googleSignInLimit  = 60
+	googleSignInWindow = time.Hour
+	// Check-in fires once per app launch; 120/hr/IP is huge headroom for a
+	// shared IP while capping installs-row minting.
+	checkInLimit  = 120
+	checkInWindow = time.Hour
+	// Crash-report flush piggybacks on launch (batched client-side); a
+	// healthy install sends far less than 60 batches/hr.
+	crashReportLimit  = 60
+	crashReportWindow = time.Hour
+	// Web visit beacon: one per page view; caps web_visits growth and QR
+	// attribution poisoning at line rate.
+	visitLimit  = 120
+	visitWindow = time.Hour
+)
+
+// Housekeeping cron cadences (see startHousekeepingCron).
+const (
+	inviteePurgeInterval    = 6 * time.Hour
+	dailyRetentionInterval  = 24 * time.Hour
+	crashReportRetention    = "90 days"
+	unclaimedVisitRetention = "180 days"
+)
+
+// shutdownDrain bounds how long a SIGTERM'd process waits for in-flight
+// requests before exiting anyway. Dokploy/Docker default kill grace is 30s;
+// 15s of drain leaves comfortable margin below it.
+const shutdownDrain = 15 * time.Second
 
 func main() {
 	cfg := config.Load()
@@ -101,7 +144,13 @@ func main() {
 		log.Println("CRITICAL: MESH_SIGNING_PRIVKEY_PRIMARY missing or invalid — mesh witness attestation disabled. Run `go run ./cmd/genkeypair` to mint a fresh keypair; commit the public half to clients and store the private half in the backend's secret store.")
 	}
 
-	ctx := context.Background()
+	// Root context is cancelled on SIGINT/SIGTERM so a Dokploy redeploy stops
+	// the crons and lets the HTTP server drain instead of hard-killing
+	// in-flight requests. The crons' <-ctx.Done() branches were dead code
+	// while this was context.Background().
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	pool, err := db.Open(ctx, cfg.PostgresURL)
 	if err != nil {
 		log.Fatalf("db open: %v", err)
@@ -160,13 +209,23 @@ func main() {
 
 	// Shared ledger snapshots ("see the full ledger on kaata.af"): store a small
 	// per-person snapshot behind a short token; serve it as JSON + a tiny SSR shell.
-	sharedH := shared.NewHandler(shared.NewService(pool), cfg.WebBaseURL, cfg.ShareLinkBaseURL, cfg.PublicAPIBaseURL)
+	// The service is kept in a variable so the housekeeping cron can call
+	// PruneExpired — expired snapshots hold real customer ledger content and
+	// must actually be deleted, not just stop being served.
+	sharedSvc := shared.NewService(pool)
+	sharedH := shared.NewHandler(sharedSvc, cfg.WebBaseURL, cfg.ShareLinkBaseURL, cfg.PublicAPIBaseURL)
 
 	// Sync (Phase 3). The service holds membership + page LRUs (60s TTL);
 	// the snapshot cron uses its own dedicated 4-conn Postgres pool so a
 	// slow snapshot replay can't starve user-facing request connections.
 	syncSvc := syncapi.NewService(pool)
 	syncH := syncapi.NewHandler(syncSvc)
+
+	// Membership-cache invalidation: when a vault management call changes a
+	// member's standing (revoke, role change, leave, unarchive, …) the sync
+	// push gate must see it immediately instead of after the 60s LRU TTL.
+	// *sync.Service satisfies vaults.MembershipInvalidator structurally.
+	vaultsSvc.SetMembershipInvalidator(syncSvc)
 
 	// M2 (membership chain §8.2): pin the server witness verification key
 	// set on the sync service so push-side membership verification can
@@ -218,18 +277,24 @@ func main() {
 	})
 	r.Group(func(pr chi.Router) {
 		pr.Use(authenticator.OptionalMiddleware())
-		pr.Post("/v1/check-in", checkinH.CheckIn)
+		pr.With(httpx.RateLimitPerIP(checkInLimit, checkInWindow)).
+			Post("/v1/check-in", checkinH.CheckIn)
 		// Mythos crash-reporter — anonymous-OK so local-only installs
 		// can report why they died.
-		pr.Post("/v1/crash-reports", crashH.Report)
+		pr.With(httpx.RateLimitPerIP(crashReportLimit, crashReportWindow)).
+			Post("/v1/crash-reports", crashH.Report)
 	})
-	r.Post("/v1/visit", visitH.Visit)
+	r.With(httpx.RateLimitPerIP(visitLimit, visitWindow)).
+		Post("/v1/visit", visitH.Visit)
 	r.Get("/v1/download", visitH.Download)
 	// Waitlist: email opt-in for the "coming soon" app-store channels. Public +
 	// rate-limited per IP (the email is the only PII; idempotent server-side).
 	r.With(httpx.RateLimitPerIP(httpx.WaitlistJoinLimit, httpx.WaitlistJoinWindow)).
 		Post("/v1/waitlist", waitlistH.Join)
-	r.Post("/v1/auth/google", authH.GoogleSignIn)
+	// Google sign-in is the only account-creation endpoint; without a cap it
+	// was a free token-validation DoS / account-minting surface.
+	r.With(httpx.RateLimitPerIP(googleSignInLimit, googleSignInWindow)).
+		Post("/v1/auth/google", authH.GoogleSignIn)
 	// Shared ledger ("see the full ledger on kaata.af"). All PUBLIC: the share
 	// link is meant to be opened by a customer with no app/account. POST is
 	// rate-limited per IP; GET-by-token + the SSR view are open (opaque tokens).
@@ -331,14 +396,106 @@ func main() {
 	// 6 hours, so a dedicated pool would be over-engineering.
 	go vaults.StartArchivePurgeCron(ctx, pool, 6*time.Hour)
 
+	// Housekeeping: expired-invite purge (6h), plus a daily retention pass
+	// (expired share snapshots, crash-report + unclaimed web-visit ageing).
+	// Same "reuse the main pool, I/O-light" rationale as the archive purge.
+	go startHousekeepingCron(ctx, pool, sharedSvc, vaultsSvc)
+
 	srv := &http.Server{
 		Addr:              ":" + cfg.BackendPort,
 		Handler:           r,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+	serveErr := make(chan error, 1)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			serveErr <- err
+		}
+	}()
 	log.Printf("kaata-backend listening on :%s", cfg.BackendPort)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+
+	select {
+	case err := <-serveErr:
 		log.Fatalf("server: %v", err)
+	case <-ctx.Done():
+		// SIGINT/SIGTERM. Crons are already unwinding off the same ctx; give
+		// in-flight requests a bounded drain so a redeploy doesn't manufacture
+		// a burst of client-visible connection resets.
+		log.Printf("shutdown signal received; draining for up to %s", shutdownDrain)
+		drainCtx, cancel := context.WithTimeout(context.Background(), shutdownDrain)
+		defer cancel()
+		if err := srv.Shutdown(drainCtx); err != nil {
+			log.Printf("shutdown: drain incomplete: %v", err)
+		}
+	}
+}
+
+// startHousekeepingCron blocks until ctx is cancelled. Two cadences share
+// one goroutine: expired vault invites are purged every 6 hours (they gate
+// nothing once expired but hold invitee emails + token hashes), and a daily
+// pass handles data-retention deletes:
+//
+//   - shared.PruneExpired — expired kaata.af share snapshots contain real
+//     customer names/balances; the product promise is that they expire.
+//   - crash_reports older than 90 days — debugging telemetry, stale after
+//     a release cycle or two.
+//   - web_visits older than 180 days that were never claimed by an install
+//     (claimed rows back installs.source attribution and are kept).
+//
+// Every statement is idempotent and cheap, so failures are logged and
+// retried on the next tick rather than aborting the loop.
+func startHousekeepingCron(ctx context.Context, pool *pgxpool.Pool, sharedSvc *shared.Service, vaultsSvc *vaults.Service) {
+	log.Printf("housekeeping cron running, invites=%s retention=%s", inviteePurgeInterval, dailyRetentionInterval)
+
+	purgeInvites := func() {
+		if n, err := vaultsSvc.PurgeExpiredInvites(ctx); err != nil {
+			log.Printf("housekeeping: purge expired invites: %v", err)
+		} else if n > 0 {
+			log.Printf("housekeeping: purged %d expired invites", n)
+		}
+	}
+	retentionPass := func() {
+		if n, err := sharedSvc.PruneExpired(ctx); err != nil {
+			log.Printf("housekeeping: prune expired shares: %v", err)
+		} else if n > 0 {
+			log.Printf("housekeeping: pruned %d expired share snapshots", n)
+		}
+		if tag, err := pool.Exec(ctx,
+			`DELETE FROM crash_reports WHERE received_at < NOW() - INTERVAL '`+crashReportRetention+`'`,
+		); err != nil {
+			log.Printf("housekeeping: crash_reports retention: %v", err)
+		} else if tag.RowsAffected() > 0 {
+			log.Printf("housekeeping: deleted %d crash_reports older than %s", tag.RowsAffected(), crashReportRetention)
+		}
+		if tag, err := pool.Exec(ctx,
+			`DELETE FROM web_visits
+			  WHERE visited_at < NOW() - INTERVAL '`+unclaimedVisitRetention+`'
+			    AND claimed_by_install_id IS NULL`,
+		); err != nil {
+			log.Printf("housekeeping: web_visits retention: %v", err)
+		} else if tag.RowsAffected() > 0 {
+			log.Printf("housekeeping: deleted %d unclaimed web_visits older than %s", tag.RowsAffected(), unclaimedVisitRetention)
+		}
+	}
+
+	// Run both on boot so a long-stopped deployment catches up immediately.
+	purgeInvites()
+	retentionPass()
+
+	invitesTick := time.NewTicker(inviteePurgeInterval)
+	defer invitesTick.Stop()
+	retentionTick := time.NewTicker(dailyRetentionInterval)
+	defer retentionTick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("housekeeping cron: shutting down")
+			return
+		case <-invitesTick.C:
+			purgeInvites()
+		case <-retentionTick.C:
+			retentionPass()
+		}
 	}
 }
 

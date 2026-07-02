@@ -10,6 +10,20 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// ErrUnknownEventType is returned by CheckEventPermission when the event's
+// type is missing from the role matrix. PushEvents converts it into a
+// per-event rejection (RejectReasonUnknownEventType) instead of a batch
+// 500 — a newer APK shipping a new event type before this backend deploys
+// must not wedge every other queued event behind it.
+var ErrUnknownEventType = errors.New("unknown event_type")
+
+// RejectReasonUnknownEventType is the per-event rejection reason for an
+// event type this backend doesn't know. RETRYABLE by design: the shipped
+// client's safety net leaves user-ledger events unacked (backoff, no
+// rejected_at), and the newer client that minted the type maps this reason
+// explicitly — so the event lands once the backend catches up.
+const RejectReasonUnknownEventType = "unknown_event_type"
+
 // CheckEventPermission decides whether an event authored by accountID against
 // vaultID is permissible at the event's HLC time. The "lawful-at-HLC" rule
 // means we evaluate the author's role *as of* hlcPhysicalMS — not their
@@ -59,9 +73,10 @@ func CheckEventPermission(
 
 	required, ok := requiredRoleFor(eventType)
 	if !ok {
-		// Unknown event type — reject defensively. Adding a new event type
-		// without updating this table is a server bug.
-		return false, "", "", fmt.Errorf("unknown event_type %q for permission check", eventType)
+		// Unknown event type — reject defensively, but as the SENTINEL so
+		// the caller can turn it into a per-event rejection rather than a
+		// batch-aborting 500 (forward-compat: newer APK, older backend).
+		return false, "", "", fmt.Errorf("event_type %q for permission check: %w", eventType, ErrUnknownEventType)
 	}
 
 	// Phase 4.1: resolve the effective author.

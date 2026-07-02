@@ -164,7 +164,7 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			switch {
 			case errors.Is(err, ErrNotMember), errors.Is(err, ErrVaultNotFound):
-				httpx.Error(w, http.StatusForbidden, "not a member of this vault")
+				writeMembershipDenied(w, err)
 				return
 			default:
 				log.Printf("sync.push (empty) failed for account=%s vault=%s: %v",
@@ -293,7 +293,7 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrNotMember), errors.Is(err, ErrVaultNotFound):
-			httpx.Error(w, http.StatusForbidden, "not a member of this vault")
+			writeMembershipDenied(w, err)
 			return
 		default:
 			log.Printf("sync.push failed for account=%s vault=%s: %v",
@@ -303,6 +303,24 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	httpx.JSON(w, http.StatusOK, res)
+}
+
+// writeMembershipDenied writes the 403 for a membership-denied push/pull with
+// a stable error_code the client can branch on: "not_member" (the vault
+// EXISTS but the caller holds no active membership — the only signal a
+// removed member's device ever gets of its own removal, since the revocation
+// commits in the same tx as the removal event and blocks the pull that would
+// have delivered it) vs "vault_unknown" (no such vault — genuinely
+// unregistered/purged). Same status + prose for both; only the code differs.
+// Codes follow the vaults handlers' mapServiceError naming ("not_member").
+// The existence signal disclosed to authenticated non-members is acceptable:
+// vault ids are UUIDv4, not enumerable.
+func writeMembershipDenied(w http.ResponseWriter, err error) {
+	code := "not_member"
+	if errors.Is(err, ErrVaultNotFound) {
+		code = "vault_unknown"
+	}
+	httpx.ErrorCode(w, http.StatusForbidden, code, "not a member of this vault")
 }
 
 // readMaybeGzipped reads request body, transparently gunzipping if header says
@@ -391,7 +409,7 @@ func (h *Handler) Pull(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrNotMember), errors.Is(err, ErrVaultNotFound):
-			httpx.Error(w, http.StatusForbidden, "not a member of this vault")
+			writeMembershipDenied(w, err)
 			return
 		default:
 			log.Printf("sync.pull failed for account=%s vault=%s: %v",

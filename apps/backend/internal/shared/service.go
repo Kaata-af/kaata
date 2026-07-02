@@ -24,9 +24,11 @@ var ErrNotFound = errors.New("shared ledger not found")
 // open it days later, short enough that the table self-prunes.
 const shareTTL = 90 * 24 * time.Hour
 
-// tokenBytes → 12-char URL-safe base64 token (96 bits of entropy). Opaque +
-// unguessable so the link can't be enumerated.
-const tokenBytes = 9
+// tokenBytes → 16-char URL-safe base64 token (96 bits of entropy). Opaque +
+// unguessable so the link can't be enumerated. Bumped from 9 bytes (72 bits);
+// nothing validates token length — GET is a plain PK lookup on a TEXT column —
+// so old shorter tokens keep resolving until their TTL expires.
+const tokenBytes = 12
 
 type Service struct {
 	pool *pgxpool.Pool

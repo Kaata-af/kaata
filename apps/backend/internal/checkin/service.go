@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -143,6 +144,19 @@ type MeshServerPubkeys struct {
 }
 
 func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Response, error) {
+	// Server-side length clamp on the free-text telemetry fields — migration
+	// 028 declares self_name/self_phone/shop_name as unbounded TEXT and the
+	// endpoint is anonymous, so without this a hostile client could persist
+	// megabyte strings onto installs on every check-in. Legit values are far
+	// shorter than these caps.
+	req.AppVersion = clampRunes(req.AppVersion, 64)
+	req.Platform = clampRunes(req.Platform, 64)
+	req.DeviceLocale = clampRunes(req.DeviceLocale, 64)
+	req.AppLocale = clampRunes(req.AppLocale, 16)
+	req.SelfName = clampRunesPtr(req.SelfName, 200)
+	req.SelfPhone = clampRunesPtr(req.SelfPhone, 200)
+	req.ShopName = clampRunesPtr(req.ShopName, 200)
+
 	// Clamp installed_at against device clock skew. A timestamp more than
 	// a few minutes in the future is bogus — fall back to NOW() by passing
 	// nil so the SQL's COALESCE picks up the backend time.
@@ -456,6 +470,23 @@ func nullStr(s sql.NullString) *string {
 		return nil
 	}
 	return &s.String
+}
+
+// clampRunes caps s at max runes. Rune-safe: never splits a UTF-8 sequence,
+// which Postgres would reject as an invalid byte sequence and fail the upsert.
+func clampRunes(s string, max int) string {
+	if utf8.RuneCountInString(s) <= max {
+		return s
+	}
+	return string([]rune(s)[:max])
+}
+
+func clampRunesPtr(s *string, max int) *string {
+	if s == nil {
+		return nil
+	}
+	c := clampRunes(*s, max)
+	return &c
 }
 
 func nonZero(p *int) bool {

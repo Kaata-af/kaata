@@ -50,6 +50,17 @@ import { Mutex } from "../util/mutex";
 // open transaction into autocommit statements. That hazard predates M1,
 // but the author_seq assignment (MAX()+1 read-then-INSERT under a UNIQUE
 // index) now leans on transaction exclusivity, so we make it real.
+//
+// EVERY event_log/projection write-transaction on the shared connection
+// must hold this mutex: applyEvent (below), push's ack tx (lib/sync/push.ts),
+// ingestPulledEvents (./ingest-row.ts), the sweep's per-event replay tx
+// (./replay.ts), and the mesh ingest txs (lib/mesh/anti-entropy.ts). The
+// last two acquire it while ALREADY holding sweepMutex (./sweep.ts) — that
+// order, sweepMutex → applyEventMutex, is the ONLY permitted nesting.
+// Never take sweepMutex (or await anything that does) while holding this
+// mutex: both Mutexes are non-reentrant FIFO chains and the reverse order
+// deadlocks. applyEvent stays safe because its scheduleSweep fires
+// post-release via the debounce timer.
 export const applyEventMutex = new Mutex();
 
 // app_meta key for the persisted HLC frontier. JSON-encoded {pms, l, did}.

@@ -8,8 +8,9 @@ package mesh
 //     — provable because the caller presented a JWT for (A, D) and D's
 //       pubkey was registered via /v1/devices/register-key.
 //   member witness: "owner-account O invited account A at role R into V"
-//     — provable because the server brokered the email invite (the
-//       vault_members row records invited_by + invite_email).
+//     — provable because the server brokered the invite (the vault_members
+//       row records invited_by + an invite_token_hash; email is optional —
+//       link invites have no invite_email).
 //
 // The signatures cover canonical-JSON tuples (internal/canonical — same
 // canonicalizer as mobile event signing). Mobile attaches them as the
@@ -45,6 +46,14 @@ import (
 // witness signatures. "primary" = MESH_SIGNING_PRIVKEY_PRIMARY. A future
 // key rotation introduces a second id; verifiers accept the pinned SET.
 const WitnessServerKeyID = "primary"
+
+// ErrDeviceRemoved is returned by IssueWitness when the caller's device has
+// been chain-removed from the vault (vault_devices.removed_at_ms set). Every
+// mobile replica refuses a witnessed re-add of a removed device, so signing
+// one would only manufacture server/replica divergence; re-admission goes
+// through an owner-signed re-add, not this endpoint. (Defined here rather
+// than service.go because only the witness path can hit it.)
+var ErrDeviceRemoved = errors.New("device has been removed from this vault; a witness cannot re-bind it")
 
 // DeviceWitnessTuple builds the canonical attestation input for
 // "account controls device". Keys sort lexicographically under
@@ -102,10 +111,13 @@ type WitnessResult struct {
 // (handler-enforced); this function only checks the facts it attests:
 //   - the install has a registered device key (else ErrDeviceKeyNotRegistered);
 //   - the account is an ACTIVE accepted member (else ErrNotMember);
+//   - the device has not been chain-removed from the vault (else
+//     ErrDeviceRemoved) — a witness must not resurrect a removed device;
 //   - member witness only when the membership row records a brokered invite:
-//     invited_by set to a DIFFERENT account AND invite_email present.
-//     Owner rows (invited_by = self, no invite_email) and QR-promoted rows
-//     (invited_by NULL) yield member_witness = null.
+//     invited_by set to a DIFFERENT account AND an invite the server minted
+//     (invite_token_hash — covers both email and link invites; link invites
+//     have no invite_email). Owner rows (invited_by = self, no token) and
+//     QR-promoted rows (invited_by NULL) yield member_witness = null.
 func (s *Service) IssueWitness(ctx context.Context, vaultID, accountID, installID string) (WitnessResult, error) {
 	if s.signingPriv == nil {
 		return WitnessResult{}, ErrSigningUnavailable
@@ -139,21 +151,39 @@ func (s *Service) IssueWitness(ctx context.Context, vaultID, accountID, installI
 	// names the vault, so we refuse to attest device control "for vault V"
 	// to accounts with no seat in V (no witness farming).
 	var (
-		role        string
-		invitedBy   *string
-		inviteEmail *string
+		role            string
+		invitedBy       *string
+		inviteTokenHash *string
 	)
 	err = s.pool.QueryRow(ctx, `
-		SELECT role, invited_by::text, invite_email
+		SELECT role, invited_by::text, invite_token_hash
 		  FROM vault_members
 		 WHERE vault_id = $1::uuid AND account_id = $2::uuid
 		   AND revoked_at IS NULL AND accepted_at IS NOT NULL
-	`, vaultID, accountID).Scan(&role, &invitedBy, &inviteEmail)
+	`, vaultID, accountID).Scan(&role, &invitedBy, &inviteTokenHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return WitnessResult{}, ErrNotMember
 	}
 	if err != nil {
 		return WitnessResult{}, fmt.Errorf("read membership: %w", err)
+	}
+
+	// A witness must NOT resurrect a removed device (mirrors the mobile
+	// fold's refusal in role-gate.ts / chain.ts): if the vault_devices
+	// registry says this device was chain-removed, refuse to attest it —
+	// re-admission requires an owner-signed re-add, not a self-serve
+	// witness. No row at all is fine: the witness is exactly how a fresh
+	// device gets bound in the first place.
+	var removedAtMS *int64
+	err = s.pool.QueryRow(ctx, `
+		SELECT removed_at_ms FROM vault_devices
+		 WHERE vault_id = $1::uuid AND device_id = $2::uuid
+	`, vaultID, installID).Scan(&removedAtMS)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return WitnessResult{}, fmt.Errorf("read device registry: %w", err)
+	}
+	if err == nil && removedAtMS != nil {
+		return WitnessResult{}, ErrDeviceRemoved
 	}
 
 	now := time.Now().UnixMilli()
@@ -173,6 +203,12 @@ func (s *Service) IssueWitness(ctx context.Context, vaultID, accountID, installI
 		},
 	}
 
+	// Brokered-invite test: invite_token_hash (not invite_email) is the
+	// marker — link invites store invite_email = NULL but the server still
+	// minted and hashed their token, which is exactly the owner intent this
+	// witness attests. Gating on email quarantined every link-joined member
+	// on every peer (no member witness → no chain admission).
+	//
 	// SEC FIX 3 (defense-in-depth): never issue a member_witness for an
 	// owner role. A member witness attests "owner O invited account A at
 	// role R"; the chain verifier caps witnessed admissions to editor/viewer
@@ -182,7 +218,7 @@ func (s *Service) IssueWitness(ctx context.Context, vaultID, accountID, installI
 	// carry role=owner — but if one ever does (data drift, a future code
 	// path), refuse to sign the owner tuple rather than hand out a witness
 	// the verifier will reject anyway. The device witness still rides along.
-	if invitedBy != nil && *invitedBy != accountID && inviteEmail != nil && *inviteEmail != "" && role != "owner" {
+	if invitedBy != nil && *invitedBy != accountID && inviteTokenHash != nil && role != "owner" {
 		memberCanonical, err := canonical.Canonicalize(
 			MemberWitnessTuple(vaultID, accountID, *invitedBy, role, now),
 		)
@@ -205,7 +241,8 @@ func (s *Service) IssueWitness(ctx context.Context, vaultID, accountID, installI
 // vault_id from the URL; (account_id, install_id) strictly from JWT claims —
 // there is no request body. Error mapping: 503 when the signing key is
 // unconfigured, 412 when the device key isn't registered yet (client should
-// POST /v1/devices/register-key and retry), 403 for non-members.
+// POST /v1/devices/register-key and retry), 403 for non-members and for
+// chain-removed devices.
 func (h *Handler) Witness(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.ClaimsFromContext(r.Context())
 	if !ok {
@@ -226,7 +263,7 @@ func (h *Handler) Witness(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, http.StatusServiceUnavailable, err.Error())
 		case errors.Is(err, ErrDeviceKeyNotRegistered):
 			httpx.Error(w, http.StatusPreconditionFailed, err.Error())
-		case errors.Is(err, ErrNotMember):
+		case errors.Is(err, ErrNotMember), errors.Is(err, ErrDeviceRemoved):
 			httpx.Error(w, http.StatusForbidden, err.Error())
 		default:
 			httpx.Error(w, http.StatusInternalServerError, "witness issuance failed")

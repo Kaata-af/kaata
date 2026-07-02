@@ -53,19 +53,37 @@ async function readRoleFromDb(vaultId: string, accountId: string | null): Promis
   if (candidates.length === 0) return LOCAL_OWNER_DEFAULT;
   const db = await getDb();
   const placeholders = candidates.map(() => "?").join(",");
-  const rows = await db.getAllAsync<{ account_id: string; role: VaultRole }>(
-    `SELECT account_id, role FROM vault_members_mirror
-     WHERE vault_id = ? AND account_id IN (${placeholders})
-       AND revoked_at IS NULL`,
+  // Revoked rows are SELECTED (no revoked_at filter) so "removed from this
+  // vault" is distinguishable from "no row ever existed" — only the latter may
+  // fall through to the owner default (local-only-must-keep-working invariant).
+  // Filtering revoked rows out made a member whose vault_member_removed had
+  // applied locally (leaveVaultRouted; pull inside the removal window) resolve
+  // to zero rows → 'owner', rendering owner affordances for a vault they left.
+  const rows = await db.getAllAsync<{
+    account_id: string;
+    role: VaultRole;
+    revoked_at: number | null;
+  }>(
+    `SELECT account_id, role, revoked_at FROM vault_members_mirror
+     WHERE vault_id = ? AND account_id IN (${placeholders})`,
     vaultId,
     ...candidates,
   );
   if (rows.length === 0) return LOCAL_OWNER_DEFAULT;
+  const active = rows.filter((r) => r.revoked_at == null);
+  if (active.length === 0) {
+    // Every row for me is revoked: I was removed. VaultRole has no 'revoked'
+    // value (adding one would ripple through every role switch in app/vault/*),
+    // so return the most-restricted role instead. This only shapes UI — the
+    // pre-append role-gate and the server both refuse a revoked member's
+    // writes regardless.
+    return "viewer";
+  }
   // Usually exactly one row. If a corrupted dual-id state has several, prefer
   // the one for my primary (passed) id, else the first — deterministic, and it
   // reflects my actual granted role rather than over-assuming owner.
   const primary = candidates[0];
-  const chosen = rows.find((r) => r.account_id === primary) ?? rows[0];
+  const chosen = active.find((r) => r.account_id === primary) ?? active[0];
   return chosen.role;
 }
 

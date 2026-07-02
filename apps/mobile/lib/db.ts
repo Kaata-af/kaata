@@ -70,6 +70,7 @@ const MIGRATION_018 = "018_event_author_seq";
 const MIGRATION_019 = "019_vault_device_registry";
 const MIGRATION_020 = "020_reregister_bootstrap_vaults";
 const MIGRATION_021 = "021_unstick_rejected_ledger_events";
+const MIGRATION_022 = "022_event_log_push_reject_bookkeeping";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -320,6 +321,14 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
     } catch (err) {
       console.error("[init] runMigration021 failed:", err);
       throw new Error("runMigration021 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_022))) {
+    try {
+      await runMigration022(db);
+    } catch (err) {
+      console.error("[init] runMigration022 failed:", err);
+      throw new Error("runMigration022 failed: " + String(err));
     }
   }
 }
@@ -2791,6 +2800,38 @@ async function runMigration021(db: SQLite.SQLiteDatabase): Promise<void> {
     await db.runAsync(
       `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
       MIGRATION_021,
+      Date.now(),
+    );
+  });
+}
+
+// Migration 022: per-event push-reject bookkeeping. The dd5c31f/021 policy keeps
+// server-rejected USER-LEDGER events unacked (a rejected_at stamp is permanent
+// exile from the outbox = silent data loss on restore), but with zero
+// bookkeeping those rows re-entered the HLC-ascending LIMIT-500 outbox on EVERY
+// push: unbounded hot-retry, and — because stuck rows are by construction the
+// OLDEST HLCs — 500 of them fill the whole batch and starve every newer event
+// forever (including the account_bound that would cure unauthored_pre_binding).
+// push.ts now counts attempts (push_attempts), records the server's latest
+// verdict (last_reject_reason, diagnostics only), and excludes rows whose
+// exponential backoff hasn't elapsed (next_push_at, epoch ms; NULL = eligible)
+// from the outbox SELECT. DATA-SAFE: columns only; no row content is touched.
+async function runMigration022(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    if (!(await columnExists(db, "event_log", "push_attempts"))) {
+      await db.execAsync(
+        `ALTER TABLE event_log ADD COLUMN push_attempts INTEGER NOT NULL DEFAULT 0;`,
+      );
+    }
+    if (!(await columnExists(db, "event_log", "next_push_at"))) {
+      await db.execAsync(`ALTER TABLE event_log ADD COLUMN next_push_at INTEGER;`);
+    }
+    if (!(await columnExists(db, "event_log", "last_reject_reason"))) {
+      await db.execAsync(`ALTER TABLE event_log ADD COLUMN last_reject_reason TEXT;`);
+    }
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_022,
       Date.now(),
     );
   });

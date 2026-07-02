@@ -35,7 +35,7 @@ import * as SQLite from "expo-sqlite";
 
 import type { LedgerEvent } from "../events";
 import { getDb } from "../db";
-import { APPLIERS } from "./index";
+import { APPLIERS, applyEventMutex } from "./index";
 import { MissingPrereqError } from "./errors";
 import { isKnownEventType, isUserLedgerEventType } from "../events";
 import type { RoleGateResult } from "./role-gate";
@@ -173,11 +173,19 @@ export async function applyAlreadyIngestedEvent(
   event: LedgerEvent,
 ): Promise<ApplyAlreadyIngestedVerdict> {
   if (!isKnownEventType(event.event_type)) {
-    // Unknown event_type means the local code doesn't know what to do
-    // with this payload. Tombstone permanently — no future credential
-    // or prereq will help. Schema-version drift handled by a separate
-    // migration if/when needed.
-    return { kind: "tombstoned", reason: "schema_invalid" };
+    // Unknown event_type means THIS BUILD doesn't know the type yet — not
+    // that the row is garbage. A co-member on a newer release can author
+    // types we only learn on the next app upgrade; tombstoning here
+    // permanently buried exactly those events (migration 019's one-off
+    // cursor rewind in lib/db.ts is the production scar of v0.5.x clients
+    // dropping vault_device_* events this way). Quarantine instead: the
+    // sweep re-runs the row every pass and it applies the moment
+    // isKnownEventType passes post-upgrade. The label is 'applier_throw'
+    // only because the migration-014 state-machine triggers enumerate the
+    // allowed quarantine reasons and adding 'unknown_type' needs a
+    // trigger-recreate migration; labels are telemetry-only (see
+    // classifyApplierThrow) — retry behavior is identical.
+    return { kind: "quarantined", reason: "applier_throw" };
   }
   if (event.vault_id == null) {
     // Migration 007 invariant: every event has vault_id. A row without
@@ -189,33 +197,51 @@ export async function applyAlreadyIngestedEvent(
   }
   const applier = APPLIERS[event.event_type];
   if (!applier) {
-    return { kind: "tombstoned", reason: "schema_invalid" };
+    // Known type without a registered applier (e.g. entry_settled is in
+    // KNOWN_EVENT_TYPES but unwired) — same version-drift class as the
+    // unknown-type branch above: retained until an upgrade registers the
+    // applier, never permanently buried.
+    return { kind: "quarantined", reason: "applier_throw" };
   }
 
   const db = await getDb();
   let verdict: ApplyAlreadyIngestedVerdict | null = null;
 
-  await db
-    .withTransactionAsync(async () => {
-      // 1. role-gate. Read-only on credentials and role-events.
-      const gate = await checkRoleForEvent(db as SQLiteTx, event);
-      if (!gate.ok) {
-        verdict = classifyRoleGateRefusal(gate, event.event_type);
-        return; // commit the txn — gate doesn't mutate state.
-      }
+  // TWO-MUTEX LAYERING: our only caller (sweep.ts) holds sweepMutex, which
+  // provides sweep-vs-sweep / mesh-batch exclusion ONLY. This transaction
+  // ALSO needs applyEventMutex — expo-sqlite's withTransactionAsync is
+  // NON-exclusive on the single shared connection, so a concurrent
+  // applyEvent / push-ack / ingestPulledEvents BEGIN would tear one of the
+  // two open txs into autocommit statements (silent half-applied
+  // projection). Lock order is always sweepMutex → applyEventMutex and
+  // never the reverse: nothing acquires sweepMutex while holding
+  // applyEventMutex (applyEvent schedules its sweep AFTER releasing the
+  // mutex, via the debounce timer), and no caller of this function holds
+  // applyEventMutex — the acquisition here stays single-level, so the
+  // non-reentrant Mutex cannot deadlock.
+  await applyEventMutex
+    .runExclusive(() =>
+      db.withTransactionAsync(async () => {
+        // 1. role-gate. Read-only on credentials and role-events.
+        const gate = await checkRoleForEvent(db as SQLiteTx, event);
+        if (!gate.ok) {
+          verdict = classifyRoleGateRefusal(gate, event.event_type);
+          return; // commit the txn — gate doesn't mutate state.
+        }
 
-      // 2. applier dispatch. Throws roll the sub-txn back; we classify
-      // the throw outside the await so the verdict survives the rollback.
-      try {
-        await applier(db as SQLiteTx, event);
-      } catch (err) {
-        verdict = classifyApplierThrow(err);
-        // Re-throw so the txn rolls back — we don't want a half-applied
-        // projection. The verdict is captured already.
-        throw new Error("__replay_rollback__");
-      }
-      verdict = { kind: "applied" };
-    })
+        // 2. applier dispatch. Throws roll the sub-txn back; we classify
+        // the throw outside the await so the verdict survives the rollback.
+        try {
+          await applier(db as SQLiteTx, event);
+        } catch (err) {
+          verdict = classifyApplierThrow(err);
+          // Re-throw so the txn rolls back — we don't want a half-applied
+          // projection. The verdict is captured already.
+          throw new Error("__replay_rollback__");
+        }
+        verdict = { kind: "applied" };
+      }),
+    )
     .catch((err) => {
       // Filter our sentinel rollback. Any OTHER throw is a SQLite-level
       // failure (e.g., trigger violation, busy) — surface as applier_

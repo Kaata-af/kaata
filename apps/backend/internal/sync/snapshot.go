@@ -711,6 +711,31 @@ func generateSnapshotForVault(ctx context.Context, pool *pgxpool.Pool, c snapsho
 		return fmt.Errorf("insert vault_snapshots: %w", err)
 	}
 
+	// Prune superseded snapshots. Every reader takes only the newest row
+	// (LatestSnapshot / admin ORDER BY ... DESC LIMIT 1) and builds replay
+	// from scratch, so older rows are dead weight — each is a FULL ledger
+	// projection, and without pruning a live vault accretes hundreds of
+	// copies per year (the archive purge is the only other DELETE). Keep
+	// the newest 2 (the fresh insert + one predecessor as a safety margin
+	// against a corrupt build) inside the same tx, so the vault is never
+	// visible pruned-but-without-its-new-snapshot. Both the cron and the
+	// push-trigger path funnel through here. A concurrent replica pruning
+	// the same vault can serialization-fail this RepeatableRead tx — that
+	// just defers both insert and prune to the next tick.
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM vault_snapshots
+		WHERE vault_id = $1::uuid
+		  AND up_to_server_seq NOT IN (
+			SELECT up_to_server_seq
+			FROM vault_snapshots
+			WHERE vault_id = $1::uuid
+			ORDER BY up_to_server_seq DESC
+			LIMIT 2
+		  )
+	`, c.vaultID); err != nil {
+		return fmt.Errorf("prune superseded snapshots: %w", err)
+	}
+
 	return tx.Commit(ctx)
 }
 

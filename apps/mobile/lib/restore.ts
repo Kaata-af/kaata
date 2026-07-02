@@ -433,7 +433,31 @@ export async function restoreFromSnapshot(
       );
     }
 
-    // 6. Seed app_meta — hlc_last always; active/default only when this
+    // 6. Re-arm this vault's locally-authored, not-yet-server-acked events.
+    //    Local events are stamped applied_at at append time, and the snapshot
+    //    seed above just overwrote their projection effects with server-side
+    //    values (an offline edit's tally, an offline archive's archived_at).
+    //    The sweep only retries applied_at IS NULL rows, so without this
+    //    reset those effects would silently vanish from THIS device forever —
+    //    while the rows still sit in the push outbox and reach the server,
+    //    i.e. permanent local/server divergence. Resetting applied_at (and
+    //    any stale quarantine_reason) makes the post-restore sweepVaultNow
+    //    below replay them in HLC order on top of the snapshot base; the
+    //    snapshot's field-HLC floors sit at updated_at, below these events'
+    //    HLCs, so LWW re-accepts them. Server-acked rows are already
+    //    represented in the snapshot; rejected rows are server-refused and
+    //    must NOT resurrect over server truth — both stay untouched.
+    await db.runAsync(
+      `UPDATE event_log
+          SET applied_at = NULL, quarantine_reason = NULL
+        WHERE vault_id = ?
+          AND origin = 'local'
+          AND server_acked_at IS NULL
+          AND rejected_at IS NULL`,
+      v.id,
+    );
+
+    // 7. Seed app_meta — hlc_last always; active/default only when this
     //    restore owns the active-vault selection (single-vault callers; the
     //    multi-vault driver picks once after the loop). hlc_last is per-device
     //    global, so the MAX across restored vaults is what we want — merge
@@ -453,7 +477,7 @@ export async function restoreFromSnapshot(
   // Prime the in-memory cache (single-vault path only; the driver primes once).
   if (setActiveDefault) setActiveVaultIdCache(snapshot.vault.id);
 
-  // 7. DURABLY INGEST the membership chain + the post-snapshot event tail, then
+  // 8. DURABLY INGEST the membership chain + the post-snapshot event tail, then
   //    apply them via one sweep pass. This is the restore-side half of the
   //    fundamental data-loss fix: events go in as durable event_log rows
   //    (applied_at=NULL) via the SAME ingest path as server-pull, so a tail
@@ -483,7 +507,7 @@ export async function restoreFromSnapshot(
   await ingestPulledEvents(membershipEvents, now);
   appliedEvents += await ingestPulledEvents(tailEvents, now);
 
-  // 8. Seed the pull cursor to snapshot_server_seq. Without this, the
+  // 9. Seed the pull cursor to snapshot_server_seq. Without this, the
   //    very next sync tick starts pulling from after_server_seq=0 and
   //    replays every event already represented in the snapshot — wasted
   //    bandwidth + projection applier work on every fresh restore.
@@ -502,7 +526,8 @@ export async function restoreFromSnapshot(
   }
   await setLastPulledServerSeq(snapshot.vault.id, cursor);
 
-  // Apply the durably-ingested membership + tail now (one fixpoint sweep pass:
+  // Apply the durably-ingested membership + tail — plus the re-armed local
+  // unpushed events from step 6 — now (one fixpoint sweep pass:
   // create-before-amend, membership-before-entry resolve in a single pass), so
   // the restored ledger is populated when this returns — not just the snapshot
   // base. Best-effort: the rows are durable, so a sweep failure here only defers

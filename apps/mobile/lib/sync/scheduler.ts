@@ -10,7 +10,8 @@
 //   5. Wait the configured interval (foreground or background), then repeat.
 //
 // On error:
-//   - SessionExpiredError → clear JWT, stop the worker.
+//   - SessionExpiredError → clear JWT, keep ticking (syncOnce no-ops while
+//     signed out and resumes on the next sign-in — see the tick's catch).
 //   - SyncTransientError / SyncTimeoutError / network error → exponential
 //     backoff (1s, 2s, 4s, ..., capped 60s). Reset on first success.
 //   - PermissionRejectedError → log, treat as soft failure.
@@ -195,6 +196,21 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
     console.warn("[sync] chain backfill kickoff failed (non-fatal)", err);
   });
 
+  // Invite-accept heal: if a prior accept's local vault materialization
+  // failed (accepted server-side, no local vaults row — the "joined" toast
+  // fired but the kaata is invisible), the VAULT_MATERIALIZE_PENDING flag is
+  // still set. Sweep it here so healing happens on the next app launch, not
+  // only when the invitee happens to re-tap the invite link (the flag's
+  // other consumer, invite/[token].tsx mount). Same fire-and-forget,
+  // non-fatal contract as the chain backfill above; the helper is a no-op
+  // when the flag is empty or the user is signed out.
+  void (async () => {
+    const { retryPendingVaultMaterialize } = await import("../vault-api");
+    await retryPendingVaultMaterialize();
+  })().catch((err) => {
+    console.warn("[sync] pending vault-materialize sweep failed (non-fatal)", err);
+  });
+
   // One-time historical cleanup: null the phone on any CONTACT that wrongly
   // carries the shopkeeper's own number (the pre-guard "first self-numbered
   // contact" leak). Emits a real person_phone_changed event so the fix is
@@ -359,8 +375,19 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
       void recordLastSyncError(err);
 
       if (err instanceof SessionExpiredError) {
+        // The JWT is stale (revoked server-side / 30-day window lapsed). Clear
+        // it, but DO NOT stop the worker: clearLocalSession leaves
+        // app_meta.account_id in place, so AutoSync's [accountId, vaultId]
+        // effect deps never change and a stopped scheduler would never be
+        // replaced — a re-sign-in as the same account used to leave sync dead
+        // (no pulls, no ticks) until app restart, while the leaked ledger /
+        // AppState listeners kept pushing. Keep ticking at the normal cadence
+        // instead: syncOnce no-ops while the JWT is absent (one cheap
+        // SecureStore read per tick) and resumes automatically once sign-in
+        // stores a fresh JWT.
         await clearLocalSession().catch(() => {});
-        stopped = true;
+        backoffAttempt = 0;
+        scheduleNext(currentInterval());
         return;
       }
 

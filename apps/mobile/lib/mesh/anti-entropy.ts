@@ -2063,6 +2063,19 @@ async function applyIncomingBatch(
       serverAckedAt: number | null,
     ) => Promise<boolean>;
   };
+  // TWO-MUTEX LAYERING: sweepMutex (taken below, whole-batch) only excludes
+  // other sweeps / mesh batches. Each ingest TRANSACTION additionally takes
+  // applyEventMutex — expo-sqlite's withTransactionAsync is NON-exclusive on
+  // the single shared connection, so a concurrent applyEvent / push-ack /
+  // ingestPulledEvents BEGIN would tear one of the open txs into autocommit
+  // (silent half-ingested state). Lock order is always sweepMutex →
+  // applyEventMutex, never the reverse (nothing acquires sweepMutex while
+  // holding applyEventMutex — applyEvent schedules its sweep AFTER release,
+  // via the debounce timer), so the non-reentrant Mutex cannot deadlock.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { applyEventMutex } = require("../projection/index") as {
+    applyEventMutex: { runExclusive: <T>(cb: () => Promise<T> | T) => Promise<T> };
+  };
 
   let ingested = 0;
   let duplicates = 0;
@@ -2100,22 +2113,28 @@ async function applyIncomingBatch(
         // server-pull / restore paths via ingestRowInTx so the durability
         // contract is identical everywhere. serverAckedAt=null: a mesh-relayed
         // event is NOT necessarily on the server yet, so it must remain in the
-        // push outbox until the server acks it.
-        await db.withTransactionAsync(async () => {
-          await ingestRowInTx(db, event, ingestedAtMs, null);
-        });
+        // push outbox until the server acks it. applyEventMutex wraps the tx —
+        // see the two-mutex layering comment at the require site above.
+        await applyEventMutex.runExclusive(() =>
+          db.withTransactionAsync(async () => {
+            await ingestRowInTx(db, event, ingestedAtMs, null);
+          }),
+        );
       },
       insertTombstoned: async (event: LedgerEvent, tombstoneReason, ingestedAtMs: number) => {
-        await db.withTransactionAsync(async () => {
-          // M3.5 (review fix): a tombstoned (bad-sig / corrupt) row is garbage
-          // that never applies and is NOT relayable, so it must NOT claim an
-          // author_seq slot — otherwise it would squat the seq that the
-          // legitimate event owns and strand it (slot pre-check would sacrifice
-          // the real event's seq). Persist author_seq = NULL. Dedup still works
-          // via the event_id PK. INSERT OR IGNORE so a re-received tombstone is
-          // an idempotent no-op rather than a swallowed PK violation.
-          await db.runAsync(
-            `INSERT OR IGNORE INTO event_log (
+        // Same two-mutex layering as insertIngested (sweepMutex held by the
+        // batch, applyEventMutex around the tx) — see the require site above.
+        await applyEventMutex.runExclusive(() =>
+          db.withTransactionAsync(async () => {
+            // M3.5 (review fix): a tombstoned (bad-sig / corrupt) row is garbage
+            // that never applies and is NOT relayable, so it must NOT claim an
+            // author_seq slot — otherwise it would squat the seq that the
+            // legitimate event owns and strand it (slot pre-check would sacrifice
+            // the real event's seq). Persist author_seq = NULL. Dedup still works
+            // via the event_id PK. INSERT OR IGNORE so a re-received tombstone is
+            // an idempotent no-op rather than a swallowed PK violation.
+            await db.runAsync(
+              `INSERT OR IGNORE INTO event_log (
                event_id, event_type, vault_id, target_id, relationship_id,
                hlc_physical_ms, hlc_logical, hlc_device_id,
                device_id, author_user_id_local_only, actor_account_id,
@@ -2124,37 +2143,38 @@ async function applyIncomingBatch(
                event_sig_b64, signer_device_pubkey,
                ingested_at, applied_at, quarantine_reason, tombstone_reason, author_seq
              ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?,  ?, ?,  ?, ?, ?, ?,  ?, ?,  ?, NULL, NULL, ?, NULL)`,
-            event.event_id,
-            event.event_type,
-            event.vault_id,
-            event.target_id,
-            event.relationship_id,
-            event.hlc.pms,
-            event.hlc.l,
-            event.hlc.did,
-            event.device_id,
-            event.author_user_id_local_only ?? "",
-            event.actor_account_id,
-            JSON.stringify(event.payload),
-            event.payload_schema,
-            ingestedAtMs,
-            null,
-            null,
-            "remote",
-            event.event_sig_b64 ?? null,
-            event.signer_device_pubkey ?? null,
-            ingestedAtMs,
-            tombstoneReason,
-          );
-          // Even for tombstones we bump the HLC frontier: we DID see
-          // this HLC, and the head advances. Bad-sig events should
-          // count for "I have received this" exactly the same as good
-          // events — that's the Critical-1 fix's whole point.
-          const prevRaw = await getAppMetaInTx(db, HLC_LAST_KEY);
-          const prev = prevRaw ? deserializeHLC(prevRaw) : null;
-          const merged = tickReceive(prev, event.hlc, Date.now(), getInstallIdSync());
-          await setAppMetaInTx(db, HLC_LAST_KEY, serializeHLC(merged));
-        });
+              event.event_id,
+              event.event_type,
+              event.vault_id,
+              event.target_id,
+              event.relationship_id,
+              event.hlc.pms,
+              event.hlc.l,
+              event.hlc.did,
+              event.device_id,
+              event.author_user_id_local_only ?? "",
+              event.actor_account_id,
+              JSON.stringify(event.payload),
+              event.payload_schema,
+              ingestedAtMs,
+              null,
+              null,
+              "remote",
+              event.event_sig_b64 ?? null,
+              event.signer_device_pubkey ?? null,
+              ingestedAtMs,
+              tombstoneReason,
+            );
+            // Even for tombstones we bump the HLC frontier: we DID see
+            // this HLC, and the head advances. Bad-sig events should
+            // count for "I have received this" exactly the same as good
+            // events — that's the Critical-1 fix's whole point.
+            const prevRaw = await getAppMetaInTx(db, HLC_LAST_KEY);
+            const prev = prevRaw ? deserializeHLC(prevRaw) : null;
+            const merged = tickReceive(prev, event.hlc, Date.now(), getInstallIdSync());
+            await setAppMetaInTx(db, HLC_LAST_KEY, serializeHLC(merged));
+          }),
+        );
       },
     };
 

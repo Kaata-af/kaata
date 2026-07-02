@@ -3,6 +3,7 @@ package visit
 import (
 	"encoding/json"
 	"net/http"
+	"unicode/utf8"
 
 	"github.com/matee/kaata-backend/internal/httpx"
 )
@@ -27,18 +28,20 @@ type visitRequest struct {
 // `?s=` query param the QR encodes (passed through by the client).
 func (h *Handler) Visit(w http.ResponseWriter, r *http.Request) {
 	var req visitRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	// Public + anonymous: cap the body and clamp every client-controlled
+	// field so web_visits rows stay small no matter what's POSTed.
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil {
 		httpx.Error(w, http.StatusBadRequest, "invalid json body")
 		return
 	}
 	if err := h.svc.Record(r.Context(), RecordParams{
 		Kind:           "visit",
-		Source:         req.Source,
-		Path:           req.Path,
-		Referrer:       req.Referrer,
+		Source:         truncateUTF8(req.Source, 200),
+		Path:           truncateUTF8(req.Path, 500),
+		Referrer:       truncateUTF8(req.Referrer, 500),
 		IP:             httpx.ClientIP(r),
-		UserAgent:      r.UserAgent(),
-		AcceptLanguage: r.Header.Get("Accept-Language"),
+		UserAgent:      truncateUTF8(r.UserAgent(), 500),
+		AcceptLanguage: truncateUTF8(r.Header.Get("Accept-Language"), 200),
 	}); err != nil {
 		httpx.Error(w, http.StatusInternalServerError, "visit record failed")
 		return
@@ -57,14 +60,27 @@ func (h *Handler) Visit(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
 	_ = h.svc.Record(r.Context(), RecordParams{
 		Kind:           "download",
-		Source:         r.URL.Query().Get("s"),
-		Path:           r.URL.Path,
-		Referrer:       r.Header.Get("Referer"),
+		Source:         truncateUTF8(r.URL.Query().Get("s"), 200),
+		Path:           truncateUTF8(r.URL.Path, 500),
+		Referrer:       truncateUTF8(r.Header.Get("Referer"), 500),
 		IP:             httpx.ClientIP(r),
-		UserAgent:      r.UserAgent(),
-		AcceptLanguage: r.Header.Get("Accept-Language"),
+		UserAgent:      truncateUTF8(r.UserAgent(), 500),
+		AcceptLanguage: truncateUTF8(r.Header.Get("Accept-Language"), 200),
 	})
 	// Fail open: the user getting the APK is more important than perfect
 	// analytics. A logging error must not block the download.
 	http.Redirect(w, r, h.svc.APKDownloadURL(), http.StatusFound)
+}
+
+// truncateUTF8 caps s at max bytes, backing up to a rune boundary so the
+// result stays valid UTF-8 — Postgres rejects invalid byte sequences, which
+// would abort the insert.
+func truncateUTF8(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	for max > 0 && !utf8.RuneStart(s[max]) {
+		max--
+	}
+	return s[:max]
 }

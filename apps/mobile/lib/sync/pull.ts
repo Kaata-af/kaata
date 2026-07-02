@@ -13,11 +13,15 @@
 
 import { getBackendUrl } from "../api";
 import { getSessionJWT } from "../auth";
+import { healActiveVaultId } from "../db";
+import { getAccountIdSync, getDb } from "../db-tx";
+import { resolveAccountIdCandidates } from "../effective-account";
 import {
   ingestPulledEvents,
   mapPulledWireToEvent,
   type PulledWireEvent,
 } from "../projection/ingest-row";
+import { invalidateVaultRoleCache } from "../use-vault-role";
 import { sweepVaultNow } from "../projection/sweep";
 import { getLastPulledServerSeq, setLastPulledServerSeq } from "./cursor";
 import {
@@ -158,14 +162,45 @@ async function fetchOnePage(
     const retryAfter = parseRetryAfter(res.headers.get("Retry-After"));
     throw new SyncTransientError(res.status, retryAfter);
   }
-  // 403 = the server has no accepted owner membership for this vault yet (it was
-  // never registered via POST /v1/vaults). Type it so the scheduler kicks a
-  // registration sweep + retries on the normal cadence instead of treating it as
-  // an "unexpected" error (blind backoff + a crash report every tick) — and so a
-  // pre-registration tick doesn't bury the cycle before push can stamp the
-  // backup indicator. The scheduler registers the active vault before pulling
-  // (see syncOnce → ensureVaultRegistered), so this is the residual safety net.
+  // 403 has TWO distinct meanings, disambiguated by the body's error_code:
+  //
+  //   "vault_unknown" (or a legacy bodyless 403) → the server has no accepted
+  //     owner membership for this vault yet (never registered via POST
+  //     /v1/vaults). Typed so the scheduler kicks a registration sweep +
+  //     retries on the normal cadence instead of treating it as "unexpected"
+  //     (blind backoff + a crash report every tick) — and so a pre-registration
+  //     tick doesn't bury the cycle before push can stamp the backup indicator.
+  //     The scheduler registers the active vault before pulling (see syncOnce →
+  //     ensureVaultRegistered), so this is the residual safety net.
+  //
+  //   "not_member" → the vault EXISTS server-side and OUR membership is
+  //     revoked. This is the only channel by which a removed member's device
+  //     can learn of its own removal: the server revokes the ACL row in the
+  //     same tx that stores the vault_member_removed event, so this device
+  //     403s before it could ever pull that event. Without local handling the
+  //     app kept showing editor role and accepted writes that could never sync
+  //     — silent permanent divergence. Mark our own mirror row revoked (flag
+  //     only, ZERO ledger-data deletion) so the existing left-vault
+  //     affordances take over, then fall through to the same soft error so
+  //     the scheduler stays on the normal cadence (no hot retry, no crash
+  //     report).
   if (res.status === 403) {
+    let code = "";
+    try {
+      const parsed = (await res.json()) as { error?: string; error_code?: string };
+      code = parsed.error_code ?? "";
+    } catch {
+      // Legacy backend / non-JSON body — indistinguishable, keep the
+      // registration-pending interpretation.
+    }
+    if (code === "not_member") {
+      await markSelfMembershipRevoked(vaultId).catch((err) => {
+        // Best-effort: a failed mirror write must not mask the 403 flow —
+        // the next pull of this vault retries the revoke.
+        if (__DEV__) console.warn("[sync.pull] self-revoke mirror write failed", err);
+      });
+      throw new VaultNotRegisteredError("membership revoked on server");
+    }
     throw new VaultNotRegisteredError();
   }
   if (!res.ok) {
@@ -200,6 +235,40 @@ async function ingestBatch(vaultId: string, wireEvents: WirePulledEvent[]): Prom
     mapPulledWireToEvent(w as unknown as PulledWireEvent, vaultId),
   );
   await ingestPulledEvents(events, now);
+}
+
+// Server said "not_member": revoke OUR OWN vault_members_mirror row so the
+// device converges with the server's ACL. Guarded to rows that exist and are
+// still active — a vault we never had a local membership row for (shouldn't
+// happen for a not_member 403, but stay conservative) is left untouched. The
+// write matches applyVaultMemberRemoved's mirror semantics (set revoked_at,
+// never delete), and reuses the existing left-vault affordances end-to-end:
+// listActiveVaults excludes revoked-membership vaults from the switcher, and
+// healActiveVaultId moves the active pointer off the vault (so the scheduler's
+// per-tick pull stops targeting it — back to syncing the surviving vaults).
+// All ledger rows, events, and the vaults row itself are preserved.
+export async function markSelfMembershipRevoked(vaultId: string): Promise<void> {
+  const candidates = await resolveAccountIdCandidates(getAccountIdSync());
+  if (candidates.length === 0) return;
+  const db = await getDb();
+  const placeholders = candidates.map(() => "?").join(",");
+  const result = await db.runAsync(
+    `UPDATE vault_members_mirror
+        SET revoked_at = ?
+      WHERE vault_id = ?
+        AND account_id IN (${placeholders})
+        AND revoked_at IS NULL`,
+    Date.now(),
+    vaultId,
+    ...candidates,
+  );
+  if (result.changes === 0) return; // no active local membership — nothing to flip
+  console.warn(`[sync.pull] server revoked our membership for ${vaultId.slice(0, 8)} — mirrored`);
+  // Flip role-gated UI (useVaultRole / useActiveVaultCanWrite) on next render,
+  // then repair the active-vault pointer immediately instead of waiting for
+  // the next launch's heal pass.
+  invalidateVaultRoleCache(vaultId);
+  await healActiveVaultId();
 }
 
 function parseRetryAfter(raw: string | null): number | null {

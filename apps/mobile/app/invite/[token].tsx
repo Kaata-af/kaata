@@ -9,10 +9,13 @@
 //   2. Require Google sign-in. If no JWT, route to onboarding/auth with
 //      pending_invite_token stashed so the post-sign-in flow returns here.
 //   3. Look up the invite details (vault name, role, inviter) via
-//      lookupPendingInvite(token). The /v1/vaults/invites/pending endpoint
-//      returns ALL pending invites for the caller; we filter for this
-//      token. If not found (different email account, expired, revoked),
-//      surface the error and offer to switch accounts.
+//      lookupPendingInvite(token) — the local pending_invitations cache —
+//      then fall back to the PUBLIC GET /v1/vaults/invites/{token}/info.
+//      The fallback is the normal path for link invitees: the server holds
+//      only the token hash post-migration, so no local row can exist for a
+//      token this device first sees via the deep link. A 404 there means
+//      expired / revoked / already used (collapsed by design); network
+//      failures land on a retryable error state.
 //   4. User confirms → POST /v1/vaults/invites/accept with {token,
 //      install_id}. The accept response carries ONLY {vault_id, vault_name,
 //      role} — it does NOT seed any local state — so we then materialize the
@@ -40,14 +43,30 @@ import { t } from "../../lib/i18n";
 import {
   acceptVaultInvite,
   ApiError,
+  clearVaultMaterializePending,
   declineVaultInviteLocally,
+  fetchInviteInfo,
   lookupPendingInvite,
+  markVaultMaterializePending,
+  retryPendingVaultMaterialize,
   type PendingInvite,
 } from "../../lib/vault-api";
 
 type Stage = "loading" | "needs_signin" | "confirm" | "accepting" | "error" | "done";
 
 const PENDING_TOKEN_KEY = "pending_invite_token";
+
+// Confirm-card view model — the common subset of a local pending_invitations
+// row (email invites mirrored by fetchPendingInvitations) and the public
+// /info endpoint (link invitees, who never have a local row). The screen
+// doesn't need vault_id here: the accept response carries it.
+type InviteDetails = {
+  vault_name: string;
+  role: PendingInvite["role"];
+  inviter_name: string | null;
+  inviter_email: string | null;
+  expires_at: number;
+};
 
 export default function InviteAcceptScreen() {
   const router = useRouter();
@@ -57,8 +76,22 @@ export default function InviteAcceptScreen() {
   const token = typeof tokenParam === "string" ? tokenParam : null;
 
   const [stage, setStage] = useState<Stage>("loading");
-  const [invite, setInvite] = useState<PendingInvite | null>(null);
+  const [invite, setInvite] = useState<InviteDetails | null>(null);
   const [errorMsg, setErrorMsg] = useState<string>("");
+  const [retryable, setRetryable] = useState(false);
+  // Bumped by the Retry button to re-run the lookup effect after a network
+  // failure (the /info fallback is the only throwing step in it).
+  const [attempt, setAttempt] = useState(0);
+
+  // Heal a prior accept whose local materialization failed: onAccept stamps
+  // VAULT_MATERIALIZE_PENDING before recoverJoinedVault and clears it only on
+  // success, so a re-visit of this screen (e.g. re-tapping the link after the
+  // "joined" toast but no visible kaata) re-seeds the row. Best-effort.
+  useEffect(() => {
+    retryPendingVaultMaterialize().catch((err) =>
+      console.warn("[invite] pending materialize retry failed", err),
+    );
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -67,9 +100,10 @@ export default function InviteAcceptScreen() {
         router.replace("/");
         return;
       }
+      setRetryable(false);
       try {
-        // Sign-in gate. We need a session JWT to call
-        // /v1/vaults/invites/pending. Stash the token so the auth flow
+        // Sign-in gate. Accepting needs a session JWT (and so does the
+        // authed /info fallback below). Stash the token so the auth flow
         // returns here after sign-in.
         const jwt = await getSessionJWT();
         if (!jwt) {
@@ -78,9 +112,25 @@ export default function InviteAcceptScreen() {
           return;
         }
 
-        const found = await lookupPendingInvite(token);
+        let found: InviteDetails | null = await lookupPendingInvite(token);
         if (!found) {
-          setErrorMsg(t("inviteAccept.error.notVisible"));
+          // No local row — the normal case for a link invitee (see the
+          // lifecycle comment above). Ask the public /info endpoint; null
+          // means 404 (expired / revoked / already used), network failures
+          // throw into the retryable catch below.
+          const info = await fetchInviteInfo(token);
+          if (info) {
+            found = {
+              vault_name: info.vault_name,
+              role: info.role,
+              inviter_name: info.inviter_name,
+              inviter_email: info.inviter_email_redacted,
+              expires_at: info.expires_at,
+            };
+          }
+        }
+        if (!found) {
+          setErrorMsg(t("inviteAccept.error.expired"));
           setStage("error");
           return;
         }
@@ -96,10 +146,11 @@ export default function InviteAcceptScreen() {
         // sees the localized fallback only.
         console.warn("[invite] lookup failed", err);
         setErrorMsg(t("inviteAccept.error.loadFailed"));
+        setRetryable(true);
         setStage("error");
       }
     })();
-  }, [token, router, toast]);
+  }, [token, router, toast, attempt]);
 
   async function onAccept() {
     if (!invite || !token) return;
@@ -112,12 +163,19 @@ export default function InviteAcceptScreen() {
       // without this it can't see the joined vault and silently reverts the
       // active pointer. recoverJoinedVault seeds the row from the server listing
       // and pulls the history. Best-effort: even if it fails we still set the
-      // pointer, so a later launch recovery/reconcile heals the row.
+      // pointer — but no launch path heals a missing row on its own
+      // (recoverAllVaults only runs on restore/sign-in), so mirror the
+      // witness_emit_pending pattern below: flag BEFORE the attempt, clear only
+      // on confirmed success, and retryPendingVaultMaterialize sweeps it on
+      // this screen's next mount.
       try {
+        await markVaultMaterializePending(result.vault_id);
         const { recoverJoinedVault } = await import("../../lib/recovery");
-        await recoverJoinedVault(result.vault_id);
+        if (await recoverJoinedVault(result.vault_id)) {
+          await clearVaultMaterializePending(result.vault_id);
+        }
       } catch (err) {
-        console.warn("[invite] joined-vault materialization failed (non-fatal)", err);
+        console.warn("[invite] joined-vault materialization failed (flagged for retry)", err);
       }
       await setActiveVaultId(result.vault_id);
       await setAppMeta(PENDING_TOKEN_KEY, "");
@@ -272,7 +330,23 @@ export default function InviteAcceptScreen() {
             <Text style={[styles.heading, textDir(isRTL)]}>{t("inviteAccept.error.title")}</Text>
             <Text style={[styles.body2, textDir(isRTL)]}>{errorMsg}</Text>
             <View style={{ height: 20 }} />
-            <Button label={t("common.backToKaata")} onPress={() => router.replace("/")} />
+            {retryable ? (
+              <>
+                <Button
+                  label={t("common.retry")}
+                  onPress={() => {
+                    setStage("loading");
+                    setAttempt((a) => a + 1);
+                  }}
+                />
+                <View style={{ height: 12 }} />
+              </>
+            ) : null}
+            <Button
+              label={t("common.backToKaata")}
+              variant={retryable ? "secondary" : undefined}
+              onPress={() => router.replace("/")}
+            />
           </View>
         ) : null}
       </View>

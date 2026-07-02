@@ -24,8 +24,14 @@ import (
 var ErrNotMember = errors.New("not a member of this vault")
 
 // ErrVaultNotFound is returned by membership lookup when the vault row
-// itself is missing. The handler folds this into ErrNotMember externally;
-// keeping them distinct internally helps logging tell the two apart.
+// itself is missing. The handler maps it to 403 like ErrNotMember but with
+// a distinct error_code ("vault_unknown" vs "not_member") — a removed
+// member's device has no other channel to learn of its own removal (the
+// revocation lands in the same tx as the removal event, so its next pull
+// 403s before it can fetch that event), and without the distinction the
+// client misreads the 403 as "vault not registered" and strands local
+// writes forever. Vault ids are UUIDv4, so the existence signal this
+// discloses to authenticated non-members is not guessable-oracle material.
 var ErrVaultNotFound = errors.New("vault not found")
 
 // snapshotEventThreshold is how many newly-accepted events triggers a
@@ -43,7 +49,11 @@ const membershipCacheTTL = 60 * time.Second
 const maxFutureHLCSkewMS int64 = 48 * 60 * 60 * 1000
 
 // pullCacheTTL is how long a (vault, after, limit) page lives in memory.
-// Events are append-only so the cache key naturally avoids stale data.
+// Events are append-only, so a FULL page never goes stale — but the tip
+// page (short/empty, at the high-water cursor) has an open window that new
+// appends land inside, and a polling client re-hits the identical key.
+// PushEvents therefore purges the vault's pages after any accepted commit;
+// this TTL is only the backstop for writes that bypass that path.
 const pullCacheTTL = 60 * time.Second
 
 // pullCacheSize is the LRU capacity. Generous; tune down if RSS grows.
@@ -175,6 +185,20 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 		return nil, fmt.Errorf("membership check: %w", err)
 	}
 	if role == "" {
+		// Distinguish "vault exists, you're not an active member" from
+		// "no such vault" so the handler can stamp the right error_code —
+		// a removed member's device relies on not_member (vs vault_unknown)
+		// to detect its own removal. checkMembership's single joined query
+		// can't tell the two apart, so resolve on the denial path only.
+		var exists bool
+		if lerr := s.pool.QueryRow(ctx, `
+			SELECT EXISTS (SELECT 1 FROM vaults WHERE vault_id = $1::uuid)
+		`, in.VaultID).Scan(&exists); lerr != nil {
+			return nil, fmt.Errorf("membership: vault existence: %w", lerr)
+		}
+		if !exists {
+			return nil, ErrVaultNotFound
+		}
 		return nil, ErrNotMember
 	}
 
@@ -336,6 +360,19 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 				ev.HLC.PhysicalMS, ev.HLC.Logical, hlcDevUUID,
 			)
 			if err != nil {
+				// Unknown event_type is a per-event rejection, not a batch
+				// 500: otherwise a newer APK shipping one new type wedges
+				// the whole outbox behind it forever (the client re-sends
+				// the identical batch on 5xx). The reason is retryable on
+				// the client (safety net: user-ledger events stay unacked
+				// with backoff, never rejected_at).
+				if errors.Is(err, ErrUnknownEventType) {
+					rejected = append(rejected, RejectedEvent{
+						EventID: ev.EventID,
+						Reason:  RejectReasonUnknownEventType,
+					})
+					continue
+				}
 				return nil, fmt.Errorf("permission check for %s: %w", ev.EventID, err)
 			}
 			if !allowed {
@@ -521,16 +558,14 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 		// the cache TTL) re-scan account_bound events.
 		if ev.EventType == "account_bound" {
 			s.binding.InvalidateVault(in.VaultID)
-			// SEC H2: pullCache holds fully-materialized response
-			// pages whose AccountID fields were stamped via the
-			// binding resolver at write time. A new account_bound
-			// changes future binding answers — pages cached under
-			// the old binding would surface NULL account_ids that
-			// should now resolve. Purge the vault's pull pages so
-			// the next pull re-runs the post-process. The cache
-			// itself sees a brief miss-storm; acceptable for the
-			// freshness invariant.
-			s.invalidatePullCacheForVault(in.VaultID)
+			// SEC H2: pullCache holds fully-materialized response pages
+			// whose AccountID fields were stamped via the binding resolver
+			// at write time; a new account_bound changes future binding
+			// answers, so those pages must be purged. The purge itself now
+			// happens post-commit (this event lands in accepted[], and the
+			// post-commit invalidatePullCacheForVault covers it) — purging
+			// here, pre-commit, let a racing pull re-cache the pre-commit
+			// page and reopen the staleness window.
 		}
 
 		// S1 data-loss fix: mirror the reserved 'archived_at' vault setting onto
@@ -598,6 +633,13 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 	}
 
 	if n := len(accepted); n > 0 {
+		// Freshness: accepted events extended the tip of the log, and the
+		// tip page is cached under the same (vault, after, limit) key a
+		// polling co-editor keeps re-hitting — without this purge a peer's
+		// push-on-write edit stays invisible for up to pullCacheTTL. Runs
+		// AFTER commit so a racing pull can't re-cache the pre-commit page.
+		s.invalidatePullCacheForVault(in.VaultID)
+
 		prev, _ := s.snapshotPending.Get(in.VaultID)
 		next := prev + n
 		s.snapshotPending.Add(in.VaultID, next)
@@ -1052,10 +1094,18 @@ func (s *Service) resolveBindingsOnPulled(ctx context.Context, vaultID string, e
 }
 
 // invalidatePullCacheForVault removes every cached pull page whose key
-// begins with "<vaultID>|". Called when an event whose presence changes
-// the post-process attribution (account_bound) lands. The LRU has no
+// begins with "<vaultID>|". Called after a push commits (and when an event
+// whose presence changes account_bound attribution lands). The LRU has no
 // prefix-scan, so we walk Keys() and Remove() in place.
+//
+// Takes pullMu so it serializes against an in-flight PullEvents cache-miss:
+// without it, a pull that read the DB pre-commit could complete its
+// pullCache.Add AFTER this invalidation runs, re-inserting the stale
+// pre-commit page and starving the co-editor's tip for a full pullCacheTTL.
+// Holding pullMu makes the invalidation wait for that Add, then remove it.
 func (s *Service) invalidatePullCacheForVault(vaultID string) {
+	s.pullMu.Lock()
+	defer s.pullMu.Unlock()
 	if vaultID == "" {
 		s.pullCache.Purge()
 		return

@@ -26,6 +26,13 @@
 // mutex — wired in commit 5). Both code paths mutate projections via
 // the same applier dispatch; concurrent runs would interleave projection
 // writes even if SQLite serialized the statements at the storage layer.
+// LAYERING: sweepMutex is sweep-vs-sweep/mesh-batch exclusion ONLY. The
+// per-event DB transactions underneath (replay.ts applyAlreadyIngested
+// Event; anti-entropy.ts insertIngested/insertTombstoned) each ALSO take
+// applyEventMutex (projection/index.ts), which serializes them against
+// applyEvent / push-ack / ingestPulledEvents txs on the shared SQLite
+// connection. Lock order is always sweepMutex → applyEventMutex; never
+// acquire sweepMutex while holding applyEventMutex.
 //
 // VERDICT HANDLING (Mythos round-3 sweep-bug #2): explicit taxonomy.
 // Unknown verdicts NEVER reach permanence — they go to quarantine

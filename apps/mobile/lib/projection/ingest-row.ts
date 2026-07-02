@@ -237,9 +237,17 @@ export async function ingestPulledEvents(
   await applyEventMutex.runExclusive(async () => {
     for (const ev of events) {
       if (!isKnownEventType(ev.event_type)) {
-        // Unknown type from a future server build — no applier exists. Match
-        // the legacy pull behaviour (skip) rather than ingest-then-tombstone.
-        continue;
+        // Unknown type from a newer release: this BUILD can't apply it yet,
+        // but the pull cursor advances past the page and the server never
+        // re-ships it — skipping here is permanent replica divergence
+        // (migration 019's one-off cursor rewind in lib/db.ts is the
+        // production scar of exactly this drop in v0.5.x). Ingest it durably
+        // like any other row: the sweep quarantines it as retryable
+        // (replay.ts's unknown-type branch) and it applies after the app
+        // upgrade that teaches us the type.
+        console.warn(
+          `[ingest] unknown event_type ${String(ev.event_type)} event=${safeId(ev)} — ingesting for post-upgrade apply`,
+        );
       }
       if (!isIngestableEvent(ev)) {
         console.warn(
@@ -282,6 +290,11 @@ export async function ingestPulledEvents(
 // drift could.
 function isIngestableEvent(ev: LedgerEvent): boolean {
   if (typeof ev.event_id !== "string" || ev.event_id.length === 0) return false;
+  // event_type is NOT NULL in the schema. Unknown-but-present types now
+  // ingest (see the loop above), so a missing/non-string type — which the
+  // old isKnownEventType skip used to swallow — must be pre-skipped here or
+  // it would abort the per-event tx and stall the page forever.
+  if (typeof ev.event_type !== "string" || ev.event_type.length === 0) return false;
   if (ev.vault_id == null) return false;
   if (typeof ev.device_id !== "string" || ev.device_id.length === 0) return false;
   const h = ev.hlc as { pms?: unknown; l?: unknown; did?: unknown } | null | undefined;

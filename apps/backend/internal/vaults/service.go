@@ -23,10 +23,44 @@ var ErrVaultCollision = errors.New("vault_id collides with vault owned by a diff
 
 type Service struct {
 	pool *pgxpool.Pool
+	// invalidator purges the sync package's coarse push-gate membership
+	// cache (membershipCacheTTL = 60s) whenever a REST endpoint mutates
+	// vault_members / archived_at. Optional — nil (tests, partial wiring)
+	// just means the cache ages out on its own, the pre-fix behavior.
+	invalidator MembershipInvalidator
 }
 
 func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool}
+}
+
+// MembershipInvalidator is satisfied by *sync.Service (its
+// InvalidateMembership method has this exact signature), so main.go can
+// wire the sync service in directly without an adapter. Declared here to
+// avoid a vaults→sync import cycle.
+type MembershipInvalidator interface {
+	InvalidateMembership(vaultID, accountID string)
+}
+
+// SetMembershipInvalidator wires the sync membership cache purge. Called
+// once from main.go after both services exist.
+func (s *Service) SetMembershipInvalidator(inv MembershipInvalidator) {
+	s.invalidator = inv
+}
+
+// invalidateMembership fans a cache purge out to each affected account.
+// Nil-safe (no-op without a wired invalidator). Callers MUST invoke this
+// only AFTER a successful commit — purging earlier lets a concurrent
+// request re-cache the pre-commit membership state for another 60s.
+func (s *Service) invalidateMembership(vaultID string, accountIDs ...string) {
+	if s.invalidator == nil {
+		return
+	}
+	for _, accountID := range accountIDs {
+		if accountID != "" {
+			s.invalidator.InvalidateMembership(vaultID, accountID)
+		}
+	}
 }
 
 // CreateInput is what the handler passes in after JSON decoding.
@@ -122,17 +156,21 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 	}
 
 	// Seed owner membership row. Idempotent via partial unique index.
+	// SEC FIX 4: stamp last_change_hlc_ms at birth — the chain fold's
+	// arbitration guard treats NULL as -infinity, so an unstamped row could
+	// be clobbered by a stale chain member_removed at ANY older HLC.
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO vault_members (
-			vault_id, account_id, role, invited_at, accepted_at, invited_by
+			vault_id, account_id, role, invited_at, accepted_at, invited_by,
+			last_change_hlc_ms
 		)
-		SELECT $1::uuid, $2::uuid, 'owner', NOW(), NOW(), $2::uuid
+		SELECT $1::uuid, $2::uuid, 'owner', NOW(), NOW(), $2::uuid, $3
 		WHERE NOT EXISTS (
 			SELECT 1 FROM vault_members
 			 WHERE vault_id = $1::uuid AND account_id = $2::uuid
 			   AND revoked_at IS NULL
 		)
-	`, in.VaultID, in.AccountID); err != nil {
+	`, in.VaultID, in.AccountID, nowMS()); err != nil {
 		return CreateResult{}, fmt.Errorf("insert vault membership: %w", err)
 	}
 
@@ -574,9 +612,19 @@ func (s *Service) Unarchive(ctx context.Context, vaultID, accountID string) (int
 		return 0, err
 	}
 
+	// Every member's push-gate cache entry may hold the archived-vault
+	// denial (role="" for non-owners), so fan the post-commit purge out to
+	// the whole active member set — read under the tx's locks for a
+	// consistent snapshot.
+	memberIDs, err := activeMemberAccountIDs(ctx, tx, vaultID)
+	if err != nil {
+		return 0, err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("commit tx: %w", err)
 	}
+	s.invalidateMembership(vaultID, memberIDs...)
 	return newEpoch, nil
 }
 
@@ -640,6 +688,7 @@ func (s *Service) Leave(ctx context.Context, vaultID, accountID string) (int64, 
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("commit tx: %w", err)
 	}
+	s.invalidateMembership(vaultID, accountID)
 	return newEpoch, nil
 }
 
@@ -736,6 +785,7 @@ func (s *Service) TransferOwnership(ctx context.Context, in TransferInput) (int6
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("commit tx: %w", err)
 	}
+	s.invalidateMembership(in.VaultID, in.ToAccountID, in.AccountID)
 	return newEpoch, nil
 }
 
@@ -827,6 +877,7 @@ func (s *Service) SetMemberRole(ctx context.Context, vaultID, callerID, targetID
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("commit tx: %w", err)
 	}
+	s.invalidateMembership(vaultID, targetID)
 	return newEpoch, nil
 }
 
@@ -913,6 +964,7 @@ func (s *Service) RevokeMember(ctx context.Context, in RevokeInput) (int64, erro
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("commit tx: %w", err)
 	}
+	s.invalidateMembership(in.VaultID, in.TargetID)
 	return newEpoch, nil
 }
 
@@ -1366,10 +1418,15 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 		return AcceptInviteResult{}, ErrInviteRateLimited
 	}
 
+	// SEC FIX 4: stamp last_change_hlc_ms so a stale chain member_removed
+	// (older HLC, e.g. authored offline before a re-invite) cannot revoke
+	// this freshly-accepted row — the fold guard treats NULL as -infinity.
 	if _, err := tx.Exec(ctx, `
 		UPDATE vault_members SET accepted_at = NOW(), account_id = $1::uuid,
-		       updated_at = NOW() WHERE id = $2
-	`, in.AccountID, memberID); err != nil {
+		       updated_at = NOW(),
+		       last_change_hlc_ms = GREATEST(COALESCE(last_change_hlc_ms, 0), $3)
+		 WHERE id = $2
+	`, in.AccountID, memberID, nowMS()); err != nil {
 		return AcceptInviteResult{}, fmt.Errorf("accept invite: %w", err)
 	}
 
@@ -1396,6 +1453,9 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 	if err := tx.Commit(ctx); err != nil {
 		return AcceptInviteResult{}, fmt.Errorf("commit accept: %w", err)
 	}
+	// Purge any cached "not a member" denial so the invitee's first push
+	// doesn't 403 for up to 60s after accepting.
+	s.invalidateMembership(vaultID, in.AccountID)
 	return AcceptInviteResult{VaultID: vaultID, VaultName: vaultName, Role: role}, nil
 }
 
@@ -1464,6 +1524,32 @@ func (s *Service) ListPendingInvites(ctx context.Context, accountID string) ([]P
 		return nil, fmt.Errorf("rows err: %w", err)
 	}
 	return out, nil
+}
+
+// PurgeExpiredInvites hard-deletes never-accepted, never-revoked invite rows
+// whose invite_expires_at lapsed more than 7 days ago. Expired invites are
+// already invisible to every read path (all filter invite_expires_at > NOW())
+// and unacceptable (AcceptInvite rejects on expiry), so the rows are dead
+// weight carrying SHA-256 token hashes forever; the 7-day slack keeps a
+// short forensic window for "my invite link stopped working" support.
+// DELETE — not nulling the invite_* columns — is the required shape: the
+// partial unique index on (vault_id, invite_email) cannot be made time-aware
+// (NOW() is not allowed in index predicates), so a lingering expired email
+// invite would permanently block re-inviting the same address. Returns the
+// number of rows removed. Safe to call periodically; cron wiring lives in
+// cmd/server/main.go (same pattern as StartArchivePurgeCron).
+func (s *Service) PurgeExpiredInvites(ctx context.Context) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM vault_members
+		 WHERE accepted_at IS NULL
+		   AND revoked_at IS NULL
+		   AND invite_token_hash IS NOT NULL
+		   AND invite_expires_at < NOW() - INTERVAL '7 days'
+	`)
+	if err != nil {
+		return 0, fmt.Errorf("purge expired invites: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1597,6 +1683,34 @@ func lockActiveMembership(ctx context.Context, tx pgx.Tx, vaultID, accountID str
 		return "", fmt.Errorf("read membership: %w", err)
 	}
 	return role, nil
+}
+
+// activeMemberAccountIDs lists the account ids of every accepted, un-revoked
+// member. Read inside the caller's tx so the set is consistent with the
+// mutation being committed; used to fan out post-commit membership-cache
+// invalidation (see invalidateMembership).
+func activeMemberAccountIDs(ctx context.Context, tx pgx.Tx, vaultID string) ([]string, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT account_id::text FROM vault_members
+		 WHERE vault_id = $1::uuid
+		   AND revoked_at IS NULL AND accepted_at IS NOT NULL
+	`, vaultID)
+	if err != nil {
+		return nil, fmt.Errorf("list member accounts: %w", err)
+	}
+	defer rows.Close()
+	out := make([]string, 0, 4)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan member account: %w", err)
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate member accounts: %w", err)
+	}
+	return out, nil
 }
 
 func (s *Service) memberRole(ctx context.Context, vaultID, accountID string) (string, error) {

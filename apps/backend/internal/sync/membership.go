@@ -36,9 +36,13 @@ package sync
 //   vault_member_role_changed → vault_members.role update
 //   vault_member_removed      → vault_members.revoked_at + all the
 //                               account's vault_devices removed
-//   vault_device_added        → vault_devices upsert (re-add clears removal)
-//   vault_device_removed      → vault_devices.removed_at_ms
+//   vault_device_added        → vault_devices upsert (re-add clears removal,
+//                               HLC-arbitrated: a stale add never resurrects)
+//   vault_device_removed      → vault_devices.removed_at_ms (HLC-arbitrated:
+//                               a stale removal never clobbers a newer bind)
 // vault_member_* folds bump vaults.vault_epoch like SetMemberRole does.
+// Removals/demotions that would zero the vault's active owner count are
+// skipped (last-owner guard, parity with the REST endpoints + mobile gate).
 
 import (
 	"bytes"
@@ -47,6 +51,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -350,6 +355,18 @@ func (s *Service) verifyMembershipEvent(
 		if !active {
 			return false, nil
 		}
+		// Parity with the mobile fold (role-gate.ts isRemovedDevice /
+		// chain.ts removed_entry_replay): a witness must NOT resurrect a
+		// removed device. A stolen/retired phone keeps its device key and
+		// account JWT; re-binding that key needs an owner-signed re-add, not
+		// a self-signed witness. Keyed on pubkey like the mobile check.
+		removed, drerr := isRemovedDevicePubkey(ctx, tx, vaultID, namedPub)
+		if drerr != nil {
+			return false, drerr
+		}
+		if removed {
+			return false, nil
+		}
 		tuple := mesh.DeviceWitnessTuple(vaultID, p.AccountID, p.DeviceID, p.DevicePubkey, w.IssuedAtMS)
 		return s.verifyWitnessSig(tuple, w.SigB64), nil
 	}
@@ -407,6 +424,53 @@ func isActiveMember(ctx context.Context, tx pgx.Tx, vaultID, accountID string) (
 		return false, fmt.Errorf("active-member lookup: %w", err)
 	}
 	return active, nil
+}
+
+// isRemovedDevicePubkey reports whether any vault_devices binding for this
+// pubkey has been removed. Mirrors the mobile role-gate's isRemovedDevice
+// (keyed on device_pubkey, not device_id): the witness arm must refuse to
+// resurrect the key regardless of which device_id it re-binds under.
+// Fail-closed when the key has both a removed and an active binding — a
+// witnessed re-add of an already-bound key is pointless anyway.
+func isRemovedDevicePubkey(ctx context.Context, tx pgx.Tx, vaultID string, pub []byte) (bool, error) {
+	var removed bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM vault_devices
+			 WHERE vault_id = $1::uuid AND device_pubkey = $2
+			   AND removed_at_ms IS NOT NULL
+		)
+	`, vaultID, pub).Scan(&removed); err != nil {
+		return false, fmt.Errorf("removed-device lookup: %w", err)
+	}
+	return removed, nil
+}
+
+// wouldDropLastOwner reports whether revoking (or demoting) accountID would
+// leave the vault with zero active owners — the fold-side twin of the
+// last-owner gates in the REST endpoints and the mobile role-gate
+// (role-gate.ts wouldDropLastOwner), which refuse the same event on every
+// replica. The count query duplicates vaults/service.go countActiveOwners
+// (unexported there; importing internal/vaults for it would couple the sync
+// fold to the REST service). Like the original, it locks the whole
+// active-owner row set FOR UPDATE in id ASC order so concurrent
+// removals/demotions — fold or REST — serialize instead of both passing a
+// stale count (ENG #6).
+func wouldDropLastOwner(ctx context.Context, tx pgx.Tx, vaultID, accountID string) (bool, error) {
+	var total, target int
+	if err := tx.QueryRow(ctx, `
+		WITH locked AS (
+			SELECT account_id FROM vault_members
+			 WHERE vault_id = $1::uuid AND role = 'owner'
+			   AND revoked_at IS NULL AND accepted_at IS NOT NULL
+			 ORDER BY id
+			 FOR UPDATE
+		)
+		SELECT COUNT(*), COUNT(*) FILTER (WHERE account_id = $2::uuid) FROM locked
+	`, vaultID, accountID).Scan(&total, &target); err != nil {
+		return false, fmt.Errorf("count owners: %w", err)
+	}
+	return target > 0 && total <= 1, nil
 }
 
 func witnessFresh(issuedAtMS, hlcPMS int64) bool {
@@ -551,6 +615,23 @@ func (s *Service) foldMembershipEvent(
 		if _, err := uuid.Parse(p.AccountID); err != nil {
 			return nil, nil
 		}
+		// Last-owner guard: parity with the REST endpoints (ErrLastOwner)
+		// and the mobile gate/fold, which all refuse demoting the sole
+		// owner. Without it the fold is the one path into an ownerless
+		// vault_members — requireOwner then fails for everyone, permanently
+		// (two-owner concurrent demotions each verify lawful-at-HLC). Skip
+		// the fold only; the event stays in the log (replica-first).
+		if p.Role != "owner" {
+			drop, derr := wouldDropLastOwner(ctx, tx, vaultID, p.AccountID)
+			if derr != nil {
+				return nil, fmt.Errorf("fold role_changed: last-owner check: %w", derr)
+			}
+			if drop {
+				log.Printf("sync.fold: skipping role_changed that would drop the last owner (vault=%s account=%s event=%s)",
+					vaultID, p.AccountID, ev.EventID)
+				return nil, nil
+			}
+		}
 		// SEC FIX 4: HLC arbitration. Apply only when this event is at least
 		// as new as the last change that touched the row
 		// (last_change_hlc_ms). A stale chain event arriving after a newer
@@ -591,6 +672,17 @@ func (s *Service) foldMembershipEvent(
 			return nil, nil
 		}
 		if _, err := uuid.Parse(p.AccountID); err != nil {
+			return nil, nil
+		}
+		// Last-owner guard — same rationale as the role_changed arm above:
+		// never fold the vault into zero active owners.
+		drop, derr := wouldDropLastOwner(ctx, tx, vaultID, p.AccountID)
+		if derr != nil {
+			return nil, fmt.Errorf("fold member_removed: last-owner check: %w", derr)
+		}
+		if drop {
+			log.Printf("sync.fold: skipping member_removed that would drop the last owner (vault=%s account=%s event=%s)",
+				vaultID, p.AccountID, ev.EventID)
 			return nil, nil
 		}
 		// SEC FIX 4: HLC arbitration — a stale removal must not clobber a
@@ -648,7 +740,12 @@ func (s *Service) foldMembershipEvent(
 		if err != nil || len(pub) != ed25519.PublicKeySize {
 			return nil, nil
 		}
-		// Re-add clears a prior removal: latest-bind-wins.
+		// Re-add clears a prior removal: latest-bind-wins BY HLC (SEC FIX 4
+		// pattern, mirrored from vault_members). added_at_ms/removed_at_ms
+		// hold the folding events' HLC physical_ms (migration 016), so the
+		// row's last change is GREATEST of the two; a stale add — older than
+		// a folded removal or a newer bind — must not resurrect/clobber it.
+		// Ties re-apply idempotently (>=).
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO vault_devices (vault_id, device_id, device_pubkey, account_id, added_at_ms, removed_at_ms)
 			VALUES ($1::uuid, $2::uuid, $3, $4::uuid, $5, NULL)
@@ -657,6 +754,9 @@ func (s *Service) foldMembershipEvent(
 			    account_id    = EXCLUDED.account_id,
 			    added_at_ms   = EXCLUDED.added_at_ms,
 			    removed_at_ms = NULL
+			WHERE EXCLUDED.added_at_ms >= GREATEST(
+				vault_devices.added_at_ms,
+				COALESCE(vault_devices.removed_at_ms, vault_devices.added_at_ms))
 		`, vaultID, p.DeviceID, pub, p.AccountID, ev.HLC.PhysicalMS); err != nil {
 			return nil, fmt.Errorf("fold device_added: %w", err)
 		}
@@ -670,9 +770,12 @@ func (s *Service) foldMembershipEvent(
 		if _, err := uuid.Parse(p.DeviceID); err != nil {
 			return nil, nil
 		}
+		// Symmetric HLC arbitration: a stale removal (older than the
+		// binding's added_at_ms, i.e. a re-bind already won) is skipped.
 		if _, err := tx.Exec(ctx, `
 			UPDATE vault_devices SET removed_at_ms = $3
 			 WHERE vault_id = $1::uuid AND device_id = $2::uuid AND removed_at_ms IS NULL
+			   AND $3 >= added_at_ms
 		`, vaultID, p.DeviceID, ev.HLC.PhysicalMS); err != nil {
 			return nil, fmt.Errorf("fold device_removed: %w", err)
 		}

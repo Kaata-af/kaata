@@ -9,6 +9,7 @@
 
 import { getBackendUrl } from "./api";
 import { getSessionJWT } from "./auth";
+import { getAppMeta, setAppMeta } from "./db";
 import { getDb, getInstallIdSync } from "./db-tx";
 import type { VaultRole } from "./events";
 
@@ -357,6 +358,52 @@ export async function lookupPendingInvite(token: string): Promise<PendingInvite 
   }
 }
 
+// Public invite metadata from GET /v1/vaults/invites/{token}/info — the
+// same endpoint the kaata.af landing page uses. This is how a LINK invitee
+// gets confirm-card details: they never have a local pending_invitations row
+// (the server holds only the token hash post-migration, and the /pending
+// endpoint excludes link invites), so lookupPendingInvite always misses.
+export type InviteInfo = {
+  vault_name: string;
+  role: VaultRole;
+  /** Redacted server-side (e.g. "a***@gmail.com"); null when absent. */
+  inviter_email_redacted: string | null;
+  inviter_name: string | null;
+  expires_at: number; // unix ms
+};
+
+/**
+ * Fetch invite details by plaintext token. Returns null on 404 — the server
+ * collapses not-found / expired / revoked / already-used into one code by
+ * design. Network failures and non-404 errors throw so the caller can offer
+ * a retry.
+ */
+export async function fetchInviteInfo(token: string): Promise<InviteInfo | null> {
+  try {
+    const raw = (await httpThrowing(
+      "GET",
+      `/v1/vaults/invites/${encodeURIComponent(token)}/info`,
+    )) as {
+      vault_name: string;
+      role: VaultRole;
+      inviter_email_redacted?: string;
+      inviter_name?: string;
+      expires_at: string;
+    };
+    return {
+      vault_name: raw.vault_name,
+      role: raw.role,
+      inviter_email_redacted: raw.inviter_email_redacted || null,
+      inviter_name: raw.inviter_name || null,
+      // Server returns ISO8601; collapse to unix ms like the local cache.
+      expires_at: Date.parse(raw.expires_at),
+    };
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
 export type AcceptInviteResult = {
   vault_id: string;
   vault_name: string;
@@ -389,6 +436,71 @@ export async function declineVaultInviteLocally(token: string): Promise<void> {
       token,
     );
   } catch {}
+}
+
+// ---------------------------------------------------------------------------
+// Accept-then-materialize heal flag
+// ---------------------------------------------------------------------------
+//
+// POST /v1/vaults/invites/accept consumes the invite server-side, but the
+// local `vaults` row is only seeded afterwards by recoverJoinedVault. If that
+// seed fails (network blip in the window right after the accept), nothing
+// else ever creates the row — recoverAllVaults runs only from restore/sign-in
+// and reconcileVaultRegistrations only POSTs vaults this device OWNS — so the
+// joined kaata stays invisible until a sign-out/in. Mirrors the
+// witness_emit_pending pattern (lib/trust/backfill.ts): the accept screen
+// stamps the vault_id under this key BEFORE materializing and clears it only
+// on success; retryPendingVaultMaterialize sweeps it (safe to re-run —
+// seeding is INSERT OR IGNORE and pulls are cursor-idempotent).
+// The value is a comma-separated SET of vault_ids, not a single slot: a user
+// can accept a second invite before the first heals, and a single slot would
+// silently drop the first (leaving that kaata invisible until sign-out/in).
+export const VAULT_MATERIALIZE_PENDING_KEY = "vault_materialize_pending";
+
+function parsePendingSet(raw: string | null | undefined): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+// Add a vault to the pending-materialize set (dedup-preserving). Call BEFORE
+// recoverJoinedVault so a crash/kill in the seed window leaves the flag set.
+export async function markVaultMaterializePending(vaultId: string): Promise<void> {
+  const set = new Set(parsePendingSet(await getAppMeta(VAULT_MATERIALIZE_PENDING_KEY)));
+  set.add(vaultId);
+  await setAppMeta(VAULT_MATERIALIZE_PENDING_KEY, [...set].join(","));
+}
+
+// Remove one vault from the set (call on confirmed materialize success).
+export async function clearVaultMaterializePending(vaultId: string): Promise<void> {
+  const set = new Set(parsePendingSet(await getAppMeta(VAULT_MATERIALIZE_PENDING_KEY)));
+  if (!set.delete(vaultId)) return;
+  await setAppMeta(VAULT_MATERIALIZE_PENDING_KEY, [...set].join(","));
+}
+
+export async function retryPendingVaultMaterialize(): Promise<void> {
+  const pending = parsePendingSet(await getAppMeta(VAULT_MATERIALIZE_PENDING_KEY));
+  if (pending.length === 0) return;
+  // recoverJoinedVault lists GET /v1/vaults, which needs the account JWT; a
+  // signed-out user keeps the set for after their next sign-in.
+  if (!(await getSessionJWT())) return;
+  // Dynamic import: lib/recovery statically imports this module.
+  const { recoverJoinedVault } = await import("./recovery");
+  const stillPending: string[] = [];
+  for (const vaultId of pending) {
+    let healed = false;
+    try {
+      healed = await recoverJoinedVault(vaultId);
+    } catch (err) {
+      // Transient (offline / 5xx) — keep it for the next sweep. A vault that
+      // is genuinely gone (invitee removed, vault archived) returns false and
+      // stays in the set; the retry is a cheap idempotent GET, never harmful.
+      if (__DEV__) console.warn("[vault-api] materialize retry threw", err);
+    }
+    if (!healed) stillPending.push(vaultId);
+  }
+  await setAppMeta(VAULT_MATERIALIZE_PENDING_KEY, stillPending.join(","));
 }
 
 // ---------------------------------------------------------------------------

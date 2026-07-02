@@ -4,8 +4,8 @@
 
 // 401 from any sync endpoint. The local JWT is stale (signed out on another
 // device, account deleted, secret rotated, etc.). Scheduler reacts by clearing
-// the SecureStore session and unmounting the worker; the next foreground
-// sign-in restarts it.
+// the SecureStore session and backing off; the loop keeps ticking, so a fresh
+// sign-in mid-session resumes syncing without an app restart.
 export class SessionExpiredError extends Error {
   constructor(message = "session expired") {
     super(message);

@@ -511,6 +511,25 @@ async function reestablishOwnerIfConfirmed(v: VaultListing): Promise<void> {
   const accountId = getAccountIdSync();
   if (!accountId) return;
   const db = await getDb();
+  // CRASH HEAL for the append→ack gap below: the append helper commits in its
+  // own transaction, so a crash between it and the server-acked stamp leaves
+  // the synthetic owner-add in the push outbox — the server would reject it
+  // (membership_unverified) and permanently exile it via rejected_at. Stamp
+  // any such orphan before the added/removed early-return can skip it. The
+  // predicate (self-targeted + origin local + backfill_synthetic + no witness)
+  // matches ONLY this function's emission: genesis self-admission carries no
+  // backfill_synthetic, and the chain-backfill admissions skip the owner's own
+  // account. Rejected rows are past saving — leave them for conflict review.
+  await db.runAsync(
+    `UPDATE event_log SET server_acked_at = ?
+      WHERE vault_id = ? AND event_type = 'vault_member_added' AND target_id = ?
+        AND origin = 'local' AND server_acked_at IS NULL AND rejected_at IS NULL
+        AND json_extract(payload_json, '$.backfill_synthetic') = 1
+        AND json_extract(payload_json, '$.witness') IS NULL`,
+    Date.now(),
+    v.vault_id,
+    accountId,
+  );
   const added = await db.getFirstAsync<{ event_id: string }>(
     `SELECT event_id FROM event_log
        WHERE vault_id = ? AND event_type = 'vault_member_added' AND target_id = ?
@@ -542,7 +561,9 @@ async function reestablishOwnerIfConfirmed(v: VaultListing): Promise<void> {
   // PUSH of this synthetic, non-witnessed owner-add would be rejected
   // (membership_unverified) — exiling it via rejected_at and littering conflicts.
   // Mark it server-acked so it never enters the push outbox; its job is done once
-  // it applies locally.
+  // it applies locally. NOT atomic with the append (the helper commits in its own
+  // transaction) — a crash landing between the two is repaired by the crash-heal
+  // UPDATE at the top of this function on the next recovery run.
   await db.runAsync(
     "UPDATE event_log SET server_acked_at = ? WHERE event_id = ?",
     Date.now(),
