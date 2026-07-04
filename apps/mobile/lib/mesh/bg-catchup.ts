@@ -34,6 +34,9 @@ import { ensureInstallId } from "../install-id";
 // The schema must be at this migration before the headless path runs the mesh.
 // Absent => this install isn't fully migrated yet — bail (NEVER run initDb from
 // here). Bump when a new migration becomes a hard mesh prerequisite.
+// Audited at the 2026-07 mesh revive: 020/021 are data-only fixes and 022's
+// columns (push_attempts / next_push_at / last_reject_reason) are read only by
+// the foreground HTTP push path — none are mesh prerequisites, so 019 stands.
 const REQUIRED_MIGRATION = "019_vault_device_registry";
 
 export type CatchupResult = "ran" | "skipped";

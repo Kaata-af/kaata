@@ -106,13 +106,9 @@ export function ProfileSettingsSheet(props: {
   // Kaatas
   onSelectVault: (vaultId: string) => void;
   onAddVault: () => void;
-  /**
-   * PARKED (mesh): "Scan a pairing code" (entry into the offline QR pair
-   * flow at /vault/pair-scan) is parked with the rest of mesh, so the row
-   * that consumed this is commented out below. Kept optional on the type so
-   * callers don't have to pass it; re-wire it when mesh ships again.
-   */
-  onScanPairingCode?: () => void;
+  /** "Scan a pairing code" — entry into the offline QR pair flow at
+   * /vault/pair-scan. Un-parked with the 2026-07 mesh revive. */
+  onScanPairingCode: () => void;
   onManageCurrentKaata: () => void;
 
   // Account settings (personal: name / phone / language / country / archived)
@@ -400,16 +396,10 @@ export function ProfileSettingsSheet(props: {
                     onPress={chained(props.onAddVault)}
                     isRTL={isRTL}
                     emphasis
-                    // Last in-section row before the archived footer now that
-                    // the parked scan row below no longer renders. The archived
-                    // row sits behind a SectionGap so it doesn't influence this
-                    // row's divider.
-                    isLast={!hasArchived}
                   />
-                  {/* PARKED (mesh): "Scan a pairing code" opened the offline QR
-                      scan (vault/pair-scan), parked with the rest of mesh.
-                      Re-add when mesh ships again. (props.onScanPairingCode is
-                      kept on the type but is no longer consumed.)
+                  {/* "Scan a pairing code" — offline in-person QR join
+                      (vault/pair-scan). Un-parked with the 2026-07 mesh
+                      revive. */}
                   <NavRow
                     icon="qr-code-outline"
                     label={t("menu.allKaatas.scan")}
@@ -418,7 +408,6 @@ export function ProfileSettingsSheet(props: {
                     isRTL={isRTL}
                     isLast={!hasArchived}
                   />
-                  */}
                   {/* D-ARCHIVED-SCREEN — muted "Archived (N) >" footer link
                   to /vault/archived. Renders only when the user has at
                   least one archived Kaata. Placed below the manage row

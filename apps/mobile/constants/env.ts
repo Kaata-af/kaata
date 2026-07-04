@@ -23,14 +23,21 @@ export const SOLO_STORE_MODE = process.env.EXPO_PUBLIC_SOLO_STORE_MODE === "1";
 
 // MESH_PARKED hard-disables the offline Bluetooth/Wi-Fi "Nearby sync" mesh (and
 // its persistent foreground-service notification) WITHOUT deleting any feature
-// code — the whole subsystem is parked until a future release. Unlike
-// SOLO_STORE_MODE this is deliberately NOT env-driven: it's a compile-time
-// constant, so the mesh stays off in EVERY build and profile regardless of
-// whether the eas.json env got baked in correctly. Honored at the single FGS
-// start choke point (lib/mesh/foreground.ts -> startShopModeForegroundService),
-// by MeshController's wantOn gate, and by _layout.tsx's boot teardown (which
-// stops any leftover native FGS + cancels its revival alarm). Because we never
-// START the service while parked, KEY_FGS_SHOULD_RUN is never set, so the native
-// 15-min revival alarm can never resurrect the notification either. Flip to
-// false to bring Nearby sync back.
-export const MESH_PARKED = true;
+// code. Unlike SOLO_STORE_MODE this is deliberately NOT env-driven: it's a
+// compile-time constant, so a re-park applies to EVERY build and profile
+// regardless of whether the eas.json env got baked in correctly. Honored at
+// three points: the single FGS start choke point (lib/mesh/foreground.ts ->
+// startShopModeForegroundService no-ops), MeshController's wantOn gate, and
+// _layout.tsx's boot teardown (which stops any leftover native FGS + cancels
+// its revival alarm on every launch while parked/solo). Because a re-park
+// makes the choke point no-op, the native service never starts,
+// KEY_FGS_SHOULD_RUN is never set, and the 15-min revival alarm can never
+// resurrect the notification.
+//
+// REVIVED 2026-07-04: Nearby sync is back on. The park (2026-06-24, 0802a09)
+// was driven by the FGS-notification resurrection bug — fixed at its real
+// source in 435cfed (native isForeground guard: an UPDATE can never CREATE the
+// service) — plus the solo-release pivot, NOT by a broken sync protocol
+// (5d42e4d recorded end-to-end Bluetooth sync working on 2026-06-19). Flip
+// back to true to re-park; all three enforcement points above still hold.
+export const MESH_PARKED = false;

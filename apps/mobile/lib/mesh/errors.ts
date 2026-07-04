@@ -125,7 +125,12 @@ export type MeshFailureEvent =
   | { kind: "adapter_on" }
   | { kind: "peer_handshake_failed"; reason: MeshHandshakeKind; detail?: string }
   | { kind: "peer_decrypt_failed" }
-  | { kind: "peer_dropped_midsync" };
+  | { kind: "peer_dropped_midsync" }
+  // M2c: a pre-WIRE_VERSION-3 peer was refused on an anchored vault
+  // (membership-chain handshake). Folded into the union on the 2026-07 mesh
+  // revive — was previously emitted via an `as unknown as MeshFailureEvent`
+  // cast and string-matched in MeshController.
+  | { kind: "peer_outdated"; detail?: string };
 
 // ---------------------------------------------------------------------------
 // Failure bridge (Phase 9 D-FALLBACK-UX)

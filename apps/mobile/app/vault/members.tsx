@@ -7,10 +7,8 @@
 // ONLY network-dependent operation on this screen.
 //
 // Owner-only mutations (ALL offline-capable as of Phase 8):
-//   - Add member         → routes to vault/invite (online invite link). The
-//                          in-person QR pair (vault/pair) is PARKED with the
-//                          rest of the offline mesh — see the parked row below;
-//                          re-add it when mesh ships again.
+//   - Add member         → routes to vault/pair (in-person QR pair, fully
+//                          offline; primary since the 2026-07 mesh revive)
 //   - Send invite link   → routes to vault/invite (online-only; cross-acct)
 //   - Change role        → appendVaultMemberRoleChanged event
 //   - Remove member      → appendVaultMemberRemoved event
@@ -484,10 +482,9 @@ export default function VaultMembersScreen() {
 
         {isOwner ? (
           <>
-            {/* PARKED (mesh): the in-person QR pair flow (vault/pair) is parked
-                with the rest of the offline mesh. The online invite link is the
-                supported way to add a member, so it is now the single primary
-                action below. Re-add this row when mesh ships again.
+            {/* In-person QR pair flow (vault/pair) — the offline way to add a
+                member. Primary action; works with no internet at all.
+                Un-parked with the 2026-07 mesh revive. */}
             <NavRow
               icon="qr-code-outline"
               label={t("members.row.addMember")}
@@ -496,7 +493,6 @@ export default function VaultMembersScreen() {
               isRTL={isRTL}
               emphasis
             />
-            */}
             {/* Online invite link. Requires sign-in + internet; the destination
                 screen renders a disabled state when offline so users get clear
                 feedback rather than an opaque API error. */}
@@ -506,7 +502,6 @@ export default function VaultMembersScreen() {
               hint={t("members.row.sendInvite.hint")}
               onPress={() => router.push("/vault/invite")}
               isRTL={isRTL}
-              emphasis
               isLast
             />
           </>

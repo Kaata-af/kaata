@@ -12,9 +12,9 @@
 // clipboard so a user can paste it straight to us — no screenshots, no adb.
 // Reachable from Account → App health, or directly at /diagnostics.
 //
-// PARKED: the live Nearby-sync (BT steady) state + log and the per-minute
-// memory-slope table are commented out below — they depend on the mesh feature,
-// which is hidden for now. Re-enable them together when mesh ships again.
+// Also renders the live Nearby-sync (BT steady) state + log and the
+// per-minute memory-slope table (un-parked with the 2026-07 mesh revive) —
+// the on-device instruments that cracked the Jun-19 sync bugs.
 
 import * as Application from "expo-application";
 import * as Clipboard from "expo-clipboard";
@@ -29,31 +29,26 @@ import { useToast } from "../components/Toast";
 import { colors } from "../lib/colors";
 import { buildDiagnosticsReport } from "../lib/diagnostics-report";
 import { fonts } from "../lib/fonts";
-import { resetAllLocalData } from "../lib/db";
-// PARKED (Nearby sync / mesh): the live sync state + log and the mem-probe
-// memory-slope sampling belong to the mesh feature, which is hidden for now.
-// Re-enable these imports together with the commented-out sections below when
-// mesh ships again.
-// import { getDb } from "../lib/db-tx";
-// import { getAppMeta } from "../lib/db";
-// import { getSyncDiagLines, onSyncDiag, clearSyncDiag } from "../lib/mesh/sync-diag";
-// import { isBtcSteadyRunning, isBtcPairPaused } from "../lib/mesh/btc-steady";
+import { getAppMeta, resetAllLocalData } from "../lib/db";
+import { getDb } from "../lib/db-tx";
+import { getSyncDiagLines, onSyncDiag, clearSyncDiag } from "../lib/mesh/sync-diag";
+import { isBtcSteadyRunning, isBtcPairPaused } from "../lib/mesh/btc-steady";
 import {
   getLastExitReasons,
   getMemorySnapshot,
   type ProcessExitReason,
 } from "../modules/kaata-gatt-server";
 
-// PARKED (mesh): row shape for the memory-slope table (mem_samples).
-// type MemRow = {
-//   at: number;
-//   native_pss_kb: number | null;
-//   dalvik_pss_kb: number | null;
-//   native_alloc_kb: number | null;
-//   js_heap_kb: number | null;
-//   avail_mb: number | null;
-//   storage_free_mb: number | null;
-// };
+// Row shape for the memory-slope table (mem_samples).
+type MemRow = {
+  at: number;
+  native_pss_kb: number | null;
+  dalvik_pss_kb: number | null;
+  native_alloc_kb: number | null;
+  js_heap_kb: number | null;
+  avail_mb: number | null;
+  storage_free_mb: number | null;
+};
 
 function fmtTime(ms: number): string {
   try {
@@ -81,28 +76,28 @@ export default function DiagnosticsScreen() {
   const [fallbackText, setFallbackText] = useState<string | null>(null);
   const [exits, setExits] = useState<ProcessExitReason[]>([]);
   const [now, setNow] = useState<Record<string, unknown>>({});
-  // PARKED (mesh): live sync state/log + memory-slope samples.
-  // const [samples, setSamples] = useState<MemRow[]>([]);
-  // const [syncLines, setSyncLines] = useState<string[]>([]);
-  // const [syncSnap, setSyncSnap] = useState<{ steady: boolean; paused: boolean; shop: string }>({
-  //   steady: false,
-  //   paused: false,
-  //   shop: "?",
-  // });
+  // Live sync state/log + memory-slope samples.
+  const [samples, setSamples] = useState<MemRow[]>([]);
+  const [syncLines, setSyncLines] = useState<string[]>([]);
+  const [syncSnap, setSyncSnap] = useState<{ steady: boolean; paused: boolean; shop: string }>({
+    steady: false,
+    paused: false,
+    shop: "?",
+  });
   // DEV-only: two-tap arm→confirm for the destructive reset button below.
   const [resetArmed, setResetArmed] = useState(false);
 
-  // PARKED (mesh): live Nearby-sync (BT steady) state + diag log.
-  // const refreshSync = useCallback(async () => {
-  //   setSyncLines(getSyncDiagLines());
-  //   let shop = "?";
-  //   try {
-  //     shop = (await getAppMeta("shop_mode_enabled")) ?? "0";
-  //   } catch {
-  //     /* */
-  //   }
-  //   setSyncSnap({ steady: isBtcSteadyRunning(), paused: isBtcPairPaused(), shop });
-  // }, []);
+  // Live Nearby-sync (BT steady) state + diag log.
+  const refreshSync = useCallback(async () => {
+    setSyncLines(getSyncDiagLines());
+    let shop = "?";
+    try {
+      shop = (await getAppMeta("shop_mode_enabled")) ?? "0";
+    } catch {
+      /* */
+    }
+    setSyncSnap({ steady: isBtcSteadyRunning(), paused: isBtcPairPaused(), shop });
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -115,26 +110,27 @@ export default function DiagnosticsScreen() {
     } catch {
       setNow({});
     }
-    // PARKED (mesh): the memory-slope samples come from the mem-probe, which only
-    // runs while the mesh sync loop is active.
-    // try {
-    //   const db = await getDb();
-    //   const rows = await db.getAllAsync<MemRow>(
-    //     `SELECT at, native_pss_kb, dalvik_pss_kb, native_alloc_kb,
-    //             js_heap_kb, avail_mb, storage_free_mb
-    //        FROM mem_samples
-    //       ORDER BY id DESC
-    //       LIMIT 20`,
-    //   );
-    //   setSamples(rows);
-    // } catch {
-    //   setSamples([]);
-    // }
+    // The memory-slope samples come from the mem-probe, which only runs while
+    // the mesh sync loop is active.
+    try {
+      const db = await getDb();
+      const rows = await db.getAllAsync<MemRow>(
+        `SELECT at, native_pss_kb, dalvik_pss_kb, native_alloc_kb,
+                js_heap_kb, avail_mb, storage_free_mb
+           FROM mem_samples
+          ORDER BY id DESC
+          LIMIT 20`,
+      );
+      setSamples(rows);
+    } catch {
+      setSamples([]);
+    }
   }, []);
 
   useEffect(() => {
     void load();
-  }, [load]);
+    void refreshSync();
+  }, [load, refreshSync]);
 
   // Copy the full App-health report (versions + account/backup/sync state +
   // memory + crash history) to the clipboard so the user can send it to us.
@@ -176,16 +172,16 @@ export default function DiagnosticsScreen() {
     }
   }, [sharingReport, toast]);
 
-  // PARKED (mesh): live-update the sync log — push-driven on each new line, plus
-  // a 2s poll so the running/paused snapshot stays fresh while the user watches.
-  // useEffect(() => {
-  //   const off = onSyncDiag(() => void refreshSync());
-  //   const t = setInterval(() => void refreshSync(), 2000);
-  //   return () => {
-  //     off();
-  //     clearInterval(t);
-  //   };
-  // }, [refreshSync]);
+  // Live-update the sync log — push-driven on each new line, plus a 2s poll
+  // so the running/paused snapshot stays fresh while the user watches.
+  useEffect(() => {
+    const off = onSyncDiag(() => void refreshSync());
+    const t = setInterval(() => void refreshSync(), 2000);
+    return () => {
+      off();
+      clearInterval(t);
+    };
+  }, [refreshSync]);
 
   // DEV-only: wipe kaata.db (all ledger + onboarding state) and reload so the
   // app boots back into onboarding. __DEV__-gated at the call site so it can
@@ -271,9 +267,7 @@ export default function DiagnosticsScreen() {
           </Text>
         ) : null}
 
-        {/* ---- PARKED (mesh): Nearby sync (BT steady) live state + log ----
-            Re-enable together with the imports / state / effects above when the
-            mesh feature ships again.
+        {/* ---- Nearby sync (BT steady) live state + log ---- */}
         <Text style={styles.section}>NEARBY SYNC — STATE</Text>
         <Text style={styles.mono}>
           shop mode: {syncSnap.shop === "1" ? "ON" : "OFF"} · steady loop:{" "}
@@ -300,7 +294,6 @@ export default function DiagnosticsScreen() {
         <Pressable style={styles.refreshGhost} onPress={() => clearSyncDiag()}>
           <Text style={styles.refreshGhostText}>Clear sync log</Text>
         </Pressable>
-        ---- end PARKED Nearby sync ---- */}
 
         {/* ---- Last exit reasons ---- */}
         <Text style={styles.section}>WHY THE APP DIED (most recent first)</Text>
@@ -337,9 +330,8 @@ export default function DiagnosticsScreen() {
           {(now.storageFreeMb as number) ?? "—"}MB
         </Text>
 
-        {/* ---- PARKED (mesh): memory slope (mem_samples ring) ----
-            The mem-probe only samples while the mesh sync loop runs, so this is
-            empty without the parked feature. Re-enable with the query in load().
+        {/* ---- Memory slope (mem_samples ring) ----
+            The mem-probe only samples while the mesh sync loop runs. */}
         <Text style={styles.section}>MEMORY SLOPE (last 20 min, newest first)</Text>
         <Text style={styles.monoDim}>time nativePss dalvikPss js avail store</Text>
         {samples.length === 0 ? (
@@ -356,7 +348,6 @@ export default function DiagnosticsScreen() {
             </Text>
           ))
         )}
-        ---- end PARKED memory slope ---- */}
 
         <Pressable style={styles.refresh} onPress={() => void load()}>
           <Text style={styles.refreshText}>Refresh</Text>

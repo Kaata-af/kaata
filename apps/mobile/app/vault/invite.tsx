@@ -8,8 +8,9 @@
 // offline, the form is rendered in a disabled state with a clear
 // disclosure so the user isn't left to hit an opaque API error on submit.
 //
-// (The old in-person QR pair, vault/pair.tsx, was the former primary
-// affordance; it is PARKED with the rest of the offline mesh.)
+// (The in-person QR pair, vault/pair.tsx, is the fully-offline alternative —
+// un-parked with the 2026-07 mesh revive; a fallback CTA below routes there
+// when the online invite can't work.)
 //
 // Owner-only modal screen. Collects an email + a role (editor / viewer),
 // POSTs to /v1/vaults/:vault_id/invites, and shows the resulting share URL
@@ -277,10 +278,9 @@ export default function VaultInviteScreen() {
             </View>
           ) : null}
 
-          {/* PARKED (mesh): in-person QR pair fallback (vault/pair), parked with
-              the rest of mesh. When offline / not signed in the invite screen
-              now just shows its disabled-state disclosure above. Re-add when
-              mesh ships again.
+          {/* In-person QR pair fallback (vault/pair) — shown when the online
+              invite can't work (offline / not signed in). Un-parked with the
+              2026-07 mesh revive. */}
           {(online === false || hasJwt === false) && !result ? (
             <View style={styles.formInset}>
               <Pressable
@@ -293,7 +293,6 @@ export default function VaultInviteScreen() {
               </Pressable>
             </View>
           ) : null}
-          */}
 
           {!result ? (
             <>

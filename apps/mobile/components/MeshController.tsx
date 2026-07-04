@@ -151,22 +151,18 @@ export function MeshController() {
             }),
           );
         }
-        // M2c 'peer_outdated': a v1 peer was refused on an anchored
-        // vault (membership-chain handshake). Handled via a string
-        // match BEFORE the switch because the kind isn't in errors.ts's
-        // MeshFailureEvent union yet (file deliberately untouched in
-        // M2c; fold the kind into the union in M4). Also stamps the
-        // peer-failure debounce window so the generic
-        // peer_handshake_failed that the session-teardown path emits
-        // right after doesn't double-toast.
-        if ((event.kind as string) === "peer_outdated") {
-          peerFailureWindowRef.current.lastToastAt = Date.now();
-          if (peerOutdatedShownRef.current) return;
-          peerOutdatedShownRef.current = true;
-          toastRef.current.push(t("menu.ble.peerOutdated"), "info");
-          return;
-        }
         switch (event.kind) {
+          // M2c 'peer_outdated': a pre-v3 peer was refused on an anchored
+          // vault (membership-chain handshake). Also stamps the peer-failure
+          // debounce window so the generic peer_handshake_failed that the
+          // session-teardown path emits right after doesn't double-toast.
+          case "peer_outdated": {
+            peerFailureWindowRef.current.lastToastAt = Date.now();
+            if (peerOutdatedShownRef.current) return;
+            peerOutdatedShownRef.current = true;
+            toastRef.current.push(t("menu.ble.peerOutdated"), "info");
+            return;
+          }
           case "peripheral_unsupported": {
             if (peripheralUnsupportedShownRef.current) return;
             peripheralUnsupportedShownRef.current = true;
@@ -260,10 +256,24 @@ export function MeshController() {
         mesh.onShopModeStatusChange?.((s) => {
           if (cancelled) return;
           setActivePeers(s.activePeers);
-          // PARKED: the persistent "Nearby sync" notification is parked
-          // (lib/mesh/foreground.ts), so there's no foreground-service body to
-          // update here. The status→notification-body update lived here; restore
-          // it (see git history) when reviving Nearby sync.
+          // Update the persistent notification body to match real state.
+          // Safe while the FGS is down: the native update no-ops unless the
+          // service actually entered the foreground (isForeground guard) —
+          // this exact call path is what used to resurrect the notification.
+          void (async () => {
+            try {
+              const fg = await import("../lib/mesh/foreground");
+              const body =
+                s.activePeers === 0
+                  ? t("fgs.waiting")
+                  : s.activePeers === 1
+                    ? t("fgs.connectedOne")
+                    : t("fgs.connectedMany", { count: s.activePeers });
+              await fg.updateShopModeNotification({ body });
+            } catch (err) {
+              if (__DEV__) console.warn("[mesh-ctl] updateShopModeNotification failed", err);
+            }
+          })();
         }) ?? null;
     })();
     return () => {

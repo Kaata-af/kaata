@@ -1070,9 +1070,7 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
   // -------------------------------------------------------------------------
   const peerWireVersion = typeof peerHello.v === "number" ? peerHello.v : 0;
   if (peerWireVersion < WIRE_VERSION) {
-    // Cast: 'peer_outdated' is not yet in errors.ts's MeshFailureEvent union;
-    // MeshController matches the kind via string.
-    emitMeshFailure({ kind: "peer_outdated" } as unknown as MeshFailureEvent);
+    emitMeshFailure({ kind: "peer_outdated" });
     throw new MeshHandshakeError(
       `peer wire version ${peerWireVersion} < ${WIRE_VERSION} — peer must update to the version-vector protocol before it can sync`,
       "vmc_invalid",

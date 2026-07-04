@@ -1,27 +1,24 @@
 // apps/mobile/lib/mesh/foreground-bootstrap.ts
 //
-// ⚠️  PARKED. This module's job was to run notifee setup (create the "Nearby
-// sync" notification channel + register the background-event handler) at JS-
-// bundle-load time, before any code could post the foreground-service
-// notification. The mesh / Nearby-sync subsystem is parked, so it now does
-// nothing — which also stops it from creating the empty "Nearby sync" channel
-// that showed up (with no notifications under it) in Android Settings → Apps →
-// Kaata → Notifications. The original setup is preserved in the `PARKED` block
-// below; restore it (and the rest of the notification code — see
-// lib/mesh/foreground.ts) to revive.
+// Runs notifee setup (create the "Nearby sync" notification channel + register
+// the background-event handler) at JS-bundle-load time, before any code can
+// post the foreground-service notification. Imported second by app/_layout.tsx
+// so the registration survives process resurrection by Android (e.g. when the
+// FGS start intent is re-delivered after a Doze kill before the React tree
+// mounts).
 //
-// Still imported first by app/_layout.tsx so the revive path keeps its
-// load-order guarantee; as a no-op the import is harmless.
+// REVIVED 2026-07-04 (was parked with the rest of Nearby sync). The body below
+// is the exact pre-park implementation restored from the PARKED block.
+
+import { Platform } from "react-native";
+
+import { IS_EXPO_GO } from "../expo-go";
 
 // Marker the rest of the app can import to assert bootstrap ran. Tests
 // and adb logcat triage use this as a sanity check.
 export const FOREGROUND_BOOTSTRAP_LOADED = true;
 
 export const SHOP_MODE_CHANNEL_ID = "shop-mode";
-
-/* PARKED — uncomment to revive. Also re-add the imports:
-     import { Platform } from "react-native";
-     import { IS_EXPO_GO } from "../expo-go";
 
 if (Platform.OS === "android" && !IS_EXPO_GO) {
   try {
@@ -41,7 +38,7 @@ if (Platform.OS === "android" && !IS_EXPO_GO) {
         vibration: false,
         sound: undefined,
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         if (__DEV__) {
           // eslint-disable-next-line no-console
           console.warn("[foreground-bootstrap] createChannel failed", err);
@@ -64,4 +61,3 @@ if (Platform.OS === "android" && !IS_EXPO_GO) {
     }
   }
 }
-*/

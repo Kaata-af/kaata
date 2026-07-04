@@ -256,8 +256,15 @@ export class LanMeshConnection implements MeshConnection {
   }
 
   private onSocketClose(): void {
-    // Mirror transport-ble.ts onDisconnect: the discriminator for the toast is
-    // whether AEAD was up (mid-sync drop) vs still handshaking (transport).
+    // A deliberate close() (markClosed then adapter.destroy) still fires the
+    // native 'close' event back into here — without this guard every CLEAN
+    // one-shot LAN burst close emitted a spurious peer_dropped_midsync /
+    // peer_handshake_failed, each of which the failure bridge queued as a
+    // crash report. Only an UNEXPECTED close (peer vanished) should emit.
+    // Mirrors the same guard in transport-btc.ts.
+    if (this.closed) return;
+    // Mirror transport-btc.ts: the discriminator for the toast is whether
+    // AEAD was up (mid-sync drop) vs still handshaking (transport).
     if (this.aead) {
       emitMeshFailure({ kind: "peer_dropped_midsync" });
     } else {
