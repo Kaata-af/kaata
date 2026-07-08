@@ -73,10 +73,18 @@ export const PersonRow = memo(function PersonRow(props: {
         </Text>
       </View>
       <View style={[styles.right, rowDir(isRTL)]}>
-        <Text style={[styles.amount, abs === 0 && { color: colors.textMuted }]}>
+        {/* L41: cap the amount's font scaling so it can't grow so wide at large
+            OS font that it crushes the flex:1 name column to a few characters. */}
+        <Text
+          style={[styles.amount, abs === 0 && { color: colors.textMuted }]}
+          numberOfLines={1}
+          maxFontSizeMultiplier={1.5}
+        >
           {formatAmount(abs)}
         </Text>
-        <Text style={styles.afn}>{getCurrentCurrencySymbol()}</Text>
+        <Text style={styles.afn} maxFontSizeMultiplier={1.5}>
+          {getCurrentCurrencySymbol()}
+        </Text>
       </View>
     </Pressable>
   );

@@ -82,7 +82,12 @@ export function ConfirmDialog(props: {
           style={StyleSheet.absoluteFill}
         />
         <View style={styles.tint} />
-        <Pressable style={StyleSheet.absoluteFill} onPress={props.onCancel} />
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={props.onCancel}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        />
       </Animated.View>
 
       <View style={styles.center} pointerEvents="box-none">
@@ -100,6 +105,8 @@ export function ConfirmDialog(props: {
           <View style={[styles.footer, rowDir(isRTL)]}>
             <Pressable
               onPress={props.onCancel}
+              accessibilityRole="button"
+              accessibilityLabel={props.cancelLabel ?? t("common.cancel")}
               style={({ pressed }) => [
                 styles.btnGhost,
                 pressed && { backgroundColor: colors.bgMuted },
@@ -112,6 +119,8 @@ export function ConfirmDialog(props: {
                 onPress={() => {
                   props.onTertiary?.();
                 }}
+                accessibilityRole="button"
+                accessibilityLabel={props.tertiaryLabel}
                 style={({ pressed }) => [
                   props.tertiaryDestructive ? styles.confirmDestructive : styles.confirmPrimary,
                   pressed && { opacity: 0.85 },
@@ -132,6 +141,8 @@ export function ConfirmDialog(props: {
               onPress={() => {
                 props.onConfirm();
               }}
+              accessibilityRole="button"
+              accessibilityLabel={props.confirmLabel ?? "OK"}
               style={({ pressed }) => [confirmStyle, pressed && { opacity: 0.85 }]}
             >
               <Text style={confirmTextStyle}>{props.confirmLabel ?? "OK"}</Text>
