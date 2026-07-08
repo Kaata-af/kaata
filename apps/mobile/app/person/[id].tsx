@@ -206,7 +206,14 @@ export default function PersonDetailScreen() {
               <Chip label={t("person.balance.settled")} variant="neutral" />
             ) : null}
             <View style={[styles.balanceRow, rowDir(isRTL)]}>
-              <Text style={[styles.balance, { color: balanceColor }]}>{formatAmount(abs)}</Text>
+              <Text
+                style={[styles.balance, { color: balanceColor, flexShrink: 1 }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.5}
+              >
+                {formatAmount(abs)}
+              </Text>
               <Text style={styles.balanceAfn}>{getCurrentCurrencySymbol()}</Text>
             </View>
           </View>

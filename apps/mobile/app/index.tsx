@@ -1433,7 +1433,14 @@ function TabPage(props: {
         <View style={styles.totalBlock}>
           <Text style={[styles.totalLabel, textDir(isRTL)]}>{totalLabel}</Text>
           <View style={[styles.totalRow, rowDir(isRTL)]}>
-            <Text style={[styles.totalAmount, { color: totalColor }]}>{formatAmount(total)}</Text>
+            <Text
+              style={[styles.totalAmount, { color: totalColor, flexShrink: 1 }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.5}
+            >
+              {formatAmount(total)}
+            </Text>
             <Text style={styles.totalAfn}>{getCurrentCurrencySymbol()}</Text>
           </View>
           <Text style={[styles.totalSub, textDir(isRTL)]}>
