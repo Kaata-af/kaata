@@ -54,6 +54,9 @@ const en = {
   "onboardingMode.google.title": "Sign in with Google",
   "onboardingMode.google.body":
     "Back up your kaata to the cloud. Restore it on a new phone if you lose this one.",
+  "onboardingMode.apple.title": "Sign in with Apple",
+  "onboardingMode.apple.body":
+    "Back up your kaata to the cloud. Restore it on a new phone if you lose this one.",
   "onboardingMode.offline.title": "Stay fully offline",
   "onboardingMode.offline.body":
     "No account. Your kaata never leaves this phone — private by default.",
@@ -1133,6 +1136,9 @@ const fa: Partial<Record<Key, string>> = {
   "onboardingMode.subtitle": "بعداً می‌توانید این را در تنظیمات تغییر دهید.",
   "onboardingMode.google.title": "ورود با گوگل",
   "onboardingMode.google.body":
+    "کاتای خود را در کلاد ذخیره کنید. اگر تلفن گم شد، روی تلفن نو بازیابی کنید.",
+  "onboardingMode.apple.title": "ورود با اپل",
+  "onboardingMode.apple.body":
     "کاتای خود را در کلاد ذخیره کنید. اگر تلفن گم شد، روی تلفن نو بازیابی کنید.",
   "onboardingMode.offline.title": "بدون حساب",
   "onboardingMode.offline.body": "بدون حساب. کاتای شما فقط روی همین تلفون می‌ماند — کاملاً خصوصی.",

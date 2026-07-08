@@ -5,7 +5,7 @@ import { useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { NinjaIcon } from "../../components/NinjaIcon";
-import { isCancellation, signInWithGoogle } from "../../lib/auth";
+import { isCancellation, signInWithApple, signInWithGoogle } from "../../lib/auth";
 import { colors } from "../../lib/colors";
 import { getAppMeta, setAppMeta } from "../../lib/db";
 import { textDir, useIsRTL } from "../../lib/direction";
@@ -33,89 +33,111 @@ export default function OnboardingAuthScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Post-sign-in navigation shared by Google and Apple: stash the returned
+  // profile for the "Signed in as X" subtitle, then honor any pending pair /
+  // invite deep link, else route to the restore probe.
+  async function completeSignIn(
+    user: { name?: string; email?: string; phone?: string },
+    method: "google" | "apple",
+  ) {
+    await setAppMeta("onboarding_auth_method", method);
+    // Stash the provider-returned display name + email for the profile
+    // screen's "Signed in as X" subtitle. The name is NOT prefilled into
+    // the actual name input (per UX call: the formal/legal name isn't the
+    // shop persona).
+    if (user.name) await setAppMeta("onboarding_pending_name", user.name);
+    if (user.email) await setAppMeta("onboarding_pending_email", user.email);
+    // BUG-1: the account-level phone (saved on a prior device, returned by
+    // /v1/auth/google) — stash it so the profile screen can prefill it like
+    // the name. Google itself never provides a phone; this is the only source.
+    if (user.phone) await setAppMeta("onboarding_pending_phone", user.phone);
+    // Phase 5.1: if the user signed in BECAUSE a kaata://pair/<token>
+    // deep link triggered the "needs sign-in" gate, hand off back to
+    // that deep link rather than the restore probe — the pair flow is
+    // the higher-priority intent.
+    //
+    // Use router.replace, NOT Linking.openURL — the latter can:
+    //   1. Spawn a brand-new task instance on Android (singleTask
+    //      intent filter), leaving the previous activity orphaned.
+    //   2. Race with the JWT-write step: if getSessionJWT() in the
+    //      pair screen runs before postSignInHousekeeping has committed
+    //      the JWT to SecureStore, the pair screen will re-stash the
+    //      pending_pair_deeplink and re-route to /onboarding/auth,
+    //      producing an infinite redirect loop.
+    // The parsed-route handoff in-process sidesteps both issues.
+    const pendingPair = await getAppMeta("pending_pair_deeplink");
+    if (pendingPair) {
+      await setAppMeta("pending_pair_deeplink", "");
+      await setAppMeta("onboarding_step", "profile");
+      // Defensive parse: pendingPair is shaped like
+      //   kaata://pair/<token>?p=<base64>
+      // Map it to /pair/<token>?p=<base64> for expo-router.
+      try {
+        const url = new URL(pendingPair);
+        const token = url.pathname.replace(/^\//, "") || "x";
+        const p = url.searchParams.get("p") ?? "";
+        router.replace({
+          pathname: "/pair/[token]",
+          params: { token, p },
+        });
+      } catch {
+        // Malformed stash — clear, fall through to restore probe so the
+        // user isn't stranded.
+        router.replace("/onboarding/restore");
+      }
+      return;
+    }
+    // Vault-invite deep link parity with the pair flow above: the
+    // invite screen stashes pending_invite_token before sending the
+    // user here to sign in. Without this read, the stash was written
+    // and never consumed — the invitee signed in and got dumped into
+    // onboarding/restore with their invite lost.
+    const pendingInvite = await getAppMeta("pending_invite_token");
+    if (pendingInvite) {
+      await setAppMeta("pending_invite_token", "");
+      await setAppMeta("onboarding_step", "profile");
+      router.replace({ pathname: "/invite/[token]", params: { token: pendingInvite } });
+      return;
+    }
+    // Phase 3: route through the restore probe instead of jumping
+    // straight to profile. The probe screen checks the backend for
+    // an existing snapshot or v0.4 backup; if neither is found it
+    // forwards to /onboarding/profile transparently. onboarding_step
+    // stays at 'profile' so a force-quit during the probe still
+    // resumes the flow correctly.
+    await setAppMeta("onboarding_step", "profile");
+    router.replace("/onboarding/restore");
+  }
+
   async function onSignIn() {
     setError(null);
     setBusy(true);
     try {
       const user = await signInWithGoogle();
-      await setAppMeta("onboarding_auth_method", "google");
-      // Stash the Google-returned display name + email for the profile
-      // screen's "Signed in as X" subtitle. The name is NOT prefilled into
-      // the actual name input (per UX call: shopkeepers' Google name is
-      // their formal/legal name, not their shop persona).
-      if (user.name) await setAppMeta("onboarding_pending_name", user.name);
-      if (user.email) await setAppMeta("onboarding_pending_email", user.email);
-      // BUG-1: the account-level phone (saved on a prior device, returned by
-      // /v1/auth/google) — stash it so the profile screen can prefill it like
-      // the name. Google itself never provides a phone; this is the only source.
-      if (user.phone) await setAppMeta("onboarding_pending_phone", user.phone);
-      // Phase 5.1: if the user signed in BECAUSE a kaata://pair/<token>
-      // deep link triggered the "needs sign-in" gate, hand off back to
-      // that deep link rather than the restore probe — the pair flow is
-      // the higher-priority intent.
-      //
-      // Use router.replace, NOT Linking.openURL — the latter can:
-      //   1. Spawn a brand-new task instance on Android (singleTask
-      //      intent filter), leaving the previous activity orphaned.
-      //   2. Race with the JWT-write step: if getSessionJWT() in the
-      //      pair screen runs before postSignInHousekeeping has committed
-      //      the JWT to SecureStore, the pair screen will re-stash the
-      //      pending_pair_deeplink and re-route to /onboarding/auth,
-      //      producing an infinite redirect loop.
-      // The parsed-route handoff in-process sidesteps both issues.
-      const pendingPair = await getAppMeta("pending_pair_deeplink");
-      if (pendingPair) {
-        await setAppMeta("pending_pair_deeplink", "");
-        await setAppMeta("onboarding_step", "profile");
-        // Defensive parse: pendingPair is shaped like
-        //   kaata://pair/<token>?p=<base64>
-        // Map it to /pair/<token>?p=<base64> for expo-router.
-        try {
-          const url = new URL(pendingPair);
-          const token = url.pathname.replace(/^\//, "") || "x";
-          const p = url.searchParams.get("p") ?? "";
-          router.replace({
-            pathname: "/pair/[token]",
-            params: { token, p },
-          });
-        } catch {
-          // Malformed stash — clear, fall through to restore probe so the
-          // user isn't stranded.
-          router.replace("/onboarding/restore");
-        }
-        return;
-      }
-      // Vault-invite deep link parity with the pair flow above: the
-      // invite screen stashes pending_invite_token before sending the
-      // user here to sign in. Without this read, the stash was written
-      // and never consumed — the invitee signed in and got dumped into
-      // onboarding/restore with their invite lost.
-      const pendingInvite = await getAppMeta("pending_invite_token");
-      if (pendingInvite) {
-        await setAppMeta("pending_invite_token", "");
-        await setAppMeta("onboarding_step", "profile");
-        router.replace({ pathname: "/invite/[token]", params: { token: pendingInvite } });
-        return;
-      }
-      // Phase 3: route through the restore probe instead of jumping
-      // straight to profile. The probe screen checks the backend for
-      // an existing snapshot or v0.4 backup; if neither is found it
-      // forwards to /onboarding/profile transparently. onboarding_step
-      // stays at 'profile' so a force-quit during the probe still
-      // resumes the flow correctly.
-      await setAppMeta("onboarding_step", "profile");
-      router.replace("/onboarding/restore");
+      await completeSignIn(user, "google");
     } catch (err) {
-      if (isCancellation(err)) {
-        // user-cancelled → silent, leave them on the screen
-        return;
-      }
+      if (isCancellation(err)) return; // user-cancelled → silent
       if (IS_EXPO_GO) {
         setError(t("onboardingMode.expoGoHint"));
       } else {
         setError(t("onboardingMode.signInFailed"));
-        console.warn("[onboarding/auth] sign-in failed", err);
+        console.warn("[onboarding/auth] google sign-in failed", err);
       }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onAppleSignIn() {
+    setError(null);
+    setBusy(true);
+    try {
+      const user = await signInWithApple();
+      await completeSignIn(user, "apple");
+    } catch (err) {
+      if (isCancellation(err)) return; // user-cancelled → silent
+      setError(t("onboardingMode.signInFailed"));
+      console.warn("[onboarding/auth] apple sign-in failed", err);
     } finally {
       setBusy(false);
     }
@@ -141,30 +163,65 @@ export default function OnboardingAuthScreen() {
 
         <View style={styles.spacer} />
 
-        <Pressable
-          onPress={onSignIn}
-          disabled={busy}
-          style={({ pressed }) => [
-            styles.card,
-            styles.cardPrimary,
-            pressed && { opacity: 0.85 },
-            busy && { opacity: 0.6 },
-          ]}
-        >
-          <View style={[styles.cardIcon, isRTL && styles.cardIconRTL]}>
-            {busy ? (
-              <ActivityIndicator color={colors.textInverted} />
-            ) : (
-              <Ionicons name="logo-google" size={28} color={colors.textInverted} />
-            )}
-          </View>
-          <Text style={[styles.cardTitle, styles.cardTitlePrimary, textDir(isRTL)]}>
-            {t("onboardingMode.google.title")}
-          </Text>
-          <Text style={[styles.cardBody, styles.cardBodyPrimary, textDir(isRTL)]}>
-            {t("onboardingMode.google.body")}
-          </Text>
-        </Pressable>
+        {/* Google sign-in is Android-only. On iOS it needs an iOS-type OAuth
+            client (not shipped) and would otherwise crash at configure(); iOS
+            users get Sign in with Apple below, which satisfies guideline 4.8. */}
+        {Platform.OS !== "ios" ? (
+          <Pressable
+            onPress={onSignIn}
+            disabled={busy}
+            style={({ pressed }) => [
+              styles.card,
+              styles.cardPrimary,
+              pressed && { opacity: 0.85 },
+              busy && { opacity: 0.6 },
+            ]}
+          >
+            <View style={[styles.cardIcon, isRTL && styles.cardIconRTL]}>
+              {busy ? (
+                <ActivityIndicator color={colors.textInverted} />
+              ) : (
+                <Ionicons name="logo-google" size={28} color={colors.textInverted} />
+              )}
+            </View>
+            <Text style={[styles.cardTitle, styles.cardTitlePrimary, textDir(isRTL)]}>
+              {t("onboardingMode.google.title")}
+            </Text>
+            <Text style={[styles.cardBody, styles.cardBodyPrimary, textDir(isRTL)]}>
+              {t("onboardingMode.google.body")}
+            </Text>
+          </Pressable>
+        ) : null}
+
+        {/* Sign in with Apple — iOS only (App Store guideline 4.8 requires a
+            second privacy-focused login alongside Google). */}
+        {Platform.OS === "ios" ? (
+          <>
+            <View style={styles.gap} />
+            <Pressable
+              onPress={onAppleSignIn}
+              disabled={busy}
+              accessibilityRole="button"
+              accessibilityLabel={t("onboardingMode.apple.title")}
+              style={({ pressed }) => [
+                styles.card,
+                styles.cardPrimary,
+                pressed && { opacity: 0.85 },
+                busy && { opacity: 0.6 },
+              ]}
+            >
+              <View style={[styles.cardIcon, isRTL && styles.cardIconRTL]}>
+                <Ionicons name="logo-apple" size={28} color={colors.textInverted} />
+              </View>
+              <Text style={[styles.cardTitle, styles.cardTitlePrimary, textDir(isRTL)]}>
+                {t("onboardingMode.apple.title")}
+              </Text>
+              <Text style={[styles.cardBody, styles.cardBodyPrimary, textDir(isRTL)]}>
+                {t("onboardingMode.apple.body")}
+              </Text>
+            </Pressable>
+          </>
+        ) : null}
 
         {error ? (
           <Text style={[styles.errorText, textDir(isRTL)]} accessibilityLiveRegion="polite">
