@@ -98,6 +98,19 @@ func CheckEventPermission(
 			// caller to render this as "unauthored_pre_binding".
 			return false, "", required, nil
 		}
+		// SEC (B6): a NULL-actor event may only be attributed to the account
+		// that is PUSHING it. account_bound retroactive attribution exists for a
+		// device that authored events BEFORE signing in and then bound them to
+		// ITS OWN account — so the covering binding must resolve to the pushing
+		// (JWT) account. Without this equality check a lower-privileged member
+		// could craft a NULL-actor event whose HLC falls just under the OWNER's
+		// account_bound cutoff and have it attributed to — and authorized as —
+		// the owner, forging owner-grade events (vault archive, role changes,
+		// financial mutations). The legitimate re-attribution always pushes
+		// under the bound account's own JWT, so this never rejects honest data.
+		if bound != pushingAccountID {
+			return false, "", required, nil
+		}
 		effectiveAuthor = bound
 	}
 
