@@ -407,18 +407,28 @@ func (s *Service) SignOut(ctx context.Context, installID, provider string) error
 //
 // A missing row counts as revoked — a credential that was deleted via SignOut
 // should not authorize further requests, even if the JWT hasn't expired yet.
-func (s *Service) CheckCredentialRevoked(ctx context.Context, installID, provider string) (bool, error) {
+//
+// The check is bound to the JWT's account_id: after an account switch the
+// (install_id, provider) row is DELETEd and re-inserted for the NEW account, so
+// a leaked or residual JWT carrying the OLD account_id must not keep authorizing
+// (and self-refreshing) against the new binding. A NULL stored account_id
+// (legacy row) is treated as matching, for back-compat.
+func (s *Service) CheckCredentialRevoked(ctx context.Context, installID, provider, accountID string) (bool, error) {
 	var revokedAt *time.Time
+	var storedAccountID *string
 	err := s.pool.QueryRow(ctx, `
-		SELECT revoked_at
+		SELECT revoked_at, account_id::text
 		FROM auth_credentials
 		WHERE install_id = $1 AND provider = $2
-	`, installID, provider).Scan(&revokedAt)
+	`, installID, provider).Scan(&revokedAt, &storedAccountID)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return true, nil
 	case err != nil:
 		return false, fmt.Errorf("lookup auth credential: %w", err)
+	}
+	if storedAccountID != nil && accountID != "" && *storedAccountID != accountID {
+		return true, nil
 	}
 	return revokedAt != nil, nil
 }
