@@ -159,3 +159,28 @@ func (h *Handler) SignOut(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
+
+// DeleteAccount — DELETE /v1/account (PROTECTED).
+//
+// Permanently erases the authenticated account and the data it solely owns
+// (see Service.DeleteAccount). Idempotent-ish: a second call after the account
+// is gone 401s at the middleware (credential row deleted). The mobile app must
+// also wipe its local ledger + stored JWT after a 200.
+func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ClaimsFromContext(r.Context())
+	if !ok {
+		httpx.Error(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	if err := h.svc.DeleteAccount(r.Context(), claims.AccountID); err != nil {
+		log.Printf("account delete failed for account %s: %v", claims.AccountID, err)
+		httpx.Error(w, http.StatusInternalServerError, "account deletion failed")
+		return
+	}
+	// Kill the cached "not revoked" entry so the now-orphaned JWT stops
+	// authorizing immediately rather than for up to revokedCacheTTL.
+	if h.authenticator != nil {
+		h.authenticator.Invalidate(claims.InstallID, claims.Provider)
+	}
+	httpx.JSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}

@@ -326,6 +326,9 @@ func main() {
 	r.Group(func(pr chi.Router) {
 		pr.Use(authenticator.Middleware())
 		pr.Post("/v1/auth/signout", authH.SignOut)
+		// In-app account deletion (Play + Apple requirement). Erases the account
+		// and the data it solely owns; see auth.Service.DeleteAccount.
+		pr.Delete("/v1/account", authH.DeleteAccount)
 		// Account-level phone: persists the shopkeeper's own number server-side so
 		// it survives a reinstall (the device-local users.phone_e164 never syncs).
 		pr.Put("/v1/account/phone", authH.UpdatePhone)

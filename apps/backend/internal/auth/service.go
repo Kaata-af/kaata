@@ -391,6 +391,64 @@ func (s *Service) UpdateAccountPhone(ctx context.Context, accountID, phone strin
 	return nil
 }
 
+// DeleteAccount permanently erases an account and the data it solely owns, for
+// the in-app "Delete account" flow (Play + Apple both require in-app account
+// deletion once the app supports account creation). One transaction, in FK-safe
+// order:
+//   - deletes vaults the account OWNS and everything under them: events first
+//     (events -> vaults is RESTRICT, not CASCADE), then the vault row (whose
+//     ON DELETE CASCADE clears members / snapshots / issued creds / pair tokens);
+//   - for vaults owned by OTHERS, removes the account's membership and
+//     ANONYMISES the events it authored (NULL account_id) rather than deleting
+//     them — that ledger content belongs to the other owner, not this user;
+//   - clears the account's identity from its installs (self name/phone/shop +
+//     account_id) and deletes their crash reports (the install rows live on as
+//     anonymous installs);
+//   - nulls the invited_by / revoked_by / pending_delete_by back-references
+//     (all RESTRICT FKs to accounts) that would otherwise block the delete;
+//   - deletes the account row, whose ON DELETE CASCADE clears auth_credentials,
+//     account_identities, and vault_credentials_issued / vault_pair_tokens it
+//     issued.
+//
+// After commit the account's still-valid JWTs stop authorising: the credential
+// row is gone, so the revocation check treats them as revoked.
+func (s *Service) DeleteAccount(ctx context.Context, accountID string) error {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	stmts := []struct {
+		desc string
+		sql  string
+	}{
+		{"delete owned-vault events", `
+			DELETE FROM events
+			 WHERE vault_id IN (SELECT vault_id FROM vaults WHERE owner_account_id = $1::uuid)`},
+		{"delete owned vaults", `DELETE FROM vaults WHERE owner_account_id = $1::uuid`},
+		{"anonymise authored events", `UPDATE events SET account_id = NULL WHERE account_id = $1::uuid`},
+		{"delete memberships", `DELETE FROM vault_members WHERE account_id = $1::uuid`},
+		{"null invited_by", `UPDATE vault_members SET invited_by = NULL WHERE invited_by = $1::uuid`},
+		{"null revoked_by", `UPDATE vault_members SET revoked_by = NULL WHERE revoked_by = $1::uuid`},
+		{"null pending_delete_by", `UPDATE vaults SET pending_delete_by = NULL, pending_delete_at = NULL WHERE pending_delete_by = $1::uuid`},
+		{"delete crash reports", `
+			DELETE FROM crash_reports
+			 WHERE install_id IN (SELECT install_id FROM installs WHERE account_id = $1::uuid)`},
+		{"clear install identity", `
+			UPDATE installs
+			   SET account_id = NULL, self_name = NULL, self_phone = NULL, shop_name = NULL
+			 WHERE account_id = $1::uuid`},
+		{"delete account", `DELETE FROM accounts WHERE id = $1::uuid`},
+	}
+	for _, st := range stmts {
+		if _, err := tx.Exec(ctx, st.sql, accountID); err != nil {
+			return fmt.Errorf("%s: %w", st.desc, err)
+		}
+	}
+	return tx.Commit(ctx)
+}
+
 // SignOut removes the auth_credentials row for (install_id, provider).
 func (s *Service) SignOut(ctx context.Context, installID, provider string) error {
 	_, err := s.pool.Exec(ctx, `
