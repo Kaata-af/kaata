@@ -59,26 +59,34 @@ export default function NewEntryScreen() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const guard = await getActiveVaultArchivedState();
-      if (cancelled) return;
-      if (guard.state === "none") {
-        toast.push(t("entry.noActiveVault"), "error");
-        router.replace("/");
-        return;
-      }
-      if (guard.state === "archived") {
-        toast.push(t("entry.vaultArchived"), "error");
-        router.replace("/vault/archived");
-        return;
-      }
-      if (!personId) {
+      try {
+        const guard = await getActiveVaultArchivedState();
+        if (cancelled) return;
+        if (guard.state === "none") {
+          toast.push(t("entry.noActiveVault"), "error");
+          router.replace("/");
+          return;
+        }
+        if (guard.state === "archived") {
+          toast.push(t("entry.vaultArchived"), "error");
+          router.replace("/vault/archived");
+          return;
+        }
+        if (!personId) {
+          setLoading(false);
+          return;
+        }
+        const p = await getPerson(personId);
+        if (cancelled) return;
+        setPerson(p);
         setLoading(false);
-        return;
+      } catch (err) {
+        // A rejected SQLite read must not leave a permanent spinner with no
+        // back affordance on this modal — clear loading so the screen renders.
+        if (cancelled) return;
+        console.warn("[entry/new] load failed", err);
+        setLoading(false);
       }
-      const p = await getPerson(personId);
-      if (cancelled) return;
-      setPerson(p);
-      setLoading(false);
     })();
     return () => {
       cancelled = true;
@@ -220,7 +228,13 @@ export default function NewEntryScreen() {
             // and joined what remained.
             onChangeText={(raw) => {
               setAmountError(null);
-              setAmount(toAsciiDigits(raw).match(/^\d*/)?.[0] ?? "");
+              // Strip unambiguous grouping separators (comma, whitespace,
+              // Arabic thousands ٬ U+066C) BEFORE the leading-digits match so a
+              // pasted "25,000" isn't silently truncated to "25". '.' is left
+              // alone (ambiguous decimal vs grouping); AFN is integer so a
+              // decimal tail is still dropped by the ^\d* match.
+              const digits = toAsciiDigits(raw).replace(/[,\s٬]/g, "");
+              setAmount(digits.match(/^\d*/)?.[0] ?? "");
             }}
             placeholder="0"
             placeholderTextColor={colors.textMuted}
