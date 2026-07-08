@@ -42,10 +42,8 @@
         "android.permission.BLUETOOTH",
         "android.permission.BLUETOOTH_ADMIN",
         "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.WAKE_LOCK",
-        "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
         "android.permission.CAMERA",
         "android.permission.READ_CONTACTS",
         "android.permission.WRITE_CONTACTS"
@@ -100,7 +98,6 @@
       ],
       "./plugins/withBackupRules",
       "./plugins/withNearbyWifiNeverForLocation",
-      "./plugins/withKaataForegroundService",
       "./plugins/withBleAdvertiser",
       "./plugins/withGradleJvmArgs",
       "expo-background-task"
