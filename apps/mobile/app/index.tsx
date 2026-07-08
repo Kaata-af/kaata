@@ -613,14 +613,27 @@ export default function HomeScreen() {
       // must not break the sign-in, so it's caught.
       setAuthProgress(null);
       setAuthPhase("restoring");
+      let recovery: { recovered: string[]; failed: { vaultId: string }[] } | null = null;
       try {
         const { recoverAllVaults } = await import("../lib/recovery");
-        await recoverAllVaults({ onProgress: setAuthProgress });
+        recovery = await recoverAllVaults({ onProgress: setAuthProgress });
       } catch (err) {
         if (__DEV__) console.warn("[home] post-sign-in recovery failed (non-fatal)", err);
       }
       await load();
-      setTimeout(() => toast.push(t("menu.account.signIn.toast"), "success"), 240);
+      // H21: don't report unqualified success when some kaatas failed to
+      // restore — the old code discarded the result and always toasted "Signed
+      // in", so a shopkeeper whose supplier ledger silently failed to come back
+      // had no signal. Surface the count (and log which) so a retry is possible.
+      const failedCount = recovery?.failed?.length ?? 0;
+      setTimeout(() => {
+        if (failedCount > 0) {
+          console.warn("[home] recovery: failed vaults", recovery?.failed);
+          toast.push(t("menu.account.signIn.partialToast", { count: failedCount }), "error");
+        } else {
+          toast.push(t("menu.account.signIn.toast"), "success");
+        }
+      }, 240);
     } catch (err) {
       if (err instanceof SignInCancelledByUserError) return;
       if (isCancellation(err)) return;
