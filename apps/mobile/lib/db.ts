@@ -3793,16 +3793,27 @@ export async function readPendingUsage(): Promise<PendingUsage> {
 
 export async function decrementPendingUsage(snapshot: PendingUsage): Promise<void> {
   const db = await getDb();
-  await db.withTransactionAsync(async () => {
-    for (const k of ["entries_created", "customers_added", "shares_sent"] as const) {
-      const n = snapshot[k];
-      if (n <= 0) continue;
-      await db.runAsync(
-        `UPDATE app_meta SET value = CAST(MAX(0, CAST(value AS INTEGER) - ?) AS TEXT) WHERE key = ?`,
-        n,
-        usageKey(k),
-      );
-    }
+  // B8: this fires on every launch check-in success — exactly while the launch
+  // pull/sweep is applying its backlog under applyEventMutex. withTransactionAsync
+  // is non-exclusive on the shared connection, so an un-mutexed BEGIN here can
+  // collide with that in-flight transaction and its rollback tears the victim
+  // into autocommit statements (silent event/projection divergence). Serialize
+  // under the same mutex. This body only touches app_meta (no applyEvent), so it
+  // can never re-enter the mutex and deadlock. Lazy require avoids a static
+  // import cycle (projection -> db-tx -> db).
+  const { applyEventMutex } = require("./projection") as typeof import("./projection");
+  await applyEventMutex.runExclusive(async () => {
+    await db.withTransactionAsync(async () => {
+      for (const k of ["entries_created", "customers_added", "shares_sent"] as const) {
+        const n = snapshot[k];
+        if (n <= 0) continue;
+        await db.runAsync(
+          `UPDATE app_meta SET value = CAST(MAX(0, CAST(value AS INTEGER) - ?) AS TEXT) WHERE key = ?`,
+          n,
+          usageKey(k),
+        );
+      }
+    });
   });
 }
 
