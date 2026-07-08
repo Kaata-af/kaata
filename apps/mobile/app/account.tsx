@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -23,15 +24,17 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { updateAccountPhone } from "../lib/auth";
+import { deleteAccount, getSessionJWT, updateAccountPhone } from "../lib/auth";
 import { Button } from "../components/Button";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CountryPickerSheet } from "../components/CountryPickerSheet";
 import { OptionSheet } from "../components/OptionSheet";
 import { NavRow, ScreenHeader, SectionGap, SectionHeader } from "../components/SettingsScreen";
 import { useToast } from "../components/Toast";
 import { colors } from "../lib/colors";
 import { joinName, splitName } from "../lib/contacts-sync";
-import { getAppMeta, getLocalSelf, setAppMeta, updateSelfProfile } from "../lib/db";
+import { getAppMeta, getLocalSelf, initDb, setAppMeta, updateSelfProfile } from "../lib/db";
+import { ensureInstallId } from "../lib/install-id";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../lib/event-log";
 import { fonts } from "../lib/fonts";
@@ -49,6 +52,10 @@ const LANGUAGE_OPTIONS: ReadonlyArray<{ value: LocalePref; labelKey: string }> =
   { value: "en", labelKey: "settings.language.option.en" },
   { value: "fa", labelKey: "settings.language.option.fa" },
 ];
+
+// Public privacy policy — the same page linked from the web footer. Both stores
+// require it to be reachable from inside the app.
+const PRIVACY_URL = "https://kaata.af/privacy";
 
 export default function AccountScreen() {
   const router = useRouter();
@@ -77,6 +84,12 @@ export default function AccountScreen() {
   const [prefCountry, setPrefCountry] = useState(getCurrentDefaultCountryCode);
   const [prefCountryVisible, setPrefCountryVisible] = useState(false);
 
+  // Account deletion (only offered when signed in — a local-only user has no
+  // server account to delete; they reset via the app uninstall).
+  const [signedIn, setSignedIn] = useState(false);
+  const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+  const deletingRef = useRef(false);
+
   useEffect(() => {
     void (async () => {
       const self = await getLocalSelf();
@@ -94,9 +107,33 @@ export default function AccountScreen() {
       const storedPref = await getAppMeta("locale_pref");
       setLocalePref(storedPref === "en" || storedPref === "fa" ? storedPref : "system");
       setPrefCountry(getCurrentDefaultCountryCode());
+      setSignedIn(!!(await getSessionJWT()));
       setLoaded(true);
     })();
   }, []);
+
+  // Delete the server account + wipe all local data, then rebuild a clean
+  // schema and drop the user back into onboarding (mirrors a fresh install).
+  // The server delete must succeed first; on failure we keep everything and
+  // toast so the user can retry, rather than wiping their only ledger copy.
+  async function onConfirmDelete() {
+    if (deletingRef.current) return;
+    deletingRef.current = true;
+    setDeleteConfirmVisible(false);
+    try {
+      await deleteAccount();
+      // resetAllLocalData (inside deleteAccount) dropped every table + closed
+      // the handle — rebuild the schema before any screen touches the DB.
+      const id = await ensureInstallId();
+      await initDb({ installId: id });
+      router.replace("/onboarding");
+    } catch (err) {
+      console.warn("[account] deleteAccount failed", err);
+      toast.push(t("account.deleteAccount.failed"), "error");
+    } finally {
+      deletingRef.current = false;
+    }
+  }
 
   async function onSave() {
     if (savingRef.current) return;
@@ -311,6 +348,31 @@ export default function AccountScreen() {
             isLast
           />
 
+          <SectionGap />
+
+          {/* ============ PRIVACY & DATA ============ */}
+          <SectionHeader label={t("account.privacy.section")} isRTL={isRTL} />
+          <NavRow
+            icon="shield-checkmark-outline"
+            label={t("account.privacy.label")}
+            onPress={() => {
+              void Linking.openURL(PRIVACY_URL);
+            }}
+            isRTL={isRTL}
+            isLast={!signedIn}
+          />
+          {signedIn ? (
+            <NavRow
+              icon="trash-outline"
+              label={t("account.deleteAccount.label")}
+              hint={t("account.deleteAccount.hint")}
+              onPress={() => setDeleteConfirmVisible(true)}
+              isRTL={isRTL}
+              danger
+              isLast
+            />
+          ) : null}
+
           {/* Flex spacer: pushes App health to the BOTTOM of the page on tall
               screens (space-between feel), and collapses to a small gap when the
               content above overflows and the page has to scroll. */}
@@ -354,6 +416,16 @@ export default function AccountScreen() {
         selectedCode={prefCountry}
         onSelect={pickPrefCountry}
         onDismiss={() => setPrefCountryVisible(false)}
+      />
+      <ConfirmDialog
+        visible={deleteConfirmVisible}
+        title={t("account.deleteAccount.confirm.title")}
+        description={t("account.deleteAccount.confirm.body")}
+        confirmLabel={t("account.deleteAccount.confirm.cta")}
+        cancelLabel={t("common.cancel")}
+        destructive
+        onConfirm={onConfirmDelete}
+        onCancel={() => setDeleteConfirmVisible(false)}
       />
     </SafeAreaView>
   );

@@ -666,6 +666,48 @@ export async function signOut(): Promise<void> {
   }
 }
 
+// Permanently deletes the signed-in account server-side (DELETE /v1/account),
+// then wipes ALL local state — the account, session, mesh key cache, and the
+// on-device ledger. Play + Apple require an in-app deletion path.
+//
+// The server delete must succeed FIRST: if it fails (network down, 5xx) we
+// throw and leave local data intact so the user can retry, rather than wiping
+// their only ledger copy while the server copy survives. A 401 means the
+// credential is already gone (a prior delete landed) — treat as success.
+export async function deleteAccount(): Promise<void> {
+  const jwt = await SecureStore.getItemAsync(SESSION_KEY);
+  if (jwt) {
+    const baseUrl = await getBackendUrl();
+    const res = await fetch(`${baseUrl}/v1/account`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    if (!res.ok && res.status !== 401) {
+      throw new Error(`account_delete_failed:${res.status}`);
+    }
+  }
+  // Server-side gone (or was never signed in) — drop the Google session, the
+  // mesh key cache, the stored JWT, and every local table.
+  const lib = loadGoogleSignin();
+  if (lib) {
+    try {
+      await lib.GoogleSignin.signOut();
+    } catch {
+      /* already signed out — fine */
+    }
+  }
+  try {
+    const mesh = await import("./mesh/device-key");
+    mesh.clearDeviceKey();
+  } catch {
+    /* mesh module not available — fine */
+  }
+  await SecureStore.deleteItemAsync(SESSION_KEY);
+  await SecureStore.deleteItemAsync(USER_KEY);
+  setAccountIdCache(null);
+  await resetAllLocalData();
+}
+
 // Dev-only: wipes the SecureStore session entries WITHOUT calling the
 // backend signout endpoint. Used by the local-reset flow in Settings —
 // the backend session will expire on its own, no need to round-trip.
