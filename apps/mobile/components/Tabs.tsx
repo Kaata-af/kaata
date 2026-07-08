@@ -52,6 +52,11 @@ const styles = StyleSheet.create({
   },
   tab: {
     flex: 1,
+    // L40: this is the designated non-gesture alternative to the home swipe
+    // rail (the primary To-collect/To-pay switch for switch-access / motor-
+    // impaired / TalkBack users), so it must meet the 44/48dp touch-target
+    // floor — paddingVertical 8 around a 13px label left it ~34dp tall.
+    minHeight: 44,
     paddingVertical: 8,
     borderRadius: 7,
     alignItems: "center",

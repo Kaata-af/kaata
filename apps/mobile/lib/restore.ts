@@ -317,121 +317,154 @@ export async function restoreFromSnapshot(
     anchorToWrite = existing?.vault_trust_anchor_pubkey ?? null;
   }
 
+  // B9 GUARD (recovery revert): recoverAllVaults re-runs restore on EVERY sign-in
+  // and from Settings > Restore — including on a device that already holds this
+  // vault's full, current projection. The snapshot is cron/threshold-built and can
+  // be hours / thousands of events stale, so blindly INSERT-OR-REPLACE-ing the
+  // snapshot rows REVERTS the live projection to that stale point and silently
+  // drops every post-snapshot entry: those events already exist in event_log by
+  // event_id, so the tail ingest below no-ops them (INSERT OR IGNORE) and never
+  // re-applies them over the seed. So we only seed the projection when this device
+  // has NO applied history for the vault (a genuine fresh recovery). When it is
+  // already populated we leave the live projection untouched and let the tail pull
+  // + sweep carry any genuinely-new events (the normal incremental path). This
+  // also sidesteps the vaults INSERT OR REPLACE that ON DELETE CASCADE-wipes
+  // vault_settings on an existing vault.
+  const populatedRow = await db.getFirstAsync<{ n: number }>(
+    `SELECT 1 AS n FROM event_log WHERE vault_id = ? AND applied_at IS NOT NULL LIMIT 1`,
+    snapshot.vault.id,
+  );
+  const alreadyPopulated = populatedRow != null;
+
   await db.withTransactionAsync(async () => {
-    // 1. Seed the vault row. INSERT OR REPLACE so a previous half-restore
-    //    or an offline-minted local vault on the same id gets overwritten.
     const v = snapshot.vault;
-    await db.runAsync(
-      `INSERT OR REPLACE INTO vaults
+
+    if (alreadyPopulated) {
+      // Live projection is authoritative and current — do NOT overwrite it with a
+      // possibly-stale snapshot. Only pin the trust anchor if this device somehow
+      // lacks one (never regress an existing anchor, never touch vault_settings /
+      // registered_with_server_at / the ledger rows).
+      await db.runAsync(
+        `UPDATE vaults SET vault_trust_anchor_pubkey = ?
+           WHERE id = ? AND vault_trust_anchor_pubkey IS NULL`,
+        anchorToWrite,
+        v.id,
+      );
+    } else {
+      // 1. Seed the vault row. INSERT OR REPLACE so a previous half-restore
+      //    or an offline-minted local vault on the same id gets overwritten.
+      await db.runAsync(
+        `INSERT OR REPLACE INTO vaults
          (id, name, currency, created_at, updated_at, archived_at,
           is_default, account_id, registered_with_server_at,
           vault_epoch, hlc_logical, hlc_wall_ms, vault_trust_anchor_pubkey)
        VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, 0, 0, 0, ?)`,
-      v.id,
-      v.name,
-      v.currency,
-      v.created_at,
-      v.updated_at,
-      v.is_default,
-      v.account_id,
-      // Restored snapshots are by definition server-known.
-      snapshot.generated_at_ms,
-      anchorToWrite,
-    );
+        v.id,
+        v.name,
+        v.currency,
+        v.created_at,
+        v.updated_at,
+        v.is_default,
+        v.account_id,
+        // Restored snapshots are by definition server-known.
+        snapshot.generated_at_ms,
+        anchorToWrite,
+      );
 
-    // 2. Seed users (the CONTACTS). The snapshot NEVER carries an is_local_self=1
-    //    row — the self user is not event-sourced and the backend projection sets
-    //    is_local_self=false for every user — so the local self is minted
-    //    separately by recovery (lib/recovery.ts ensureLocalSelfForRestore) and the
-    //    empty user_a_id below is remapped to it.
-    for (const u of snapshot.users) {
-      await db.runAsync(
-        `INSERT OR REPLACE INTO users (
+      // 2. Seed users (the CONTACTS). The snapshot NEVER carries an is_local_self=1
+      //    row — the self user is not event-sourced and the backend projection sets
+      //    is_local_self=false for every user — so the local self is minted
+      //    separately by recovery (lib/recovery.ts ensureLocalSelfForRestore) and the
+      //    empty user_a_id below is remapped to it.
+      for (const u of snapshot.users) {
+        await db.runAsync(
+          `INSERT OR REPLACE INTO users (
            id, phone_e164, display_name, is_local_self,
            google_sub, account_id,
            created_at, updated_at, archived_at, field_hlcs
          ) VALUES (?, ?, ?, ?,  ?, ?,  ?, ?, ?, ?)`,
-        u.id,
-        u.phone_e164,
-        u.display_name,
-        u.is_local_self,
-        u.google_sub,
-        u.account_id,
-        u.created_at,
-        u.updated_at,
-        u.archived_at,
-        floorFieldHLCs(["display_name", "phone_e164"], u.updated_at),
-      );
-    }
+          u.id,
+          u.phone_e164,
+          u.display_name,
+          u.is_local_self,
+          u.google_sub,
+          u.account_id,
+          u.created_at,
+          u.updated_at,
+          u.archived_at,
+          floorFieldHLCs(["display_name", "phone_e164"], u.updated_at),
+        );
+      }
 
-    // 3. Seed shop_profile (one row per vault per migration 007).
-    if (snapshot.shop_profile) {
-      const sp = snapshot.shop_profile;
-      await db.runAsync(
-        `INSERT OR REPLACE INTO shop_profile
+      // 3. Seed shop_profile (one row per vault per migration 007).
+      if (snapshot.shop_profile) {
+        const sp = snapshot.shop_profile;
+        await db.runAsync(
+          `INSERT OR REPLACE INTO shop_profile
            (vault_id, owner_name, shop_name, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?)`,
-        sp.vault_id,
-        sp.owner_name,
-        sp.shop_name,
-        sp.created_at,
-        sp.updated_at,
-      );
-    }
+          sp.vault_id,
+          sp.owner_name,
+          sp.shop_name,
+          sp.created_at,
+          sp.updated_at,
+        );
+      }
 
-    // 4. Seed relationships. user_a is the self by construction; the server
-    //    stores it empty (the self id never round-trips), so remap "" → the local
-    //    self id to satisfy the NOT NULL REFERENCES users(id) FK. Without this the
-    //    insert throws under foreign_keys=ON and the contact is dropped.
-    for (const r of snapshot.relationships) {
-      await db.runAsync(
-        `INSERT OR REPLACE INTO relationships (
+      // 4. Seed relationships. user_a is the self by construction; the server
+      //    stores it empty (the self id never round-trips), so remap "" → the local
+      //    self id to satisfy the NOT NULL REFERENCES users(id) FK. Without this the
+      //    insert throws under foreign_keys=ON and the contact is dropped.
+      for (const r of snapshot.relationships) {
+        await db.runAsync(
+          `INSERT OR REPLACE INTO relationships (
            id, user_a_id, user_b_id, context, vault_id,
            created_at, updated_at, archived_at
          ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?)`,
-        r.id,
-        r.user_a_id || localSelfId,
-        r.user_b_id,
-        r.context,
-        r.vault_id,
-        r.created_at,
-        r.updated_at,
-        r.archived_at,
-      );
-    }
+          r.id,
+          r.user_a_id || localSelfId,
+          r.user_b_id,
+          r.context,
+          r.vault_id,
+          r.created_at,
+          r.updated_at,
+          r.archived_at,
+        );
+      }
 
-    // 5. Seed entries.
-    for (const e of snapshot.entries) {
-      await db.runAsync(
-        `INSERT OR REPLACE INTO entries (
+      // 5. Seed entries.
+      for (const e of snapshot.entries) {
+        await db.runAsync(
+          `INSERT OR REPLACE INTO entries (
            id, vault_id, relationship_id, type, amount_afn, note,
            created_at, updated_at, deleted_at, proposed_by_user_id,
            current_event_id, is_deleted, is_settled,
            accepted_at, disputed_at, disputed_reason, settled_at, field_hlcs
          ) VALUES (?, ?, ?, ?, ?, ?,  ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?, ?, ?)`,
-        e.id,
-        e.vault_id,
-        e.relationship_id,
-        e.type,
-        e.amount_afn,
-        e.note,
-        e.created_at,
-        e.updated_at,
-        e.deleted_at,
-        // The server stores the proposer as "" (FK to users(id), nullable). Map
-        // "" → NULL, matching the pull-path entry applier (projection/entries.ts),
-        // so the FK holds; readers coalesce a null proposer to the local self.
-        e.proposed_by_user_id || null,
-        e.current_event_id,
-        e.is_deleted,
-        e.is_settled,
-        e.accepted_at,
-        e.disputed_at,
-        e.disputed_reason,
-        e.settled_at,
-        floorFieldHLCs(["amount_afn", "note", "type", "occurred_at_ms"], e.updated_at),
-      );
-    }
+          e.id,
+          e.vault_id,
+          e.relationship_id,
+          e.type,
+          e.amount_afn,
+          e.note,
+          e.created_at,
+          e.updated_at,
+          e.deleted_at,
+          // The server stores the proposer as "" (FK to users(id), nullable). Map
+          // "" → NULL, matching the pull-path entry applier (projection/entries.ts),
+          // so the FK holds; readers coalesce a null proposer to the local self.
+          e.proposed_by_user_id || null,
+          e.current_event_id,
+          e.is_deleted,
+          e.is_settled,
+          e.accepted_at,
+          e.disputed_at,
+          e.disputed_reason,
+          e.settled_at,
+          floorFieldHLCs(["amount_afn", "note", "type", "occurred_at_ms"], e.updated_at),
+        );
+      }
+    } // end else — snapshot projection seed (fresh recovery only; see B9 guard)
 
     // 6. Re-arm this vault's locally-authored, not-yet-server-acked events.
     //    Local events are stamped applied_at at append time, and the snapshot
@@ -517,14 +550,22 @@ export async function restoreFromSnapshot(
   //    pull starts strictly after the highest tail event by reading
   //    the cursor we set here OR by walking forward to the last tail
   //    event's server_seq, whichever is higher.
-  let cursor = snapshot.snapshot_server_seq;
-  for (const ev of snapshot.events) {
-    const seqRaw = (ev as unknown as { server_seq?: number }).server_seq;
-    if (typeof seqRaw === "number" && seqRaw > cursor) {
-      cursor = seqRaw;
+  //    Only on a FRESH recovery. On an already-populated device the local cursor
+  //    already reflects what this device has pulled; overwriting it with
+  //    snapshot_server_seq would either regress a fully-synced device (needless
+  //    re-pull) or — worse — skip the gap a partially-synced device still needs
+  //    (setLastPulledServerSeq is not monotonic). Leave it; the normal pull
+  //    continues from where the device actually is.
+  if (!alreadyPopulated) {
+    let cursor = snapshot.snapshot_server_seq;
+    for (const ev of snapshot.events) {
+      const seqRaw = (ev as unknown as { server_seq?: number }).server_seq;
+      if (typeof seqRaw === "number" && seqRaw > cursor) {
+        cursor = seqRaw;
+      }
     }
+    await setLastPulledServerSeq(snapshot.vault.id, cursor);
   }
-  await setLastPulledServerSeq(snapshot.vault.id, cursor);
 
   // Apply the durably-ingested membership + tail — plus the re-armed local
   // unpushed events from step 6 — now (one fixpoint sweep pass:

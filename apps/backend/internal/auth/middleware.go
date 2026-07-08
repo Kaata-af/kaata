@@ -110,14 +110,17 @@ func (a *SessionAuthenticator) authorize(w http.ResponseWriter, r *http.Request)
 }
 
 func (a *SessionAuthenticator) isRevoked(ctx context.Context, claims *SessionClaims) (bool, error) {
-	key := claims.InstallID + "|" + claims.Provider
+	// Key on account_id too: a revocation check is now account-bound (see
+	// CheckCredentialRevoked), so a cache entry for the old account must not
+	// answer for the new one after an account switch.
+	key := claims.InstallID + "|" + claims.Provider + "|" + claims.AccountID
 	now := time.Now()
 	if entry, ok := a.cache.Get(key); ok {
 		if now.Sub(entry.checkedAt) < revokedCacheTTL {
 			return entry.revoked, nil
 		}
 	}
-	revoked, err := a.svc.CheckCredentialRevoked(ctx, claims.InstallID, claims.Provider)
+	revoked, err := a.svc.CheckCredentialRevoked(ctx, claims.InstallID, claims.Provider, claims.AccountID)
 	if err != nil {
 		return false, err
 	}
@@ -128,9 +131,16 @@ func (a *SessionAuthenticator) isRevoked(ctx context.Context, claims *SessionCla
 // Invalidate purges any cached revocation state for (installID, provider) so
 // the next request re-reads from Postgres. Called by SignOut so a deleted
 // credential row is honored immediately instead of waiting up to 60s for the
-// LRU entry to expire.
+// LRU entry to expire. Cache keys now carry the account_id suffix, so clear
+// every entry sharing the (installID, provider) prefix.
 func (a *SessionAuthenticator) Invalidate(installID, provider string) {
-	a.cache.Remove(installID + "|" + provider)
+	prefix := installID + "|" + provider + "|"
+	legacy := installID + "|" + provider
+	for _, k := range a.cache.Keys() {
+		if k == legacy || strings.HasPrefix(k, prefix) {
+			a.cache.Remove(k)
+		}
+	}
 }
 
 // extractBearer parses an Authorization header. Requires the "Bearer "

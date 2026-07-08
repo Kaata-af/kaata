@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Animated, Platform, StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, Animated, Platform, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
@@ -127,6 +127,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     (message: string, kind: ToastKind = "info") => {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       setToasts((prev) => [...prev, { id, message, kind }]);
+      // M39: toasts are the app's ONLY transient-feedback channel (Alert is
+      // banned), but accessibilityLiveRegion is Android-only and role="alert"
+      // does not announce on iOS VoiceOver — so announce explicitly here so
+      // screen-reader users (who can't see a "saved"/"failed" toast) hear it.
+      AccessibilityInfo.announceForAccessibility(message);
       setTimeout(() => remove(id), DURATION_MS);
     },
     [remove],

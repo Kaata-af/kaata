@@ -48,15 +48,22 @@ export default function EditEntryScreen() {
       setLoaded(true);
       return;
     }
-    getEntry(id).then((e) => {
-      if (e) {
-        setType(e.type);
-        setAmount(String(e.amount_afn));
-        setNote(e.note ?? "");
-        setFound(true);
-      }
-      setLoaded(true);
-    });
+    getEntry(id)
+      .then((e) => {
+        if (e) {
+          setType(e.type);
+          setAmount(String(e.amount_afn));
+          setNote(e.note ?? "");
+          setFound(true);
+        }
+        setLoaded(true);
+      })
+      .catch((err) => {
+        // A rejected read must still flip `loaded` — otherwise this modal is a
+        // permanent spinner with no header/back. Render the not-found branch.
+        console.warn("[entry/edit] load failed", err);
+        setLoaded(true);
+      });
   }, [id]);
 
   // Reliable keyboard pop-up on Android. `autoFocus` on a TextInput inside a
@@ -160,7 +167,10 @@ export default function EditEntryScreen() {
             // "15050" on save. AFN is integer-only.
             onChangeText={(raw) => {
               setAmountError(null);
-              setAmount(toAsciiDigits(raw).match(/^\d*/)?.[0] ?? "");
+              // Strip grouping separators (comma, whitespace, Arabic thousands
+              // ٬) so a pasted "25,000" isn't truncated to "25" — see entry/new.
+              const digits = toAsciiDigits(raw).replace(/[,\s٬]/g, "");
+              setAmount(digits.match(/^\d*/)?.[0] ?? "");
             }}
             placeholder="0"
             placeholderTextColor={colors.textMuted}

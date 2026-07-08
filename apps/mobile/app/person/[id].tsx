@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -48,6 +48,11 @@ export default function PersonDetailScreen() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [sheetFor, setSheetFor] = useState<Entry | null>(null);
   const [confirmDeleteFor, setConfirmDeleteFor] = useState<Entry | null>(null);
+  // L12: synchronous re-entry guard for the WhatsApp ping — the share awaits an
+  // up-to-8s snapshot upload before opening WhatsApp, and without this a user
+  // tapping repeatedly minted a separate 90-day shared-ledger token per tap.
+  const [pinging, setPinging] = useState(false);
+  const pingBusyRef = useRef(false);
   // Viewer read-only gate: false only when I'm a viewer on the active (shared)
   // kaata. Hides give/receive, edit-person, and entry edit/delete.
   const canWrite = useActiveVaultCanWrite(getActiveVaultIdSyncMaybe());
@@ -206,7 +211,14 @@ export default function PersonDetailScreen() {
               <Chip label={t("person.balance.settled")} variant="neutral" />
             ) : null}
             <View style={[styles.balanceRow, rowDir(isRTL)]}>
-              <Text style={[styles.balance, { color: balanceColor }]}>{formatAmount(abs)}</Text>
+              <Text
+                style={[styles.balance, { color: balanceColor, flexShrink: 1 }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.5}
+              >
+                {formatAmount(abs)}
+              </Text>
               <Text style={styles.balanceAfn}>{getCurrentCurrencySymbol()}</Text>
             </View>
           </View>
@@ -285,18 +297,35 @@ export default function PersonDetailScreen() {
         >
           <Pressable
             onPress={async () => {
-              const ok = await shareKaataViaWhatsApp(
-                { name: person.name, phone: person.phone },
-                person.balance,
-                self,
-                entries,
-              );
-              if (!ok) toast.push(t("share.whatsappUnavailable"), "error");
+              if (pingBusyRef.current) return;
+              pingBusyRef.current = true;
+              setPinging(true);
+              try {
+                const ok = await shareKaataViaWhatsApp(
+                  { name: person.name, phone: person.phone },
+                  person.balance,
+                  self,
+                  entries,
+                );
+                if (!ok) toast.push(t("share.whatsappUnavailable"), "error");
+              } finally {
+                pingBusyRef.current = false;
+                setPinging(false);
+              }
             }}
+            disabled={pinging}
             accessibilityRole="button"
-            style={({ pressed }) => [styles.pingButton, pressed && { opacity: 0.85 }]}
+            style={({ pressed }) => [
+              styles.pingButton,
+              pressed && { opacity: 0.85 },
+              pinging && { opacity: 0.6 },
+            ]}
           >
-            <Ionicons name="logo-whatsapp" size={20} color={colors.textInverted} />
+            {pinging ? (
+              <ActivityIndicator size="small" color={colors.textInverted} />
+            ) : (
+              <Ionicons name="logo-whatsapp" size={20} color={colors.textInverted} />
+            )}
             <Text style={styles.pingButtonLabel} numberOfLines={1}>
               {t("person.ping", { name: person.name })}
             </Text>

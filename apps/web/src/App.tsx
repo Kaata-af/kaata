@@ -8,6 +8,8 @@ import { Download } from "./pages/Download";
 import { Home } from "./pages/Home";
 import { Invite } from "./pages/Invite";
 import { NotFound } from "./pages/NotFound";
+import { Privacy } from "./pages/Privacy";
+import { Terms } from "./pages/Terms";
 
 // Lazy + code-split: the admin dashboard pulls in recharts, which must NOT ship
 // in the public marketing bundle. Only loaded when an admin route is hit.
@@ -53,6 +55,8 @@ export function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/download" element={<Download />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
           <Route path="/v/:token" element={<CustomerView />} />
           {/* Phase 4: vault-invite landing. Public, no auth — purely
               informational, mirrors what's behind the token. Actual accept

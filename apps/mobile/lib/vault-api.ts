@@ -287,10 +287,17 @@ export async function fetchPendingInvitations(): Promise<PendingInvite[]> {
   // hash post-migration so we cannot key on token here.
   try {
     const db = await getDb();
-    await db.withTransactionAsync(async () => {
-      for (const p of out) {
-        await db.runAsync(
-          `UPDATE pending_invitations
+    // B8/M23: serialize this mirror write under applyEventMutex like every
+    // other write-transaction on the shared connection — an un-mutexed BEGIN
+    // here (opening the Members screen while the scheduler ingests a page) can
+    // tear the in-flight transaction into autocommit. Body only touches
+    // pending_invitations (no applyEvent), so it can't re-enter and deadlock.
+    const { applyEventMutex } = require("./projection") as typeof import("./projection");
+    await applyEventMutex.runExclusive(async () => {
+      await db.withTransactionAsync(async () => {
+        for (const p of out) {
+          await db.runAsync(
+            `UPDATE pending_invitations
               SET vault_name       = ?,
                   invited_by_email = ?,
                   invited_by_name  = ?,
@@ -301,17 +308,18 @@ export async function fetchPendingInvitations(): Promise<PendingInvite[]> {
                   fetched_at       = ?
             WHERE vault_id    = ?
               AND accepted_at IS NULL`,
-          p.vault_name,
-          p.inviter_email,
-          p.inviter_name,
-          p.role,
-          p.inviter_email ?? "",
-          p.invited_at,
-          p.expires_at,
-          now,
-          p.vault_id,
-        );
-      }
+            p.vault_name,
+            p.inviter_email,
+            p.inviter_name,
+            p.role,
+            p.inviter_email ?? "",
+            p.invited_at,
+            p.expires_at,
+            now,
+            p.vault_id,
+          );
+        }
+      });
     });
   } catch {
     // pending_invitations table may not exist yet on a partial migration —

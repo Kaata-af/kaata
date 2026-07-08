@@ -54,27 +54,34 @@ export default function EditPersonScreen() {
 
   useEffect(() => {
     if (!id) return;
-    getPerson(id).then((p) => {
-      if (p) {
-        // kaata stores one display_name; the edit UI shows it as first + last
-        // (matching the phone Contacts app). Split on the first space: single-
-        // word names keep an empty last name. See contacts-sync.splitName.
-        const s = splitName(p.name);
-        setFirstName(s.firstName);
-        setLastName(s.lastName ?? "");
-        if (p.phone) {
-          // Split stored E.164 into (country, national) so the picker shows
-          // the right flag and the input shows just the national digits.
-          const inferred = inferCountryFromE164(p.phone);
-          const dial = getCountry(inferred).dialCode;
-          setCountryCode(inferred);
-          setPhone(p.phone.startsWith(dial) ? p.phone.slice(dial.length) : p.phone);
-        } else {
-          setPhone("");
+    getPerson(id)
+      .then((p) => {
+        if (p) {
+          // kaata stores one display_name; the edit UI shows it as first + last
+          // (matching the phone Contacts app). Split on the first space: single-
+          // word names keep an empty last name. See contacts-sync.splitName.
+          const s = splitName(p.name);
+          setFirstName(s.firstName);
+          setLastName(s.lastName ?? "");
+          if (p.phone) {
+            // Split stored E.164 into (country, national) so the picker shows
+            // the right flag and the input shows just the national digits.
+            const inferred = inferCountryFromE164(p.phone);
+            const dial = getCountry(inferred).dialCode;
+            setCountryCode(inferred);
+            setPhone(p.phone.startsWith(dial) ? p.phone.slice(dial.length) : p.phone);
+          } else {
+            setPhone("");
+          }
         }
-      }
-      setLoaded(true);
-    });
+        setLoaded(true);
+      })
+      .catch((err) => {
+        // A rejected read must still flip `loaded`, else this modal is a
+        // permanent spinner with no header/back. Render the not-found branch.
+        console.warn("[person/edit] load failed", err);
+        setLoaded(true);
+      });
   }, [id]);
 
   // Reliable keyboard pop-up on Android — see entry/[id]/edit for context.

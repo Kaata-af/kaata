@@ -1119,11 +1119,15 @@ function BackgroundCheckIn({ installId }: { installId: string }) {
           app_locale: getLocale(),
           installed_at_unix_ms: installedAtMs ?? undefined,
           has_onboarded: Boolean(self),
-          // Report the shopkeeper's OWN profile so the admin dashboard can show
-          // who's using the app regardless of sign-in (never customer data).
-          self_name: self?.name || undefined,
-          self_phone: self?.phone || undefined,
-          shop_name: self?.shop_name || undefined,
+          // B5: report the shopkeeper's OWN profile ONLY when signed in
+          // (account_id present). An anonymous / "stay fully offline" install
+          // was promised "your kaata never leaves this phone", so sending their
+          // name/phone/shop with no account and no consent contradicted that.
+          // Signing in is the consent boundary; offline installs send neither.
+          // (Never customer data in any case.)
+          self_name: accountIdRaw ? self?.name || undefined : undefined,
+          self_phone: accountIdRaw ? self?.phone || undefined : undefined,
+          shop_name: accountIdRaw ? self?.shop_name || undefined : undefined,
           phones_invalid_count: invalidStr ? Number(invalidStr) : undefined,
           phones_conflict_count: conflictStr ? Number(conflictStr) : undefined,
           usage_entries_created: usage.entries_created,

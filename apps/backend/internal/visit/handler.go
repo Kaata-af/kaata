@@ -67,6 +67,14 @@ func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
 		UserAgent:      truncateUTF8(r.UserAgent(), 500),
 		AcceptLanguage: truncateUTF8(r.Header.Get("Accept-Language"), 200),
 	})
+	// count_only=1 is the web bundle's analytics beacon (the download button
+	// itself points straight at the APK). Record the click but skip the 302 —
+	// a redirect can't be followed by the beacon's no-cors fetch and would make
+	// the request a network error, which is why web download counts were 0.
+	if r.URL.Query().Get("count_only") == "1" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	// Fail open: the user getting the APK is more important than perfect
 	// analytics. A logging error must not block the download.
 	http.Redirect(w, r, h.svc.APKDownloadURL(), http.StatusFound)

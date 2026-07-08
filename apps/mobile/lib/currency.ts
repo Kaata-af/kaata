@@ -1,4 +1,5 @@
-import { getAppMeta } from "./db";
+import { getAppMeta, setAppMeta } from "./db";
+import { getDb } from "./db-tx";
 import { getLocale } from "./i18n";
 
 // Currency selection for entry amounts. Curated for the Afghan market:
@@ -89,5 +90,34 @@ export async function initCurrencyFromPref(): Promise<void> {
 export function setCurrentCurrency(code: string): void {
   if (CURRENCIES.some((c) => c.code === code)) {
     currentCurrency = code;
+  }
+}
+
+// Make the module-global display currency follow the ACTIVE vault. Currency is
+// a per-vault property (vaults.currency), but the display symbol was a single
+// global seeded once from app_meta.default_currency and only updated when
+// editing the active vault's settings — so onboarding's currency pick, creating
+// a second vault, and switching vaults all left amounts (home totals, balances,
+// entry rows, the WhatsApp share body, and the shared web ledger) labelled with
+// the wrong currency. Call this whenever the active vault becomes known (home
+// load, vault switch, restore) so getCurrentCurrencySymbol() matches the vault
+// the user is looking at. Also mirrors the choice into default_currency so a
+// pre-first-render read stays consistent. Best-effort; keeps the prior value on
+// any DB error.
+export async function applyVaultCurrency(vaultId: string | null): Promise<void> {
+  if (!vaultId) return;
+  try {
+    const db = await getDb();
+    const row = await db.getFirstAsync<{ currency: string | null }>(
+      "SELECT currency FROM vaults WHERE id = ?",
+      vaultId,
+    );
+    const code = row?.currency;
+    if (code && CURRENCIES.some((c) => c.code === code) && code !== currentCurrency) {
+      currentCurrency = code;
+      await setAppMeta("default_currency", code).catch(() => {});
+    }
+  } catch {
+    // vaults row unreadable — keep the prior symbol.
   }
 }

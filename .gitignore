@@ -49,10 +49,15 @@ yarn-debug.*
 yarn-error.*
 *.log
 
-# env files (keep .example tracked)
+# env files: ignore ALL env files so a real secret can never be staged by
+# `git add .` — most importantly apps/backend/.env.mesh, the Ed25519 mesh
+# signing PRIVATE key emitted by `go run ./cmd/genkeypair`. Keep the tracked
+# *.example / *.production TEMPLATES (placeholders only; real values live in
+# Dokploy/EAS, never in-repo).
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+!.env.production
 
 # OS
 .DS_Store

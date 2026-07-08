@@ -22,6 +22,13 @@ func NewHandler(svc *Service, authSvc *auth.Service) *Handler {
 }
 
 func (h *Handler) CheckIn(w http.ResponseWriter, r *http.Request) {
+	// Cap the body: /v1/check-in is the hottest unauthenticated POST and its
+	// Request carries *string / map fields that force allocation before the
+	// post-decode clamp. Without this an attacker can stream a multi-hundred-MB
+	// self_name / revocation map to exhaust memory. A legitimate check-in is a
+	// few KB. Matches the MaxBytesReader guard on auth / crash-report / visit.
+	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
+
 	var req Request
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpx.Error(w, http.StatusBadRequest, "invalid json body")

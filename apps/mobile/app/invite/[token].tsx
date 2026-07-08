@@ -27,7 +27,7 @@
 
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
@@ -79,6 +79,8 @@ export default function InviteAcceptScreen() {
   const [invite, setInvite] = useState<InviteDetails | null>(null);
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [retryable, setRetryable] = useState(false);
+  // L15: synchronous re-entry guard for onAccept (single-use token).
+  const acceptingRef = useRef(false);
   // Bumped by the Retry button to re-run the lookup effect after a network
   // failure (the /info fallback is the only throwing step in it).
   const [attempt, setAttempt] = useState(0);
@@ -153,7 +155,12 @@ export default function InviteAcceptScreen() {
   }, [token, router, toast, attempt]);
 
   async function onAccept() {
-    if (!invite || !token) return;
+    // L15: synchronous re-entry guard. setStage is async, so without this two
+    // rapid taps both call acceptVaultInvite (a single-use token) — the second
+    // 404s and shows an "invite expired" error for a join that actually
+    // succeeded, plus races two recoverJoinedVault materializations.
+    if (!invite || !token || acceptingRef.current) return;
+    acceptingRef.current = true;
     setStage("accepting");
     try {
       const result = await acceptVaultInvite(token);
@@ -208,6 +215,9 @@ export default function InviteAcceptScreen() {
       toast.push(t("inviteAccept.joinedToast", { name: invite.vault_name }), "success");
       router.replace("/");
     } catch (err) {
+      // Reset the guard so the user can retry after a transient failure (on
+      // success we've already navigated home, so it stays locked).
+      acceptingRef.current = false;
       // Raw err.message stays in the console for debugging; the user sees a
       // localized message chosen from the backend's structured error_code.
       console.warn("[invite] accept failed", err);

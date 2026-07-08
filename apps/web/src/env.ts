@@ -35,8 +35,9 @@ export const APK_DOWNLOAD_URL: string = envOr(
   `https://github.com/Kaata-af/kaata/releases/download/v${APK_VERSION}/kaata-${APK_VERSION}.apk`,
 );
 
-// Operator analytics dashboard (/admin) — the shared secret matching the
-// backend's ADMIN_API_KEY. Optional convenience: if baked in, the dashboard
-// auto-authenticates; otherwise the operator pastes the key into the login box
-// (stored in localStorage). Empty is a valid "not baked in" state.
-export const ADMIN_API_KEY: string = (import.meta.env.VITE_ADMIN_API_KEY ?? "").trim();
+// NOTE: there is deliberately NO ADMIN_API_KEY export. VITE_* values are baked
+// verbatim into the public JS bundle served to every kaata.af visitor, so
+// exposing the admin secret here (even as an optional convenience) risked
+// leaking the whole user PII directory the moment an operator set the build
+// arg. The /admin dashboard authenticates via a paste-once localStorage login;
+// the backend Bearer check is the only real security boundary.

@@ -2924,6 +2924,15 @@ export async function resetAllLocalData(): Promise<void> {
     DROP TABLE IF EXISTS shopkeeper;
     DROP TABLE IF EXISTS _old_shopkeeper;
     DROP TABLE IF EXISTS customers;
+    -- L27: these were omitted, so "Reset all data" left the previous identity's
+    -- signed vault membership credentials (still-valid VMC blobs), revocation
+    -- tombstones, and diagnostics rows behind on a supposedly-clean install —
+    -- recoverable by anyone with the device. schema_migrations is dropped above,
+    -- so migrations 011/016/017 recreate these (CREATE TABLE IF NOT EXISTS) fresh.
+    DROP TABLE IF EXISTS vault_credentials;
+    DROP TABLE IF EXISTS revocation_list;
+    DROP TABLE IF EXISTS mem_samples;
+    DROP TABLE IF EXISTS crash_outbox;
   `);
   await db.closeAsync();
   _resetDbHandleForReset();
@@ -3793,16 +3802,27 @@ export async function readPendingUsage(): Promise<PendingUsage> {
 
 export async function decrementPendingUsage(snapshot: PendingUsage): Promise<void> {
   const db = await getDb();
-  await db.withTransactionAsync(async () => {
-    for (const k of ["entries_created", "customers_added", "shares_sent"] as const) {
-      const n = snapshot[k];
-      if (n <= 0) continue;
-      await db.runAsync(
-        `UPDATE app_meta SET value = CAST(MAX(0, CAST(value AS INTEGER) - ?) AS TEXT) WHERE key = ?`,
-        n,
-        usageKey(k),
-      );
-    }
+  // B8: this fires on every launch check-in success — exactly while the launch
+  // pull/sweep is applying its backlog under applyEventMutex. withTransactionAsync
+  // is non-exclusive on the shared connection, so an un-mutexed BEGIN here can
+  // collide with that in-flight transaction and its rollback tears the victim
+  // into autocommit statements (silent event/projection divergence). Serialize
+  // under the same mutex. This body only touches app_meta (no applyEvent), so it
+  // can never re-enter the mutex and deadlock. Lazy require avoids a static
+  // import cycle (projection -> db-tx -> db).
+  const { applyEventMutex } = require("./projection") as typeof import("./projection");
+  await applyEventMutex.runExclusive(async () => {
+    await db.withTransactionAsync(async () => {
+      for (const k of ["entries_created", "customers_added", "shares_sent"] as const) {
+        const n = snapshot[k];
+        if (n <= 0) continue;
+        await db.runAsync(
+          `UPDATE app_meta SET value = CAST(MAX(0, CAST(value AS INTEGER) - ?) AS TEXT) WHERE key = ?`,
+          n,
+          usageKey(k),
+        );
+      }
+    });
   });
 }
 
