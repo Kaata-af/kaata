@@ -2,7 +2,9 @@
 // dashboard). Reads GET /v1/admin/stats?days=N and /v1/admin/users (guarded by
 // the backend's ADMIN_API_KEY). Charts via recharts; this whole page is
 // lazy-loaded (App.tsx) so recharts never ships in the public marketing bundle.
-// The key comes from build-time VITE_ADMIN_API_KEY or a paste-once login.
+// The key is entered via a paste-once login and kept in localStorage — it is
+// NEVER baked into the bundle (that would ship the admin secret to every
+// visitor); the backend Bearer check is the security boundary.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -19,7 +21,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { BACKEND_URL, ADMIN_API_KEY } from "../env";
+import { BACKEND_URL } from "../env";
 
 type SourceRow = { source: string; visits: number; downloads: number; attributed: number };
 type LocaleCount = { locale: string; count: number };
@@ -186,9 +188,7 @@ function lastSeenInfo(iso: string): { label: string; online: boolean } {
 }
 
 export function Admin() {
-  const [token, setToken] = useState<string>(
-    () => localStorage.getItem(TOKEN_KEY) || ADMIN_API_KEY || "",
-  );
+  const [token, setToken] = useState<string>(() => localStorage.getItem(TOKEN_KEY) || "");
   const [input, setInput] = useState("");
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
