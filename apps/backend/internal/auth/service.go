@@ -14,6 +14,7 @@ import (
 )
 
 const ProviderGoogle = "google"
+const ProviderApple = "apple"
 
 // maxTokenAge is a GENEROUS outer bound on a Google ID token's `iat` — set to
 // the token's own lifetime so it defers entirely to idtoken.Validate's `exp`
@@ -34,6 +35,7 @@ const maxClockSkewAhead = 15 * time.Minute
 type Service struct {
 	pool              *pgxpool.Pool
 	googleWebClientID string
+	appleClientID     string
 	sessionSecret     string
 }
 
@@ -44,6 +46,11 @@ func NewService(pool *pgxpool.Pool, googleWebClientID, sessionSecret string) *Se
 		sessionSecret:     sessionSecret,
 	}
 }
+
+// SetAppleClientID wires the Apple audience (the app's bundle id) for
+// /v1/auth/apple. When empty, Apple sign-in is rejected. Called at startup from
+// config so NewService's signature (and its existing callers) stay unchanged.
+func (s *Service) SetAppleClientID(id string) { s.appleClientID = id }
 
 // User is the display block returned to the mobile client.
 type User struct {
@@ -367,6 +374,136 @@ func (s *Service) SignInWithGoogle(
 			Name:       name,
 			PictureURL: picture,
 			Phone:      accountPhone,
+		},
+	}, nil
+}
+
+// SignInWithApple verifies an Apple identity token and resolves-or-creates the
+// account, mirroring SignInWithGoogle for provider='apple'. It intentionally
+// does NOT take a pending_vault_registration: an Apple-onboarding install
+// registers its default vault via the existing POST /v1/vaults follow-up (the
+// same path the no-pending Google branch uses), which keeps this small and
+// avoids duplicating the vault-canonicalisation logic in the working Google path.
+//
+// name/email are present only on the FIRST Apple sign-in for a given Apple ID
+// (Apple omits them afterwards), and email may be a private-relay address — so
+// we never clobber a stored non-empty profile with a later empty one.
+func (s *Service) SignInWithApple(
+	ctx context.Context,
+	installID, idTokenStr, displayName string,
+) (GoogleSignInResult, error) {
+	if s.appleClientID == "" {
+		return GoogleSignInResult{}, errors.New("apple client id not configured")
+	}
+	payload, err := VerifyAppleIDToken(ctx, idTokenStr, s.appleClientID)
+	if err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("verify apple id token: %w", err)
+	}
+	providerSub := payload.Sub
+
+	email := payload.Email
+	emailNormalized := normalizeEmail(email)
+	name := strings.TrimSpace(displayName)
+
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	accountID, _, err := resolveOrCreateAccount(ctx, tx, ProviderApple, providerSub, AccountProfile{
+		Email:           email,
+		EmailNormalized: emailNormalized,
+		EmailVerified:   payload.EmailVerified,
+		Name:            name,
+		PictureURL:      "",
+	})
+	if err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("resolve account: %w", err)
+	}
+
+	var accountPhone string
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(phone_e164, '') FROM accounts WHERE id = $1::uuid
+	`, accountID).Scan(&accountPhone); err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("read account phone: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO installs (install_id, app_version, platform)
+		VALUES ($1, 'unknown', 'unknown')
+		ON CONFLICT (install_id) DO NOTHING
+	`, installID); err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("ensure installs row: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM auth_credentials
+		WHERE install_id = $1 AND provider = $2 AND account_id IS DISTINCT FROM $3::uuid
+	`, installID, ProviderApple, accountID); err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("clear stale auth credential: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE installs SET account_id = $2::uuid WHERE install_id = $1
+	`, installID, accountID); err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("set install account_id: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO auth_credentials (
+			install_id, provider, provider_sub, account_id,
+			email, name, picture_url, revoked_at, last_used_at
+		) VALUES ($1, $2, $3, $4::uuid, $5, $6, '', NULL, NOW())
+		ON CONFLICT (install_id, provider) DO UPDATE
+		SET provider_sub = EXCLUDED.provider_sub,
+		    account_id   = EXCLUDED.account_id,
+		    email        = COALESCE(NULLIF(EXCLUDED.email, ''), auth_credentials.email),
+		    name         = COALESCE(NULLIF(EXCLUDED.name, ''), auth_credentials.name),
+		    revoked_at   = NULL,
+		    last_used_at = NOW()
+	`, installID, ProviderApple, providerSub, accountID, email, name); err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("upsert auth credential: %w", err)
+	}
+
+	// Return the account's existing canonical vault, if any. No pending-vault
+	// creation here — the client POSTs /v1/vaults after onboarding.
+	var defaultVaultID *string
+	var existingVault string
+	err = tx.QueryRow(ctx, `
+		SELECT v.vault_id::text
+		FROM vault_members vm
+		JOIN vaults v ON v.vault_id = vm.vault_id
+		WHERE vm.account_id = $1::uuid AND vm.role = 'owner'
+		  AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL
+		  AND v.archived_at IS NULL
+		ORDER BY v.created_at ASC
+		LIMIT 1
+	`, accountID).Scan(&existingVault)
+	switch {
+	case err == nil:
+		id := existingVault
+		defaultVaultID = &id
+	case errors.Is(err, pgx.ErrNoRows):
+		// no vault yet — client registers via POST /v1/vaults
+	default:
+		return GoogleSignInResult{}, fmt.Errorf("lookup default vault: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("commit sign-in tx: %w", err)
+	}
+
+	sessionJWT, err := SignSession(s.sessionSecret, accountID, installID, ProviderApple, providerSub)
+	if err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("sign session jwt: %w", err)
+	}
+	return GoogleSignInResult{
+		SessionJWT:     sessionJWT,
+		AccountID:      accountID,
+		DefaultVaultID: defaultVaultID,
+		User: User{
+			Sub:   providerSub,
+			Email: email,
+			Name:  name,
+			Phone: accountPhone,
 		},
 	}, nil
 }

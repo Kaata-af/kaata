@@ -163,6 +163,7 @@ func main() {
 	// --- services & handlers ------------------------------------------------
 
 	authSvc := auth.NewService(pool, cfg.GoogleWebClientID, cfg.SessionJWTSecret)
+	authSvc.SetAppleClientID(cfg.AppleClientID)
 	authH := auth.NewHandler(authSvc)
 
 	adminH := admin.NewHandler(admin.NewService(pool, cfg.OperatorAccountIDs, cfg.OperatorIPs))
@@ -297,6 +298,10 @@ func main() {
 	// was a free token-validation DoS / account-minting surface.
 	r.With(httpx.RateLimitPerIP(googleSignInLimit, googleSignInWindow)).
 		Post("/v1/auth/google", authH.GoogleSignIn)
+	// Sign in with Apple (App Store guideline 4.8). Same per-IP cap as Google —
+	// it is likewise an account-creation + token-validation surface.
+	r.With(httpx.RateLimitPerIP(googleSignInLimit, googleSignInWindow)).
+		Post("/v1/auth/apple", authH.AppleSignIn)
 	// Shared ledger ("see the full ledger on kaata.af"). All PUBLIC: the share
 	// link is meant to be opened by a customer with no app/account. POST is
 	// rate-limited per IP; GET-by-token + the SSR view are open (opaque tokens).
