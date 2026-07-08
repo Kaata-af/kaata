@@ -2924,6 +2924,15 @@ export async function resetAllLocalData(): Promise<void> {
     DROP TABLE IF EXISTS shopkeeper;
     DROP TABLE IF EXISTS _old_shopkeeper;
     DROP TABLE IF EXISTS customers;
+    -- L27: these were omitted, so "Reset all data" left the previous identity's
+    -- signed vault membership credentials (still-valid VMC blobs), revocation
+    -- tombstones, and diagnostics rows behind on a supposedly-clean install —
+    -- recoverable by anyone with the device. schema_migrations is dropped above,
+    -- so migrations 011/016/017 recreate these (CREATE TABLE IF NOT EXISTS) fresh.
+    DROP TABLE IF EXISTS vault_credentials;
+    DROP TABLE IF EXISTS revocation_list;
+    DROP TABLE IF EXISTS mem_samples;
+    DROP TABLE IF EXISTS crash_outbox;
   `);
   await db.closeAsync();
   _resetDbHandleForReset();
