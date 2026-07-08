@@ -30,6 +30,19 @@ export function getSource(): string {
   }
 }
 
+// Redact token-bearing routes before they reach analytics. The invite (/i/:token)
+// and shared-ledger (/v/:token) paths carry a secret token that the backend
+// deliberately stores only as a SHA-256 hash — beaconing the raw path would rest
+// the plaintext token in web_visits next to the visitor's IP, defeating that
+// design and letting anyone with DB/backup access redeem the invite. Send the
+// route pattern instead, and drop the query string on those routes.
+function safeVisitPath(): string {
+  const p = window.location.pathname;
+  const m = p.match(/^\/(i|v)\/.+/);
+  if (m) return `/${m[1]}/:token`;
+  return p + window.location.search;
+}
+
 // Fire-and-forget visit beacon. Once per browser session (sessionStorage flag)
 // so navigating between routes doesn't multiply the count. Server harvests
 // IP + Accept-Language from the request itself; body just carries source +
@@ -50,7 +63,7 @@ export function fireVisitOnce(): void {
   }
   const body = JSON.stringify({
     source: getSource(),
-    path: window.location.pathname + window.location.search,
+    path: safeVisitPath(),
     referrer: document.referrer,
   });
   // sendBeacon is more reliable than fetch — survives page-unload, doesn't
@@ -83,17 +96,24 @@ export function getTrackedDownloadUrl(): string {
   return src ? `${base}?s=${encodeURIComponent(src)}` : base;
 }
 
-// Best-effort download-click counter. The download link itself now points
-// at the same-origin APK (so a backend outage can't kill the funnel); this
-// pings /v1/download purely for the count. redirect:"manual" stops the
-// browser from pulling the APK body a second time through the 302.
+// Best-effort download-click counter. The download link itself points at the
+// GitHub APK (so a backend outage can't kill the funnel); this pings
+// /v1/download purely for the count.
+//
+// It hits /v1/download?count_only=1, which records the click and returns 204
+// WITHOUT the 302 to the APK. The previous `mode:"no-cors" + redirect:"manual"`
+// combination is a spec-guaranteed network error for a cross-origin request
+// (main-fetch rejects a non-follow redirect mode under no-cors), so the beacon
+// never actually left the browser and every web download counted as zero. With
+// a 204 there is no redirect to follow, so plain no-cors works.
 export function reportDownloadClick(): void {
+  const base = getTrackedDownloadUrl();
+  const url = base.includes("?") ? `${base}&count_only=1` : `${base}?count_only=1`;
   try {
-    void fetch(getTrackedDownloadUrl(), {
+    void fetch(url, {
       method: "GET",
       keepalive: true,
       mode: "no-cors",
-      redirect: "manual",
     }).catch(() => {
       // Analytics must never break the download.
     });
