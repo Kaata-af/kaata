@@ -41,6 +41,13 @@ export type CrashKind = "boot" | "mesh" | "sync" | "exit" | "memsample" | "js" |
 const MESSAGE_CAP = 500;
 const FLUSH_BATCH = 50;
 const FLUSH_TIMEOUT_MS = 5_000;
+// Ring-cap the outbox. queueCrashReport is fed by every failed boot step, every
+// unexpected sync-scheduler tick, and 20 memsample rows per abnormal exit, while
+// the DELETE only prunes rows that have flushed — so on a device where
+// /v1/crash-reports keeps failing (endpoint down, blocked host, long-offline)
+// the table grew without bound and bloated storage on the 8-16GB target devices.
+// Keep only the newest rows (like mem_samples=240 / sync-diag=120).
+const OUTBOX_CAP = 500;
 
 type QueueArgs = {
   kind: CrashKind;
@@ -71,6 +78,13 @@ export async function queueCrashReport(args: QueueArgs): Promise<void> {
       args.auxKb ?? null,
       APP_VERSION,
       args.createdAtMs ?? Date.now(),
+    );
+    // Drop the oldest rows beyond the cap so a device that can never flush
+    // doesn't accumulate outbox rows forever. rowid is monotonic with insertion.
+    await db.runAsync(
+      `DELETE FROM crash_outbox
+        WHERE rowid NOT IN (SELECT rowid FROM crash_outbox ORDER BY rowid DESC LIMIT ?)`,
+      OUTBOX_CAP,
     );
   } catch {
     /* swallow — diagnostics are best-effort */
