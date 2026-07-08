@@ -188,9 +188,25 @@ export async function applyPersonArchived(tx: SQLiteTx, event: PersonArchivedEve
     event.target_id,
   );
   if ((remaining?.n ?? 0) === 0) {
+    // M31: advance the phone_e164 field-HLC to this archive event's HLC when we
+    // null the phone. Without it, a concurrently-authored phone change with an
+    // OLDER HLC arriving later still clears the person_added floor and
+    // resurrects the phone on this device — while the Go projection (global
+    // HLC-order replay) keeps it NULL, a permanent divergence. Treating the
+    // null as a phone write at the archive HLC keeps LWW consistent: a
+    // genuinely newer (HLC > archive) phone change still wins and re-sets it.
+    const urow = await tx.getFirstAsync<{ field_hlcs: string | null }>(
+      `SELECT field_hlcs FROM users WHERE id = ?`,
+      event.target_id,
+    );
+    const next: FieldHLCMap = {
+      ...parseFieldHLCs(urow?.field_hlcs ?? null),
+      phone_e164: event.hlc,
+    };
     await tx.runAsync(
-      "UPDATE users SET phone_e164 = NULL, updated_at = ? WHERE id = ?",
+      "UPDATE users SET phone_e164 = NULL, updated_at = ?, field_hlcs = ? WHERE id = ?",
       event.hlc.pms,
+      serializeFieldHLCs(next),
       event.target_id,
     );
   }

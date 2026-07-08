@@ -116,7 +116,12 @@ export async function applyEntryAmended(tx: SQLiteTx, event: EntryAmendedEvent):
   const c = event.payload.changes;
   let anyFieldApplied = false;
 
-  if ("amount_afn" in c && c.amount_afn !== undefined) {
+  // M33: reject null (not just undefined) for the NOT NULL columns amount_afn
+  // and type — JSON null passes `!== undefined`, so a crafted `{"amount_afn":null}`
+  // amend would attempt UPDATE ... SET amount_afn = NULL. Go decodes these as
+  // pointers where null → nil → field skipped; `!= null` matches that so the two
+  // projections agree (and we never try to write NULL into a NOT NULL column).
+  if ("amount_afn" in c && c.amount_afn != null) {
     if (compareFieldHLC(current, "amount_afn", event.hlc) === "apply") {
       sets.push("amount_afn = ?");
       args.push(c.amount_afn);
@@ -132,7 +137,7 @@ export async function applyEntryAmended(tx: SQLiteTx, event: EntryAmendedEvent):
       anyFieldApplied = true;
     }
   }
-  if ("type" in c && c.type !== undefined) {
+  if ("type" in c && c.type != null) {
     if (compareFieldHLC(current, "type", event.hlc) === "apply") {
       sets.push("type = ?");
       args.push(c.type);
