@@ -155,6 +155,11 @@ export function SiteFooter() {
               </Link>
             </li>
             <li>
+              <Link to="/terms" className="hover:text-neutral-900 transition-colors">
+                {t("footer.terms")}
+              </Link>
+            </li>
+            <li>
               <span>{t("footer.openSource")}</span>
             </li>
           </ul>
