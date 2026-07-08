@@ -101,6 +101,16 @@ func (s *Service) SignInWithGoogle(
 		return GoogleSignInResult{}, fmt.Errorf("verify google id token: %w", err)
 	}
 
+	// Pin the issuer. idtoken.Validate checks signature/exp/aud but NOT iss, and
+	// its ES256 branch also trusts Google's IAP cert endpoint (whose tokens carry
+	// iss=https://cloud.google.com/iap) — a different Google signing domain. Only
+	// real Google Sign-In tokens carry the accounts.google.com issuer.
+	switch payload.Issuer {
+	case "accounts.google.com", "https://accounts.google.com":
+	default:
+		return GoogleSignInResult{}, fmt.Errorf("google id token has unexpected issuer %q", payload.Issuer)
+	}
+
 	providerSub := payload.Subject
 	if providerSub == "" {
 		return GoogleSignInResult{}, errors.New("google id token missing sub claim")
