@@ -384,9 +384,16 @@ class KaataBtClassicModule : Module() {
     // Battery-optimization (Doze) exemption — Briar parity. Without the OS doze
     // whitelist, hostile OEMs (MIUI/Huawei/Xiaomi) kill the unwhitelisted process
     // on swipe BEFORE the revival alarm can fire, so the FGS notification vanishes
-    // and the native engine never runs. REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is
-    // already declared in the manifest; kaata sideloads (GitHub Releases), so the
-    // Play-Store restriction on this intent does not apply.
+    // and the native engine never runs.
+    //
+    // PLAY-SAFE (2026-07): we deliberately do NOT hold
+    // REQUEST_IGNORE_BATTERY_OPTIMIZATIONS and do NOT fire the one-tap
+    // ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS dialog — Google restricts both
+    // (they were dropped in H3 for Play submission). Instead we OPEN the
+    // battery-optimization settings LIST (ACTION_IGNORE_BATTERY_OPTIMIZATION_
+    // SETTINGS), which needs no permission; the user finds Kaata and grants
+    // manually. The isIgnoringBatteryOptimizations QUERY below is a plain
+    // PowerManager read (no permission) so we still detect the result on resume.
     AsyncFunction("isIgnoringBatteryOptimizations") { promise: Promise ->
       try {
         val pm = appCtx.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
@@ -401,10 +408,14 @@ class KaataBtClassicModule : Module() {
       }
     }
 
-    // Fire the real exemption intent (Settings.ACTION_REQUEST_IGNORE_BATTERY_
-    // OPTIMIZATIONS, package:<pkg>) — the system dialog Briar uses. Resolves true
-    // if already exempt (no dialog needed). The caller re-checks
-    // isIgnoringBatteryOptimizations() on resume to confirm the user granted it.
+    // Open the battery-optimization settings LIST so the user can exempt Kaata
+    // manually. PLAY-SAFE: uses ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS (the
+    // "All apps" battery list) — NOT the permission-gated one-tap
+    // ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS dialog — so no restricted
+    // permission or intent is used. Resolves true if already exempt (nothing to
+    // open). The caller re-checks isIgnoringBatteryOptimizations() on resume to
+    // confirm the user granted it. Falls back to the app's own details page if
+    // the OEM lacks the list screen.
     AsyncFunction("requestIgnoreBatteryOptimizations") { promise: Promise ->
       try {
         val pm = appCtx.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
@@ -416,8 +427,12 @@ class KaataBtClassicModule : Module() {
         } else {
           val activity = appContext.currentActivity
             ?: throw CodedException("E_NO_ACTIVITY", "No current activity for battery exemption", null)
-          val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+          val listIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+          val fallbackIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
             .setData(android.net.Uri.parse("package:" + appCtx.packageName))
+          val intent =
+            if (listIntent.resolveActivity(appCtx.packageManager) != null) listIntent
+            else fallbackIntent
           activity.runOnUiThread { activity.startActivity(intent) }
           promise.resolve(true)
         }

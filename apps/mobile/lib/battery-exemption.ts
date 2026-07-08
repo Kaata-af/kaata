@@ -1,13 +1,17 @@
 // apps/mobile/lib/battery-exemption.ts
 //
-// Battery-optimization (Doze) exemption — Briar parity. This is the load-bearing
-// piece for swipe-survival: without the OS whitelist, hostile OEMs (MIUI/Huawei/
-// Xiaomi) kill the unwhitelisted process on swipe BEFORE the revival alarm can
-// fire, so the foreground-service notification vanishes and the native engine
-// never runs. We fire the REAL system intent
-// (Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS) via the native module —
-// kaata sideloads (GitHub Releases), so the old "Play Store flags this" note was
-// wrong. REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is already declared in the manifest.
+// Battery-optimization (Doze) exemption — Briar parity. Swap-survival aid:
+// without the OS whitelist, hostile OEMs (MIUI/Huawei/Xiaomi) kill the
+// unwhitelisted process on swipe BEFORE the revival alarm can fire, so the
+// foreground-service notification vanishes and the native engine never runs.
+//
+// PLAY-SAFE (2026-07): we do NOT hold REQUEST_IGNORE_BATTERY_OPTIMIZATIONS and
+// do NOT fire the restricted one-tap ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+// dialog (both dropped in H3 for Play submission). requestBatteryExemption()
+// instead OPENS the battery-optimization settings list (native side) so the
+// user exempts Kaata manually. isIgnoringBatteryOptimizations() is a plain
+// PowerManager query (no permission) so we still detect the result on resume.
+// Trade-off: a couple more taps for the user; no Play-restricted API used.
 
 import { Platform } from "react-native";
 import { getAppMeta, setAppMeta } from "./db";
