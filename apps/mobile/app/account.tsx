@@ -170,8 +170,13 @@ export default function AccountScreen() {
       } else if (err instanceof RoleGateRejectionError) {
         setSaveError(t("entry.roleDenied"));
       } else {
-        // Most likely a phone UNIQUE collision with an existing contact.
-        setSaveError(t("personAdd.phone.conflict", { name: trimmedPhone }));
+        // L13: generic failure. The old branch showed the phone-conflict copy
+        // ("Phone already used by {name}") for ANY error, rendering the user's
+        // own typed phone digits in the name slot — or an empty name on a
+        // name-only save. Migration 007 dropped the phone UNIQUE constraint, so
+        // a real conflict wouldn't even surface here; a plain save error should
+        // read as one.
+        setSaveError(t("entry.saveFailed"));
       }
     } finally {
       savingRef.current = false;
