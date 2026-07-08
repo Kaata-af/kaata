@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -260,7 +259,10 @@ func main() {
 	// per-IP key function depends on this; without it every request looks
 	// like it came from the reverse-proxy's loopback IP and the cap becomes
 	// global instead of per-client.
-	r.Use(middleware.RealIP)
+	// httpx.RealIP (not chi's middleware.RealIP): derive the client IP from
+	// X-Forwarded-For only, ignoring the spoofable True-Client-IP / X-Real-IP
+	// headers chi trusts at higher precedence. See httpx/clientip.go.
+	r.Use(httpx.RealIP)
 	r.Use(httpx.Logger)
 	r.Use(httpx.Recoverer)
 	r.Use(httpx.CORS)
@@ -405,6 +407,13 @@ func main() {
 		Addr:              ":" + cfg.BackendPort,
 		Handler:           r,
 		ReadHeaderTimeout: 10 * time.Second,
+		// Bound slow-client body reads and slow response reads so a handful of
+		// Slowloris-style connections can't pin goroutines (and DB connections,
+		// on sync) indefinitely. WriteTimeout is generous enough for a large
+		// gzipped snapshot/pull on a poor link; IdleTimeout reaps idle keep-alives.
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 120 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 	serveErr := make(chan error, 1)
 	go func() {
