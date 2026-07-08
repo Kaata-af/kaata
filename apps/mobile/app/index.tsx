@@ -31,7 +31,7 @@ import { useToast, useToastOffset } from "../components/Toast";
 import { UpdateBanner } from "../components/UpdateBanner";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
-import { getCurrentCurrencySymbol } from "../lib/currency";
+import { applyVaultCurrency, getCurrentCurrencySymbol } from "../lib/currency";
 // Type-only — the recovery module itself stays a lazy dynamic import below.
 import type { RecoveryProgress } from "../lib/recovery";
 import { VaultPickerSheet } from "../components/VaultPickerSheet";
@@ -284,6 +284,12 @@ export default function HomeScreen() {
         getAppMeta("account_id"),
         getAppMeta("shop_mode_enabled"),
       ]);
+      // Make the display currency follow the active vault before amounts paint
+      // (currency is per-vault; the global symbol otherwise lags behind a
+      // switch/restore). Awaited so getCurrentCurrencySymbol() is correct on
+      // this render.
+      await applyVaultCurrency(vaultId);
+
       setSelf(s);
       setAllPeople(list);
       setSessionUser(user);
@@ -311,6 +317,7 @@ export default function HomeScreen() {
           const fallback = active[0]?.id ?? null;
           if (fallback) {
             await setActiveVaultId(fallback);
+            await applyVaultCurrency(fallback);
             setActiveVaultIdState(fallback);
           } else {
             setActiveVaultIdState(null);
