@@ -16,16 +16,28 @@ export async function applyShopProfileUpdated(
   // the vault_id (set on the envelope by appendShopProfileUpdated).
   const c = event.payload.changes;
 
-  const row = await tx.getFirstAsync<{ field_hlcs: string | null }>(
+  let row = await tx.getFirstAsync<{ field_hlcs: string | null }>(
     `SELECT field_hlcs FROM shop_profile WHERE vault_id = ?`,
     event.target_id,
   );
   if (row == null) {
-    // shop_profile row is created during onboarding before any
-    // shop_profile_updated can be authored locally. If we receive an
-    // update for a vault whose shop_profile we haven't pulled yet,
-    // drop and let the next pull pick up the create.
-    return;
+    // M32: create the shop_profile row on demand (mirrors the Go projection,
+    // which creates it on the fly). The row is normally minted at onboarding,
+    // but a JOINED/restored vault whose FIRST shop rename lands in the
+    // post-cursor tail has no row yet — the old silent return was counted
+    // {applied} by the sweep and lost the rename permanently. Seed a bare row
+    // (empty field_hlcs) so the LWW update below applies and future updates
+    // compare correctly.
+    await tx.runAsync(
+      `INSERT OR IGNORE INTO shop_profile
+         (vault_id, owner_name, shop_name, created_at, updated_at, field_hlcs)
+       VALUES (?, NULL, '', ?, ?, ?)`,
+      event.target_id,
+      event.hlc.pms,
+      event.hlc.pms,
+      serializeFieldHLCs({}),
+    );
+    row = { field_hlcs: serializeFieldHLCs({}) };
   }
 
   const current: FieldHLCMap = parseFieldHLCs(row.field_hlcs);
@@ -35,7 +47,8 @@ export async function applyShopProfileUpdated(
   const args: Array<string | number | null> = [];
   let anyFieldApplied = false;
 
-  if ("shop_name" in c && c.shop_name !== undefined) {
+  // M33: reject null for shop_name (NOT NULL), matching Go's pointer decode.
+  if ("shop_name" in c && c.shop_name != null) {
     if (compareFieldHLC(current, "shop_name", event.hlc) === "apply") {
       sets.push("shop_name = ?");
       args.push(c.shop_name);

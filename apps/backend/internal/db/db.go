@@ -20,7 +20,29 @@ var migrationFS embed.FS
 // where the container is reported "started" before Postgres actually accepts
 // TCP connections.
 func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(ctx, url)
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, fmt.Errorf("parse pool config: %w", err)
+	}
+	// Bound the request-path pool so a slow/expensive query (e.g. an admin
+	// analytics full-events scan) cannot pin every connection and stall
+	// user-facing check-in/sync, and so a hung query cannot hold a connection
+	// forever. statement_timeout is generous enough for the heaviest legit
+	// query and every DDL migration, but kills a runaway; idle_in_transaction
+	// reaps a stuck transaction. MaxConns gives headroom over pgx's default
+	// (~4 on a small VPS) while staying well under Postgres max_connections.
+	cfg.MaxConns = 15
+	if cfg.ConnConfig.RuntimeParams == nil {
+		cfg.ConnConfig.RuntimeParams = map[string]string{}
+	}
+	if _, ok := cfg.ConnConfig.RuntimeParams["statement_timeout"]; !ok {
+		cfg.ConnConfig.RuntimeParams["statement_timeout"] = "30000" // 30s
+	}
+	if _, ok := cfg.ConnConfig.RuntimeParams["idle_in_transaction_session_timeout"]; !ok {
+		cfg.ConnConfig.RuntimeParams["idle_in_transaction_session_timeout"] = "60000" // 60s
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("create pool: %w", err)
 	}

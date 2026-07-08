@@ -1,5 +1,6 @@
 import Constants from "expo-constants";
 import * as SecureStore from "expo-secure-store";
+import { Platform } from "react-native";
 import { GOOGLE_WEB_CLIENT_ID } from "../constants/env";
 import { getBackendUrl } from "./api";
 import {
@@ -107,6 +108,10 @@ const DIFFERENT_ACCOUNT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 //
 // In Expo Go this is a no-op — the native module isn't there.
 export function configureGoogleSignIn(): void {
+  // Google sign-in is Android-only (iOS uses Sign in with Apple). Skip configure
+  // on iOS: without an iOS-type OAuth client id / GoogleService-Info.plist it
+  // rejects with "failed to determine clientID" and crashes the caller (B1).
+  if (Platform.OS === "ios") return;
   const lib = loadGoogleSignin();
   if (!lib) return;
   lib.GoogleSignin.configure({
@@ -291,19 +296,28 @@ export async function signInWithGoogle(
     }
     throw new Error(`Backend rejected sign-in (${res.status}): ${detail}`);
   }
-  const body = (await res.json()) as {
-    session_jwt: string;
-    account_id?: string;
-    default_vault_id?: string | null;
-    user: SessionUser & { sub?: string };
-  };
+  const body = (await res.json()) as AuthResponse;
+  return applyAuthResponse(body);
+}
 
+// Backend response shape shared by /v1/auth/google and /v1/auth/apple.
+type AuthResponse = {
+  session_jwt: string;
+  account_id?: string;
+  default_vault_id?: string | null;
+  user: SessionUser & { sub?: string };
+};
+
+// Shared post-/v1/auth-response handling for Google AND Apple sign-in: persist
+// the session + user, run the once-per-install housekeeping (vault mirror seed,
+// account_bound emission), reconcile the account phone, and register the mesh
+// device key. Extracted so both providers land the user in an identical
+// signed-in state. All housekeeping is best-effort — a transient failure must
+// not deny the already-authenticated user their session.
+async function applyAuthResponse(body: AuthResponse): Promise<SessionUser> {
   await SecureStore.setItemAsync(SESSION_KEY, body.session_jwt);
   await SecureStore.setItemAsync(USER_KEY, JSON.stringify(body.user ?? {}));
 
-  // Phase 2 housekeeping that runs once per first-ever sign-in for this
-  // install. All best-effort: a transient failure must not deny the
-  // already-signed-in user their session.
   try {
     await postSignInHousekeeping({
       accountId: body.account_id ?? null,
@@ -314,23 +328,14 @@ export async function signInWithGoogle(
     console.warn("[auth] post-sign-in housekeeping failed", err);
   }
 
-  // Account-level phone round-trip (BUG-1: phone survives reinstall). The local
-  // self phone is device-local + never event-sourced, so it must be backed up
-  // out-of-band. Best-effort, never blocks the session.
   try {
     await reconcileAccountPhone(body.user?.phone ?? null);
   } catch (err) {
     console.warn("[auth] account phone reconcile failed", err);
   }
 
-  // Phase 5: register the device's Ed25519 public key with the backend so
-  // mesh peers can verify our signatures. Fire-and-forget — failures here
-  // must not block the sign-in. The next check-in defensively re-runs and
-  // the backend UPSERTs by install_id, so retries are free.
-  //
-  // We import lazily because lib/mesh's module load wires SHA-512 into
-  // @noble/ed25519 — we don't want to pay that cost on every screen that
-  // transitively imports auth.ts (Settings, onboarding, the home banner).
+  // Lazy mesh import: loading lib/mesh wires SHA-512 into @noble/ed25519, a cost
+  // we don't want on every screen that transitively imports auth.ts.
   void (async () => {
     try {
       const mesh = await import("./mesh");
@@ -341,6 +346,70 @@ export async function signInWithGoogle(
   })();
 
   return body.user ?? {};
+}
+
+// Sign in with Apple (iOS only; App Store guideline 4.8). Gets an Apple identity
+// token via the native module, posts it to /v1/auth/apple, and lands the user
+// in the same signed-in state as Google via applyAuthResponse. expo-apple-
+// authentication is imported lazily so this file stays safe to import on Android
+// / Expo Go where the native module is absent. Requires expo-apple-authentication
+// installed + a native rebuild + Sign in with Apple enabled in the Apple
+// Developer account for bundle af.kaata.app.
+export async function signInWithApple(): Promise<SessionUser> {
+  if (Platform.OS !== "ios") {
+    throw new Error("Sign in with Apple is only available on iOS");
+  }
+  const AppleAuthentication = await import("expo-apple-authentication");
+  const credential = await AppleAuthentication.signInAsync({
+    requestedScopes: [
+      AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+      AppleAuthentication.AppleAuthenticationScope.EMAIL,
+    ],
+  });
+  const idToken = credential.identityToken;
+  if (!idToken) {
+    throw new Error("Apple did not return an identity token");
+  }
+  // Apple returns the name ONLY on the first authorization for this Apple ID.
+  const fn = credential.fullName;
+  const displayName = [fn?.givenName, fn?.familyName].filter(Boolean).join(" ").trim();
+
+  const installId = await ensureInstallId();
+  const baseUrl = await getBackendUrl();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}/v1/auth/apple`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        install_id: installId,
+        identity_token: idToken,
+        display_name: displayName || undefined,
+      }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("Sign-in timed out — check your connection and try again.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const b = await res.json();
+      detail = b?.error ?? "";
+    } catch {
+      // ignore parse failures
+    }
+    throw new Error(`Backend rejected sign-in (${res.status}): ${detail}`);
+  }
+  const body = (await res.json()) as AuthResponse;
+  return applyAuthResponse(body);
 }
 
 // ---------- Phase 2 helpers ----------
@@ -666,6 +735,48 @@ export async function signOut(): Promise<void> {
   }
 }
 
+// Permanently deletes the signed-in account server-side (DELETE /v1/account),
+// then wipes ALL local state — the account, session, mesh key cache, and the
+// on-device ledger. Play + Apple require an in-app deletion path.
+//
+// The server delete must succeed FIRST: if it fails (network down, 5xx) we
+// throw and leave local data intact so the user can retry, rather than wiping
+// their only ledger copy while the server copy survives. A 401 means the
+// credential is already gone (a prior delete landed) — treat as success.
+export async function deleteAccount(): Promise<void> {
+  const jwt = await SecureStore.getItemAsync(SESSION_KEY);
+  if (jwt) {
+    const baseUrl = await getBackendUrl();
+    const res = await fetch(`${baseUrl}/v1/account`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    if (!res.ok && res.status !== 401) {
+      throw new Error(`account_delete_failed:${res.status}`);
+    }
+  }
+  // Server-side gone (or was never signed in) — drop the Google session, the
+  // mesh key cache, the stored JWT, and every local table.
+  const lib = loadGoogleSignin();
+  if (lib) {
+    try {
+      await lib.GoogleSignin.signOut();
+    } catch {
+      /* already signed out — fine */
+    }
+  }
+  try {
+    const mesh = await import("./mesh/device-key");
+    mesh.clearDeviceKey();
+  } catch {
+    /* mesh module not available — fine */
+  }
+  await SecureStore.deleteItemAsync(SESSION_KEY);
+  await SecureStore.deleteItemAsync(USER_KEY);
+  setAccountIdCache(null);
+  await resetAllLocalData();
+}
+
 // Dev-only: wipes the SecureStore session entries WITHOUT calling the
 // backend signout endpoint. Used by the local-reset flow in Settings —
 // the backend session will expire on its own, no need to round-trip.
@@ -745,6 +856,15 @@ function decodeIdTokenClaims(idToken: string): Record<string, unknown> | null {
 // Uses the lazy-loaded module's isErrorWithCode + statusCodes when
 // available; falls back to a string check in Expo Go.
 export function isCancellation(err: unknown): boolean {
+  // Sign in with Apple cancellation surfaces as ERR_REQUEST_CANCELED.
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: unknown }).code === "ERR_REQUEST_CANCELED"
+  ) {
+    return true;
+  }
   const lib = loadGoogleSignin();
   if (lib) {
     return lib.isErrorWithCode(err) && err.code === lib.statusCodes.SIGN_IN_CANCELLED;

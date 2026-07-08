@@ -37,6 +37,18 @@ import { applyEventMutex } from "./index";
 // projection/index.ts + anti-entropy.ts — JSON-encoded {pms,l,did}).
 const HLC_LAST_KEY = "hlc_last";
 
+// Future-HLC ingest cap. hlc.ts documents a 24h transport hard cap behind its
+// 60s receive clamp, but nothing enforced it: a remote event with a physical-ms
+// far in the future (a peer whose clock is set months ahead — common on
+// hand-me-down Androids) was persisted verbatim, seeding per-field LWW HLCs in
+// the future so every correctly-clocked later edit is silently skipped by
+// compareFieldHLC. Refuse such events at the shared pull+mesh ingest primitive.
+// We refuse rather than clamp because the HLC is inside the Ed25519-signed
+// envelope (re-stamping would break the signature); an honest peer re-gossips
+// the event once its clock corrects. Only remote events flow through here —
+// a device's own local events never do — so this never rejects self-authored data.
+const FUTURE_HLC_CAP_MS = 24 * 60 * 60 * 1000;
+
 // Author seqs are positive integers by contract. The server enforces this on
 // push, but a replica must not trust a wire blindly — sanitize at the boundary
 // so the version-vector planner (defined over 1..n) and the (vault,device,seq)
@@ -93,6 +105,16 @@ export async function ingestRowInTx(
   ingestedAtMs: number,
   serverAckedAt: number | null,
 ): Promise<boolean> {
+  // Refuse a grossly future-dated event before it can seed a future LWW floor
+  // (see FUTURE_HLC_CAP_MS). Drop, not throw: a single bad-clock peer must not
+  // stall the whole batch, and the row is safe to lose here (re-gossiped later).
+  if (Number.isInteger(event.hlc?.pms) && event.hlc.pms > Date.now() + FUTURE_HLC_CAP_MS) {
+    console.warn(
+      `[ingest] refusing future-dated event ${safeId(event)} (${String(event.event_type)}) pms=${event.hlc.pms} — bad peer clock`,
+    );
+    return false;
+  }
+
   const authorSeq = await resolveAuthorSeqSlot(tx, event);
   const res = await tx.runAsync(
     `INSERT OR IGNORE INTO event_log (

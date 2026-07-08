@@ -14,6 +14,7 @@ import (
 )
 
 const ProviderGoogle = "google"
+const ProviderApple = "apple"
 
 // maxTokenAge is a GENEROUS outer bound on a Google ID token's `iat` — set to
 // the token's own lifetime so it defers entirely to idtoken.Validate's `exp`
@@ -34,6 +35,7 @@ const maxClockSkewAhead = 15 * time.Minute
 type Service struct {
 	pool              *pgxpool.Pool
 	googleWebClientID string
+	appleClientID     string
 	sessionSecret     string
 }
 
@@ -44,6 +46,11 @@ func NewService(pool *pgxpool.Pool, googleWebClientID, sessionSecret string) *Se
 		sessionSecret:     sessionSecret,
 	}
 }
+
+// SetAppleClientID wires the Apple audience (the app's bundle id) for
+// /v1/auth/apple. When empty, Apple sign-in is rejected. Called at startup from
+// config so NewService's signature (and its existing callers) stay unchanged.
+func (s *Service) SetAppleClientID(id string) { s.appleClientID = id }
 
 // User is the display block returned to the mobile client.
 type User struct {
@@ -99,6 +106,16 @@ func (s *Service) SignInWithGoogle(
 	payload, err := idtoken.Validate(ctx, idTokenStr, s.googleWebClientID)
 	if err != nil {
 		return GoogleSignInResult{}, fmt.Errorf("verify google id token: %w", err)
+	}
+
+	// Pin the issuer. idtoken.Validate checks signature/exp/aud but NOT iss, and
+	// its ES256 branch also trusts Google's IAP cert endpoint (whose tokens carry
+	// iss=https://cloud.google.com/iap) — a different Google signing domain. Only
+	// real Google Sign-In tokens carry the accounts.google.com issuer.
+	switch payload.Issuer {
+	case "accounts.google.com", "https://accounts.google.com":
+	default:
+		return GoogleSignInResult{}, fmt.Errorf("google id token has unexpected issuer %q", payload.Issuer)
 	}
 
 	providerSub := payload.Subject
@@ -361,6 +378,136 @@ func (s *Service) SignInWithGoogle(
 	}, nil
 }
 
+// SignInWithApple verifies an Apple identity token and resolves-or-creates the
+// account, mirroring SignInWithGoogle for provider='apple'. It intentionally
+// does NOT take a pending_vault_registration: an Apple-onboarding install
+// registers its default vault via the existing POST /v1/vaults follow-up (the
+// same path the no-pending Google branch uses), which keeps this small and
+// avoids duplicating the vault-canonicalisation logic in the working Google path.
+//
+// name/email are present only on the FIRST Apple sign-in for a given Apple ID
+// (Apple omits them afterwards), and email may be a private-relay address — so
+// we never clobber a stored non-empty profile with a later empty one.
+func (s *Service) SignInWithApple(
+	ctx context.Context,
+	installID, idTokenStr, displayName string,
+) (GoogleSignInResult, error) {
+	if s.appleClientID == "" {
+		return GoogleSignInResult{}, errors.New("apple client id not configured")
+	}
+	payload, err := VerifyAppleIDToken(ctx, idTokenStr, s.appleClientID)
+	if err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("verify apple id token: %w", err)
+	}
+	providerSub := payload.Sub
+
+	email := payload.Email
+	emailNormalized := normalizeEmail(email)
+	name := strings.TrimSpace(displayName)
+
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	accountID, _, err := resolveOrCreateAccount(ctx, tx, ProviderApple, providerSub, AccountProfile{
+		Email:           email,
+		EmailNormalized: emailNormalized,
+		EmailVerified:   payload.EmailVerified,
+		Name:            name,
+		PictureURL:      "",
+	})
+	if err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("resolve account: %w", err)
+	}
+
+	var accountPhone string
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(phone_e164, '') FROM accounts WHERE id = $1::uuid
+	`, accountID).Scan(&accountPhone); err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("read account phone: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO installs (install_id, app_version, platform)
+		VALUES ($1, 'unknown', 'unknown')
+		ON CONFLICT (install_id) DO NOTHING
+	`, installID); err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("ensure installs row: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM auth_credentials
+		WHERE install_id = $1 AND provider = $2 AND account_id IS DISTINCT FROM $3::uuid
+	`, installID, ProviderApple, accountID); err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("clear stale auth credential: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE installs SET account_id = $2::uuid WHERE install_id = $1
+	`, installID, accountID); err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("set install account_id: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO auth_credentials (
+			install_id, provider, provider_sub, account_id,
+			email, name, picture_url, revoked_at, last_used_at
+		) VALUES ($1, $2, $3, $4::uuid, $5, $6, '', NULL, NOW())
+		ON CONFLICT (install_id, provider) DO UPDATE
+		SET provider_sub = EXCLUDED.provider_sub,
+		    account_id   = EXCLUDED.account_id,
+		    email        = COALESCE(NULLIF(EXCLUDED.email, ''), auth_credentials.email),
+		    name         = COALESCE(NULLIF(EXCLUDED.name, ''), auth_credentials.name),
+		    revoked_at   = NULL,
+		    last_used_at = NOW()
+	`, installID, ProviderApple, providerSub, accountID, email, name); err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("upsert auth credential: %w", err)
+	}
+
+	// Return the account's existing canonical vault, if any. No pending-vault
+	// creation here — the client POSTs /v1/vaults after onboarding.
+	var defaultVaultID *string
+	var existingVault string
+	err = tx.QueryRow(ctx, `
+		SELECT v.vault_id::text
+		FROM vault_members vm
+		JOIN vaults v ON v.vault_id = vm.vault_id
+		WHERE vm.account_id = $1::uuid AND vm.role = 'owner'
+		  AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL
+		  AND v.archived_at IS NULL
+		ORDER BY v.created_at ASC
+		LIMIT 1
+	`, accountID).Scan(&existingVault)
+	switch {
+	case err == nil:
+		id := existingVault
+		defaultVaultID = &id
+	case errors.Is(err, pgx.ErrNoRows):
+		// no vault yet — client registers via POST /v1/vaults
+	default:
+		return GoogleSignInResult{}, fmt.Errorf("lookup default vault: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("commit sign-in tx: %w", err)
+	}
+
+	sessionJWT, err := SignSession(s.sessionSecret, accountID, installID, ProviderApple, providerSub)
+	if err != nil {
+		return GoogleSignInResult{}, fmt.Errorf("sign session jwt: %w", err)
+	}
+	return GoogleSignInResult{
+		SessionJWT:     sessionJWT,
+		AccountID:      accountID,
+		DefaultVaultID: defaultVaultID,
+		User: User{
+			Sub:   providerSub,
+			Email: email,
+			Name:  name,
+			Phone: accountPhone,
+		},
+	}, nil
+}
+
 // UpdateAccountPhone upserts the account-level phone (E.164), or clears it when
 // phone is empty. Stored on accounts.phone_e164 so it round-trips to a
 // reinstalled device via the /v1/auth/google response. Identity/display only —
@@ -381,6 +528,64 @@ func (s *Service) UpdateAccountPhone(ctx context.Context, accountID, phone strin
 	return nil
 }
 
+// DeleteAccount permanently erases an account and the data it solely owns, for
+// the in-app "Delete account" flow (Play + Apple both require in-app account
+// deletion once the app supports account creation). One transaction, in FK-safe
+// order:
+//   - deletes vaults the account OWNS and everything under them: events first
+//     (events -> vaults is RESTRICT, not CASCADE), then the vault row (whose
+//     ON DELETE CASCADE clears members / snapshots / issued creds / pair tokens);
+//   - for vaults owned by OTHERS, removes the account's membership and
+//     ANONYMISES the events it authored (NULL account_id) rather than deleting
+//     them — that ledger content belongs to the other owner, not this user;
+//   - clears the account's identity from its installs (self name/phone/shop +
+//     account_id) and deletes their crash reports (the install rows live on as
+//     anonymous installs);
+//   - nulls the invited_by / revoked_by / pending_delete_by back-references
+//     (all RESTRICT FKs to accounts) that would otherwise block the delete;
+//   - deletes the account row, whose ON DELETE CASCADE clears auth_credentials,
+//     account_identities, and vault_credentials_issued / vault_pair_tokens it
+//     issued.
+//
+// After commit the account's still-valid JWTs stop authorising: the credential
+// row is gone, so the revocation check treats them as revoked.
+func (s *Service) DeleteAccount(ctx context.Context, accountID string) error {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	stmts := []struct {
+		desc string
+		sql  string
+	}{
+		{"delete owned-vault events", `
+			DELETE FROM events
+			 WHERE vault_id IN (SELECT vault_id FROM vaults WHERE owner_account_id = $1::uuid)`},
+		{"delete owned vaults", `DELETE FROM vaults WHERE owner_account_id = $1::uuid`},
+		{"anonymise authored events", `UPDATE events SET account_id = NULL WHERE account_id = $1::uuid`},
+		{"delete memberships", `DELETE FROM vault_members WHERE account_id = $1::uuid`},
+		{"null invited_by", `UPDATE vault_members SET invited_by = NULL WHERE invited_by = $1::uuid`},
+		{"null revoked_by", `UPDATE vault_members SET revoked_by = NULL WHERE revoked_by = $1::uuid`},
+		{"null pending_delete_by", `UPDATE vaults SET pending_delete_by = NULL, pending_delete_at = NULL WHERE pending_delete_by = $1::uuid`},
+		{"delete crash reports", `
+			DELETE FROM crash_reports
+			 WHERE install_id IN (SELECT install_id FROM installs WHERE account_id = $1::uuid)`},
+		{"clear install identity", `
+			UPDATE installs
+			   SET account_id = NULL, self_name = NULL, self_phone = NULL, shop_name = NULL
+			 WHERE account_id = $1::uuid`},
+		{"delete account", `DELETE FROM accounts WHERE id = $1::uuid`},
+	}
+	for _, st := range stmts {
+		if _, err := tx.Exec(ctx, st.sql, accountID); err != nil {
+			return fmt.Errorf("%s: %w", st.desc, err)
+		}
+	}
+	return tx.Commit(ctx)
+}
+
 // SignOut removes the auth_credentials row for (install_id, provider).
 func (s *Service) SignOut(ctx context.Context, installID, provider string) error {
 	_, err := s.pool.Exec(ctx, `
@@ -397,18 +602,28 @@ func (s *Service) SignOut(ctx context.Context, installID, provider string) error
 //
 // A missing row counts as revoked — a credential that was deleted via SignOut
 // should not authorize further requests, even if the JWT hasn't expired yet.
-func (s *Service) CheckCredentialRevoked(ctx context.Context, installID, provider string) (bool, error) {
+//
+// The check is bound to the JWT's account_id: after an account switch the
+// (install_id, provider) row is DELETEd and re-inserted for the NEW account, so
+// a leaked or residual JWT carrying the OLD account_id must not keep authorizing
+// (and self-refreshing) against the new binding. A NULL stored account_id
+// (legacy row) is treated as matching, for back-compat.
+func (s *Service) CheckCredentialRevoked(ctx context.Context, installID, provider, accountID string) (bool, error) {
 	var revokedAt *time.Time
+	var storedAccountID *string
 	err := s.pool.QueryRow(ctx, `
-		SELECT revoked_at
+		SELECT revoked_at, account_id::text
 		FROM auth_credentials
 		WHERE install_id = $1 AND provider = $2
-	`, installID, provider).Scan(&revokedAt)
+	`, installID, provider).Scan(&revokedAt, &storedAccountID)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return true, nil
 	case err != nil:
 		return false, fmt.Errorf("lookup auth credential: %w", err)
+	}
+	if storedAccountID != nil && accountID != "" && *storedAccountID != accountID {
+		return true, nil
 	}
 	return revokedAt != nil, nil
 }

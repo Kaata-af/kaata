@@ -46,6 +46,11 @@ type Config struct {
 	// tokens with this audience; the backend rejects any token where `aud`
 	// doesn't match. NOT a secret — public string baked into the APK too.
 	GoogleWebClientID string
+	// AppleClientID: the audience for Apple identity tokens posted to
+	// /v1/auth/apple. For native Sign in with Apple on iOS this is the app's
+	// bundle identifier (af.kaata.app). Rejects any token whose `aud` differs.
+	// Not a secret. Empty disables the Apple sign-in endpoint.
+	AppleClientID string
 	// SessionJWTSecret: HMAC key for signing session JWTs we issue to mobile
 	// after a successful Google sign-in. MUST be a long random string (>=
 	// 32 bytes recommended) and MUST NOT be committed. Rotating it
@@ -79,6 +84,7 @@ func Load() Config {
 		ShareLinkBaseURL:    os.Getenv("SHARE_LINK_BASE_URL"),
 		PublicAPIBaseURL:    os.Getenv("PUBLIC_API_BASE_URL"),
 		GoogleWebClientID:   os.Getenv("GOOGLE_WEB_CLIENT_ID"),
+		AppleClientID:       getenv("APPLE_CLIENT_ID", "af.kaata.app"),
 		// Read from JWT_SECRET first (Phase 2 canonical name), falling back to
 		// SESSION_JWT_SECRET for compatibility with v0.4 deployments that
 		// haven't rotated their .env yet.

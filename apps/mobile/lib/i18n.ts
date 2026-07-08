@@ -54,6 +54,9 @@ const en = {
   "onboardingMode.google.title": "Sign in with Google",
   "onboardingMode.google.body":
     "Back up your kaata to the cloud. Restore it on a new phone if you lose this one.",
+  "onboardingMode.apple.title": "Sign in with Apple",
+  "onboardingMode.apple.body":
+    "Back up your kaata to the cloud. Restore it on a new phone if you lose this one.",
   "onboardingMode.offline.title": "Stay fully offline",
   "onboardingMode.offline.body":
     "No account. Your kaata never leaves this phone — private by default.",
@@ -598,6 +601,7 @@ const en = {
   "menu.account": "Account",
   "menu.account.signIn": "Sign in with Google",
   "menu.account.signIn.toast": "Signed in",
+  "menu.account.signIn.partialToast": "Signed in, but {count} kaata(s) couldn't be restored. Pull down to retry.",
   "menu.account.signIn.failed": "Couldn't sign in — try again",
   "menu.account.signIn.signingIn": "Signing in…",
   "menu.account.signIn.restoring": "Restoring your kaatas…",
@@ -631,6 +635,14 @@ const en = {
   "account.appHealth.section": "App health",
   "account.appHealth.details": "Detailed diagnostics",
   "account.appHealth.detailsHint": "Memory & crash info",
+  "account.privacy.section": "Privacy & data",
+  "account.privacy.label": "Privacy policy",
+  "account.deleteAccount.label": "Delete account",
+  "account.deleteAccount.hint": "Permanently delete your account and cloud data",
+  "account.deleteAccount.confirm.title": "Delete your account?",
+  "account.deleteAccount.confirm.body": "This permanently deletes your account and everything backed up to Kaata's servers, and removes this ledger from the phone. It cannot be undone.",
+  "account.deleteAccount.confirm.cta": "Delete account",
+  "account.deleteAccount.failed": "Couldn't delete your account. Check your connection and try again.",
 
   // Vault create (Phase 5.2 — Add a Kaata)
   // Copy fix: real users typed a CUSTOMER's name here (treating a "Kaata"
@@ -1126,6 +1138,9 @@ const fa: Partial<Record<Key, string>> = {
   "onboardingMode.google.title": "ورود با گوگل",
   "onboardingMode.google.body":
     "کاتای خود را در کلاد ذخیره کنید. اگر تلفن گم شد، روی تلفن نو بازیابی کنید.",
+  "onboardingMode.apple.title": "ورود با اپل",
+  "onboardingMode.apple.body":
+    "کاتای خود را در کلاد ذخیره کنید. اگر تلفن گم شد، روی تلفن نو بازیابی کنید.",
   "onboardingMode.offline.title": "بدون حساب",
   "onboardingMode.offline.body": "بدون حساب. کاتای شما فقط روی همین تلفون می‌ماند — کاملاً خصوصی.",
   "onboardingMode.signInFailed": "ورود نشد. دوباره امتحان کنید.",
@@ -1567,6 +1582,7 @@ const fa: Partial<Record<Key, string>> = {
   "menu.account": "حساب",
   "menu.account.signIn": "ورود با گوگل",
   "menu.account.signIn.toast": "ورود انجام شد",
+  "menu.account.signIn.partialToast": "وارد شدید، اما {count} کاتا بازیابی نشد. برای تلاش دوباره به پایین بکشید.",
   "menu.account.signIn.failed": "ورود ناموفق — دوباره کوشش کنید",
   "menu.account.signIn.signingIn": "در حال ورود…",
   "menu.account.signIn.restoring": "در حال بازیابی کاتاها…",
@@ -1593,6 +1609,14 @@ const fa: Partial<Record<Key, string>> = {
   "account.appHealth.section": "وضعیت برنامه",
   "account.appHealth.details": "عیب‌یابی مفصل",
   "account.appHealth.detailsHint": "اطلاعات حافظه و خرابی",
+  "account.privacy.section": "حریم خصوصی و داده‌ها",
+  "account.privacy.label": "سیاست حریم خصوصی",
+  "account.deleteAccount.label": "حذف حساب",
+  "account.deleteAccount.hint": "حساب و داده‌های ابری شما برای همیشه حذف می‌شود",
+  "account.deleteAccount.confirm.title": "حساب‌تان حذف شود؟",
+  "account.deleteAccount.confirm.body": "این کار حساب شما و همه چیزی را که در سرورهای کاتا پشتیبان‌گیری شده برای همیشه حذف می‌کند و این کاتا را از تلفن پاک می‌کند. قابل بازگشت نیست.",
+  "account.deleteAccount.confirm.cta": "حذف حساب",
+  "account.deleteAccount.failed": "حذف حساب ناموفق بود. اتصال‌تان را بررسی کنید و دوباره تلاش کنید.",
 
   // Vault create (Phase 5.2). Shop-framed to stop users naming the kaata
   // after a customer — see the English block's note.

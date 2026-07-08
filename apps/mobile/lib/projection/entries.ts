@@ -77,8 +77,8 @@ export async function applyEntryCreated(tx: SQLiteTx, event: EntryCreatedEvent):
 export async function applyEntryAmended(tx: SQLiteTx, event: EntryAmendedEvent): Promise<void> {
   // Phase 4 per-field LWW. Snapshot current field_hlcs, decide per-field
   // whether to apply, write back the merged map.
-  const row = await tx.getFirstAsync<{ field_hlcs: string | null }>(
-    `SELECT field_hlcs FROM entries WHERE id = ?`,
+  const row = await tx.getFirstAsync<{ field_hlcs: string | null; is_deleted: number }>(
+    `SELECT field_hlcs, is_deleted FROM entries WHERE id = ?`,
     event.target_id,
   );
   if (row == null) {
@@ -99,6 +99,15 @@ export async function applyEntryAmended(tx: SQLiteTx, event: EntryAmendedEvent):
     return;
   }
 
+  // Sticky tombstone: once an entry is deleted, a later entry_amended must be
+  // fully ignored — no field write, no updated_at / current_event_id bump —
+  // matching the Go projection (project.go: `if entry.IsDeleted { return nil }`)
+  // and corpus fixture 03 (delete_then_amend). Only the remote/sweep path can
+  // reach a deleted row here (local appends pre-check is_deleted); without this
+  // guard a concurrent amend-after-delete mutates the tombstone and the mobile
+  // row diverges permanently from the server snapshot / other replicas.
+  if (row.is_deleted === 1) return;
+
   const current: FieldHLCMap = parseFieldHLCs(row.field_hlcs);
   const next: FieldHLCMap = { ...current };
 
@@ -107,7 +116,12 @@ export async function applyEntryAmended(tx: SQLiteTx, event: EntryAmendedEvent):
   const c = event.payload.changes;
   let anyFieldApplied = false;
 
-  if ("amount_afn" in c && c.amount_afn !== undefined) {
+  // M33: reject null (not just undefined) for the NOT NULL columns amount_afn
+  // and type — JSON null passes `!== undefined`, so a crafted `{"amount_afn":null}`
+  // amend would attempt UPDATE ... SET amount_afn = NULL. Go decodes these as
+  // pointers where null → nil → field skipped; `!= null` matches that so the two
+  // projections agree (and we never try to write NULL into a NOT NULL column).
+  if ("amount_afn" in c && c.amount_afn != null) {
     if (compareFieldHLC(current, "amount_afn", event.hlc) === "apply") {
       sets.push("amount_afn = ?");
       args.push(c.amount_afn);
@@ -123,7 +137,7 @@ export async function applyEntryAmended(tx: SQLiteTx, event: EntryAmendedEvent):
       anyFieldApplied = true;
     }
   }
-  if ("type" in c && c.type !== undefined) {
+  if ("type" in c && c.type != null) {
     if (compareFieldHLC(current, "type", event.hlc) === "apply") {
       sets.push("type = ?");
       args.push(c.type);

@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -164,6 +163,7 @@ func main() {
 	// --- services & handlers ------------------------------------------------
 
 	authSvc := auth.NewService(pool, cfg.GoogleWebClientID, cfg.SessionJWTSecret)
+	authSvc.SetAppleClientID(cfg.AppleClientID)
 	authH := auth.NewHandler(authSvc)
 
 	adminH := admin.NewHandler(admin.NewService(pool, cfg.OperatorAccountIDs, cfg.OperatorIPs))
@@ -260,7 +260,10 @@ func main() {
 	// per-IP key function depends on this; without it every request looks
 	// like it came from the reverse-proxy's loopback IP and the cap becomes
 	// global instead of per-client.
-	r.Use(middleware.RealIP)
+	// httpx.RealIP (not chi's middleware.RealIP): derive the client IP from
+	// X-Forwarded-For only, ignoring the spoofable True-Client-IP / X-Real-IP
+	// headers chi trusts at higher precedence. See httpx/clientip.go.
+	r.Use(httpx.RealIP)
 	r.Use(httpx.Logger)
 	r.Use(httpx.Recoverer)
 	r.Use(httpx.CORS)
@@ -295,6 +298,10 @@ func main() {
 	// was a free token-validation DoS / account-minting surface.
 	r.With(httpx.RateLimitPerIP(googleSignInLimit, googleSignInWindow)).
 		Post("/v1/auth/google", authH.GoogleSignIn)
+	// Sign in with Apple (App Store guideline 4.8). Same per-IP cap as Google —
+	// it is likewise an account-creation + token-validation surface.
+	r.With(httpx.RateLimitPerIP(googleSignInLimit, googleSignInWindow)).
+		Post("/v1/auth/apple", authH.AppleSignIn)
 	// Shared ledger ("see the full ledger on kaata.af"). All PUBLIC: the share
 	// link is meant to be opened by a customer with no app/account. POST is
 	// rate-limited per IP; GET-by-token + the SSR view are open (opaque tokens).
@@ -324,6 +331,9 @@ func main() {
 	r.Group(func(pr chi.Router) {
 		pr.Use(authenticator.Middleware())
 		pr.Post("/v1/auth/signout", authH.SignOut)
+		// In-app account deletion (Play + Apple requirement). Erases the account
+		// and the data it solely owns; see auth.Service.DeleteAccount.
+		pr.Delete("/v1/account", authH.DeleteAccount)
 		// Account-level phone: persists the shopkeeper's own number server-side so
 		// it survives a reinstall (the device-local users.phone_e164 never syncs).
 		pr.Put("/v1/account/phone", authH.UpdatePhone)
@@ -405,6 +415,13 @@ func main() {
 		Addr:              ":" + cfg.BackendPort,
 		Handler:           r,
 		ReadHeaderTimeout: 10 * time.Second,
+		// Bound slow-client body reads and slow response reads so a handful of
+		// Slowloris-style connections can't pin goroutines (and DB connections,
+		// on sync) indefinitely. WriteTimeout is generous enough for a large
+		// gzipped snapshot/pull on a poor link; IdleTimeout reaps idle keep-alives.
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 120 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 	serveErr := make(chan error, 1)
 	go func() {

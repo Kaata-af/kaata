@@ -101,6 +101,41 @@ func (h *Handler) GoogleSignIn(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, result)
 }
 
+type appleSignInRequest struct {
+	InstallID   string `json:"install_id"`
+	IDToken     string `json:"identity_token"`
+	DisplayName string `json:"display_name,omitempty"`
+}
+
+// AppleSignIn — POST /v1/auth/apple (PUBLIC).
+//
+// Request: { install_id, identity_token, display_name? }. display_name is only
+// sent on the FIRST Sign in with Apple (Apple returns the name once); the token
+// carries sub + email. Response mirrors /v1/auth/google.
+func (h *Handler) AppleSignIn(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	var req appleSignInRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	if _, err := uuid.Parse(req.InstallID); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "install_id must be a uuid")
+		return
+	}
+	if req.IDToken == "" {
+		httpx.Error(w, http.StatusBadRequest, "identity_token is required")
+		return
+	}
+	result, err := h.svc.SignInWithApple(r.Context(), req.InstallID, req.IDToken, req.DisplayName)
+	if err != nil {
+		log.Printf("auth/apple failed for install %s: %v", req.InstallID, err)
+		httpx.Error(w, http.StatusUnauthorized, "apple sign-in failed")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, result)
+}
+
 type updatePhoneRequest struct {
 	Phone string `json:"phone"`
 }
@@ -158,4 +193,29 @@ func (h *Handler) SignOut(w http.ResponseWriter, r *http.Request) {
 		h.authenticator.Invalidate(claims.InstallID, claims.Provider)
 	}
 	httpx.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// DeleteAccount — DELETE /v1/account (PROTECTED).
+//
+// Permanently erases the authenticated account and the data it solely owns
+// (see Service.DeleteAccount). Idempotent-ish: a second call after the account
+// is gone 401s at the middleware (credential row deleted). The mobile app must
+// also wipe its local ledger + stored JWT after a 200.
+func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ClaimsFromContext(r.Context())
+	if !ok {
+		httpx.Error(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	if err := h.svc.DeleteAccount(r.Context(), claims.AccountID); err != nil {
+		log.Printf("account delete failed for account %s: %v", claims.AccountID, err)
+		httpx.Error(w, http.StatusInternalServerError, "account deletion failed")
+		return
+	}
+	// Kill the cached "not revoked" entry so the now-orphaned JWT stops
+	// authorizing immediately rather than for up to revokedCacheTTL.
+	if h.authenticator != nil {
+		h.authenticator.Invalidate(claims.InstallID, claims.Provider)
+	}
+	httpx.JSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

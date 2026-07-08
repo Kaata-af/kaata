@@ -6,6 +6,17 @@
 :80 {
 	encode gzip
 
+	# Security headers on every response. CSP is added per-handle below (the
+	# shared-ledger SSR at /v/* renders a backend inline script the SPA's
+	# script-src 'self' would block, so it must not inherit the SPA CSP).
+	header {
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "DENY"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
 	# Shared-ledger preview. The share link is kaata.af/v/<token>, but the
 	# per-customer SSR (per-person og:title/og:description, NO box-logo image) is
 	# rendered by the Go backend — reachable publicly at api.kaata.af. Proxy the
@@ -26,6 +37,19 @@
 		root * /srv
 		try_files {path} /index.html
 		file_server
+
+		# CSP for the SPA (index.html has no inline script; the bundle loads
+		# hashed JS/CSS + self-hosted fonts from this origin, calls the API, and
+		# the download button frames the GitHub release asset in a hidden iframe).
+		header {
+			Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.kaata.af; frame-src https://github.com https://objects.githubusercontent.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		}
+
+		# index.html must always be revalidated: a heuristically-cached stale
+		# shell would reference hashed chunks a later deploy has deleted and
+		# white-screen until a hard refresh. Hashed assets stay immutable below.
+		@html path / /index.html
+		header @html Cache-Control "no-cache"
 
 		# Aggressive cache for hashed asset files (Vite emits content-hashed names).
 		@hashed_assets path /assets/*
