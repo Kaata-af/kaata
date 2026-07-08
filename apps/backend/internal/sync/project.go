@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"sort"
 )
 
@@ -287,8 +288,14 @@ func ApplyEvents(events []LedgerEvent) (Projection, error) {
 	p := NewProjection()
 	for i := range sorted {
 		if err := applyOne(&p, &sorted[i]); err != nil {
-			return Projection{}, fmt.Errorf("apply event %s (%s): %w",
-				sorted[i].EventID, sorted[i].EventType, err)
+			// M28: skip-and-log a single un-applicable event (e.g. an undecodable
+			// payload from a buggy or hostile client) rather than aborting the
+			// whole fold. One poison event must not permanently kill snapshot
+			// generation for the ENTIRE vault — which would silently strand
+			// every member's recovery. Mobile quarantines per-event too.
+			log.Printf("projection: skipping event %s (%s) in vault %s: %v",
+				sorted[i].EventID, sorted[i].EventType, sorted[i].VaultID, err)
+			continue
 		}
 	}
 	return p, nil
@@ -305,8 +312,10 @@ func ApplyEventsOnto(p *Projection, events []LedgerEvent) error {
 	})
 	for i := range sorted {
 		if err := applyOne(p, &sorted[i]); err != nil {
-			return fmt.Errorf("apply event %s (%s): %w",
-				sorted[i].EventID, sorted[i].EventType, err)
+			// M28: skip-and-log, don't abort the whole fold (see ApplyEvents).
+			log.Printf("projection: skipping event %s (%s) in vault %s: %v",
+				sorted[i].EventID, sorted[i].EventType, sorted[i].VaultID, err)
+			continue
 		}
 	}
 	return nil
