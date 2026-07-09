@@ -28,6 +28,9 @@
       "android": {
         "buildType": "app-bundle"
       },
+      "ios": {
+        "buildConfiguration": "Release"
+      },
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://api.kaata.af",
@@ -36,6 +39,12 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "ascApiKeyPath": "./credentials/AuthKey_D6G6MNJ4WY.p8",
+        "ascApiKeyId": "D6G6MNJ4WY",
+        "ascApiKeyIssuerId": "6fb701e4-120e-41d3-866a-2af0ec537819"
+      }
+    }
   }
 }

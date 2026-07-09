@@ -70,3 +70,6 @@ Thumbs.db
 # generated native folders (Expo prebuild output)
 apps/mobile/ios/
 apps/mobile/android/
+
+credentials/
+*.p8
