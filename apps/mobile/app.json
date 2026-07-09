@@ -99,7 +99,16 @@
       "./plugins/withNearbyWifiNeverForLocation",
       "./plugins/withBleAdvertiser",
       "./plugins/withGradleJvmArgs",
-      "expo-background-task"
+      "expo-background-task",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ]
     ],
     "extra": {
       "router": {},
