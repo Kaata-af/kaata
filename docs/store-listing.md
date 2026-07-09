@@ -42,21 +42,29 @@ show WhatsApp's UI, drop it — the other five still exceed Play's minimums.
 
 ## Tablet screenshots (7" + 10")
 
-`docs/store-assets/tablet-screenshots/*.png` — four **2560×1440 (16:9)** landscape
-panels (caption + phone mockups on the brand field, since the app UI is
-phone-only). 2560×1440 sits inside **both** tablet ranges (7": 320–3840/side;
-10": 1080–7680/side), so **upload the same four files to the 7-inch AND the
-10-inch slots**:
+The app has **no tablet-specific layout** — it's a phone (portrait, single-column)
+app. So these are the **real app screens rendered full-bleed at tablet
+resolution** (no phone bezel, no marketing background, no caption) — what the app
+genuinely looks like on a tablet. Do NOT fabricate a two-pane tablet layout the
+app doesn't have; that would misrepresent the app.
 
-1. `01-ledger.png` — "Know who owes you, to the last afghani." (home + person)
-2. `02-whatsapp.png` — "A polite nudge, on WhatsApp." (reminder + home)
-3. `03-fast-simple.png` — "Set up in a minute, log in seconds." (add-entry + onboarding)
-4. `04-dari.png` — "In your language. Works offline." (Dari home)
+`docs/store-assets/tablet-screenshots/*.png` — five **1536×2732 (9:16 portrait)**
+full-bleed app screens. 1536×2732 sits inside **both** tablet ranges (7":
+320–3840/side; 10": 1080–7680/side), so **upload the same five files to the
+7-inch AND the 10-inch slots**:
 
-Generate with `node gen-tablets.js` (requires `gen-screens.js` beside it — it
-reuses those phone-screen builders), then render each `tablet-N.html` with
-`chrome --headless=new --allow-file-access-from-files --window-size=2560,1440
---screenshot=tablet-N.png tablet-N.html`.
+1. `01-home.png` — home / to-collect list
+2. `02-person.png` — person detail + entries
+3. `03-add-entry.png` — record a transaction (keypad)
+4. `04-onboarding.png` — "Your kaata is ready" setup
+5. `05-dari.png` — Dari home (LTR-locked, like the app)
+
+Generate with `node gen-fullbleed.js` (requires `gen-screens.js` beside it — it
+reuses the same app-screen builders), then render each `tab-full-N.html` with
+`chrome --headless=new --allow-file-access-from-files --window-size=1536,2732
+--virtual-time-budget=4000 --screenshot=tab-full-N.png tab-full-N.html`
+(the `--virtual-time-budget` flag is required so the local @font-face files load
+before capture — without it the text falls back to serif).
 
 Tablet screenshots are optional to publish (Play falls back to phone shots on
 tablets), but providing them avoids the "not optimized for large screens" note.
