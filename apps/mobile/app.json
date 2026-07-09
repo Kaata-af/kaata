@@ -41,7 +41,6 @@
         "android.permission.BLUETOOTH_ADVERTISE",
         "android.permission.BLUETOOTH",
         "android.permission.BLUETOOTH_ADMIN",
-        "android.permission.FOREGROUND_SERVICE",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.WAKE_LOCK",
         "android.permission.CAMERA",
