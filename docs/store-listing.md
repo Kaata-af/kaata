@@ -15,6 +15,31 @@ the `kaata.` wordmark, and a product card. To regenerate/tweak, edit
 Vazirmatn/JetBrains ttf under `apps/mobile/node_modules` by absolute path, so
 run it from this machine or fix those paths first).
 
+## Phone screenshots (2–8 required; ≥4 at ≥1080px for promo eligibility)
+
+`docs/store-assets/screenshots/*.png` — six 1080×1920 (9:16) marketing panels,
+promotion-eligible and also valid for the 7"/10" tablet slots (Play accepts the
+same 9:16 images there). Upload in this order:
+
+1. `01-home.png` — "Know who owes you, at a glance." (home / to-collect list)
+2. `02-whatsapp-reminder.png` — "A polite nudge, on WhatsApp." (the reminder message)
+3. `03-person-detail.png` — "One running balance, every deal logged." (person + history)
+4. `04-add-entry.png` — "Gave or received? Logged in seconds." (add-entry + keypad)
+5. `05-onboarding.png` — "Your shop's book, ready in a minute." (setup done)
+6. `06-dari.png` — "In your language. Works offline." (Dari home; LTR-locked like the app)
+
+Built from the app's real design system (Vazirmatn + JetBrains Mono, exact
+color tokens, faithful layouts) via `docs/store-assets/gen-screens.js` →
+headless Chrome. To regenerate: `node gen-screens.js` then
+`chrome --headless=new --allow-file-access-from-files --window-size=1080,1920
+--screenshot=screenshot-N.png screenshot-N.html`. The generator references
+Vazirmatn/JetBrains ttf under `apps/mobile/node_modules` and the K asset by
+absolute path — run on this machine or fix those paths first.
+
+Note: `02-whatsapp-reminder.png` depicts a WhatsApp chat to show the reminder
+feature. That's standard for depicting an integration, but if you'd rather not
+show WhatsApp's UI, drop it — the other five still exceed Play's minimums.
+
 ## Short description (max 80 chars)
 
 **English**
