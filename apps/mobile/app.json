@@ -3,7 +3,7 @@
     "name": "Kaata",
     "slug": "kaata",
     "scheme": "kaata",
-    "version": "0.8.4",
+    "version": "0.8.5",
     "newArchEnabled": false,
     "orientation": "portrait",
     "icon": "./assets/icon.png",
