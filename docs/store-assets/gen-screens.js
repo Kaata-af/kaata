@@ -57,10 +57,13 @@ function screenHome(opts = {}) {
         rows: [["Ahmad Wali", "2h ago", "12,500"], ["Gul Rahman", "yesterday", "8,750"], ["Fatima Noori", "3d ago", "3,200"], ["Naseer Ahmadzai", "1w ago", "1,400"]] };
   // App is LTR-locked even in Dari (I18nManager.forceRTL(false)) — layout does
   // NOT flip; only the strings change. Keep the English geometry verbatim.
+  // Profile initial matches the visible shop name's first letter: "B" for
+  // "Baradaran Market", "م" for "مارکیت برادران".
+  const chip = rtl ? "م" : "B";
   return `${statusBar()}
   <div class="hdr">
     <div class="hdr-l"><span class="shop">${t.shop}</span><span class="chev">${ic.chevronDown(30)}</span></div>
-    <div class="pchip">م</div>
+    <div class="pchip">${chip}</div>
   </div>
   <div class="tabs"><div class="tab tab-on">${t.collect}</div><div class="tab tab-off">${t.pay}</div></div>
   <div class="total">
@@ -157,7 +160,7 @@ https://kaata.af/v/AbC123`;
     ${statusBar(true)}
     <div class="wa-hdr">
       <span class="wa-back">${ic.chevronBack(34)}</span>
-      <span class="wa-av">ا</span>
+      <span class="wa-av">A</span>
       <span class="wa-who"><span class="wa-name">Ahmad Wali</span><span class="wa-seen">online</span></span>
     </div>
     <div class="wa-body">
