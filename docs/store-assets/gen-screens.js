@@ -335,9 +335,13 @@ function page(p) {
   </div></body></html>`;
 }
 
-for (const p of panels) {
-  const f = path.join(OUT, `screenshot-${p.n}.html`);
-  fs.writeFileSync(f, page(p), "utf8");
-  console.log("wrote", f);
+module.exports = { FONTS, CSS, statusBar, ic, money, screenHome, screenPerson, screenEntry, screenOnboarding, screenWhatsApp };
+
+if (require.main === module) {
+  for (const p of panels) {
+    const f = path.join(OUT, `screenshot-${p.n}.html`);
+    fs.writeFileSync(f, page(p), "utf8");
+    console.log("wrote", f);
+  }
+  console.log("done", panels.length, "panels");
 }
-console.log("done", panels.length, "panels");

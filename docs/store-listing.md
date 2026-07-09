@@ -18,8 +18,8 @@ run it from this machine or fix those paths first).
 ## Phone screenshots (2–8 required; ≥4 at ≥1080px for promo eligibility)
 
 `docs/store-assets/screenshots/*.png` — six 1080×1920 (9:16) marketing panels,
-promotion-eligible and also valid for the 7"/10" tablet slots (Play accepts the
-same 9:16 images there). Upload in this order:
+promotion-eligible. These are the **phone** screenshots — tablets have their own
+landscape set below. Upload in this order:
 
 1. `01-home.png` — "Know who owes you, at a glance." (home / to-collect list)
 2. `02-whatsapp-reminder.png` — "A polite nudge, on WhatsApp." (the reminder message)
@@ -39,6 +39,27 @@ absolute path — run on this machine or fix those paths first.
 Note: `02-whatsapp-reminder.png` depicts a WhatsApp chat to show the reminder
 feature. That's standard for depicting an integration, but if you'd rather not
 show WhatsApp's UI, drop it — the other five still exceed Play's minimums.
+
+## Tablet screenshots (7" + 10")
+
+`docs/store-assets/tablet-screenshots/*.png` — four **2560×1440 (16:9)** landscape
+panels (caption + phone mockups on the brand field, since the app UI is
+phone-only). 2560×1440 sits inside **both** tablet ranges (7": 320–3840/side;
+10": 1080–7680/side), so **upload the same four files to the 7-inch AND the
+10-inch slots**:
+
+1. `01-ledger.png` — "Know who owes you, to the last afghani." (home + person)
+2. `02-whatsapp.png` — "A polite nudge, on WhatsApp." (reminder + home)
+3. `03-fast-simple.png` — "Set up in a minute, log in seconds." (add-entry + onboarding)
+4. `04-dari.png` — "In your language. Works offline." (Dari home)
+
+Generate with `node gen-tablets.js` (requires `gen-screens.js` beside it — it
+reuses those phone-screen builders), then render each `tablet-N.html` with
+`chrome --headless=new --allow-file-access-from-files --window-size=2560,1440
+--screenshot=tablet-N.png tablet-N.html`.
+
+Tablet screenshots are optional to publish (Play falls back to phone shots on
+tablets), but providing them avoids the "not optimized for large screens" note.
 
 ## Short description (max 80 chars)
 
