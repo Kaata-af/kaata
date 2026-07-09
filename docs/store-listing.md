@@ -40,34 +40,35 @@ Note: `02-whatsapp-reminder.png` depicts a WhatsApp chat to show the reminder
 feature. That's standard for depicting an integration, but if you'd rather not
 show WhatsApp's UI, drop it — the other five still exceed Play's minimums.
 
-## Tablet screenshots (7" + 10")
+## Tablet screenshots (7" + 10") — ACCURATE renders
 
-The app has **no tablet-specific layout** — it's a phone (portrait, single-column)
-app. So these are the **real app screens rendered full-bleed at tablet
-resolution** (no phone bezel, no marketing background, no caption) — what the app
-genuinely looks like on a tablet. Do NOT fabricate a two-pane tablet layout the
-app doesn't have; that would misrepresent the app.
+The app has **no tablet-specific layout, no content `maxWidth`, and is
+portrait-locked** (verified in source: home even uses `useWindowDimensions()`
+width for its rail; no `isTablet`/`expo-device`). So on a tablet in portrait the
+single-column UI **stretches to the full tablet width at its true dp text
+sizes** — small text, wide sparse rows, lots of whitespace. These renders
+reproduce that **accurately** (true dp values, rendered at the real tablet dp
+width × 2 density). They are deliberately *not* a scaled-up "zoomed phone" — that
+would misrepresent how the app actually looks on a tablet.
 
-`docs/store-assets/tablet-screenshots/*.png` — five **1536×2732 (9:16 portrait)**
-full-bleed app screens. 1536×2732 sits inside **both** tablet ranges (7":
-320–3840/side; 10": 1080–7680/side), so **upload the same five files to the
-7-inch AND the 10-inch slots**:
+- `tablet-screenshots/7-inch/*.png` — **1200×2134** (600dp width × 2), for the 7" slot
+- `tablet-screenshots/10-inch/*.png` — **1600×2844** (800dp width × 2), for the 10" slot
 
-1. `01-home.png` — home / to-collect list
-2. `02-person.png` — person detail + entries
-3. `03-add-entry.png` — record a transaction (keypad)
-4. `04-onboarding.png` — "Your kaata is ready" setup
-5. `05-dari.png` — Dari home (LTR-locked, like the app)
+Both are 9:16 and inside their slot's px range. Each folder: `01-home`,
+`02-person`, `03-onboarding`, `04-dari`.
 
-Generate with `node gen-fullbleed.js` (requires `gen-screens.js` beside it — it
-reuses the same app-screen builders), then render each `tab-full-N.html` with
-`chrome --headless=new --allow-file-access-from-files --window-size=1536,2732
---virtual-time-budget=4000 --screenshot=tab-full-N.png tab-full-N.html`
-(the `--virtual-time-budget` flag is required so the local @font-face files load
-before capture — without it the text falls back to serif).
+Generate with `node gen-tablet10.js` (requires `gen-screens.js` beside it, for
+fonts + icon SVGs), then render each `tab-<size>-<name>.html`:
+`chrome --headless=new --allow-file-access-from-files --force-device-scale-factor=2
+--window-size=600,1067   --virtual-time-budget=4000 --screenshot=out.png in.html` (7")
+`--window-size=800,1422` for 10". `--virtual-time-budget` is required so the local
+@font-face files load before capture (else text falls back to serif).
 
-Tablet screenshots are optional to publish (Play falls back to phone shots on
-tablets), but providing them avoids the "not optimized for large screens" note.
+**Honest trade-off:** because the app isn't tablet-optimized, the accurate
+renders look sparse. Tablet screenshots are **optional** — if you'd rather not
+show the sparse look, leave the tablet slots empty (Play falls back to your phone
+screenshots on tablets). The only way to get genuinely *good* tablet screenshots
+is to add a real tablet layout (e.g. two-pane list+detail) to the app.
 
 ## Short description (max 80 chars)
 
