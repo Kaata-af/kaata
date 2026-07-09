@@ -67,6 +67,7 @@ const en = {
   "footer.contact": "Contact on WhatsApp",
   "footer.privacy": "Privacy",
   "footer.terms": "Terms",
+  "footer.deleteAccount": "Delete account",
   "footer.openSource": "Open source · Coming soon",
   "footer.copyright": "© 2026 Kaata · Made in Kabul.",
 
@@ -202,6 +203,7 @@ const fa: Record<keyof typeof en, string> = {
   "footer.contact": "تماس در واتساپ",
   "footer.privacy": "حریم خصوصی",
   "footer.terms": "شرایط استفاده",
+  "footer.deleteAccount": "حذف حساب",
   "footer.openSource": "متن‌باز · به‌زودی",
   "footer.copyright": "© ۲۰۲۶ کاتا · ساخت کابل.",
 

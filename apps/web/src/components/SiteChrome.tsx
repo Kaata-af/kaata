@@ -160,6 +160,11 @@ export function SiteFooter() {
               </Link>
             </li>
             <li>
+              <Link to="/delete-account" className="hover:text-neutral-900 transition-colors">
+                {t("footer.deleteAccount")}
+              </Link>
+            </li>
+            <li>
               <span>{t("footer.openSource")}</span>
             </li>
           </ul>

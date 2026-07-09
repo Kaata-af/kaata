@@ -4,6 +4,7 @@ import { CookieConsent } from "./components/CookieConsent";
 import { ToastProvider } from "./components/Toast";
 import { fireVisitOnce, getSource } from "./lib/analytics";
 import { CustomerView } from "./pages/CustomerView";
+import { DeleteAccount } from "./pages/DeleteAccount";
 import { Download } from "./pages/Download";
 import { Home } from "./pages/Home";
 import { Invite } from "./pages/Invite";
@@ -57,6 +58,7 @@ export function App() {
           <Route path="/download" element={<Download />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />
+          <Route path="/delete-account" element={<DeleteAccount />} />
           <Route path="/v/:token" element={<CustomerView />} />
           {/* Phase 4: vault-invite landing. Public, no auth — purely
               informational, mirrors what's behind the token. Actual accept
