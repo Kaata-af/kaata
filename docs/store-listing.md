@@ -4,6 +4,17 @@ Paste these into Play Console → Store presence → Main store listing. Keep th
 app positioned as a **record-keeping / ledger tool**, not a lender or payment
 app, to avoid the Personal Loans policy false-positive.
 
+## Feature graphic (1024×500, required)
+
+`docs/store-assets/feature-graphic.png` — upload this in Main store listing →
+Graphics → Feature graphic. It's the black brand field with the white K mark,
+the `kaata.` wordmark, and a product card. To regenerate/tweak, edit
+`docs/store-assets/feature-graphic.html` and re-render with headless Chrome:
+`chrome --headless=new --allow-file-access-from-files --window-size=1024,500
+--screenshot=feature-graphic.png feature-graphic.html` (the HTML references the
+Vazirmatn/JetBrains ttf under `apps/mobile/node_modules` by absolute path, so
+run it from this machine or fix those paths first).
+
 ## Short description (max 80 chars)
 
 **English**
