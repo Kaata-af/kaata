@@ -134,7 +134,7 @@ export function ProfileSettingsSheet(props: {
   // Reactive account_id — same pattern as the old HamburgerMenuSheet.
   // Reads the synchronous module cache on every `visible` flip so a sign-in
   // completed inline (Phase 7 D-ACCOUNT-PAGE-ROLE — /account screen was
-  // killed; sign-in runs from the host's runGoogleSignIn helper) is
+  // killed; sign-in runs from the host's runSignIn helper) is
   // reflected immediately even if the sheet hasn't been re-rendered yet.
   const [liveAccountId, setLiveAccountId] = useState<string | null>(props.activeAccountId);
   useEffect(() => {
@@ -317,9 +317,15 @@ export function ProfileSettingsSheet(props: {
                   <Text style={[styles.emptyHint, textDir(isRTL)]}>
                     {t("menu.account.localOnlyHint")}
                   </Text>
+                  {/* Provider mirrors onboarding/auth.tsx: Google on Android,
+                      Sign in with Apple on iOS (no iOS Google OAuth client —
+                      configureGoogleSignIn() no-ops there). The host's
+                      onSignIn (runSignIn in app/index.tsx) forks the same way. */}
                   <NavRow
-                    icon="logo-google"
-                    label={t("menu.account.signIn")}
+                    icon={Platform.OS === "ios" ? "logo-apple" : "logo-google"}
+                    label={t(
+                      Platform.OS === "ios" ? "menu.account.signIn.apple" : "menu.account.signIn",
+                    )}
                     onPress={chained(props.onSignIn)}
                     isRTL={isRTL}
                     emphasis

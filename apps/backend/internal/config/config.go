@@ -48,8 +48,12 @@ type Config struct {
 	GoogleWebClientID string
 	// AppleClientID: the audience for Apple identity tokens posted to
 	// /v1/auth/apple. For native Sign in with Apple on iOS this is the app's
-	// bundle identifier (af.kaata.app). Rejects any token whose `aud` differs.
-	// Not a secret. Empty disables the Apple sign-in endpoint.
+	// bundle identifier and MUST match apps/mobile/app.json's
+	// ios.bundleIdentifier. Rejects any token whose `aud` differs. Not a
+	// secret. Load() defaults it to af.kaata.app when APPLE_CLIENT_ID is
+	// unset, so the endpoint is always live — the empty-audience guards in
+	// apple.go/service.go are defense-in-depth for direct callers, not an
+	// env-reachable off switch.
 	AppleClientID string
 	// SessionJWTSecret: HMAC key for signing session JWTs we issue to mobile
 	// after a successful Google sign-in. MUST be a long random string (>=

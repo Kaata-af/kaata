@@ -47,6 +47,9 @@ type UserRow struct {
 	// Empty when the account has no backed-up vault (e.g. never synced).
 	LedgerName  string `json:"ledger_name"`
 	LedgerPhone string `json:"ledger_phone"`
+	// ShopName comes from the latest install's check-in-reported shop profile
+	// (snapshots don't carry it). Empty when the device never reported one.
+	ShopName string `json:"shop_name"`
 	// Device/telemetry fields, folded in from the account's installs. Platform /
 	// AppVersion / Source come from the account's MOST RECENT install; InstalledAt
 	// is the earliest, LastActivityAt the latest real usage, HasOnboarded true if
@@ -94,7 +97,8 @@ type InstallRow struct {
 
 type UsersResult struct {
 	Users []UserRow `json:"users"`
-	// AnonymousInstalls = devices that never signed in. Telemetry only.
+	// AnonymousInstalls = devices that never signed in. Telemetry plus the
+	// shopkeeper's own self profile reported on check-in (migration 028).
 	AnonymousInstalls []InstallRow `json:"anonymous_installs"`
 	SignedInCount     int          `json:"signed_in_count"`
 	AnonymousCount    int          `json:"anonymous_count"`
@@ -270,7 +274,8 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 	}
 
 	// 7. The "users without the ones signing in" — anonymous installs that never
-	//    created an account. Telemetry only (no name/phone exists server-side).
+	//    created an account. Telemetry plus the self profile (name/phone/shop)
+	//    the device reports on check-in regardless of sign-in.
 	out.AnonymousInstalls = s.fetchAnonymousInstalls(ctx)
 
 	out.SignedInCount = len(out.Users)
@@ -304,15 +309,16 @@ func (s *Service) enrichInstallTelemetry(ctx context.Context, byID map[string]*U
 		       COALESCE(platform, ''), COALESCE(app_version, ''),
 		       COALESCE(source, ''),
 		       COALESCE(NULLIF(app_locale, ''), COALESCE(device_locale, '')),
-		       COALESCE(self_name, ''), COALESCE(self_phone, '')
+		       COALESCE(self_name, ''), COALESCE(self_phone, ''),
+		       COALESCE(shop_name, '')
 		FROM installs
 		WHERE account_id IS NOT NULL
 		ORDER BY account_id, last_seen_at DESC NULLS LAST
 	`)
 	if err == nil {
 		for lrows.Next() {
-			var acct, platform, ver, source, locale, selfName, selfPhone string
-			if lrows.Scan(&acct, &platform, &ver, &source, &locale, &selfName, &selfPhone) != nil {
+			var acct, platform, ver, source, locale, selfName, selfPhone, shopName string
+			if lrows.Scan(&acct, &platform, &ver, &source, &locale, &selfName, &selfPhone, &shopName) != nil {
 				break
 			}
 			if u := byID[acct]; u != nil {
@@ -328,6 +334,8 @@ func (s *Service) enrichInstallTelemetry(ctx context.Context, byID map[string]*U
 				if u.LedgerPhone == "" {
 					u.LedgerPhone = selfPhone
 				}
+				// Installs are the only shop_name source (snapshots don't carry it).
+				u.ShopName = shopName
 			}
 		}
 		lrows.Close()
@@ -365,10 +373,12 @@ func (s *Service) enrichInstallTelemetry(ctx context.Context, byID map[string]*U
 }
 
 // fetchAnonymousInstalls returns every install that has not signed in
-// (account_id IS NULL). Telemetry only — these can't carry name/phone (no sync
-// without sign-in) and can't be operator-filtered (no account, and installs
-// don't store an IP), so a few of the operator's own pre-sign-in test installs
-// may appear here.
+// (account_id IS NULL). Carries device telemetry PLUS the shopkeeper's own
+// self profile (self_name/self_phone/shop_name, reported on every check-in
+// regardless of sign-in — migration 028) so the operator can identify and
+// reach offline-mode users. Never customer ledger data. These rows can't be
+// operator-filtered (no account, and installs don't store an IP), so a few of
+// the operator's own pre-sign-in test installs may appear here.
 func (s *Service) fetchAnonymousInstalls(ctx context.Context) []InstallRow {
 	out := []InstallRow{}
 	rows, err := s.pool.Query(ctx, `

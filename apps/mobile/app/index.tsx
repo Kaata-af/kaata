@@ -42,6 +42,7 @@ import {
   isCancellation,
   type SessionUser,
   SignInCancelledByUserError,
+  signInWithApple,
   signInWithGoogle,
   signOut,
 } from "../lib/auth";
@@ -575,23 +576,31 @@ export default function HomeScreen() {
     [router],
   );
 
-  // Phase 7 D-ACCOUNT-PAGE-ROLE: shared sign-in driver. Used by both
-  // "Sign in with Google" (signed-out state) and "Switch Google account"
-  // (signed-in state). GoogleSignin.configure({offlineAccess:false})
-  // forces the account picker on every call, so a signed-in user who
-  // taps Switch will land in the picker and can choose a different
-  // account — the rest of the flow (different-account prompt, backend
-  // call, housekeeping) is identical.
-  async function runGoogleSignIn() {
+  // Phase 7 D-ACCOUNT-PAGE-ROLE: shared sign-in driver behind the settings
+  // sheet's "Sign in" row. Provider is platform-determined, mirroring
+  // onboarding/auth.tsx: Sign in with Apple on iOS (there is no iOS Google
+  // OAuth client — configureGoogleSignIn() deliberately no-ops there), Google
+  // everywhere else. BOTH providers get the same different-account
+  // keep/wipe/cancel prompt — the guard compares the token's sub against the
+  // cached binding and is picker-independent, so an iOS device whose Apple ID
+  // changed hands can't silently rebind the local ledger. Everything after
+  // the provider handshake — vault registration reconcile, restore, toasts —
+  // is provider-agnostic.
+  async function runSignIn() {
     if (authBusy) return;
     setAuthBusy(true);
     setAuthPhase("signingIn");
     try {
-      await signInWithGoogle(async (args) => {
+      const promptDifferentAccount = async (args: DifferentAccountPromptArgs) => {
         return new Promise<DifferentAccountChoice>((resolve) => {
           setPendingAccountDecision({ args, resolve });
         });
-      });
+      };
+      if (Platform.OS === "ios") {
+        await signInWithApple(promptDifferentAccount);
+      } else {
+        await signInWithGoogle(promptDifferentAccount);
+      }
       // Register-on-sign-in: durably POST every owned-but-unregistered LOCAL
       // vault to the server NOW, while the user is guaranteed online and engaged
       // — instead of relying on vault/new's fire-and-forget POST or the delayed
@@ -1000,7 +1009,7 @@ export default function HomeScreen() {
         shopModeBusy={shopModeBusy}
         activePeers={meshActivePeers}
         onDismiss={() => setSettingsVisible(false)}
-        onSignIn={runGoogleSignIn}
+        onSignIn={runSignIn}
         onSignOut={() => {
           // UX critique #6: open a ConfirmDialog before wiping the
           // session. The sheet was already dismissed via chained()

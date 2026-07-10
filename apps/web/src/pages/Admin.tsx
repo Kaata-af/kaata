@@ -92,6 +92,7 @@ type UserRow = {
   last_seen: string;
   ledger_name: string;
   ledger_phone: string;
+  shop_name: string;
   platform: string;
   app_version: string;
   installed_at: string;
@@ -554,6 +555,7 @@ export function Admin() {
                           <div className="truncate text-xs text-neutral-400">
                             {u.email}
                             {u.ledger_phone ? ` · ${u.ledger_phone}` : ""}
+                            {u.shop_name ? ` · ${u.shop_name}` : ""}
                           </div>
                         </div>
                         <div className="shrink-0 text-right text-xs text-neutral-400">

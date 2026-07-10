@@ -143,8 +143,12 @@ func jwkToRSAPublicKey(jwk appleJWK) (*rsa.PublicKey, error) {
 
 // VerifyAppleIDToken verifies an Apple identity token and returns its claims.
 // Checks: RS256 signature against Apple's JWKS (by kid), iss == appleid.apple.com,
-// aud == audience (the app's bundle id), and exp (required). audience must be
-// configured (the APPLE_CLIENT_ID env), else the endpoint is effectively off.
+// aud == audience (the app's bundle id), and exp (required). audience comes from
+// the APPLE_CLIENT_ID env, which config.Load() defaults to af.kaata.app — so in
+// practice it's never empty; the guard below is defense-in-depth for direct
+// callers. Note: verification is single-audience. If a web "Sign in with Apple
+// JS" flow ever ships, its tokens carry a SERVICES ID audience (not the bundle
+// id) and this function needs to accept a set of audiences.
 func VerifyAppleIDToken(ctx context.Context, idToken, audience string) (*ApplePayload, error) {
 	if audience == "" {
 		return nil, errors.New("apple client id not configured")

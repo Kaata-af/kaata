@@ -94,6 +94,69 @@ export type DifferentAccountPromptArgs = {
 // prompting — the previous binding is plausibly abandoned.
 const DIFFERENT_ACCOUNT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
+// Phase 4.1 "different account on this phone?" guard, shared by Google AND
+// Apple sign-in (both providers' ID tokens are standard JWTs with a stable
+// per-account `sub`; postSignInHousekeeping caches whichever provider's sub
+// under app_meta.account_google_sub — the key name is historical). If a
+// previous sub is cached AND the new sub differs AND the install was active
+// within the last 30 days, ask the caller's prompt before the backend call:
+//   - "keep"   → return; the sign-in proceeds and rebinds to the new account
+//   - "wipe"   → resetAllLocalData() first (clears app_meta too), then return
+//   - "cancel" → run onCancelCleanup (provider-specific, e.g. revoke the
+//                Google picker selection), then throw
+//                SignInCancelledByUserError for the caller to swallow
+// Decoding the JWT locally is safe because we only read display info to
+// drive UI — the backend still does full signature/aud verification. We DO
+// NOT trust these claims for any state mutation.
+async function guardDifferentAccount(
+  idToken: string,
+  onDifferentAccount?: (args: DifferentAccountPromptArgs) => Promise<DifferentAccountChoice>,
+  onCancelCleanup?: () => Promise<void>,
+): Promise<void> {
+  if (!onDifferentAccount) return;
+  const decoded = decodeIdTokenClaims(idToken);
+  const newSub: string | null = typeof decoded?.sub === "string" ? decoded.sub : null;
+  const newEmail: string | null = typeof decoded?.email === "string" ? decoded.email : null;
+  if (!newSub) return;
+
+  const db = await getDb();
+  const cachedSub = await getAppMetaInTx(db, "account_google_sub");
+  const lastSeenRaw = await getAppMetaInTx(db, "account_last_seen_at");
+  const lastSeen = lastSeenRaw ? Number(lastSeenRaw) : NaN;
+  const withinWindow =
+    Number.isFinite(lastSeen) && Date.now() - lastSeen < DIFFERENT_ACCOUNT_WINDOW_MS;
+  if (!cachedSub || cachedSub === newSub || !withinWindow) return;
+
+  // Best-effort: pull the last-known email from SecureStore so the dialog
+  // can render "old (a@x) vs new (b@y)". Stale is fine — it's for
+  // recognition, not authorization.
+  let cachedEmail: string | null = null;
+  try {
+    const cachedUser = await getSessionUser();
+    cachedEmail = cachedUser?.email ?? null;
+  } catch {
+    // SecureStore can transiently fail; UI just shows "—" for the old
+    // side. Never blocks the prompt.
+  }
+
+  const choice = await onDifferentAccount({ cachedEmail, newEmail });
+  if (choice === "cancel") {
+    if (onCancelCleanup) await onCancelCleanup();
+    throw new SignInCancelledByUserError();
+  }
+  if (choice === "wipe") {
+    // Wipe the local ledger BEFORE the backend call so the new sign-in
+    // lands on a clean SQLite. resetAllLocalData clears app_meta too, so
+    // cached account_google_sub / account_id / account_last_seen_at all go
+    // with it — postSignInHousekeeping will repopulate them fresh.
+    await resetAllLocalData();
+  }
+  // "keep" falls through. postSignInHousekeeping's setAppMetaInTx calls
+  // will overwrite account_id / account_google_sub with the new account's
+  // values, and appendAccountBound will emit a fresh account_bound event so
+  // the server re-attributes any pre-existing events under the new binding.
+}
+
 // One-time configuration. Called from _layout.tsx on app start. The
 // webClientId here is what tells Google sign-in to mint an ID token whose
 // `aud` claim matches our backend's GOOGLE_WEB_CLIENT_ID env var — the
@@ -188,68 +251,16 @@ export async function signInWithGoogle(
   }
 
   // ---- Phase 4.1: "different Google account on this phone" detection ----
-  //
-  // We have the picker's ID token but haven't called the backend yet. The
-  // ID token carries the `sub` claim (Google's stable per-account user
-  // id) and `email`. If a previous sub is cached AND the new sub differs
-  // AND the install was active within the last 30 days, prompt the user.
-  //
-  // Decoding the JWT locally is safe because we're only reading display
-  // info to drive UI — the backend still does full signature/aud
-  // verification on /v1/auth/google. We DO NOT trust these claims for
-  // any state mutation.
-  const decoded = decodeIdTokenClaims(idToken);
-  const newSub: string | null = typeof decoded?.sub === "string" ? decoded.sub : null;
-  const newEmail: string | null = typeof decoded?.email === "string" ? decoded.email : null;
-
-  if (newSub && onDifferentAccount) {
-    const db = await getDb();
-    const cachedSub = await getAppMetaInTx(db, "account_google_sub");
-    const lastSeenRaw = await getAppMetaInTx(db, "account_last_seen_at");
-    const lastSeen = lastSeenRaw ? Number(lastSeenRaw) : NaN;
-    const withinWindow =
-      Number.isFinite(lastSeen) && Date.now() - lastSeen < DIFFERENT_ACCOUNT_WINDOW_MS;
-
-    if (cachedSub && cachedSub !== newSub && withinWindow) {
-      // Best-effort: pull the last-known email from SecureStore so the
-      // dialog can render "old (a@x) vs new (b@y)". Stale is fine — it's
-      // for recognition, not authorization.
-      let cachedEmail: string | null = null;
-      try {
-        const cachedUser = await getSessionUser();
-        cachedEmail = cachedUser?.email ?? null;
-      } catch {
-        // SecureStore can transiently fail; UI just shows "—" for the
-        // old side. Never blocks the prompt.
-      }
-
-      const choice = await onDifferentAccount({ cachedEmail, newEmail });
-      if (choice === "cancel") {
-        // User chose to stay on the old account. Revoke the Google
-        // selection locally so the next sign-in re-prompts the picker
-        // instead of silently reusing the just-picked account.
-        try {
-          await lib.GoogleSignin.signOut();
-        } catch {
-          // already signed out / never signed in — fine
-        }
-        throw new SignInCancelledByUserError();
-      }
-      if (choice === "wipe") {
-        // Wipe the local ledger BEFORE the backend call so the new
-        // sign-in lands on a clean SQLite. resetAllLocalData clears
-        // app_meta too, so cached account_google_sub / account_id /
-        // account_last_seen_at all go with it — postSignInHousekeeping
-        // will repopulate them fresh.
-        await resetAllLocalData();
-      }
-      // "keep" falls through. postSignInHousekeeping's setAppMetaInTx
-      // calls below will overwrite account_id / account_google_sub with
-      // the new account's values, and appendAccountBound will emit a
-      // fresh account_bound event so the server re-attributes any
-      // pre-existing events under the new binding.
+  // Shared with Apple sign-in; see guardDifferentAccount. On cancel, also
+  // revoke the Google selection locally so the next sign-in re-prompts the
+  // picker instead of silently reusing the just-picked account.
+  await guardDifferentAccount(idToken, onDifferentAccount, async () => {
+    try {
+      await lib.GoogleSignin.signOut();
+    } catch {
+      // already signed out / never signed in — fine
     }
-  }
+  });
   // -----------------------------------------------------------------------
 
   const installId = await ensureInstallId();
@@ -350,12 +361,17 @@ async function applyAuthResponse(body: AuthResponse): Promise<SessionUser> {
 
 // Sign in with Apple (iOS only; App Store guideline 4.8). Gets an Apple identity
 // token via the native module, posts it to /v1/auth/apple, and lands the user
-// in the same signed-in state as Google via applyAuthResponse. expo-apple-
-// authentication is imported lazily so this file stays safe to import on Android
-// / Expo Go where the native module is absent. Requires expo-apple-authentication
-// installed + a native rebuild + Sign in with Apple enabled in the Apple
-// Developer account for bundle af.kaata.app.
-export async function signInWithApple(): Promise<SessionUser> {
+// in the same signed-in state as Google via applyAuthResponse. Takes the same
+// optional "different account on this phone?" prompt as signInWithGoogle —
+// pass it anywhere an existing binding could be rebound (post-onboarding
+// sign-in); onboarding may omit it (fresh install, nothing to rebind).
+// expo-apple-authentication is imported lazily so this file stays safe to
+// import on Android / Expo Go where the native module is absent. Requires
+// expo-apple-authentication installed + a native rebuild + Sign in with Apple
+// enabled in the Apple Developer account for bundle af.kaata.app.
+export async function signInWithApple(
+  onDifferentAccount?: (args: DifferentAccountPromptArgs) => Promise<DifferentAccountChoice>,
+): Promise<SessionUser> {
   if (Platform.OS !== "ios") {
     throw new Error("Sign in with Apple is only available on iOS");
   }
@@ -372,7 +388,45 @@ export async function signInWithApple(): Promise<SessionUser> {
   }
   // Apple returns the name ONLY on the first authorization for this Apple ID.
   const fn = credential.fullName;
-  const displayName = [fn?.givenName, fn?.familyName].filter(Boolean).join(" ").trim();
+  const freshName = [fn?.givenName, fn?.familyName].filter(Boolean).join(" ").trim();
+
+  // One-shot-name insurance: if anything below fails (guard cancel, timeout,
+  // 5xx, offline), a retry's signInAsync resolves WITHOUT a name — Apple
+  // never re-sends it, so an unstashed name is lost forever and the account
+  // stays nameless (the backend's non-empty-wins COALESCE can't restore what
+  // never arrived). Stash it BEFORE anything can throw, keyed to the Apple
+  // user id (credential.user == the token's sub) so a stale stash from Apple
+  // ID A is never sent as the name of a different Apple ID B; fall back to a
+  // sub-matching stash on retries, clear only after a confirmed 200.
+  // NOTE: getDb() is called fresh at every use site here (never held in a
+  // local) because the guard's "wipe" choice runs resetAllLocalData(), which
+  // CLOSES the handle — a captured db would throw on every later call.
+  const APPLE_NAME_STASH_KEY = "apple_pending_display_name";
+  if (freshName) {
+    await setAppMetaInTx(
+      await getDb(),
+      APPLE_NAME_STASH_KEY,
+      JSON.stringify({ sub: credential.user, name: freshName }),
+    );
+  }
+
+  // "Different account on this phone?" guard — same semantics as Google
+  // (keep / wipe / cancel; throws SignInCancelledByUserError on cancel).
+  // Apple has no picker to revoke on cancel, so no cleanup callback.
+  await guardDifferentAccount(idToken, onDifferentAccount);
+
+  let displayName = freshName;
+  if (!displayName) {
+    try {
+      const raw = await getAppMetaInTx(await getDb(), APPLE_NAME_STASH_KEY);
+      if (raw) {
+        const stash = JSON.parse(raw) as { sub?: string; name?: string };
+        if (stash.sub === credential.user && stash.name) displayName = stash.name;
+      }
+    } catch {
+      // Malformed / legacy stash — treat as absent rather than fail sign-in.
+    }
+  }
 
   const installId = await ensureInstallId();
   const baseUrl = await getBackendUrl();
@@ -409,6 +463,8 @@ export async function signInWithApple(): Promise<SessionUser> {
     throw new Error(`Backend rejected sign-in (${res.status}): ${detail}`);
   }
   const body = (await res.json()) as AuthResponse;
+  // The name reached the backend — drop the one-shot stash.
+  await setAppMetaInTx(await getDb(), APPLE_NAME_STASH_KEY, "");
   return applyAuthResponse(body);
 }
 

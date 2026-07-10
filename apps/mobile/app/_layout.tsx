@@ -1119,15 +1119,17 @@ function BackgroundCheckIn({ installId }: { installId: string }) {
           app_locale: getLocale(),
           installed_at_unix_ms: installedAtMs ?? undefined,
           has_onboarded: Boolean(self),
-          // B5: report the shopkeeper's OWN profile ONLY when signed in
-          // (account_id present). An anonymous / "stay fully offline" install
-          // was promised "your kaata never leaves this phone", so sending their
-          // name/phone/shop with no account and no consent contradicted that.
-          // Signing in is the consent boundary; offline installs send neither.
-          // (Never customer data in any case.)
-          self_name: accountIdRaw ? self?.name || undefined : undefined,
-          self_phone: accountIdRaw ? self?.phone || undefined : undefined,
-          shop_name: accountIdRaw ? self?.shop_name || undefined : undefined,
+          // The shopkeeper's OWN profile (name / phone / shop) — sent regardless
+          // of sign-in state. Operator decision 2026-07-10 (reversing the
+          // short-lived B5 signed-in-only gate of 2026-07-08): the admin
+          // dashboard needs offline-mode users' identity for churn outreach,
+          // and the published privacy policy + Play Data Safety answers
+          // already disclose exactly this ("own profile on check-in, no
+          // sign-in required" — docs/play-data-safety.md). Scope is
+          // getLocalSelf() only — never customers/suppliers.
+          self_name: self?.name || undefined,
+          self_phone: self?.phone || undefined,
+          shop_name: self?.shop_name || undefined,
           phones_invalid_count: invalidStr ? Number(invalidStr) : undefined,
           phones_conflict_count: conflictStr ? Number(conflictStr) : undefined,
           usage_entries_created: usage.entries_created,
