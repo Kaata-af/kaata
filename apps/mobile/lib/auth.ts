@@ -11,7 +11,7 @@ import {
   setAccountIdCache,
   setAppMetaInTx,
 } from "./db-tx";
-import { resetAllLocalData } from "./db";
+import { initDb, resetAllLocalData } from "./db";
 import { appendAccountBound } from "./event-log";
 import { ensureInstallId } from "./install-id";
 
@@ -150,6 +150,14 @@ async function guardDifferentAccount(
     // cached account_google_sub / account_id / account_last_seen_at all go
     // with it — postSignInHousekeeping will repopulate them fresh.
     await resetAllLocalData();
+    // resetAllLocalData drops EVERY table (schema_migrations included) and
+    // closes the handle; without re-running migrations, every DB access for
+    // the rest of this sign-in (housekeeping, recovery, home load) hits
+    // "no such table" until the next cold launch. Same re-init pattern as
+    // account.tsx after deleteAccount: fresh install id first (migration 006
+    // requires it), then rebuild the schema.
+    const freshInstallId = await ensureInstallId();
+    await initDb({ installId: freshInstallId });
   }
   // "keep" falls through. postSignInHousekeeping's setAppMetaInTx calls
   // will overwrite account_id / account_google_sub with the new account's
@@ -463,8 +471,14 @@ export async function signInWithApple(
     throw new Error(`Backend rejected sign-in (${res.status}): ${detail}`);
   }
   const body = (await res.json()) as AuthResponse;
-  // The name reached the backend — drop the one-shot stash.
-  await setAppMetaInTx(await getDb(), APPLE_NAME_STASH_KEY, "");
+  // The name reached the backend — drop the one-shot stash. Best-effort: a
+  // local SQLite hiccup here must not fail a sign-in the server has already
+  // accepted (worst case the sub-keyed stash lingers until the next success).
+  try {
+    await setAppMetaInTx(await getDb(), APPLE_NAME_STASH_KEY, "");
+  } catch {
+    /* best-effort */
+  }
   return applyAuthResponse(body);
 }
 

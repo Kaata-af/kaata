@@ -98,6 +98,12 @@ func (h *Handler) GoogleSignIn(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	// Same stale-revoked-cache purge as the Apple path below: a fresh sign-in
+	// must not be 401'd for up to 60s by a verdict cached against a prior
+	// session's JWT.
+	if h.authenticator != nil {
+		h.authenticator.Invalidate(req.InstallID, ProviderGoogle)
+	}
 	httpx.JSON(w, http.StatusOK, result)
 }
 
@@ -132,6 +138,13 @@ func (h *Handler) AppleSignIn(w http.ResponseWriter, r *http.Request) {
 		log.Printf("auth/apple failed for install %s: %v", req.InstallID, err)
 		httpx.Error(w, http.StatusUnauthorized, "apple sign-in failed")
 		return
+	}
+	// Drop any cached "revoked" verdict for this (install, provider): a stale
+	// JWT presented moments before this sign-in (e.g. a background check-in
+	// after sign-out) poisons the 60s LRU, and without this purge the FRESH
+	// session 401s "session has been revoked" on the immediate restore probe.
+	if h.authenticator != nil {
+		h.authenticator.Invalidate(req.InstallID, ProviderApple)
 	}
 	httpx.JSON(w, http.StatusOK, result)
 }
