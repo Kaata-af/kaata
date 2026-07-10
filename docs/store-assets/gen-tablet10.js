@@ -145,18 +145,23 @@ const panels = [
   { name: "dari", screen: home("fa") },
 ];
 
-// Real portrait dp widths: 7" tablet ~600dp, 10" tablet ~800dp. Height = 9:16.
-const sizes = [
-  { tag: "7in", w: 600, h: 1067 },
-  { tag: "10in", w: 800, h: 1422 },
-];
+// Reused by gen-ipad13.js — same true-dp screens, different canvas.
+module.exports = { CSS, home, person, onboarding, statusBar, panels };
 
-for (const s of sizes) {
-  for (const p of panels) {
-    const html = `<!doctype html><html><head><meta charset="utf-8"/><style>${CSS}
+if (require.main === module) {
+  // Real portrait dp widths: 7" tablet ~600dp, 10" tablet ~800dp. Height = 9:16.
+  const sizes = [
+    { tag: "7in", w: 600, h: 1067 },
+    { tag: "10in", w: 800, h: 1422 },
+  ];
+
+  for (const s of sizes) {
+    for (const p of panels) {
+      const html = `<!doctype html><html><head><meta charset="utf-8"/><style>${CSS}
 html,body,.t10{width:${s.w}px;height:${s.h}px;}</style></head><body><div class="t10">${p.screen}</div></body></html>`;
-    fs.writeFileSync(path.join(OUT, `tab-${s.tag}-${p.name}.html`), html, "utf8");
+      fs.writeFileSync(path.join(OUT, `tab-${s.tag}-${p.name}.html`), html, "utf8");
+    }
+    console.log("wrote", s.tag, "(" + s.w + "x" + s.h + " dp)");
   }
-  console.log("wrote", s.tag, "(" + s.w + "x" + s.h + " dp)");
+  console.log("done", sizes.length * panels.length, "files");
 }
-console.log("done", sizes.length * panels.length, "files");
