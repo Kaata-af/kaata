@@ -44,7 +44,10 @@ export function Privacy() {
           <p>
             Your ledger — the people you add, their phone numbers, the amounts, notes, and running
             balances — is stored in a database on your device. If you never sign in, that ledger
-            data is not uploaded to our servers. Deleting the app removes it from the phone.
+            data is not uploaded to our servers, with one exception: if you choose to send a WhatsApp
+            reminder, a snapshot of that one customer’s balance and entries is uploaded to create the
+            shareable link (see “Sharing a reminder over WhatsApp” below). Deleting the app removes
+            the on-device ledger from the phone.
           </p>
         </Section>
 
