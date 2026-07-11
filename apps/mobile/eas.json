@@ -43,7 +43,8 @@
       "ios": {
         "ascApiKeyPath": "./credentials/AuthKey_D6G6MNJ4WY.p8",
         "ascApiKeyId": "D6G6MNJ4WY",
-        "ascApiKeyIssuerId": "6fb701e4-120e-41d3-866a-2af0ec537819"
+        "ascApiKeyIssuerId": "6fb701e4-120e-41d3-866a-2af0ec537819",
+        "ascAppId": "6789651127"
       }
     }
   }
