@@ -4,35 +4,6 @@ import { useI18n } from "../lib/i18n";
 import { AndroidIcon } from "./StoreButtons";
 import { useToast } from "./Toast";
 
-// Start the APK download without visibly navigating the page.
-//
-// The APK now lives on GitHub Releases (cross-origin). A plain <a href> to that
-// URL makes the tab visibly bounce through github.com before the 302 → CDN
-// download kicks in — the "it takes me to GitHub for a sec" flash. Routing the
-// click through a hidden, throwaway iframe keeps the user on the download page
-// and the download "just starts": the asset is served `Content-Disposition:
-// attachment`, so the frame only ever receives a download, never a document
-// (so X-Frame-Options / framing rules don't apply). The site sends no CSP, so
-// the frame's cross-origin navigation isn't blocked.
-//
-// Returns false if the DOM isn't usable, so the caller falls back to the
-// anchor's normal navigation (still downloads, just with the flash). The <a>
-// keeps its href so right-click → "Save link as" and no-JS both still work.
-function startHiddenDownload(url: string): boolean {
-  try {
-    if (typeof document === "undefined") return false;
-    const iframe = document.createElement("iframe");
-    iframe.setAttribute("aria-hidden", "true");
-    iframe.style.display = "none";
-    iframe.src = url;
-    document.body.appendChild(iframe);
-    window.setTimeout(() => iframe.remove(), 120_000);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export function DownloadButton() {
   const { push } = useToast();
   const { t } = useI18n();
@@ -40,11 +11,24 @@ export function DownloadButton() {
     <a
       href={APK_DOWNLOAD_URL}
       download
-      onClick={(e) => {
+      onClick={() => {
         reportDownloadClick();
         push(t("download.toast"), "success");
-        // If we triggered the download invisibly, suppress the tab navigation.
-        if (startHiddenDownload(APK_DOWNLOAD_URL)) e.preventDefault();
+        // Let the anchor perform the download natively — no preventDefault, no
+        // hidden iframe. The APK lives on GitHub Releases (cross-origin) and is
+        // served `Content-Disposition: attachment`, so clicking the link starts
+        // the download without navigating the page away.
+        //
+        // We used to route the click through a hidden throwaway iframe to hide a
+        // brief github.com "flash", suppressing the anchor with preventDefault
+        // when the iframe was created. That silently broke the day a CSP was
+        // added: GitHub 302-redirects release assets to
+        // release-assets.githubusercontent.com, which our `frame-src` doesn't
+        // allow, so the framed download was blocked WHILE preventDefault had
+        // already cancelled the real link — the toast fired but nothing
+        // downloaded. Top-level navigation isn't governed by `frame-src`, so the
+        // plain anchor just works, and it keeps right-click "Save link as" and
+        // no-JS working too.
       }}
       className="flex items-center justify-center gap-2.5 w-full bg-neutral-900 text-white font-semibold px-8 py-4 rounded-lg hover:bg-neutral-800 transition-colors text-center text-base"
     >
