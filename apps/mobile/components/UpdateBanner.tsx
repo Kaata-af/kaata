@@ -4,7 +4,7 @@ import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
 import { setAppMeta } from "../lib/db";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
-import { fonts } from "../lib/fonts";
+import { fonts, sansLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
 
 // Both banner variants share the same monochrome chassis. The update banner
@@ -143,5 +143,5 @@ const styles = StyleSheet.create({
   },
   ctaText: { fontFamily: fonts.sansSemi, fontSize: 12 },
   dismiss: { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
-  dismissText: { fontSize: 20, lineHeight: 22, fontFamily: fonts.sansRegular },
+  dismissText: { fontSize: 20, lineHeight: sansLineHeight(20, 22), fontFamily: fonts.sansRegular },
 });

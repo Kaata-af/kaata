@@ -60,7 +60,7 @@ import {
 import { getAccountIdSync, getActiveVaultId, setActiveVaultId } from "../lib/db-tx";
 import { useLedgerRefresh } from "../lib/ledger-events";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
-import { fonts } from "../lib/fonts";
+import { fonts, sansLineHeight } from "../lib/fonts";
 import { formatAmount } from "../lib/format";
 import { t } from "../lib/i18n";
 import { useActiveVaultCanWrite } from "../lib/use-vault-role";
@@ -1555,7 +1555,11 @@ const styles = StyleSheet.create({
     // flexShrink:1 + the inner textCol's flexShrink + numberOfLines:1 still let
     // a long shop name truncate instead of pushing the avatar off-screen.
     flexShrink: 1,
-    minHeight: 40,
+    // The reserve must cover the TITLE's platform-resolved line box (44 on
+    // iOS via the sansLineHeight floor, 32 on Android — see headerTitle), or
+    // the whole home content jumps down when `self` loads and the title
+    // mounts. 40 = the avatar tap-target row, the Android-era minimum.
+    minHeight: Math.max(40, sansLineHeight(28, 32)),
     alignItems: "center",
   },
   // Inner column for title + subname. flexShrink:1 (NOT flex:1) so the
@@ -1576,7 +1580,11 @@ const styles = StyleSheet.create({
   // the avatar's cap-height rather than drifting a few px low.
   headerTitle: {
     fontSize: 28,
-    lineHeight: 32,
+    // 32 hugs the cap height on Android (includeFontPadding:false trims the
+    // font's padding); iOS is floored at Vazirmatn's natural height by the
+    // helper — see the lineHeight invariant in lib/fonts.ts. This was the
+    // first reported clip site (iPhone: shop name sliced at the top).
+    lineHeight: sansLineHeight(28, 32),
     fontFamily: fonts.sansBold,
     color: colors.textEmphasis,
     letterSpacing: -0.5,

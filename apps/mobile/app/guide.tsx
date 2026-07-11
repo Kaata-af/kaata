@@ -4,7 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ScreenHeader } from "../components/SettingsScreen";
 import { colors } from "../lib/colors";
 import { textDir, useIsRTL } from "../lib/direction";
-import { fonts } from "../lib/fonts";
+import { fonts, sansLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
 
 // Permanent "How kaata works" guide — linked from the settings sheet's Help
@@ -44,7 +44,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: fonts.sansRegular,
     color: colors.textDefault,
-    lineHeight: 21,
+    lineHeight: sansLineHeight(14, 21),
     marginTop: 16,
   },
 });

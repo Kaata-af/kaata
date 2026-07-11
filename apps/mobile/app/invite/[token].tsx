@@ -38,7 +38,7 @@ import { colors } from "../../lib/colors";
 import { setActiveVaultId } from "../../lib/db-tx";
 import { setAppMeta } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
-import { fonts } from "../../lib/fonts";
+import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import {
   acceptVaultInvite,
@@ -429,7 +429,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     color: colors.textDefault,
     textAlign: "center",
-    lineHeight: 20,
+    lineHeight: sansLineHeight(14, 20),
   },
   bodySubtle: {
     fontSize: 13,

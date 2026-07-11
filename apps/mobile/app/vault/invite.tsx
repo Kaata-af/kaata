@@ -47,7 +47,7 @@ import { getSessionJWT } from "../../lib/auth";
 import { getActiveVaultId } from "../../lib/db-tx";
 import { getAppMeta } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
-import { fonts } from "../../lib/fonts";
+import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { useVaultPermission } from "../../lib/use-vault-role";
 import { ApiError, createVaultInvite, listVaults } from "../../lib/vault-api";
@@ -455,7 +455,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: fonts.sansRegular,
     color: colors.textDefault,
-    lineHeight: 20,
+    lineHeight: sansLineHeight(14, 20),
   },
 
   fieldHint: {
@@ -463,7 +463,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
     marginTop: 6,
-    lineHeight: 18,
+    lineHeight: sansLineHeight(12, 18),
   },
 
   // IdentityRow-style invitation result -----------------------------------

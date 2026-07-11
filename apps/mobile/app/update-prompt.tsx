@@ -5,7 +5,7 @@ import { Button } from "../components/Button";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
 import { textDir, useIsRTL } from "../lib/direction";
-import { fonts } from "../lib/fonts";
+import { fonts, sansLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
 
 export default function UpdatePromptScreen() {
@@ -63,7 +63,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
-    lineHeight: 22,
+    lineHeight: sansLineHeight(15, 22),
   },
   notesWrap: {
     marginTop: 16,
@@ -73,7 +73,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.borderDefault,
   },
-  notes: { fontSize: 13, fontFamily: fonts.sansRegular, color: colors.textDefault, lineHeight: 19 },
+  notes: {
+    fontSize: 13,
+    fontFamily: fonts.sansRegular,
+    color: colors.textDefault,
+    lineHeight: sansLineHeight(13, 19),
+  },
   openFailed: {
     marginTop: 12,
     fontSize: 12,

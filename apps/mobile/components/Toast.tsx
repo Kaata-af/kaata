@@ -13,7 +13,7 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
-import { fonts } from "../lib/fonts";
+import { fonts, sansLineHeight } from "../lib/fonts";
 
 // In-app toasts. Calm white card with a single colored icon for state — the
 // rest of the chrome stays monochrome, matching the wider kaata design
@@ -112,6 +112,14 @@ const TOAST_HEIGHT_SINGLE = 52; // single-line: 14 + 22 + 14 + (1+1) border
 // constant works for both.
 const BUTTON_OFFSET_ABOVE_SAFE_AREA = 20;
 const LIFT_GAP = 16; // breathing room between toast top and lifted UI bottom
+// iOS line-box growth of the toast message text: styles.message is
+// fontSize 14 / tight 19, floored to 22 on iOS by sansLineHeight (0 on
+// Android). The lift math below was sized so a TWO-line toast sat exactly
+// flush against the lifted UI; a 2-line toast grows by 2× this delta on
+// iOS, so the delta must ride the lift or the toast overlaps the FAB /
+// ping bar by that much. (Single-line height is icon-dominated at 22px —
+// TOAST_HEIGHT_SINGLE is unaffected on both platforms.)
+const TOAST_TEXT_LINE_DELTA = sansLineHeight(14, 19) - 19;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -193,7 +201,14 @@ export function useToast(): ToastContextValue {
 //     → lift = 64 + GAP. The insets.bottom on each side cancels.
 // This is the bug we had before: an extra insets.bottom term that snuck in
 // added 24-34px of phantom gap depending on device.
-const BASE_LIFT = VIEWPORT_BOTTOM_MARGIN + TOAST_HEIGHT_SINGLE - BUTTON_OFFSET_ABOVE_SAFE_AREA;
+// The 2×TOAST_TEXT_LINE_DELTA term budgets the iOS line-box growth of a
+// TWO-line toast (see the constant's comment); it is 0 on Android, so the
+// tuned Android geometry is untouched.
+const BASE_LIFT =
+  VIEWPORT_BOTTOM_MARGIN +
+  TOAST_HEIGHT_SINGLE -
+  BUTTON_OFFSET_ABOVE_SAFE_AREA +
+  2 * TOAST_TEXT_LINE_DELTA;
 
 export function useToastOffset(): Animated.Value {
   const translateY = useRef(new Animated.Value(0)).current;
@@ -380,7 +395,7 @@ const styles = StyleSheet.create({
     color: colors.textEmphasis,
     fontFamily: fonts.sansSemi,
     fontSize: 14,
-    lineHeight: 19,
+    lineHeight: sansLineHeight(14, 19),
     letterSpacing: -0.1,
   },
 });

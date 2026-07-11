@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
 import { getCurrentCurrencySymbol } from "../lib/currency";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
-import { fonts } from "../lib/fonts";
+import { fonts, sansLineHeight } from "../lib/fonts";
 import { formatAmount, formatRelative } from "../lib/format";
 import { t } from "../lib/i18n";
 import type { Entry } from "../lib/types";
@@ -191,7 +191,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: fonts.sansRegular,
     color: colors.textDefault,
-    lineHeight: 18,
+    lineHeight: sansLineHeight(13, 18),
   },
   // The flex lives on this wrapper (see the collapsed branch), not on the
   // truncating <Text>, so the cue stays inline at the end of the clamped line.
@@ -206,7 +206,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: fonts.sansRegular,
     color: colors.textDefault,
-    lineHeight: 18,
+    lineHeight: sansLineHeight(13, 18),
   },
   more: {
     fontSize: 12,

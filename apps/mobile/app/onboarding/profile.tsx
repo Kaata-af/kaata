@@ -18,7 +18,7 @@ import { FormField } from "../../components/FormField";
 import { colors } from "../../lib/colors";
 import { getAppMeta, setAppMeta } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
-import { fonts } from "../../lib/fonts";
+import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import {
   getCountry,
@@ -387,7 +387,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
     marginTop: 6,
-    lineHeight: 19,
+    lineHeight: sansLineHeight(13, 19),
   },
   spacer: { height: 28 },
   fieldHint: {
@@ -396,7 +396,7 @@ const styles = StyleSheet.create({
     color: colors.textSubtle,
     marginTop: 6,
     marginBottom: 14,
-    lineHeight: 17,
+    lineHeight: sansLineHeight(12, 17),
   },
   submitError: {
     fontSize: 13,

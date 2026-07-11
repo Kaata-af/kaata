@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import {
   Inter_400Regular,
   Inter_500Medium,
@@ -64,6 +65,48 @@ export const fonts = {
   faSemi: "Vazirmatn_600SemiBold",
   faBold: "Vazirmatn_700Bold",
 } as const;
+
+// ---------------------------------------------------------------------------
+// Line heights — the iOS clipping invariant.
+//
+// Measured from the bundled TTFs (hhea ascent/descent; identical across
+// weights):
+//   Vazirmatn:      ascent 2100, descent -1100, upem 2048 → 1.5625em natural
+//   JetBrains Mono: ascent 1020, descent  -300, upem 1000 → 1.32em natural
+//
+// Vazirmatn's metrics are huge because they reserve headroom for Persian
+// ascenders + stacked diacritics — and they apply to EVERY string, English
+// included (the glyph box belongs to the font file, not the script).
+//
+// The two platforms resolve a lineHeight SMALLER than the font's natural
+// height in opposite ways:
+//   - Android: includeFontPadding:false trims the font's padding, so tight
+//     line boxes fit. This is why all our tight values look right there.
+//   - iOS: no trim exists. The glyph run keeps its descent and overflows the
+//     top of the reduced line box, and the overflow is CLIPPED — English
+//     capitals lose their heads, Dari marks vanish. (First observed on the
+//     home header: fontSize 28 / lineHeight 32 vs a 43.75px natural height.)
+//
+// INVARIANT: never give a Text a raw lineHeight below its font's natural
+// height on iOS. Route every sans/mono lineHeight through these helpers:
+// Android keeps the designed tight value verbatim, iOS is floored at the
+// font's natural height. (System-font text — no fontFamily — is exempt;
+// SF/Roboto metrics are ~1.2em and our ratios clear them.)
+export const SANS_NATURAL_EM = 1.5625; // Vazirmatn
+export const MONO_NATURAL_EM = 1.32; // JetBrains Mono
+
+function flooredLineHeight(fontSize: number, tight: number, naturalEm: number): number {
+  if (Platform.OS !== "ios") return tight;
+  return Math.max(tight, Math.ceil(fontSize * naturalEm));
+}
+
+export function sansLineHeight(fontSize: number, tight: number): number {
+  return flooredLineHeight(fontSize, tight, SANS_NATURAL_EM);
+}
+
+export function monoLineHeight(fontSize: number, tight: number): number {
+  return flooredLineHeight(fontSize, tight, MONO_NATURAL_EM);
+}
 
 export function useAppFonts(): boolean {
   // Tuple is [loaded, error]; callers that only need `loaded` keep the

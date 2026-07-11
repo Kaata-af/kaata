@@ -49,7 +49,7 @@ import { useToast } from "../components/Toast";
 import { signOut } from "../lib/auth";
 import { colors } from "../lib/colors";
 import { textDir, useIsRTL } from "../lib/direction";
-import { fonts } from "../lib/fonts";
+import { fonts, sansLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
 import { recoverAllVaults, type RecoveryProgress } from "../lib/recovery";
 import { RestoreSessionExpiredError, RestoreTimeoutError } from "../lib/restore";
@@ -254,7 +254,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
     marginTop: 10,
-    lineHeight: 20,
+    lineHeight: sansLineHeight(14, 20),
     textAlign: "center",
   },
   spacer: { height: 32 },

@@ -54,7 +54,7 @@ import {
 import { getLocalSelf } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { appendShopProfileUpdated, appendVaultMemberAdded } from "../../lib/event-log";
-import { fonts } from "../../lib/fonts";
+import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { ensureDeviceKey, getDevicePubkey } from "../../lib/mesh/device-key";
 import { buildLocalAccountId } from "../../lib/trust/account-id";
@@ -515,6 +515,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
-    lineHeight: 17,
+    lineHeight: sansLineHeight(12, 17),
   },
 });

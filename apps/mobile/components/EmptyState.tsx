@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
-import { fonts } from "../lib/fonts";
+import { fonts, sansLineHeight } from "../lib/fonts";
 
 export function EmptyState(props: { title: string; subtitle?: string }) {
   return (
@@ -24,6 +24,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
     textAlign: "center",
-    lineHeight: 19,
+    lineHeight: sansLineHeight(13, 19),
   },
 });

@@ -28,7 +28,7 @@ import { ScreenHeader } from "../components/SettingsScreen";
 import { useToast } from "../components/Toast";
 import { colors } from "../lib/colors";
 import { buildDiagnosticsReport } from "../lib/diagnostics-report";
-import { fonts } from "../lib/fonts";
+import { fonts, sansLineHeight } from "../lib/fonts";
 import { resetAllLocalData } from "../lib/db";
 // PARKED (Nearby sync / mesh): the live sync state + log and the mem-probe
 // memory-slope sampling belong to the mesh feature, which is hidden for now.
@@ -392,7 +392,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
     marginBottom: 12,
-    lineHeight: 18,
+    lineHeight: sansLineHeight(13, 18),
   },
   actionRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
   copyReport: {

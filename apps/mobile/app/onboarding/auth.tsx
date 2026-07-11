@@ -9,7 +9,7 @@ import { isCancellation, signInWithApple, signInWithGoogle } from "../../lib/aut
 import { colors } from "../../lib/colors";
 import { getAppMeta, setAppMeta } from "../../lib/db";
 import { textDir, useIsRTL } from "../../lib/direction";
-import { fonts } from "../../lib/fonts";
+import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 
 // Onboarding step 2 — auth choice. Sits BEFORE the name/shop form so the
@@ -264,7 +264,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
     marginTop: 8,
-    lineHeight: 20,
+    lineHeight: sansLineHeight(14, 20),
     textAlign: "center",
   },
   spacer: { height: 36 },
@@ -315,7 +315,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
-    lineHeight: 19,
+    lineHeight: sansLineHeight(13, 19),
   },
   cardBodyPrimary: { color: colors.textInverted, opacity: 0.85 },
   errorText: {

@@ -22,7 +22,7 @@ import { colors } from "../../lib/colors";
 import { getActiveVaultId, getInstallIdSync } from "../../lib/db-tx";
 import { getAppMeta, getDb, setAppMeta } from "../../lib/db";
 import { textDir, useIsRTL } from "../../lib/direction";
-import { fonts } from "../../lib/fonts";
+import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import {
   encodePairQr,
@@ -549,7 +549,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: fonts.sansRegular,
     color: colors.textDefault,
-    lineHeight: 22,
+    lineHeight: sansLineHeight(14, 22),
     alignSelf: "stretch",
   },
   headline: {
@@ -557,7 +557,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansSemi,
     color: colors.textEmphasis,
     textAlign: "center",
-    lineHeight: 30,
+    lineHeight: sansLineHeight(22, 30),
     marginBottom: 16,
   },
   emph: { fontFamily: fonts.sansSemi, color: colors.textEmphasis },
@@ -596,7 +596,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
     textAlign: "center",
-    lineHeight: 18,
+    lineHeight: sansLineHeight(12, 18),
   },
   fineprintEmph: {
     marginTop: 6,
@@ -632,6 +632,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
-    lineHeight: 18,
+    lineHeight: sansLineHeight(12, 18),
   },
 });

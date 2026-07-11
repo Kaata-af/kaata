@@ -29,7 +29,7 @@ import { useEffect, useRef, useState } from "react";
 import { Animated, Easing, StyleSheet, Text, View } from "react-native";
 
 import { colors } from "../lib/colors";
-import { fonts } from "../lib/fonts";
+import { fonts, sansLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
 import type { RecoveryProgress } from "../lib/recovery";
 
@@ -238,7 +238,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: fonts.sansRegular,
     marginTop: 12,
-    lineHeight: 18,
+    lineHeight: sansLineHeight(13, 18),
     textAlign: "center",
   },
 });

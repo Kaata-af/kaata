@@ -4,7 +4,7 @@ import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View } from "re
 import { colors } from "../lib/colors";
 import { SHEET_BLUR_METHOD } from "../lib/blur";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
-import { fonts } from "../lib/fonts";
+import { fonts, sansLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
 
 // shadcn-style confirmation dialog. Left-aligned title + optional description,
@@ -194,7 +194,7 @@ const styles = StyleSheet.create({
   description: {
     marginTop: 8,
     fontSize: 13,
-    lineHeight: 19,
+    lineHeight: sansLineHeight(13, 19),
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
   },

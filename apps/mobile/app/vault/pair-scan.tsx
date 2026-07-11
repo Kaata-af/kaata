@@ -31,7 +31,7 @@ import { colors } from "../../lib/colors";
 import { setActiveVaultId } from "../../lib/db-tx";
 import { getAppMeta, getDb, setAppMeta } from "../../lib/db";
 import { textDir, useIsRTL } from "../../lib/direction";
-import { fonts } from "../../lib/fonts";
+import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { decodePairQr, type PairQrPayload, type PairQrRole } from "../../lib/mesh/pair-qr";
 import { ensureDeviceKey, getDevicePubkey } from "../../lib/mesh/device-key";
@@ -507,7 +507,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: fonts.sansRegular,
     color: colors.textDefault,
-    lineHeight: 22,
+    lineHeight: sansLineHeight(14, 22),
     alignSelf: "stretch",
   },
   headline: {
@@ -516,7 +516,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansSemi,
     color: colors.textEmphasis,
     textAlign: "center",
-    lineHeight: 30,
+    lineHeight: sansLineHeight(22, 30),
     marginBottom: 12,
   },
   emph: { fontFamily: fonts.sansSemi, color: colors.textEmphasis },

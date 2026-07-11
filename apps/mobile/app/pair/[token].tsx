@@ -20,7 +20,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { colors } from "../../lib/colors";
 import { textDir, useIsRTL } from "../../lib/direction";
-import { fonts } from "../../lib/fonts";
+import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 
 export default function PairDeepLinkScreen() {
@@ -67,7 +67,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     color: colors.textDefault,
     textAlign: "center",
-    lineHeight: 20,
+    lineHeight: sansLineHeight(14, 20),
     marginTop: 8,
   },
 });

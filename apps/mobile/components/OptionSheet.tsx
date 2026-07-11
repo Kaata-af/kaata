@@ -7,7 +7,16 @@
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { useEffect, useRef, useState } from "react";
-import { Animated, Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Animated,
+  Dimensions,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { SHEET_BLUR_METHOD } from "../lib/blur";
 import { colors } from "../lib/colors";
@@ -50,7 +59,12 @@ export function OptionSheet(props: {
       requestAnimationFrame(() => {
         Animated.parallel([
           Animated.timing(opacity, { toValue: 1, duration: 220, useNativeDriver: true }),
-          Animated.spring(translateY, { toValue: 0, useNativeDriver: true, friction: 11, tension: 75 }),
+          Animated.spring(translateY, {
+            toValue: 0,
+            useNativeDriver: true,
+            friction: 11,
+            tension: 75,
+          }),
         ]).start();
       });
     } else if (rendered) {

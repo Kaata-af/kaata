@@ -8,7 +8,7 @@ import { Button } from "../../components/Button";
 import { colors } from "../../lib/colors";
 import { getLocalSelf } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
-import { fonts } from "../../lib/fonts";
+import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 
 // Onboarding completion — the game-style "you made it" moment (Matee's ask).
@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
-    lineHeight: 21,
+    lineHeight: sansLineHeight(14, 21),
     textAlign: "center",
     marginTop: 20,
   },

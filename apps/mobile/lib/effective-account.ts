@@ -11,7 +11,9 @@
 // Returns a deduped, non-empty-string list. Best-effort: never throws (a device
 // key that can't be read just yields the passed id, or [] if that's null too).
 
-export async function resolveAccountIdCandidates(passedAccountId: string | null): Promise<string[]> {
+export async function resolveAccountIdCandidates(
+  passedAccountId: string | null,
+): Promise<string[]> {
   const ids: string[] = [];
   if (passedAccountId) ids.push(passedAccountId);
   try {

@@ -19,7 +19,7 @@ import { getEntry, updateEntry } from "../../../lib/db";
 import { toAsciiDigits } from "../../../lib/digits";
 import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../../lib/event-log";
-import { fonts } from "../../../lib/fonts";
+import { fonts, sansLineHeight } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
 import { ENTRY_NOTE_MAX_LENGTH, type EntryType } from "../../../lib/types";
 
@@ -238,7 +238,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
     marginBottom: 20,
-    lineHeight: 18,
+    lineHeight: sansLineHeight(12, 18),
   },
   field: { marginBottom: 20 },
   label: {

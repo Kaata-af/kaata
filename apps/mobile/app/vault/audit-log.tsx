@@ -34,7 +34,7 @@ import { colors } from "../../lib/colors";
 import { getActiveVaultId, getDb } from "../../lib/db-tx";
 import { getAppMeta } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
-import { fonts } from "../../lib/fonts";
+import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { fetchLocalAuditLog, isLocalCAVault } from "../../lib/projection/audit-log-local";
 import { useVaultRole } from "../../lib/use-vault-role";
@@ -632,7 +632,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
     textAlign: "center",
-    lineHeight: 19,
+    lineHeight: sansLineHeight(13, 19),
   },
   retryBtn: {
     marginTop: 6,

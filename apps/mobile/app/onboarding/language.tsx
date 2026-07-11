@@ -4,7 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../../lib/colors";
 import { setAppMeta } from "../../lib/db";
 import { textDir, useIsRTL } from "../../lib/direction";
-import { fonts } from "../../lib/fonts";
+import { fonts, sansLineHeight } from "../../lib/fonts";
 import { setLocale, t } from "../../lib/i18n";
 
 // Onboarding step 1 — only mounted by _layout's routing logic when the
@@ -84,7 +84,7 @@ const styles = StyleSheet.create({
     color: colors.textSubtle,
     marginTop: 8,
     textAlign: "center",
-    lineHeight: 19,
+    lineHeight: sansLineHeight(13, 19),
   },
   gap: { height: 14 },
   gapLarge: { height: 32 },

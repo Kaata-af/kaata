@@ -20,7 +20,7 @@ import { CURRENCIES, DEFAULT_CURRENCY, getCurrencyName } from "../../lib/currenc
 import { createSelfProfile, getAppMeta, setAppMeta } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError } from "../../lib/event-log";
-import { fonts } from "../../lib/fonts";
+import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 
 // Onboarding final step — create the shopkeeper's first kaata (their shop's
@@ -285,7 +285,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
     marginTop: 8,
-    lineHeight: 20,
+    lineHeight: sansLineHeight(14, 20),
   },
   spacer: { height: 28 },
   label: {
@@ -299,7 +299,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
     marginTop: 8,
-    lineHeight: 17,
+    lineHeight: sansLineHeight(12, 17),
   },
   submitError: {
     fontSize: 13,
