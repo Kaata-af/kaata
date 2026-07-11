@@ -21,7 +21,7 @@
         "NSBluetoothAlwaysUsageDescription": "Kaata uses Bluetooth to sync your ledger with nearby phones in your shop.",
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "3"
+      "buildNumber": "4"
     },
     "android": {
       "package": "af.kaata.app",
