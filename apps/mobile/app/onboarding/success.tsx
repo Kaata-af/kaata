@@ -38,11 +38,13 @@ import { t } from "../../lib/i18n";
 // param can be lost in edge cases (deep-link replay), so we fall back to
 // getLocalSelf().shop_name before rendering the name card.
 
-// Confetti in the brand palette: the two emerald "success" tones + black.
-// Deliberately NOT the garnet "pay" color (money-away everywhere else), and
-// no light neutrals — they vanish against the white background and make the
-// burst read sparse.
-const CONFETTI_COLORS = [colors.collectStrong, colors.collectText, colors.bgInverted] as const;
+// Confetti is mostly monochrome (the brand) with a MINORITY of emerald
+// pieces — emerald is the app's money-toward-you accent and only ever
+// appears in small doses; a big green moment read as off-brand (Matee:
+// "terrible green"). Order matters: i % 3 cycling gives 2 neutral pieces
+// per emerald one. No garnet (money-away), no light neutrals (invisible
+// on white).
+const CONFETTI_COLORS = [colors.bgInverted, colors.textSubtle, colors.collectStrong] as const;
 
 const CONFETTI_COUNT = 18;
 
@@ -319,13 +321,15 @@ const styles = StyleSheet.create({
     zIndex: 2,
     ...Platform.select({ android: { elevation: 5 } }),
   },
-  // Emerald = "money toward you" everywhere else in the app; here it reads
-  // as plain success. The one deliberate splash of color in onboarding.
+  // BLACK, not emerald (Matee: the big green disk read terribly). The app's
+  // identity is monochrome — FAB, primary buttons, primary cards are all
+  // #171717 — and emerald is a small-dose semantic accent, never a large
+  // surface. The celebration lives in the motion + confetti, not the fill.
   checkWrap: {
     width: 96,
     height: 96,
     borderRadius: 48,
-    backgroundColor: colors.collectStrong,
+    backgroundColor: colors.bgInverted,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -335,7 +339,7 @@ const styles = StyleSheet.create({
     height: 96,
     borderRadius: 48,
     borderWidth: 3,
-    borderColor: colors.collectStrong,
+    borderColor: colors.bgInverted,
   },
   confetti: {
     position: "absolute",
@@ -371,11 +375,13 @@ const styles = StyleSheet.create({
       android: { elevation: 4 },
     }),
   },
+  // Frosted white-on-dark chip — same treatment as the person screen's
+  // action "coins" — keeps the sign card fully monochrome.
   signIconChip: {
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: colors.collectStrong,
+    backgroundColor: "rgba(255,255,255,0.13)",
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
