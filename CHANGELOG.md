@@ -1,5 +1,69 @@
 # Changelog
 
+## 0.8.7 — 2026-07-11
+
+The sideload/APK build catches up with everything shipped since 0.8.4 — the
+0.8.5 hardening + polish pass and 0.8.6 groundwork — plus a new onboarding
+celebration. If you're updating from 0.8.4, this is a large release.
+
+### New
+- **A celebration when you create your first kaata** — the last onboarding step
+  now shows your shop name on its own card with a confetti burst, instead of
+  quietly dropping you on the home screen.
+- **Delete your account** — Settings → Delete account removes your account and
+  everything backed up to Kaata's servers, then clears the ledger on the phone.
+- **Privacy Policy & Terms of Service** — published at kaata.af/privacy and
+  kaata.af/terms and linked from inside the app.
+- Onboarding polish: a game-style completion flow and a "kaata vs. tally" guide
+  woven through onboarding, home, and settings.
+
+### Fixed
+- **Cloud restore** no longer reverts a synced phone to a stale backup — signing
+  in or restoring on a device that already has your ledger can't drop your recent
+  entries anymore.
+- The **currency symbol now follows the active kaata** — picking USD (or any
+  non-AFN currency), creating a second kaata, or switching kaatas no longer
+  leaves amounts (and WhatsApp reminders / shared links) labelled with the wrong
+  currency.
+- **Pasted amounts** like `25,000` are no longer silently truncated to `25`.
+- **Large font sizes**: the home total and person balance no longer wrap
+  mid-number (e.g. `1,234,567` → `1,234,5` / `67`), and long customer names keep
+  a usable width in the list.
+- **Edit screens** no longer get stuck on a blank spinner if a read fails.
+- Double-tapping the WhatsApp reminder or an invite no longer fires twice
+  (duplicate share links / accept errors).
+- A wrong "phone already used" error on the account screen now reads as a plain
+  save error.
+- Several sync/projection correctness fixes so the ledger stays consistent across
+  devices (sticky deletes, out-of-order edits, shop-name updates on a joined
+  kaata, clock-skew protection).
+- Partial restore failures are now surfaced on sign-in instead of failing
+  silently.
+- "Reset all data" now also clears leftover trust credentials + diagnostics.
+
+### Privacy & security
+- Your own name/phone/shop are uploaded **only when you're signed in** — an
+  offline install sends nothing personal.
+- Closed a way a shared-kaata member could forge owner-level changes on the
+  server.
+- Server hardening: request-size caps, read/write/idle timeouts, DB pool +
+  statement-timeout limits, Google token issuer check, account-bound session
+  revocation, and no longer trusting spoofable client-IP headers.
+- Web: security headers (CSP, HSTS), removed a path that could ship the admin key
+  in the public bundle, and stopped invite tokens leaking into analytics.
+- Crash reports are ring-capped so they can't grow without bound on a device that
+  can't reach the server.
+
+### Under the hood
+- **Smaller, faster app** — Android release builds now run R8/ProGuard code
+  shrinking and resource shrinking, so the APK downloads and installs lighter.
+- **Removed the parked Nearby-sync background service** and its
+  `FOREGROUND_SERVICE_CONNECTED_DEVICE` + battery-optimization permissions
+  (fewer permissions).
+- Accessibility: toasts announce to screen readers, dialog buttons are labelled,
+  home tabs hit the 44dp touch target, and huge-font amounts stop scaling before
+  they break the layout.
+
 ## 0.8.5 — 2026-07-09
 
 The first Play Store release. A large hardening + compliance pass on top of
