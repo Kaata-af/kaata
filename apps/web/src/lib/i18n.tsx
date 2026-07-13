@@ -69,6 +69,8 @@ const en = {
   "footer.terms": "Terms",
   "footer.deleteAccount": "Delete account",
   "footer.openSource": "Open source · Coming soon",
+  "footer.followFacebook": "Follow Kaata on Facebook",
+  "footer.followInstagram": "Follow Kaata on Instagram",
   "footer.copyright": "© 2026 Kaata · Made in Kabul.",
 
   // Download page
@@ -205,6 +207,8 @@ const fa: Record<keyof typeof en, string> = {
   "footer.terms": "شرایط استفاده",
   "footer.deleteAccount": "حذف حساب",
   "footer.openSource": "متن‌باز · به‌زودی",
+  "footer.followFacebook": "کاتا را در فیسبوک دنبال کنید",
+  "footer.followInstagram": "کاتا را در اینستاگرام دنبال کنید",
   "footer.copyright": "© ۲۰۲۶ کاتا · ساخت کابل.",
 
   // Download page

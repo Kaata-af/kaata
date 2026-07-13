@@ -48,6 +48,22 @@
     />
     <meta name="twitter:image" content="https://kaata.af/logo.png" />
     <link rel="icon" type="image/png" href="/favicon.png" />
+    <!-- Organization schema — the `sameAs` links tell search engines that these
+         social profiles belong to the Kaata brand (mirrored in the footer and
+         src/env.ts). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "Kaata",
+        "url": "https://kaata.af/",
+        "logo": "https://kaata.af/logo.png",
+        "sameAs": [
+          "https://www.facebook.com/kaata.af",
+          "https://www.instagram.com/kaata.af"
+        ]
+      }
+    </script>
     <!-- Fonts are self-hosted (Fontsource, bundled by Vite) — no external
          font request can block or fail this page on slow networks. -->
   </head>

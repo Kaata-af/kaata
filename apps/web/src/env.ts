@@ -21,6 +21,12 @@ export const WHATSAPP_CONTACT_URL: string = envOr(
   "https://wa.me/93781696644",
 );
 
+// Social profiles — stable brand handles shown in the footer (and mirrored in
+// the JSON-LD `sameAs` in index.html). Not env-driven: there's no per-deploy
+// reason to point these elsewhere, so no VITE_* var / Dockerfile ARG.
+export const FACEBOOK_URL = "https://www.facebook.com/kaata.af";
+export const INSTAGRAM_URL = "https://www.instagram.com/kaata.af";
+
 export const APK_VERSION: string = envOr(import.meta.env.VITE_APK_VERSION, "0.1.0");
 
 // The APK is distributed as a GitHub Release asset (it exceeds GitHub's 100 MB
