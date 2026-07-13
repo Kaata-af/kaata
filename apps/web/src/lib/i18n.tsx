@@ -159,6 +159,35 @@ const en = {
     "Kaata never shows your ledger to anyone outside the people you invite. Accepting this invitation lets you view this shop's entries on your device.",
   "invite.privacyNote.edit":
     "Kaata never shows your ledger to anyone outside the people you invite. Accepting this invitation lets you edit this shop's entries on your device.",
+
+  // --- Landing-page phone mockups ---
+  // These first keys are copied VERBATIM from apps/mobile/lib/i18n.ts so the
+  // depicted WhatsApp message + home screen read EXACTLY like the real app.
+  // KEEP IN SYNC if the mobile share.* / home.* / format.* strings change.
+  "share.greeting": "Salaam {name}.",
+  "share.theyOwe.header": "Your kaata at {accountWith}:",
+  "share.theyOwe.amount": "🔴 You owe: −{amount} {currency}",
+  "share.theyOwe.cta": "Please settle when you can.",
+  "share.footer": "— Sent via Kaata.af",
+  "home.tab.collect": "To collect",
+  "home.tab.pay": "To pay",
+  "home.total.label.collect": "To collect",
+  "home.from.many": "from {count} people",
+  "format.yesterday": "yesterday",
+  "format.daysAgo": "{n}d ago",
+  "format.weeksAgo": "{n}w ago",
+  // Illustrative sample data + marketing captions (web-only, not in the app).
+  "mock.self.name": "Sultan",
+  "mock.self.shop": "Shop Sultan",
+  "mock.name.mahmood": "Mahmood",
+  "mock.name.ahmad": "Ahmad",
+  "mock.name.sultan": "Sultan",
+  "mock.name.wahid": "Wahid",
+  "mock.offline": "Offline",
+  "mock.entrySaved.title": "New entry saved.",
+  "mock.entrySaved.sub": "On this device. No internet needed.",
+  "mock.whatsapp.reply": "Thanks, will pay tomorrow inshaAllah.",
+  "mock.whatsapp.messagePlaceholder": "Message",
 };
 
 const fa: Record<keyof typeof en, string> = {
@@ -299,6 +328,31 @@ const fa: Record<keyof typeof en, string> = {
     "کاتا هرگز کاتای شما را به کسی بیرون از افراد دعوت‌شده نشان نمی‌دهد. با پذیرفتن این دعوت می‌توانید ثبت‌های این دکان را روی دستگاه خود ببینید.",
   "invite.privacyNote.edit":
     "کاتا هرگز کاتای شما را به کسی بیرون از افراد دعوت‌شده نشان نمی‌دهد. با پذیرفتن این دعوت می‌توانید ثبت‌های این دکان را روی دستگاه خود ویرایش کنید.",
+
+  // --- Landing-page phone mockups (mirror of apps/mobile/lib/i18n.ts) ---
+  "share.greeting": "سلام {name}.",
+  "share.theyOwe.header": "کاتای شما در {accountWith}:",
+  "share.theyOwe.amount": "🔴 بدهی شما: −{amount} {currency}",
+  "share.theyOwe.cta": "لطفاً وقتی توانستید تصفیه کنید.",
+  "share.footer": "پیام از طرف kaata.af",
+  "home.tab.collect": "وصول",
+  "home.tab.pay": "پرداخت",
+  "home.total.label.collect": "قابل وصول",
+  "home.from.many": "از {count} نفر",
+  "format.yesterday": "دیروز",
+  "format.daysAgo": "{n} روز پیش",
+  "format.weeksAgo": "{n} هفته پیش",
+  "mock.self.name": "سلطان",
+  "mock.self.shop": "دکان سلطان",
+  "mock.name.mahmood": "محمود",
+  "mock.name.ahmad": "احمد",
+  "mock.name.sultan": "سلطان",
+  "mock.name.wahid": "وحید",
+  "mock.offline": "آفلاین",
+  "mock.entrySaved.title": "ثبت جدید ذخیره شد.",
+  "mock.entrySaved.sub": "روی همین دستگاه. بدون انترنت.",
+  "mock.whatsapp.reply": "تشکر، فردا انشاالله پرداخت می‌کنم.",
+  "mock.whatsapp.messagePlaceholder": "پیام",
 };
 
 const TABLES: Record<Lang, Record<string, string>> = { en, fa };

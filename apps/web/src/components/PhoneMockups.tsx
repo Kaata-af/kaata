@@ -1,14 +1,26 @@
 import type { ReactNode } from "react";
+import { useI18n } from "../lib/i18n";
 
 // Visual mockups of the mobile app shown on the landing page. Mirrors the
 // production UI as closely as a static render can: same wordmark, same
-// monochrome palette, same Inter + JetBrains Mono treatment of amounts.
+// monochrome palette, same Inter + JetBrains Mono treatment of amounts. All
+// copy flows through useI18n() so the screens flip to Dari with the page.
+//
+// Two fidelity rules that make these read like the real app:
+//   1. Amounts stay Western digits in BOTH languages — the app's formatAmount()
+//      uses toLocaleString("en-US"), so Dari users see "1,250" too, not "۱٬۲۵۰".
+//   2. The currency label is the AFN symbol "؋" (getCurrentCurrencySymbol()),
+//      not the letters "AFN" — that's what the app actually renders everywhere,
+//      including the WhatsApp share body, and it's locale-independent.
+const CURRENCY = "؋";
 
 function PhoneFrame({ children }: { children: ReactNode }) {
   return (
     // dir="ltr": the mockups depict the mobile app, which is deliberately
     // locked LTR (see the app's I18nManager architecture) — they must not
-    // mirror when the surrounding page flips to RTL for Persian.
+    // mirror when the surrounding page flips to RTL for Persian. Dari text
+    // still renders correctly (bidi handles the RTL runs), just left-aligned,
+    // exactly as the LTR-locked app shows it.
     <div
       dir="ltr"
       className="relative w-[284px] max-w-full aspect-[284/580] bg-white rounded-[2.25rem] border-[7px] border-neutral-900 shadow-[0_20px_50px_-15px_rgba(0,0,0,0.18)] overflow-hidden flex flex-col"
@@ -39,13 +51,14 @@ function ListRow(props: { name: string; amount: number; sub: string }) {
         <span className="text-[12px] font-semibold font-mono text-neutral-900">
           {props.amount.toLocaleString("en-US")}
         </span>
-        <span className="text-[9px] font-medium text-neutral-400">AFN</span>
+        <span className="text-[9px] font-medium text-neutral-400">{CURRENCY}</span>
       </div>
     </div>
   );
 }
 
 function Tabs({ active }: { active: "collect" | "pay" }) {
+  const { t } = useI18n();
   return (
     <div className="flex p-[3px] bg-neutral-50 border border-neutral-200 rounded-[10px]">
       <div
@@ -55,7 +68,7 @@ function Tabs({ active }: { active: "collect" | "pay" }) {
             : "text-neutral-700 font-medium"
         }`}
       >
-        To collect
+        {t("home.tab.collect")}
       </div>
       <div
         className={`flex-1 py-1.5 rounded-[7px] text-[11px] text-center ${
@@ -64,41 +77,56 @@ function Tabs({ active }: { active: "collect" | "pay" }) {
             : "text-neutral-700 font-medium"
         }`}
       >
-        To pay
+        {t("home.tab.pay")}
       </div>
     </div>
   );
 }
 
+// Small uppercase eyebrow labels. Arabic script doesn't uppercase and reacts
+// badly to letter-spacing, so drop both for Dari (mirrors the SiteChrome
+// wordmark treatment).
+function eyebrowClass(isRTL: boolean): string {
+  return `text-[9px] font-semibold text-neutral-500 ${isRTL ? "" : "uppercase tracking-wider"}`;
+}
+
 export function PhoneMockupHome() {
+  const { t, lang } = useI18n();
+  const isRTL = lang === "fa";
   return (
     <PhoneFrame>
       <div className="px-4 pt-3 pb-4 flex-1 flex flex-col">
-        <p className="text-[18px] font-bold text-neutral-900 -tracking-tight">kaata.</p>
-        <p className="text-[10px] text-neutral-500 mt-0.5">Sultan · Shop Sultan</p>
+        <p className={`text-[18px] font-bold text-neutral-900 ${isRTL ? "" : "-tracking-tight"}`}>
+          {t("brand.wordmark")}
+        </p>
+        <p className="text-[10px] text-neutral-500 mt-0.5">
+          {t("mock.self.name")} · {t("mock.self.shop")}
+        </p>
 
         <div className="mt-4">
           <Tabs active="collect" />
         </div>
 
         <div className="mt-4">
-          <p className="text-[9px] font-semibold uppercase tracking-wider text-neutral-500">
-            To collect
-          </p>
+          <p className={eyebrowClass(isRTL)}>{t("home.total.label.collect")}</p>
           <div className="flex items-baseline gap-1.5 mt-1">
             <p className="text-[32px] font-bold font-mono text-collect-strong leading-none -tracking-tight">
               6,220
             </p>
-            <p className="text-[11px] text-neutral-400 font-medium">AFN</p>
+            <p className="text-[11px] text-neutral-400 font-medium">{CURRENCY}</p>
           </div>
-          <p className="text-[10px] text-neutral-500 mt-1">from 4 people</p>
+          <p className="text-[10px] text-neutral-500 mt-1">{t("home.from.many", { count: 4 })}</p>
         </div>
 
         <div className="mt-4 rounded-xl border border-neutral-200 overflow-hidden bg-white">
-          <ListRow name="Mahmood" amount={3800} sub="2d ago" />
-          <ListRow name="Ahmad" amount={1250} sub="yesterday" />
-          <ListRow name="Sultan" amount={750} sub="3d ago" />
-          <ListRow name="Wahid" amount={420} sub="1w ago" />
+          <ListRow
+            name={t("mock.name.mahmood")}
+            amount={3800}
+            sub={t("format.daysAgo", { n: 2 })}
+          />
+          <ListRow name={t("mock.name.ahmad")} amount={1250} sub={t("format.yesterday")} />
+          <ListRow name={t("mock.name.sultan")} amount={750} sub={t("format.daysAgo", { n: 3 })} />
+          <ListRow name={t("mock.name.wahid")} amount={420} sub={t("format.weeksAgo", { n: 1 })} />
         </div>
 
         <div className="mt-auto flex justify-end pt-3">
@@ -112,52 +140,75 @@ export function PhoneMockupHome() {
 }
 
 export function PhoneMockupWhatsApp() {
+  const { t, lang } = useI18n();
+  const isRTL = lang === "fa";
+  const name = t("mock.name.ahmad");
+  const accountWith = t("mock.self.shop");
+
+  // Built line-for-line from the EXACT app share.* strings (see
+  // apps/mobile/lib/share.ts, balance > 0 path). Amount is formatAmount(1250)
+  // = "1,250" and the currency is ؋ — identical to the message the app sends.
+  const messageBody = [
+    t("share.greeting", { name }),
+    "",
+    t("share.theyOwe.header", { accountWith }),
+    t("share.theyOwe.amount", { amount: "1,250", currency: CURRENCY }),
+    "",
+    t("share.theyOwe.cta"),
+  ].join("\n");
+
   return (
     <PhoneFrame>
       <div className="px-4 pt-3 pb-3 flex-1 flex flex-col bg-[#efeae2]">
         {/* WhatsApp header */}
         <div className="flex items-center gap-2 pb-3 border-b border-neutral-300/60">
           <div className="w-7 h-7 rounded-full bg-neutral-300 flex items-center justify-center text-[11px] font-semibold text-neutral-700">
-            A
+            {name.charAt(0)}
           </div>
           <div className="min-w-0">
             <p className="text-[13px] font-semibold text-neutral-900 leading-tight truncate">
-              Ahmad
+              {name}
             </p>
-            <p className="text-[10px] text-neutral-500 truncate">+93 70 123 4567</p>
+            <p className="text-[10px] text-neutral-500 truncate" dir="ltr">
+              +93 70 123 4567
+            </p>
           </div>
         </div>
 
-        {/* Outgoing message (the Kaata-pinged message) */}
+        {/* Outgoing message (the Kaata ping). dir follows the language so the
+            Dari message reads right-to-left the way WhatsApp renders it for the
+            recipient; the bubble stays on the right via physical ml-auto. */}
         <div className="mt-4 flex-1 space-y-2.5">
-          <div className="ml-auto max-w-[88%] bg-[#d9fdd3] rounded-2xl rounded-br-sm px-3 py-2.5 text-[12px] text-neutral-900 leading-relaxed shadow-[0_1px_0_rgba(0,0,0,0.04)]">
-            Salaam Ahmad.
+          <div
+            dir={isRTL ? "rtl" : "ltr"}
+            className="ml-auto max-w-[88%] bg-[#d9fdd3] rounded-2xl rounded-br-sm px-3 py-2.5 text-[12px] text-neutral-900 leading-relaxed shadow-[0_1px_0_rgba(0,0,0,0.04)]"
+          >
+            <span className="whitespace-pre-line">{messageBody}</span>
             <br />
             <br />
-            Your kaata at Shop Sultan:
-            <br />
-            🔴 You owe: <span className="font-mono font-semibold">−1,250 AFN</span>
-            <br />
-            <br />
-            Please settle when you can.
-            <br />
-            <br />
-            <span className="text-neutral-500">— Sent via Kaata.af</span>
-            <div className="mt-1 text-right text-[9px] text-neutral-500">
+            <span className="text-neutral-500">{t("share.footer")}</span>
+            <div className="mt-1 text-right text-[9px] text-neutral-500" dir="ltr">
               10:23 AM <span className="text-sky-600">✓✓</span>
             </div>
           </div>
 
-          <div className="mr-auto max-w-[60%] bg-white rounded-2xl rounded-bl-sm px-3 py-2 text-[12px] text-neutral-900 shadow-[0_1px_0_rgba(0,0,0,0.04)]">
-            Thanks, will pay tomorrow inshaAllah.
-            <div className="mt-0.5 text-right text-[9px] text-neutral-500">10:31 AM</div>
+          <div
+            dir={isRTL ? "rtl" : "ltr"}
+            className="mr-auto max-w-[70%] bg-white rounded-2xl rounded-bl-sm px-3 py-2 text-[12px] text-neutral-900 shadow-[0_1px_0_rgba(0,0,0,0.04)]"
+          >
+            {t("mock.whatsapp.reply")}
+            <div className="mt-0.5 text-right text-[9px] text-neutral-500" dir="ltr">
+              10:31 AM
+            </div>
           </div>
         </div>
 
         {/* Reply field */}
         <div className="mt-3 flex items-center gap-2">
           <div className="flex-1 bg-white rounded-full px-3 py-2">
-            <span className="text-[11px] text-neutral-400">Message</span>
+            <span className="text-[11px] text-neutral-400">
+              {t("mock.whatsapp.messagePlaceholder")}
+            </span>
           </div>
           <div className="w-9 h-9 rounded-full bg-[#00a884] flex items-center justify-center text-white">
             <WhatsAppGlyph className="w-4 h-4" />
@@ -169,49 +220,59 @@ export function PhoneMockupWhatsApp() {
 }
 
 export function PhoneMockupOffline() {
+  const { t, lang } = useI18n();
+  const isRTL = lang === "fa";
   return (
     <PhoneFrame>
       <div className="px-4 pt-3 pb-4 flex-1 flex flex-col">
         <div className="flex items-center justify-between">
-          <p className="text-[18px] font-bold text-neutral-900 -tracking-tight">kaata.</p>
+          <p className={`text-[18px] font-bold text-neutral-900 ${isRTL ? "" : "-tracking-tight"}`}>
+            {t("brand.wordmark")}
+          </p>
           <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-neutral-100 border border-neutral-200">
             <span className="w-1.5 h-1.5 rounded-full bg-neutral-400" />
-            <span className="text-[9px] uppercase tracking-wider text-neutral-600 font-semibold">
-              Offline
+            <span
+              className={`text-[9px] font-semibold text-neutral-600 ${isRTL ? "" : "uppercase tracking-wider"}`}
+            >
+              {t("mock.offline")}
             </span>
           </div>
         </div>
-        <p className="text-[10px] text-neutral-500 mt-0.5">Sultan · Shop Sultan</p>
+        <p className="text-[10px] text-neutral-500 mt-0.5">
+          {t("mock.self.name")} · {t("mock.self.shop")}
+        </p>
 
         <div className="mt-4">
           <Tabs active="collect" />
         </div>
 
         <div className="mt-4">
-          <p className="text-[9px] font-semibold uppercase tracking-wider text-neutral-500">
-            To collect
-          </p>
+          <p className={eyebrowClass(isRTL)}>{t("home.total.label.collect")}</p>
           <div className="flex items-baseline gap-1.5 mt-1">
             <p className="text-[32px] font-bold font-mono text-collect-strong leading-none -tracking-tight">
               5,800
             </p>
-            <p className="text-[11px] text-neutral-400 font-medium">AFN</p>
+            <p className="text-[11px] text-neutral-400 font-medium">{CURRENCY}</p>
           </div>
-          <p className="text-[10px] text-neutral-500 mt-1">from 3 people</p>
+          <p className="text-[10px] text-neutral-500 mt-1">{t("home.from.many", { count: 3 })}</p>
         </div>
 
         <div className="mt-4 rounded-xl border border-neutral-200 overflow-hidden bg-white">
-          <ListRow name="Mahmood" amount={3800} sub="2d ago" />
-          <ListRow name="Ahmad" amount={1250} sub="yesterday" />
-          <ListRow name="Sultan" amount={750} sub="3d ago" />
+          <ListRow
+            name={t("mock.name.mahmood")}
+            amount={3800}
+            sub={t("format.daysAgo", { n: 2 })}
+          />
+          <ListRow name={t("mock.name.ahmad")} amount={1250} sub={t("format.yesterday")} />
+          <ListRow name={t("mock.name.sultan")} amount={750} sub={t("format.daysAgo", { n: 3 })} />
         </div>
 
         <div className="mt-auto rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5">
           <p className="text-[10px] font-semibold text-neutral-900 leading-tight">
-            New entry saved.
+            {t("mock.entrySaved.title")}
           </p>
           <p className="text-[10px] text-neutral-500 leading-tight mt-0.5">
-            On this device. No internet needed.
+            {t("mock.entrySaved.sub")}
           </p>
         </div>
       </div>
