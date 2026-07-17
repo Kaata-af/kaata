@@ -104,6 +104,12 @@ export async function pullEvents(vaultId: string): Promise<PullResult> {
     if (!batch.has_more) break;
   }
 
+  // The drain completed without a vault_archived 403 — if this vault carried
+  // a server-driven archive mirror, the owner has unarchived; lift it.
+  await clearServerArchiveMirrorIfProbing(vaultId).catch((err) => {
+    if (__DEV__) console.warn("[sync.pull] archive-probe clear failed", err);
+  });
+
   // Apply everything we just ingested. Best-effort: the rows are durable, so a
   // sweep failure here only defers application to the next debounced /
   // cold-launch / foreground sweepAllQuarantinedVaults — never loses data.
@@ -199,8 +205,24 @@ async function fetchOnePage(
         // the next pull of this vault retries the revoke.
         if (__DEV__) console.warn("[sync.pull] self-revoke mirror write failed", err);
       });
+      // A revoked membership supersedes any archive probe — stop pinging.
+      await clearServerArchiveProbeFlag(vaultId).catch(() => {});
       throw new VaultNotRegisteredError("membership revoked on server");
     }
+    if (code === "vault_archived") {
+      // The owner archived the kaata and we're a non-owner member: the server
+      // cuts sync access but our MEMBERSHIP is intact. Archive locally —
+      // NEVER self-revoke here: that flag is irreversible client-side and
+      // turned every owner-side archive into a silent delete on members'
+      // phones instead of a move to their archived list.
+      await markVaultArchivedFromServer(vaultId).catch((err) => {
+        if (__DEV__) console.warn("[sync.pull] local archive mirror write failed", err);
+      });
+      throw new VaultNotRegisteredError("vault archived on server");
+    }
+    // vault_unknown / legacy bodyless 403: if we were probing a
+    // server-archived vault, it has been purged — nothing left to probe.
+    await clearServerArchiveProbeFlag(vaultId).catch(() => {});
     throw new VaultNotRegisteredError();
   }
   if (!res.ok) {
@@ -269,6 +291,73 @@ export async function markSelfMembershipRevoked(vaultId: string): Promise<void> 
   // the next launch's heal pass.
   invalidateVaultRoleCache(vaultId);
   await healActiveVaultId();
+}
+
+// Server said "vault_archived": the owner archived the kaata and we're a
+// non-owner member. Mirror the ARCHIVE onto the local vaults row (membership
+// stays untouched — we're still a member). Reuses the existing archived-vault
+// affordances end-to-end: listActiveVaults drops it from the switcher, the
+// archived section shows it, and healActiveVaultId moves the active pointer
+// off it. ZERO ledger-data deletion.
+//
+// The probe flag makes the mirror TWO-WAY: fullBackupSweep keeps pulling
+// flagged vaults (a member can't sync an archived vault any other way — it's
+// never the active vault after the heal, and the sweep's normal filter skips
+// clean archived vaults), and the first pull that comes back 200 proves the
+// owner unarchived → clearServerArchiveMirrorIfProbing lifts the local
+// archive and the kaata returns to the switcher. Without the probe the
+// member's copy would stay archived FOREVER after an owner-side unarchive.
+// The flag marks the archive as SERVER-driven — a local/owner-chosen archive
+// never sets it, so this machinery can never lift an archive the user chose.
+const SERVER_ARCHIVE_PROBE_PREFIX = "server_archived_probe:";
+
+export async function markVaultArchivedFromServer(vaultId: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, '1')`,
+    SERVER_ARCHIVE_PROBE_PREFIX + vaultId,
+  );
+  const result = await db.runAsync(
+    `UPDATE vaults
+        SET archived_at = ?, updated_at = ?
+      WHERE id = ? AND archived_at IS NULL`,
+    Date.now(),
+    Date.now(),
+    vaultId,
+  );
+  if (result.changes === 0) return; // already archived locally — nothing to do
+  console.warn(`[sync.pull] server reports vault ${vaultId.slice(0, 8)} archived — mirrored`);
+  await healActiveVaultId();
+}
+
+// A successful pull on a probe-flagged vault proves the server no longer
+// archives us out (an archived vault would have 403'd vault_archived above):
+// the owner unarchived. Lift the server-driven local archive so the kaata
+// reappears. No-op for vaults without the flag — a locally-chosen archive is
+// never lifted by sync.
+export async function clearServerArchiveMirrorIfProbing(vaultId: string): Promise<void> {
+  const db = await getDb();
+  const flag = await db.getFirstAsync<{ value: string }>(
+    `SELECT value FROM app_meta WHERE key = ? LIMIT 1`,
+    SERVER_ARCHIVE_PROBE_PREFIX + vaultId,
+  );
+  if (flag?.value !== "1") return;
+  const result = await db.runAsync(
+    `UPDATE vaults SET archived_at = NULL, updated_at = ? WHERE id = ? AND archived_at IS NOT NULL`,
+    Date.now(),
+    vaultId,
+  );
+  await db.runAsync(`DELETE FROM app_meta WHERE key = ?`, SERVER_ARCHIVE_PROBE_PREFIX + vaultId);
+  if (result.changes > 0) {
+    console.warn(`[sync.pull] server unarchived vault ${vaultId.slice(0, 8)} — restored locally`);
+  }
+}
+
+// Drop the probe flag without touching the vault row — used when the probe
+// became moot (membership revoked, vault purged).
+async function clearServerArchiveProbeFlag(vaultId: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(`DELETE FROM app_meta WHERE key = ?`, SERVER_ARCHIVE_PROBE_PREFIX + vaultId);
 }
 
 function parseRetryAfter(raw: string | null): number | null {

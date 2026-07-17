@@ -533,6 +533,61 @@ func TestNonOwnerSignedMemberRemovedRejected(t *testing.T) {
 	}
 }
 
+// TestSelfSignedMemberRemovedIsAcceptedAsLeave: rule (b3) — a member's OWN
+// bound device signing a vault_member_removed for the member's OWN account is
+// the "leave kaata" flow and must be accepted + folded (membership revoked,
+// devices removed), even though the signer is not an owner. Contrast with
+// TestNonOwnerSignedMemberRemovedRejected above: same signer, different
+// target — removing anyone ELSE stays owner-only.
+func TestSelfSignedMemberRemovedIsAcceptedAsLeave(t *testing.T) {
+	f := newM2Fixture(t)
+	ctx := context.Background()
+
+	staff := f.seedAccount(t, "staff@gmail.com")
+	if _, err := f.pool.Exec(ctx, `
+		INSERT INTO vault_members (vault_id, account_id, role, invited_at, accepted_at, invited_by)
+		VALUES ($1::uuid, $2::uuid, 'editor', NOW(), NOW(), $3::uuid)
+	`, f.vaultID, staff, f.ownerAcct); err != nil {
+		t.Fatalf("seed staff membership: %v", err)
+	}
+	_, staffPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate staff key: %v", err)
+	}
+	staffDevID := uuid.NewString()
+	staffPub, _ := base64.StdEncoding.DecodeString(b64pub(staffPriv))
+	if _, err := f.pool.Exec(ctx, `
+		INSERT INTO vault_devices (vault_id, device_id, device_pubkey, account_id, added_at_ms)
+		VALUES ($1::uuid, $2::uuid, $3, $4::uuid, $5)
+	`, f.vaultID, staffDevID, staffPub, staff, f.nextPMS()); err != nil {
+		t.Fatalf("seed staff device binding: %v", err)
+	}
+
+	leave := f.membershipEvent("vault_member_removed", staffDevID, staff, staff,
+		map[string]any{"account_id": staff})
+	f.signEvent(t, &leave, staffPriv)
+
+	requireAccepted(t, f.pushAs(t, staff, leave), 1)
+	if role := f.memberRow(t, staff); role != "" {
+		t.Errorf("staff still active after self-leave fold: role %q", role)
+	}
+	d := f.deviceRow(t, staffDevID)
+	if !d.exists || d.removedAtMS == nil {
+		t.Errorf("staff device after self-leave = %+v, want removed", d)
+	}
+
+	// Last-owner guard survives the carve-out: the OWNER's own device
+	// self-leaving as the sole owner is accepted into the log (replica-first)
+	// but must NOT fold the vault into zero active owners.
+	ownerLeave := f.membershipEvent("vault_member_removed", f.anchorDeviceID, f.ownerAcct, f.ownerAcct,
+		map[string]any{"account_id": f.ownerAcct})
+	f.signEvent(t, &ownerLeave, f.anchorPriv)
+	requireAccepted(t, f.pushAs(t, f.ownerAcct, ownerLeave), 1)
+	if role := f.memberRow(t, f.ownerAcct); role != "owner" {
+		t.Errorf("sole owner revoked by self-leave fold: role %q, want owner", role)
+	}
+}
+
 // TestOwnerSignedMemberRemovedFoldsMembershipAndDevices: the legitimate
 // removal — anchor-signed — revokes the vault_members row AND removes all
 // the account's devices (§2: removal takes the devices too).
@@ -662,6 +717,122 @@ func TestLegacyUnsignedMembershipEventOnAnchorlessVault(t *testing.T) {
 	}
 	if len(res2.Rejected) != 1 || res2.Rejected[0].Reason != "insufficient_role" {
 		t.Errorf("editor unsigned governance push = %+v, want insufficient_role", res2)
+	}
+}
+
+// TestLegacySelfLeaveOnAnchorlessVaultAcceptedAndFolded: the legacy-path
+// self-leave allowance — a member's OWN vault_member_removed (target ==
+// pushing JWT account) on an anchor-less vault is accepted WITHOUT owner
+// role and folded (revoked_at set), matching what the REST /leave endpoint
+// does. Removing anyone ELSE stays owner-only (forged actor_account_id
+// cannot widen it — authorization keys on the SESSION account).
+func TestLegacySelfLeaveOnAnchorlessVaultAcceptedAndFolded(t *testing.T) {
+	f := newM2Fixture(t)
+	ctx := context.Background()
+
+	legacyVault := uuid.NewString()
+	if _, err := f.pool.Exec(ctx, `
+		INSERT INTO vaults (vault_id, owner_account_id, name, currency, vault_epoch)
+		VALUES ($1::uuid, $2::uuid, 'Legacy Shop', 'AFN', 0)
+	`, legacyVault, f.ownerAcct); err != nil {
+		t.Fatalf("seed legacy vault: %v", err)
+	}
+	if _, err := f.pool.Exec(ctx, `
+		INSERT INTO vault_members (vault_id, account_id, role, invited_at, accepted_at, invited_by)
+		VALUES ($1::uuid, $2::uuid, 'owner', NOW(), NOW(), $2::uuid)
+	`, legacyVault, f.ownerAcct); err != nil {
+		t.Fatalf("seed legacy owner membership: %v", err)
+	}
+	staff := f.seedAccount(t, "staff@gmail.com")
+	if _, err := f.pool.Exec(ctx, `
+		INSERT INTO vault_members (vault_id, account_id, role, invited_at, accepted_at, invited_by)
+		VALUES ($1::uuid, $2::uuid, 'editor', NOW(), NOW(), $3::uuid)
+	`, legacyVault, staff, f.ownerAcct); err != nil {
+		t.Fatalf("seed staff membership: %v", err)
+	}
+
+	// Staff self-leave, unsigned (legacy path), pushed under staff's own JWT.
+	payload, _ := json.Marshal(map[string]any{"account_id": staff})
+	tgt := staff
+	leave := PushEvent{
+		EventID:        uuid.NewString(),
+		HLC:            PushHLC{PhysicalMS: f.nextPMS(), Logical: 0, DeviceID: uuid.NewString()},
+		EventType:      "vault_member_removed",
+		SchemaVersion:  1,
+		ActorAccountID: &staff,
+		TargetID:       &tgt,
+		Payload:        payload,
+	}
+	res, err := f.svc.PushEvents(ctx, PushInput{
+		AccountID: staff, VaultID: legacyVault, DeviceID: leave.HLC.DeviceID,
+		Events: []PushEvent{leave},
+	})
+	if err != nil {
+		t.Fatalf("PushEvents (self-leave): %v", err)
+	}
+	if len(res.Accepted) != 1 || len(res.Rejected) != 0 {
+		t.Fatalf("legacy self-leave push = %+v, want 1 accepted", res)
+	}
+	var active bool
+	if err := f.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM vault_members
+			 WHERE vault_id = $1::uuid AND account_id = $2::uuid AND revoked_at IS NULL
+		)
+	`, legacyVault, staff).Scan(&active); err != nil {
+		t.Fatalf("read fold state: %v", err)
+	}
+	if active {
+		t.Errorf("legacy self-leave must FOLD (revoke the membership row)")
+	}
+
+	// A second editor pushing a removal of ANOTHER member (spoofed
+	// actor_account_id = owner) is NOT self-leave for the pushing session.
+	// PRE-EXISTING legacy-path property (unchanged by this diff): the
+	// unsigned-event ACL trusts the wire's actor_account_id, so the event is
+	// ACCEPTED into the log — but the session-account guard keeps
+	// legacySelfLeave false, so it must NOT fold: the owner's membership row
+	// survives. (Wire-actor authentication is exactly what the M2 chain
+	// replaced the legacy path for.)
+	staff2 := f.seedAccount(t, "staff2@gmail.com")
+	if _, err := f.pool.Exec(ctx, `
+		INSERT INTO vault_members (vault_id, account_id, role, invited_at, accepted_at, invited_by)
+		VALUES ($1::uuid, $2::uuid, 'editor', NOW(), NOW(), $3::uuid)
+	`, legacyVault, staff2, f.ownerAcct); err != nil {
+		t.Fatalf("seed staff2 membership: %v", err)
+	}
+	coupPayload, _ := json.Marshal(map[string]any{"account_id": f.ownerAcct})
+	ownerTgt := f.ownerAcct
+	coup := PushEvent{
+		EventID:        uuid.NewString(),
+		HLC:            PushHLC{PhysicalMS: f.nextPMS(), Logical: 0, DeviceID: uuid.NewString()},
+		EventType:      "vault_member_removed",
+		SchemaVersion:  1,
+		ActorAccountID: &ownerTgt, // spoofed: claims the owner authored it
+		TargetID:       &ownerTgt,
+		Payload:        coupPayload,
+	}
+	res2, err := f.svc.PushEvents(ctx, PushInput{
+		AccountID: staff2, VaultID: legacyVault, DeviceID: coup.HLC.DeviceID,
+		Events: []PushEvent{coup},
+	})
+	if err != nil {
+		t.Fatalf("PushEvents (coup): %v", err)
+	}
+	if len(res2.Accepted) != 1 {
+		t.Fatalf("spoofed-actor removal = %+v, want legacy log-accept without fold", res2)
+	}
+	var ownerActive bool
+	if err := f.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM vault_members
+			 WHERE vault_id = $1::uuid AND account_id = $2::uuid AND revoked_at IS NULL
+		)
+	`, legacyVault, f.ownerAcct).Scan(&ownerActive); err != nil {
+		t.Fatalf("read owner state: %v", err)
+	}
+	if !ownerActive {
+		t.Errorf("owner revoked by spoofed legacy removal — session-account guard failed")
 	}
 }
 

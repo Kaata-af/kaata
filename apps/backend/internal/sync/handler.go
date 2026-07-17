@@ -163,7 +163,8 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 		})
 		if err != nil {
 			switch {
-			case errors.Is(err, ErrNotMember), errors.Is(err, ErrVaultNotFound):
+			case errors.Is(err, ErrNotMember), errors.Is(err, ErrVaultNotFound),
+				errors.Is(err, ErrVaultArchived):
 				writeMembershipDenied(w, err)
 				return
 			default:
@@ -292,7 +293,8 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		switch {
-		case errors.Is(err, ErrNotMember), errors.Is(err, ErrVaultNotFound):
+		case errors.Is(err, ErrNotMember), errors.Is(err, ErrVaultNotFound),
+			errors.Is(err, ErrVaultArchived):
 			writeMembershipDenied(w, err)
 			return
 		default:
@@ -311,16 +313,27 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 // removed member's device ever gets of its own removal, since the revocation
 // commits in the same tx as the removal event and blocks the pull that would
 // have delivered it) vs "vault_unknown" (no such vault — genuinely
-// unregistered/purged). Same status + prose for both; only the code differs.
+// unregistered/purged) vs "vault_archived" (still a member; vault archived
+// and caller is not the owner — client archives locally, never self-revokes).
 // Codes follow the vaults handlers' mapServiceError naming ("not_member").
 // The existence signal disclosed to authenticated non-members is acceptable:
 // vault ids are UUIDv4, not enumerable.
 func writeMembershipDenied(w http.ResponseWriter, err error) {
 	code := "not_member"
-	if errors.Is(err, ErrVaultNotFound) {
+	msg := "not a member of this vault"
+	switch {
+	case errors.Is(err, ErrVaultNotFound):
 		code = "vault_unknown"
+	case errors.Is(err, ErrVaultArchived):
+		// DISTINCT from not_member: the caller IS still an active member —
+		// the vault is archived and they are not its owner. The client must
+		// archive the kaata locally, NOT self-revoke its membership (that
+		// reaction is irreversible client-side and turned every owner-side
+		// archive into a silent delete on members' phones).
+		code = "vault_archived"
+		msg = "vault is archived"
 	}
-	httpx.ErrorCode(w, http.StatusForbidden, code, "not a member of this vault")
+	httpx.ErrorCode(w, http.StatusForbidden, code, msg)
 }
 
 // readMaybeGzipped reads request body, transparently gunzipping if header says
@@ -408,7 +421,8 @@ func (h *Handler) Pull(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		switch {
-		case errors.Is(err, ErrNotMember), errors.Is(err, ErrVaultNotFound):
+		case errors.Is(err, ErrNotMember), errors.Is(err, ErrVaultNotFound),
+			errors.Is(err, ErrVaultArchived):
 			writeMembershipDenied(w, err)
 			return
 		default:
@@ -504,7 +518,8 @@ func (h *Handler) Vector(w http.ResponseWriter, r *http.Request) {
 	res, err := h.svc.DeviceVectors(r.Context(), claims.AccountID, vaultID)
 	if err != nil {
 		switch {
-		case errors.Is(err, ErrNotMember), errors.Is(err, ErrVaultNotFound):
+		case errors.Is(err, ErrNotMember), errors.Is(err, ErrVaultNotFound),
+			errors.Is(err, ErrVaultArchived):
 			httpx.Error(w, http.StatusForbidden, "not a member of this vault")
 			return
 		default:

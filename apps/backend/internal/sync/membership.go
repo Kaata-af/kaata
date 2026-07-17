@@ -16,6 +16,10 @@ package sync
 //     (b2) for vault_device_removed only: the signer is a bound, unremoved
 //         device of the SAME account that owns the device being removed
 //         (self-service "remove my old phone", §2), or
+//     (b3) for vault_member_removed only: the signer is a bound, unremoved
+//         device of the SAME account being removed (self-service "leave
+//         kaata" — any role may remove itself; the fold's last-owner guard
+//         still refuses a sole owner's self-removal), or
 //     (c) the event carries a valid server witness per its type's rule
 //         (§2): freshness ±7d vs the event HLC, signature over the
 //         canonical witness tuple, verified against the pinned server
@@ -275,6 +279,31 @@ func (s *Service) verifyMembershipEvent(
 		}
 	}
 
+	// 2b3. vault_member_removed self-service ("leave kaata"): a bound,
+	// unremoved device of the account being removed may remove its OWN
+	// account, whatever its role. Mirrors the mobile role-gate's self-leave
+	// carve-out and the chain fold's self-leave arm (lib/trust/chain.ts) —
+	// server and replicas must accept identical events. The fold's
+	// wouldDropLastOwner guard below still refuses to operationalize a sole
+	// owner's self-removal, matching the REST /leave endpoint's ErrLastOwner.
+	// KNOWN EDGE (pre-existing class, unchanged here): TWO co-owners
+	// self-leaving concurrently offline are arbitrated by ARRIVAL order in
+	// the server fold's last-owner guard but by HLC order in the mobile chain
+	// fold — the two can disagree about which owner survived. Inherent to the
+	// current-state-guard vs ordered-fold split shared by every membership
+	// mutation; fixing it means HLC-ordered last-owner arbitration
+	// server-side, tracked separately.
+	if ev.EventType == EventVaultMemberRemoved && len(signerAccounts) > 0 {
+		var p memberRemovedWire
+		if err := json.Unmarshal(ev.Payload, &p); err == nil && p.AccountID != "" {
+			for _, acct := range signerAccounts {
+				if acct == p.AccountID {
+					return true, nil
+				}
+			}
+		}
+	}
+
 	// 2b2. vault_device_removed self-service: a bound device of the same
 	// account may remove its account's other device.
 	if ev.EventType == EventVaultDeviceRemoved && len(signerAccounts) > 0 {
@@ -320,6 +349,24 @@ func (s *Service) verifyMembershipEvent(
 		}
 		w := p.Witness
 		if !witnessFresh(w.IssuedAtMS, ev.HLC.PhysicalMS) || w.InviterAccountID == "" {
+			return false, nil
+		}
+		// SEC parity with the mobile layers (chain.ts removed_entry_replay,
+		// role-gate.ts isRemovedMember): a witness must NOT resurrect a
+		// REMOVED member. The witness tuple carries no removal epoch, so a
+		// leaver/removed member could replay their original (still-fresh)
+		// admission witness — with the b3 self-leave arm this became fully
+		// self-service: [self-leave, replayed witnessed re-add] in one push
+		// batch would re-admit them server-side while every mobile replica
+		// refused the resurrect (permanent ACL/chain split + covert ledger
+		// access). Only an owner-signed re-add (arm 2a/2b) may lift a
+		// removal; a genuine RE-invite creates its membership via the REST
+		// AcceptInvite path, which doesn't route through this arm.
+		removed, rmerr := isRemovedMemberAccount(ctx, tx, vaultID, p.AccountID)
+		if rmerr != nil {
+			return false, rmerr
+		}
+		if removed {
 			return false, nil
 		}
 		tuple := mesh.MemberWitnessTuple(vaultID, p.AccountID, w.InviterAccountID, p.Role, w.IssuedAtMS)
@@ -424,6 +471,34 @@ func isActiveMember(ctx context.Context, tx pgx.Tx, vaultID, accountID string) (
 		return false, fmt.Errorf("active-member lookup: %w", err)
 	}
 	return active, nil
+}
+
+// isRemovedMemberAccount reports whether the account's LATEST membership
+// state in this vault is "removed": a revoked vault_members row exists and no
+// active one does. The server mirror of the mobile fold's member.removed
+// check (chain.ts) — used by the witness arm's no-resurrect rule. An account
+// that was never a member (no rows at all) is NOT "removed"; first-time
+// witnessed admission stays allowed.
+func isRemovedMemberAccount(ctx context.Context, tx pgx.Tx, vaultID, accountID string) (bool, error) {
+	if _, err := uuid.Parse(accountID); err != nil {
+		return false, nil
+	}
+	var removed bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM vault_members
+			 WHERE vault_id = $1::uuid AND account_id = $2::uuid
+			   AND revoked_at IS NOT NULL
+		)
+		AND NOT EXISTS (
+			SELECT 1 FROM vault_members
+			 WHERE vault_id = $1::uuid AND account_id = $2::uuid
+			   AND revoked_at IS NULL
+		)
+	`, vaultID, accountID).Scan(&removed); err != nil {
+		return false, fmt.Errorf("removed-member lookup: %w", err)
+	}
+	return removed, nil
 }
 
 // isRemovedDevicePubkey reports whether any vault_devices binding for this

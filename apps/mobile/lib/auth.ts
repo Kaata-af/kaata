@@ -12,6 +12,7 @@ import {
   setAppMetaInTx,
 } from "./db-tx";
 import { initDb, resetAllLocalData } from "./db";
+import { resolveAccountIdCandidates } from "./effective-account";
 import { appendAccountBound } from "./event-log";
 import { ensureInstallId } from "./install-id";
 
@@ -541,6 +542,12 @@ async function postSignInHousekeeping(args: {
   const db = await getDb();
   const now = Date.now();
 
+  // Capture the PREVIOUSLY-bound account id BEFORE the unconditional
+  // app_meta.account_id overwrite below — it scopes the SEC-H3 stale-owner
+  // revoke inside the vault transaction. Reading it after the overwrite
+  // would always yield the NEW account and the revoke would never fire.
+  const priorAccountId = await getAppMetaInTx(db, "account_id");
+
   // Persist the account binding to app_meta UNCONDITIONALLY — BEFORE the
   // no-vault early-return below. This is load-bearing, not just display:
   //   - AutoSync mounts the sync scheduler off app_meta.account_id, so without
@@ -559,6 +566,37 @@ async function postSignInHousekeeping(args: {
     await setAppMetaInTx(db, "account_google_sub", providerSub);
   }
   await setAppMetaInTx(db, "account_last_seen_at", String(now));
+
+  // SEC H3 (rescoped): revoke the PREVIOUSLY-bound account's mirror rows —
+  // this install's own superseded identity after a Keep&Link account switch,
+  // which would otherwise linger as a phantom co-owner (blocking the owner
+  // upsert below, corrupting last-owner counting, and showing a ghost in
+  // Members). Three deliberate properties, each fixing a hole the review
+  // caught in narrower drafts:
+  //   - ALL vaults, not just the active one: the prior identity is stale on
+  //     every vault of this install, and this runs only once (the very next
+  //     sign-in overwrites app_meta.account_id, so a missed vault would
+  //     never heal).
+  //   - BEFORE the no-vault early-return: an account switch with no active
+  //     vault (all archived / mid-onboarding) must still revoke.
+  //   - Never touches other REAL members' rows — that was the original
+  //     blanket `account_id != ?` bug, which locally revoked legitimately
+  //     invited members (owner's phone) or the true owner (member's phone)
+  //     on every re-sign-in.
+  // Multi-account trade-off (documented): if one human deliberately uses
+  // two accounts on one phone, the prior account's memberships go locally
+  // revoked at switch time — same as the old behavior for the active vault,
+  // and the server-side membership is untouched.
+  if (priorAccountId && priorAccountId !== accountId) {
+    await db.runAsync(
+      `UPDATE vault_members_mirror
+          SET revoked_at = ?
+        WHERE account_id = ?
+          AND revoked_at IS NULL`,
+      now,
+      priorAccountId,
+    );
+  }
 
   const vaultId = args.defaultVaultId ?? (await getActiveVaultId());
   if (!vaultId) return; // mid-onboarding: no local vault yet — vault binding deferred
@@ -590,35 +628,65 @@ async function postSignInHousekeeping(args: {
       now,
       vaultId,
     );
-    // SEC H3: revoke any stale owner rows that belonged to a prior
-    // Google account on this vault (the "Keep & Link" path leaves
-    // the local SQLite intact, so a previously-bound account_id row
-    // still sits in vault_members_mirror as a non-revoked owner —
-    // and any "who is in this vault?" query would surface them as
-    // a phantom co-owner). Scoped to this vault so we don't touch
-    // other vaults the user genuinely co-owns under different
-    // accounts (multi-account future). Idempotent: if the user
-    // is signing back in to the SAME account, this UPDATE is a no-op.
-    await db.runAsync(
-      `UPDATE vault_members_mirror
-          SET revoked_at = ?
-        WHERE vault_id = ?
-          AND account_id != ?
-          AND revoked_at IS NULL`,
-      now,
-      vaultId,
-      accountId,
-    );
-    // Seed (or refresh) the owner row in vault_members_mirror. Idempotent
-    // via INSERT OR REPLACE on the (vault_id, account_id) PK.
-    await db.runAsync(
-      `INSERT OR REPLACE INTO vault_members_mirror
-         (vault_id, account_id, role, accepted_at, revoked_at)
-       VALUES (?, ?, 'owner', ?, NULL)`,
-      vaultId,
-      accountId,
-      now,
-    );
+    // Seed (or refresh) the owner row in vault_members_mirror — but ONLY on
+    // a vault this account actually OWNS. A JOINED kaata (someone else's
+    // vault that happens to be active at sign-in time) has a foreign active
+    // owner row; INSERT OR REPLACE-ing ourselves as 'owner' there would both
+    // fabricate an owner seat we don't hold AND clobber our real
+    // editor/viewer row (the PK is (vault_id, account_id)). Ownership signal:
+    // the server confirmed this vault as the account's canonical owned vault
+    // (defaultVaultId), OR no active owner row outside this device's own
+    // identities exists (the pre-sign-in solo vault being adopted).
+    // (The prior-account phantom revoke already ran, above the vault gate,
+    // so a Keep&Link switch doesn't leave the old account's row counting as
+    // a foreign owner here.)
+    const myIds = await resolveAccountIdCandidates(accountId);
+    const serverConfirmedOwned = args.defaultVaultId != null && args.defaultVaultId === vaultId;
+    let owned = serverConfirmedOwned;
+    if (!owned) {
+      const ph = myIds.map(() => "?").join(",");
+      const foreignOwner = await db.getFirstAsync<{ one: number }>(
+        `SELECT 1 AS one FROM vault_members_mirror
+          WHERE vault_id = ? AND role = 'owner' AND revoked_at IS NULL
+            ${myIds.length > 0 ? `AND account_id NOT IN (${ph})` : ""}
+          LIMIT 1`,
+        vaultId,
+        ...myIds,
+      );
+      owned = foreignOwner == null;
+    }
+    if (owned) {
+      // Collapse this install's own SUPERSEDED identities (the device-key
+      // sentinel a pre-sign-in vault keyed its owner row by) before seeding
+      // the signed-in owner row. Without this the vault permanently holds
+      // TWO active owner rows for the same person — Members shows "(You)"
+      // twice, transfer demotes only one of them, and last-owner counting
+      // treats the sibling row as "another owner" (letting the sole real
+      // owner leave). The old blanket revoke did this collapse implicitly;
+      // the rescoped revoke must do it explicitly, scoped to our own ids.
+      const staleSelfIds = myIds.filter((id) => id !== accountId);
+      if (staleSelfIds.length > 0) {
+        const stalePh = staleSelfIds.map(() => "?").join(",");
+        await db.runAsync(
+          `UPDATE vault_members_mirror
+              SET revoked_at = ?
+            WHERE vault_id = ?
+              AND account_id IN (${stalePh})
+              AND revoked_at IS NULL`,
+          now,
+          vaultId,
+          ...staleSelfIds,
+        );
+      }
+      await db.runAsync(
+        `INSERT OR REPLACE INTO vault_members_mirror
+           (vault_id, account_id, role, accepted_at, revoked_at)
+         VALUES (?, ?, 'owner', ?, NULL)`,
+        vaultId,
+        accountId,
+        now,
+      );
+    }
     // Stamp account_id on the local-self user so projection queries can
     // tell which physical person owns this vault. Skipped on a fresh
     // install where local_self doesn't exist yet (onboarding/profile

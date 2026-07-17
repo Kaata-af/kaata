@@ -199,19 +199,34 @@ export async function fullBackupSweep(): Promise<void> {
   await reconcileVaultRegistrations();
 
   const db = await getDb();
+  // The server_archived_probe clause sits OUTSIDE the registered filter:
+  // joined vaults (member via invite/pair) keep registered_with_server_at
+  // NULL by design, and they are exactly the vaults a server-driven archive
+  // mirror lands on. The probe pull is how a member's phone ever learns the
+  // owner UNARCHIVED (the vault is no longer active post-heal, and the
+  // normal filter skips clean archived vaults) — see pull.ts
+  // markVaultArchivedFromServer. Self-terminating: the flag clears on the
+  // first successful pull (unarchived), on not_member (revoked), and on
+  // vault_unknown (purged).
   const vaults = await db.getAllAsync<{ id: string }>(
     `SELECT v.id
        FROM vaults v
-      WHERE v.registered_with_server_at IS NOT NULL
-        AND (
-          v.archived_at IS NULL
-          OR EXISTS (
-            SELECT 1 FROM event_log e
-             WHERE e.vault_id = v.id
-               AND e.server_acked_at IS NULL
-               AND e.rejected_at IS NULL
-               AND e.tombstone_reason IS NULL
+      WHERE (
+          v.registered_with_server_at IS NOT NULL
+          AND (
+            v.archived_at IS NULL
+            OR EXISTS (
+              SELECT 1 FROM event_log e
+               WHERE e.vault_id = v.id
+                 AND e.server_acked_at IS NULL
+                 AND e.rejected_at IS NULL
+                 AND e.tombstone_reason IS NULL
+            )
           )
+        )
+        OR EXISTS (
+          SELECT 1 FROM app_meta a
+           WHERE a.key = 'server_archived_probe:' || v.id AND a.value = '1'
         )`,
   );
 

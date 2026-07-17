@@ -34,6 +34,18 @@ var ErrNotMember = errors.New("not a member of this vault")
 // discloses to authenticated non-members is not guessable-oracle material.
 var ErrVaultNotFound = errors.New("vault not found")
 
+// ErrVaultArchived is returned when the vault exists and the caller IS an
+// active member, but the vault is archived and the caller is not its owner
+// ("archive = stop sharing" — only the owner keeps sync access during the
+// 30-day grace). The handler maps it to 403 with error_code "vault_archived",
+// DISTINCT from "not_member": the mobile client's reaction to not_member is
+// to permanently revoke its own local membership row (the only signal a
+// removed member ever gets), which is irreversible client-side. An archived
+// kaata must instead archive locally — collapsing the two codes made every
+// owner-side archive silently DELETE the kaata from every member's phone
+// instead of moving it to their archived list.
+var ErrVaultArchived = errors.New("vault is archived")
+
 // snapshotEventThreshold is how many newly-accepted events triggers a
 // snapshot regeneration goroutine. The cron job runs as a backstop;
 // this counter-based trigger keeps snapshots fresh during burst writes.
@@ -59,9 +71,14 @@ const pullCacheTTL = 60 * time.Second
 // pullCacheSize is the LRU capacity. Generous; tune down if RSS grows.
 const pullCacheSize = 1024
 
+// roleArchivedDenied is the cached-membership sentinel for "active non-owner
+// member of an ARCHIVED vault" — denied, but NOT not_member (see
+// ErrVaultArchived). Never a real role value ("owner"/"editor"/"viewer").
+const roleArchivedDenied = "\x00archived"
+
 type membershipEntry struct {
 	checkedAt time.Time
-	role      string // "" → not a member
+	role      string // "" → not a member; roleArchivedDenied → archived cutoff
 }
 
 type pullCacheEntry struct {
@@ -145,7 +162,8 @@ func (s *Service) BumpSnapshotPending(vaultID string) {
 // IsMember implements MembershipChecker for the snapshot handler.
 func (s *Service) IsMember(ctx context.Context, accountID, vaultID string) (bool, error) {
 	err := s.checkMembershipFresh(ctx, accountID, vaultID)
-	if errors.Is(err, ErrNotMember) || errors.Is(err, ErrVaultNotFound) {
+	if errors.Is(err, ErrNotMember) || errors.Is(err, ErrVaultNotFound) ||
+		errors.Is(err, ErrVaultArchived) {
 		return false, nil
 	}
 	if err != nil {
@@ -183,6 +201,11 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 	role, err := s.checkMembership(ctx, in.VaultID, in.AccountID)
 	if err != nil {
 		return nil, fmt.Errorf("membership check: %w", err)
+	}
+	if role == roleArchivedDenied {
+		// Active member of an archived vault (non-owner). Distinct from
+		// not_member so the client archives locally instead of self-revoking.
+		return nil, ErrVaultArchived
 	}
 	if role == "" {
 		// Distinguish "vault exists, you're not an active member" from
@@ -352,7 +375,29 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 			m2Verified = true
 		}
 
-		if !m2Verified {
+		// Legacy-path self-leave ("leave kaata" on an anchor-less vault, or an
+		// unsigned event): the role matrix demands owner for
+		// vault_member_removed and has no self-arm, so without this a member's
+		// own leave — which the mobile gate can apply locally when the LOCAL
+		// vault row carries an anchor the server never got (pre-Phase-7
+		// registration) — would reject insufficient_role forever: the leaver's
+		// phone shows them gone while the server keeps them active, a silent
+		// permanent split. Authorization is the SESSION, not the wire: the
+		// target must equal the PUSHING (JWT-authenticated) account, so a
+		// forged actor_account_id can never remove anyone but the pusher
+		// themselves. Folded below exactly like a chain-verified removal
+		// (foldMembershipEvent's member_removed arm: last-owner guard + HLC
+		// arbitration + audit row), mirroring what the REST /leave endpoint
+		// does for these vaults.
+		legacySelfLeave := false
+		if !m2Verified && ev.EventType == EventVaultMemberRemoved {
+			var p memberRemovedWire
+			if json.Unmarshal(ev.Payload, &p) == nil && p.AccountID == in.AccountID {
+				legacySelfLeave = true
+			}
+		}
+
+		if !m2Verified && !legacySelfLeave {
 			allowed, atRole, requiredRole, err := CheckEventPermission(
 				ctx, tx, s.binding,
 				accountUUID, vaultUUID,
@@ -544,8 +589,10 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 		// M2: chain-verified membership events fold into the server's
 		// operational ACL tables (vault_members / vault_devices) inside
 		// this same transaction. Fold only on a FRESH insert — duplicates
-		// were folded when first accepted.
-		if m2Verified {
+		// were folded when first accepted. Legacy self-leaves fold too:
+		// accepting the event without revoking the vault_members row would
+		// leave the server ACL forever out of step with the leaver's device.
+		if m2Verified || legacySelfLeave {
 			accts, ferr := s.foldMembershipEvent(ctx, tx, in.VaultID, in.AccountID, &ev)
 			if ferr != nil {
 				return nil, fmt.Errorf("fold membership event %s: %w", ev.EventID, ferr)
@@ -692,8 +739,12 @@ func (s *Service) checkMembership(ctx context.Context, vaultID, accountID string
 	// role is cached for membershipCacheTTL, and Unarchive doesn't invalidate
 	// that cache, so a non-owner's PUSH gate can lag ≤60s after unarchive —
 	// self-healing, never data loss (reads use the uncached fresh path).
+	//
+	// The denial is a DISTINCT sentinel (not role=""): the caller must map it
+	// to ErrVaultArchived / error_code "vault_archived", never "not_member" —
+	// the client's not_member reaction is an irreversible local self-revoke.
 	if archived && role != "owner" {
-		role = ""
+		role = roleArchivedDenied
 	}
 	s.membership.Add(key, membershipEntry{checkedAt: now, role: role})
 	return role, nil
@@ -728,9 +779,11 @@ func (s *Service) checkMembershipFresh(ctx context.Context, accountID, vaultID s
 	}
 
 	// Archived kaata: only the owner keeps read access (for restore/unarchive).
-	// Non-owner members are denied — same cutoff the push gate applies.
+	// Non-owner members are denied — same cutoff the push gate applies, and
+	// the same DISTINCT error: vault_archived tells the client to archive
+	// locally; not_member would make it self-revoke its membership forever.
 	if archived && role != "owner" {
-		return ErrNotMember
+		return ErrVaultArchived
 	}
 	return nil
 }

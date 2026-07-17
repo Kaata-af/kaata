@@ -192,6 +192,20 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
       } catch (err) {
         console.warn(`[recovery] initial pull failed for ${v.vault_id.slice(0, 8)}`, err);
       }
+      // Heal OUR OWN membership mirror row against the authoritative server
+      // listing. This vault being IN the listing means the server holds an
+      // ACTIVE membership for this account — so a locally-revoked self row is
+      // a stale client-side wipe (the old blanket sign-in revoke, or a
+      // pre-vault_archived not_member 403 that self-revoked on an archive)
+      // and must be lifted or the kaata stays hidden forever even though
+      // we're still a member. Chain events can't fix it: they were applied
+      // long ago and dedupe. A genuinely-removed member never reaches here —
+      // the server excludes revoked memberships from GET /v1/vaults.
+      try {
+        await healSelfMembershipFromListing(v);
+      } catch (err) {
+        console.warn(`[recovery] membership heal failed for ${v.vault_id.slice(0, 8)}`, err);
+      }
       // Ledger pulled; only the (best-effort) membership binds remain.
       emit("restoring", base + slice * 0.8, vaultIdx + 1);
       // Re-key ownership to the recovered account FIRST. A pre-sign-in local-CA
@@ -335,6 +349,42 @@ export async function recoverJoinedVault(vaultId: string): Promise<boolean> {
   }
 
   return true;
+}
+
+/**
+ * Reconcile OUR OWN vault_members_mirror row with the server listing — the
+ * server's authoritative "you are an active member with role R" answer. Writes
+ * ONLY the signed-in account's row (never other members', never other
+ * accounts'): upserts it active with the listing's role, preserving an
+ * existing accepted_at/display_name. Follows the same non-chain-writer
+ * precedent as pair-scan's self row and auth.ts's owner seeding; role-gate
+ * decisions read the event chain, not the mirror, so this affects visibility
+ * and UI role display only — it can never grant chain authority.
+ */
+async function healSelfMembershipFromListing(v: VaultListing): Promise<void> {
+  let accountId = getAccountIdSync();
+  if (!accountId) accountId = await refreshAccountIdCache();
+  if (!accountId) return;
+  const role = v.role === "owner" || v.role === "editor" || v.role === "viewer" ? v.role : "editor";
+  const db = await getDb();
+  const result = await db.runAsync(
+    `INSERT INTO vault_members_mirror (vault_id, account_id, role, accepted_at, revoked_at)
+     VALUES (?, ?, ?, ?, NULL)
+     ON CONFLICT(vault_id, account_id) DO UPDATE SET
+       role        = excluded.role,
+       revoked_at  = NULL,
+       accepted_at = COALESCE(vault_members_mirror.accepted_at, excluded.accepted_at)`,
+    v.vault_id,
+    accountId,
+    role,
+    Date.now(),
+  );
+  if (result.changes > 0) {
+    // Flip role-gated UI (useVaultRole / vault switcher) on next render in
+    // case this lifted a stale local revocation.
+    const { invalidateVaultRoleCache } = await import("./use-vault-role");
+    invalidateVaultRoleCache(v.vault_id);
+  }
 }
 
 /**

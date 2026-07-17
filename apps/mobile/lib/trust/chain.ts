@@ -387,9 +387,20 @@ export function foldMembership(args: FoldArgs): MembershipState {
           refuse(e, "malformed_payload");
           continue;
         }
+        // SELF-LEAVE arm: a bound, unremoved device of the SAME account being
+        // removed may remove its own account ("leave kaata") — mirrors the
+        // vault_device_removed same-account rule and the role-gate/server
+        // (backend sync/membership.go rule b3) carve-outs, so gate and fold
+        // accept identical events. The last-owner guard below still applies:
+        // a sole owner cannot self-leave into an ownerless vault.
         if (!signerIsActiveOwnerDevice(signer)) {
-          refuse(e, "signer_not_owner_device");
-          continue;
+          const signerDev = state.devices.get(signer);
+          const selfLeave =
+            signerDev != null && !signerDev.removed && signerDev.account_id === accountId;
+          if (!selfLeave) {
+            refuse(e, "signer_not_owner_device");
+            continue;
+          }
         }
         const member = state.members.get(accountId);
         if (!member || member.removed) {

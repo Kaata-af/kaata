@@ -1179,12 +1179,55 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
         return { ok: true };
       }
     }
-    return {
-      ok: false,
-      reason: "insufficient_role",
-      current_role: role,
-      required_role: requirement,
-    };
+    // SELF-LEAVE carve-out: a member may remove their OWN membership ("leave
+    // kaata") without owner role. Mirrors the vault_device_removed same-account
+    // allowance above and the fold's self-leave arm (lib/trust/chain.ts) plus
+    // the server's chain ACL (backend sync/membership.go rule b3) — gate and
+    // fold must accept identical events. SCOPED TO ANCHORED (local-CA) VAULTS:
+    // the server's b3 arm only runs on anchored vaults; on an anchor-less
+    // legacy vault the push-side legacy ACL still refuses non-owner removals,
+    // so applying the leave locally there would show the user as gone while
+    // the server (and every other member) kept them forever — a silent
+    // permanent split. Refusing keeps that corner loudly failing (pre-fix
+    // behavior); the REST /leave endpoint remains those vaults' path. For
+    // origin='remote' the actor is the SIGNATURE-authenticated account, so
+    // equality is strict; for local origin the membership row may be keyed
+    // under another of this device's ids (Google id vs device-key id — the
+    // same drift class leaveVaultRouted resolves), so match against all local
+    // candidates. IMPORTANT: this does NOT return ok directly — it falls
+    // THROUGH to the last-owner guard below, so a sole owner's self-leave
+    // still refuses (the vault must never go ownerless).
+    let selfLeave = false;
+    if (event.event_type === "vault_member_removed" && actorAccountId != null) {
+      const target = (event.payload as { account_id?: string }).account_id;
+      if (typeof target === "string") {
+        if (target === actorAccountId) {
+          selfLeave = true;
+        } else if (event.origin !== "remote") {
+          try {
+            const candidates = await resolveAccountIdCandidates(actorAccountId);
+            selfLeave = candidates.includes(target);
+          } catch {
+            /* keep selfLeave=false — fail closed */
+          }
+        }
+      }
+      if (selfLeave) {
+        const anchorRow = await tx.getFirstAsync<{ vault_trust_anchor_pubkey: string | null }>(
+          "SELECT vault_trust_anchor_pubkey FROM vaults WHERE id = ? LIMIT 1",
+          event.vault_id,
+        );
+        if (anchorRow?.vault_trust_anchor_pubkey == null) selfLeave = false;
+      }
+    }
+    if (!selfLeave) {
+      return {
+        ok: false,
+        reason: "insufficient_role",
+        current_role: role,
+        required_role: requirement,
+      };
+    }
   }
 
   // Last-owner protection (security critique #8): membership events
@@ -1242,16 +1285,36 @@ async function wouldDropLastOwner(tx: SQLiteTx, event: LedgerEvent): Promise<boo
   }
   if (newRole === "owner") return false; // promoting to owner cannot drop owners
 
-  // Count owners NOT including the target row.
+  // Count owners NOT including the target row. For LOCAL-origin events whose
+  // target is one of THIS device's own identity candidates (a self-removal /
+  // self-demotion), exclude ALL of those candidates: a pre-sign-in vault can
+  // transiently hold both a device-key-sentinel owner row and the signed-in
+  // owner row for the SAME person, and counting the sibling row as "another
+  // owner" would let the sole real owner remove themselves (the chain fold —
+  // which counts CHAIN owners, one per person — would refuse the same event:
+  // gate/fold divergence). Remote events keep the exact-id count so the gate
+  // stays in lockstep with the server fold's per-account arbitration.
+  let excludeIds: string[] = [targetAccountId];
+  if (event.origin !== "remote") {
+    try {
+      const myIds = await resolveAccountIdCandidates(getAccountIdSync());
+      if (myIds.includes(targetAccountId)) {
+        excludeIds = Array.from(new Set([targetAccountId, ...myIds]));
+      }
+    } catch {
+      /* keep the single-id exclusion — fail closed toward refusing */
+    }
+  }
+  const excludePh = excludeIds.map(() => "?").join(",");
   const row = await tx.getFirstAsync<{ owner_count: number }>(
     `SELECT COUNT(*) AS owner_count
        FROM vault_members_mirror
       WHERE vault_id = ?
         AND role = 'owner'
         AND revoked_at IS NULL
-        AND account_id != ?`,
+        AND account_id NOT IN (${excludePh})`,
     event.vault_id,
-    targetAccountId,
+    ...excludeIds,
   );
   const otherOwners = row?.owner_count ?? 0;
   // If the target was an owner and there are no OTHER owners, this

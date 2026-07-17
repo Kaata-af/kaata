@@ -26,7 +26,7 @@ import { isUserLedgerEventType } from "../events";
 import { applyEventMutex } from "../projection";
 import { notifyProjectionConflictsChanged } from "../projection-conflicts";
 import { markPushDone } from "./cursor";
-import { markSelfMembershipRevoked } from "./pull";
+import { markSelfMembershipRevoked, markVaultArchivedFromServer } from "./pull";
 import {
   PermissionRejectedError,
   SessionExpiredError,
@@ -294,6 +294,14 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
         if (__DEV__) console.warn("[sync.push] self-revoke mirror write failed", err);
       });
       throw new VaultNotRegisteredError("membership revoked on server");
+    }
+    if (code === "vault_archived") {
+      // Owner archived the kaata; we're still a member. Archive locally —
+      // never self-revoke (see pull.ts markVaultArchivedFromServer).
+      await markVaultArchivedFromServer(vaultId).catch((err) => {
+        if (__DEV__) console.warn("[sync.push] local archive mirror write failed", err);
+      });
+      throw new VaultNotRegisteredError("vault archived on server");
     }
     throw new VaultNotRegisteredError();
   }
