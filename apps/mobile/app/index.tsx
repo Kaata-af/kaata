@@ -23,6 +23,7 @@ import { BottomSheet } from "../components/BottomSheet";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
+import { InitialAvatar } from "../components/InitialAvatar";
 import { PersonRow } from "../components/PersonRow";
 import { ProfileSettingsSheet, type VaultListItem } from "../components/ProfileSettingsSheet";
 import { RestoreProgress, restoreProgressLabel } from "../components/RestoreProgress";
@@ -74,6 +75,13 @@ import {
   openOemAutostartSettings,
 } from "../lib/battery-exemption";
 import type { Direction, PersonWithBalance, Self } from "../lib/types";
+
+// Header profile-slot diameter. One constant for ALL THREE variants (Google
+// photo, initial-letter chip, signed-out icon) so the top-right chrome never
+// changes size with auth state. 36 (up from 32): the old 32px slot read
+// undersized against the large-title header — most visibly on iPhones, where
+// Apple sign-in has no photo URL so the letter chip is the steady state.
+const PROFILE_SLOT_SIZE = 36;
 
 // Tab labels are computed at render time so locale changes (after a hot reload
 // during dev) flow through. The keys remain stable identifiers.
@@ -807,14 +815,28 @@ export default function HomeScreen() {
           {sessionUser?.picture_url ? (
             <Image source={{ uri: sessionUser.picture_url }} style={styles.profileAvatar} />
           ) : sessionUser ? (
-            // Signed-in but no Google avatar URL — initial-letter chip.
-            <View style={styles.profileInitialChip}>
-              <Text style={styles.profileInitialText}>
-                {(sessionUser.name ?? sessionUser.email ?? "?").trim().charAt(0).toUpperCase()}
-              </Text>
-            </View>
+            // Signed-in but no photo URL (the steady state for Sign in with
+            // Apple) — metric-corrected initial-letter chip. Array.from takes
+            // the first GRAPHEME so a surrogate-pair/emoji name never renders
+            // half a codepoint (same rule as the settings sheet's initialFor).
+            <InitialAvatar
+              size={PROFILE_SLOT_SIZE}
+              label={(
+                Array.from((sessionUser.name ?? sessionUser.email ?? "?").trim())[0] ?? "?"
+              ).toUpperCase()}
+            />
           ) : (
-            <Ionicons name="person-circle-outline" size={32} color={colors.textSubtle} />
+            // Ionicons draws the person-circle glyph inset ~12% inside its
+            // box, so the box gets +4 over the slot to optically match the
+            // edge-to-edge photo/chip circles; margin -2 keeps the LAYOUT
+            // footprint at exactly PROFILE_SLOT_SIZE so the header row
+            // height is identical across all three auth states.
+            <Ionicons
+              name="person-circle-outline"
+              size={PROFILE_SLOT_SIZE + 4}
+              style={{ margin: -2 }}
+              color={colors.textSubtle}
+            />
           )}
         </Pressable>
       </View>
@@ -1615,32 +1637,16 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansMedium,
     color: colors.textSubtle,
   },
-  // Phase 7: initial-letter chip rendered when signedIn user has no
-  // Google avatar URL. Same visual weight as the avatar slot (32x32
-  // bgMuted circle) so signed-in users always see a circular chip
-  // top-right, with the letter or the photo inside.
-  profileInitialChip: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.bgMuted,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  profileInitialText: {
-    fontSize: 14,
-    fontFamily: fonts.sansBold,
-    color: colors.textEmphasis,
-  },
-  // Google avatar Image — 32px circle. RN's Image disk-caches the
-  // Google CDN URL automatically. bgMuted fills the circle while the
-  // image is loading so the slot doesn't flash empty on cold launch.
-  // The Image content always fills its bounds, so no centering math
-  // is needed (unlike the abandoned initial-letter approach).
+  // Google avatar Image — PROFILE_SLOT_SIZE circle. RN's Image disk-caches
+  // the Google CDN URL automatically. bgMuted fills the circle while the
+  // image is loading so the slot doesn't flash empty on cold launch. The
+  // initial-letter variant lives in components/InitialAvatar (shared with
+  // the settings sheet) — its centering math is deliberately NOT inlined
+  // here.
   profileAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: PROFILE_SLOT_SIZE,
+    height: PROFILE_SLOT_SIZE,
+    borderRadius: PROFILE_SLOT_SIZE / 2,
     backgroundColor: colors.bgMuted,
   },
   // tabsWrap — gap above the swipe rail. marginTop:2 closes the gap a

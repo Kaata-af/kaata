@@ -32,6 +32,7 @@ import { fonts } from "../lib/fonts";
 import { SOLO_STORE_MODE } from "../constants/env";
 import { t } from "../lib/i18n";
 import { useMembersCount } from "../lib/use-vault-summary";
+import { InitialAvatar } from "./InitialAvatar";
 import { NavRow, SectionGap, SectionHeader } from "./SettingsScreen";
 
 // ProfileSettingsSheet — Phase 7 unified settings surface.
@@ -266,14 +267,14 @@ export function ProfileSettingsSheet(props: {
                         style={[styles.avatar, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}
                       />
                     ) : (
-                      <View
-                        style={[
-                          styles.avatarFallback,
-                          isRTL ? { marginLeft: 14 } : { marginRight: 14 },
-                        ]}
-                      >
-                        <Text style={styles.avatarLetter}>{initialFor(props.signedInUser)}</Text>
-                      </View>
+                      // Metric-corrected letter chip — shared with the home
+                      // header's profile slot (see components/InitialAvatar
+                      // for the Vazirmatn centering math).
+                      <InitialAvatar
+                        size={SETTINGS_AVATAR_HERO}
+                        label={initialFor(props.signedInUser)}
+                        style={isRTL ? { marginLeft: 14 } : { marginRight: 14 }}
+                      />
                     )}
                     <View style={{ flex: 1 }}>
                       {props.signedInUser.name ? (
@@ -626,19 +627,8 @@ const styles = StyleSheet.create({
     borderRadius: SETTINGS_AVATAR_HERO / 2,
     backgroundColor: colors.bgMuted,
   },
-  avatarFallback: {
-    width: SETTINGS_AVATAR_HERO,
-    height: SETTINGS_AVATAR_HERO,
-    borderRadius: SETTINGS_AVATAR_HERO / 2,
-    backgroundColor: colors.bgMuted,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarLetter: {
-    fontSize: 20,
-    fontFamily: fonts.sansBold,
-    color: colors.textEmphasis,
-  },
+  // avatarFallback/avatarLetter were replaced by the shared InitialAvatar
+  // component (metric-corrected letter centering — see that file).
   identityName: {
     fontSize: 16,
     fontFamily: fonts.sansSemi,
