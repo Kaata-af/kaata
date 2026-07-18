@@ -534,10 +534,16 @@ func (s *Service) UpdateAccountPhone(ctx context.Context, accountID, phone strin
 // order:
 //   - deletes vaults the account OWNS and everything under them: events first
 //     (events -> vaults is RESTRICT, not CASCADE), then the vault row (whose
-//     ON DELETE CASCADE clears members / snapshots / issued creds / pair tokens);
-//   - for vaults owned by OTHERS, removes the account's membership and
-//     ANONYMISES the events it authored (NULL account_id) rather than deleting
-//     them — that ledger content belongs to the other owner, not this user;
+//     ON DELETE CASCADE clears members / snapshots / issued creds / pair
+//     tokens / device bindings / audit rows — vault_devices joined the
+//     cascade in migration 031 after its plain FK broke every owner's
+//     account deletion in prod);
+//   - for vaults owned by OTHERS, removes the account's membership AND its
+//     device bindings, and ANONYMISES the events it authored (NULL
+//     account_id) rather than deleting them — that ledger content belongs
+//     to the other owner, not this user. Audit rows there survive with the
+//     principal SET NULL by FK action (031), matching the invited_by /
+//     revoked_by nulling below;
 //   - clears the account's identity from its installs (self name/phone/shop +
 //     account_id) and deletes their crash reports (the install rows live on as
 //     anonymous installs);
@@ -566,6 +572,7 @@ func (s *Service) DeleteAccount(ctx context.Context, accountID string) error {
 		{"delete owned vaults", `DELETE FROM vaults WHERE owner_account_id = $1::uuid`},
 		{"anonymise authored events", `UPDATE events SET account_id = NULL WHERE account_id = $1::uuid`},
 		{"delete memberships", `DELETE FROM vault_members WHERE account_id = $1::uuid`},
+		{"delete device bindings", `DELETE FROM vault_devices WHERE account_id = $1::uuid`},
 		{"null invited_by", `UPDATE vault_members SET invited_by = NULL WHERE invited_by = $1::uuid`},
 		{"null revoked_by", `UPDATE vault_members SET revoked_by = NULL WHERE revoked_by = $1::uuid`},
 		{"null pending_delete_by", `UPDATE vaults SET pending_delete_by = NULL, pending_delete_at = NULL WHERE pending_delete_by = $1::uuid`},
