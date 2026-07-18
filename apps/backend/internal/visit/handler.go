@@ -49,7 +49,7 @@ func (h *Handler) Visit(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// GET /v1/download?s=foo — counts the download click then 302s to the APK.
+// GET /v1/download?s=foo — counts the download click then serves the APK.
 // QR codes can point straight here, skipping the landing page entirely:
 //
 //	kaata.af/v1/download?s=mandawi_qr_03
@@ -57,26 +57,41 @@ func (h *Handler) Visit(w http.ResponseWriter, r *http.Request) {
 // Scan → tap → APK starts downloading, and the source is captured. The
 // fingerprint (IP) recorded here is later matched against the install's
 // first /v1/check-in to tie source → install_id.
+//
+// The bytes come from the LOCAL APK cache when warm (Range-capable, no
+// third-party URL expiry — the fix for "download stuck at 99%" on slow
+// connections, see apkcache.go), falling back to the classic 302 to
+// APK_DOWNLOAD_URL until the cache is ready.
 func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
-	_ = h.svc.Record(r.Context(), RecordParams{
-		Kind:           "download",
-		Source:         truncateUTF8(r.URL.Query().Get("s"), 200),
-		Path:           truncateUTF8(r.URL.Path, 500),
-		Referrer:       truncateUTF8(r.Header.Get("Referer"), 500),
-		IP:             httpx.ClientIP(r),
-		UserAgent:      truncateUTF8(r.UserAgent(), 500),
-		AcceptLanguage: truncateUTF8(r.Header.Get("Accept-Language"), 200),
-	})
-	// count_only=1 is the web bundle's analytics beacon (the download button
-	// itself points straight at the APK). Record the click but skip the 302 —
-	// a redirect can't be followed by the beacon's no-cors fetch and would make
-	// the request a network error, which is why web download counts were 0.
+	// Range continuations are the SAME download being resumed — only count
+	// the initial request, or one flaky-network download inflates the
+	// analytics by every retry it needed.
+	if r.Header.Get("Range") == "" {
+		_ = h.svc.Record(r.Context(), RecordParams{
+			Kind:           "download",
+			Source:         truncateUTF8(r.URL.Query().Get("s"), 200),
+			Path:           truncateUTF8(r.URL.Path, 500),
+			Referrer:       truncateUTF8(r.Header.Get("Referer"), 500),
+			IP:             httpx.ClientIP(r),
+			UserAgent:      truncateUTF8(r.UserAgent(), 500),
+			AcceptLanguage: truncateUTF8(r.Header.Get("Accept-Language"), 200),
+		})
+	}
+	// count_only=1 is the web bundle's analytics beacon (used when the
+	// download button points straight at an external APK URL). Record the
+	// click but skip the body/redirect — a redirect can't be followed by the
+	// beacon's no-cors fetch and would make the request a network error,
+	// which is why web download counts were 0 once.
 	if r.URL.Query().Get("count_only") == "1" {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	// Fail open: the user getting the APK is more important than perfect
-	// analytics. A logging error must not block the download.
+	// Fail open, twice over: analytics errors never block the download, and
+	// a cold/unwarmable cache falls back to the redirect this endpoint has
+	// always served.
+	if h.svc.ServeAPK(w, r) {
+		return
+	}
 	http.Redirect(w, r, h.svc.APKDownloadURL(), http.StatusFound)
 }
 

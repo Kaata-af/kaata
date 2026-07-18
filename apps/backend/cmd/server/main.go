@@ -193,8 +193,11 @@ func main() {
 	checkinSvc := checkin.NewService(pool, cfg.MigrateToBackendURL, meshSvc)
 	checkinH := checkin.NewHandler(checkinSvc, authSvc)
 
-	visitSvc := visit.NewService(pool, cfg.APKDownloadURL)
+	visitSvc := visit.NewService(pool, cfg.APKDownloadURL, cfg.APKCacheDir)
 	visitH := visit.NewHandler(visitSvc)
+	// Pre-warm the local APK cache so the first /v1/download after a deploy
+	// serves resumable local bytes instead of the 302 fallback.
+	visitSvc.WarmAPKCache()
 
 	// Mythos crash-reporter. Public + anonymous (same group as check-in)
 	// so local-only installs can report why they died.

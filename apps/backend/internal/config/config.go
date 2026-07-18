@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -15,11 +16,18 @@ type Config struct {
 	// switch to it on the next launch. The way to soft-migrate domains
 	// without forcing a re-install. Leave empty to signal "no migration."
 	MigrateToBackendURL string
-	// APKDownloadURL: target of the /v1/download 302 redirect. Set this to
-	// wherever the current APK is hosted (e.g. https://kaata.af/downloads/
-	// kaata-0.1.0.apk). Changing it requires only a backend env update —
-	// QR codes pointing at /v1/download?s=... keep working.
+	// APKDownloadURL: the APK's canonical source (the GitHub Release asset).
+	// /v1/download serves the file from a LOCAL disk cache warmed from this
+	// URL (resumable, no signed-URL expiry — see visit/apkcache.go), and
+	// 302s here only while the cache is cold. Changing it requires only a
+	// backend env update — the cache re-keys off the new URL and QR codes
+	// pointing at /v1/download?s=... keep working.
 	APKDownloadURL string
+	// APKCacheDir: where /v1/download keeps its local APK copy. Defaults to
+	// a directory under the OS temp dir — fine in the Docker container (the
+	// cache re-warms from APKDownloadURL after a restart); point it at a
+	// mounted volume to keep the cache across deploys.
+	APKCacheDir string
 	// WebBaseURL: canonical public site origin (e.g. https://kaata.af). Used to
 	// build shared-ledger links (kaata.af/v/<token>) + their OG preview URLs.
 	WebBaseURL string
@@ -84,6 +92,7 @@ func Load() Config {
 		BackendPort:         getenv("BACKEND_PORT", "8080"),
 		MigrateToBackendURL: os.Getenv("MIGRATE_TO_BACKEND_URL"),
 		APKDownloadURL:      getenv("APK_DOWNLOAD_URL", "http://localhost:3000/downloads/kaata-0.1.0.apk"),
+		APKCacheDir:         getenv("APK_CACHE_DIR", filepath.Join(os.TempDir(), "kaata-apk-cache")),
 		WebBaseURL:          getenv("WEB_BASE_URL", "https://kaata.af"),
 		ShareLinkBaseURL:    os.Getenv("SHARE_LINK_BASE_URL"),
 		PublicAPIBaseURL:    os.Getenv("PUBLIC_API_BASE_URL"),

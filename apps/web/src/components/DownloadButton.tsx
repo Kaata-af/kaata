@@ -7,12 +7,18 @@ import { useToast } from "./Toast";
 export function DownloadButton() {
   const { push } = useToast();
   const { t } = useI18n();
+  // When the button points at the backend's own /v1/download (the resumable
+  // local-cache endpoint), the server records the click on the GET itself —
+  // firing the count_only beacon too would double-count every web download.
+  // The beacon exists for EXTERNAL targets (GitHub asset URL), where the
+  // server never sees the download request.
+  const servedByBackend = APK_DOWNLOAD_URL.includes("/v1/download");
   return (
     <a
       href={APK_DOWNLOAD_URL}
       download
       onClick={() => {
-        reportDownloadClick();
+        if (!servedByBackend) reportDownloadClick();
         push(t("download.toast"), "success");
         // Let the anchor perform the download natively — no preventDefault, no
         // hidden iframe. The APK lives on GitHub Releases (cross-origin) and is
