@@ -1,6 +1,6 @@
 import { DownloadButton } from "../components/DownloadButton";
 import { SiteFooter, SiteHeader } from "../components/SiteChrome";
-import { ComingSoonStores } from "../components/StoreButtons";
+import { AppStoreButton, PlayComingSoonBadge } from "../components/StoreButtons";
 import { useI18n, type TKey } from "../lib/i18n";
 
 // Step copy matches the dialogs modern Android actually shows (the per-app
@@ -26,13 +26,17 @@ export function Download() {
         </h1>
         <p className="mt-4 text-base text-neutral-600 leading-relaxed">{t("download.sub")}</p>
 
-        {/* Platform options: Android APK is live (primary); the stores are
-            shown as muted "coming soon" badges. */}
+        {/* Live channels: the App Store (iPhone) and the direct Android APK.
+            Google Play is still in closed testing — muted badge, no waitlist
+            (retired when the iPhone app shipped). */}
         <div className="mt-10 space-y-3">
+          <AppStoreButton />
           <DownloadButton />
-          <ComingSoonStores />
+          <PlayComingSoonBadge />
         </div>
 
+        {/* APK sideload walkthrough — Android-only concern; iPhone installs
+            come straight from the App Store with no steps to explain. */}
         <h2 className="mt-14 text-xs font-semibold uppercase tracking-wider text-neutral-500">
           {t("download.stepsTitle")}
         </h2>

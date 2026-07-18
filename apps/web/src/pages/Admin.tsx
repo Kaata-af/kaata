@@ -135,29 +135,6 @@ type UsersResult = {
   generated_at: string;
 };
 
-type WaitlistKV = { key: string; count: number };
-type WaitlistRow = { email: string; platform: string; device: string; created_at: string };
-type WaitlistResult = {
-  total: number;
-  by_platform: WaitlistKV[];
-  by_device: WaitlistKV[];
-  recent: WaitlistRow[];
-  generated_at: string;
-};
-
-// Friendly labels for the waitlist enums.
-const PLATFORM_LABEL: Record<string, string> = {
-  ios: "App Store",
-  android: "Google Play",
-  stores: "Both stores",
-};
-const DEVICE_LABEL: Record<string, string> = {
-  ios: "iPhone",
-  android: "Android",
-  other: "Desktop / other",
-  unknown: "Unknown",
-};
-
 const TOKEN_KEY = "kaata_admin_token";
 
 function pct(n: number, d: number): string {
@@ -258,21 +235,6 @@ export function Admin() {
     }
   }, []);
 
-  // Waitlist drill-down (download-page "coming soon" email opt-ins). Same
-  // load-on-mount/refresh cadence as users; non-fatal on failure.
-  const [waitlist, setWaitlist] = useState<WaitlistResult | null>(null);
-  const loadWaitlist = useCallback(async (tok: string) => {
-    try {
-      const res = await fetch(`${BACKEND_URL}/v1/admin/waitlist`, {
-        headers: { Authorization: `Bearer ${tok}` },
-      });
-      if (!res.ok) return;
-      setWaitlist((await res.json()) as WaitlistResult);
-    } catch {
-      // Non-fatal: the rest of the dashboard still renders.
-    }
-  }, []);
-
   // Auto-refresh: poll every REFRESH_MS while the tab is visible (pause in
   // background tabs so we don't hammer the DB), and refresh immediately when the
   // operator returns to the tab. Manual Refresh + the interval share load().
@@ -280,7 +242,6 @@ export function Admin() {
     if (!token) return;
     void load(token);
     void loadUsers(token);
-    void loadWaitlist(token);
     const id = setInterval(() => {
       if (document.visibilityState === "visible") void load(token);
     }, REFRESH_MS);
@@ -293,7 +254,7 @@ export function Admin() {
       document.removeEventListener("visibilitychange", onVis);
       abortRef.current?.abort();
     };
-  }, [token, load, loadUsers, loadWaitlist]);
+  }, [token, load, loadUsers]);
 
   if (!token) {
     return (
@@ -749,110 +710,8 @@ export function Admin() {
             )}
           </section>
 
-          {/* Waitlist — download-page "coming soon" email opt-ins. */}
-          <section>
-            <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-neutral-400">
-              Waitlist {waitlist ? `(${waitlist.total})` : ""}
-            </h2>
-            <p className="mb-3 text-xs text-neutral-400">
-              Emails left on the download page to be notified when the iPhone / Play Store apps
-              ship. “Asked for” is the store they picked; “Device” is what they were browsing on.
-            </p>
-            {waitlist === null ? (
-              <p className="text-sm text-neutral-400">Loading…</p>
-            ) : waitlist.total === 0 ? (
-              <p className="text-sm text-neutral-400">No signups yet.</p>
-            ) : (
-              <>
-                <div className="mb-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
-                  <Breakdown
-                    title="Asked for"
-                    rows={waitlist.by_platform}
-                    label={(k) => PLATFORM_LABEL[k] ?? k}
-                    total={waitlist.total}
-                  />
-                  <Breakdown
-                    title="On device"
-                    rows={waitlist.by_device}
-                    label={(k) => DEVICE_LABEL[k] ?? k}
-                    total={waitlist.total}
-                  />
-                </div>
-                <div className="overflow-x-auto rounded-xl border border-neutral-200">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-neutral-200 text-left text-xs text-neutral-400">
-                        <th className="px-4 py-2 font-medium">Email</th>
-                        <th className="px-4 py-2 font-medium">Asked for</th>
-                        <th className="px-4 py-2 font-medium">Device</th>
-                        <th className="px-4 py-2 font-medium">Signed up</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {waitlist.recent.map((w, i) => (
-                        <tr
-                          key={`${w.email}-${w.platform}-${i}`}
-                          className="border-b border-neutral-100 last:border-0"
-                        >
-                          <td className="px-4 py-2 text-neutral-700" dir="ltr">
-                            {w.email}
-                          </td>
-                          <td className="px-4 py-2 text-xs text-neutral-500">
-                            {PLATFORM_LABEL[w.platform] ?? w.platform}
-                          </td>
-                          <td className="px-4 py-2">
-                            <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-neutral-500">
-                              {DEVICE_LABEL[w.device] ?? w.device}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2 text-xs text-neutral-500">
-                            {fmtDate(w.created_at)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-          </section>
         </div>
       )}
-    </div>
-  );
-}
-
-// Compact {label: count} breakdown with a share bar — used for the waitlist
-// "asked for" (store) and "on device" splits.
-function Breakdown(props: {
-  title: string;
-  rows: WaitlistKV[];
-  label: (key: string) => string;
-  total: number;
-}) {
-  return (
-    <div className="rounded-xl border border-neutral-200 p-4">
-      <div className="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400">
-        {props.title}
-      </div>
-      <div className="space-y-2">
-        {props.rows.map((r) => {
-          const w = props.total ? Math.max(2, Math.round((r.count / props.total) * 100)) : 0;
-          return (
-            <div key={r.key} className="flex items-center gap-3">
-              <div className="w-28 shrink-0 text-sm text-neutral-600">{props.label(r.key)}</div>
-              <div className="h-5 flex-1 rounded bg-neutral-100">
-                <div
-                  className="flex h-5 items-center justify-end rounded bg-neutral-900 px-2 text-xs font-medium text-white"
-                  style={{ width: `${w}%` }}
-                >
-                  {r.count}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }

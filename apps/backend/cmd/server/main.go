@@ -27,7 +27,6 @@ import (
 	syncapi "github.com/matee/kaata-backend/internal/sync"
 	"github.com/matee/kaata-backend/internal/vaults"
 	"github.com/matee/kaata-backend/internal/visit"
-	"github.com/matee/kaata-backend/internal/waitlist"
 )
 
 // minJWTSecretLen is the floor below which we refuse to boot. HS256 with a
@@ -197,8 +196,6 @@ func main() {
 	visitSvc := visit.NewService(pool, cfg.APKDownloadURL)
 	visitH := visit.NewHandler(visitSvc)
 
-	waitlistH := waitlist.NewHandler(waitlist.NewService(pool))
-
 	// Mythos crash-reporter. Public + anonymous (same group as check-in)
 	// so local-only installs can report why they died.
 	crashSvc := crashreport.NewService(pool)
@@ -290,10 +287,6 @@ func main() {
 	r.With(httpx.RateLimitPerIP(visitLimit, visitWindow)).
 		Post("/v1/visit", visitH.Visit)
 	r.Get("/v1/download", visitH.Download)
-	// Waitlist: email opt-in for the "coming soon" app-store channels. Public +
-	// rate-limited per IP (the email is the only PII; idempotent server-side).
-	r.With(httpx.RateLimitPerIP(httpx.WaitlistJoinLimit, httpx.WaitlistJoinWindow)).
-		Post("/v1/waitlist", waitlistH.Join)
 	// Google sign-in is the only account-creation endpoint; without a cap it
 	// was a free token-validation DoS / account-minting surface.
 	r.With(httpx.RateLimitPerIP(googleSignInLimit, googleSignInWindow)).
@@ -318,7 +311,6 @@ func main() {
 		pr.Use(httpx.AdminKeyMiddleware(cfg.AdminAPIKey))
 		pr.Get("/v1/admin/stats", adminH.Stats)
 		pr.Get("/v1/admin/users", adminH.Users)
-		pr.Get("/v1/admin/waitlist", adminH.Waitlist)
 	})
 	// Public invite landing read (kaata.af/i/<token>). 30/hr per IP caps
 	// token-enumeration attempts; the handler still returns a uniform 404

@@ -1,32 +1,5 @@
 import { BACKEND_URL } from "../env";
 
-export type WaitlistPlatform = "ios" | "android" | "stores";
-
-// joinWaitlist — POST /v1/waitlist (public, rate-limited per IP).
-// Opt-in to be emailed when the iPhone / Play Store app ships. Idempotent
-// server-side, so a repeat submit with the same (email, platform) is a no-op.
-// Returns true on success (204), false on any validation/network/server error.
-export async function joinWaitlist(
-  email: string,
-  platform: WaitlistPlatform,
-  source: string,
-): Promise<boolean> {
-  try {
-    const res = await fetch(`${BACKEND_URL}/v1/waitlist`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, platform, source }),
-      signal:
-        typeof AbortSignal !== "undefined" && "timeout" in AbortSignal
-          ? AbortSignal.timeout(10_000)
-          : undefined,
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
 // Phase 4 — public, no-auth fetchers for the invite landing page.
 // kaata.af doesn't authenticate; this just renders enough about a token for
 // the recipient to decide whether to open it on their phone. Actual

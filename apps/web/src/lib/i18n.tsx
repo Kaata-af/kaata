@@ -75,7 +75,8 @@ const en = {
 
   // Download page
   "download.title": "Install Kaata",
-  "download.sub": "Get the Android app now — the iPhone and Play Store versions are coming soon.",
+  "download.sub":
+    "Get Kaata for iPhone on the App Store, or download the Android app directly below.",
   "download.step1": 'Tap "Download APK" above.',
   "download.step2": "Open the downloaded file.",
   "download.step3":
@@ -84,19 +85,11 @@ const en = {
   "download.step5": "Tap Install.",
   "download.button": "Download APK · v{version}",
   "download.toast": "Starting download — install when ready.",
+  "download.availableNow": "Now on the",
   "download.comingSoon": "Coming soon",
   "download.playStore": "Google Play",
   "download.appStore": "App Store",
-  "download.stepsTitle": "How to install the APK",
-  "download.waitlistTitle": "Want a heads-up?",
-  "download.waitlistSub":
-    "Leave your email and we'll tell you the moment the iPhone and Play Store apps are ready.",
-  "download.waitlistEmailPlaceholder": "you@example.com",
-  "download.waitlistButton": "Notify me",
-  "download.waitlistSending": "Sending…",
-  "download.waitlistDone": "You're on the list — we'll be in touch.",
-  "download.waitlistError": "Couldn't sign you up. Please try again.",
-  "download.waitlistInvalid": "Enter a valid email address.",
+  "download.stepsTitle": "How to install the APK (Android)",
 
   // Not found
   "notFound.kicker": "404",
@@ -242,7 +235,8 @@ const fa: Record<keyof typeof en, string> = {
 
   // Download page
   "download.title": "نصب کاتا",
-  "download.sub": "همین حالا نسخهٔ اندروید را بگیرید — نسخهٔ آیفون و پلی‌ستور به‌زودی می‌آید.",
+  "download.sub":
+    "کاتا برای آیفون در اپ‌ستور آماده است، یا نسخهٔ اندروید را از پایین مستقیم دانلود کنید.",
   "download.step1": "روی «دانلود APK» در بالا بزنید.",
   "download.step2": "فایل دانلودشده را باز کنید.",
   "download.step3":
@@ -252,19 +246,11 @@ const fa: Record<keyof typeof en, string> = {
   "download.step5": "روی نصب بزنید.",
   "download.button": "دانلود APK · نسخه {version}",
   "download.toast": "دانلود شروع شد — بعد از تکمیل نصب کنید.",
+  "download.availableNow": "حالا در",
   "download.comingSoon": "به‌زودی",
   "download.playStore": "Google Play",
   "download.appStore": "App Store",
-  "download.stepsTitle": "نحوهٔ نصب فایل APK",
-  "download.waitlistTitle": "می‌خواهید باخبر شوید؟",
-  "download.waitlistSub":
-    "ایمیل‌تان را بگذارید تا همین که نسخهٔ آیفون و پلی‌ستور آماده شد، خبرتان کنیم.",
-  "download.waitlistEmailPlaceholder": "you@example.com",
-  "download.waitlistButton": "خبرم کن",
-  "download.waitlistSending": "در حال ارسال…",
-  "download.waitlistDone": "ثبت شد — به‌زودی در تماس می‌شویم.",
-  "download.waitlistError": "ثبت نشد. دوباره تلاش کنید.",
-  "download.waitlistInvalid": "یک ایمیل معتبر وارد کنید.",
+  "download.stepsTitle": "نحوهٔ نصب فایل APK (اندروید)",
 
   // Not found
   "notFound.kicker": "۴۰۴",

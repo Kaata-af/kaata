@@ -44,15 +44,3 @@ func (h *Handler) Users(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.JSON(w, http.StatusOK, res)
 }
-
-// Waitlist — GET /v1/admin/waitlist. The download-page "coming soon" email
-// opt-ins: total + breakdowns by requested store and detected device + recent
-// signups. Mounted behind httpx.AdminKeyMiddleware.
-func (h *Handler) Waitlist(w http.ResponseWriter, r *http.Request) {
-	res, err := h.svc.GetWaitlist(r.Context())
-	if err != nil {
-		httpx.Error(w, http.StatusInternalServerError, "waitlist query failed")
-		return
-	}
-	httpx.JSON(w, http.StatusOK, res)
-}
