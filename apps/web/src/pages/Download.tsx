@@ -1,6 +1,6 @@
 import { DownloadButton } from "../components/DownloadButton";
 import { SiteFooter, SiteHeader } from "../components/SiteChrome";
-import { AppStoreButton, PlayComingSoonBadge } from "../components/StoreButtons";
+import { AppStoreBadge, PlayBadgeComingSoon } from "../components/StoreButtons";
 import { useI18n, type TKey } from "../lib/i18n";
 
 // Step copy matches the dialogs modern Android actually shows (the per-app
@@ -26,13 +26,17 @@ export function Download() {
         </h1>
         <p className="mt-4 text-base text-neutral-600 leading-relaxed">{t("download.sub")}</p>
 
-        {/* Live channels: the App Store (iPhone) and the direct Android APK.
-            Google Play is still in closed testing — muted badge, no waitlist
-            (retired when the iPhone app shipped). */}
-        <div className="mt-10 space-y-3">
-          <AppStoreButton />
+        {/* The standard store-badge row (official artwork): App Store live,
+            Google Play dimmed while closed testing runs. The direct APK —
+            this audience's primary channel — keeps its own full-width
+            button beneath (sideloading has no official badge, and must not
+            imitate one). */}
+        <div className="mt-10 space-y-4">
+          <div className="flex flex-wrap items-start gap-3">
+            <AppStoreBadge />
+            <PlayBadgeComingSoon />
+          </div>
           <DownloadButton />
-          <PlayComingSoonBadge />
         </div>
 
         {/* APK sideload walkthrough — Android-only concern; iPhone installs
