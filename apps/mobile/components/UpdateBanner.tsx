@@ -6,6 +6,7 @@ import { setAppMeta } from "../lib/db";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
+import { updateTargetUrl } from "../lib/update-url";
 
 // Both banner variants share the same monochrome chassis. The update banner
 // reverses to bgInverted so it asks for attention without breaking the palette;
@@ -15,7 +16,14 @@ export function UpdateBanner() {
   const isRTL = useIsRTL();
   const toast = useToast();
 
-  if (update) {
+  // Channel-aware target (lib/update-url.ts): the APK for sideload builds,
+  // the store listing for Play/App Store builds. null = the announced
+  // release has no target for THIS install's channel (e.g. a Play build
+  // told about a sideload-only release) — show nothing rather than offer an
+  // APK the install can't apply; the announcement branch below still runs.
+  const updateUrl = update ? updateTargetUrl(update) : null;
+
+  if (update && updateUrl) {
     return (
       <View style={[styles.banner, styles.bannerInverted, rowDir(isRTL)]}>
         <View style={[styles.body, isRTL ? styles.bodyRTL : styles.bodyLTR]}>
@@ -33,8 +41,9 @@ export function UpdateBanner() {
         </View>
         <Pressable
           onPress={() => {
-            const url = update.apk_url || update.play_store_url || "https://kaata.af/download";
-            Linking.openURL(url).catch(() => toast.push(t("updatePrompt.openFailed"), "error"));
+            Linking.openURL(updateUrl).catch(() =>
+              toast.push(t("updatePrompt.openFailed"), "error"),
+            );
           }}
           accessibilityRole="button"
           style={[styles.cta, styles.ctaInverted]}

@@ -121,16 +121,23 @@ export type UpdatePersonResult =
   | { ok: false; error: "phone_is_self" }
   | { ok: false; error: "phone_conflict"; existing: { id: string; name: string } };
 
+// The announced-release block, named so the channel-aware update routing
+// (lib/update-url.ts) can type against it. NOTE on play_store_url: it is
+// semantically "the platform's STORE LISTING" — the Play page on android
+// release rows, the App Store page on ios rows (historical column name kept
+// because shipped clients already read it as their store fallback).
+export type AppMetaUpdate = {
+  version: string;
+  apk_url: string | null;
+  play_store_url: string | null;
+  release_notes: string | null;
+};
+
 export type CheckInResponse = {
   server_time: string;
   latest_version: string;
   force_update: boolean;
-  update: {
-    version: string;
-    apk_url: string | null;
-    play_store_url: string | null;
-    release_notes: string | null;
-  } | null;
+  update: AppMetaUpdate | null;
   announcement: {
     id: number;
     title: string;

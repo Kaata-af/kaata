@@ -4,6 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../components/Button";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
+import { forceUpdateTargetUrl } from "../lib/update-url";
 import { textDir, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
@@ -38,10 +39,11 @@ export default function UpdatePromptScreen() {
           }
           onPress={() => {
             // This is the ONLY affordance on a blocking screen — it must
-            // never silently do nothing. Fall back to the website when the
-            // release row carries no URL, and surface openURL rejections.
-            const url = update?.apk_url ?? update?.play_store_url ?? "https://kaata.af/download";
-            Linking.openURL(url).catch(() => setOpenFailed(true));
+            // never silently do nothing. Channel-aware target (APK for
+            // sideloads, store listing for Play/App Store builds), with the
+            // website as the never-dead-end floor; openURL rejections
+            // surface inline.
+            Linking.openURL(forceUpdateTargetUrl(update)).catch(() => setOpenFailed(true));
           }}
         />
       </View>
