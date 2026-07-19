@@ -7,6 +7,7 @@ The sideload/APK build catches up with everything shipped since 0.8.4 — the
 celebration. If you're updating from 0.8.4, this is a large release.
 
 ### New
+
 - **A celebration when you create your first kaata** — the last onboarding step
   now shows your shop name on its own card with a confetti burst, instead of
   quietly dropping you on the home screen.
@@ -18,6 +19,7 @@ celebration. If you're updating from 0.8.4, this is a large release.
   woven through onboarding, home, and settings.
 
 ### Fixed
+
 - **Cloud restore** no longer reverts a synced phone to a stale backup — signing
   in or restoring on a device that already has your ledger can't drop your recent
   entries anymore.
@@ -42,6 +44,7 @@ celebration. If you're updating from 0.8.4, this is a large release.
 - "Reset all data" now also clears leftover trust credentials + diagnostics.
 
 ### Privacy & security
+
 - Your own name/phone/shop are uploaded **only when you're signed in** — an
   offline install sends nothing personal.
 - Closed a way a shared-kaata member could forge owner-level changes on the
@@ -55,6 +58,7 @@ celebration. If you're updating from 0.8.4, this is a large release.
   can't reach the server.
 
 ### Under the hood
+
 - **Smaller, faster app** — Android release builds now run R8/ProGuard code
   shrinking and resource shrinking, so the APK downloads and installs lighter.
 - **Removed the parked Nearby-sync background service** and its
@@ -71,6 +75,7 @@ The first Play Store release. A large hardening + compliance pass on top of
 build and ships in a later update.)
 
 ### New
+
 - **Sign in with Apple** (iOS) — a privacy-focused login option alongside Google.
 - **Delete your account** — Settings → Delete account removes your account and
   all data backed up to Kaata's servers, then clears the ledger on the phone.
@@ -80,6 +85,7 @@ build and ships in a later update.)
   onboarding, home, and settings.
 
 ### Fixed
+
 - **Cloud restore** no longer reverts a synced phone to a stale backup — signing
   in / restoring on a device that already has your ledger can't drop your recent
   entries anymore.
@@ -102,6 +108,7 @@ build and ships in a later update.)
 - "Reset all data" now clears leftover trust credentials + diagnostics.
 
 ### Privacy & security
+
 - Your own name/phone/shop are uploaded **only when you're signed in** — an
   offline install sends nothing personal.
 - Closed a way a shared-kaata member could forge owner-level changes on the server.
@@ -115,6 +122,7 @@ build and ships in a later update.)
   that can't reach the server.
 
 ### Under the hood
+
 - **Removed the parked Nearby-sync background service** and its
   `FOREGROUND_SERVICE_CONNECTED_DEVICE` + battery-optimization permissions for
   this release (fewer permissions, cleaner Play review).

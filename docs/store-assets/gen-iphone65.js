@@ -17,12 +17,49 @@ const OUT = path.join(__dirname, "iphone-6.5");
 // third-party UI in screenshots (guideline 2.3.7), and only the first three
 // screenshots surface on the install sheet. Drop 06 at upload time if in doubt.
 const panels = [
-  { n: 1, slug: "home", eyebrow: "YOUR SHOP LEDGER", head: 'Know who owes you,<br><span class="g">at a glance.</span>', screen: S.screenHome() },
-  { n: 2, slug: "person-detail", eyebrow: "EVERY CUSTOMER", head: 'One running balance,<br><span class="g">every deal logged.</span>', screen: S.screenPerson() },
-  { n: 3, slug: "add-entry", eyebrow: "FAST ENTRY", head: 'Gave or received?<br><span class="g">Logged in seconds.</span>', screen: S.screenEntry() },
-  { n: 4, slug: "onboarding", eyebrow: "GET STARTED", head: 'Your shop’s book,<br><span class="g">ready in a minute.</span>', screen: S.screenOnboarding() },
-  { n: 5, slug: "dari", eyebrow: "دری  •  OFFLINE", head: 'به زبان خودت.<br><span class="g">بدون انترنت.</span>', screen: S.screenHome({ rtl: true }), rtlCap: true },
-  { n: 6, slug: "whatsapp", eyebrow: "GET PAID", head: 'A polite nudge,<br><span class="g">on WhatsApp.</span>', screen: S.screenWhatsApp() },
+  {
+    n: 1,
+    slug: "home",
+    eyebrow: "YOUR SHOP LEDGER",
+    head: 'Know who owes you,<br><span class="g">at a glance.</span>',
+    screen: S.screenHome(),
+  },
+  {
+    n: 2,
+    slug: "person-detail",
+    eyebrow: "EVERY CUSTOMER",
+    head: 'One running balance,<br><span class="g">every deal logged.</span>',
+    screen: S.screenPerson(),
+  },
+  {
+    n: 3,
+    slug: "add-entry",
+    eyebrow: "FAST ENTRY",
+    head: 'Gave or received?<br><span class="g">Logged in seconds.</span>',
+    screen: S.screenEntry(),
+  },
+  {
+    n: 4,
+    slug: "onboarding",
+    eyebrow: "GET STARTED",
+    head: 'Your shop’s book,<br><span class="g">ready in a minute.</span>',
+    screen: S.screenOnboarding(),
+  },
+  {
+    n: 5,
+    slug: "dari",
+    eyebrow: "دری  •  OFFLINE",
+    head: 'به زبان خودت.<br><span class="g">بدون انترنت.</span>',
+    screen: S.screenHome({ rtl: true }),
+    rtlCap: true,
+  },
+  {
+    n: 6,
+    slug: "whatsapp",
+    eyebrow: "GET PAID",
+    head: 'A polite nudge,<br><span class="g">on WhatsApp.</span>',
+    screen: S.screenWhatsApp(),
+  },
 ];
 
 // 1284/1080 = 1.18889 exactly fills the width; inner design height

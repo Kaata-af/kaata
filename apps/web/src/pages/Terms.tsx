@@ -90,10 +90,9 @@ export function Terms() {
         <Section title="No warranty">
           <p>
             The Service is provided “as is” and “as available,” without warranties of any kind,
-            whether express or implied, including fitness for a particular purpose and
-            uninterrupted or error-free operation. You are responsible for keeping your own copy of
-            important records; while Kaata backs up signed-in ledgers, we cannot guarantee against
-            all loss.
+            whether express or implied, including fitness for a particular purpose and uninterrupted
+            or error-free operation. You are responsible for keeping your own copy of important
+            records; while Kaata backs up signed-in ledgers, we cannot guarantee against all loss.
           </p>
         </Section>
 

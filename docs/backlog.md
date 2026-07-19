@@ -131,11 +131,11 @@ retrofit once real ledgers exist):**
    already returns `phone_conflict`; import must not blindly append `person_added`).
 2. **Per-entry currency.** `vaults.currency` is only a display label (no
    conversion). Append-only migration: `ALTER TABLE entries ADD COLUMN currency
-   TEXT` (nullable = vault default → existing rows untouched) + add to the
+TEXT` (nullable = vault default → existing rows untouched) + add to the
    entry_created/amended payload. Ship the column now even without a conversion
    engine, so mixed-currency import/export is lossless.
 3. **Reference number / source id.** Append-only migration: `entries.reference_no
-   TEXT` (+ `source_external_id` for import provenance), both nullable + in the
+TEXT` (+ `source_external_id` for import provenance), both nullable + in the
    payload. Needed for reconciliation and to preserve a source system's IDs.
 
 **Export** has no schema blocker — only single-person WhatsApp text share exists

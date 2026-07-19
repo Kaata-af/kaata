@@ -48,7 +48,7 @@ width for its rail; no `isTablet`/`expo-device`). So on a tablet in portrait the
 single-column UI **stretches to the full tablet width at its true dp text
 sizes** — small text, wide sparse rows, lots of whitespace. These renders
 reproduce that **accurately** (true dp values, rendered at the real tablet dp
-width × 2 density). They are deliberately *not* a scaled-up "zoomed phone" — that
+width × 2 density). They are deliberately _not_ a scaled-up "zoomed phone" — that
 would misrepresent how the app actually looks on a tablet.
 
 - `tablet-screenshots/7-inch/*.png` — **1200×2134** (600dp width × 2), for the 7" slot
@@ -67,17 +67,19 @@ fonts + icon SVGs), then render each `tab-<size>-<name>.html`:
 **Honest trade-off:** because the app isn't tablet-optimized, the accurate
 renders look sparse. Tablet screenshots are **optional** — if you'd rather not
 show the sparse look, leave the tablet slots empty (Play falls back to your phone
-screenshots on tablets). The only way to get genuinely *good* tablet screenshots
+screenshots on tablets). The only way to get genuinely _good_ tablet screenshots
 is to add a real tablet layout (e.g. two-pane list+detail) to the app.
 
 ## Short description (max 80 chars)
 
 **English**
+
 ```
 A simple digital khata to track who owes you and what you owe. Works offline.
 ```
 
 **دری**
+
 ```
 یک کاتای دیجیتلی ساده برای پیگیری این‌که چه کسی به شما بدهکار است. آفلاین کار می‌کند.
 ```
@@ -85,6 +87,7 @@ A simple digital khata to track who owes you and what you owe. Works offline.
 ## Full description (max 4000 chars)
 
 **English**
+
 ```
 Kaata is a simple digital khata (ledger) for shopkeepers — and anyone who keeps track of money between people they trust.
 
@@ -112,6 +115,7 @@ Made in Kabul.
 ```
 
 **دری**
+
 ```
 کاتا یک دفترچهٔ حساب (خاتهٔ) دیجیتلی ساده برای دکانداران است — و برای هر کسی که حساب پول را بین آدم‌های مورد اعتمادش نگه می‌دارد.
 

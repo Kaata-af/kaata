@@ -8,21 +8,21 @@ Two independent parties keep **one mutual running account** and need it to alway
 agree, without either seeing the other's private books.
 
 Motivating case: we rent a store to a friend's dairy shop. We buy goods from him
-on credit (written in *his* book); at month-end it's netted against the rent.
+on credit (written in _his_ book); at month-end it's netted against the rent.
 Today only he has the book — there's no shared, agreed record. We want both sides
 to see the same tab at any time, settled cleanly with no "my number vs your
 number" dispute.
 
 This is **NOT** the existing mobile feature:
 
-| | Shop sync (built, mobile) | Shared ledger (this spec) |
-|---|---|---|
-| Shares | a whole shop's book | one mutual tab between two parties |
-| Visibility | everyone sees everything | each sees only the shared tab |
-| Parties | one shop's devices/staff | two independent people/shops |
-| Trust | one owner admits staff | two equals, symmetric |
-| Storage | local-first, device-only | **server-backed** |
-| Surface | mobile app | **web first** |
+|            | Shop sync (built, mobile) | Shared ledger (this spec)          |
+| ---------- | ------------------------- | ---------------------------------- |
+| Shares     | a whole shop's book       | one mutual tab between two parties |
+| Visibility | everyone sees everything  | each sees only the shared tab      |
+| Parties    | one shop's devices/staff  | two independent people/shops       |
+| Trust      | one owner admits staff    | two equals, symmetric              |
+| Storage    | local-first, device-only  | **server-backed**                  |
+| Surface    | mobile app                | **web first**                      |
 
 The privacy property we want falls out of keeping the shared tab as its **own
 isolated dataset**: the only thing that ever lands on the server is the mutual
@@ -133,7 +133,7 @@ MVP = **capability links**, exactly like the existing invite flow:
 Access is possession of an unguessable token. **Trade-off:** anyone with the
 link can append, and a lost link is hard to recover. Acceptable between two
 friends for an MVP; the **upgrade path** is to bind a token to an identity via
-the backend's *existing* Google JWT auth (`internal/auth`) or a future phone-OTP
+the backend's _existing_ Google JWT auth (`internal/auth`) or a future phone-OTP
 (already on the Phase-2 roadmap) — `shared_ledger_access.account_id` is reserved
 for exactly that. Flag this clearly in the UI ("keep this link private").
 
@@ -185,7 +185,11 @@ React side — read it before rendering, no API round-trip, no spinner:
 export function readBoot<T>(): T | null {
   const el = document.getElementById("__kaata_boot__");
   if (!el?.textContent) return null;
-  try { return JSON.parse(el.textContent) as T; } catch { return null; }
+  try {
+    return JSON.parse(el.textContent) as T;
+  } catch {
+    return null;
+  }
 }
 // SharedLedger page: const boot = readBoot<BootState>() ?? (await api fallback)
 ```
@@ -204,15 +208,15 @@ weight.
 
 Mirrors existing conventions (`httpx.JSON`, `httpx.RateLimitPerIP`, uniform 404).
 
-| Method | Route | Auth | Notes |
-|---|---|---|---|
-| POST | `/v1/l` | public, rate-limited | create; returns `a_token` + `invite_token` |
-| POST | `/v1/l/{token}/claim` | invite token | B sets label; mints `b_token` |
-| GET | `/v1/l/{token}` | capability token | ledger + entries (the JSON behind §6 boot) |
-| POST | `/v1/l/{token}/entries` | capability token | append `{direction, amount, kind, note}` |
-| POST | `/v1/l/{token}/entries/{id}/void` | capability token | append a correction |
-| GET | `/v1/l/{token}/events` | capability token | SSE live stream (poll fallback) |
-| GET | `/l/{token}` | capability token | SSR-lite HTML page (§6) |
+| Method | Route                             | Auth                 | Notes                                      |
+| ------ | --------------------------------- | -------------------- | ------------------------------------------ |
+| POST   | `/v1/l`                           | public, rate-limited | create; returns `a_token` + `invite_token` |
+| POST   | `/v1/l/{token}/claim`             | invite token         | B sets label; mints `b_token`              |
+| GET    | `/v1/l/{token}`                   | capability token     | ledger + entries (the JSON behind §6 boot) |
+| POST   | `/v1/l/{token}/entries`           | capability token     | append `{direction, amount, kind, note}`   |
+| POST   | `/v1/l/{token}/entries/{id}/void` | capability token     | append a correction                        |
+| GET    | `/v1/l/{token}/events`            | capability token     | SSE live stream (poll fallback)            |
+| GET    | `/l/{token}`                      | capability token     | SSR-lite HTML page (§6)                    |
 
 Server assigns `seq` (per-ledger monotonic) on append and stamps `created_by`
 from the token's role — the client cannot forge attribution.
@@ -221,6 +225,7 @@ from the token's role — the client cannot forge attribution.
 
 Server is source of truth, so "sync" is just **tail the entries by seq**. MVP
 options, both lean in Go:
+
 - **SSE** (`/v1/l/{token}/events`): server pushes new entries as they land; the
   client appends them. Recommended — it's the "live shared book" feel and chi
   supports it via `http.Flusher`.
@@ -233,6 +238,7 @@ No CRDT, no conflict resolution: appends are independent and ordered by server
 
 Links should live on the main domain for trust + previews: `kaata.af/l/<token>`.
 Two ways to wire it (decision in §12):
+
 - **A. Proxy path to backend (recommended):** Dokploy/Traefik routes `/l/*` and
   `/v1/l/*` on `kaata.af` to `kaata-backend`; the backend embeds `index.html`
   and serves the page. Marketing site (`kaata-web`) keeps serving everything
@@ -257,13 +263,13 @@ templates the HTML (assets are absolute-pathed, so either works).
 ## 11. Relationship to the rest of kaata
 
 - **Mobile local-first ledger: unchanged.** "Ledger data never leaves the
-  device" still holds for the shop book. Only the *shared tab* — inherently
+  device" still holds for the shop book. Only the _shared tab_ — inherently
   two-party — is server-stored, and only the shared tab.
 - **Existing server sync/mesh/chain: not reused here.** That machinery serves
   full-vault replication for signed-in mobile users; it's overkill for a 2-party
   web ledger. Keep this module independent and small.
 - **Future (out of scope for v1):** the mobile app surfaces a shared ledger as a
-  *linked contact* in your normal book (your balance with "Dairy store" sits
+  _linked contact_ in your normal book (your balance with "Dairy store" sits
   beside other people, but its entries are the bilaterally-synced shared tab).
   The two-way QR scan already built is the natural in-person link primitive for
   that later step.

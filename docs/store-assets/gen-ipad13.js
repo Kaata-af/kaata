@@ -35,7 +35,11 @@ if (require.main === module) {
   for (const p of panels) {
     const html = `<!doctype html><html><head><meta charset="utf-8"/><style>${T.CSS}
 html,body,.t10{width:${W}px;height:${H}px;}</style></head><body><div class="t10">${p.screen}</div></body></html>`;
-    fs.writeFileSync(path.join(OUT, `${String(p.n).padStart(2, "0")}-${p.name}.html`), html, "utf8");
+    fs.writeFileSync(
+      path.join(OUT, `${String(p.n).padStart(2, "0")}-${p.name}.html`),
+      html,
+      "utf8",
+    );
   }
   console.log("done", panels.length, "panels at", `${W}x${H} dp (@2x -> ${W * 2}x${H * 2})`);
 }

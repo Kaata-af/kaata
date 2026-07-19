@@ -118,18 +118,18 @@ is Sign-in with Google/Apple — the user authenticating _themselves_ with a pro
 already holds that identity; Google's rules exclude user-initiated auth from "sharing."
 No data sold; no ad/analytics SDKs.
 
-| Data type                                                      | Purpose(s)                                                                         | Collection is…                                                                                                                                |
-| -------------------------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Device or other IDs (`install_id`, IP)                         | App functionality, Analytics                                                       | **Required** (automatic check-in)                                                                                                             |
-| App activity → App interactions (usage counters)               | Analytics                                                                          | **Required** (automatic)                                                                                                                      |
-| App info & performance → Diagnostics                           | Analytics, App functionality (force-update)                                        | **Required** (automatic)                                                                                                                      |
-| App info & performance → Crash logs                            | Analytics (crash/bug diagnosis)                                                    | **Required** (automatic)                                                                                                                      |
-| Personal info → **Name**                                       | App functionality, Account management; own-name also Analytics (feedback outreach) | **Required** ⚠️ (own name via check-in — no opt-out)                                                                                          |
+| Data type                                                      | Purpose(s)                                                                         | Collection is…                                                                                            |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Device or other IDs (`install_id`, IP)                         | App functionality, Analytics                                                       | **Required** (automatic check-in)                                                                         |
+| App activity → App interactions (usage counters)               | Analytics                                                                          | **Required** (automatic)                                                                                  |
+| App info & performance → Diagnostics                           | Analytics, App functionality (force-update)                                        | **Required** (automatic)                                                                                  |
+| App info & performance → Crash logs                            | Analytics (crash/bug diagnosis)                                                    | **Required** (automatic)                                                                                  |
+| Personal info → **Name**                                       | App functionality, Account management; own-name also Analytics (feedback outreach) | **Required** ⚠️ (own name via check-in — no opt-out)                                                      |
 | Personal info → **Phone number**                               | App functionality, Account management                                              | **Required** (own phone is mandatory in onboarding — `profile.tsx:148-155` — then sent on every check-in) |
-| Personal info → Email address                                  | Account management                                                                 | **Optional** (sign-in only)                                                                                                                   |
-| Personal info → User IDs (account_id/sub)                      | Account management                                                                 | **Optional** (sign-in only)                                                                                                                   |
-| Financial info → Other financial info (amounts)                | App functionality (backup/restore, member sync); also user-initiated share         | **Optional** (requires sign-in OR a deliberate WhatsApp-share tap)                                                                            |
-| App activity → Other user-generated content (notes, shop name) | App functionality                                                                  | **Optional** (sign-in only)¹                                                                                                                  |
+| Personal info → Email address                                  | Account management                                                                 | **Optional** (sign-in only)                                                                               |
+| Personal info → User IDs (account_id/sub)                      | Account management                                                                 | **Optional** (sign-in only)                                                                               |
+| Financial info → Other financial info (amounts)                | App functionality (backup/restore, member sync); also user-initiated share         | **Optional** (requires sign-in OR a deliberate WhatsApp-share tap)                                        |
+| App activity → Other user-generated content (notes, shop name) | App functionality                                                                  | **Optional** (sign-in only)¹                                                                              |
 
 ("Required" = collected automatically, user cannot opt out. "Optional" = the user
 controls it by choosing whether to sign in / share.)
@@ -189,8 +189,8 @@ standard/exempt" (we do use ChaCha20 in the parked mesh) — not "no encryption.
    balance + up to 100 transactions, 90-day TTL), fired by any user incl. offline.
    Token is **already fine** — 96-bit `crypto/rand` (`service.go:92-98`), not
    enumerable. Remaining gap is only **no revocation** (a link lives its full 90 days)
-   + the 90-day retention of a named customer's debt on a public URL. Low urgency;
-   consider a revoke button + shorter TTL later.
+   - the 90-day retention of a named customer's debt on a public URL. Low urgency;
+     consider a revoke button + shorter TTL later.
 2. **Positioning vs architecture:** cloud sync payload is server-readable plaintext
    (deliberate — AI-training angle). Legal once disclosed, but **don't market Kaata as
    "private/local"** until `/v1/sync` is E2E-encrypted. The mesh already has the

@@ -2,13 +2,24 @@ const fs = require("fs");
 const path = require("path");
 
 const OUT = __dirname;
-const GF = "file:///C:/Users/Matee/Desktop/Projects/Kaata/kaata/apps/mobile/node_modules/@expo-google-fonts";
-const V = (w, f) => `@font-face{font-family:"Vaz";font-weight:${w};src:url("${GF}/vazirmatn/${f}/Vazirmatn_${f}.ttf");}`;
-const M = (w, f) => `@font-face{font-family:"Mono";font-weight:${w};src:url("${GF}/jetbrains-mono/${f}/JetBrainsMono_${f}.ttf");}`;
+const GF =
+  "file:///C:/Users/Matee/Desktop/Projects/Kaata/kaata/apps/mobile/node_modules/@expo-google-fonts";
+const V = (w, f) =>
+  `@font-face{font-family:"Vaz";font-weight:${w};src:url("${GF}/vazirmatn/${f}/Vazirmatn_${f}.ttf");}`;
+const M = (w, f) =>
+  `@font-face{font-family:"Mono";font-weight:${w};src:url("${GF}/jetbrains-mono/${f}/JetBrainsMono_${f}.ttf");}`;
 
 const FONTS = [
-  V(400, "400Regular"), V(500, "500Medium"), V(600, "600SemiBold"), V(700, "700Bold"), V(800, "800ExtraBold"),
-  M(400, "400Regular"), M(500, "500Medium"), M(600, "600SemiBold"), M(700, "700Bold"), M(800, "800ExtraBold"),
+  V(400, "400Regular"),
+  V(500, "500Medium"),
+  V(600, "600SemiBold"),
+  V(700, "700Bold"),
+  V(800, "800ExtraBold"),
+  M(400, "400Regular"),
+  M(500, "500Medium"),
+  M(600, "600SemiBold"),
+  M(700, "700Bold"),
+  M(800, "800ExtraBold"),
 ].join("\n");
 
 // ---- inline Ionicons-style SVGs (stroke = currentColor) ----
@@ -17,14 +28,39 @@ const svg = (inner, o = {}) =>
 const ic = {
   chevronDown: (w) => svg('<polyline points="6 9 12 15 18 9"/>', { w, sw: 2.2 }),
   chevronBack: (w) => svg('<polyline points="15 6 9 12 15 18"/>', { w, sw: 2.4 }),
-  plus: (w) => svg('<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>', { w, sw: 2.4 }),
-  pencil: (w) => svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>', { w, sw: 2 }),
-  arrowUp: (w) => svg('<line x1="12" y1="19" x2="12" y2="6"/><polyline points="6 12 12 6 18 12"/>', { w, sw: 2.4 }),
-  arrowDown: (w) => svg('<line x1="12" y1="5" x2="12" y2="18"/><polyline points="6 12 12 18 18 12"/>', { w, sw: 2.4 }),
-  storefront: (w) => svg('<path d="M3 9l1.6-5h14.8L21 9"/><path d="M4.5 9v11h15V9"/><path d="M9.5 20v-6h5v6"/><path d="M3 9a2.4 2.4 0 0 0 4.5 0 2.4 2.4 0 0 0 4.5 0 2.4 2.4 0 0 0 4.5 0 2.4 2.4 0 0 0 4.5 0"/>', { w, sw: 1.7 }),
-  check: (w) => svg('<polyline points="4 12.5 9.5 18 20 6.5"/>', { w, sw: 3, }),
-  whatsapp: (w) => `<svg viewBox="0 0 24 24" width="${w}" height="${w}" fill="currentColor" style="display:block"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.71.306 1.263.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.885-9.885 9.885M20.52 3.449C18.24 1.245 15.24 0 12.045 0 5.463 0 .104 5.334.101 11.892c0 2.096.549 4.14 1.595 5.945L0 24l6.335-1.652a12.062 12.062 0 005.71 1.454h.005c6.585 0 11.946-5.335 11.949-11.893a11.821 11.821 0 00-3.479-8.46"/></svg>`,
-  send: (w) => svg('<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>', { w, sw: 2 }),
+  plus: (w) =>
+    svg('<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>', {
+      w,
+      sw: 2.4,
+    }),
+  pencil: (w) =>
+    svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>', {
+      w,
+      sw: 2,
+    }),
+  arrowUp: (w) =>
+    svg('<line x1="12" y1="19" x2="12" y2="6"/><polyline points="6 12 12 6 18 12"/>', {
+      w,
+      sw: 2.4,
+    }),
+  arrowDown: (w) =>
+    svg('<line x1="12" y1="5" x2="12" y2="18"/><polyline points="6 12 12 18 18 12"/>', {
+      w,
+      sw: 2.4,
+    }),
+  storefront: (w) =>
+    svg(
+      '<path d="M3 9l1.6-5h14.8L21 9"/><path d="M4.5 9v11h15V9"/><path d="M9.5 20v-6h5v6"/><path d="M3 9a2.4 2.4 0 0 0 4.5 0 2.4 2.4 0 0 0 4.5 0 2.4 2.4 0 0 0 4.5 0 2.4 2.4 0 0 0 4.5 0"/>',
+      { w, sw: 1.7 },
+    ),
+  check: (w) => svg('<polyline points="4 12.5 9.5 18 20 6.5"/>', { w, sw: 3 }),
+  whatsapp: (w) =>
+    `<svg viewBox="0 0 24 24" width="${w}" height="${w}" fill="currentColor" style="display:block"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.71.306 1.263.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.885-9.885 9.885M20.52 3.449C18.24 1.245 15.24 0 12.045 0 5.463 0 .104 5.334.101 11.892c0 2.096.549 4.14 1.595 5.945L0 24l6.335-1.652a12.062 12.062 0 005.71 1.454h.005c6.585 0 11.946-5.335 11.949-11.893a11.821 11.821 0 00-3.479-8.46"/></svg>`,
+  send: (w) =>
+    svg('<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>', {
+      w,
+      sw: 2,
+    }),
 };
 
 // ---- status bar (iOS-ish), color adapts ----
@@ -41,20 +77,44 @@ const statusBar = (dark = false) => {
 };
 
 // ---- money helper ----
-const money = (n, symSize) => `<span class="num">${n}</span><span class="afn"${symSize ? ` style="font-size:${symSize}px"` : ""}>؋</span>`;
+const money = (n, symSize) =>
+  `<span class="num">${n}</span><span class="afn"${symSize ? ` style="font-size:${symSize}px"` : ""}>؋</span>`;
 
 // =================== SCREENS ===================
 
 // avatar-less person row
-const pRow = (name, sub, amt) => `<div class="prow"><div class="pleft"><div class="pname">${name}</div><div class="psub">${sub}</div></div><div class="pamt">${money(amt, 22)}</div></div>`;
+const pRow = (name, sub, amt) =>
+  `<div class="prow"><div class="pleft"><div class="pname">${name}</div><div class="psub">${sub}</div></div><div class="pamt">${money(amt, 22)}</div></div>`;
 
 function screenHome(opts = {}) {
   const rtl = opts.rtl;
   const t = rtl
-    ? { shop: "مارکیت برادران", collect: "وصول", pay: "پرداخت", label: "قابل وصول", sub: "از ۴ نفر",
-        rows: [["احمد ولی", "۲ ساعت پیش", "12,500"], ["گل رحمان", "دیروز", "8,750"], ["فاطمه نوری", "۳ روز پیش", "3,200"], ["نصیر احمدزی", "۱ هفته پیش", "1,400"]] }
-    : { shop: "Baradaran Market", collect: "To collect", pay: "To pay", label: "TO COLLECT", sub: "from 4 people",
-        rows: [["Ahmad Wali", "2h ago", "12,500"], ["Gul Rahman", "yesterday", "8,750"], ["Fatima Noori", "3d ago", "3,200"], ["Naseer Ahmadzai", "1w ago", "1,400"]] };
+    ? {
+        shop: "مارکیت برادران",
+        collect: "وصول",
+        pay: "پرداخت",
+        label: "قابل وصول",
+        sub: "از ۴ نفر",
+        rows: [
+          ["احمد ولی", "۲ ساعت پیش", "12,500"],
+          ["گل رحمان", "دیروز", "8,750"],
+          ["فاطمه نوری", "۳ روز پیش", "3,200"],
+          ["نصیر احمدزی", "۱ هفته پیش", "1,400"],
+        ],
+      }
+    : {
+        shop: "Baradaran Market",
+        collect: "To collect",
+        pay: "To pay",
+        label: "TO COLLECT",
+        sub: "from 4 people",
+        rows: [
+          ["Ahmad Wali", "2h ago", "12,500"],
+          ["Gul Rahman", "yesterday", "8,750"],
+          ["Fatima Noori", "3d ago", "3,200"],
+          ["Naseer Ahmadzai", "1w ago", "1,400"],
+        ],
+      };
   // App is LTR-locked even in Dari (I18nManager.forceRTL(false)) — layout does
   // NOT flip; only the strings change. Keep the English geometry verbatim.
   // Profile initial matches the visible shop name's first letter: "B" for
@@ -109,7 +169,8 @@ function screenPerson() {
 }
 
 function screenEntry() {
-  const key = (t, sub) => `<div class="key"><span class="kd">${t}</span>${sub ? `<span class="ks">${sub}</span>` : ""}</div>`;
+  const key = (t, sub) =>
+    `<div class="key"><span class="kd">${t}</span>${sub ? `<span class="ks">${sub}</span>` : ""}</div>`;
   return `${statusBar()}
   <div class="ehdr"><span class="ehdr-cancel">Cancel</span><span class="ehdr-title">I gave</span><span class="ehdr-sp"></span></div>
   <div class="ebody">
@@ -125,10 +186,10 @@ function screenEntry() {
     <div class="savebtn">Save</div>
   </div>
   <div class="keypad">
-    ${key("1","")}${key("2","ABC")}${key("3","DEF")}
-    ${key("4","GHI")}${key("5","JKL")}${key("6","MNO")}
-    ${key("7","PQRS")}${key("8","TUV")}${key("9","WXYZ")}
-    <div class="key key-blank"></div>${key("0","")}<div class="key key-del">⌫</div>
+    ${key("1", "")}${key("2", "ABC")}${key("3", "DEF")}
+    ${key("4", "GHI")}${key("5", "JKL")}${key("6", "MNO")}
+    ${key("7", "PQRS")}${key("8", "TUV")}${key("9", "WXYZ")}
+    <div class="key key-blank"></div>${key("0", "")}<div class="key key-del">⌫</div>
   </div>`;
 }
 
@@ -153,9 +214,18 @@ Please settle when you can.
 
 See the full ledger here:
 https://kaata.af/v/AbC123`;
-  const lines = msg.split("\n").map((l) => l === "" ? '<div class="wa-sp"></div>' :
-    l.startsWith("🔴") ? `<div class="wa-owe">${l}</div>` :
-    l.startsWith("https") ? `<div class="wa-link">${l}</div>` : `<div>${l}</div>`).join("");
+  const lines = msg
+    .split("\n")
+    .map((l) =>
+      l === ""
+        ? '<div class="wa-sp"></div>'
+        : l.startsWith("🔴")
+          ? `<div class="wa-owe">${l}</div>`
+          : l.startsWith("https")
+            ? `<div class="wa-link">${l}</div>`
+            : `<div>${l}</div>`,
+    )
+    .join("");
   return `<div class="wa-screen">
     ${statusBar(true)}
     <div class="wa-hdr">
@@ -173,12 +243,44 @@ https://kaata.af/v/AbC123`;
 
 // =================== PANELS ===================
 const panels = [
-  { n: 1, eyebrow: "YOUR SHOP LEDGER", head: 'Know who owes you,<br><span class="g">at a glance.</span>', screen: screenHome() },
-  { n: 2, eyebrow: "GET PAID", head: 'A polite nudge,<br><span class="g">on WhatsApp.</span>', screen: screenWhatsApp(), noPad: true },
-  { n: 3, eyebrow: "EVERY CUSTOMER", head: 'One running balance,<br><span class="g">every deal logged.</span>', screen: screenPerson() },
-  { n: 4, eyebrow: "FAST ENTRY", head: 'Gave or received?<br><span class="g">Logged in seconds.</span>', screen: screenEntry() },
-  { n: 5, eyebrow: "GET STARTED", head: 'Your shop’s book,<br><span class="g">ready in a minute.</span>', screen: screenOnboarding() },
-  { n: 6, eyebrow: "دری  •  OFFLINE", head: 'به زبان خودت.<br><span class="g">بدون انترنت.</span>', screen: screenHome({ rtl: true }), rtlCap: true },
+  {
+    n: 1,
+    eyebrow: "YOUR SHOP LEDGER",
+    head: 'Know who owes you,<br><span class="g">at a glance.</span>',
+    screen: screenHome(),
+  },
+  {
+    n: 2,
+    eyebrow: "GET PAID",
+    head: 'A polite nudge,<br><span class="g">on WhatsApp.</span>',
+    screen: screenWhatsApp(),
+    noPad: true,
+  },
+  {
+    n: 3,
+    eyebrow: "EVERY CUSTOMER",
+    head: 'One running balance,<br><span class="g">every deal logged.</span>',
+    screen: screenPerson(),
+  },
+  {
+    n: 4,
+    eyebrow: "FAST ENTRY",
+    head: 'Gave or received?<br><span class="g">Logged in seconds.</span>',
+    screen: screenEntry(),
+  },
+  {
+    n: 5,
+    eyebrow: "GET STARTED",
+    head: 'Your shop’s book,<br><span class="g">ready in a minute.</span>',
+    screen: screenOnboarding(),
+  },
+  {
+    n: 6,
+    eyebrow: "دری  •  OFFLINE",
+    head: 'به زبان خودت.<br><span class="g">بدون انترنت.</span>',
+    screen: screenHome({ rtl: true }),
+    rtlCap: true,
+  },
 ];
 
 const CSS = `
@@ -335,7 +437,18 @@ function page(p) {
   </div></body></html>`;
 }
 
-module.exports = { FONTS, CSS, statusBar, ic, money, screenHome, screenPerson, screenEntry, screenOnboarding, screenWhatsApp };
+module.exports = {
+  FONTS,
+  CSS,
+  statusBar,
+  ic,
+  money,
+  screenHome,
+  screenPerson,
+  screenEntry,
+  screenOnboarding,
+  screenWhatsApp,
+};
 
 if (require.main === module) {
   for (const p of panels) {

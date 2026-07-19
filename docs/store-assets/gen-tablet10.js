@@ -30,11 +30,36 @@ const statusBar = (dark) => {
 function home(lang) {
   const rtl = lang === "fa";
   const t = rtl
-    ? { shop: "مارکیت برادران", chip: "م", collect: "وصول", pay: "پرداخت", lbl: "قابل وصول", sub: "از ۴ نفر",
-        rows: [["احمد ولی", "۲ ساعت پیش", "12,500"], ["گل رحمان", "دیروز", "8,750"], ["فاطمه نوری", "۳ روز پیش", "3,200"], ["نصیر احمدزی", "۱ هفته پیش", "1,400"]] }
-    : { shop: "Baradaran Market", chip: "B", collect: "To collect", pay: "To pay", lbl: "TO COLLECT", sub: "from 4 people",
-        rows: [["Ahmad Wali", "2h ago", "12,500"], ["Gul Rahman", "yesterday", "8,750"], ["Fatima Noori", "3d ago", "3,200"], ["Naseer Ahmadzai", "1w ago", "1,400"]] };
-  const row = (r) => `<div class="row"><div class="row-l"><div class="row-nm">${r[0]}</div><div class="row-sub">${r[1]}</div></div><div class="row-r">${money(r[2], 11)}</div></div>`;
+    ? {
+        shop: "مارکیت برادران",
+        chip: "م",
+        collect: "وصول",
+        pay: "پرداخت",
+        lbl: "قابل وصول",
+        sub: "از ۴ نفر",
+        rows: [
+          ["احمد ولی", "۲ ساعت پیش", "12,500"],
+          ["گل رحمان", "دیروز", "8,750"],
+          ["فاطمه نوری", "۳ روز پیش", "3,200"],
+          ["نصیر احمدزی", "۱ هفته پیش", "1,400"],
+        ],
+      }
+    : {
+        shop: "Baradaran Market",
+        chip: "B",
+        collect: "To collect",
+        pay: "To pay",
+        lbl: "TO COLLECT",
+        sub: "from 4 people",
+        rows: [
+          ["Ahmad Wali", "2h ago", "12,500"],
+          ["Gul Rahman", "yesterday", "8,750"],
+          ["Fatima Noori", "3d ago", "3,200"],
+          ["Naseer Ahmadzai", "1w ago", "1,400"],
+        ],
+      };
+  const row = (r) =>
+    `<div class="row"><div class="row-l"><div class="row-nm">${r[0]}</div><div class="row-sub">${r[1]}</div></div><div class="row-r">${money(r[2], 11)}</div></div>`;
   return `${statusBar()}
   <div class="hd"><span class="hd-shop">${t.shop}</span><span class="hd-chev">${ic.chevronDown(16)}</span><span class="hd-sp"></span><span class="hd-chip">${t.chip}</span></div>
   <div class="tabs"><div class="tab tab-on">${t.collect}</div><div class="tab tab-off">${t.pay}</div></div>

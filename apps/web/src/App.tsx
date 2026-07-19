@@ -15,9 +15,7 @@ import { Terms } from "./pages/Terms";
 // Lazy + code-split: the admin dashboard pulls in recharts, which must NOT ship
 // in the public marketing bundle. Only loaded when an admin route is hit.
 const Admin = lazy(() => import("./pages/Admin"));
-const AdminFallback = (
-  <div className="p-6 text-sm text-neutral-400">Loading dashboard…</div>
-);
+const AdminFallback = <div className="p-6 text-sm text-neutral-400">Loading dashboard…</div>;
 
 // The operator dashboard lives ONLY on its own subdomain (admin.kaata.af):
 // cleaner, conventional, and it isolates the admin's localStorage (the API key)

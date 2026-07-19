@@ -34,9 +34,9 @@ export function Privacy() {
         <p className="mt-4 text-sm text-neutral-500">Last updated: {UPDATED}</p>
 
         <p className="mt-8 text-[15px] leading-relaxed text-neutral-600">
-          Kaata is a digital khata (ledger) for tracking what people owe you and what you owe
-          them. It is built to be local-first: your customer ledger lives on your phone. This
-          policy explains exactly what leaves your device, when, and why — and how to get your data
+          Kaata is a digital khata (ledger) for tracking what people owe you and what you owe them.
+          It is built to be local-first: your customer ledger lives on your phone. This policy
+          explains exactly what leaves your device, when, and why — and how to get your data
           deleted.
         </p>
 
@@ -44,10 +44,10 @@ export function Privacy() {
           <p>
             Your ledger — the people you add, their phone numbers, the amounts, notes, and running
             balances — is stored in a database on your device. If you never sign in, that ledger
-            data is not uploaded to our servers, with one exception: if you choose to send a WhatsApp
-            reminder, a snapshot of that one customer’s balance and entries is uploaded to create the
-            shareable link (see “Sharing a reminder over WhatsApp” below). Deleting the app removes
-            the on-device ledger from the phone.
+            data is not uploaded to our servers, with one exception: if you choose to send a
+            WhatsApp reminder, a snapshot of that one customer’s balance and entries is uploaded to
+            create the shareable link (see “Sharing a reminder over WhatsApp” below). Deleting the
+            app removes the on-device ledger from the phone.
           </p>
         </Section>
 
@@ -59,13 +59,13 @@ export function Privacy() {
           </p>
           <ul className="list-disc ps-5 space-y-1.5">
             <li>
-              An <strong>anonymous install ID</strong> — a random identifier generated on your
-              phone the first time you open the app. It is not tied to your name unless you provide
-              one (below).
+              An <strong>anonymous install ID</strong> — a random identifier generated on your phone
+              the first time you open the app. It is not tied to your name unless you provide one
+              (below).
             </li>
             <li>
-              <strong>App version, platform, and usage counters</strong> (e.g. how many entries
-              you have made) — never the entries themselves.
+              <strong>App version, platform, and usage counters</strong> (e.g. how many entries you
+              have made) — never the entries themselves.
             </li>
             <li>
               Your <strong>own profile</strong> — the name, phone number, and shop name you enter
@@ -74,9 +74,8 @@ export function Privacy() {
               customers or suppliers.
             </li>
             <li>
-              Your <strong>IP address</strong>, taken from the network request, used for
-              approximate region and to match a marketing/QR link you may have scanned to your
-              install.
+              Your <strong>IP address</strong>, taken from the network request, used for approximate
+              region and to match a marketing/QR link you may have scanned to your install.
             </li>
           </ul>
         </Section>
@@ -94,9 +93,10 @@ export function Privacy() {
             </li>
             <li>
               Your <strong>ledger is backed up to our server</strong> so you can restore it on a new
-              phone. This backup includes customer and supplier <strong>names, phone numbers, debt
-              amounts, and notes</strong>, stored in transit over HTTPS and at rest on our database.
-              It is not additionally encrypted with a key only you hold.
+              phone. This backup includes customer and supplier{" "}
+              <strong>names, phone numbers, debt amounts, and notes</strong>, stored in transit over
+              HTTPS and at rest on our database. It is not additionally encrypted with a key only
+              you hold.
             </li>
           </ul>
         </Section>

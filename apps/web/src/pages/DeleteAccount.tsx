@@ -87,10 +87,7 @@ export function DeleteAccount() {
             your account and data for you:
           </p>
           <p>
-            <a
-              href={`mailto:${EMAIL}?subject=Account%20deletion%20request`}
-              className={linkClass}
-            >
+            <a href={`mailto:${EMAIL}?subject=Account%20deletion%20request`} className={linkClass}>
               {EMAIL}
             </a>
           </p>
@@ -168,9 +165,9 @@ export function DeleteAccount() {
 
         <Section title="Using Kaata without an account">
           <p>
-            If you never signed in, your ledger was never uploaded — it lives only on your phone, and
-            uninstalling the app deletes it. To also have us remove the basic profile info the app
-            sends when it checks for updates (your name, phone number, and shop name), email{" "}
+            If you never signed in, your ledger was never uploaded — it lives only on your phone,
+            and uninstalling the app deletes it. To also have us remove the basic profile info the
+            app sends when it checks for updates (your name, phone number, and shop name), email{" "}
             <a href={`mailto:${EMAIL}?subject=Delete%20my%20data`} className={linkClass}>
               {EMAIL}
             </a>

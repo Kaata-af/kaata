@@ -9,6 +9,7 @@ Derived from a 16-agent file-by-file extraction of the real Briar source
 `headless-bg-sync`.
 
 ## Verdict
+
 Feasible; ~60% already exists. kaata's native engine already runs resident in the
 FGS (`KaataForegroundService`), already has `MeshConnection` (fromBluetooth +
 fromTcp), already keeps the strong layers (`MeshTrust` chain-fold, `MeshHandshake`
@@ -18,6 +19,7 @@ per-tick-spawned, BT-only blob with no Plugin model, no ConnectionManager/Regist
 no Poller/Backoff, no record protocol, no resident lifecycle.
 
 ## Keep vs replace
+
 REPLACE WITH BRIAR (engine shape): `discovery-router.ts` + `btc-steady.ts` (JS) →
 Poller+Backoff + `Plugin.poll()` resident-native; `MeshEngine.runWindow` monolith →
 PluginManager + per-transport Plugins + ConnectionManager + ConnectionRegistry +
@@ -37,8 +39,9 @@ Clean line: **Briar owns "how bytes move + connections are managed"; kaata owns
 "who is allowed + whether an event is real."** Security is NOT downgraded.
 
 ## Phases (each compiles; app keeps syncing via the JS path behind the gate until P8)
+
 1. **Plugin seam** — `TransportId/PluginState/TransportPlugin/TransportPluginCallback/
-   TransportPluginFactory` + `BtcRfcommPlugin` wrapping today's accept/dial logic;
+TransportPluginFactory` + `BtcRfcommPlugin` wrapping today's accept/dial logic;
    `MeshEngine.runWindow` becomes a thin shim. No behavior change. (L)
 2. **PluginManager + resident lifecycle** — `TransportPluginManager`,
    `MeshLifecycleManager`, `MeshEventBus`, `Backoff`, `MeshPoller`; FGS flips from
@@ -59,10 +62,11 @@ Clean line: **Briar owns "how bytes move + connections are managed"; kaata owns
    transport — it folds WiFi-Direct into LAN; we expose it as its own Plugin. (XL)
 8. **Validation seam + retire JS** — `ValidationManager` + `KaataMessageValidator` +
    `KaataIncomingMessageHook`; delete JS `anti-entropy.ts/discovery-router.ts/
-   btc-steady.ts` + `KaataMeshHeadlessService`; native flag defaults ON w/ remote
+btc-steady.ts` + `KaataMeshHeadlessService`; native flag defaults ON w/ remote
    rollback. (XL)
 
 ## Migration risks + staging
+
 - Two engines on one radio → `KaataBgMeshGate` single-mesh guard gates native-vs-JS;
   native flag default OFF until JS suppressed for a cohort; JS stays default until P8.
 - Wire incompatibility → VERSIONS negotiation + JSON fallback; SUPPORTED=[3,4] until
