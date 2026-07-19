@@ -290,6 +290,11 @@ func main() {
 	r.With(httpx.RateLimitPerIP(visitLimit, visitWindow)).
 		Post("/v1/visit", visitH.Visit)
 	r.Get("/v1/download", visitH.Download)
+	// chi doesn't auto-route HEAD to GET handlers; download managers (MIUI
+	// browser, ADM, wget --spider) probe with HEAD before the real GET and a
+	// 405 confuses them. ServeContent answers HEAD correctly (headers, no
+	// body), and the handler skips the analytics row for non-GET.
+	r.Head("/v1/download", visitH.Download)
 	// Google sign-in is the only account-creation endpoint; without a cap it
 	// was a free token-validation DoS / account-minting surface.
 	r.With(httpx.RateLimitPerIP(googleSignInLimit, googleSignInWindow)).

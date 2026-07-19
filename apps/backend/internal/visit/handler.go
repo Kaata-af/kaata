@@ -63,10 +63,11 @@ func (h *Handler) Visit(w http.ResponseWriter, r *http.Request) {
 // connections, see apkcache.go), falling back to the classic 302 to
 // APK_DOWNLOAD_URL until the cache is ready.
 func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
-	// Range continuations are the SAME download being resumed — only count
-	// the initial request, or one flaky-network download inflates the
-	// analytics by every retry it needed.
-	if r.Header.Get("Range") == "" {
+	// Range continuations are the SAME download being resumed, and HEAD
+	// requests are download-manager probes, not downloads — only count the
+	// initial full GET, or one flaky-network download inflates the
+	// analytics by every retry/probe it needed.
+	if r.Method == http.MethodGet && r.Header.Get("Range") == "" {
 		_ = h.svc.Record(r.Context(), RecordParams{
 			Kind:           "download",
 			Source:         truncateUTF8(r.URL.Query().Get("s"), 200),

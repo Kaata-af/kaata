@@ -16,25 +16,29 @@ export function DownloadButton() {
   return (
     <a
       href={APK_DOWNLOAD_URL}
-      download
+      target="_blank"
+      rel="noopener"
       onClick={() => {
         if (!servedByBackend) reportDownloadClick();
         push(t("download.toast"), "success");
-        // Let the anchor perform the download natively — no preventDefault, no
-        // hidden iframe. The APK lives on GitHub Releases (cross-origin) and is
-        // served `Content-Disposition: attachment`, so clicking the link starts
-        // the download without navigating the page away.
+        // The anchor is a NEW-TAB top-level navigation, no `download`
+        // attribute — deliberately, from a field repro (2026-07-19, MIUI +
+        // Chrome): the same-tab download-anchor click (renderer-initiated
+        // download) received all 99 MB and then wedged at "Downloading…"
+        // forever, while long-press → "open in new tab" — a top-level
+        // navigation that Content-Disposition: attachment converts into a
+        // BROWSER-initiated download — completed every time. target="_blank"
+        // makes the button take exactly that working path; Chrome closes the
+        // spawned tab itself the moment the response turns into a download.
+        // The `download` attribute was doing nothing anyway (ignored
+        // cross-origin, and both the backend endpoint and the GitHub asset
+        // serve attachment) except opting the click into the wedging path.
         //
-        // We used to route the click through a hidden throwaway iframe to hide a
-        // brief github.com "flash", suppressing the anchor with preventDefault
-        // when the iframe was created. That silently broke the day a CSP was
-        // added: GitHub 302-redirects release assets to
-        // release-assets.githubusercontent.com, which our `frame-src` doesn't
-        // allow, so the framed download was blocked WHILE preventDefault had
-        // already cancelled the real link — the toast fired but nothing
-        // downloaded. Top-level navigation isn't governed by `frame-src`, so the
-        // plain anchor just works, and it keeps right-click "Save link as" and
-        // no-JS working too.
+        // History, so nobody "simplifies" this back: an earlier iframe-based
+        // trick broke silently under CSP (frame-src vs the release-asset
+        // redirect), and the plain same-tab anchor that replaced it is what
+        // wedged on MIUI. No preventDefault, ever — right-click "Save link
+        // as" and no-JS keep working.
       }}
       className="flex items-center justify-center gap-2.5 w-full bg-neutral-900 text-white font-semibold px-8 py-4 rounded-lg hover:bg-neutral-800 transition-colors text-center text-base"
     >

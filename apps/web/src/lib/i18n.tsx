@@ -37,7 +37,7 @@ const en = {
   "hero.title.line2": "on trust.",
   "hero.sub":
     "A quiet ledger between you and the people you trust. Track what they owe you, what you owe them, and send a friendly reminder over WhatsApp in two taps.",
-  "hero.cta": "Download for Android",
+  "hero.cta": "Download Kaata",
   "hero.how": "See how it works ↓",
   "hero.points": "Free forever · Works offline · No account",
 
@@ -55,7 +55,7 @@ const en = {
   "cta.title.line1": "Stop chasing slips",
   "cta.title.line2": "of paper.",
   "cta.sub": "Free forever. No account, no card, no setup.",
-  "cta.button": "Download for Android",
+  "cta.button": "Download Kaata",
 
   // Footer
   "footer.tagline": "A quiet ledger between you and the people you trust. Built in Kabul.",
@@ -197,7 +197,7 @@ const fa: Record<keyof typeof en, string> = {
   "hero.title.line2": "با اعتماد بچرخانید.",
   "hero.sub":
     "یک کاتای آرام بین شما و کسانی که به آنها اعتماد دارید. ثبت کنید چه کسی به شما بدهکار است و شما به چه کسی، و با دو ضربه یادآوری دوستانه در واتساپ بفرستید.",
-  "hero.cta": "دانلود برای اندروید",
+  "hero.cta": "دانلود کاتا",
   "hero.how": "ببینید چطور کار می‌کند ↓",
   "hero.points": "همیشه رایگان · بدون انترنت کار می‌کند · بدون حساب",
 
@@ -215,7 +215,7 @@ const fa: Record<keyof typeof en, string> = {
   "cta.title.line1": "دیگر دنبال",
   "cta.title.line2": "کاغذپاره‌ها نگردید.",
   "cta.sub": "همیشه رایگان. بدون حساب، بدون کارت، بدون تنظیمات.",
-  "cta.button": "دانلود برای اندروید",
+  "cta.button": "دانلود کاتا",
 
   // Footer
   "footer.tagline": "یک کاتای آرام بین شما و کسانی که به آنها اعتماد دارید. ساخته‌شده در کابل.",

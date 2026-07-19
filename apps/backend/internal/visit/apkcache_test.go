@@ -213,3 +213,30 @@ func TestDownload_WarmCacheServesAndCountsOnce(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+// HEAD probes (download managers) must get the real headers with no body —
+// and never a 405 or an analytics row. DB-free: the method guard means
+// Record is never reached, so a nil pool proves the guard by construction.
+func TestDownload_HeadProbeServesHeadersOnly(t *testing.T) {
+	body := fakeAPK()
+	src := upstream(t, body)
+	svc := NewService(nil, src.URL+"/kaata-9.9.9.apk", t.TempDir())
+	h := NewHandler(svc)
+	warmSync(t, svc.cache)
+
+	rec := httptest.NewRecorder()
+	h.Download(rec, httptest.NewRequest(http.MethodHead, "/v1/download", nil))
+	res := rec.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("HEAD status = %d, want 200", res.StatusCode)
+	}
+	if rec.Body.Len() != 0 {
+		t.Fatalf("HEAD returned %d body bytes, want 0", rec.Body.Len())
+	}
+	if cl := res.Header.Get("Content-Length"); cl != fmt.Sprint(len(body)) {
+		t.Errorf("HEAD Content-Length = %q, want %d", cl, len(body))
+	}
+	if ar := res.Header.Get("Accept-Ranges"); ar != "bytes" {
+		t.Errorf("HEAD Accept-Ranges = %q, want bytes", ar)
+	}
+}
