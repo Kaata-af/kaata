@@ -17,6 +17,7 @@ import { Chip } from "../../components/Chip";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { EmptyState } from "../../components/EmptyState";
 import { EntryRow } from "../../components/EntryRow";
+import { OptionSheet } from "../../components/OptionSheet";
 import { useToast, useToastOffset } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
@@ -26,7 +27,7 @@ import { useLedgerRefresh } from "../../lib/ledger-events";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
-import { t } from "../../lib/i18n";
+import { getShareLangPref, resolveShareLang, t, type LocaleCode } from "../../lib/i18n";
 import { shareKaataViaWhatsApp } from "../../lib/share";
 import { useActiveVaultCanWrite } from "../../lib/use-vault-role";
 import type { Entry, PersonWithBalance, Self } from "../../lib/types";
@@ -53,9 +54,32 @@ export default function PersonDetailScreen() {
   // tapping repeatedly minted a separate 90-day shared-ledger token per tap.
   const [pinging, setPinging] = useState(false);
   const pingBusyRef = useRef(false);
+  // Message-language picker for the ping, shown when share_lang_pref = 'ask'.
+  const [askLangVisible, setAskLangVisible] = useState(false);
   // Viewer read-only gate: false only when I'm a viewer on the active (shared)
   // kaata. Hides give/receive, edit-person, and entry edit/delete.
   const canWrite = useActiveVaultCanWrite(getActiveVaultIdSyncMaybe());
+
+  // Send the WhatsApp ping in the given message language (already resolved
+  // from share_lang_pref, or picked in the ask-sheet).
+  const sendPing = async (lang: LocaleCode) => {
+    if (!person || pingBusyRef.current) return;
+    pingBusyRef.current = true;
+    setPinging(true);
+    try {
+      const ok = await shareKaataViaWhatsApp(
+        { name: person.name, phone: person.phone },
+        person.balance,
+        self,
+        entries,
+        lang,
+      );
+      if (!ok) toast.push(t("share.whatsappUnavailable"), "error");
+    } finally {
+      pingBusyRef.current = false;
+      setPinging(false);
+    }
+  };
 
   const load = useCallback(async () => {
     if (!id) {
@@ -298,20 +322,12 @@ export default function PersonDetailScreen() {
           <Pressable
             onPress={async () => {
               if (pingBusyRef.current) return;
-              pingBusyRef.current = true;
-              setPinging(true);
-              try {
-                const ok = await shareKaataViaWhatsApp(
-                  { name: person.name, phone: person.phone },
-                  person.balance,
-                  self,
-                  entries,
-                );
-                if (!ok) toast.push(t("share.whatsappUnavailable"), "error");
-              } finally {
-                pingBusyRef.current = false;
-                setPinging(false);
+              const pref = await getShareLangPref();
+              if (pref === "ask") {
+                setAskLangVisible(true);
+                return;
               }
+              await sendPing(resolveShareLang(pref));
             }}
             disabled={pinging}
             accessibilityRole="button"
@@ -357,6 +373,24 @@ export default function PersonDetailScreen() {
             onPress: () => setConfirmDeleteFor(sheetFor),
           },
         ]}
+      />
+
+      {/* Per-send message-language picker (share_lang_pref = 'ask'). Dari
+          first — the common pick. No persisted selection: it's per-send. */}
+      <OptionSheet
+        visible={askLangVisible}
+        title={t("share.askLang.title")}
+        options={[
+          { key: "fa", label: t("settings.language.option.fa") },
+          { key: "en", label: t("settings.language.option.en") },
+        ]}
+        selected=""
+        onSelect={(k) => {
+          setAskLangVisible(false);
+          void sendPing(k as LocaleCode);
+        }}
+        onDismiss={() => setAskLangVisible(false)}
+        isRTL={isRTL}
       />
 
       <ConfirmDialog

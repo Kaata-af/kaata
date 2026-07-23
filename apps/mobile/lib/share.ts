@@ -3,7 +3,7 @@ import { getBackendUrl } from "./api";
 import { getCurrentCurrencySymbol } from "./currency";
 import { bumpUsageCounter } from "./db";
 import { formatAmount } from "./format";
-import { getLocale, t } from "./i18n";
+import { tIn, type LocaleCode } from "./i18n";
 import type { Entry, Self } from "./types";
 
 // Max entries carried in a shared snapshot. The backend caps at 500; a customer
@@ -20,6 +20,7 @@ async function uploadSharedLedger(args: {
   balance: number;
   entries: Entry[];
   self: Self | null;
+  lang: LocaleCode;
 }): Promise<string | null> {
   const snapshot = {
     v: 1,
@@ -27,7 +28,10 @@ async function uploadSharedLedger(args: {
     person: args.person.name,
     currency: getCurrentCurrencySymbol(),
     balance: args.balance,
-    locale: getLocale(),
+    // Message language, NOT the app UI language — the backend SSR shell and
+    // the web CustomerView both render the /v/<token> page from this field,
+    // so the page the customer opens matches the message they received.
+    locale: args.lang,
     entries: args.entries.slice(0, MAX_SHARED_ENTRIES).map((e) => ({
       type: e.type,
       amount: e.amount_afn,
@@ -66,47 +70,50 @@ async function uploadSharedLedger(args: {
 // A short action line ("Please settle when you can." etc.) sits alongside
 // the number so users who don't intuit "owe" still get a clear ask.
 //
-// Message body uses the SENDER's locale. The footer now carries a link to the
-// FULL ledger on kaata.af (a stored snapshot) instead of a "sent via" tagline,
-// so the customer can open the complete transaction list. The link is
-// best-effort: if the upload fails (offline), the message still sends without it.
+// Message body uses the caller-chosen `lang` (from share_lang_pref — may
+// differ from the app UI language; most users keep the app in English but
+// message in Dari). The footer now carries a link to the FULL ledger on
+// kaata.af (a stored snapshot) instead of a "sent via" tagline, so the
+// customer can open the complete transaction list. The link is best-effort:
+// if the upload fails (offline), the message still sends without it.
 // Returns true when WhatsApp opened.
 export async function shareKaataViaWhatsApp(
   person: { name: string; phone: string | null },
   balance: number,
   self: Self | null,
   entries: Entry[],
+  lang: LocaleCode,
 ): Promise<boolean> {
   const accountWith = self?.shop_name ?? self?.name ?? "Kaata";
   const currency = getCurrentCurrencySymbol();
   const amount = formatAmount(balance);
-  const lines: string[] = [t("share.greeting", { name: person.name }), ""];
+  const lines: string[] = [tIn(lang, "share.greeting", { name: person.name }), ""];
 
   if (balance > 0) {
-    lines.push(t("share.theyOwe.header", { accountWith }));
-    lines.push(t("share.theyOwe.amount", { amount, currency }));
+    lines.push(tIn(lang, "share.theyOwe.header", { accountWith }));
+    lines.push(tIn(lang, "share.theyOwe.amount", { amount, currency }));
     lines.push("");
-    lines.push(t("share.theyOwe.cta"));
+    lines.push(tIn(lang, "share.theyOwe.cta"));
   } else if (balance < 0) {
-    lines.push(t("share.youOwe.header"));
-    lines.push(t("share.youOwe.amount", { amount, currency }));
+    lines.push(tIn(lang, "share.youOwe.header"));
+    lines.push(tIn(lang, "share.youOwe.amount", { amount, currency }));
     lines.push("");
-    lines.push(t("share.youOwe.cta"));
+    lines.push(tIn(lang, "share.youOwe.cta"));
   } else {
-    lines.push(t("share.settled.line"));
+    lines.push(tIn(lang, "share.settled.line"));
     lines.push("");
-    lines.push(t("share.settled.cta"));
+    lines.push(tIn(lang, "share.settled.cta"));
   }
 
   // "See the full ledger on kaata.af" + link. Falls back to the plain tagline
   // when the snapshot upload couldn't produce a link (offline / error).
-  const link = await uploadSharedLedger({ person, balance, entries, self });
+  const link = await uploadSharedLedger({ person, balance, entries, self, lang });
   lines.push("");
   if (link) {
-    lines.push(t("share.fullLedger"));
+    lines.push(tIn(lang, "share.fullLedger"));
     lines.push(link);
   } else {
-    lines.push(t("share.footer"));
+    lines.push(tIn(lang, "share.footer"));
   }
 
   const text = lines.join("\n");

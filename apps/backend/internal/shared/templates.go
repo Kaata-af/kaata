@@ -253,12 +253,15 @@ a{color:inherit;text-decoration:none;}
 </body>
 </html>`
 
+// Localized by the viewer's Accept-Language (viewData.RTL) — an expired link
+// has no snapshot locale to follow. The fa strings mirror the web client's
+// error state (apps/web/src/pages/CustomerView.tsx LABELS.fa).
 const notFoundHTML = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
+<html lang="{{if .RTL}}fa{{else}}en{{end}}" dir="{{if .RTL}}rtl{{else}}ltr{{end}}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="only light">
 <title>Kaata</title>
 <style>body{margin:0;background:#f9fafb;color:#101828;font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px;-webkit-font-smoothing:antialiased;}a{color:#475467;font-weight:600;text-decoration:none;}</style>
 </head><body><div><div style="font-size:16px;font-weight:700;letter-spacing:-.01em">kaata.</div>
-<p style="color:#475467;max-width:320px;line-height:1.55">This shared ledger has expired or doesn’t exist.</p>
-<p><a href="{{.Origin}}">Go to kaata.af</a></p></div></body></html>`
+<p style="color:#475467;max-width:320px;line-height:1.55">{{if .RTL}}این کاتای مشترک منقضی شده یا وجود ندارد.{{else}}This shared ledger has expired or doesn’t exist.{{end}}</p>
+<p><a href="{{.Origin}}">{{if .RTL}}رفتن به kaata.af{{else}}Go to kaata.af{{end}}</a></p></div></body></html>`

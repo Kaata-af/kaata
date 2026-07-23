@@ -35,7 +35,12 @@ import { rowDir, textDir } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 
 const SHEET_OFFSCREEN = 600;
-const SHEET_EXIT_MS = 220;
+// Exit-animation duration. NOTE: unlike BottomSheet, onSelect fires
+// immediately on press — the Modal stays mounted for this long afterwards.
+// An onSelect that presents native UI (Share sheet, another Modal) must
+// defer by this much, or iOS tears the new presentation down when the
+// sheet's modal host unmounts (see BottomSheet's deferred-callback note).
+export const SHEET_EXIT_MS = 220;
 
 export type OptionSheetItem = { key: string; label: string; leading?: string };
 

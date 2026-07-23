@@ -121,8 +121,13 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
 	payload, err := h.svc.Get(r.Context(), token)
 	if errors.Is(err, ErrNotFound) {
+		// Expired/unknown link — no snapshot to carry the shopkeeper's message
+		// language, so fall back to the customer's browser language (the same
+		// choice the web client's error state makes).
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Vary", "Accept-Language")
 		w.WriteHeader(http.StatusNotFound)
-		_ = notFoundTmpl.Execute(w, viewData{Origin: h.webBaseURL})
+		_ = notFoundTmpl.Execute(w, viewData{Origin: h.webBaseURL, RTL: acceptsPersian(r.Header.Get("Accept-Language"))})
 		return
 	}
 	if err != nil {
@@ -185,6 +190,15 @@ type viewData struct {
 	APIBase    string // absolute API origin for the inline fetch; "" → relative
 	OGTitle    string
 	OGDesc     string
+}
+
+// acceptsPersian reports whether the request's highest-priority Accept-Language
+// tag is Persian (fa), Dari (prs) or Pashto (ps). Only used to pick the 404
+// page's language — the valid-token path reads the snapshot's locale instead.
+func acceptsPersian(header string) bool {
+	first, _, _ := strings.Cut(header, ",")
+	tag := strings.ToLower(strings.TrimSpace(first))
+	return strings.HasPrefix(tag, "fa") || strings.HasPrefix(tag, "prs") || strings.HasPrefix(tag, "ps")
 }
 
 func ogTitle(p sharePayload) string {

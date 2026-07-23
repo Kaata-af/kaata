@@ -38,7 +38,7 @@ import { ensureInstallId } from "../lib/install-id";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../lib/event-log";
 import { fonts } from "../lib/fonts";
-import { type LocalePref, setLocale, t } from "../lib/i18n";
+import { getShareLangPref, setLocale, t, type LocalePref, type ShareLangPref } from "../lib/i18n";
 import {
   getCountry,
   getCurrentDefaultCountryCode,
@@ -51,6 +51,16 @@ const LANGUAGE_OPTIONS: ReadonlyArray<{ value: LocalePref; labelKey: string }> =
   { value: "system", labelKey: "settings.language.option.system" },
   { value: "en", labelKey: "settings.language.option.en" },
   { value: "fa", labelKey: "settings.language.option.fa" },
+];
+
+// Message language — the language of outgoing WhatsApp messages (ledger ping,
+// invite link) and the shared ledger web page, independent of the app UI
+// language. Dari before English: it's the common explicit pick.
+const MESSAGE_LANGUAGE_OPTIONS: ReadonlyArray<{ value: ShareLangPref; labelKey: string }> = [
+  { value: "auto", labelKey: "settings.messageLang.option.auto" },
+  { value: "ask", labelKey: "settings.messageLang.option.ask" },
+  { value: "fa", labelKey: "settings.language.option.fa" },
+  { value: "en", labelKey: "settings.language.option.en" },
 ];
 
 // Public privacy policy — the same page linked from the web footer. Both stores
@@ -81,6 +91,8 @@ export default function AccountScreen() {
   // Preferences (auto-commit).
   const [localePref, setLocalePref] = useState<LocalePref>("system");
   const [langSheetVisible, setLangSheetVisible] = useState(false);
+  const [shareLangPref, setShareLangPref] = useState<ShareLangPref>("auto");
+  const [msgLangSheetVisible, setMsgLangSheetVisible] = useState(false);
   const [prefCountry, setPrefCountry] = useState(getCurrentDefaultCountryCode);
   const [prefCountryVisible, setPrefCountryVisible] = useState(false);
 
@@ -106,6 +118,7 @@ export default function AccountScreen() {
       }
       const storedPref = await getAppMeta("locale_pref");
       setLocalePref(storedPref === "en" || storedPref === "fa" ? storedPref : "system");
+      setShareLangPref(await getShareLangPref());
       setPrefCountry(getCurrentDefaultCountryCode());
       setSignedIn(!!(await getSessionJWT()));
       setLoaded(true);
@@ -193,6 +206,14 @@ export default function AccountScreen() {
     toast.push(t("settings.language.changed"), "success");
   }
 
+  async function pickMessageLang(value: ShareLangPref) {
+    setMsgLangSheetVisible(false);
+    if (value === shareLangPref) return;
+    setShareLangPref(value);
+    await setAppMeta("share_lang_pref", value);
+    toast.push(t("settings.messageLang.changed"), "success");
+  }
+
   async function pickPrefCountry(code: string) {
     setPrefCountryVisible(false);
     if (code === prefCountry) return;
@@ -217,6 +238,10 @@ export default function AccountScreen() {
     LANGUAGE_OPTIONS.find((o) => o.value === localePref)?.labelKey ??
     "settings.language.option.system";
   const languageValue = t(selectedLangLabelKey as Parameters<typeof t>[0]);
+  const msgLangLabelKey =
+    MESSAGE_LANGUAGE_OPTIONS.find((o) => o.value === shareLangPref)?.labelKey ??
+    "settings.messageLang.option.auto";
+  const messageLangValue = t(msgLangLabelKey as Parameters<typeof t>[0]);
   const prefC = getCountry(prefCountry);
 
   return (
@@ -344,6 +369,14 @@ export default function AccountScreen() {
             isRTL={isRTL}
           />
           <NavRow
+            icon="chatbubble-ellipses-outline"
+            label={t("settings.messageLang.label")}
+            hint={t("settings.messageLang.hint")}
+            trailing={messageLangValue}
+            onPress={() => setMsgLangSheetVisible(true)}
+            isRTL={isRTL}
+          />
+          <NavRow
             icon="flag-outline"
             label={t("preferences.country.label")}
             hint={t("preferences.country.hint")}
@@ -414,6 +447,18 @@ export default function AccountScreen() {
         selected={localePref}
         onSelect={(k) => pickLanguage(k as LocalePref)}
         onDismiss={() => setLangSheetVisible(false)}
+        isRTL={isRTL}
+      />
+      <OptionSheet
+        visible={msgLangSheetVisible}
+        title={t("settings.messageLang.label")}
+        options={MESSAGE_LANGUAGE_OPTIONS.map((o) => ({
+          key: o.value,
+          label: t(o.labelKey as Parameters<typeof t>[0]),
+        }))}
+        selected={shareLangPref}
+        onSelect={(k) => pickMessageLang(k as ShareLangPref)}
+        onDismiss={() => setMsgLangSheetVisible(false)}
         isRTL={isRTL}
       />
       <CountryPickerSheet

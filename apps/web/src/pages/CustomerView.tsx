@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { BACKEND_URL } from "../env";
+import { useI18n } from "../lib/i18n";
 import { ledger } from "../theme";
 
 // /v/:token — the customer-facing shared ledger ("see the full ledger on
@@ -448,15 +449,19 @@ function LedgerSkeleton() {
 }
 
 function LedgerError() {
+  // Expired/unknown link — there's no snapshot to carry the shopkeeper's
+  // locale, so fall back to the site language (browser-derived, toggleable).
+  const { lang } = useI18n();
+  const L = pickLabels(lang);
   return (
     <section className="px-2 py-20 text-center">
-      <p style={{ color: C.sub }}>{LABELS.en.error}</p>
+      <p style={{ color: C.sub }}>{L.error}</p>
       <Link
         to="/"
         className="mt-6 inline-block text-sm font-semibold hover:underline"
         style={{ color: C.ink }}
       >
-        {LABELS.en.home}
+        {L.home}
       </Link>
     </section>
   );

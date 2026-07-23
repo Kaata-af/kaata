@@ -147,14 +147,15 @@ These are coordination patterns that recur across screens and bit us once each. 
    curl -sSL -o /dev/null -w "%{http_code} -> %{redirect_url}" https://api.kaata.af/v1/download
    ```
 7. **`INSERT INTO app_releases`** via `docker exec -it kaata-database-<suffix> psql -U kaata -d kaata` so existing users see the UpdateBanner on next launch. Without this, only fresh downloads get the new version. The columns are `platform`, `version`, `min_supported_version`, `apk_url`, `play_store_url`, `release_notes` — there's **no `force_update` column**; force-update is computed at check-in time by comparing the client's version against `min_supported_version`. `apk_url` is the GitHub Release asset URL. For a non-forcing release, set `min_supported_version` to a version every existing install is at or above (e.g., `'0.1.0'`):
+
    ```sql
    INSERT INTO app_releases (platform, version, min_supported_version, apk_url, play_store_url, release_notes)
    VALUES ('android', '0.6.0', '0.1.0', 'https://github.com/Kaata-af/kaata/releases/download/v0.6.0/kaata-0.6.0.apk', NULL, 'Release notes here.');
    ```
+
    To force-update everyone below a version (only for critical fixes), set `min_supported_version` to that boundary.
 
    **Per-platform / per-channel rows (client routing is in `apps/mobile/lib/update-url.ts`):** check-in filters rows by the client's platform, and each install picks its update URL by its build channel (`EXPO_PUBLIC_DISTRIBUTION` in `eas.json`: preview = `apk`, production = `store`):
-
    - **android** rows: `apk_url` = the sideload APK (`https://api.kaata.af/v1/download` — served resumable from the backend's local cache); `play_store_url` = the Play listing once live. Sideload installs open `apk_url`; Play installs open `play_store_url` and their banner stays HIDDEN while it's NULL (a Play install cannot apply a sideloaded APK — Play App Signing signatures differ).
    - **ios** rows: put the App Store listing (`https://apps.apple.com/us/app/kaata/id6789651127`) in `play_store_url` and leave `apk_url` NULL. The column name is historical — it means "the platform's store listing", and shipped iOS clients already read it as their fallback.
 

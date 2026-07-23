@@ -34,6 +34,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
+import { OptionSheet, SHEET_EXIT_MS } from "../../components/OptionSheet";
 import {
   EmptyHint,
   NavRow,
@@ -48,7 +49,7 @@ import { getActiveVaultId } from "../../lib/db-tx";
 import { getAppMeta } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
-import { t } from "../../lib/i18n";
+import { getShareLangPref, resolveShareLang, t, tIn, type LocaleCode } from "../../lib/i18n";
 import { useVaultPermission } from "../../lib/use-vault-role";
 import { ApiError, createVaultInvite, listVaults } from "../../lib/vault-api";
 import type { VaultRole } from "../../lib/events";
@@ -76,6 +77,11 @@ export default function VaultInviteScreen() {
   const [role, setRole] = useState<VaultRole>("editor");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<InviteResult | null>(null);
+  // Message-language picker for the invite share, when share_lang_pref = 'ask'.
+  const [askLangVisible, setAskLangVisible] = useState(false);
+  // Re-entry guard: the ask-sheet rows stay tappable through the 220ms exit
+  // animation, so a double-tap would otherwise fire Share.share twice.
+  const shareBusyRef = useRef(false);
   // D-UI-UNIFICATION: online gate. We snapshot connectivity once at
   // mount; the create CTA is also gated by the live state so a user
   // who goes offline gets a clear disabled CTA instead of an opaque API
@@ -204,15 +210,28 @@ export default function VaultInviteScreen() {
     }
   }
 
-  async function onShare() {
-    if (!result) return;
+  async function shareInvite(lang: LocaleCode) {
+    if (!result || shareBusyRef.current) return;
+    shareBusyRef.current = true;
     try {
       await Share.share({
-        message: t("invite.shareMessage", { url: result.invite_url }),
+        message: tIn(lang, "invite.shareMessage", { url: result.invite_url }),
       });
     } catch (e) {
       console.warn("[vault/invite] share failed", e);
+    } finally {
+      shareBusyRef.current = false;
     }
+  }
+
+  async function onShare() {
+    if (!result) return;
+    const pref = await getShareLangPref();
+    if (pref === "ask") {
+      setAskLangVisible(true);
+      return;
+    }
+    await shareInvite(resolveShareLang(pref));
   }
 
   return (
@@ -407,6 +426,26 @@ export default function VaultInviteScreen() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Per-send message-language picker (share_lang_pref = 'ask'). */}
+      <OptionSheet
+        visible={askLangVisible}
+        title={t("share.askLang.title")}
+        options={[
+          { key: "fa", label: t("settings.language.option.fa") },
+          { key: "en", label: t("settings.language.option.en") },
+        ]}
+        selected=""
+        onSelect={(k) => {
+          setAskLangVisible(false);
+          // Defer past the sheet's exit animation: Share.share on iOS presents
+          // on the topmost VC — the still-mounted sheet Modal — and would be
+          // torn down when it unmounts. +80ms covers the unmount commit.
+          setTimeout(() => void shareInvite(k as LocaleCode), SHEET_EXIT_MS + 80);
+        }}
+        onDismiss={() => setAskLangVisible(false)}
+        isRTL={isRTL}
+      />
     </SafeAreaView>
   );
 }

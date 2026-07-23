@@ -300,6 +300,11 @@ const en = {
   "settings.language.option.en": "English",
   "settings.language.option.fa": "دری",
   "settings.language.changed": "Language updated.",
+  "settings.messageLang.label": "Message language",
+  "settings.messageLang.hint": "For WhatsApp messages and the shared ledger link.",
+  "settings.messageLang.option.auto": "App language",
+  "settings.messageLang.option.ask": "Ask every time",
+  "settings.messageLang.changed": "Message language updated.",
   "settings.currency.label": "Default currency",
   "settings.currency.hint":
     "This relabels how amounts are shown. It does not convert existing entries.",
@@ -336,6 +341,7 @@ const en = {
   "share.settled.cta": "Thank you.",
   "share.footer": "— Sent via Kaata.af",
   "share.fullLedger": "See the full ledger here:",
+  "share.askLang.title": "Send in which language?",
 
   // Brand
   "brand.wordmark": "kaata.",
@@ -1382,6 +1388,11 @@ const fa: Partial<Record<Key, string>> = {
   "settings.language.option.en": "English",
   "settings.language.option.fa": "دری",
   "settings.language.changed": "زبان تغییر کرد.",
+  "settings.messageLang.label": "زبان پیام",
+  "settings.messageLang.hint": "برای پیام‌های واتساپ و لینک کاتا.",
+  "settings.messageLang.option.auto": "زبان برنامه",
+  "settings.messageLang.option.ask": "هر بار پرسیده شود",
+  "settings.messageLang.changed": "زبان پیام تغییر کرد.",
   "settings.currency.label": "ارز پیش‌فرض",
   "settings.currency.hint": "این فقط برچسب است. اعداد تغییر نمیکند.",
   "settings.currency.changed": "ارز تغییر کرد.",
@@ -1416,6 +1427,7 @@ const fa: Partial<Record<Key, string>> = {
   "share.settled.cta": "تشکر.",
   "share.footer": "پیام از طرف kaata.af",
   "share.fullLedger": "کاتای مکمل را اینجا ببینید:",
+  "share.askLang.title": "پیام به کدام زبان فرستاده شود؟",
 
   // Brand
   "brand.wordmark": "کاتا.",
@@ -2040,7 +2052,7 @@ const fa: Partial<Record<Key, string>> = {
 };
 
 const TABLES = { en, fa } as const;
-type LocaleCode = keyof typeof TABLES;
+export type LocaleCode = keyof typeof TABLES;
 
 // Active locale, computed once at module load. The current launch's strings
 // reflect this. When we add a manual override toggle, this will read from
@@ -2130,11 +2142,44 @@ export function setLocale(pref: LocalePref): void {
   notifyLocaleChange();
 }
 
+// ---- Message language (share pipeline) ----
+// Outgoing messages (WhatsApp ledger ping, invite link) and the shared-ledger
+// web page can be in a different language than the app UI — most shopkeepers
+// keep the app in English but message customers in Dari. Preference lives in
+// app_meta under "share_lang_pref":
+//   'auto' — follow the app language (default; the pre-setting behavior)
+//   'ask'  — a picker sheet asks before every send
+//   'en' / 'fa' — always that language
+export type ShareLangPref = "auto" | "ask" | LocaleCode;
+
+export async function getShareLangPref(): Promise<ShareLangPref> {
+  try {
+    const v = await getAppMeta("share_lang_pref");
+    return v === "ask" || v === "en" || v === "fa" ? v : "auto";
+  } catch {
+    return "auto";
+  }
+}
+
+// Resolve a non-'ask' preference to a concrete locale. 'ask' never reaches
+// here — callers surface the picker sheet and pass the user's choice instead.
+export function resolveShareLang(pref: Exclude<ShareLangPref, "ask">): LocaleCode {
+  return pref === "auto" ? getLocale() : pref;
+}
+
 // Look up a string for the active locale. Falls back to English if the key
 // is missing from the localized table (e.g., during partial translation).
 // `vars` substitutes `{placeholder}` tokens with their string values.
 export function t(key: Key, vars?: Record<string, string | number>): string {
-  const localized = TABLES[currentLocale][key];
+  return tIn(currentLocale, key, vars);
+}
+
+// Same lookup for an explicit locale, independent of the app UI language.
+// Used by lib/share.ts so a message can be composed in the user's chosen
+// message language. Do NOT emulate this by flipping setLocale() around a
+// call — that notifies subscribers and re-renders every useIsRTL consumer.
+export function tIn(locale: LocaleCode, key: Key, vars?: Record<string, string | number>): string {
+  const localized = TABLES[locale][key];
   const template = (localized && localized.length > 0 ? localized : en[key]) ?? key;
   if (!vars) return template;
   return Object.entries(vars).reduce((s, [k, v]) => s.replaceAll(`{${k}}`, String(v)), template);
