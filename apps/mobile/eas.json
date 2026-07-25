@@ -22,7 +22,8 @@
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://api.kaata.af",
         "EXPO_PUBLIC_SOLO_STORE_MODE": "1",
-        "EXPO_PUBLIC_DISTRIBUTION": "apk"
+        "EXPO_PUBLIC_DISTRIBUTION": "apk",
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "987359341353-dgceg8n94aem9pgorclo11l4nr5906i8.apps.googleusercontent.com"
       }
     },
     "production": {
@@ -36,7 +37,8 @@
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://api.kaata.af",
         "EXPO_PUBLIC_SOLO_STORE_MODE": "1",
-        "EXPO_PUBLIC_DISTRIBUTION": "store"
+        "EXPO_PUBLIC_DISTRIBUTION": "store",
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "987359341353-dgceg8n94aem9pgorclo11l4nr5906i8.apps.googleusercontent.com"
       }
     }
   },
@@ -47,6 +49,9 @@
         "ascApiKeyId": "D6G6MNJ4WY",
         "ascApiKeyIssuerId": "6fb701e4-120e-41d3-866a-2af0ec537819",
         "ascAppId": "6789651127"
+      },
+      "android": {
+        "track": "alpha"
       }
     }
   }

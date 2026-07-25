@@ -16,7 +16,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import type { SessionUser } from "../lib/auth";
+import { isGoogleSignInAvailable, type SessionUser } from "../lib/auth";
 import { colors } from "../lib/colors";
 import { SHEET_BLUR_METHOD } from "../lib/blur";
 import { getAccountIdSync } from "../lib/db-tx";
@@ -101,7 +101,7 @@ export function ProfileSettingsSheet(props: {
 
   // --- Actions ---
   // Profile
-  onSignIn: () => void;
+  onSignIn: (provider: "google" | "apple") => void;
   onSignOut: () => void;
 
   // Kaatas
@@ -318,19 +318,37 @@ export function ProfileSettingsSheet(props: {
                   <Text style={[styles.emptyHint, textDir(isRTL)]}>
                     {t("menu.account.localOnlyHint")}
                   </Text>
-                  {/* Provider mirrors onboarding/auth.tsx: Google on Android,
-                      Sign in with Apple on iOS (no iOS Google OAuth client —
-                      configureGoogleSignIn() no-ops there). The host's
-                      onSignIn (runSignIn in app/index.tsx) forks the same way. */}
-                  <NavRow
-                    icon={Platform.OS === "ios" ? "logo-apple" : "logo-google"}
-                    label={t(
-                      Platform.OS === "ios" ? "menu.account.signIn.apple" : "menu.account.signIn",
-                    )}
-                    onPress={chained(props.onSignIn)}
-                    isRTL={isRTL}
-                    emphasis
-                  />
+                  {/* BOTH providers, mirroring onboarding/auth.tsx — the
+                      platform's home-team option leads, and Google hides on
+                      iOS builds without the iOS OAuth client
+                      (isGoogleSignInAvailable). Same email → same account
+                      either way (backend email linking). */}
+                  {Platform.OS === "ios" ? (
+                    <NavRow
+                      icon="logo-apple"
+                      label={t("menu.account.signIn.apple")}
+                      onPress={chained(() => props.onSignIn("apple"))}
+                      isRTL={isRTL}
+                      emphasis
+                    />
+                  ) : null}
+                  {isGoogleSignInAvailable() ? (
+                    <NavRow
+                      icon="logo-google"
+                      label={t("menu.account.signIn")}
+                      onPress={chained(() => props.onSignIn("google"))}
+                      isRTL={isRTL}
+                      emphasis={Platform.OS !== "ios"}
+                    />
+                  ) : null}
+                  {Platform.OS !== "ios" ? (
+                    <NavRow
+                      icon="logo-apple"
+                      label={t("menu.account.signIn.apple")}
+                      onPress={chained(() => props.onSignIn("apple"))}
+                      isRTL={isRTL}
+                    />
+                  ) : null}
                   {/* Editable while signed out too — it's the local identity. */}
                   <NavRow
                     icon="person-circle-outline"

@@ -13,11 +13,19 @@ import (
 type Handler struct {
 	svc           *Service
 	authenticator *SessionAuthenticator
+	// publicAPIBaseURL: the backend's own public origin (cfg.PublicAPIBaseURL),
+	// used by the Apple web-flow trampoline to build the absolute redirect_uri
+	// Apple posts back to. Empty → derived from the request host.
+	publicAPIBaseURL string
 }
 
 func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
 }
+
+// SetPublicAPIBaseURL wires the backend's public origin for the Apple
+// web-flow callback URL (apple_web.go).
+func (h *Handler) SetPublicAPIBaseURL(u string) { h.publicAPIBaseURL = u }
 
 // SetAuthenticator wires the session authenticator so SignOut can invalidate
 // the LRU revocation cache. Optional — without it SignOut still deletes the

@@ -163,7 +163,9 @@ func main() {
 
 	authSvc := auth.NewService(pool, cfg.GoogleWebClientID, cfg.SessionJWTSecret)
 	authSvc.SetAppleClientID(cfg.AppleClientID)
+	authSvc.SetAppleServicesID(cfg.AppleServicesID)
 	authH := auth.NewHandler(authSvc)
+	authH.SetPublicAPIBaseURL(cfg.PublicAPIBaseURL)
 
 	adminH := admin.NewHandler(admin.NewService(pool, cfg.OperatorAccountIDs, cfg.OperatorIPs))
 	authenticator := auth.NewSessionAuthenticator(authSvc, cfg.SessionJWTSecret)
@@ -303,6 +305,14 @@ func main() {
 	// it is likewise an account-creation + token-validation surface.
 	r.With(httpx.RateLimitPerIP(googleSignInLimit, googleSignInWindow)).
 		Post("/v1/auth/apple", authH.AppleSignIn)
+	// Android/web Sign in with Apple trampoline (auth/apple_web.go): start
+	// redirects to appleid.apple.com, callback relays the identity token back
+	// into the app's deep link — session minting stays in POST /v1/auth/apple.
+	// Both 404 until APPLE_SERVICES_ID is configured. Same per-IP cap.
+	r.With(httpx.RateLimitPerIP(googleSignInLimit, googleSignInWindow)).
+		Get("/v1/auth/apple/web/start", authH.AppleWebStart)
+	r.With(httpx.RateLimitPerIP(googleSignInLimit, googleSignInWindow)).
+		Post("/v1/auth/apple/web/callback", authH.AppleWebCallback)
 	// Shared ledger ("see the full ledger on kaata.af"). All PUBLIC: the share
 	// link is meant to be opened by a customer with no app/account. POST is
 	// rate-limited per IP; GET-by-token + the SSR view are open (opaque tokens).

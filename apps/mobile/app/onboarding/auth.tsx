@@ -5,7 +5,12 @@ import { useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { NinjaIcon } from "../../components/NinjaIcon";
-import { isCancellation, signInWithApple, signInWithGoogle } from "../../lib/auth";
+import {
+  isCancellation,
+  isGoogleSignInAvailable,
+  signInWithApple,
+  signInWithGoogle,
+} from "../../lib/auth";
 import { colors } from "../../lib/colors";
 import { getAppMeta, setAppMeta } from "../../lib/db";
 import { textDir, useIsRTL } from "../../lib/direction";
@@ -109,6 +114,8 @@ export default function OnboardingAuthScreen() {
     router.replace("/onboarding/restore");
   }
 
+  const googleAvailable = isGoogleSignInAvailable();
+
   async function onSignIn() {
     setError(null);
     setBusy(true);
@@ -163,65 +170,66 @@ export default function OnboardingAuthScreen() {
 
         <View style={styles.spacer} />
 
-        {/* Google sign-in is Android-only. On iOS it needs an iOS-type OAuth
-            client (not shipped) and would otherwise crash at configure(); iOS
-            users get Sign in with Apple below, which satisfies guideline 4.8. */}
-        {Platform.OS !== "ios" ? (
-          <Pressable
-            onPress={onSignIn}
-            disabled={busy}
-            style={({ pressed }) => [
-              styles.card,
-              styles.cardPrimary,
-              pressed && { opacity: 0.85 },
-              busy && { opacity: 0.6 },
-            ]}
-          >
-            <View style={[styles.cardIcon, isRTL && styles.cardIconRTL]}>
-              {busy ? (
-                <ActivityIndicator color={colors.textInverted} />
-              ) : (
-                <Ionicons name="logo-google" size={28} color={colors.textInverted} />
-              )}
+        {/* BOTH providers on BOTH platforms (one account, any device — the
+            email-linking backend makes them land on the same kaatas). The
+            platform's home-team provider leads: Apple first on iOS, Google
+            first on Android. Google hides on iOS builds without the iOS
+            OAuth client baked in (isGoogleSignInAvailable — configure()
+            would crash); Apple on Android runs the web OAuth flow inside
+            lib/auth. Guideline 4.8 stays satisfied on iOS either way. */}
+        {[
+          ...(Platform.OS === "ios"
+            ? (["apple", "google"] as const)
+            : (["google", "apple"] as const)),
+        ]
+          .filter((p) => p !== "google" || googleAvailable)
+          .map((provider, idx) => (
+            <View key={provider}>
+              {idx > 0 ? <View style={styles.gap} /> : null}
+              <Pressable
+                onPress={provider === "google" ? onSignIn : onAppleSignIn}
+                disabled={busy}
+                accessibilityRole="button"
+                accessibilityLabel={t(
+                  provider === "google"
+                    ? "onboardingMode.google.title"
+                    : "onboardingMode.apple.title",
+                )}
+                style={({ pressed }) => [
+                  styles.card,
+                  styles.cardPrimary,
+                  pressed && { opacity: 0.85 },
+                  busy && { opacity: 0.6 },
+                ]}
+              >
+                <View style={[styles.cardIcon, isRTL && styles.cardIconRTL]}>
+                  {busy ? (
+                    <ActivityIndicator color={colors.textInverted} />
+                  ) : (
+                    <Ionicons
+                      name={provider === "google" ? "logo-google" : "logo-apple"}
+                      size={28}
+                      color={colors.textInverted}
+                    />
+                  )}
+                </View>
+                <Text style={[styles.cardTitle, styles.cardTitlePrimary, textDir(isRTL)]}>
+                  {t(
+                    provider === "google"
+                      ? "onboardingMode.google.title"
+                      : "onboardingMode.apple.title",
+                  )}
+                </Text>
+                <Text style={[styles.cardBody, styles.cardBodyPrimary, textDir(isRTL)]}>
+                  {t(
+                    provider === "google"
+                      ? "onboardingMode.google.body"
+                      : "onboardingMode.apple.body",
+                  )}
+                </Text>
+              </Pressable>
             </View>
-            <Text style={[styles.cardTitle, styles.cardTitlePrimary, textDir(isRTL)]}>
-              {t("onboardingMode.google.title")}
-            </Text>
-            <Text style={[styles.cardBody, styles.cardBodyPrimary, textDir(isRTL)]}>
-              {t("onboardingMode.google.body")}
-            </Text>
-          </Pressable>
-        ) : null}
-
-        {/* Sign in with Apple — iOS only (App Store guideline 4.8 requires a
-            second privacy-focused login alongside Google). */}
-        {Platform.OS === "ios" ? (
-          <>
-            <View style={styles.gap} />
-            <Pressable
-              onPress={onAppleSignIn}
-              disabled={busy}
-              accessibilityRole="button"
-              accessibilityLabel={t("onboardingMode.apple.title")}
-              style={({ pressed }) => [
-                styles.card,
-                styles.cardPrimary,
-                pressed && { opacity: 0.85 },
-                busy && { opacity: 0.6 },
-              ]}
-            >
-              <View style={[styles.cardIcon, isRTL && styles.cardIconRTL]}>
-                <Ionicons name="logo-apple" size={28} color={colors.textInverted} />
-              </View>
-              <Text style={[styles.cardTitle, styles.cardTitlePrimary, textDir(isRTL)]}>
-                {t("onboardingMode.apple.title")}
-              </Text>
-              <Text style={[styles.cardBody, styles.cardBodyPrimary, textDir(isRTL)]}>
-                {t("onboardingMode.apple.body")}
-              </Text>
-            </Pressable>
-          </>
-        ) : null}
+          ))}
 
         {error ? (
           <Text style={[styles.errorText, textDir(isRTL)]} accessibilityLiveRegion="polite">

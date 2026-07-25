@@ -143,14 +143,23 @@ func jwkToRSAPublicKey(jwk appleJWK) (*rsa.PublicKey, error) {
 
 // VerifyAppleIDToken verifies an Apple identity token and returns its claims.
 // Checks: RS256 signature against Apple's JWKS (by kid), iss == appleid.apple.com,
-// aud == audience (the app's bundle id), and exp (required). audience comes from
-// the APPLE_CLIENT_ID env, which config.Load() defaults to af.kaata.app — so in
-// practice it's never empty; the guard below is defense-in-depth for direct
-// callers. Note: verification is single-audience. If a web "Sign in with Apple
-// JS" flow ever ships, its tokens carry a SERVICES ID audience (not the bundle
-// id) and this function needs to accept a set of audiences.
-func VerifyAppleIDToken(ctx context.Context, idToken, audience string) (*ApplePayload, error) {
-	if audience == "" {
+// aud ∈ audiences, and exp (required).
+//
+// MULTI-AUDIENCE (the note that used to live here came true): the native iOS
+// flow mints tokens with aud = the app's BUNDLE ID (APPLE_CLIENT_ID), while
+// the Android/web flow (appleid.apple.com authorize → form_post) mints them
+// with aud = the SERVICES ID (APPLE_SERVICES_ID). Both are our tokens; the
+// caller passes whichever set is configured. Empty entries are skipped; an
+// entirely-empty set refuses (defense-in-depth for direct callers — config
+// defaults APPLE_CLIENT_ID to af.kaata.app so this never trips in practice).
+func VerifyAppleIDToken(ctx context.Context, idToken string, audiences ...string) (*ApplePayload, error) {
+	allowed := make([]string, 0, len(audiences))
+	for _, a := range audiences {
+		if a != "" {
+			allowed = append(allowed, a)
+		}
+	}
+	if len(allowed) == 0 {
 		return nil, errors.New("apple client id not configured")
 	}
 	keyFunc := func(tok *jwt.Token) (any, error) {
@@ -168,10 +177,25 @@ func VerifyAppleIDToken(ctx context.Context, idToken, audience string) (*ApplePa
 	if _, err := jwt.NewParser(
 		jwt.WithValidMethods([]string{"RS256"}),
 		jwt.WithIssuer(appleIssuer),
-		jwt.WithAudience(audience),
 		jwt.WithExpirationRequired(),
 	).ParseWithClaims(idToken, claims, keyFunc); err != nil {
 		return nil, fmt.Errorf("verify apple id token: %w", err)
+	}
+	// Audience check against the allowed SET (jwt.WithAudience is single-value).
+	tokenAuds, err := claims.GetAudience()
+	if err != nil {
+		return nil, fmt.Errorf("apple id token audience: %w", err)
+	}
+	audOK := false
+	for _, ta := range tokenAuds {
+		for _, a := range allowed {
+			if ta == a {
+				audOK = true
+			}
+		}
+	}
+	if !audOK {
+		return nil, fmt.Errorf("apple id token audience %v not in allowed set", tokenAuds)
 	}
 
 	sub, _ := claims["sub"].(string)

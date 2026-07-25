@@ -1,7 +1,7 @@
 import Constants from "expo-constants";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
-import { GOOGLE_WEB_CLIENT_ID } from "../constants/env";
+import { GOOGLE_IOS_CLIENT_ID, GOOGLE_WEB_CLIENT_ID } from "../constants/env";
 import { getBackendUrl } from "./api";
 import {
   getActiveVaultId,
@@ -180,19 +180,33 @@ async function guardDifferentAccount(
 //
 // In Expo Go this is a no-op — the native module isn't there.
 export function configureGoogleSignIn(): void {
-  // Google sign-in is Android-only (iOS uses Sign in with Apple). Skip configure
-  // on iOS: without an iOS-type OAuth client id / GoogleService-Info.plist it
-  // rejects with "failed to determine clientID" and crashes the caller (B1).
-  if (Platform.OS === "ios") return;
+  // iOS needs an iOS-type OAuth client id; without one, configure rejects
+  // with "failed to determine clientID" and crashes the caller (B1). So on
+  // iOS we configure ONLY when GOOGLE_IOS_CLIENT_ID is baked in — otherwise
+  // skip, and isGoogleSignInAvailable() below keeps the button hidden.
+  if (Platform.OS === "ios" && !GOOGLE_IOS_CLIENT_ID) return;
   const lib = loadGoogleSignin();
   if (!lib) return;
   lib.GoogleSignin.configure({
+    // The WEB client id stays the token audience on BOTH platforms — it's
+    // what the backend's GOOGLE_WEB_CLIENT_ID verifies against.
     webClientId: GOOGLE_WEB_CLIENT_ID,
+    // iOS additionally needs its own client id (paired with the reversed
+    // iosUrlScheme in app.json's google-signin plugin config).
+    ...(Platform.OS === "ios" ? { iosClientId: GOOGLE_IOS_CLIENT_ID } : null),
     // Force showing the picker every time so a user with multiple Google
     // accounts can switch. Without this, sign-in re-uses the cached
     // account silently — surprising when they want to swap.
     offlineAccess: false,
   });
+}
+
+// Whether Google sign-in can work in THIS build: always on Android (the
+// Play-Services client resolves from package name + SHA-1), on iOS only when
+// the iOS client id was baked in. UI surfaces gate the Google button on this
+// so an unconfigured build degrades to Apple-only instead of crashing.
+export function isGoogleSignInAvailable(): boolean {
+  return Platform.OS !== "ios" || GOOGLE_IOS_CLIENT_ID !== "";
 }
 
 // One interactive Google sign-in attempt → its ID token (or null if the result
@@ -368,22 +382,35 @@ async function applyAuthResponse(body: AuthResponse): Promise<SessionUser> {
   return body.user ?? {};
 }
 
-// Sign in with Apple (iOS only; App Store guideline 4.8). Gets an Apple identity
-// token via the native module, posts it to /v1/auth/apple, and lands the user
-// in the same signed-in state as Google via applyAuthResponse. Takes the same
-// optional "different account on this phone?" prompt as signInWithGoogle —
-// pass it anywhere an existing binding could be rebound (post-onboarding
-// sign-in); onboarding may omit it (fresh install, nothing to rebind).
-// expo-apple-authentication is imported lazily so this file stays safe to
-// import on Android / Expo Go where the native module is absent. Requires
-// expo-apple-authentication installed + a native rebuild + Sign in with Apple
-// enabled in the Apple Developer account for bundle af.kaata.app.
+// Sign in with Apple — BOTH platforms (App Store guideline 4.8 on iOS; the
+// Apple web OAuth flow on Android). Token acquisition differs per platform,
+// then both funnel into the same completion path (name stash → guard →
+// POST /v1/auth/apple → applyAuthResponse):
+//   - iOS: the native module (expo-apple-authentication), token audience =
+//     the app's bundle id.
+//   - Android: a browser auth session through the backend trampoline
+//     (/v1/auth/apple/web/start → appleid.apple.com → callback → kaata://
+//     deep link carrying the identity token), token audience = the Apple
+//     SERVICES ID. Requires APPLE_SERVICES_ID configured on the backend —
+//     when it isn't, this throws with a clear message before opening any UI.
+// Takes the same optional "different account on this phone?" prompt as
+// signInWithGoogle. Native/browser modules are imported lazily so this file
+// stays safe to import in Expo Go.
 export async function signInWithApple(
   onDifferentAccount?: (args: DifferentAccountPromptArgs) => Promise<DifferentAccountChoice>,
 ): Promise<SessionUser> {
-  if (Platform.OS !== "ios") {
-    throw new Error("Sign in with Apple is only available on iOS");
-  }
+  const acquired =
+    Platform.OS === "ios" ? await acquireAppleTokenNative() : await acquireAppleTokenWeb();
+  return completeAppleSignIn(acquired, onDifferentAccount);
+}
+
+// The (token, first-auth name, apple sub) triple both acquisition paths
+// produce. appleSub keys the one-shot name stash so a stale stash from Apple
+// ID A is never attached to Apple ID B.
+type AcquiredAppleToken = { idToken: string; freshName: string; appleSub: string };
+
+// iOS: native Sign in with Apple sheet.
+async function acquireAppleTokenNative(): Promise<AcquiredAppleToken> {
   const AppleAuthentication = await import("expo-apple-authentication");
   const credential = await AppleAuthentication.signInAsync({
     requestedScopes: [
@@ -398,14 +425,100 @@ export async function signInWithApple(
   // Apple returns the name ONLY on the first authorization for this Apple ID.
   const fn = credential.fullName;
   const freshName = [fn?.givenName, fn?.familyName].filter(Boolean).join(" ").trim();
+  return { idToken, freshName, appleSub: credential.user };
+}
+
+// Android: Apple's web OAuth via the backend trampoline + a browser auth
+// session. The app mints the `state` nonce and refuses any callback carrying
+// a different one (the trampoline relays it opaquely).
+async function acquireAppleTokenWeb(): Promise<AcquiredAppleToken> {
+  const baseUrl = await getBackendUrl();
+
+  // Pre-flight: a redirect (302) means the backend has APPLE_SERVICES_ID
+  // configured; 404 means the flow is off — fail HERE with a clear error
+  // instead of opening a browser onto a JSON error page.
+  const probe = await fetch(`${baseUrl}/v1/auth/apple/web/start?state=probe`, {
+    redirect: "manual",
+  });
+  // RN fetch reports a manual-mode redirect as an opaque 0/302 depending on
+  // the platform; anything that is NOT an explicit error status counts as
+  // configured.
+  if (probe.status === 404 || probe.status === 400) {
+    throw new Error("Sign in with Apple isn't set up on this server yet.");
+  }
+
+  const Crypto = await import("expo-crypto");
+  const stateBytes = await Crypto.getRandomBytesAsync(16);
+  const state = Array.from(stateBytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+
+  const WebBrowser = await import("expo-web-browser");
+  const result = await WebBrowser.openAuthSessionAsync(
+    `${baseUrl}/v1/auth/apple/web/start?state=${state}`,
+    "kaata://apple-auth",
+  );
+  if (result.type !== "success") {
+    // Closed the browser sheet / backed out — same shape the native module
+    // throws so isCancellation() treats both alike.
+    throw { code: "ERR_REQUEST_CANCELED", message: "apple web sign-in dismissed" };
+  }
+
+  // kaata://apple-auth#id_token=...&state=...&user=...  (fragment payload —
+  // never logged server-side). Parse manually: URL() on custom schemes is
+  // inconsistent across JS engines.
+  const fragment = result.url.split("#")[1] ?? "";
+  const params = new URLSearchParams(fragment);
+  const errCode = params.get("error");
+  if (errCode === "user_cancelled_authorize") {
+    throw { code: "ERR_REQUEST_CANCELED", message: "apple web sign-in cancelled" };
+  }
+  if (errCode) {
+    throw new Error(`Apple sign-in failed: ${errCode}`);
+  }
+  if (params.get("state") !== state) {
+    // A callback we did not initiate — refuse outright.
+    throw new Error("Apple sign-in state mismatch — please try again.");
+  }
+  const idToken = params.get("id_token") ?? "";
+  if (!idToken) {
+    throw new Error("Apple did not return an identity token");
+  }
+
+  // First-authorization-only name JSON, relayed verbatim by the trampoline.
+  let freshName = "";
+  const rawUser = params.get("user");
+  if (rawUser) {
+    try {
+      const u = JSON.parse(rawUser) as { name?: { firstName?: string; lastName?: string } };
+      freshName = [u.name?.firstName, u.name?.lastName].filter(Boolean).join(" ").trim();
+    } catch {
+      // Malformed relay — proceed nameless rather than fail the sign-in.
+    }
+  }
+
+  // The web flow has no credential.user field — the token's own sub claim
+  // is the same value (display-only stash key; the backend re-verifies).
+  const claims = decodeIdTokenClaims(idToken);
+  const appleSub = typeof claims?.sub === "string" ? claims.sub : "";
+  return { idToken, freshName, appleSub };
+}
+
+// Shared completion for both acquisition paths: one-shot name stash →
+// different-account guard → POST /v1/auth/apple → applyAuthResponse.
+async function completeAppleSignIn(
+  acquired: AcquiredAppleToken,
+  onDifferentAccount?: (args: DifferentAccountPromptArgs) => Promise<DifferentAccountChoice>,
+): Promise<SessionUser> {
+  const { idToken, freshName, appleSub } = acquired;
 
   // One-shot-name insurance: if anything below fails (guard cancel, timeout,
   // 5xx, offline), a retry's signInAsync resolves WITHOUT a name — Apple
   // never re-sends it, so an unstashed name is lost forever and the account
   // stays nameless (the backend's non-empty-wins COALESCE can't restore what
   // never arrived). Stash it BEFORE anything can throw, keyed to the Apple
-  // user id (credential.user == the token's sub) so a stale stash from Apple
-  // ID A is never sent as the name of a different Apple ID B; fall back to a
+  // user id (appleSub == the token's sub) so a stale stash from Apple ID A is
+  // never sent as the name of a different Apple ID B; fall back to a
   // sub-matching stash on retries, clear only after a confirmed 200.
   // NOTE: getDb() is called fresh at every use site here (never held in a
   // local) because the guard's "wipe" choice runs resetAllLocalData(), which
@@ -415,7 +528,7 @@ export async function signInWithApple(
     await setAppMetaInTx(
       await getDb(),
       APPLE_NAME_STASH_KEY,
-      JSON.stringify({ sub: credential.user, name: freshName }),
+      JSON.stringify({ sub: appleSub, name: freshName }),
     );
   }
 
@@ -430,7 +543,7 @@ export async function signInWithApple(
       const raw = await getAppMetaInTx(await getDb(), APPLE_NAME_STASH_KEY);
       if (raw) {
         const stash = JSON.parse(raw) as { sub?: string; name?: string };
-        if (stash.sub === credential.user && stash.name) displayName = stash.name;
+        if (stash.sub === appleSub && stash.name) displayName = stash.name;
       }
     } catch {
       // Malformed / legacy stash — treat as absent rather than fail sign-in.

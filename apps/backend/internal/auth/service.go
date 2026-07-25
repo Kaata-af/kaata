@@ -36,7 +36,12 @@ type Service struct {
 	pool              *pgxpool.Pool
 	googleWebClientID string
 	appleClientID     string
-	sessionSecret     string
+	// appleServicesID: the Sign in with Apple SERVICES ID (e.g. af.kaata.auth)
+	// — the audience of identity tokens minted by the Android/web OAuth flow
+	// (appleid.apple.com authorize → form_post trampoline). Empty = that flow
+	// is disabled; the native-iOS bundle-id audience keeps working.
+	appleServicesID string
+	sessionSecret   string
 }
 
 func NewService(pool *pgxpool.Pool, googleWebClientID, sessionSecret string) *Service {
@@ -51,6 +56,14 @@ func NewService(pool *pgxpool.Pool, googleWebClientID, sessionSecret string) *Se
 // /v1/auth/apple. When empty, Apple sign-in is rejected. Called at startup from
 // config so NewService's signature (and its existing callers) stay unchanged.
 func (s *Service) SetAppleClientID(id string) { s.appleClientID = id }
+
+// SetAppleServicesID wires the Services-ID audience for the Android/web
+// Sign in with Apple flow. Empty disables that flow.
+func (s *Service) SetAppleServicesID(id string) { s.appleServicesID = id }
+
+// AppleServicesID exposes the configured Services ID for the web-flow
+// trampoline handlers.
+func (s *Service) AppleServicesID() string { return s.appleServicesID }
 
 // User is the display block returned to the mobile client.
 type User struct {
@@ -395,7 +408,9 @@ func (s *Service) SignInWithApple(
 	if s.appleClientID == "" {
 		return GoogleSignInResult{}, errors.New("apple client id not configured")
 	}
-	payload, err := VerifyAppleIDToken(ctx, idTokenStr, s.appleClientID)
+	// Two legitimate audiences: the bundle id (native iOS flow) and the
+	// Services ID (Android/web flow) — see VerifyAppleIDToken.
+	payload, err := VerifyAppleIDToken(ctx, idTokenStr, s.appleClientID, s.appleServicesID)
 	if err != nil {
 		return GoogleSignInResult{}, fmt.Errorf("verify apple id token: %w", err)
 	}

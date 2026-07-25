@@ -594,7 +594,7 @@ export default function HomeScreen() {
   // changed hands can't silently rebind the local ledger. Everything after
   // the provider handshake — vault registration reconcile, restore, toasts —
   // is provider-agnostic.
-  async function runSignIn() {
+  async function runSignIn(provider: "google" | "apple") {
     if (authBusy) return;
     setAuthBusy(true);
     setAuthPhase("signingIn");
@@ -604,7 +604,11 @@ export default function HomeScreen() {
           setPendingAccountDecision({ args, resolve });
         });
       };
-      if (Platform.OS === "ios") {
+      // Both providers work on both platforms (Apple via the web OAuth flow
+      // on Android; Google on iOS when the iOS client id is baked in — the
+      // sheet hides its row otherwise). Same email → same account either way
+      // (backend email linking).
+      if (provider === "apple") {
         await signInWithApple(promptDifferentAccount);
       } else {
         await signInWithGoogle(promptDifferentAccount);

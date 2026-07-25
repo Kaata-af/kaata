@@ -63,6 +63,13 @@ type Config struct {
 	// apple.go/service.go are defense-in-depth for direct callers, not an
 	// env-reachable off switch.
 	AppleClientID string
+	// AppleServicesID: the Sign in with Apple SERVICES ID (e.g. af.kaata.auth)
+	// for the ANDROID/WEB flow — the audience of identity tokens minted via
+	// appleid.apple.com's web authorize (the /v1/auth/apple/web/* trampoline).
+	// Requires the Services ID to be configured in the Apple Developer console
+	// with domain + return URL (<PublicAPIBaseURL>/v1/auth/apple/web/callback).
+	// Empty (default) disables the web flow; native iOS keeps working.
+	AppleServicesID string
 	// SessionJWTSecret: HMAC key for signing session JWTs we issue to mobile
 	// after a successful Google sign-in. MUST be a long random string (>=
 	// 32 bytes recommended) and MUST NOT be committed. Rotating it
@@ -98,6 +105,7 @@ func Load() Config {
 		PublicAPIBaseURL:    os.Getenv("PUBLIC_API_BASE_URL"),
 		GoogleWebClientID:   os.Getenv("GOOGLE_WEB_CLIENT_ID"),
 		AppleClientID:       getenv("APPLE_CLIENT_ID", "af.kaata.app"),
+		AppleServicesID:     os.Getenv("APPLE_SERVICES_ID"),
 		// Read from JWT_SECRET first (Phase 2 canonical name), falling back to
 		// SESSION_JWT_SECRET for compatibility with v0.4 deployments that
 		// haven't rotated their .env yet.

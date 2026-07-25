@@ -21,6 +21,16 @@ export const GOOGLE_WEB_CLIENT_ID =
 // Build-time, like the other EXPO_PUBLIC_ flags; set in eas.json preview/production.
 export const SOLO_STORE_MODE = process.env.EXPO_PUBLIC_SOLO_STORE_MODE === "1";
 
+// Google OAuth iOS Client ID — the "iOS" OAuth client in Google Cloud
+// Console (bundle id af.kaata.app), required for Google sign-in ON IPHONES.
+// Distinct from GOOGLE_WEB_CLIENT_ID above (the token audience the backend
+// verifies — that one stays the Web client on BOTH platforms). Unset =
+// Google sign-in stays unavailable on iOS (the button hides); Android is
+// unaffected. When setting this, apps/mobile/app.json's google-signin plugin
+// `iosUrlScheme` must be the REVERSED form of this same id
+// (com.googleusercontent.apps.<id-without-suffix>). Public value.
+export const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || "";
+
 // DISTRIBUTION — which channel THIS BINARY was built for, deciding where the
 // update banner / force-update screen send the user:
 //   "apk"   → sideload builds (preview profile). Updates come as a direct APK

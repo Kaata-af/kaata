@@ -3,7 +3,7 @@
     "name": "Kaata",
     "slug": "kaata",
     "scheme": "kaata",
-    "version": "0.9.0",
+    "version": "0.9.1",
     "newArchEnabled": false,
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -48,7 +48,7 @@
         "android.permission.READ_CONTACTS",
         "android.permission.WRITE_CONTACTS"
       ],
-      "versionCode": 24
+      "versionCode": 26
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -77,7 +77,7 @@
       [
         "@react-native-google-signin/google-signin",
         {
-          "iosUrlScheme": "com.googleusercontent.apps.987359341353-3bjb28b0hksu9l0ubaogk3p0d7aftjv1"
+          "iosUrlScheme": "com.googleusercontent.apps.987359341353-dgceg8n94aem9pgorclo11l4nr5906i8"
         }
       ],
       "expo-secure-store",
@@ -129,6 +129,7 @@
         "projectId": "a612156b-0f0b-47ea-ac66-b54d880d98aa"
       }
     },
-    "owner": "mateesaafi"
+    "owner": "mateesaafi",
+    "expo-web-browser": "mateesaafi"
   }
 }
