@@ -630,7 +630,11 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 			var vss struct {
 				Key string `json:"key"`
 			}
-			if json.Unmarshal(ev.Payload, &vss) == nil && vss.Key == "archived_at" {
+			if json.Unmarshal(ev.Payload, &vss) != nil {
+				vss.Key = ""
+			}
+			switch vss.Key {
+			case "archived_at":
 				if _, uerr := tx.Exec(ctx, `
 					UPDATE vaults v SET archived_at = sub.ts
 					FROM (
@@ -657,6 +661,41 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 					WHERE v.vault_id = $1::uuid
 				`, in.VaultID); uerr != nil {
 					return nil, fmt.Errorf("mirror archived_at for vault %s: %w", in.VaultID, uerr)
+				}
+			case "name", "currency":
+				// Same S1 mirror for the RENAME and currency settings — found
+				// the hard way (2026-07-26): a local-CA rename is event-only,
+				// so vaults.name stayed at the creation-time value forever.
+				// Every surface that reads the COLUMN instead of the event
+				// stream then served the original name: GET /v1/vaults
+				// (join-time seed for new members), and — the sneaky one —
+				// SNAPSHOTS (snapshot.go copies name/currency from the vaults
+				// row, and restores mark snapshot-range events as applied
+				// WITHOUT running appliers, so the stale snapshot name stuck
+				// after every reinstall). Live renames worked only because
+				// already-joined members apply the tail event directly.
+				// HLC-latest recompute, same shape as archived_at; empty
+				// values are ignored (never blank a name from a malformed
+				// event).
+				col := "name"
+				if vss.Key == "currency" {
+					col = "currency"
+				}
+				if _, uerr := tx.Exec(ctx, `
+					UPDATE vaults v SET `+col+` = sub.val
+					FROM (
+						SELECT e.payload->>'value' AS val
+						FROM events e
+						WHERE e.vault_id = $1::uuid
+						  AND e.event_type = 'vault_setting_set'
+						  AND e.payload->>'key' = $2
+						  AND COALESCE(e.payload->>'value', '') != ''
+						ORDER BY e.hlc_physical_ms DESC, e.hlc_logical DESC, e.hlc_device_id DESC
+						LIMIT 1
+					) sub
+					WHERE v.vault_id = $1::uuid
+				`, in.VaultID, vss.Key); uerr != nil {
+					return nil, fmt.Errorf("mirror %s for vault %s: %w", vss.Key, in.VaultID, uerr)
 				}
 			}
 		}

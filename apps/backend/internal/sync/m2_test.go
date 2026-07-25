@@ -836,6 +836,49 @@ func TestLegacySelfLeaveOnAnchorlessVaultAcceptedAndFolded(t *testing.T) {
 	}
 }
 
+// TestVaultSettingSetMirrorsNameAndCurrency: the S1-style column mirror for
+// rename/currency events. A local-CA rename is event-only — without this
+// fold, vaults.name stays at its creation value forever, and every
+// column-reading surface (GET /v1/vaults join seeds, SNAPSHOTS — which mark
+// snapshot-range events applied without running appliers) serves the stale
+// name to new members and reinstalls.
+func TestVaultSettingSetMirrorsNameAndCurrency(t *testing.T) {
+	f := newM2Fixture(t)
+	ctx := context.Background()
+
+	push := func(key, value string, pms int64) {
+		payload, _ := json.Marshal(map[string]any{"key": key, "value": value})
+		ev := PushEvent{
+			EventID:        uuid.NewString(),
+			HLC:            PushHLC{PhysicalMS: pms, Logical: 0, DeviceID: f.anchorDeviceID},
+			EventType:      "vault_setting_set",
+			SchemaVersion:  1,
+			ActorAccountID: &f.ownerAcct,
+			Payload:        payload,
+		}
+		requireAccepted(t, f.pushAs(t, f.ownerAcct, ev), 1)
+	}
+
+	base := f.nextPMS()
+	push("name", "Renamed Shop", base)
+	push("currency", "USD", base+1)
+	// Out-of-order older rename must NOT clobber the newer one (HLC-latest).
+	push("name", "Stale Older Name", base-1000)
+
+	var name, currency string
+	if err := f.pool.QueryRow(ctx, `
+		SELECT name, COALESCE(currency,'') FROM vaults WHERE vault_id = $1::uuid
+	`, f.vaultID).Scan(&name, &currency); err != nil {
+		t.Fatalf("read vault row: %v", err)
+	}
+	if name != "Renamed Shop" {
+		t.Errorf("vaults.name = %q, want Renamed Shop (HLC-latest rename mirrored)", name)
+	}
+	if currency != "USD" {
+		t.Errorf("vaults.currency = %q, want USD", currency)
+	}
+}
+
 // ==========================================================================
 // 5. vault_devices fold lifecycle
 // ==========================================================================

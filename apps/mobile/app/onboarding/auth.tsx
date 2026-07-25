@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { GoogleGIcon } from "../../components/GoogleGIcon";
 import { NinjaIcon } from "../../components/NinjaIcon";
 import {
   isCancellation,
@@ -35,7 +36,10 @@ const IS_EXPO_GO = Constants.executionEnvironment === "storeClient";
 export default function OnboardingAuthScreen() {
   const router = useRouter();
   const isRTL = useIsRTL();
-  const [busy, setBusy] = useState(false);
+  // WHICH provider is mid-handshake (null = idle). Both cards disable while
+  // either runs, but only the tapped card shows the spinner — a shared
+  // boolean used to put a spinner on BOTH cards at once.
+  const [busy, setBusy] = useState<null | "google" | "apple">(null);
   const [error, setError] = useState<string | null>(null);
 
   // Post-sign-in navigation shared by Google and Apple: stash the returned
@@ -118,7 +122,7 @@ export default function OnboardingAuthScreen() {
 
   async function onSignIn() {
     setError(null);
-    setBusy(true);
+    setBusy("google");
     try {
       const user = await signInWithGoogle();
       await completeSignIn(user, "google");
@@ -131,13 +135,13 @@ export default function OnboardingAuthScreen() {
         console.warn("[onboarding/auth] google sign-in failed", err);
       }
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function onAppleSignIn() {
     setError(null);
-    setBusy(true);
+    setBusy("apple");
     try {
       const user = await signInWithApple();
       await completeSignIn(user, "apple");
@@ -146,7 +150,7 @@ export default function OnboardingAuthScreen() {
       setError(t("onboardingMode.signInFailed"));
       console.warn("[onboarding/auth] apple sign-in failed", err);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -171,65 +175,63 @@ export default function OnboardingAuthScreen() {
         <View style={styles.spacer} />
 
         {/* BOTH providers on BOTH platforms (one account, any device — the
-            email-linking backend makes them land on the same kaatas). The
-            platform's home-team provider leads: Apple first on iOS, Google
-            first on Android. Google hides on iOS builds without the iOS
-            OAuth client baked in (isGoogleSignInAvailable — configure()
-            would crash); Apple on Android runs the web OAuth flow inside
-            lib/auth. Guideline 4.8 stays satisfied on iOS either way. */}
-        {[
-          ...(Platform.OS === "ios"
-            ? (["apple", "google"] as const)
-            : (["google", "apple"] as const)),
-        ]
+            email-linking backend makes them land on the same kaatas), each
+            wearing its OWN brand: Apple = black card + white Apple mark
+            (Apple's canonical form), Google = white card + the multicolor G
+            (Google's light-surface guidance). The platform's home-team
+            provider leads. Google hides on iOS builds without the iOS OAuth
+            client baked in (isGoogleSignInAvailable — configure() would
+            crash); Apple on Android runs the web OAuth flow inside lib/auth.
+            Guideline 4.8 stays satisfied on iOS either way. While EITHER
+            handshake runs both cards disable, but only the tapped one shows
+            the spinner. */}
+        {(Platform.OS === "ios" ? (["apple", "google"] as const) : (["google", "apple"] as const))
           .filter((p) => p !== "google" || googleAvailable)
-          .map((provider, idx) => (
-            <View key={provider}>
-              {idx > 0 ? <View style={styles.gap} /> : null}
-              <Pressable
-                onPress={provider === "google" ? onSignIn : onAppleSignIn}
-                disabled={busy}
-                accessibilityRole="button"
-                accessibilityLabel={t(
-                  provider === "google"
-                    ? "onboardingMode.google.title"
-                    : "onboardingMode.apple.title",
-                )}
-                style={({ pressed }) => [
-                  styles.card,
-                  styles.cardPrimary,
-                  pressed && { opacity: 0.85 },
-                  busy && { opacity: 0.6 },
-                ]}
-              >
-                <View style={[styles.cardIcon, isRTL && styles.cardIconRTL]}>
-                  {busy ? (
-                    <ActivityIndicator color={colors.textInverted} />
-                  ) : (
-                    <Ionicons
-                      name={provider === "google" ? "logo-google" : "logo-apple"}
-                      size={28}
-                      color={colors.textInverted}
-                    />
+          .map((provider, idx) => {
+            const isGoogle = provider === "google";
+            const spinning = busy === provider;
+            return (
+              <View key={provider}>
+                {idx > 0 ? <View style={styles.gap} /> : null}
+                <Pressable
+                  onPress={isGoogle ? onSignIn : onAppleSignIn}
+                  disabled={busy !== null}
+                  accessibilityRole="button"
+                  accessibilityLabel={t(
+                    isGoogle ? "onboardingMode.google.title" : "onboardingMode.apple.title",
                   )}
-                </View>
-                <Text style={[styles.cardTitle, styles.cardTitlePrimary, textDir(isRTL)]}>
-                  {t(
-                    provider === "google"
-                      ? "onboardingMode.google.title"
-                      : "onboardingMode.apple.title",
-                  )}
-                </Text>
-                <Text style={[styles.cardBody, styles.cardBodyPrimary, textDir(isRTL)]}>
-                  {t(
-                    provider === "google"
-                      ? "onboardingMode.google.body"
-                      : "onboardingMode.apple.body",
-                  )}
-                </Text>
-              </Pressable>
-            </View>
-          ))}
+                  style={({ pressed }) => [
+                    styles.card,
+                    isGoogle ? styles.cardGoogle : styles.cardPrimary,
+                    pressed && { opacity: 0.85 },
+                    busy !== null && !spinning && { opacity: 0.5 },
+                  ]}
+                >
+                  <View style={[styles.cardIcon, isRTL && styles.cardIconRTL]}>
+                    {spinning ? (
+                      <ActivityIndicator
+                        color={isGoogle ? colors.textEmphasis : colors.textInverted}
+                      />
+                    ) : isGoogle ? (
+                      <GoogleGIcon size={28} />
+                    ) : (
+                      <Ionicons name="logo-apple" size={28} color={colors.textInverted} />
+                    )}
+                  </View>
+                  <Text
+                    style={[styles.cardTitle, !isGoogle && styles.cardTitlePrimary, textDir(isRTL)]}
+                  >
+                    {t(isGoogle ? "onboardingMode.google.title" : "onboardingMode.apple.title")}
+                  </Text>
+                  <Text
+                    style={[styles.cardBody, !isGoogle && styles.cardBodyPrimary, textDir(isRTL)]}
+                  >
+                    {t(isGoogle ? "onboardingMode.google.body" : "onboardingMode.apple.body")}
+                  </Text>
+                </Pressable>
+              </View>
+            );
+          })}
 
         {error ? (
           <Text style={[styles.errorText, textDir(isRTL)]} accessibilityLiveRegion="polite">
@@ -241,7 +243,7 @@ export default function OnboardingAuthScreen() {
 
         <Pressable
           onPress={onStayOffline}
-          disabled={busy}
+          disabled={busy !== null}
           style={({ pressed }) => [styles.card, styles.cardGhost, pressed && { opacity: 0.85 }]}
         >
           <View style={[styles.cardIcon, isRTL && styles.cardIconRTL]}>
@@ -298,6 +300,23 @@ const styles = StyleSheet.create({
   cardGhost: {
     backgroundColor: colors.bgDefault,
     borderColor: colors.borderDefault,
+  },
+  // Google's brand guidance puts the multicolor G on a LIGHT surface — and
+  // the white card is also what visually separates it from the black Apple
+  // card (two identical dark cards read as one choice). Same elevation as
+  // cardPrimary so the pair sits at equal weight.
+  cardGoogle: {
+    backgroundColor: colors.bgDefault,
+    borderColor: colors.borderDefault,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOpacity: 0.1,
+        shadowRadius: 14,
+        shadowOffset: { width: 0, height: 6 },
+      },
+      android: { elevation: 4 },
+    }),
   },
   cardIcon: {
     width: 44,
