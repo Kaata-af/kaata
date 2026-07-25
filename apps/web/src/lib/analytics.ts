@@ -87,37 +87,9 @@ export function fireVisitOnce(): void {
   });
 }
 
-// The tracked APK download URL. Hits the backend's /v1/download which counts
-// the click and 302s to the actual APK. Source is appended as a query param;
-// the backend reads it from there (single source of truth — not the body).
-export function getTrackedDownloadUrl(): string {
-  const src = getSource();
-  const base = `${BACKEND_URL}/v1/download`;
-  return src ? `${base}?s=${encodeURIComponent(src)}` : base;
-}
-
-// Best-effort download-click counter. The download link itself points at the
-// GitHub APK (so a backend outage can't kill the funnel); this pings
-// /v1/download purely for the count.
-//
-// It hits /v1/download?count_only=1, which records the click and returns 204
-// WITHOUT the 302 to the APK. The previous `mode:"no-cors" + redirect:"manual"`
-// combination is a spec-guaranteed network error for a cross-origin request
-// (main-fetch rejects a non-follow redirect mode under no-cors), so the beacon
-// never actually left the browser and every web download counted as zero. With
-// a 204 there is no redirect to follow, so plain no-cors works.
-export function reportDownloadClick(): void {
-  const base = getTrackedDownloadUrl();
-  const url = base.includes("?") ? `${base}&count_only=1` : `${base}?count_only=1`;
-  try {
-    void fetch(url, {
-      method: "GET",
-      keepalive: true,
-      mode: "no-cors",
-    }).catch(() => {
-      // Analytics must never break the download.
-    });
-  } catch {
-    // ignore
-  }
-}
+// NOTE (2026-07-26, Play launch): the tracked-APK-download helpers
+// (getTrackedDownloadUrl / reportDownloadClick) retired with the sideload
+// button — the download page is store-badges-only now, and store taps can't
+// be beaconed the same way. Web-side funnel attribution is the visit beacon
+// above + Play/App Store install analytics; the backend's /v1/download stays
+// alive for the in-app update banner of the existing sideload fleet.

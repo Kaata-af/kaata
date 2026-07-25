@@ -3,8 +3,6 @@
 interface ImportMetaEnv {
   readonly VITE_BACKEND_URL?: string;
   readonly VITE_WHATSAPP_CONTACT_URL?: string;
-  readonly VITE_APK_DOWNLOAD_URL?: string;
-  readonly VITE_APK_VERSION?: string;
 }
 
 interface ImportMeta {

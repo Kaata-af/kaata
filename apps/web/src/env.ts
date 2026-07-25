@@ -27,24 +27,15 @@ export const WHATSAPP_CONTACT_URL: string = envOr(
 export const FACEBOOK_URL = "https://www.facebook.com/kaata.af";
 export const INSTAGRAM_URL = "https://www.instagram.com/kaata.af";
 
-// The iPhone app on the App Store. Like the social handles, this is a stable
-// brand URL (the Apple app id never changes across releases), so it's not
-// env-driven.
+// The store listings. Like the social handles, these are stable brand URLs
+// (app ids never change across releases), so they're not env-driven. The
+// old VITE_APK_VERSION / VITE_APK_DOWNLOAD_URL build args retired with the
+// sideload download button when Play went live (2026-07-26) — delete them
+// from Dokploy's kaata-web build args; the backend's APK_DOWNLOAD_URL (its
+// cache source for the existing sideload fleet's update banner) is a
+// DIFFERENT var and stays.
 export const APP_STORE_URL = "https://apps.apple.com/us/app/kaata/id6789651127";
-
-export const APK_VERSION: string = envOr(import.meta.env.VITE_APK_VERSION, "0.1.0");
-
-// The APK is distributed as a GitHub Release asset (it exceeds GitHub's 100 MB
-// per-file git limit, so the old same-origin /downloads/kaata-*.apk path is gone
-// — it would 404). When VITE_APK_DOWNLOAD_URL isn't set, derive the canonical
-// release asset for the current version: `kaata-<version>.apk` under tag
-// `v<version>` (the naming the release playbook in CLAUDE.md uses). This keeps
-// the button working even if the build-arg is forgotten, as long as the asset
-// follows that name.
-export const APK_DOWNLOAD_URL: string = envOr(
-  import.meta.env.VITE_APK_DOWNLOAD_URL,
-  `https://github.com/Kaata-af/kaata/releases/download/v${APK_VERSION}/kaata-${APK_VERSION}.apk`,
-);
+export const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=af.kaata.app";
 
 // NOTE: there is deliberately NO ADMIN_API_KEY export. VITE_* values are baked
 // verbatim into the public JS bundle served to every kaata.af visitor, so

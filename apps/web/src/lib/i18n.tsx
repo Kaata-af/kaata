@@ -73,23 +73,12 @@ const en = {
   "footer.followInstagram": "Follow Kaata on Instagram",
   "footer.copyright": "© 2026 Kaata · Made in Kabul.",
 
-  // Download page
+  // Download page — store badges only (the sideload APK flow retired when
+  // Google Play went live).
   "download.title": "Install Kaata",
-  "download.sub":
-    "Get Kaata for iPhone on the App Store, or download the Android app directly below.",
-  "download.step1": 'Tap "Download APK" above.',
-  "download.step2": "Open the downloaded file.",
-  "download.step3":
-    'If your phone says it can\'t install unknown apps from this source, tap Settings, turn on "Allow from this source", then go back.',
-  "download.step4": 'If Google Play Protect warns you, tap "More details", then "Install anyway".',
-  "download.step5": "Tap Install.",
-  "download.button": "Download APK · v{version}",
-  "download.toast": "Starting download — install when ready.",
+  "download.sub": "Get Kaata on Google Play for Android, or on the App Store for iPhone.",
   "download.appStoreButton": "Download on the App Store",
-  "download.comingSoon": "Coming soon",
-  "download.playStore": "Google Play",
-  "download.appStore": "App Store",
-  "download.stepsTitle": "How to install the APK (Android)",
+  "download.playStoreButton": "Get it on Google Play",
 
   // Not found
   "notFound.kicker": "404",
@@ -233,24 +222,11 @@ const fa: Record<keyof typeof en, string> = {
   "footer.followInstagram": "کاتا را در اینستاگرام دنبال کنید",
   "footer.copyright": "© ۲۰۲۶ کاتا · ساخت کابل.",
 
-  // Download page
+  // Download page — store badges only.
   "download.title": "نصب کاتا",
-  "download.sub":
-    "کاتا برای آیفون در اپ‌ستور آماده است، یا نسخهٔ اندروید را از پایین مستقیم دانلود کنید.",
-  "download.step1": "روی «دانلود APK» در بالا بزنید.",
-  "download.step2": "فایل دانلودشده را باز کنید.",
-  "download.step3":
-    "اگر تلفون گفت از این منبع اجازهٔ نصب ندارد، روی «تنظیمات» بزنید، «اجازه از این منبع» را روشن کنید و برگردید.",
-  "download.step4":
-    "اگر گوگل پلی‌پروتکت هشدار داد، روی «جزئیات بیشتر» و بعد «به هر حال نصب شود» بزنید.",
-  "download.step5": "روی نصب بزنید.",
-  "download.button": "دانلود APK · نسخه {version}",
-  "download.toast": "دانلود شروع شد — بعد از تکمیل نصب کنید.",
+  "download.sub": "کاتا را برای اندروید از Google Play و برای آیفون از App Store بگیرید.",
   "download.appStoreButton": "دانلود از App Store",
-  "download.comingSoon": "به‌زودی",
-  "download.playStore": "Google Play",
-  "download.appStore": "App Store",
-  "download.stepsTitle": "نحوهٔ نصب فایل APK (اندروید)",
+  "download.playStoreButton": "دریافت از Google Play",
 
   // Not found
   "notFound.kicker": "۴۰۴",
