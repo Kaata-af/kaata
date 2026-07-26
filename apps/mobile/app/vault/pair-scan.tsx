@@ -44,9 +44,17 @@ import { buildLocalAccountId } from "../../lib/trust/account-id";
  * (legacy v=1 QR or buggy issuer).
  */
 function deriveOfferedRole(payload: PairQrPayload): { role: PairQrRole; missing: boolean } {
-  if (payload.role === "owner" || payload.role === "editor" || payload.role === "viewer") {
+  if (
+    payload.role === "owner" ||
+    payload.role === "manager" ||
+    payload.role === "editor" ||
+    payload.role === "clerk" ||
+    payload.role === "viewer"
+  ) {
     return { role: payload.role, missing: false };
   }
+  // Absent role = legacy pre-role QR (designed default: editor). Unknown
+  // literals never reach here — parsePairQrPayload rejects them outright.
   return { role: "editor", missing: true };
 }
 

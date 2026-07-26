@@ -64,7 +64,7 @@ import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { formatAmount } from "../lib/format";
 import { t } from "../lib/i18n";
-import { useActiveVaultCanWrite } from "../lib/use-vault-role";
+import { useActiveVaultWriteCaps } from "../lib/use-vault-role";
 import {
   shouldPromptBatteryExemption,
   markBatteryExemptionPrompted,
@@ -200,7 +200,9 @@ export default function HomeScreen() {
   // Viewer read-only gate: false only when I'm a viewer on the active (shared)
   // vault. Hides write affordances (FAB, long-press edit/delete). Defaults true
   // for local-only / owner / editor.
-  const canWrite = useActiveVaultCanWrite(activeVaultId);
+  // Roles v2 split: canCreate gates the + FAB (clerks CAN append); canAmend
+  // gates the long-press edit/delete sheet (clerks cannot touch history).
+  const { canCreate, canAmend } = useActiveVaultWriteCaps(activeVaultId);
   // D-ARCHIVED-VAULT-FILTER: the picker and settings sheet consume only
   // non-archived vaults; the archived sub-section (toggle-revealed) reads
   // `archivedVaults`. Two arrays > one array + per-render filter — the
@@ -785,7 +787,7 @@ export default function HomeScreen() {
             picker (it used to: the switcher's tap target spanned to the avatar). */}
         {/* Read-only badge — shown when I'm a viewer on this (shared) kaata, so
             the absent FAB / write actions are explained rather than mysterious. */}
-        {activeVaultId && !canWrite ? (
+        {activeVaultId && !canCreate ? (
           <View style={[styles.readOnlyBadge, isRTL ? { marginRight: 8 } : { marginLeft: 8 }]}>
             <Ionicons name="eye-outline" size={12} color={colors.textSubtle} />
             <Text style={styles.readOnlyBadgeText} allowFontScaling={false}>
@@ -937,7 +939,7 @@ export default function HomeScreen() {
               refreshing={refreshing}
               onRefresh={onRefresh}
               onPersonPress={openPerson}
-              onPersonLongPress={canWrite ? setSheetFor : undefined}
+              onPersonLongPress={canAmend ? setSheetFor : undefined}
             />
             <TabPage
               direction="pay"
@@ -947,7 +949,7 @@ export default function HomeScreen() {
               refreshing={refreshing}
               onRefresh={onRefresh}
               onPersonPress={openPerson}
-              onPersonLongPress={canWrite ? setSheetFor : undefined}
+              onPersonLongPress={canAmend ? setSheetFor : undefined}
             />
           </Animated.View>
         </GestureDetector>
@@ -972,7 +974,7 @@ export default function HomeScreen() {
        */}
       {/* FAB only when there's an active kaata AND I can write to it (hidden for
           a viewer on a shared kaata — their writes are refused anyway). */}
-      {activeVaultId && canWrite ? (
+      {activeVaultId && canCreate ? (
         <Animated.View
           style={[
             styles.fab,

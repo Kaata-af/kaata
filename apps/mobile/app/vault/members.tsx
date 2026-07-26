@@ -164,7 +164,9 @@ export default function VaultMembersScreen() {
         WHERE vmm.vault_id = ?
           AND vmm.revoked_at IS NULL
         ORDER BY
-          CASE vmm.role WHEN 'owner' THEN 0 WHEN 'editor' THEN 1 ELSE 2 END,
+          CASE vmm.role
+            WHEN 'owner' THEN 0 WHEN 'manager' THEN 1 WHEN 'editor' THEN 2
+            WHEN 'clerk' THEN 3 ELSE 4 END,
           vmm.accepted_at ASC`,
       activeVaultId,
     );
@@ -750,7 +752,9 @@ function formatRelative(epochMs: number): string {
 
 function humanizeRole(role: VaultRole): string {
   if (role === "owner") return t("vaultSettings.role.owner");
+  if (role === "manager") return t("vaultSettings.role.manager");
   if (role === "editor") return t("vaultSettings.role.editor");
+  if (role === "clerk") return t("vaultSettings.role.clerk");
   return t("vaultSettings.role.viewer");
 }
 

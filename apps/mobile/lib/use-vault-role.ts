@@ -154,30 +154,41 @@ export function useVaultPermission(
 }
 
 /**
- * Whether the active user can WRITE to `vaultId` — false ONLY for a viewer on a
- * shared vault. Resolves the account id internally (so screens that don't track
- * it can gate write affordances with one line), defaults to true (local-only /
- * owner), and re-reads on focus. Use it to hide the FAB, give/receive, edit, and
- * entry-edit affordances for a viewer — the role-gate + server already REFUSE a
- * viewer's writes; this just stops them seeing buttons that would only fail.
+ * Write capabilities for the active user on `vaultId`. Roles v2 split
+ * (docs/roles-v2-design.md):
+ *   canCreate — may APPEND (new entries / new people). False for viewers.
+ *   canAmend  — may MUTATE HISTORY (edit/delete entries, rename people).
+ *               False for viewers AND clerks (append-only role).
+ * The single old boolean gated both create and edit affordances, which
+ * cannot express a clerk. Defaults to true (local-only / owner), re-reads on
+ * focus. The role-gate + server already REFUSE unauthorized writes; this
+ * just stops users seeing buttons that would only fail.
  */
-export function useActiveVaultCanWrite(vaultId: string | null): boolean {
-  const [canWrite, setCanWrite] = useState(true);
+export function useActiveVaultWriteCaps(vaultId: string | null): {
+  canCreate: boolean;
+  canAmend: boolean;
+} {
+  const [caps, setCaps] = useState({ canCreate: true, canAmend: true });
   const reread = useCallback(() => {
     let cancelled = false;
     if (!vaultId) {
-      setCanWrite(true);
+      setCaps({ canCreate: true, canAmend: true });
       return () => {
         cancelled = true;
       };
     }
     readRoleFromDb(vaultId, getAccountIdSync())
       .then((role) => {
-        if (!cancelled) setCanWrite(canPerformAction(role, "entry.create"));
+        if (!cancelled) {
+          setCaps({
+            canCreate: canPerformAction(role, "entry.create"),
+            canAmend: canPerformAction(role, "entry.amend"),
+          });
+        }
       })
       .catch(() => {
         // Never lock the user out on a transient DB error (local-only invariant).
-        if (!cancelled) setCanWrite(true);
+        if (!cancelled) setCaps({ canCreate: true, canAmend: true });
       });
     return () => {
       cancelled = true;
@@ -185,7 +196,12 @@ export function useActiveVaultCanWrite(vaultId: string | null): boolean {
   }, [vaultId]);
   useEffect(() => reread(), [reread]);
   useFocusEffect(reread);
-  return canWrite;
+  return caps;
+}
+
+/** Back-compat sugar: the append capability (hides the + FAB for viewers). */
+export function useActiveVaultCanWrite(vaultId: string | null): boolean {
+  return useActiveVaultWriteCaps(vaultId).canCreate;
 }
 
 // Re-exported for callers that want the pure function without pulling in

@@ -216,7 +216,7 @@ var (
 	ErrTargetNotMember       = errors.New("target account is not a member of this vault")
 	ErrSelfTransfer          = errors.New("cannot transfer ownership to yourself")
 	ErrAlreadyArchived       = errors.New("vault is already archived")
-	ErrInvalidRole           = errors.New("role must be one of owner, editor, viewer")
+	ErrInvalidRole           = errors.New("invalid role for this operation")
 	ErrInvalidDemote         = errors.New("demote_self_to must be one of editor, leave")
 	ErrInvalidEmail          = errors.New("invite_email is required and must contain '@'")
 	ErrInvitePending         = errors.New("a pending invitation for this email already exists")
@@ -1202,7 +1202,10 @@ type CreateInviteResult struct {
 }
 
 func (s *Service) CreateInvite(ctx context.Context, in CreateInviteInput) (CreateInviteResult, error) {
-	if in.Role != "editor" && in.Role != "viewer" {
+	// Invites can only mint roles BELOW manager (roles v2): a witnessed
+	// admission must never grant member-management authority — manager is
+	// owner-granted via role change AFTER joining, owner via transfer only.
+	if in.Role != "editor" && in.Role != "viewer" && in.Role != "clerk" {
 		return CreateInviteResult{}, ErrInvalidRole
 	}
 	// Link invite: an empty email means "shareable link" — the token IS the
@@ -1943,7 +1946,7 @@ func writeAudit(
 
 func isValidRole(role string) bool {
 	switch role {
-	case "owner", "editor", "viewer":
+	case "owner", "manager", "editor", "clerk", "viewer":
 		return true
 	}
 	return false

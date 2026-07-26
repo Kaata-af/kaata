@@ -37,8 +37,8 @@ export const PAIR_QR_MAX_PAYLOAD_BYTES = 768;
 
 /** Role offered by an owner-issued pair QR. Local-CA pair flow only —
  *  server-anchored flow ignores this field and always mints an owner-
- *  role VMC (Phase 5 behaviour). */
-export type PairQrRole = "owner" | "editor" | "viewer";
+ *  role VMC (Phase 5 behaviour). Roles v2 widened the vocabulary. */
+export type PairQrRole = "owner" | "manager" | "editor" | "clerk" | "viewer";
 
 export type PairQrPayload = {
   /**
@@ -180,11 +180,16 @@ export function decodePairQr(raw: string): PairQrValidationResult {
     }
   }
   // Validate role if present. Missing role is permitted (legacy v=1 or
-  // server-anchored v=2) and the scanner falls back to "editor".
+  // server-anchored v=2) and the scanner falls back to "editor". Unknown
+  // literals reject the whole payload — fail closed, never role-guess.
   if ("role" in obj && obj.role !== undefined) {
     if (
       typeof obj.role !== "string" ||
-      (obj.role !== "owner" && obj.role !== "editor" && obj.role !== "viewer")
+      (obj.role !== "owner" &&
+        obj.role !== "manager" &&
+        obj.role !== "editor" &&
+        obj.role !== "clerk" &&
+        obj.role !== "viewer")
     ) {
       return { ok: false, reason: "missing_field" };
     }

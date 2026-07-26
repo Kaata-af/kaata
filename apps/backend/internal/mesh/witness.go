@@ -210,15 +210,17 @@ func (s *Service) IssueWitness(ctx context.Context, vaultID, accountID, installI
 	// on every peer (no member witness → no chain admission).
 	//
 	// SEC FIX 3 (defense-in-depth): never issue a member_witness for an
-	// owner role. A member witness attests "owner O invited account A at
-	// role R"; the chain verifier caps witnessed admissions to editor/viewer
-	// (a witness can never mint an owner — owner promotion requires an
-	// owner-signed role change / the anchor). The invite system already caps
-	// CreateInvite to editor/viewer, so a brokered-invite row should never
-	// carry role=owner — but if one ever does (data drift, a future code
-	// path), refuse to sign the owner tuple rather than hand out a witness
-	// the verifier will reject anyway. The device witness still rides along.
-	if invitedBy != nil && *invitedBy != accountID && inviteTokenHash != nil && role != "owner" {
+	// owner — or, since roles v2, ANY member-managing role (manager+). A
+	// member witness attests "owner O invited account A at role R"; the
+	// chain verifier caps witnessed admissions BELOW manager (a witness can
+	// never mint member-management authority — that requires an owner-signed
+	// role change / the anchor). The invite system already caps CreateInvite
+	// below manager, so a brokered-invite row should never carry a capped
+	// role — but if one ever does (data drift, a future code path), refuse
+	// to sign the tuple rather than hand out a witness the verifier will
+	// reject anyway. The device witness still rides along.
+	if invitedBy != nil && *invitedBy != accountID && inviteTokenHash != nil &&
+		role != "owner" && role != "manager" {
 		memberCanonical, err := canonical.Canonicalize(
 			MemberWitnessTuple(vaultID, accountID, *invitedBy, role, now),
 		)

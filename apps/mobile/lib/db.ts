@@ -72,6 +72,7 @@ const MIGRATION_020 = "020_reregister_bootstrap_vaults";
 const MIGRATION_021 = "021_unstick_rejected_ledger_events";
 const MIGRATION_022 = "022_event_log_push_reject_bookkeeping";
 const MIGRATION_023 = "023_shared_links";
+const MIGRATION_024 = "024_roles_v2_check_widen";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -338,6 +339,14 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
     } catch (err) {
       console.error("[init] runMigration023 failed:", err);
       throw new Error("runMigration023 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_024))) {
+    try {
+      await runMigration024(db);
+    } catch (err) {
+      console.error("[init] runMigration024 failed:", err);
+      throw new Error("runMigration024 failed: " + String(err));
     }
   }
 }
@@ -2870,6 +2879,70 @@ async function runMigration023(db: SQLite.SQLiteDatabase): Promise<void> {
     await db.runAsync(
       `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
       MIGRATION_023,
+      Date.now(),
+    );
+  });
+}
+
+// Roles v2 Phase A (docs/roles-v2-design.md): widen the role CHECK on
+// vault_members_mirror + pending_invitations to the five-role vocabulary
+// (viewer < clerk < editor < manager < owner). SQLite can't ALTER a CHECK,
+// so both tables are rebuilt copy-rename style. Must land before any
+// manager/clerk event can arrive or the appliers abort on the old CHECK
+// and the event quarantines forever.
+async function runMigration024(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    // Rebuilding a table other tables FK-reference (none reference these
+    // two) is safe; still defer FK checks like migrations 008/013 do so
+    // the vaults(id) reference on the mirror can't trip mid-rebuild.
+    await db.execAsync(`PRAGMA defer_foreign_keys = ON;`);
+    await db.execAsync(`
+      CREATE TABLE vault_members_mirror_v2 (
+        vault_id     TEXT NOT NULL REFERENCES vaults(id),
+        account_id   TEXT NOT NULL,
+        role         TEXT NOT NULL CHECK (role IN ('owner','manager','editor','clerk','viewer')),
+        accepted_at  INTEGER,
+        revoked_at   INTEGER,
+        display_name TEXT,
+        PRIMARY KEY (vault_id, account_id)
+      );
+      INSERT INTO vault_members_mirror_v2
+        (vault_id, account_id, role, accepted_at, revoked_at, display_name)
+        SELECT vault_id, account_id, role, accepted_at, revoked_at, display_name
+          FROM vault_members_mirror;
+      DROP TABLE vault_members_mirror;
+      ALTER TABLE vault_members_mirror_v2 RENAME TO vault_members_mirror;
+
+      CREATE TABLE pending_invitations_v2 (
+        token             TEXT PRIMARY KEY,
+        vault_id          TEXT NOT NULL,
+        vault_name        TEXT NOT NULL,
+        invited_by_email  TEXT,
+        invited_by_name   TEXT,
+        role              TEXT NOT NULL CHECK (role IN ('owner','manager','editor','clerk','viewer')),
+        invite_email      TEXT NOT NULL,
+        invited_at        INTEGER NOT NULL,
+        expires_at        INTEGER NOT NULL,
+        surfaced_at       INTEGER,
+        declined_at       INTEGER,
+        accepted_at       INTEGER,
+        revoked_at        INTEGER,
+        fetched_at        INTEGER NOT NULL
+      );
+      INSERT INTO pending_invitations_v2
+        SELECT token, vault_id, vault_name, invited_by_email, invited_by_name, role,
+               invite_email, invited_at, expires_at, surfaced_at, declined_at,
+               accepted_at, revoked_at, fetched_at
+          FROM pending_invitations;
+      DROP TABLE pending_invitations;
+      ALTER TABLE pending_invitations_v2 RENAME TO pending_invitations;
+      CREATE INDEX IF NOT EXISTS idx_pending_invitations_active
+        ON pending_invitations (expires_at)
+        WHERE declined_at IS NULL AND accepted_at IS NULL AND revoked_at IS NULL;
+    `);
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_024,
       Date.now(),
     );
   });

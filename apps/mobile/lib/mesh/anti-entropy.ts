@@ -79,8 +79,9 @@ import {
   PROOF_BUNDLE_CAP,
 } from "../trust/proof";
 import type { MembershipEventLike } from "../trust/chain";
-import type { LedgerEvent } from "../events";
+import type { LedgerEvent, VaultRole } from "../events";
 import { isKnownEventType } from "../events";
+import { parseVaultRole } from "../vault-roles";
 // M3.5: the pure version-vector engine (transport-agnostic, bun-tested). The
 // mesh delta protocol is now its first load-bearing consumer.
 import {
@@ -1465,7 +1466,7 @@ async function verifyPeerChain(
       appendVaultMemberAdded: (args: {
         targetVaultId: string;
         accountId: string;
-        role: "owner" | "editor" | "viewer";
+        role: "owner" | "manager" | "editor" | "clerk" | "viewer";
         displayName?: string | null;
       }) => Promise<{ event_id: string }>;
       appendVaultDeviceAdded: (args: {
@@ -1555,10 +1556,14 @@ async function verifyPeerChain(
 }
 
 /** D-PAIR-WITH-ROLE: the role committed at QR-issue time is canonical;
- *  unset (legacy tokens) falls back to "editor". The owner carries this
- *  into the joiner's vault_member_added during pair admission. */
-function normalizeTokenRole(role: string | undefined): "owner" | "editor" | "viewer" {
-  return role === "owner" || role === "viewer" ? role : "editor";
+ *  ABSENT (legacy pre-role tokens) falls back to "editor" — that era's
+ *  designed default. An UNKNOWN literal (roles v2: a future role this build
+ *  doesn't recognize) clamps DOWN to "viewer", never up — a restricted role
+ *  must degrade to read-only, not gain amend/delete authority. The owner
+ *  carries this into the joiner's vault_member_added during pair admission. */
+function normalizeTokenRole(role: string | undefined): VaultRole {
+  if (role === undefined) return "editor";
+  return parseVaultRole(role) ?? "viewer";
 }
 
 // ---------------------------------------------------------------------------

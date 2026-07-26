@@ -277,6 +277,22 @@ func (s *Service) verifyMembershipEvent(
 		if found && role == "owner" {
 			return true, nil
 		}
+		// 2b-manager (roles v2, docs/roles-v2-design.md): a manager-bound
+		// device may author member events strictly BELOW manager rank —
+		// both the granted role and the target's lawful-at-HLC current role
+		// must rank below manager, so a manager can never touch owners,
+		// other managers, or mint a manager/owner. Device events stay
+		// owner/self-only. MUST stay in lockstep with the mobile gate's
+		// manager carve-out (role-gate.ts) and fold (chain.ts).
+		if found && role == "manager" {
+			ok, merr := managerCapSatisfied(ctx, tx, vaultUUID, ev)
+			if merr != nil {
+				return false, merr
+			}
+			if ok {
+				return true, nil
+			}
+		}
 	}
 
 	// 2b3. vault_member_removed self-service ("leave kaata"): a bound,
@@ -337,14 +353,15 @@ func (s *Service) verifyMembershipEvent(
 			return false, nil
 		}
 		// SEC FIX 3 (defense-in-depth cap): a WITNESSED admission can never
-		// mint an owner. Owner promotion requires an owner-signed
+		// mint an owner — nor, since roles v2, ANY member-managing role
+		// (manager or above). Promotion requires an owner-signed
 		// vault_member_role_changed (or the anchor itself). The invite
-		// system already caps brokered invites to editor/viewer, but a
-		// leaked/forged witness over a role=owner tuple must still be
-		// refused here — the witness arm is the one path that admits an
-		// account the owner's device never physically met. Reject
-		// role=owner with the per-event "membership_unverified".
-		if p.Role == "owner" {
+		// system already caps brokered invites below manager, but a
+		// leaked/forged witness over a role=owner/manager tuple must still
+		// be refused here — the witness arm is the one path that admits an
+		// account the owner's device never physically met. Reject with the
+		// per-event "membership_unverified".
+		if !isValidMemberRole(p.Role) || roleRank[p.Role] >= roleRank["manager"] {
 			return false, nil
 		}
 		w := p.Witness
@@ -956,8 +973,57 @@ func foldBumpEpoch(ctx context.Context, tx pgx.Tx, vaultID string) error {
 
 func isValidMemberRole(role string) bool {
 	switch role {
-	case "owner", "editor", "viewer":
+	case "owner", "manager", "editor", "clerk", "viewer":
 		return true
 	}
 	return false
+}
+
+// managerCapSatisfied checks whether a MANAGER-bound signer is allowed to
+// author this membership event (roles v2). A manager operates strictly BELOW
+// manager rank: for member_added / role_changed, the granted role must rank
+// below manager AND the target's lawful-at-HLC current role (if any) must
+// rank below manager; for member_removed, the target's current role must
+// rank below manager. Anything else — device events, owner/manager targets,
+// owner/manager grants — is out of a manager's authority.
+func managerCapSatisfied(ctx context.Context, tx pgx.Tx, vaultUUID uuid.UUID, ev *PushEvent) (bool, error) {
+	managerRank := roleRank["manager"]
+	var targetAccountID, grantedRole string
+	switch ev.EventType {
+	case EventVaultMemberAdded:
+		var p memberAddedWire
+		if err := json.Unmarshal(ev.Payload, &p); err != nil {
+			return false, nil
+		}
+		targetAccountID, grantedRole = p.AccountID, p.Role
+	case EventVaultMemberRoleChng:
+		var p memberRoleChangedWire
+		if err := json.Unmarshal(ev.Payload, &p); err != nil {
+			return false, nil
+		}
+		targetAccountID, grantedRole = p.AccountID, p.Role
+	case EventVaultMemberRemoved:
+		var p memberRemovedWire
+		if err := json.Unmarshal(ev.Payload, &p); err != nil {
+			return false, nil
+		}
+		targetAccountID = p.AccountID
+	default:
+		return false, nil
+	}
+	if grantedRole != "" && (!isValidMemberRole(grantedRole) || roleRank[grantedRole] >= managerRank) {
+		return false, nil
+	}
+	targetUUID, err := uuid.Parse(targetAccountID)
+	if err != nil {
+		return false, nil
+	}
+	targetRole, found, rerr := roleAtHLC(ctx, tx, targetUUID, vaultUUID, ev.HLC.PhysicalMS)
+	if rerr != nil {
+		return false, fmt.Errorf("manager cap: target role lookup: %w", rerr)
+	}
+	if found && roleRank[targetRole] >= managerRank {
+		return false, nil
+	}
+	return true, nil
 }

@@ -37,6 +37,7 @@ import {
 } from "./db-tx";
 import { ensureInstallId } from "./install-id";
 import { fetchSnapshot, restoreFromSnapshot } from "./restore";
+import { parseVaultRole } from "./vault-roles";
 import { pullEvents } from "./sync/pull";
 import { ensureDeviceKey, registerDeviceKey } from "./mesh/device-key";
 import { scheduleSweep } from "./projection/sweep";
@@ -343,7 +344,11 @@ export async function seedJoinedVaultMinimal(
     accountId,
     now,
   );
-  const safeRole = role === "editor" || role === "viewer" ? role : "editor";
+  // Roles v2: accept any of the five known roles; an UNKNOWN literal clamps
+  // DOWN to viewer (never up to editor — a restricted role must degrade to
+  // read-only). Server-validated accept responses only send invite-grantable
+  // roles today (editor/viewer/clerk).
+  const safeRole = parseVaultRole(role) ?? "viewer";
   // Self display name, so the joiner's own Members row shows their name from
   // the first frame. Guarded: a restore-minted placeholder ("You") must not
   // masquerade as a real name. NULL is fine — the server listing heal
@@ -439,7 +444,8 @@ async function healSelfMembershipFromListing(v: VaultListing): Promise<void> {
   let accountId = getAccountIdSync();
   if (!accountId) accountId = await refreshAccountIdCache();
   if (!accountId) return;
-  const role = v.role === "owner" || v.role === "editor" || v.role === "viewer" ? v.role : "editor";
+  // Roles v2: unknown role literals clamp DOWN to viewer, never up.
+  const role = parseVaultRole(v.role) ?? "viewer";
   const db = await getDb();
   const result = await db.runAsync(
     `INSERT INTO vault_members_mirror (vault_id, account_id, role, accepted_at, revoked_at)

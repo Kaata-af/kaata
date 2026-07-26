@@ -60,29 +60,33 @@ import { runtimeChainCrypto } from "../trust/crypto-runtime";
 // "none" = no role check (the event is its own self-binding). Currently:
 //   - account_bound: it IS the binding, can't check itself.
 
-type RoleRequirement = "owner" | "editor" | "none";
+type RoleRequirement = "owner" | "manager" | "editor" | "clerk" | "none";
 
 const REQUIRED_ROLE: Record<EventType, RoleRequirement> = {
-  // Ledger writes — editor or owner
-  entry_created: "editor",
+  // Append-only ledger writes — clerk or above (roles v2: a clerk writes
+  // new entries/people but can never amend or delete history).
+  entry_created: "clerk",
+  person_added: "clerk",
+
+  // History mutations — editor or above.
   entry_amended: "editor",
   entry_deleted: "editor",
   entry_settled: "editor",
-
-  // People writes — editor or owner (UI gates person.archive at owner-only,
-  // but the projection gate stays at 'editor' — projection's job is to
-  // refuse outright attacks, not enforce nuanced per-action UI policy).
-  person_added: "editor",
   person_renamed: "editor",
   person_phone_changed: "editor",
   person_archived: "editor",
   person_unarchived: "editor",
 
-  // Vault config — owner only
-  shop_profile_updated: "owner",
-  vault_setting_set: "owner",
+  // Vault config — manager or above (roles v2: reconciled with the backend,
+  // which had shop_profile_updated at 'editor' while mobile had 'owner';
+  // both sides now say 'manager' — docs/roles-v2-design.md).
+  shop_profile_updated: "manager",
+  vault_setting_set: "manager",
 
-  // Vault membership — owner only (the attack vector this gate exists for)
+  // Vault membership — owner (the attack vector this gate exists for), with
+  // the roles-v2 MANAGER carve-out handled inline in checkRoleForEvent
+  // (strictly below-manager targets and grants, lockstep with chain.ts +
+  // backend membership.go).
   vault_member_added: "owner",
   vault_member_role_changed: "owner",
   vault_member_removed: "owner",
@@ -98,16 +102,27 @@ const REQUIRED_ROLE: Record<EventType, RoleRequirement> = {
   account_bound: "none",
 };
 
-function meetsRequirement(actor: VaultRole, required: "owner" | "editor"): boolean {
-  if (required === "owner") return actor === "owner";
-  // required === "editor": editor or owner satisfies it
-  return actor === "owner" || actor === "editor";
+// Rank ladder (roles v2): viewer < clerk < editor < manager < owner.
+// Mirrors backend roleRank (sync/permissions.go) and VAULT_ROLE_RANK
+// (lib/vault-roles.ts — not imported here to keep this module's dependency
+// surface minimal). Unknown/null ranks 0 — fail closed.
+const RANK: Record<string, number> = { viewer: 1, clerk: 2, editor: 3, manager: 4, owner: 5 };
+
+function meetsRequirement(actor: VaultRole, required: Exclude<RoleRequirement, "none">): boolean {
+  return (RANK[actor] ?? 0) >= (RANK[required] ?? Number.POSITIVE_INFINITY);
 }
 
 // Privilege rank for picking the highest role across this device's account-id
 // candidates (local-origin multi-id resolution). null = no membership.
 function rankRole(r: VaultRole | null): number {
-  return r === "owner" ? 3 : r === "editor" ? 2 : r === "viewer" ? 1 : 0;
+  return r == null ? 0 : (RANK[r] ?? 0);
+}
+
+/** Strict parse: the five known role literals, anything else null. */
+function parseRole(v: unknown): VaultRole | null {
+  return v === "owner" || v === "manager" || v === "editor" || v === "clerk" || v === "viewer"
+    ? v
+    : null;
 }
 
 // ---------- LRU role cache ----------
@@ -257,9 +272,8 @@ async function resolveRoleAt(
     if (row.event_type === "vault_member_removed") return null;
     try {
       const p = JSON.parse(row.payload_json) as { role?: VaultRole };
-      if (p.role === "owner" || p.role === "editor" || p.role === "viewer") {
-        return p.role;
-      }
+      const parsed = parseRole(p.role);
+      if (parsed != null) return parsed;
     } catch {
       /* malformed payload — fall through to null */
     }
@@ -294,7 +308,7 @@ export type RoleGateResult =
       ok: false;
       reason: "insufficient_role" | "unknown_actor" | "unsigned_event" | "bad_signature";
       current_role: VaultRole | null;
-      required_role: "owner" | "editor";
+      required_role: Exclude<RoleRequirement, "none">;
     };
 
 // Look up the authenticated (account_id, device_pubkey) for the signer
@@ -648,15 +662,12 @@ async function verifyMembershipWitnessForEvent(
     });
   } else {
     if (typeof p.account_id !== "string" || typeof w.inviter_account_id !== "string") return false;
-    const role =
-      p.role === "owner" || p.role === "editor" || p.role === "viewer"
-        ? (p.role as VaultRole)
-        : null;
+    const role = parseRole(p.role);
     if (!role) return false;
     // Parity with chain.ts: a witness is an invite attestation, never an
-    // owner grant — cap to editor/viewer; and it must not resurrect a
-    // removed member.
-    if (role === "owner") return false;
+    // authority grant — cap BELOW manager (roles v2); and it must not
+    // resurrect a removed member.
+    if (rankRole(role) >= RANK.manager) return false;
     if (await isRemovedMember(tx, event.vault_id, p.account_id, event.hlc)) return false;
     tuple = memberWitnessTuple({
       vault_id: event.vault_id,
@@ -698,7 +709,7 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
         ok: false,
         reason: "bad_signature",
         current_role: null,
-        required_role: requirement as "owner" | "editor",
+        required_role: requirement,
       };
     }
   } else if (
@@ -712,7 +723,7 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
         ok: false,
         reason: "bad_signature",
         current_role: null,
-        required_role: requirement as "owner" | "editor",
+        required_role: requirement,
       };
     }
   }
@@ -730,7 +741,7 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
         ok: false,
         reason: "unknown_actor",
         current_role: null,
-        required_role: requirement as "owner" | "editor",
+        required_role: requirement,
       };
     }
   }
@@ -1179,6 +1190,44 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
         return { ok: true };
       }
     }
+    // MANAGER carve-out (roles v2, docs/roles-v2-design.md): a manager may
+    // author membership events strictly BELOW manager rank — the granted
+    // role (member_added/role_changed) AND the target's lawful-at-HLC
+    // current role must both rank below manager, so a manager can never
+    // touch owners/managers or mint one. Lockstep with the fold's
+    // signerIsActiveManagerDevice + withinManagerCap (chain.ts) and the
+    // server's 2b-manager arm (membership.go managerCapSatisfied). Falls
+    // THROUGH to the last-owner guard below (unreachable for a lawful
+    // manager — owner targets are outside the cap — but kept as the single
+    // exit path). Device events are NOT included: owner/self only.
+    let managerAuthorized = false;
+    if (
+      role === "manager" &&
+      (event.event_type === "vault_member_added" ||
+        event.event_type === "vault_member_role_changed" ||
+        event.event_type === "vault_member_removed")
+    ) {
+      const p = event.payload as { account_id?: string; role?: string };
+      const targetId = typeof p.account_id === "string" ? p.account_id : null;
+      const grantedRole = event.event_type === "vault_member_removed" ? null : parseRole(p.role);
+      const grantOk =
+        event.event_type === "vault_member_removed"
+          ? true
+          : grantedRole != null && rankRole(grantedRole) < RANK.manager;
+      if (targetId && grantOk) {
+        const targetRole = await resolveRoleAt(
+          tx,
+          event.vault_id,
+          targetId,
+          event.hlc,
+          event.event_id,
+        );
+        if (rankRole(targetRole) < RANK.manager) {
+          managerAuthorized = true;
+        }
+      }
+    }
+
     // SELF-LEAVE carve-out: a member may remove their OWN membership ("leave
     // kaata") without owner role. Mirrors the vault_device_removed same-account
     // allowance above and the fold's self-leave arm (lib/trust/chain.ts) plus
@@ -1220,7 +1269,7 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
         if (anchorRow?.vault_trust_anchor_pubkey == null) selfLeave = false;
       }
     }
-    if (!selfLeave) {
+    if (!selfLeave && !managerAuthorized) {
       return {
         ok: false,
         reason: "insufficient_role",

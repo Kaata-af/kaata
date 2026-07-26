@@ -35,6 +35,7 @@ import {
   RoleGateRejectionError,
 } from "../event-log";
 import type { MembershipWitness, VaultRole } from "../events";
+import { parseVaultRole } from "../vault-roles";
 import { ensureDeviceKey, getDevicePubkey } from "../mesh/device-key";
 import { buildLocalAccountId } from "./account-id";
 import { fetchMembershipWitness } from "../vault-api";
@@ -189,7 +190,10 @@ async function runGenesisBackfill(vaultId: string): Promise<void> {
   for (const m of members) {
     if (m.account_id === ownerAccountId) continue;
     if (isActiveMember(m.account_id)) continue;
-    const role: VaultRole = m.role === "owner" || m.role === "viewer" ? m.role : "editor";
+    // Roles v2: keep any of the five known roles; unknown clamps DOWN to
+    // viewer (never up to editor — a restricted role must not gain
+    // amend/delete authority through the genesis backfill).
+    const role: VaultRole = parseVaultRole(m.role) ?? "viewer";
     // Placeholder guard: a mirror row can hold the restore-minted "You"
     // (echoed back via the server listing before it was itself guarded).
     // Events are immutable — "You" must never be signed into the chain.

@@ -795,7 +795,9 @@ export default function VaultSettingsScreen() {
 
 function humanizeRole(role: VaultRole): string {
   if (role === "owner") return t("vaultSettings.role.owner");
+  if (role === "manager") return t("vaultSettings.role.manager");
   if (role === "editor") return t("vaultSettings.role.editor");
+  if (role === "clerk") return t("vaultSettings.role.clerk");
   return t("vaultSettings.role.viewer");
 }
 

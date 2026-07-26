@@ -856,7 +856,9 @@ const en = {
   // Vault settings — Phase 7 UX critique #8 (translated).
   "vaultSettings.title": "Kaata settings",
   "vaultSettings.role.owner": "Owner",
+  "vaultSettings.role.manager": "Manager",
   "vaultSettings.role.editor": "Editor",
+  "vaultSettings.role.clerk": "Clerk",
   "vaultSettings.role.viewer": "Viewer",
   "vaultSettings.section.details": "Details",
   "vaultSettings.section.members": "Members",
@@ -1829,7 +1831,9 @@ const fa: Partial<Record<Key, string>> = {
   // Vault settings — Persian
   "vaultSettings.title": "تنظیمات کاتا",
   "vaultSettings.role.owner": "مالک",
+  "vaultSettings.role.manager": "مدیر",
   "vaultSettings.role.editor": "ویرایشگر",
+  "vaultSettings.role.clerk": "ثبت‌کننده",
   "vaultSettings.role.viewer": "بیننده",
   "vaultSettings.section.details": "مشخصات",
   "vaultSettings.section.members": "اعضا",

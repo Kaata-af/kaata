@@ -145,28 +145,40 @@ func CheckEventPermissionByRole(role, eventType string) bool {
 // reject rather than silently accept.
 func requiredRoleFor(eventType string) (string, bool) {
 	switch eventType {
-	// Ledger data mutations — editor.
+	// Append-only writes — clerk or above (roles v2: a clerk writes new
+	// entries/people into the book but can never amend or delete history).
 	case "entry_created",
-		"entry_amended",
+		"person_added":
+		return "clerk", true
+
+	// History mutations — editor or above.
+	case "entry_amended",
 		"entry_deleted",
 		"entry_settled",
-		"person_added",
 		"person_renamed",
 		"person_phone_changed",
 		"person_archived",
-		"person_unarchived",
-		"shop_profile_updated":
+		"person_unarchived":
 		return "editor", true
 
-	// Vault governance — owner.
+	// Shop identity + vault settings — manager or above (roles v2: was
+	// editor here / owner on mobile, reconciled to 'manager' on BOTH sides
+	// per docs/roles-v2-design.md).
+	case "shop_profile_updated",
+		"vault_setting_set":
+		return "manager", true
+
+	// Vault membership governance — owner. (Managers get a CAPPED arm in
+	// the chain rules — membership.go — not in this legacy matrix: the
+	// legacy path has no payload-role context to enforce the cap, so it
+	// stays owner-only.)
 	//
 	// M2: vault_device_added / vault_device_removed are listed here only
 	// for the LEGACY fallback path (unsigned events / anchor-less vaults)
 	// so an unknown-event-type lookup can't 500 a batch. Signed device
 	// events on anchored vaults never reach this matrix — the chain rules
 	// in membership.go (which allow witnessed self-admission) decide them.
-	case "vault_setting_set",
-		"vault_member_added",
+	case "vault_member_added",
 		"vault_member_role_changed",
 		"vault_member_removed",
 		"vault_device_added",
@@ -178,11 +190,11 @@ func requiredRoleFor(eventType string) (string, bool) {
 
 // roleRank is the privilege hierarchy. Hoisted to package scope so
 // roleSatisfies doesn't reallocate the map on every PushEvents loop
-// iteration (ENG #10).
-var roleRank = map[string]int{"viewer": 1, "editor": 2, "owner": 3}
+// iteration (ENG #10). Roles v2 order: viewer < clerk < editor < manager
+// < owner (docs/roles-v2-design.md) — unknown roles rank 0, fail closed.
+var roleRank = map[string]int{"viewer": 1, "clerk": 2, "editor": 3, "manager": 4, "owner": 5}
 
 // roleSatisfies returns true if `have` is at least as privileged as `need`.
-// Hierarchy: owner > editor > viewer.
 func roleSatisfies(have, need string) bool {
 	return roleRank[have] >= roleRank[need]
 }

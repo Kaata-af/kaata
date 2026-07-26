@@ -38,33 +38,77 @@ export type VaultAction =
   | "vault.invite_member"
   | "vault.change_member_role";
 
-// Row order is owner | editor | viewer. Phase 2 ships with editor/viewer
-// columns mirroring D4 §1's published matrix even though the UI cannot
-// produce a non-owner row yet — this is so Phase 4 only needs to flip a few
-// cells (e.g. add a per-action editor=false) without growing the table.
+// Roles v2 column order: owner | manager | editor | clerk | viewer.
+// clerk is APPEND-ONLY: create entries/people, never amend/delete/rename —
+// the "helper with a pen, not an eraser". manager = editor + member
+// management (capped below manager in the enforcement layers) + shop
+// settings; NOT archive/transfer (owner identity operations).
+// person.archive: editor+ — matches what the enforcement gates (mobile
+// role-gate + backend permissions.go) always enforced; the old owner-only
+// cell here was dead code no UI consulted.
 export const PERMISSIONS: Readonly<Record<VaultAction, Readonly<Record<VaultRole, boolean>>>> =
   Object.freeze({
-    "entry.create": { owner: true, editor: true, viewer: false },
-    "entry.amend": { owner: true, editor: true, viewer: false },
-    "entry.delete": { owner: true, editor: true, viewer: false },
+    "entry.create": { owner: true, manager: true, editor: true, clerk: true, viewer: false },
+    "entry.amend": { owner: true, manager: true, editor: true, clerk: false, viewer: false },
+    "entry.delete": { owner: true, manager: true, editor: true, clerk: false, viewer: false },
 
-    "person.add": { owner: true, editor: true, viewer: false },
-    "person.rename": { owner: true, editor: true, viewer: false },
-    "person.change_phone": { owner: true, editor: true, viewer: false },
-    "person.archive": { owner: true, editor: false, viewer: false },
+    "person.add": { owner: true, manager: true, editor: true, clerk: true, viewer: false },
+    "person.rename": { owner: true, manager: true, editor: true, clerk: false, viewer: false },
+    "person.change_phone": {
+      owner: true,
+      manager: true,
+      editor: true,
+      clerk: false,
+      viewer: false,
+    },
+    "person.archive": { owner: true, manager: true, editor: true, clerk: false, viewer: false },
 
-    "vault.rename": { owner: true, editor: false, viewer: false },
-    "vault.archive": { owner: true, editor: false, viewer: false },
+    "vault.rename": { owner: true, manager: true, editor: false, clerk: false, viewer: false },
+    "vault.archive": { owner: true, manager: false, editor: false, clerk: false, viewer: false },
     // Audit-log visibility. Mirrors editor-write authority — anyone who can
     // change the ledger should be able to inspect the change history.
-    // Viewers cannot see the audit log; surface the "Activity" row only for
-    // owner + editor. Decoupled from entry.amend so a future role rebalance
-    // (e.g. read-only editor) doesn't silently strip audit-log access.
-    "vault.view_audit_log": { owner: true, editor: true, viewer: false },
+    // Clerks/viewers cannot see the audit log. Decoupled from entry.amend so
+    // a future role rebalance doesn't silently strip audit-log access.
+    "vault.view_audit_log": {
+      owner: true,
+      manager: true,
+      editor: true,
+      clerk: false,
+      viewer: false,
+    },
 
-    "vault.invite_member": { owner: true, editor: false, viewer: false },
-    "vault.change_member_role": { owner: true, editor: false, viewer: false },
+    "vault.invite_member": {
+      owner: true,
+      manager: true,
+      editor: false,
+      clerk: false,
+      viewer: false,
+    },
+    "vault.change_member_role": {
+      owner: true,
+      manager: true,
+      editor: false,
+      clerk: false,
+      viewer: false,
+    },
   });
+
+// Rank order shared by every mobile enforcement/UI layer (mirrors the
+// backend's roleRank in sync/permissions.go). Unknown → 0, fail closed.
+export const VAULT_ROLE_RANK: Readonly<Record<VaultRole, number>> = Object.freeze({
+  viewer: 1,
+  clerk: 2,
+  editor: 3,
+  manager: 4,
+  owner: 5,
+});
+
+/** Strict parse: the five known literals, anything else null (fail closed). */
+export function parseVaultRole(v: unknown): VaultRole | null {
+  return v === "owner" || v === "manager" || v === "editor" || v === "clerk" || v === "viewer"
+    ? v
+    : null;
+}
 
 // Single-source check. Used by UI gates AND (eventually, Phase 4) the
 // pre-append guard in event-log.ts.

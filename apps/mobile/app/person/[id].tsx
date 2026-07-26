@@ -29,7 +29,7 @@ import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
 import { getShareLangPref, resolveShareLang, t, type LocaleCode } from "../../lib/i18n";
 import { shareKaataViaWhatsApp } from "../../lib/share";
-import { useActiveVaultCanWrite } from "../../lib/use-vault-role";
+import { useActiveVaultWriteCaps } from "../../lib/use-vault-role";
 import type { Entry, PersonWithBalance, Self } from "../../lib/types";
 
 export default function PersonDetailScreen() {
@@ -58,7 +58,9 @@ export default function PersonDetailScreen() {
   const [askLangVisible, setAskLangVisible] = useState(false);
   // Viewer read-only gate: false only when I'm a viewer on the active (shared)
   // kaata. Hides give/receive, edit-person, and entry edit/delete.
-  const canWrite = useActiveVaultCanWrite(getActiveVaultIdSyncMaybe());
+  // Roles v2 split: canCreate gates give/receive (clerks CAN append new
+  // entries); canAmend gates person-edit + entry long-press (clerks cannot).
+  const { canCreate, canAmend } = useActiveVaultWriteCaps(getActiveVaultIdSyncMaybe());
 
   // Send the WhatsApp ping in the given message language (already resolved
   // from share_lang_pref, or picked in the ask-sheet).
@@ -188,7 +190,7 @@ export default function PersonDetailScreen() {
             color={colors.textEmphasis}
           />
         </Pressable>
-        {canWrite ? (
+        {canAmend ? (
           <Pressable
             onPress={() =>
               router.push({ pathname: "/person/[id]/edit", params: { id: person.id } })
@@ -258,7 +260,7 @@ export default function PersonDetailScreen() {
            * auto-reverse children and "I gave" would land on the left
            * (the v0.2.4 bug).
            */}
-          {canWrite ? (
+          {canCreate ? (
             <View style={styles.actions}>
               <View style={styles.actionBtnWrap}>
                 <Pressable
@@ -306,7 +308,7 @@ export default function PersonDetailScreen() {
                 {/* setSheetFor is referentially stable — keeps the memoized
                     EntryRow from re-rendering on unrelated screen renders.
                     Opens the edit/delete sheet on TAP-AND-HOLD only. */}
-                <EntryRow entry={item} onLongPress={canWrite ? setSheetFor : undefined} />
+                <EntryRow entry={item} onLongPress={canAmend ? setSheetFor : undefined} />
               </View>
             ))}
           </View>

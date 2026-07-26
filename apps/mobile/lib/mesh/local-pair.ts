@@ -26,7 +26,7 @@ import { getAppMeta, getDb, setAppMeta } from "../db";
 // deleted. The pair-token store still records the owner-committed role so
 // the chain pair-admission (verifyPeerChain) can carry it into the
 // joiner's vault_member_added.
-export type LocalVMCRole = "owner" | "editor" | "viewer";
+export type LocalVMCRole = "owner" | "manager" | "editor" | "clerk" | "viewer";
 
 // --- constants ---------------------------------------------------------------
 

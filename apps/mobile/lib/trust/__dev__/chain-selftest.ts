@@ -750,6 +750,148 @@ console.log("device_id collision removal retires all bound pubkeys (P1)");
   );
 }
 
+// ---------- roles v2: manager authority (capped) ----------
+// Parity targets: backend membership.go 2b-manager arm + role-gate.ts manager
+// carve-out. A manager authors member events strictly BELOW manager rank.
+console.log("roles v2 manager authority");
+{
+  const managerDev = keypair(6);
+  const MANAGER = "acct-manager";
+  const addManager = makeEvent({
+    type: "vault_member_added",
+    payload: { account_id: MANAGER, role: "manager" },
+    signer: anchor,
+    deviceId: "dev-anchor",
+    account: OWNER,
+  });
+  const bindManager = makeEvent({
+    type: "vault_device_added",
+    payload: { account_id: MANAGER, device_id: "dev-mgr", device_pubkey: managerDev.pubB64 },
+    signer: anchor,
+    deviceId: "dev-anchor",
+    account: OWNER,
+  });
+  const base = [genesis, addManager, bindManager];
+
+  // Below-cap admission: manager admits a clerk.
+  const mgrAddsClerk = makeEvent({
+    type: "vault_member_added",
+    payload: { account_id: "acct-clerk", role: "clerk" },
+    signer: managerDev,
+    deviceId: "dev-mgr",
+    account: MANAGER,
+  });
+  let s = fold([...base, mgrAddsClerk]);
+  check("owner-signed manager admission folds", s.members.get(MANAGER)?.role === "manager");
+  check("manager admits clerk (below cap)", s.members.get("acct-clerk")?.role === "clerk");
+
+  // Below-cap role change + removal.
+  const mgrPromotes = makeEvent({
+    type: "vault_member_role_changed",
+    payload: { account_id: "acct-clerk", role: "editor" },
+    signer: managerDev,
+    deviceId: "dev-mgr",
+    account: MANAGER,
+  });
+  const mgrRemoves = makeEvent({
+    type: "vault_member_removed",
+    payload: { account_id: "acct-clerk" },
+    signer: managerDev,
+    deviceId: "dev-mgr",
+    account: MANAGER,
+  });
+  s = fold([...base, mgrAddsClerk, mgrPromotes, mgrRemoves]);
+  check(
+    "manager role-change below cap folds then removal lands",
+    s.members.get("acct-clerk")?.removed === true,
+  );
+
+  // Cap violations: minting a manager, touching the owner.
+  const mgrMintsManager = makeEvent({
+    type: "vault_member_added",
+    payload: { account_id: "acct-x", role: "manager" },
+    signer: managerDev,
+    deviceId: "dev-mgr",
+    account: MANAGER,
+  });
+  s = fold([...base, mgrMintsManager]);
+  check(
+    "manager cannot mint a manager",
+    !s.members.has("acct-x") && s.conflicts.some((c) => c.reason === "unauthorized"),
+  );
+  const mgrDemotesOwner = makeEvent({
+    type: "vault_member_role_changed",
+    payload: { account_id: OWNER, role: "editor" },
+    signer: managerDev,
+    deviceId: "dev-mgr",
+    account: MANAGER,
+  });
+  s = fold([...base, mgrDemotesOwner]);
+  check(
+    "manager cannot demote the owner",
+    s.members.get(OWNER)?.role === "owner" && s.conflicts.some((c) => c.reason === "unauthorized"),
+  );
+  const mgrRemovesOwner = makeEvent({
+    type: "vault_member_removed",
+    payload: { account_id: OWNER },
+    signer: managerDev,
+    deviceId: "dev-mgr",
+    account: MANAGER,
+  });
+  s = fold([...base, mgrRemovesOwner]);
+  check(
+    "manager cannot remove the owner",
+    s.members.get(OWNER)?.removed === false && s.conflicts.some((c) => c.reason === "unauthorized"),
+  );
+
+  // Witness cap: a witnessed admission at manager refuses even with a valid
+  // server signature over the manager tuple.
+  const joinerDev = keypair(7);
+  const issuedAt = ++hlcCounter;
+  const witnessedManager = makeEvent({
+    type: "vault_member_added",
+    payload: {
+      account_id: "acct-join",
+      role: "manager",
+      witness: {
+        sig_b64: witnessSig(serverKey, {
+          account_id: "acct-join",
+          inviter_account_id: OWNER,
+          issued_at_ms: issuedAt,
+          role: "manager",
+          vault_id: VAULT,
+        }),
+        server_key_id: "primary",
+        issued_at_ms: issuedAt,
+        inviter_account_id: OWNER,
+      },
+    },
+    signer: joinerDev,
+    deviceId: "dev-join",
+    account: "acct-join",
+    pms: issuedAt,
+  });
+  s = fold([genesis, witnessedManager]);
+  check(
+    "witnessed manager admission refused (witness_role_too_high)",
+    !s.members.has("acct-join") && s.conflicts.some((c) => c.reason === "witness_role_too_high"),
+  );
+
+  // Unknown role literal still refuses as malformed (fail closed).
+  const unknownRole = makeEvent({
+    type: "vault_member_added",
+    payload: { account_id: "acct-y", role: "superadmin" },
+    signer: anchor,
+    deviceId: "dev-anchor",
+    account: OWNER,
+  });
+  s = fold([genesis, unknownRole]);
+  check(
+    "unknown role refused as malformed_payload",
+    !s.members.has("acct-y") && s.conflicts.some((c) => c.reason === "malformed_payload"),
+  );
+}
+
 // ---------- result ----------
 if (failures > 0) {
   console.error(`\n${failures} failure(s)`);

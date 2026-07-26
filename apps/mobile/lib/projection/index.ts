@@ -170,7 +170,7 @@ export type ApplyEventResult =
       role_gate?: {
         reason: "insufficient_role" | "unknown_actor" | "unsigned_event" | "bad_signature";
         current_role: string | null;
-        required_role: "owner" | "editor";
+        required_role: "owner" | "manager" | "editor" | "clerk";
       };
     };
 

@@ -16,7 +16,26 @@
 
 export type HlcTuple = { pms: number; l: number; did: string };
 
-export type VaultRole = "owner" | "editor" | "viewer";
+// Roles v2 order: viewer < clerk < editor < manager < owner. Declared here
+// structurally (this module must stay bun-runnable, no lib/events.ts
+// import) — change together with lib/events.ts's VaultRole.
+export type VaultRole = "owner" | "manager" | "editor" | "clerk" | "viewer";
+
+/** Strict role parse — five known literals, anything else null. */
+export function parseChainRole(v: unknown): VaultRole | null {
+  return v === "owner" || v === "manager" || v === "editor" || v === "clerk" || v === "viewer"
+    ? v
+    : null;
+}
+
+/** Rank for authority comparisons. Mirrors backend roleRank + vault-roles.ts. */
+export const CHAIN_ROLE_RANK: Readonly<Record<VaultRole, number>> = {
+  viewer: 1,
+  clerk: 2,
+  editor: 3,
+  manager: 4,
+  owner: 5,
+};
 
 export type MembershipWitnessLike = {
   sig_b64: string;
@@ -198,6 +217,30 @@ export function foldMembership(args: FoldArgs): MembershipState {
     return !!member && !member.removed && member.role === "owner";
   };
 
+  // Roles v2: manager-bound devices hold CAPPED membership authority — they
+  // may author member events strictly BELOW manager rank (never touching
+  // owners/managers, never granting manager/owner). Device events stay
+  // owner/self-only. MUST stay in lockstep with the mobile gate's manager
+  // carve-out (role-gate.ts) and the server arm (membership.go).
+  const signerIsActiveManagerDevice = (signerPubkey: string): boolean => {
+    const dev = state.devices.get(signerPubkey);
+    if (!dev || dev.removed) return false;
+    const member = state.members.get(dev.account_id);
+    return !!member && !member.removed && member.role === "manager";
+  };
+
+  // True when a manager may perform this (target, newRole) mutation: the
+  // granted role (if any) AND the target's current role must both rank
+  // below manager. A non-member target counts as rank 0.
+  const withinManagerCap = (targetAccountId: string, newRole: VaultRole | null): boolean => {
+    if (newRole != null && CHAIN_ROLE_RANK[newRole] >= CHAIN_ROLE_RANK.manager) return false;
+    const target = state.members.get(targetAccountId);
+    if (target && !target.removed && CHAIN_ROLE_RANK[target.role] >= CHAIN_ROLE_RANK.manager) {
+      return false;
+    }
+    return true;
+  };
+
   const countActiveOwners = (s: MembershipState): number => {
     let n = 0;
     for (const m of s.members.values()) {
@@ -256,10 +299,7 @@ export function foldMembership(args: FoldArgs): MembershipState {
     switch (e.event_type) {
       case "vault_member_added": {
         const accountId = typeof p.account_id === "string" ? p.account_id : null;
-        const role =
-          p.role === "owner" || p.role === "editor" || p.role === "viewer"
-            ? (p.role as VaultRole)
-            : null;
+        const role = parseChainRole(p.role);
         if (!accountId || !role) {
           refuse(e, "malformed_payload");
           continue;
@@ -297,15 +337,31 @@ export function foldMembership(args: FoldArgs): MembershipState {
           upsertMember(state, accountId, role);
           continue;
         }
+        // Roles v2: a manager-bound device may admit members strictly below
+        // manager rank. The last-owner guard is unreachable here (an owner
+        // target is already outside the cap) but kept for parity with the
+        // owner arm's shape.
+        if (signerIsActiveManagerDevice(signer)) {
+          if (!withinManagerCap(accountId, role)) {
+            refuse(e, "unauthorized");
+            continue;
+          }
+          if (wouldDemoteSoleOwner(state, accountId, role)) {
+            refuse(e, "last_owner");
+            continue;
+          }
+          upsertMember(state, accountId, role);
+          continue;
+        }
         // Online path: server-witnessed admission proving owner intent via
         // a brokered invite.
         //
-        // SECURITY: a witness is an INVITE attestation, never an owner
-        // grant (§1). It can only admit at editor/viewer — owner promotion
-        // requires an owner-signed role_changed or the anchor. Without this
-        // cap, a leaked/misbehaving witness key would mint a brand-new
-        // owner and take the vault over.
-        if (role === "owner") {
+        // SECURITY: a witness is an INVITE attestation, never an authority
+        // grant (§1). It can only admit BELOW manager — owner/manager
+        // promotion requires an owner-signed role_changed or the anchor.
+        // Without this cap, a leaked/misbehaving witness key would mint a
+        // member-managing seat and take the vault over.
+        if (CHAIN_ROLE_RANK[role] >= CHAIN_ROLE_RANK.manager) {
           refuse(e, "witness_role_too_high");
           continue;
         }
@@ -353,17 +409,22 @@ export function foldMembership(args: FoldArgs): MembershipState {
 
       case "vault_member_role_changed": {
         const accountId = typeof p.account_id === "string" ? p.account_id : null;
-        const role =
-          p.role === "owner" || p.role === "editor" || p.role === "viewer"
-            ? (p.role as VaultRole)
-            : null;
+        const role = parseChainRole(p.role);
         if (!accountId || !role) {
           refuse(e, "malformed_payload");
           continue;
         }
         if (!signerIsActiveOwnerDevice(signer)) {
-          refuse(e, "signer_not_owner_device");
-          continue;
+          // Roles v2: managers may change roles strictly below manager rank
+          // (target's current role AND the new role both < manager).
+          if (!signerIsActiveManagerDevice(signer)) {
+            refuse(e, "signer_not_owner_device");
+            continue;
+          }
+          if (!withinManagerCap(accountId, role)) {
+            refuse(e, "unauthorized");
+            continue;
+          }
         }
         const member = state.members.get(accountId);
         if (!member || member.removed) {
@@ -393,13 +454,22 @@ export function foldMembership(args: FoldArgs): MembershipState {
         // (backend sync/membership.go rule b3) carve-outs, so gate and fold
         // accept identical events. The last-owner guard below still applies:
         // a sole owner cannot self-leave into an ownerless vault.
+        // Roles v2: managers may also remove members ranked below manager;
+        // an over-cap attempt refuses as "unauthorized" (matching the
+        // member_added/role_changed manager arms), not as an unknown signer.
         if (!signerIsActiveOwnerDevice(signer)) {
           const signerDev = state.devices.get(signer);
           const selfLeave =
             signerDev != null && !signerDev.removed && signerDev.account_id === accountId;
           if (!selfLeave) {
-            refuse(e, "signer_not_owner_device");
-            continue;
+            if (!signerIsActiveManagerDevice(signer)) {
+              refuse(e, "signer_not_owner_device");
+              continue;
+            }
+            if (!withinManagerCap(accountId, null)) {
+              refuse(e, "unauthorized");
+              continue;
+            }
           }
         }
         const member = state.members.get(accountId);

@@ -10,7 +10,12 @@
 import type { HLC } from "./hlc";
 import type { EntryType } from "./types";
 
-export type VaultRole = "owner" | "editor" | "viewer";
+// Roles v2 (docs/roles-v2-design.md): viewer < clerk < editor < manager <
+// owner. clerk = append-only (create entries/people, never amend/delete);
+// manager = editor + member management strictly below manager rank.
+// Phase A: every layer understands these; no UI grants them yet.
+// ALSO declared structurally in lib/trust/chain.ts — change BOTH together.
+export type VaultRole = "owner" | "manager" | "editor" | "clerk" | "viewer";
 
 // Common envelope around every payload. Kept separate so payload-only
 // changes don't need to re-spell the envelope.
