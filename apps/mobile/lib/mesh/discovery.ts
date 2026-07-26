@@ -181,6 +181,14 @@ export async function startDiscovery(
   // Lazy require so platforms without the native module (Expo Go, web)
   // don't fail to bundle. shop_mode_enabled is always false in those
   // environments anyway.
+  // NOTE (2026-07-26): react-native-zeroconf was REMOVED from package.json —
+  // its rx2dnssd dependency bundled 4KB-aligned libjdns_sd*.so prebuilts,
+  // the only libs failing Google Play's 16KB-page-size requirement. This
+  // require() already degrades gracefully when the package is absent (the
+  // Expo Go path below), and the mesh is parked anyway. To revive LAN
+  // discovery: re-add the package ONLY after verifying its native libs are
+  // 16KB-aligned (llvm-readelf -l: every PT_LOAD p_align >= 0x4000), or
+  // switch to an NsdManager-based module.
   let Zeroconf: any;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
