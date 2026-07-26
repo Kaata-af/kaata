@@ -219,6 +219,65 @@ export function PhoneMockupWhatsApp() {
   );
 }
 
+// The just-restored home screen: same layout as PhoneMockupHome, with a
+// success card where the offline mockup shows its "entry saved" card. Depicts
+// the sign-in-on-a-new-phone moment the backup feature section describes.
+export function PhoneMockupRestore() {
+  const { t, lang } = useI18n();
+  const isRTL = lang === "fa";
+  return (
+    <PhoneFrame>
+      <div className="px-4 pt-3 pb-4 flex-1 flex flex-col">
+        <p className={`text-[18px] font-bold text-neutral-900 ${isRTL ? "" : "-tracking-tight"}`}>
+          {t("brand.wordmark")}
+        </p>
+        <p className="text-[10px] text-neutral-500 mt-0.5">
+          {t("mock.self.name")} · {t("mock.self.shop")}
+        </p>
+
+        <div className="mt-4">
+          <Tabs active="collect" />
+        </div>
+
+        <div className="mt-4">
+          <p className={eyebrowClass(isRTL)}>{t("home.total.label.collect")}</p>
+          <div className="flex items-baseline gap-1.5 mt-1">
+            <p className="text-[32px] font-bold font-mono text-collect-strong leading-none -tracking-tight">
+              6,220
+            </p>
+            <p className="text-[11px] text-neutral-400 font-medium">{CURRENCY}</p>
+          </div>
+          <p className="text-[10px] text-neutral-500 mt-1">{t("home.from.many", { count: 4 })}</p>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-neutral-200 overflow-hidden bg-white">
+          <ListRow
+            name={t("mock.name.mahmood")}
+            amount={3800}
+            sub={t("format.daysAgo", { n: 2 })}
+          />
+          <ListRow name={t("mock.name.ahmad")} amount={1250} sub={t("format.yesterday")} />
+          <ListRow name={t("mock.name.sultan")} amount={750} sub={t("format.daysAgo", { n: 3 })} />
+        </div>
+
+        <div className="mt-auto rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5 flex items-start gap-2">
+          <span className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white text-[9px] leading-none">
+            ✓
+          </span>
+          <div>
+            <p className="text-[10px] font-semibold text-neutral-900 leading-tight">
+              {t("mock.restored.title")}
+            </p>
+            <p className="text-[10px] text-neutral-500 leading-tight mt-0.5">
+              {t("mock.restored.sub")}
+            </p>
+          </div>
+        </div>
+      </div>
+    </PhoneFrame>
+  );
+}
+
 export function PhoneMockupOffline() {
   const { t, lang } = useI18n();
   const isRTL = lang === "fa";

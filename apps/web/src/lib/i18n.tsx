@@ -39,22 +39,26 @@ const en = {
     "A quiet ledger between you and the people you trust. Track what they owe you, what you owe them, and send a friendly reminder over WhatsApp in two taps.",
   "hero.cta": "Download Kaata",
   "hero.how": "See how it works ↓",
-  "hero.points": "Free forever · Works offline · No account",
+  "hero.points": "Free forever · Works without internet · No sign-up needed",
 
   // Feature sections
   "feature.offline.eyebrow": "Built for the bazaar",
   "feature.offline.title": "A quiet tally that works offline.",
   "feature.offline.body":
-    "Your kaata book lives on your phone. Add people, record what you gave and what you received — all without a connection. No account, no cloud, no setup. Your data stays where it belongs.",
+    "Your kaata book lives on your phone. Add people, record what you gave and what you received — in the shop, on the road, with no signal at all. No sign-up, no setup. Open the app and start writing.",
   "feature.ping.eyebrow": "The killer feature",
   "feature.ping.title": "A reminder, two taps away.",
   "feature.ping.body":
-    "Open a person, tap Ping. Kaata opens WhatsApp with a polite, pre-filled message — their name, your shop, their current balance. No copy-paste, no awkward typing. Just a friendly nudge, sent in seconds.",
+    "Open a person, tap Ping. Kaata opens WhatsApp with a polite, pre-filled message — their name, your shop, their balance, and a private link where they can see their full kaata without installing anything. No copy-paste, no awkward typing. A friendly nudge, sent in seconds.",
+  "feature.backup.eyebrow": "Never lose the book",
+  "feature.backup.title": "Phones get lost. Your kaata comes back.",
+  "feature.backup.body":
+    "A broken or stolen phone used to take the whole book with it — every name, every amount people owed you. Sign in with Google or Apple and Kaata quietly keeps a backup. On a new phone, sign in and everything returns: every person, every entry, every balance.",
 
   // Final CTA
   "cta.title.line1": "Stop chasing slips",
   "cta.title.line2": "of paper.",
-  "cta.sub": "Free forever. No account, no card, no setup.",
+  "cta.sub": "Free forever. No card, no fees, no setup.",
   "cta.button": "Download Kaata",
 
   // Footer
@@ -68,7 +72,7 @@ const en = {
   "footer.privacy": "Privacy",
   "footer.terms": "Terms",
   "footer.deleteAccount": "Delete account",
-  "footer.openSource": "Open source · Coming soon",
+  "footer.github": "Open source on GitHub",
   "footer.followFacebook": "Follow Kaata on Facebook",
   "footer.followInstagram": "Follow Kaata on Instagram",
   "footer.copyright": "© 2026 Kaata · Made in Kabul.",
@@ -91,13 +95,6 @@ const en = {
   "consent.body": "We use a few anonymous signals to understand how kaata.af is used.",
   "consent.reject": "No thanks",
   "consent.accept": "Okay",
-
-  // Customer view (stub)
-  "customer.kicker": "Coming soon",
-  "customer.title": "Customer kaata view",
-  "customer.body":
-    "Shopkeepers will be able to send a link like this one and you'll see your full kaata — balance, every entry, every payment — without installing the app.",
-  "customer.back": "← Back to Kaata",
 
   // Invite landing
   "invite.loading": "Loading invitation",
@@ -168,6 +165,8 @@ const en = {
   "mock.offline": "Offline",
   "mock.entrySaved.title": "New entry saved.",
   "mock.entrySaved.sub": "On this device. No internet needed.",
+  "mock.restored.title": "Kaata restored.",
+  "mock.restored.sub": "4 people · 132 entries · every balance, back on this phone.",
   "mock.whatsapp.reply": "Thanks, will pay tomorrow inshaAllah.",
   "mock.whatsapp.messagePlaceholder": "Message",
 };
@@ -188,22 +187,26 @@ const fa: Record<keyof typeof en, string> = {
     "یک کاتای آرام بین شما و کسانی که به آنها اعتماد دارید. ثبت کنید چه کسی به شما بدهکار است و شما به چه کسی، و با دو ضربه یادآوری دوستانه در واتساپ بفرستید.",
   "hero.cta": "دانلود کاتا",
   "hero.how": "ببینید چطور کار می‌کند ↓",
-  "hero.points": "همیشه رایگان · بدون انترنت کار می‌کند · بدون حساب",
+  "hero.points": "همیشه رایگان · بدون انترنت کار می‌کند · بدون ثبت‌نام",
 
   // Feature sections
   "feature.offline.eyebrow": "ساخته‌شده برای بازار",
   "feature.offline.title": "حساب‌وکتابی آرام که بدون انترنت کار می‌کند.",
   "feature.offline.body":
-    "کتاب کاتای شما روی تلفون خودتان می‌ماند. افراد را اضافه کنید و آنچه دادید و گرفتید را ثبت کنید — همه بدون انترنت. بدون حساب، بدون کلاد، بدون تنظیمات. داده‌های شما همان‌جا می‌ماند که باید باشد.",
+    "کتاب کاتای شما روی تلفون خودتان می‌ماند. افراد را اضافه کنید و آنچه دادید و گرفتید را ثبت کنید — در دکان، در راه، حتی بدون یک خط انترنت. بدون ثبت‌نام، بدون تنظیمات. اپ را باز کنید و شروع به نوشتن کنید.",
   "feature.ping.eyebrow": "امکان اصلی",
   "feature.ping.title": "یادآوری، فقط با دو ضربه.",
   "feature.ping.body":
-    "صفحهٔ شخص را باز کنید و پینگ را بزنید. کاتا واتساپ را با یک پیام مودبانه و آماده باز می‌کند — نام او، دکان شما و باقی‌ماندهٔ حساب. بدون کاپی‌پیست، بدون تایپ. فقط یک یادآوری دوستانه، در چند ثانیه.",
+    "صفحهٔ شخص را باز کنید و پینگ را بزنید. کاتا واتساپ را با یک پیام مودبانه و آماده باز می‌کند — نام او، دکان شما، باقی‌ماندهٔ حساب و یک لینک خصوصی که کاتای کامل خود را بدون نصب چیزی ببیند. بدون کاپی‌پیست، بدون تایپ. یک یادآوری دوستانه، در چند ثانیه.",
+  "feature.backup.eyebrow": "کتاب هرگز گم نمی‌شود",
+  "feature.backup.title": "تلفون گم می‌شود. کاتای شما برمی‌گردد.",
+  "feature.backup.body":
+    "پیش‌تر، شکستن یا گم شدن تلفون یعنی از بین رفتن تمام کتاب — هر نام و هر مبلغی که مردم به شما بدهکار بودند. با گوگل یا اپل وارد شوید تا کاتا بی‌سروصدا نسخهٔ پشتیبان نگه دارد. روی تلفون نو وارد شوید و همه‌چیز برمی‌گردد: هر شخص، هر ثبت و هر باقی‌مانده.",
 
   // Final CTA
   "cta.title.line1": "دیگر دنبال",
   "cta.title.line2": "کاغذپاره‌ها نگردید.",
-  "cta.sub": "همیشه رایگان. بدون حساب، بدون کارت، بدون تنظیمات.",
+  "cta.sub": "همیشه رایگان. بدون کارت، بدون فیس، بدون تنظیمات.",
   "cta.button": "دانلود کاتا",
 
   // Footer
@@ -217,7 +220,7 @@ const fa: Record<keyof typeof en, string> = {
   "footer.privacy": "حریم خصوصی",
   "footer.terms": "شرایط استفاده",
   "footer.deleteAccount": "حذف حساب",
-  "footer.openSource": "متن‌باز · به‌زودی",
+  "footer.github": "متن‌باز در GitHub",
   "footer.followFacebook": "کاتا را در فیسبوک دنبال کنید",
   "footer.followInstagram": "کاتا را در اینستاگرام دنبال کنید",
   "footer.copyright": "© ۲۰۲۶ کاتا · ساخت کابل.",
@@ -239,13 +242,6 @@ const fa: Record<keyof typeof en, string> = {
   "consent.body": "از چند سیگنال ناشناس استفاده می‌کنیم تا بدانیم kaata.af چطور استفاده می‌شود.",
   "consent.reject": "نه تشکر",
   "consent.accept": "قبول",
-
-  // Customer view (stub)
-  "customer.kicker": "به‌زودی",
-  "customer.title": "نمای کاتای مشتری",
-  "customer.body":
-    "دکان‌داران می‌توانند لینکی مثل همین را بفرستند و شما کاتای کامل خود را ببینید — باقی‌مانده، هر ثبت و هر پرداخت — بدون نصب اپ.",
-  "customer.back": "← برگشت به کاتا",
 
   // Invite landing
   "invite.loading": "در حال بارگیری دعوت‌نامه",
@@ -313,6 +309,8 @@ const fa: Record<keyof typeof en, string> = {
   "mock.offline": "آفلاین",
   "mock.entrySaved.title": "ثبت جدید ذخیره شد.",
   "mock.entrySaved.sub": "روی همین دستگاه. بدون انترنت.",
+  "mock.restored.title": "کاتا بازیابی شد.",
+  "mock.restored.sub": "۴ نفر · ۱۳۲ ثبت · هر باقی‌مانده، دوباره روی همین تلفون.",
   "mock.whatsapp.reply": "تشکر، فردا انشاالله پرداخت می‌کنم.",
   "mock.whatsapp.messagePlaceholder": "پیام",
 };

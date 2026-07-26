@@ -1,7 +1,11 @@
 import { Link } from "react-router-dom";
 import { FeatureSection } from "../components/FeatureSection";
 import { Hero } from "../components/Hero";
-import { PhoneMockupOffline, PhoneMockupWhatsApp } from "../components/PhoneMockups";
+import {
+  PhoneMockupOffline,
+  PhoneMockupRestore,
+  PhoneMockupWhatsApp,
+} from "../components/PhoneMockups";
 import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 import { useI18n } from "../lib/i18n";
 
@@ -31,6 +35,17 @@ export function Home() {
           title={t("feature.ping.title")}
           body={t("feature.ping.body")}
           mockup={<PhoneMockupWhatsApp />}
+        />
+      </div>
+
+      {/* Backup/restore — the #1 ask from shopkeeper interviews: the fear of
+          losing the whole book with the phone. */}
+      <div className="border-t border-neutral-200">
+        <FeatureSection
+          eyebrow={t("feature.backup.eyebrow")}
+          title={t("feature.backup.title")}
+          body={t("feature.backup.body")}
+          mockup={<PhoneMockupRestore />}
         />
       </div>
 

@@ -26,6 +26,7 @@ export const WHATSAPP_CONTACT_URL: string = envOr(
 // reason to point these elsewhere, so no VITE_* var / Dockerfile ARG.
 export const FACEBOOK_URL = "https://www.facebook.com/kaata.af";
 export const INSTAGRAM_URL = "https://www.instagram.com/kaata.af";
+export const GITHUB_URL = "https://github.com/Kaata-af/kaata";
 
 // The store listings. Like the social handles, these are stable brand URLs
 // (app ids never change across releases), so they're not env-driven. The
