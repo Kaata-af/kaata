@@ -296,6 +296,65 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
  * caught up). The caller should still set the active pointer in that case — the
  * next launch's reconcile/recovery seeds the row later.
  */
+/**
+ * Instant, OFFLINE-PROOF seed of a just-joined vault from the accept
+ * response itself ({vault_id, vault_name, role} — no server round-trip that
+ * can fail). This is what kills the "joined kaata flashes then vanishes"
+ * bug: recoverJoinedVault's full materialization (listing + snapshot + pull)
+ * can fail on a network blip right after the accept, and the vault row it
+ * would have created is what the switcher/heal logic needs — without it the
+ * kaata showed for a second (the active pointer was set), then
+ * healActiveVaultId saw a MISSING row and moved the pointer away, and no
+ * in-session path recreated it. Seeding the bare row + our own membership
+ * mirror synchronously means the kaata is visible and switchable from the
+ * first frame; recoverJoinedVault then enriches it (anchor, history, other
+ * members) — and if THAT fails, the retry flag heals the enrichment later
+ * while the kaata stays visible throughout.
+ *
+ * Details:
+ *   - registered_with_server_at is stamped so reconcileVaultRegistrations
+ *     never tries to POST-register someone else's vault as ours.
+ *   - Our own vault_members_mirror row (role from the accept response —
+ *     invites only mint editor/viewer, never owner) doubles as the
+ *     joined-vault marker the reconcile ownership guard checks.
+ *   - INSERT OR IGNORE everywhere: re-running after a successful full
+ *     materialization is a no-op.
+ */
+export async function seedJoinedVaultMinimal(
+  vaultId: string,
+  vaultName: string,
+  role: string,
+): Promise<void> {
+  let accountId = getAccountIdSync();
+  if (!accountId) accountId = await refreshAccountIdCache();
+  if (!accountId) return; // accept requires sign-in; purely defensive
+  const now = Date.now();
+  const db = await getDb();
+  await db.runAsync(
+    `INSERT OR IGNORE INTO vaults
+       (id, name, currency, created_at, updated_at, archived_at,
+        is_default, account_id, registered_with_server_at,
+        vault_epoch, hlc_logical, hlc_wall_ms, vault_trust_anchor_pubkey)
+     VALUES (?, ?, 'AFN', ?, ?, NULL, 0, ?, ?, 0, 0, 0, NULL)`,
+    vaultId,
+    vaultName,
+    now,
+    now,
+    accountId,
+    now,
+  );
+  const safeRole = role === "editor" || role === "viewer" ? role : "editor";
+  await db.runAsync(
+    `INSERT OR IGNORE INTO vault_members_mirror
+       (vault_id, account_id, role, accepted_at, revoked_at)
+     VALUES (?, ?, ?, ?, NULL)`,
+    vaultId,
+    accountId,
+    safeRole,
+    now,
+  );
+}
+
 export async function recoverJoinedVault(vaultId: string): Promise<boolean> {
   // The accepting user is already signed-in + onboarded, so a local-self row
   // exists; call defensively (no-op when present) so a pulled relationship/entry

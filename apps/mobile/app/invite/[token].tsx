@@ -164,17 +164,24 @@ export default function InviteAcceptScreen() {
     setStage("accepting");
     try {
       const result = await acceptVaultInvite(token);
-      // Materialize the joined vault LOCALLY before switching to it. The accept
-      // response carries only {vault_id, vault_name, role}; nothing else creates
-      // the local `vaults` row, and the home screen lists from that table — so
-      // without this it can't see the joined vault and silently reverts the
-      // active pointer. recoverJoinedVault seeds the row from the server listing
-      // and pulls the history. Best-effort: even if it fails we still set the
-      // pointer — but no launch path heals a missing row on its own
-      // (recoverAllVaults only runs on restore/sign-in), so mirror the
-      // witness_emit_pending pattern below: flag BEFORE the attempt, clear only
-      // on confirmed success, and retryPendingVaultMaterialize sweeps it on
-      // this screen's next mount.
+      // FIRST: the offline-proof minimal seed straight from the accept
+      // response (vault row + our membership mirror, no network). This is
+      // what guarantees the kaata is visible and switchable from the first
+      // frame even if every enrichment step below fails — the fix for the
+      // "joined kaata flashed then vanished from the switcher" bug, where a
+      // failed recoverJoinedVault left NO local row and healActiveVaultId
+      // promptly moved the active pointer off the void.
+      try {
+        const { seedJoinedVaultMinimal } = await import("../../lib/recovery");
+        await seedJoinedVaultMinimal(result.vault_id, result.vault_name, result.role);
+      } catch (err) {
+        console.warn("[invite] minimal seed failed (materialize retry still covers it)", err);
+      }
+      // THEN the full materialization (anchor, history, other members) —
+      // best-effort with the pending-flag heal: flag BEFORE the attempt,
+      // clear only on confirmed success. retryPendingVaultMaterialize sweeps
+      // the flag from the sync scheduler's session start, the home screen's
+      // load, and this screen's next mount.
       try {
         await markVaultMaterializePending(result.vault_id);
         const { recoverJoinedVault } = await import("../../lib/recovery");

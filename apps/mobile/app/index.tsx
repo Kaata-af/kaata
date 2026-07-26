@@ -351,6 +351,16 @@ export default function HomeScreen() {
           .catch((err) => console.warn("[home] chain backfill kickoff failed", err));
       }
 
+      // Heal any join whose full materialization failed at accept time —
+      // IN-SESSION, not just at the next cold start (the scheduler's sweep
+      // runs once per session at startup, which is too late for a failure
+      // that happens mid-session right after an invite accept). No-op when
+      // the pending set is empty (one app_meta read); the minimal seed keeps
+      // the kaata visible meanwhile, this completes its history/anchor.
+      void import("../lib/vault-api")
+        .then(({ retryPendingVaultMaterialize }) => retryPendingVaultMaterialize())
+        .catch((err) => console.warn("[home] materialize retry kickoff failed", err));
+
       setLoadError(false);
     } catch (err) {
       console.warn("[home] load failed", err);
