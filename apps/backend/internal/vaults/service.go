@@ -269,6 +269,22 @@ type VaultListing struct {
 	// 32-byte check rejects that) from "field absent" (server-anchored
 	// vault, Phase 5 vault, or pre-migration row).
 	VaultTrustAnchorPubkey *string `json:"vault_trust_anchor_pubkey,omitempty"`
+	// Members — active members with display names, so clients can render
+	// real names instead of role labels. The membership chain deliberately
+	// carries no names (events are signed + immutable; a name is mutable
+	// profile data), so the listing is the name channel: accounts.name is
+	// refreshed on every sign-in, with the check-in-reported install
+	// self_name as fallback for accounts whose provider asserted no name.
+	// Names only — member emails are intentionally NOT exposed to peers
+	// (today only an invite's addressee sees the inviter's email).
+	Members []VaultMember `json:"members,omitempty"`
+}
+
+// VaultMember is one active member row on a VaultListing.
+type VaultMember struct {
+	AccountID string `json:"account_id"`
+	Role      string `json:"role"`
+	Name      string `json:"name,omitempty"`
 }
 
 func (s *Service) List(ctx context.Context, accountID string) ([]VaultListing, error) {
@@ -332,7 +348,63 @@ func (s *Service) List(ctx context.Context, accountID string) ([]VaultListing, e
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate vault rows: %w", err)
 	}
+	if err := s.attachMembers(ctx, out); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+// attachMembers fills VaultListing.Members for every listed vault in one
+// batch query. Caller is already verified as an active member of each vault
+// by List's WHERE clause, so no further auth check is needed here.
+func (s *Service) attachMembers(ctx context.Context, listings []VaultListing) error {
+	if len(listings) == 0 {
+		return nil
+	}
+	ids := make([]string, len(listings))
+	for i := range listings {
+		ids[i] = listings[i].VaultID
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT vm.vault_id::text,
+		       vm.account_id::text,
+		       vm.role,
+		       COALESCE(NULLIF(a.name, ''), i.self_name, '') AS name
+		  FROM vault_members vm
+		  JOIN accounts a ON a.id = vm.account_id
+		  LEFT JOIN LATERAL (
+		        SELECT self_name FROM installs
+		         WHERE account_id = vm.account_id
+		           AND self_name IS NOT NULL AND self_name <> ''
+		         ORDER BY last_seen_at DESC
+		         LIMIT 1
+		  ) i ON TRUE
+		 WHERE vm.vault_id = ANY($1::uuid[])
+		   AND vm.revoked_at IS NULL
+		   AND vm.accepted_at IS NOT NULL
+		 ORDER BY vm.vault_id, vm.accepted_at
+	`, ids)
+	if err != nil {
+		return fmt.Errorf("list vault members: %w", err)
+	}
+	defer rows.Close()
+
+	byVault := make(map[string][]VaultMember, len(listings))
+	for rows.Next() {
+		var vaultID string
+		var m VaultMember
+		if err := rows.Scan(&vaultID, &m.AccountID, &m.Role, &m.Name); err != nil {
+			return fmt.Errorf("scan vault member row: %w", err)
+		}
+		byVault[vaultID] = append(byVault[vaultID], m)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate vault member rows: %w", err)
+	}
+	for i := range listings {
+		listings[i].Members = byVault[listings[i].VaultID]
+	}
+	return nil
 }
 
 // UpdateInput carries the optional fields PATCH /v1/vaults/:vault_id can

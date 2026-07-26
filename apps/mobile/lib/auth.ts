@@ -791,10 +791,18 @@ async function postSignInHousekeeping(args: {
           ...staleSelfIds,
         );
       }
+      // Upsert (NOT INSERT OR REPLACE): REPLACE deletes the old row first,
+      // which silently NULLed a stored display_name on every re-sign-in —
+      // degrading what peers inherit when genesis backfill recycles the
+      // mirror's name into re-emitted admission events.
       await db.runAsync(
-        `INSERT OR REPLACE INTO vault_members_mirror
+        `INSERT INTO vault_members_mirror
            (vault_id, account_id, role, accepted_at, revoked_at)
-         VALUES (?, ?, 'owner', ?, NULL)`,
+         VALUES (?, ?, 'owner', ?, NULL)
+         ON CONFLICT(vault_id, account_id) DO UPDATE SET
+           role        = 'owner',
+           accepted_at = COALESCE(vault_members_mirror.accepted_at, excluded.accepted_at),
+           revoked_at  = NULL`,
         vaultId,
         accountId,
         now,

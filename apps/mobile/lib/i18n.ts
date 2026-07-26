@@ -2199,6 +2199,22 @@ export function tIn(locale: LocaleCode, key: Key, vars?: Record<string, string |
   return Object.entries(vars).reduce((s, [k, v]) => s.replaceAll(`{${k}}`, String(v)), template);
 }
 
+/**
+ * True when a self display name is the restore-time placeholder minted by
+ * ensureLocalSelfForRestore ("You"/"شما") rather than a name the user or
+ * their sign-in provider actually supplied. Checked against BOTH locales'
+ * literals — the mint uses the active UI locale, but the user may switch
+ * languages later. Callers use this to avoid propagating the placeholder
+ * into signed events, member mirrors, or WhatsApp-visible surfaces.
+ */
+export function isPlaceholderSelfName(name: string): boolean {
+  const trimmed = name.trim();
+  return (
+    trimmed === tIn("en", "recovery.selfPlaceholderName") ||
+    trimmed === tIn("fa", "recovery.selfPlaceholderName")
+  );
+}
+
 // Re-evaluate the locale after the user (eventually) toggles a manual
 // override. Currently device-driven only.
 export function refreshLocale(): void {

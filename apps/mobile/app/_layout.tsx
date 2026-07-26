@@ -114,7 +114,7 @@ import { configureGoogleSignIn } from "../lib/auth";
 import { initCurrencyFromPref } from "../lib/currency";
 import { initDefaultCountryFromPref } from "../lib/phone";
 import { useAppFontsWithError } from "../lib/fonts";
-import { getLocale, initLocaleFromPref, t } from "../lib/i18n";
+import { getLocale, initLocaleFromPref, isPlaceholderSelfName, t } from "../lib/i18n";
 import { ensureInstallId, getInstalledAtUnixMs } from "../lib/install-id";
 import { sweepAllQuarantinedVaults } from "../lib/projection/sweep";
 import { type BootError, forceRestart, toBootError } from "../lib/boot-error";
@@ -1127,7 +1127,10 @@ function BackgroundCheckIn({ installId }: { installId: string }) {
           // already disclose exactly this ("own profile on check-in, no
           // sign-in required" — docs/play-data-safety.md). Scope is
           // getLocalSelf() only — never customers/suppliers.
-          self_name: self?.name || undefined,
+          // Placeholder-guarded: a restore-minted "You"/"شما" self must not
+          // reach installs.self_name — the vaults listing's name fallback
+          // would echo "You" onto every member's Members tab as this person.
+          self_name: self?.name && !isPlaceholderSelfName(self.name) ? self.name : undefined,
           self_phone: self?.phone || undefined,
           shop_name: self?.shop_name || undefined,
           phones_invalid_count: invalidStr ? Number(invalidStr) : undefined,

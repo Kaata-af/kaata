@@ -25,8 +25,8 @@ import Constants from "expo-constants";
 import * as Crypto from "expo-crypto";
 
 import { checkIn } from "./api";
-import { getAppMeta, setAppMeta } from "./db";
-import { t } from "./i18n";
+import { getAppMeta, getLocalSelf, setAppMeta } from "./db";
+import { isPlaceholderSelfName, t } from "./i18n";
 import {
   ACTIVE_VAULT_META_KEY,
   getAccountIdSync,
@@ -344,14 +344,20 @@ export async function seedJoinedVaultMinimal(
     now,
   );
   const safeRole = role === "editor" || role === "viewer" ? role : "editor";
+  // Self display name, so the joiner's own Members row shows their name from
+  // the first frame. Guarded: a restore-minted placeholder ("You") must not
+  // masquerade as a real name. NULL is fine — the server listing heal
+  // (healMemberNamesFromListing) fills it as soon as a reconcile runs.
+  const selfName = (await getLocalSelf().catch(() => null))?.name?.trim() || null;
   await db.runAsync(
     `INSERT OR IGNORE INTO vault_members_mirror
-       (vault_id, account_id, role, accepted_at, revoked_at)
-     VALUES (?, ?, ?, ?, NULL)`,
+       (vault_id, account_id, role, accepted_at, revoked_at, display_name)
+     VALUES (?, ?, ?, ?, NULL, ?)`,
     vaultId,
     accountId,
     safeRole,
     now,
+    selfName && !isPlaceholderSelfName(selfName) ? selfName : null,
   );
 }
 
@@ -407,6 +413,15 @@ export async function recoverJoinedVault(vaultId: string): Promise<boolean> {
     console.warn("[recovery] joined vault initial pull failed", err);
   }
 
+  // Same self-row + member-name reconcile the full-recovery loop does — the
+  // join path was skipping it, which left the joiner's Members tab rendering
+  // role labels ("Owner") until some later full recovery ran.
+  try {
+    await healSelfMembershipFromListing(v);
+  } catch (err) {
+    console.warn("[recovery] joined vault membership heal failed", err);
+  }
+
   return true;
 }
 
@@ -443,6 +458,37 @@ async function healSelfMembershipFromListing(v: VaultListing): Promise<void> {
     // case this lifted a stale local revocation.
     const { invalidateVaultRoleCache } = await import("./use-vault-role");
     invalidateVaultRoleCache(v.vault_id);
+  }
+  await healMemberNamesFromListing(v);
+}
+
+/**
+ * Fold the listing's member display names into the mirror. NAMES ONLY for
+ * other members — roles and revocation state of OTHER accounts stay driven
+ * by the event chain (and healSelfMembershipFromListing for self), so this
+ * can never move authority; it only fixes the members screen showing role
+ * labels ("Owner"/"Editor") where a person's name belongs. FILL-BLANKS-ONLY:
+ * a name already in the mirror (QR pair, admission-event payload — both
+ * user-chosen, often Dari) always beats the server's accounts.name (often
+ * a latinized Google profile name); the listing only names rows that would
+ * otherwise render as role labels. Placeholder-guarded: the server can echo
+ * a restore-minted "You" back via the installs.self_name fallback, and
+ * stamping it would both regress the row and risk genesis backfill signing
+ * it into an immutable event. Old backends omit `members` entirely → no-op.
+ */
+export async function healMemberNamesFromListing(v: VaultListing): Promise<void> {
+  if (!v.members || v.members.length === 0) return;
+  const db = await getDb();
+  for (const m of v.members) {
+    const name = m.name?.trim();
+    if (!m.account_id || !name || isPlaceholderSelfName(name)) continue;
+    await db.runAsync(
+      `UPDATE vault_members_mirror SET display_name = ?
+        WHERE vault_id = ? AND account_id = ? AND display_name IS NULL`,
+      name,
+      v.vault_id,
+      m.account_id,
+    );
   }
 }
 

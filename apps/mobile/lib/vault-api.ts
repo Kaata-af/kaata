@@ -91,6 +91,14 @@ async function httpThrowing(method: string, path: string, body?: unknown): Promi
 // GET /v1/vaults — list the account's memberships (M5 multi-vault recovery)
 // ---------------------------------------------------------------------------
 
+/** One active member on a VaultListing (name channel — see `members`). */
+export type VaultListingMember = {
+  account_id: string;
+  role: string;
+  /** accounts.name (login-refreshed) with install self_name fallback; may be "". */
+  name?: string;
+};
+
 /** One vault the signed-in account is a member of (GET /v1/vaults). */
 export type VaultListing = {
   vault_id: string;
@@ -103,6 +111,14 @@ export type VaultListing = {
   vault_epoch: number;
   /** base64 32-byte owner anchor pubkey; absent for server-anchored vaults. */
   vault_trust_anchor_pubkey?: string;
+  /**
+   * Active members with display names. The signed membership chain
+   * deliberately carries no names (immutable events vs mutable profile
+   * data), so this listing is how devices learn what to CALL each other —
+   * folded into vault_members_mirror.display_name by lib/recovery.ts.
+   * Absent on pre-names backends.
+   */
+  members?: VaultListingMember[];
 };
 
 /**

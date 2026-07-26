@@ -11,15 +11,15 @@
 // keep vault_members_mirror coherent with server state.
 //
 // PHASE 4 ARCHITECTURE NOTE (ARCH #1):
-// The server does NOT currently emit vault_member_* events into the
-// `events` table — it writes vault_members + vault_audit_log directly
-// in vaults/service.go. These appliers are wired ahead of the producer
-// so when (Phase 4.1 or Phase 5) the server starts emitting the events,
-// existing clients already have correct projection semantics. Until
-// then, vault_members_mirror is seeded by a periodic GET /v1/vaults
-// reconciliation pull (lib/sync/vaults-reconcile.ts) and the appliers
-// here act as belt-and-suspenders. The mirror is read-only — clients
-// never write membership locally.
+// The server does NOT emit vault_member_* events into the `events` table —
+// it writes vault_members + vault_audit_log directly in vaults/service.go.
+// The events these appliers fold are authored by DEVICES (genesis on vault
+// create, witnessed self-admissions on invite accept, owner-signed role
+// changes/removals). Alongside the fold, lib/recovery.ts reconciles against
+// GET /v1/vaults: healSelfMembershipFromListing (own row: role + revocation
+// lift) and healMemberNamesFromListing (display names for everyone — the
+// chain deliberately carries no names). Non-self role/revocation state stays
+// chain-driven.
 
 import type { SQLiteTx } from "../db-tx";
 import type {

@@ -27,7 +27,8 @@
 // app session — deliberate, per §5's "one-shot, next-launch retry" shape.
 
 import { getAccountIdSync, getDb, getInstallIdSync } from "../db-tx";
-import { getAppMeta, setAppMeta } from "../db";
+import { getAppMeta, getLocalSelf, setAppMeta } from "../db";
+import { isPlaceholderSelfName } from "../i18n";
 import {
   appendVaultDeviceAdded,
   appendVaultMemberAdded,
@@ -189,11 +190,16 @@ async function runGenesisBackfill(vaultId: string): Promise<void> {
     if (m.account_id === ownerAccountId) continue;
     if (isActiveMember(m.account_id)) continue;
     const role: VaultRole = m.role === "owner" || m.role === "viewer" ? m.role : "editor";
+    // Placeholder guard: a mirror row can hold the restore-minted "You"
+    // (echoed back via the server listing before it was itself guarded).
+    // Events are immutable — "You" must never be signed into the chain.
+    const displayName =
+      m.display_name && !isPlaceholderSelfName(m.display_name) ? m.display_name : null;
     await appendVaultMemberAdded({
       targetVaultId: vaultId,
       accountId: m.account_id,
       role,
-      displayName: m.display_name,
+      displayName,
       backfillSynthetic: true,
     });
   }
@@ -274,7 +280,25 @@ async function runGenesisBackfill(vaultId: string): Promise<void> {
 // The caller clears witness_emit_pending only after this returns without
 // throwing — i.e. only once the device binding exists (emitted or confirmed
 // present below).
-export async function emitWitnessedSelfAdmission(vaultId: string): Promise<void> {
+export async function emitWitnessedSelfAdmission(
+  vaultId: string,
+  opts?: {
+    /**
+     * The joiner's own display name, carried in the signed vault_member_added
+     * payload so the OWNER's Members tab shows a name the moment the event
+     * syncs (extra payload fields are canonicalization-safe for old clients —
+     * see event-sig.ts). Callers must pre-guard with isPlaceholderSelfName;
+     * null/absent produces byte-identical payloads to pre-names events.
+     */
+    selfDisplayName?: string | null;
+    /**
+     * The inviter's name (from the invite-info card) — stamped into the
+     * inviter's mirror row so the joiner's Members tab shows who runs the
+     * kaata instead of the "Owner" role label. Mirror-only, never an event.
+     */
+    inviterName?: string | null;
+  },
+): Promise<void> {
   await ensureDeviceKey();
   const devicePubkey = getDevicePubkey();
   if (!devicePubkey) {
@@ -282,6 +306,36 @@ export async function emitWitnessedSelfAdmission(vaultId: string): Promise<void>
   }
 
   const res = await fetchMembershipWitness(vaultId);
+
+  // Best-effort inviter-name stamp (visibility only — role/revocation stay
+  // chain-driven). The inviter is an owner (CreateInvite is requireOwner
+  // server-side); INSERT OR IGNORE means a chain-folded row wins on role,
+  // and we only fill display_name when it's still unknown.
+  const inviterName = opts?.inviterName?.trim();
+  const inviterId = res.member_witness?.inviter_account_id;
+  if (inviterName && inviterId) {
+    try {
+      const db = await getDb();
+      await db.runAsync(
+        `INSERT OR IGNORE INTO vault_members_mirror
+           (vault_id, account_id, role, accepted_at, revoked_at, display_name)
+         VALUES (?, ?, 'owner', ?, NULL, ?)`,
+        vaultId,
+        inviterId,
+        Date.now(),
+        inviterName,
+      );
+      await db.runAsync(
+        `UPDATE vault_members_mirror SET display_name = ?
+          WHERE vault_id = ? AND account_id = ? AND display_name IS NULL`,
+        inviterName,
+        vaultId,
+        inviterId,
+      );
+    } catch (err) {
+      console.warn("[trust/backfill] inviter name stamp failed (cosmetic)", err);
+    }
+  }
 
   // Invite acceptance requires sign-in, so account_id is normally set;
   // the local sentinel is a defensive fallback only.
@@ -328,12 +382,22 @@ export async function emitWitnessedSelfAdmission(vaultId: string): Promise<void>
       issued_at_ms: res.member_witness.issued_at_ms,
       inviter_account_id: res.member_witness.inviter_account_id,
     };
+    // Self name for the payload: explicit opts win; otherwise derive from
+    // getLocalSelf so the recovery/backfill retry paths also carry it.
+    // Placeholder-guarded either way — "You" must never enter a signed event.
+    let selfDisplayName = opts?.selfDisplayName?.trim() || null;
+    if (!selfDisplayName) {
+      const self = await getLocalSelf().catch(() => null);
+      selfDisplayName = self?.name?.trim() || null;
+    }
+    if (selfDisplayName && isPlaceholderSelfName(selfDisplayName)) selfDisplayName = null;
     try {
       await appendVaultMemberAdded({
         targetVaultId: vaultId,
         accountId,
         role: res.member_witness.role,
         witness: memberWitness,
+        displayName: selfDisplayName ?? undefined,
       });
     } catch (err) {
       if (err instanceof RoleGateRejectionError) {

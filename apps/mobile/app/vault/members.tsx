@@ -46,7 +46,7 @@ import { getActiveVaultId, getDb } from "../../lib/db-tx";
 import { getAppMeta, getLocalSelf } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
-import { t } from "../../lib/i18n";
+import { isPlaceholderSelfName, t } from "../../lib/i18n";
 import { useVaultRole } from "../../lib/use-vault-role";
 import { subscribePresence, isPeerOnline } from "../../lib/mesh/presence";
 import { fetchPendingInvitations } from "../../lib/vault-api";
@@ -256,6 +256,18 @@ export default function VaultMembersScreen() {
         failed = true;
         console.warn("[vault/members] invite fetch failed", err);
       }
+      // Member display names ride the vaults listing (server accounts.name);
+      // fold them into the mirror so rows show people, not role labels.
+      // Same offline/local-CA guard rationale as above; a name-heal failure
+      // is cosmetic, so it doesn't flip `failed`.
+      try {
+        const { listVaults } = await import("../../lib/vault-api");
+        const { healMemberNamesFromListing } = await import("../../lib/recovery");
+        const listing = (await listVaults()).find((v) => v.vault_id === vaultId);
+        if (listing) await healMemberNamesFromListing(listing);
+      } catch (err) {
+        console.warn("[vault/members] member-name heal failed", err);
+      }
       await loadAll();
     } catch (err) {
       failed = true;
@@ -464,12 +476,20 @@ export default function VaultMembersScreen() {
                 : m.role === "editor"
                   ? t("vaultPair.role.editor")
                   : t("vaultPair.role.viewer");
-            const displayName =
-              m.display_name ?? m.email ?? (isSelf ? (selfName ?? roleLabel) : roleLabel);
+            // Self row: a restore-minted placeholder ("You") must not render
+            // as "You (You)" — when no REAL name resolves, show the localized
+            // "You" once, without the suffix. Real names get the suffix.
+            const resolved = m.display_name ?? m.email ?? (isSelf ? selfName : null);
+            const realName = resolved && !isPlaceholderSelfName(resolved) ? resolved : null;
+            const displayName = isSelf
+              ? realName
+                ? realName + t("members.youSuffix")
+                : t("recovery.selfPlaceholderName")
+              : (realName ?? roleLabel);
             return (
               <MemberIdentityRow
                 key={m.account_id}
-                name={displayName + (isSelf ? t("members.youSuffix") : "")}
+                name={displayName}
                 sub={m.email}
                 role={m.role}
                 isRTL={isRTL}

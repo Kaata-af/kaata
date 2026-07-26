@@ -207,7 +207,12 @@ export default function InviteAcceptScreen() {
         const { emitWitnessedSelfAdmission, witnessEmitPendingKey } =
           await import("../../lib/trust/backfill");
         await setAppMeta(witnessEmitPendingKey(result.vault_id), "1");
-        await emitWitnessedSelfAdmission(result.vault_id);
+        // inviterName: the invite-info card's inviter (an owner — CreateInvite
+        // is owner-only) gets their real name stamped on the joiner's Members
+        // tab instead of the "Owner" role label.
+        await emitWitnessedSelfAdmission(result.vault_id, {
+          inviterName: invite.inviter_name ?? null,
+        });
         await setAppMeta(witnessEmitPendingKey(result.vault_id), "");
       } catch (err) {
         console.warn("[invite] witness emission failed (backfill path will retry)", err);
