@@ -800,11 +800,10 @@ console.log("roles v2 manager authority");
     deviceId: "dev-mgr",
     account: MANAGER,
   });
+  s = fold([...base, mgrAddsClerk, mgrPromotes]);
+  check("manager role-change below cap folds", s.members.get("acct-clerk")?.role === "editor");
   s = fold([...base, mgrAddsClerk, mgrPromotes, mgrRemoves]);
-  check(
-    "manager role-change below cap folds then removal lands",
-    s.members.get("acct-clerk")?.removed === true,
-  );
+  check("manager removal below cap lands", s.members.get("acct-clerk")?.removed === true);
 
   // Cap violations: minting a manager, touching the owner.
   const mgrMintsManager = makeEvent({
@@ -842,6 +841,38 @@ console.log("roles v2 manager authority");
   check(
     "manager cannot remove the owner",
     s.members.get(OWNER)?.removed === false && s.conflicts.some((c) => c.reason === "unauthorized"),
+  );
+
+  // Manager-vs-MANAGER target (review fix: every over-cap target above was
+  // the owner, so a weaker `=== owner` check would have passed — assert the
+  // rank comparison blocks PEER managers too).
+  const addManager2 = makeEvent({
+    type: "vault_member_added",
+    payload: { account_id: "acct-mgr2", role: "manager" },
+    signer: anchor,
+    deviceId: "dev-anchor",
+    account: OWNER,
+  });
+  const mgrDemotesPeer = makeEvent({
+    type: "vault_member_role_changed",
+    payload: { account_id: "acct-mgr2", role: "viewer" },
+    signer: managerDev,
+    deviceId: "dev-mgr",
+    account: MANAGER,
+  });
+  const mgrRemovesPeer = makeEvent({
+    type: "vault_member_removed",
+    payload: { account_id: "acct-mgr2" },
+    signer: managerDev,
+    deviceId: "dev-mgr",
+    account: MANAGER,
+  });
+  s = fold([...base, addManager2, mgrDemotesPeer, mgrRemovesPeer]);
+  check(
+    "manager cannot demote or remove a PEER manager",
+    s.members.get("acct-mgr2")?.role === "manager" &&
+      s.members.get("acct-mgr2")?.removed === false &&
+      s.conflicts.filter((c) => c.reason === "unauthorized").length === 2,
   );
 
   // Witness cap: a witnessed admission at manager refuses even with a valid

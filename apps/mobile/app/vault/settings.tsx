@@ -116,6 +116,9 @@ export default function VaultSettingsScreen() {
   const role: VaultRole = useVaultRole(vaultId, accountId);
   const canRename = useVaultPermission(vaultId, accountId, "vault.rename");
   const canArchive = useVaultPermission(vaultId, accountId, "vault.archive");
+  // Roles v2 review fix: consult the matrix, not a 'viewer' literal — a
+  // clerk must not see the Activity row either (clerk: false in PERMISSIONS).
+  const canViewAudit = useVaultPermission(vaultId, accountId, "vault.view_audit_log");
 
   useFocusEffect(
     useCallback(() => {
@@ -623,7 +626,7 @@ export default function VaultSettingsScreen() {
 
           {/* ============ ACTIVITY ============ */}
           <SectionHeader label={t("vaultSettings.section.activity")} isRTL={isRTL} />
-          {role !== "viewer" ? (
+          {canViewAudit ? (
             <NavRow
               icon="time-outline"
               label={t("vaultSettings.row.audit")}

@@ -117,6 +117,50 @@ func TestManagerCannotExceedCap(t *testing.T) {
 	}
 }
 
+// Review fix: managerCapSatisfied must not refuse a NON-UUID (`local:…`
+// pair-admitted) target — such ids can't hold a vault_members seat, so no
+// server-side role can rank >= manager. NOTE this is defense-in-depth
+// parity only: events.target_id is UUID-typed (migration 007), so today's
+// push path can't even STORE such an event (any signer, owner included) —
+// exercised as a direct unit call, not through PushEvents.
+func TestManagerCapAllowsLocalTarget(t *testing.T) {
+	f, _, _ := newManagerFixture(t)
+	ctx := context.Background()
+	tx, err := f.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	ev := f.membershipEvent("vault_member_removed", uuid.NewString(), "",
+		"local:AbCdEfGhIjKlMnOp",
+		map[string]any{"account_id": "local:AbCdEfGhIjKlMnOp"})
+	ok, err := managerCapSatisfied(ctx, tx, uuid.MustParse(f.vaultID), &ev)
+	if err != nil || !ok {
+		t.Fatalf("managerCapSatisfied(local: target) = %v, %v — want true (below cap by definition)", ok, err)
+	}
+	// Empty target still refuses (structurally malformed).
+	bad := f.membershipEvent("vault_member_removed", uuid.NewString(), "", "",
+		map[string]any{"account_id": ""})
+	ok, err = managerCapSatisfied(ctx, tx, uuid.MustParse(f.vaultID), &bad)
+	if err != nil || ok {
+		t.Fatalf("managerCapSatisfied(empty target) = %v, %v — want false", ok, err)
+	}
+}
+
+// Review fix: a manager-signed member_added/role_changed with a MISSING
+// role field must be refused — mobile refuses it as malformed_payload, and
+// the old `grantedRole != ""` guard skipped validation entirely.
+func TestManagerRolelessGrantRejected(t *testing.T) {
+	f, managerAcct, managerPriv := newManagerFixture(t)
+	staff := f.seedAccount(t, "staff@gmail.com")
+
+	noRole := f.membershipEvent("vault_member_added", uuid.NewString(), managerAcct, staff,
+		map[string]any{"account_id": staff})
+	f.signEvent(t, &noRole, managerPriv)
+	requireRejectedUnverified(t, f.pushAs(t, managerAcct, noRole), noRole.EventID)
+}
+
 // A witnessed admission at role=manager must be refused even with a VALID
 // server witness signature over the manager tuple — the witness arm can
 // never mint member-management authority.

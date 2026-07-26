@@ -1226,6 +1226,18 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
           managerAuthorized = true;
         }
       }
+      // SCOPED TO ANCHORED VAULTS — same rationale as the self-leave
+      // carve-out below (review fix): on an anchor-less legacy vault the
+      // server's legacy ACL keeps vault_member_* owner-only (it has no
+      // payload-role context to enforce the manager cap), so applying a
+      // manager's event locally there would split silently from the server.
+      if (managerAuthorized) {
+        const anchorRow = await tx.getFirstAsync<{ vault_trust_anchor_pubkey: string | null }>(
+          "SELECT vault_trust_anchor_pubkey FROM vaults WHERE id = ? LIMIT 1",
+          event.vault_id,
+        );
+        if (anchorRow?.vault_trust_anchor_pubkey == null) managerAuthorized = false;
+      }
     }
 
     // SELF-LEAVE carve-out: a member may remove their OWN membership ("leave

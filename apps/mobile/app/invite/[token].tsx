@@ -376,15 +376,21 @@ export default function InviteAcceptScreen() {
   );
 }
 
-// Map the raw role enum to its translated label (vaultPair.role.* keys).
+// Map the raw role enum to its translated label. Roles v2 review fix: all
+// five roles map explicitly — a clerk invitee must not be told "Editor".
+// Unknown/absent still falls back to the editor label (legacy invites).
 function roleLabel(role: PendingInvite["role"]): string {
   switch (role) {
     case "owner":
-      return t("vaultPair.role.owner");
+      return t("vaultSettings.role.owner");
+    case "manager":
+      return t("vaultSettings.role.manager");
+    case "clerk":
+      return t("vaultSettings.role.clerk");
     case "viewer":
-      return t("vaultPair.role.viewer");
+      return t("vaultSettings.role.viewer");
     default:
-      return t("vaultPair.role.editor");
+      return t("vaultSettings.role.editor");
   }
 }
 

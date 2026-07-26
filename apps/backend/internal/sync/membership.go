@@ -989,6 +989,7 @@ func isValidMemberRole(role string) bool {
 func managerCapSatisfied(ctx context.Context, tx pgx.Tx, vaultUUID uuid.UUID, ev *PushEvent) (bool, error) {
 	managerRank := roleRank["manager"]
 	var targetAccountID, grantedRole string
+	rolelessKind := false
 	switch ev.EventType {
 	case EventVaultMemberAdded:
 		var p memberAddedWire
@@ -1008,15 +1009,25 @@ func managerCapSatisfied(ctx context.Context, tx pgx.Tx, vaultUUID uuid.UUID, ev
 			return false, nil
 		}
 		targetAccountID = p.AccountID
+		rolelessKind = true
 	default:
 		return false, nil
 	}
-	if grantedRole != "" && (!isValidMemberRole(grantedRole) || roleRank[grantedRole] >= managerRank) {
+	// member_added / role_changed MUST carry a valid below-manager role.
+	// Review fix: an ABSENT role previously skipped this via a !="" guard,
+	// authorizing an event both mobile layers refuse as malformed_payload.
+	if !rolelessKind && (!isValidMemberRole(grantedRole) || roleRank[grantedRole] >= managerRank) {
 		return false, nil
 	}
+	// Non-UUID target (a `local:…` pair-admitted chain member): it CANNOT
+	// have a vault_members seat (UUID column), so no server-side role can
+	// rank >= manager — within the cap by definition. Review fix: hard-
+	// refusing here made the server reject events every mobile layer
+	// accepts (permanent replica split); chain-protected local: targets are
+	// enforced by every replica's fold, which sees their real chain role.
 	targetUUID, err := uuid.Parse(targetAccountID)
 	if err != nil {
-		return false, nil
+		return targetAccountID != "", nil
 	}
 	targetRole, found, rerr := roleAtHLC(ctx, tx, targetUUID, vaultUUID, ev.HLC.PhysicalMS)
 	if rerr != nil {

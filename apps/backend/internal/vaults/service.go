@@ -862,11 +862,17 @@ func (s *Service) TransferOwnership(ctx context.Context, in TransferInput) (int6
 }
 
 // SetMemberRole flips a member to owner / editor / viewer (owner-only).
+//
+// Roles v2 PHASE A GATE (review fix): manager/clerk are understood by every
+// layer but must NOT be grantable while 1.0.2 clients are in the fleet —
+// their SQLite CHECK + chain fold hard-fail on the new literals, and this
+// REST endpoint is reachable by any owner JWT (curl), not just shipped UI.
+// Phase B deletes phaseAGrantable and this comment.
 func (s *Service) SetMemberRole(ctx context.Context, vaultID, callerID, targetID, newRole string) (int64, error) {
 	if vaultID == "" || callerID == "" || targetID == "" {
 		return 0, errors.New("vault_id, caller, and target are required")
 	}
-	if !isValidRole(newRole) {
+	if !isValidRole(newRole) || !phaseAGrantable(newRole) {
 		return 0, ErrInvalidRole
 	}
 
@@ -1069,7 +1075,9 @@ func (s *Service) AuditLog(ctx context.Context, vaultID, accountID string, since
 	if err != nil {
 		return AuditPage{}, err
 	}
-	if role == "viewer" {
+	// Roles v2 review fix: clerks are excluded from the audit log too
+	// (append-only helpers don't get the change-history surface).
+	if role == "viewer" || role == "clerk" {
 		return AuditPage{}, ErrNotOwner
 	}
 
@@ -1205,7 +1213,10 @@ func (s *Service) CreateInvite(ctx context.Context, in CreateInviteInput) (Creat
 	// Invites can only mint roles BELOW manager (roles v2): a witnessed
 	// admission must never grant member-management authority — manager is
 	// owner-granted via role change AFTER joining, owner via transfer only.
-	if in.Role != "editor" && in.Role != "viewer" && in.Role != "clerk" {
+	// PHASE A GATE (review fix): clerk joins this list in Phase B, once the
+	// fleet's clients understand it — until then this endpoint must not
+	// mint a role 1.0.2 folds refuse (permanent old-client divergence).
+	if in.Role != "editor" && in.Role != "viewer" {
 		return CreateInviteResult{}, ErrInvalidRole
 	}
 	// Link invite: an empty email means "shareable link" — the token IS the
@@ -1947,6 +1958,18 @@ func writeAudit(
 func isValidRole(role string) bool {
 	switch role {
 	case "owner", "manager", "editor", "clerk", "viewer":
+		return true
+	}
+	return false
+}
+
+// phaseAGrantable: the roles the REST surface may MINT during roles v2
+// Phase A — the pre-v2 set only. The chain/fold layers understand
+// manager/clerk (that's the point of Phase A), but granting waits for the
+// fleet to be on a build that does too. Phase B deletes this.
+func phaseAGrantable(role string) bool {
+	switch role {
+	case "owner", "editor", "viewer":
 		return true
 	}
 	return false

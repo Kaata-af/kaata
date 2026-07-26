@@ -38,6 +38,7 @@ import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { fetchLocalAuditLog, isLocalCAVault } from "../../lib/projection/audit-log-local";
 import { useVaultRole } from "../../lib/use-vault-role";
+import { canPerformAction, type VaultRole } from "../../lib/vault-roles";
 import { fetchAuditLog, type AuditEntry } from "../../lib/vault-api";
 
 const PAGE_SIZE = 50;
@@ -83,10 +84,12 @@ export default function VaultAuditLogScreen() {
   // before a manual refresh.
   const abortRef = useRef<AbortController | null>(null);
 
-  // Viewer redirect — separate from data load so it doesn't re-trigger fetch.
+  // No-access redirect — separate from data load so it doesn't re-trigger
+  // fetch. Consults the PERMISSIONS matrix (viewer AND clerk excluded —
+  // roles v2 review fix: the old literal 'viewer' test let a clerk in).
   useEffect(() => {
     if (!loaded) return;
-    if (role === "viewer") {
+    if (!canPerformAction(role, "vault.view_audit_log")) {
       toastRef.current.push(t("auditLog.noViewerAccess"), "info");
       routerRef.current.back();
     }
@@ -120,7 +123,11 @@ export default function VaultAuditLogScreen() {
           vid,
           accId,
         );
-        if (me && me.revoked_at == null && me.role === "viewer") {
+        if (
+          me &&
+          me.revoked_at == null &&
+          !canPerformAction(me.role as VaultRole, "vault.view_audit_log")
+        ) {
           toastRef.current.push(t("auditLog.noViewerAccess"), "info");
           routerRef.current.back();
           return;

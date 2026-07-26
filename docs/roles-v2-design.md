@@ -86,6 +86,31 @@ manager, manager sees ≤editor). Gate: ship only when check-in metrics show the
 active fleet ≥ Phase-A version (admin dashboard has per-install versions), or
 force-update via `min_supported_version` if a straggler must be cut over.
 
+## Phase B blockers (from the 2026-07-26 adversarial review)
+
+Resolve BEFORE the granting UI ships — all are inert while no manager exists:
+
+1. **Target-role race (current-state guard vs ordered fold).** Manager
+   authorization depends on the TARGET's current role, which the three
+   layers resolve from non-equivalent sources (fold: full chain state;
+   gate: applied event_log at append time; server: audit rows at arrival
+   time). Concrete split: owner promotes E→manager at T1 while offline
+   manager M removes E at T2 — M's gate applies locally, the server and
+   M's own fold refuse, and applied events are never re-examined.
+   RECOMMENDED FIX: route manager-authored membership mutations through
+   REST (server-arbitrated, like ownership transfer) in the Phase B UI
+   instead of offline chain events; owners keep offline authoring. The
+   alternative (fold-driven reconciliation of applied membership
+   projections) is bigger and benefits owners too — decide then.
+2. **Re-widen the REST Phase A gates**: `phaseAGrantable` in
+   vaults/service.go (SetMemberRole) and the CreateInvite editor/viewer
+   cap — plus the mobile pickers, sheet actions, and rejection-toast copy
+   (i18n `entry.roleDenied` phrasing assumes editor-vs-viewer).
+3. **roleAtHLC audit-gap hardening** (best-effort mirror can miss
+   chain-granted roles for unmirrorable accounts): acceptable for Phase B
+   if manager mutations go through REST (server state is then the
+   arbiter); revisit if offline manager authoring ships instead.
+
 ## Explicitly rejected
 
 - Per-permission ACLs / custom roles: three shops out of ~80 installs use

@@ -2,6 +2,7 @@ package vaults
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -85,5 +86,47 @@ func TestListAttachesMemberNames(t *testing.T) {
 	}
 	if _, ok := got[revoked]; ok {
 		t.Fatalf("revoked member leaked into members array")
+	}
+}
+
+// Roles v2 PHASE A GATE: the REST surface must not mint manager/clerk while
+// 1.0.2 clients (which hard-fail on the literals) are in the fleet — even
+// though the chain layers already understand them. Phase B widens these.
+func TestPhaseARestSurfaceRefusesNewRoles(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	ctx := context.Background()
+	svc := NewService(pool)
+
+	var owner string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO accounts (google_sub, email, email_verified, name)
+		VALUES ($1, $2, TRUE, 'Owner')
+		RETURNING id::text
+	`, "sub-"+uuid.NewString(), uuid.NewString()+"@gmail.com").Scan(&owner); err != nil {
+		t.Fatalf("seed account: %v", err)
+	}
+	vaultID := uuid.NewString()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO vaults (vault_id, owner_account_id, name, currency, vault_epoch)
+		VALUES ($1::uuid, $2::uuid, 'Shop', 'AFN', 0)
+	`, vaultID, owner); err != nil {
+		t.Fatalf("seed vault: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO vault_members (vault_id, account_id, role, invited_at, accepted_at, invited_by)
+		VALUES ($1::uuid, $2::uuid, 'owner', NOW(), NOW(), $2::uuid)
+	`, vaultID, owner); err != nil {
+		t.Fatalf("seed membership: %v", err)
+	}
+
+	for _, role := range []string{"clerk", "manager"} {
+		if _, err := svc.CreateInvite(ctx, CreateInviteInput{
+			VaultID: vaultID, InviterAccID: owner, Role: role,
+		}); !errors.Is(err, ErrInvalidRole) {
+			t.Errorf("CreateInvite(%s) = %v, want ErrInvalidRole (Phase A gate)", role, err)
+		}
+		if _, err := svc.SetMemberRole(ctx, vaultID, owner, uuid.NewString(), role); !errors.Is(err, ErrInvalidRole) {
+			t.Errorf("SetMemberRole(%s) = %v, want ErrInvalidRole (Phase A gate)", role, err)
+		}
 	}
 }

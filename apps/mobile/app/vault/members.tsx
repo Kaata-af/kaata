@@ -472,12 +472,10 @@ export default function VaultMembersScreen() {
             //   3. selfName from getLocalSelf — only for the self row
             //   4. role label ("Owner" / "Editor" / "Viewer") — better
             //      than raw "local:R%…" for unknown peers
-            const roleLabel =
-              m.role === "owner"
-                ? t("vaultPair.role.owner")
-                : m.role === "editor"
-                  ? t("vaultPair.role.editor")
-                  : t("vaultPair.role.viewer");
+            // Nameless-peer fallback label — humanizeRole covers all five
+            // roles (review fix: the old three-way ternary showed a nameless
+            // manager/clerk as "Viewer").
+            const roleLabel = humanizeRole(m.role);
             // Self row: a restore-minted placeholder ("You") must not render
             // as "You (You)" — when no REAL name resolves, show the localized
             // "You" once, without the suffix. Real names get the suffix.
