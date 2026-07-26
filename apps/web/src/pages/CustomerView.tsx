@@ -507,8 +507,12 @@ function Ledger({ data: d }: { data: SharedLedger }) {
         ) : null}
       </div>
 
-      {/* Quiet footer — a single brand line, nothing more. */}
-      <p className="mt-[26px] text-center text-[12px]" style={{ color: C.mut }}>
+      {/* Quiet footer — a single brand line, nothing more. dir="ltr": the
+          line is all-English in BOTH locales, and inside the fa page's RTL
+          paragraph the bidi algorithm snaps the wordmark's trailing "." to
+          the left edge (".Powered by kaata" artifact). Forcing the line LTR
+          keeps "kaata." intact; centered text, so alignment is unaffected. */}
+      <p dir="ltr" className="mt-[26px] text-center text-[12px]" style={{ color: C.mut }}>
         {L.tag}{" "}
         <Link to="/" className="font-bold" style={{ color: C.sub }}>
           {L.wordmark}

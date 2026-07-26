@@ -173,7 +173,9 @@ a{color:inherit;text-decoration:none;}
     <div class="row"><div class="ic"></div><div class="rmid"><div class="rtop"><div class="sk" style="width:54px;height:14px"></div><div class="sk" style="width:132px;height:11px"></div></div></div></div>
   </div>
   <div class="foot">
-    <div class="foottag"><span id="foottag"></span> <a href="{{.Origin}}"><b>kaata.</b></a></div>
+    <!-- dir="ltr": the brand line is all-English in both locales; inside the
+         RTL page the trailing "." of "kaata." would snap to the left edge. -->
+    <div class="foottag" dir="ltr"><span id="foottag"></span> <a href="{{.Origin}}"><b>kaata.</b></a></div>
   </div>
 </div>
 <script>
