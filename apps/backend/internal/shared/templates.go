@@ -147,6 +147,9 @@ a{color:inherit;text-decoration:none;}
 .foottag{font-size:12px;color:var(--mut);}
 .foottag a{color:var(--sub);font-weight:700;}
 .sk{background:var(--hair);border-radius:5px;animation:pulse 1.5s ease-in-out infinite;}
+.trust{margin-top:14px;text-align:center;font-size:12px;font-weight:500;color:#475467;display:none}
+.histbtn{display:none;width:100%;border:0;border-top:1px solid #f2f4f7;background:#fff;padding:13px 16px;text-align:center;font-size:12px;font-weight:500;color:#475467;font-family:inherit;cursor:pointer}
+.histbtn:active{background:#eaecf0}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
 </style>
 </head>
@@ -158,6 +161,7 @@ a{color:inherit;text-decoration:none;}
       <div class="stmt"><span class="who">{{.Person}}</span> <span id="stmtVerb"></span></div>
       <div class="balance">{{.AbsBalance}}<span class="cur">{{.Currency}}</span></div>
     </div>
+    <div class="trust" id="trustline"></div>
   </div>
   <div class="sectionhead">
     <span class="sectiontitle" id="txTitle"></span>
@@ -183,11 +187,15 @@ a{color:inherit;text-decoration:none;}
   var L = rtl ? {
     owe:"بدهکار است", credit:"طلبکار است", settled:"تسویه شده",
     tx:"معاملات", empty:"معامله‌ای نیست", err:"بارگذاری ناموفق بود",
-    debt:"دادم", payment:"گرفتم", tag:"قدرت‌گرفته از", more:"بیشتر", less:"کمتر"
+    debt:"دادم", payment:"گرفتم", tag:"قدرت‌گرفته از", more:"بیشتر", less:"کمتر",
+    hshow:"{n} حساب تصفیه‌شده · دیدن", hhide:"پنهان کردن سابقهٔ تصفیه‌شده",
+    together:"✓ {n} حساب با هم تصفیه شده", allset:"همه تصفیه شده — حساب جاری خالی است."
   } : {
     owe:"owes", credit:"is owed", settled:"is settled",
     tx:"Transactions", empty:"No transactions yet.", err:"Couldn't load this ledger.",
-    debt:"I gave", payment:"I received", tag:"Powered by", more:"more", less:"less"
+    debt:"I gave", payment:"I received", tag:"Powered by", more:"more", less:"less",
+    hshow:"{n} settled account(s) · view", hhide:"Hide settled history",
+    together:"✓ {n} account(s) settled together", allset:"All settled — the current account is empty."
   };
   var UP='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="7"/><polyline points="6 13 12 7 18 13"/></svg>';
   var DOWN='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="17"/><polyline points="18 11 12 17 6 11"/></svg>';
@@ -197,55 +205,89 @@ a{color:inherit;text-decoration:none;}
   function esc(s){var d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
   function fmtDate(ms){try{return new Date(ms).toLocaleDateString(rtl?'fa-AF':undefined,{year:'numeric',month:'short',day:'numeric'});}catch(e){return '';}}
   function fmtAmt(n){try{return Math.abs(n).toLocaleString(rtl?'fa-AF':undefined);}catch(e){return Math.abs(n);}}
+  function rowHtml(e, cur){
+    var gave = e.type !== 'payment'; // debt → "I gave" (up); payment → "I received" (down)
+    return '<div class="row">'
+      + '<div class="ic '+(gave?'gave':'recv')+'" role="img" aria-label="'+esc(gave?L.debt:L.payment)+'">'+(gave?UP:DOWN)+'</div>'
+      + '<div class="rmid">'
+      +   '<div class="rtop">'
+      +     '<div class="ramtrow"><span class="ramt">'+fmtAmt(e.amount)+'</span><span class="rcur">'+esc(cur)+'</span></div>'
+      +     '<div class="rmeta"><span class="rwhen">'+esc(fmtDate(e.date))+'</span></div>'
+      +   '</div>'
+      +   (e.note ? '<div class="rnoterow"><div class="rnote">'+esc(e.note)+'</div></div>' : '')
+      + '</div>'
+    + '</div>';
+  }
+  // Note + cue on one line. Only notes that actually overflow the single
+  // line become tap-to-expand (a "more"/"less" cue, measured — not guessed).
+  function wireNotes(el){
+    el.querySelectorAll('.rnote').forEach(function(n){
+      if(n.scrollWidth > n.clientWidth + 1 && !n.nextElementSibling){
+        var row = n.closest('.row');
+        row.setAttribute('role','button'); row.tabIndex = 0;
+        var m = document.createElement('span');
+        m.className = 'rmore'; m.textContent = L.more;
+        n.insertAdjacentElement('afterend', m);
+      }
+    });
+  }
   fetch(apiBase + '/v1/shared/' + {{.Token}})
     .then(function(r){ if(!r.ok) throw 0; return r.json(); })
     .then(function(p){
       var el = document.getElementById('entries');
-      var list = (p && p.entries) || [];
-      if(list.length){ document.getElementById('txCount').textContent = fmtAmt(list.length); }
-      if(!list.length){ el.innerHTML = '<div class="empty">'+L.empty+'</div>'; }
-      else {
-        var cur = (p && p.currency) || '';
+      var all = (p && p.entries) || [];
+      var cur = (p && p.currency) || '';
+      // Settled-chapter collapse (parity with the app + SPA): entries dated
+      // at/before the boundary are ruled-off history behind one quiet row.
+      // COHERENCE RULE: collapse only while the current chapter's sum
+      // exactly explains the balance — otherwise fall open, never hide
+      // entries that account for the number in the header.
+      var boundary = (p && p.settled_boundary_ms) || null;
+      var chapters = (p && p.settled_chapters) || 0;
+      var current = [], settled = [];
+      for(var i=0;i<all.length;i++){
+        (boundary != null && all[i].date <= boundary ? settled : current).push(all[i]);
+      }
+      var sum = 0;
+      for(var j=0;j<current.length;j++){
+        sum += current[j].type === 'payment' ? -current[j].amount : current[j].amount;
+      }
+      var coherent = (p && typeof p.balance === 'number') ? sum === p.balance : false;
+      if(!coherent){ current = all; settled = []; }
+      if(chapters > 0){
+        var tl = document.getElementById('trustline');
+        tl.textContent = L.together.replace('{n}', fmtAmt(chapters));
+        tl.style.display = 'block';
+      }
+      var open = false;
+      function render(){
+        var list = open ? all : current;
+        document.getElementById('txCount').textContent = list.length ? fmtAmt(list.length) : '';
         var html = '';
-        for(var i=0;i<list.length;i++){
-          var e = list[i];
-          var gave = e.type !== 'payment'; // debt → "I gave" (up); payment → "I received" (down)
-          html += '<div class="row">'
-            + '<div class="ic '+(gave?'gave':'recv')+'" role="img" aria-label="'+esc(gave?L.debt:L.payment)+'">'+(gave?UP:DOWN)+'</div>'
-            + '<div class="rmid">'
-            +   '<div class="rtop">'
-            +     '<div class="ramtrow"><span class="ramt">'+fmtAmt(e.amount)+'</span><span class="rcur">'+esc(cur)+'</span></div>'
-            +     '<div class="rmeta"><span class="rwhen">'+esc(fmtDate(e.date))+'</span></div>'
-            +   '</div>'
-            +   (e.note ? '<div class="rnoterow"><div class="rnote">'+esc(e.note)+'</div></div>' : '')
-            + '</div>'
-          + '</div>';
+        if(!list.length){ html = '<div class="empty">'+(chapters > 0 ? L.allset : L.empty)+'</div>'; }
+        else { for(var k=0;k<list.length;k++){ html += rowHtml(list[k], cur); } }
+        if(settled.length){
+          html += '<button type="button" class="histbtn" id="histbtn" style="display:block">'
+            + esc(open ? L.hhide : L.hshow.replace('{n}', fmtAmt(chapters))) + '</button>';
         }
         el.innerHTML = html;
-        // Note + cue on one line. Only notes that actually overflow the single
-        // line become tap-to-expand (a "more"/"less" cue, measured — not guessed).
-        el.querySelectorAll('.rnote').forEach(function(n){
-          if(n.scrollWidth > n.clientWidth + 1){
-            var row = n.closest('.row');
-            row.setAttribute('role','button'); row.tabIndex = 0;
-            var m = document.createElement('span');
-            m.className = 'rmore'; m.textContent = L.more;
-            n.insertAdjacentElement('afterend', m);
-          }
-        });
-        el.addEventListener('click', function(ev){
-          var r = ev.target.closest('.row[role="button"]'); if(!r) return;
-          var open = r.classList.toggle('open');
-          var m = r.querySelector('.rmore'); if(m){ m.textContent = open ? L.less : L.more; }
-        });
-        el.addEventListener('keydown', function(ev){
-          if(ev.key !== 'Enter' && ev.key !== ' ') return;
-          var r = ev.target.closest('.row[role="button"]'); if(!r) return;
-          ev.preventDefault();
-          var open = r.classList.toggle('open');
-          var m = r.querySelector('.rmore'); if(m){ m.textContent = open ? L.less : L.more; }
-        });
+        wireNotes(el);
+        var hb = document.getElementById('histbtn');
+        if(hb){ hb.addEventListener('click', function(){ open = !open; render(); }); }
       }
+      render();
+      el.addEventListener('click', function(ev){
+        var r = ev.target.closest('.row[role="button"]'); if(!r) return;
+        var o = r.classList.toggle('open');
+        var m = r.querySelector('.rmore'); if(m){ m.textContent = o ? L.less : L.more; }
+      });
+      el.addEventListener('keydown', function(ev){
+        if(ev.key !== 'Enter' && ev.key !== ' ') return;
+        var r = ev.target.closest('.row[role="button"]'); if(!r) return;
+        ev.preventDefault();
+        var o = r.classList.toggle('open');
+        var m = r.querySelector('.rmore'); if(m){ m.textContent = o ? L.less : L.more; }
+      });
     })
     .catch(function(){ document.getElementById('entries').innerHTML = '<div class="err">'+L.err+'</div>'; });
 })();

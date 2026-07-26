@@ -31,6 +31,11 @@ type SharedLedger = {
   balance: number;
   locale: string;
   entries: SharedEntry[];
+  // Settled-chapter structure (2026-07-27, optional — old snapshots lack it):
+  // entries dated <= settled_boundary_ms belong to settled (ruled-off)
+  // chapters and render collapsed; settled_chapters is the trust-line count.
+  settled_chapters?: number;
+  settled_boundary_ms?: number | null;
   generated_at: number;
 };
 
@@ -70,6 +75,10 @@ const LABELS = {
     wordmark: "kaata.",
     more: "more",
     less: "less",
+    settledShow: "{n} settled account(s) · view",
+    settledHide: "Hide settled history",
+    settledTogether: "✓ {n} account(s) settled together",
+    allSettled: "All settled — the current account is empty.",
   },
   fa: {
     owe: "بدهکار است",
@@ -85,6 +94,10 @@ const LABELS = {
     wordmark: "کاتا.",
     more: "بیشتر",
     less: "کمتر",
+    settledShow: "{n} حساب تصفیه‌شده · دیدن",
+    settledHide: "پنهان کردن سابقهٔ تصفیه‌شده",
+    settledTogether: "✓ {n} حساب با هم تصفیه شده",
+    allSettled: "همه تصفیه شده — حساب جاری خالی است.",
   },
 } as const;
 
@@ -335,6 +348,26 @@ function Ledger({ data: d }: { data: SharedLedger }) {
   const dir = d.balance > 0 ? "owe" : d.balance < 0 ? "credit" : "settled";
   const accent = dir === "owe" ? C.owe : dir === "credit" ? C.credit : C.ink;
 
+  // Settled-chapter collapse: the customer sees the CURRENT account; ruled-off
+  // history sits behind one quiet row — mirroring the app's person screen.
+  // COHERENCE RULE (parity with mobile): the collapse only engages while the
+  // current chapter's sum exactly explains the balance — otherwise the view
+  // falls open rather than hide entries that account for the number shown.
+  // (The payload caps at 100 entries, so a truncated snapshot also fails
+  // coherence and falls open — never a silently wrong "current account".)
+  const boundary = d.settled_boundary_ms ?? null;
+  const chapters = d.settled_chapters ?? 0;
+  const [showSettled, setShowSettled] = useState(false);
+  const currentEntries = boundary == null ? d.entries : d.entries.filter((e) => e.date > boundary);
+  const settledEntries = boundary == null ? [] : d.entries.filter((e) => e.date <= boundary);
+  const chapterSum = currentEntries.reduce(
+    (sum, e) => sum + (e.type === "payment" ? -e.amount : e.amount),
+    0,
+  );
+  const coherent = chapterSum === d.balance;
+  const collapsed = coherent && !showSettled;
+  const shownEntries = collapsed ? currentEntries : d.entries;
+
   return (
     <section dir={rtl ? "rtl" : "ltr"} lang={rtl ? "fa" : "en"} style={{ fontFamily: APP_SANS }}>
       {/* Statement card — the shop name is the centered header; the counterparty
@@ -369,6 +402,13 @@ function Ledger({ data: d }: { data: SharedLedger }) {
             </span>
           </p>
         </div>
+
+        {/* Trust line — a clean-settlement track record beats raw history. */}
+        {chapters > 0 ? (
+          <p className="mt-[14px] text-center text-[12px] font-medium" style={{ color: C.sub }}>
+            {L.settledTogether.replace("{n}", fmtAmount(chapters, rtl))}
+          </p>
+        ) : null}
       </div>
 
       {/* Transaction history */}
@@ -379,24 +419,39 @@ function Ledger({ data: d }: { data: SharedLedger }) {
         >
           {L.tx}
         </p>
-        {d.entries.length > 0 ? (
+        {shownEntries.length > 0 ? (
           <p
             className="text-[11px] font-medium tabular-nums"
             style={{ color: C.mut, fontFamily: MONO }}
           >
-            {fmtAmount(d.entries.length, rtl)}
+            {fmtAmount(shownEntries.length, rtl)}
           </p>
         ) : null}
       </div>
 
       <div className="overflow-hidden rounded-2xl border bg-white" style={{ borderColor: C.line }}>
-        {d.entries.length === 0 ? (
+        {shownEntries.length === 0 ? (
           <p className="p-7 text-center text-sm" style={{ color: C.mut }}>
-            {L.empty}
+            {/* Fresh page right after settling: "all settled", not the
+                contradictory "no transactions yet" over a settled history. */}
+            {chapters > 0 ? L.allSettled : L.empty}
           </p>
         ) : (
-          d.entries.map((e, i) => <Row key={i} e={e} currency={d.currency} rtl={rtl} L={L} />)
+          shownEntries.map((e, i) => <Row key={i} e={e} currency={d.currency} rtl={rtl} L={L} />)
         )}
+        {/* Settled-history collapse row — only when there are ruled-off
+            entries AND the collapse is coherent (else the list is forced
+            open and the toggle hides). One quiet line, exactly like the app. */}
+        {settledEntries.length > 0 && coherent ? (
+          <button
+            type="button"
+            onClick={() => setShowSettled((v) => !v)}
+            className="w-full border-t px-4 py-[13px] text-center text-[12px] font-medium transition-colors hover:bg-[#f9fafb] active:bg-[#eaecf0]"
+            style={{ borderColor: C.hair, color: C.sub }}
+          >
+            {showSettled ? L.settledHide : L.settledShow.replace("{n}", fmtAmount(chapters, rtl))}
+          </button>
+        ) : null}
       </div>
 
       {/* Quiet footer — a single brand line, nothing more. */}

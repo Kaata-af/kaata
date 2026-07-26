@@ -73,6 +73,7 @@ const MIGRATION_021 = "021_unstick_rejected_ledger_events";
 const MIGRATION_022 = "022_event_log_push_reject_bookkeeping";
 const MIGRATION_023 = "023_shared_links";
 const MIGRATION_024 = "024_roles_v2_check_widen";
+const MIGRATION_025 = "025_settlements";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -347,6 +348,14 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
     } catch (err) {
       console.error("[init] runMigration024 failed:", err);
       throw new Error("runMigration024 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_025))) {
+    try {
+      await runMigration025(db);
+    } catch (err) {
+      console.error("[init] runMigration025 failed:", err);
+      throw new Error("runMigration025 failed: " + String(err));
     }
   }
 }
@@ -2948,6 +2957,33 @@ async function runMigration024(db: SQLite.SQLiteDatabase): Promise<void> {
   });
 }
 
+// Settlements ("ruled-off" chapter markers, docs feature 2026-07-27): one row
+// per applied entry_settled event. The boundary (settled_at_ms) partitions a
+// person's entries into settled chapters (created_at <= boundary) and the
+// current open chapter. Projection-only — balances never consult this table;
+// settlement is allowed only at balance zero, so every chapter nets to zero
+// and the total balance equals the current chapter's sum.
+async function runMigration025(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS settlements (
+        id              TEXT PRIMARY KEY,
+        vault_id        TEXT,
+        relationship_id TEXT NOT NULL,
+        settled_at_ms   INTEGER NOT NULL,
+        created_at      INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_settlements_rel
+        ON settlements(relationship_id, settled_at_ms DESC);
+    `);
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_025,
+      Date.now(),
+    );
+  });
+}
+
 // --- v0 row shapes (used only during migration) ---
 type V0Shopkeeper = {
   id: number;
@@ -3661,6 +3697,55 @@ export async function archivePerson(id: string): Promise<void> {
       vaultId,
     });
   }
+}
+
+/**
+ * Settled-chapter summary for a person on the active vault: how many times
+ * this account has been ruled off, and the latest boundary. Drives the
+ * person screen's chapter filter, the "N settled" history row, and the
+ * WhatsApp trust line ("N accounts settled together").
+ */
+export async function getSettlementSummary(
+  personId: string,
+): Promise<{ count: number; lastSettledAtMs: number | null }> {
+  const db = await getDb();
+  const vaultId = getActiveVaultIdSyncMaybe();
+  if (!vaultId) return { count: 0, lastSettledAtMs: null };
+  // Two different aggregates on purpose (review fixes):
+  //  - lastSettledAtMs = MAX over ALL markers on the live relationship —
+  //    the boundary must honor the newest ruling-off even if two devices
+  //    settled concurrently.
+  //  - count = only markers whose chapter CONTAINS at least one live entry
+  //    (an entry after the previous marker, at/before this one). Two
+  //    concurrent settlements of one zero-moment produce ONE counted
+  //    chapter, not a fabricated "2 accounts settled" trust line; all-
+  //    deleted chapters don't count either (no dead history toggle).
+  //  - r.archived_at IS NULL matches listEntries — a removed-then-re-added
+  //    person must not be haunted by the old relationship's markers.
+  const row = await db.getFirstAsync<{ n: number; last_ms: number | null }>(
+    `SELECT
+        (SELECT COUNT(*) FROM settlements s
+          INNER JOIN relationships r ON r.id = s.relationship_id
+          WHERE r.user_b_id = ? AND r.vault_id = ? AND r.archived_at IS NULL
+            AND EXISTS (
+              SELECT 1 FROM entries e
+               WHERE e.relationship_id = s.relationship_id
+                 AND e.deleted_at IS NULL
+                 AND e.created_at <= s.settled_at_ms
+                 AND e.created_at > COALESCE((
+                   SELECT MAX(s2.settled_at_ms) FROM settlements s2
+                    WHERE s2.relationship_id = s.relationship_id
+                      AND s2.settled_at_ms < s.settled_at_ms), 0)
+            )) AS n,
+        (SELECT MAX(s.settled_at_ms) FROM settlements s
+          INNER JOIN relationships r ON r.id = s.relationship_id
+          WHERE r.user_b_id = ? AND r.vault_id = ? AND r.archived_at IS NULL) AS last_ms`,
+    personId,
+    vaultId,
+    personId,
+    vaultId,
+  );
+  return { count: row?.n ?? 0, lastSettledAtMs: row?.last_ms ?? null };
 }
 
 export async function listEntries(personId: string): Promise<Entry[]> {

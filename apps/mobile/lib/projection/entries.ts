@@ -14,7 +14,12 @@
 // apps/_shared/projection-corpus/.
 
 import type { SQLiteTx } from "../db-tx";
-import type { EntryAmendedEvent, EntryCreatedEvent, EntryDeletedEvent } from "../events";
+import type {
+  EntryAmendedEvent,
+  EntryCreatedEvent,
+  EntryDeletedEvent,
+  EntrySettledEvent,
+} from "../events";
 import { MissingPrereqError } from "./errors";
 import { compareFieldHLC, parseFieldHLCs, serializeFieldHLCs, type FieldHLCMap } from "./field-hlc";
 
@@ -205,4 +210,26 @@ export async function applyEntryDeleted(tx: SQLiteTx, event: EntryDeletedEvent):
       `entry_deleted ${event.event_id}: target entry ${event.target_id} not found (missing prereq)`,
     );
   }
+}
+
+// Settlement chapter marker ("ruled-off account", 2026-07-27). Not a mutation
+// of any entry: the event's settled_at_ms becomes a boundary that partitions
+// the relationship's entries into settled chapters vs the current open one.
+// Balances never read the settlements table — settlement is only offered at
+// balance zero, so chapters are cosmetic structure over an unchanged ledger.
+// INSERT OR IGNORE keeps replay/restore idempotent. No prereq: the boundary
+// is meaningful even if some of the chapter's entries arrive later.
+export async function applyEntrySettled(tx: SQLiteTx, event: EntrySettledEvent): Promise<void> {
+  if (event.relationship_id == null) {
+    throw new Error(`entry_settled event ${event.event_id} missing envelope relationship_id`);
+  }
+  await tx.runAsync(
+    `INSERT OR IGNORE INTO settlements (id, vault_id, relationship_id, settled_at_ms, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    event.event_id,
+    event.vault_id,
+    event.relationship_id,
+    event.payload.settled_at_ms,
+    event.hlc.pms,
+  );
 }

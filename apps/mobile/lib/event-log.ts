@@ -33,6 +33,7 @@ import type {
   AccountBoundEvent,
   EntryAmendedEvent,
   EntryCreatedEvent,
+  EntrySettledEvent,
   EntryDeletedEvent,
   MembershipWitness,
   PersonAddedEvent,
@@ -198,6 +199,92 @@ export async function appendEntryCreated(args: {
     throw new Error(`entry_created event_id collision: ${eventId}`);
   }
   return { event_id: eventId, entry_id: entryId };
+}
+
+/**
+ * Rule off a person's account ("settle up", 2026-07-27): append the chapter
+ * marker that partitions their ledger into settled history and a fresh open
+ * chapter. Caller must verify balance === 0 first — the UI only offers the
+ * affordance then, and the zero-balance precondition is what keeps every
+ * chapter self-contained (each nets to zero, so the total balance always
+ * equals the current chapter's sum). Nothing is mutated or deleted; the
+ * marker is an ordinary synced event, so chapters survive restore and
+ * appear on every device.
+ */
+export async function appendEntrySettled(args: {
+  relationshipId: string;
+  /**
+   * Chapter boundary. Callers pass max(now, newest chapter entry + 1) so a
+   * device with a lagging clock can never rule a boundary that excludes
+   * entries it can already see. Defaults to now.
+   */
+  settledAtMs?: number;
+}): Promise<{ event_id: string }> {
+  const eventId = Crypto.randomUUID();
+  const installId = getInstallIdSync();
+  const authorUserId = requireLocalSelfUserId();
+  const vaultId = getActiveVaultIdSync();
+  const accountId = getAccountIdSync();
+
+  const event: EntrySettledEvent = {
+    event_id: eventId,
+    event_type: "entry_settled",
+    vault_id: vaultId,
+    // target_id = the settled account (relationship). Entry events carry no
+    // target-integrity rule (that's membership/device-event territory), and
+    // there is no single entry to point at — the marker spans the chapter.
+    target_id: args.relationshipId,
+    relationship_id: args.relationshipId,
+    hlc: { pms: 0, l: 0, did: installId }, // overwritten inside the tx after tickLocal
+    device_id: installId,
+    author_user_id_local_only: authorUserId,
+    actor_account_id: accountId,
+    payload_schema: CURRENT_PAYLOAD_SCHEMA,
+    appended_at: 0, // overwritten inside the tx
+    server_acked_at: null,
+    rejected_at: null,
+    origin: "local",
+    payload: { settled_at_ms: args.settledAtMs ?? Date.now() },
+  };
+
+  const result = await applyEvent(event, {
+    origin: "local",
+    // IN-TX zero-balance guard (review fix): the UI's check reads React
+    // state that can be stale (a synced entry landing between render and
+    // confirm). Re-derive the relationship's live balance INSIDE the append
+    // transaction and abort as a benign "preflight" no-op unless it is
+    // exactly zero — the invariant that keeps every chapter self-contained
+    // is enforced where it can't race.
+    preflightAbort: async (tx) => {
+      const row = await tx.getFirstAsync<{ bal: number }>(
+        `SELECT COALESCE(SUM(CASE
+             WHEN deleted_at IS NULL AND type = 'debt' THEN amount_afn
+             WHEN deleted_at IS NULL AND type = 'payment' THEN -amount_afn
+             ELSE 0 END), 0) AS bal
+           FROM entries WHERE relationship_id = ?`,
+        args.relationshipId,
+      );
+      return (row?.bal ?? 0) !== 0;
+    },
+  });
+  if (!result.applied) {
+    if (result.reason === "preflight") {
+      throw new SettleNotZeroError();
+    }
+    if (result.reason === "role_gate" && result.role_gate) {
+      throw new RoleGateRejectionError(result.role_gate);
+    }
+    throw new Error(`entry_settled event_id collision: ${eventId}`);
+  }
+  return { event_id: eventId };
+}
+
+/** The in-tx zero-balance preflight refused a settlement (balance moved). */
+export class SettleNotZeroError extends Error {
+  constructor() {
+    super("settle refused: balance is not zero");
+    this.name = "SettleNotZeroError";
+  }
 }
 
 export async function appendEntryAmended(args: {

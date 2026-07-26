@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -21,8 +21,19 @@ import { OptionSheet } from "../../components/OptionSheet";
 import { useToast, useToastOffset } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
-import { getLocalSelf, getPerson, listEntries, softDeleteEntry } from "../../lib/db";
+import {
+  getLocalSelf,
+  getPerson,
+  getSettlementSummary,
+  listEntries,
+  softDeleteEntry,
+} from "../../lib/db";
 import { getActiveVaultIdSyncMaybe } from "../../lib/db-tx";
+import {
+  appendEntrySettled,
+  RoleGateRejectionError,
+  SettleNotZeroError,
+} from "../../lib/event-log";
 import { useLedgerRefresh } from "../../lib/ledger-events";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
@@ -49,6 +60,16 @@ export default function PersonDetailScreen() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [sheetFor, setSheetFor] = useState<Entry | null>(null);
   const [confirmDeleteFor, setConfirmDeleteFor] = useState<Entry | null>(null);
+  // Settle-up ("rule off the account", 2026-07-27). No persistent buttons:
+  // the affordance is a ruled-line row that only exists at balance zero with
+  // an open chapter, and settled history collapses behind one quiet row.
+  const [settlement, setSettlement] = useState<{ count: number; lastSettledAtMs: number | null }>({
+    count: 0,
+    lastSettledAtMs: null,
+  });
+  const [showFullHistory, setShowFullHistory] = useState(false);
+  const [confirmSettle, setConfirmSettle] = useState(false);
+  const settlingRef = useRef(false);
   // L12: synchronous re-entry guard for the WhatsApp ping — the share awaits an
   // up-to-8s snapshot upload before opening WhatsApp, and without this a user
   // tapping repeatedly minted a separate 90-day shared-ledger token per tap.
@@ -61,6 +82,75 @@ export default function PersonDetailScreen() {
   // Roles v2 split: canCreate gates give/receive (clerks CAN append new
   // entries); canAmend gates person-edit + entry long-press (clerks cannot).
   const { canCreate, canAmend } = useActiveVaultWriteCaps(getActiveVaultIdSyncMaybe());
+
+  // Chapter view: entries after the latest settlement boundary. Boundary
+  // compares created_at, which the applier sets to the entry's BUSINESS date
+  // (occurred_at) — so a deliberately backdated entry files into the settled
+  // chapter it belongs to; the balance (always all-time) is unaffected, and
+  // "view all" reveals everything.
+  const chapterEntries = useMemo(
+    () =>
+      settlement.lastSettledAtMs == null
+        ? entries
+        : entries.filter((e) => e.created_at > settlement.lastSettledAtMs!),
+    [entries, settlement.lastSettledAtMs],
+  );
+  // COHERENCE RULE (review fix — the load-bearing safety property): the
+  // collapse only engages while the current chapter's sum EXACTLY explains
+  // the balance. Any way the boundary can lie — an offline entry syncing in
+  // with a pre-boundary business date, a retro-edit/delete inside settled
+  // history from another device, clock skew — makes the view fall OPEN
+  // instead of hiding money. Nothing behind the fold can ever account for
+  // the number in the header.
+  const chapterSum = useMemo(
+    () =>
+      chapterEntries.reduce(
+        (sum, e) => sum + (e.type === "debt" ? e.amount_afn : -e.amount_afn),
+        0,
+      ),
+    [chapterEntries],
+  );
+  const chapterCoherent = person == null || chapterSum === person.balance;
+  const effectiveShowFull = showFullHistory || !chapterCoherent;
+  const visibleEntries = effectiveShowFull ? entries : chapterEntries;
+  const canSettle =
+    canAmend &&
+    chapterCoherent &&
+    person != null &&
+    person.balance === 0 &&
+    chapterEntries.length > 0;
+
+  async function onSettle() {
+    setConfirmSettle(false);
+    if (!person || settlingRef.current || chapterEntries.length === 0) return;
+    settlingRef.current = true;
+    try {
+      // Boundary = max(now, newest chapter entry + 1): a lagging device
+      // clock can never rule a line that excludes entries already visible.
+      // The REAL zero check happens inside the append transaction
+      // (appendEntrySettled's preflight) — this screen's state can be stale.
+      const settledAtMs = Math.max(Date.now(), ...chapterEntries.map((e) => e.created_at + 1));
+      await appendEntrySettled({
+        relationshipId: chapterEntries[0].relationship_id,
+        settledAtMs,
+      });
+      setShowFullHistory(false);
+      toast.push(t("person.settle.done"), "success");
+      await load();
+    } catch (err) {
+      if (err instanceof SettleNotZeroError) {
+        toast.push(t("person.settle.notZero"), "error");
+        await load(); // refresh — the balance the user saw was stale
+      } else if (err instanceof RoleGateRejectionError) {
+        toast.push(t("entry.roleDenied"), "error");
+      } else {
+        console.warn("[person] settle failed", err);
+        toast.push(t("person.settle.failed"), "error");
+      }
+    } finally {
+      settlingRef.current = false;
+    }
+  }
 
   // Send the WhatsApp ping in the given message language (already resolved
   // from share_lang_pref, or picked in the ask-sheet).
@@ -75,8 +165,12 @@ export default function PersonDetailScreen() {
         { id: person.id, name: person.name, phone: person.phone },
         person.balance,
         self,
+        // Full history on the wire (the web view collapses settled chapters
+        // itself); the boundary + count let both the message and the page
+        // carry the "N accounts settled together" trust line.
         entries,
         lang,
+        { settledChapters: settlement.count, settledBoundaryMs: settlement.lastSettledAtMs },
       );
       if (!ok) toast.push(t("share.whatsappUnavailable"), "error");
     } finally {
@@ -93,10 +187,16 @@ export default function PersonDetailScreen() {
     // Guarded — an unhandled rejection here previously left the screen on
     // a permanent blank state with setLoaded never flipping.
     try {
-      const [p, list, s] = await Promise.all([getPerson(id), listEntries(id), getLocalSelf()]);
+      const [p, list, s, settle] = await Promise.all([
+        getPerson(id),
+        listEntries(id),
+        getLocalSelf(),
+        getSettlementSummary(id),
+      ]);
       setPerson(p);
       setEntries(list);
       setSelf(s);
+      setSettlement(settle);
       setLoadFailed(false);
     } catch (err) {
       console.warn("[person] load failed", err);
@@ -298,21 +398,80 @@ export default function PersonDetailScreen() {
           ) : null}
         </View>
 
-        {entries.length === 0 ? (
-          <EmptyState title={t("person.empty.title")} subtitle={t("person.empty.subtitle")} />
+        {/* Settle-up affordance — deliberately NOT a button. A ruled line,
+            the same mark a paper khata gets when an account is closed. It
+            only exists in the exact moment it means something: balance is
+            zero AND the current chapter has entries. Tapping it draws the
+            line for real. */}
+        {canSettle ? (
+          <Pressable
+            onPress={() => setConfirmSettle(true)}
+            accessibilityRole="button"
+            accessibilityLabel={t("person.settle.row")}
+            style={({ pressed }) => [styles.settleRow, rowDir(isRTL), pressed && { opacity: 0.5 }]}
+          >
+            <View style={styles.settleRule} />
+            <Text style={styles.settleRowText} allowFontScaling={false}>
+              {t("person.settle.row")}
+            </Text>
+            <View style={styles.settleRule} />
+          </Pressable>
+        ) : null}
+
+        {visibleEntries.length === 0 ? (
+          settlement.count > 0 ? (
+            // Fresh page after a settlement: not "empty", just a new chapter.
+            <EmptyState
+              title={t("person.freshChapter.title")}
+              subtitle={t("person.freshChapter.subtitle")}
+            />
+          ) : (
+            <EmptyState title={t("person.empty.title")} subtitle={t("person.empty.subtitle")} />
+          )
         ) : (
           <View style={styles.entriesCard}>
-            {entries.map((item, index) => (
-              <View key={item.id}>
-                {index > 0 ? <View style={styles.divider} /> : null}
-                {/* setSheetFor is referentially stable — keeps the memoized
-                    EntryRow from re-rendering on unrelated screen renders.
-                    Opens the edit/delete sheet on TAP-AND-HOLD only. */}
-                <EntryRow entry={item} onLongPress={canAmend ? setSheetFor : undefined} />
-              </View>
-            ))}
+            {visibleEntries.map((item, index) => {
+              // Settled history is READ-ONLY (review fix): editing or
+              // deleting a ruled-off entry would un-zero a closed chapter.
+              // Remote edits can still arrive — the coherence rule above
+              // handles those by falling open — but this device won't offer
+              // the footgun.
+              const inSettledChapter =
+                settlement.lastSettledAtMs != null && item.created_at <= settlement.lastSettledAtMs;
+              return (
+                <View key={item.id}>
+                  {index > 0 ? <View style={styles.divider} /> : null}
+                  {/* setSheetFor is referentially stable — keeps the memoized
+                      EntryRow from re-rendering on unrelated screen renders.
+                      Opens the edit/delete sheet on TAP-AND-HOLD only. */}
+                  <EntryRow
+                    entry={item}
+                    onLongPress={canAmend && !inSettledChapter ? setSheetFor : undefined}
+                  />
+                </View>
+              );
+            })}
           </View>
         )}
+
+        {/* Settled history collapse — one quiet row, only when chapters
+            exist AND the collapse is coherent (when the chapter can't
+            explain the balance, the view is forced open and the toggle
+            hides rather than pretend). Nothing was deleted; the book just
+            has pages now. */}
+        {settlement.count > 0 && chapterCoherent ? (
+          <Pressable
+            onPress={() => setShowFullHistory((v) => !v)}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.historyRow, pressed && { opacity: 0.5 }]}
+          >
+            <Text style={styles.historyRowText} allowFontScaling={false}>
+              {showFullHistory
+                ? t("person.history.hide")
+                : t("person.history.show", { count: settlement.count })}
+            </Text>
+          </Pressable>
+        ) : null}
       </ScrollView>
 
       {entries.length > 0 ? (
@@ -397,6 +556,14 @@ export default function PersonDetailScreen() {
         isRTL={isRTL}
       />
 
+      <ConfirmDialog
+        visible={confirmSettle}
+        title={t("person.settle.confirm.title")}
+        description={t("person.settle.confirm.body", { name: person.name })}
+        confirmLabel={t("person.settle.confirm.cta")}
+        onConfirm={onSettle}
+        onCancel={() => setConfirmSettle(false)}
+      />
       <ConfirmDialog
         visible={confirmDeleteFor !== null}
         title={t("person.delete.title")}
@@ -549,6 +716,38 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgDefault,
   },
   divider: { height: 1, backgroundColor: colors.borderDefault },
+  // Settle-up ruled line — ledger furniture, not a button. Sits between the
+  // action row and the entries card only when settlement is possible.
+  settleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginHorizontal: 24,
+    marginTop: 16,
+    marginBottom: 4,
+    minHeight: 32,
+  },
+  settleRule: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.textSubtle,
+    opacity: 0.5,
+  },
+  settleRowText: {
+    fontSize: 12,
+    fontFamily: fonts.sansMedium,
+    color: colors.textSubtle,
+  },
+  // Settled-history collapse row — one quiet line under the entries card.
+  historyRow: {
+    alignItems: "center",
+    paddingVertical: 14,
+  },
+  historyRowText: {
+    fontSize: 12,
+    fontFamily: fonts.sansMedium,
+    color: colors.textSubtle,
+  },
   pingBar: {
     // Transparent container — NO opaque white background. The old
     // backgroundColor: colors.bgDefault painted a big white rectangle behind the

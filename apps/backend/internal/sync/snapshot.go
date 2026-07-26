@@ -64,6 +64,12 @@ type SnapshotResponse struct {
 	HLCLast           HLC                    `json:"hlc_last"`
 	Events            []PulledEvent          `json:"events"`
 	MembershipEvents  []PulledEvent          `json:"membership_events"`
+	// SettlementEvents (2026-07-27): every entry_settled chapter marker for
+	// the vault, cursor-independent like MembershipEvents — the settlements
+	// projection is mobile-only, so a snapshot restore would otherwise lose
+	// the chapter boundaries (entries/balances would survive; the ruled-off
+	// structure would not). Same idempotent-by-event_id overlap rules.
+	SettlementEvents []PulledEvent `json:"settlement_events"`
 }
 
 // SnapshotVault mirrors the SQLite vaults row shape on mobile.
@@ -211,6 +217,11 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 	}
 	s.resolveBindingsOnPulled(ctx, vaultID, membership)
 
+	settlements, err := s.pullSettlementEvents(ctx, vaultID)
+	if err != nil {
+		return nil, fmt.Errorf("read settlement events: %w", err)
+	}
+
 	// Compute hlc_last as the MAX HLC observed in the snapshot's events
 	// (which we don't keep explicitly — we approximate by walking the
 	// projection's updated_at fields and the tail). Membership events are
@@ -241,6 +252,7 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 		HLCLast:          hlcLast,
 		Events:           tail,
 		MembershipEvents: membership,
+		SettlementEvents: settlements,
 	}
 	return resp, nil
 }
@@ -467,6 +479,23 @@ func (s *Service) pullMembershipChain(ctx context.Context, vaultID string) ([]Pu
 		  AND event_type = ANY($2)
 		ORDER BY hlc_physical_ms ASC, hlc_logical ASC, hlc_device_id ASC, event_id ASC
 	`, vaultID, membershipEventTypes)
+	if err != nil {
+		return nil, err
+	}
+	return scanPulledEvents(rows)
+}
+
+// pullSettlementEvents mirrors pullMembershipChain for entry_settled chapter
+// markers — cursor-independent, HLC-ordered, same PulledEvent wire shape.
+func (s *Service) pullSettlementEvents(ctx context.Context, vaultID string) ([]PulledEvent, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT`+pulledEventColumns+`
+		FROM events
+		WHERE vault_id = $1::uuid
+		  AND redacted_at IS NULL
+		  AND event_type = 'entry_settled'
+		ORDER BY hlc_physical_ms ASC, hlc_logical ASC, hlc_device_id ASC, event_id ASC
+	`, vaultID)
 	if err != nil {
 		return nil, err
 	}

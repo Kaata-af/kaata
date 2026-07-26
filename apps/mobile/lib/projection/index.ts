@@ -23,7 +23,12 @@ import { ensureDeviceKey, getDevicePubkey, signWithDeviceKey } from "../mesh/dev
 import { deserializeHLC, serializeHLC, tickLocal, tickReceive, type HLC } from "../hlc";
 
 import { applyAccountBound } from "./account";
-import { applyEntryAmended, applyEntryCreated, applyEntryDeleted } from "./entries";
+import {
+  applyEntryAmended,
+  applyEntryCreated,
+  applyEntryDeleted,
+  applyEntrySettled,
+} from "./entries";
 import {
   applyPersonAdded,
   applyPersonArchived,
@@ -96,6 +101,10 @@ export const APPLIERS: Partial<Record<EventType, Applier>> = {
   entry_created: applyEntryCreated as unknown as Applier,
   entry_amended: applyEntryAmended as unknown as Applier,
   entry_deleted: applyEntryDeleted as unknown as Applier,
+  // Settlement chapter marker (2026-07-27). Wired ~2 years after the type
+  // was reserved; old clients quarantine it (known-type-no-applier) and
+  // self-heal on upgrade — see replay.ts.
+  entry_settled: applyEntrySettled as unknown as Applier,
 
   // Phase 2 — users / relationships / shop_profile. account_bound is
   // registered too even though its local applier is a no-op: dispatching

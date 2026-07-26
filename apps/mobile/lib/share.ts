@@ -22,6 +22,7 @@ async function uploadSharedLedger(args: {
   entries: Entry[];
   self: Self | null;
   lang: LocaleCode;
+  settled?: SettledInfo;
 }): Promise<string | null> {
   const snapshot = {
     v: 1,
@@ -39,6 +40,13 @@ async function uploadSharedLedger(args: {
       note: e.note,
       date: e.created_at,
     })),
+    // Settled-chapter structure (2026-07-27): the web view collapses entries
+    // dated at/before the boundary behind an "N settled accounts" row — the
+    // customer sees the current account, with history one tap away. The
+    // backend stores this payload verbatim (unknown fields pass through),
+    // so no server change is needed; old payloads simply lack the fields.
+    settled_chapters: args.settled?.settledChapters ?? 0,
+    settled_boundary_ms: args.settled?.settledBoundaryMs ?? null,
     generated_at: Date.now(),
   };
 
@@ -145,12 +153,19 @@ export async function revokeSharedLinksForPerson(personUserId: string): Promise<
 // customer can open the complete transaction list. The link is best-effort:
 // if the upload fails (offline), the message still sends without it.
 // Returns true when WhatsApp opened.
+/** Settled-chapter context for the ping (see person/[id].tsx settle-up). */
+export type SettledInfo = {
+  settledChapters: number;
+  settledBoundaryMs: number | null;
+};
+
 export async function shareKaataViaWhatsApp(
   person: { id?: string; name: string; phone: string | null },
   balance: number,
   self: Self | null,
   entries: Entry[],
   lang: LocaleCode,
+  settled?: SettledInfo,
 ): Promise<boolean> {
   const accountWith = self?.shop_name ?? self?.name ?? "Kaata";
   const currency = getCurrentCurrencySymbol();
@@ -173,9 +188,17 @@ export async function shareKaataViaWhatsApp(
     lines.push(tIn(lang, "share.settled.cta"));
   }
 
+  // Trust line: "N accounts settled together." A creditor reading the ping
+  // sees a clean-settlement track record — stronger social proof than raw
+  // history, and the reason settle-up beats delete-and-restart.
+  if (settled && settled.settledChapters > 0) {
+    lines.push("");
+    lines.push(tIn(lang, "share.settledHistory", { count: settled.settledChapters }));
+  }
+
   // "See the full ledger on kaata.af" + link. Falls back to the plain tagline
   // when the snapshot upload couldn't produce a link (offline / error).
-  const link = await uploadSharedLedger({ person, balance, entries, self, lang });
+  const link = await uploadSharedLedger({ person, balance, entries, self, lang, settled });
   lines.push("");
   if (link) {
     lines.push(tIn(lang, "share.fullLedger"));

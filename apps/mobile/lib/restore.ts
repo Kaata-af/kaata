@@ -77,6 +77,11 @@ export type Snapshot = {
   // fold its own membership (proof bundle) and MESH. Ingested idempotently by
   // event_id. Absent on pre-M5 server builds → treated as [].
   membership_events?: LedgerEvent[];
+  // Settle-up (2026-07-27): every entry_settled chapter marker, cursor-
+  // independent like the membership chain — the settlements projection is
+  // mobile-only, so without these a snapshot restore keeps the entries but
+  // loses the ruled-off chapter structure. Absent on older servers → [].
+  settlement_events?: LedgerEvent[];
 };
 
 export type SnapshotVault = {
@@ -534,10 +539,16 @@ export async function restoreFromSnapshot(
   const membershipEvents = (snapshot.membership_events ?? []).map((ev) =>
     mapPulledWireToEvent(ev as unknown as PulledWireEvent, snapshot.vault.id),
   );
+  // Settlement chapter markers ride along cursor-independently (same
+  // idempotent-by-event_id overlap rules as the membership chain).
+  const settlementEvents = (snapshot.settlement_events ?? []).map((ev) =>
+    mapPulledWireToEvent(ev as unknown as PulledWireEvent, snapshot.vault.id),
+  );
   const tailEvents = snapshot.events.map((ev) =>
     mapPulledWireToEvent(ev as unknown as PulledWireEvent, snapshot.vault.id),
   );
   await ingestPulledEvents(membershipEvents, now);
+  await ingestPulledEvents(settlementEvents, now);
   appliedEvents += await ingestPulledEvents(tailEvents, now);
 
   // 9. Seed the pull cursor to snapshot_server_seq. Without this, the

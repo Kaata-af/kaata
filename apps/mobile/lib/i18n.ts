@@ -204,6 +204,21 @@ const en = {
   "person.empty.title": "No entries yet",
   "person.empty.subtitle":
     'Tap "I gave" when money or goods leave your hand, "I received" when they come in.',
+  // Settle-up ("rule off the account", 2026-07-27). The ruled-line row only
+  // appears at balance zero with an open chapter; history collapses behind
+  // one quiet row. Nothing is ever deleted.
+  "person.settle.row": "Settle this account",
+  "person.settle.confirm.title": "Settle up?",
+  "person.settle.confirm.body":
+    "Draws a line under this account with {name}. The entries stay in your book as settled history, and the next entry starts a fresh page.",
+  "person.settle.confirm.cta": "Draw the line",
+  "person.settle.done": "Account settled. Fresh page.",
+  "person.settle.failed": "Couldn't settle. Try again.",
+  "person.settle.notZero": "Balance must be zero to settle.",
+  "person.history.show": "{count} settled account(s) · view all",
+  "person.history.hide": "Show current account only",
+  "person.freshChapter.title": "All settled",
+  "person.freshChapter.subtitle": "A fresh page. Your history together is kept below.",
   "person.ping": "Ping {name} on WhatsApp",
   "person.delete.title": "Delete this entry?",
   "person.delete.description":
@@ -347,6 +362,9 @@ const en = {
   "share.settled.line": "🤝 Our kaata is fully settled.",
   "share.settled.cta": "Thank you.",
   "share.footer": "— Sent via Kaata.af",
+  // Trust line in the ping when settled chapters exist — a clean-settlement
+  // track record, phrased for the RECEIVER like the rest of share.*.
+  "share.settledHistory": "✓ We have settled {count} account(s) together before.",
   "share.fullLedger": "See the full ledger here:",
   "share.askLang.title": "Send in which language?",
 
@@ -1287,6 +1305,18 @@ const fa: Partial<Record<Key, string>> = {
   "person.empty.title": "هنوز ثبتی نیست",
   "person.empty.subtitle":
     'وقتی پول یا جنس از دست‌تان می‌رود "دادم" را بزنید، وقتی به دست‌تان می‌آید "گرفتم".',
+  "person.settle.row": "تصفیهٔ این حساب",
+  "person.settle.confirm.title": "حساب تصفیه شود؟",
+  "person.settle.confirm.body":
+    "زیر این حساب با {name} خط کشیده می‌شود. ثبت‌ها به عنوان سابقهٔ تصفیه‌شده در کتاب شما می‌مانند و ثبت بعدی صفحهٔ تازه‌ای را شروع می‌کند.",
+  "person.settle.confirm.cta": "خط بکش",
+  "person.settle.done": "حساب تصفیه شد. صفحهٔ تازه.",
+  "person.settle.failed": "تصفیه نشد. دوباره تلاش کنید.",
+  "person.settle.notZero": "برای تصفیه، باقی‌مانده باید صفر باشد.",
+  "person.history.show": "{count} حساب تصفیه‌شده · دیدن همه",
+  "person.history.hide": "فقط حساب جاری",
+  "person.freshChapter.title": "همه تصفیه شد",
+  "person.freshChapter.subtitle": "صفحهٔ تازه. سابقهٔ شما با هم در پایین نگه داشته شده است.",
   "person.ping": "یادآوری به {name} در واتساپ",
   "person.delete.title": "این ثبت را حذف کنیم؟",
   "person.delete.description":
@@ -1442,6 +1472,7 @@ const fa: Partial<Record<Key, string>> = {
   "share.settled.line": "🤝 کاتای ما کاملاً تصفیه شده.",
   "share.settled.cta": "تشکر.",
   "share.footer": "پیام از طرف kaata.af",
+  "share.settledHistory": "✓ پیش از این {count} حساب را با هم تصفیه کرده‌ایم.",
   "share.fullLedger": "کاتای مکمل را اینجا ببینید:",
   "share.askLang.title": "پیام به کدام زبان فرستاده شود؟",
 
