@@ -71,6 +71,7 @@ const MIGRATION_019 = "019_vault_device_registry";
 const MIGRATION_020 = "020_reregister_bootstrap_vaults";
 const MIGRATION_021 = "021_unstick_rejected_ledger_events";
 const MIGRATION_022 = "022_event_log_push_reject_bookkeeping";
+const MIGRATION_023 = "023_shared_links";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -329,6 +330,14 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
     } catch (err) {
       console.error("[init] runMigration022 failed:", err);
       throw new Error("runMigration022 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_023))) {
+    try {
+      await runMigration023(db);
+    } catch (err) {
+      console.error("[init] runMigration023 failed:", err);
+      throw new Error("runMigration023 failed: " + String(err));
     }
   }
 }
@@ -2832,6 +2841,35 @@ async function runMigration022(db: SQLite.SQLiteDatabase): Promise<void> {
     await db.runAsync(
       `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
       MIGRATION_022,
+      Date.now(),
+    );
+  });
+}
+
+// Migration 023 — local registry of shared-ledger links (2026-07-26 security
+// hardening). The backend's POST /v1/shared now returns a revoke_secret next
+// to the token; storing both per share is what lets the shopkeeper KILL a
+// link early (POST /v1/shared/{token}/revoke) instead of waiting out the
+// TTL. person_user_id ties links to the person they expose so the revoke
+// affordance can say "revoke N links for Ahmad".
+async function runMigration023(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS shared_links (
+        token          TEXT PRIMARY KEY,
+        url            TEXT NOT NULL,
+        revoke_secret  TEXT NOT NULL,
+        person_user_id TEXT,
+        person_name    TEXT,
+        created_at     INTEGER NOT NULL
+      );
+    `);
+    await db.execAsync(
+      `CREATE INDEX IF NOT EXISTS idx_shared_links_person ON shared_links(person_user_id);`,
+    );
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_023,
       Date.now(),
     );
   });

@@ -80,16 +80,48 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "too many entries")
 		return
 	}
-	token, err := h.svc.Create(r.Context(), raw)
+	token, revokeSecret, err := h.svc.Create(r.Context(), raw)
 	if err != nil {
 		log.Printf("shared: create failed: %v", err)
 		httpx.Error(w, http.StatusInternalServerError, "could not create share")
 		return
 	}
+	// revoke_secret goes ONLY to the creating device (which stores it locally
+	// and presents it to /revoke). It is never derivable from the link.
 	httpx.JSON(w, http.StatusOK, map[string]string{
-		"token": token,
-		"url":   h.shareBaseURL + "/v/" + token,
+		"token":         token,
+		"url":           h.shareBaseURL + "/v/" + token,
+		"revoke_secret": revokeSecret,
 	})
+}
+
+type revokeRequest struct {
+	RevokeSecret string `json:"revoke_secret"`
+}
+
+// Revoke — POST /v1/shared/{token}/revoke (PUBLIC, rate-limited). Kills a
+// share before its TTL when the caller presents the create-time revoke
+// secret. 404 for unknown/expired/legacy tokens AND wrong secrets alike (no
+// oracle); 204 on success.
+func (h *Handler) Revoke(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+	var req revokeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	err := h.svc.Revoke(r.Context(), token, req.RevokeSecret)
+	if errors.Is(err, ErrNotFound) {
+		httpx.Error(w, http.StatusNotFound, "share not found or expired")
+		return
+	}
+	if err != nil {
+		log.Printf("shared: revoke failed: %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "could not revoke share")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // Get — GET /v1/shared/{token} (PUBLIC). Returns the stored snapshot JSON for

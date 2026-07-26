@@ -319,6 +319,10 @@ func main() {
 	r.With(httpx.RateLimitPerIP(httpx.ShareCreateLimit, httpx.ShareCreateWindow)).
 		Post("/v1/shared", sharedH.Create)
 	r.Get("/v1/shared/{token}", sharedH.Get)
+	// Early revocation with the create-time secret (2026-07-26 hardening).
+	// Same per-IP cap as create — it's likewise a public write endpoint.
+	r.With(httpx.RateLimitPerIP(httpx.ShareCreateLimit, httpx.ShareCreateWindow)).
+		Post("/v1/shared/{token}/revoke", sharedH.Revoke)
 	// SSR preview shell — see deploy note: kaata.af/v/* must route to the backend
 	// for the OG preview; otherwise the SPA's /v/:token fallback renders it.
 	r.Get("/v/{token}", sharedH.View)

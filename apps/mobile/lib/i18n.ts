@@ -222,6 +222,13 @@ const en = {
   "personEdit.lastName.label": "Last name",
   "personEdit.phone.label": "WhatsApp number",
   "personEdit.save": "Save changes",
+  // Shared-link revocation — kills kaata.af/v/… links this phone created for
+  // this person before their 30-day expiry. Count comes from the local
+  // shared_links registry (lib/share.ts).
+  "personEdit.revokeLinks": "Remove shared links ({count})",
+  "personEdit.revokeLinks.done": "Shared links removed. Old links no longer work.",
+  "personEdit.revokeLinks.partial": "Some links couldn't be removed ({count} left). Try again.",
+  "personEdit.revokeLinks.failed": "Couldn't remove links. Check your connection and try again.",
   "personAdd.title": "Add or find person",
   "personAdd.firstName.placeholder": "First name",
   "personAdd.lastName.placeholder": "Last name (optional)",
@@ -1296,6 +1303,13 @@ const fa: Partial<Record<Key, string>> = {
   "personEdit.lastName.label": "تخلص",
   "personEdit.phone.label": "شماره واتساپ",
   "personEdit.save": "ذخیره تغییرات",
+  "personEdit.revokeLinks": "حذف لینک‌های اشتراک‌گذاری‌شده ({count})",
+  "personEdit.revokeLinks.done":
+    "لینک‌های اشتراک‌گذاری‌شده حذف شدند. لینک‌های قبلی دیگر کار نمی‌کنند.",
+  "personEdit.revokeLinks.partial":
+    "برخی لینک‌ها حذف نشدند ({count} باقی مانده). دوباره تلاش کنید.",
+  "personEdit.revokeLinks.failed":
+    "لینک‌ها حذف نشدند. اتصال انترنت را بررسی کنید و دوباره تلاش کنید.",
   "personAdd.title": "افزودن یا یافتن شخص",
   "personAdd.firstName.placeholder": "نام",
   "personAdd.lastName.placeholder": "تخلص (اختیاری)",

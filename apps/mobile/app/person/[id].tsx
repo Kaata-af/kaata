@@ -68,7 +68,9 @@ export default function PersonDetailScreen() {
     setPinging(true);
     try {
       const ok = await shareKaataViaWhatsApp(
-        { name: person.name, phone: person.phone },
+        // id feeds the shared_links registry so this link is revocable later
+        // from the person's edit screen.
+        { id: person.id, name: person.name, phone: person.phone },
         person.balance,
         self,
         entries,
