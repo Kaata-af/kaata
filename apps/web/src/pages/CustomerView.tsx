@@ -90,8 +90,11 @@ const LABELS = {
     debt: "دادم",
     payment: "گرفتم",
     home: "رفتن به kaata.af",
-    tag: "قدرت‌گرفته از",
-    wordmark: "کاتا.",
+    // Deliberately English for Dari too — the translated "قدرت‌گرفته از"
+    // reads clunky (operator decision 2026-07-27); the brand line stays
+    // "Powered by kaata." in both languages.
+    tag: "Powered by",
+    wordmark: "kaata.",
     more: "بیشتر",
     less: "کمتر",
     settledShow: "{n} حساب تصفیه‌شده · دیدن",
@@ -281,15 +284,65 @@ function fmtAmount(n: number, rtl: boolean): string {
   }
 }
 
+// Afghan (Dari) Solar Hijri month names — the zodiac set (حمل … حوت), NOT
+// the Iranian set (فروردین …) that browsers ship for the fa locale and
+// (incorrectly for Afghanistan) fall back to for fa-AF. Same calendar, same
+// arithmetic — only the names differ, so we let ICU do the Persian-calendar
+// conversion and substitute the vocabulary Afghans actually use.
+const AFGHAN_MONTHS = [
+  "حمل",
+  "ثور",
+  "جوزا",
+  "سرطان",
+  "اسد",
+  "سنبله",
+  "میزان",
+  "عقرب",
+  "قوس",
+  "جدی",
+  "دلو",
+  "حوت",
+];
+const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
+const faDigits = (v: number | string) => String(v).replace(/\d/g, (d) => FA_DIGITS[Number(d)]);
+
 function fmtDate(ms: number, rtl: boolean): string {
   try {
-    return new Date(ms).toLocaleDateString(rtl ? "fa-AF" : undefined, {
+    if (!rtl) {
+      return new Date(ms).toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+    }
+    // ASCII-digit parts from ICU's Persian-calendar conversion; the month
+    // NUMBER indexes the Afghan name. e.g. "۵ اسد ۱۴۰۵".
+    const parts = new Intl.DateTimeFormat("en-US-u-ca-persian", {
       year: "numeric",
-      month: "short",
+      month: "numeric",
       day: "numeric",
-    });
+    }).formatToParts(new Date(ms));
+    let y = "";
+    let m = 0;
+    let d = "";
+    for (const p of parts) {
+      if (p.type === "year") y = p.value;
+      else if (p.type === "month") m = Number(p.value);
+      else if (p.type === "day") d = p.value;
+    }
+    if (!y || !d || m < 1 || m > 12) throw new Error("persian calendar parts unavailable");
+    return `${faDigits(d)} ${AFGHAN_MONTHS[m - 1]} ${faDigits(y)}`;
   } catch {
-    return "";
+    // Last resort: the old (Iranian-named) rendering beats no date at all.
+    try {
+      return new Date(ms).toLocaleDateString(rtl ? "fa-AF" : undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+    } catch {
+      return "";
+    }
   }
 }
 

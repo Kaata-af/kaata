@@ -187,7 +187,7 @@ a{color:inherit;text-decoration:none;}
   var L = rtl ? {
     owe:"بدهکار است", credit:"طلبکار است", settled:"تسویه شده",
     tx:"معاملات", empty:"معامله‌ای نیست", err:"بارگذاری ناموفق بود",
-    debt:"دادم", payment:"گرفتم", tag:"قدرت‌گرفته از", more:"بیشتر", less:"کمتر",
+    debt:"دادم", payment:"گرفتم", tag:"Powered by", more:"بیشتر", less:"کمتر",
     hshow:"{n} حساب تصفیه‌شده · دیدن", hhide:"پنهان کردن سابقهٔ تصفیه‌شده",
     together:"✓ {n} حساب با هم تصفیه شده", allset:"همه تصفیه شده — حساب جاری خالی است."
   } : {
@@ -203,7 +203,23 @@ a{color:inherit;text-decoration:none;}
   document.getElementById('txTitle').textContent = L.tx;
   document.getElementById('foottag').textContent = L.tag;
   function esc(s){var d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
-  function fmtDate(ms){try{return new Date(ms).toLocaleDateString(rtl?'fa-AF':undefined,{year:'numeric',month:'short',day:'numeric'});}catch(e){return '';}}
+  // Afghan (Dari) Solar Hijri month names — the zodiac set (حمل … حوت), not
+  // the Iranian names ICU ships for fa. Calendar conversion stays ICU's;
+  // only the vocabulary is substituted. Mirrors CustomerView.tsx fmtDate.
+  var AFM=['حمل','ثور','جوزا','سرطان','اسد','سنبله','میزان','عقرب','قوس','جدی','دلو','حوت'];
+  function faNum(s){return String(s).replace(/\d/g,function(d){return '۰۱۲۳۴۵۶۷۸۹'[+d];});}
+  function fmtDate(ms){
+    try{
+      if(!rtl) return new Date(ms).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
+      var parts=new Intl.DateTimeFormat('en-US-u-ca-persian',{year:'numeric',month:'numeric',day:'numeric'}).formatToParts(new Date(ms));
+      var y='',m=0,d='';
+      for(var i=0;i<parts.length;i++){var p=parts[i];if(p.type==='year')y=p.value;else if(p.type==='month')m=+p.value;else if(p.type==='day')d=p.value;}
+      if(!y||!d||m<1||m>12) throw 0;
+      return faNum(d)+' '+AFM[m-1]+' '+faNum(y);
+    }catch(e){
+      try{return new Date(ms).toLocaleDateString('fa-AF',{year:'numeric',month:'short',day:'numeric'});}catch(e2){return '';}
+    }
+  }
   function fmtAmt(n){try{return Math.abs(n).toLocaleString(rtl?'fa-AF':undefined);}catch(e){return Math.abs(n);}}
   function rowHtml(e, cur){
     var gave = e.type !== 'payment'; // debt → "I gave" (up); payment → "I received" (down)
