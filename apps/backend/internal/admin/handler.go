@@ -33,6 +33,19 @@ func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, st)
 }
 
+// Growth — GET /v1/admin/growth. Weekly cohort retention + growth accounting +
+// adoption for the dashboard's Retention/Overview sections. No query params —
+// the window is fixed at the last 12 ISO weeks. Mounted behind
+// httpx.AdminKeyMiddleware.
+func (h *Handler) Growth(w http.ResponseWriter, r *http.Request) {
+	g, err := h.svc.GetGrowth(r.Context())
+	if err != nil {
+		httpx.Error(w, http.StatusInternalServerError, "growth query failed")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, g)
+}
+
 // Users — GET /v1/admin/users. The operator drill-down: signed-in users, their
 // kaatas + members + per-kaata tally/customer counts (not contents). Mounted
 // behind httpx.AdminKeyMiddleware.

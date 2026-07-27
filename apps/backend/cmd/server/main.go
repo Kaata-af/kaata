@@ -332,6 +332,7 @@ func main() {
 	r.Group(func(pr chi.Router) {
 		pr.Use(httpx.AdminKeyMiddleware(cfg.AdminAPIKey))
 		pr.Get("/v1/admin/stats", adminH.Stats)
+		pr.Get("/v1/admin/growth", adminH.Growth)
 		pr.Get("/v1/admin/users", adminH.Users)
 	})
 	// Public invite landing read (kaata.af/i/<token>). 30/hr per IP caps
