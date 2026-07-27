@@ -13,11 +13,12 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../../components/Button";
+import { ConfirmDialog } from "../../../components/ConfirmDialog";
 import { CountryPickerSheet } from "../../../components/CountryPickerSheet";
-import { useToast } from "../../../components/Toast";
+import { queuePendingToast, useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
 import { splitName } from "../../../lib/contacts-sync";
-import { getPerson, updatePerson } from "../../../lib/db";
+import { archivePerson, getPerson, updatePerson } from "../../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../../lib/event-log";
 import { fonts } from "../../../lib/fonts";
@@ -52,6 +53,9 @@ export default function EditPersonScreen() {
   // double-tap (setState is async); see entry/new.tsx.
   const savingRef = useRef(false);
   const country = getCountry(countryCode);
+  // Remove-person confirm (archive semantics — see the danger row below).
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const removingRef = useRef(false);
   // Shared-link revocation (see lib/share.ts registry): count drives the
   // affordance; result renders inline (modal screen, toasts can't).
   const [sharedLinkCount, setSharedLinkCount] = useState(0);
@@ -125,6 +129,30 @@ export default function EditPersonScreen() {
     const focusTimer = setTimeout(() => firstNameRef.current?.focus(), 280);
     return () => clearTimeout(focusTimer);
   }, [loaded]);
+
+  async function onRemove() {
+    setConfirmRemove(false);
+    if (!id || removingRef.current) return;
+    removingRef.current = true;
+    try {
+      await archivePerson(id);
+      // The toast must outlive this modal AND the person screen beneath it —
+      // queue it for the home screen's drain (see Toast.tsx contract).
+      queuePendingToast(
+        t("common.removed", { name: [firstName, lastName].filter(Boolean).join(" ") }),
+        "success",
+      );
+      router.replace("/");
+    } catch (err) {
+      if (err instanceof RoleGateRejectionError) {
+        setSaveError(t("entry.roleDenied"));
+      } else {
+        console.warn("[person/edit] archivePerson failed", err);
+        setSaveError(t("entry.deleteFailed"));
+      }
+      removingRef.current = false;
+    }
+  }
 
   async function onSave() {
     if (savingRef.current || !id) return;
@@ -314,7 +342,36 @@ export default function EditPersonScreen() {
             {revokeResult}
           </Text>
         ) : null}
+
+        {/* Remove person — the ONE place removal works for every contact.
+            The home list's long-press remove only exists for people WITH
+            tallies (zero-tally contacts never appear there), which left
+            phone-book imports and typo-adds undeletable. Same archive
+            semantics as home: relationship archived (entries kept as
+            history), phone number freed for re-use. */}
+        <Pressable
+          onPress={() => setConfirmRemove(true)}
+          disabled={busy}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.removeRow, pressed && { opacity: 0.7 }]}
+        >
+          <Text style={styles.removeRowText}>
+            {t("common.remove.title", { name: [firstName, lastName].filter(Boolean).join(" ") })}
+          </Text>
+        </Pressable>
       </KeyboardAvoidingView>
+
+      <ConfirmDialog
+        visible={confirmRemove}
+        title={t("common.remove.title", {
+          name: [firstName, lastName].filter(Boolean).join(" "),
+        })}
+        description={t("common.remove.description")}
+        confirmLabel={t("common.remove")}
+        destructive
+        onConfirm={onRemove}
+        onCancel={() => setConfirmRemove(false)}
+      />
 
       <CountryPickerSheet
         visible={pickerVisible}
@@ -436,5 +493,16 @@ const styles = StyleSheet.create({
     color: colors.textSubtle,
     marginTop: 8,
     textAlign: "center",
+  },
+  removeRow: {
+    minHeight: 44,
+    marginTop: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  removeRowText: {
+    fontSize: 14,
+    fontFamily: fonts.sansMedium,
+    color: colors.danger,
   },
 });
