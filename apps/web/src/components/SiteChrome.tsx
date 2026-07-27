@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { FACEBOOK_URL, GITHUB_URL, INSTAGRAM_URL, WHATSAPP_CONTACT_URL } from "../env";
+import { FACEBOOK_URL, INSTAGRAM_URL, WHATSAPP_CONTACT_URL } from "../env";
 import { useI18n } from "../lib/i18n";
 
 // Header mirrors dub.co's chassis: logo at the start, nav links centered,
@@ -187,16 +187,6 @@ export function SiteFooter() {
               <Link to="/delete-account" className="hover:text-neutral-900 transition-colors">
                 {t("footer.deleteAccount")}
               </Link>
-            </li>
-            <li>
-              <a
-                href={GITHUB_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:text-neutral-900 transition-colors"
-              >
-                {t("footer.github")}
-              </a>
             </li>
           </ul>
         </div>
