@@ -409,6 +409,19 @@ func main() {
 		pr.Get("/v1/sync/vector", syncH.Vector)
 	})
 
+	// PROTECTED live-sync poke channel (WebSocket). Its own group, NOT the
+	// gzip sync group above: wrapping a hijacked upgrade in the gzip
+	// ResponseWriter would break http.Hijacker type assertions. Same session
+	// middleware as pull/push; the fallback middleware first promotes
+	// ?token=<jwt> into the Authorization header (header wins) for WebSocket
+	// clients that cannot set headers. No rate limit — the per-account
+	// socket cap inside the handler is the abuse brake.
+	r.Group(func(pr chi.Router) {
+		pr.Use(syncapi.LiveTokenFallbackMiddleware)
+		pr.Use(authenticator.Middleware())
+		pr.Get("/v1/sync/live", syncH.Live)
+	})
+
 	// Background snapshot regeneration. Runs on its own dedicated 4-conn
 	// Postgres pool so a slow snapshot replay can't starve the request path.
 	// 5-minute tick interval is the plan default; tune via env if needed.

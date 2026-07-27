@@ -30,6 +30,7 @@ import {
   VaultNotRegisteredError,
 } from "./errors";
 import { clearLastSyncError, recordLastSyncError } from "./last-error";
+import { connectLiveChannel } from "./live";
 import { pullEvents } from "./pull";
 import { pushEvents } from "./push";
 import { ensureVaultRegistered, fullBackupSweep } from "./reconcile";
@@ -278,10 +279,14 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
       scheduleNext(0);
       runSweep(); // also reconcile/back up non-active vaults on resume
       void drainAllOutboxes(); // catch up any leftover unacked rows immediately
+      maybeStartLive(); // re-open the poke socket for the foreground session
     } else if (wasActive && s !== "active") {
       // Going to background/inactive: push every vault with pending events so
       // recent edits survive an imminent app kill.
       void drainAllOutboxes();
+      // No pokes in background — tear the socket down (saves the OS killing a
+      // half-dead conn) and let the 30s background poll cover that window.
+      liveChannel.stop();
     }
   });
 
@@ -336,6 +341,79 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
     }
     scheduleKick();
   });
+
+  // Live channel: a server-poke WebSocket (lib/sync/live.ts) that tells us
+  // WHEN a vault gained committed events, so remote edits land within ~1 RTT
+  // instead of waiting out the poll interval. Pokes carry no ledger data —
+  // they only trigger the same authenticated pull the tick runs — and ALL the
+  // polling above stays untouched as the fallback whenever the socket is
+  // down. The server pokes every subscriber including the pusher, so our own
+  // pushes echo back as pokes; the pull cursor makes those idempotent no-ops.
+  const POKE_DEBOUNCE_MS = 300;
+  const pokeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  // Pull-only sync of a poked NON-ACTIVE vault. Per-vault coalescing mirrors
+  // pushVaultNow: ONE pull in flight per vault; a poke landing mid-pull sets
+  // a dirty flag and a single trailing pull drains it. The active vault never
+  // comes through here — its pokes route through the tick (below) so they
+  // share the tick's inFlight guard and can't overlap an in-flight cycle for
+  // the same vault.
+  const pokePullInFlight = new Set<string>();
+  const pokePullDirty = new Set<string>();
+  const pullVaultOnPoke = async (vaultId: string): Promise<void> => {
+    if (pokePullInFlight.has(vaultId)) {
+      pokePullDirty.add(vaultId);
+      return;
+    }
+    pokePullInFlight.add(vaultId);
+    try {
+      if (stopped) return;
+      if (!(await getSessionJWT())) return;
+      const net = await Network.getNetworkStateAsync();
+      if (!net.isConnected) return;
+      await pullEvents(vaultId);
+    } catch (err) {
+      if (__DEV__) console.warn("[sync] poke pull failed", vaultId.slice(0, 8), err);
+    } finally {
+      pokePullInFlight.delete(vaultId);
+      // A poke arrived while this pull was in flight — drain it once more so
+      // the tail of a burst is never missed.
+      if (pokePullDirty.delete(vaultId) && !stopped) void pullVaultOnPoke(vaultId);
+    }
+  };
+
+  const onPoke = (vaultId: string): void => {
+    if (stopped || pokeTimers.has(vaultId)) return; // coalesce a poke burst per vault
+    pokeTimers.set(
+      vaultId,
+      setTimeout(() => {
+        pokeTimers.delete(vaultId);
+        if (stopped) return;
+        if (vaultId === getActiveVaultIdSyncMaybe()) {
+          // Active vault: run a normal tick NOW — same pull path, same
+          // inFlight guard, and the pull/apply path already emits the
+          // ledger-refresh event (the sweep fires origin "remote"), so the
+          // UI re-queries with no extra plumbing here. The tick's push leg
+          // is an idempotent no-op when the outbox is empty.
+          scheduleNext(0);
+        } else {
+          void pullVaultOnPoke(vaultId);
+        }
+      }, POKE_DEBOUNCE_MS),
+    );
+  };
+
+  const liveChannel = connectLiveChannel({ getJwt: getSessionJWT, onPoke });
+  // Foreground + signed-in only: torn down on background (the AppState
+  // listener above) and never dialed while the JWT is absent. live.ts also
+  // treats a missing JWT as retryable, so a sign-in that happens while the
+  // channel is started gets picked up without a restart.
+  const maybeStartLive = (): void => {
+    if (stopped || currentAppState !== "active") return;
+    void (async () => {
+      if (await getSessionJWT()) liveChannel.start();
+    })().catch(() => {});
+  };
 
   const currentInterval = (): number => {
     return currentAppState === "active" ? FOREGROUND_INTERVAL_MS : BACKGROUND_INTERVAL_MS;
@@ -446,6 +524,7 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
   scheduleNext(0);
   runSweep();
   void drainAllOutboxes();
+  maybeStartLive();
 
   return () => {
     // Best-effort flush before teardown. The scheduler restarts when the active
@@ -461,6 +540,9 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
       clearTimeout(kickTimer);
       kickTimer = null;
     }
+    for (const t of pokeTimers.values()) clearTimeout(t);
+    pokeTimers.clear();
+    liveChannel.stop();
     unsubLedger();
     appStateSub.remove();
   };

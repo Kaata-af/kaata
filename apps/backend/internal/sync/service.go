@@ -110,6 +110,10 @@ type Service struct {
 	// the `witness` field on membership events. Set via SetWitnessPubkeys
 	// at startup; empty disables the witness authorization arm.
 	witnessPubkeys []ed25519.PublicKey
+
+	// live is the in-memory poke fanout for GET /v1/sync/live (live.go).
+	// In-process like the caches above — single-replica deploy assumption.
+	live *liveBroker
 }
 
 func NewService(pool *pgxpool.Pool) *Service {
@@ -123,6 +127,7 @@ func NewService(pool *pgxpool.Pool) *Service {
 		onSnapshot:      func(string) {},
 		pullCache:       pullCache,
 		binding:         NewBindingResolver(pool),
+		live:            newLiveBroker(),
 	}
 }
 
@@ -138,6 +143,14 @@ func (s *Service) SetSnapshotTrigger(t SnapshotTrigger) {
 // accountID). Called by Phase 4 invite/revoke flows.
 func (s *Service) InvalidateMembership(vaultID, accountID string) {
 	s.membership.Remove(vaultID + "|" + accountID)
+	// Live poke: every membership change routes through here (REST
+	// revoke/role-change/leave via vaults.MembershipInvalidator, and the
+	// push path's post-commit chain-fold invalidations), so this single
+	// hook is what lets a connected device learn "your standing in this
+	// vault changed — pull now" without waiting for its poll tick. The
+	// affected member's own pull then 403s (revoke) or delivers the
+	// membership events (role change); either way the poke carries nothing.
+	s.NotifyLive(vaultID)
 }
 
 // ResetSnapshotPending is called by the snapshot worker after generation.
@@ -732,6 +745,13 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 		if next >= snapshotEventThreshold {
 			go s.onSnapshot(in.VaultID)
 		}
+
+		// Live poke: tell every connected member (including the pusher —
+		// its pull is a cursor-idempotent no-op) that the vault's log
+		// advanced. AFTER commit, same as the pull-cache purge above, so a
+		// poked client's immediate pull always observes the new events.
+		// Only on accepted>0: duplicates/rejections change nothing to pull.
+		s.NotifyLive(in.VaultID)
 	}
 
 	return &PushResponse{
