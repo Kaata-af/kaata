@@ -36,6 +36,9 @@ type SharedLedger = {
   // chapters and render collapsed; settled_chapters is the trust-line count.
   settled_chapters?: number;
   settled_boundary_ms?: number | null;
+  /** Every boundary (oldest→newest) — draws each dated ruled-off line in
+   *  the expanded history. Absent on older snapshots. */
+  settled_boundaries?: number[];
   generated_at: number;
 };
 
@@ -82,6 +85,7 @@ const LABELS = {
     settledShow: "View settled history",
     settledHide: "Hide settled history",
     settledTogether: "✓ {n} account(s) settled together",
+    settledOn: "Settled · {date}",
   },
   fa: {
     owe: "بدهکار است",
@@ -105,6 +109,7 @@ const LABELS = {
     settledShow: "دیدن سابقهٔ تصفیه‌شده",
     settledHide: "پنهان کردن سابقهٔ تصفیه‌شده",
     settledTogether: "✓ {n} حساب با هم تصفیه شده",
+    settledOn: "تصفیه شد · {date}",
   },
 } as const;
 
@@ -425,6 +430,35 @@ function Ledger({ data: d }: { data: SharedLedger }) {
   const collapsed = coherent && !showSettled;
   const shownEntries = collapsed ? currentEntries : d.entries;
 
+  // Expanded history interleaves each dated ruled-off line at its
+  // chronological position (entries arrive newest-first) — the visible
+  // lines of a paper khata, not one continuous list. Adjacent markers
+  // (concurrent double-settle artifact) collapse to one.
+  type LedgerItem = { kind: "entry"; e: SharedEntry } | { kind: "marker"; ms: number };
+  const allBoundaries =
+    d.settled_boundaries && d.settled_boundaries.length > 0
+      ? d.settled_boundaries
+      : boundary != null
+        ? [boundary]
+        : [];
+  let shownItems: LedgerItem[];
+  if (collapsed || allBoundaries.length === 0) {
+    shownItems = shownEntries.map((e) => ({ kind: "entry" as const, e }));
+  } else {
+    const desc = [...allBoundaries].sort((a, b) => b - a);
+    shownItems = [];
+    let bi = 0;
+    for (const e of shownEntries) {
+      while (bi < desc.length && desc[bi] >= e.date) {
+        if (shownItems.length === 0 || shownItems[shownItems.length - 1].kind !== "marker") {
+          shownItems.push({ kind: "marker", ms: desc[bi] });
+        }
+        bi += 1;
+      }
+      shownItems.push({ kind: "entry", e });
+    }
+  }
+
   return (
     <section dir={rtl ? "rtl" : "ltr"} lang={rtl ? "fa" : "en"} style={{ fontFamily: APP_SANS }}>
       {/* Statement card — the shop name is the centered header; the counterparty
@@ -535,7 +569,23 @@ function Ledger({ data: d }: { data: SharedLedger }) {
             </p>
           )
         ) : (
-          shownEntries.map((e, i) => <Row key={i} e={e} currency={d.currency} rtl={rtl} L={L} />)
+          shownItems.map((item, i) =>
+            item.kind === "marker" ? (
+              <div
+                key={`m-${item.ms}-${i}`}
+                className="flex items-center gap-2.5 border-b px-4 py-[11px]"
+                style={{ borderColor: C.hair, background: C.bg }}
+              >
+                <div className="h-px flex-1" style={{ background: C.mut, opacity: 0.4 }} />
+                <span className="text-[11px] font-medium" style={{ color: C.sub }}>
+                  {L.settledOn.replace("{date}", fmtDate(item.ms, rtl))}
+                </span>
+                <div className="h-px flex-1" style={{ background: C.mut, opacity: 0.4 }} />
+              </div>
+            ) : (
+              <Row key={i} e={item.e} currency={d.currency} rtl={rtl} L={L} />
+            ),
+          )
         )}
         {/* Settled-history collapse row — only when there are ruled-off
             entries AND the collapse is coherent (else the list is forced

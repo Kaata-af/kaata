@@ -26,6 +26,7 @@ import {
   getPerson,
   getSettlementSummary,
   listEntries,
+  listSettlementBoundaries,
   softDeleteEntry,
 } from "../../lib/db";
 import { getActiveVaultIdSyncMaybe } from "../../lib/db-tx";
@@ -38,7 +39,8 @@ import { useLedgerRefresh } from "../../lib/ledger-events";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
-import { getShareLangPref, resolveShareLang, t, type LocaleCode } from "../../lib/i18n";
+import { getLocale, getShareLangPref, resolveShareLang, t, type LocaleCode } from "../../lib/i18n";
+import { formatSettlementDate } from "../../lib/jalali";
 import { shareKaataViaWhatsApp } from "../../lib/share";
 import { useActiveVaultWriteCaps } from "../../lib/use-vault-role";
 import type { Entry, PersonWithBalance, Self } from "../../lib/types";
@@ -67,6 +69,9 @@ export default function PersonDetailScreen() {
     count: 0,
     lastSettledAtMs: null,
   });
+  // Every boundary (oldest→newest) — the full-history view draws each
+  // ruled-off line with its settlement date, like a paper khata.
+  const [boundaries, setBoundaries] = useState<number[]>([]);
   const [showFullHistory, setShowFullHistory] = useState(false);
   const [confirmSettle, setConfirmSettle] = useState(false);
   const settlingRef = useRef(false);
@@ -113,6 +118,31 @@ export default function PersonDetailScreen() {
   const chapterCoherent = person == null || chapterSum === person.balance;
   const effectiveShowFull = showFullHistory || !chapterCoherent;
   const visibleEntries = effectiveShowFull ? entries : chapterEntries;
+
+  // Full-history render list: entries interleaved with the ruled-off lines,
+  // each marker at its chronological position with the settlement date —
+  // like the visible lines in a paper khata. Adjacent markers (a concurrent
+  // double-settle artifact) collapse to one; markers below the oldest entry
+  // have nothing to rule off and are dropped.
+  type HistoryItem = { kind: "entry"; entry: Entry } | { kind: "marker"; ms: number };
+  const historyItems = useMemo<HistoryItem[]>(() => {
+    if (!effectiveShowFull || boundaries.length === 0) {
+      return visibleEntries.map((e) => ({ kind: "entry", entry: e }));
+    }
+    const items: HistoryItem[] = [];
+    const desc = [...boundaries].sort((a, b) => b - a);
+    let bi = 0;
+    for (const e of entries) {
+      while (bi < desc.length && desc[bi] >= e.created_at) {
+        if (items.length === 0 || items[items.length - 1].kind !== "marker") {
+          items.push({ kind: "marker", ms: desc[bi] });
+        }
+        bi++;
+      }
+      items.push({ kind: "entry", entry: e });
+    }
+    return items;
+  }, [visibleEntries, effectiveShowFull, boundaries, entries]);
   const canSettle =
     canAmend &&
     chapterCoherent &&
@@ -170,7 +200,11 @@ export default function PersonDetailScreen() {
         // carry the "N accounts settled together" trust line.
         entries,
         lang,
-        { settledChapters: settlement.count, settledBoundaryMs: settlement.lastSettledAtMs },
+        {
+          settledChapters: settlement.count,
+          settledBoundaryMs: settlement.lastSettledAtMs,
+          settledBoundaries: boundaries,
+        },
       );
       if (!ok) toast.push(t("share.whatsappUnavailable"), "error");
     } finally {
@@ -187,16 +221,18 @@ export default function PersonDetailScreen() {
     // Guarded — an unhandled rejection here previously left the screen on
     // a permanent blank state with setLoaded never flipping.
     try {
-      const [p, list, s, settle] = await Promise.all([
+      const [p, list, s, settle, bounds] = await Promise.all([
         getPerson(id),
         listEntries(id),
         getLocalSelf(),
         getSettlementSummary(id),
+        listSettlementBoundaries(id),
       ]);
       setPerson(p);
       setEntries(list);
       setSelf(s);
       setSettlement(settle);
+      setBoundaries(bounds);
       setLoadFailed(false);
     } catch (err) {
       console.warn("[person] load failed", err);
@@ -430,22 +466,40 @@ export default function PersonDetailScreen() {
           )
         ) : (
           <View style={styles.entriesCard}>
-            {visibleEntries.map((item, index) => {
+            {historyItems.map((item, index) => {
+              if (item.kind === "marker") {
+                // The ruled-off line, dated — a khata page's visible mark.
+                return (
+                  <View key={`m-${item.ms}-${index}`} style={[styles.chapterLine, rowDir(isRTL)]}>
+                    <View style={styles.settleRule} />
+                    <Text style={styles.chapterLineText} allowFontScaling={false}>
+                      {t("person.history.settledOn", {
+                        date: formatSettlementDate(item.ms, getLocale()),
+                      })}
+                    </Text>
+                    <View style={styles.settleRule} />
+                  </View>
+                );
+              }
+              const entry = item.entry;
               // Settled history is READ-ONLY (review fix): editing or
               // deleting a ruled-off entry would un-zero a closed chapter.
               // Remote edits can still arrive — the coherence rule above
               // handles those by falling open — but this device won't offer
               // the footgun.
               const inSettledChapter =
-                settlement.lastSettledAtMs != null && item.created_at <= settlement.lastSettledAtMs;
+                settlement.lastSettledAtMs != null &&
+                entry.created_at <= settlement.lastSettledAtMs;
               return (
-                <View key={item.id}>
-                  {index > 0 ? <View style={styles.divider} /> : null}
+                <View key={entry.id}>
+                  {index > 0 && historyItems[index - 1].kind !== "marker" ? (
+                    <View style={styles.divider} />
+                  ) : null}
                   {/* setSheetFor is referentially stable — keeps the memoized
                       EntryRow from re-rendering on unrelated screen renders.
                       Opens the edit/delete sheet on TAP-AND-HOLD only. */}
                   <EntryRow
-                    entry={item}
+                    entry={entry}
                     onLongPress={canAmend && !inSettledChapter ? setSheetFor : undefined}
                   />
                 </View>
@@ -735,6 +789,20 @@ const styles = StyleSheet.create({
   },
   settleRowText: {
     fontSize: 12,
+    fontFamily: fonts.sansMedium,
+    color: colors.textSubtle,
+  },
+  // Dated ruled-off line between chapters in the full-history view.
+  chapterLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: colors.bgMuted,
+  },
+  chapterLineText: {
+    fontSize: 11,
     fontFamily: fonts.sansMedium,
     color: colors.textSubtle,
   },

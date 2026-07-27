@@ -47,6 +47,7 @@ async function uploadSharedLedger(args: {
     // so no server change is needed; old payloads simply lack the fields.
     settled_chapters: args.settled?.settledChapters ?? 0,
     settled_boundary_ms: args.settled?.settledBoundaryMs ?? null,
+    settled_boundaries: args.settled?.settledBoundaries ?? [],
     generated_at: Date.now(),
   };
 
@@ -157,6 +158,9 @@ export async function revokeSharedLinksForPerson(personUserId: string): Promise<
 export type SettledInfo = {
   settledChapters: number;
   settledBoundaryMs: number | null;
+  /** Every boundary (oldest→newest) so the web view can draw each dated
+   *  ruled-off line, not just collapse at the latest one. */
+  settledBoundaries?: number[];
 };
 
 export async function shareKaataViaWhatsApp(

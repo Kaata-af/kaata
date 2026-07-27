@@ -3748,6 +3748,27 @@ export async function getSettlementSummary(
   return { count: row?.n ?? 0, lastSettledAtMs: row?.last_ms ?? null };
 }
 
+/**
+ * Every settlement boundary for a person on the active vault, oldest first.
+ * Drives the ruled-off chapter lines in the full-history view — a paper
+ * khata shows every line with its date, not one continuous list.
+ */
+export async function listSettlementBoundaries(personId: string): Promise<number[]> {
+  const db = await getDb();
+  const vaultId = getActiveVaultIdSyncMaybe();
+  if (!vaultId) return [];
+  const rows = await db.getAllAsync<{ settled_at_ms: number }>(
+    `SELECT s.settled_at_ms
+       FROM settlements s
+       INNER JOIN relationships r ON r.id = s.relationship_id
+      WHERE r.user_b_id = ? AND r.vault_id = ? AND r.archived_at IS NULL
+      ORDER BY s.settled_at_ms ASC`,
+    personId,
+    vaultId,
+  );
+  return rows.map((r) => r.settled_at_ms);
+}
+
 export async function listEntries(personId: string): Promise<Entry[]> {
   const db = await getDb();
   const vaultId = getActiveVaultIdSyncMaybe();

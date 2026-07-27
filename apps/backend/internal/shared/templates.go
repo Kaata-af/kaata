@@ -155,6 +155,9 @@ a{color:inherit;text-decoration:none;}
 .trust{margin-top:14px;text-align:center;font-size:12px;font-weight:500;color:#475467;display:none}
 .histbtn{display:none;width:100%;border:0;border-top:1px solid #f2f4f7;background:#fff;padding:13px 16px;text-align:center;font-size:12px;font-weight:500;color:#475467;font-family:inherit;cursor:pointer}
 .histbtn:active{background:#eaecf0}
+.chline{display:flex;align-items:center;gap:10px;padding:11px 16px;background:var(--bg);border-bottom:1px solid var(--hair);}
+.chrule{flex:1;height:1px;background:var(--mut);opacity:.4;}
+.chtext{font-size:11px;font-weight:500;color:var(--sub);}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
 </style>
 </head>
@@ -208,13 +211,13 @@ a{color:inherit;text-decoration:none;}
     tx:"معاملات", empty:"معامله‌ای نیست", err:"بارگذاری ناموفق بود",
     debt:"دادم", payment:"گرفتم", tag:"Powered by", more:"بیشتر", less:"کمتر",
     hshow:"دیدن سابقهٔ تصفیه‌شده", hhide:"پنهان کردن سابقهٔ تصفیه‌شده",
-    together:"✓ {n} حساب با هم تصفیه شده"
+    together:"✓ {n} حساب با هم تصفیه شده", seton:"تصفیه شد · {d}"
   } : {
     owe:"owes", credit:"is owed", settled:"is settled",
     tx:"Transactions", empty:"No transactions yet.", err:"Couldn't load this ledger.",
     debt:"I gave", payment:"I received", tag:"Powered by", more:"more", less:"less",
     hshow:"View settled history", hhide:"Hide settled history",
-    together:"✓ {n} account(s) settled together"
+    together:"✓ {n} account(s) settled together", seton:"Settled · {d}"
   };
   var UP='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="7"/><polyline points="6 13 12 7 18 13"/></svg>';
   var DOWN='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="17"/><polyline points="18 11 12 17 6 11"/></svg>';
@@ -296,6 +299,15 @@ a{color:inherit;text-decoration:none;}
         tl.textContent = L.together.replace('{n}', fmtAmt(chapters));
         tl.style.display = 'block';
       }
+      // Every dated boundary (newest first) for the expanded history's
+      // ruled-off lines; older payloads carry only the single latest one.
+      var bounds = (p && p.settled_boundaries && p.settled_boundaries.length)
+        ? p.settled_boundaries.slice() : (boundary != null ? [boundary] : []);
+      bounds.sort(function(a,b){ return b-a; });
+      function markerHtml(ms){
+        return '<div class="chline"><span class="chrule"></span><span class="chtext">'
+          + esc(L.seton.replace('{d}', fmtDate(ms))) + '</span><span class="chrule"></span></div>';
+      }
       var open = false;
       function render(){
         var list = open ? all : current;
@@ -304,7 +316,20 @@ a{color:inherit;text-decoration:none;}
         // Fresh page right after settling: the statement card already says
         // "all settled" — no empty-state line here, just the history toggle.
         if(!list.length){ html = chapters > 0 ? '' : '<div class="empty">'+L.empty+'</div>'; }
-        else { for(var k=0;k<list.length;k++){ html += rowHtml(list[k], cur); } }
+        else if(open && bounds.length){
+          // Interleave each ruled-off line at its chronological position
+          // (adjacent markers from a concurrent double-settle collapse to one).
+          var bi = 0, lastWasMarker = false;
+          for(var k=0;k<list.length;k++){
+            while(bi < bounds.length && bounds[bi] >= list[k].date){
+              if(!lastWasMarker){ html += markerHtml(bounds[bi]); lastWasMarker = true; }
+              bi++;
+            }
+            html += rowHtml(list[k], cur);
+            lastWasMarker = false;
+          }
+        }
+        else { for(var k2=0;k2<list.length;k2++){ html += rowHtml(list[k2], cur); } }
         if(settled.length){
           html += '<button type="button" class="histbtn" id="histbtn" style="display:block'
             + (list.length ? '' : ';border-top:0') + '">'

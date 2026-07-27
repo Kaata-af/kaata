@@ -217,6 +217,9 @@ const en = {
   "person.settle.notZero": "Balance must be zero to settle.",
   "person.history.show": "{count} settled account(s) · view all",
   "person.history.hide": "Show current account only",
+  // Dated ruled-off line between chapters in the full-history view. {date}
+  // is Solar Hijri with Afghan month names for fa, Gregorian for en.
+  "person.history.settledOn": "Settled · {date}",
   "person.freshChapter.title": "All settled",
   "person.freshChapter.subtitle": "A fresh page. Your history together is kept below.",
   "person.ping": "Ping {name} on WhatsApp",
@@ -1312,6 +1315,7 @@ const fa: Partial<Record<Key, string>> = {
   "person.settle.notZero": "برای تصفیه، باقی‌مانده باید صفر باشد.",
   "person.history.show": "{count} حساب تصفیه‌شده · دیدن همه",
   "person.history.hide": "فقط حساب جاری",
+  "person.history.settledOn": "تصفیه شد · {date}",
   "person.freshChapter.title": "همه تصفیه شد",
   "person.freshChapter.subtitle": "صفحهٔ تازه. سابقهٔ شما با هم در پایین نگه داشته شده است.",
   "person.ping": "یادآوری به {name} در واتساپ",
