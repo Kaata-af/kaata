@@ -1,7 +1,8 @@
 // Shared chrome for the admin dashboard — quiet-fintech light theme matching
 // the public site (CustomerView palette): ink #101828, borders #eaecf0, white
-// cards, Inter, tabular-nums on every number.
+// Tremor cards, Inter, tabular-nums on every number.
 
+import { Card as TremorCard } from "@tremor/react";
 import type { ReactNode } from "react";
 
 // Palette. Chart series colors were validated with the dataviz six-checks
@@ -14,10 +15,23 @@ export const C = {
   hair: "#f2f4f7",
   blue: "#2a78d6", // retained / active / English
   green: "#008300", // new / Dari
-  teal: "#199e70", // resurrected
+  teal: "#199e70", // resurrected / installs series
   red: "#e34948", // churned
-  gray: "#d0d5dd", // unknown locale, subtle install bars
+  gray: "#d0d5dd", // unknown locale, subtle segments
 };
+
+// Tremor receives the hex values above at runtime and emits Tailwind
+// ARBITRARY-VALUE classes (fill-[#2a78d6], bg-[#2a78d6], …) that the content
+// scanner cannot discover in node_modules (they're template-built). The
+// literal class names below exist ONLY so Tailwind generates their CSS —
+// keep this block in sync with `C`:
+//
+// bg-[#2a78d6] text-[#2a78d6] fill-[#2a78d6] stroke-[#2a78d6]
+// bg-[#008300] text-[#008300] fill-[#008300] stroke-[#008300]
+// bg-[#199e70] text-[#199e70] fill-[#199e70] stroke-[#199e70]
+// bg-[#e34948] text-[#e34948] fill-[#e34948] stroke-[#e34948]
+// bg-[#d0d5dd] text-[#d0d5dd] fill-[#d0d5dd] stroke-[#d0d5dd]
+// bg-[#101828] text-[#101828] fill-[#101828] stroke-[#101828]
 
 export function fmtInt(n: number | undefined | null): string {
   return n == null ? "—" : n.toLocaleString();
@@ -40,7 +54,7 @@ export function fmtDate(iso: string): string {
 
 // "last seen" relative label + whether the device is effectively online now
 // (checked in within 10 min — the app re-checks-in on foreground). Preserved
-// from the old dashboard so the green dot means the same thing.
+// from the old dashboard so the green "online" label means the same thing.
 export function lastSeenInfo(iso: string): { label: string; online: boolean } {
   if (!iso) return { label: "never", online: false };
   const ms = Date.now() - new Date(iso).getTime();
@@ -53,6 +67,23 @@ export function lastSeenInfo(iso: string): { label: string; online: boolean } {
   return { label, online };
 }
 
+// Recency status for the Users table dot: green = seen within 7 days,
+// amber = within 30, gray = colder than that (or never seen).
+export type SeenStatus = "green" | "amber" | "gray";
+export function seenStatus(iso: string): SeenStatus {
+  if (!iso) return "gray";
+  const ms = Date.now() - new Date(iso).getTime();
+  if (isNaN(ms) || ms < 0) return "gray";
+  if (ms < 7 * 86_400_000) return "green";
+  if (ms < 30 * 86_400_000) return "amber";
+  return "gray";
+}
+export const SEEN_DOT: Record<SeenStatus, string> = {
+  green: "bg-emerald-500",
+  amber: "bg-amber-500",
+  gray: "bg-gray-300",
+};
+
 export function Card(props: {
   title?: string;
   sub?: string;
@@ -60,15 +91,19 @@ export function Card(props: {
   className?: string;
 }) {
   return (
-    <div className={`rounded-xl border border-[#eaecf0] bg-white p-5 ${props.className ?? ""}`}>
+    <TremorCard className={`p-5 ${props.className ?? ""}`}>
       {props.title ? (
         <div className="mb-3">
-          <div className="text-sm font-semibold text-[#101828]">{props.title}</div>
-          {props.sub ? <div className="mt-0.5 text-xs text-[#98a2b3]">{props.sub}</div> : null}
+          <div className="text-tremor-default font-semibold text-tremor-content-strong">
+            {props.title}
+          </div>
+          {props.sub ? (
+            <div className="mt-0.5 text-tremor-label text-tremor-content-subtle">{props.sub}</div>
+          ) : null}
         </div>
       ) : null}
       {props.children}
-    </div>
+    </TremorCard>
   );
 }
 
@@ -100,35 +135,6 @@ export function ErrorCard(props: { message: string; onRetry: () => void }) {
       >
         Retry
       </button>
-    </div>
-  );
-}
-
-// Label + count + horizontal proportion bar (adoption rows, language split).
-export function ProportionRow(props: {
-  label: string;
-  n: number;
-  total: number;
-  color?: string;
-  subLabel?: string;
-}) {
-  const frac = props.total > 0 ? Math.min(1, props.n / props.total) : 0;
-  return (
-    <div className="flex items-center gap-3 py-1.5">
-      <div className="w-40 shrink-0 truncate text-sm text-[#475467]">{props.label}</div>
-      <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#f2f4f7]">
-        <div
-          className="h-2 rounded-full"
-          style={{ width: `${frac * 100}%`, background: props.color ?? C.ink }}
-        />
-      </div>
-      <div className="w-24 shrink-0 text-right text-sm tabular-nums text-[#101828]">
-        {fmtInt(props.n)}
-        <span className="ml-1 text-xs text-[#98a2b3]">{fmtPct(props.n, props.total)}</span>
-      </div>
-      {props.subLabel ? (
-        <div className="w-16 shrink-0 text-right text-xs text-[#98a2b3]">{props.subLabel}</div>
-      ) : null}
     </div>
   );
 }

@@ -1,21 +1,23 @@
 // Overview — the "how is kaata doing this week" page. KPI strip (WAU is the
 // headline), growth accounting (new/resurrected/retained above the axis,
 // churned below), the daily activity series, and adoption depth.
+//
+// Charts are Tremor's (wrapping its own recharts@2) — their built-in
+// yAxisWidth reserves real space for tick labels, which fixes the clipped
+// Y-axis the hand-tuned recharts margins used to cause.
 
-import { format, parseISO } from "date-fns";
 import {
-  Area,
-  Bar,
-  CartesianGrid,
-  ComposedChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+  AreaChart,
+  BadgeDelta,
+  BarChart,
+  Metric,
+  ProgressBar,
+  Text,
+  type Color,
+} from "@tremor/react";
+import { format, parseISO } from "date-fns";
 import { useGrowth, useStats, type Growth, type Stats } from "./api";
-import { C, Card, ErrorCard, PageHeader, ProportionRow, SkeletonCard, fmtInt, fmtPct } from "./ui";
+import { C, Card, ErrorCard, PageHeader, SkeletonCard, fmtInt, fmtPct } from "./ui";
 
 export function Overview() {
   const stats = useStats();
@@ -116,30 +118,25 @@ function Kpi(props: {
   headline?: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-[#eaecf0] bg-white p-4">
-      <div className="text-xs font-medium uppercase tracking-wide text-[#98a2b3]">
+    <Card className="p-4">
+      <Text className="text-xs font-medium uppercase tracking-wide text-tremor-content-subtle">
         {props.label}
-      </div>
-      <div
-        className={`mt-1 font-semibold tabular-nums text-[#101828] ${
-          props.headline ? "text-3xl" : "text-2xl"
-        }`}
-      >
+      </Text>
+      <Metric className={`mt-1 tabular-nums ${props.headline ? "" : "text-2xl"}`}>
         {props.value}
-      </div>
-      <div className="mt-0.5 flex items-center gap-2 text-xs text-[#98a2b3]">
-        {props.sub}
+      </Metric>
+      <div className="mt-0.5 flex flex-wrap items-center gap-2">
+        <Text className="text-xs text-tremor-content-subtle">{props.sub}</Text>
         {props.delta !== undefined && props.delta !== 0 ? (
-          <span
-            className="tabular-nums font-medium"
-            style={{ color: props.delta > 0 ? "#006300" : C.red }}
+          <BadgeDelta
+            size="xs"
+            deltaType={props.delta > 0 ? "moderateIncrease" : "moderateDecrease"}
           >
-            {props.delta > 0 ? "+" : ""}
-            {props.delta} vs prev day
-          </span>
+            {`${props.delta > 0 ? "+" : ""}${props.delta} vs prev day`}
+          </BadgeDelta>
         ) : null}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -152,19 +149,12 @@ function weekLabel(iso: string): string {
   }
 }
 
-const GA_SERIES = [
-  { key: "retained", label: "Retained", color: C.blue },
-  { key: "new", label: "New", color: C.green },
-  { key: "resurrected", label: "Resurrected", color: C.teal },
-  { key: "churned", label: "Churned", color: C.red },
-] as const;
-
 function GrowthAccountingCard(props: { growth: Growth | null }) {
   const ga = props.growth?.growth_accounting ?? [];
   if (props.growth === null || ga.length === 0) {
     return (
       <Card title="Growth accounting" sub="weekly new / retained / resurrected / churned installs">
-        <div className="flex h-[220px] items-center justify-center px-6 text-center text-xs text-[#98a2b3]">
+        <div className="flex h-[248px] items-center justify-center px-6 text-center text-xs text-[#98a2b3]">
           {props.growth === null
             ? "The /v1/admin/growth endpoint isn't deployed yet — this fills in once it ships."
             : "No weekly activity yet."}
@@ -172,13 +162,14 @@ function GrowthAccountingCard(props: { growth: Growth | null }) {
       </Card>
     );
   }
-  // Churned plots as a negative bar below the axis; the tooltip un-negates it.
+  // Churned plots as a negative bar below the axis; the shared valueFormatter
+  // un-negates it in the tooltip (churn is reported as a positive count).
   const data = ga.map((w) => ({
     week: weekLabel(w.week),
-    retained: w.retained,
-    new: w.new,
-    resurrected: w.resurrected,
-    churned: -w.churned,
+    Retained: w.retained,
+    New: w.new,
+    Resurrected: w.resurrected,
+    Churned: -w.churned,
   }));
   // Quick Ratio for the latest COMPLETE week — the last row is the in-progress
   // week (its churn can't be known yet), so read one back when possible.
@@ -186,46 +177,21 @@ function GrowthAccountingCard(props: { growth: Growth | null }) {
   const quickRatio = qr.churned === 0 ? "∞" : ((qr.new + qr.resurrected) / qr.churned).toFixed(1);
   return (
     <Card title="Growth accounting" sub="weekly new / retained / resurrected / churned installs">
-      <ResponsiveContainer width="100%" height={220}>
-        <ComposedChart
-          data={data}
-          margin={{ top: 4, right: 8, left: -16, bottom: 0 }}
-          barCategoryGap="25%"
-        >
-          <CartesianGrid strokeDasharray="3 3" stroke={C.hair} vertical={false} />
-          <XAxis dataKey="week" tick={{ fontSize: 10, fill: C.mut }} minTickGap={16} />
-          <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: C.mut }} width={28} />
-          <ReferenceLine y={0} stroke={C.mut} />
-          <Tooltip
-            contentStyle={{ fontSize: 12, borderColor: C.line, borderRadius: 8 }}
-            formatter={(value, name) => [
-              // Show churn as the positive count it is; the sign is the chart's.
-              Math.abs(Number(value)).toLocaleString(),
-              String(name),
-            ]}
-          />
-          {GA_SERIES.map((sSpec) => (
-            <Bar
-              key={sSpec.key}
-              dataKey={sSpec.key}
-              name={sSpec.label}
-              stackId="a"
-              fill={sSpec.color}
-              // White hairline = the 2px spacer between stacked segments.
-              stroke="#ffffff"
-              strokeWidth={1}
-            />
-          ))}
-        </ComposedChart>
-      </ResponsiveContainer>
-      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#475467]">
-        {GA_SERIES.map((sSpec) => (
-          <span key={sSpec.key} className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-sm" style={{ background: sSpec.color }} />
-            {sSpec.label}
-          </span>
-        ))}
-        <span className="ml-auto tabular-nums text-[#101828]">
+      <BarChart
+        className="h-56"
+        data={data}
+        index="week"
+        categories={["Retained", "New", "Resurrected", "Churned"]}
+        colors={[C.blue, C.green, C.teal, C.red]}
+        stack
+        autoMinValue
+        allowDecimals={false}
+        valueFormatter={(v) => Math.abs(v).toLocaleString()}
+        yAxisWidth={44}
+        showAnimation={false}
+      />
+      <div className="mt-2 flex justify-end text-xs">
+        <span className="tabular-nums text-[#101828]">
           Quick ratio <span className="font-semibold">{quickRatio}</span>
           <span className="ml-1 text-[#98a2b3]">wk of {weekLabel(qr.week)}</span>
         </span>
@@ -237,48 +203,31 @@ function GrowthAccountingCard(props: { growth: Growth | null }) {
 function ActivityCard(props: { stats: Stats }) {
   const s = props.stats;
   const hasData = s.series.some((p) => p.active > 0 || p.installs > 0);
+  const data = s.series.map((p) => ({
+    date: p.t.slice(5),
+    "Active devices": p.active,
+    "New installs": p.installs,
+  }));
   return (
-    <Card title="Activity" sub="daily active devices (area) and new installs (bars), last 30 days">
+    <Card title="Activity" sub="daily active devices and new installs, last 30 days">
       {!hasData ? (
-        <div className="flex h-[220px] items-center justify-center text-xs text-[#98a2b3]">
+        <div className="flex h-[248px] items-center justify-center text-xs text-[#98a2b3]">
           No activity in this window.
         </div>
       ) : (
-        <>
-          <ResponsiveContainer width="100%" height={220}>
-            <ComposedChart data={s.series} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={C.hair} vertical={false} />
-              <XAxis
-                dataKey="t"
-                tickFormatter={(t: string) => t.slice(5)}
-                tick={{ fontSize: 10, fill: C.mut }}
-                minTickGap={28}
-              />
-              <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: C.mut }} width={28} />
-              <Tooltip contentStyle={{ fontSize: 12, borderColor: C.line, borderRadius: 8 }} />
-              <Bar dataKey="installs" name="Installs" fill={C.gray} />
-              <Area
-                type="monotone"
-                dataKey="active"
-                name="Active"
-                stroke={C.blue}
-                strokeWidth={2}
-                fill={C.blue}
-                fillOpacity={0.1}
-              />
-            </ComposedChart>
-          </ResponsiveContainer>
-          <div className="mt-3 flex items-center gap-4 text-xs text-[#475467]">
-            <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-sm" style={{ background: C.blue }} />
-              Active devices
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-sm" style={{ background: C.gray }} />
-              New installs
-            </span>
-          </div>
-        </>
+        <AreaChart
+          className="h-56"
+          data={data}
+          index="date"
+          categories={["Active devices", "New installs"]}
+          colors={[C.blue, C.teal]}
+          curveType="monotone"
+          autoMinValue
+          allowDecimals={false}
+          valueFormatter={(v) => v.toLocaleString()}
+          yAxisWidth={44}
+          showAnimation={false}
+        />
       )}
     </Card>
   );
@@ -294,23 +243,40 @@ function AdoptionCard(props: { growth: Growth | null; stats: Stats | null }) {
           Adoption metrics arrive with the /v1/admin/growth endpoint — not deployed yet.
         </p>
       ) : (
-        <div>
-          <ProportionRow label="Signed in" n={a.signed_in} total={total} color={C.blue} />
-          <ProportionRow
+        <div className="flex flex-col gap-3">
+          <AdoptionRow label="Signed in" n={a.signed_in} total={total} color={C.blue} />
+          <AdoptionRow
             label="Multi-member kaatas"
             n={a.multi_member}
             total={total}
             color={C.teal}
           />
-          <ProportionRow label="Sent a share" n={a.with_shares} total={total} color={C.green} />
-          <ProportionRow
-            label="Used settle-up"
-            n={a.with_settlements}
-            total={total}
-            color={C.ink}
-          />
+          <AdoptionRow label="Sent a share" n={a.with_shares} total={total} color={C.green} />
+          <AdoptionRow label="Used settle-up" n={a.with_settlements} total={total} color={C.ink} />
         </div>
       )}
     </Card>
+  );
+}
+
+function AdoptionRow(props: { label: string; n: number; total: number; color: string }) {
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between gap-3">
+        <Text className="text-sm text-tremor-content">{props.label}</Text>
+        <p className="text-sm tabular-nums text-tremor-content-strong">
+          {fmtInt(props.n)}
+          <span className="ml-1 text-xs text-tremor-content-subtle">
+            {fmtPct(props.n, props.total)}
+          </span>
+        </p>
+      </div>
+      {/* Tremor's ProgressBar typing lags its runtime (any CSS color works,
+          like the charts' `(Color | string)[]`) — hence the cast. */}
+      <ProgressBar
+        value={props.total > 0 ? Math.min(100, (props.n / props.total) * 100) : 0}
+        color={props.color as Color}
+      />
+    </div>
   );
 }

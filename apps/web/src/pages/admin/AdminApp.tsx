@@ -12,6 +12,7 @@ import { formatDistanceToNowStrict, parseISO } from "date-fns";
 import { useEffect, useRef, useState } from "react";
 import { Acquisition } from "./Acquisition";
 import { AdminTokenContext, AuthError, TOKEN_KEY, useStats } from "./api";
+import { Campaigns } from "./Campaigns";
 import { Overview } from "./Overview";
 import { Retention } from "./Retention";
 import { Users } from "./Users";
@@ -19,6 +20,7 @@ import { Users } from "./Users";
 const SECTIONS = [
   { id: "overview", label: "Overview", component: Overview },
   { id: "acquisition", label: "Acquisition", component: Acquisition },
+  { id: "campaigns", label: "Campaigns", component: Campaigns },
   { id: "retention", label: "Retention", component: Retention },
   { id: "users", label: "Users", component: Users },
 ] as const;

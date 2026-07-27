@@ -2,6 +2,7 @@
 // (raw retained/eligible so 0/0 renders "—", never a fake 0%) and the weekly
 // cohort grid from /v1/admin/growth.
 
+import { Metric, Text } from "@tremor/react";
 import { format, parseISO } from "date-fns";
 import { useGrowth, useStats, type Growth, type Stats } from "./api";
 import { Card, ErrorCard, PageHeader, SkeletonCard, fmtInt } from "./ui";
@@ -52,20 +53,17 @@ function DayNCards(props: { stats: Stats }) {
     <div>
       <div className="grid grid-cols-3 gap-3">
         {rows.map((r) => (
-          <div
-            key={r.label}
-            className="rounded-xl border border-[#eaecf0] bg-white p-4 text-center"
-          >
-            <div className="text-xs font-medium uppercase tracking-wide text-[#98a2b3]">
+          <Card key={r.label} className="p-4 text-center">
+            <Text className="text-xs font-medium uppercase tracking-wide text-tremor-content-subtle">
               {r.label}
-            </div>
-            <div className="mt-1 text-3xl font-semibold tabular-nums text-[#101828]">
+            </Text>
+            <Metric className="mt-1 tabular-nums">
               {r.elig ? `${Math.round((r.ret / r.elig) * 100)}%` : "—"}
-            </div>
-            <div className="mt-0.5 text-xs tabular-nums text-[#98a2b3]">
+            </Metric>
+            <Text className="mt-0.5 text-xs tabular-nums text-tremor-content-subtle">
               {r.elig ? `${fmtInt(r.ret)} of ${fmtInt(r.elig)}` : "no eligible installs yet"}
-            </div>
-          </div>
+            </Text>
+          </Card>
         ))}
       </div>
       {!any ? (
@@ -85,9 +83,10 @@ function weekLabel(iso: string): string {
   }
 }
 
-// Hand-rolled cohort grid (no chart lib): rows = weekly cohorts, columns
-// W0..W11, cell background scales white → brand ink with the retention
-// fraction. Small fleet — the % is printed in the cell, no tooltips.
+// Hand-rolled cohort grid (deliberately not a chart-lib heatmap): rows =
+// weekly cohorts, columns W0..W11, cell background scales white → brand ink
+// with the retention fraction. Small fleet — the % is printed in the cell, no
+// tooltips.
 function CohortGrid(props: { growth: Growth | null }) {
   const cohorts = props.growth?.weekly_cohorts ?? [];
   if (props.growth === null || cohorts.length === 0) {

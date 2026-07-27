@@ -3583,7 +3583,21 @@ async function selectAllPeopleRaw(db: SQLite.SQLiteDatabase): Promise<PersonWith
                 AND le.vault_id        = ?
                 AND le.deleted_at IS NULL
               ORDER BY le.created_at DESC, le.id DESC
-              LIMIT 1) AS last_entry_type
+              LIMIT 1) AS last_entry_type,
+            -- Deliberately settled (2026-07-27): balance zero AND the latest
+            -- ruled-off line covers every live entry. A merely-zero balance
+            -- is NOT settled — only the user's own settle act is. NULL
+            -- comparison (no settlements) falls to ELSE 0.
+            CASE
+              WHEN COALESCE(SUM(CASE
+                     WHEN e.deleted_at IS NULL AND e.type = 'debt' THEN e.amount_afn
+                     WHEN e.deleted_at IS NULL AND e.type = 'payment' THEN -e.amount_afn
+                     ELSE 0 END), 0) = 0
+               AND (SELECT MAX(s.settled_at_ms) FROM settlements s
+                     WHERE s.relationship_id = r.id)
+                   >= COALESCE(MAX(CASE WHEN e.deleted_at IS NULL THEN e.created_at END), 0)
+              THEN 1 ELSE 0
+            END AS is_settled
      FROM relationships r
      INNER JOIN users u ON u.id = r.user_b_id
      LEFT JOIN entries e

@@ -61,14 +61,33 @@ export function fireVisitOnce(): void {
   } catch {
     // ignore
   }
-  const body = JSON.stringify({
+  postBeacon({
     source: getSource(),
     path: safeVisitPath(),
     referrer: document.referrer,
   });
-  // sendBeacon is more reliable than fetch — survives page-unload, doesn't
-  // race with React unmounts. Fetch is the fallback on the handful of
-  // browsers without it.
+}
+
+// Store-badge click beacon (download page). Fired from the badge anchors'
+// onClick WITHOUT preventDefault — the target=_blank navigation proceeds
+// instantly and the beacon rides along (sendBeacon exists precisely for
+// this). NOT once-per-session: each click is a distinct funnel event; the
+// backend dedupes per (ip, user_agent, hour) on the stats side.
+export function fireStoreClick(store: "play" | "appstore"): void {
+  postBeacon({
+    kind: "store_click",
+    detail: store,
+    source: getSource(),
+    path: safeVisitPath(),
+    referrer: document.referrer,
+  });
+}
+
+// Fire-and-forget POST to /v1/visit. sendBeacon is more reliable than
+// fetch — survives page-unload, doesn't race with React unmounts. Fetch
+// (keepalive) is the fallback on the handful of browsers without it.
+function postBeacon(payload: Record<string, string>): void {
+  const body = JSON.stringify(payload);
   try {
     const blob = new Blob([body], { type: "application/json" });
     if (navigator.sendBeacon && navigator.sendBeacon(`${BACKEND_URL}/v1/visit`, blob)) {

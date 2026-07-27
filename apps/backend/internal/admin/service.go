@@ -42,10 +42,11 @@ type DayCount struct {
 }
 
 type SourceRow struct {
-	Source     string `json:"source"`
-	Visits     int64  `json:"visits"`
-	Downloads  int64  `json:"downloads"`
-	Attributed int64  `json:"attributed"`
+	Source      string `json:"source"`
+	Visits      int64  `json:"visits"`
+	Downloads   int64  `json:"downloads"`
+	StoreClicks int64  `json:"store_clicks"`
+	Attributed  int64  `json:"attributed"`
 }
 
 type LocaleCount struct {
@@ -86,7 +87,10 @@ type Stats struct {
 	// operator IPs. raw_visits is the pre-dedup/pre-filter total.
 	Visits    int64 `json:"visits"`
 	Downloads int64 `json:"downloads"`
-	RawVisits int64 `json:"raw_visits"`
+	// Store-badge clicks (kind 'store_click') — the post-Play-launch
+	// replacement for the retired direct-APK "download" stage.
+	StoreClicks int64 `json:"store_clicks"`
+	RawVisits   int64 `json:"raw_visits"`
 	// Signal quality: how much was removed as operator/bot noise.
 	ExcludedInstalls int64 `json:"excluded_installs"`
 	ExcludedVisits   int64 `json:"excluded_visits"`
@@ -191,10 +195,11 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		SELECT
 		  COUNT(DISTINCT (ip, user_agent, date_trunc('hour', visited_at))) FILTER (WHERE keep AND kind = 'visit'),
 		  COUNT(DISTINCT (ip, user_agent, date_trunc('hour', visited_at))) FILTER (WHERE keep AND kind = 'download'),
+		  COUNT(DISTINCT (ip, user_agent, date_trunc('hour', visited_at))) FILTER (WHERE keep AND kind = 'store_click'),
 		  COUNT(*) FILTER (WHERE kind = 'visit'),
 		  COUNT(*) FILTER (WHERE NOT keep)
 		FROM w
-	`, s.operatorIPs, botUARegex).Scan(&st.Visits, &st.Downloads, &st.RawVisits, &st.ExcludedVisits); err != nil {
+	`, s.operatorIPs, botUARegex).Scan(&st.Visits, &st.Downloads, &st.StoreClicks, &st.RawVisits, &st.ExcludedVisits); err != nil {
 		return st, err
 	}
 
@@ -323,6 +328,7 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		SELECT source,
 		       COUNT(DISTINCT (ip, user_agent, date_trunc('hour', visited_at))) FILTER (WHERE keep AND kind = 'visit'),
 		       COUNT(DISTINCT (ip, user_agent, date_trunc('hour', visited_at))) FILTER (WHERE keep AND kind = 'download'),
+		       COUNT(DISTINCT (ip, user_agent, date_trunc('hour', visited_at))) FILTER (WHERE keep AND kind = 'store_click'),
 		       COUNT(DISTINCT claimed_by_install_id) FILTER (WHERE keep AND claimed_by_install_id IS NOT NULL)
 		FROM w
 		GROUP BY source
@@ -334,7 +340,7 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 	}
 	for srows.Next() {
 		var r SourceRow
-		if err := srows.Scan(&r.Source, &r.Visits, &r.Downloads, &r.Attributed); err != nil {
+		if err := srows.Scan(&r.Source, &r.Visits, &r.Downloads, &r.StoreClicks, &r.Attributed); err != nil {
 			srows.Close()
 			return st, err
 		}

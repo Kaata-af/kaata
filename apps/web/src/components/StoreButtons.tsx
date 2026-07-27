@@ -15,6 +15,7 @@
 // matching the "brand names stay Latin" rule.
 
 import { APP_STORE_URL, PLAY_STORE_URL } from "../env";
+import { fireStoreClick } from "../lib/analytics";
 import { useI18n } from "../lib/i18n";
 import appStoreBadge from "../assets/app-store-badge.svg";
 import googlePlayBadge from "../assets/google-play-badge.svg";
@@ -33,6 +34,9 @@ export function AppStoreBadge() {
       target="_blank"
       rel="noopener noreferrer"
       className="inline-block transition-opacity hover:opacity-80"
+      // Best-effort click beacon — no preventDefault, the _blank
+      // navigation must proceed instantly; sendBeacon survives it.
+      onClick={() => fireStoreClick("appstore")}
     >
       <img src={appStoreBadge} alt={t("download.appStoreButton")} className={BADGE_H} />
     </a>
@@ -48,6 +52,9 @@ export function PlayStoreBadge() {
       target="_blank"
       rel="noopener noreferrer"
       className="inline-block transition-opacity hover:opacity-80"
+      // Best-effort click beacon — no preventDefault, the _blank
+      // navigation must proceed instantly; sendBeacon survives it.
+      onClick={() => fireStoreClick("play")}
     >
       <img src={googlePlayBadge} alt={t("download.playStoreButton")} className={BADGE_H} />
     </a>

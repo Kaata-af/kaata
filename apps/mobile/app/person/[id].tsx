@@ -372,7 +372,13 @@ export default function PersonDetailScreen() {
             <View style={{ height: 16 }} />
             {chipLabel && chipVariant ? (
               <Chip label={chipLabel} variant={chipVariant} />
-            ) : entries.length > 0 ? (
+            ) : entries.length > 0 &&
+              settlement.count > 0 &&
+              chapterCoherent &&
+              chapterEntries.length === 0 ? (
+              // "SETTLED" only when the user actually drew the line and it
+              // covers everything — a balance that merely sums to zero shows
+              // no chip (the settle-row invitation appears instead).
               <Chip label={t("person.balance.settled")} variant="neutral" />
             ) : null}
             <View style={[styles.balanceRow, rowDir(isRTL)]}>

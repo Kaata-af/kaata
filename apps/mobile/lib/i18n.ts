@@ -235,7 +235,6 @@ const en = {
   "person.sheet.delete": "Delete",
   "person.row.noEntries": "no entries yet",
   "person.row.settled": "settled",
-  "person.row.settledAgo": "settled {time}",
 
   // Person edit / add
   "personEdit.title": "Edit person",
@@ -1340,7 +1339,6 @@ const fa: Partial<Record<Key, string>> = {
   "person.sheet.delete": "حذف",
   "person.row.noEntries": "هنوز ثبتی نیست",
   "person.row.settled": "تصفیه",
-  "person.row.settledAgo": "تصفیه {time}",
 
   // Person edit / add
   "personEdit.title": "ویرایش شخص",

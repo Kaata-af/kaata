@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { memo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
@@ -26,13 +27,15 @@ export const PersonRow = memo(function PersonRow(props: {
   const isRTL = useIsRTL();
   const { person } = props;
   const abs = Math.abs(person.balance);
+  // Deliberately settled (user drew the line, balance zero, nothing since) —
+  // NOT the same as a balance that merely sums to zero. Settled rows get a
+  // check mark instead of "0 ؋"; zero-but-unsettled rows keep the muted 0.
+  const settled = person.is_settled === 1;
+  // Every row reads as a plain timeline — no "settled X ago" wording
+  // (operator decision 2026-07-27: the check mark carries the state).
   const subtitle = !person.last_entry_at
     ? t("person.row.noEntries")
-    : person.balance === 0
-      ? // Settled rows keep their relative date too ("settled 3d ago") so the
-        // list still reads as a timeline and a freshly-cleared tally is obvious.
-        t("person.row.settledAgo", { time: formatRelative(person.last_entry_at) })
-      : formatRelative(person.last_entry_at);
+    : formatRelative(person.last_entry_at);
 
   return (
     <Pressable
@@ -72,19 +75,26 @@ export const PersonRow = memo(function PersonRow(props: {
           {subtitle}
         </Text>
       </View>
-      <View style={[styles.right, rowDir(isRTL)]}>
-        {/* L41: cap the amount's font scaling so it can't grow so wide at large
-            OS font that it crushes the flex:1 name column to a few characters. */}
-        <Text
-          style={[styles.amount, abs === 0 && { color: colors.textMuted }]}
-          numberOfLines={1}
-          maxFontSizeMultiplier={1.5}
-        >
-          {formatAmount(abs)}
-        </Text>
-        <Text style={styles.afn} maxFontSizeMultiplier={1.5}>
-          {getCurrentCurrencySymbol()}
-        </Text>
+      <View style={[styles.right, rowDir(isRTL), settled && { alignItems: "center" }]}>
+        {settled ? (
+          // Cleared account: the mark, not a meaningless zero.
+          <Ionicons name="checkmark-circle" size={20} color={colors.collectStrong} />
+        ) : (
+          <>
+            {/* L41: cap the amount's font scaling so it can't grow so wide at
+                large OS font that it crushes the flex:1 name column. */}
+            <Text
+              style={[styles.amount, abs === 0 && { color: colors.textMuted }]}
+              numberOfLines={1}
+              maxFontSizeMultiplier={1.5}
+            >
+              {formatAmount(abs)}
+            </Text>
+            <Text style={styles.afn} maxFontSizeMultiplier={1.5}>
+              {getCurrentCurrencySymbol()}
+            </Text>
+          </>
+        )}
       </View>
     </Pressable>
   );

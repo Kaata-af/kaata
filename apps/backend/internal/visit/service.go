@@ -44,19 +44,20 @@ func (s *Service) ServeAPK(w http.ResponseWriter, r *http.Request) bool {
 }
 
 type RecordParams struct {
-	Kind           string // "visit" | "download"
+	Kind           string // "visit" | "download" | "store_click"
 	Source         string
 	Path           string
 	Referrer       string
 	IP             string
 	UserAgent      string
 	AcceptLanguage string
+	Detail         string // kind-specific payload; for store_click: "play" | "appstore"
 }
 
 func (s *Service) Record(ctx context.Context, p RecordParams) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO web_visits (kind, source, path, referrer, ip, user_agent, accept_language)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO web_visits (kind, source, path, referrer, ip, user_agent, accept_language, detail)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`,
 		p.Kind,
 		nilIfEmpty(p.Source),
@@ -65,6 +66,7 @@ func (s *Service) Record(ctx context.Context, p RecordParams) error {
 		nilIfEmpty(p.IP),
 		nilIfEmpty(p.UserAgent),
 		nilIfEmpty(p.AcceptLanguage),
+		nilIfEmpty(p.Detail),
 	)
 	return err
 }

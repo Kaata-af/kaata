@@ -22,7 +22,16 @@ export class AuthError extends Error {
 
 // ---- /v1/admin/stats ----
 
-export type SourceRow = { source: string; visits: number; downloads: number; attributed: number };
+// `store_clicks` (deduped like downloads) ships with the store-era backend;
+// optional so a dashboard deployed ahead of that backend still renders — the
+// funnel falls back to the legacy APK-downloads stage when it's absent.
+export type SourceRow = {
+  source: string;
+  visits: number;
+  downloads: number;
+  store_clicks?: number;
+  attributed: number;
+};
 export type LocaleCount = { locale: string; count: number };
 export type SeriesPoint = { t: string; installs: number; active: number };
 
@@ -40,6 +49,8 @@ export type Stats = {
   shares_sum: number;
   visits: number;
   downloads: number;
+  // Optional for the same old-backend reason as SourceRow.store_clicks.
+  store_clicks?: number;
   raw_visits: number;
   excluded_installs: number;
   excluded_visits: number;

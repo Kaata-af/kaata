@@ -1,7 +1,9 @@
-// Acquisition — where installs come from: the web→app funnel, per-source
-// attribution, and the language split. Everything derives from /v1/admin/stats
-// (honest deduped web numbers; raw + excluded counts footnoted).
+// Acquisition — where installs come from: the web→app funnel and the language
+// split. Everything derives from /v1/admin/stats (honest deduped web numbers;
+// raw + excluded counts footnoted). Per-source campaign performance lives in
+// the Campaigns section next to the QR generator.
 
+import { CategoryBar, type Color } from "@tremor/react";
 import { useStats, type Stats } from "./api";
 import { C, Card, ErrorCard, PageHeader, SkeletonCard, fmtInt, fmtPct } from "./ui";
 
@@ -11,12 +13,11 @@ export function Acquisition() {
     <div>
       <PageHeader
         title="Acquisition"
-        description="From a kaata.af visit to an active install — and which sources drive it."
+        description="From a kaata.af visit to an active install — stage by stage."
       />
       {stats.isPending ? (
         <div className="flex flex-col gap-4">
           <SkeletonCard lines={6} />
-          <SkeletonCard lines={4} />
           <SkeletonCard lines={2} />
         </div>
       ) : stats.isError ? (
@@ -24,7 +25,6 @@ export function Acquisition() {
       ) : (
         <div className="flex flex-col gap-4">
           <FunnelCard stats={stats.data} />
-          <SourcesCard stats={stats.data} />
           <LanguageCard stats={stats.data} />
         </div>
       )}
@@ -34,23 +34,31 @@ export function Acquisition() {
 
 function FunnelCard(props: { stats: Stats }) {
   const s = props.stats;
+  // Store era: the second stage is store clicks (Play/App Store outbound,
+  // deduped like downloads). An older backend that doesn't report
+  // `store_clicks` yet gets the honest legacy label for the dead APK-download
+  // stage instead of a fake zero.
+  const clickStage =
+    s.store_clicks !== undefined
+      ? { label: "Store clicks", n: s.store_clicks }
+      : { label: "APK downloads (legacy)", n: s.downloads };
   const stages = [
     { label: "Web visits", n: s.visits },
-    { label: "Downloads", n: s.downloads },
+    clickStage,
     { label: "Installs", n: s.installs_total },
     { label: "Onboarded", n: s.onboarded },
     { label: "Made an entry", n: s.with_entries },
     { label: "Active (7d)", n: s.active_7d },
   ];
   // Widths scale against the widest stage (usually visits — but installs can
-  // legitimately exceed visits when people sideload-share the APK directly).
+  // legitimately exceed visits when people share the app directly).
   const max = Math.max(1, ...stages.map((st) => st.n));
   return (
     <Card title="Funnel" sub="each stage as absolute count + conversion from the previous stage">
       <div className="flex flex-col gap-2">
         {stages.map((st, i) => (
           <div key={st.label} className="flex items-center gap-3">
-            <div className="w-32 shrink-0 text-sm text-[#475467]">{st.label}</div>
+            <div className="w-40 shrink-0 text-sm text-[#475467]">{st.label}</div>
             <div className="h-6 flex-1 overflow-hidden rounded bg-[#f2f4f7]">
               <div
                 className="h-6 rounded"
@@ -78,51 +86,6 @@ function FunnelCard(props: { stats: Stats }) {
   );
 }
 
-function SourcesCard(props: { stats: Stats }) {
-  // Sorted by attributed installs — the number that actually matters.
-  const rows = [...props.stats.by_source].sort((a, b) => b.attributed - a.attributed);
-  return (
-    <Card title="Sources" sub="deduped web traffic and QR/IP-attributed installs per source">
-      {rows.length === 0 ? (
-        <p className="py-4 text-center text-xs text-[#98a2b3]">No web visits recorded yet.</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[#eaecf0] text-left text-xs text-[#98a2b3]">
-                <th className="py-2 font-medium">Source</th>
-                <th className="py-2 text-right font-medium">Visits</th>
-                <th className="py-2 text-right font-medium">Downloads</th>
-                <th className="py-2 text-right font-medium">Installs</th>
-                <th className="py-2 text-right font-medium">Visit → install</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.source} className="border-b border-[#f2f4f7] last:border-0">
-                  <td className="py-2 font-medium text-[#101828]">{r.source}</td>
-                  <td className="py-2 text-right tabular-nums text-[#475467]">
-                    {fmtInt(r.visits)}
-                  </td>
-                  <td className="py-2 text-right tabular-nums text-[#475467]">
-                    {fmtInt(r.downloads)}
-                  </td>
-                  <td className="py-2 text-right tabular-nums text-[#101828]">
-                    {fmtInt(r.attributed)}
-                  </td>
-                  <td className="py-2 text-right tabular-nums text-[#98a2b3]">
-                    {fmtPct(r.attributed, r.visits)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </Card>
-  );
-}
-
 const LANG_META: Record<string, { label: string; color: string }> = {
   fa: { label: "Dari", color: C.green },
   en: { label: "English", color: C.blue },
@@ -138,18 +101,13 @@ function LanguageCard(props: { stats: Stats }) {
         <p className="py-4 text-center text-xs text-[#98a2b3]">No data yet.</p>
       ) : (
         <div>
-          {/* Single proportion bar; 2px white gaps separate the segments. */}
-          <div className="flex h-3 w-full gap-0.5 overflow-hidden rounded-full bg-[#f2f4f7]">
-            {langs.map((l) => (
-              <div
-                key={l.locale}
-                style={{
-                  width: `${(l.count / total) * 100}%`,
-                  background: (LANG_META[l.locale] ?? LANG_META.unknown).color,
-                }}
-              />
-            ))}
-          </div>
+          {/* Same runtime-vs-typing lag as the charts: CategoryBar accepts any
+              CSS color at runtime but types only the named palette. */}
+          <CategoryBar
+            values={langs.map((l) => l.count)}
+            colors={langs.map((l) => (LANG_META[l.locale] ?? LANG_META.unknown).color) as Color[]}
+            showLabels={false}
+          />
           <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm">
             {langs.map((l) => {
               const meta = LANG_META[l.locale] ?? { label: l.locale, color: C.gray };

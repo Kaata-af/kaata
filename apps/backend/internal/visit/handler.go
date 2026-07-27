@@ -17,15 +17,20 @@ func NewHandler(svc *Service) *Handler {
 }
 
 type visitRequest struct {
+	Kind     string `json:"kind"`
 	Source   string `json:"source"`
 	Path     string `json:"path"`
 	Referrer string `json:"referrer"`
+	Detail   string `json:"detail"`
 }
 
-// POST /v1/visit — fired once per browser session from the web bundle.
-// Server harvests IP + Accept-Language directly from the request so the
-// fingerprint can't be forged from the body. Source comes from the
-// `?s=` query param the QR encodes (passed through by the client).
+// POST /v1/visit — fired once per browser session from the web bundle
+// (kind omitted / "visit"), and on every store-badge click on the download
+// page (kind "store_click", detail "play" | "appstore" — the store badges
+// replaced the direct APK button, so badge clicks are the new "download"
+// funnel stage). Server harvests IP + Accept-Language directly from the
+// request so the fingerprint can't be forged from the body. Source comes
+// from the `?s=` query param the QR encodes (passed through by the client).
 func (h *Handler) Visit(w http.ResponseWriter, r *http.Request) {
 	var req visitRequest
 	// Public + anonymous: cap the body and clamp every client-controlled
@@ -34,14 +39,33 @@ func (h *Handler) Visit(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "invalid json body")
 		return
 	}
+	// Whitelist the kind — 'download' stays server-stamped by /v1/download
+	// only, and arbitrary strings must not reach the CHECK constraint (a
+	// violated CHECK would read as a 500, not the caller's fault).
+	kind := req.Kind
+	detail := ""
+	switch kind {
+	case "", "visit":
+		kind = "visit"
+	case "store_click":
+		// detail says WHICH store; anything unrecognized is dropped rather
+		// than stored (the column is an enum-in-spirit, not a free field).
+		if req.Detail == "play" || req.Detail == "appstore" {
+			detail = req.Detail
+		}
+	default:
+		httpx.Error(w, http.StatusBadRequest, "invalid kind")
+		return
+	}
 	if err := h.svc.Record(r.Context(), RecordParams{
-		Kind:           "visit",
+		Kind:           kind,
 		Source:         truncateUTF8(req.Source, 200),
 		Path:           truncateUTF8(req.Path, 500),
 		Referrer:       truncateUTF8(req.Referrer, 500),
 		IP:             httpx.ClientIP(r),
 		UserAgent:      truncateUTF8(r.UserAgent(), 500),
 		AcceptLanguage: truncateUTF8(r.Header.Get("Accept-Language"), 200),
+		Detail:         detail,
 	}); err != nil {
 		httpx.Error(w, http.StatusInternalServerError, "visit record failed")
 		return

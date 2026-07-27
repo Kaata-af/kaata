@@ -95,6 +95,14 @@ export type Person = {
 export type PersonWithBalance = Person & {
   balance: number;
   last_entry_at: number | null;
+  /**
+   * 1 when the account is DELIBERATELY settled: balance is zero and the
+   * latest ruled-off line covers every live entry. A balance that merely
+   * sums to zero is NOT settled — settling is the user's act, not
+   * arithmetic. Optional: getPerson's query doesn't compute it (the person
+   * screen derives richer settlement state itself).
+   */
+  is_settled?: number;
   // Type of the most-recent non-deleted entry (the one with max created_at).
   // Used ONLY to decide which tab a SETTLED (balance === 0) person stays on:
   // with the balance exactly 0, the latest entry is necessarily the one that
