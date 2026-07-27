@@ -152,7 +152,6 @@ a{color:inherit;text-decoration:none;}
 .cleartitle{margin-top:12px;font-size:19px;font-weight:700;letter-spacing:-.01em;color:var(--ink);}
 .clearsub{margin-top:4px;font-size:13px;color:var(--sub);}
 .clearsub b{color:var(--ink);font-weight:600;}
-.trust{margin-top:14px;text-align:center;font-size:12px;font-weight:500;color:#475467;display:none}
 .histbtn{display:none;width:100%;border:0;border-top:1px solid #f2f4f7;background:#fff;padding:13px 16px;text-align:center;font-size:12px;font-weight:500;color:#475467;font-family:inherit;cursor:pointer}
 .histbtn:active{background:#eaecf0}
 .chline{display:flex;align-items:center;gap:10px;padding:11px 16px;background:var(--bg);border-bottom:1px solid var(--hair);}
@@ -179,7 +178,6 @@ a{color:inherit;text-decoration:none;}
       <div class="balance">{{.AbsBalance}}<span class="cur">{{.Currency}}</span></div>
       {{end}}
     </div>
-    <div class="trust" id="trustline"></div>
   </div>
   <div class="sectionhead">
     <span class="sectiontitle" id="txTitle"></span>
@@ -210,14 +208,14 @@ a{color:inherit;text-decoration:none;}
     owe:"بدهکار است", credit:"طلبکار است", settled:"تصفیه شده",
     tx:"معاملات", empty:"معامله‌ای نیست", err:"بارگذاری ناموفق بود",
     debt:"دادم", payment:"گرفتم", tag:"Powered by", more:"بیشتر", less:"کمتر",
-    hshow:"دیدن سابقهٔ تصفیه‌شده", hhide:"پنهان کردن سابقهٔ تصفیه‌شده",
-    together:"✓ {n} حساب با هم تصفیه شده", seton:"تصفیه شد · {d}"
+    hshow:"دیدن سابقهٔ تصفیه‌شده ({n})", hhide:"پنهان کردن سابقهٔ تصفیه‌شده",
+    seton:"تصفیه شد · {d}"
   } : {
     owe:"owes", credit:"is owed", settled:"is settled",
     tx:"Transactions", empty:"No transactions yet.", err:"Couldn't load this ledger.",
     debt:"I gave", payment:"I received", tag:"Powered by", more:"more", less:"less",
-    hshow:"View settled history", hhide:"Hide settled history",
-    together:"✓ {n} account(s) settled together", seton:"Settled · {d}"
+    hshow:"View settled history ({n})", hhide:"Hide settled history",
+    seton:"Settled · {d}"
   };
   var UP='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="7"/><polyline points="6 13 12 7 18 13"/></svg>';
   var DOWN='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="17"/><polyline points="18 11 12 17 6 11"/></svg>';
@@ -294,11 +292,6 @@ a{color:inherit;text-decoration:none;}
       }
       var coherent = (p && typeof p.balance === 'number') ? sum === p.balance : false;
       if(!coherent){ current = all; settled = []; }
-      if(chapters > 0){
-        var tl = document.getElementById('trustline');
-        tl.textContent = L.together.replace('{n}', fmtAmt(chapters));
-        tl.style.display = 'block';
-      }
       // Every dated boundary (newest first) for the expanded history's
       // ruled-off lines; older payloads carry only the single latest one.
       var bounds = (p && p.settled_boundaries && p.settled_boundaries.length)
@@ -333,7 +326,7 @@ a{color:inherit;text-decoration:none;}
         if(settled.length){
           html += '<button type="button" class="histbtn" id="histbtn" style="display:block'
             + (list.length ? '' : ';border-top:0') + '">'
-            + esc(open ? L.hhide : L.hshow) + '</button>';
+            + esc(open ? L.hhide : L.hshow.replace('{n}', fmtAmt(chapters))) + '</button>';
         }
         el.innerHTML = html;
         wireNotes(el);

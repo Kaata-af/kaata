@@ -80,11 +80,10 @@ const LABELS = {
     wordmark: "kaata.",
     more: "more",
     less: "less",
-    // Count-free on purpose: the settled count lives ONLY on the statement
-    // card's trust line — repeating it here read redundant and confusing.
-    settledShow: "View settled history",
+    // The settled count lives HERE and only here (operator decision
+    // 2026-07-27: the statement-card trust line came off entirely).
+    settledShow: "View settled history ({n})",
     settledHide: "Hide settled history",
-    settledTogether: "✓ {n} account(s) settled together",
     settledOn: "Settled · {date}",
   },
   fa: {
@@ -106,9 +105,8 @@ const LABELS = {
     wordmark: "kaata.",
     more: "بیشتر",
     less: "کمتر",
-    settledShow: "دیدن سابقهٔ تصفیه‌شده",
+    settledShow: "دیدن سابقهٔ تصفیه‌شده ({n})",
     settledHide: "پنهان کردن سابقهٔ تصفیه‌شده",
-    settledTogether: "✓ {n} حساب با هم تصفیه شده",
     settledOn: "تصفیه شد · {date}",
   },
 } as const;
@@ -530,13 +528,6 @@ function Ledger({ data: d }: { data: SharedLedger }) {
             </p>
           </div>
         )}
-
-        {/* Trust line — a clean-settlement track record beats raw history. */}
-        {chapters > 0 ? (
-          <p className="mt-[14px] text-center text-[12px] font-medium" style={{ color: C.sub }}>
-            {L.settledTogether.replace("{n}", fmtAmount(chapters, rtl))}
-          </p>
-        ) : null}
       </div>
 
       {/* Transaction history */}
@@ -600,7 +591,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
             }
             style={{ borderColor: C.hair, color: C.sub }}
           >
-            {showSettled ? L.settledHide : L.settledShow}
+            {showSettled ? L.settledHide : L.settledShow.replace("{n}", fmtAmount(chapters, rtl))}
           </button>
         ) : null}
       </div>

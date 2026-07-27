@@ -15,7 +15,7 @@ import { Button } from "../../../components/Button";
 import { useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../../lib/currency";
-import { getEntry, updateEntry } from "../../../lib/db";
+import { getEntry, SettledChapterError, updateEntry } from "../../../lib/db";
 import { toAsciiDigits } from "../../../lib/digits";
 import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../../lib/event-log";
@@ -94,7 +94,10 @@ export default function EditEntryScreen() {
       // Distinguish role-gate refusal from generic storage error so a
       // demoted editor sees actionable "view only" copy rather than
       // generic "save failed". See entry/new.tsx for the same pattern.
-      if (err instanceof RoleGateRejectionError) {
+      if (err instanceof SettledChapterError) {
+        // Closed-period guard: this entry sits under a ruled-off line.
+        setSaveError(t("entry.settledLocked"));
+      } else if (err instanceof RoleGateRejectionError) {
         setSaveError(t("entry.roleDenied"));
       } else if (err instanceof EventSigningUnavailableError) {
         // Mythos Fix Set C: signing-unavailable gets an actionable message.

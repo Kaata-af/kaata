@@ -27,6 +27,7 @@ import {
   getSettlementSummary,
   listEntries,
   listSettlementBoundaries,
+  SettledChapterError,
   softDeleteEntry,
 } from "../../lib/db";
 import { getActiveVaultIdSyncMaybe } from "../../lib/db-tx";
@@ -637,6 +638,10 @@ export default function PersonDetailScreen() {
             await load();
             toast.push(t("entry.deleted"), "success");
           } catch (err) {
+            if (err instanceof SettledChapterError) {
+              toast.push(t("entry.settledLocked"), "error");
+              return;
+            }
             console.warn("[person] softDeleteEntry failed", err);
             toast.push(t("entry.deleteFailed"), "error");
           }

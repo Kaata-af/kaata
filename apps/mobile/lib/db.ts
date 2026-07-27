@@ -3818,6 +3818,39 @@ export async function createEntry(
 // Same public API. Internally we compute a minimal delta against the current
 // row so we don't emit no-op amend events that would just churn the log on a
 // "Save" press where the user didn't actually change anything.
+/**
+ * A mutation targets an entry inside a SETTLED (ruled-off) chapter. Closed
+ * periods are immutable — the accounting way to fix an old entry is a
+ * correcting entry in the open chapter, never editing closed history.
+ */
+export class SettledChapterError extends Error {
+  readonly kind = "settled_chapter" as const;
+  constructor() {
+    super("entry is in a settled chapter — closed history is immutable");
+    this.name = "SettledChapterError";
+  }
+}
+
+// Data-layer closed-period guard (2026-07-27): the person screen already
+// hides edit/delete for settled entries, but immutability must be a
+// property of the DATA LAYER, not one screen — any other path (future bulk
+// edit, deep link, code drift) hits this and refuses. Local-only: remote
+// events keep their lawful-at-HLC semantics and the UI coherence rule.
+async function assertNotInSettledChapter(
+  db: SQLite.SQLiteDatabase,
+  entryId: string,
+): Promise<void> {
+  const row = await db.getFirstAsync<{ one: number }>(
+    `SELECT 1 AS one
+       FROM entries e
+       INNER JOIN settlements s ON s.relationship_id = e.relationship_id
+      WHERE e.id = ? AND s.settled_at_ms >= e.created_at
+      LIMIT 1`,
+    entryId,
+  );
+  if (row != null) throw new SettledChapterError();
+}
+
 export async function updateEntry(
   id: string,
   amountAfn: number,
@@ -3825,6 +3858,7 @@ export async function updateEntry(
 ): Promise<void> {
   const db = await getDb();
   const vaultId = getActiveVaultIdSync();
+  await assertNotInSettledChapter(db, id);
   // Read the current row (vault-scoped) so we can compute a minimal delta.
   // A stale id from a different vault is treated as missing and no-ops.
   const current = await db.getFirstAsync<{
@@ -3870,6 +3904,7 @@ export async function getEntry(id: string): Promise<Entry | null> {
 export async function softDeleteEntry(id: string): Promise<void> {
   const db = await getDb();
   const vaultId = getActiveVaultIdSync();
+  await assertNotInSettledChapter(db, id);
   const current = await db.getFirstAsync<{ is_deleted: number | null }>(
     "SELECT is_deleted FROM entries WHERE id = ? AND vault_id = ?",
     id,

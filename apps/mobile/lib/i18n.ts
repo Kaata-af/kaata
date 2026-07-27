@@ -220,6 +220,10 @@ const en = {
   // Dated ruled-off line between chapters in the full-history view. {date}
   // is Solar Hijri with Afghan month names for fa, Gregorian for en.
   "person.history.settledOn": "Settled · {date}",
+  // Closed-period guard: mutations refused inside ruled-off chapters. Fix
+  // an old entry the accountant's way — a correcting entry on the open page.
+  "entry.settledLocked":
+    "This entry is under a settled line and can't be changed. Add a correcting entry instead.",
   "person.freshChapter.title": "All settled",
   "person.freshChapter.subtitle": "A fresh page. Your history together is kept below.",
   "person.ping": "Ping {name} on WhatsApp",
@@ -1316,6 +1320,8 @@ const fa: Partial<Record<Key, string>> = {
   "person.history.show": "{count} حساب تصفیه‌شده · دیدن همه",
   "person.history.hide": "فقط حساب جاری",
   "person.history.settledOn": "تصفیه شد · {date}",
+  "entry.settledLocked":
+    "این ثبت زیر خط تصفیه است و قابل تغییر نیست. به جای آن یک ثبت اصلاحی اضافه کنید.",
   "person.freshChapter.title": "همه تصفیه شد",
   "person.freshChapter.subtitle": "صفحهٔ تازه. سابقهٔ شما با هم در پایین نگه داشته شده است.",
   "person.ping": "یادآوری به {name} در واتساپ",
