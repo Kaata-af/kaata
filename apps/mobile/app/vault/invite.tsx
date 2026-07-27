@@ -332,6 +332,13 @@ export default function VaultInviteScreen() {
                     onSelect={setRole}
                   />
                   <RolePill
+                    value="clerk"
+                    label={t("invite.role.clerk")}
+                    hint={t("invite.role.clerk.hint")}
+                    selected={role === "clerk"}
+                    onSelect={setRole}
+                  />
+                  <RolePill
                     value="viewer"
                     label={t("invite.role.viewer")}
                     hint={t("invite.role.viewer.hint")}
@@ -346,7 +353,9 @@ export default function VaultInviteScreen() {
                 <Text style={[styles.fieldHint, textDir(isRTL)]}>
                   {role === "viewer"
                     ? t("invite.link.viewerDisclosure")
-                    : t("invite.link.editorDisclosure")}
+                    : role === "clerk"
+                      ? t("invite.link.clerkDisclosure")
+                      : t("invite.link.editorDisclosure")}
                 </Text>
 
                 <View style={{ height: 24 }} />

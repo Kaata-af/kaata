@@ -48,6 +48,7 @@ import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { isPlaceholderSelfName, t } from "../../lib/i18n";
 import { useVaultRole } from "../../lib/use-vault-role";
+import { VAULT_ROLE_RANK } from "../../lib/vault-roles";
 import { subscribePresence, isPeerOnline } from "../../lib/mesh/presence";
 import { fetchPendingInvitations } from "../../lib/vault-api";
 import { appendVaultMemberRemoved, appendVaultMemberRoleChanged } from "../../lib/event-log";
@@ -102,6 +103,13 @@ export default function VaultMembersScreen() {
 
   const role: VaultRole = useVaultRole(vaultId, accountId);
   const isOwner = role === "owner";
+  // Roles v2 Phase B: managers manage members too, strictly below manager
+  // rank — and their mutations go through REST (server-arbitrated), not
+  // offline chain events, per docs/roles-v2-design.md's Phase B blocker:
+  // an offline manager acting on a stale view of the target's role would
+  // author events the server refuses (permanent local divergence). Owners
+  // keep the offline event path unchanged.
+  const isManager = role === "manager";
 
   const loadAll = useCallback(async () => {
     const activeVaultId = await getActiveVaultId();
@@ -282,8 +290,10 @@ export default function VaultMembersScreen() {
   }
 
   function openMemberSheet(m: MemberRow) {
-    if (!isOwner) return;
+    if (!isOwner && !isManager) return;
     if (m.account_id === accountId) return;
+    // Manager cap: owners and peer managers are out of a manager's reach.
+    if (isManager && VAULT_ROLE_RANK[m.role] >= VAULT_ROLE_RANK.manager) return;
     setSheetTarget(m);
   }
 
@@ -313,11 +323,30 @@ export default function VaultMembersScreen() {
       return;
     }
     try {
-      await appendVaultMemberRoleChanged({
-        targetVaultId: vaultId,
-        accountId: target.account_id,
-        role: targetRole,
-      });
+      if (isManager) {
+        // Manager path: REST-first so the SERVER arbitrates the cap against
+        // its live state (no stale-view offline events). The local mirror is
+        // then stamped for immediate visibility (non-chain-writer precedent:
+        // healSelfMembershipFromListing); the target's own device re-heals
+        // its role from the vaults listing.
+        const { setMemberRole } = await import("../../lib/vault-api");
+        await setMemberRole(vaultId, target.account_id, targetRole);
+        const db = await getDb();
+        await db.runAsync(
+          `UPDATE vault_members_mirror SET role = ? WHERE vault_id = ? AND account_id = ?`,
+          targetRole,
+          vaultId,
+          target.account_id,
+        );
+        const { invalidateVaultRoleCache } = await import("../../lib/use-vault-role");
+        invalidateVaultRoleCache(vaultId);
+      } else {
+        await appendVaultMemberRoleChanged({
+          targetVaultId: vaultId,
+          accountId: target.account_id,
+          role: targetRole,
+        });
+      }
       toast.push(t("members.toast.roleUpdated"), "success");
       await loadAll();
     } catch (err) {
@@ -332,10 +361,25 @@ export default function VaultMembersScreen() {
     const target = revokeTarget;
     setRevokeTarget(null);
     try {
-      await appendVaultMemberRemoved({
-        targetVaultId: vaultId,
-        accountId: target.account_id,
-      });
+      if (isManager) {
+        // Manager path: REST-first (see onChangeRole).
+        const { revokeMember } = await import("../../lib/vault-api");
+        await revokeMember(vaultId, target.account_id);
+        const db = await getDb();
+        await db.runAsync(
+          `UPDATE vault_members_mirror SET revoked_at = ? WHERE vault_id = ? AND account_id = ?`,
+          Date.now(),
+          vaultId,
+          target.account_id,
+        );
+        const { invalidateVaultRoleCache } = await import("../../lib/use-vault-role");
+        invalidateVaultRoleCache(vaultId);
+      } else {
+        await appendVaultMemberRemoved({
+          targetVaultId: vaultId,
+          accountId: target.account_id,
+        });
+      }
       toast.push(t("members.toast.removed"), "success");
       await loadAll();
     } catch (err) {
@@ -413,7 +457,7 @@ export default function VaultMembersScreen() {
   }
 
   const sheetActions: SheetAction[] = sheetTarget
-    ? buildSheetActions(sheetTarget, ownerCount, {
+    ? buildSheetActions(sheetTarget, ownerCount, isOwner ? "owner" : "manager", {
         onChangeRole,
         onRevoke: () => setRevokeTarget(sheetTarget),
         onTransfer: () => setTransferTarget(sheetTarget),
@@ -502,7 +546,7 @@ export default function VaultMembersScreen() {
           })
         )}
 
-        {isOwner ? (
+        {isOwner || isManager ? (
           <>
             {/* PARKED (mesh): the in-person QR pair flow (vault/pair) is parked
                 with the rest of the offline mesh. The online invite link is the
@@ -687,6 +731,7 @@ function MemberIdentityRow(props: {
 function buildSheetActions(
   member: MemberRow,
   ownerCount: number,
+  actorRole: "owner" | "manager",
   handlers: {
     onChangeRole: (r: VaultRole) => void;
     onRevoke: () => void;
@@ -702,11 +747,28 @@ function buildSheetActions(
   const isLastOwner = member.role === "owner" && ownerCount <= 1;
   if (isLastOwner) return actions;
 
+  // Roles v2 Phase B: managers grant strictly below manager (openMemberSheet
+  // already caps their TARGETS below manager); only owners mint managers,
+  // and only owners transfer ownership.
+  if (actorRole === "owner" && member.role !== "manager") {
+    actions.push({
+      label: t("members.sheet.makeManager"),
+      icon: "briefcase-outline",
+      onPress: () => handlers.onChangeRole("manager"),
+    });
+  }
   if (member.role !== "editor") {
     actions.push({
       label: t("members.sheet.makeEditor"),
       icon: "create-outline",
       onPress: () => handlers.onChangeRole("editor"),
+    });
+  }
+  if (member.role !== "clerk") {
+    actions.push({
+      label: t("members.sheet.makeClerk"),
+      icon: "pencil-outline",
+      onPress: () => handlers.onChangeRole("clerk"),
     });
   }
   if (member.role !== "viewer") {
@@ -716,7 +778,7 @@ function buildSheetActions(
       onPress: () => handlers.onChangeRole("viewer"),
     });
   }
-  if (member.role !== "owner") {
+  if (actorRole === "owner" && member.role !== "owner") {
     actions.push({
       label: t("members.sheet.transfer"),
       icon: "key-outline",

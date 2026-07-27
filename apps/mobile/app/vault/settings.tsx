@@ -655,6 +655,10 @@ export default function VaultSettingsScreen() {
             <>
               <SectionHeader label={t("vaultSettings.section.danger")} isRTL={isRTL} />
               {/* Transfer ownership is a multi-account action — hidden in solo. */}
+              {/* NO Leave row for owners (operator decision 2026-07-27): an
+                  owner's exit path is Transfer ownership, whose flow already
+                  offers "transfer and leave" — a sole owner tapping Leave
+                  could only ever hit the last-owner refusal. */}
               {!SOLO_STORE_MODE ? (
                 <NavRow
                   icon="key-outline"
@@ -664,15 +668,6 @@ export default function VaultSettingsScreen() {
                   disabled={busy !== null}
                 />
               ) : null}
-              <NavRow
-                icon="exit-outline"
-                label={t("vaultSettings.row.leave")}
-                onPress={() => setLeaveConfirm(true)}
-                isRTL={isRTL}
-                disabled={busy !== null}
-                danger
-                trailing={busy === "leave" ? <ActivityIndicator size="small" /> : undefined}
-              />
               {/* D-ARCHIVED-VAULT-FILTER: if the vault is already
                   archived, surface "Unarchive" instead of "Archive". This
                   closes the dead-end where tapping an archived row in

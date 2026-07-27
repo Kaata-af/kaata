@@ -861,18 +861,15 @@ func (s *Service) TransferOwnership(ctx context.Context, in TransferInput) (int6
 	return newEpoch, nil
 }
 
-// SetMemberRole flips a member to owner / editor / viewer (owner-only).
-//
-// Roles v2 PHASE A GATE (review fix): manager/clerk are understood by every
-// layer but must NOT be grantable while 1.0.2 clients are in the fleet —
-// their SQLite CHECK + chain fold hard-fail on the new literals, and this
-// REST endpoint is reachable by any owner JWT (curl), not just shipped UI.
-// Phase B deletes phaseAGrantable and this comment.
+// SetMemberRole flips a member's role. Roles v2 Phase B: owners grant any
+// role (owner itself still normally travels via TransferOwnership); MANAGERS
+// operate strictly below manager — both the new role and the target's
+// current role must rank below manager.
 func (s *Service) SetMemberRole(ctx context.Context, vaultID, callerID, targetID, newRole string) (int64, error) {
 	if vaultID == "" || callerID == "" || targetID == "" {
 		return 0, errors.New("vault_id, caller, and target are required")
 	}
-	if !isValidRole(newRole) || !phaseAGrantable(newRole) {
+	if !isValidRole(newRole) {
 		return 0, ErrInvalidRole
 	}
 
@@ -882,8 +879,12 @@ func (s *Service) SetMemberRole(ctx context.Context, vaultID, callerID, targetID
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := requireOwner(ctx, tx, vaultID, callerID); err != nil {
+	callerRole, err := requireOwnerOrManager(ctx, tx, vaultID, callerID)
+	if err != nil {
 		return 0, err
+	}
+	if callerRole == "manager" && vaultRoleRank[newRole] >= vaultRoleRank["manager"] {
+		return 0, ErrInvalidRole
 	}
 
 	var oldRole string
@@ -897,6 +898,10 @@ func (s *Service) SetMemberRole(ctx context.Context, vaultID, callerID, targetID
 			return 0, ErrTargetNotMember
 		}
 		return 0, fmt.Errorf("read target role: %w", err)
+	}
+	if callerRole == "manager" && vaultRoleRank[oldRole] >= vaultRoleRank["manager"] {
+		// A manager can never touch owners or peer managers.
+		return 0, ErrNotOwner
 	}
 
 	if oldRole == newRole {
@@ -978,7 +983,9 @@ func (s *Service) RevokeMember(ctx context.Context, in RevokeInput) (int64, erro
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := requireOwner(ctx, tx, in.VaultID, in.CallerID); err != nil {
+	// Roles v2 Phase B: managers may revoke members ranked below manager.
+	callerRole, err := requireOwnerOrManager(ctx, tx, in.VaultID, in.CallerID)
+	if err != nil {
 		return 0, err
 	}
 
@@ -993,6 +1000,9 @@ func (s *Service) RevokeMember(ctx context.Context, in RevokeInput) (int64, erro
 			return 0, ErrTargetNotMember
 		}
 		return 0, fmt.Errorf("read target role: %w", err)
+	}
+	if callerRole == "manager" && vaultRoleRank[targetRole] >= vaultRoleRank["manager"] {
+		return 0, ErrNotOwner
 	}
 
 	if targetRole == "owner" {
@@ -1213,10 +1223,8 @@ func (s *Service) CreateInvite(ctx context.Context, in CreateInviteInput) (Creat
 	// Invites can only mint roles BELOW manager (roles v2): a witnessed
 	// admission must never grant member-management authority — manager is
 	// owner-granted via role change AFTER joining, owner via transfer only.
-	// PHASE A GATE (review fix): clerk joins this list in Phase B, once the
-	// fleet's clients understand it — until then this endpoint must not
-	// mint a role 1.0.2 folds refuse (permanent old-client divergence).
-	if in.Role != "editor" && in.Role != "viewer" {
+	// Phase B: clerk is now grantable (the fleet understands it).
+	if in.Role != "editor" && in.Role != "viewer" && in.Role != "clerk" {
 		return CreateInviteResult{}, ErrInvalidRole
 	}
 	// Link invite: an empty email means "shareable link" — the token IS the
@@ -1238,7 +1246,9 @@ func (s *Service) CreateInvite(ctx context.Context, in CreateInviteInput) (Creat
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := requireOwner(ctx, tx, in.VaultID, in.InviterAccID); err != nil {
+	// Roles v2 Phase B: managers may invite too — the grantable set above is
+	// already capped below manager, so no further per-caller restriction.
+	if _, err := requireOwnerOrManager(ctx, tx, in.VaultID, in.InviterAccID); err != nil {
 		return CreateInviteResult{}, err
 	}
 
@@ -1715,14 +1725,47 @@ func redactEmail(email string) string {
 // ---------------------------------------------------------------------------
 
 func requireOwner(ctx context.Context, tx pgx.Tx, vaultID, accountID string) error {
+	role, err := activeMemberRoleLocked(ctx, tx, vaultID, accountID)
+	if err != nil {
+		return err
+	}
+	if role != "owner" {
+		return ErrNotOwner
+	}
+	return nil
+}
+
+// vaultRoleRank mirrors sync/permissions.go roleRank (roles v2 order).
+// Unknown roles rank 0 — fail closed.
+var vaultRoleRank = map[string]int{"viewer": 1, "clerk": 2, "editor": 3, "manager": 4, "owner": 5}
+
+// requireOwnerOrManager (roles v2 Phase B): member-management REST calls are
+// allowed for owners (uncapped, as always) and MANAGERS operating strictly
+// BELOW manager rank. Returns the caller's role so call sites can apply the
+// per-endpoint cap. Mirrors the chain-layer manager arms — lockstep with
+// membership.go managerCapSatisfied, chain.ts, role-gate.ts.
+func requireOwnerOrManager(ctx context.Context, tx pgx.Tx, vaultID, accountID string) (string, error) {
+	role, err := activeMemberRoleLocked(ctx, tx, vaultID, accountID)
+	if err != nil {
+		return "", err
+	}
+	if role != "owner" && role != "manager" {
+		return "", ErrNotOwner
+	}
+	return role, nil
+}
+
+// activeMemberRoleLocked reads (FOR UPDATE) the caller's active membership
+// role, mapping absent vault / absent membership to the usual errors.
+func activeMemberRoleLocked(ctx context.Context, tx pgx.Tx, vaultID, accountID string) (string, error) {
 	var dummy string
 	err := tx.QueryRow(ctx,
 		`SELECT vault_id::text FROM vaults WHERE vault_id = $1::uuid`, vaultID).Scan(&dummy)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound
+		return "", ErrNotFound
 	}
 	if err != nil {
-		return fmt.Errorf("read vault: %w", err)
+		return "", fmt.Errorf("read vault: %w", err)
 	}
 
 	var role string
@@ -1733,15 +1776,12 @@ func requireOwner(ctx context.Context, tx pgx.Tx, vaultID, accountID string) err
 		 FOR UPDATE
 	`, vaultID, accountID).Scan(&role)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotMember
+		return "", ErrNotMember
 	}
 	if err != nil {
-		return fmt.Errorf("read membership: %w", err)
+		return "", fmt.Errorf("read membership: %w", err)
 	}
-	if role != "owner" {
-		return ErrNotOwner
-	}
-	return nil
+	return role, nil
 }
 
 func lockActiveMembership(ctx context.Context, tx pgx.Tx, vaultID, accountID string) (string, error) {
@@ -1958,18 +1998,6 @@ func writeAudit(
 func isValidRole(role string) bool {
 	switch role {
 	case "owner", "manager", "editor", "clerk", "viewer":
-		return true
-	}
-	return false
-}
-
-// phaseAGrantable: the roles the REST surface may MINT during roles v2
-// Phase A — the pre-v2 set only. The chain/fold layers understand
-// manager/clerk (that's the point of Phase A), but granting waits for the
-// fleet to be on a build that does too. Phase B deletes this.
-func phaseAGrantable(role string) bool {
-	switch role {
-	case "owner", "editor", "viewer":
 		return true
 	}
 	return false

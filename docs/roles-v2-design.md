@@ -86,7 +86,19 @@ manager, manager sees ≤editor). Gate: ship only when check-in metrics show the
 active fleet ≥ Phase-A version (admin dashboard has per-install versions), or
 force-update via `min_supported_version` if a straggler must be cut over.
 
-## Phase B blockers (from the 2026-07-26 adversarial review)
+## Phase B — SHIPPED 2026-07-27
+
+Fleet check passed (only the operator's own devices are members of shared
+kaatas; both on ≥1.0.3). Shipped: REST gates re-widened (SetMemberRole
+grants all roles for owners; CreateInvite adds clerk), member-management
+endpoints accept MANAGER callers with the below-manager cap
+(requireOwnerOrManager), clerk in the invite picker, Make manager/clerk in
+the member sheet, and manager-authored mutations route through REST
+(server-arbitrated) per blocker #1 below — owners keep offline events.
+Rule that remains: every member of a kaata must be on ≥1.0.3 before a
+manager/clerk is minted IN that kaata.
+
+## Phase B blockers (from the 2026-07-26 adversarial review — resolved above)
 
 Resolve BEFORE the granting UI ships — all are inert while no manager exists:
 

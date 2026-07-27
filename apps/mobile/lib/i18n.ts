@@ -992,6 +992,9 @@ const en = {
   "members.sheet.title": "Manage {name}",
   "members.sheet.makeEditor": "Make editor",
   "members.sheet.makeViewer": "Make viewer",
+  // Roles v2 Phase B — granting UI.
+  "members.sheet.makeManager": "Make manager",
+  "members.sheet.makeClerk": "Make clerk",
   "members.sheet.transfer": "Transfer ownership",
   "members.sheet.remove": "Remove from vault",
   "members.confirm.remove.title": "Remove this member?",
@@ -1021,6 +1024,8 @@ const en = {
   "invite.link.viewerDisclosure":
     "Viewers can see everything in this Kaata — all balances and phone numbers — but can't make changes.",
   "invite.link.editorDisclosure": "Editors can add and edit tallies in this Kaata.",
+  "invite.link.clerkDisclosure":
+    "Clerks can add new tallies but can never change or delete history.",
   "invite.link.ready": "Link ready",
   "invite.link.readySub": "Anyone with this link can join as {role}. Expires {when}.",
   "invite.shareWhatsapp": "Share on WhatsApp",
@@ -1040,6 +1045,8 @@ const en = {
   "invite.role.editor.hint": "Add, edit, and delete entries",
   "invite.role.viewer": "Viewer",
   "invite.role.viewer.hint": "Read-only access",
+  "invite.role.clerk": "Clerk",
+  "invite.role.clerk.hint": "Add entries only — never edit or delete",
   "invite.submit": "Create invitation",
   "invite.created": "Invitation created",
   "invite.failed": "Failed to create invitation",
@@ -1967,6 +1974,8 @@ const fa: Partial<Record<Key, string>> = {
   "members.sheet.title": "مدیریت {name}",
   "members.sheet.makeEditor": "ویرایشگر کردن",
   "members.sheet.makeViewer": "بیننده کردن",
+  "members.sheet.makeManager": "مدیر کردن",
+  "members.sheet.makeClerk": "ثبت‌کننده کردن",
   "members.sheet.transfer": "انتقال مالکیت",
   "members.sheet.remove": "حذف از کاتا",
   "members.confirm.remove.title": "این عضو حذف شود؟",
@@ -1989,6 +1998,8 @@ const fa: Partial<Record<Key, string>> = {
   "invite.link.viewerDisclosure":
     "بیننده‌ها همه‌چیز این کاتا را می‌بینند — همه مانده‌ها و شماره‌ها — اما نمی‌توانند تغییری بدهند.",
   "invite.link.editorDisclosure": "ویرایشگرها می‌توانند در این کاتا ثبت اضافه و ویرایش کنند.",
+  "invite.link.clerkDisclosure":
+    "ثبت‌کننده‌ها می‌توانند ثبت تازه اضافه کنند اما هرگز نمی‌توانند سابقه را تغییر دهند یا حذف کنند.",
   "invite.link.ready": "لینک آماده شد",
   "invite.link.readySub":
     "هر کسی این لینک را داشته باشد می‌تواند به‌عنوان {role} بپیوندد. انقضا {when}.",
@@ -2007,6 +2018,8 @@ const fa: Partial<Record<Key, string>> = {
     "دعوت‌شده باید با همان ایمیل گوگل بپذیرد. آدرس‌های جیمیل بدون نقطه مطابقت می‌شوند.",
   "invite.role.editor": "ویرایشگر",
   "invite.role.editor.hint": "افزودن، ویرایش و حذف ثبت‌ها",
+  "invite.role.clerk": "ثبت‌کننده",
+  "invite.role.clerk.hint": "فقط افزودن ثبت — بدون ویرایش و حذف",
   "invite.role.viewer": "بیننده",
   "invite.role.viewer.hint": "دسترسی فقط‌خواندنی",
   "invite.submit": "ایجاد دعوت",
