@@ -188,13 +188,9 @@ export async function shareKaataViaWhatsApp(
     lines.push(tIn(lang, "share.settled.cta"));
   }
 
-  // Trust line: "N accounts settled together." A creditor reading the ping
-  // sees a clean-settlement track record — stronger social proof than raw
-  // history, and the reason settle-up beats delete-and-restart.
-  if (settled && settled.settledChapters > 0) {
-    lines.push("");
-    lines.push(tIn(lang, "share.settledHistory", { count: settled.settledChapters }));
-  }
+  // NOTE: the "N accounts settled together" trust line lives on the WEB page
+  // only (statement card) — operator decision 2026-07-27: the prewritten
+  // WhatsApp text stays short; the page carries the track record.
 
   // "See the full ledger on kaata.af" + link. Falls back to the plain tagline
   // when the snapshot upload couldn't produce a link (offline / error).

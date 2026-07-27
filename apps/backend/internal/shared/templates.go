@@ -147,6 +147,11 @@ a{color:inherit;text-decoration:none;}
 .foottag{font-size:12px;color:var(--mut);}
 .foottag a{color:var(--sub);font-weight:700;}
 .sk{background:var(--hair);border-radius:5px;animation:pulse 1.5s ease-in-out infinite;}
+.clearwrap{display:flex;flex-direction:column;align-items:center;text-align:center;padding-top:4px;}
+.clearic{width:48px;height:48px;border-radius:50%;background:var(--creditbg);color:var(--credit);display:flex;align-items:center;justify-content:center;}
+.cleartitle{margin-top:12px;font-size:19px;font-weight:700;letter-spacing:-.01em;color:var(--ink);}
+.clearsub{margin-top:4px;font-size:13px;color:var(--sub);}
+.clearsub b{color:var(--ink);font-weight:600;}
 .trust{margin-top:14px;text-align:center;font-size:12px;font-weight:500;color:#475467;display:none}
 .histbtn{display:none;width:100%;border:0;border-top:1px solid #f2f4f7;background:#fff;padding:13px 16px;text-align:center;font-size:12px;font-weight:500;color:#475467;font-family:inherit;cursor:pointer}
 .histbtn:active{background:#eaecf0}
@@ -158,8 +163,18 @@ a{color:inherit;text-decoration:none;}
   <div class="card">
     {{if .Shop}}<div class="shophead">{{.Shop}}</div>{{end}}
     <div class="statement {{.Direction}}">
+      {{if eq .Direction "settled"}}
+      <!-- SUCCESS state: a settled account is an achievement, not an empty
+           ledger — check mark + "all settled", no meaningless big zero. -->
+      <div class="clearwrap">
+        <div class="clearic"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+        <div class="cleartitle">{{if .RTL}}حساب صاف است{{else}}All settled{{end}}</div>
+        <div class="clearsub"><b>{{.Person}}</b> — {{if .RTL}}چیزی باقی نمانده.{{else}}nothing owed.{{end}}</div>
+      </div>
+      {{else}}
       <div class="stmt"><span class="who">{{.Person}}</span> <span id="stmtVerb"></span></div>
       <div class="balance">{{.AbsBalance}}<span class="cur">{{.Currency}}</span></div>
+      {{end}}
     </div>
     <div class="trust" id="trustline"></div>
   </div>
@@ -186,22 +201,26 @@ a{color:inherit;text-decoration:none;}
   // iOS Safari only fires :active when an ancestor has a touch listener; this
   // empty one lets every row show its tap-darken on iOS. Harmless elsewhere.
   document.addEventListener('touchstart', function(){}, {passive:true});
+  // hshow/hhide are COUNT-FREE on purpose: the settled count lives only on
+  // the statement card's trust line (repeating it here read redundant).
   var L = rtl ? {
-    owe:"بدهکار است", credit:"طلبکار است", settled:"تسویه شده",
+    owe:"بدهکار است", credit:"طلبکار است", settled:"تصفیه شده",
     tx:"معاملات", empty:"معامله‌ای نیست", err:"بارگذاری ناموفق بود",
     debt:"دادم", payment:"گرفتم", tag:"Powered by", more:"بیشتر", less:"کمتر",
-    hshow:"{n} حساب تصفیه‌شده · دیدن", hhide:"پنهان کردن سابقهٔ تصفیه‌شده",
-    together:"✓ {n} حساب با هم تصفیه شده", allset:"همه تصفیه شده — حساب جاری خالی است."
+    hshow:"دیدن سابقهٔ تصفیه‌شده", hhide:"پنهان کردن سابقهٔ تصفیه‌شده",
+    together:"✓ {n} حساب با هم تصفیه شده"
   } : {
     owe:"owes", credit:"is owed", settled:"is settled",
     tx:"Transactions", empty:"No transactions yet.", err:"Couldn't load this ledger.",
     debt:"I gave", payment:"I received", tag:"Powered by", more:"more", less:"less",
-    hshow:"{n} settled account(s) · view", hhide:"Hide settled history",
-    together:"✓ {n} account(s) settled together", allset:"All settled — the current account is empty."
+    hshow:"View settled history", hhide:"Hide settled history",
+    together:"✓ {n} account(s) settled together"
   };
   var UP='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="7"/><polyline points="6 13 12 7 18 13"/></svg>';
   var DOWN='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="17"/><polyline points="18 11 12 17 6 11"/></svg>';
-  document.getElementById('stmtVerb').textContent = L[dir] || L.settled;
+  // Absent in the settled layout (the success card replaces the verb line).
+  var sv = document.getElementById('stmtVerb');
+  if (sv) sv.textContent = L[dir] || L.settled;
   document.getElementById('txTitle').textContent = L.tx;
   document.getElementById('foottag').textContent = L.tag;
   function esc(s){var d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
@@ -282,11 +301,14 @@ a{color:inherit;text-decoration:none;}
         var list = open ? all : current;
         document.getElementById('txCount').textContent = list.length ? fmtAmt(list.length) : '';
         var html = '';
-        if(!list.length){ html = '<div class="empty">'+(chapters > 0 ? L.allset : L.empty)+'</div>'; }
+        // Fresh page right after settling: the statement card already says
+        // "all settled" — no empty-state line here, just the history toggle.
+        if(!list.length){ html = chapters > 0 ? '' : '<div class="empty">'+L.empty+'</div>'; }
         else { for(var k=0;k<list.length;k++){ html += rowHtml(list[k], cur); } }
         if(settled.length){
-          html += '<button type="button" class="histbtn" id="histbtn" style="display:block">'
-            + esc(open ? L.hhide : L.hshow.replace('{n}', fmtAmt(chapters))) + '</button>';
+          html += '<button type="button" class="histbtn" id="histbtn" style="display:block'
+            + (list.length ? '' : ';border-top:0') + '">'
+            + esc(open ? L.hhide : L.hshow) + '</button>';
         }
         el.innerHTML = html;
         wireNotes(el);

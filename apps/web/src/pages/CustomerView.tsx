@@ -65,6 +65,8 @@ const LABELS = {
     owe: "owes",
     credit: "is owed",
     settled: "is settled",
+    clearTitle: "All settled",
+    clearBody: "nothing owed.",
     tx: "Transactions",
     empty: "No transactions yet.",
     error: "This shared ledger has expired or doesn’t exist.",
@@ -75,15 +77,18 @@ const LABELS = {
     wordmark: "kaata.",
     more: "more",
     less: "less",
-    settledShow: "{n} settled account(s) · view",
+    // Count-free on purpose: the settled count lives ONLY on the statement
+    // card's trust line — repeating it here read redundant and confusing.
+    settledShow: "View settled history",
     settledHide: "Hide settled history",
     settledTogether: "✓ {n} account(s) settled together",
-    allSettled: "All settled — the current account is empty.",
   },
   fa: {
     owe: "بدهکار است",
     credit: "طلبکار است",
-    settled: "تسویه شده",
+    settled: "تصفیه شده",
+    clearTitle: "حساب صاف است",
+    clearBody: "چیزی باقی نمانده.",
     tx: "معاملات",
     empty: "هنوز معامله‌ای نیست.",
     error: "این کاتای مشترک منقضی شده یا وجود ندارد.",
@@ -97,10 +102,9 @@ const LABELS = {
     wordmark: "kaata.",
     more: "بیشتر",
     less: "کمتر",
-    settledShow: "{n} حساب تصفیه‌شده · دیدن",
+    settledShow: "دیدن سابقهٔ تصفیه‌شده",
     settledHide: "پنهان کردن سابقهٔ تصفیه‌شده",
     settledTogether: "✓ {n} حساب با هم تصفیه شده",
-    allSettled: "همه تصفیه شده — حساب جاری خالی است.",
   },
 } as const;
 
@@ -435,26 +439,63 @@ function Ledger({ data: d }: { data: SharedLedger }) {
           </p>
         ) : null}
 
-        <div className="mt-[18px] border-t pt-[18px]" style={{ borderColor: C.line }}>
-          <p className="text-[15px]" style={{ color: C.sub }}>
-            <span className="font-semibold" style={{ color: C.ink }}>
-              {d.person}
-            </span>{" "}
-            {L[dir]}
-          </p>
-          <p
-            className="mt-2 flex items-baseline gap-[7px] text-[38px] font-semibold leading-none tracking-[-0.02em] tabular-nums"
-            style={{ color: accent, fontFamily: MONO }}
+        {dir === "settled" ? (
+          // SUCCESS state (operator feedback 2026-07-27): a settled account
+          // is an achievement, not an empty ledger — a big "0 ؋" reads as
+          // vague/meaningless. Check mark + "all settled", no number.
+          <div
+            className="mt-[18px] flex flex-col items-center border-t pt-[22px] text-center"
+            style={{ borderColor: C.line }}
           >
-            {fmtAmount(d.balance, rtl)}
-            <span
-              className="text-[16px] font-medium"
-              style={{ color: C.mut, fontFamily: APP_SANS }}
+            <div
+              className="flex h-12 w-12 items-center justify-center rounded-full"
+              style={{ background: C.creditBg, color: C.credit }}
             >
-              {d.currency}
-            </span>
-          </p>
-        </div>
+              <svg
+                viewBox="0 0 24 24"
+                width="26"
+                height="26"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <p className="mt-3 text-[19px] font-bold tracking-[-0.01em]" style={{ color: C.ink }}>
+              {L.clearTitle}
+            </p>
+            <p className="mt-1 text-[13px]" style={{ color: C.sub }}>
+              <span className="font-semibold" style={{ color: C.ink }}>
+                {d.person}
+              </span>{" "}
+              — {L.clearBody}
+            </p>
+          </div>
+        ) : (
+          <div className="mt-[18px] border-t pt-[18px]" style={{ borderColor: C.line }}>
+            <p className="text-[15px]" style={{ color: C.sub }}>
+              <span className="font-semibold" style={{ color: C.ink }}>
+                {d.person}
+              </span>{" "}
+              {L[dir]}
+            </p>
+            <p
+              className="mt-2 flex items-baseline gap-[7px] text-[38px] font-semibold leading-none tracking-[-0.02em] tabular-nums"
+              style={{ color: accent, fontFamily: MONO }}
+            >
+              {fmtAmount(d.balance, rtl)}
+              <span
+                className="text-[16px] font-medium"
+                style={{ color: C.mut, fontFamily: APP_SANS }}
+              >
+                {d.currency}
+              </span>
+            </p>
+          </div>
+        )}
 
         {/* Trust line — a clean-settlement track record beats raw history. */}
         {chapters > 0 ? (
@@ -484,11 +525,15 @@ function Ledger({ data: d }: { data: SharedLedger }) {
 
       <div className="overflow-hidden rounded-2xl border bg-white" style={{ borderColor: C.line }}>
         {shownEntries.length === 0 ? (
-          <p className="p-7 text-center text-sm" style={{ color: C.mut }}>
-            {/* Fresh page right after settling: "all settled", not the
-                contradictory "no transactions yet" over a settled history. */}
-            {chapters > 0 ? L.allSettled : L.empty}
-          </p>
+          // Fresh page right after settling: the statement card already says
+          // "all settled" — repeating anything here is clutter. The card
+          // holds just the history toggle; the plain empty line only shows
+          // for a genuinely never-used ledger.
+          chapters > 0 ? null : (
+            <p className="p-7 text-center text-sm" style={{ color: C.mut }}>
+              {L.empty}
+            </p>
+          )
         ) : (
           shownEntries.map((e, i) => <Row key={i} e={e} currency={d.currency} rtl={rtl} L={L} />)
         )}
@@ -499,10 +544,13 @@ function Ledger({ data: d }: { data: SharedLedger }) {
           <button
             type="button"
             onClick={() => setShowSettled((v) => !v)}
-            className="w-full border-t px-4 py-[13px] text-center text-[12px] font-medium transition-colors hover:bg-[#f9fafb] active:bg-[#eaecf0]"
+            className={
+              "w-full px-4 py-[13px] text-center text-[12px] font-medium transition-colors hover:bg-[#f9fafb] active:bg-[#eaecf0]" +
+              (shownEntries.length > 0 ? " border-t" : "")
+            }
             style={{ borderColor: C.hair, color: C.sub }}
           >
-            {showSettled ? L.settledHide : L.settledShow.replace("{n}", fmtAmount(chapters, rtl))}
+            {showSettled ? L.settledHide : L.settledShow}
           </button>
         ) : null}
       </div>

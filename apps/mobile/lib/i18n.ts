@@ -362,9 +362,6 @@ const en = {
   "share.settled.line": "🤝 Our kaata is fully settled.",
   "share.settled.cta": "Thank you.",
   "share.footer": "— Sent via Kaata.af",
-  // Trust line in the ping when settled chapters exist — a clean-settlement
-  // track record, phrased for the RECEIVER like the rest of share.*.
-  "share.settledHistory": "✓ We have settled {count} account(s) together before.",
   "share.fullLedger": "See the full ledger here:",
   "share.askLang.title": "Send in which language?",
 
@@ -1472,7 +1469,6 @@ const fa: Partial<Record<Key, string>> = {
   "share.settled.line": "🤝 کاتای ما کاملاً تصفیه شده.",
   "share.settled.cta": "تشکر.",
   "share.footer": "پیام از طرف kaata.af",
-  "share.settledHistory": "✓ پیش از این {count} حساب را با هم تصفیه کرده‌ایم.",
   "share.fullLedger": "کاتای مکمل را اینجا ببینید:",
   "share.askLang.title": "پیام به کدام زبان فرستاده شود؟",
 
