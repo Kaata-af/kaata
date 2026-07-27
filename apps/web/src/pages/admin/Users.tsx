@@ -44,6 +44,7 @@ type Row = {
   email: string;
   locale: string;
   source: string;
+  platform: string;
   installed_at: string;
   last_seen: string;
   entries: number;
@@ -63,6 +64,7 @@ function accountToRow(u: UserRow): Row {
     email: u.email,
     locale: u.locale,
     source: u.source,
+    platform: (u.platform || "").toLowerCase(),
     installed_at: u.installed_at,
     last_seen: u.last_seen,
     // Per-kaata activity counts are the account's only entry/customer signal
@@ -84,6 +86,7 @@ function installToRow(d: InstallRow): Row {
     email: "",
     locale: d.locale,
     source: d.source,
+    platform: (d.platform || "").toLowerCase(),
     installed_at: d.installed_at,
     last_seen: d.last_seen,
     entries: d.usage_entries,
@@ -107,6 +110,7 @@ type SortKey = "name" | "installed_at" | "last_seen" | "entries" | "customers" |
 const COLUMNS: { key: SortKey | null; label: string; right?: boolean }[] = [
   { key: "name", label: "Name" },
   { key: null, label: "Phone" },
+  { key: null, label: "OS" },
   { key: null, label: "Lang" },
   { key: null, label: "Source" },
   { key: "installed_at", label: "Installed" },
@@ -122,6 +126,12 @@ export function Users() {
   const [segment, setSegment] = useState(0);
   const [showAnon, setShowAnon] = useState(false);
   const [search, setSearch] = useState("");
+  // Facet filters — platform is the headline (iOS just launched), the rest
+  // are the founder's usual slices. All client-side; fleet is <200 rows.
+  const [platform, setPlatform] = useState("all");
+  const [activity, setActivity] = useState("any");
+  const [lang, setLang] = useState("all");
+  const [source, setSource] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("last_seen");
   const [sortDesc, setSortDesc] = useState(true);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -138,6 +148,10 @@ export function Users() {
   );
   const anonCount = useMemo(
     () => allRows.filter((r) => r.kind === "install" && !isNamed(r)).length,
+    [allRows],
+  );
+  const sources = useMemo(
+    () => [...new Set(allRows.map((r) => r.source).filter(Boolean))].sort(),
     [allRows],
   );
 
@@ -157,6 +171,18 @@ export function Users() {
         // "All" means all *people* — anonymous no-identity installs stay
         // collapsed until the quiet toggle reveals them.
         base = allRows.filter((r) => r.kind === "account" || isNamed(r) || showAnon);
+    }
+    // Facet filters compose with the segment + search.
+    if (platform !== "all") base = base.filter((r) => r.platform === platform);
+    if (lang !== "all") base = base.filter((r) => (r.locale || "unknown") === lang);
+    if (source !== "all") base = base.filter((r) => r.source === source);
+    if (activity !== "any") {
+      base = base.filter((r) => {
+        const s = seenStatus(r.last_seen);
+        if (activity === "7d") return s === "green";
+        if (activity === "30d") return s === "green" || s === "amber";
+        return s === "gray"; // dormant: no activity in 30d (or never seen)
+      });
     }
     const q = search.trim().toLowerCase();
     const filtered = q
@@ -182,7 +208,7 @@ export function Users() {
       if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
       return String(av).localeCompare(String(bv)) * dir;
     });
-  }, [allRows, segment, showAnon, search, sortKey, sortDesc]);
+  }, [allRows, segment, showAnon, search, sortKey, sortDesc, platform, activity, lang, source]);
 
   return (
     <div>
@@ -229,6 +255,62 @@ export function Users() {
                 {fmtInt(users.data.anonymous_count)} anonymous
               </span>
             </div>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <FilterSelect
+                label="Platform"
+                value={platform}
+                onChange={setPlatform}
+                options={[
+                  ["all", "All platforms"],
+                  ["android", "Android"],
+                  ["ios", "iOS"],
+                ]}
+              />
+              <FilterSelect
+                label="Activity"
+                value={activity}
+                onChange={setActivity}
+                options={[
+                  ["any", "Any activity"],
+                  ["7d", "Active 7d"],
+                  ["30d", "Active 30d"],
+                  ["dormant", "Dormant 30d+"],
+                ]}
+              />
+              <FilterSelect
+                label="Language"
+                value={lang}
+                onChange={setLang}
+                options={[
+                  ["all", "All languages"],
+                  ["fa", "Dari (fa)"],
+                  ["en", "English (en)"],
+                  ["unknown", "Unknown"],
+                ]}
+              />
+              <FilterSelect
+                label="Source"
+                value={source}
+                onChange={setSource}
+                options={[
+                  ["all", "All sources"],
+                  ...sources.map((s) => [s, s] as [string, string]),
+                ]}
+              />
+              {platform !== "all" || activity !== "any" || lang !== "all" || source !== "all" ? (
+                <button
+                  onClick={() => {
+                    setPlatform("all");
+                    setActivity("any");
+                    setLang("all");
+                    setSource("all");
+                  }}
+                  className="text-xs text-[#98a2b3] underline decoration-dotted underline-offset-2 hover:text-[#475467]"
+                >
+                  clear filters
+                </button>
+              ) : null}
+            </div>
             <UsersTable
               rows={rows}
               sortKey={sortKey}
@@ -258,6 +340,34 @@ export function Users() {
         </>
       )}
     </div>
+  );
+}
+
+// Native <select> styled like the search input — dependable, keyboardable,
+// and spared Tremor's popper machinery for four tiny dropdowns.
+function FilterSelect(props: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: [string, string][];
+}) {
+  return (
+    <select
+      aria-label={props.label}
+      value={props.value}
+      onChange={(e) => props.onChange(e.target.value)}
+      className={`rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none ${
+        props.value === props.options[0][0]
+          ? "border-[#eaecf0] text-[#475467]"
+          : "border-[#98a2b3] font-medium text-[#101828]"
+      } bg-white`}
+    >
+      {props.options.map(([v, label]) => (
+        <option key={v} value={v}>
+          {label}
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -369,6 +479,9 @@ function UserTableRow(props: { row: Row; open: boolean; onToggle: () => void }) 
         </TableCell>
         <TableCell className={`${cell} whitespace-nowrap text-xs tabular-nums text-[#475467]`}>
           <span dir="ltr">{r.phone || "—"}</span>
+        </TableCell>
+        <TableCell className={`${cell} text-xs text-[#98a2b3]`}>
+          {r.platform === "ios" ? "iOS" : r.platform === "android" ? "Android" : "—"}
         </TableCell>
         <TableCell className={`${cell} text-xs uppercase text-[#98a2b3]`}>
           {r.locale || "—"}
