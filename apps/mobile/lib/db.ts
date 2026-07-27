@@ -3805,6 +3805,46 @@ export async function listEntries(personId: string): Promise<Entry[]> {
   );
 }
 
+/** One row of the whole-kaata export journal: an entry plus its person. */
+export type ExportEntryRow = {
+  id: string;
+  type: EntryType;
+  amount_afn: number;
+  note: string | null;
+  created_at: number;
+  person_id: string;
+  person_name: string;
+  person_phone: string | null;
+};
+
+/**
+ * Every live entry in a vault joined with its person, oldest first — the
+ * whole-kaata export journal. Takes an EXPLICIT vault id (not the active-vault
+ * cache) because vault settings can be open for a non-active vault via its
+ * `?id=` param, and export must serve the vault on screen. Ties on
+ * `created_at` (entries can share a business date) break by id so repeated
+ * exports of the same book order identically.
+ */
+export async function listEntriesForExport(vaultId: string): Promise<ExportEntryRow[]> {
+  const db = await getDb();
+  return db.getAllAsync<ExportEntryRow>(
+    `SELECT e.id, e.type, e.amount_afn, e.note, e.created_at,
+            u.id           AS person_id,
+            u.display_name AS person_name,
+            u.phone_e164   AS person_phone
+     FROM entries e
+     INNER JOIN relationships r ON r.id = e.relationship_id
+     INNER JOIN users u ON u.id = r.user_b_id
+     WHERE e.vault_id   = ?
+       AND r.vault_id   = ?
+       AND r.archived_at IS NULL
+       AND e.deleted_at IS NULL
+     ORDER BY e.created_at ASC, e.id ASC`,
+    vaultId,
+    vaultId,
+  );
+}
+
 // Public API preserved — same signature, same return type, same usage-counter
 // side effect. Internals now route through the event log instead of writing
 // to entries directly. The applier inside event-log.ts performs the actual

@@ -20,7 +20,7 @@
 
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -31,6 +31,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { BottomSheet } from "../../components/BottomSheet";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { FormField } from "../../components/FormField";
 import { OptionSheet } from "../../components/OptionSheet";
@@ -66,6 +67,7 @@ import {
   setAppMeta,
 } from "../../lib/db";
 import { resolveAccountIdCandidates } from "../../lib/effective-account";
+import { exportVaultReport, type ExportFormat } from "../../lib/export";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
@@ -110,7 +112,8 @@ export default function VaultSettingsScreen() {
   // instead of letting the call go through and produce a backend 4xx
   // (server-anchored) or silently break the vault (local-CA).
   const [lastOwnerConfirm, setLastOwnerConfirm] = useState(false);
-  const [busy, setBusy] = useState<"archive" | "leave" | "transfer" | null>(null);
+  const [busy, setBusy] = useState<"archive" | "leave" | "transfer" | "export" | null>(null);
+  const [exportSheetVisible, setExportSheetVisible] = useState(false);
 
   const vaultId = vault?.id ?? "";
   const role: VaultRole = useVaultRole(vaultId, accountId);
@@ -119,6 +122,33 @@ export default function VaultSettingsScreen() {
   // Roles v2 review fix: consult the matrix, not a 'viewer' literal — a
   // clerk must not see the Activity row either (clerk: false in PERMISSIONS).
   const canViewAudit = useVaultPermission(vaultId, accountId, "vault.view_audit_log");
+
+  // Read-only, so no permission gate: any member may export what they can
+  // already see on screen. The ref is the real re-entry guard — BottomSheet
+  // defers actions 220ms and keeps its rows tappable through the exit
+  // animation, so a double-tap schedules TWO deferred calls whose closures
+  // both captured busy === null; only a call-time ref read stops the second.
+  const exportingRef = useRef(false);
+  async function onExport(format: ExportFormat) {
+    if (!vault || exportingRef.current || busy !== null) return;
+    exportingRef.current = true;
+    setBusy("export");
+    try {
+      // Normalized shape, not the raw row: a blank currency column is an
+      // anticipated state (the load path does the same || "AFN") and would
+      // render a financial document with unlabeled figures.
+      await exportVaultReport(
+        { id: vault.id, name: vault.name, currency: vault.currency || "AFN" },
+        format,
+      );
+    } catch (e) {
+      console.warn("[vault/settings] export failed", e);
+      toast.push(t("vaultSettings.toast.exportFailed"), "error");
+    } finally {
+      exportingRef.current = false;
+      setBusy(null);
+    }
+  }
 
   useFocusEffect(
     useCallback(() => {
@@ -645,6 +675,21 @@ export default function VaultSettingsScreen() {
 
           <SectionGap />
 
+          {/* ============ EXPORT ============ */}
+          <SectionHeader label={t("vaultSettings.section.export")} isRTL={isRTL} />
+          <NavRow
+            icon="download-outline"
+            label={t("vaultSettings.row.export")}
+            hint={t("vaultSettings.row.export.hint")}
+            onPress={() => setExportSheetVisible(true)}
+            isRTL={isRTL}
+            disabled={busy !== null}
+            trailing={busy === "export" ? <ActivityIndicator size="small" /> : undefined}
+            isLast
+          />
+
+          <SectionGap />
+
           {/* ============ DANGER / MEMBERSHIP ============
               Phase 7 UX critique #5: BOTH branches' "Leave Kaata" now
               carry the danger color — losing vault access is destructive
@@ -786,6 +831,27 @@ export default function VaultSettingsScreen() {
         }}
         onDismiss={() => setCurrencySheetVisible(false)}
         isRTL={isRTL}
+      />
+
+      {/* Export chooser. BottomSheet's 220ms action defer doubles as
+          clearance for the OS share sheet that follows generation — the
+          sheet's Modal is fully unmounted before shareAsync presents. */}
+      <BottomSheet
+        visible={exportSheetVisible}
+        title={t("vaultSettings.export.sheetTitle")}
+        onDismiss={() => setExportSheetVisible(false)}
+        actions={[
+          {
+            label: t("export.action.pdf"),
+            icon: "document-text-outline",
+            onPress: () => void onExport("pdf"),
+          },
+          {
+            label: t("export.action.csv"),
+            icon: "grid-outline",
+            onPress: () => void onExport("csv"),
+          },
+        ]}
       />
     </SafeAreaView>
   );

@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { BottomSheet } from "../../../components/BottomSheet";
 import { Button } from "../../../components/Button";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
 import { CountryPickerSheet } from "../../../components/CountryPickerSheet";
@@ -21,6 +22,7 @@ import { splitName } from "../../../lib/contacts-sync";
 import { archivePerson, getPerson, updatePerson } from "../../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../../lib/event-log";
+import { exportPersonStatement, type ExportFormat } from "../../../lib/export";
 import { fonts } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
 import { getCountry, getCurrentDefaultCountryCode, inferCountryFromE164 } from "../../../lib/phone";
@@ -61,6 +63,28 @@ export default function EditPersonScreen() {
   const [sharedLinkCount, setSharedLinkCount] = useState(0);
   const [revoking, setRevoking] = useState(false);
   const [revokeResult, setRevokeResult] = useState<string | null>(null);
+  // Export (PDF/CSV statement → OS share sheet). Errors render inline —
+  // modal screen (Toast.tsx). Ref guards same-frame double-fire like savingRef.
+  const [exportSheetVisible, setExportSheetVisible] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const exportingRef = useRef(false);
+
+  async function onExport(format: ExportFormat) {
+    if (!id || exportingRef.current) return;
+    exportingRef.current = true;
+    setExporting(true);
+    setExportError(null);
+    try {
+      await exportPersonStatement(id, format);
+    } catch (err) {
+      console.warn("[person/edit] export failed", err);
+      setExportError(t("personEdit.exportFailed"));
+    } finally {
+      exportingRef.current = false;
+      setExporting(false);
+    }
+  }
 
   useEffect(() => {
     if (!id) return;
@@ -315,7 +339,29 @@ export default function EditPersonScreen() {
           </Text>
         ) : null}
         <View style={{ height: 24 }} />
-        <Button label={t("personEdit.save")} onPress={onSave} loading={busy} />
+        {/* disabled during export: Save → router.back mid-export would pop
+            the share sheet over the person screen with no visible cause. */}
+        <Button label={t("personEdit.save")} onPress={onSave} loading={busy} disabled={exporting} />
+
+        {/* Export statement — neutral utility, so it sits above the danger
+            affordances (revoke links / remove). Opens a PDF/CSV chooser. */}
+        <Pressable
+          onPress={() => setExportSheetVisible(true)}
+          disabled={exporting || busy}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.exportRow, pressed && { opacity: 0.7 }]}
+        >
+          {exporting ? (
+            <ActivityIndicator size="small" color={colors.textDefault} />
+          ) : (
+            <Text style={styles.exportRowText}>{t("personEdit.export")}</Text>
+          )}
+        </Pressable>
+        {exportError ? (
+          <Text style={styles.exportError} accessibilityLiveRegion="polite">
+            {exportError}
+          </Text>
+        ) : null}
 
         {/* Revoke shared ledger links (2026-07-26 hardening). Rendered only
             when THIS DEVICE minted still-tracked links for this person; kills
@@ -351,7 +397,9 @@ export default function EditPersonScreen() {
             history), phone number freed for re-use. */}
         <Pressable
           onPress={() => setConfirmRemove(true)}
-          disabled={busy}
+          // also disabled during export: archiving mid-export makes getPerson
+          // return null and the export dies after the person is gone.
+          disabled={busy || exporting}
           accessibilityRole="button"
           style={({ pressed }) => [styles.removeRow, pressed && { opacity: 0.7 }]}
         >
@@ -378,6 +426,26 @@ export default function EditPersonScreen() {
         selectedCode={countryCode}
         onSelect={(c) => setCountryCode(c)}
         onDismiss={() => setPickerVisible(false)}
+      />
+
+      {/* Export chooser. BottomSheet's 220ms action defer doubles as
+          clearance for the OS share sheet that follows generation. */}
+      <BottomSheet
+        visible={exportSheetVisible}
+        title={t("personEdit.export")}
+        onDismiss={() => setExportSheetVisible(false)}
+        actions={[
+          {
+            label: t("export.action.pdf"),
+            icon: "document-text-outline",
+            onPress: () => void onExport("pdf"),
+          },
+          {
+            label: t("export.action.csv"),
+            icon: "grid-outline",
+            onPress: () => void onExport("csv"),
+          },
+        ]}
       />
     </SafeAreaView>
   );
@@ -471,6 +539,28 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansMedium,
     color: colors.danger,
     marginTop: 6,
+  },
+  exportRow: {
+    minHeight: 44,
+    marginTop: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: 8,
+    backgroundColor: colors.bgDefault,
+  },
+  exportRowText: {
+    fontSize: 14,
+    fontFamily: fonts.sansMedium,
+    color: colors.textDefault,
+  },
+  exportError: {
+    fontSize: 12,
+    fontFamily: fonts.sansMedium,
+    color: colors.danger,
+    marginTop: 8,
+    textAlign: "center",
   },
   revokeLinks: {
     minHeight: 44,
