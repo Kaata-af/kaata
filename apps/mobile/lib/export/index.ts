@@ -9,7 +9,6 @@ import { getLocale } from "../i18n";
 import {
   buildPersonStatement,
   buildVaultReport,
-  currencySymbolFor,
   exportFileName,
   shareExportFile,
   writeExportFile,
@@ -59,5 +58,3 @@ export async function exportVaultReport(
     await shareExportFile(file.uri, "pdf");
   }
 }
-
-export { currencySymbolFor };

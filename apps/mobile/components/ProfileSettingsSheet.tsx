@@ -27,6 +27,7 @@ import {
   SETTINGS_ROW_PADDING_X,
   SETTINGS_SHEET_TOP_RADIUS,
 } from "../lib/design-tokens";
+import { getCurrencySymbol } from "../lib/currency";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { SOLO_STORE_MODE } from "../constants/env";
@@ -74,6 +75,9 @@ const EXIT_DURATION_MS = 220;
 export type VaultListItem = {
   id: string;
   name: string;
+  // ISO code, shown as a trailing symbol on the row — mirrors
+  // VaultPickerSheet so both kaata-selection surfaces read the same.
+  currency?: string;
   archived: boolean;
 };
 
@@ -408,6 +412,7 @@ export function ProfileSettingsSheet(props: {
                           icon={isActive ? "checkmark-circle" : "ellipse-outline"}
                           iconColor={isActive ? colors.textEmphasis : colors.textMuted}
                           label={v.name}
+                          trailing={v.currency ? getCurrencySymbol(v.currency) : undefined}
                           bold={isActive}
                           onPress={
                             isActive

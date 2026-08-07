@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
+import { getCurrencySymbol } from "../lib/currency";
 import { SHEET_BLUR_METHOD } from "../lib/blur";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
@@ -49,6 +50,11 @@ const EXIT_DURATION_MS = 220;
 export type VaultPickerItem = {
   id: string;
   name: string;
+  // ISO code (e.g. "AFN", "USD"). Rendered as a trailing symbol on the row —
+  // the two-books-per-store pattern (AFN kaata + USD kaata) needs the
+  // currency legible right where kaatas are picked. Optional so non-vault
+  // rows / stale callers don't break; absent → no symbol.
+  currency?: string;
   archived: boolean;
 };
 
@@ -197,6 +203,7 @@ export function VaultPickerSheet(props: {
                       icon={isActive ? "checkmark-circle" : "ellipse-outline"}
                       iconColor={isActive ? colors.textEmphasis : colors.textMuted}
                       label={v.name}
+                      trailing={v.currency ? getCurrencySymbol(v.currency) : undefined}
                       bold={isActive}
                       // Engineering critique #6: announce active-vault
                       // selection via a11y so TalkBack / VoiceOver users
@@ -264,6 +271,10 @@ function PickerItem(props: {
   icon: ComponentProps<typeof Ionicons>["name"];
   iconColor?: string;
   label: string;
+  // Trailing end-of-row text (the vault's currency symbol). Placed after the
+  // flex:1 text column, so rowDir's row-reverse lands it on the visual end
+  // side in RTL too.
+  trailing?: string;
   onPress: () => void;
   isRTL: boolean;
   bold?: boolean;
@@ -307,6 +318,7 @@ function PickerItem(props: {
           {props.label}
         </Text>
       </View>
+      {props.trailing ? <Text style={styles.menuItemTrailing}>{props.trailing}</Text> : null}
     </Pressable>
   );
 }
@@ -374,6 +386,12 @@ const styles = StyleSheet.create({
   menuItemLabel: {
     fontSize: 15,
     fontFamily: fonts.sansMedium,
+  },
+  menuItemTrailing: {
+    fontSize: 14,
+    fontFamily: fonts.sansMedium,
+    color: colors.textMuted,
+    marginHorizontal: 4,
   },
   emptyHint: {
     fontSize: 13,

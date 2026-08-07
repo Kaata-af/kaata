@@ -315,9 +315,13 @@ export default function HomeScreen() {
           listActiveVaults(),
           listAllVaultsIncludingArchived(),
         ]);
-        setVaults(active.map((r) => ({ id: r.id, name: r.name, archived: false })));
+        setVaults(
+          active.map((r) => ({ id: r.id, name: r.name, currency: r.currency, archived: false })),
+        );
         setArchivedVaults(
-          all.filter((r) => r.archived).map((r) => ({ id: r.id, name: r.name, archived: true })),
+          all
+            .filter((r) => r.archived)
+            .map((r) => ({ id: r.id, name: r.name, currency: r.currency, archived: true })),
         );
 
         // Edge case: if the active vault was just archived (e.g. by a remote

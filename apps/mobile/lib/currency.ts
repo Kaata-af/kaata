@@ -71,6 +71,15 @@ export function getCurrencyName(code: string): string {
   return getLocale() === "fa" ? c.nameFa : c.name;
 }
 
+// Display symbol for an arbitrary code (not the active one) — the vault
+// switcher tags each kaata with its own currency so the two-books-per-store
+// pattern (AFN kaata + USD kaata) is legible at a glance. Falls back to the
+// raw code for an unknown currency rather than the AFN symbol: mislabeling
+// a foreign-currency book "؋" is worse than showing "XYZ".
+export function getCurrencySymbol(code: string): string {
+  return CURRENCIES.find((c) => c.code === code)?.symbol ?? code;
+}
+
 // Called by _layout.tsx during init alongside i18n. Reads from app_meta and
 // applies the saved choice before the first render so amount labels are
 // correct from frame zero.

@@ -13,7 +13,7 @@
 //     currency/name for this one.
 import { Directory, File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
-import { CURRENCIES } from "../currency";
+import { getCurrencySymbol } from "../currency";
 import {
   getLocalSelf,
   getPerson,
@@ -73,10 +73,6 @@ export type VaultReport = {
 
 function signedAmount(e: { type: "debt" | "payment"; amount_afn: number }): number {
   return e.type === "debt" ? e.amount_afn : -e.amount_afn;
-}
-
-export function currencySymbolFor(code: string): string {
-  return CURRENCIES.find((c) => c.code === code)?.symbol ?? code;
 }
 
 export async function buildPersonStatement(
@@ -204,7 +200,7 @@ export async function buildVaultReport(
     journal,
     totals: { collect, pay, net: collect - pay },
     currencyCode,
-    currencySymbol: currencySymbolFor(currencyCode),
+    currencySymbol: getCurrencySymbol(currencyCode),
     locale,
     generatedAtMs,
   };

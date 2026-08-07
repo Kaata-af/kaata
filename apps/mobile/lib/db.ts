@@ -4191,6 +4191,7 @@ export async function setAppMeta(key: string, value: string): Promise<void> {
 export type VaultListRow = {
   id: string;
   name: string;
+  currency: string;
   archived: boolean;
   archived_at: number | null;
 };
@@ -4206,11 +4207,11 @@ export async function listActiveVaults(): Promise<VaultListRow[]> {
   // (show every non-archived vault — local-only-must-keep-working invariant).
   // (Matee: "I leave a kaata ... but it still shows in the switcher".)
   const candidates = await resolveAccountIdCandidates(getAccountIdSync());
-  let rows: { id: string; name: string; archived_at: number | null }[];
+  let rows: { id: string; name: string; currency: string; archived_at: number | null }[];
   if (candidates.length > 0) {
     const ph = candidates.map(() => "?").join(",");
     rows = await db.getAllAsync(
-      `SELECT v.id, v.name, v.archived_at
+      `SELECT v.id, v.name, v.currency, v.archived_at
          FROM vaults v
         WHERE v.archived_at IS NULL
           AND NOT (
@@ -4227,13 +4228,14 @@ export async function listActiveVaults(): Promise<VaultListRow[]> {
     );
   } else {
     rows = await db.getAllAsync(
-      `SELECT id, name, archived_at FROM vaults
+      `SELECT id, name, currency, archived_at FROM vaults
         WHERE archived_at IS NULL ORDER BY name COLLATE NOCASE`,
     );
   }
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
+    currency: r.currency || "AFN",
     archived: false,
     archived_at: null,
   }));
@@ -4244,15 +4246,17 @@ export async function listAllVaultsIncludingArchived(): Promise<VaultListRow[]> 
   const rows = await db.getAllAsync<{
     id: string;
     name: string;
+    currency: string;
     archived_at: number | null;
   }>(
-    `SELECT id, name, archived_at
+    `SELECT id, name, currency, archived_at
        FROM vaults
       ORDER BY (archived_at IS NULL) DESC, name COLLATE NOCASE`,
   );
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
+    currency: r.currency || "AFN",
     archived: r.archived_at != null,
     archived_at: r.archived_at,
   }));
