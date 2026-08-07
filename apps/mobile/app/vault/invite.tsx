@@ -322,35 +322,43 @@ export default function VaultInviteScreen() {
 
               <SectionGap />
               <SectionHeader label={t("invite.section.role")} isRTL={isRTL} />
-              <View style={styles.formInset}>
-                <View style={[styles.roleRow, rowDir(isRTL)]}>
-                  <RolePill
-                    value="editor"
-                    label={t("invite.role.editor")}
-                    hint={t("invite.role.editor.hint")}
-                    selected={role === "editor"}
-                    onSelect={setRole}
-                  />
-                  <RolePill
-                    value="clerk"
-                    label={t("invite.role.clerk")}
-                    hint={t("invite.role.clerk.hint")}
-                    selected={role === "clerk"}
-                    onSelect={setRole}
-                  />
-                  <RolePill
-                    value="viewer"
-                    label={t("invite.role.viewer")}
-                    hint={t("invite.role.viewer.hint")}
-                    selected={role === "viewer"}
-                    onSelect={setRole}
-                  />
-                </View>
+              {/* Full-width rows, one role per line (roles v2 took this from
+                  two to three, and side-by-side pills squeezed each label
+                  into a third of the screen with its hint clipped). Same
+                  radio idiom as the vault switcher: filled check = chosen. */}
+              <View accessibilityRole="radiogroup">
+                <RoleOption
+                  value="editor"
+                  label={t("invite.role.editor")}
+                  hint={t("invite.role.editor.hint")}
+                  selected={role === "editor"}
+                  isRTL={isRTL}
+                  onSelect={setRole}
+                />
+                <RoleOption
+                  value="clerk"
+                  label={t("invite.role.clerk")}
+                  hint={t("invite.role.clerk.hint")}
+                  selected={role === "clerk"}
+                  isRTL={isRTL}
+                  onSelect={setRole}
+                />
+                <RoleOption
+                  value="viewer"
+                  label={t("invite.role.viewer")}
+                  hint={t("invite.role.viewer.hint")}
+                  selected={role === "viewer"}
+                  isRTL={isRTL}
+                  onSelect={setRole}
+                  isLast
+                />
+              </View>
 
+              <View style={styles.formInset}>
                 {/* Disclosure: a viewer can READ the entire ledger (every
                     customer balance + phone number). The owner should know
                     what the link grants before sharing it. */}
-                <Text style={[styles.fieldHint, textDir(isRTL)]}>
+                <Text style={[styles.fieldHint, styles.roleDisclosure, textDir(isRTL)]}>
                   {role === "viewer"
                     ? t("invite.link.viewerDisclosure")
                     : role === "clerk"
@@ -459,28 +467,45 @@ export default function VaultInviteScreen() {
   );
 }
 
-function RolePill(props: {
+function RoleOption(props: {
   value: VaultRole;
   label: string;
   hint: string;
   selected: boolean;
+  isRTL: boolean;
+  isLast?: boolean;
   onSelect: (r: VaultRole) => void;
 }) {
   return (
     <Pressable
       onPress={() => props.onSelect(props.value)}
+      accessibilityRole="radio"
+      accessibilityState={{ selected: props.selected }}
       style={({ pressed }) => [
-        styles.rolePill,
-        props.selected && styles.rolePillSelected,
-        pressed && { opacity: 0.85 },
+        styles.roleOption,
+        rowDir(props.isRTL),
+        !props.isLast && styles.roleOptionDivider,
+        pressed && { backgroundColor: colors.bgMuted },
       ]}
     >
-      <Text style={[styles.rolePillLabel, props.selected && styles.rolePillLabelSelected]}>
-        {props.label}
-      </Text>
-      <Text style={[styles.rolePillHint, props.selected && styles.rolePillHintSelected]}>
-        {props.hint}
-      </Text>
+      <Ionicons
+        name={props.selected ? "checkmark-circle" : "ellipse-outline"}
+        size={22}
+        color={props.selected ? colors.textEmphasis : colors.textMuted}
+        style={props.isRTL ? { marginLeft: 14 } : { marginRight: 14 }}
+      />
+      <View style={styles.roleOptionTextCol}>
+        <Text
+          style={[
+            styles.roleOptionLabel,
+            props.selected && styles.roleOptionLabelSelected,
+            textDir(props.isRTL),
+          ]}
+        >
+          {props.label}
+        </Text>
+        <Text style={[styles.roleOptionHint, textDir(props.isRTL)]}>{props.hint}</Text>
+      </View>
     </Pressable>
   );
 }
@@ -542,35 +567,41 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
 
-  // Role pills (kept as toggle buttons; not converted to NavRow because
-  // they're a 2-up choice surface, not a list of destinations) ------------
-  roleRow: { flexDirection: "row", gap: 10 },
-  rolePill: {
-    flex: 1,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: colors.borderDefault,
-    borderRadius: 10,
-    backgroundColor: colors.bgDefault,
+  // Role picker — one full-width row per role (was a 3-up pill row; the
+  // roles v2 third option left each pill a third of the screen wide with
+  // its hint clipped). Row metrics + divider match the settings NavRow so
+  // the picker reads as part of the same list grammar. -------------------
+  roleOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    minHeight: 56,
   },
-  rolePillSelected: {
-    borderColor: colors.textEmphasis,
-    backgroundColor: colors.bgInverted,
+  roleOptionDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.borderSubtle,
   },
-  rolePillLabel: {
-    fontSize: 14,
+  roleOptionTextCol: { flex: 1 },
+  roleOptionLabel: {
+    fontSize: 15,
+    fontFamily: fonts.sansMedium,
+    color: colors.textDefault,
+  },
+  roleOptionLabelSelected: {
     fontFamily: fonts.sansSemi,
     color: colors.textEmphasis,
   },
-  rolePillLabelSelected: { color: colors.textInverted },
-  rolePillHint: {
-    fontSize: 11,
+  roleOptionHint: {
+    fontSize: 12,
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
-    marginTop: 4,
+    marginTop: 2,
+    lineHeight: sansLineHeight(12, 18),
   },
-  rolePillHintSelected: { color: colors.textMuted },
+  // The role blurb sits under the list, so it needs real separation from
+  // the last row's divider (fieldHint's 6px is tuned for under an input).
+  roleDisclosure: { marginTop: 14 },
 
   urlBox: {
     padding: 14,
