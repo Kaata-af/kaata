@@ -201,6 +201,9 @@ const en = {
   "person.balance.theyOwe": "THEY OWE YOU",
   "person.balance.youOwe": "YOU OWE THEM",
   "person.balance.settled": "SETTLED",
+  // Zero balance the shopkeeper never ruled off (or a chapter that stopped
+  // adding up after a sync) — the chip slot stays labeled instead of blank.
+  "person.balance.notSettled": "NOT SETTLED",
   "person.empty.title": "No entries yet",
   "person.empty.subtitle":
     'Tap "I gave" when money or goods leave your hand, "I received" when they come in.',
@@ -1359,6 +1362,7 @@ const fa: Partial<Record<Key, string>> = {
   "person.balance.theyOwe": "از شما قرضدار",
   "person.balance.youOwe": "از او قرضدار",
   "person.balance.settled": "تصفیه شده",
+  "person.balance.notSettled": "تصفیه نشده",
   "person.empty.title": "هنوز ثبتی نیست",
   "person.empty.subtitle":
     'وقتی پول یا جنس از دست‌تان می‌رود "دادم" را بزنید، وقتی به دست‌تان می‌آید "گرفتم".',

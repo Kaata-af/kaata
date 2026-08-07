@@ -375,9 +375,17 @@ export default function PersonDetailScreen() {
               chapterCoherent &&
               chapterEntries.length === 0 ? (
               // "SETTLED" only when the user actually drew the line and it
-              // covers everything — a balance that merely sums to zero shows
-              // no chip (the settle-row invitation appears instead).
+              // covers everything.
               <Chip label={t("person.balance.settled")} variant="neutral" />
+            ) : entries.length > 0 ? (
+              // A tally that merely SUMS to zero (or whose chapter no longer
+              // adds up after a sync) is not a settled account — say so
+              // rather than leaving the chip slot blank while every other
+              // state labels itself. Hollow pill: true, but not an
+              // achievement. The settle-row invitation sits below.
+              // Contacts with no entries at all keep an empty slot — there
+              // is no tally yet to have a state.
+              <Chip label={t("person.balance.notSettled")} variant="outline" />
             ) : null}
             <View style={[styles.balanceRow, rowDir(isRTL)]}>
               <Text
