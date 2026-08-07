@@ -3262,7 +3262,15 @@ export async function createSelfProfile(
   // matching but doesn't gate any flow.
   const trimmedName = name.trim();
   const trimmedShop = (shopName ?? "").trim();
-  const trimmedPhone = (phone ?? "").trim();
+  // Normalize HERE, not just in the calling screen: users.phone_e164 is the
+  // canonical identity column, and createPerson/updatePerson enforce E.164
+  // inside the data layer. Leaving the self path to caller convention meant a
+  // raw string ("0700 123 456") could reach the column — which is exactly what
+  // happened before the screens started normalizing. An unnormalizable value
+  // is stored as NULL rather than as garbage: the phone is optional and
+  // gates nothing, so a silent drop beats a poisoned identity key.
+  const rawPhone = (phone ?? "").trim();
+  const trimmedPhone = rawPhone ? (normalizePhone(rawPhone) ?? "") : "";
   if (!trimmedName) {
     throw new Error("createSelfProfile: name is required");
   }
@@ -3480,12 +3488,13 @@ export async function updateSelfProfile(
 
   // Phone is device-local self identity (users.phone_e164, set directly at
   // onboarding, not event-sourced). `undefined` = leave unchanged; null/"" =
-  // clear. The UNIQUE constraint can throw if it collides with a contact's
-  // number — the caller surfaces that.
+  // clear. Normalized here so E.164 is an invariant of the column rather than
+  // a convention each caller has to remember (see createSelfProfile).
   if (phone !== undefined) {
+    const nextPhone = phone ? normalizePhone(phone) : null;
     await db.runAsync(
       "UPDATE users SET phone_e164 = ?, updated_at = ? WHERE id = ?",
-      phone || null,
+      nextPhone,
       Date.now(),
       self,
     );

@@ -3,6 +3,13 @@
 
 import { toAsciiDigits } from "./digits";
 
+// Shortest phone query worth matching on. Fewer digits than this and a
+// substring search returns half the phone book. Owned here because both the
+// caller's input gate (app/person/new.tsx) and the trunk-zero fallback below
+// must apply the SAME floor — applying it only to the raw query let a
+// mid-typing "070" collapse into a 2-digit needle.
+export const PHONE_SEARCH_MIN_DIGITS = 3;
+
 // NFKD + diacritic strip + lowercase + whitespace collapse, so that "Áhmad"
 // matches "ahmad" and "  Ahmad  Khan " matches "ahmad khan".
 export function normalize(s: string): string {
@@ -100,13 +107,26 @@ export function searchContacts<T extends { name: string; phone?: string | null }
 ): T[] {
   const fq = normalize(firstQuery);
   const lq = normalize(lastQuery);
-  const pq = toAsciiDigits(phoneQuery ?? "").replace(/\D/g, "");
+  const rawPq = toAsciiDigits(phoneQuery ?? "").replace(/\D/g, "");
+  // Stored numbers are E.164 ("+93700123456" → digits "93700123456") but the
+  // shopkeeper types the number the way it's written locally, with the trunk
+  // zero ("0700123456"). Those two strings share no substring, so searching
+  // the number exactly as it appears on the customer's card used to find
+  // nothing. Try the typed digits first, then again without the trunk zero.
+  //
+  // The fallback needle must clear the same 3-digit floor the caller applies
+  // to the raw query — otherwise mid-typing states collapse to a 1-2 digit
+  // needle ("070" → "70") that substring-matches half the phone book.
+  const pq = rawPq;
+  const stripped = rawPq.startsWith("0") ? rawPq.replace(/^0+/, "") : "";
+  const pqNoTrunk = stripped.length >= PHONE_SEARCH_MIN_DIGITS ? stripped : "";
   if (!fq && !lq && !pq) return items;
   const scored: { item: T; s: number }[] = [];
   for (const it of items) {
     if (pq) {
       const d = toAsciiDigits(it.phone ?? "").replace(/\D/g, "");
-      if (!d || !d.includes(pq)) continue;
+      if (!d) continue;
+      if (!d.includes(pq) && !(pqNoTrunk && d.includes(pqNoTrunk))) continue;
     }
     let nameScore = 0;
     if (fq || lq) {

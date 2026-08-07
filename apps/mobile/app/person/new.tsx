@@ -33,12 +33,8 @@ import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
 import { t } from "../../lib/i18n";
 import { getCountry, getCurrentDefaultCountryCode, inferCountryFromE164 } from "../../lib/phone";
-import { searchContacts } from "../../lib/search";
+import { PHONE_SEARCH_MIN_DIGITS, searchContacts } from "../../lib/search";
 import type { PersonWithBalance } from "../../lib/types";
-
-// At least this many digits before the phone field narrows the list — typing
-// "7" or "70" otherwise matches half the book.
-const PHONE_SEARCH_MIN_DIGITS = 3;
 
 // Max device contacts rendered in the "All contacts" card at once. The list is
 // a plain card (not virtualized), so a huge phone book would jank; typing
@@ -277,22 +273,19 @@ export default function PersonAddOrFindScreen() {
   // the new person — the fastest path from "browse my phone" to "in the ledger".
   // The form above stays for people who AREN'T in the phone book yet.
   function onDeviceContactTap(c: DeviceContact) {
-    let cc = countryCode;
-    let national = "";
-    if (c.phone) {
-      const raw = toAsciiDigits(c.phone.trim());
-      if (raw.startsWith("+")) {
-        cc = inferCountryFromE164(raw);
-        const dial = getCountry(cc).dialCode;
-        national = raw.startsWith(dial) ? raw.slice(dial.length).trim() : raw;
-      } else {
-        // National-format: drop a leading trunk 0; createPerson re-prefixes the
-        // dial code for the selected country.
-        const cleaned = raw.replace(/[^\d]/g, "");
-        national = cleaned.startsWith("0") ? cleaned.slice(1) : cleaned;
-      }
-    }
-    void runCreate(c.firstName, c.lastName, national, cc);
+    // Hand the phone-book string to createPerson VERBATIM. It used to be
+    // pre-cleaned here (slice off the dial code, drop a leading 0) before
+    // normalizePhone ever saw it, which broke the international-prefix
+    // branch: a contact saved as "0093700123456" lost one 0, stopped looking
+    // like "00…", and came out as +9393700123456 — a doubled country code —
+    // while the same string typed by hand normalized correctly. One function
+    // owns the parsing rules (lib/phone.ts); everyone else passes input
+    // through untouched. The picker country is still inferred so the form
+    // shows the right flag when the number carries its own code.
+    const cc = c.phone?.trim().startsWith("+")
+      ? inferCountryFromE164(toAsciiDigits(c.phone.trim()))
+      : countryCode;
+    void runCreate(c.firstName, c.lastName, c.phone ?? "", cc);
   }
 
   const addLabel =

@@ -3,7 +3,12 @@ import { toAsciiDigits } from "./digits";
 
 // Multi-country phone normalization. Afghan numbers stay the strict-format
 // canonical input; everything else (Afghan diaspora destinations, neighbours)
-// is accepted with a permissive E.164 check (+ followed by 6-15 digits).
+// is accepted with a permissive E.164 check (+ followed by 7-15 digits).
+//
+// This module is the ONLY place that decides what a phone number means.
+// Callers must pass user input through verbatim — pre-cleaning it upstream
+// (stripping a leading 0, slicing a dial code) breaks the branches below and
+// silently produces a valid-shaped but wrong number. See normalizePhone.
 //
 // Storage is always the E.164 string. Country code on the input screen is a
 // UX hint that disambiguates a national number — it's not persisted; it's
@@ -86,6 +91,29 @@ export function getCountry(code: string): Country {
 const E164_AF_MOBILE = /^\+937\d{8}$/;
 const E164_GENERIC = /^\+\d{7,15}$/;
 
+// "+93 0700 123456" → "+93700123456". Writing the national trunk '0' AFTER an
+// explicit country code is extremely common (it's how the number is printed on
+// most Afghan shopfronts and business cards), and E.164 has no place for it.
+// Left in, it produces a DIFFERENT key for the same person than the same
+// number typed nationally — and since duplicate detection is exact-string,
+// both rows survive as two people with one real number.
+//
+// Only strips when the remainder still looks like a phone number, so a country
+// whose subscriber numbers legitimately begin with 0 can't be truncated into
+// nonsense.
+function stripTrunkZeroAfterDialCode(e164: string): string {
+  const sorted = [...COUNTRIES].sort((a, b) => b.dialCode.length - a.dialCode.length);
+  for (const c of sorted) {
+    if (!e164.startsWith(c.dialCode)) continue;
+    const rest = e164.slice(c.dialCode.length);
+    if (rest.startsWith("0") && rest.length > 1) {
+      return c.dialCode + rest.replace(/^0+/, "");
+    }
+    return e164;
+  }
+  return e164;
+}
+
 // Normalizes a user-typed phone number to E.164. The `countryCode` argument
 // is used only as a fallback when the input doesn't already include a country
 // prefix (+, 00) — if the user types `+61412345678` the AF default is ignored.
@@ -110,15 +138,32 @@ export function normalizePhone(
   // If the user wrote a country prefix themselves, trust it over the picker.
   let e164: string;
   if (cleaned.startsWith("+")) {
-    e164 = cleaned;
+    e164 = stripTrunkZeroAfterDialCode(cleaned);
   } else if (cleaned.startsWith("00")) {
-    e164 = "+" + cleaned.slice(2);
+    e164 = stripTrunkZeroAfterDialCode("+" + cleaned.slice(2));
   } else {
     // National number — prefix with the selected country's dial code.
     // Strip a leading '0' (trunk prefix; common AF / European convention).
-    const national = cleaned.startsWith("0") ? cleaned.slice(1) : cleaned;
+    const hadTrunkZero = cleaned.startsWith("0");
+    const national = hadTrunkZero ? cleaned.slice(1) : cleaned;
     const country = getCountry(countryCode);
-    e164 = country.dialCode + national;
+    // …unless the number ALREADY carries its own dial code, which people do
+    // write with the + omitted ("93 700 123 456"). Doubling it would give
+    // +9393700123456 — 13 digits, so the generic length gate accepts a number
+    // that can never be dialled.
+    //
+    // The trunk zero is what disambiguates: a leading 0 marks the input as
+    // unambiguously NATIONAL, so this branch must not touch it. Several
+    // supported countries have real area codes that begin with their own dial
+    // code — NL 0313-0318 (Ede, Wageningen…), DE 0491/0492x/0494x (East
+    // Frisia), PK 0922/0923/0928, SE 046 (Lund) — and without this gate an
+    // ordinary local number silently loses its area code AND still passes
+    // validation.
+    const bare = country.dialCode.slice(1);
+    e164 =
+      !hadTrunkZero && national.startsWith(bare) && national.length > bare.length
+        ? stripTrunkZeroAfterDialCode("+" + national)
+        : country.dialCode + national;
   }
 
   // Afghanistan: accept mobiles (+937XXXXXXXX) AND landlines / "digital" numbers

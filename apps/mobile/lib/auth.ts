@@ -15,6 +15,7 @@ import { initDb, resetAllLocalData } from "./db";
 import { resolveAccountIdCandidates } from "./effective-account";
 import { appendAccountBound } from "./event-log";
 import { ensureInstallId } from "./install-id";
+import { normalizePhone } from "./phone";
 
 // `import type` is erased at compile time — it does NOT execute a runtime
 // `require()` of the module — so it's safe to pull types from google-signin
@@ -905,11 +906,27 @@ export async function updateAccountPhone(phone: string | null): Promise<void> {
 // without a phone (the self phone is device-local, never event-sourced).
 export async function adoptAccountPhoneToSelf(phone: string | null): Promise<void> {
   if (!phone || phone.length === 0) return;
+  // The server stores account phones verbatim (no Go-side validation — by
+  // design, it's display identity and never an ACL key), so re-normalize on
+  // the way IN. Otherwise a value written by some other client lands straight
+  // in the canonical identity column on every fresh install.
+  //
+  // Only INTERNATIONAL forms are accepted: a national-format server value
+  // carries no country context, and guessing would re-home a diaspora user's
+  // number — a German "0176 1234567" would become +931761234567 under the AF
+  // default. Dropping it is safe; the phone is optional and re-enterable in
+  // Account.
+  const trimmedPhone = phone.trim();
+  const normalized =
+    trimmedPhone.startsWith("+") || trimmedPhone.startsWith("00")
+      ? normalizePhone(trimmedPhone)
+      : null;
+  if (!normalized) return;
   try {
     const db = await getDb();
     await db.runAsync(
       "UPDATE users SET phone_e164 = ?, updated_at = ? WHERE is_local_self = 1 AND phone_e164 IS NULL",
-      phone,
+      normalized,
       Date.now(),
     );
   } catch (err) {
