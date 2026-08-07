@@ -287,8 +287,8 @@ const fa: Record<keyof typeof en, string> = {
 
   // --- Landing-page phone mockups (mirror of apps/mobile/lib/i18n.ts) ---
   "share.greeting": "سلام {name}.",
-  "share.theyOwe.header": "کاتای شما در {accountWith}:",
-  "share.theyOwe.amount": "🔴 بدهی شما: −{amount} {currency}",
+  "share.theyOwe.header": "کاتای شما با {accountWith}:",
+  "share.theyOwe.amount": "🔴 قرض شما: −{amount} {currency}",
   "share.theyOwe.cta": "لطفاً وقتی توانستید تصفیه کنید.",
   "share.footer": "پیام از طرف kaata.af",
   "home.tab.collect": "وصول",

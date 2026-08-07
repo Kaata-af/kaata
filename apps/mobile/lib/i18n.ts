@@ -1527,8 +1527,8 @@ const fa: Partial<Record<Key, string>> = {
 
   // WhatsApp share — full message body sent to the customer.
   "share.greeting": "سلام {name}.",
-  "share.theyOwe.header": "کاتای شما در {accountWith}:",
-  "share.theyOwe.amount": "🔴 بدهی شما: −{amount} {currency}",
+  "share.theyOwe.header": "کاتای شما با {accountWith}:",
+  "share.theyOwe.amount": "🔴 قرض شما: −{amount} {currency}",
   "share.theyOwe.cta": "لطفاً وقتی توانستید تصفیه کنید.",
   "share.youOwe.header": "کاتای ما:",
   "share.youOwe.amount": "🟢 قرضدار تان هستم: +{amount} {currency}",
