@@ -559,6 +559,12 @@ export async function appendPersonPhoneChanged(args: {
   userId: string;
   vaultId: string;
   phoneE164: string | null;
+  // Skip the same-value no-op below. archivePerson's companion null uses
+  // this: by the time it runs, the archive applier has ALREADY nulled the
+  // phone locally, but the explicit register write must still be authored —
+  // it's what carries the null to devices whose HLC guard skips the archive
+  // event itself (see archivePerson).
+  force?: boolean;
 }): Promise<{ event_id: string } | null> {
   const db = await getDb();
   const row = await db.getFirstAsync<{ phone_e164: string | null }>(
@@ -566,7 +572,7 @@ export async function appendPersonPhoneChanged(args: {
     args.userId,
   );
   if (!row) return null;
-  if ((row.phone_e164 ?? null) === (args.phoneE164 ?? null)) return null;
+  if (!args.force && (row.phone_e164 ?? null) === (args.phoneE164 ?? null)) return null;
 
   const eventId = Crypto.randomUUID();
   const installId = getInstallIdSync();

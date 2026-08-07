@@ -424,8 +424,8 @@ export async function restoreFromSnapshot(
         await db.runAsync(
           `INSERT OR REPLACE INTO relationships (
            id, user_a_id, user_b_id, context, vault_id,
-           created_at, updated_at, archived_at
-         ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?)`,
+           created_at, updated_at, archived_at, field_hlcs
+         ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?, ?)`,
           r.id,
           r.user_a_id || localSelfId,
           r.user_b_id,
@@ -434,6 +434,14 @@ export async function restoreFromSnapshot(
           r.created_at,
           r.updated_at,
           r.archived_at,
+          // archived_at is an HLC-guarded LWW register (migration 027).
+          // Without this floor a stale concurrent archive/unarchive in the
+          // post-snapshot tail would re-apply on the restored device while
+          // the server's sorted fold (and every non-restored device's
+          // sidecar) ignores it. Same conservative updated_at floor as the
+          // users/entries seeds — the Go projection sets the relationship's
+          // updated_at from the winning archive/unarchive event's hlc.pms.
+          floorFieldHLCs(["archived_at"], r.updated_at),
         );
       }
 

@@ -23,6 +23,7 @@ import {
   appendPersonAdded,
   appendPersonArchived,
   appendPersonPhoneChanged,
+  appendPersonUnarchived,
   appendPersonRenamed,
   appendShopProfileUpdated,
   appendVaultMemberAdded,
@@ -75,6 +76,7 @@ const MIGRATION_023 = "023_shared_links";
 const MIGRATION_024 = "024_roles_v2_check_widen";
 const MIGRATION_025 = "025_settlements";
 const MIGRATION_026 = "026_drop_shared_links";
+const MIGRATION_027 = "027_relationships_field_hlcs";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -365,6 +367,14 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
     } catch (err) {
       console.error("[init] runMigration026 failed:", err);
       throw new Error("runMigration026 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_027))) {
+    try {
+      await runMigration027(db);
+    } catch (err) {
+      console.error("[init] runMigration027 failed:", err);
+      throw new Error("runMigration027 failed: " + String(err));
     }
   }
 }
@@ -3010,6 +3020,28 @@ async function runMigration026(db: SQLite.SQLiteDatabase): Promise<void> {
   });
 }
 
+// Migration 027 — field_hlcs sidecar on relationships, so archived_at can be
+// an HLC-guarded LWW register like users.phone_e164 (migration 009 pattern).
+// Needed by the removed-people restore feature: person_unarchived is now
+// authored by the UI, and without a guard a late-arriving concurrent archive
+// (applied in server-arrival order, not HLC order) would silently undo a
+// restore and diverge from the server's HLC-sorted fold.
+async function runMigration027(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    if (!(await columnExists(db, "relationships", "field_hlcs"))) {
+      await db.execAsync(`
+        ALTER TABLE relationships ADD COLUMN field_hlcs TEXT
+          CHECK (field_hlcs IS NULL OR json_valid(field_hlcs))
+      `);
+    }
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_027,
+      Date.now(),
+    );
+  });
+}
+
 // --- v0 row shapes (used only during migration) ---
 type V0Shopkeeper = {
   id: number;
@@ -3708,6 +3740,104 @@ export async function getPerson(id: string): Promise<PersonWithBalance | null> {
   return row ?? null;
 }
 
+/** One row of the removed-people screen: an archived person with what the
+ *  book said when they were ruled out. */
+export type ArchivedPersonRow = {
+  id: string; // user id
+  name: string;
+  balance: number;
+  entry_count: number;
+  archived_at: number;
+};
+
+/**
+ * People removed from a vault (archived relationships), most recently
+ * removed first. Their entries stay on the device — this list is what makes
+ * the remove dialog's "entries are kept" promise reachable: without it,
+ * archived history had NO surface at all (re-adding a person mints a brand
+ * new user + relationship, so the old book stayed orphaned forever).
+ * Excludes people who also hold an ACTIVE relationship in the vault
+ * (defensive — restore clears archived_at rather than creating parallel
+ * rows, so this shouldn't occur).
+ */
+export async function listArchivedPeople(vaultId: string): Promise<ArchivedPersonRow[]> {
+  const db = await getDb();
+  return db.getAllAsync<ArchivedPersonRow>(
+    `SELECT u.id           AS id,
+            u.display_name AS name,
+            COALESCE(SUM(CASE
+              WHEN e.deleted_at IS NULL AND e.type = 'debt' THEN e.amount_afn
+              WHEN e.deleted_at IS NULL AND e.type = 'payment' THEN -e.amount_afn
+              ELSE 0
+            END), 0) AS balance,
+            COUNT(CASE WHEN e.deleted_at IS NULL THEN 1 END) AS entry_count,
+            MAX(r.archived_at) AS archived_at
+     FROM relationships r
+     INNER JOIN users u ON u.id = r.user_b_id
+     LEFT JOIN entries e
+       ON e.relationship_id = r.id
+      AND e.vault_id = ?
+     WHERE r.vault_id = ?
+       AND r.archived_at IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM relationships ar
+          WHERE ar.vault_id = r.vault_id
+            AND ar.user_b_id = r.user_b_id
+            AND ar.archived_at IS NULL
+       )
+     GROUP BY u.id
+     ORDER BY MAX(r.archived_at) DESC`,
+    vaultId,
+    vaultId,
+  );
+}
+
+export async function countArchivedPeople(vaultId: string): Promise<number> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(DISTINCT r.user_b_id) AS n
+       FROM relationships r
+      WHERE r.vault_id = ?
+        AND r.archived_at IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM relationships ar
+           WHERE ar.vault_id = r.vault_id
+             AND ar.user_b_id = r.user_b_id
+             AND ar.archived_at IS NULL
+        )`,
+    vaultId,
+  );
+  return row?.n ?? 0;
+}
+
+/**
+ * Restore a removed person: clear archived_at on their archived
+ * relationship(s) via person_unarchived events (editor-tier, synced, and
+ * server-verified — the kind is plumbed through all three parity layers).
+ * The person returns to home/search with full history and chapters intact.
+ * Their phone stays NULL — archivePerson deliberately freed the number for
+ * re-use, and silently re-claiming it here could collide with a newer
+ * contact; the shopkeeper re-enters it from the edit screen when needed.
+ */
+export async function unarchivePerson(id: string, vaultId: string): Promise<void> {
+  const db = await getDb();
+  const rels = await db.getAllAsync<{ id: string }>(
+    `SELECT id FROM relationships
+      WHERE user_b_id   = ?
+        AND vault_id    = ?
+        AND archived_at IS NOT NULL`,
+    id,
+    vaultId,
+  );
+  for (const r of rels) {
+    await appendPersonUnarchived({
+      userId: id,
+      relationshipId: r.id,
+      vaultId,
+    });
+  }
+}
+
 // Archives the person via event-sourced person_archived events — one per
 // active relationship for the person in the ACTIVE vault. Same public
 // signature as before (Promise<void>); the applier nulls the phone_e164
@@ -3736,6 +3866,32 @@ export async function archivePerson(id: string): Promise<void> {
       relationshipId: r.id,
       vaultId,
     });
+  }
+
+  // Companion phone-null as an EXPLICIT register write. The archive applier's
+  // count-gated phone null is evaluated against each device's current state,
+  // which is inherently arrival-order-dependent: a device whose archived_at
+  // HLC guard skips a stale archive also (correctly) skips its phone null,
+  // yet the server's HLC-sorted fold still executes it — leaving phone_e164
+  // permanently diverged. Authoring the null as a person_phone_changed event
+  // moves the condition to the writer (evaluated once, here) and turns the
+  // null into a pure LWW register write that every fold converges on.
+  // `force` bypasses the same-value no-op — the local applier already nulled
+  // the phone by the time this runs. Failure here is best-effort: without the
+  // companion we're merely back to the applier-only behavior.
+  if (rels.length > 0) {
+    const stillActive = await db.getFirstAsync<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM relationships
+        WHERE user_b_id = ? AND archived_at IS NULL`,
+      id,
+    );
+    if ((stillActive?.n ?? 0) === 0) {
+      try {
+        await appendPersonPhoneChanged({ userId: id, vaultId, phoneE164: null, force: true });
+      } catch (err) {
+        if (__DEV__) console.warn("[archivePerson] companion phone-null append failed", err);
+      }
+    }
   }
 }
 

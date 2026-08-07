@@ -61,6 +61,7 @@ import {
 } from "../../lib/db-tx";
 import { CURRENCIES, getCurrencyName, setCurrentCurrency } from "../../lib/currency";
 import {
+  countArchivedPeople,
   getAppMeta,
   listActiveVaults,
   listAllVaultsIncludingArchived,
@@ -95,6 +96,10 @@ export default function VaultSettingsScreen() {
   const [vault, setVault] = useState<VaultRow | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [memberCount, setMemberCount] = useState<number>(0);
+  // Removed-people count. Only loaded (and the row only rendered) when this
+  // screen is showing the ACTIVE vault — the removed-people screen operates
+  // on the active vault, and settings can target a non-active one (?id=).
+  const [removedPeopleCount, setRemovedPeopleCount] = useState<number>(0);
 
   // Owner-editable fields. Auto-commit on blur.
   const [name, setName] = useState("");
@@ -194,6 +199,12 @@ export default function VaultSettingsScreen() {
           // the two surfaces disagree.
           const raw = count?.n ?? 0;
           setMemberCount(raw === 0 ? 1 : raw);
+
+          // Removed-people row: active vault only (see state comment).
+          const activeId = getActiveVaultIdSyncMaybe();
+          setRemovedPeopleCount(
+            activeId === targetVaultId ? await countArchivedPeople(targetVaultId) : 0,
+          );
         } catch (err) {
           console.warn("[vault/settings] load failed", err);
           toast.push(t("vaultSettings.toast.loadFailed"), "error");
@@ -689,6 +700,26 @@ export default function VaultSettingsScreen() {
           />
 
           <SectionGap />
+
+          {/* ============ PEOPLE (removed) ============
+              Rendered only when the ACTIVE vault has removed people — the
+              row is the sole doorway to their kept entries, and hiding it
+              at zero keeps settings clutter-free (same only-when-nonempty
+              rule as the switcher's "Archived (n)" row). */}
+          {removedPeopleCount > 0 ? (
+            <>
+              <SectionHeader label={t("vaultSettings.section.people")} isRTL={isRTL} />
+              <NavRow
+                icon="person-remove-outline"
+                label={t("vaultSettings.row.removedPeople")}
+                trailing={String(removedPeopleCount)}
+                onPress={() => router.push("/vault/removed-people")}
+                isRTL={isRTL}
+                isLast
+              />
+              <SectionGap />
+            </>
+          ) : null}
 
           {/* ============ DANGER / MEMBERSHIP ============
               Phase 7 UX critique #5: BOTH branches' "Leave Kaata" now

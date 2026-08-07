@@ -423,7 +423,7 @@ const en = {
   "common.remove": "Remove",
   "common.remove.title": "Remove {name}?",
   "common.remove.description":
-    "They'll disappear from your list. Their entries stay on your device.",
+    "They'll disappear from your list. Their entries are kept — restore them anytime from your kaata's settings.",
   // Shared by the invite/[token] + pair/[token] deep-link screens (their
   // sign-in gates and error states use identical copy).
   "common.notNow": "Not now",
@@ -1173,6 +1173,28 @@ const en = {
   "export.col.balance": "Balance",
   "export.col.entries": "Entries",
   "export.col.id": "Entry ID",
+
+  // Removed people — the surface that makes the remove dialog's "entries
+  // are kept" promise real. Section/row in vault settings (rendered only
+  // when count >= 1) + the restore screen.
+  "vaultSettings.section.people": "People",
+  "vaultSettings.row.removedPeople": "Removed people",
+  "peopleRemoved.title": "Removed people",
+  "peopleRemoved.empty": "No removed people.",
+  "peopleRemoved.emptySubtitle":
+    "People you remove stay here with their entries, ready to restore.",
+  "peopleRemoved.emptyCta": "Back",
+  "peopleRemoved.removedAt": "Removed {relative}",
+  "peopleRemoved.entryCount": "{n} entries",
+  "peopleRemoved.entryCount.one": "1 entry",
+  "peopleRemoved.restoreButton": "Restore",
+  "peopleRemoved.restoredToast": "{name} is back in your book",
+  "peopleRemoved.restoreFailed": "Couldn't restore. Try again.",
+  "peopleRemoved.relative.justNow": "just now",
+  "peopleRemoved.relative.minutesAgo": "{n}m ago",
+  "peopleRemoved.relative.hoursAgo": "{n}h ago",
+  "peopleRemoved.relative.daysAgo": "{n}d ago",
+  "peopleRemoved.relative.monthsAgo": "{n}mo ago",
 } as const;
 
 type Key = keyof typeof en;
@@ -1525,7 +1547,8 @@ const fa: Partial<Record<Key, string>> = {
   "common.removed": "{name} حذف شد",
   "common.remove": "حذف",
   "common.remove.title": "{name} حذف شود؟",
-  "common.remove.description": "از لیست شما حذف می‌شود. ثبت‌های آن‌ها در دستگاه می‌ماند.",
+  "common.remove.description":
+    "از لیست شما حذف می‌شود. ثبت‌های آن‌ها نگه داشته می‌شود — هر وقت خواستید از تنظیمات کاتا بازگردانید.",
   // Shared by the invite/[token] + pair/[token] deep-link screens.
   "common.notNow": "حالا نه",
   "common.backToKaata": "بازگشت به کاتا",
@@ -2165,6 +2188,26 @@ const fa: Partial<Record<Key, string>> = {
   "export.col.entries": "ثبت‌ها",
   // نمبر not شناسه — the table's Afghan-vernacular rule (شناسه is Iranian register).
   "export.col.id": "نمبر ثبت",
+
+  // Removed people
+  "vaultSettings.section.people": "اشخاص",
+  "vaultSettings.row.removedPeople": "اشخاص حذف‌شده",
+  "peopleRemoved.title": "اشخاص حذف‌شده",
+  "peopleRemoved.empty": "شخص حذف‌شده‌ای نیست.",
+  "peopleRemoved.emptySubtitle":
+    "کسانی را که حذف می‌کنید با ثبت‌هایشان اینجا می‌مانند و قابل بازگردانی‌اند.",
+  "peopleRemoved.emptyCta": "بازگشت",
+  "peopleRemoved.removedAt": "حذف شده {relative}",
+  "peopleRemoved.entryCount": "{n} ثبت",
+  "peopleRemoved.entryCount.one": "1 ثبت",
+  "peopleRemoved.restoreButton": "بازگردانی",
+  "peopleRemoved.restoredToast": "{name} به کتاب شما برگشت",
+  "peopleRemoved.restoreFailed": "بازگردانی نشد. دوباره تلاش کنید.",
+  "peopleRemoved.relative.justNow": "همین حالا",
+  "peopleRemoved.relative.minutesAgo": "{n} دقیقه پیش",
+  "peopleRemoved.relative.hoursAgo": "{n} ساعت پیش",
+  "peopleRemoved.relative.daysAgo": "{n} روز پیش",
+  "peopleRemoved.relative.monthsAgo": "{n} ماه پیش",
 };
 
 const TABLES = { en, fa } as const;

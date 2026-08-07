@@ -163,24 +163,49 @@ export async function applyPersonArchived(tx: SQLiteTx, event: PersonArchivedEve
     throw new Error(`person_archived event ${event.event_id} missing envelope vault_id`);
   }
 
-  const res = await tx.runAsync(
-    `UPDATE relationships
-        SET archived_at = ?, updated_at = ?
-      WHERE id = ? AND vault_id = ?`,
-    event.hlc.pms,
-    event.hlc.pms,
+  const rel = await tx.getFirstAsync<{ field_hlcs: string | null }>(
+    `SELECT field_hlcs FROM relationships WHERE id = ? AND vault_id = ?`,
     event.relationship_id,
     event.vault_id,
   );
-  // 0 rows ⇒ the relationship isn't on disk yet (archive before its person_added,
+  // Null ⇒ the relationship isn't on disk yet (archive before its person_added,
   // cross-batch). On remote/sweep, throw so it quarantines+retries — a silent
   // no-op is counted {applied} and never retried, resurrecting the archived
   // contact when the add later applies. LOCAL/backfill keep the no-op.
-  if ((res?.changes ?? 0) === 0 && event.origin === "remote") {
-    throw new MissingPrereqError(
-      `person_archived ${event.event_id}: relationship ${event.relationship_id} not found (missing prereq)`,
-    );
+  if (rel == null) {
+    if (event.origin === "remote") {
+      throw new MissingPrereqError(
+        `person_archived ${event.event_id}: relationship ${event.relationship_id} not found (missing prereq)`,
+      );
+    }
+    return;
   }
+
+  // archived_at is an HLC-guarded LWW register (same treatment as
+  // display_name / phone_e164, and the same divergence M31 fixed for the
+  // phone). Mobile applies pulled events in server-ARRIVAL order, so without
+  // this guard a concurrent archive with an OLDER HLC pushed late would land
+  // after an already-applied restore and silently re-archive the person —
+  // while the Go projection (which replays ALL events sorted by global HLC
+  // from scratch, snapshot.go) keeps them active: permanent client/server
+  // divergence. With the guard, the arrival-order fold converges to the same
+  // HLC-max winner as the server's sorted fold — which is also why the Go
+  // appliers need no matching change. Skipping here also skips the
+  // phone-null below: when a newer unarchive already won, a stale archive
+  // must not take the phone either.
+  const relHlcs: FieldHLCMap = parseFieldHLCs(rel.field_hlcs);
+  if (compareFieldHLC(relHlcs, "archived_at", event.hlc) === "skip") return;
+
+  await tx.runAsync(
+    `UPDATE relationships
+        SET archived_at = ?, updated_at = ?, field_hlcs = ?
+      WHERE id = ? AND vault_id = ?`,
+    event.hlc.pms,
+    event.hlc.pms,
+    serializeFieldHLCs({ ...relHlcs, archived_at: event.hlc }),
+    event.relationship_id,
+    event.vault_id,
+  );
 
   const remaining = await tx.getFirstAsync<{ n: number }>(
     `SELECT COUNT(*) AS n FROM relationships
@@ -199,16 +224,20 @@ export async function applyPersonArchived(tx: SQLiteTx, event: PersonArchivedEve
       `SELECT field_hlcs FROM users WHERE id = ?`,
       event.target_id,
     );
-    const next: FieldHLCMap = {
-      ...parseFieldHLCs(urow?.field_hlcs ?? null),
-      phone_e164: event.hlc,
-    };
-    await tx.runAsync(
-      "UPDATE users SET phone_e164 = NULL, updated_at = ?, field_hlcs = ? WHERE id = ?",
-      event.hlc.pms,
-      serializeFieldHLCs(next),
-      event.target_id,
-    );
+    // The null itself is also a phone LWW write, so it must RESPECT the
+    // register: if a phone change with a NEWER HLC already applied (arrival
+    // order ran ahead of HLC order), nulling here would regress the field
+    // HLC and diverge from the server's sorted fold, where that newer change
+    // re-sets the phone after this archive.
+    const uHlcs: FieldHLCMap = parseFieldHLCs(urow?.field_hlcs ?? null);
+    if (compareFieldHLC(uHlcs, "phone_e164", event.hlc) === "apply") {
+      await tx.runAsync(
+        "UPDATE users SET phone_e164 = NULL, updated_at = ?, field_hlcs = ? WHERE id = ?",
+        event.hlc.pms,
+        serializeFieldHLCs({ ...uHlcs, phone_e164: event.hlc }),
+        event.target_id,
+      );
+    }
   }
 }
 
@@ -222,20 +251,37 @@ export async function applyPersonUnarchived(
   if (event.vault_id == null) {
     throw new Error(`person_unarchived event ${event.event_id} missing envelope vault_id`);
   }
-  const res = await tx.runAsync(
-    `UPDATE relationships
-        SET archived_at = NULL, updated_at = ?
-      WHERE id = ? AND vault_id = ?`,
-    event.hlc.pms,
+  const rel = await tx.getFirstAsync<{ field_hlcs: string | null }>(
+    `SELECT field_hlcs FROM relationships WHERE id = ? AND vault_id = ?`,
     event.relationship_id,
     event.vault_id,
   );
-  // 0 rows ⇒ relationship not on disk yet (unarchive before its add). Remote →
+  // Null ⇒ relationship not on disk yet (unarchive before its add). Remote →
   // quarantine+retry rather than a silent {applied} no-op that loses the
   // unarchive when the add later lands. LOCAL/backfill keep the no-op.
-  if ((res?.changes ?? 0) === 0 && event.origin === "remote") {
-    throw new MissingPrereqError(
-      `person_unarchived ${event.event_id}: relationship ${event.relationship_id} not found (missing prereq)`,
-    );
+  if (rel == null) {
+    if (event.origin === "remote") {
+      throw new MissingPrereqError(
+        `person_unarchived ${event.event_id}: relationship ${event.relationship_id} not found (missing prereq)`,
+      );
+    }
+    return;
   }
+
+  // Same HLC guard as applyPersonArchived (see the comment there): a stale
+  // concurrent unarchive arriving after a newer re-archive must not resurrect
+  // the person on this device while the server's HLC-sorted fold keeps them
+  // archived.
+  const relHlcs: FieldHLCMap = parseFieldHLCs(rel.field_hlcs);
+  if (compareFieldHLC(relHlcs, "archived_at", event.hlc) === "skip") return;
+
+  await tx.runAsync(
+    `UPDATE relationships
+        SET archived_at = NULL, updated_at = ?, field_hlcs = ?
+      WHERE id = ? AND vault_id = ?`,
+    event.hlc.pms,
+    serializeFieldHLCs({ ...relHlcs, archived_at: event.hlc }),
+    event.relationship_id,
+    event.vault_id,
+  );
 }

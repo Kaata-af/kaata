@@ -661,6 +661,10 @@ export default function RootLayout() {
                   it shares the push/pop affordance of vault/settings,
                   vault/members, etc. */}
               <Stack.Screen name="vault/archived" options={{ presentation: "card" }} />
+              {/* Removed people — archived contacts with their kept entries,
+                  restorable. Reached from a "Removed people" row in vault
+                  settings (rendered only when the active vault has any). */}
+              <Stack.Screen name="vault/removed-people" options={{ presentation: "card" }} />
               <Stack.Screen name="vault/pair" />
               <Stack.Screen name="vault/pair-scan" />
               {/* DEV: Bluetooth Classic (RFCOMM) transport test — M-BTC-1.
