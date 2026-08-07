@@ -91,7 +91,7 @@ const LABELS = {
     billDated: "Bill dated {date}",
   },
   fa: {
-    owe: "بدهکار است",
+    owe: "قرضدار است",
     credit: "طلبکار است",
     settled: "تصفیه شده",
     clearTitle: "حساب صاف است",

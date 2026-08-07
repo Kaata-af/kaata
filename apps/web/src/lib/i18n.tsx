@@ -146,7 +146,7 @@ const en = {
   "share.theyOwe.header": "Your kaata at {accountWith}:",
   "share.theyOwe.amount": "🔴 You owe: −{amount} {currency}",
   "share.theyOwe.cta": "Please settle when you can.",
-  "share.footer": "— Sent via Kaata.af",
+  "share.footer": "— Sent via www.kaata.af",
   "home.tab.collect": "To collect",
   "home.tab.pay": "To pay",
   "home.total.label.collect": "To collect",
@@ -183,7 +183,7 @@ const fa: Record<keyof typeof en, string> = {
   "hero.title.line1": "دکان خود را",
   "hero.title.line2": "با اعتماد بچرخانید.",
   "hero.sub":
-    "یک کاتای آرام بین شما و کسانی که به آنها اعتماد دارید. ثبت کنید چه کسی به شما بدهکار است و شما به چه کسی، و با دو ضربه یادآوری دوستانه در واتساپ بفرستید.",
+    "یک کاتای آرام بین شما و کسانی که به آنها اعتماد دارید. ثبت کنید چه کسی از شما قرضدار است و شما از چه کسی، و با دو ضربه یادآوری دوستانه در واتساپ بفرستید.",
   "hero.cta": "دانلود کاتا",
   "hero.how": "ببینید چطور کار می‌کند ↓",
   "hero.points": "همیشه رایگان · بدون انترنت کار می‌کند · بدون ثبت‌نام",
@@ -200,7 +200,7 @@ const fa: Record<keyof typeof en, string> = {
   "feature.backup.eyebrow": "کتاب هرگز گم نمی‌شود",
   "feature.backup.title": "تلفون گم می‌شود. کاتای شما برمی‌گردد.",
   "feature.backup.body":
-    "پیش‌تر، شکستن یا گم شدن تلفون یعنی از بین رفتن تمام کتاب — هر نام و هر مبلغی که مردم به شما بدهکار بودند. با گوگل یا اپل وارد شوید تا کاتا بی‌سروصدا نسخهٔ پشتیبان نگه دارد. روی تلفون نو وارد شوید و همه‌چیز برمی‌گردد: هر شخص، هر ثبت و هر باقی‌مانده.",
+    "پیش‌تر، شکستن یا گم شدن تلفون یعنی از بین رفتن تمام کتاب — هر نام و هر مبلغی که مردم از شما قرضدار بودند. با گوگل یا اپل وارد شوید تا کاتا بی‌سروصدا نسخهٔ پشتیبان نگه دارد. روی تلفون نو وارد شوید و همه‌چیز برمی‌گردد: هر شخص، هر ثبت و هر باقی‌مانده.",
 
   // Final CTA
   "cta.title.line1": "دیگر دنبال",
@@ -290,7 +290,7 @@ const fa: Record<keyof typeof en, string> = {
   "share.theyOwe.header": "کاتای شما با {accountWith}:",
   "share.theyOwe.amount": "🔴 قرض شما: −{amount} {currency}",
   "share.theyOwe.cta": "لطفاً وقتی توانستید تصفیه کنید.",
-  "share.footer": "پیام از طرف kaata.af",
+  "share.footer": "پیام از طرف www.kaata.af",
   "home.tab.collect": "وصول",
   "home.tab.pay": "پرداخت",
   "home.total.label.collect": "قابل وصول",

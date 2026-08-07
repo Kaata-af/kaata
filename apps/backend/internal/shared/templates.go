@@ -211,7 +211,7 @@ a{color:inherit;text-decoration:none;}
   // hshow/hhide are COUNT-FREE on purpose: the settled count lives only on
   // the statement card's trust line (repeating it here read redundant).
   var L = rtl ? {
-    owe:"بدهکار است", credit:"طلبکار است", settled:"تصفیه شده",
+    owe:"قرضدار است", credit:"طلبکار است", settled:"تصفیه شده",
     tx:"معاملات", empty:"معامله‌ای نیست", err:"بارگذاری ناموفق بود",
     debt:"دادم", payment:"گرفتم", tag:"Powered by", more:"بیشتر", less:"کمتر",
     hshow:"دیدن سابقهٔ تصفیه‌شده ({n})", hhide:"پنهان کردن سابقهٔ تصفیه‌شده",

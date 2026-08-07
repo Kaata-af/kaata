@@ -364,7 +364,7 @@ const en = {
   "share.youOwe.cta": "I will settle soon.",
   "share.settled.line": "🤝 Our kaata is fully settled.",
   "share.settled.cta": "Thank you.",
-  "share.footer": "— Sent via Kaata.af",
+  "share.footer": "— Sent via www.kaata.af",
   "share.fullLedger": "See the full ledger here:",
   "share.askLang.title": "Send in which language?",
 
@@ -1535,7 +1535,7 @@ const fa: Partial<Record<Key, string>> = {
   "share.youOwe.cta": "به‌زودی تصفیه می‌کنم.",
   "share.settled.line": "🤝 کاتای ما کاملاً تصفیه شده.",
   "share.settled.cta": "تشکر.",
-  "share.footer": "پیام از طرف kaata.af",
+  "share.footer": "پیام از طرف www.kaata.af",
   "share.fullLedger": "کاتای مکمل را اینجا ببینید:",
   "share.askLang.title": "پیام به کدام زبان فرستاده شود؟",
 
