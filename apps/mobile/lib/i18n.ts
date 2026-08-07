@@ -1154,8 +1154,15 @@ const en = {
   "vaultSettings.toast.exportFailed": "Export failed. Try again.",
   "personEdit.export": "Export statement",
   "personEdit.exportFailed": "Export failed. Try again.",
-  "export.action.pdf": "PDF document",
-  "export.action.csv": "CSV spreadsheet",
+  // Export sheet: four flat rows (format × destination). Kept flat rather
+  // than a format sheet chaining into a destination sheet — stacking two
+  // Modals is the Android blank-sheet trap, and it would add a tap to the
+  // common (share) path.
+  "export.action.sharePdf": "Share as PDF",
+  "export.action.shareCsv": "Share as CSV",
+  "export.action.savePdf": "Save PDF to phone",
+  "export.action.saveCsv": "Save CSV to phone",
+  "export.saved": "Saved {name}",
   "export.doc.statementTitle": "Statement",
   "export.doc.summaryTitle": "Kaata report",
   "export.doc.generated": "Generated {date}",
@@ -2169,8 +2176,11 @@ const fa: Partial<Record<Key, string>> = {
   "vaultSettings.toast.exportFailed": "گزارش ساخته نشد. دوباره تلاش کنید.",
   "personEdit.export": "صورت حساب",
   "personEdit.exportFailed": "صورت حساب ساخته نشد. دوباره تلاش کنید.",
-  "export.action.pdf": "سند PDF",
-  "export.action.csv": "جدول CSV",
+  "export.action.sharePdf": "ارسال به شکل PDF",
+  "export.action.shareCsv": "ارسال به شکل CSV",
+  "export.action.savePdf": "ذخیرهٔ PDF در تلفون",
+  "export.action.saveCsv": "ذخیرهٔ CSV در تلفون",
+  "export.saved": "{name} ذخیره شد",
   "export.doc.statementTitle": "صورت حساب",
   "export.doc.summaryTitle": "گزارش کاتا",
   "export.doc.generated": "تهیه شده در {date}",

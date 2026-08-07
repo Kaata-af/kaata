@@ -68,8 +68,8 @@ import {
   setAppMeta,
 } from "../../lib/db";
 import { resolveAccountIdCandidates } from "../../lib/effective-account";
-import { exportVaultReport, type ExportFormat } from "../../lib/export";
-import { rowDir, textDir, useIsRTL } from "../../lib/direction";
+import { exportVaultReport, type ExportDestination, type ExportFormat } from "../../lib/export";
+import { bidiIsolate, rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { useVaultPermission, useVaultRole } from "../../lib/use-vault-role";
@@ -134,7 +134,7 @@ export default function VaultSettingsScreen() {
   // animation, so a double-tap schedules TWO deferred calls whose closures
   // both captured busy === null; only a call-time ref read stops the second.
   const exportingRef = useRef(false);
-  async function onExport(format: ExportFormat) {
+  async function onExport(format: ExportFormat, destination: ExportDestination) {
     if (!vault || exportingRef.current || busy !== null) return;
     exportingRef.current = true;
     setBusy("export");
@@ -142,10 +142,14 @@ export default function VaultSettingsScreen() {
       // Normalized shape, not the raw row: a blank currency column is an
       // anticipated state (the load path does the same || "AFN") and would
       // render a financial document with unlabeled figures.
-      await exportVaultReport(
+      const savedAs = await exportVaultReport(
         { id: vault.id, name: vault.name, currency: vault.currency || "AFN" },
         format,
+        destination,
       );
+      // Non-null only on a completed save — a share needs no confirmation
+      // (the OS sheet is its own feedback) and a cancelled picker is silent.
+      if (savedAs) toast.push(t("export.saved", { name: bidiIsolate(savedAs) }), "success");
     } catch (e) {
       console.warn("[vault/settings] export failed", e);
       toast.push(t("vaultSettings.toast.exportFailed"), "error");
@@ -873,14 +877,24 @@ export default function VaultSettingsScreen() {
         onDismiss={() => setExportSheetVisible(false)}
         actions={[
           {
-            label: t("export.action.pdf"),
-            icon: "document-text-outline",
-            onPress: () => void onExport("pdf"),
+            label: t("export.action.sharePdf"),
+            icon: "share-outline",
+            onPress: () => void onExport("pdf", "share"),
           },
           {
-            label: t("export.action.csv"),
-            icon: "grid-outline",
-            onPress: () => void onExport("csv"),
+            label: t("export.action.shareCsv"),
+            icon: "share-outline",
+            onPress: () => void onExport("csv", "share"),
+          },
+          {
+            label: t("export.action.savePdf"),
+            icon: "download-outline",
+            onPress: () => void onExport("pdf", "save"),
+          },
+          {
+            label: t("export.action.saveCsv"),
+            icon: "download-outline",
+            onPress: () => void onExport("csv", "save"),
           },
         ]}
       />

@@ -91,3 +91,13 @@ export function textDir(isRTL: boolean): {
     writingDirection: isRTL ? "rtl" : "ltr",
   };
 }
+
+// Wrap a value in Unicode FSI…PDI so it keeps its OWN base direction when
+// interpolated into a sentence in the other script. Without it, a Latin
+// filename inside a forced-RTL line has its trailing "…-2026-08-07.pdf"
+// reordered — the date and extension jump to the wrong end. Use for any
+// machine-shaped value (file names, phone numbers, URLs, ids) rendered
+// inside translated copy.
+export function bidiIsolate(value: string): string {
+  return `⁨${value}⁩`;
+}

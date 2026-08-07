@@ -20,9 +20,13 @@ import { queuePendingToast, useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
 import { splitName } from "../../../lib/contacts-sync";
 import { archivePerson, getPerson, updatePerson } from "../../../lib/db";
-import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
+import { bidiIsolate, rowDir, textDir, useIsRTL } from "../../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../../lib/event-log";
-import { exportPersonStatement, type ExportFormat } from "../../../lib/export";
+import {
+  exportPersonStatement,
+  type ExportDestination,
+  type ExportFormat,
+} from "../../../lib/export";
 import { fonts } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
 import { getCountry, getCurrentDefaultCountryCode, inferCountryFromE164 } from "../../../lib/phone";
@@ -57,20 +61,27 @@ export default function EditPersonScreen() {
   // Remove-person confirm (archive semantics — see the danger row below).
   const [confirmRemove, setConfirmRemove] = useState(false);
   const removingRef = useRef(false);
-  // Export (PDF/CSV statement → OS share sheet). Errors render inline —
-  // modal screen (Toast.tsx). Ref guards same-frame double-fire like savingRef.
+  // Export (PDF/CSV statement → OS share sheet, or saved to a folder on the
+  // phone). Result AND errors render inline — modal screen, toasts can't
+  // draw above it (Toast.tsx). Ref guards same-frame double-fire like
+  // savingRef.
   const [exportSheetVisible, setExportSheetVisible] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [exportResult, setExportResult] = useState<string | null>(null);
   const exportingRef = useRef(false);
 
-  async function onExport(format: ExportFormat) {
+  async function onExport(format: ExportFormat, destination: ExportDestination) {
     if (!id || exportingRef.current) return;
     exportingRef.current = true;
     setExporting(true);
     setExportError(null);
+    setExportResult(null);
     try {
-      await exportPersonStatement(id, format);
+      const savedAs = await exportPersonStatement(id, format, destination);
+      // Non-null only on a completed save — a share needs no confirmation
+      // and a cancelled folder picker stays silent.
+      if (savedAs) setExportResult(t("export.saved", { name: bidiIsolate(savedAs) }));
     } catch (err) {
       console.warn("[person/edit] export failed", err);
       setExportError(t("personEdit.exportFailed"));
@@ -203,8 +214,14 @@ export default function EditPersonScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={[styles.header, rowDir(isRTL)]}>
-        <Pressable onPress={() => router.back()} hitSlop={8}>
-          <Text style={[styles.cancel, textDir(isRTL)]}>{t("common.cancel")}</Text>
+        {/* Blocked during an export for the same reason as Save/Remove:
+            dismissing the screen mid-export drops the inline "Saved …"
+            confirmation the user is waiting for, and on the share path pops
+            the OS sheet over the person screen with no visible cause. */}
+        <Pressable onPress={() => router.back()} hitSlop={8} disabled={exporting}>
+          <Text style={[styles.cancel, textDir(isRTL), exporting && { opacity: 0.4 }]}>
+            {t("common.cancel")}
+          </Text>
         </Pressable>
         <Text style={styles.title}>{t("personEdit.title")}</Text>
         <View style={{ width: 60 }} />
@@ -327,6 +344,11 @@ export default function EditPersonScreen() {
             {exportError}
           </Text>
         ) : null}
+        {exportResult ? (
+          <Text style={styles.exportDone} accessibilityLiveRegion="polite">
+            {exportResult}
+          </Text>
+        ) : null}
 
         {/* Remove person — the ONE place removal works for every contact.
             The home list's long-press remove only exists for people WITH
@@ -375,14 +397,24 @@ export default function EditPersonScreen() {
         onDismiss={() => setExportSheetVisible(false)}
         actions={[
           {
-            label: t("export.action.pdf"),
-            icon: "document-text-outline",
-            onPress: () => void onExport("pdf"),
+            label: t("export.action.sharePdf"),
+            icon: "share-outline",
+            onPress: () => void onExport("pdf", "share"),
           },
           {
-            label: t("export.action.csv"),
-            icon: "grid-outline",
-            onPress: () => void onExport("csv"),
+            label: t("export.action.shareCsv"),
+            icon: "share-outline",
+            onPress: () => void onExport("csv", "share"),
+          },
+          {
+            label: t("export.action.savePdf"),
+            icon: "download-outline",
+            onPress: () => void onExport("pdf", "save"),
+          },
+          {
+            label: t("export.action.saveCsv"),
+            icon: "download-outline",
+            onPress: () => void onExport("csv", "save"),
           },
         ]}
       />
@@ -498,6 +530,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: fonts.sansMedium,
     color: colors.danger,
+    marginTop: 8,
+    textAlign: "center",
+  },
+  exportDone: {
+    fontSize: 12,
+    fontFamily: fonts.sansMedium,
+    color: colors.textSubtle,
     marginTop: 8,
     textAlign: "center",
   },
