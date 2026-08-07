@@ -14,7 +14,7 @@ import {
 } from "../../lib/auth";
 import { colors } from "../../lib/colors";
 import { getAppMeta, setAppMeta } from "../../lib/db";
-import { textDir, useIsRTL } from "../../lib/direction";
+import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 
@@ -174,6 +174,13 @@ export default function OnboardingAuthScreen() {
 
         <View style={styles.spacer} />
 
+        {/* Two clearly separate offers, each explained ONCE. The backup
+            sentence used to be repeated verbatim on the Google and Apple
+            cards, which read as two different deals and buried the actual
+            choice (account vs no account) under three look-alike blocks. */}
+        <Text style={[styles.groupLabel, textDir(isRTL)]}>{t("onboardingMode.account.label")}</Text>
+        <Text style={[styles.groupBody, textDir(isRTL)]}>{t("onboardingMode.account.body")}</Text>
+
         {/* BOTH providers on BOTH platforms (one account, any device — the
             email-linking backend makes them land on the same kaatas), each
             wearing its OWN brand: Apple = black card + white Apple mark
@@ -202,12 +209,13 @@ export default function OnboardingAuthScreen() {
                   )}
                   style={({ pressed }) => [
                     styles.card,
+                    rowDir(isRTL),
                     isGoogle ? styles.cardGoogle : styles.cardPrimary,
                     pressed && { opacity: 0.85 },
                     busy !== null && !spinning && { opacity: 0.5 },
                   ]}
                 >
-                  <View style={[styles.cardIcon, isRTL && styles.cardIconRTL]}>
+                  <View style={[styles.cardIcon, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}>
                     {spinning ? (
                       <ActivityIndicator
                         color={isGoogle ? colors.textEmphasis : colors.textInverted}
@@ -223,11 +231,6 @@ export default function OnboardingAuthScreen() {
                   >
                     {t(isGoogle ? "onboardingMode.google.title" : "onboardingMode.apple.title")}
                   </Text>
-                  <Text
-                    style={[styles.cardBody, !isGoogle && styles.cardBodyPrimary, textDir(isRTL)]}
-                  >
-                    {t(isGoogle ? "onboardingMode.google.body" : "onboardingMode.apple.body")}
-                  </Text>
                 </Pressable>
               </View>
             );
@@ -239,20 +242,33 @@ export default function OnboardingAuthScreen() {
           </Text>
         ) : null}
 
-        <View style={styles.gap} />
+        {/* Hard break between the two offers — the offline choice is not a
+            third sign-in provider, and stacking it flush under the provider
+            cards made it read like one. */}
+        <View style={styles.divider} />
+
+        <Text style={[styles.groupLabel, textDir(isRTL)]}>{t("onboardingMode.offline.label")}</Text>
+        <Text style={[styles.groupBody, textDir(isRTL)]}>{t("onboardingMode.offline.body")}</Text>
 
         <Pressable
           onPress={onStayOffline}
           disabled={busy !== null}
-          style={({ pressed }) => [styles.card, styles.cardGhost, pressed && { opacity: 0.85 }]}
+          accessibilityRole="button"
+          accessibilityLabel={t("onboardingMode.offline.title")}
+          style={({ pressed }) => [
+            styles.card,
+            rowDir(isRTL),
+            styles.cardGhost,
+            pressed && { opacity: 0.85 },
+            busy !== null && { opacity: 0.5 },
+          ]}
         >
-          <View style={[styles.cardIcon, isRTL && styles.cardIconRTL]}>
-            <NinjaIcon size={36} />
+          <View style={[styles.cardIcon, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}>
+            <NinjaIcon size={30} />
           </View>
           <Text style={[styles.cardTitle, textDir(isRTL)]}>
             {t("onboardingMode.offline.title")}
           </Text>
-          <Text style={[styles.cardBody, textDir(isRTL)]}>{t("onboardingMode.offline.body")}</Text>
         </Pressable>
       </View>
     </SafeAreaView>
@@ -277,11 +293,38 @@ const styles = StyleSheet.create({
     lineHeight: sansLineHeight(14, 20),
     textAlign: "center",
   },
-  spacer: { height: 36 },
-  gap: { height: 14 },
+  spacer: { height: 28 },
+  gap: { height: 12 },
+  // Group heading + its one-time explanation. No uppercase/tracking: letter-
+  // spacing severs Arabic-script joining in the Dari labels.
+  groupLabel: {
+    fontSize: 13,
+    fontFamily: fonts.sansSemi,
+    color: colors.textEmphasis,
+  },
+  groupBody: {
+    fontSize: 13,
+    fontFamily: fonts.sansRegular,
+    color: colors.textSubtle,
+    lineHeight: sansLineHeight(13, 19),
+    marginTop: 4,
+    marginBottom: 14,
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.borderDefault,
+    marginVertical: 24,
+  },
+  // Compact action row (icon + label). The cards used to be icon-over-title-
+  // over-paragraph blocks; the paragraph moved up into the group explanation,
+  // so the choice itself is now one tappable line.
   card: {
+    flexDirection: "row",
+    alignItems: "center",
     borderRadius: 14,
-    padding: 20,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    minHeight: 60,
     borderWidth: 1,
   },
   cardPrimary: {
@@ -318,33 +361,22 @@ const styles = StyleSheet.create({
       android: { elevation: 4 },
     }),
   },
+  // Fixed box so the three logos (G / Apple / ninja) sit on one vertical
+  // axis despite different glyph widths. rowDir() flips the row in Dari, and
+  // the margin side is set inline to follow it.
   cardIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    width: 32,
+    height: 32,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 12,
   },
-  // In Dari (RTL) the card icon mirrors to the right edge so it lines up with
-  // the right-aligned title/body. Without this it stays at the column's
-  // cross-start (left) because the app is LTR-locked at the Yoga level, leaving
-  // a left icon above right-aligned text — the "not properly RTL" look.
-  cardIconRTL: { alignSelf: "flex-end" },
   cardTitle: {
+    flex: 1,
     fontSize: 16,
     fontFamily: fonts.sansSemi,
     color: colors.textEmphasis,
-    marginBottom: 6,
   },
   cardTitlePrimary: { color: colors.textInverted },
-  cardBody: {
-    fontSize: 13,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    lineHeight: sansLineHeight(13, 19),
-  },
-  cardBodyPrimary: { color: colors.textInverted, opacity: 0.85 },
   errorText: {
     fontSize: 12,
     fontFamily: fonts.sansMedium,

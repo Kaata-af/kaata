@@ -51,15 +51,16 @@ const en = {
   // Onboarding mode picker (step 2 — appears after name + shop)
   "onboardingMode.title": "How would you like to use kaata?",
   "onboardingMode.subtitle": "You can change this later in Settings.",
+  // The two offers are explained ONCE each, above their buttons — the backup
+  // sentence used to be duplicated on the Google and Apple cards.
+  "onboardingMode.account.label": "Back up online",
+  "onboardingMode.account.body":
+    "Sign in to keep a copy of your kaata in the cloud — restore it on a new phone, and use the same kaata on more than one phone.",
   "onboardingMode.google.title": "Sign in with Google",
-  "onboardingMode.google.body":
-    "Back up your kaata to the cloud. Restore it on a new phone if you lose this one.",
   "onboardingMode.apple.title": "Sign in with Apple",
-  "onboardingMode.apple.body":
-    "Back up your kaata to the cloud. Restore it on a new phone if you lose this one.",
+  "onboardingMode.offline.label": "No account",
+  "onboardingMode.offline.body": "Your kaata never leaves this phone — private by default.",
   "onboardingMode.offline.title": "Stay fully offline",
-  "onboardingMode.offline.body":
-    "No account. Your kaata never leaves this phone — private by default.",
   "onboardingMode.signInFailed": "Sign-in didn't work. Try again.",
   "onboardingMode.expoGoHint": "Sign-in works on the real app; for now you can continue offline.",
   "onboardingMode.back": "Back",
@@ -1239,14 +1240,14 @@ const fa: Partial<Record<Key, string>> = {
   // Onboarding mode picker
   "onboardingMode.title": "می‌خواهید چطور از کاتا استفاده کنید؟",
   "onboardingMode.subtitle": "بعداً می‌توانید این را در تنظیمات تغییر دهید.",
+  "onboardingMode.account.label": "ذخیره در کلاد",
+  "onboardingMode.account.body":
+    "با ورود، یک نسخهٔ کاتای شما در کلاد می‌ماند — روی تلفون نو بازیابی کنید و از یک کاتا در چند تلفون کار بگیرید.",
   "onboardingMode.google.title": "ورود با گوگل",
-  "onboardingMode.google.body":
-    "کاتای خود را در کلاد ذخیره کنید. اگر تلفن گم شد، روی تلفن نو بازیابی کنید.",
   "onboardingMode.apple.title": "ورود با اپل",
-  "onboardingMode.apple.body":
-    "کاتای خود را در کلاد ذخیره کنید. اگر تلفن گم شد، روی تلفن نو بازیابی کنید.",
-  "onboardingMode.offline.title": "بدون حساب",
-  "onboardingMode.offline.body": "بدون حساب. کاتای شما فقط روی همین تلفون می‌ماند — کاملاً خصوصی.",
+  "onboardingMode.offline.label": "بدون حساب",
+  "onboardingMode.offline.body": "کاتای شما فقط روی همین تلفون می‌ماند — کاملاً خصوصی.",
+  "onboardingMode.offline.title": "کاملاً آفلاین",
   "onboardingMode.signInFailed": "ورود نشد. دوباره امتحان کنید.",
   "onboardingMode.expoGoHint":
     "ورود در نسخه واقعی برنامه کار می‌کند؛ فعلاً می‌توانید بدون حساب ادامه دهید.",
