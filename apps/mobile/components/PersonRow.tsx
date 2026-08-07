@@ -77,8 +77,11 @@ export const PersonRow = memo(function PersonRow(props: {
       </View>
       <View style={[styles.right, rowDir(isRTL), settled && { alignItems: "center" }]}>
         {settled ? (
-          // Cleared account: the mark, not a meaningless zero.
-          <Ionicons name="checkmark-circle" size={20} color={colors.collectStrong} />
+          // Cleared account: the mark, not a meaningless zero. BLACK, not
+          // emerald — emerald/garnet are strictly directional (money toward
+          // you / away from you) and a settled account has no direction.
+          // Same reason the PDF statement's SETTLED chip is neutral.
+          <Ionicons name="checkmark-circle" size={20} color={colors.textEmphasis} />
         ) : (
           <>
             {/* L41: cap the amount's font scaling so it can't grow so wide at
