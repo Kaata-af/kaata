@@ -7,7 +7,7 @@ import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 // single legal document; a Dari translation is tracked separately. Linked from
 // the Play/App Store listings and the site footer. Keep it accurate to what the
 // app actually does — when you change how the service works, change this page.
-const UPDATED = "8 July 2026";
+const UPDATED = "7 August 2026";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -61,8 +61,11 @@ export function Terms() {
             enforce debts, is not a lender, bank, or payment service, and does not move money.
           </p>
           <p>
-            Reminder links you generate and share (for example over WhatsApp) show the recipient
-            their balance with you. Share them only with the person they’re meant for.
+            Reminder links you generate and share (for example over WhatsApp) show the recipient a
+            dated bill: a snapshot of their balance and entries with you at the moment you sent it.
+            Like a paper bill handed across the counter, a sent bill belongs to the person you gave
+            it to — it is <strong>permanent and cannot be withdrawn</strong> after sending. Share
+            bills only with the person they’re meant for.
           </p>
         </Section>
 

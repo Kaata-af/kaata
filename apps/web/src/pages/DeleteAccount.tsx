@@ -10,10 +10,12 @@ import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 //   - server erasure: DELETE /v1/account -> auth/service.go DeleteAccount (hard-
 //     deletes account + owned vaults + their events; nulls install self-identity;
 //     anonymizes authored events in others' vaults).
-//   - retention: kaata.af/v/<token> share snapshots self-expire in 90 days
-//     (shared/service.go shareTTL = 90*24h) and are NOT erased by account deletion.
+//   - retention: kaata.af/v/<token> bill snapshots are PERMANENT (paper rule
+//     2026-08-07 — no TTL, no revocation; internal/shared/service.go) and are
+//     NOT erased by account deletion: the table is anonymous (no account
+//     linkage), and a sent bill belongs to the person it was sent to.
 // If any of those change, change this page.
-const UPDATED = "9 July 2026";
+const UPDATED = "7 August 2026";
 const EMAIL = "hello@kaata.af";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -125,11 +127,11 @@ export function DeleteAccount() {
         <Section title="What is kept, and for how long">
           <ul className="list-disc ps-5 space-y-1.5">
             <li>
-              <strong>Shared reminder links.</strong> If you ever sent a customer their balance
-              through a Kaata reminder link (kaata.af/v/…), that link holds a snapshot of that one
-              customer’s name and entries. These links are <strong>not</strong> removed the moment
-              you delete your account — they automatically expire and are deleted{" "}
-              <strong>within 90 days</strong>.
+              <strong>Sent bills.</strong> If you ever sent a customer their balance through a Kaata
+              bill link (kaata.af/v/…), that link holds a dated snapshot of that one customer’s name
+              and entries. Like a paper bill handed across the counter, a sent bill belongs to the
+              person you gave it to: it is <strong>not removed when you delete your account</strong>{" "}
+              and does not expire. Bills are stored without any connection to your account.
             </li>
             <li>
               <strong>Shared ledgers owned by someone else.</strong> If you took part in a ledger

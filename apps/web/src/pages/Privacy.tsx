@@ -8,7 +8,7 @@ import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 // require a reachable, truthful privacy policy URL once any personal data is
 // collected — this page is that URL (kaata.af/privacy) and must stay accurate to
 // what the app actually does. When you change a data flow, change this page.
-const UPDATED = "26 July 2026";
+const UPDATED = "7 August 2026";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -46,8 +46,8 @@ export function Privacy() {
             balances — is stored in a database on your device. If you never sign in, that ledger
             data is not uploaded to our servers, with one exception: if you choose to send a
             WhatsApp reminder, a snapshot of that one customer’s balance and entries is uploaded to
-            create the shareable link (see “Sharing a reminder over WhatsApp” below). Deleting the
-            app removes the on-device ledger from the phone.
+            create the shareable link (see “Sharing a bill over WhatsApp” below). Deleting the app
+            removes the on-device ledger from the phone.
           </p>
         </Section>
 
@@ -101,14 +101,15 @@ export function Privacy() {
           </ul>
         </Section>
 
-        <Section title="Sharing a reminder over WhatsApp">
+        <Section title="Sharing a bill over WhatsApp">
           <p>
-            When you send a customer a reminder, Kaata creates a private link (kaata.af/v/…) that
-            shows that one customer their balance and entries with you, plus your shop name. Anyone
-            with the link can view it, so share it only with the intended person. Links expire
-            automatically (links created from late July 2026 last 30 days; older links up to 90),
-            and you can remove the links you have sent for a person at any time from that person’s
-            edit screen in the app.
+            When you send a customer a reminder, Kaata creates a link (kaata.af/v/…) that shows that
+            one customer a dated bill: their balance and entries with you at that moment, plus your
+            shop name. Like a paper bill handed across the counter, a sent bill{" "}
+            <strong>belongs to the person you gave it to</strong> — it is permanent, it never
+            changes after it is sent, and we do not take it back, edit it, or remove it, even if you
+            delete your account. Anyone with the link can view it, so share it only with the
+            intended person.
           </p>
         </Section>
 

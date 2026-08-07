@@ -209,11 +209,10 @@ func main() {
 	vaultsSvc := vaults.NewService(pool)
 	vaultsH := vaults.NewHandler(vaultsSvc)
 
-	// Shared ledger snapshots ("see the full ledger on kaata.af"): store a small
-	// per-person snapshot behind a short token; serve it as JSON + a tiny SSR shell.
-	// The service is kept in a variable so the housekeeping cron can call
-	// PruneExpired — expired snapshots hold real customer ledger content and
-	// must actually be deleted, not just stop being served.
+	// Shared bill snapshots ("see the full ledger on kaata.af"): store a small
+	// per-person snapshot behind a short token; serve it as JSON + a tiny SSR
+	// shell. PAPER RULE (2026-08-07): bills are permanent and unrevocable —
+	// no TTL, no prune, no revoke (see the shared package comment).
 	sharedSvc := shared.NewService(pool)
 	sharedH := shared.NewHandler(sharedSvc, cfg.WebBaseURL, cfg.ShareLinkBaseURL, cfg.PublicAPIBaseURL)
 
@@ -319,10 +318,16 @@ func main() {
 	r.With(httpx.RateLimitPerIP(httpx.ShareCreateLimit, httpx.ShareCreateWindow)).
 		Post("/v1/shared", sharedH.Create)
 	r.Get("/v1/shared/{token}", sharedH.Get)
-	// Early revocation with the create-time secret (2026-07-26 hardening).
-	// Same per-IP cap as create — it's likewise a public write endpoint.
-	r.With(httpx.RateLimitPerIP(httpx.ShareCreateLimit, httpx.ShareCreateWindow)).
-		Post("/v1/shared/{token}/revoke", sharedH.Revoke)
+	// Revocation tombstone (paper rule 2026-08-07: bills are unrevocable, the
+	// real endpoint is gone). MUST return a status outside {204, 404}: shipped
+	// 1.0.5 clients treat BOTH of those as "link dead" — they'd wipe their
+	// local registry and tell the shopkeeper "old links no longer work", a
+	// false privacy claim now that bills serve forever. 410 lands in their
+	// no-op branch: rows kept, honest "couldn't remove links" copy shown.
+	// Delete this stub once the pre-1.0.6 fleet is gone.
+	r.Post("/v1/shared/{token}/revoke", func(w http.ResponseWriter, _ *http.Request) {
+		httpx.Error(w, http.StatusGone, "bills are permanent and can no longer be revoked")
+	})
 	// SSR preview shell — see deploy note: kaata.af/v/* must route to the backend
 	// for the OG preview; otherwise the SPA's /v/:token fallback renders it.
 	r.Get("/v/{token}", sharedH.View)
@@ -435,9 +440,9 @@ func main() {
 	go vaults.StartArchivePurgeCron(ctx, pool, 6*time.Hour)
 
 	// Housekeeping: expired-invite purge (6h), plus a daily retention pass
-	// (expired share snapshots, crash-report + unclaimed web-visit ageing).
+	// (crash-report + unclaimed web-visit ageing).
 	// Same "reuse the main pool, I/O-light" rationale as the archive purge.
-	go startHousekeepingCron(ctx, pool, sharedSvc, vaultsSvc)
+	go startHousekeepingCron(ctx, pool, vaultsSvc)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.BackendPort,
@@ -480,16 +485,17 @@ func main() {
 // nothing once expired but hold invitee emails + token hashes), and a daily
 // pass handles data-retention deletes:
 //
-//   - shared.PruneExpired — expired kaata.af share snapshots contain real
-//     customer names/balances; the product promise is that they expire.
 //   - crash_reports older than 90 days — debugging telemetry, stale after
 //     a release cycle or two.
 //   - web_visits older than 180 days that were never claimed by an install
 //     (claimed rows back installs.source attribution and are kept).
 //
+// (Shared bill snapshots are deliberately NOT retained/pruned — paper rule
+// 2026-08-07, see the shared package comment.)
+//
 // Every statement is idempotent and cheap, so failures are logged and
 // retried on the next tick rather than aborting the loop.
-func startHousekeepingCron(ctx context.Context, pool *pgxpool.Pool, sharedSvc *shared.Service, vaultsSvc *vaults.Service) {
+func startHousekeepingCron(ctx context.Context, pool *pgxpool.Pool, vaultsSvc *vaults.Service) {
 	log.Printf("housekeeping cron running, invites=%s retention=%s", inviteePurgeInterval, dailyRetentionInterval)
 
 	purgeInvites := func() {
@@ -500,11 +506,6 @@ func startHousekeepingCron(ctx context.Context, pool *pgxpool.Pool, sharedSvc *s
 		}
 	}
 	retentionPass := func() {
-		if n, err := sharedSvc.PruneExpired(ctx); err != nil {
-			log.Printf("housekeeping: prune expired shares: %v", err)
-		} else if n > 0 {
-			log.Printf("housekeeping: pruned %d expired share snapshots", n)
-		}
 		if tag, err := pool.Exec(ctx,
 			`DELETE FROM crash_reports WHERE received_at < NOW() - INTERVAL '`+crashReportRetention+`'`,
 		); err != nil {

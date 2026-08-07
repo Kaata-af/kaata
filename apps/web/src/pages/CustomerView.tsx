@@ -72,7 +72,7 @@ const LABELS = {
     clearBody: "nothing owed.",
     tx: "Transactions",
     empty: "No transactions yet.",
-    error: "This shared ledger has expired or doesn’t exist.",
+    error: "This shared ledger doesn’t exist.",
     debt: "I gave",
     payment: "I received",
     home: "Go to kaata.af",
@@ -85,6 +85,10 @@ const LABELS = {
     settledShow: "View settled history ({n})",
     settledHide: "Hide settled history",
     settledOn: "Settled · {date}",
+    // Bills are permanent (paper rule 2026-08-07): the issue date is
+    // load-bearing — an old link must read as a dated bill, never as the
+    // current balance.
+    billDated: "Bill dated {date}",
   },
   fa: {
     owe: "بدهکار است",
@@ -94,7 +98,7 @@ const LABELS = {
     clearBody: "چیزی باقی نمانده.",
     tx: "معاملات",
     empty: "هنوز معامله‌ای نیست.",
-    error: "این کاتای مشترک منقضی شده یا وجود ندارد.",
+    error: "این کاتای مشترک وجود ندارد.",
     debt: "دادم",
     payment: "گرفتم",
     home: "رفتن به kaata.af",
@@ -108,6 +112,7 @@ const LABELS = {
     settledShow: "دیدن سابقهٔ تصفیه‌شده ({n})",
     settledHide: "پنهان کردن سابقهٔ تصفیه‌شده",
     settledOn: "تصفیه شد · {date}",
+    billDated: "بل مورخ {date}",
   },
 } as const;
 
@@ -471,6 +476,22 @@ function Ledger({ data: d }: { data: SharedLedger }) {
           </p>
         ) : null}
 
+        {/* Bill issue date — LOAD-BEARING under the paper rule (2026-08-07):
+            links live forever, so a two-year-old bill must read as "bill
+            dated X", never as the current balance. Outside the settled fork
+            so both layouts carry it. Older snapshots lack generated_at → 0
+            → hidden. Mirrors the SSR shell's .billdate pill. */}
+        {d.generated_at > 0 ? (
+          <div className="mt-3 flex justify-center">
+            <span
+              className="rounded-full border px-3 py-1 text-[12px] font-semibold"
+              style={{ borderColor: C.line, background: C.bg, color: C.sub }}
+            >
+              {L.billDated.replace("{date}", fmtDate(d.generated_at, rtl))}
+            </span>
+          </div>
+        ) : null}
+
         {dir === "settled" ? (
           // SUCCESS state (operator feedback 2026-07-27): a settled account
           // is an achievement, not an empty ledger — a big "0 ؋" reads as
@@ -624,6 +645,10 @@ function LedgerSkeleton() {
         <div className="flex justify-center">
           <Bar className="h-4 w-44" />
         </div>
+        {/* bill-date pill */}
+        <div className="mt-3 flex justify-center">
+          <Bar className="h-6 w-36 rounded-full" />
+        </div>
         <div className="mt-[18px] border-t pt-[18px]" style={{ borderColor: C.line }}>
           <Bar className="h-3 w-32" />
           <Bar className="mt-2.5 h-10 w-40" />
@@ -650,7 +675,7 @@ function LedgerSkeleton() {
 }
 
 function LedgerError() {
-  // Expired/unknown link — there's no snapshot to carry the shopkeeper's
+  // Unknown link — there's no snapshot to carry the shopkeeper's
   // locale, so fall back to the site language (browser-derived, toggleable).
   const { lang } = useI18n();
   const L = pickLabels(lang);

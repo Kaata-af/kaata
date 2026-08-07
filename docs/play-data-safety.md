@@ -17,7 +17,9 @@ NOT anonymous, and there is a third, offline path):
    encrypted).
 3. **WhatsApp "full ledger" share** — `POST /v1/shared`, **user-initiated, no auth,
    works offline too**. Uploads **one customer's** name + balance + up to 100
-   transactions to a public 90-day link (`kaata.af/v/<token>`).
+   transactions to a public **permanent** link (`kaata.af/v/<token>`). PAPER RULE
+   (2026-08-07): a sent bill is the recipient's asset — no TTL, no revocation,
+   not erased by account deletion (the snapshot table is anonymous).
 
 So a user who never signs in **still transmits** their own name/phone/shop (check-in),
 crash+IP telemetry, and — if they use the share — a customer's ledger. **We collect
@@ -41,8 +43,9 @@ messaging SDK exists — verified: no Firebase/Sentry/Segment/Amplitude/AdMob/FC
 - In-app **Delete account** (`DELETE /v1/account`) + server `redacted_at` erasure cover
   **signed-in** users.
 - **Gap:** a never-signed-in user's own `self_name`/`self_phone`/`shop_name` on the
-  `installs` row has **no in-app delete**; `/v1/shared` links auto-expire at 90 days but
-  aren't user-revocable. Provide an **email/web deletion request** URL
+  `installs` row has **no in-app delete**; `/v1/shared` bill links are **permanent and
+  unrevocable by design** (paper rule 2026-08-07 — disclosed on the Privacy +
+  Delete-account pages). Provide an **email/web deletion request** URL
   (hello@kaata.af / kaata.af/delete-account) as the catch-all so "Yes" is honest.
 
 ---
@@ -186,11 +189,16 @@ standard/exempt" (we do use ChaCha20 in the parked mesh) — not "no encryption.
 ## Appendix B — Two things that matter more than the form (not launch blockers)
 
 1. **`/v1/shared` is a public, no-auth link** to a named customer's debt record (name +
-   balance + up to 100 transactions, 90-day TTL), fired by any user incl. offline.
-   Token is **already fine** — 96-bit `crypto/rand` (`service.go:92-98`), not
-   enumerable. Remaining gap is only **no revocation** (a link lives its full 90 days)
-   - the 90-day retention of a named customer's debt on a public URL. Low urgency;
-     consider a revoke button + shorter TTL later.
+   balance + up to 100 transactions, **permanent**), fired by any user incl. offline.
+   Token is **already fine** — 96-bit `crypto/rand`, not enumerable. The 2026-07-26
+   revocation + TTL were **deliberately removed 2026-08-07** (paper rule: a sent bill
+   is the recipient's asset, and the immutable bill chain is the customer's
+   tamper-evidence). The permanent-retention exposure is a knowing product decision,
+   disclosed on the Privacy page — do not re-flag it as an oversight. "Unrevocable"
+   is product policy, not capability: the operator can still hand-delete a specific
+   row (`DELETE FROM shared_ledger_snapshots WHERE token = …`) for a verified legal
+   or data-subject request — the Privacy page deliberately says "we do not", never
+   "we cannot".
 2. **Positioning vs architecture:** cloud sync payload is server-readable plaintext
    (deliberate — AI-training angle). Legal once disclosed, but **don't market Kaata as
    "private/local"** until `/v1/sync` is E2E-encrypted. The mesh already has the

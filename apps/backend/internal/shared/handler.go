@@ -58,7 +58,9 @@ type sharePayload struct {
 }
 
 // Create — POST /v1/shared (PUBLIC, rate-limited). Body: the snapshot JSON.
-// Response: { token }. The link is kaata.af/v/<token>.
+// Response: { token, url }. `url` is the field the mobile fleet actually
+// reads — clients silently drop the link from the WhatsApp message when it's
+// missing/empty; `token` is informational.
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxPayload)
 	raw, err := io.ReadAll(r.Body)
@@ -80,57 +82,28 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "too many entries")
 		return
 	}
-	token, revokeSecret, err := h.svc.Create(r.Context(), raw)
+	token, err := h.svc.Create(r.Context(), raw)
 	if err != nil {
 		log.Printf("shared: create failed: %v", err)
 		httpx.Error(w, http.StatusInternalServerError, "could not create share")
 		return
 	}
-	// revoke_secret goes ONLY to the creating device (which stores it locally
-	// and presents it to /revoke). It is never derivable from the link.
+	// PAPER RULE: no revoke_secret in the response. Bills are permanent —
+	// see the package comment. (1.0.5-and-earlier clients look for the field
+	// to register a revocable link; its absence simply skips that write.)
 	httpx.JSON(w, http.StatusOK, map[string]string{
-		"token":         token,
-		"url":           h.shareBaseURL + "/v/" + token,
-		"revoke_secret": revokeSecret,
+		"token": token,
+		"url":   h.shareBaseURL + "/v/" + token,
 	})
 }
 
-type revokeRequest struct {
-	RevokeSecret string `json:"revoke_secret"`
-}
-
-// Revoke — POST /v1/shared/{token}/revoke (PUBLIC, rate-limited). Kills a
-// share before its TTL when the caller presents the create-time revoke
-// secret. 404 for unknown/expired/legacy tokens AND wrong secrets alike (no
-// oracle); 204 on success.
-func (h *Handler) Revoke(w http.ResponseWriter, r *http.Request) {
-	token := chi.URLParam(r, "token")
-	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
-	var req revokeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httpx.Error(w, http.StatusBadRequest, "invalid json body")
-		return
-	}
-	err := h.svc.Revoke(r.Context(), token, req.RevokeSecret)
-	if errors.Is(err, ErrNotFound) {
-		httpx.Error(w, http.StatusNotFound, "share not found or expired")
-		return
-	}
-	if err != nil {
-		log.Printf("shared: revoke failed: %v", err)
-		httpx.Error(w, http.StatusInternalServerError, "could not revoke share")
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
 // Get — GET /v1/shared/{token} (PUBLIC). Returns the stored snapshot JSON for
-// the web client to render. 404 when unknown/expired.
+// the web client to render. 404 when unknown.
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
 	payload, err := h.svc.Get(r.Context(), token)
 	if errors.Is(err, ErrNotFound) {
-		httpx.Error(w, http.StatusNotFound, "share not found or expired")
+		httpx.Error(w, http.StatusNotFound, "share not found")
 		return
 	}
 	if err != nil {
@@ -153,7 +126,7 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
 	payload, err := h.svc.Get(r.Context(), token)
 	if errors.Is(err, ErrNotFound) {
-		// Expired/unknown link — no snapshot to carry the shopkeeper's message
+		// Unknown link — no snapshot to carry the shopkeeper's message
 		// language, so fall back to the customer's browser language (the same
 		// choice the web client's error state makes).
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -200,7 +173,12 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 		ShareURL:   h.shareBaseURL + "/v/" + token,
 		APIBase:    h.apiBaseURL,
 		OGTitle:    ogTitle(p),
-		OGDesc:     ogDesc(absBal, p.Currency, dir, rtl),
+		OGDesc:     ogDesc(absBal, p.Currency, dir, rtl, billDate(p.GeneratedAt, rtl)),
+		// Bills are permanent (paper rule), so the issue date is load-bearing:
+		// a two-year-old link must read as "bill dated X", never as the
+		// current balance. Formatted by the inline script's fmtDate (Afghan
+		// Solar Hijri for fa) at first paint; 0 (pre-date snapshots) hides it.
+		GeneratedAtMs: p.GeneratedAt,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=300")
@@ -210,18 +188,19 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 }
 
 type viewData struct {
-	Token      string
-	Shop       string
-	Person     string
-	Currency   string
-	AbsBalance string
-	Direction  string // owe | credit | settled
-	RTL        bool
-	Origin     string // canonical site origin for chrome links (kaata.af)
-	ShareURL   string // this page's own canonical URL (for og:url)
-	APIBase    string // absolute API origin for the inline fetch; "" → relative
-	OGTitle    string
-	OGDesc     string
+	Token         string
+	Shop          string
+	Person        string
+	Currency      string
+	AbsBalance    string
+	Direction     string // owe | credit | settled
+	RTL           bool
+	Origin        string // canonical site origin for chrome links (kaata.af)
+	ShareURL      string // this page's own canonical URL (for og:url)
+	APIBase       string // absolute API origin for the inline fetch; "" → relative
+	OGTitle       string
+	OGDesc        string
+	GeneratedAtMs int64 // bill issue date (epoch ms); 0 hides the date line
 }
 
 // acceptsPersian reports whether the request's highest-priority Accept-Language
@@ -244,26 +223,40 @@ func ogTitle(p sharePayload) string {
 // link card itself carries the balance (no image; the box logo is gone). Phrased
 // from the RECEIVER's (customer's) view and localized to the shopkeeper's language.
 // absBal is the already-locale-formatted balance string (Persian digits for fa).
-func ogDesc(absBal, currency, dir string, rtl bool) string {
+//
+// PAPER RULE: bills are permanent, and the link card is read by people who
+// never tap through — so the card itself must date the bill ("Bill dated X — …"),
+// never assert the amount as a current balance. dateStr comes from billDate();
+// "" (pre-date snapshots) falls back to the undated phrasing.
+func ogDesc(absBal, currency, dir string, rtl bool, dateStr string) string {
 	amt := absBal + " " + currency
+	var body string
 	if rtl {
 		switch dir {
 		case "owe":
-			return "مانده برای تصفیه: " + amt
+			body = "مانده برای تصفیه: " + amt
 		case "credit":
-			return "به نفع شما: " + amt
+			body = "به نفع شما: " + amt
 		default:
-			return "حساب صاف است — چیزی باقی نمانده."
+			body = "حساب صاف است — چیزی باقی نمانده."
 		}
+		if dateStr != "" {
+			return "بل مورخ " + dateStr + " — " + body
+		}
+		return body
 	}
 	switch dir {
 	case "owe":
-		return "Balance to settle: " + amt
+		body = "Balance to settle: " + amt
 	case "credit":
-		return "In your favour: " + amt
+		body = "In your favour: " + amt
 	default:
-		return "All settled — nothing owed."
+		body = "All settled — nothing owed."
 	}
+	if dateStr != "" {
+		return "Bill dated " + dateStr + " — " + body
+	}
+	return body
 }
 
 // viewTmpl is intentionally tiny + self-contained (inline CSS, one small inline

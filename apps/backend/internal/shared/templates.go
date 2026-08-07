@@ -98,6 +98,11 @@ a{color:inherit;text-decoration:none;}
 .wrap{max-width:520px;margin:0 auto;padding:40px 22px 56px;}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:26px 24px;}
 .shophead{font-size:17px;font-weight:700;letter-spacing:-.01em;color:var(--ink);text-align:center;}
+/* Bill issue date — LOAD-BEARING under the paper rule: links live forever, so
+   a 2-year-old bill must read as "bill dated X", never as the current balance.
+   A quiet pill directly under the letterhead, present in BOTH the balance and
+   settled layouts. Hidden (UA [hidden]) until the inline script fills it. */
+.billdate{width:fit-content;margin:12px auto 0;font-size:12px;font-weight:600;color:var(--sub);background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:4px 12px;}
 .statement{margin-top:18px;padding-top:18px;border-top:1px solid var(--line);}
 .stmt{font-size:15px;color:var(--sub);}
 .stmt .who{font-weight:600;color:var(--ink);}
@@ -164,6 +169,7 @@ a{color:inherit;text-decoration:none;}
 <div class="wrap">
   <div class="card">
     {{if .Shop}}<div class="shophead">{{.Shop}}</div>{{end}}
+    <div class="billdate" id="billDate" hidden></div>
     <div class="statement {{.Direction}}">
       {{if eq .Direction "settled"}}
       <!-- SUCCESS state: a settled account is an achievement, not an empty
@@ -209,13 +215,13 @@ a{color:inherit;text-decoration:none;}
     tx:"معاملات", empty:"معامله‌ای نیست", err:"بارگذاری ناموفق بود",
     debt:"دادم", payment:"گرفتم", tag:"Powered by", more:"بیشتر", less:"کمتر",
     hshow:"دیدن سابقهٔ تصفیه‌شده ({n})", hhide:"پنهان کردن سابقهٔ تصفیه‌شده",
-    seton:"تصفیه شد · {d}"
+    seton:"تصفیه شد · {d}", bill:"بل مورخ {d}"
   } : {
     owe:"owes", credit:"is owed", settled:"is settled",
     tx:"Transactions", empty:"No transactions yet.", err:"Couldn't load this ledger.",
     debt:"I gave", payment:"I received", tag:"Powered by", more:"more", less:"less",
     hshow:"View settled history ({n})", hhide:"Hide settled history",
-    seton:"Settled · {d}"
+    seton:"Settled · {d}", bill:"Bill dated {d}"
   };
   var UP='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="7"/><polyline points="6 13 12 7 18 13"/></svg>';
   var DOWN='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="17"/><polyline points="18 11 12 17 6 11"/></svg>';
@@ -243,6 +249,11 @@ a{color:inherit;text-decoration:none;}
     }
   }
   function fmtAmt(n){try{return Math.abs(n).toLocaleString(rtl?'fa-AF':undefined);}catch(e){return Math.abs(n);}}
+  // Bill issue date at first paint (no fetch needed — server passed the ms).
+  // 0 = pre-paper-rule snapshot without generated_at; leave the pill hidden.
+  var genMs = {{.GeneratedAtMs}};
+  var bd = document.getElementById('billDate');
+  if (bd && genMs > 0) { bd.textContent = L.bill.replace('{d}', fmtDate(genMs)); bd.hidden = false; }
   function rowHtml(e, cur){
     var gave = e.type !== 'payment'; // debt → "I gave" (up); payment → "I received" (down)
     return '<div class="row">'
@@ -353,9 +364,10 @@ a{color:inherit;text-decoration:none;}
 </body>
 </html>`
 
-// Localized by the viewer's Accept-Language (viewData.RTL) — an expired link
+// Localized by the viewer's Accept-Language (viewData.RTL) — an unknown link
 // has no snapshot locale to follow. The fa strings mirror the web client's
-// error state (apps/web/src/pages/CustomerView.tsx LABELS.fa).
+// error state (apps/web/src/pages/CustomerView.tsx LABELS.fa). No "expired"
+// wording — bills never expire (paper rule); a dead link is just wrong/mistyped.
 const notFoundHTML = `<!doctype html>
 <html lang="{{if .RTL}}fa{{else}}en{{end}}" dir="{{if .RTL}}rtl{{else}}ltr{{end}}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -363,5 +375,5 @@ const notFoundHTML = `<!doctype html>
 <title>Kaata</title>
 <style>body{margin:0;background:#f9fafb;color:#101828;font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px;-webkit-font-smoothing:antialiased;}a{color:#475467;font-weight:600;text-decoration:none;}</style>
 </head><body><div><div style="font-size:16px;font-weight:700;letter-spacing:-.01em">kaata.</div>
-<p style="color:#475467;max-width:320px;line-height:1.55">{{if .RTL}}این کاتای مشترک منقضی شده یا وجود ندارد.{{else}}This shared ledger has expired or doesn’t exist.{{end}}</p>
+<p style="color:#475467;max-width:320px;line-height:1.55">{{if .RTL}}این کاتای مشترک وجود ندارد.{{else}}This shared ledger doesn’t exist.{{end}}</p>
 <p><a href="{{.Origin}}">{{if .RTL}}رفتن به kaata.af{{else}}Go to kaata.af{{end}}</a></p></div></body></html>`

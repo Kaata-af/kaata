@@ -26,7 +26,6 @@ import { exportPersonStatement, type ExportFormat } from "../../../lib/export";
 import { fonts } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
 import { getCountry, getCurrentDefaultCountryCode, inferCountryFromE164 } from "../../../lib/phone";
-import { countSharedLinksForPerson, revokeSharedLinksForPerson } from "../../../lib/share";
 
 export default function EditPersonScreen() {
   const router = useRouter();
@@ -58,11 +57,6 @@ export default function EditPersonScreen() {
   // Remove-person confirm (archive semantics — see the danger row below).
   const [confirmRemove, setConfirmRemove] = useState(false);
   const removingRef = useRef(false);
-  // Shared-link revocation (see lib/share.ts registry): count drives the
-  // affordance; result renders inline (modal screen, toasts can't).
-  const [sharedLinkCount, setSharedLinkCount] = useState(0);
-  const [revoking, setRevoking] = useState(false);
-  const [revokeResult, setRevokeResult] = useState<string | null>(null);
   // Export (PDF/CSV statement → OS share sheet). Errors render inline —
   // modal screen (Toast.tsx). Ref guards same-frame double-fire like savingRef.
   const [exportSheetVisible, setExportSheetVisible] = useState(false);
@@ -83,35 +77,6 @@ export default function EditPersonScreen() {
     } finally {
       exportingRef.current = false;
       setExporting(false);
-    }
-  }
-
-  useEffect(() => {
-    if (!id) return;
-    countSharedLinksForPerson(id)
-      .then(setSharedLinkCount)
-      .catch(() => setSharedLinkCount(0));
-  }, [id]);
-
-  async function onRevokeLinks() {
-    if (!id || revoking) return;
-    setRevoking(true);
-    setRevokeResult(null);
-    try {
-      const dead = await revokeSharedLinksForPerson(id);
-      const remaining = await countSharedLinksForPerson(id);
-      setSharedLinkCount(remaining);
-      setRevokeResult(
-        remaining === 0
-          ? t("personEdit.revokeLinks.done")
-          : t("personEdit.revokeLinks.partial", { count: remaining }),
-      );
-      if (dead === 0 && remaining > 0) setRevokeResult(t("personEdit.revokeLinks.failed"));
-    } catch (err) {
-      console.warn("[person/edit] link revocation failed", err);
-      setRevokeResult(t("personEdit.revokeLinks.failed"));
-    } finally {
-      setRevoking(false);
     }
   }
 
@@ -344,7 +309,7 @@ export default function EditPersonScreen() {
         <Button label={t("personEdit.save")} onPress={onSave} loading={busy} disabled={exporting} />
 
         {/* Export statement — neutral utility, so it sits above the danger
-            affordances (revoke links / remove). Opens a PDF/CSV chooser. */}
+            Remove row. Opens a PDF/CSV chooser. */}
         <Pressable
           onPress={() => setExportSheetVisible(true)}
           disabled={exporting || busy}
@@ -360,32 +325,6 @@ export default function EditPersonScreen() {
         {exportError ? (
           <Text style={styles.exportError} accessibilityLiveRegion="polite">
             {exportError}
-          </Text>
-        ) : null}
-
-        {/* Revoke shared ledger links (2026-07-26 hardening). Rendered only
-            when THIS DEVICE minted still-tracked links for this person; kills
-            them server-side early instead of waiting out the 30-day TTL.
-            Inline result text, not a toast — modal screen (Toast.tsx). */}
-        {sharedLinkCount > 0 ? (
-          <Pressable
-            onPress={onRevokeLinks}
-            disabled={revoking}
-            accessibilityRole="button"
-            style={({ pressed }) => [styles.revokeLinks, pressed && { opacity: 0.7 }]}
-          >
-            {revoking ? (
-              <ActivityIndicator size="small" color={colors.danger} />
-            ) : (
-              <Text style={styles.revokeLinksText}>
-                {t("personEdit.revokeLinks", { count: sharedLinkCount })}
-              </Text>
-            )}
-          </Pressable>
-        ) : null}
-        {revokeResult ? (
-          <Text style={styles.revokeDone} accessibilityLiveRegion="polite">
-            {revokeResult}
           </Text>
         ) : null}
 
@@ -559,28 +498,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: fonts.sansMedium,
     color: colors.danger,
-    marginTop: 8,
-    textAlign: "center",
-  },
-  revokeLinks: {
-    minHeight: 44,
-    marginTop: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: colors.danger,
-    borderRadius: 8,
-    backgroundColor: "rgba(220, 38, 38, 0.04)",
-  },
-  revokeLinksText: {
-    fontSize: 14,
-    fontFamily: fonts.sansMedium,
-    color: colors.danger,
-  },
-  revokeDone: {
-    fontSize: 12,
-    fontFamily: fonts.sansMedium,
-    color: colors.textSubtle,
     marginTop: 8,
     textAlign: "center",
   },

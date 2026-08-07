@@ -74,6 +74,7 @@ const MIGRATION_022 = "022_event_log_push_reject_bookkeeping";
 const MIGRATION_023 = "023_shared_links";
 const MIGRATION_024 = "024_roles_v2_check_widen";
 const MIGRATION_025 = "025_settlements";
+const MIGRATION_026 = "026_drop_shared_links";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -356,6 +357,14 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
     } catch (err) {
       console.error("[init] runMigration025 failed:", err);
       throw new Error("runMigration025 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_026))) {
+    try {
+      await runMigration026(db);
+    } catch (err) {
+      console.error("[init] runMigration026 failed:", err);
+      throw new Error("runMigration026 failed: " + String(err));
     }
   }
 }
@@ -2979,6 +2988,23 @@ async function runMigration025(db: SQLite.SQLiteDatabase): Promise<void> {
     await db.runAsync(
       `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
       MIGRATION_025,
+      Date.now(),
+    );
+  });
+}
+
+// Migration 026 — drop the shared-links revocation registry (migration 023).
+// PAPER RULE (2026-08-07): a shared bill is the recipient's asset — permanent
+// and unrevocable, like a paper bill handed across the counter. The backend's
+// revoke endpoint is gone and POST /v1/shared no longer returns a
+// revoke_secret, so the registry has nothing left to do.
+async function runMigration026(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`DROP INDEX IF EXISTS idx_shared_links_person;`);
+    await db.execAsync(`DROP TABLE IF EXISTS shared_links;`);
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_026,
       Date.now(),
     );
   });
