@@ -71,7 +71,7 @@
       [
         "expo-contacts",
         {
-          "contactsPermission": "Kaata uses your contacts to make adding customers faster — just pick from your phone book instead of typing names and numbers."
+          "contactsPermission": "Kaata uses your contacts so you can add a customer by picking them from your phone book, and saves customers you add in Kaata back to your contacts."
         }
       ],
       [

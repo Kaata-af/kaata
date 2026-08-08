@@ -201,13 +201,32 @@ export async function writePersonToPhoneBook(
     if (await phoneExistsInBook(phoneE164)) return;
 
     await Contacts.addContactAsync({
+      // contactType is REQUIRED on iOS and was the reason every write silently
+      // failed there. The native module does:
+      //     contact.contactType = data.contactType == "person"
+      //       ? .person : .organization
+      // and the field is a non-optional String that defaults to "" when the key
+      // is absent — so an omitted contactType saved every customer as a COMPANY
+      // card with a blank company name, which iOS Contacts does not show under
+      // the person's name. Android hardcodes "person", which is why the same
+      // code appeared to work there.
+      contactType: Contacts.ContactTypes.Person,
+      // Required by the Contact type; iOS derives the display name from
+      // first/last, Android builds its own. Set so the cast below can go —
+      // the old `as Contacts.Contact` is exactly what hid the missing
+      // contactType from the compiler.
+      name: joinName(first, last),
       // Contacts apps require a first name; fall back to the last name if a
       // single-field name somehow lands here as last-only.
-      [Contacts.Fields.FirstName]: first || last,
-      [Contacts.Fields.LastName]: first ? last || undefined : undefined,
-      [Contacts.Fields.PhoneNumbers]: [{ label: "mobile", number: phoneE164, isPrimary: true }],
-    } as Contacts.Contact);
+      firstName: first || last,
+      ...(first && last ? { lastName: last } : {}),
+      phoneNumbers: [{ label: "mobile", number: phoneE164, isPrimary: true }],
+    });
   } catch (err) {
-    if (__DEV__) console.warn("[contacts-sync] phone-book write skipped:", err);
+    // Was __DEV__-only, which is how an iOS-wide failure survived to
+    // production unnoticed: no toast, no log, no way to tell "already there"
+    // from "broken". Keep it non-fatal (the ledger write already succeeded)
+    // but always audible.
+    console.warn("[contacts-sync] phone-book write failed:", err);
   }
 }
