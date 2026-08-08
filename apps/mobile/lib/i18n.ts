@@ -34,7 +34,6 @@ const en = {
   "onboarding.lastName.placeholder": "Ahmadi",
   "onboarding.phone.label": "Phone number",
   "onboarding.phone.required": "Phone number is required",
-  "onboarding.phone.placeholder": "+93 7…",
   "onboarding.phone.hint":
     "Used so staff can find you in their contacts when pairing. Not verified, not shared.",
   "onboarding.continue": "Continue",
@@ -84,7 +83,7 @@ const en = {
   "onboardingKaata.subtitle":
     "Your kaata is your shop's ledger book. Name it so you can keep everyone's accounts in one place.",
   "onboardingKaata.name.label": "Shop name",
-  "onboardingKaata.name.placeholder": "e.g. Ahmad General Store",
+  "onboardingKaata.name.placeholder": "Ahmad Grocery Store",
   "onboardingKaata.name.required": "Shop name is required",
   "onboardingKaata.currency.label": "Currency",
   "onboardingKaata.currency.hint":
@@ -248,8 +247,8 @@ const en = {
   "personEdit.phone.label": "WhatsApp number",
   "personEdit.save": "Save changes",
   "personAdd.title": "Add or find person",
-  "personAdd.firstName.placeholder": "First name",
-  "personAdd.lastName.placeholder": "Last name (optional)",
+  "personAdd.firstName.placeholder": "Ahmad",
+  "personAdd.lastName.placeholder": "Karimi",
   "personAdd.add": "Add {name}",
   "personAdd.phone.hint": "Needed to send pings on WhatsApp.",
   "personAdd.phone.invalid": "Couldn't read that phone number. Try +93 70 123 4567.",
@@ -694,7 +693,7 @@ const en = {
   // complete this".
   "vaultNew.titleForced": "Name your shop to continue",
   "vaultNew.name.label": "Shop name",
-  "vaultNew.name.placeholder": "e.g. Ahmad General Store",
+  "vaultNew.name.placeholder": "Ahmad Grocery Store",
   "vaultNew.name.required": "Name is required",
   "vaultNew.currency.label": "Currency",
   "vaultNew.currency.hint":
@@ -1226,7 +1225,6 @@ const fa: Partial<Record<Key, string>> = {
   "onboarding.lastName.placeholder": "احمدی",
   "onboarding.phone.label": "شماره تلفون",
   "onboarding.phone.required": "شماره تلفون لازم است",
-  "onboarding.phone.placeholder": "+93 7…",
   "onboarding.phone.hint":
     "برای اینکه کارمندان شما را در مخاطبین خود پیدا کنند. تأیید نمی‌شود و به اشتراک گذاشته نمی‌شود.",
   "onboarding.continue": "ادامه",
@@ -1267,7 +1265,7 @@ const fa: Partial<Record<Key, string>> = {
   "onboardingKaata.subtitle":
     "کاتای شما دفتر حساب دکان شماست. آن را نام بگذارید تا حساب همه را در یک جا نگه دارید.",
   "onboardingKaata.name.label": "نام دکان",
-  "onboardingKaata.name.placeholder": "مثلاً دکان عمومی احمد",
+  "onboardingKaata.name.placeholder": "خوراکه فروشی احمد",
   "onboardingKaata.name.required": "نام دکان لازم است",
   "onboardingKaata.currency.label": "ارز",
   "onboardingKaata.currency.hint":
@@ -1407,8 +1405,8 @@ const fa: Partial<Record<Key, string>> = {
   "personEdit.phone.label": "شماره واتساپ",
   "personEdit.save": "ذخیره تغییرات",
   "personAdd.title": "افزودن یا یافتن شخص",
-  "personAdd.firstName.placeholder": "نام",
-  "personAdd.lastName.placeholder": "تخلص (اختیاری)",
+  "personAdd.firstName.placeholder": "احمد",
+  "personAdd.lastName.placeholder": "کریمی",
   "personAdd.add": "افزودن {name}",
   "personAdd.phone.hint": "برای ارسال یادآوری در واتساپ لازم است.",
   "personAdd.phone.invalid": "این شماره را نتوانستم بخوانم. مثلاً +93 70 123 4567.",
@@ -1754,7 +1752,7 @@ const fa: Partial<Record<Key, string>> = {
   "vaultNew.title": "نام دکان شما چیست؟",
   "vaultNew.titleForced": "برای ادامه، نام دکان را بنویسید",
   "vaultNew.name.label": "نام دکان",
-  "vaultNew.name.placeholder": "مثلاً دکان عمومی احمد",
+  "vaultNew.name.placeholder": "خوراکه فروشی احمد",
   "vaultNew.name.required": "نام لازم است",
   "vaultNew.currency.label": "ارز",
   "vaultNew.currency.hint": "پیش‌فرض برای تمام مبالغ این کاتا. بعداً در تنظیمات قابل تغییر است.",
