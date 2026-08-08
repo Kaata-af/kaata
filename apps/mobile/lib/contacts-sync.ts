@@ -22,7 +22,20 @@
 // NEEDS-DEVICE-TEST: the actual phone-book write + WRITE_CONTACTS permission can
 // only be confirmed on a real device.
 
-import * as Contacts from "expo-contacts";
+// "/legacy", NOT the bare "expo-contacts" root.
+//
+// Expo SDK 56 promoted a new class-based API to the root import and moved this
+// function-style API to the subpath. The root still EXPORTS the old names with
+// their old TypeScript signatures — but every body is now `throw
+// errorOnLegacyMethodUse(...)`. So `getContactsAsync` and `addContactAsync`
+// type-check exactly as before and throw at runtime, and both of this file's
+// callers wrap their calls in try/catch, which means the import alone would
+// have turned add-from-phone-book and write-back-to-phone-book into silently
+// dead features with no build error anywhere.
+//
+// Migrating to the new class-based API is worthwhile but is its own change;
+// this subpath is supported and preserves behaviour exactly.
+import * as Contacts from "expo-contacts/legacy";
 
 /** Normalize to comparable digits (drop +, spaces, dashes). */
 function digitsOf(s: string): string {

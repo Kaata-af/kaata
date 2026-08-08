@@ -78,7 +78,7 @@ export function ConfirmDialog(props: {
         <BlurView
           intensity={20}
           tint="light"
-          experimentalBlurMethod={SHEET_BLUR_METHOD}
+          blurMethod={SHEET_BLUR_METHOD}
           style={StyleSheet.absoluteFill}
         />
         <View style={styles.tint} />
@@ -155,9 +155,9 @@ export function ConfirmDialog(props: {
 }
 
 const styles = StyleSheet.create({
-  tint: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.08)" },
+  tint: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.08)" },
   center: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: "center",
     justifyContent: "center",
     padding: 24,

@@ -1,7 +1,20 @@
 {
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
-    "strict": true
+    "strict": true,
+    // TypeScript 6 (shipped with Expo SDK 57) stopped auto-including every
+    // @types/* package found in node_modules, so the Node globals that the
+    // tsx-run dev scripts rely on — Buffer in lib/trust/__dev__/chain-selftest.ts
+    // and scripts/gen-trust-vectors.ts — stopped resolving. Naming them here
+    // restores exactly the set that was implicitly in scope before the upgrade.
+    //
+    // "node" being global means Buffer/process also type-check inside APP code,
+    // where they do NOT exist at runtime under Hermes. That was equally true
+    // before SDK 57 (@types/node arrived transitively via @types/better-sqlite3
+    // and was auto-included), so this is parity, not a new hole — but it is a
+    // real footgun worth closing separately by giving the Node-only scripts
+    // their own tsconfig.
+    "types": ["node", "react"]
   },
   // migration-014-selftest runs under Node against better-sqlite3 (not an
   // installed dependency) and is imported by nothing in the app. Leaving

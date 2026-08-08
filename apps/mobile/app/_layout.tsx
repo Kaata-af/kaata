@@ -4,14 +4,15 @@
 // during development still gets the polyfill before any mesh code runs.
 import "../lib/mesh/_ed25519-setup";
 
-// D-FOREGROUND-HARDEN: this MUST be the second import. It registers the
-// notifee foreground-service callback, creates the "shop-mode" channel,
-// and registers the background-event handler at JS module load — before
-// any code path can call displayNotification with asForegroundService:true.
-// Doing it at module top in a dedicated leaf module guarantees the
-// registration survives process resurrection by Android (e.g. when the FGS
-// start intent is re-delivered after a Doze kill before the React tree
-// mounts).
+// D-FOREGROUND-HARDEN: this MUST be the second import.
+//
+// It is currently a NO-OP — the module's body is parked along with the rest of
+// the mesh, and the notifee dependency it used has been removed outright. The
+// import is kept only so the revive path keeps its load-order guarantee: the
+// registration it performed had to happen at JS module load, before any code
+// path could post a foreground-service notification, so that it survived
+// process resurrection by Android (e.g. an FGS start intent re-delivered after
+// a Doze kill, before the React tree mounts).
 import "../lib/mesh/foreground-bootstrap";
 
 import * as Application from "expo-application";

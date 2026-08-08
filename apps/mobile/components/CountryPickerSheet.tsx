@@ -89,7 +89,7 @@ export function CountryPickerSheet(props: {
         <BlurView
           intensity={20}
           tint="light"
-          experimentalBlurMethod={SHEET_BLUR_METHOD}
+          blurMethod={SHEET_BLUR_METHOD}
           style={StyleSheet.absoluteFill}
         />
         <View style={styles.tint} />
@@ -186,7 +186,7 @@ export function CountryPickerSheet(props: {
 }
 
 const styles = StyleSheet.create({
-  tint: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.08)" },
+  tint: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.08)" },
   sheetContainer: {
     position: "absolute",
     left: 0,

@@ -23,6 +23,15 @@ export const SHOP_MODE_CHANNEL_ID = "shop-mode";
      import { Platform } from "react-native";
      import { IS_EXPO_GO } from "../expo-go";
 
+   ⚠️  DO NOT restore this as-is. @notifee/react-native was REMOVED from the
+   project: upstream archived it in April 2026 (9.1.8 is the last release that
+   will ever exist) and it is a legacy-bridge module whose Android headless path
+   throws under React Native 0.83 / Expo SDK 55. Rewrite against
+   expo-notifications — see lib/mesh/bg-notify.ts for the channel + immediate
+   notification pattern. Note that expo-notifications has no direct equivalent
+   of an `asForegroundService` notification; a revived foreground service should
+   post its notification from the native module instead.
+
 if (Platform.OS === "android" && !IS_EXPO_GO) {
   try {
     // require, not import, so Metro doesn't try to resolve notifee for web.

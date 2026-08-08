@@ -151,8 +151,15 @@ export async function getInitialShopModeNotification(): Promise<{
   */
 }
 
-/* PARKED — uncomment to revive: the notifee module resolver used by the parked
-   functions above. Also re-add `import { IS_EXPO_GO } from "../expo-go";`.
+/* PARKED — the notifee module resolver used by the parked functions above.
+   Reviving also needs `import { IS_EXPO_GO } from "../expo-go";`.
+
+   ⚠️  DO NOT uncomment as-is. @notifee/react-native was REMOVED from the
+   project: upstream archived it in April 2026 (9.1.8 is the final release that
+   will ever exist) and it is a legacy-bridge module whose Android headless path
+   throws under React Native 0.83 / Expo SDK 55. Every parked notifee call above
+   has to be rewritten against expo-notifications first — see
+   lib/mesh/bg-notify.ts for the channel + immediate-notification pattern.
 
 type NotifeeModule = any;
 let notifeeModule: NotifeeModule | null = null;

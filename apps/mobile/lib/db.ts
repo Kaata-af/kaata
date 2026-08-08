@@ -137,9 +137,10 @@ export const FIELD_HLC_INIT = { pms: 0, l: 0, did: "init" } as const;
 // migration throws rather than silently using the zero UUID.
 
 // #43 P2 data-safety: the killed-app background entry (bg-catchup) MUST NEVER run
-// migrations. On OLD-ARCH (newArchEnabled=false) the headless task REUSES the
-// app's singleton ReactContext when the process survived swipe-kill, so a JS
-// module latch shared across "contexts" is a footgun: a one-way "headless" latch
+// migrations. The headless task REUSES the app's singleton React context when
+// the process survived swipe-kill — true under the New Architecture too, since
+// bridgeless ReactHost is likewise one instance per process — so a JS module
+// latch shared across "contexts" is a footgun: a one-way "headless" latch
 // set by a background run permanently poisoned the foreground initDb() on reopen
 // (-> user stuck on DbInitFailedPrompt — a hard lockout). So there is NO latch.
 // The real, robust guard is in runBackgroundCatchup: it calls getDb() directly +

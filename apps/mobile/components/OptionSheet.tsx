@@ -95,7 +95,7 @@ export function OptionSheet(props: {
         <BlurView
           intensity={20}
           tint="light"
-          experimentalBlurMethod={SHEET_BLUR_METHOD}
+          blurMethod={SHEET_BLUR_METHOD}
           style={StyleSheet.absoluteFill}
         />
         <View style={styles.sheetTint} />
@@ -153,7 +153,7 @@ export function OptionSheet(props: {
 }
 
 const styles = StyleSheet.create({
-  sheetTint: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.08)" },
+  sheetTint: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.08)" },
   sheetContainer: { position: "absolute", left: 0, right: 0, bottom: 0 },
   sheetWrap: {
     backgroundColor: colors.bgDefault,

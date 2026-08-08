@@ -4,15 +4,9 @@
     "slug": "kaata",
     "scheme": "kaata",
     "version": "1.0.6",
-    "newArchEnabled": false,
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#000000"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "af.kaata.app",
@@ -30,7 +24,6 @@
         "foregroundImage": "./assets/android-icon-foreground.png"
       },
       "predictiveBackGestureEnabled": false,
-      "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",
@@ -105,7 +98,8 @@
         {
           "android": {
             "enableProguardInReleaseBuilds": true,
-            "enableShrinkResourcesInReleaseBuilds": true
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "usesCleartextTraffic": true
           },
           "ios": {
             "extraPods": [
@@ -120,7 +114,12 @@
             ]
           }
         }
-      ]
+      ],
+      "expo-asset",
+      "expo-sharing",
+      "expo-sqlite",
+      "expo-web-browser",
+      "expo-status-bar"
     ],
     "extra": {
       "router": {},
@@ -128,7 +127,6 @@
         "projectId": "a612156b-0f0b-47ea-ac66-b54d880d98aa"
       }
     },
-    "owner": "mateesaafi",
-    "expo-web-browser": "mateesaafi"
+    "owner": "mateesaafi"
   }
 }

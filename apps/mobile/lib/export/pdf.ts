@@ -112,7 +112,13 @@ async function printToTarget(html: string, fileName: string): Promise<File> {
   const { uri } = await Print.printToFileAsync({ html });
   const printed = new File(uri);
   const target = exportFileTarget(fileName);
-  printed.move(target);
+  // AWAIT is load-bearing. Expo SDK 56 made move() asynchronous, and move()
+  // rewrites `printed`'s own uri to the destination — so returning without
+  // awaiting hands the caller a File pointing at a path the move may not have
+  // reached yet, and the share sheet opens on a missing file. An unawaited
+  // promise here is not a type error, so nothing but this comment prevents it
+  // being "tidied" back.
+  await printed.move(target);
   return printed;
 }
 

@@ -8,6 +8,10 @@
 // specific low-end device janks through the 220ms entrance, revisit per-device
 // rather than globally disabling.
 //
-// iOS ignores experimentalBlurMethod entirely (native blur), so this only
-// affects Android.
+// iOS ignores the prop entirely (it has native blur), so this only affects
+// Android.
+//
+// Passed as BlurView's `blurMethod`. It was `experimentalBlurMethod` until Expo
+// SDK 55 renamed it; the old name still type-checks but is deprecated and will
+// be removed.
 export const SHEET_BLUR_METHOD: "none" | "dimezisBlurView" = "dimezisBlurView";

@@ -225,7 +225,7 @@ export function ProfileSettingsSheet(props: {
         <BlurView
           intensity={20}
           tint="light"
-          experimentalBlurMethod={SHEET_BLUR_METHOD}
+          blurMethod={SHEET_BLUR_METHOD}
           style={StyleSheet.absoluteFill}
         />
         <View style={styles.tint} />
@@ -607,7 +607,7 @@ function pluralizeMembers(count: number): string {
 
 const styles = StyleSheet.create({
   tint: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(0,0,0,0.08)",
   },
   sheetContainer: {

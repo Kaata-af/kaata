@@ -19,11 +19,20 @@
 //  - Verify the COPY before promoting it, and check it isn't EMPTY. The native
 //    backup discards sqlite3_backup_step's return value, so a partial copy can
 //    still "succeed" and pass quick_check while containing nothing.
-//  - Never reuse a File object across a move(). expo-file-system rewrites the
-//    receiver's uri to the destination, so a second move on the same object
+//  - Never reuse a File object across a moveSync(). expo-file-system rewrites
+//    the receiver's uri to the destination, so a second move on the same object
 //    silently targets the wrong path.
 //  - The interval lives in app_meta, not memory: a module global resets on
 //    every cold start, and these phones kill processes constantly.
+//  - Use moveSync()/copySync(), NEVER move()/copy(). Expo SDK 56 made the
+//    unsuffixed forms asynchronous (they return Promise<void>); calling them
+//    the way this file does — for ordering, inside synchronous functions —
+//    would return immediately without having moved anything. Nothing catches
+//    that: an unawaited promise in a void context is not a type error, so
+//    `tsc` stays green and the Metro bundle builds, while the rotate/park/
+//    restore sequences silently interleave. relocateSidecar() is the worst
+//    case: its copy-then-delete fallback would delete the WAL before the copy
+//    finished, destroying the uncheckpointed commits it exists to preserve.
 import { Directory, File, Paths } from "expo-file-system";
 import * as SQLite from "expo-sqlite";
 import { runQuickCheck } from "./db-health";
@@ -86,7 +95,7 @@ function relocateSidecar(from: string, to: string): void {
       src.delete();
       return;
     }
-    src.move(sqliteFile(to));
+    src.moveSync(sqliteFile(to));
     return;
   } catch {
     /* fall through to the copy attempt */
@@ -95,7 +104,7 @@ function relocateSidecar(from: string, to: string): void {
   // not become a delete — that would destroy the commits this whole function
   // exists to save. Try copying first, and only give up if that fails too.
   try {
-    src.copy(sqliteFile(to));
+    src.copySync(sqliteFile(to));
   } catch {
     /* nothing else to try */
   }
@@ -231,11 +240,11 @@ async function runBackup(): Promise<boolean> {
     // for the live database.
     if (sqliteFile(CURRENT).exists) {
       for (const f of sqliteSidecars(PREVIOUS)) deleteQuietly(f);
-      sqliteFile(CURRENT).move(sqliteFile(PREVIOUS));
+      sqliteFile(CURRENT).moveSync(sqliteFile(PREVIOUS));
     }
     deleteQuietly(`${CURRENT}-wal`);
     deleteQuietly(`${CURRENT}-shm`);
-    sqliteFile(SCRATCH).move(sqliteFile(CURRENT));
+    sqliteFile(SCRATCH).moveSync(sqliteFile(CURRENT));
 
     return true;
   } catch (err) {
@@ -414,7 +423,7 @@ export async function restoreFromLocalBackup(): Promise<RestoreResult> {
     // leave NO database at all: the next getDb() would silently create an
     // empty one and the user would open the app to a blank ledger.
     for (const f of sqliteSidecars(RESTORE_STAGING)) deleteQuietly(f);
-    sqliteFile(chosen).copy(sqliteFile(RESTORE_STAGING));
+    sqliteFile(chosen).copySync(sqliteFile(RESTORE_STAGING));
 
     // Close the live handle: replacing a file out from under an open SQLite
     // connection turns one corrupt database into two.
@@ -459,7 +468,7 @@ export async function restoreFromLocalBackup(): Promise<RestoreResult> {
     if (sqliteFile(CORRUPT_KEEP).exists) {
       for (const f of sqliteSidecars(DB_NAME)) deleteQuietly(f);
     } else {
-      if (sqliteFile(DB_NAME).exists) sqliteFile(DB_NAME).move(sqliteFile(CORRUPT_KEEP));
+      if (sqliteFile(DB_NAME).exists) sqliteFile(DB_NAME).moveSync(sqliteFile(CORRUPT_KEEP));
       // The sidecars travel WITH the parked file instead of being deleted —
       // see relocateSidecar.
       relocateSidecar(`${DB_NAME}-wal`, `${CORRUPT_KEEP}-wal`);
@@ -469,7 +478,7 @@ export async function restoreFromLocalBackup(): Promise<RestoreResult> {
       // the WAL.
       deleteQuietly(`${DB_NAME}-journal`);
     }
-    sqliteFile(RESTORE_STAGING).move(sqliteFile(DB_NAME));
+    sqliteFile(RESTORE_STAGING).moveSync(sqliteFile(DB_NAME));
     return "restored";
   } catch (err) {
     console.warn(`[db-backup] restore from ${chosen} failed`, err);
@@ -506,7 +515,7 @@ export function finishInterruptedRestore(): boolean {
     relocateSidecar(`${DB_NAME}-wal`, `${CORRUPT_KEEP}-wal`);
     relocateSidecar(`${DB_NAME}-shm`, `${CORRUPT_KEEP}-shm`);
     deleteQuietly(`${DB_NAME}-journal`);
-    sqliteFile(RESTORE_STAGING).move(sqliteFile(DB_NAME));
+    sqliteFile(RESTORE_STAGING).moveSync(sqliteFile(DB_NAME));
     console.warn("[db-backup] completed a restore that was interrupted last launch");
     return true;
   } catch (err) {

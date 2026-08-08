@@ -4,13 +4,18 @@
 // Phase 1 (expo-background-task, ~15min periodic) and Phase 2 (HeadlessJS spawned
 // by the FGS) both call runBackgroundCatchup().
 //
-// OLD-ARCH REALITY (newArchEnabled=false): the headless task runs in a SEPARATE
-// Hermes VM only when the process was fully killed first. When the FGS kept the
-// process alive across swipe-kill (the common case), the headless task REUSES the
-// app's singleton ReactContext + the same getDb() connection. The guards below are
-// correct for BOTH cases: the per-connection PRAGMAs are an idempotent re-apply on
-// a shared connection, and we never call initDb (the schema-guard + "only the
-// foreground boot migrates" is the protection — see db.ts initDb).
+// VM REALITY: the headless task runs in a SEPARATE Hermes VM only when the
+// process was fully killed first. When the process survived swipe-kill (the
+// common case while an FGS held it), the headless task REUSES the app's
+// singleton React context + the same getDb() connection.
+//
+// This is NOT architecture-specific — it was written under the legacy
+// architecture but bridgeless ReactHost is also one instance per process, so
+// the shared-VM case persists unchanged under the New Architecture. The guards
+// below are correct for BOTH cases either way: the per-connection PRAGMAs are
+// an idempotent re-apply on a shared connection, and we never call initDb (the
+// schema-guard + "only the foreground boot migrates" is the protection — see
+// db.ts initDb).
 //
 // Defense-in-depth crypto-polyfill ordering (the headless ReactContext re-enters
 // this bundle): import the polyfills first; @noble/* capture globalThis.crypto

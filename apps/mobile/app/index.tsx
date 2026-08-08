@@ -1547,7 +1547,7 @@ function TabPage(props: {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
   authOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(0,0,0,0.55)",
     alignItems: "center",
     justifyContent: "center",
