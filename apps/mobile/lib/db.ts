@@ -30,6 +30,8 @@ import {
   findPhoneConflictInVault,
 } from "./event-log";
 import { requestImmediateCheckIn } from "./checkin-trigger";
+import { assertLedgerReadable } from "./db-health";
+import { deleteLocalBackups } from "./db-backup";
 import { buildLocalAccountId } from "./trust/account-id";
 import { resolveAccountIdCandidates } from "./effective-account";
 import { normalizePhone } from "./phone";
@@ -143,13 +145,63 @@ export const FIELD_HLC_INIT = { pms: 0, l: 0, did: "init" } as const;
 // The real, robust guard is in runBackgroundCatchup: it calls getDb() directly +
 // a schema-guard (SELECT schema_migrations '019_…') and NEVER calls initDb. initDb
 // is reached ONLY from the foreground boot (_layout), the sole legitimate migrator.
+const INTEGRITY_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+// True when the full quick_check hasn't run in a day. Runs BEFORE app_meta is
+// guaranteed to exist (initDb creates it a few lines later), so a fresh install
+// throws "no such table" here — which correctly reads as "due", and the check
+// it triggers costs nothing on an empty file. Writing the timestamp is
+// deliberately not awaited into the boot path's critical section: a failed
+// write only means we check again next launch.
+async function integrityCheckDue(db: SQLite.SQLiteDatabase): Promise<boolean> {
+  try {
+    const row = await db.getFirstAsync<{ value: string }>(
+      "SELECT value FROM app_meta WHERE key = 'last_integrity_check_at'",
+    );
+    const last = row?.value ? Number(row.value) : 0;
+    if (Number.isFinite(last) && last > 0 && Date.now() - last < INTEGRITY_CHECK_INTERVAL_MS) {
+      return false;
+    }
+  } catch {
+    // No app_meta yet (fresh install) — check.
+  }
+  return true;
+}
+
 export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   const db = await getDb();
+  // Connection PRAGMAs now live in getDb() so EVERY handle gets them, not just
+  // the foreground boot's (see db-tx.ts CONNECTION_PRAGMAS).
+  //
+  // Integrity before a single migration runs. A damaged file used to surface
+  // as a migration failure — indistinguishable from a transient error — and
+  // the user was told to close and reopen the app forever. This throws ONLY
+  // when the ledger is genuinely unreadable; damage that the book survives is
+  // returned as a warning, because refusing to boot over a bad index would
+  // lock a shopkeeper out of a working ledger. See lib/db-health.ts.
+  //
+  // Rate-limited to once a day. quick_check reads EVERY page, so on every cold
+  // start it is a tax that grows with the ledger — charged hardest to the
+  // shopkeepers with the most entries, on the cheapest phones. Skipping it is
+  // safe because it is not the only detector: _layout.tsx reclassifies any
+  // DB-stage boot failure that SQLite calls corruption into the same recovery
+  // screen, so real damage still surfaces on the query that trips over it.
+  const integrityChecked = await integrityCheckDue(db);
+  const integrityWarning = integrityChecked ? await assertLedgerReadable(db) : null;
+  if (integrityWarning) {
+    console.warn("[init] database reports damage but the ledger reads:", integrityWarning);
+    void import("./crash-report")
+      .then((cr) =>
+        cr.queueCrashReport({
+          kind: "boot",
+          stage: "db_damaged_readable",
+          name: "DatabaseDamaged",
+          message: integrityWarning.slice(0, 500),
+        }),
+      )
+      .catch(() => {});
+  }
   await db.execAsync(`
-    PRAGMA journal_mode = WAL;
-    PRAGMA foreign_keys = ON;
-    PRAGMA busy_timeout = 5000;
-
     CREATE TABLE IF NOT EXISTS app_meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -160,6 +212,18 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
       applied_at INTEGER NOT NULL
     );
   `);
+
+  // Stamp the check only now that app_meta is guaranteed to exist. If the check
+  // above had thrown we never get here, so a corrupt database is re-checked on
+  // every launch rather than being marked as recently-verified.
+  if (integrityChecked) {
+    await db
+      .runAsync(
+        "INSERT INTO app_meta (key, value) VALUES ('last_integrity_check_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        String(Date.now()),
+      )
+      .catch(() => {});
+  }
 
   if (!(await hasRunMigration(db, MIGRATION_001))) {
     try {
@@ -3105,7 +3169,7 @@ async function findRelationshipIdForPerson(
 //
 // Lists both v0 (customers/shopkeeper) and v1 (users/relationships/etc)
 // table names so the reset works against any historical schema state.
-export async function resetAllLocalData(): Promise<void> {
+export async function resetAllLocalData(opts: { keepLocalBackups?: boolean } = {}): Promise<void> {
   const db = await getDb();
   await db.execAsync(`
     DROP TABLE IF EXISTS vault_device_registry;
@@ -3143,6 +3207,18 @@ export async function resetAllLocalData(): Promise<void> {
   _resetDbHandleForReset();
   _resetActiveVaultIdCacheForReset();
   _resetAccountIdCacheForReset();
+  // The rolling local backup is a complete copy of the ledger, in plaintext.
+  // DROPping the tables above says nothing about it, so by default an "erase
+  // everything" — account deletion, or the wipe offered when a different
+  // account signs in — must take it too, or the previous ledger stays fully
+  // readable on disk.
+  //
+  // keepLocalBackups is for the corruption-recovery screen, where the wipe is
+  // clearing a DAMAGED ledger to make room for the server copy. There the
+  // backup is still the user's fallback if the server turns out to have
+  // nothing, so deleting it would spend their last option to perform a
+  // recovery that hasn't succeeded yet.
+  if (!opts.keepLocalBackups) deleteLocalBackups();
 }
 
 // --- public API ---

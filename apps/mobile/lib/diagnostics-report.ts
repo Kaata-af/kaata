@@ -272,6 +272,41 @@ export async function buildDiagnosticsReport(): Promise<string> {
     push("Ledger: —");
   }
 
+  // --- Database health: integrity + the local backup safety net ---
+  // Surfaced so a corrupt DB or a silently-failing backup is visible from the
+  // App health screen rather than only at the moment it ruins someone's day.
+  section("Database");
+  try {
+    const db = await getDb();
+    const sync = await db.getFirstAsync<{ v: number }>("PRAGMA synchronous");
+    const journal = await db.getFirstAsync<{ journal_mode: string }>("PRAGMA journal_mode");
+    push(
+      `journal=${journal?.journal_mode ?? "—"} synchronous=${sync ? Object.values(sync)[0] : "—"}`,
+    );
+    const { probeDatabaseIntegrity } = await import("./db-health");
+    push(`Integrity: ${(await probeDatabaseIntegrity(db)) ?? "check failed"}`);
+  } catch {
+    push("Database: —");
+  }
+  try {
+    const { listLocalBackups } = await import("./db-backup");
+    const backups = listLocalBackups();
+    if (backups.length === 0) {
+      push("Local backups: none yet");
+    } else {
+      for (const b of backups) {
+        // MILLISECONDS. The new expo-file-system File API reports epoch ms;
+        // only the legacy getInfoAsync returned seconds. Multiplying by 1000
+        // here dated every backup to the year ~50,000.
+        const when = b.modifiedAt ? fmtTime(b.modifiedAt) : "—";
+        const mb = b.size != null ? (b.size / (1024 * 1024)).toFixed(1) + "MB" : "—";
+        push(`Backup ${b.name}: ${when} (${mb})`);
+      }
+    }
+  } catch {
+    push("Local backups: —");
+  }
+
   // --- Memory right now + why it died (native module; best-effort) ---
   section("Memory");
   try {

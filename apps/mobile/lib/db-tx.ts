@@ -16,11 +16,74 @@ import * as SQLite from "expo-sqlite";
 
 // ---------- db handle (singleton, lazy) ----------
 
+export const DB_NAME = "kaata.db";
+
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
+
+/**
+ * Connection PRAGMAs. Applied HERE, on every handle — not in initDb().
+ *
+ * `journal_mode` is a persistent property of the FILE, but `foreign_keys` and
+ * `busy_timeout` are PER-CONNECTION and reset to their defaults on every open.
+ * They used to be set only inside initDb(), whose sole caller is the foreground
+ * boot — so any context that reached the database another way (the background
+ * catch-up task, a headless run) ran with foreign keys OFF and no busy timeout,
+ * and had to re-apply them by hand.
+ *
+ * `synchronous = FULL` is stated explicitly rather than inherited. In WAL mode
+ * it fsyncs on each commit, which is what makes a power cut cost you the
+ * in-flight transaction instead of the database. expo-sqlite currently compiles
+ * SQLite without SQLITE_DEFAULT_SYNCHRONOUS, so FULL is already the default —
+ * but that is a build-flag accident, and an upstream change would quietly
+ * downgrade durability for a ledger with no diff to review.
+ */
+const CONNECTION_PRAGMAS = `
+  PRAGMA journal_mode = WAL;
+  PRAGMA foreign_keys = ON;
+  PRAGMA busy_timeout = 5000;
+  PRAGMA synchronous = FULL;
+`;
 
 export function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise) {
-    dbPromise = SQLite.openDatabaseAsync("kaata.db");
+    // Cache the promise, not the handle, so concurrent callers share ONE open
+    // and all of them await the PRAGMAs. Caching after the await would let a
+    // second caller race in with an unconfigured connection.
+    const opening = (async () => {
+      const db = await SQLite.openDatabaseAsync(DB_NAME);
+      try {
+        await db.execAsync(CONNECTION_PRAGMAS);
+      } catch (err) {
+        // The OPEN succeeded — openDatabaseAsync runs no SQL — so on a damaged
+        // file these PRAGMAs are the first statements to read page 1, and this
+        // is where the corruption surfaces. Close before rethrowing: expo-sqlite
+        // ref-counts native connections per path and only calls sqlite3_close()
+        // when the count reaches zero, so abandoning the handle here leaks a ref
+        // permanently. Every later closeAsync() would then decrement to a
+        // non-zero count and quietly do nothing — including the one the recovery
+        // path performs before it renames the database file out from under it.
+        try {
+          await db.closeAsync();
+        } catch {
+          /* nothing more we can do */
+        }
+        throw err;
+      }
+      return db;
+    })();
+    // Uncache a REJECTED open, or the first transient failure is permanent for
+    // the life of the process: every later getDb() would hand back the same
+    // rejection without retrying, so the in-process boot retry could never
+    // succeed and the user would be stuck on the error screen until they
+    // killed the app themselves. Android's file-based encryption can genuinely
+    // refuse the open on an early boot and allow it moments later.
+    //
+    // The guard matters: by the time this handler runs, a newer open may have
+    // been started, and nulling the field would orphan it.
+    opening.catch(() => {
+      if (dbPromise === opening) dbPromise = null;
+    });
+    dbPromise = opening;
   }
   return dbPromise;
 }

@@ -19,7 +19,7 @@ import * as Network from "expo-network";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { setStatusBarStyle, StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
@@ -117,7 +117,8 @@ import { useAppFontsWithError } from "../lib/fonts";
 import { getLocale, initLocaleFromPref, isPlaceholderSelfName, t } from "../lib/i18n";
 import { ensureInstallId, getInstalledAtUnixMs } from "../lib/install-id";
 import { sweepAllQuarantinedVaults } from "../lib/projection/sweep";
-import { type BootError, forceRestart, toBootError } from "../lib/boot-error";
+import { type BootError, type BootErrorStage, forceRestart, toBootError } from "../lib/boot-error";
+import { asCorruptionError, DatabaseCorruptError } from "../lib/db-health";
 
 const currentVersion = Application.nativeApplicationVersion || "0.1.0";
 
@@ -127,6 +128,15 @@ const currentVersion = Application.nativeApplicationVersion || "0.1.0";
 // Declared up here so DbInitFailedPrompt + BootFailedPrompt can reference
 // it without temporal-dead-zone gymnastics.
 const SUPPORT_CONTACT = "support@kaata.af";
+
+// Boot stages that actually run SQL. Only these are allowed to be reclassified
+// as database corruption — see the note in step()'s catch.
+const DB_BOOT_STAGES = new Set<BootErrorStage>([
+  "install_id",
+  "prime_caches",
+  "user_prefs",
+  "self_lookup",
+]);
 
 // Decide where the Stack mounts first. Precedence:
 //   1. If the user has a local_self user, they're already onboarded — home.
@@ -216,6 +226,10 @@ export default function RootLayout() {
   // sequence can still finish its non-db side-effects (BackgroundCheckIn
   // skip, font load, etc.) even if we've decided to refuse to render.
   const [dbReady, setDbReady] = useState<boolean | null>(null);
+  // Non-null when quick_check found structural damage at boot: the file is
+  // broken, not the schema, so restarting can never help. Drives the
+  // recovery-capable prompt instead of the "close and reopen" one.
+  const [dbCorrupt, setDbCorrupt] = useState<string | null>(null);
   const [installId, setInstallId] = useState<string | null>(null);
   const [hasOnboarded, setHasOnboarded] = useState(false);
   // Resumable onboarding step: 'language' | 'auth' | 'profile' | 'kaata' |
@@ -236,14 +250,42 @@ export default function RootLayout() {
   const [accountId, setAccountId] = useState<string | null>(null);
   const [restoreSkipped, setRestoreSkipped] = useState(false);
 
+  // Bumped to re-run the whole boot sequence in-process. Two callers: the
+  // recovery screen, once it has repaired the database, and the "try again"
+  // button on the boot-failure screens.
+  //
+  // The alternative was forceRestart(), and it does not work on iOS: it is a
+  // NO-OP there (react-native-restart is gone, and BackHandler.exitApp is
+  // Android-only). So the recovery button would have replaced the database and
+  // then left the user staring at the same error screen with no way forward,
+  // and the boot-failure screens offered iPhone users no action at all.
+  // Re-running boot is also simply better on Android — nothing survives a cold
+  // start that isn't re-derived here, and the user doesn't have to go find the
+  // app and reopen it.
+  const [bootNonce, setBootNonce] = useState(0);
+  const retryBoot = useCallback(() => {
+    setBootError(null);
+    setDbCorrupt(null);
+    setDbReady(null);
+    setAppReady(false);
+    setBootNonce((n) => n + 1);
+  }, []);
+
   useEffect(() => {
+    // D-BOOT-CRASH-DEFENSE: every boot step funnels through `step()` so
+    // we never need an outer catch-all that silently flips appReady=true
+    // after a partial failure. On failure, bootError is set and appReady
+    // stays false; the render gate below picks up BootFailedPrompt
+    // instead of mounting the (partially-initialized) Stack.
+    //
+    // Hoisted out of the IIFE so the cleanup below can abort a run that is
+    // still in flight when bootNonce changes. Without that, a retry would
+    // start a SECOND boot sequence alongside the first, and two concurrent
+    // initDb() calls share one connection — hasRunMigration is checked outside
+    // the transaction, so both can decide the same migration is unapplied and
+    // run it twice.
+    let aborted = false;
     (async () => {
-      // D-BOOT-CRASH-DEFENSE: every boot step funnels through `step()` so
-      // we never need an outer catch-all that silently flips appReady=true
-      // after a partial failure. On failure, bootError is set and appReady
-      // stays false; the render gate below picks up BootFailedPrompt
-      // instead of mounting the (partially-initialized) Stack.
-      let aborted = false;
       const step = async <T,>(
         stage: Parameters<typeof toBootError>[0],
         fn: () => Promise<T>,
@@ -253,6 +295,34 @@ export default function RootLayout() {
           return await fn();
         } catch (err) {
           console.error(`[init] ${stage} failed`, err);
+          // A damaged file doesn't wait for the integrity check to ask about
+          // it — the first casualty is whichever query touches a bad page,
+          // and ensureInstallId's app_meta read runs before initDb even
+          // starts. Route a DB-touching stage whose failure SQLite describes
+          // as corruption to the recovery screen, so the user gets the one
+          // prompt that can actually help instead of "close and reopen".
+          //
+          // Restricted to the DB stages ON PURPOSE. The classifier matches the
+          // bare substring "corrupt" (to catch SQLITE_CORRUPT however
+          // expo-sqlite words it), which is broad enough that a font, locale
+          // or Google-Sign-In error mentioning the word would otherwise send
+          // a user with a perfectly healthy ledger to a screen offering to
+          // replace their database.
+          const corrupt = DB_BOOT_STAGES.has(stage) ? asCorruptionError(err) : null;
+          if (corrupt) {
+            setDbCorrupt(corrupt.details);
+            setDbReady(false);
+            aborted = true;
+            void import("../lib/crash-report").then((cr) =>
+              cr.queueCrashReport({
+                kind: "boot",
+                stage: "db_corrupt",
+                name: "DatabaseCorruptError",
+                message: `${stage}: ${corrupt.details}`.slice(0, 500),
+              }),
+            );
+            return undefined;
+          }
           const be = toBootError(stage, err);
           setBootError(be);
           aborted = true;
@@ -265,6 +335,20 @@ export default function RootLayout() {
           return undefined;
         }
       };
+
+      // 0. Finish a restore that was interrupted between its two renames.
+      //    This MUST come before any other step: every one of them reaches the
+      //    database, and getDb() on a missing file creates an empty one — at
+      //    which point the half-finished restore is indistinguishable from a
+      //    fresh install and the user's recovered ledger is stranded under a
+      //    temp name. Pure file operations, no SQL, so it cannot itself fail
+      //    the way the steps below can.
+      try {
+        const { finishInterruptedRestore } = await import("../lib/db-backup");
+        finishInterruptedRestore();
+      } catch (err) {
+        console.warn("[init] interrupted-restore check failed", err);
+      }
 
       // 1. Mint / fetch install_id and prime its cache BEFORE migrations
       //    run so migration 006 (synthetic backfill) can stamp it as the
@@ -287,6 +371,28 @@ export default function RootLayout() {
         await initDb({ installId: id });
         dbOk = true;
       } catch (err) {
+        // Corruption is a DIFFERENT failure from "a migration threw": the
+        // schema isn't partially applied, the file itself is damaged, and
+        // restarting can never fix it. Flag it so the prompt below can offer
+        // recovery, and report it home — this is exactly the event that was
+        // previously invisible to us.
+        // asCorruptionError, not `instanceof`: the integrity gate is not the
+        // only statement in initDb that can hit a damaged page — a CREATE
+        // TABLE or a migration's own SELECT can be the first to fail, and that
+        // error arrives as a plain SQLite error. Classifying by SQLite's own
+        // wording routes all of them to the recovery screen.
+        const corrupt = asCorruptionError(err);
+        if (corrupt) {
+          setDbCorrupt(corrupt.details);
+          void import("../lib/crash-report").then((cr) =>
+            cr.queueCrashReport({
+              kind: "boot",
+              stage: "db_corrupt",
+              name: "DatabaseCorruptError",
+              message: corrupt.details.slice(0, 500),
+            }),
+          );
+        }
         // CRITICAL: do NOT flip dbReady=true. Migrations are append-only
         // and atomic per-migration (each runs inside withTransactionAsync),
         // so a throw here means at least one migration's schema changes
@@ -296,10 +402,10 @@ export default function RootLayout() {
         // errors anywhere — better to refuse to mount and prompt a
         // restart than to pretend the app is healthy.
         console.error("[init] initDb failed — refusing to render Stack", err);
-        setDbReady(false);
+        if (!aborted) setDbReady(false);
         return; // skip rest of boot — every step below depends on the db.
       }
-      if (!dbOk) return;
+      if (!dbOk || aborted) return;
       setDbReady(true);
 
       // 3. Prime caches. Pulled into its own stage so a vault-cache
@@ -410,9 +516,14 @@ export default function RootLayout() {
       // Everything that's supposed to run before the Stack mounts has
       // completed successfully. Flip appReady. Note: NO outer try/finally
       // wraps this body — appReady flips true ONLY on the success path.
+      if (aborted) return;
       setAppReady(true);
     })();
-  }, []);
+    return () => {
+      aborted = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bootNonce]);
 
   // HEAL-TRIGGER: re-sweep quarantined rows on launch and on every
   // background->foreground transition. Quarantine healing is otherwise purely
@@ -431,13 +542,35 @@ export default function RootLayout() {
     void sweepAllQuarantinedVaults();
     // Foreground pass: only on a real background->active transition, not every
     // focus tick, so we don't spam a DB scan.
+    // Rolling local backup — the only protection for the ~half of users who
+    // never sign in, and the only thing that survives a corruption predating
+    // the last sync. Both triggers are rate-limited to 6h inside backupIfDue
+    // and fully best-effort.
+    //
+    // The delayed launch pass exists because backgrounding is NOT a reliable
+    // trigger: a user who leaves the app by swiping it out of recents may give
+    // the async copy no time to finish, and some do that every single time. 20
+    // seconds in, the boot burst is over and the shopkeeper is reading, not
+    // typing.
+    const launchBackup = setTimeout(() => {
+      void import("../lib/db-backup").then((b) => b.backupIfDue());
+    }, 20_000);
+
     let last = AppState.currentState;
     const sub = AppState.addEventListener("change", (next) => {
       const cameToForeground = last.match(/inactive|background/) != null && next === "active";
+      const wentToBackground = last === "active" && next.match(/inactive|background/) != null;
       last = next;
       if (cameToForeground) void sweepAllQuarantinedVaults();
+      // Taken on the way OUT so it can't delay a cold start.
+      if (wentToBackground) {
+        void import("../lib/db-backup").then((b) => b.backupIfDue());
+      }
     });
-    return () => sub.remove();
+    return () => {
+      clearTimeout(launchBackup);
+      sub.remove();
+    };
   }, [dbReady]);
 
   // #43 P2 breaker self-heal: clear the background-mesh crash-loop breaker on
@@ -517,12 +650,22 @@ export default function RootLayout() {
   //      had not awaited its setter — defensive).
   //   3. otherwise → render the full app.
   if (dbReady === false) {
-    return <DbInitFailedPrompt />;
+    return dbCorrupt ? (
+      <DbCorruptPrompt details={dbCorrupt} onRecovered={retryBoot} />
+    ) : (
+      <DbInitFailedPrompt onRetry={retryBoot} />
+    );
   }
   // D-BOOT-CRASH-DEFENSE: any captured fatal from a non-db stage. dbReady
   // wins above so the existing DbInitFailedPrompt copy isn't shadowed.
   if (bootError) {
-    return <BootFailedPrompt error={bootError} />;
+    // canRetryInProcess keys off fontsError itself, NOT the reported stage. The
+    // fonts effect above overwrites bootError the moment retryBoot clears it,
+    // so a screen showing some other stage could flip to "fonts" mid-press —
+    // taking its own button away and leaving the retry unrun.
+    return (
+      <BootFailedPrompt error={bootError} onRetry={retryBoot} canRetryInProcess={!fontsError} />
+    );
   }
   if (!appReady || !fontsReady || dbReady !== true) {
     return <BootSplash />;
@@ -823,7 +966,7 @@ function MigrationPrompt() {
 //     thing failed".
 //   - Added a support contact line so a user staring at this screen has
 //     somewhere to actually share a screenshot of the issue.
-function DbInitFailedPrompt() {
+function DbInitFailedPrompt({ onRetry }: { onRetry: () => void }) {
   return (
     <View style={migrationStyles.container}>
       <View style={migrationStyles.card}>
@@ -850,20 +993,338 @@ function DbInitFailedPrompt() {
         <Text style={bootErrorStyles.supportFa}>
           اگر تکرار شد، با {SUPPORT_CONTACT} تماس بگیرید
         </Text>
-        {Platform.OS === "android" ? (
-          <>
-            <View style={migrationStyles.spacer} />
-            <Pressable
-              onPress={() => forceRestart()}
-              style={({ pressed }) => [migrationStyles.button, pressed && { opacity: 0.85 }]}
-            >
-              <Text style={migrationStyles.buttonText}>Close kaata · بستن کاتا</Text>
-            </Pressable>
-          </>
-        ) : null}
+        <View style={migrationStyles.spacer} />
+        {/* Android closes the app so the user reopens into a clean process.
+            iOS can't: forceRestart() is a no-op there, and this screen used to
+            render NO button at all on iPhone — half our users, given an error
+            and nothing to press. Migrations are per-migration transactional
+            and idempotent, so re-running boot in place resumes exactly where
+            the failed one stopped. */}
+        <Pressable
+          onPress={() => (Platform.OS === "android" ? forceRestart() : onRetry())}
+          style={({ pressed }) => [migrationStyles.button, pressed && { opacity: 0.85 }]}
+        >
+          <Text style={migrationStyles.buttonText}>
+            {Platform.OS === "android" ? "Close kaata · بستن کاتا" : "Try again · دوباره کوشش کنید"}
+          </Text>
+        </Pressable>
       </View>
     </View>
   );
+}
+
+// Rendered when quick_check finds the database is structurally damaged.
+//
+// Distinct from DbInitFailedPrompt on purpose: that screen's advice ("close
+// and reopen") is right for a partially-applied schema and USELESS here — the
+// file is broken, so every restart lands back on the same screen. That loop,
+// with no way out but reinstalling (which destroys the ledger of anyone not
+// signed in), was the actual failure mode.
+//
+// Two recovery paths, offered in the order that preserves the most data:
+//
+//  1. The rolling local backup (lib/db-backup.ts). Offered to EVERYONE — about
+//     half of Kaata's users never sign in, so they are exactly the people a
+//     recovery screen exists for, and they were the ones the previous version
+//     of this screen had nothing to offer. It also beats the server copy for
+//     signed-in users whose damage predates their last sync.
+//  2. The server snapshot, for signed-in users. The session JWT lives in
+//     SecureStore, untouched by database damage, so wiping the file and
+//     re-running the restore flow gets their ledger back.
+//
+// Both are probed before either is offered — a button for a recovery that
+// cannot work is worse than no button.
+function DbCorruptPrompt({ details, onRecovered }: { details: string; onRecovered: () => void }) {
+  // The probe asks db-backup which generation a restore would ACTUALLY use,
+  // rather than just whether a backup file exists. That distinction is the
+  // difference between offering a button that works and one that fails on
+  // press, and between quoting the age of the file we will really restore and
+  // the age of whichever happens to be newest.
+  //
+  // hasBackup is tracked separately from backupAt: a usable backup whose
+  // modificationTime the platform won't report is still a restorable backup,
+  // and keying the button off the timestamp would hide it.
+  const [probe, setProbe] = useState<{
+    hasBackup: boolean;
+    backupAt: number | null;
+    signedIn: boolean;
+  } | null>(null);
+  const [working, setWorking] = useState<null | "local" | "account">(null);
+  const [failure, setFailure] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      let hasBackup = false;
+      let backupAt: number | null = null;
+      let signedIn = false;
+      try {
+        const { findRestoreCandidate } = await import("../lib/db-backup");
+        const candidate = await findRestoreCandidate();
+        hasBackup = candidate != null;
+        backupAt = candidate?.modifiedAt ?? null;
+      } catch {
+        /* no usable backup */
+      }
+      try {
+        const { isSignedIn } = await import("../lib/auth");
+        signedIn = await isSignedIn();
+      } catch {
+        /* treat as signed out */
+      }
+      if (alive) setProbe({ hasBackup, backupAt, signedIn });
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Swap the damaged file for the newest verified backup and re-run boot. The
+  // damaged original is kept (as kaata.corrupt.db) rather than deleted — it is
+  // the only copy of anything written since the backup.
+  async function onRestoreLocal() {
+    if (working) return;
+    setWorking("local");
+    setFailure(null);
+    try {
+      const { restoreFromLocalBackup } = await import("../lib/db-backup");
+      const result = await restoreFromLocalBackup();
+      if (result === "restored") {
+        onRecovered();
+        return;
+      }
+      setFailure(
+        result === "backup_damaged"
+          ? "The backup on this phone is damaged too."
+          : result === "no_backup"
+            ? "No backup was found on this phone."
+            : "Restoring from the backup failed.",
+      );
+    } catch (err) {
+      console.error("[db-corrupt] local restore failed", err);
+      setFailure("Restoring from the backup failed.");
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  // Wipe the damaged database and hand the user back to the sign-in step,
+  // which routes into the server restore probe. Deliberately NOT automatic:
+  // it destroys whatever is left locally, so it stays a button the user
+  // presses after reading what it does.
+  async function onRestoreFromAccount() {
+    if (working) return;
+    setWorking("account");
+    setFailure(null);
+    try {
+      try {
+        const { resetAllLocalData } = await import("../lib/db");
+        // Keep the local backup: the server restore hasn't happened yet, and
+        // if it comes back empty that backup is the only ledger left.
+        await resetAllLocalData({ keepLocalBackups: true });
+      } catch (err) {
+        // resetAllLocalData works by DROPping tables, which needs a readable
+        // database — exactly what we don't have. Delete the files instead.
+        // Note this closes the handle FIRST: expo-sqlite's
+        // deleteDatabaseAsync throws while a connection is open, so the old
+        // code's fallback failed in every case it was written for.
+        console.error("[db-corrupt] reset failed, deleting the database files", err);
+        const {
+          getDb,
+          _resetAccountIdCacheForReset,
+          _resetActiveVaultIdCacheForReset,
+          _resetDbHandleForReset,
+        } = await import("../lib/db-tx");
+        try {
+          const db = await getDb();
+          await db.closeAsync();
+        } catch {
+          /* already unusable */
+        }
+        // Same set resetAllLocalData clears on its success path. The active
+        // vault cache especially: getActiveVaultId() short-circuits on it, so
+        // leaving it set would carry a deleted vault's id into the fresh
+        // database.
+        _resetDbHandleForReset();
+        _resetActiveVaultIdCacheForReset();
+        _resetAccountIdCacheForReset();
+        const { deleteLiveDatabaseFiles } = await import("../lib/db-backup");
+        deleteLiveDatabaseFiles();
+      }
+
+      // Rebuild an empty database and mark the onboarding step as 'auth'.
+      // Without this the next launch sees no app_meta at all and starts at the
+      // language picker — a signed-in user looking for their ledger back would
+      // have been walked through a fresh install instead. Signing in again
+      // repopulates account_id and lands them on the restore probe.
+      const { ensureInstallId } = await import("../lib/install-id");
+      const { initDb, setAppMeta } = await import("../lib/db");
+      const freshId = await ensureInstallId();
+      await initDb({ installId: freshId });
+      await setAppMeta("onboarding_step", "auth");
+      onRecovered();
+    } catch (err) {
+      console.error("[db-corrupt] account recovery failed", err);
+      setFailure("Recovery failed. Please contact support before reinstalling.");
+      setWorking(null);
+    }
+  }
+
+  const busy = working !== null;
+  const hasBackup = probe?.hasBackup === true;
+
+  return (
+    <View style={migrationStyles.container}>
+      <View style={migrationStyles.card}>
+        <Text style={migrationStyles.wordmark}>{t("brand.wordmark")}</Text>
+        <View style={migrationStyles.spacer} />
+        <Text style={migrationStyles.heading}>Your Kaata data is damaged</Text>
+        <Text style={migrationStyles.headingFa}>داده‌های کاتای شما آسیب دیده</Text>
+        <View style={migrationStyles.spacer} />
+
+        {probe === null ? (
+          <ActivityIndicator color={colors.textMuted} />
+        ) : (
+          <>
+            {hasBackup && (
+              <>
+                <Text style={migrationStyles.body}>
+                  There is a backup on this phone{formatBackupAge(probe.backupAt)}. Restoring it
+                  brings your kaata back to that point.
+                </Text>
+                <View style={migrationStyles.spacerSmall} />
+                <Text style={migrationStyles.bodyFa}>
+                  در این تلفون یک پشتیبان وجود دارد. با بازیابی آن، کاتای شما تا همان زمان
+                  برمی‌گردد.
+                </Text>
+                <View style={migrationStyles.spacer} />
+                <Pressable
+                  onPress={() => void onRestoreLocal()}
+                  disabled={busy}
+                  style={({ pressed }) => [
+                    migrationStyles.button,
+                    (pressed || busy) && { opacity: 0.85 },
+                  ]}
+                >
+                  {working === "local" ? (
+                    <ActivityIndicator color={colors.textInverted} />
+                  ) : (
+                    <Text style={migrationStyles.buttonText}>
+                      Restore this phone&apos;s backup · بازیابی پشتیبان
+                    </Text>
+                  )}
+                </Pressable>
+              </>
+            )}
+
+            {probe.signedIn && (
+              <>
+                <View style={migrationStyles.spacer} />
+                <Text style={migrationStyles.body}>
+                  You&apos;re signed in, so your kaata can also be restored from your account.
+                </Text>
+                <View style={migrationStyles.spacerSmall} />
+                <Text style={migrationStyles.bodyFa}>
+                  شما وارد شده‌اید، پس کاتای شما از حساب‌تان هم بازیابی شده می‌تواند.
+                </Text>
+                <View style={migrationStyles.spacer} />
+                <Pressable
+                  onPress={() => void onRestoreFromAccount()}
+                  disabled={busy}
+                  style={({ pressed }) => [
+                    hasBackup ? migrationStyles.buttonSecondary : migrationStyles.button,
+                    (pressed || busy) && { opacity: 0.85 },
+                  ]}
+                >
+                  {working === "account" ? (
+                    <ActivityIndicator
+                      color={hasBackup ? colors.textDefault : colors.textInverted}
+                    />
+                  ) : (
+                    <Text
+                      style={
+                        hasBackup ? migrationStyles.buttonSecondaryText : migrationStyles.buttonText
+                      }
+                    >
+                      Restore from my account · بازیابی از حساب
+                    </Text>
+                  )}
+                </Pressable>
+              </>
+            )}
+
+            {/* No backup and no account. This is a real state — every install
+                is in it until the first backup runs, and a database that has
+                been degrading for a while may never have produced one. It used
+                to render text and NOTHING else: a terminal screen with no
+                button, for the half of our users who never sign in. "Try
+                again" is not a fix, but the underlying failure is not always
+                permanent (a locked or momentarily unreadable file recovers),
+                and a dead end is the worst possible answer. */}
+            {!hasBackup && !probe.signedIn && (
+              <>
+                <Text style={migrationStyles.body}>
+                  Please contact us before reinstalling — reinstalling erases the ledger on this
+                  phone.
+                </Text>
+                <View style={migrationStyles.spacerSmall} />
+                <Text style={migrationStyles.bodyFa}>
+                  پیش از نصب دوباره با ما تماس بگیرید — نصب دوباره کتاب این تلفون را پاک می‌کند.
+                </Text>
+                <View style={migrationStyles.spacer} />
+                <Pressable
+                  onPress={onRecovered}
+                  style={({ pressed }) => [
+                    migrationStyles.buttonSecondary,
+                    pressed && { opacity: 0.85 },
+                  ]}
+                >
+                  <Text style={migrationStyles.buttonSecondaryText}>
+                    Try again · دوباره کوشش کنید
+                  </Text>
+                </Pressable>
+              </>
+            )}
+          </>
+        )}
+
+        {failure && (
+          <>
+            <View style={migrationStyles.spacerSmall} />
+            <Text style={bootErrorStyles.failure}>{failure}</Text>
+          </>
+        )}
+
+        <View style={migrationStyles.spacer} />
+        <Text style={bootErrorStyles.support}>
+          If it keeps happening, contact {SUPPORT_CONTACT}
+        </Text>
+        <Text style={bootErrorStyles.supportFa}>
+          اگر تکرار شد، با {SUPPORT_CONTACT} تماس بگیرید
+        </Text>
+        <View style={migrationStyles.spacerSmall} />
+        <Text style={bootErrorStyles.detail} numberOfLines={3}>
+          {details}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+// Coarse age of the local backup, as a sentence fragment (" from 2 days ago")
+// or "" when the platform gave us no timestamp. English only: this is a
+// boot-time failure surface reached before the locale is loaded, and the age is
+// the one fact the user needs to judge whether restoring is worth it.
+function formatBackupAge(at: number | null): string {
+  if (at == null) return "";
+  // Epoch MILLISECONDS — the new expo-file-system File API's unit. (The legacy
+  // getInfoAsync returned seconds; don't reintroduce a ×1000.)
+  const hours = Math.floor((Date.now() - at) / 3_600_000);
+  if (!Number.isFinite(hours) || hours < 0) return "";
+  if (hours < 1) return " from less than an hour ago";
+  if (hours < 24) return ` from ${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  return ` from ${days} day${days === 1 ? "" : "s"} ago`;
 }
 
 // D-BOOT-CRASH-DEFENSE: rendered when any non-initDb boot stage throws.
@@ -888,7 +1349,23 @@ function DbInitFailedPrompt() {
 //     worst slightly aspirational, not a lie.
 //   - Added support contact line so a user with a screenshot has
 //     somewhere to send it.
-function BootFailedPrompt({ error }: { error: BootError }) {
+// canRetryInProcess is false once the fonts have failed to load. That is the
+// one condition an in-process retry CANNOT clear: useFonts is a hook that has
+// already settled, re-running the boot sequence never re-invokes it, and the
+// render gate needs fontsReady before it will mount anything. Offering "Try
+// again" there would flash the splash and land straight back on this screen.
+// Only a real process restart reloads the fonts, which iOS can't do from here
+// — so iOS keeps the force-quit instructions above and no button, which is at
+// least honest.
+function BootFailedPrompt({
+  error,
+  onRetry,
+  canRetryInProcess,
+}: {
+  error: BootError;
+  onRetry: () => void;
+  canRetryInProcess: boolean;
+}) {
   return (
     <View style={migrationStyles.container}>
       <View style={migrationStyles.card}>
@@ -929,22 +1406,44 @@ function BootFailedPrompt({ error }: { error: BootError }) {
         <Text style={bootErrorStyles.support}>Send to {SUPPORT_CONTACT}</Text>
         <Text style={bootErrorStyles.supportFa}>به {SUPPORT_CONTACT} ارسال کنید</Text>
         <View style={migrationStyles.spacer} />
-        <Pressable
-          onPress={() => forceRestart()}
-          style={({ pressed }) => [migrationStyles.button, pressed && { opacity: 0.85 }]}
-        >
-          <Text style={migrationStyles.buttonText}>
-            {Platform.OS === "android"
-              ? "Close & restart · بستن و راه‌اندازی"
-              : "Force quit · بستن کاتا"}
-          </Text>
-        </Pressable>
+        {/* On iOS this used to read "Force quit" and do NOTHING — forceRestart
+            is Android-only — so the single action on the screen was dead. Most
+            of what fails up there is transient (a flaky locale probe, a
+            database that wasn't ready yet), which re-running boot does fix. */}
+        {Platform.OS === "android" || canRetryInProcess ? (
+          <Pressable
+            onPress={() => (Platform.OS === "android" ? forceRestart() : onRetry())}
+            style={({ pressed }) => [migrationStyles.button, pressed && { opacity: 0.85 }]}
+          >
+            <Text style={migrationStyles.buttonText}>
+              {Platform.OS === "android"
+                ? "Close & restart · بستن و راه‌اندازی"
+                : "Try again · دوباره کوشش کنید"}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
 }
 
 const bootErrorStyles = StyleSheet.create({
+  // Raw quick_check output on the corruption screen — small and muted: it is
+  // for a support screenshot, not for the shopkeeper to read.
+  detail: {
+    fontSize: 11,
+    color: colors.textMuted,
+    textAlign: "center",
+  },
+  // A recovery attempt that didn't work. Red, because the user just pressed a
+  // button expecting their ledger back and needs to know it didn't happen —
+  // the other options on the screen are still there to try.
+  failure: {
+    fontSize: 13,
+    color: colors.danger,
+    textAlign: "center",
+    lineHeight: 19,
+  },
   diagLabel: {
     fontSize: 12,
     color: colors.textDefault,
@@ -1043,6 +1542,22 @@ const migrationStyles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     color: colors.textInverted,
+  },
+  // Used for the server restore when a local backup is also on offer, so the
+  // two buttons read as first choice and second choice rather than as a pair
+  // of equal options — the local backup is usually the newer of the two.
+  buttonSecondary: {
+    paddingHorizontal: 22,
+    paddingVertical: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    backgroundColor: colors.bgDefault,
+  },
+  buttonSecondaryText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.textDefault,
   },
 });
 
