@@ -1061,16 +1061,11 @@ const en = {
   "invite.expiresIn.hours": "in {hours} hours",
   "invite.expiresIn.days": "in {days} days",
   "invite.toast.noActive": "No active Kaata",
-  // D-UI-UNIFICATION — online/offline disclosure banner + offline fallback CTA
-  "invite.online.banner":
-    "For people who aren't here in person. To add staff you're with right now, use Add member.",
-  "invite.offline.banner":
-    "You're offline. Invite links need internet — try Add member for in-person setup.",
-  "invite.offline.fallbackCta": "Open Add member instead",
-  "invite.signInRequired":
-    "Sign in with Google to send email invites. To add staff in person, use Add member.",
-  "invite.vaultNotOnServer":
-    "This Kaata hasn't synced to the server yet. Sync first to send email invites, or use Add member instead.",
+  // Blocker banners. Shown ONLY when something stops a link being created —
+  // each names the blocker and nothing else. (They used to end with "use Add
+  // member", the in-person QR flow that is parked with the offline mesh.)
+  "invite.offline.banner": "You're offline. Creating an invite link needs internet.",
+  "invite.signInRequired": "Sign in to create an invite link.",
 
   // Invite acceptance deep link (app/invite/[token].tsx) — the screen the
   // INVITEE lands on after tapping an emailed/shared invite URL. Role
@@ -2090,16 +2085,9 @@ const fa: Partial<Record<Key, string>> = {
   "invite.expiresIn.hours": "در {hours} ساعت",
   "invite.expiresIn.days": "در {days} روز",
   "invite.toast.noActive": "کاتای فعال نیست",
-  // D-UI-UNIFICATION — online/offline disclosure banner + fallback CTA (Persian)
-  "invite.online.banner":
-    "برای کسانی که حضوراً حاضر نیستند. برای افزودن کارمندی که با شما است از «افزودن عضو» استفاده کنید.",
-  "invite.offline.banner":
-    "آفلاین هستید. لینک‌های دعوت به اینترنت نیاز دارند — برای راه‌اندازی حضوری از «افزودن عضو» استفاده کنید.",
-  "invite.offline.fallbackCta": "به جای آن «افزودن عضو» را باز کنید",
-  "invite.signInRequired":
-    "برای ارسال دعوت با ایمیل، با گوگل وارد شوید. برای افزودن حضوری از «افزودن عضو» استفاده کنید.",
-  "invite.vaultNotOnServer":
-    "این کاتا هنوز با سرور همگام نشده است. ابتدا همگام کنید یا از «افزودن عضو» استفاده کنید.",
+  // Blocker banners (see the en table).
+  "invite.offline.banner": "آفلاین هستید. ساختن لینک دعوت به انترنت نیاز دارد.",
+  "invite.signInRequired": "برای ساختن لینک دعوت، وارد شوید.",
 
   // Invite acceptance deep link (app/invite/[token].tsx) — Persian. Role
   // labels reuse vaultPair.role.*; expiry phrasing reuses invite.expiresIn.*

@@ -9,7 +9,8 @@
 // disclosure so the user isn't left to hit an opaque API error on submit.
 //
 // (The old in-person QR pair, vault/pair.tsx, was the former primary
-// affordance; it is PARKED with the rest of the offline mesh.)
+// affordance; it is PARKED with the rest of the offline mesh — which is why
+// no copy on this screen points at it any more.)
 //
 // Owner-only modal screen. Collects an email + a role (editor / viewer),
 // POSTs to /v1/vaults/:vault_id/invites, and shows the resulting share URL
@@ -98,6 +99,19 @@ export default function VaultInviteScreen() {
   const submittingRef = useRef(false);
 
   const canInvite = useVaultPermission(vaultId, accountId, "vault.invite_member");
+
+  // What (if anything) stops a link from being created right now. Checked in
+  // the order the user can act on: sign in, then get online, then wait for the
+  // kaata to reach the server. null while the probes are still resolving, and
+  // when everything is fine — the screen shows no banner at all then.
+  const blocker: "signedOut" | "offline" | "notSynced" | null =
+    hasJwt === false
+      ? "signedOut"
+      : online === false
+        ? "offline"
+        : vaultOnServer === false
+          ? "notSynced"
+          : null;
 
   useEffect(() => {
     (async () => {
@@ -189,7 +203,9 @@ export default function VaultInviteScreen() {
         status === 403
       ) {
         // local-CA vault not yet registered server-side — must sync first.
-        toast.push(t("invite.vaultNotOnServer"), "error");
+        // Same message as the not-synced banner (the old separate key said the
+        // same thing and then pointed at the parked in-person flow).
+        toast.push(t("invite.link.notOnServer"), "error");
       } else {
         toast.push(t("invite.failed"), "error");
         if (__DEV__) console.warn("[vault/invite] create link failed:", e);
@@ -253,66 +269,39 @@ export default function VaultInviteScreen() {
         >
           {!canInvite ? <EmptyHint label={t("invite.ownerOnly")} isRTL={isRTL} /> : null}
 
-          {/* D-UI-UNIFICATION: offline disclosure banner. Always
-              rendered (not just when offline) so users on shaky AF
-              networks understand WHY this screen has a primary-
-              disabled state before they tap submit. */}
-          {!result ? (
-            <View
-              style={[
-                styles.disclosure,
-                online === false || hasJwt === false || vaultOnServer === false
-                  ? styles.disclosureOffline
-                  : null,
-              ]}
-            >
+          {/* Blocker banner — ONLY when something actually prevents creating a
+              link (signed out / offline / kaata not yet synced), because that
+              is what explains the disabled button.
+
+              It used to render unconditionally: the happy path showed a
+              permanent grey box whose whole message was "to add staff you're
+              with right now, use Add member" — a second, in-person QR flow
+              that was parked with the offline mesh and is commented out on
+              every screen. Every variant of this banner pointed at it, so the
+              copy has been rewritten to describe only the blocker itself. */}
+          {!result && blocker ? (
+            <View style={styles.disclosure}>
               <Ionicons
                 name={
-                  hasJwt === false
+                  blocker === "signedOut"
                     ? "person-circle-outline"
-                    : online === false
+                    : blocker === "offline"
                       ? "cloud-offline-outline"
-                      : vaultOnServer === false
-                        ? "sync-outline"
-                        : "information-circle-outline"
+                      : "sync-outline"
                 }
                 size={18}
-                color={
-                  online === false || hasJwt === false || vaultOnServer === false
-                    ? colors.danger
-                    : colors.textSubtle
-                }
+                color={colors.danger}
                 style={isRTL ? { marginLeft: 10 } : { marginRight: 10 }}
               />
               <Text style={[styles.disclosureText, textDir(isRTL)]}>
-                {hasJwt === false
+                {blocker === "signedOut"
                   ? t("invite.signInRequired")
-                  : online === false
+                  : blocker === "offline"
                     ? t("invite.offline.banner")
-                    : vaultOnServer === false
-                      ? t("invite.link.notOnServer")
-                      : t("invite.online.banner")}
+                    : t("invite.link.notOnServer")}
               </Text>
             </View>
           ) : null}
-
-          {/* PARKED (mesh): in-person QR pair fallback (vault/pair), parked with
-              the rest of mesh. When offline / not signed in the invite screen
-              now just shows its disabled-state disclosure above. Re-add when
-              mesh ships again.
-          {(online === false || hasJwt === false) && !result ? (
-            <View style={styles.formInset}>
-              <Pressable
-                onPress={() => router.replace("/vault/pair")}
-                style={({ pressed }) => [styles.fallbackCta, pressed && { opacity: 0.85 }]}
-              >
-                <Text style={[styles.fallbackCtaText, textDir(isRTL)]}>
-                  {t("invite.offline.fallbackCta")}
-                </Text>
-              </Pressable>
-            </View>
-          ) : null}
-          */}
 
           {!result ? (
             <>
@@ -614,7 +603,7 @@ const styles = StyleSheet.create({
     color: colors.textEmphasis,
   },
 
-  // D-UI-UNIFICATION: offline disclosure + fallback CTA -------------------
+  // Blocker banner — only rendered when a link genuinely can't be created.
   disclosure: {
     flexDirection: "row",
     alignItems: "center",
@@ -624,26 +613,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.borderSubtle,
   },
-  disclosureOffline: {
-    backgroundColor: colors.bgMuted,
-  },
   disclosureText: {
     fontSize: 13,
     fontFamily: fonts.sansMedium,
     color: colors.textDefault,
     flex: 1,
-  },
-  fallbackCta: {
-    marginTop: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: colors.bgInverted,
-    alignItems: "center",
-  },
-  fallbackCtaText: {
-    fontSize: 14,
-    fontFamily: fonts.sansSemi,
-    color: colors.textInverted,
   },
 });
