@@ -16,6 +16,19 @@
 //
 // expo's `android.permissions` array in app.json can't express XML
 // attributes, hence this plugin.
+//
+// CURRENTLY A NO-OP — and deliberately still wired into app.json's `plugins`.
+// Both permissions it patches were removed from app.json in 1.0.7: the mesh is
+// parked (MESH_PARKED=true, and SOLO_STORE_MODE=1 in both shipping profiles),
+// so nothing reachable scans for Bluetooth or Wi-Fi peers, and shipping
+// nearby-device permissions with no corresponding user-facing feature is a
+// Google Play permissions-policy problem as much as a Data Safety one.
+//
+// Left registered rather than deleted so it re-arms by itself: the loop below
+// only touches entries that already exist, so it costs nothing today, and if
+// the permissions ever come back it applies neverForLocation without anyone
+// having to remember to re-add the plugin. Forgetting would silently ship an
+// app that Play scanners read as collecting physical location.
 
 const { withAndroidManifest } = require("@expo/config-plugins");
 

@@ -33,7 +33,7 @@
       "ios": {
         "buildConfiguration": "Release"
       },
-      "autoIncrement": true,
+      "_comment_autoIncrement": "REMOVED deliberately. With appVersionSource:'local', autoIncrement made EAS bump android.versionCode / ios.buildNumber in app.json AT BUILD TIME and write the file back — so a commit made before the build was always stale by one, and the tag never matched the artifact in the store. app.json is now the single source of truth: bump version, versionCode and buildNumber by hand (see CLAUDE.md 'Release / deploy flow'), commit, then build. The cost is that a rebuild after a failed upload needs a manual bump, which fails loudly at the store rather than silently shipping a mismatched number.",
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://api.kaata.af",
         "EXPO_PUBLIC_SOLO_STORE_MODE": "1",

@@ -3,7 +3,7 @@
     "name": "Kaata",
     "slug": "kaata",
     "scheme": "kaata",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -12,10 +12,9 @@
       "bundleIdentifier": "af.kaata.app",
       "usesAppleSignIn": true,
       "infoPlist": {
-        "NSBluetoothAlwaysUsageDescription": "Kaata uses Bluetooth to sync your ledger with nearby phones in your shop.",
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "12"
+      "buildNumber": "13"
     },
     "android": {
       "package": "af.kaata.app",
@@ -28,20 +27,17 @@
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.ACCESS_WIFI_STATE",
-        "android.permission.CHANGE_WIFI_MULTICAST_STATE",
-        "android.permission.NEARBY_WIFI_DEVICES",
-        "android.permission.BLUETOOTH_SCAN",
-        "android.permission.BLUETOOTH_CONNECT",
-        "android.permission.BLUETOOTH_ADVERTISE",
-        "android.permission.BLUETOOTH",
-        "android.permission.BLUETOOTH_ADMIN",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.WAKE_LOCK",
         "android.permission.CAMERA",
         "android.permission.READ_CONTACTS",
         "android.permission.WRITE_CONTACTS"
       ],
-      "versionCode": 32
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "versionCode": 33
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -78,7 +74,8 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Kaata uses the camera to scan pairing codes when you add another phone you own."
+          "cameraPermission": "Kaata uses the camera to scan pairing codes when you add another phone you own.",
+          "recordAudioAndroid": false
         }
       ],
       "expo-task-manager",
