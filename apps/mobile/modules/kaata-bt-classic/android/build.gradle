@@ -19,14 +19,12 @@ dependencies {
   // platform SDK. expo-modules-core comes transitively via the
   // expo-module-gradle-plugin.
   //
-  // KaataMeshHeadlessService extends com.facebook.react.HeadlessJsTaskService and
-  // uses com.facebook.react.bridge.Arguments / jstasks.HeadlessJsTaskConfig (#43
-  // P2). expo-modules-core depends on react-android as `implementation` (not
-  // `api`), so those classes are NOT on this module's compile classpath
-  // transitively — declare react-android directly. No version: the
-  // react-native-gradle-plugin (applied by expo-module-gradle-plugin) resolves it,
-  // exactly as expo-modules-core's own build.gradle does.
-  implementation 'com.facebook.react:react-android'
+  // NOTE: no direct com.facebook.react dependency. KaataMeshHeadlessService
+  // (deleted 2026-08-08 with the mesh cleanup) was the only class here that
+  // touched React Native internals — HeadlessJsTaskService / Arguments /
+  // HeadlessJsTaskConfig — and those are exactly the APIs that move under
+  // bridgeless. Keep it that way: this module should depend on the Android
+  // platform + expo-modules-core only.
 
   // Native mesh engine (Briar-parity rewrite): crypto that must match the JS
   // protocol byte-for-byte — Ed25519 (identity), X25519 (ECDH), HKDF-SHA512

@@ -48,10 +48,11 @@ export type CatchupResult = "ran" | "skipped";
  *  - single-mesh: bail if a foreground mesh is alive (cross-VM heartbeat, NOT
  *    AppState — AppState is per-context), and bail mid-window if it comes alive.
  *  - prime the per-VM sync caches or the event-log hot path throws.
- * A clean exit (any "skipped" or "ran") CLEARS the crash-loop breaker that the
- * native KaataMeshHeadlessService incremented before the spawn — only a genuine
- * THROW (caught by the caller) counts as a breaker failure. Phase 1 has no native
- * increment, so the clears are harmless no-ops there.
+ * A clean exit (any "skipped" or "ran") CLEARS the crash-loop breaker. The
+ * native service that used to increment it before spawning (and the only code
+ * here that touched React Native internals) was deleted with the mesh cleanup
+ * on 2026-08-08, so nothing increments the breaker today and the clears are
+ * harmless no-ops.
  */
 export async function runBackgroundCatchup(maxMs: number): Promise<CatchupResult> {
   if (Platform.OS !== "android") return "skipped";

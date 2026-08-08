@@ -120,7 +120,7 @@ class KaataForegroundService : Service() {
     // bounded via MeshEngine's exponential dial backoff.) First tick = one full
     // period; the immediate post-start window (onStartCommand) covers t=0, so the
     // gaps stay uniform. NOTE: for the LEGACY headless-JS path these also bound
-    // KaataMeshHeadlessService, which must finish within the window.
+    // the spawned background window, which must finish within it.
     private const val BG_TICK_MS = 60_000L
     private const val BG_TICK_FIRST_MS = 60_000L
 
@@ -354,23 +354,18 @@ class KaataForegroundService : Service() {
     // ("read ret -1"). Never spawn the engine while a pair is in progress.
     if (KaataBgMeshGate.isPairingActive(this)) return
 
-    // CUTOVER (flag DEFAULT OFF): when enabled, run the NATIVE MeshEngine in THIS
-    // process (resident JVM, Briar-model) — no JS VM, so it isn't subject to the
-    // headless-JS fragility and works on hostile OEMs too. Flag off => the legacy
-    // headless-JS path below, unchanged (still gated off on MIUI).
+    // The NATIVE MeshEngine runs in THIS process (resident JVM, Briar-model) —
+    // no JS VM, so it isn't subject to headless-JS fragility and works on
+    // hostile OEMs too. It is the ONLY spawn path now: the legacy headless-JS
+    // fallback (KaataMeshHeadlessService) was deleted on 2026-08-08 with the
+    // rest of the parked-mesh cleanup, because it was the one class here that
+    // depended on React Native internals (HeadlessJsTaskService / Arguments /
+    // HeadlessJsTaskConfig) — exactly the APIs that move under bridgeless.
+    // With the flag off there is simply no background window, which matches
+    // reality: MESH_PARKED + SOLO_STORE_MODE mean this service never starts in
+    // a shipped build.
     if (KaataBgMeshGate.isNativeEngineEnabled(this)) {
       spawnNativeEngineWindow()
-      return
-    }
-
-    // MIUI/Xiaomi already 5s-crashed this app's headless path once; default to
-    // Phase-1-only (expo-background-task) there until it's proven on-device.
-    if (isHostileOem()) return
-    try {
-      startService(Intent(this, KaataMeshHeadlessService::class.java))
-    } catch (e: Throwable) {
-      // Background-start can be blocked on some OEMs — never let it crash the FGS.
-      Log.w(TAG, "spawn headless window failed", e)
     }
   }
 
@@ -391,11 +386,6 @@ class KaataForegroundService : Service() {
         nativeEngineRunning = false
       }
     }, "kaata-mesh-engine").apply { isDaemon = true }.start()
-  }
-
-  private fun isHostileOem(): Boolean {
-    val m = (Build.MANUFACTURER ?: "").lowercase()
-    return m.contains("xiaomi") || m.contains("redmi") || m.contains("poco")
   }
 
   override fun onBind(intent: Intent?): IBinder? = null

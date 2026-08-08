@@ -417,6 +417,13 @@ function socketToAdapter(socket: NativeTcpSocket, ready: Promise<void>): LanSock
   };
 }
 
+// react-native-tcp-socket was REMOVED from dependencies (2026-08-08) along with
+// the rest of the parked-mesh native surface — it was a legacy-bridge module
+// with no New Architecture support, carried for a transport that has never run
+// in a shipped build. This lazy require is intentionally left in place: it
+// already throws a typed `lan_unavailable` error, which is exactly the right
+// behaviour while the LAN transport is parked, and reviving it is one
+// `npx expo install react-native-tcp-socket` away with no code change here.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function loadTcpSocket(): any {
   try {

@@ -36,16 +36,17 @@ export function toBootError(stage: BootErrorStage, err: unknown): BootError {
   return { stage, name, message };
 }
 
-// Try a true process restart via react-native-restart (in deps but never
-// previously wired). If the native module is unavailable for any reason
-// (Expo Go, older dev client), fall back to BackHandler.exitApp() so the
-// button at least kills the JS engine and lets the user reopen.
+// Kill the app so the user can reopen it into a clean process.
 //
-// UX critique gap: previously both branches silently swallowed their
-// errors. If react-native-restart is missing from the prod APK and
-// BackHandler.exitApp also throws, the user is stuck on the error screen
-// with zero diagnostic signal. We now log each failure at least once.
-// `restartLogged` ensures repeated taps don't spam logcat.
+// react-native-restart was REMOVED from dependencies (2026-08-08): it was an
+// unmaintained 0.0.x legacy-bridge module carried for this one call, and the
+// exitApp fallback below already covers the case. The optional require is kept
+// deliberately — it costs nothing, and if the package is ever reinstated this
+// path upgrades itself from "exit" to "true restart" with no edit.
+//
+// Both branches log once (`restartLogged`) so a user stuck on the error screen
+// isn't left without a diagnostic signal, while repeated taps don't spam
+// logcat.
 let restartLogged = false;
 export function forceRestart(): void {
   try {

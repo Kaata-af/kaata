@@ -5,6 +5,7 @@
     BLUETOOTH_CONNECT, BLUETOOTH_ADVERTISE, BLUETOOTH_SCAN are declared at the
     app level in apps/mobile/app.json (android.permissions[]). Declaring them
     here too would split the source of truth and break the existing pipeline
-    in plugins/withNearbyWifiNeverForLocation.js + plugins/withBleAdvertiser.js.
+    in plugins/withNearbyWifiNeverForLocation.js. (withBleAdvertiser.js was
+    deleted 2026-08-08 with the BLE libraries it patched.)
   -->
 </manifest>

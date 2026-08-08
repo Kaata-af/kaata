@@ -37,6 +37,12 @@
 //
 // BUILD / DEPLOY PROCEDURE:
 //
+// NOTE (2026-08-08): react-native-ble-plx and react-native-ble-advertiser were
+// UNINSTALLED — they had zero runtime imports and were carried only as native
+// build inputs for this parked design. The prose below describes what a BLE
+// transport WOULD need, not what is installed today; reviving it starts with
+// `npx expo install` for both. BT-classic (modules/kaata-bt-classic) is intact.
+//
 //   1. EAS dev client APK is REQUIRED. `react-native-ble-plx`,
 //      `react-native-webrtc`, and `react-native-zeroconf` are native
 //      modules — Expo Go does not include them.

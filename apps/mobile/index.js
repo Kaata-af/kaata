@@ -36,11 +36,6 @@ import "./lib/mesh/_ed25519-setup";
 // task — which may run in a headless context that re-enters this bundle — has
 // crypto ready. The task itself does nothing unless the Phase 0 kill-switch is on.
 import "./lib/mesh/bg-task";
-// #43 P2 Phase 2: register the headless real-time mesh task (AppRegistry
-// .registerHeadlessTask at module load). After the polyfills for the same reason
-// as bg-task. Native KaataMeshHeadlessService spawns it post-swipe-kill; gated by
-// the Phase 0 kill-switch + cross-VM heartbeat so it's dark by default.
-import "./lib/mesh/headless-entry";
 // #46: per-sync notifications. Subscribes to ledger-applied at load so it's active
 // in both the foreground (when backgrounded) and the headless context.
 import "./lib/mesh/bg-notify";

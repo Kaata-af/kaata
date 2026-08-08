@@ -98,7 +98,6 @@
       ],
       "./plugins/withBackupRules",
       "./plugins/withNearbyWifiNeverForLocation",
-      "./plugins/withBleAdvertiser",
       "./plugins/withGradleJvmArgs",
       "expo-background-task",
       [
