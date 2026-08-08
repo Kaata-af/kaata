@@ -11,7 +11,9 @@ import {
   isGoogleSignInAvailable,
   signInWithApple,
   signInWithGoogle,
+  SignInFailedError,
 } from "../../lib/auth";
+import { queueCrashReport } from "../../lib/crash-report";
 import { colors } from "../../lib/colors";
 import { getAppMeta, setAppMeta } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
@@ -32,6 +34,47 @@ import { t } from "../../lib/i18n";
 //     missed when the user is figuring out a new screen.
 
 const IS_EXPO_GO = Constants.executionEnvironment === "storeClient";
+
+/**
+ * Turn a sign-in failure into something the shopkeeper — and the person
+ * standing next to them trying to help — can actually act on.
+ *
+ * Every failure used to render "Sign-in didn't work. Try again." with the
+ * cause going only to a console.warn. A phone that failed in the field gave
+ * the operator nothing: no stage, no status, nothing to read out. Now the
+ * message names the leg that broke, and carries a short code in parentheses
+ * (e.g. "server 503", "timeout") that can be relayed verbatim.
+ */
+function describeSignInFailure(err: unknown): string {
+  if (err instanceof SignInFailedError) {
+    const hint =
+      err.stage === "play_services"
+        ? t("onboardingMode.signInFailed.playServices")
+        : err.stage === "timeout" || err.stage === "network"
+          ? t("onboardingMode.signInFailed.network")
+          : t("onboardingMode.signInFailed");
+    return `${hint} (${err.code})`;
+  }
+  return t("onboardingMode.signInFailed");
+}
+
+/**
+ * Send the failure home. The crash-report pipeline already exists (queued
+ * locally, flushed opportunistically) but auth never used it, so a sign-in
+ * that failed on someone else's phone left ZERO remote evidence — the exact
+ * situation that made this bug un-diagnosable. Best-effort and non-blocking.
+ */
+function reportSignInFailure(provider: "google" | "apple", err: unknown): void {
+  const code = err instanceof SignInFailedError ? err.code : "unknown";
+  const message = err instanceof Error ? err.message : String(err);
+  console.warn(`[onboarding/auth] ${provider} sign-in failed [${code}]`, err);
+  void queueCrashReport({
+    kind: "js",
+    stage: "signin",
+    name: `${provider}:${code}`,
+    message: message.slice(0, 500),
+  }).catch(() => {});
+}
 
 export default function OnboardingAuthScreen() {
   const router = useRouter();
@@ -131,8 +174,8 @@ export default function OnboardingAuthScreen() {
       if (IS_EXPO_GO) {
         setError(t("onboardingMode.expoGoHint"));
       } else {
-        setError(t("onboardingMode.signInFailed"));
-        console.warn("[onboarding/auth] google sign-in failed", err);
+        setError(describeSignInFailure(err));
+        reportSignInFailure("google", err);
       }
     } finally {
       setBusy(null);
@@ -147,8 +190,8 @@ export default function OnboardingAuthScreen() {
       await completeSignIn(user, "apple");
     } catch (err) {
       if (isCancellation(err)) return; // user-cancelled → silent
-      setError(t("onboardingMode.signInFailed"));
-      console.warn("[onboarding/auth] apple sign-in failed", err);
+      setError(describeSignInFailure(err));
+      reportSignInFailure("apple", err);
     } finally {
       setBusy(null);
     }

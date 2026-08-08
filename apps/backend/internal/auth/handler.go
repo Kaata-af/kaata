@@ -1,7 +1,9 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
@@ -94,12 +96,22 @@ func (h *Handler) GoogleSignIn(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.Contains(msg, "email is not verified"):
 			httpx.Error(w, http.StatusUnauthorized, "google account email is not verified")
-		case strings.Contains(msg, "stale"):
+		// Match the FULL phrase, not the bare word "stale": the service also
+		// wraps DB failures as "clear stale auth credential: …", so a database
+		// outage reported itself to the user as a bad token — and as a 401,
+		// which invites retrying forever against a server that cannot succeed.
+		case strings.Contains(msg, "id token is stale"):
 			httpx.Error(w, http.StatusUnauthorized, "google id token is stale; please retry sign-in")
 		case strings.Contains(msg, "missing iat"), strings.Contains(msg, "missing sub"), strings.Contains(msg, "iat is in the future"):
 			httpx.Error(w, http.StatusUnauthorized, "google id token is malformed")
 		case strings.Contains(msg, "pending_vault_registration"):
 			httpx.Error(w, http.StatusBadRequest, msg)
+		case isServerSideFailure(err):
+			// Our fault, not the credential's: DB down, context cancelled
+			// (the phone hung up), Google cert fetch failed. 503 tells the
+			// client this is worth retrying and keeps 401 meaning "your
+			// token is bad" — the two used to be indistinguishable.
+			httpx.Error(w, http.StatusServiceUnavailable, "sign-in is temporarily unavailable; try again")
 		default:
 			// (already logged above with the underlying error)
 			httpx.Error(w, http.StatusUnauthorized, "google sign-in failed")
@@ -144,6 +156,12 @@ func (h *Handler) AppleSignIn(w http.ResponseWriter, r *http.Request) {
 	result, err := h.svc.SignInWithApple(r.Context(), req.InstallID, req.IDToken, req.DisplayName)
 	if err != nil {
 		log.Printf("auth/apple failed for install %s: %v", req.InstallID, err)
+		// Same split as the Google path: a server-side failure is retryable and
+		// must not masquerade as a rejected credential.
+		if isServerSideFailure(err) {
+			httpx.Error(w, http.StatusServiceUnavailable, "sign-in is temporarily unavailable; try again")
+			return
+		}
 		httpx.Error(w, http.StatusUnauthorized, "apple sign-in failed")
 		return
 	}
@@ -239,4 +257,28 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 		h.authenticator.Invalidate(claims.InstallID, claims.Provider)
 	}
 	httpx.JSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// isServerSideFailure reports whether a sign-in error is OUR problem rather
+// than a bad credential — a database outage, a cancelled request (the phone
+// gave up mid-flight, common on slow links), or a failure fetching Google's
+// signing certificates. Those all used to fall through to a blanket 401,
+// telling a shopkeeper their sign-in was rejected when the truth was that the
+// server couldn't answer. Response bodies stay generic; only the STATUS
+// changes, so the client can distinguish "retry this" from "this won't work".
+func isServerSideFailure(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	msg := err.Error()
+	for _, marker := range []string{
+		"begin tx", "commit", "rollback", "connection refused", "connection reset",
+		"driver: bad connection", "context canceled", "context deadline exceeded",
+		"statement timeout", "clear stale auth credential", "certificate", "no such host",
+	} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
 }

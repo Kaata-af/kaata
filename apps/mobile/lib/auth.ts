@@ -80,6 +80,39 @@ export class SignInCancelledByUserError extends Error {
   }
 }
 
+/**
+ * A sign-in failure that knows WHY it failed.
+ *
+ * The screens used to collapse every failure into "Sign-in didn't work. Try
+ * again." with the real cause going to a console.warn no user or operator can
+ * read — so a shopkeeper standing in front of you with a failing phone gave
+ * you nothing to act on. `stage` says which leg broke and `detail` carries the
+ * HTTP status / native code, both of which the UI renders as a short suffix
+ * the user can read aloud over WhatsApp.
+ */
+export type SignInStage =
+  | "play_services" // Google Play Services missing or too old (Android)
+  | "no_id_token" // Google returned no credential
+  | "timeout" // our backend didn't answer in time
+  | "network" // couldn't reach our backend at all
+  | "server" // backend answered with an error
+  | "unknown";
+
+export class SignInFailedError extends Error {
+  readonly stage: SignInStage;
+  readonly detail: string;
+  constructor(stage: SignInStage, message: string, detail = "") {
+    super(message);
+    this.name = "SignInFailedError";
+    this.stage = stage;
+    this.detail = detail;
+  }
+  /** Short, readable tag for the UI + crash report, e.g. "server 503". */
+  get code(): string {
+    return this.detail ? `${this.stage} ${this.detail}` : this.stage;
+  }
+}
+
 // Result of the "different Google account on this phone" prompt. Returned
 // by the UI callback the caller of signInWithGoogle passes in.
 //   - "keep"   — replace the binding, keep local ledger data
@@ -242,7 +275,20 @@ export async function signInWithGoogle(
     );
   }
 
-  await lib.GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+  // Old Android: this rejects with PLAY_SERVICES_NOT_AVAILABLE when Google
+  // Play Services is missing or too old. The native side pops Google's own
+  // update dialog, but the rejection used to surface as the same generic
+  // "sign-in didn't work" — so the user saw two things at once and no
+  // instruction. Name it, so the screen can tell them to update.
+  try {
+    await lib.GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+  } catch (err) {
+    throw new SignInFailedError(
+      "play_services",
+      "This phone needs an up-to-date Google Play Services to sign in.",
+      lib.isErrorWithCode(err) ? String(err.code) : "",
+    );
+  }
 
   // Clear any cached Google session BEFORE signing in. Two reasons:
   //   1. RELIABILITY (fixes "sign-in didn't work, try again"): a stale cached
@@ -271,7 +317,10 @@ export async function signInWithGoogle(
     idToken = await signInForIdToken(lib);
   }
   if (!idToken) {
-    throw new Error("Google returned no ID token; check OAuth client config.");
+    throw new SignInFailedError(
+      "no_id_token",
+      "Google didn't return a sign-in credential. Try again.",
+    );
   }
 
   // ---- Phase 4.1: "different Google account on this phone" detection ----
@@ -297,42 +346,87 @@ export async function signInWithGoogle(
   // the field and follow up with POST /v1/vaults after onboarding/profile.
   const pendingVaultRegistration = await loadPendingVaultRegistration();
 
-  // Timeout the backend round-trip so a cold/slow server fails fast (with a
-  // retryable error) instead of hanging the sign-in screen indefinitely.
-  const authController = new AbortController();
-  const authTimer = setTimeout(() => authController.abort(), 20_000);
-  let res: Response;
-  try {
-    res = await fetch(`${baseUrl}/v1/auth/google`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        install_id: installId,
-        id_token: idToken,
-        pending_vault_registration: pendingVaultRegistration,
-      }),
-      signal: authController.signal,
-    });
-  } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new Error("Sign-in timed out — check your connection and try again.");
+  const res = await postAuth(`${baseUrl}/v1/auth/google`, {
+    install_id: installId,
+    id_token: idToken,
+    pending_vault_registration: pendingVaultRegistration,
+  });
+  return applyAuthResponse(await readAuthResponse(res));
+}
+
+// Slow-network budget for the ONE call that decides whether sign-in works.
+// Was 20s with no retry, which is how a shopkeeper on a weak Afghan link got
+// "Sign-in didn't work" while the server was still happily processing: the
+// server's write timeout is 120s, so it could commit the account AFTER the
+// phone had given up. 45s stays inside that window, and one retry covers a
+// dropped first attempt. Retrying is safe because the endpoint is idempotent
+// on the Google subject — a second call returns the same account.
+const AUTH_TIMEOUT_MS = 45_000;
+const AUTH_ATTEMPTS = 2;
+
+async function postAuth(url: string, payload: unknown): Promise<Response> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= AUTH_ATTEMPTS; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
+    try {
+      return await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      lastErr = err;
+      // Retry once on a timeout or a transport failure; both are the
+      // signature of a weak link rather than a rejected credential.
+      if (attempt < AUTH_ATTEMPTS) continue;
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new SignInFailedError(
+          "timeout",
+          "Sign-in timed out — check your connection and try again.",
+        );
+      }
+      throw new SignInFailedError(
+        "network",
+        "Couldn't reach Kaata — check your connection and try again.",
+        err instanceof Error ? err.message.slice(0, 60) : "",
+      );
+    } finally {
+      clearTimeout(timer);
     }
-    throw err;
-  } finally {
-    clearTimeout(authTimer);
   }
+  // Unreachable (the loop either returns or throws), but keeps TS honest.
+  throw lastErr instanceof Error ? lastErr : new SignInFailedError("unknown", "Sign-in failed.");
+}
+
+async function readAuthResponse(res: Response): Promise<AuthResponse> {
   if (!res.ok) {
     let detail = "";
     try {
       const body = await res.json();
       detail = body?.error ?? "";
     } catch {
-      // ignore parse failures; we still want to throw something useful
+      // Non-JSON body (captive portal, proxy error page) — the status alone
+      // still tells the operator what happened.
     }
-    throw new Error(`Backend rejected sign-in (${res.status}): ${detail}`);
+    throw new SignInFailedError(
+      "server",
+      detail || "Kaata couldn't complete sign-in. Try again.",
+      String(res.status),
+    );
   }
-  const body = (await res.json()) as AuthResponse;
-  return applyAuthResponse(body);
+  try {
+    return (await res.json()) as AuthResponse;
+  } catch {
+    // A 200 whose body isn't JSON means something between us rewrote the
+    // response — captive portals do this. Previously an unguarded throw.
+    throw new SignInFailedError(
+      "server",
+      "Kaata got an unreadable reply. Try again.",
+      "200-badbody",
+    );
+  }
 }
 
 // Backend response shape shared by /v1/auth/google and /v1/auth/apple.
@@ -553,39 +647,13 @@ async function completeAppleSignIn(
 
   const installId = await ensureInstallId();
   const baseUrl = await getBackendUrl();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20_000);
-  let res: Response;
-  try {
-    res = await fetch(`${baseUrl}/v1/auth/apple`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        install_id: installId,
-        identity_token: idToken,
-        display_name: displayName || undefined,
-      }),
-      signal: controller.signal,
-    });
-  } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new Error("Sign-in timed out — check your connection and try again.");
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
-  }
-  if (!res.ok) {
-    let detail = "";
-    try {
-      const b = await res.json();
-      detail = b?.error ?? "";
-    } catch {
-      // ignore parse failures
-    }
-    throw new Error(`Backend rejected sign-in (${res.status}): ${detail}`);
-  }
-  const body = (await res.json()) as AuthResponse;
+  // Same slow-network budget + single retry + typed failures as Google.
+  const res = await postAuth(`${baseUrl}/v1/auth/apple`, {
+    install_id: installId,
+    identity_token: idToken,
+    display_name: displayName || undefined,
+  });
+  const body = await readAuthResponse(res);
   // The name reached the backend — drop the one-shot stash. Best-effort: a
   // local SQLite hiccup here must not fail a sign-in the server has already
   // accepted (worst case the sub-keyed stash lingers until the next success).

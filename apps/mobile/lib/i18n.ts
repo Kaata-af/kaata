@@ -60,7 +60,13 @@ const en = {
   "onboardingMode.offline.label": "No account",
   "onboardingMode.offline.body": "Your kaata never leaves this phone — private by default.",
   "onboardingMode.offline.title": "Stay fully offline",
+  // Sign-in failures now name the leg that broke and carry a short code
+  // (e.g. "server 503", "timeout") the user can read out for support.
   "onboardingMode.signInFailed": "Sign-in didn't work. Try again.",
+  "onboardingMode.signInFailed.network":
+    "Sign-in couldn't reach Kaata. Check your internet and try again.",
+  "onboardingMode.signInFailed.playServices":
+    "This phone needs a newer Google Play Services to sign in. Update it in the Play Store, or continue without an account.",
   "onboardingMode.expoGoHint": "Sign-in works on the real app; for now you can continue offline.",
   "onboardingMode.back": "Back",
 
@@ -1242,6 +1248,10 @@ const fa: Partial<Record<Key, string>> = {
   "onboardingMode.offline.body": "کاتای شما فقط روی همین تلفون می‌ماند — کاملاً خصوصی.",
   "onboardingMode.offline.title": "کاملاً آفلاین",
   "onboardingMode.signInFailed": "ورود نشد. دوباره امتحان کنید.",
+  "onboardingMode.signInFailed.network":
+    "ورود به کاتا نرسید. انترنت را بررسی کنید و دوباره امتحان کنید.",
+  "onboardingMode.signInFailed.playServices":
+    "این تلفون به نسخهٔ جدیدتر Google Play Services ضرورت دارد. آن را از Play Store به‌روز کنید یا بدون حساب ادامه دهید.",
   "onboardingMode.expoGoHint":
     "ورود در نسخه واقعی برنامه کار می‌کند؛ فعلاً می‌توانید بدون حساب ادامه دهید.",
   "onboardingMode.back": "برگشت",
