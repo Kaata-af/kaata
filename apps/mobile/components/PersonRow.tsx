@@ -83,7 +83,14 @@ export const PersonRow = memo(function PersonRow(props: {
           // rather than the ink black used for live amounts, too: a settled
           // row is finished business and shouldn't pull the eye harder than
           // the balances that still need attention.
-          <Ionicons name="checkmark-circle" size={20} color={colors.textSubtle} />
+          //
+          // Bare "checkmark", not "checkmark-circle": the tick alone is the
+          // tally mark a shopkeeper draws when an account is cleared, and the
+          // circle read as a status badge. Sized 22 rather than the 20 the
+          // circled version used — dropping the disc removes most of the
+          // glyph's ink, so at the same nominal size it reads visibly lighter
+          // than the 15px amount it replaces in this column.
+          <Ionicons name="checkmark" size={22} color={colors.textSubtle} />
         ) : (
           <>
             {/* L41: cap the amount's font scaling so it can't grow so wide at
