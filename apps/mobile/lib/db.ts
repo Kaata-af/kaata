@@ -35,7 +35,7 @@ import { deleteLocalBackups } from "./db-backup";
 import { buildLocalAccountId } from "./trust/account-id";
 import { resolveAccountIdCandidates } from "./effective-account";
 import { normalizePhone } from "./phone";
-import { joinName, writePersonToPhoneBook } from "./contacts-sync";
+import { joinName, upsertPersonInPhoneBook } from "./contacts-sync";
 import type {
   CreatePersonResult,
   Entry,
@@ -3691,8 +3691,10 @@ export async function createPerson(
   // Keep the phone book "one with" the app: best-effort, fire-and-forget, deduped.
   // Never blocks/affects the ledger result (Matee: "adding contacts should add it
   // in phone"). A phone contact tapped from the inline list already exists, so
-  // writePersonToPhoneBook dedups and won't duplicate it.
-  void writePersonToPhoneBook(firstName, lastName, phoneE164).catch(() => {});
+  // the upsert finds it by number and leaves it alone — NO expectedExistingName
+  // is passed here, which is what makes the create path unable to rename an
+  // existing card. Only an explicit edit (updatePerson) may do that.
+  void upsertPersonInPhoneBook(firstName, lastName, phoneE164).catch(() => {});
 
   await bumpUsageCounter("customers_added");
   return { ok: true, id };
@@ -4321,12 +4323,27 @@ export async function updatePerson(
     });
   }
 
-  // When a number is newly set/changed, mirror it into the phone book too so the
-  // app's contacts stay "one with" the device (same best-effort, deduped, fire-
-  // and-forget contract as createPerson). No-op when clearing a number, when the
-  // contact already exists in the book, or without write permission.
-  if (phoneChanged && nextPhone) {
-    void writePersonToPhoneBook(firstName, lastName, nextPhone).catch(() => {});
+  // Mirror the edit into the phone book so the app's contacts stay "one with"
+  // the device. Same best-effort, fire-and-forget contract as createPerson.
+  //
+  // Fires on a NAME change too, not just a phone change. The old condition was
+  // `phoneChanged && nextPhone`, so renaming a customer never reached the phone
+  // book at all — and even when it did fire, the writer was add-only and bailed
+  // out the moment it saw the number already saved. Editing "Ahmad" to "Ahmad
+  // Khan" left the phone contact reading "Ahmad" forever.
+  //
+  // previousPhoneE164 lets the upsert find the card by its OLD number when the
+  // number is what changed; without it a number edit created a duplicate
+  // contact and stranded the original.
+  //
+  // expectedExistingName is the safety catch: kaata only renames a phone
+  // contact that still carries the name kaata last knew. If the user has
+  // renamed it themselves in Contacts, that wins.
+  if (nextPhone && (nameChanged || phoneChanged)) {
+    void upsertPersonInPhoneBook(firstName, lastName, nextPhone, {
+      previousPhoneE164: current.phone_e164,
+      expectedExistingName: current.display_name,
+    }).catch(() => {});
   }
 
   return { ok: true };

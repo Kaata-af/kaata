@@ -13,6 +13,10 @@
 //   - DEDUP: if a phone contact with this number already exists (e.g. the user
 //     tapped it from the inline list), do NOT create a duplicate.
 //   - Fire-and-forget from the caller (don't await the result on the hot path).
+//   - THE USER'S PHONE BOOK IS THEIRS. kaata may create a contact, and may keep
+//     one it created in step with a later edit — but it must never overwrite a
+//     name the user has since set themselves in Contacts, and must never drop
+//     numbers it doesn't know about. See upsertPersonInPhoneBook.
 //
 // FIRST/LAST NAME: the phone Contacts app stores names as First + Last fields.
 // kaata stores a single display_name, so we split on write (first word → First,
@@ -168,36 +172,85 @@ export async function readDeviceContacts(): Promise<DeviceContactsResult> {
   }
 }
 
-/** True if a phone contact already has this number (last-8-digit match tolerates
- *  +93 / leading-0 differences). On any read failure returns false — we'd rather
- *  risk a rare duplicate than skip a wanted write. */
-async function phoneExistsInBook(phoneE164: string): Promise<boolean> {
+/** The phone-book contact holding this number, or null. Last-8-digit match, so
+ *  it tolerates +93 / leading-0 / spacing differences between how the number was
+ *  saved in Contacts and how kaata normalizes it.
+ *
+ *  Returns the whole contact (not just a boolean) because the caller needs the
+ *  id to UPDATE it, and the existing name to decide whether updating is safe —
+ *  see upsertPersonInPhoneBook. On any read failure returns null: the caller
+ *  then falls back to adding, which risks a rare duplicate rather than losing
+ *  the write entirely. */
+async function findContactByPhone(
+  phoneE164: string,
+): Promise<{ id: string; firstName: string; lastName: string; name: string } | null> {
   try {
     const want = digitsOf(phoneE164).slice(-8);
-    if (!want) return false;
+    if (!want) return null;
     const { data } = await Contacts.getContactsAsync({
-      fields: [Contacts.Fields.PhoneNumbers],
+      fields: [
+        Contacts.Fields.PhoneNumbers,
+        Contacts.Fields.Name,
+        Contacts.Fields.FirstName,
+        Contacts.Fields.LastName,
+      ],
     });
     for (const c of data) {
       for (const pn of c.phoneNumbers ?? []) {
         const have = digitsOf(pn.number ?? "").slice(-8);
-        if (have && have === want) return true;
+        if (have && have === want && c.id) {
+          const firstName = (c.firstName ?? "").trim();
+          const lastName = (c.lastName ?? "").trim();
+          return {
+            id: c.id,
+            firstName,
+            lastName,
+            name: (c.name ?? joinName(firstName, lastName)).trim(),
+          };
+        }
       }
     }
-    return false;
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
 
-/** Best-effort write of a kaata person into the device phone book, with the name
- *  split across the Contacts app's First/Last fields. Safe to call
- *  fire-and-forget; never throws. No-op without a phone number, without a name,
- *  or without contacts write permission. */
-export async function writePersonToPhoneBook(
+/**
+ * Best-effort UPSERT of a kaata person into the device phone book, with the
+ * name split across the Contacts app's First/Last fields. Safe to call
+ * fire-and-forget; never throws. No-op without a phone number, without a name,
+ * or without contacts permission.
+ *
+ * This used to be add-only: it bailed out via `phoneExistsInBook()` whenever the
+ * number was already saved, so renaming a customer in kaata never reached the
+ * phone book. Editing "Ahmad" to "Ahmad Khan" left the phone contact reading
+ * "Ahmad" forever, and the two drifted apart from the first edit onward.
+ *
+ * `previousPhoneE164` matters when the NUMBER is what changed: we look the card
+ * up by the OLD number, because the new one isn't in the book yet. Without it,
+ * a number change created a SECOND contact and abandoned the first — a
+ * duplicate carrying a stale name and a stale number.
+ *
+ * WHEN KAATA MAY OVERWRITE A NAME
+ * -------------------------------
+ * Only when the phone book still holds the name kaata last wrote (or a name
+ * that matches what kaata knew this person as). If the user has since renamed
+ * that contact in their own Contacts app — to "Ahmad Baba Shop", say — that is
+ * a deliberate choice about THEIR data, and a ledger app has no business
+ * stomping it. Pass `expectedExistingName` (the pre-edit kaata name) to enforce
+ * that; when it doesn't match, the number is still repaired but the name is
+ * left alone.
+ *
+ * Phone numbers are edited in place rather than replaced wholesale: a customer
+ * may have home/work numbers kaata knows nothing about, and handing
+ * updateContactAsync a fresh single-entry array would delete them.
+ */
+export async function upsertPersonInPhoneBook(
   firstName: string,
   lastName: string | null,
   phoneE164: string | null,
+  opts?: { previousPhoneE164?: string | null; expectedExistingName?: string | null },
 ): Promise<void> {
   try {
     const first = (firstName ?? "").trim();
@@ -211,7 +264,58 @@ export async function writePersonToPhoneBook(
     }
     if (!granted) return;
 
-    if (await phoneExistsInBook(phoneE164)) return;
+    // Look up by the OLD number when the number itself is what changed — the
+    // new one is not in the book yet. Falls back to the new number, which is
+    // the create path and the no-change path.
+    const lookupPhone = opts?.previousPhoneE164?.trim() || phoneE164;
+    const existing = await findContactByPhone(lookupPhone);
+
+    if (existing) {
+      const nextName = joinName(first, last);
+      // Has the user renamed this contact themselves since kaata last touched
+      // it? Compare against what kaata believed the name was. Missing
+      // expectation (the create path) means "don't rename", so an accidental
+      // re-add can never rewrite an existing card's name.
+      const expected = opts?.expectedExistingName?.trim() ?? null;
+      const bookName = existing.name.trim();
+      const mayRename =
+        expected != null && (bookName === expected || bookName === "" || bookName === nextName);
+
+      const patch: Parameters<typeof Contacts.updateContactAsync>[0] = { id: existing.id };
+      let dirty = false;
+
+      if (mayRename && bookName !== nextName) {
+        patch.name = nextName;
+        patch.firstName = first || last;
+        // Explicitly clear the surname when the name collapsed to one word,
+        // otherwise "Ahmad Khan" -> "Ahmad" leaves a stale "Khan" behind.
+        patch.lastName = first && last ? last : "";
+        dirty = true;
+      }
+
+      // Repair the number in place, preserving every OTHER number on the card
+      // (home, work, a second mobile). Replacing the array wholesale would
+      // delete contact data kaata never knew about.
+      const wantDigits = digitsOf(phoneE164).slice(-8);
+      const lookupDigits = digitsOf(lookupPhone).slice(-8);
+      if (wantDigits && wantDigits !== lookupDigits) {
+        const full = await Contacts.getContactByIdAsync(existing.id, [
+          Contacts.Fields.PhoneNumbers,
+        ]);
+        const numbers = full?.phoneNumbers ?? [];
+        if (numbers.length > 0) {
+          patch.phoneNumbers = numbers.map((pn) =>
+            digitsOf(pn.number ?? "").slice(-8) === lookupDigits
+              ? { ...pn, number: phoneE164 }
+              : pn,
+          );
+          dirty = true;
+        }
+      }
+
+      if (dirty) await Contacts.updateContactAsync(patch);
+      return;
+    }
 
     await Contacts.addContactAsync({
       // contactType is REQUIRED on iOS and was the reason every write silently
