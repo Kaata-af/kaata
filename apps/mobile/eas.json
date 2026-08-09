@@ -53,6 +53,18 @@
       "android": {
         "track": "production"
       }
+    },
+    "testing": {
+      "_comment": "Tester-only submission. Build with the SAME `production` BUILD profile (release signing, app-bundle, EXPO_PUBLIC_DISTRIBUTION=store) — only the destination differs. Android `alpha` is Play's Closed testing track; `internal` would be Internal testing, `beta` Open testing. iOS needs no track: uploading to App Store Connect makes the build available in TestFlight, and it is NOT released to the App Store until you separately submit it for review.",
+      "ios": {
+        "ascApiKeyPath": "./credentials/AuthKey_D6G6MNJ4WY.p8",
+        "ascApiKeyId": "D6G6MNJ4WY",
+        "ascApiKeyIssuerId": "6fb701e4-120e-41d3-866a-2af0ec537819",
+        "ascAppId": "6789651127"
+      },
+      "android": {
+        "track": "alpha"
+      }
     }
   }
 }
