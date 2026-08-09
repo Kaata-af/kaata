@@ -140,7 +140,23 @@ These are coordination patterns that recur across screens and bit us once each. 
 
    **`eas.json` takes NO comments.** It is strict JSON validated against a schema, and any unknown key — including a `_comment` string — fails the build with `"eas.json is not valid"` before anything uploads. Document build/submit config decisions here in CLAUDE.md instead.
 
-   **Submit profiles.** `production` releases to the App Store / Play production track. `testing` sends the same artifact to testers instead: Android `track: "alpha"` is Play's **Closed testing** (`internal` = Internal testing, `beta` = Open testing), and iOS needs no track at all — uploading to App Store Connect makes a build available in TestFlight, and it is NOT released to the App Store until separately submitted for review. Both use the same `production` BUILD profile (release signing, app-bundle, `EXPO_PUBLIC_DISTRIBUTION=store`); only the destination differs.
+   **Submit profiles — and the iOS half-step.** ⚠️ **`eas submit` never submits an iOS build for App Store review.** EAS Submit implements binary _upload_ only; every iOS flag it has is TestFlight-only (`--groups`, `--what-to-test`). The limit is EAS's, not Apple's — the ASC API does expose review submission (the 3-call `reviewSubmissions` flow; the older `appStoreVersionSubmissions` is gone), which is what fastlane's `deliver --submit_for_review` drives. So `--profile production --platform ios` does exactly what `--profile testing` does: upload to App Store Connect, where the build appears in TestFlight and stops. The `submit.production.ios` and `submit.testing.ios` blocks are byte-identical for this reason.
+
+   This is easy to miss three ways over: the profile is _named_ `production`, the CLI prints "✔ Submitted your app to App Store Connect!" (and "submitted" is Apple's own word for review), and the identical command on Android really does publish straight to production. **It has already cost two releases — 1.0.7 and 1.0.8 were built, uploaded and committed, and never reached a single user.** They sat in TestFlight until 1.0.9 shipped.
+
+   The second half is `apps/mobile/scripts/asc-submit.mjs`, run from `apps/mobile/`:
+
+   ```
+   npm run submit:ios -- --status                              # what's live, what's stranded
+   npm run submit:ios -- --notes-file notes.txt --dry-run      # preflight, no writes
+   npm run submit:ios -- --notes-file notes.txt                # create version, attach build, submit
+   ```
+
+   It reads the version + buildNumber from `app.json` and the ASC API key from the `eas.json` submit profile, so there is no second copy of either. It creates the App Store version (ASC copies description, keywords, screenshots and review contact forward from the last one), attaches the matching build, writes "What's New", and submits. `--manual` holds at Pending Developer Release instead of releasing on approval. `--status` prints any train that exists as a build but has no App Store version — the 1.0.7/1.0.8 failure, surfaced.
+
+   Needs `credentials/AuthKey_*.p8`, which is **gitignored** — a fresh clone must re-download it from App Store Connect → Users and Access → Integrations.
+
+   Android is the genuinely automated half: `production` → Play production track (100% unless a `rollout` is set), `testing` → `track: "alpha"` = Play **Closed testing** (`internal` = Internal testing, `beta` = Open testing). Both profiles use the same `production` BUILD profile (release signing, app-bundle, `EXPO_PUBLIC_DISTRIBUTION=store`); only the destination differs.
 
 2. Build the APK from `apps/mobile/`: `bun apk --profile preview --local` (or `eas build --profile preview --platform android`) — **must be run from `apps/mobile/`** (see Dev workflow quirks). The `preview` profile points `EXPO_PUBLIC_BACKEND_URL` at `https://api.kaata.af`.
 3. **Create a GitHub Release** at tag `v<version>` (tags are `v`-prefixed: `v0.5.1`, `v0.6.0`, …) and upload the artifact as the asset `kaata-<version>.apk`. Either `cd <repo> && gh release create v<version> <artifact>.apk --title "Kaata <version>" --notes "<notes>"` (gh creates the tag if absent), or the web UI ("Draft a new release" → pick/create the tag → upload). The stable asset URL is `https://github.com/Kaata-af/kaata/releases/download/v<version>/kaata-<version>.apk`. Do NOT add the APK to git.
@@ -163,6 +179,10 @@ These are coordination patterns that recur across screens and bit us once each. 
    **Per-platform / per-channel rows (client routing is in `apps/mobile/lib/update-url.ts`):** check-in filters rows by the client's platform, and each install picks its update URL by its build channel (`EXPO_PUBLIC_DISTRIBUTION` in `eas.json`: preview = `apk`, production = `store`):
    - **android** rows: `apk_url` = the sideload APK (`https://api.kaata.af/v1/download` — served resumable from the backend's local cache); `play_store_url` = the Play listing once live. Sideload installs open `apk_url`; Play installs open `play_store_url` and their banner stays HIDDEN while it's NULL (a Play install cannot apply a sideloaded APK — Play App Signing signatures differ).
    - **ios** rows: put the App Store listing (`https://apps.apple.com/us/app/kaata/id6789651127`) in `play_store_url` and leave `apk_url` NULL. The column name is historical — it means "the platform's store listing", and shipped iOS clients already read it as their fallback.
+
+8. **iOS only — actually submit for review.** `eas submit` has merely put the build in TestFlight at this point; nothing has reached users. From `apps/mobile/`, once the build shows `VALID`: `npm run submit:ios -- --status` to confirm, then `npm run submit:ios -- --notes-file <notes>`. See the ⚠️ under step 1. Skipping this is silent — the tag, the GitHub Release and the Play rollout all succeed while iOS stays on the previous version.
+
+   Write "What's New" against the last version that **actually shipped**, not the last one built. If earlier trains were stranded in TestFlight, their user-visible changes are still new to everyone (1.0.9's notes had to cover 1.0.7 and 1.0.8). `--status` lists the stranded trains.
 
 ### Analytics queries (Postgres on production)
 
