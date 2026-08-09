@@ -108,10 +108,28 @@ const DRAG_COMMIT_FRACTION = 0.3;
 // Mid-stiffness: fast settle without overshoot.
 const RAIL_SPRING = { friction: 14, tension: 110 } as const;
 
-// Home list ordering: most-recently-modified (last entry) first, name as
-// tie-break. Module-level pure comparator (stable identity, safe outside memo deps).
+// Home list ordering, in priority order:
+//   1. OPEN tallies above SETTLED ones (Matee),
+//   2. within each group, most-recently-modified (last entry) first,
+//   3. name as tie-break.
+//
+// Why settled sinks: the home list is a worklist. An open tally is something
+// the shopkeeper still has to act on; a settled one is finished business kept
+// for the record. Ordering purely by recency put a JUST-settled account at the
+// very top — the row needing attention least sitting exactly where the eye
+// lands first, pushing live debts below the fold on a long list.
+//
+// is_settled is OPTIONAL on PersonWithBalance (getPerson's query doesn't
+// compute it), so undefined must read as "not settled". Settling is the user's
+// deliberate act, not arithmetic — a balance that merely sums to zero is not
+// settled and correctly stays in the open group, which is the same distinction
+// PersonRow draws when it shows the check mark instead of "0".
+//
+// Module-level pure comparator (stable identity, safe outside memo deps).
 const sortByModified = (a: PersonWithBalance, b: PersonWithBalance): number =>
-  (b.last_entry_at ?? 0) - (a.last_entry_at ?? 0) || a.name.localeCompare(b.name);
+  (a.is_settled === 1 ? 1 : 0) - (b.is_settled === 1 ? 1 : 0) ||
+  (b.last_entry_at ?? 0) - (a.last_entry_at ?? 0) ||
+  a.name.localeCompare(b.name);
 
 // Which tab a person belongs to. Direction is DERIVED from the ledger, never
 // stored (CLAUDE.md "direction-free" model).
@@ -513,10 +531,17 @@ export default function HomeScreen() {
     }, [toast]),
   );
 
-  // Split by direction, then sort by MODIFIED DATE (most-recent entry first),
-  // name as tie-breaker. (Matee: "the contacts should be listed and sorted by
-  // modified date.") allPeople is already tallied-only (listAllPeople), so every
-  // row has a last_entry_at. sortByModified is a module-level pure comparator.
+  // Split by direction, then sort: OPEN tallies first, then most-recent entry,
+  // then name. (Matee: "the contacts should be listed and sorted by modified
+  // date", later "remaining tallies should stay on top and settled ones should
+  // go below them" — settled-last is the outer key, modified-date the inner.)
+  // allPeople is already tallied-only (listAllPeople), so every row has a
+  // last_entry_at. See sortByModified for why settled sinks.
+  //
+  // NOTE the split runs BEFORE the sort and is unaffected by it: a settled
+  // person stays on whichever side they were on when they were settled (see
+  // personSide), so settling someone sinks them within their own tab rather
+  // than moving them across tabs.
   const collectPeople = useMemo(
     () => allPeople.filter((p) => personSide(p) === "collect").sort(sortByModified),
     [allPeople],
