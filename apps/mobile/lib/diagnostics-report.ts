@@ -43,13 +43,25 @@ function fmtTime(ms: number): string {
 }
 
 // The JS-bundle (app.json) version + build, as embedded by Metro.
+//
+// The build number MUST be read per-platform. Android's `versionCode` and iOS's
+// `buildNumber` are independent counters over the same release — 1.0.7 shipped
+// as versionCode 33 and buildNumber 13 — so reading `android.versionCode`
+// unconditionally made every iOS install report a native/JS mismatch (native
+// buildNumber 13 vs "JS" 33). That was worse than cosmetic: the stale-build
+// warning fired constantly on iOS, which both alarmed users and guaranteed a
+// REAL stale iOS bundle would be lost in the noise.
 export function jsVersionLabel(): { version: string; build: string } {
+  const cfg = Constants.expoConfig;
+  const build =
+    Platform.OS === "ios"
+      ? (cfg?.ios?.buildNumber ?? null)
+      : cfg?.android?.versionCode != null
+        ? String(cfg.android.versionCode)
+        : null;
   return {
-    version: Constants.expoConfig?.version ?? "?",
-    build:
-      Constants.expoConfig?.android?.versionCode != null
-        ? String(Constants.expoConfig.android.versionCode)
-        : "?",
+    version: cfg?.version ?? "?",
+    build: build != null ? String(build) : "?",
   };
 }
 
@@ -307,33 +319,46 @@ export async function buildDiagnosticsReport(): Promise<string> {
     push("Local backups: —");
   }
 
-  // --- Memory right now + why it died (native module; best-effort) ---
-  section("Memory");
-  try {
-    const { getMemorySnapshot, getLastExitReasons } = await import("../modules/kaata-gatt-server");
+  // --- Memory right now + why it died (ANDROID ONLY; native module) ---
+  //
+  // Skipped entirely off Android. modules/kaata-gatt-server is
+  // platforms: ["android"] — ApplicationExitInfo and Debug.MemoryInfo have no
+  // iOS equivalent, and its JS wrappers early-return {} and [] there. Emitting
+  // the section anyway put "Memory now: nativePss=— dalvikPss=— …" and "Recent
+  // exits: none recorded" into every report a shopkeeper sends us from an
+  // iPhone: pure noise in the one artifact support actually reads, and it looks
+  // like a failure rather than an inapplicable probe.
+  if (Platform.OS === "android") {
+    section("Memory");
     try {
-      const now = getMemorySnapshot() as Record<string, unknown>;
-      push(
-        `Memory now: nativePss=${mb(now.nativePssKb as number)} dalvikPss=${mb(now.dalvikPssKb as number)} js=${mb(now.javaHeapUsedKb as number)} avail=${(now.systemAvailMemMb as number) ?? "—"}MB storageFree=${(now.storageFreeMb as number) ?? "—"}MB lowMem=${String(now.systemLowMemory ?? "—")}`,
-      );
-    } catch {
-      push("Memory now: —");
-    }
-    try {
-      const exits = getLastExitReasons();
-      if (exits.length === 0) {
-        push("Recent exits: none recorded");
-      } else {
-        push("Recent exits (newest first):");
-        for (const e of exits.slice(0, 5)) {
-          push(`  ${fmtTime(e.timestamp)} ${e.reasonName} rss=${mb(e.rssKb)} imp=${e.importance}`);
+      const { getMemorySnapshot, getLastExitReasons } =
+        await import("../modules/kaata-gatt-server");
+      try {
+        const now = getMemorySnapshot() as Record<string, unknown>;
+        push(
+          `Memory now: nativePss=${mb(now.nativePssKb as number)} dalvikPss=${mb(now.dalvikPssKb as number)} js=${mb(now.javaHeapUsedKb as number)} avail=${(now.systemAvailMemMb as number) ?? "—"}MB storageFree=${(now.storageFreeMb as number) ?? "—"}MB lowMem=${String(now.systemLowMemory ?? "—")}`,
+        );
+      } catch {
+        push("Memory now: —");
+      }
+      try {
+        const exits = getLastExitReasons();
+        if (exits.length === 0) {
+          push("Recent exits: none recorded");
+        } else {
+          push("Recent exits (newest first):");
+          for (const e of exits.slice(0, 5)) {
+            push(
+              `  ${fmtTime(e.timestamp)} ${e.reasonName} rss=${mb(e.rssKb)} imp=${e.importance}`,
+            );
+          }
         }
+      } catch {
+        push("Recent exits: —");
       }
     } catch {
-      push("Recent exits: —");
+      push("Memory / exits: native module unavailable");
     }
-  } catch {
-    push("Memory / exits: native module unavailable");
   }
 
   // --- Memory slope (last 10 samples) ---

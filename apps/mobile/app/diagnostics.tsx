@@ -21,7 +21,16 @@ import * as Clipboard from "expo-clipboard";
 import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { DevSettings, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
+import {
+  DevSettings,
+  Platform,
+  Pressable,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ScreenHeader } from "../components/SettingsScreen";
@@ -213,11 +222,16 @@ export default function DiagnosticsScreen() {
   // disagree the running build is stale; we flag it inline.
   const appVersion =
     Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? "0.0.0";
+  // Per-platform fallback: android.versionCode and ios.buildNumber are separate
+  // counters for the same release (1.0.7 = versionCode 33 / buildNumber 13), so
+  // reading versionCode on iOS reports a number that was never installed there.
   const buildNumber =
     Application.nativeBuildVersion ??
-    (Constants.expoConfig?.android?.versionCode != null
-      ? String(Constants.expoConfig.android.versionCode)
-      : null);
+    (Platform.OS === "ios"
+      ? (Constants.expoConfig?.ios?.buildNumber ?? null)
+      : Constants.expoConfig?.android?.versionCode != null
+        ? String(Constants.expoConfig.android.versionCode)
+        : null);
   const jsBundleVersion = Constants.expoConfig?.version ?? null;
 
   return (
@@ -302,40 +316,53 @@ export default function DiagnosticsScreen() {
         </Pressable>
         ---- end PARKED Nearby sync ---- */}
 
-        {/* ---- Last exit reasons ---- */}
-        <Text style={styles.section}>WHY THE APP DIED (most recent first)</Text>
-        {exits.length === 0 ? (
-          <Text style={styles.muted}>
-            No exit records (Android &lt; 11, or fresh install with no prior death).
-          </Text>
-        ) : (
-          exits.map((e, i) => (
-            <View key={i} style={styles.exitRow}>
-              <Text style={styles.exitName}>
-                {e.reasonName}
-                {e.reasonName === "LOW_MEMORY" ? "  ← OOM / LMK kill" : ""}
-                {e.reasonName === "NATIVE_CRASH" ? "  ← native/Hermes abort" : ""}
+        {/* ---- Last exit reasons + memory snapshot (ANDROID ONLY) ----
+            Both read modules/kaata-gatt-server, whose expo-module.config.json
+            declares platforms: ["android"] — exit reasons come from Android's
+            ApplicationExitInfo (API 30+) and the snapshot from Debug.MemoryInfo,
+            neither of which has an iOS equivalent. The JS wrappers early-return
+            [] and {} off Android, so on an iPhone these rendered as a section
+            headed "WHY THE APP DIED" explaining itself in terms of "Android < 11"
+            plus a row of em-dashes. This screen exists to be screenshotted and
+            sent to support, so a permanently-empty section that reads as
+            "something is broken" costs us real signal. Hidden rather than
+            emptied. */}
+        {Platform.OS === "android" ? (
+          <>
+            <Text style={styles.section}>WHY THE APP DIED (most recent first)</Text>
+            {exits.length === 0 ? (
+              <Text style={styles.muted}>
+                No exit records (Android &lt; 11, or fresh install with no prior death).
               </Text>
-              <Text style={styles.mono}>
-                {fmtTime(e.timestamp)} rss={mb(e.rssKb)} pss={mb(e.pssKb)} imp=
-                {e.importance}
-              </Text>
-              {e.description ? <Text style={styles.monoDim}>{e.description}</Text> : null}
-            </View>
-          ))
-        )}
+            ) : (
+              exits.map((e, i) => (
+                <View key={i} style={styles.exitRow}>
+                  <Text style={styles.exitName}>
+                    {e.reasonName}
+                    {e.reasonName === "LOW_MEMORY" ? "  ← OOM / LMK kill" : ""}
+                    {e.reasonName === "NATIVE_CRASH" ? "  ← native/Hermes abort" : ""}
+                  </Text>
+                  <Text style={styles.mono}>
+                    {fmtTime(e.timestamp)} rss={mb(e.rssKb)} pss={mb(e.pssKb)} imp=
+                    {e.importance}
+                  </Text>
+                  {e.description ? <Text style={styles.monoDim}>{e.description}</Text> : null}
+                </View>
+              ))
+            )}
 
-        {/* ---- Current snapshot ---- */}
-        <Text style={styles.section}>RIGHT NOW</Text>
-        <Text style={styles.mono}>
-          nativePss={mb(now.nativePssKb as number)} dalvikPss=
-          {mb(now.dalvikPssKb as number)} js={mb(now.javaHeapUsedKb as number)}
-        </Text>
-        <Text style={styles.mono}>
-          availMem={(now.systemAvailMemMb as number) ?? "—"}MB lowMem=
-          {String(now.systemLowMemory ?? "—")} storageFree=
-          {(now.storageFreeMb as number) ?? "—"}MB
-        </Text>
+            <Text style={styles.section}>RIGHT NOW</Text>
+            <Text style={styles.mono}>
+              nativePss={mb(now.nativePssKb as number)} dalvikPss=
+              {mb(now.dalvikPssKb as number)} js={mb(now.javaHeapUsedKb as number)}
+            </Text>
+            <Text style={styles.mono}>
+              availMem={(now.systemAvailMemMb as number) ?? "—"}MB lowMem=
+              {String(now.systemLowMemory ?? "—")} storageFree=
+              {(now.storageFreeMb as number) ?? "—"}MB
+            </Text>
+          </>
+        ) : null}
 
         {/* ---- PARKED (mesh): memory slope (mem_samples ring) ----
             The mem-probe only samples while the mesh sync loop runs, so this is
