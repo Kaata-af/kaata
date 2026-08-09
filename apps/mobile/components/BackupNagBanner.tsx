@@ -19,7 +19,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { colors } from "../lib/colors";
 import { getAppMeta, setAppMeta } from "../lib/db";
 import { getDb } from "../lib/db-tx";
-import { fonts } from "../lib/fonts";
+import { fonts, sansLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
 
 export function BackupNagBanner(props: {
@@ -112,5 +112,14 @@ const styles = StyleSheet.create({
   title: { fontFamily: fonts.sansSemi, fontSize: 13, color: colors.textInverted },
   body: { fontFamily: fonts.sansRegular, fontSize: 12, color: colors.textInverted, opacity: 0.9 },
   dismiss: { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
-  dismissText: { fontSize: 20, color: colors.textInverted, lineHeight: 22 },
+  // 22/20 = 1.10em with NO fontFamily, so this fell back to the system font and
+  // sat below even SF's ~1.2em — inside the band the lineHeight invariant
+  // exists to prevent. components/UpdateBanner.tsx:155 already renders the
+  // identical "×" correctly; this now matches it.
+  dismissText: {
+    fontSize: 20,
+    lineHeight: sansLineHeight(20, 22),
+    fontFamily: fonts.sansRegular,
+    color: colors.textInverted,
+  },
 });

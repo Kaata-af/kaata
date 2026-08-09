@@ -5,7 +5,7 @@ import { Button } from "../components/Button";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
 import { forceUpdateTargetUrl } from "../lib/update-url";
-import { textDir, useIsRTL } from "../lib/direction";
+import { textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
 
@@ -18,7 +18,9 @@ export default function UpdatePromptScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.inner}>
-        <Text style={[styles.title, textDir(isRTL)]}>{t("updatePrompt.title")}</Text>
+        <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
+          {t("updatePrompt.title")}
+        </Text>
         <Text style={[styles.subtitle, textDir(isRTL)]}>{t("updatePrompt.body")}</Text>
         {update?.release_notes ? (
           <View style={styles.notesWrap}>

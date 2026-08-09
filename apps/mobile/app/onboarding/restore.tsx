@@ -38,7 +38,7 @@ import { RestoreProgress, restoreProgressLabel } from "../../components/RestoreP
 import { requestImmediateCheckIn } from "../../lib/checkin-trigger";
 import { colors } from "../../lib/colors";
 import { getAppMeta, setAppMeta } from "../../lib/db";
-import { textDir, useIsRTL } from "../../lib/direction";
+import { textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { adoptAccountPhoneToSelf } from "../../lib/auth";
@@ -221,7 +221,9 @@ export default function OnboardingRestoreScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.content}>
-          <Text style={[styles.title, textDir(isRTL)]}>{t("onboardingRestore.errorTitle")}</Text>
+          <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
+            {t("onboardingRestore.errorTitle")}
+          </Text>
           <Text style={[styles.subtitle, textDir(isRTL)]}>{phase.message}</Text>
           <View style={styles.spacer} />
           {phase.retryable ? (
@@ -252,7 +254,9 @@ export default function OnboardingRestoreScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <Text style={[styles.title, textDir(isRTL)]}>{t("onboardingRestore.title")}</Text>
+        <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
+          {t("onboardingRestore.title")}
+        </Text>
         <Text style={[styles.subtitle, textDir(isRTL)]}>
           {t("onboardingRestore.subtitleVaults", { count: String(phase.vaultCount) })}
         </Text>

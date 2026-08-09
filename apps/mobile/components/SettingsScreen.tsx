@@ -21,7 +21,7 @@ import {
   SETTINGS_SECTION_HEADER_PADDING_BOTTOM,
   SETTINGS_SECTION_HEADER_PADDING_TOP,
 } from "../lib/design-tokens";
-import { rowDir, textDir } from "../lib/direction";
+import { rowDir, textDir, trackingSafe } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { t } from "../lib/i18n";
 
@@ -94,14 +94,28 @@ export function ScreenHeader(props: {
 // --------------------------------------------------------------------------
 export function SectionHeader(props: { label: string; isRTL: boolean; trailing?: string }) {
   if (!props.trailing) {
-    return <Text style={[styles.sectionHeader, textDir(props.isRTL)]}>{props.label}</Text>;
+    return (
+      <Text style={[styles.sectionHeader, textDir(props.isRTL), trackingSafe(props.isRTL)]}>
+        {props.label}
+      </Text>
+    );
   }
   return (
     <View style={[styles.sectionHeaderRow, rowDir(props.isRTL)]}>
-      <Text style={[styles.sectionHeader, styles.sectionHeaderInRow, textDir(props.isRTL)]}>
+      <Text
+        style={[
+          styles.sectionHeader,
+          styles.sectionHeaderInRow,
+          textDir(props.isRTL),
+          trackingSafe(props.isRTL),
+        ]}
+      >
         {props.label}
       </Text>
-      <Text style={[styles.sectionHeaderTrailing, textDir(props.isRTL)]} numberOfLines={1}>
+      <Text
+        style={[styles.sectionHeaderTrailing, textDir(props.isRTL), trackingSafe(props.isRTL)]}
+        numberOfLines={1}
+      >
         {props.trailing}
       </Text>
     </View>

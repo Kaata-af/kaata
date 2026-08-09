@@ -17,7 +17,7 @@ import { CountryPickerSheet } from "../../components/CountryPickerSheet";
 import { FormField } from "../../components/FormField";
 import { colors } from "../../lib/colors";
 import { getAppMeta, setAppMeta } from "../../lib/db";
-import { rowDir, textDir, useIsRTL } from "../../lib/direction";
+import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import {
@@ -236,7 +236,9 @@ export default function OnboardingProfileScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <Text style={[styles.title, textDir(isRTL)]}>{t("onboardingProfile.title")}</Text>
+          <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
+            {t("onboardingProfile.title")}
+          </Text>
           {/* Why-we-ask subtitle — offline users got NO context here before
               (the only subtitle was the signed-in-as hint). */}
           <Text style={[styles.subtitle, textDir(isRTL)]}>{t("onboardingProfile.subtitle")}</Text>

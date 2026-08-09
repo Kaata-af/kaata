@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../../lib/colors";
 import { setAppMeta } from "../../lib/db";
-import { textDir, useIsRTL } from "../../lib/direction";
+import { textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { setLocale, t } from "../../lib/i18n";
 
@@ -33,7 +33,7 @@ export default function OnboardingLanguageScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.brand}>{t("brand.wordmark")}</Text>
+        <Text style={[styles.brand, trackingSafe(isRTL)]}>{t("brand.wordmark")}</Text>
         <View style={styles.gapLarge} />
         <Text style={[styles.title, textDir(isRTL)]}>{t("onboardingLanguage.title")}</Text>
         <Text style={[styles.subtitle, textDir(isRTL)]}>{t("onboardingLanguage.subtitle")}</Text>

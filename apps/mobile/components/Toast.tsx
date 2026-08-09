@@ -12,7 +12,7 @@ import { AccessibilityInfo, Animated, Platform, StyleSheet, Text, View } from "r
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
-import { rowDir, textDir, useIsRTL } from "../lib/direction";
+import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
 
 // In-app toasts. Calm white card with a single colored icon for state — the
@@ -353,7 +353,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
         ]}
       >
         <Ionicons name={ICON_FOR_KIND[toast.kind]} size={22} color={iconColor} />
-        <Text style={[styles.message, textDir(isRTL)]} numberOfLines={2}>
+        <Text style={[styles.message, textDir(isRTL), trackingSafe(isRTL)]} numberOfLines={2}>
           {toast.message}
         </Text>
       </Animated.View>

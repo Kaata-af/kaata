@@ -18,7 +18,7 @@ import { updateAccountPhone } from "../../lib/auth";
 import { colors } from "../../lib/colors";
 import { CURRENCIES, DEFAULT_CURRENCY, getCurrencyName } from "../../lib/currency";
 import { createSelfProfile, getAppMeta, setAppMeta } from "../../lib/db";
-import { rowDir, textDir, useIsRTL } from "../../lib/direction";
+import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError } from "../../lib/event-log";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
@@ -183,7 +183,9 @@ export default function OnboardingKaataScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <Text style={[styles.title, textDir(isRTL)]}>{t("onboardingKaata.title")}</Text>
+          <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
+            {t("onboardingKaata.title")}
+          </Text>
           <Text style={[styles.subtitle, textDir(isRTL)]}>{t("onboardingKaata.subtitle")}</Text>
 
           <View style={styles.spacer} />

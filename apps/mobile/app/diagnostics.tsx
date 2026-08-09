@@ -34,10 +34,11 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ScreenHeader } from "../components/SettingsScreen";
+import { trackingSafe, useIsRTL } from "../lib/direction";
 import { useToast } from "../components/Toast";
 import { colors } from "../lib/colors";
 import { buildDiagnosticsReport } from "../lib/diagnostics-report";
-import { fonts, sansLineHeight } from "../lib/fonts";
+import { fonts, monoLineHeight, sansLineHeight } from "../lib/fonts";
 import { resetAllLocalData } from "../lib/db";
 // PARKED (Nearby sync / mesh): the live sync state + log and the mem-probe
 // memory-slope sampling belong to the mesh feature, which is hidden for now.
@@ -82,6 +83,7 @@ function mb(kb: number | null | undefined): string {
 export default function DiagnosticsScreen() {
   const router = useRouter();
   const toast = useToast();
+  const isRTL = useIsRTL();
   const [copyingReport, setCopyingReport] = useState(false);
   const [copied, setCopied] = useState(false);
   const [sharingReport, setSharingReport] = useState(false);
@@ -236,7 +238,12 @@ export default function DiagnosticsScreen() {
 
   return (
     <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
-      <ScreenHeader title="App health" onBack={() => router.back()} isRTL={false} />
+      {/* isRTL was hardcoded false here — the only one of 17 ScreenHeader call
+          sites that did so, which pointed the back chevron the wrong way for a
+          Dari user. The screen's own copy is still English (localizing it is
+          tracked separately), but the chrome should follow the app's language
+          regardless: the chevron is navigation, not content. */}
+      <ScreenHeader title="App health" onBack={() => router.back()} isRTL={isRTL} />
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={styles.hint}>
           Something not working? Tap Copy (or Share), then send this to us on WhatsApp so we can see
@@ -273,7 +280,7 @@ export default function DiagnosticsScreen() {
         ) : null}
 
         {/* ---- App version + build (moved here from Account) ---- */}
-        <Text style={styles.section}>VERSION</Text>
+        <Text style={[styles.section, trackingSafe(isRTL)]}>VERSION</Text>
         <Text style={styles.mono}>
           app {appVersion}
           {buildNumber ? ` · build ${buildNumber}` : ""}
@@ -288,7 +295,7 @@ export default function DiagnosticsScreen() {
         {/* ---- PARKED (mesh): Nearby sync (BT steady) live state + log ----
             Re-enable together with the imports / state / effects above when the
             mesh feature ships again.
-        <Text style={styles.section}>NEARBY SYNC — STATE</Text>
+        <Text style={[styles.section, trackingSafe(isRTL)]}>NEARBY SYNC — STATE</Text>
         <Text style={styles.mono}>
           shop mode: {syncSnap.shop === "1" ? "ON" : "OFF"} · steady loop:{" "}
           {syncSnap.steady ? "RUNNING" : "STOPPED"} · pairing: {syncSnap.paused ? "YES" : "no"}
@@ -300,7 +307,7 @@ export default function DiagnosticsScreen() {
           </Text>
         ) : null}
 
-        <Text style={styles.section}>NEARBY SYNC — LOG (newest first)</Text>
+        <Text style={[styles.section, trackingSafe(isRTL)]}>NEARBY SYNC — LOG (newest first)</Text>
         <Text style={styles.copyHint}>Long-press the log below → Select all → Copy</Text>
         {syncLines.length === 0 ? (
           <Text style={styles.muted}>
@@ -329,7 +336,9 @@ export default function DiagnosticsScreen() {
             emptied. */}
         {Platform.OS === "android" ? (
           <>
-            <Text style={styles.section}>WHY THE APP DIED (most recent first)</Text>
+            <Text style={[styles.section, trackingSafe(isRTL)]}>
+              WHY THE APP DIED (most recent first)
+            </Text>
             {exits.length === 0 ? (
               <Text style={styles.muted}>
                 No exit records (Android &lt; 11, or fresh install with no prior death).
@@ -351,7 +360,7 @@ export default function DiagnosticsScreen() {
               ))
             )}
 
-            <Text style={styles.section}>RIGHT NOW</Text>
+            <Text style={[styles.section, trackingSafe(isRTL)]}>RIGHT NOW</Text>
             <Text style={styles.mono}>
               nativePss={mb(now.nativePssKb as number)} dalvikPss=
               {mb(now.dalvikPssKb as number)} js={mb(now.javaHeapUsedKb as number)}
@@ -367,7 +376,7 @@ export default function DiagnosticsScreen() {
         {/* ---- PARKED (mesh): memory slope (mem_samples ring) ----
             The mem-probe only samples while the mesh sync loop runs, so this is
             empty without the parked feature. Re-enable with the query in load().
-        <Text style={styles.section}>MEMORY SLOPE (last 20 min, newest first)</Text>
+        <Text style={[styles.section, trackingSafe(isRTL)]}>MEMORY SLOPE (last 20 min, newest first)</Text>
         <Text style={styles.monoDim}>time nativePss dalvikPss js avail store</Text>
         {samples.length === 0 ? (
           <Text style={styles.muted}>
@@ -391,7 +400,7 @@ export default function DiagnosticsScreen() {
 
         {__DEV__ ? (
           <>
-            <Text style={styles.section}>DEV ONLY</Text>
+            <Text style={[styles.section, trackingSafe(isRTL)]}>DEV ONLY</Text>
             <Text style={styles.copyHint}>
               Wipes kaata.db (all ledger + onboarding state) and reloads, so you land back on
               onboarding. Never ships — __DEV__ gated.
@@ -482,14 +491,20 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     color: colors.textMuted,
     marginBottom: 8,
-    fontStyle: "italic",
+    // No fontStyle. This was the ONLY italic in the app, and lib/fonts.ts
+    // registers upright faces only — so RN either synthesises a fake oblique
+    // or silently swaps in a system fallback face, which is worse: one line of
+    // non-Vazirmatn text in the middle of a Vazirmatn screen.
   },
   warn: {
     fontFamily: fonts.monoRegular,
     fontSize: 12,
     color: colors.danger,
     marginTop: 6,
-    lineHeight: 17,
+    // JetBrains Mono's natural height at 12px is 16, so the old raw 17 cleared
+    // the iOS clip by 1px by luck. Route it through the helper so a future
+    // size bump can't silently behead the glyphs.
+    lineHeight: monoLineHeight(12, 17),
   },
   refreshGhost: {
     marginTop: 12,

@@ -31,7 +31,7 @@ import {
   SETTINGS_SECTION_HEADER_PADDING_TOP,
   SETTINGS_SHEET_TOP_RADIUS,
 } from "../lib/design-tokens";
-import { rowDir, textDir } from "../lib/direction";
+import { rowDir, textDir, trackingSafe } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 
 const SHEET_OFFSCREEN = 600;
@@ -112,7 +112,7 @@ export function OptionSheet(props: {
         >
           <View style={styles.sheet} onStartShouldSetResponder={() => true}>
             <View style={styles.sheetGrabber} />
-            <Text style={[styles.sheetTitle, textDir(isRTL)]}>{title}</Text>
+            <Text style={[styles.sheetTitle, textDir(isRTL), trackingSafe(isRTL)]}>{title}</Text>
             <ScrollView
               showsVerticalScrollIndicator={false}
               bounces={false}

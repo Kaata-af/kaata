@@ -27,7 +27,7 @@ import {
 import { getCurrentCurrencySymbol } from "../../lib/currency";
 import { createPerson, getActiveVaultArchivedState, listAllPeopleForSearch } from "../../lib/db";
 import { toAsciiDigits } from "../../lib/digits";
-import { rowDir, textDir, useIsRTL } from "../../lib/direction";
+import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
 import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
@@ -488,7 +488,9 @@ export default function PersonAddOrFindScreen() {
             ? renderEmpty()
             : sections.map((section) => (
                 <View key={section.key} style={styles.section}>
-                  <Text style={[styles.sectionLabel, textDir(isRTL)]}>{section.title}</Text>
+                  <Text style={[styles.sectionLabel, textDir(isRTL), trackingSafe(isRTL)]}>
+                    {section.title}
+                  </Text>
                   <View style={styles.peopleCard}>
                     {section.data.map((item, index) => (
                       <View

@@ -15,7 +15,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
 import { SHEET_BLUR_METHOD } from "../lib/blur";
-import { rowDir, textDir, useIsRTL } from "../lib/direction";
+import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { t } from "../lib/i18n";
 import { COUNTRIES } from "../lib/phone";
@@ -109,7 +109,9 @@ export function CountryPickerSheet(props: {
               above already handles outside-taps. */}
           <View style={styles.sheet}>
             <View style={styles.grabber} />
-            <Text style={[styles.title, textDir(isRTL)]}>{t("country.title")}</Text>
+            <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
+              {t("country.title")}
+            </Text>
 
             <View style={[styles.searchWrap, rowDir(isRTL)]}>
               <Ionicons

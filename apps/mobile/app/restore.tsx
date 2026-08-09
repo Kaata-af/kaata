@@ -48,7 +48,7 @@ import { ScreenHeader } from "../components/SettingsScreen";
 import { useToast } from "../components/Toast";
 import { signOut } from "../lib/auth";
 import { colors } from "../lib/colors";
-import { textDir, useIsRTL } from "../lib/direction";
+import { textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
 import { recoverAllVaults, type RecoveryProgress } from "../lib/recovery";
@@ -194,7 +194,9 @@ export default function RestoreScreen() {
           <View style={styles.iconWrap}>
             <Ionicons name="cloud-download-outline" size={36} color={colors.textEmphasis} />
           </View>
-          <Text style={[styles.title, textDir(isRTL)]}>{t("restore.confirm.title")}</Text>
+          <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
+            {t("restore.confirm.title")}
+          </Text>
           <Text style={[styles.body, textDir(isRTL)]}>{t("restore.confirm.body")}</Text>
 
           <View style={styles.spacer} />

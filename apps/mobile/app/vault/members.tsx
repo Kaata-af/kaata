@@ -44,7 +44,7 @@ import { queuePendingToast, useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { getActiveVaultId, getDb } from "../../lib/db-tx";
 import { getAppMeta, getLocalSelf } from "../../lib/db";
-import { rowDir, textDir, useIsRTL } from "../../lib/direction";
+import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { isPlaceholderSelfName, t } from "../../lib/i18n";
 import { useVaultRole } from "../../lib/use-vault-role";
@@ -711,7 +711,9 @@ function MemberIdentityRow(props: {
         ) : null}
       </View>
       <View style={[styles.rolePill, rolePillStyle(props.role)]}>
-        <Text style={[styles.rolePillText, rolePillTextStyle(props.role)]}>
+        <Text
+          style={[styles.rolePillText, rolePillTextStyle(props.role), trackingSafe(props.isRTL)]}
+        >
           {humanizeRole(props.role)}
         </Text>
       </View>

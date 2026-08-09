@@ -16,7 +16,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { colors } from "../lib/colors";
 import { getCurrencySymbol } from "../lib/currency";
 import { SHEET_BLUR_METHOD } from "../lib/blur";
-import { rowDir, textDir, useIsRTL } from "../lib/direction";
+import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { t } from "../lib/i18n";
 
@@ -183,7 +183,9 @@ export function VaultPickerSheet(props: {
               from gap areas. Modal backdrop already handles outside-taps. */}
           <View style={styles.sheet}>
             <View style={styles.grabber} />
-            <Text style={[styles.title, textDir(isRTL)]}>{t("menu.allKaatas")}</Text>
+            <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
+              {t("menu.allKaatas")}
+            </Text>
 
             <ScrollView
               showsVerticalScrollIndicator={false}

@@ -157,7 +157,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 10,
     textTransform: "uppercase",
-    letterSpacing: 0.6,
+    // NO letterSpacing, and NOT merely trackingSafe(isRTL) — this title carries
+    // USER-ENTERED content: app/index.tsx:1175 passes a customer's name. An
+    // Afghan shopkeeper running the app in English routinely has customers
+    // whose names are Persian script, so gating tracking on the app's locale
+    // would still shred those names. Content we didn't author gets no tracking
+    // in either language. (textTransform is harmless — Persian has no case.)
   },
   row: {
     flexDirection: "row",

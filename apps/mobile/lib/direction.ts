@@ -92,6 +92,30 @@ export function textDir(isRTL: boolean): {
   };
 }
 
+/**
+ * Cancel letter-spacing when the text is Persian script.
+ *
+ * Tracking SEVERS Arabic-script joining: Persian letters connect into words,
+ * and any non-zero letterSpacing renders them as disconnected glyphs. It is not
+ * a subtle typographic degradation — it is the difference between text a Dari
+ * shopkeeper reads at a glance and text they have to decode letter by letter.
+ *
+ * Append to the END of a style array so it wins over the base style:
+ *
+ *     style={[styles.sectionHeader, trackingSafe(isRTL)]}
+ *
+ * Latin tracking is preserved (returns null in LTR), so the English look is
+ * unchanged. The same fix exists in the web app's wordmark and in the export
+ * PDF's headers; components/Chip.tsx was the first place it landed here.
+ *
+ * Do NOT apply this to text that is always Latin regardless of locale —
+ * formatted amounts go through lib/format.ts, which hardcodes
+ * toLocaleString("en-US"), so those keep their tracking in both languages.
+ */
+export function trackingSafe(isRTL: boolean): { letterSpacing: 0 } | null {
+  return isRTL ? { letterSpacing: 0 } : null;
+}
+
 // Wrap a value in Unicode FSI…PDI so it keeps its OWN base direction when
 // interpolated into a sentence in the other script. Without it, a Latin
 // filename inside a forced-RTL line has its trailing "…-2026-08-07.pdf"

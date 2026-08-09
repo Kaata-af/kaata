@@ -114,7 +114,7 @@ import {
 import { configureGoogleSignIn } from "../lib/auth";
 import { initCurrencyFromPref } from "../lib/currency";
 import { initDefaultCountryFromPref } from "../lib/phone";
-import { useAppFontsWithError } from "../lib/fonts";
+import { fonts, monoLineHeight, useAppFontsWithError } from "../lib/fonts";
 import { getLocale, initLocaleFromPref, isPlaceholderSelfName, t } from "../lib/i18n";
 import { ensureInstallId, getInstalledAtUnixMs } from "../lib/install-id";
 import { sweepAllQuarantinedVaults } from "../lib/projection/sweep";
@@ -879,7 +879,10 @@ const bootSplashStyles = StyleSheet.create({
     fontSize: 32,
     fontWeight: "700",
     color: "#FFFFFF",
-    letterSpacing: -0.6,
+    // No letterSpacing: these boot/recovery screens render the English and
+    // Dari wordmark SIMULTANEOUSLY (the locale pref lives in a database we may
+    // not have read yet, or cannot read at all), so there is no isRTL to gate
+    // on and tracking would sever the Persian one.
   },
   spacer: { height: 20 },
   copy: {
@@ -1467,10 +1470,13 @@ const bootErrorStyles = StyleSheet.create({
     backgroundColor: colors.bgSubtle,
   },
   diagLine: {
-    fontFamily: "JetBrainsMono_400Regular",
+    // Was the raw string "JetBrainsMono_400Regular" + lineHeight 16. JetBrains
+    // Mono's natural height at 11px is 15, so 16 cleared the iOS clip by
+    // exactly 1px — by luck, not by design. Bump the size to 12 and it clips.
+    fontFamily: fonts.monoRegular,
     fontSize: 11,
     color: colors.textDefault,
-    lineHeight: 16,
+    lineHeight: monoLineHeight(11, 16),
   },
   support: {
     fontSize: 12,
@@ -1504,7 +1510,7 @@ const migrationStyles = StyleSheet.create({
     fontSize: 32,
     fontWeight: "700",
     color: colors.textEmphasis,
-    letterSpacing: -0.6,
+    // No letterSpacing — same bilingual boot surface as the splash wordmark.
   },
   spacer: { height: 24 },
   spacerSmall: { height: 12 },

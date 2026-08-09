@@ -7,7 +7,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { colors } from "../../lib/colors";
 import { getLocalSelf } from "../../lib/db";
-import { rowDir, textDir, useIsRTL } from "../../lib/direction";
+import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 
@@ -256,7 +256,7 @@ export default function OnboardingSuccessScreen() {
         </View>
 
         <Animated.View style={[styles.titleWrap, fadeRise(titleProgress)]}>
-          <Text style={styles.title}>{t("onboardingSuccess.title")}</Text>
+          <Text style={[styles.title, trackingSafe(isRTL)]}>{t("onboardingSuccess.title")}</Text>
         </Animated.View>
 
         {shopName ? (
@@ -280,7 +280,7 @@ export default function OnboardingSuccessScreen() {
             <View style={[styles.signIconChip, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}>
               <Ionicons name="storefront-outline" size={20} color={colors.textInverted} />
             </View>
-            <Text style={[styles.signName, textDir(isRTL)]} numberOfLines={2}>
+            <Text style={[styles.signName, textDir(isRTL), trackingSafe(isRTL)]} numberOfLines={2}>
               {shopName}
             </Text>
           </Animated.View>
@@ -401,5 +401,12 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 24,
   },
-  footer: { paddingHorizontal: 24, paddingBottom: 16 },
+  // paddingBottom is 20, not 16, to match BUTTON_OFFSET_ABOVE_SAFE_AREA in
+  // components/Toast.tsx. Every bottom-anchored control in the app sits exactly
+  // that far above the safe area, because useToastOffset()'s lift constant is
+  // derived from it — the insets only cancel between the toast viewport and the
+  // lifted control if this number agrees. Nothing queues a toast on this screen
+  // today, so 16 was dormant rather than broken, but it was the only
+  // bottom-anchored CTA in the app that was off the identity.
+  footer: { paddingHorizontal: 24, paddingBottom: 20 },
 });

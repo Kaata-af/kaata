@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
 import { SHEET_BLUR_METHOD } from "../lib/blur";
-import { rowDir, textDir, useIsRTL } from "../lib/direction";
+import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
 
@@ -96,7 +96,7 @@ export function ConfirmDialog(props: {
           onStartShouldSetResponder={() => true}
         >
           <View style={styles.body}>
-            <Text style={[styles.title, textDir(isRTL)]}>{props.title}</Text>
+            <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>{props.title}</Text>
             {props.description ? (
               <Text style={[styles.description, textDir(isRTL)]}>{props.description}</Text>
             ) : null}

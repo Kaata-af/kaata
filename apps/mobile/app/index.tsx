@@ -60,7 +60,7 @@ import {
 } from "../lib/db";
 import { getAccountIdSync, getActiveVaultId, setActiveVaultId } from "../lib/db-tx";
 import { useLedgerRefresh } from "../lib/ledger-events";
-import { rowDir, textDir, useIsRTL } from "../lib/direction";
+import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { formatAmount } from "../lib/format";
 import { t } from "../lib/i18n";
@@ -1495,7 +1495,7 @@ function TabPage(props: {
         }
       >
         <View style={styles.totalBlock}>
-          <Text style={[styles.totalLabel, textDir(isRTL)]}>{totalLabel}</Text>
+          <Text style={[styles.totalLabel, textDir(isRTL), trackingSafe(isRTL)]}>{totalLabel}</Text>
           <View style={[styles.totalRow, rowDir(isRTL)]}>
             <Text
               style={[styles.totalAmount, { color: totalColor, flexShrink: 1 }]}
@@ -1629,7 +1629,12 @@ const styles = StyleSheet.create({
     lineHeight: sansLineHeight(28, 32),
     fontFamily: fonts.sansBold,
     color: colors.textEmphasis,
-    letterSpacing: -0.5,
+    // NO letterSpacing, and deliberately NOT trackingSafe(isRTL) either: this
+    // renders the shopkeeper's OWN shop name, typed by them. An Afghan
+    // shopkeeper running the app in English very often names their shop in
+    // Persian script, so gating tracking on the app's locale would still
+    // shred it. It is also the largest text in the app and on screen at every
+    // single launch — the most expensive possible place to get this wrong.
     includeFontPadding: false,
   },
   // Profile button — wraps either the Google avatar Image, an

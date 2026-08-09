@@ -16,7 +16,7 @@ import {
 import { queueCrashReport } from "../../lib/crash-report";
 import { colors } from "../../lib/colors";
 import { getAppMeta, setAppMeta } from "../../lib/db";
-import { rowDir, textDir, useIsRTL } from "../../lib/direction";
+import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 
@@ -212,7 +212,9 @@ export default function OnboardingAuthScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <Text style={[styles.title, textDir(isRTL)]}>{t("onboardingMode.title")}</Text>
+        <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
+          {t("onboardingMode.title")}
+        </Text>
         <Text style={[styles.subtitle, textDir(isRTL)]}>{t("onboardingMode.subtitle")}</Text>
 
         <View style={styles.spacer} />

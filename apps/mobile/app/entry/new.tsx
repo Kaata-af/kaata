@@ -17,7 +17,7 @@ import { colors } from "../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
 import { createEntry, getActiveVaultArchivedState, getPerson } from "../../lib/db";
 import { toAsciiDigits } from "../../lib/digits";
-import { rowDir, textDir, useIsRTL } from "../../lib/direction";
+import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
@@ -204,7 +204,7 @@ export default function NewEntryScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={styles.context}>
-          <Text style={[styles.contextLabel, textDir(isRTL)]}>
+          <Text style={[styles.contextLabel, textDir(isRTL), trackingSafe(isRTL)]}>
             {type === "debt" ? t("entry.context.to") : t("entry.context.from")}
           </Text>
           <Text style={[styles.contextName, textDir(isRTL)]}>{person.name}</Text>

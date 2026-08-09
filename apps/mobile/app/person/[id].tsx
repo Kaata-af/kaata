@@ -37,7 +37,7 @@ import {
   SettleNotZeroError,
 } from "../../lib/event-log";
 import { useLedgerRefresh } from "../../lib/ledger-events";
-import { rowDir, textDir, useIsRTL } from "../../lib/direction";
+import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
 import { getLocale, getShareLangPref, resolveShareLang, t, type LocaleCode } from "../../lib/i18n";
@@ -424,7 +424,9 @@ export default function PersonDetailScreen() {
                   <View style={styles.actionIconCoin}>
                     <Ionicons name="arrow-down-outline" size={16} color={colors.textInverted} />
                   </View>
-                  <Text style={styles.actionText}>{t("person.action.iReceived")}</Text>
+                  <Text style={[styles.actionText, trackingSafe(isRTL)]}>
+                    {t("person.action.iReceived")}
+                  </Text>
                 </Pressable>
               </View>
               <View style={styles.actionBtnWrap}>
@@ -440,7 +442,9 @@ export default function PersonDetailScreen() {
                   <View style={styles.actionIconCoin}>
                     <Ionicons name="arrow-up-outline" size={16} color={colors.textInverted} />
                   </View>
-                  <Text style={styles.actionText}>{t("person.action.iGave")}</Text>
+                  <Text style={[styles.actionText, trackingSafe(isRTL)]}>
+                    {t("person.action.iGave")}
+                  </Text>
                 </Pressable>
               </View>
             </View>
