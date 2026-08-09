@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
 import { useIsRTL } from "../lib/direction";
-import { fonts } from "../lib/fonts";
+import { radius, typography } from "../lib/tokens";
 
 type Variant = "collect" | "pay" | "neutral" | "outline";
 
@@ -57,7 +57,7 @@ const styles = StyleSheet.create({
   chip: {
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 6,
+    borderRadius: radius.sm, // 6 → 8; chips share the input/button step
   },
   // Border compensates for the missing fill so the pill keeps the same
   // silhouette (and the same height) as the filled variants.
@@ -67,9 +67,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 2,
   },
+  // 10 → caption (11), the scale's smallest step and the only size below it in
+  // the whole app. The token also brings the routed lineHeight the literal
+  // never had: at 10px iOS was laying an uppercase Latin cap-height run into
+  // the font's own box with no floor, which is the same near-miss that beheaded
+  // the home header. The pill grows ~1px in return — it sits in a flow column
+  // on person detail, not a fixed-height slot.
   label: {
-    fontSize: 10,
-    fontFamily: fonts.sansSemi,
+    ...typography.caption,
     letterSpacing: 0.6,
   },
 });

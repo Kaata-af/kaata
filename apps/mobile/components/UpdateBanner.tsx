@@ -6,11 +6,23 @@ import { setAppMeta } from "../lib/db";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
+import { radius } from "../lib/tokens";
 import { updateTargetUrl } from "../lib/update-url";
 
 // Both banner variants share the same monochrome chassis. The update banner
 // reverses to bgInverted so it asks for attention without breaking the palette;
 // announcements stay light + bordered.
+
+// The CTA pill computes to ~31dp tall (6 + 6 padding around a 12px label).
+// Raising it to the 44dp floor with minHeight would inflate the banner CHASSIS
+// — an update banner with no release notes is only ~55dp overall — so the touch
+// floor is bought with slop instead of height: 31 + 8 + 8 = 47. Vertical only,
+// because the dismiss "×" sits flush against the CTA's right edge and already
+// claims that overlap; horizontally the pill is ~60dp wide and needs nothing.
+// 8dp also stays INSIDE the banner's own 12dp padding, so Android still
+// delivers the touch (a child's hit area outside its parent's bounds is clipped).
+const CTA_HIT_SLOP = { top: 8, bottom: 8 } as const;
+
 export function UpdateBanner() {
   const { update, announcement, refresh } = useAppMeta();
   const isRTL = useIsRTL();
@@ -46,6 +58,7 @@ export function UpdateBanner() {
             );
           }}
           accessibilityRole="button"
+          hitSlop={CTA_HIT_SLOP}
           style={[styles.cta, styles.ctaInverted]}
         >
           <Text style={[styles.ctaText, { color: colors.textEmphasis }]}>
@@ -58,7 +71,9 @@ export function UpdateBanner() {
             await refresh();
           }}
           style={styles.dismiss}
-          hitSlop={8}
+          // 24 + 10 + 10 = 44 exactly. At the old 8 the "×" was a 40dp target;
+          // matches components/BackupNagBanner.tsx's identical dismiss.
+          hitSlop={10}
           accessibilityRole="button"
           accessibilityLabel={t("updateBanner.dismiss")}
         >
@@ -90,6 +105,7 @@ export function UpdateBanner() {
               )
             }
             accessibilityRole="button"
+            hitSlop={CTA_HIT_SLOP}
             style={styles.cta}
           >
             <Text style={[styles.ctaText, { color: colors.textEmphasis }]}>
@@ -103,7 +119,7 @@ export function UpdateBanner() {
             await refresh();
           }}
           style={styles.dismiss}
-          hitSlop={8}
+          hitSlop={10} // 24 + 10 + 10 = 44 — see the update branch above
           accessibilityRole="button"
           accessibilityLabel={t("updateBanner.dismiss")}
         >
@@ -123,7 +139,7 @@ const styles = StyleSheet.create({
     padding: 12,
     marginHorizontal: 16,
     marginBottom: 12,
-    borderRadius: 12,
+    borderRadius: radius.md, // 12, unchanged — now the token
     borderWidth: 1,
   },
   bannerInverted: {
@@ -143,7 +159,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     backgroundColor: colors.bgDefault,
-    borderRadius: 6,
+    borderRadius: radius.sm, // 6 → 8, the button/chip step
     borderWidth: 1,
     borderColor: colors.borderDefault,
   },

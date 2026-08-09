@@ -1,27 +1,27 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
+import { ScreenLoading } from "../../components/ScreenLoading";
+import { ScreenHeader } from "../../components/SettingsScreen";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
 import { createEntry, getActiveVaultArchivedState, getPerson } from "../../lib/db";
 import { toAsciiDigits } from "../../lib/digits";
-import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
+import { textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
+import { radius, TOUCH_MIN, typography } from "../../lib/tokens";
 import { ENTRY_NOTE_MAX_LENGTH, type EntryType, type PersonWithBalance } from "../../lib/types";
+
+// presentation:"modal" screen: the loaded branch is a bare <SafeAreaView>,
+// which insets all four edges. ScreenLoading defaults to ["top"] (the pushed-
+// screen case), so the pre-content branches have to spell this out or the
+// header shifts the moment the read resolves.
+const MODAL_EDGES = ["top", "bottom", "left", "right"] as const;
 
 export default function NewEntryScreen() {
   const router = useRouter();
@@ -158,13 +158,14 @@ export default function NewEntryScreen() {
     }
   }
 
+  // Derived above the load branches on purpose: the verb comes from the route
+  // param, not from the person, so the loading header can already show the
+  // final title and nothing moves when the read resolves.
+  const verb = type === "debt" ? t("person.action.iGave") : t("person.action.iReceived");
+
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.fillCenter}>
-          <ActivityIndicator color={colors.textDefault} />
-        </View>
-      </SafeAreaView>
+      <ScreenLoading title={verb} onBack={() => router.back()} isRTL={isRTL} edges={MODAL_EDGES} />
     );
   }
 
@@ -172,32 +173,26 @@ export default function NewEntryScreen() {
     // Not-found still needs a way OUT — this is a modal screen, and without
     // a header the only escape is hardware back (which iOS doesn't have).
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={[styles.header, rowDir(isRTL)]}>
-          <Pressable onPress={() => router.back()} hitSlop={8} accessibilityRole="button">
-            <Text style={[styles.cancel, textDir(isRTL)]}>{t("common.back")}</Text>
-          </Pressable>
-          <View style={{ width: 60 }} />
-          <View style={{ width: 60 }} />
-        </View>
-        <View style={styles.fillCenter}>
-          <Text style={styles.errorText}>{t("personAdd.personNotFound")}</Text>
-        </View>
-      </SafeAreaView>
+      <ScreenLoading
+        title={verb}
+        onBack={() => router.back()}
+        isRTL={isRTL}
+        message={t("personAdd.personNotFound")}
+        edges={MODAL_EDGES}
+      />
     );
   }
 
-  const verb = type === "debt" ? t("person.action.iGave") : t("person.action.iReceived");
-
   return (
     <SafeAreaView style={styles.container}>
-      <View style={[styles.header, rowDir(isRTL)]}>
-        <Pressable onPress={() => router.back()} hitSlop={8}>
-          <Text style={[styles.cancel, textDir(isRTL)]}>{t("common.cancel")}</Text>
-        </Pressable>
-        <Text style={styles.title}>{verb}</Text>
-        <View style={{ width: 60 }} />
-      </View>
+      {/* The "Cancel" word becomes the shared chevron; it survives as the a11y
+          label so TalkBack still announces "Cancel", not "Back". */}
+      <ScreenHeader
+        title={verb}
+        onBack={() => router.back()}
+        isRTL={isRTL}
+        backLabel={t("common.cancel")}
+      />
 
       <KeyboardAvoidingView
         style={styles.body}
@@ -286,19 +281,6 @@ export default function NewEntryScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
-  fillCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
-  errorText: { fontSize: 14, fontFamily: fonts.sansRegular, color: colors.textSubtle },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderDefault,
-  },
-  cancel: { fontSize: 15, fontFamily: fonts.sansMedium, color: colors.textSubtle, minWidth: 60 },
-  title: { fontSize: 15, fontFamily: fonts.sansSemi, color: colors.textEmphasis },
   body: { flex: 1, padding: 16, paddingTop: 24 },
   context: { marginBottom: 24 },
   contextLabel: {
@@ -308,8 +290,14 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.6,
   },
+  // 18 → typography.heading (20). 18 was an orphan sitting 2px under `heading`;
+  // this line names the person the tally is being written against, which is the
+  // same rank of statement as person detail's name — so both now land on the
+  // same step. Bold is preserved over heading's sansSemi (same override idiom as
+  // Button's `textPill`) because the whole context block is label-then-name and
+  // the weight is what separates them.
   contextName: {
-    fontSize: 18,
+    ...typography.heading,
     fontFamily: fonts.sansBold,
     color: colors.textEmphasis,
     marginTop: 4,
@@ -323,10 +311,10 @@ const styles = StyleSheet.create({
   },
   required: { color: colors.danger },
   input: {
-    minHeight: 44,
+    minHeight: TOUCH_MIN,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     paddingHorizontal: 14,
     fontSize: 15,
     fontFamily: fonts.sansRegular,
@@ -337,7 +325,7 @@ const styles = StyleSheet.create({
     minHeight: 72,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: 12,
+    borderRadius: radius.md,
     paddingHorizontal: 16,
     fontSize: 36,
     fontFamily: fonts.monoBold,

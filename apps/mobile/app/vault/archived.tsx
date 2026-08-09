@@ -21,8 +21,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Button } from "../../components/Button";
+import { EmptyState } from "../../components/EmptyState";
 import { ScreenHeader } from "../../components/SettingsScreen";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
@@ -31,6 +33,7 @@ import { SETTINGS_ROW_MIN_HEIGHT, SETTINGS_ROW_PADDING_X } from "../../lib/desig
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
+import { icon } from "../../lib/tokens";
 import { unarchiveVault, UnarchiveNotSupportedError } from "../../lib/vault-router";
 
 type ArchivedRow = {
@@ -167,19 +170,22 @@ export default function VaultArchivedScreen() {
         // chevron. Tap dismisses this screen (router.back which lands on
         // the entry point: home, ProfileSettingsSheet, or VaultPickerSheet).
         <View style={styles.emptyWrap}>
-          <Ionicons name="archive-outline" size={40} color={colors.textMuted} />
-          <Text style={[styles.emptyTitle, textDir(isRTL)]}>{t("vaultArchived.empty")}</Text>
-          <Text style={[styles.emptySubtitle, textDir(isRTL)]}>
-            {t("vaultArchived.emptySubtitle")}
-          </Text>
-          <Pressable
-            onPress={() => router.back()}
-            accessibilityRole="button"
-            accessibilityLabel={t("vaultArchived.emptyCta")}
-            style={({ pressed }) => [styles.emptyCta, pressed && { opacity: 0.7 }]}
-          >
-            <Text style={styles.emptyCtaText}>{t("vaultArchived.emptyCta")}</Text>
-          </Pressable>
+          <EmptyState
+            title={t("vaultArchived.empty")}
+            subtitle={t("vaultArchived.emptySubtitle")}
+            // The escape hatch keeps its bgInverted pill shape via primary+pill.
+            // Button announces `label` as its a11y label, which is the same
+            // string the explicit accessibilityLabel used to pass.
+            action={
+              <Button
+                label={t("vaultArchived.emptyCta")}
+                onPress={() => router.back()}
+                size="pill"
+              />
+            }
+            isRTL={isRTL}
+            icon="archive-outline"
+          />
         </View>
       ) : (
         <FlatList
@@ -227,7 +233,7 @@ function ArchivedListRow(props: {
     <View style={[styles.row, rowDir(isRTL)]}>
       <Ionicons
         name="archive-outline"
-        size={22}
+        size={icon.row}
         color={colors.textMuted}
         style={isRTL ? { marginLeft: 14 } : { marginRight: 14 }}
       />
@@ -239,30 +245,21 @@ function ArchivedListRow(props: {
           {row.serverAnchored ? t("vaultArchived.serverAnchoredHint") : subLabel}
         </Text>
       </View>
-      <Pressable
-        onPress={restoreDisabled ? undefined : onRestore}
+      {/* The list CTA. The fill/outline split is LOAD-BEARING and survives the
+          migration: a restorable kaata keeps its filled bgMuted pill (`muted`),
+          a server-anchored one renders as the bordered outline (`secondary`) —
+          "not available from this phone", said by shape rather than by greying
+          it out like a broken control. Collapsing both into one variant plus
+          opacity made the two states indistinguishable. The in-row spinner is
+          `loading`; Button's a11y label defaults to the same restoreLabel. */}
+      <Button
+        label={restoreLabel}
+        onPress={onRestore}
+        variant={row.serverAnchored ? "secondary" : "muted"}
+        size="pill"
         disabled={restoreDisabled}
-        accessibilityRole="button"
-        accessibilityLabel={restoreLabel}
-        accessibilityState={{ disabled: restoreDisabled }}
-        style={({ pressed }) => [
-          styles.restoreBtn,
-          row.serverAnchored && styles.restoreBtnDisabled,
-          pressed && !restoreDisabled && { opacity: 0.55 },
-          anyBusy && !row.serverAnchored && { opacity: 0.45 },
-        ]}
-      >
-        {busy ? (
-          <ActivityIndicator size="small" color={colors.textEmphasis} />
-        ) : (
-          <Text
-            style={[styles.restoreText, row.serverAnchored && styles.restoreTextDisabled]}
-            numberOfLines={1}
-          >
-            {restoreLabel}
-          </Text>
-        )}
-      </Pressable>
+        loading={busy}
+      />
     </View>
   );
 }
@@ -312,66 +309,7 @@ const styles = StyleSheet.create({
     color: colors.textSubtle,
     marginTop: 2,
   },
-  restoreBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    backgroundColor: colors.bgMuted,
-    borderRadius: 999,
-    minWidth: 84,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  // Server-anchored variant: lighter background + muted text so the row's
-  // primary affordance reads as "unavailable here" without screaming
-  // disabled-grey. Pairs with the inline subtitle that explains why.
-  restoreBtnDisabled: {
-    backgroundColor: "transparent",
-    borderWidth: 1,
-    borderColor: colors.borderSubtle,
-  },
-  restoreText: {
-    fontSize: 13,
-    fontFamily: fonts.sansSemi,
-    color: colors.textEmphasis,
-  },
-  restoreTextDisabled: {
-    color: colors.textSubtle,
-    fontFamily: fonts.sansMedium,
-  },
-
-  emptyWrap: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 40,
-    gap: 12,
-  },
-  emptyTitle: {
-    fontSize: 15,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    textAlign: "center",
-  },
-  emptySubtitle: {
-    fontSize: 13,
-    fontFamily: fonts.sansRegular,
-    color: colors.textMuted,
-    textAlign: "center",
-    marginTop: -4,
-    marginBottom: 8,
-  },
-  emptyCta: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    backgroundColor: colors.bgInverted,
-    borderRadius: 999,
-    minWidth: 140,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyCtaText: {
-    fontSize: 14,
-    fontFamily: fonts.sansSemi,
-    color: colors.textInverted,
-  },
+  // Centering box only. The horizontal padding and 12px gap moved into
+  // EmptyState (which pads 24/56 itself) — keeping them here would double up.
+  emptyWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
 });

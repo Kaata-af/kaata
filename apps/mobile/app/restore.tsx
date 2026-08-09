@@ -48,11 +48,12 @@ import { ScreenHeader } from "../components/SettingsScreen";
 import { useToast } from "../components/Toast";
 import { signOut } from "../lib/auth";
 import { colors } from "../lib/colors";
-import { textDir, trackingSafe, useIsRTL } from "../lib/direction";
-import { fonts, sansLineHeight } from "../lib/fonts";
+import { textDir, useIsRTL } from "../lib/direction";
+import { fonts } from "../lib/fonts";
 import { t } from "../lib/i18n";
 import { recoverAllVaults, type RecoveryProgress } from "../lib/recovery";
 import { RestoreSessionExpiredError, RestoreTimeoutError } from "../lib/restore";
+import { icon, radius, typography } from "../lib/tokens";
 
 type Phase = { kind: "confirm" } | { kind: "restoring" };
 
@@ -159,15 +160,22 @@ export default function RestoreScreen() {
     return (
       <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
         <ScreenHeader
+          // Discourage backing out mid-restore — the in-DB transaction is
+          // atomic but the navigation race is real. Hardware back + gesture
+          // swipe still work; this is just the chrome button.
+          //
+          // backDisabled, NOT onBack={null}: the chevron stays visible but
+          // dimmed and inert. null would make it vanish for the duration of
+          // the restore and reappear afterwards, reading as a rendering
+          // glitch; the old empty-body onBack drew a live chevron that dimmed
+          // on press and did nothing, reading as a frozen app. Present but
+          // visibly unavailable is the only honest option — see
+          // ScreenHeader's backDisabled docs.
           title={t("restore.confirm.title")}
-          onBack={() => {
-            // Discourage backing out mid-restore — the in-DB transaction
-            // is atomic but the navigation race is real. Hardware back +
-            // gesture swipe still work (this is just the chrome button).
-            // No-op; the user can wait for the spinner to resolve.
-          }}
-          isRTL={isRTL}
+          onBack={() => router.back()}
+          backDisabled
           backLabel={t("common.back")}
+          isRTL={isRTL}
         />
         <View style={styles.center}>
           <RestoreProgress
@@ -192,15 +200,26 @@ export default function RestoreScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.content}>
           <View style={styles.iconWrap}>
-            <Ionicons name="cloud-download-outline" size={36} color={colors.textEmphasis} />
+            {/* 36 → icon.hero (40). The well is 64px, so the inset only tightens
+                from 14 to 12 per side — the composition holds and this stops
+                being the app's lone 36px hero glyph. */}
+            <Ionicons name="cloud-download-outline" size={icon.hero} color={colors.textEmphasis} />
           </View>
-          <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
-            {t("restore.confirm.title")}
-          </Text>
+          {/* The 22px body heading that used to sit here repeated
+              restore.confirm.title verbatim, one line under the ScreenHeader
+              already showing it. Two sizes of the same words read as two
+              different headings. The header owns the title; the icon + body
+              own the explanation. */}
           <Text style={[styles.body, textDir(isRTL)]}>{t("restore.confirm.body")}</Text>
 
           <View style={styles.spacer} />
 
+          {/* NOT yet <Button size="hero">, though Button's docblock names this
+              exact call site. Button has no accessibilityHint passthrough, and
+              this CTA replaces the user's entire local ledger — the hint is the
+              one place TalkBack states that consequence at the moment of the
+              tap. Add `accessibilityHint?: string` to Button, then migrate both
+              CTAs together (they must stay the same height side by side). */}
           <Pressable
             onPress={onConfirm}
             accessibilityRole="button"
@@ -237,32 +256,32 @@ const styles = StyleSheet.create({
   iconWrap: {
     width: 64,
     height: 64,
-    borderRadius: 16,
+    // Already exactly radius.lg — a floating inset well, not a screen-anchored
+    // sheet top, so lg (16) is the right token rather than md.
+    borderRadius: radius.lg,
     backgroundColor: colors.bgMuted,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 20,
     alignSelf: "center",
   },
-  title: {
-    fontSize: 22,
-    fontFamily: fonts.sansBold,
-    color: colors.textEmphasis,
-    letterSpacing: -0.4,
-    textAlign: "center",
-  },
+  // typography.body IS this style's old triple verbatim — 14 / sansRegular /
+  // sansLineHeight(14, 20) — so the spread is pixel-identical. Worth doing
+  // anyway: it removes the last hand-written lineHeight call on this screen,
+  // which is tokens.ts rule 1 (no consumer writes lineHeight; the token owns the
+  // iOS clip floor). The 22px heading this block used to sit under is already
+  // gone, so `body` is now the only prose here.
   body: {
-    fontSize: 14,
-    fontFamily: fonts.sansRegular,
+    ...typography.body,
     color: colors.textSubtle,
     marginTop: 10,
-    lineHeight: sansLineHeight(14, 20),
     textAlign: "center",
   },
   spacer: { height: 32 },
   gap: { height: 10 },
   cta: {
-    borderRadius: 12,
+    borderRadius: radius.md,
+    // paddingVertical 14 ×2 + the 15px sans line box already clears TOUCH_MIN.
     paddingVertical: 14,
     alignItems: "center",
     borderWidth: 1,

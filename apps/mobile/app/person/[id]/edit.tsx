@@ -2,7 +2,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -16,6 +15,8 @@ import { BottomSheet } from "../../../components/BottomSheet";
 import { Button } from "../../../components/Button";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
 import { CountryPickerSheet } from "../../../components/CountryPickerSheet";
+import { ScreenLoading } from "../../../components/ScreenLoading";
+import { ScreenHeader } from "../../../components/SettingsScreen";
 import { queuePendingToast, useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
 import { splitName } from "../../../lib/contacts-sync";
@@ -30,6 +31,13 @@ import {
 import { fonts } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
 import { getCountry, getCurrentDefaultCountryCode, inferCountryFromE164 } from "../../../lib/phone";
+import { icon, radius, TOUCH_MIN } from "../../../lib/tokens";
+
+// presentation:"modal" screen: the loaded branch is a bare <SafeAreaView>,
+// which insets all four edges. ScreenLoading defaults to ["top"] (the pushed-
+// screen case), so the pre-content branches have to spell this out or the
+// header shifts the moment the read resolves.
+const MODAL_EDGES = ["top", "bottom", "left", "right"] as const;
 
 export default function EditPersonScreen() {
   const router = useRouter();
@@ -37,6 +45,15 @@ export default function EditPersonScreen() {
   const toast = useToast();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [loaded, setLoaded] = useState(false);
+  // A null getPerson (stale id, archived remotely via mesh) used to fall
+  // through to a blank editable form that saved into nothing. Mirrors
+  // entry/[id]/edit.tsx's `found`.
+  const [found, setFound] = useState(false);
+  // Distinguishes "this person isn't there" from "the read failed". Telling a
+  // shopkeeper their contact was not found because a storage read blipped is a
+  // false data-loss signal — the worst lie a ledger can tell. app/person/[id].tsx
+  // already splits these two; this screen now matches it.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
@@ -112,13 +129,16 @@ export default function EditPersonScreen() {
           } else {
             setPhone("");
           }
+          setFound(true);
         }
         setLoaded(true);
       })
       .catch((err) => {
         // A rejected read must still flip `loaded`, else this modal is a
-        // permanent spinner with no header/back. Render the not-found branch.
+        // permanent spinner with no header/back — but it must NOT claim the
+        // person is missing. See loadFailed's declaration.
         console.warn("[person/edit] load failed", err);
+        setLoadFailed(true);
         setLoaded(true);
       });
   }, [id]);
@@ -203,29 +223,45 @@ export default function EditPersonScreen() {
 
   if (!loaded) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.fillCenter}>
-          <ActivityIndicator color={colors.textDefault} />
-        </View>
-      </SafeAreaView>
+      <ScreenLoading
+        title={t("personEdit.title")}
+        onBack={() => router.back()}
+        isRTL={isRTL}
+        edges={MODAL_EDGES}
+      />
+    );
+  }
+
+  if (!found) {
+    // Same two-way split app/person/[id].tsx makes: a transient read failure
+    // says "couldn't load", only a genuinely absent row says "not found".
+    return (
+      <ScreenLoading
+        title={t("personEdit.title")}
+        onBack={() => router.back()}
+        isRTL={isRTL}
+        message={loadFailed ? t("home.loadFailed") : t("personAdd.personNotFound")}
+        edges={MODAL_EDGES}
+      />
     );
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={[styles.header, rowDir(isRTL)]}>
-        {/* Blocked during an export for the same reason as Save/Remove:
-            dismissing the screen mid-export drops the inline "Saved …"
-            confirmation the user is waiting for, and on the share path pops
-            the OS sheet over the person screen with no visible cause. */}
-        <Pressable onPress={() => router.back()} hitSlop={8} disabled={exporting}>
-          <Text style={[styles.cancel, textDir(isRTL), exporting && { opacity: 0.4 }]}>
-            {t("common.cancel")}
-          </Text>
-        </Pressable>
-        <Text style={styles.title}>{t("personEdit.title")}</Text>
-        <View style={{ width: 60 }} />
-      </View>
+      {/* The "Cancel" word becomes the shared chevron; it survives as the a11y
+          label so TalkBack still announces "Cancel", not "Back".
+          Dismissing mid-export drops the inline "Saved …" confirmation the user
+          is waiting for, and on the share path pops the OS sheet over the
+          person screen with no visible cause — so the chevron goes DIMMED AND
+          INERT while exporting (backDisabled), rather than staying live and
+          silently no-oping, which reads as a frozen app. */}
+      <ScreenHeader
+        title={t("personEdit.title")}
+        onBack={() => router.back()}
+        backDisabled={exporting}
+        isRTL={isRTL}
+        backLabel={t("common.cancel")}
+      />
       <KeyboardAvoidingView
         style={styles.body}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -289,7 +325,7 @@ export default function EditPersonScreen() {
             >
               <Text style={styles.countryFlag}>{country.flag}</Text>
               <Text style={styles.countryDial}>{country.dialCode}</Text>
-              <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
+              <Ionicons name="chevron-down" size={icon.trailing} color={colors.textMuted} />
             </Pressable>
             <TextInput
               ref={phoneRef}
@@ -326,19 +362,17 @@ export default function EditPersonScreen() {
         <Button label={t("personEdit.save")} onPress={onSave} loading={busy} disabled={exporting} />
 
         {/* Export statement — neutral utility, so it sits above the danger
-            Remove row. Opens a PDF/CSV chooser. */}
-        <Pressable
-          onPress={() => setExportSheetVisible(true)}
-          disabled={exporting || busy}
-          accessibilityRole="button"
-          style={({ pressed }) => [styles.exportRow, pressed && { opacity: 0.7 }]}
-        >
-          {exporting ? (
-            <ActivityIndicator size="small" color={colors.textDefault} />
-          ) : (
-            <Text style={styles.exportRowText}>{t("personEdit.export")}</Text>
-          )}
-        </Pressable>
+            Remove row. Opens a PDF/CSV chooser. `loading` reproduces the
+            hand-rolled spinner-instead-of-label swap exactly. */}
+        <View style={styles.exportRow}>
+          <Button
+            label={t("personEdit.export")}
+            onPress={() => setExportSheetVisible(true)}
+            variant="secondary"
+            loading={exporting}
+            disabled={busy}
+          />
+        </View>
         {exportError ? (
           <Text style={styles.exportError} accessibilityLiveRegion="polite">
             {exportError}
@@ -424,18 +458,6 @@ export default function EditPersonScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
-  fillCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderDefault,
-  },
-  cancel: { fontSize: 15, fontFamily: fonts.sansMedium, color: colors.textSubtle, minWidth: 60 },
-  title: { fontSize: 15, fontFamily: fonts.sansSemi, color: colors.textEmphasis },
   body: { flex: 1, padding: 16, paddingTop: 24 },
   field: { marginBottom: 20 },
   label: {
@@ -446,10 +468,10 @@ const styles = StyleSheet.create({
   },
   required: { color: colors.danger },
   input: {
-    minHeight: 44,
+    minHeight: TOUCH_MIN,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     paddingHorizontal: 14,
     fontSize: 15,
     fontFamily: fonts.sansRegular,
@@ -460,10 +482,10 @@ const styles = StyleSheet.create({
   nameRow: { flexDirection: "row", gap: 10 },
   nameInput: {
     flex: 1,
-    minHeight: 44,
+    minHeight: TOUCH_MIN,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     paddingHorizontal: 14,
     fontSize: 15,
     fontFamily: fonts.sansRegular,
@@ -475,11 +497,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    minHeight: 44,
+    minHeight: TOUCH_MIN,
     paddingHorizontal: 12,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     backgroundColor: colors.bgDefault,
   },
   countryFlag: { fontSize: 18 },
@@ -490,10 +512,10 @@ const styles = StyleSheet.create({
   },
   phoneInput: {
     flex: 1,
-    minHeight: 44,
+    minHeight: TOUCH_MIN,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     paddingHorizontal: 14,
     fontSize: 15,
     fontFamily: fonts.sansRegular,
@@ -511,21 +533,8 @@ const styles = StyleSheet.create({
     color: colors.danger,
     marginTop: 6,
   },
-  exportRow: {
-    minHeight: 44,
-    marginTop: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: colors.borderDefault,
-    borderRadius: 8,
-    backgroundColor: colors.bgDefault,
-  },
-  exportRowText: {
-    fontSize: 14,
-    fontFamily: fonts.sansMedium,
-    color: colors.textDefault,
-  },
+  // Spacing only — the button's own geometry comes from Button `secondary`.
+  exportRow: { marginTop: 16 },
   exportError: {
     fontSize: 12,
     fontFamily: fonts.sansMedium,
@@ -541,7 +550,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   removeRow: {
-    minHeight: 44,
+    minHeight: TOUCH_MIN,
     marginTop: 12,
     alignItems: "center",
     justifyContent: "center",

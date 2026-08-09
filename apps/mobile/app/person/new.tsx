@@ -16,6 +16,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { CountryPickerSheet } from "../../components/CountryPickerSheet";
+import { EmptyState } from "../../components/EmptyState";
+import { ScreenHeader } from "../../components/SettingsScreen";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import {
@@ -34,6 +36,7 @@ import { formatAmount } from "../../lib/format";
 import { t } from "../../lib/i18n";
 import { getCountry, getCurrentDefaultCountryCode, inferCountryFromE164 } from "../../lib/phone";
 import { PHONE_SEARCH_MIN_DIGITS, searchContacts } from "../../lib/search";
+import { icon, radius, TOUCH_MIN } from "../../lib/tokens";
 import type { PersonWithBalance } from "../../lib/types";
 
 // Max device contacts rendered in the "All contacts" card at once. The list is
@@ -328,7 +331,7 @@ export default function PersonAddOrFindScreen() {
             {c.phone ?? t("contacts.noPhone")}
           </Text>
         </View>
-        <Ionicons name="add-circle-outline" size={22} color={colors.textMuted} />
+        <Ionicons name="add-circle-outline" size={icon.row} color={colors.textMuted} />
       </Pressable>
     );
   }
@@ -350,11 +353,15 @@ export default function PersonAddOrFindScreen() {
         </View>
       );
     }
+    // inline, not page: the add form above this list is always populated, so
+    // the page variant's 56px of air would push the copy under the fold.
     return (
-      <View style={styles.emptyHint}>
-        <Text style={styles.emptyTitle}>{t("personAdd.empty.title")}</Text>
-        <Text style={styles.emptySub}>{t("personAdd.empty.subtitle")}</Text>
-      </View>
+      <EmptyState
+        title={t("personAdd.empty.title")}
+        subtitle={t("personAdd.empty.subtitle")}
+        size="inline"
+        isRTL={isRTL}
+      />
     );
   }
 
@@ -367,7 +374,7 @@ export default function PersonAddOrFindScreen() {
         onPress={onRequestContacts}
         style={({ pressed }) => [styles.permRow, rowDir(isRTL), pressed && styles.rowPressed]}
       >
-        <Ionicons name="people-outline" size={18} color={colors.textSubtle} />
+        <Ionicons name="people-outline" size={icon.row} color={colors.textSubtle} />
         <Text style={[styles.permText, textDir(isRTL)]}>
           {contactsCanAsk ? t("personAdd.contacts.allow") : t("personAdd.contacts.openSettings")}
         </Text>
@@ -377,13 +384,14 @@ export default function PersonAddOrFindScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={[styles.header, rowDir(isRTL)]}>
-        <Pressable onPress={() => router.back()} hitSlop={8}>
-          <Text style={[styles.cancel, textDir(isRTL)]}>{t("common.cancel")}</Text>
-        </Pressable>
-        <Text style={styles.title}>{t("personAdd.title")}</Text>
-        <View style={{ width: 60 }} />
-      </View>
+      {/* The "Cancel" word becomes the shared chevron; it survives as the a11y
+          label so TalkBack still announces "Cancel", not "Back". */}
+      <ScreenHeader
+        title={t("personAdd.title")}
+        onBack={() => router.back()}
+        isRTL={isRTL}
+        backLabel={t("common.cancel")}
+      />
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -440,7 +448,7 @@ export default function PersonAddOrFindScreen() {
             >
               <Text style={styles.countryFlag}>{country.flag}</Text>
               <Text style={styles.countryDial}>{country.dialCode}</Text>
-              <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
+              <Ionicons name="chevron-down" size={icon.trailing} color={colors.textMuted} />
             </Pressable>
             <TextInput
               ref={phoneRef}
@@ -544,17 +552,6 @@ function RightAmount(props: { balance: number; hasEntries: boolean }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderDefault,
-  },
-  cancel: { fontSize: 15, fontFamily: fonts.sansMedium, color: colors.textSubtle, minWidth: 60 },
-  title: { fontSize: 15, fontFamily: fonts.sansSemi, color: colors.textEmphasis },
 
   // Fixed top form.
   form: {
@@ -567,10 +564,10 @@ const styles = StyleSheet.create({
   nameRow: { flexDirection: "row", gap: 10, marginBottom: 10 },
   nameInput: {
     flex: 1,
-    minHeight: 44,
+    minHeight: TOUCH_MIN,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     paddingHorizontal: 14,
     fontSize: 15,
     fontFamily: fonts.sansRegular,
@@ -582,21 +579,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    minHeight: 44,
+    minHeight: TOUCH_MIN,
     paddingHorizontal: 12,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     backgroundColor: colors.bgDefault,
   },
   countryFlag: { fontSize: 18 },
   countryDial: { fontSize: 14, fontFamily: fonts.monoMedium, color: colors.textEmphasis },
   phoneInput: {
     flex: 1,
-    minHeight: 44,
+    minHeight: TOUCH_MIN,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     paddingHorizontal: 14,
     fontSize: 15,
     fontFamily: fonts.sansRegular,
@@ -628,7 +625,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: 12,
+    borderRadius: radius.md,
     overflow: "hidden",
     backgroundColor: colors.bgDefault,
   },
@@ -667,15 +664,6 @@ const styles = StyleSheet.create({
   rightMuted: { fontSize: 12, fontFamily: fonts.sansMedium, color: colors.textMuted },
 
   centered: { alignItems: "center", paddingVertical: 24 },
-  emptyHint: { paddingTop: 24, paddingHorizontal: 16, alignItems: "center" },
-  emptyTitle: { fontSize: 14, fontFamily: fonts.sansSemi, color: colors.textEmphasis },
-  emptySub: {
-    fontSize: 12,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    marginTop: 4,
-    textAlign: "center",
-  },
   noMatchSection: { paddingVertical: 16, paddingHorizontal: 16 },
   noMatchText: { fontSize: 13, fontFamily: fonts.sansRegular, color: colors.textSubtle },
 

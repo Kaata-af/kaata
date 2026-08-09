@@ -32,7 +32,8 @@ import {
   SETTINGS_SHEET_TOP_RADIUS,
 } from "../lib/design-tokens";
 import { rowDir, textDir, trackingSafe } from "../lib/direction";
-import { fonts } from "../lib/fonts";
+import { fonts, monoLineHeight } from "../lib/fonts";
+import { icon, radius, typography } from "../lib/tokens";
 
 const SHEET_OFFSCREEN = 600;
 // Exit-animation duration. NOTE: unlike BottomSheet, onSelect fires
@@ -139,7 +140,10 @@ export function OptionSheet(props: {
                       <Text style={[styles.sheetRowLabel, textDir(isRTL)]}>{o.label}</Text>
                     </View>
                     {isSelected ? (
-                      <Ionicons name="checkmark" size={18} color={colors.textEmphasis} />
+                      // icon.row (22) — the selection tick reads as a row-level
+                      // mark, not a trailing chevron, so it takes the row size.
+                      // Matches the identical tick in CountryPickerSheet.
+                      <Ionicons name="checkmark" size={icon.row} color={colors.textEmphasis} />
                     ) : null}
                   </Pressable>
                 );
@@ -167,7 +171,7 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     width: 40,
     height: 4,
-    borderRadius: 2,
+    borderRadius: radius.grabber,
     backgroundColor: colors.borderEmphasis,
     marginBottom: 4,
   },
@@ -194,9 +198,20 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.borderSubtle,
   },
   sheetRowLeft: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
+  // Leading glyph column — currency symbols (؋ / $ / Rs) in the vault-settings
+  // picker. 18 → 20, the heading step, which is also the size CountryPickerSheet
+  // gives the flag in the identical slot; the two pickers are one row design.
+  //
+  // Only the SIZE comes from typography.heading. The family stays monoSemi
+  // because these glyphs are column-aligned inside minWidth 28 and a
+  // proportional face breaks that column — and the line height therefore has to
+  // be floored at the MONO natural height, not heading's sans one. Spreading
+  // heading wholesale would hand a 20px mono glyph a 32px iOS line box and push
+  // every currency row ~8px past its 52px minimum.
   sheetRowLeading: {
-    fontSize: 18,
+    fontSize: typography.heading.fontSize,
     fontFamily: fonts.monoSemi,
+    lineHeight: monoLineHeight(typography.heading.fontSize, 26),
     color: colors.textEmphasis,
     minWidth: 28,
   },

@@ -12,7 +12,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Linking,
   Platform,
@@ -29,6 +28,7 @@ import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CountryPickerSheet } from "../components/CountryPickerSheet";
 import { OptionSheet } from "../components/OptionSheet";
+import { ScreenLoading } from "../components/ScreenLoading";
 import { NavRow, ScreenHeader, SectionGap, SectionHeader } from "../components/SettingsScreen";
 import { useToast } from "../components/Toast";
 import { colors } from "../lib/colors";
@@ -46,6 +46,7 @@ import {
   normalizePhone,
   setCurrentDefaultCountryCode,
 } from "../lib/phone";
+import { icon, radius, TOUCH_MIN } from "../lib/tokens";
 
 const LANGUAGE_OPTIONS: ReadonlyArray<{ value: LocalePref; labelKey: string }> = [
   { value: "system", labelKey: "settings.language.option.system" },
@@ -224,12 +225,17 @@ export default function AccountScreen() {
   }
 
   if (!loaded) {
+    // Same title / onBack / edges as the loaded branch below, so the chrome is
+    // painted first and nothing moves when getLocalSelf() resolves. Previously
+    // this was a bare spinner on a blank page: no title, and — because this
+    // screen sets its own header — no back affordance at all while loading.
     return (
-      <SafeAreaView style={styles.container} edges={["top"]}>
-        <View style={styles.fillCenter}>
-          <ActivityIndicator color={colors.textDefault} />
-        </View>
-      </SafeAreaView>
+      <ScreenLoading
+        title={t("account.title")}
+        onBack={() => router.back()}
+        isRTL={isRTL}
+        edges={["top"]}
+      />
     );
   }
 
@@ -321,7 +327,7 @@ export default function AccountScreen() {
               >
                 <Text style={styles.countryFlag}>{phoneC.flag}</Text>
                 <Text style={styles.countryDial}>{phoneC.dialCode}</Text>
-                <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
+                <Ionicons name="chevron-down" size={icon.trailing} color={colors.textMuted} />
               </Pressable>
               <TextInput
                 ref={phoneRef}
@@ -483,7 +489,6 @@ export default function AccountScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
-  fillCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
   formInset: { paddingHorizontal: 20, paddingTop: 4 },
   label: {
     fontSize: 13,
@@ -495,10 +500,10 @@ const styles = StyleSheet.create({
   nameRow: { flexDirection: "row", gap: 10 },
   nameInput: {
     flex: 1,
-    minHeight: 44,
+    minHeight: TOUCH_MIN,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     paddingHorizontal: 14,
     fontSize: 15,
     fontFamily: fonts.sansRegular,
@@ -510,21 +515,22 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    minHeight: 44,
+    // Already at the HIG floor; named so it tracks TOUCH_MIN if that moves.
+    minHeight: TOUCH_MIN,
     paddingHorizontal: 12,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     backgroundColor: colors.bgDefault,
   },
   countryFlag: { fontSize: 18 },
   countryDial: { fontSize: 14, fontFamily: fonts.monoMedium, color: colors.textEmphasis },
   phoneInput: {
     flex: 1,
-    minHeight: 44,
+    minHeight: TOUCH_MIN,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     paddingHorizontal: 14,
     fontSize: 15,
     fontFamily: fonts.sansRegular,

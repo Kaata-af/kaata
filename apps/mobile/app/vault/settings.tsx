@@ -35,6 +35,7 @@ import { BottomSheet } from "../../components/BottomSheet";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { FormField } from "../../components/FormField";
 import { OptionSheet } from "../../components/OptionSheet";
+import { ScreenLoading } from "../../components/ScreenLoading";
 import {
   EmptyHint,
   NavRow,
@@ -72,6 +73,7 @@ import { exportVaultReport, type ExportDestination, type ExportFormat } from "..
 import { bidiIsolate, rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
+import { icon } from "../../lib/tokens";
 import { useVaultPermission, useVaultRole } from "../../lib/use-vault-role";
 import { SOLO_STORE_MODE } from "../../constants/env";
 import type { VaultRole } from "../../lib/events";
@@ -82,6 +84,10 @@ type VaultRow = {
   currency: string;
   archived_at: number | null;
 };
+
+/** Vault-summary glyph well. Named so its radius is size/2 rather than a
+ *  literal 22 that can drift from the diameter (lib/tokens rule 3). */
+const AVATAR_SIZE = 44;
 
 export default function VaultSettingsScreen() {
   const router = useRouter();
@@ -564,12 +570,16 @@ export default function VaultSettingsScreen() {
   }
 
   if (!loaded || !vault) {
+    // Same title / onBack / edges as the loaded branch below. The old bare
+    // spinner had no header (no escape while a slow load hung) AND no `edges`,
+    // so the whole screen jumped by the top inset the instant it resolved.
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.fillCenter}>
-          <ActivityIndicator color={colors.textDefault} />
-        </View>
-      </SafeAreaView>
+      <ScreenLoading
+        title={t("vaultSettings.title")}
+        onBack={() => router.back()}
+        isRTL={isRTL}
+        edges={["top", "bottom"]}
+      />
     );
   }
 
@@ -598,7 +608,7 @@ export default function VaultSettingsScreen() {
               role instead of an avatar. Flat layout, no bordered card. */}
           <View style={[styles.summaryRow, rowDir(isRTL)]}>
             <View style={[styles.summaryAvatar, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}>
-              <Ionicons name="folder-outline" size={22} color={colors.textEmphasis} />
+              <Ionicons name="folder-outline" size={icon.row} color={colors.textEmphasis} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.summaryName, textDir(isRTL)]} numberOfLines={1}>
@@ -912,7 +922,6 @@ function humanizeRole(role: VaultRole): string {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
-  fillCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
 
   scrollContent: { paddingBottom: 48 },
 
@@ -925,9 +934,9 @@ const styles = StyleSheet.create({
     minHeight: 64,
   },
   summaryAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: AVATAR_SIZE,
+    height: AVATAR_SIZE,
+    borderRadius: AVATAR_SIZE / 2,
     backgroundColor: colors.bgMuted,
     alignItems: "center",
     justifyContent: "center",

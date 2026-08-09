@@ -7,6 +7,7 @@ import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { formatAmount, formatRelative } from "../lib/format";
 import { t } from "../lib/i18n";
+import { radius } from "../lib/tokens";
 import type { Entry } from "../lib/types";
 
 // type='debt'    → value left my hand  → "I gave"   → up arrow
@@ -68,6 +69,9 @@ export const EntryRow = memo(function EntryRow(props: {
         accessible
         accessibilityLabel={verb}
       >
+        {/* 16 inside the 32×32 well is a composed graphic (half the tile), not
+            a token slot — icon.trailing happens to be 16 but means "chevron in
+            a row". Left as a literal so the arrow's ratio to its well stays. */}
         <Ionicons name={icon} size={16} color={tint.fg} />
       </View>
       <View style={styles.middle}>
@@ -143,7 +147,7 @@ const styles = StyleSheet.create({
   iconWrap: {
     width: 32,
     height: 32,
-    borderRadius: 8,
+    borderRadius: radius.sm, // 8, unchanged — the small icon-tile step
     backgroundColor: colors.bgSubtle,
     alignItems: "center",
     justifyContent: "center",

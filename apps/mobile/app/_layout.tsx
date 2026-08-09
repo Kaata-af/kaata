@@ -876,7 +876,18 @@ const bootSplashStyles = StyleSheet.create({
     padding: 24,
   },
   wordmark: {
-    fontSize: 32,
+    // 32 → 28, the `display` step in lib/tokens typography — the same size the
+    // home header's wordmark carries, so cold start and first frame don't
+    // change size under the user.
+    //
+    // The SIZE is all we take. These boot/recovery screens are deliberately
+    // system-font (no fontFamily): this is the surface that renders while
+    // Vazirmatn is still loading, and the one that renders when loading it
+    // FAILED (bootError stage "fonts"). Spreading typography.display would name
+    // a family that may not exist yet and floor the line box at Vazirmatn's
+    // 1.5625em metrics for a face that isn't there. System metrics are ~1.2em,
+    // which is exactly the exemption lib/fonts.ts documents.
+    fontSize: 28,
     fontWeight: "700",
     color: "#FFFFFF",
     // No letterSpacing: these boot/recovery screens render the English and
@@ -1507,21 +1518,26 @@ const migrationStyles = StyleSheet.create({
     alignItems: "center",
   },
   wordmark: {
-    fontSize: 32,
+    // 32 → 28 (`display`), size only — see bootSplashStyles.wordmark for why
+    // these screens stay on the system font and can't take the token object.
+    fontSize: 28,
     fontWeight: "700",
     color: colors.textEmphasis,
     // No letterSpacing — same bilingual boot surface as the splash wordmark.
   },
   spacer: { height: 24 },
   spacerSmall: { height: 12 },
+  // 17 → 16, the `title` step. Both language variants shrink together so the
+  // EN/FA pair stays a matched set. Downsizing on a card capped at 360px wide,
+  // so a heading that fits on one line today still does.
   heading: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: "600",
     color: colors.textEmphasis,
     textAlign: "center",
   },
   headingFa: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: "600",
     color: colors.textEmphasis,
     textAlign: "center",

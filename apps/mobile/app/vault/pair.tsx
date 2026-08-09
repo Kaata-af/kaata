@@ -33,6 +33,7 @@ import {
 } from "../../lib/mesh/pair-qr";
 import { ensureDeviceKey, getDevicePubkey } from "../../lib/mesh/device-key";
 import { generatePairToken } from "../../lib/mesh/local-pair";
+import { icon, radius, typography } from "../../lib/tokens";
 import { buildLocalAccountId } from "../../lib/trust/account-id";
 import { getLocalSelf } from "../../lib/db";
 import { hostPairOverBtc, type HostPairHandle } from "../../lib/mesh/pair-btc";
@@ -434,9 +435,9 @@ export default function VaultPairScreen() {
                   </Text>
                 </View>
                 {selected ? (
-                  <Ionicons name="checkmark-circle" size={22} color={colors.textEmphasis} />
+                  <Ionicons name="checkmark-circle" size={icon.row} color={colors.textEmphasis} />
                 ) : (
-                  <Ionicons name="ellipse-outline" size={22} color={colors.textMuted} />
+                  <Ionicons name="ellipse-outline" size={icon.row} color={colors.textMuted} />
                 )}
               </Pressable>
             );
@@ -471,7 +472,7 @@ export default function VaultPairScreen() {
           // A joiner connected. The owner doesn't scan the joiner in one-way mode,
           // so we don't have its name here — a generic confirmation + Done.
           <>
-            <Ionicons name="checkmark-circle" size={56} color={colors.textEmphasis} />
+            <Ionicons name="checkmark-circle" size={icon.hero} color={colors.textEmphasis} />
             <Text style={[styles.headline, textDir(isRTL), { marginTop: 14 }]}>
               {t("vaultPair.twoWay.paired.headlineNoName")}
             </Text>
@@ -499,7 +500,7 @@ export default function VaultPairScreen() {
                 />
               ) : (
                 <View style={styles.qrPlaceholderLg}>
-                  <Ionicons name="time-outline" size={36} color={colors.textMuted} />
+                  <Ionicons name="time-outline" size={icon.hero} color={colors.textMuted} />
                   <Text style={[styles.bodyText, { marginTop: 8, textAlign: "center" }]}>
                     {expired ? t("vaultPair.codeExpired") : t("vaultPair.generating")}
                   </Text>
@@ -552,19 +553,21 @@ const styles = StyleSheet.create({
     lineHeight: sansLineHeight(14, 22),
     alignSelf: "stretch",
   },
+  // 22 → heading (20). The two pair screens carried the app's only 22px
+  // headline; every other screen headline is already 20. Going DOWN a step, so
+  // nothing that fits on one line today can start wrapping — the kaata name on
+  // the second line gets more room, not less.
   headline: {
-    fontSize: 22,
-    fontFamily: fonts.sansSemi,
+    ...typography.heading,
     color: colors.textEmphasis,
     textAlign: "center",
-    lineHeight: sansLineHeight(22, 30),
     marginBottom: 16,
   },
   emph: { fontFamily: fonts.sansSemi, color: colors.textEmphasis },
   qrCardSm: {
     padding: 14,
     backgroundColor: colors.bgDefault,
-    borderRadius: 16,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.borderDefault,
     alignItems: "center",
@@ -576,7 +579,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.bgMuted,
-    borderRadius: 12,
+    borderRadius: radius.md,
   },
   timerText: {
     marginTop: 14,
@@ -610,7 +613,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     alignSelf: "stretch",
     padding: 16,
-    borderRadius: 14,
+    // md, not lg: this is a bordered in-flow card, not a floating inset
+    // surface (no shadow, welded into the form's stack).
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.borderDefault,
     backgroundColor: colors.bgDefault,

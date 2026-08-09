@@ -44,6 +44,7 @@ import { t } from "../../lib/i18n";
 import { adoptAccountPhoneToSelf } from "../../lib/auth";
 import { recoverAllVaults, type RecoveryProgress } from "../../lib/recovery";
 import { RestoreSessionExpiredError, RestoreTimeoutError } from "../../lib/restore";
+import { icon, radius, typography } from "../../lib/tokens";
 import { listVaults } from "../../lib/vault-api";
 
 type Phase =
@@ -268,7 +269,7 @@ export default function OnboardingRestoreScreen() {
           style={({ pressed }) => [styles.card, styles.cardPrimary, pressed && { opacity: 0.85 }]}
         >
           <View style={styles.cardIcon}>
-            <Ionicons name="cloud-download-outline" size={28} color={colors.textInverted} />
+            <Ionicons name="cloud-download-outline" size={icon.card} color={colors.textInverted} />
           </View>
           <Text style={[styles.cardTitle, styles.cardTitlePrimary, textDir(isRTL)]}>
             {t("onboardingRestore.restore.title")}
@@ -285,7 +286,7 @@ export default function OnboardingRestoreScreen() {
           style={({ pressed }) => [styles.card, styles.cardGhost, pressed && { opacity: 0.85 }]}
         >
           <View style={styles.cardIcon}>
-            <Ionicons name="document-outline" size={28} color={colors.textEmphasis} />
+            <Ionicons name="document-outline" size={icon.card} color={colors.textEmphasis} />
           </View>
           <Text style={[styles.cardTitle, textDir(isRTL)]}>
             {t("onboardingRestore.fresh.title")}
@@ -334,7 +335,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   title: {
-    fontSize: 22,
+    // typography.heading (20) — was a one-off 22. This file mirrors
+    // onboarding/auth.tsx for visual continuity (see the header), so it takes
+    // the identical token + sansBold override rather than the token's sansSemi.
+    ...typography.heading,
     fontFamily: fonts.sansBold,
     color: colors.textEmphasis,
     letterSpacing: -0.4,
@@ -351,7 +355,9 @@ const styles = StyleSheet.create({
   spacer: { height: 36 },
   gap: { height: 14 },
   card: {
-    borderRadius: 14,
+    // radius.lg — matches onboarding/auth.tsx's card family (this file mirrors
+    // it for visual continuity) and cardPrimary floats with elevation 4.
+    borderRadius: radius.lg,
     padding: 20,
     borderWidth: 1,
   },
@@ -373,9 +379,10 @@ const styles = StyleSheet.create({
     borderColor: colors.borderDefault,
   },
   cardIcon: {
+    // Squircle well, not a circle — 44 wide with radius.md, left as-is.
     width: 44,
     height: 44,
-    borderRadius: 12,
+    borderRadius: radius.md,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 12,

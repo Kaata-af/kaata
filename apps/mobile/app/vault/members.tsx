@@ -21,18 +21,11 @@
 
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BottomSheet, type SheetAction } from "../../components/BottomSheet";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { ScreenLoading } from "../../components/ScreenLoading";
 import {
   EmptyHint,
   NavRow,
@@ -47,6 +40,7 @@ import { getAppMeta, getLocalSelf } from "../../lib/db";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { isPlaceholderSelfName, t } from "../../lib/i18n";
+import { radius } from "../../lib/tokens";
 import { useVaultRole } from "../../lib/use-vault-role";
 import { VAULT_ROLE_RANK } from "../../lib/vault-roles";
 import { subscribePresence, isPeerOnline } from "../../lib/mesh/presence";
@@ -70,6 +64,12 @@ type PendingInviteRow = {
   role: VaultRole;
   expires_at: number;
 };
+
+/** Member avatar + the presence dot pinned to its corner. Both are circles,
+ *  so their radii are size/2 rather than literals that can drift from the
+ *  diameter (lib/tokens rule 3). */
+const AVATAR_SIZE = 44;
+const PRESENCE_DOT_SIZE = 12;
 
 export default function VaultMembersScreen() {
   const router = useRouter();
@@ -465,12 +465,16 @@ export default function VaultMembersScreen() {
     : [];
 
   if (!loaded) {
+    // Same title / onBack / edges as the loaded branch, so the header is
+    // painted (and escapable) before the mirror query resolves and nothing
+    // shifts when it does.
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.fillCenter}>
-          <ActivityIndicator color={colors.textDefault} />
-        </View>
-      </SafeAreaView>
+      <ScreenLoading
+        title={t("members.title")}
+        onBack={() => router.back()}
+        isRTL={isRTL}
+        edges={["top", "bottom"]}
+      />
     );
   }
 
@@ -833,7 +837,6 @@ function rolePillTextStyle(role: VaultRole) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
-  fillCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
   scrollContent: { paddingBottom: 48 },
 
   banner: {
@@ -862,9 +865,9 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.borderSubtle,
   },
   identityAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: AVATAR_SIZE,
+    height: AVATAR_SIZE,
+    borderRadius: AVATAR_SIZE / 2,
     backgroundColor: colors.bgMuted,
     alignItems: "center",
     justifyContent: "center",
@@ -872,9 +875,13 @@ const styles = StyleSheet.create({
   presenceDot: {
     position: "absolute",
     bottom: -1,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: PRESENCE_DOT_SIZE,
+    height: PRESENCE_DOT_SIZE,
+    borderRadius: PRESENCE_DOT_SIZE / 2,
+    // Kept as a literal: lib/colors has no bright-green token, and the
+    // nearest (collectStrong #0C745A) is a deep emerald that reads as a
+    // balance color, not a live-presence indicator. Don't "tokenize" this
+    // by swapping the hue.
     backgroundColor: "#22c55e", // green — reachable over the mesh right now
     borderWidth: 2,
     borderColor: colors.bgDefault,
@@ -900,7 +907,7 @@ const styles = StyleSheet.create({
   rolePill: {
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     marginLeft: 8,
   },
   rolePillText: {

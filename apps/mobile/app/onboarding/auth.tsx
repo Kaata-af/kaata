@@ -19,6 +19,7 @@ import { getAppMeta, setAppMeta } from "../../lib/db";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
+import { icon, radius, typography } from "../../lib/tokens";
 
 // Onboarding step 2 — auth choice. Sits BEFORE the name/shop form so the
 // Google handshake (and the email it returns) can inform the next screen's
@@ -266,9 +267,9 @@ export default function OnboardingAuthScreen() {
                         color={isGoogle ? colors.textEmphasis : colors.textInverted}
                       />
                     ) : isGoogle ? (
-                      <GoogleGIcon size={28} />
+                      <GoogleGIcon size={icon.card} />
                     ) : (
-                      <Ionicons name="logo-apple" size={28} color={colors.textInverted} />
+                      <Ionicons name="logo-apple" size={icon.card} color={colors.textInverted} />
                     )}
                   </View>
                   <Text
@@ -309,6 +310,11 @@ export default function OnboardingAuthScreen() {
           ]}
         >
           <View style={[styles.cardIcon, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}>
+            {/* NOT icon.card (28) like the G / Apple marks above: NinjaIcon's
+                viewBox is "0 -64 640 640" and the head circle fills only ~77%
+                of it (the rest is katana headroom), so at 28 the ninja reads
+                visibly smaller than its two siblings in the shared 32px well.
+                30 is the optical-size compensation — a composed graphic. */}
             <NinjaIcon size={30} />
           </View>
           <Text style={[styles.cardTitle, textDir(isRTL)]}>
@@ -324,7 +330,12 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
   content: { flex: 1, padding: 24, justifyContent: "center" },
   title: {
-    fontSize: 22,
+    // typography.heading (20) — was a one-off 22. sansBold is kept OVER the
+    // token's sansSemi: what made this headline the loudest thing on the screen
+    // was the weight, not the two points of size. Spreading the token is also
+    // what gives it a lineHeight at all (it had none), routed through
+    // sansLineHeight so iOS can't clip the glyph tops.
+    ...typography.heading,
     fontFamily: fonts.sansBold,
     color: colors.textEmphasis,
     letterSpacing: -0.4,
@@ -366,7 +377,9 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 14,
+    // radius.lg — these are floating inset surfaces (cardPrimary/cardGoogle
+    // both carry a shadow + elevation 4). Was a bare 14.
+    borderRadius: radius.lg,
     paddingVertical: 14,
     paddingHorizontal: 16,
     minHeight: 60,

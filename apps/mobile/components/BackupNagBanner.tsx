@@ -21,6 +21,7 @@ import { getAppMeta, setAppMeta } from "../lib/db";
 import { getDb } from "../lib/db-tx";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
+import { icon, radius } from "../lib/tokens";
 
 export function BackupNagBanner(props: {
   activeVaultId: string | null;
@@ -76,7 +77,8 @@ export function BackupNagBanner(props: {
       accessibilityRole="button"
       accessibilityLabel={t("backupNag.cta")}
     >
-      <Ionicons name="cloud-offline-outline" size={20} color={colors.textInverted} />
+      {/* Leading icon in a row → icon.row (22). Was a one-off 20. */}
+      <Ionicons name="cloud-offline-outline" size={icon.row} color={colors.textInverted} />
       <View style={styles.textWrap}>
         <Text style={styles.title}>{t("backupNag.title")}</Text>
         <Text style={styles.body}>{t("backupNag.body")}</Text>
@@ -101,12 +103,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    backgroundColor: "#9a6a00", // amber — "at-risk, act" without alarm-red
+    // Amber — "at-risk, act" without alarm-red. Stays a literal: lib/colors.ts
+    // has no warning/amber token (the palette is monochrome + collect/pay +
+    // danger), and inventing one is a palette decision, not a refinement.
+    backgroundColor: "#9a6a00",
     paddingHorizontal: 14,
     paddingVertical: 10,
     marginHorizontal: 16,
     marginTop: 8,
-    borderRadius: 12,
+    borderRadius: radius.md, // 12, unchanged — now the token
   },
   textWrap: { flex: 1 },
   title: { fontFamily: fonts.sansSemi, fontSize: 13, color: colors.textInverted },

@@ -8,77 +8,43 @@ import { Button } from "../../components/Button";
 import { colors } from "../../lib/colors";
 import { getLocalSelf } from "../../lib/db";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
-import { fonts, sansLineHeight } from "../../lib/fonts";
+import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
+import { icon, radius, space, typography } from "../../lib/tokens";
 
-// Onboarding completion — the game-style "you made it" moment (Matee's ask).
+// Onboarding completion — shown once, right after the kaata step creates the
+// self + first vault.
 //
-// Shown once, right after the kaata step creates the self + first vault,
-// replacing the old silent router.replace("/"). Success screens are how
-// games cement "that thing you just made? here it is" — so the SHOP NAME is
-// the hero: a black shop-sign card (the app's primary-surface style — it
-// reads as the cover of the ledger book they just created) with the name
-// big, under a celebratory check.
+// REWRITTEN 1.0.8. This was a game-style celebration: a 96px black disk with a
+// 54px check, an expanding pulse ring, 18 confetti pieces on randomised arcs,
+// six staged animations and two haptics. It was cut for one reason — it
+// contradicted the app's own design doctrine. lib/colors.ts opens by declaring
+// monochrome chrome with quiet semantic colour only where it carries meaning,
+// and every other screen in Kaata is calm. A shopkeeper who has just typed
+// their shop name met a party, and it read as belonging to a different app.
+// (The confetti palette had already been through one round of "terrible green"
+// feedback — a sign the concept was being patched rather than reconsidered.)
 //
-// Celebration choreography (all Animated + expo-haptics, no new deps, every
-// animated prop is native-driver-safe — transform/opacity only):
-//   t=0      check pops in (spring) + a ring pulse expands behind it
-//            + success haptic
-//   t≈80ms   confetti burst — 18 pieces in the brand palette arc out of the
-//            check and fall away (per-piece randomized trajectory/rotation)
-//   t≈250ms  title fades up
-//   t≈380ms  shop-sign card springs up + light impact haptic (the "thunk"
-//            of the sign landing)
-//   t≈520ms  body line fades in
-//   t≈640ms  CTA rises
+// What replaces it: the same information, stated confidently once. The SHOP
+// SIGN is the hero — a black card in the app's primary-surface language,
+// reading as the cover of the ledger book they just created — with a small
+// quiet check above it rather than a disk competing for the same attention.
+// The whole block arrives on ONE fade-up.
 //
-// The shop name arrives via route param (?name=). Force-quit here is
-// harmless: onboarding_step is already 'done', so a relaunch routes
-// straight to home — this screen is pure ceremony, never a gate. The
-// param can be lost in edge cases (deep-link replay), so we fall back to
-// getLocalSelf().shop_name before rendering the name card.
+// Kept deliberately:
+//   - the single success haptic. It is tactile, not visual noise, and this is
+//     a genuine completion moment. The second "thunk" haptic went with the
+//     spring it was punctuating.
+//   - the ?name= param + getLocalSelf() fallback. Force-quit here is harmless
+//     (onboarding_step is already 'done', so a relaunch routes straight to
+//     home — this screen is ceremony, never a gate), but the param can be lost
+//     on deep-link replay, and a blank sign card would be a sad ending.
+//   - footer paddingBottom 20, which is BUTTON_OFFSET_ABOVE_SAFE_AREA. Every
+//     bottom-anchored control in the app sits exactly that far above the safe
+//     area because useToastOffset()'s lift constant is derived from it.
 
-// Confetti is mostly monochrome (the brand) with a MINORITY of emerald
-// pieces — emerald is the app's money-toward-you accent and only ever
-// appears in small doses; a big green moment read as off-brand (Matee:
-// "terrible green"). Order matters: i % 3 cycling gives 2 neutral pieces
-// per emerald one. No garnet (money-away), no light neutrals (invisible
-// on white).
-const CONFETTI_COLORS = [colors.bgInverted, colors.textSubtle, colors.collectStrong] as const;
-
-const CONFETTI_COUNT = 18;
-
-type ConfettiPiece = {
-  progress: Animated.Value;
-  dx: number; // horizontal spread at full progress
-  riseY: number; // arc peak (negative = up)
-  fallY: number; // final resting offset (positive = down, off the card)
-  spin: string; // total rotation, e.g. "540deg"
-  delay: number;
-  duration: number;
-  color: string;
-  w: number;
-  h: number;
-};
-
-function makeConfetti(): ConfettiPiece[] {
-  return Array.from({ length: CONFETTI_COUNT }, (_, i) => {
-    // Alternate sides so the burst is symmetric even with randomness.
-    const side = i % 2 === 0 ? 1 : -1;
-    return {
-      progress: new Animated.Value(0),
-      dx: side * (30 + Math.random() * 120),
-      riseY: -(40 + Math.random() * 90),
-      fallY: 160 + Math.random() * 180,
-      spin: `${side * (280 + Math.round(Math.random() * 420))}deg`,
-      delay: 80 + Math.random() * 160,
-      duration: 950 + Math.random() * 450,
-      color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
-      w: 6 + Math.random() * 5,
-      h: 4 + Math.random() * 4,
-    };
-  });
-}
+/** Diameter of the sign card's icon chip. Radius is size/2, never a literal. */
+const SIGN_CHIP = 38;
 
 export default function OnboardingSuccessScreen() {
   const router = useRouter();
@@ -88,81 +54,25 @@ export default function OnboardingSuccessScreen() {
     typeof params.name === "string" && params.name.trim() ? params.name.trim() : null,
   );
 
-  // --- animation state (created once; all native-driver) ---
-  const checkScale = useRef(new Animated.Value(0)).current;
-  const ringProgress = useRef(new Animated.Value(0)).current;
-  const titleProgress = useRef(new Animated.Value(0)).current;
-  const cardProgress = useRef(new Animated.Value(0)).current;
-  const bodyProgress = useRef(new Animated.Value(0)).current;
-  const footerProgress = useRef(new Animated.Value(0)).current;
-  // Lazy-init: useRef(makeConfetti()) would re-run the allocation (18
-  // Animated.Values + ~150 Math.random calls) on EVERY re-render and discard
-  // the result — and the shopName fallback effect guarantees a re-render
-  // mid-burst on low-end devices.
-  const confettiRef = useRef<ConfettiPiece[] | null>(null);
-  if (confettiRef.current === null) confettiRef.current = makeConfetti();
-  const confetti = confettiRef.current;
+  // ONE animated value for the whole block. The old screen had six, staggered
+  // across 640ms; a single 320ms fade-up is the entrance every other screen in
+  // the app uses, and it cannot jank on a low-end Android the way eighteen
+  // concurrent interpolations could.
+  const enter = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const fadeUp = (v: Animated.Value, delay: number) =>
-      Animated.timing(v, {
-        toValue: 1,
-        duration: 320,
-        delay,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      });
-
-    Animated.parallel([
-      // The check pops...
-      Animated.spring(checkScale, {
-        toValue: 1,
-        friction: 5,
-        tension: 90,
-        useNativeDriver: true,
-      }),
-      // ...a ring pulses out behind it...
-      Animated.timing(ringProgress, {
-        toValue: 1,
-        duration: 650,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }),
-      // ...confetti arcs out of it...
-      ...confetti.map((p) =>
-        Animated.timing(p.progress, {
-          toValue: 1,
-          duration: p.duration,
-          delay: p.delay,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ),
-      // ...and the content lands in reading order.
-      fadeUp(titleProgress, 250),
-      Animated.spring(cardProgress, {
-        toValue: 1,
-        friction: 7,
-        tension: 70,
-        delay: 380,
-        useNativeDriver: true,
-      }),
-      fadeUp(bodyProgress, 520),
-      fadeUp(footerProgress, 640),
-    ]).start();
-
-    // Tactile half of the celebration; both best-effort (no vibrator /
-    // haptics off). Success chord now, a light "thunk" when the sign lands.
+    Animated.timing(enter, {
+      toValue: 1,
+      duration: 320,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+    // Best-effort: no-ops when the device has no vibrator or haptics are off.
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    const thunk = setTimeout(() => {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    }, 420);
-    return () => clearTimeout(thunk);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [enter]);
 
-  // Param lost (deep-link replay, state restoration) — recover the name
-  // from the just-created vault so the card never renders blank.
+  // Param lost (deep-link replay, state restoration) — recover the name from
+  // the just-created vault so the sign card never renders blank.
   useEffect(() => {
     if (shopName) return;
     void (async () => {
@@ -170,129 +80,48 @@ export default function OnboardingSuccessScreen() {
         const self = await getLocalSelf();
         if (self?.shop_name) setShopName(self.shop_name);
       } catch {
-        // Leave null — the sign card is hidden and the title still lands.
+        // Leave null — the card is hidden and the title still lands.
       }
     })();
   }, [shopName]);
 
-  const fadeRise = (v: Animated.Value, from = 12) => ({
-    opacity: v,
-    transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [from, 0] }) }],
-  });
+  const rise = {
+    opacity: enter,
+    transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }],
+  };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
-        {/* Check + pulse ring + confetti share one anchor so the burst
-            originates exactly at the check's center. The confetti layer is
-            oversized + non-interactive; RN doesn't clip it, so pieces fall
-            over the content below — deliberately. Hidden from screen
-            readers wholesale: it's pure decoration, and TalkBack/VoiceOver
-            stepping through 18 confetti views would be noise. */}
-        <View
-          style={styles.burstAnchor}
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-        >
-          <Animated.View
-            pointerEvents="none"
-            style={[
-              styles.ring,
-              {
-                opacity: ringProgress.interpolate({
-                  inputRange: [0, 0.15, 1],
-                  outputRange: [0, 0.35, 0],
-                }),
-                transform: [
-                  {
-                    scale: ringProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 2.4] }),
-                  },
-                ],
-              },
-            ]}
-          />
-          {confetti.map((p, i) => (
-            <Animated.View
-              key={i}
-              pointerEvents="none"
-              style={[
-                styles.confetti,
-                {
-                  width: p.w,
-                  height: p.h,
-                  backgroundColor: p.color,
-                  opacity: p.progress.interpolate({
-                    inputRange: [0, 0.05, 0.75, 1],
-                    outputRange: [0, 1, 1, 0],
-                  }),
-                  transform: [
-                    {
-                      translateX: p.progress.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0, p.dx],
-                      }),
-                    },
-                    {
-                      translateY: p.progress.interpolate({
-                        // Rise to the arc peak, then fall past the origin.
-                        inputRange: [0, 0.35, 1],
-                        outputRange: [0, p.riseY, p.fallY],
-                      }),
-                    },
-                    {
-                      rotate: p.progress.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: ["0deg", p.spin],
-                      }),
-                    },
-                  ],
-                },
-              ]}
-            />
-          ))}
-          <Animated.View style={[styles.checkWrap, { transform: [{ scale: checkScale }] }]}>
-            <Ionicons name="checkmark" size={54} color={colors.textInverted} />
-          </Animated.View>
-        </View>
+    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+      <Animated.View style={[styles.content, rise]}>
+        {/* Small and quiet. The old 96px black disk was the third heavy black
+            block in a vertical column (disk → sign card → CTA) and out-shouted
+            the shop name it was supposed to be introducing. A check at
+            icon.hero in textEmphasis says "done" without claiming the page. */}
+        <Ionicons name="checkmark" size={icon.hero} color={colors.textEmphasis} />
 
-        <Animated.View style={[styles.titleWrap, fadeRise(titleProgress)]}>
-          <Text style={[styles.title, trackingSafe(isRTL)]}>{t("onboardingSuccess.title")}</Text>
-        </Animated.View>
+        <Text style={[styles.title, trackingSafe(isRTL)]}>{t("onboardingSuccess.title")}</Text>
 
         {shopName ? (
-          <Animated.View
-            style={[
-              styles.signCard,
-              rowDir(isRTL),
-              {
-                opacity: cardProgress,
-                transform: [
-                  {
-                    translateY: cardProgress.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [24, 0],
-                    }),
-                  },
-                ],
-              },
-            ]}
-          >
+          <View style={[styles.signCard, rowDir(isRTL)]}>
             <View style={[styles.signIconChip, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}>
-              <Ionicons name="storefront-outline" size={20} color={colors.textInverted} />
+              <Ionicons name="storefront-outline" size={icon.row} color={colors.textInverted} />
             </View>
             <Text style={[styles.signName, textDir(isRTL), trackingSafe(isRTL)]} numberOfLines={2}>
               {shopName}
             </Text>
-          </Animated.View>
+          </View>
         ) : null}
 
-        <Animated.View style={[{ alignSelf: "stretch" }, fadeRise(bodyProgress, 8)]}>
-          <Text style={styles.body}>{t("onboardingSuccess.body")}</Text>
-        </Animated.View>
-      </View>
+        <Text style={styles.body}>{t("onboardingSuccess.body")}</Text>
+      </Animated.View>
 
-      <Animated.View style={[styles.footer, fadeRise(footerProgress, 10)]}>
-        <Button label={t("onboardingSuccess.cta")} onPress={() => router.replace("/")} />
+      <Animated.View style={[styles.footer, rise]}>
+        <Button
+          label={t("onboardingSuccess.cta")}
+          onPress={() => router.replace("/")}
+          size="hero"
+          fullWidth
+        />
       </Animated.View>
     </SafeAreaView>
   );
@@ -302,69 +131,32 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
   content: {
     flex: 1,
-    paddingHorizontal: 24,
+    paddingHorizontal: space.xxl,
     alignItems: "center",
     justifyContent: "center",
   },
-  // Anchor for the check + ring + confetti so every burst layer shares the
-  // check's center. zIndex keeps falling confetti above the title/card on
-  // iOS; on Android, sibling elevation trumps zIndex in the hardware
-  // renderer's Z sort — the sign card's elevation:4 would put every falling
-  // piece BEHIND it — so the anchor carries elevation:5 (no background, so
-  // no visible shadow, just the Z lift).
-  burstAnchor: {
-    width: 96,
-    height: 96,
-    marginBottom: 30,
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 2,
-    ...Platform.select({ android: { elevation: 5 } }),
-  },
-  // BLACK, not emerald (Matee: the big green disk read terribly). The app's
-  // identity is monochrome — FAB, primary buttons, primary cards are all
-  // #171717 — and emerald is a small-dose semantic accent, never a large
-  // surface. The celebration lives in the motion + confetti, not the fill.
-  checkWrap: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: colors.bgInverted,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ring: {
-    position: "absolute",
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    borderWidth: 3,
-    borderColor: colors.bgInverted,
-  },
-  confetti: {
-    position: "absolute",
-    borderRadius: 2,
-  },
-  titleWrap: { alignSelf: "stretch" },
   title: {
-    fontSize: 24,
-    fontFamily: fonts.sansBold,
+    // heading (20), not display (28). The sign card is the hero now, and a
+    // 28px headline directly above it competed with the thing it introduces.
+    ...typography.heading,
     color: colors.textEmphasis,
-    letterSpacing: -0.4,
     textAlign: "center",
+    marginTop: space.lg,
   },
-  // The shop sign — the hero. Black primary-surface card (same language as
-  // the onboarding auth cards): the cover of the book they just created.
+  // THE HERO. Black primary-surface card — the same language as the onboarding
+  // auth cards and the FAB — reading as the cover of the book they just made.
   signCard: {
     flexDirection: "row",
     alignItems: "center",
-    alignSelf: "center",
-    marginTop: 24,
-    paddingVertical: 20,
-    paddingHorizontal: 24,
-    borderRadius: 18,
+    alignSelf: "stretch",
+    marginTop: space.xxl,
+    paddingVertical: space.xl,
+    paddingHorizontal: space.xxl,
+    // radius.lg (16): this card floats inset from the screen edge. 18 is
+    // reserved for sheet tops welded to it — see the adjacency note in
+    // lib/tokens.ts.
+    borderRadius: radius.lg,
     backgroundColor: colors.bgInverted,
-    maxWidth: "100%",
     ...Platform.select({
       ios: {
         shadowColor: "#000",
@@ -375,38 +167,37 @@ const styles = StyleSheet.create({
       android: { elevation: 4 },
     }),
   },
-  // Frosted white-on-dark chip — same treatment as the person screen's
-  // action "coins" — keeps the sign card fully monochrome.
+  // Frosted white-on-dark chip — the same treatment as the person screen's
+  // action coins, which keeps the card fully monochrome.
   signIconChip: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: SIGN_CHIP,
+    height: SIGN_CHIP,
+    borderRadius: SIGN_CHIP / 2,
     backgroundColor: "rgba(255,255,255,0.13)",
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
   },
   signName: {
-    fontSize: 22,
+    // sansBold over the token's sansSemi: this is sign lettering, and the
+    // weight is what makes the card read as a shopfront rather than a list row.
+    // NO letterSpacing at any weight — this is the user's own shop name, and an
+    // Afghan shopkeeper running the app in English very often names their shop
+    // in Persian script, which tracking would shred.
+    ...typography.heading,
     fontFamily: fonts.sansBold,
     color: colors.textInverted,
-    letterSpacing: -0.3,
     flexShrink: 1,
   },
   body: {
-    fontSize: 14,
-    fontFamily: fonts.sansRegular,
+    ...typography.body,
     color: colors.textSubtle,
-    lineHeight: sansLineHeight(14, 21),
     textAlign: "center",
-    marginTop: 24,
+    marginTop: space.xxl,
   },
-  // paddingBottom is 20, not 16, to match BUTTON_OFFSET_ABOVE_SAFE_AREA in
-  // components/Toast.tsx. Every bottom-anchored control in the app sits exactly
-  // that far above the safe area, because useToastOffset()'s lift constant is
-  // derived from it — the insets only cancel between the toast viewport and the
-  // lifted control if this number agrees. Nothing queues a toast on this screen
-  // today, so 16 was dormant rather than broken, but it was the only
-  // bottom-anchored CTA in the app that was off the identity.
-  footer: { paddingHorizontal: 24, paddingBottom: 20 },
+  // paddingBottom 20 = BUTTON_OFFSET_ABOVE_SAFE_AREA (components/Toast.tsx).
+  // Every bottom-anchored control in the app sits exactly that far above the
+  // safe area; useToastOffset()'s lift constant is derived from it, and the
+  // insets only cancel if this number agrees.
+  footer: { paddingHorizontal: space.xxl, paddingBottom: 20 },
 });

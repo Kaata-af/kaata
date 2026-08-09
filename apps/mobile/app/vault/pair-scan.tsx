@@ -35,6 +35,7 @@ import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { decodePairQr, type PairQrPayload, type PairQrRole } from "../../lib/mesh/pair-qr";
 import { ensureDeviceKey, getDevicePubkey } from "../../lib/mesh/device-key";
+import { icon, radius, typography } from "../../lib/tokens";
 import { buildLocalAccountId } from "../../lib/trust/account-id";
 
 /**
@@ -432,7 +433,7 @@ export default function VaultPairScanScreen() {
 
       {step.kind === "awaiting" ? (
         <View style={styles.body}>
-          <Ionicons name="bluetooth-outline" size={40} color={colors.textMuted} />
+          <Ionicons name="bluetooth-outline" size={icon.hero} color={colors.textMuted} />
           <Text style={[styles.headline, textDir(isRTL)]}>
             {t("vaultPairScan.awaiting.hostHeadline")}
           </Text>
@@ -463,7 +464,7 @@ export default function VaultPairScanScreen() {
 
       {step.kind === "joined" ? (
         <View style={styles.body}>
-          <Ionicons name="checkmark-circle" size={48} color={colors.textEmphasis} />
+          <Ionicons name="checkmark-circle" size={icon.hero} color={colors.textEmphasis} />
           <Text style={[styles.headline, textDir(isRTL)]}>
             {t("vaultPairScan.joined.headline")}
             {"\n"}
@@ -479,7 +480,7 @@ export default function VaultPairScanScreen() {
 
       {step.kind === "error" ? (
         <View style={styles.body}>
-          <Ionicons name="alert-circle" size={40} color={colors.danger} />
+          <Ionicons name="alert-circle" size={icon.hero} color={colors.danger} />
           <Text style={[styles.headline, textDir(isRTL)]}>{t("vaultPairScan.error.headline")}</Text>
           <Text style={[styles.bodyText, textDir(isRTL)]}>{step.message}</Text>
           <View style={{ height: 20 }} />
@@ -518,16 +519,20 @@ const styles = StyleSheet.create({
     lineHeight: sansLineHeight(14, 22),
     alignSelf: "stretch",
   },
+  // 22 → heading (20), in step with vault/pair.tsx — the owner's screen and the
+  // joiner's screen are the same moment seen from two phones and must not read
+  // at two sizes. Downsizing, so no line that fits today can start wrapping.
   headline: {
+    ...typography.heading,
     marginTop: 14,
-    fontSize: 22,
-    fontFamily: fonts.sansSemi,
     color: colors.textEmphasis,
     textAlign: "center",
-    lineHeight: sansLineHeight(22, 30),
     marginBottom: 12,
   },
   emph: { fontFamily: fonts.sansSemi, color: colors.textEmphasis },
+  // Pure black letterbox behind the camera feed — deliberately NOT
+  // colors.bgInverted (#171717), which would show as a grey frame against
+  // the sensor's true black. lib/colors has no #000 token.
   cameraWrap: { flex: 1, backgroundColor: "#000" },
   scannerReticle: {
     position: "absolute",
@@ -536,8 +541,10 @@ const styles = StyleSheet.create({
     right: "12%",
     aspectRatio: 1,
     borderWidth: 3,
-    borderColor: "#fff",
-    borderRadius: 16,
+    // textInverted is the app's #FFFFFF token — this is the on-camera
+    // foreground, same role as the hint label below.
+    borderColor: colors.textInverted,
+    borderRadius: radius.lg,
     backgroundColor: "transparent",
   },
   scannerHint: {
@@ -551,11 +558,12 @@ const styles = StyleSheet.create({
   scannerHintText: {
     fontSize: 14,
     fontFamily: fonts.sansMedium,
-    color: "#fff",
+    color: colors.textInverted,
     textAlign: "center",
+    // Translucent scrim — lib/colors is fully opaque, so no token exists.
     backgroundColor: "rgba(0,0,0,0.55)",
     paddingVertical: 8,
     paddingHorizontal: 14,
-    borderRadius: 999,
+    borderRadius: radius.pill,
   },
 });

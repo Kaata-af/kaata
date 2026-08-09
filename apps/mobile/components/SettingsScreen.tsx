@@ -3,6 +3,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
 import {
+  SETTINGS_DISABLED_OPACITY,
   SETTINGS_HEADER_HEIGHT,
   SETTINGS_HEADER_ICON_SIZE,
   SETTINGS_HEADER_TITLE_FONT_SIZE,
@@ -53,18 +54,38 @@ export function ScreenHeader(props: {
   onBack: (() => void) | null;
   isRTL: boolean;
   backLabel?: string;
+  /**
+   * Renders the chevron VISIBLE but inert and dimmed, for a screen that is
+   * mid-operation and must not be dismissed (an in-flight export, a running
+   * restore).
+   *
+   * The alternative — keeping onBack live and no-oping inside the handler — is
+   * the anti-pattern this codebase has already hit twice: the control dims on
+   * press and does nothing, so the user taps it repeatedly and concludes the
+   * app is frozen. Passing onBack={null} instead makes the chevron VANISH
+   * mid-task, which reads as a rendering bug. Dimmed-and-inert is the honest
+   * third option: still there, visibly unavailable.
+   */
+  backDisabled?: boolean;
   /** Optional right-side trailing element (text button or icon). */
   trailing?: ReactNode;
 }) {
+  const backDisabled = Boolean(props.backDisabled);
   return (
     <View style={[styles.header, rowDir(props.isRTL)]}>
       {props.onBack != null ? (
         <Pressable
           onPress={props.onBack}
+          disabled={backDisabled}
           hitSlop={8}
-          style={({ pressed }) => [styles.headerBack, pressed && { opacity: 0.5 }]}
+          style={({ pressed }) => [
+            styles.headerBack,
+            pressed && !backDisabled && { opacity: 0.5 },
+            backDisabled && { opacity: SETTINGS_DISABLED_OPACITY },
+          ]}
           accessibilityRole="button"
           accessibilityLabel={props.backLabel ?? t("common.back")}
+          accessibilityState={{ disabled: backDisabled }}
         >
           <Ionicons
             name={props.isRTL ? "chevron-forward" : "chevron-back"}

@@ -21,8 +21,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Button } from "../../components/Button";
+import { EmptyState } from "../../components/EmptyState";
 import { ScreenHeader } from "../../components/SettingsScreen";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
@@ -35,6 +37,7 @@ import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
 import { t } from "../../lib/i18n";
+import { icon } from "../../lib/tokens";
 import { useActiveVaultWriteCaps } from "../../lib/use-vault-role";
 
 export default function RemovedPeopleScreen() {
@@ -131,19 +134,22 @@ export default function RemovedPeopleScreen() {
         // Same stranded-user fix as vault/archived: the last restore leaves
         // an empty screen, so give a forward path instead of bare copy.
         <View style={styles.emptyWrap}>
-          <Ionicons name="person-remove-outline" size={40} color={colors.textMuted} />
-          <Text style={[styles.emptyTitle, textDir(isRTL)]}>{t("peopleRemoved.empty")}</Text>
-          <Text style={[styles.emptySubtitle, textDir(isRTL)]}>
-            {t("peopleRemoved.emptySubtitle")}
-          </Text>
-          <Pressable
-            onPress={() => router.back()}
-            accessibilityRole="button"
-            accessibilityLabel={t("peopleRemoved.emptyCta")}
-            style={({ pressed }) => [styles.emptyCta, pressed && { opacity: 0.7 }]}
-          >
-            <Text style={styles.emptyCtaText}>{t("peopleRemoved.emptyCta")}</Text>
-          </Pressable>
+          <EmptyState
+            title={t("peopleRemoved.empty")}
+            subtitle={t("peopleRemoved.emptySubtitle")}
+            // Same escape hatch as vault/archived — bgInverted pill via
+            // primary+pill. Button announces `label`, i.e. the same string the
+            // explicit accessibilityLabel used to pass.
+            action={
+              <Button
+                label={t("peopleRemoved.emptyCta")}
+                onPress={() => router.back()}
+                size="pill"
+              />
+            }
+            isRTL={isRTL}
+            icon="person-remove-outline"
+          />
         </View>
       ) : (
         <FlatList
@@ -189,7 +195,7 @@ function RemovedPersonRow(props: {
     <View style={[styles.row, rowDir(isRTL)]}>
       <Ionicons
         name="person-outline"
-        size={22}
+        size={icon.row}
         color={colors.textMuted}
         style={isRTL ? { marginLeft: 14 } : { marginRight: 14 }}
       />
@@ -207,26 +213,18 @@ function RemovedPersonRow(props: {
         </Text>
       ) : null}
       {canRestore ? (
-        <Pressable
-          onPress={anyBusy ? undefined : onRestore}
+        // Same list CTA as vault/archived's Restore, same pill geometry and the
+        // same filled bgMuted weight (`muted`). The anyBusy dim + press guard
+        // collapse into `disabled` (Button dims and blocks the press) and the
+        // in-row spinner into `loading`.
+        <Button
+          label={t("peopleRemoved.restoreButton")}
+          onPress={onRestore}
+          variant="muted"
+          size="pill"
           disabled={anyBusy}
-          accessibilityRole="button"
-          accessibilityLabel={t("peopleRemoved.restoreButton")}
-          accessibilityState={{ disabled: anyBusy }}
-          style={({ pressed }) => [
-            styles.restoreBtn,
-            pressed && !anyBusy && { opacity: 0.55 },
-            anyBusy && { opacity: 0.45 },
-          ]}
-        >
-          {busy ? (
-            <ActivityIndicator size="small" color={colors.textEmphasis} />
-          ) : (
-            <Text style={styles.restoreText} numberOfLines={1}>
-              {t("peopleRemoved.restoreButton")}
-            </Text>
-          )}
-        </Pressable>
+          loading={busy}
+        />
       ) : null}
     </View>
   );
@@ -280,54 +278,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.monoMedium,
     marginHorizontal: 8,
   },
-  restoreBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    backgroundColor: colors.bgMuted,
-    borderRadius: 999,
-    minWidth: 84,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  restoreText: {
-    fontSize: 13,
-    fontFamily: fonts.sansSemi,
-    color: colors.textEmphasis,
-  },
-
-  emptyWrap: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 40,
-    gap: 12,
-  },
-  emptyTitle: {
-    fontSize: 15,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    textAlign: "center",
-  },
-  emptySubtitle: {
-    fontSize: 13,
-    fontFamily: fonts.sansRegular,
-    color: colors.textMuted,
-    textAlign: "center",
-    marginTop: -4,
-    marginBottom: 8,
-  },
-  emptyCta: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    backgroundColor: colors.bgInverted,
-    borderRadius: 999,
-    minWidth: 140,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyCtaText: {
-    fontSize: 14,
-    fontFamily: fonts.sansSemi,
-    color: colors.textInverted,
-  },
+  // Centering box only. The horizontal padding and 12px gap moved into
+  // EmptyState (which pads 24/56 itself) — keeping them here would double up.
+  emptyWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
 });

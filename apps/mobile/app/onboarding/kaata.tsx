@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -14,14 +14,17 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { FormField } from "../../components/FormField";
+import { OptionSheet } from "../../components/OptionSheet";
+import { NavRow } from "../../components/SettingsScreen";
 import { updateAccountPhone } from "../../lib/auth";
 import { colors } from "../../lib/colors";
 import { CURRENCIES, DEFAULT_CURRENCY, getCurrencyName } from "../../lib/currency";
 import { createSelfProfile, getAppMeta, setAppMeta } from "../../lib/db";
+import { SETTINGS_ROW_PADDING_X } from "../../lib/design-tokens";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError } from "../../lib/event-log";
-import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
+import { gutter, icon, space, TOUCH_MIN, typography } from "../../lib/tokens";
 
 // Onboarding final step — create the shopkeeper's first kaata (their shop's
 // ledger book). The personal-profile step (name + phone) stashed those values
@@ -50,6 +53,10 @@ export default function OnboardingKaataScreen() {
 
   const [shopName, setShopName] = useState("");
   const [currency, setCurrency] = useState<string>(DEFAULT_CURRENCY);
+  // Currency is picked through a row→sheet, not a chip grid — see the NavRow
+  // in the form below. Only the CONTROL changed; `currency` / setCurrency are
+  // still what createSelfProfile() is called with.
+  const [currencySheetVisible, setCurrencySheetVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -64,8 +71,6 @@ export default function OnboardingKaataScreen() {
   // double-tap (setState is async); see entry/new.tsx. Without it a
   // double-tap mints two selves/vaults.
   const savingRef = useRef(false);
-
-  const currencyOptions = useMemo(() => CURRENCIES.map((c) => c.code), []);
 
   useEffect(() => {
     (async () => {
@@ -156,6 +161,12 @@ export default function OnboardingKaataScreen() {
     router.replace("/onboarding/profile");
   }
 
+  // Same trailing composition as vault/settings.tsx's currency row: symbol +
+  // localized name, so "₨  Pakistani Rupee" reads to someone who doesn't know
+  // the ISO codes. Built here (not in a memo) — it's two lookups per render.
+  const currencyValue =
+    `${CURRENCIES.find((c) => c.code === currency)?.symbol ?? ""}  ${getCurrencyName(currency)}`.trim();
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={[styles.header, rowDir(isRTL)]}>
@@ -166,8 +177,10 @@ export default function OnboardingKaataScreen() {
           style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}
         >
           <Ionicons
+            // icon.row (22), NOT icon.header (26) — labelled back control, same
+            // as onboarding/profile.tsx. See the note there.
             name={isRTL ? "chevron-forward" : "chevron-back"}
-            size={22}
+            size={icon.row}
             color={colors.textEmphasis}
           />
           <Text style={[styles.backText, textDir(isRTL)]}>{t("onboardingMode.back")}</Text>
@@ -206,34 +219,28 @@ export default function OnboardingKaataScreen() {
             error={nameError}
           />
 
-          <Text style={[styles.label, textDir(isRTL)]}>{t("onboardingKaata.currency.label")}</Text>
-          <View style={[styles.currencyRow, rowDir(isRTL)]}>
-            {currencyOptions.map((code) => {
-              const selected = code === currency;
-              const entry = CURRENCIES.find((c) => c.code === code);
-              return (
-                <Pressable
-                  key={code}
-                  onPress={() => setCurrency(code)}
-                  disabled={busy}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${code} — ${getCurrencyName(code)}`}
-                  style={({ pressed }) => [
-                    styles.currencyChip,
-                    selected && styles.currencyChipSelected,
-                    busy && { opacity: 0.5 },
-                    pressed && !selected && { backgroundColor: colors.bgMuted },
-                  ]}
-                >
-                  <Text
-                    style={[styles.currencyChipText, selected && styles.currencyChipTextSelected]}
-                  >
-                    {code}
-                    {entry ? `  ${entry.symbol}` : ""}
-                  </Text>
-                </Pressable>
-              );
-            })}
+          {/* Currency: row→sheet, IDENTICAL to the edit path (vault/settings.tsx)
+              and to /vault/new. The old control was a 9-chip wrapping grid at
+              ~36px tall — under the 44pt floor, and a mistap here silently
+              mislabels every future amount in this kaata (lib/currency.ts
+              relabels, it never converts), which is the worst possible place for
+              a fat-finger: the shopkeeper's very first screen. NavRow clears the
+              floor at 52px and the sheet gives each currency a full row. */}
+          <View style={styles.currencyRowBleed}>
+            <NavRow
+              icon="cash-outline"
+              label={t("onboardingKaata.currency.label")}
+              trailing={currencyValue}
+              // NavRow puts accessibilityLabel on the Pressable, which SUPPRESSES the
+              // child text — so without this TalkBack announced only "Currency" and
+              // never the selected value sitting in `trailing`. A blind user could not
+              // hear which currency their ledger was about to be created in.
+              accessibilityLabel={`${t("onboardingKaata.currency.label")}: ${currencyValue}`}
+              onPress={() => setCurrencySheetVisible(true)}
+              disabled={busy}
+              isRTL={isRTL}
+              isLast
+            />
           </View>
           <Text style={[styles.fieldHint, textDir(isRTL)]}>
             {t("onboardingKaata.currency.hint")}
@@ -254,6 +261,25 @@ export default function OnboardingKaataScreen() {
           />
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Currency picker — same sheet, same option list and same selection tick
+          as /vault/new and vault/settings. */}
+      <OptionSheet
+        visible={currencySheetVisible}
+        title={t("onboardingKaata.currency.label")}
+        options={CURRENCIES.map((c) => ({
+          key: c.code,
+          label: getCurrencyName(c.code),
+          leading: c.symbol,
+        }))}
+        selected={currency}
+        onSelect={(code) => {
+          setCurrencySheetVisible(false);
+          setCurrency(code);
+        }}
+        onDismiss={() => setCurrencySheetVisible(false)}
+        isRTL={isRTL}
+      />
     </SafeAreaView>
   );
 }
@@ -270,55 +296,46 @@ const styles = StyleSheet.create({
   backBtn: {
     flexDirection: "row",
     alignItems: "center",
+    // ~40 computed (8+8 padding + a 15px label) — under the HIG floor.
+    // alignItems already centres on this row's cross axis, so no
+    // justifyContent needed. See onboarding/profile.tsx.
+    minHeight: TOUCH_MIN,
     paddingHorizontal: 8,
     paddingVertical: 8,
     gap: 2,
   },
-  backText: { fontSize: 15, fontFamily: fonts.sansMedium, color: colors.textSubtle },
-  scrollContent: { flexGrow: 1, padding: 24, paddingTop: 12, paddingBottom: 48 },
+  backText: { ...typography.label, color: colors.textSubtle },
+  scrollContent: { flexGrow: 1, padding: gutter.hero, paddingTop: 12, paddingBottom: 48 },
   title: {
-    fontSize: 22,
-    fontFamily: fonts.sansBold,
+    // 22 collapsed onto the scale's heading (20), but keeping the BOLD cut —
+    // heading's own family is sansSemi, and the onboarding steps share one
+    // 700-weight headline voice. letterSpacing is the pre-existing optical
+    // tightening; trackingSafe(isRTL) in the JSX cancels it for Persian, where
+    // tracking would sever the joining.
+    ...typography.heading,
+    fontFamily: typography.display.fontFamily,
     color: colors.textEmphasis,
     letterSpacing: -0.4,
   },
-  subtitle: {
-    fontSize: 14,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    marginTop: 8,
-    lineHeight: sansLineHeight(14, 20),
-  },
+  subtitle: { ...typography.body, color: colors.textSubtle, marginTop: space.sm },
   spacer: { height: 28 },
-  label: {
-    fontSize: 13,
-    fontFamily: fonts.sansMedium,
-    color: colors.textDefault,
-    marginBottom: 8,
-  },
-  fieldHint: {
-    fontSize: 12,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    marginTop: 8,
-    lineHeight: sansLineHeight(12, 17),
-  },
+  fieldHint: { ...typography.hint, color: colors.textSubtle, marginTop: space.sm },
   submitError: {
-    fontSize: 13,
-    fontFamily: fonts.sansMedium,
+    // bodySm's 13px at the label weight — an error line is emphasised body,
+    // and bodySm's own family is sansRegular.
+    ...typography.bodySm,
+    fontFamily: typography.label.fontFamily,
     color: colors.danger,
-    marginTop: 16,
+    marginTop: space.lg,
   },
-  currencyRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  currencyChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: colors.borderDefault,
-    borderRadius: 8,
-    backgroundColor: colors.bgDefault,
+  // The currency row is a settings NavRow — it carries its own 20px gutter and
+  // a full-width press surface — dropped into a hero-gutter (24px) form. Cancel
+  // the hero gutter, then hand back the 4px difference so the row's icon+label
+  // land on exactly the same left edge as the form fields above, while the
+  // press surface still runs nearly edge to edge. (isLast on the row suppresses
+  // the hairline divider: one lone rule under a single row reads as a mistake.)
+  currencyRowBleed: {
+    marginHorizontal: -gutter.hero,
+    paddingHorizontal: gutter.hero - SETTINGS_ROW_PADDING_X,
   },
-  currencyChipSelected: { borderColor: colors.textEmphasis, backgroundColor: colors.bgInverted },
-  currencyChipText: { fontSize: 13, fontFamily: fonts.monoMedium, color: colors.textEmphasis },
-  currencyChipTextSelected: { color: colors.textInverted },
 });

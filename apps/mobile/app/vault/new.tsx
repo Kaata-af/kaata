@@ -27,19 +27,12 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Crypto from "expo-crypto";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMemo, useRef, useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { FormField } from "../../components/FormField";
-import { ScreenHeader } from "../../components/SettingsScreen";
+import { OptionSheet } from "../../components/OptionSheet";
+import { NavRow, ScreenHeader } from "../../components/SettingsScreen";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { CURRENCIES, DEFAULT_CURRENCY, getCurrencyName } from "../../lib/currency";
@@ -54,9 +47,9 @@ import {
 import { getLocalSelf } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { appendShopProfileUpdated, appendVaultMemberAdded } from "../../lib/event-log";
-import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { ensureDeviceKey, getDevicePubkey } from "../../lib/mesh/device-key";
+import { gutter, icon, radius, space, typography } from "../../lib/tokens";
 import { buildLocalAccountId } from "../../lib/trust/account-id";
 import { createVaultOnServer } from "../../lib/vault-api";
 
@@ -79,6 +72,10 @@ export default function VaultNewScreen() {
 
   const [shopName, setShopName] = useState("");
   const [currency, setCurrency] = useState<string>(DEFAULT_CURRENCY);
+  // Currency is picked through a row→sheet, not a chip grid — see the NavRow
+  // in the form below. Only the CONTROL changed; `currency` / setCurrency are
+  // still the single source of truth for the INSERT.
+  const [currencySheetVisible, setCurrencySheetVisible] = useState(false);
   const [creating, setCreating] = useState(false);
   // Synchronous re-entry guard — `creating` state can't stop a same-frame
   // double-tap (setState is async); see entry/new.tsx. Without it a
@@ -95,8 +92,6 @@ export default function VaultNewScreen() {
   // unlikely, but the hint UI shouldn't reactively appear/disappear under the
   // user mid-tap).
   const accountIdAtMount = useMemo(() => getAccountIdSync(), []);
-
-  const currencyOptions = useMemo(() => CURRENCIES.map((c) => c.code), []);
 
   async function onCreate() {
     if (creatingRef.current) return;
@@ -342,6 +337,12 @@ export default function VaultNewScreen() {
     }
   }
 
+  // Same trailing composition as vault/settings.tsx's currency row: symbol +
+  // localized name, so "₨  Pakistani Rupee" reads to someone who doesn't know
+  // the ISO codes. Built here (not in a memo) — it's two lookups per render.
+  const currencyValue =
+    `${CURRENCIES.find((c) => c.code === currency)?.symbol ?? ""}  ${getCurrencyName(currency)}`.trim();
+
   return (
     // Default SafeAreaView edges (matches vault/settings, vault/members,
     // vault/invite, vault/pair). Explicit edges={["top","bottom"]} caused
@@ -380,126 +381,120 @@ export default function VaultNewScreen() {
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.scrollContent}
         >
-          <FormField
-            label={t("vaultNew.name.label")}
-            required
-            value={shopName}
-            editable={!creating}
-            maxLength={NAME_MAX}
-            autoCapitalize="words"
-            placeholder={t("vaultNew.name.placeholder")}
-            onChangeText={(s) => {
-              setShopName(s);
-              if (nameError) setNameError(null);
-            }}
-            onBlur={() => {
-              if (!shopName.trim()) {
-                setNameError(t("vaultNew.name.required"));
-              }
-            }}
-            error={nameError}
-          />
-
-          <Text style={[styles.label, textDir(isRTL)]}>{t("vaultNew.currency.label")}</Text>
-          <View style={[styles.currencyRow, rowDir(isRTL)]}>
-            {currencyOptions.map((code) => {
-              const selected = code === currency;
-              const entry = CURRENCIES.find((c) => c.code === code);
-              return (
-                <Pressable
-                  key={code}
-                  onPress={() => setCurrency(code)}
-                  disabled={creating}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${code} — ${getCurrencyName(code)}`}
-                  style={({ pressed }) => [
-                    styles.currencyChip,
-                    selected && styles.currencyChipSelected,
-                    creating && { opacity: 0.5 },
-                    pressed && !selected && { backgroundColor: colors.bgMuted },
-                  ]}
-                >
-                  <Text
-                    style={[styles.currencyChipText, selected && styles.currencyChipTextSelected]}
-                  >
-                    {/* code + symbol so "TRY" / "AED" / "IRR" are recognizable
-                        to non-traders who don't know every ISO currency code. */}
-                    {code}
-                    {entry ? `  ${entry.symbol}` : ""}
-                  </Text>
-                </Pressable>
-              );
-            })}
+          <View style={[styles.formInset, styles.formInsetTop]}>
+            <FormField
+              label={t("vaultNew.name.label")}
+              required
+              value={shopName}
+              editable={!creating}
+              maxLength={NAME_MAX}
+              autoCapitalize="words"
+              placeholder={t("vaultNew.name.placeholder")}
+              onChangeText={(s) => {
+                setShopName(s);
+                if (nameError) setNameError(null);
+              }}
+              onBlur={() => {
+                if (!shopName.trim()) {
+                  setNameError(t("vaultNew.name.required"));
+                }
+              }}
+              error={nameError}
+            />
           </View>
-          <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("vaultNew.currency.hint")}</Text>
 
-          {/* Local-only disclosure sits ABOVE the Create button so users
-              see it BEFORE they tap. Snapshotted at mount so it doesn't
-              flicker if a concurrent sign-in races the form. */}
-          {!accountIdAtMount ? (
-            <View style={[styles.localOnlyHint, rowDir(isRTL)]}>
-              <Ionicons
-                name="information-circle-outline"
-                size={16}
-                color={colors.textSubtle}
-                style={isRTL ? { marginLeft: 8 } : { marginRight: 8 }}
-              />
-              <Text style={[styles.localOnlyHintText, textDir(isRTL)]}>
-                {t("vaultNew.localOnlyHint")}
-              </Text>
-            </View>
-          ) : null}
-
-          <View style={{ height: 16 }} />
-
-          <Button
-            label={t("vaultNew.submit")}
-            onPress={onCreate}
-            disabled={creating || shopName.trim().length === 0}
-            loading={creating}
+          {/* Currency: row→sheet, IDENTICAL to the edit path (vault/settings.tsx).
+              The old control was a 9-chip wrapping grid at ~36px tall — under the
+              44pt floor, and a mistap silently mislabels every future amount in
+              this kaata (lib/currency.ts relabels, it never converts). NavRow
+              clears the floor at 52px and the sheet gives each currency a full
+              row, so creating and editing a kaata now use one mental model.
+              Full-bleed on purpose: the row carries the 20px settings gutter that
+              formInset above matches. */}
+          <NavRow
+            icon="cash-outline"
+            label={t("vaultNew.currency.label")}
+            trailing={currencyValue}
+            // NavRow puts accessibilityLabel on the Pressable, which SUPPRESSES the
+            // child text — so without this TalkBack announced only "Currency" and
+            // never the selected value sitting in `trailing`. A blind user could not
+            // hear which currency their ledger was about to be created in.
+            accessibilityLabel={`${t("vaultNew.currency.label")}: ${currencyValue}`}
+            onPress={() => setCurrencySheetVisible(true)}
+            disabled={creating}
+            isRTL={isRTL}
+            isLast
           />
+
+          <View style={styles.formInset}>
+            <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("vaultNew.currency.hint")}</Text>
+
+            {/* Local-only disclosure sits ABOVE the Create button so users
+                see it BEFORE they tap. Snapshotted at mount so it doesn't
+                flicker if a concurrent sign-in races the form. */}
+            {!accountIdAtMount ? (
+              <View style={[styles.localOnlyHint, rowDir(isRTL)]}>
+                <Ionicons
+                  name="information-circle-outline"
+                  size={icon.trailing}
+                  color={colors.textSubtle}
+                  style={isRTL ? { marginLeft: 8 } : { marginRight: 8 }}
+                />
+                <Text style={[styles.localOnlyHintText, textDir(isRTL)]}>
+                  {t("vaultNew.localOnlyHint")}
+                </Text>
+              </View>
+            ) : null}
+
+            <View style={{ height: 16 }} />
+
+            <Button
+              label={t("vaultNew.submit")}
+              onPress={onCreate}
+              disabled={creating || shopName.trim().length === 0}
+              loading={creating}
+            />
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Per-kaata currency picker — same sheet, same option list and same
+          selection tick as vault/settings.tsx. */}
+      <OptionSheet
+        visible={currencySheetVisible}
+        title={t("vaultNew.currency.label")}
+        options={CURRENCIES.map((c) => ({
+          key: c.code,
+          label: getCurrencyName(c.code),
+          leading: c.symbol,
+        }))}
+        selected={currency}
+        onSelect={(code) => {
+          setCurrencySheetVisible(false);
+          setCurrency(code);
+        }}
+        onDismiss={() => setCurrencySheetVisible(false)}
+        isRTL={isRTL}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
-  scrollContent: { padding: 16, paddingBottom: 48 },
+  // No horizontal padding on the scroll content: the currency NavRow is
+  // full-bleed (it carries its own 20px settings gutter and a full-width press
+  // surface), so everything else is inset separately at the SAME 20 via
+  // formInset — the form's left edge and the row's label line up. That is
+  // vault/settings.tsx's composition, which is the point: that screen is the
+  // edit half of this one. Note the gutter moves 16 → 20 for the whole form.
+  scrollContent: { paddingBottom: 48 },
+  formInset: { paddingHorizontal: gutter.settings },
+  // Only the first block needs top air under the ScreenHeader; the block below
+  // the currency row continues straight on from it.
+  formInsetTop: { paddingTop: space.lg },
 
-  label: {
-    fontSize: 13,
-    fontFamily: fonts.sansMedium,
-    color: colors.textDefault,
-    marginBottom: 8,
-  },
-  fieldHint: {
-    fontSize: 12,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    marginTop: 8,
-  },
-
-  currencyRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  currencyChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: colors.borderDefault,
-    borderRadius: 8,
-    backgroundColor: colors.bgDefault,
-  },
-  currencyChipSelected: {
-    borderColor: colors.textEmphasis,
-    backgroundColor: colors.bgInverted,
-  },
-  currencyChipText: {
-    fontSize: 13,
-    fontFamily: fonts.monoMedium,
-    color: colors.textEmphasis,
-  },
-  currencyChipTextSelected: { color: colors.textInverted },
+  fieldHint: { ...typography.hint, color: colors.textSubtle, marginTop: space.sm },
 
   localOnlyHint: {
     flexDirection: "row",
@@ -508,13 +503,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     backgroundColor: colors.bgMuted,
-    borderRadius: 8,
+    borderRadius: radius.sm,
   },
-  localOnlyHintText: {
-    flex: 1,
-    fontSize: 12,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    lineHeight: sansLineHeight(12, 17),
-  },
+  localOnlyHintText: { flex: 1, ...typography.hint, color: colors.textSubtle },
 });

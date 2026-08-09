@@ -195,8 +195,6 @@ const en = {
     "When you take goods or borrow money, log it from that person's page and they'll appear here.",
   "home.from.someone": "from {count} person",
   "home.from.many": "from {count} people",
-  "home.empty.noOneYet": "no one here yet",
-  "home.empty.allSettled": "everyone settled",
 
   // Person detail
   "common.more": "more",
@@ -1206,6 +1204,29 @@ const en = {
   "peopleRemoved.relative.hoursAgo": "{n}h ago",
   "peopleRemoved.relative.daysAgo": "{n}d ago",
   "peopleRemoved.relative.monthsAgo": "{n}mo ago",
+  // --- App health / diagnostics (app/diagnostics.tsx) ---
+  // This screen was 100% hardcoded English until 1.0.8 — the one screen a Dari
+  // shopkeeper is sent to WHEN SOMETHING IS ALREADY BROKEN, i.e. the moment
+  // they can least cope with a language switch. The report BODY stays English
+  // on purpose: it is diagnostic data we read, not prose they read.
+  "diagnostics.title": "App health",
+  "diagnostics.hint":
+    "Something not working? Tap Copy (or Share), then send this to us on WhatsApp so we can see what’s happening and fix it.",
+  "diagnostics.copyReport": "Copy report",
+  "diagnostics.copying": "Copying…",
+  "diagnostics.copied": "Copied ✓",
+  "diagnostics.share": "Share",
+  "diagnostics.toast.copied": "Copied — now send it to us on WhatsApp",
+  "diagnostics.toast.copyFailed": "Couldn’t auto-copy — copy the text below",
+  "diagnostics.toast.shareFailed": "Couldn’t open share",
+  "diagnostics.fallbackHint": "Long-press the text below → Select all → Copy, then send it to us.",
+  "diagnostics.section.version": "VERSION",
+  "diagnostics.staleBuild":
+    "⚠ bundled JS {js} ≠ native {native} — running a stale build; reinstall the latest APK.",
+  "diagnostics.section.exits": "WHY THE APP DIED (most recent first)",
+  "diagnostics.noExits": "No exit records (Android < 11, or fresh install with no prior death).",
+  "diagnostics.section.now": "RIGHT NOW",
+  "diagnostics.refresh": "Refresh",
 } as const;
 
 type Key = keyof typeof en;
@@ -1361,8 +1382,6 @@ const fa: Partial<Record<Key, string>> = {
     "وقتی جنس می‌گیرید یا پول قرض می‌کنید، از صفحه آن شخص ثبت کنید — همین‌جا ظاهر می‌شود.",
   "home.from.someone": "از یک نفر",
   "home.from.many": "از {count} نفر",
-  "home.empty.noOneYet": "هنوز کسی نیست",
-  "home.empty.allSettled": "همه تصفیه شده",
 
   // Person detail
   "common.more": "بیشتر",
@@ -2219,6 +2238,29 @@ const fa: Partial<Record<Key, string>> = {
   "peopleRemoved.relative.hoursAgo": "{n} ساعت پیش",
   "peopleRemoved.relative.daysAgo": "{n} روز پیش",
   "peopleRemoved.relative.monthsAgo": "{n} ماه پیش",
+  // --- App health / diagnostics ---
+  // "وضعیت برنامه" matches what preferences.diagnostics.row and
+  // account.appHealth.section already call this destination, so the row a user
+  // taps and the screen it opens use the same words.
+  "diagnostics.title": "وضعیت برنامه",
+  "diagnostics.hint":
+    "مشکلی وجود دارد؟ روی کپی (یا اشتراک) بزنید و این را در واتساپ برای ما بفرستید تا ببینیم چه شده و آن را درست کنیم.",
+  "diagnostics.copyReport": "کپی گزارش",
+  "diagnostics.copying": "در حال کپی…",
+  "diagnostics.copied": "کپی شد ✓",
+  "diagnostics.share": "اشتراک",
+  "diagnostics.toast.copied": "کپی شد — حالا آن را در واتساپ برای ما بفرستید",
+  "diagnostics.toast.copyFailed": "کپی خودکار نشد — متن پایین را کپی کنید",
+  "diagnostics.toast.shareFailed": "اشتراک باز نشد",
+  "diagnostics.fallbackHint":
+    "روی متن پایین فشار دهید → همه را انتخاب کنید → کپی، بعد آن را برای ما بفرستید.",
+  "diagnostics.section.version": "نسخه",
+  "diagnostics.staleBuild":
+    "⚠ نسخهٔ جاواسکریپت {js} با نسخهٔ نصب‌شده {native} فرق دارد — بیلد کهنه است؛ آخرین نسخه را دوباره نصب کنید.",
+  "diagnostics.section.exits": "چرا برنامه بسته شد (تازه‌ترین اول)",
+  "diagnostics.noExits": "سابقه‌ای ثبت نشده (اندروید کمتر از ۱۱، یا نصب تازه).",
+  "diagnostics.section.now": "همین حالا",
+  "diagnostics.refresh": "تازه‌سازی",
 };
 
 const TABLES = { en, fa } as const;

@@ -64,6 +64,7 @@ import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { formatAmount } from "../lib/format";
 import { t } from "../lib/i18n";
+import { icon, typography } from "../lib/tokens";
 import { useActiveVaultWriteCaps } from "../lib/use-vault-role";
 import {
   shouldPromptBatteryExemption,
@@ -82,6 +83,11 @@ import type { Direction, PersonWithBalance, Self } from "../lib/types";
 // undersized against the large-title header — most visibly on iPhones, where
 // Apple sign-in has no photo URL so the letter chip is the steady state.
 const PROFILE_SLOT_SIZE = 36;
+
+// FAB diameter. Named so the inner circle's radius is FAB_SIZE / 2 rather than a
+// hardcoded 26 that silently stops being a circle if the size ever changes
+// (tokens.ts rule 3: circles are size/2, never a literal). Value unchanged.
+const FAB_SIZE = 52;
 
 // Tab labels are computed at render time so locale changes (after a hot reload
 // during dev) flow through. The keys remain stable identifiers.
@@ -760,7 +766,7 @@ export default function HomeScreen() {
                 rowDir on the parent flips it. */}
             <Ionicons
               name="chevron-down"
-              size={16}
+              size={icon.trailing}
               color={colors.textSubtle}
               style={isRTL ? { marginRight: 4, marginTop: 3 } : { marginLeft: 4, marginTop: 3 }}
             />
@@ -793,6 +799,10 @@ export default function HomeScreen() {
             the absent FAB / write actions are explained rather than mysterious. */}
         {activeVaultId && !canCreate ? (
           <View style={[styles.readOnlyBadge, isRTL ? { marginRight: 8 } : { marginLeft: 8 }]}>
+            {/* Stays 12, NOT icon.trailing (16): this glyph is optically paired
+                to the 11px caption inside a 3px-padded micro-pill — a composed
+                graphic, per the tokens icon-scale exception. 16 would out-weigh
+                the label it annotates. */}
             <Ionicons name="eye-outline" size={12} color={colors.textSubtle} />
             <Text style={styles.readOnlyBadgeText} allowFontScaling={false}>
               {t("readonly.badge")}
@@ -878,38 +888,54 @@ export default function HomeScreen() {
         // (Matee: "don't auto-create ... make a default screen for when there
         // are no kaatas, like onboarding the user to make a kaata".)
         <View style={styles.noKaataWrap}>
-          <Ionicons name="albums-outline" size={44} color={colors.textMuted} />
-          <View style={{ height: 16 }} />
-          <Text style={styles.noKaataTitle}>{t("home.noKaata.title")}</Text>
-          <View style={{ height: 6 }} />
-          <Text style={styles.noKaataSub}>{t("home.noKaata.subtitle")}</Text>
-          <View style={{ height: 24 }} />
-          <View style={styles.noKaataBtnWrap}>
-            <Button label={t("home.noKaata.create")} onPress={() => router.push("/vault/new")} />
-          </View>
-          {/* PARKED (mesh): "Join an existing kaata" opened the offline QR scan
-              (vault/pair-scan), parked with the rest of mesh. Joining online
-              happens by opening an invite link (kaata://invite/<token>). Re-add
-              when mesh ships again.
-          <Pressable
-            onPress={() => router.push("/vault/pair-scan")}
-            accessibilityRole="button"
-            style={({ pressed }) => [styles.noKaataLink, pressed && { opacity: 0.6 }]}
-          >
-            <Text style={styles.noKaataLinkText}>{t("home.noKaata.join")}</Text>
-          </Pressable>
-          */}
-          {archivedVaults.length > 0 ? (
-            <Pressable
-              onPress={() => router.push("/vault/archived")}
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.noKaataLink, pressed && { opacity: 0.6 }]}
-            >
-              <Text style={styles.noKaataLinkText}>
-                {t("home.noKaata.archived", { count: archivedVaults.length })}
-              </Text>
-            </Pressable>
-          ) : null}
+          {/* Was a THIRD "there is nothing here" vocabulary: an 18/14 headline
+              pair, a full step louder than the 15/13 every other empty moment in
+              the app uses (home's two tabs, person detail's fresh page). The
+              shared atom now owns the glyph, the copy rhythm and the CTA slot.
+              size="inline" (24px own air) rather than "page" (56): the wrapper's
+              flex:1 centering already supplies the page air, and "page" would
+              open a 56px hole between the icon and the title. */}
+          <EmptyState
+            size="inline"
+            icon="albums-outline"
+            title={t("home.noKaata.title")}
+            subtitle={t("home.noKaata.subtitle")}
+            action={
+              <>
+                <Button
+                  label={t("home.noKaata.create")}
+                  onPress={() => router.push("/vault/new")}
+                />
+                {/* PARKED (mesh): "Join an existing kaata" opened the offline QR scan
+                    (vault/pair-scan), parked with the rest of mesh. Joining online
+                    happens by opening an invite link (kaata://invite/<token>). Re-add
+                    when mesh ships again.
+                <Pressable
+                  onPress={() => router.push("/vault/pair-scan")}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [styles.noKaataLink, pressed && { opacity: 0.6 }]}
+                >
+                  <Text style={styles.noKaataLinkText}>{t("home.noKaata.join")}</Text>
+                </Pressable>
+                */}
+                {/* The archived link rides in `action` WITH the button rather than
+                    after the atom, so the two stay one cluster — outside, the
+                    atom's bottom padding would drop 24px between them. */}
+                {archivedVaults.length > 0 ? (
+                  <Pressable
+                    onPress={() => router.push("/vault/archived")}
+                    accessibilityRole="button"
+                    style={({ pressed }) => [styles.noKaataLink, pressed && { opacity: 0.6 }]}
+                  >
+                    <Text style={styles.noKaataLinkText}>
+                      {t("home.noKaata.archived", { count: archivedVaults.length })}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </>
+            }
+            isRTL={isRTL}
+          />
         </View>
       ) : loaded && loadError && allPeople.length === 0 ? (
         // Load failed with nothing cached to show. Rendering the rail here
@@ -1016,7 +1042,7 @@ export default function HomeScreen() {
               existing contact OR add a new one to start a tally. Matee: it's the
               everything button, not just search, so a plus reads truer than a
               magnifying glass. */}
-            <Ionicons name="add" size={30} color={colors.textInverted} />
+            <Ionicons name="add" size={icon.card} color={colors.textInverted} />
           </Pressable>
         </Animated.View>
       ) : null}
@@ -1507,13 +1533,19 @@ function TabPage(props: {
             </Text>
             <Text style={styles.totalAfn}>{getCurrentCurrencySymbol()}</Text>
           </View>
-          <Text style={[styles.totalSub, textDir(isRTL)]}>
-            {active === 0
-              ? props.people.length === 0
-                ? t("home.empty.noOneYet")
-                : t("home.empty.allSettled")
-              : t(active === 1 ? "home.from.someone" : "home.from.many", { count: active })}
-          </Text>
+          {/* Descriptor for a REAL total ("from 3 people"). At zero it used to
+              switch into empty-state vocabulary that the EmptyState two lines
+              below already says, louder and bigger: an empty tab read "no one
+              here yet" (13px grey) and then "Nothing to collect yet" (15px
+              semibold) — the same sentence twice, at two sizes. One grammar per
+              concept: the zero states belong to EmptyState (nobody on this
+              side) and to PersonRow's settled mark (everyone square), not under
+              the hero number. */}
+          {active > 0 ? (
+            <Text style={[styles.totalSub, textDir(isRTL)]}>
+              {t(active === 1 ? "home.from.someone" : "home.from.many", { count: active })}
+            </Text>
+          ) : null}
         </View>
 
         {people.length === 0 ? (
@@ -1528,6 +1560,7 @@ function TabPage(props: {
                 ? t("home.empty.collect.subtitle")
                 : t("home.empty.pay.subtitle")
             }
+            isRTL={isRTL}
           />
         ) : (
           <View style={styles.peopleCard}>
@@ -1621,13 +1654,16 @@ const styles = StyleSheet.create({
   // invisible glyph padding so the title aligns pixel-perfect with
   // the avatar's cap-height rather than drifting a few px low.
   headerTitle: {
-    fontSize: 28,
-    // 32 hugs the cap height on Android (includeFontPadding:false trims the
-    // font's padding); iOS is floored at Vazirmatn's natural height by the
-    // helper — see the lineHeight invariant in lib/fonts.ts. This was the
-    // first reported clip site (iPhone: shop name sliced at the top).
-    lineHeight: sansLineHeight(28, 32),
-    fontFamily: fonts.sansBold,
+    // typography.display IS this style's old triple verbatim — 28 / sansBold /
+    // sansLineHeight(28, 32) — so spreading the token is pixel-identical and
+    // just stops the app's largest text from re-typing the scale. The 32 hugs
+    // the cap height on Android (includeFontPadding:false trims the font's
+    // padding); iOS is floored at Vazirmatn's natural height by the helper —
+    // see the lineHeight invariant in lib/fonts.ts. This was the first reported
+    // clip site (iPhone: shop name sliced at the top). headerTitleBlock's
+    // minHeight above still spells sansLineHeight(28, 32) out longhand because
+    // it needs the NUMBER for a layout reserve, not a text style.
+    ...typography.display,
     color: colors.textEmphasis,
     // NO letterSpacing, and deliberately NOT trackingSafe(isRTL) either: this
     // renders the shopkeeper's OWN shop name, typed by them. An Afghan
@@ -1686,19 +1722,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 32,
   },
-  noKaataTitle: {
-    fontSize: 18,
-    fontFamily: fonts.sansSemi,
-    color: colors.textEmphasis,
-    textAlign: "center",
-  },
-  noKaataSub: {
-    fontSize: 14,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    textAlign: "center",
-  },
-  noKaataBtnWrap: { alignSelf: "stretch" },
+  // noKaataTitle / noKaataSub / noKaataBtnWrap are GONE — the title + subtitle
+  // are EmptyState's now (15/13 instead of this screen's private 18/14), and the
+  // CTA sits in its `action` slot, so the stretch wrapper has nothing to stretch.
   noKaataLink: { paddingVertical: 12 },
   noKaataLinkText: {
     fontSize: 14,
@@ -1782,13 +1808,14 @@ const styles = StyleSheet.create({
     // `right` as `left`. The migration prompt in _layout.tsx prevents that
     // case from ever rendering this view.)
     right: 20,
-    width: 52,
-    height: 52,
+    width: FAB_SIZE,
+    height: FAB_SIZE,
   },
   fabInner: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: FAB_SIZE,
+    height: FAB_SIZE,
+    // Circle = own size / 2, not a literal 26 (tokens.ts rule 3). Same pixels.
+    borderRadius: FAB_SIZE / 2,
     backgroundColor: colors.bgInverted,
     alignItems: "center",
     justifyContent: "center",

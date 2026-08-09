@@ -32,6 +32,7 @@ import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { SOLO_STORE_MODE } from "../constants/env";
 import { t } from "../lib/i18n";
+import { radius } from "../lib/tokens";
 import { useMembersCount } from "../lib/use-vault-summary";
 import { InitialAvatar } from "./InitialAvatar";
 import { NavRow, SectionGap, SectionHeader } from "./SettingsScreen";
@@ -631,7 +632,7 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     width: 40,
     height: 4,
-    borderRadius: 2,
+    borderRadius: radius.grabber,
     backgroundColor: colors.borderEmphasis,
     marginBottom: 4,
   },

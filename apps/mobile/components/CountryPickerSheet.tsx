@@ -19,6 +19,7 @@ import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { t } from "../lib/i18n";
 import { COUNTRIES } from "../lib/phone";
+import { icon, radius } from "../lib/tokens";
 
 // Slide-up sheet that mirrors BottomSheet's chrome (blur backdrop + tint +
 // spring entrance) but holds a searchable list instead of a small action set.
@@ -116,7 +117,7 @@ export function CountryPickerSheet(props: {
             <View style={[styles.searchWrap, rowDir(isRTL)]}>
               <Ionicons
                 name="search"
-                size={16}
+                size={icon.trailing}
                 color={colors.textMuted}
                 style={[styles.searchIcon, isRTL ? styles.searchIconRTL : styles.searchIconLTR]}
               />
@@ -168,7 +169,12 @@ export function CountryPickerSheet(props: {
                       {selected ? (
                         <Ionicons
                           name="checkmark"
-                          size={18}
+                          // icon.row (22), same tick size as OptionSheet. The
+                          // styles.check box below is sized from the same token
+                          // because the unselected branch renders it as an empty
+                          // spacer — icon and spacer must stay identical or the
+                          // dial codes jitter between selected/unselected rows.
+                          size={icon.row}
                           color={colors.textEmphasis}
                           style={styles.check}
                         />
@@ -201,8 +207,9 @@ const styles = StyleSheet.create({
   },
   sheetWrap: {
     backgroundColor: colors.bgDefault,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
+    // Screen-anchored sheet top — radius.sheet (18). Same value as before.
+    borderTopLeftRadius: radius.sheet,
+    borderTopRightRadius: radius.sheet,
     borderTopWidth: 1,
     borderTopColor: colors.borderDefault,
   },
@@ -211,7 +218,7 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     width: 40,
     height: 4,
-    borderRadius: 2,
+    borderRadius: radius.grabber,
     backgroundColor: colors.borderEmphasis,
     marginBottom: 8,
   },
@@ -232,7 +239,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     backgroundColor: colors.bgDefault,
     paddingLeft: 12,
   },
@@ -271,7 +278,9 @@ const styles = StyleSheet.create({
   },
   dialLTR: { marginRight: 12 },
   dialRTL: { marginLeft: 12 },
-  check: { width: 18, height: 18 },
+  // Also rendered empty as the spacer for unselected rows — must track the
+  // tick's icon.row size exactly (see the Ionicons above).
+  check: { width: icon.row, height: icon.row },
   empty: { paddingVertical: 24, alignItems: "center" },
   emptyText: {
     fontSize: 13,

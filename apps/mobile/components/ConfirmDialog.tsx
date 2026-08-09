@@ -4,8 +4,9 @@ import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View } from "re
 import { colors } from "../lib/colors";
 import { SHEET_BLUR_METHOD } from "../lib/blur";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
-import { fonts, sansLineHeight } from "../lib/fonts";
+import { fonts } from "../lib/fonts";
 import { t } from "../lib/i18n";
+import { radius, TOUCH_MIN, typography } from "../lib/tokens";
 
 // shadcn-style confirmation dialog. Left-aligned title + optional description,
 // right-aligned footer with a ghost Cancel and a filled Confirm. Destructive
@@ -166,7 +167,9 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 380,
     backgroundColor: colors.bgDefault,
-    borderRadius: 16,
+    // Floating inset surface, not a screen-anchored sheet → radius.lg (16),
+    // the same value this card already carried.
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.borderDefault,
     overflow: "hidden",
@@ -185,17 +188,21 @@ const styles = StyleSheet.create({
     paddingTop: 22,
     paddingBottom: 8,
   },
+  // 17 → title (16). Same step the in-screen ScreenHeader title uses, so the
+  // dialog's headline and the header it interrupts now read at one size. The
+  // existing -0.2 tracking survives untouched (it is cancelled for Persian by
+  // the trackingSafe() already applied at the JSX).
   title: {
-    fontSize: 17,
-    fontFamily: fonts.sansSemi,
+    ...typography.title,
     color: colors.textEmphasis,
     letterSpacing: -0.2,
   },
+  // Was 13 / sansRegular / sansLineHeight(13, 19) written out by hand — which
+  // is bodySm exactly. Same pixels, one fewer place that has to remember to
+  // route its line height.
   description: {
+    ...typography.bodySm,
     marginTop: 8,
-    fontSize: 13,
-    lineHeight: sansLineHeight(13, 19),
-    fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
   },
   footer: {
@@ -206,10 +213,18 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     paddingBottom: 16,
   },
+  // 9 + 9 padding around a 14px label computed to ~40 — the whole app's
+  // destructive flows (archive, delete, sign out, wipe) funnel through this
+  // one button pair, so it was the most-tapped sub-44 target we had. The
+  // padding stays as designed; minHeight only raises the floor and the
+  // content re-centers inside it.
   btnGhost: {
+    minHeight: TOUCH_MIN,
     paddingHorizontal: 14,
     paddingVertical: 9,
-    borderRadius: 8,
+    borderRadius: radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
   },
   btnGhostText: {
     fontSize: 14,
@@ -217,10 +232,13 @@ const styles = StyleSheet.create({
     color: colors.textDefault,
   },
   confirmPrimary: {
+    minHeight: TOUCH_MIN, // see btnGhost — same 40 → 44 floor, kept in step
     paddingHorizontal: 16,
     paddingVertical: 9,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     backgroundColor: colors.bgInverted,
+    alignItems: "center",
+    justifyContent: "center",
   },
   confirmPrimaryText: {
     fontSize: 14,
@@ -228,14 +246,17 @@ const styles = StyleSheet.create({
     color: colors.textInverted,
   },
   confirmDestructive: {
+    minHeight: TOUCH_MIN, // see btnGhost — same 40 → 44 floor, kept in step
     paddingHorizontal: 16,
     paddingVertical: 9,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     backgroundColor: colors.danger,
+    alignItems: "center",
+    justifyContent: "center",
   },
   confirmDestructiveText: {
     fontSize: 14,
     fontFamily: fonts.sansSemi,
-    color: "#FFFFFF",
+    color: colors.textInverted, // was "#FFFFFF" — identical value, now the token
   },
 });

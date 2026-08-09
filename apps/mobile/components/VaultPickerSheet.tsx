@@ -19,6 +19,7 @@ import { SHEET_BLUR_METHOD } from "../lib/blur";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { t } from "../lib/i18n";
+import { icon, radius, ROW_MIN } from "../lib/tokens";
 
 // VaultPickerSheet — focused vault-switcher slider.
 //
@@ -303,7 +304,7 @@ function PickerItem(props: {
     >
       <Ionicons
         name={props.icon}
-        size={22}
+        size={icon.row}
         color={props.iconColor ?? color}
         style={props.isRTL ? { marginLeft: 14 } : { marginRight: 14 }}
       />
@@ -340,8 +341,9 @@ const styles = StyleSheet.create({
   },
   sheetWrap: {
     backgroundColor: colors.bgDefault,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
+    // Screen-anchored sheet top — radius.sheet (18). Same value as before.
+    borderTopLeftRadius: radius.sheet,
+    borderTopRightRadius: radius.sheet,
     borderTopWidth: 1,
     borderTopColor: colors.borderDefault,
   },
@@ -351,7 +353,7 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     width: 40,
     height: 4,
-    borderRadius: 2,
+    borderRadius: radius.grabber,
     backgroundColor: colors.borderEmphasis,
     marginBottom: 4,
   },
@@ -376,7 +378,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 20,
     paddingVertical: 14,
-    minHeight: 52,
+    // ROW_MIN (52) — same literal as before, now named. Clears TOUCH_MIN (44)
+    // with margin, so no extra minHeight/hitSlop is needed on the Pressable.
+    minHeight: ROW_MIN,
   },
   menuItemDivider: {
     borderBottomWidth: StyleSheet.hairlineWidth,

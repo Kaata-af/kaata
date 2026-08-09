@@ -28,15 +28,19 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Button } from "../../components/Button";
+import { EmptyState } from "../../components/EmptyState";
+import { ScreenLoading } from "../../components/ScreenLoading";
 import { ScreenHeader } from "../../components/SettingsScreen";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { getActiveVaultId, getDb } from "../../lib/db-tx";
 import { getAppMeta } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
-import { fonts, sansLineHeight } from "../../lib/fonts";
+import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { fetchLocalAuditLog, isLocalCAVault } from "../../lib/projection/audit-log-local";
+import { icon, radius } from "../../lib/tokens";
 import { useVaultRole } from "../../lib/use-vault-role";
 import { canPerformAction, type VaultRole } from "../../lib/vault-roles";
 import { fetchAuditLog, type AuditEntry } from "../../lib/vault-api";
@@ -44,6 +48,10 @@ import { fetchAuditLog, type AuditEntry } from "../../lib/vault-api";
 const PAGE_SIZE = 50;
 const BACKOFF_MS = [1000, 2000, 4000, 8000];
 const BACKOFF_CAP_MS = 30_000;
+
+/** Actor-initial circle in a row. Named so its radius is size/2, never a
+ *  literal 22 that can drift away from the diameter (lib/tokens rule 3). */
+const AVATAR_SIZE = 44;
 
 type LoadError =
   | { kind: "none" }
@@ -290,12 +298,16 @@ export default function VaultAuditLogScreen() {
   }
 
   if (!loaded) {
+    // Same title / onBack / edges as the loaded branch. This screen can sit
+    // here for seconds (the server path retries with 1/2/4/8s backoff), and
+    // the old header-less spinner gave a viewer no way out while it did.
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.fillCenter}>
-          <ActivityIndicator color={colors.textDefault} />
-        </View>
-      </SafeAreaView>
+      <ScreenLoading
+        title={t("auditLog.title")}
+        onBack={() => router.back()}
+        isRTL={isRTL}
+        edges={["top", "bottom"]}
+      />
     );
   }
 
@@ -308,30 +320,41 @@ export default function VaultAuditLogScreen() {
         backLabel={t("common.back")}
       />
 
+      {/* All three "nothing to show" states now speak EmptyState's grammar
+          rather than this screen's private 16px headline. emptyWrap survives
+          as the centering box only — EmptyState owns the copy's air. */}
       {error.kind === "not_available" ? (
         <View style={styles.emptyWrap}>
-          <Ionicons name="cloud-offline-outline" size={40} color={colors.textMuted} />
-          <Text style={[styles.emptyTitle, textDir(isRTL)]}>
-            {t("auditLog.notAvailable.title")}
-          </Text>
-          <Text style={[styles.emptySub, textDir(isRTL)]}>{t("auditLog.notAvailable.body")}</Text>
+          <EmptyState
+            title={t("auditLog.notAvailable.title")}
+            subtitle={t("auditLog.notAvailable.body")}
+            isRTL={isRTL}
+            icon="cloud-offline-outline"
+          />
         </View>
       ) : error.kind === "transient" ? (
         <View style={styles.emptyWrap}>
-          <Ionicons name="alert-circle-outline" size={40} color={colors.textMuted} />
-          <Text style={[styles.emptyTitle, textDir(isRTL)]}>{t("auditLog.toast.loadFailed")}</Text>
-          <Pressable
-            onPress={onRetry}
-            style={({ pressed }) => [styles.retryBtn, pressed && { opacity: 0.55 }]}
-          >
-            <Text style={styles.retryText}>{t("common.retry")}</Text>
-          </Pressable>
+          <EmptyState
+            title={t("auditLog.toast.loadFailed")}
+            // Retry is the only way off this state, so it rides EmptyState's
+            // `action` slot. secondary (not primary) keeps the quiet weight the
+            // bgMuted pill had — a black CTA here would out-shout the message.
+            action={
+              <Button label={t("common.retry")} onPress={onRetry} variant="muted" size="pill" />
+            }
+            isRTL={isRTL}
+            icon="alert-circle-outline"
+            iconColor={colors.danger}
+          />
         </View>
       ) : entries.length === 0 ? (
         <View style={styles.emptyWrap}>
-          <Ionicons name="document-text-outline" size={40} color={colors.textMuted} />
-          <Text style={[styles.emptyTitle, textDir(isRTL)]}>{t("auditLog.empty.title")}</Text>
-          <Text style={[styles.emptySub, textDir(isRTL)]}>{t("auditLog.empty.body")}</Text>
+          <EmptyState
+            title={t("auditLog.empty.title")}
+            subtitle={t("auditLog.empty.body")}
+            isRTL={isRTL}
+            icon="document-text-outline"
+          />
         </View>
       ) : (
         <FlatList
@@ -399,7 +422,7 @@ function AuditRow(props: {
         </View>
         <Ionicons
           name={expanded ? "chevron-up" : "chevron-down"}
-          size={16}
+          size={icon.trailing}
           color={colors.textMuted}
           style={isRTL ? { marginRight: 8 } : { marginLeft: 8 }}
         />
@@ -558,7 +581,6 @@ function sleepAbortable(ms: number, signal: AbortSignal): Promise<void> {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
-  fillCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
 
   listContent: { paddingBottom: 32 },
 
@@ -575,9 +597,9 @@ const styles = StyleSheet.create({
   },
   rowTextCol: { flex: 1 },
   avatarFallback: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: AVATAR_SIZE,
+    height: AVATAR_SIZE,
+    borderRadius: AVATAR_SIZE / 2,
     backgroundColor: colors.bgMuted,
     alignItems: "center",
     justifyContent: "center",
@@ -608,7 +630,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     padding: 10,
     backgroundColor: colors.bgMuted,
-    borderRadius: 8,
+    borderRadius: radius.sm,
   },
   payloadText: {
     fontSize: 12,
@@ -622,37 +644,9 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
 
-  emptyWrap: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 40,
-    gap: 12,
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontFamily: fonts.sansSemi,
-    color: colors.textEmphasis,
-  },
-  emptySub: {
-    fontSize: 13,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    textAlign: "center",
-    lineHeight: sansLineHeight(13, 19),
-  },
-  retryBtn: {
-    marginTop: 6,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    backgroundColor: colors.bgMuted,
-    borderRadius: 999,
-  },
-  retryText: {
-    fontSize: 14,
-    fontFamily: fonts.sansSemi,
-    color: colors.textEmphasis,
-  },
+  // Centering box only. The horizontal padding and 12px gap moved into
+  // EmptyState (which pads 24/56 itself) — keeping them here would double up.
+  emptyWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
 
   footerLoading: { paddingVertical: 16, alignItems: "center" },
   endText: {

@@ -28,18 +28,20 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
+import { ScreenHeader } from "../../components/SettingsScreen";
 import { useToast } from "../../components/Toast";
 import { getSessionJWT } from "../../lib/auth";
 import { requestImmediateCheckIn } from "../../lib/checkin-trigger";
 import { colors } from "../../lib/colors";
 import { setActiveVaultId } from "../../lib/db-tx";
 import { setAppMeta } from "../../lib/db";
-import { rowDir, textDir, useIsRTL } from "../../lib/direction";
-import { fonts, sansLineHeight } from "../../lib/fonts";
+import { textDir, useIsRTL } from "../../lib/direction";
+import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
+import { gutter, icon, typography } from "../../lib/tokens";
 import {
   acceptVaultInvite,
   ApiError,
@@ -276,13 +278,19 @@ export default function InviteAcceptScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={[styles.header, rowDir(isRTL)]}>
-        <Pressable onPress={() => router.replace("/")} hitSlop={8}>
-          <Text style={[styles.cancel, textDir(isRTL)]}>{t("common.cancel")}</Text>
-        </Pressable>
-        <Text style={styles.title}>{t("inviteAccept.title")}</Text>
-        <View style={{ width: 60 }} />
-      </View>
+      {/* Was a hand-rolled row: the dismiss was a bare 15px line box (~39px
+          tall) grown by hitSlop, and the title floated off-centre between a
+          60px label and a 60px spacer. ScreenHeader's back is a real 44×44
+          target and applies its own rowDir() + chevron flip, so the direction
+          handling moves into the atom rather than disappearing. The word
+          "Cancel" is no longer painted — backLabel carries it to the screen
+          reader, which is what ScreenHeader's chevron contract asks for. */}
+      <ScreenHeader
+        title={t("inviteAccept.title")}
+        onBack={() => router.replace("/")}
+        isRTL={isRTL}
+        backLabel={t("common.cancel")}
+      />
 
       <View style={styles.body}>
         {stage === "loading" ? (
@@ -293,7 +301,7 @@ export default function InviteAcceptScreen() {
 
         {stage === "needs_signin" ? (
           <View style={styles.fillCenter}>
-            <Ionicons name="lock-closed-outline" size={40} color={colors.textMuted} />
+            <Ionicons name="lock-closed-outline" size={icon.hero} color={colors.textMuted} />
             <View style={{ height: 12 }} />
             <Text style={[styles.heading, textDir(isRTL)]}>{t("common.signInToContinue")}</Text>
             <Text style={[styles.body2, textDir(isRTL)]}>{t("inviteAccept.signin.body")}</Text>
@@ -310,7 +318,9 @@ export default function InviteAcceptScreen() {
 
         {stage === "confirm" && invite ? (
           <View style={styles.confirmCard}>
-            <Ionicons name="mail-open-outline" size={36} color={colors.textEmphasis} />
+            {/* 36 → icon.hero (40): this stage's glyph now matches the
+                needs_signin and error stages of the same screen. */}
+            <Ionicons name="mail-open-outline" size={icon.hero} color={colors.textEmphasis} />
             <View style={{ height: 12 }} />
             <Text style={[styles.heading, textDir(isRTL)]}>
               {t("inviteAccept.confirm.title", { name: invite.vault_name })}
@@ -347,7 +357,7 @@ export default function InviteAcceptScreen() {
 
         {stage === "error" ? (
           <View style={styles.fillCenter}>
-            <Ionicons name="alert-circle-outline" size={36} color={colors.danger} />
+            <Ionicons name="alert-circle-outline" size={icon.hero} color={colors.danger} />
             <View style={{ height: 12 }} />
             <Text style={[styles.heading, textDir(isRTL)]}>{t("inviteAccept.error.title")}</Text>
             <Text style={[styles.body2, textDir(isRTL)]}>{errorMsg}</Text>
@@ -406,52 +416,42 @@ function formatExpires(epochMs: number): string {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
+  // ONE gutter, applied once — see `body`. These two are the stage wrappers
+  // that sit inside it; both used to add a second horizontal inset of their own
+  // (fillCenter 24, confirmCard 8), so the same screen rendered its copy at 48px
+  // from the edge on the loading / sign-in / error stages and 32px on the
+  // confirm stage, against the 24px every other hero screen uses. The narrower
+  // measure is why this landing read as cramped next to onboarding and restore.
+  // Padding does NOT go on `container`: ScreenHeader must stay full-bleed or its
+  // bottom hairline stops reaching the screen edges.
   fillCenter: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 24,
   },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.borderDefault,
-  },
-  cancel: {
-    fontSize: 15,
-    fontFamily: fonts.sansMedium,
-    color: colors.textSubtle,
-    minWidth: 60,
-  },
-  title: { fontSize: 16, fontFamily: fonts.sansSemi, color: colors.textEmphasis },
-  body: { flex: 1, padding: 24 },
+  body: { flex: 1, padding: gutter.hero },
 
   confirmCard: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 8,
   },
+  // 20 / sansSemi written out by hand was heading exactly; the token adds the
+  // routed line height it was missing. Same for body2 (= body) and bodySubtle
+  // (= bodySm) below — identical pixels, minus three chances to forget the
+  // iOS line-height floor.
   heading: {
-    fontSize: 20,
-    fontFamily: fonts.sansSemi,
+    ...typography.heading,
     color: colors.textEmphasis,
     textAlign: "center",
   },
   body2: {
-    fontSize: 14,
-    fontFamily: fonts.sansRegular,
+    ...typography.body,
     color: colors.textDefault,
     textAlign: "center",
-    lineHeight: sansLineHeight(14, 20),
   },
   bodySubtle: {
-    fontSize: 13,
-    fontFamily: fonts.sansRegular,
+    ...typography.bodySm,
     color: colors.textSubtle,
     textAlign: "center",
   },

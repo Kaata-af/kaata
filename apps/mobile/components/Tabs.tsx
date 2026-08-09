@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
 import { fonts } from "../lib/fonts";
+import { radius, TOUCH_MIN } from "../lib/tokens";
 
 export type TabItem<K extends string = string> = {
   key: K;
@@ -46,7 +47,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     padding: 4,
     backgroundColor: colors.bgMuted,
-    borderRadius: 10,
+    // Track 10 → 8 and the pill below 7 → 8: both snap to radius.sm. The
+    // corner-nesting cost is sub-pixel (the pill's diagonal inset moves ~0.9dp
+    // relative to the track's inner curve), so the segmented control keeps its
+    // silhouette while dropping two off-scale literals.
+    borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.borderDefault,
   },
@@ -56,9 +61,9 @@ const styles = StyleSheet.create({
     // rail (the primary To-collect/To-pay switch for switch-access / motor-
     // impaired / TalkBack users), so it must meet the 44/48dp touch-target
     // floor — paddingVertical 8 around a 13px label left it ~34dp tall.
-    minHeight: 44,
+    minHeight: TOUCH_MIN, // 44, unchanged — now the token
     paddingVertical: 8,
-    borderRadius: 7,
+    borderRadius: radius.sm, // 7 → 8, see the track above
     alignItems: "center",
     justifyContent: "center",
   },

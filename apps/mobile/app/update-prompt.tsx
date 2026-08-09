@@ -8,6 +8,7 @@ import { forceUpdateTargetUrl } from "../lib/update-url";
 import { textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
+import { radius } from "../lib/tokens";
 
 export default function UpdatePromptScreen() {
   const { update } = useAppMeta();
@@ -72,7 +73,7 @@ const styles = StyleSheet.create({
   notesWrap: {
     marginTop: 16,
     padding: 12,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     backgroundColor: colors.bgMuted,
     borderWidth: 1,
     borderColor: colors.borderDefault,

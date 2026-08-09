@@ -26,6 +26,7 @@ import {
   inferCountryFromE164,
   normalizePhone,
 } from "../../lib/phone";
+import { icon, radius, TOUCH_MIN, typography } from "../../lib/tokens";
 
 // Onboarding identity step — name + phone. The name IS prefilled from the
 // Google profile name stashed at sign-in (onboarding_pending_name) so a
@@ -219,8 +220,11 @@ export default function OnboardingProfileScreen() {
           style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}
         >
           <Ionicons
+            // icon.row (22), NOT icon.header (26): this is a LABELLED back
+            // control (chevron + "Back" at 15px), not the bare chevron the
+            // settings header uses. 26 next to 15px text reads top-heavy.
             name={isRTL ? "chevron-forward" : "chevron-back"}
-            size={22}
+            size={icon.row}
             color={colors.textEmphasis}
           />
           <Text style={[styles.backText, textDir(isRTL)]}>{t("onboardingMode.back")}</Text>
@@ -300,7 +304,7 @@ export default function OnboardingProfileScreen() {
               >
                 <Text style={styles.countryFlag}>{country.flag}</Text>
                 <Text style={styles.countryDial}>{country.dialCode}</Text>
-                <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
+                <Ionicons name="chevron-down" size={icon.trailing} color={colors.textMuted} />
               </Pressable>
               <TextInput
                 ref={phoneRef}
@@ -363,6 +367,10 @@ const styles = StyleSheet.create({
   backBtn: {
     flexDirection: "row",
     alignItems: "center",
+    // 8+8 padding around a 15px label computed to ~40 — under the HIG floor.
+    // alignItems already centres on the cross (vertical) axis of this row, so
+    // no justifyContent is needed. hitSlop stays as belt-and-braces.
+    minHeight: TOUCH_MIN,
     paddingHorizontal: 8,
     paddingVertical: 8,
     gap: 2,
@@ -379,7 +387,11 @@ const styles = StyleSheet.create({
     paddingBottom: 48,
   },
   title: {
-    fontSize: 22,
+    // typography.heading (20) — was a one-off 22, the same literal
+    // onboarding/auth.tsx carried; both now land on one token so consecutive
+    // onboarding steps share a headline size. sansBold kept over the token's
+    // sansSemi for the step's weight, as on auth.
+    ...typography.heading,
     fontFamily: fonts.sansBold,
     color: colors.textEmphasis,
     letterSpacing: -0.4,
@@ -419,11 +431,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    minHeight: 44,
+    minHeight: TOUCH_MIN,
     paddingHorizontal: 12,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     backgroundColor: colors.bgDefault,
   },
   countryFlag: { fontSize: 18 },
@@ -434,10 +446,10 @@ const styles = StyleSheet.create({
   },
   phoneInput: {
     flex: 1,
-    minHeight: 44,
+    minHeight: TOUCH_MIN,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     paddingHorizontal: 14,
     fontSize: 15,
     fontFamily: fonts.sansRegular,

@@ -43,6 +43,7 @@ import { formatAmount } from "../../lib/format";
 import { getLocale, getShareLangPref, resolveShareLang, t, type LocaleCode } from "../../lib/i18n";
 import { formatSettlementDate } from "../../lib/jalali";
 import { shareKaataViaWhatsApp } from "../../lib/share";
+import { icon, radius, TOUCH_MIN, typography } from "../../lib/tokens";
 import { useActiveVaultWriteCaps } from "../../lib/use-vault-role";
 import type { Entry, PersonWithBalance, Self } from "../../lib/types";
 
@@ -267,7 +268,7 @@ export default function PersonDetailScreen() {
           >
             <Ionicons
               name={isRTL ? "chevron-forward" : "chevron-back"}
-              size={22}
+              size={icon.header}
               color={colors.textEmphasis}
             />
           </Pressable>
@@ -321,7 +322,7 @@ export default function PersonDetailScreen() {
         >
           <Ionicons
             name={isRTL ? "chevron-forward" : "chevron-back"}
-            size={22}
+            size={icon.header}
             color={colors.textEmphasis}
           />
         </Pressable>
@@ -335,10 +336,14 @@ export default function PersonDetailScreen() {
             accessibilityLabel={t("person.sheet.edit")}
             style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.5 }]}
           >
-            <Ionicons name="create-outline" size={20} color={colors.textEmphasis} />
+            <Ionicons name="create-outline" size={icon.row} color={colors.textEmphasis} />
           </Pressable>
         ) : (
           <View style={styles.readOnlyChip}>
+            {/* Stays 12, NOT icon.trailing (16): this glyph is composed against
+                an 11px caption inside a pill — a 16px mark would outweigh its
+                own label and force the badge taller than the edit button it
+                replaces. Composed graphic, not a row icon. */}
             <Ionicons name="eye-outline" size={12} color={colors.textSubtle} />
             <Text style={styles.readOnlyChipText} allowFontScaling={false}>
               {t("readonly.badge")}
@@ -421,6 +426,9 @@ export default function PersonDetailScreen() {
                   }
                   style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
                 >
+                  {/* 16 is composed INTO the fixed 26px coin (see
+                      actionIconCoin), so the icon scale does not apply here —
+                      icon.trailing/row would fill or overflow the well. */}
                   <View style={styles.actionIconCoin}>
                     <Ionicons name="arrow-down-outline" size={16} color={colors.textInverted} />
                   </View>
@@ -439,6 +447,7 @@ export default function PersonDetailScreen() {
                   }
                   style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
                 >
+                  {/* 16, composed into the coin — same reason as "I received". */}
                   <View style={styles.actionIconCoin}>
                     <Ionicons name="arrow-up-outline" size={16} color={colors.textInverted} />
                   </View>
@@ -477,9 +486,14 @@ export default function PersonDetailScreen() {
             <EmptyState
               title={t("person.freshChapter.title")}
               subtitle={t("person.freshChapter.subtitle")}
+              isRTL={isRTL}
             />
           ) : (
-            <EmptyState title={t("person.empty.title")} subtitle={t("person.empty.subtitle")} />
+            <EmptyState
+              title={t("person.empty.title")}
+              subtitle={t("person.empty.subtitle")}
+              isRTL={isRTL}
+            />
           )
         ) : (
           <View style={styles.entriesCard}>
@@ -574,7 +588,7 @@ export default function PersonDetailScreen() {
             {pinging ? (
               <ActivityIndicator size="small" color={colors.textInverted} />
             ) : (
-              <Ionicons name="logo-whatsapp" size={20} color={colors.textInverted} />
+              <Ionicons name="logo-whatsapp" size={icon.row} color={colors.textInverted} />
             )}
             <Text style={styles.pingButtonLabel} numberOfLines={1}>
               {t("person.ping", { name: person.name })}
@@ -668,6 +682,11 @@ export default function PersonDetailScreen() {
   );
 }
 
+// Fixed-size "coin" behind the give/receive arrow. Named so the radius can be
+// size/2 (a true circle) instead of a literal that silently stops being one
+// when the diameter changes.
+const ACTION_COIN_SIZE = 26;
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
   fillCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
@@ -680,9 +699,11 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   iconBtn: {
+    // 40 + the hitSlop={8} on every consumer = a 56px target, so the visible
+    // box stays 40 (growing it would push the header chrome down 4px).
     width: 40,
     height: 40,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -693,7 +714,7 @@ const styles = StyleSheet.create({
     gap: 3,
     paddingHorizontal: 8,
     paddingVertical: 5,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     backgroundColor: colors.bgMuted,
   },
   readOnlyChipText: {
@@ -702,7 +723,13 @@ const styles = StyleSheet.create({
     color: colors.textSubtle,
   },
   info: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 20 },
-  name: { fontSize: 22, fontFamily: fonts.sansBold, color: colors.textEmphasis },
+  // 22 → typography.heading (20): 22 was one of the scale's two orphan display
+  // sizes and sat 2px from `heading`, which every other screen headline already
+  // uses. The BOLD weight is kept (heading ships sansSemi) — this is a person's
+  // name, the anchor of the screen, and dropping a weight step here would read
+  // as a demotion rather than a scale fix. Same fontFamily-override idiom as
+  // Button's `textPill`.
+  name: { ...typography.heading, fontFamily: fonts.sansBold, color: colors.textEmphasis },
   phone: {
     fontSize: 13,
     fontFamily: fonts.monoRegular,
@@ -710,9 +737,19 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   balanceRow: { flexDirection: "row", alignItems: "baseline", marginTop: 10, gap: 6 },
+  // 40 → typography.numHero (36). This was the app's ONLY 40px value, and the
+  // home screen's total — the other hero balance — was already 36. The 4px gap
+  // was never the hierarchy signal between the two screens; the COLOUR is (both
+  // tint inline from the running net, and this one falls back to a muted grey
+  // when settled while home never renders a settled state). So the size
+  // collapses and the colour is left exactly as it was.
+  //
+  // letterSpacing STAYS: formatAmount() goes through lib/format.ts, which
+  // hardcodes toLocaleString("en-US"), so this string is Latin digits in both
+  // languages and tracking can't sever any Arabic-script joining. Deliberately
+  // NOT trackingSafe(isRTL) for the same reason.
   balance: {
-    fontSize: 40,
-    fontFamily: fonts.monoBold,
+    ...typography.numHero,
     color: colors.textEmphasis,
     letterSpacing: -0.5,
   },
@@ -741,7 +778,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 9,
     paddingVertical: 13,
-    borderRadius: 12,
+    borderRadius: radius.md,
     // Solid primary-button fill — same high-affordance language as the FAB and
     // the share button, deliberately NOT the red/green direction color. These
     // are the two most-used actions, so they must read as obvious, tappable
@@ -766,9 +803,9 @@ const styles = StyleSheet.create({
   // Soft translucent circle that gives the arrow a deliberate home on the dark
   // fill — the key "refined" detail vs a bare floating arrow.
   actionIconCoin: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: ACTION_COIN_SIZE,
+    height: ACTION_COIN_SIZE,
+    borderRadius: ACTION_COIN_SIZE / 2,
     backgroundColor: "rgba(255,255,255,0.13)",
     alignItems: "center",
     justifyContent: "center",
@@ -786,7 +823,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: 12,
+    borderRadius: radius.md,
     overflow: "hidden",
     backgroundColor: colors.bgDefault,
   },
@@ -800,7 +837,12 @@ const styles = StyleSheet.create({
     marginHorizontal: 24,
     marginTop: 16,
     marginBottom: 4,
-    minHeight: 32,
+    // Was 32 — the one control that rules off an account was under the HIG
+    // floor with no hitSlop. Grown rather than hitSlop'd because this row
+    // stands alone between the action buttons and the entries card (nothing
+    // tappable within 20px), and alignItems:"center" keeps the ruled line
+    // optically where it was; only the surrounding air changes.
+    minHeight: TOUCH_MIN,
   },
   settleRule: {
     flex: 1,
@@ -856,7 +898,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 10,
     height: 52,
-    borderRadius: 12,
+    borderRadius: radius.md,
     backgroundColor: colors.bgInverted,
     paddingHorizontal: 16,
     // Subtle lift so the floating button reads cleanly without a backing bar.

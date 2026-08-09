@@ -6,6 +6,7 @@ import { setAppMeta } from "../../lib/db";
 import { textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { setLocale, t } from "../../lib/i18n";
+import { radius, typography } from "../../lib/tokens";
 
 // Onboarding step 1 — only mounted by _layout's routing logic when the
 // device locale is NOT already fa/prs. Persian-locale users skip directly
@@ -89,7 +90,10 @@ const styles = StyleSheet.create({
   gap: { height: 14 },
   gapLarge: { height: 32 },
   card: {
-    borderRadius: 14,
+    // radius.lg (16), not md — these are the same inset hero-card family as
+    // the auth screen's provider cards (which carry the lift shadow), and the
+    // two screens are seen seconds apart. Was a bare 14.
+    borderRadius: radius.lg,
     paddingVertical: 22,
     paddingHorizontal: 20,
     borderWidth: 1,
@@ -98,15 +102,32 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   cardLabel: {
-    fontSize: 18,
-    fontFamily: fonts.sansSemi,
+    // typography.heading (20) — was 18, and sansSemi is already the token's
+    // family, so this is a pure size step. The label is the ONLY text on the
+    // card, so it legitimately takes the screen-headline step rather than a
+    // row label.
+    ...typography.heading,
     color: colors.textEmphasis,
   },
   cardLabelFa: {
     // The fa* font family in fonts.ts is already Vazirmatn, but call it
     // out explicitly here so future Inter-vs-Vazirmatn refactors don't
     // accidentally render دری in a Latin-only font.
-    fontFamily: fonts.faSemi,
+    //
+    // DELIBERATE OPTICAL BUMP — do NOT collapse this onto the type scale.
+    //
+    // Persian letterforms occupy less of the em box than Latin ones, so دری at
+    // the same NOMINAL size as "English" reads visibly smaller. These two cards
+    // sit one directly above the other — the single layout in the app where a
+    // reader compares the two scripts side by side and the difference is
+    // unmissable. A type scale governs nominal sizes; it cannot govern optical
+    // ones. A consistency pass that flattens this makes the screen worse in the
+    // name of tidiness, which is why it is spelled out here rather than left to
+    // look like drift. (Originally 22 against English's 18; still 22, now
+    // against typography.heading's 20 — a smaller correction, because the
+    // English side grew.)
     fontSize: 22,
+    lineHeight: sansLineHeight(22, 28),
+    fontFamily: fonts.faSemi,
   },
 });

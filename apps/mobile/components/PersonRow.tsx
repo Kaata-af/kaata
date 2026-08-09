@@ -7,6 +7,7 @@ import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { formatAmount, formatRelative } from "../lib/format";
 import { t } from "../lib/i18n";
+import { icon } from "../lib/tokens";
 import type { PersonWithBalance } from "../lib/types";
 
 // Stacked-card list row. Designed to live inside a rounded container with
@@ -86,11 +87,11 @@ export const PersonRow = memo(function PersonRow(props: {
           //
           // Bare "checkmark", not "checkmark-circle": the tick alone is the
           // tally mark a shopkeeper draws when an account is cleared, and the
-          // circle read as a status badge. Sized 22 rather than the 20 the
-          // circled version used — dropping the disc removes most of the
+          // circle read as a status badge. Sized icon.row (22) rather than the
+          // 20 the circled version used — dropping the disc removes most of the
           // glyph's ink, so at the same nominal size it reads visibly lighter
           // than the 15px amount it replaces in this column.
-          <Ionicons name="checkmark" size={22} color={colors.textSubtle} />
+          <Ionicons name="checkmark" size={icon.row} color={colors.textSubtle} />
         ) : (
           <>
             {/* L41: cap the amount's font scaling so it can't grow so wide at

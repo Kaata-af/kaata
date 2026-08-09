@@ -1,27 +1,27 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../../components/Button";
+import { ScreenLoading } from "../../../components/ScreenLoading";
+import { ScreenHeader } from "../../../components/SettingsScreen";
 import { useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../../lib/currency";
 import { getEntry, SettledChapterError, updateEntry } from "../../../lib/db";
 import { toAsciiDigits } from "../../../lib/digits";
-import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
+import { textDir, useIsRTL } from "../../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../../lib/event-log";
 import { fonts, sansLineHeight } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
+import { radius, TOUCH_MIN } from "../../../lib/tokens";
 import { ENTRY_NOTE_MAX_LENGTH, type EntryType } from "../../../lib/types";
+
+// presentation:"modal" screen: the loaded branch is a bare <SafeAreaView>,
+// which insets all four edges. ScreenLoading defaults to ["top"] (the pushed-
+// screen case), so the pre-content branches have to spell this out or the
+// header shifts the moment the read resolves.
+const MODAL_EDGES = ["top", "bottom", "left", "right"] as const;
 
 export default function EditEntryScreen() {
   const router = useRouter();
@@ -111,45 +111,48 @@ export default function EditEntryScreen() {
     }
   }
 
+  // Hoisted above the load branches so the loading header can carry the same
+  // title the loaded one will. `type` defaults to "debt", so a payment entry
+  // does re-word the title once on resolve — the chrome's geometry doesn't
+  // move, which is what the jump was.
+  const verb = type === "debt" ? t("person.action.iGave") : t("person.action.iReceived");
+
   if (!loaded) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.fillCenter}>
-          <ActivityIndicator color={colors.textDefault} />
-        </View>
-      </SafeAreaView>
+      <ScreenLoading
+        title={t("entry.edit.title", { verb })}
+        onBack={() => router.back()}
+        isRTL={isRTL}
+        edges={MODAL_EDGES}
+      />
     );
   }
 
   if (!found) {
+    // Title stays the screen's own not-found wording, unchanged from before.
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={[styles.header, rowDir(isRTL)]}>
-          <Pressable onPress={() => router.back()} hitSlop={8}>
-            <Text style={[styles.cancel, textDir(isRTL)]}>{t("common.back")}</Text>
-          </Pressable>
-          <Text style={styles.title}>{t("personEdit.title")}</Text>
-          <View style={{ width: 60 }} />
-        </View>
-        <View style={styles.fillCenter}>
-          <Text style={styles.errorText}>{t("entry.notFound")}</Text>
-        </View>
-      </SafeAreaView>
+      <ScreenLoading
+        title={t("personEdit.title")}
+        onBack={() => router.back()}
+        isRTL={isRTL}
+        message={t("entry.notFound")}
+        edges={MODAL_EDGES}
+      />
     );
   }
 
-  const verb = type === "debt" ? t("person.action.iGave") : t("person.action.iReceived");
   const otherVerb = type === "debt" ? t("person.action.iReceived") : t("person.action.iGave");
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={[styles.header, rowDir(isRTL)]}>
-        <Pressable onPress={() => router.back()} hitSlop={8}>
-          <Text style={[styles.cancel, textDir(isRTL)]}>{t("common.cancel")}</Text>
-        </Pressable>
-        <Text style={styles.title}>{t("entry.edit.title", { verb })}</Text>
-        <View style={{ width: 60 }} />
-      </View>
+      {/* The "Cancel" word becomes the shared chevron; it survives as the a11y
+          label so TalkBack still announces "Cancel", not "Back". */}
+      <ScreenHeader
+        title={t("entry.edit.title", { verb })}
+        onBack={() => router.back()}
+        isRTL={isRTL}
+        backLabel={t("common.cancel")}
+      />
       <KeyboardAvoidingView
         style={styles.body}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -222,19 +225,6 @@ export default function EditEntryScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
-  fillCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
-  errorText: { fontSize: 14, fontFamily: fonts.sansRegular, color: colors.textSubtle },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderDefault,
-  },
-  cancel: { fontSize: 15, fontFamily: fonts.sansMedium, color: colors.textSubtle, minWidth: 60 },
-  title: { fontSize: 15, fontFamily: fonts.sansSemi, color: colors.textEmphasis },
   body: { flex: 1, padding: 16, paddingTop: 20 },
   hint: {
     fontSize: 12,
@@ -252,10 +242,10 @@ const styles = StyleSheet.create({
   },
   required: { color: colors.danger },
   input: {
-    minHeight: 44,
+    minHeight: TOUCH_MIN,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     paddingHorizontal: 14,
     fontSize: 15,
     fontFamily: fonts.sansRegular,
@@ -266,7 +256,7 @@ const styles = StyleSheet.create({
     minHeight: 72,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: 12,
+    borderRadius: radius.md,
     paddingHorizontal: 16,
     fontSize: 36,
     fontFamily: fonts.monoBold,

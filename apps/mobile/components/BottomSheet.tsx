@@ -8,6 +8,7 @@ import { colors } from "../lib/colors";
 import { SHEET_BLUR_METHOD } from "../lib/blur";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
+import { icon, radius } from "../lib/tokens";
 
 export type SheetAction = {
   label: string;
@@ -108,7 +109,10 @@ export function BottomSheet(props: {
                   {a.icon ? (
                     <Ionicons
                       name={a.icon}
-                      size={18}
+                      // icon.row (22) — matches the NavRow leading-icon size the
+                      // rest of the app uses, and exactly fills styles.rowIcon's
+                      // 22px box (which doubles as the spacer for icon-less rows).
+                      size={icon.row}
                       color={color}
                       style={[styles.rowIcon, isRTL ? styles.rowIconRTL : styles.rowIconLTR]}
                     />
@@ -136,8 +140,10 @@ const styles = StyleSheet.create({
   },
   sheetWrap: {
     backgroundColor: colors.bgDefault,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
+    // Screen-anchored sheet top — radius.sheet (18), not the 16 used by
+    // floating inset surfaces. Same value as before, now named.
+    borderTopLeftRadius: radius.sheet,
+    borderTopRightRadius: radius.sheet,
     borderTopWidth: 1,
     borderTopColor: colors.borderDefault,
   },
@@ -146,7 +152,7 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     width: 40,
     height: 4,
-    borderRadius: 2,
+    borderRadius: radius.grabber,
     backgroundColor: colors.borderEmphasis,
     marginBottom: 8,
   },
@@ -174,7 +180,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.borderSubtle,
   },
-  rowIcon: { width: 22 },
+  // Fixed leading slot: renders the icon OR an empty spacer, so icon-less
+  // actions still align their label with the iconed ones. Width is tied to
+  // icon.row so the two can never drift apart.
+  rowIcon: { width: icon.row },
   rowIconLTR: { marginRight: 12 },
   rowIconRTL: { marginLeft: 12 },
   rowText: { fontSize: 15, fontFamily: fonts.sansMedium },

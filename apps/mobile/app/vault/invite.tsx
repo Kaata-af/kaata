@@ -51,6 +51,7 @@ import { getAppMeta } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { getShareLangPref, resolveShareLang, t, tIn, type LocaleCode } from "../../lib/i18n";
+import { icon, radius } from "../../lib/tokens";
 import { useVaultPermission } from "../../lib/use-vault-role";
 import { ApiError, createVaultInvite, listVaults } from "../../lib/vault-api";
 import type { VaultRole } from "../../lib/events";
@@ -60,6 +61,10 @@ type InviteResult = {
   invite_email: string;
   expires_at: number;
 };
+
+/** Result-row avatar well. Named so its radius is size/2 rather than a
+ *  literal 22 that can drift from the diameter (lib/tokens rule 3). */
+const AVATAR_SIZE = 44;
 
 export default function VaultInviteScreen() {
   const router = useRouter();
@@ -289,7 +294,7 @@ export default function VaultInviteScreen() {
                       ? "cloud-offline-outline"
                       : "sync-outline"
                 }
-                size={18}
+                size={icon.row}
                 color={colors.danger}
                 style={isRTL ? { marginLeft: 10 } : { marginRight: 10 }}
               />
@@ -378,7 +383,7 @@ export default function VaultInviteScreen() {
                 <View
                   style={[styles.identityAvatar, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}
                 >
-                  <Ionicons name="link" size={22} color={colors.textEmphasis} />
+                  <Ionicons name="link" size={icon.row} color={colors.textEmphasis} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.identityName, textDir(isRTL)]} numberOfLines={1}>
@@ -479,7 +484,7 @@ function RoleOption(props: {
     >
       <Ionicons
         name={props.selected ? "checkmark-circle" : "ellipse-outline"}
-        size={22}
+        size={icon.row}
         color={props.selected ? colors.textEmphasis : colors.textMuted}
         style={props.isRTL ? { marginLeft: 14 } : { marginRight: 14 }}
       />
@@ -537,9 +542,9 @@ const styles = StyleSheet.create({
     minHeight: 64,
   },
   identityAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: AVATAR_SIZE,
+    height: AVATAR_SIZE,
+    borderRadius: AVATAR_SIZE / 2,
     backgroundColor: colors.bgMuted,
     alignItems: "center",
     justifyContent: "center",
@@ -595,7 +600,7 @@ const styles = StyleSheet.create({
   urlBox: {
     padding: 14,
     backgroundColor: colors.bgMuted,
-    borderRadius: 10,
+    borderRadius: radius.sm,
   },
   urlText: {
     fontSize: 13,

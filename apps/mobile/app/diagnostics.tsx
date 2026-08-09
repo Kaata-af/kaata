@@ -35,11 +35,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ScreenHeader } from "../components/SettingsScreen";
 import { trackingSafe, useIsRTL } from "../lib/direction";
+import { t } from "../lib/i18n";
 import { useToast } from "../components/Toast";
 import { colors } from "../lib/colors";
 import { buildDiagnosticsReport } from "../lib/diagnostics-report";
 import { fonts, monoLineHeight, sansLineHeight } from "../lib/fonts";
 import { resetAllLocalData } from "../lib/db";
+import { radius, TOUCH_MIN } from "../lib/tokens";
 // PARKED (Nearby sync / mesh): the live sync state + log and the mem-probe
 // memory-slope sampling belong to the mesh feature, which is hidden for now.
 // Re-enable these imports together with the commented-out sections below when
@@ -158,7 +160,7 @@ export default function DiagnosticsScreen() {
       setFallbackText(null);
       setCopied(true);
       setTimeout(() => setCopied(false), 5000);
-      toast.push("Copied — now send it to us on WhatsApp", "success");
+      toast.push(t("diagnostics.toast.copied"), "success");
     } catch (err) {
       console.warn("[diagnostics] copy report failed", err);
       try {
@@ -166,7 +168,7 @@ export default function DiagnosticsScreen() {
       } catch {
         setFallbackText(null);
       }
-      toast.push("Couldn’t auto-copy — copy the text below", "error");
+      toast.push(t("diagnostics.toast.copyFailed"), "error");
     } finally {
       setCopyingReport(false);
     }
@@ -181,7 +183,7 @@ export default function DiagnosticsScreen() {
       await Share.share({ message: await buildDiagnosticsReport() });
     } catch (err) {
       console.warn("[diagnostics] share report failed", err);
-      toast.push("Couldn’t open share", "error");
+      toast.push(t("diagnostics.toast.shareFailed"), "error");
     } finally {
       setSharingReport(false);
     }
@@ -243,12 +245,9 @@ export default function DiagnosticsScreen() {
           Dari user. The screen's own copy is still English (localizing it is
           tracked separately), but the chrome should follow the app's language
           regardless: the chevron is navigation, not content. */}
-      <ScreenHeader title="App health" onBack={() => router.back()} isRTL={isRTL} />
+      <ScreenHeader title={t("diagnostics.title")} onBack={() => router.back()} isRTL={isRTL} />
       <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.hint}>
-          Something not working? Tap Copy (or Share), then send this to us on WhatsApp so we can see
-          what’s happening and fix it.
-        </Text>
+        <Text style={styles.hint}>{t("diagnostics.hint")}</Text>
         <View style={styles.actionRow}>
           <Pressable
             style={[styles.copyReport, copyingReport && { opacity: 0.6 }]}
@@ -256,7 +255,11 @@ export default function DiagnosticsScreen() {
             disabled={copyingReport}
           >
             <Text style={styles.copyReportText}>
-              {copyingReport ? "Copying…" : copied ? "Copied ✓" : "Copy report"}
+              {copyingReport
+                ? t("diagnostics.copying")
+                : copied
+                  ? t("diagnostics.copied")
+                  : t("diagnostics.copyReport")}
             </Text>
           </Pressable>
           <Pressable
@@ -264,15 +267,15 @@ export default function DiagnosticsScreen() {
             onPress={onShareReport}
             disabled={sharingReport}
           >
-            <Text style={styles.shareReportText}>{sharingReport ? "…" : "Share"}</Text>
+            <Text style={styles.shareReportText}>
+              {sharingReport ? "…" : t("diagnostics.share")}
+            </Text>
           </Pressable>
         </View>
 
         {fallbackText ? (
           <View style={styles.fallbackBox}>
-            <Text style={styles.copyHint}>
-              Long-press the text below → Select all → Copy, then send it to us.
-            </Text>
+            <Text style={styles.copyHint}>{t("diagnostics.fallbackHint")}</Text>
             <Text style={styles.mono} selectable>
               {fallbackText}
             </Text>
@@ -280,15 +283,16 @@ export default function DiagnosticsScreen() {
         ) : null}
 
         {/* ---- App version + build (moved here from Account) ---- */}
-        <Text style={[styles.section, trackingSafe(isRTL)]}>VERSION</Text>
+        <Text style={[styles.section, trackingSafe(isRTL)]}>
+          {t("diagnostics.section.version")}
+        </Text>
         <Text style={styles.mono}>
           app {appVersion}
           {buildNumber ? ` · build ${buildNumber}` : ""}
         </Text>
         {jsBundleVersion && jsBundleVersion !== appVersion ? (
           <Text style={styles.warn}>
-            ⚠ bundled JS {jsBundleVersion} ≠ native {appVersion} — running a stale build; reinstall
-            the latest APK.
+            {t("diagnostics.staleBuild", { js: jsBundleVersion, native: appVersion })}
           </Text>
         ) : null}
 
@@ -337,12 +341,10 @@ export default function DiagnosticsScreen() {
         {Platform.OS === "android" ? (
           <>
             <Text style={[styles.section, trackingSafe(isRTL)]}>
-              WHY THE APP DIED (most recent first)
+              {t("diagnostics.section.exits")}
             </Text>
             {exits.length === 0 ? (
-              <Text style={styles.muted}>
-                No exit records (Android &lt; 11, or fresh install with no prior death).
-              </Text>
+              <Text style={styles.muted}>{t("diagnostics.noExits")}</Text>
             ) : (
               exits.map((e, i) => (
                 <View key={i} style={styles.exitRow}>
@@ -360,7 +362,9 @@ export default function DiagnosticsScreen() {
               ))
             )}
 
-            <Text style={[styles.section, trackingSafe(isRTL)]}>RIGHT NOW</Text>
+            <Text style={[styles.section, trackingSafe(isRTL)]}>
+              {t("diagnostics.section.now")}
+            </Text>
             <Text style={styles.mono}>
               nativePss={mb(now.nativePssKb as number)} dalvikPss=
               {mb(now.dalvikPssKb as number)} js={mb(now.javaHeapUsedKb as number)}
@@ -395,7 +399,7 @@ export default function DiagnosticsScreen() {
         ---- end PARKED memory slope ---- */}
 
         <Pressable style={styles.refresh} onPress={() => void load()}>
-          <Text style={styles.refreshText}>Refresh</Text>
+          <Text style={styles.refreshText}>{t("diagnostics.refresh")}</Text>
         </Pressable>
 
         {__DEV__ ? (
@@ -431,17 +435,25 @@ const styles = StyleSheet.create({
     lineHeight: sansLineHeight(13, 18),
   },
   actionRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
+  // The four buttons on this screen all measured 10+10 padding + a ~22px
+  // 14px-sans line box = 42, i.e. 2px under the HIG floor. minHeight +
+  // justifyContent lifts them to 44 without moving the label off its optical
+  // centre; the extra 2px is absorbed by the page's own vertical rhythm.
   copyReport: {
     paddingHorizontal: 18,
     paddingVertical: 10,
-    borderRadius: 8,
+    minHeight: TOUCH_MIN,
+    justifyContent: "center",
+    borderRadius: radius.sm,
     backgroundColor: colors.bgInverted,
   },
   copyReportText: { color: colors.textInverted, fontSize: 14, fontFamily: fonts.sansSemi },
   shareReport: {
     paddingHorizontal: 18,
     paddingVertical: 10,
-    borderRadius: 8,
+    minHeight: TOUCH_MIN,
+    justifyContent: "center",
+    borderRadius: radius.sm,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderDefault,
   },
@@ -449,7 +461,7 @@ const styles = StyleSheet.create({
   fallbackBox: {
     marginBottom: 12,
     padding: 10,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderDefault,
     backgroundColor: colors.bgMuted,
@@ -506,12 +518,15 @@ const styles = StyleSheet.create({
     // size bump can't silently behead the glyphs.
     lineHeight: monoLineHeight(12, 17),
   },
+  // PARKED (mesh): only referenced by the commented-out sync-log block above.
+  // Radius snapped for consistency; its ~36px height is deliberately NOT lifted
+  // to TOUCH_MIN here — re-measure it against the live layout when mesh ships.
   refreshGhost: {
     marginTop: 12,
     alignSelf: "flex-start",
     paddingHorizontal: 14,
     paddingVertical: 7,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderDefault,
   },
@@ -521,7 +536,9 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     paddingHorizontal: 18,
     paddingVertical: 10,
-    borderRadius: 8,
+    minHeight: TOUCH_MIN,
+    justifyContent: "center",
+    borderRadius: radius.sm,
     backgroundColor: colors.bgInverted,
   },
   refreshText: { color: colors.textInverted, fontSize: 14, fontFamily: fonts.sansSemi },
@@ -530,7 +547,9 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     paddingHorizontal: 18,
     paddingVertical: 10,
-    borderRadius: 8,
+    minHeight: TOUCH_MIN,
+    justifyContent: "center",
+    borderRadius: radius.sm,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.danger,
   },

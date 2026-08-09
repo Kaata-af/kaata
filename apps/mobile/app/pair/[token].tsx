@@ -18,10 +18,12 @@ import { useRouter } from "expo-router";
 import { StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
+import { ScreenHeader } from "../../components/SettingsScreen";
 import { colors } from "../../lib/colors";
 import { textDir, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
+import { icon } from "../../lib/tokens";
 
 export default function PairDeepLinkScreen() {
   const router = useRouter();
@@ -33,9 +35,24 @@ export default function PairDeepLinkScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* The only exit used to be the in-body CTA. This route is reached by a
+          deep link — nothing pushed it, so on iOS there is no edge-swipe to
+          fall back on and a mis-tap dead-ends a retired screen. Same chevron
+          every other pushed screen has, same handler as the CTA. Title reuses
+          pairLink.title (the screen's own name, already translated in both
+          languages); backLabel names where the chevron actually lands, since
+          it replaces rather than pops. */}
+      <ScreenHeader
+        title={t("pairLink.title")}
+        onBack={onDone}
+        isRTL={isRTL}
+        backLabel={t("common.backToKaata")}
+      />
       <View style={styles.body}>
         <View style={styles.fillCenter}>
-          <Ionicons name="qr-code-outline" size={48} color={colors.textMuted} />
+          {/* 48 → icon.hero (40): a bare full-screen status glyph, not part of a
+              composed graphic, so it takes the hero step like every other one. */}
+          <Ionicons name="qr-code-outline" size={icon.hero} color={colors.textMuted} />
           <View style={{ height: 16 }} />
           <Text style={[styles.heading, textDir(isRTL)]}>{t("pairLink.unsupported.title")}</Text>
           <Text style={[styles.body2, textDir(isRTL)]}>{t("pairLink.unsupported.body")}</Text>
