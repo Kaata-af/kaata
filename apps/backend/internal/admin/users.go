@@ -54,9 +54,18 @@ type UserRow struct {
 	// AppVersion / Source come from the account's MOST RECENT install; InstalledAt
 	// is the earliest, LastActivityAt the latest real usage, HasOnboarded true if
 	// any install onboarded, InstallCount how many devices/reinstalls.
-	Platform       string      `json:"platform"`
-	AppVersion     string      `json:"app_version"`
-	InstalledAt    string      `json:"installed_at"`
+	Platform    string `json:"platform"`
+	AppVersion  string `json:"app_version"`
+	InstalledAt string `json:"installed_at"`
+	// FirstSeen = earliest first_seen_at across the account's installs. Mirrors
+	// InstallRow.FirstSeen so the dashboard can date an account the same way it
+	// dates an install. Needed because InstalledAt is DEVICE-supplied and
+	// optional (checkin.Request.InstalledAtUnixMS is a *int64) — it is empty for
+	// every install that predates the field or never sent it, while first_seen_at
+	// is NOT NULL DEFAULT NOW(). Consumers should read
+	// `installed_at || first_seen`, which is the same COALESCE the install series
+	// in service.go uses; without it a date filter silently drops those rows.
+	FirstSeen      string      `json:"first_seen"`
 	LastActivityAt string      `json:"last_activity_at"`
 	HasOnboarded   bool        `json:"has_onboarded"`
 	Source         string      `json:"source"`
@@ -343,7 +352,7 @@ func (s *Service) enrichInstallTelemetry(ctx context.Context, byID map[string]*U
 	// Aggregates per account → install count, first install, last activity, onboarded.
 	arows, err := s.pool.Query(ctx, `
 		SELECT account_id::text, COUNT(*),
-		       MIN(installed_at), MAX(last_activity_at), bool_or(has_onboarded)
+		       MIN(installed_at), MIN(first_seen_at), MAX(last_activity_at), bool_or(has_onboarded)
 		FROM installs
 		WHERE account_id IS NOT NULL
 		GROUP BY account_id
@@ -352,9 +361,9 @@ func (s *Service) enrichInstallTelemetry(ctx context.Context, byID map[string]*U
 		for arows.Next() {
 			var acct string
 			var cnt int64
-			var firstInstall, lastActivity *time.Time
+			var firstInstall, firstSeen, lastActivity *time.Time
 			var onboarded bool
-			if arows.Scan(&acct, &cnt, &firstInstall, &lastActivity, &onboarded) != nil {
+			if arows.Scan(&acct, &cnt, &firstInstall, &firstSeen, &lastActivity, &onboarded) != nil {
 				break
 			}
 			if u := byID[acct]; u != nil {
@@ -362,6 +371,9 @@ func (s *Service) enrichInstallTelemetry(ctx context.Context, byID map[string]*U
 				u.HasOnboarded = onboarded
 				if firstInstall != nil {
 					u.InstalledAt = firstInstall.UTC().Format(time.RFC3339)
+				}
+				if firstSeen != nil {
+					u.FirstSeen = firstSeen.UTC().Format(time.RFC3339)
 				}
 				if lastActivity != nil {
 					u.LastActivityAt = lastActivity.UTC().Format(time.RFC3339)

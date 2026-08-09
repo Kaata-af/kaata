@@ -54,6 +54,20 @@ type Row = {
   install?: InstallRow;
 };
 
+// When a device first appeared. `installed_at` is the DEVICE's own wall clock
+// at first run — the honest install moment, and the only one that survives an
+// offline install — but it is optional (checkin sends it as *int64) and is
+// EMPTY for every install predating the field. first_seen_at is the backend's
+// NOW() on first check-in and is NOT NULL, so it's the fallback.
+//
+// This is the same COALESCE(installed_at, first_seen_at) the Overview install
+// series uses in service.go. Without it the "Installed" column reads "—" and
+// the date facet silently drops those rows — every install in the local dev DB
+// is one of them.
+function firstAppeared(installedAt: string, firstSeen: string | undefined): string {
+  return installedAt || firstSeen || "";
+}
+
 function accountToRow(u: UserRow): Row {
   return {
     id: `a:${u.account_id}`,
@@ -65,7 +79,7 @@ function accountToRow(u: UserRow): Row {
     locale: u.locale,
     source: u.source,
     platform: (u.platform || "").toLowerCase(),
-    installed_at: u.installed_at,
+    installed_at: firstAppeared(u.installed_at, u.first_seen),
     last_seen: u.last_seen,
     // Per-kaata activity counts are the account's only entry/customer signal
     // (usage counters live on installs, which the users endpoint folds away).
@@ -87,7 +101,7 @@ function installToRow(d: InstallRow): Row {
     locale: d.locale,
     source: d.source,
     platform: (d.platform || "").toLowerCase(),
-    installed_at: d.installed_at,
+    installed_at: firstAppeared(d.installed_at, d.first_seen),
     last_seen: d.last_seen,
     entries: d.usage_entries,
     customers: d.usage_customers,
@@ -101,6 +115,37 @@ function installToRow(d: InstallRow): Row {
 // real people.
 function isNamed(r: Row): boolean {
   return !!(r.name || r.shop || r.phone);
+}
+
+// The install-date facet works in the OPERATOR'S calendar day, not UTC: asking
+// "how many installed on 3 August" means their 3 August. Built from the local
+// getters on purpose — toISOString() would silently answer in UTC, which in
+// Kabul (+04:30) reassigns every install before 04:30 to the previous day.
+//
+// Consequence worth knowing: Overview's activity chart buckets in UTC
+// (service.go `date_trunc(... AT TIME ZONE 'UTC')`), so a single day's count
+// here can legitimately differ from that chart's bar by the installs sitting
+// in the 4.5-hour overhang. Neither is wrong; they answer different questions.
+function localDay(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate(),
+  ).padStart(2, "0")}`;
+}
+
+// Label a YYYY-MM-DD from the date input. Parsed field-by-field into a LOCAL
+// date — `new Date("2026-08-03")` is UTC midnight, which renders as the 2nd
+// anywhere west of Greenwich.
+function fmtDayLabel(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  if (!y || !m || !d) return ymd;
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 const SEGMENTS = ["All", "Signed in", "Named", "Anonymous"] as const;
@@ -132,6 +177,8 @@ export function Users() {
   const [activity, setActivity] = useState("any");
   const [lang, setLang] = useState("all");
   const [source, setSource] = useState("all");
+  // Empty = no date filter. Otherwise a local YYYY-MM-DD from the date input.
+  const [installedOn, setInstalledOn] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("last_seen");
   const [sortDesc, setSortDesc] = useState(true);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -146,10 +193,22 @@ export function Users() {
         : [],
     [users.data],
   );
-  const anonCount = useMemo(
-    () => allRows.filter((r) => r.kind === "install" && !isNamed(r)).length,
-    [allRows],
+  // Every row the date facet admits, before segment/search/facets narrow it.
+  // This is the honest answer to "how many installed that day": the table below
+  // is narrowed further, and the default segment hides anonymous installs
+  // entirely — so rows.length alone would UNDER-count the day, which is exactly
+  // the number being asked for.
+  const dateScoped = useMemo(
+    () => (installedOn ? allRows.filter((r) => localDay(r.installed_at) === installedOn) : allRows),
+    [allRows, installedOn],
   );
+  // Scoped to the chosen day too, so the "N anonymous installs · show" toggle
+  // under the table doesn't quote a fleet-wide number next to a one-day view.
+  const anonCount = useMemo(
+    () => dateScoped.filter((r) => r.kind === "install" && !isNamed(r)).length,
+    [dateScoped],
+  );
+  // Source options stay global — a day's rows shouldn't empty the dropdown.
   const sources = useMemo(
     () => [...new Set(allRows.map((r) => r.source).filter(Boolean))].sort(),
     [allRows],
@@ -159,18 +218,18 @@ export function Users() {
     let base: Row[];
     switch (segment) {
       case 1:
-        base = allRows.filter((r) => r.kind === "account");
+        base = dateScoped.filter((r) => r.kind === "account");
         break;
       case 2:
-        base = allRows.filter(isNamed);
+        base = dateScoped.filter(isNamed);
         break;
       case 3:
-        base = allRows.filter((r) => r.kind === "install" && !isNamed(r));
+        base = dateScoped.filter((r) => r.kind === "install" && !isNamed(r));
         break;
       default:
         // "All" means all *people* — anonymous no-identity installs stay
         // collapsed until the quiet toggle reveals them.
-        base = allRows.filter((r) => r.kind === "account" || isNamed(r) || showAnon);
+        base = dateScoped.filter((r) => r.kind === "account" || isNamed(r) || showAnon);
     }
     // Facet filters compose with the segment + search.
     if (platform !== "all") base = base.filter((r) => r.platform === platform);
@@ -208,7 +267,7 @@ export function Users() {
       if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
       return String(av).localeCompare(String(bv)) * dir;
     });
-  }, [allRows, segment, showAnon, search, sortKey, sortDesc, platform, activity, lang, source]);
+  }, [dateScoped, segment, showAnon, search, sortKey, sortDesc, platform, activity, lang, source]);
 
   return (
     <div>
@@ -297,13 +356,23 @@ export function Users() {
                   ...sources.map((s) => [s, s] as [string, string]),
                 ]}
               />
-              {platform !== "all" || activity !== "any" || lang !== "all" || source !== "all" ? (
+              <DateFilter
+                value={installedOn}
+                max={localDay(new Date().toISOString())}
+                onChange={setInstalledOn}
+              />
+              {platform !== "all" ||
+              activity !== "any" ||
+              lang !== "all" ||
+              source !== "all" ||
+              installedOn !== "" ? (
                 <button
                   onClick={() => {
                     setPlatform("all");
                     setActivity("any");
                     setLang("all");
                     setSource("all");
+                    setInstalledOn("");
                   }}
                   className="text-xs text-[#98a2b3] underline decoration-dotted underline-offset-2 hover:text-[#475467]"
                 >
@@ -311,6 +380,24 @@ export function Users() {
                 </button>
               ) : null}
             </div>
+            {installedOn ? (
+              <div
+                className="mb-3 flex flex-wrap items-baseline gap-x-2 rounded-lg bg-[#f9fafb] px-3 py-2 text-sm text-[#475467]"
+                title="Counted in your local calendar day. Overview's activity chart buckets in UTC, so one day's count can differ there."
+              >
+                <span className="font-semibold tabular-nums text-[#101828]">
+                  {fmtInt(dateScoped.length)}
+                </span>
+                <span>
+                  new install{dateScoped.length === 1 ? "" : "s"} on {fmtDayLabel(installedOn)}
+                </span>
+                {dateScoped.length !== rows.length ? (
+                  <span className="text-xs text-[#98a2b3]">
+                    · {fmtInt(rows.length)} shown after the other filters
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
             <UsersTable
               rows={rows}
               sortKey={sortKey}
@@ -368,6 +455,41 @@ function FilterSelect(props: {
         </option>
       ))}
     </select>
+  );
+}
+
+// Native <input type="date"> for the same reason FilterSelect is a native
+// <select>: dependable, keyboardable, no popper machinery. The visible label
+// stays because an empty date input reads as "mm/dd/yyyy", which says nothing
+// about WHICH date it filters. `max` is today — nothing installs in the future,
+// and the browser greys the rest of the calendar out.
+function DateFilter(props: { value: string; max: string; onChange: (v: string) => void }) {
+  const active = props.value !== "";
+  return (
+    <div
+      className={`flex items-center gap-1.5 rounded-lg border bg-white px-2.5 py-1.5 text-xs ${
+        active ? "border-[#98a2b3] font-medium text-[#101828]" : "border-[#eaecf0] text-[#475467]"
+      }`}
+    >
+      <label htmlFor="installed-on">Installed</label>
+      <input
+        id="installed-on"
+        type="date"
+        value={props.value}
+        max={props.max}
+        onChange={(e) => props.onChange(e.target.value)}
+        className="bg-transparent text-xs text-inherit focus:outline-none"
+      />
+      {active ? (
+        <button
+          onClick={() => props.onChange("")}
+          aria-label="Clear install date filter"
+          className="leading-none text-[#98a2b3] hover:text-[#475467]"
+        >
+          ×
+        </button>
+      ) : null}
+    </div>
   );
 }
 

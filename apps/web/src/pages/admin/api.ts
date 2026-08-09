@@ -98,6 +98,10 @@ export type UserRow = {
   platform: string;
   app_version: string;
   installed_at: string;
+  // Optional so a dashboard deployed ahead of the backend that adds it still
+  // renders — same reason as SourceRow.store_clicks. Read it as the fallback
+  // for installed_at, which is device-supplied and often empty.
+  first_seen?: string;
   last_activity_at: string;
   has_onboarded: boolean;
   source: string;
