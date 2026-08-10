@@ -75,6 +75,7 @@ const en = {
   "footer.followFacebook": "Follow Kaata on Facebook",
   "footer.followInstagram": "Follow Kaata on Instagram",
   "footer.followTiktok": "Follow Kaata on TikTok",
+  "footer.followYoutube": "Follow Kaata on YouTube",
   "footer.copyright": "© 2026 Kaata · Made in Kabul.",
 
   // Download page — store badges only (the sideload APK flow retired when
@@ -223,6 +224,7 @@ const fa: Record<keyof typeof en, string> = {
   "footer.followFacebook": "کاتا را در فیسبوک دنبال کنید",
   "footer.followInstagram": "کاتا را در اینستاگرام دنبال کنید",
   "footer.followTiktok": "کاتا را در تیک‌تاک دنبال کنید",
+  "footer.followYoutube": "کاتا را در یوتیوب دنبال کنید",
   "footer.copyright": "© ۲۰۲۶ کاتا · ساخت کابل.",
 
   // Download page — store badges only.
