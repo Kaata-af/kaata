@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { FACEBOOK_URL, INSTAGRAM_URL, WHATSAPP_CONTACT_URL } from "../env";
+import { FACEBOOK_URL, INSTAGRAM_URL, TIKTOK_URL, WHATSAPP_CONTACT_URL } from "../env";
 import { useI18n } from "../lib/i18n";
 
 // Header mirrors dub.co's chassis: logo at the start, nav links centered,
@@ -132,6 +132,15 @@ export function SiteFooter() {
             >
               <InstagramIcon />
             </a>
+            <a
+              href={TIKTOK_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={t("footer.followTiktok")}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 transition-colors"
+            >
+              <TiktokIcon />
+            </a>
           </div>
         </div>
 
@@ -235,6 +244,26 @@ function InstagramIcon() {
       <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
       <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
       <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
+    </svg>
+  );
+}
+
+// TikTok's note glyph, drawn monoline to sit with the other two (the official
+// mark is a filled multi-color logo — it would fight the neutral footer and
+// couldn't inherit the hover color).
+function TiktokIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5" />
     </svg>
   );
 }
