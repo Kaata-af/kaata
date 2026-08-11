@@ -129,9 +129,13 @@ export function PhoneMockupHome() {
           <ListRow name={t("mock.name.wahid")} amount={420} sub={t("format.weeksAgo", { n: 1 })} />
         </div>
 
+        {/* Mirrors the app's home FAB, which draws a rounded-square
+            "home button" mark rather than a "+" — see HOME_MARK_SIZE in
+            apps/mobile/app/index.tsx. The app's ratios, scaled to this 44px
+            mock: mark = 42% of the button, corner radius = 32% of the mark. */}
         <div className="mt-auto flex justify-end pt-3">
-          <div className="w-11 h-11 bg-neutral-900 rounded-full flex items-center justify-center text-white text-2xl font-light leading-none">
-            +
+          <div className="w-11 h-11 bg-neutral-900 rounded-full flex items-center justify-center">
+            <div className="w-[18px] h-[18px] rounded-[6px] border-2 border-white" />
           </div>
         </div>
       </div>

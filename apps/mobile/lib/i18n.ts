@@ -102,15 +102,20 @@ const en = {
   // what-next. Replaced the concept-diagram approach (Matee: teaching
   // belongs in a success message, not a mid-form card).
   "onboardingSuccess.title": "Your kaata is ready!",
+  // These three strings used to name the home button by its glyph ("the +
+  // button"). The glyph is now a rounded square, which carries no verb, so
+  // they name the button's POSITION instead — see HOME_MARK_SIZE in
+  // app/index.tsx. "Bottom right" is literally true in Persian too: the app
+  // is locked LTR (_layout.tsx) and the FAB is a hard right-side invariant.
   "onboardingSuccess.body":
-    "This is your shop's book. Add a tally for each customer with the + button.",
+    "This is your shop's book. Add a tally for each customer with the button at the bottom right.",
   "onboardingSuccess.cta": "Open my kaata",
 
   // Permanent guide screen (app/guide.tsx), linked from the settings sheet.
   "guide.title": "How kaata works",
   "guide.p1": "A kaata is your shop's ledger book. One kaata holds all the accounts of one shop.",
   "guide.p2":
-    "Each person you keep accounts with — customer or supplier — gets one tally inside your kaata. Add them with the + button.",
+    "Each person you keep accounts with — customer or supplier — gets one tally inside your kaata. Add them with the button at the bottom right.",
   "guide.p3":
     "On a person's tally, record I gave when you hand over money or goods, and I received when they pay you back. The balance updates by itself.",
   "guide.p4":
@@ -189,7 +194,7 @@ const en = {
   "home.total.label.pay": "To pay",
   "home.empty.collect.title": "Nothing to collect yet",
   "home.empty.collect.subtitle":
-    "Tap + to add a tally for someone you keep accounts with — one per customer.",
+    "Tap the button at the bottom right to add a tally for someone you keep accounts with — one per customer.",
   "home.empty.pay.title": "You owe no one yet",
   "home.empty.pay.subtitle":
     "When you take goods or borrow money, log it from that person's page and they'll appear here.",
@@ -1300,14 +1305,17 @@ const fa: Partial<Record<Key, string>> = {
 
   // Onboarding completion (success screen)
   "onboardingSuccess.title": "کاتای شما آماده است!",
-  "onboardingSuccess.body": "این دفتر دکان شماست. با دکمه + برای هر مشتری یک حساب اضافه کنید.",
+  // Position, not glyph — see the English block. The FAB is physically
+  // bottom-right in Persian too (the app is locked LTR).
+  "onboardingSuccess.body":
+    "این دفتر دکان شماست. با دکمهٔ پایین سمت راست برای هر مشتری یک حساب اضافه کنید.",
   "onboardingSuccess.cta": "باز کردن کاتای من",
 
   // Permanent guide screen
   "guide.title": "کاتا چطور کار می‌کند",
   "guide.p1": "کاتا دفتر حساب دکان شماست. یک کاتا تمام حساب‌های یک دکان را نگه می‌دارد.",
   "guide.p2":
-    "هر کسی که با او حساب دارید — مشتری یا تأمین‌کننده — یک حساب در داخل کاتای شما دارد. با دکمه + اضافه‌شان کنید.",
+    "هر کسی که با او حساب دارید — مشتری یا تأمین‌کننده — یک حساب در داخل کاتای شما دارد. با دکمهٔ پایین سمت راست اضافه‌شان کنید.",
   "guide.p3":
     "در حساب هر شخص، وقتی پول یا جنس می‌دهید «دادم» و وقتی پس می‌گیرید «گرفتم» را ثبت کنید. بیلانس خودش محاسبه می‌شود.",
   "guide.p4":
@@ -1376,7 +1384,7 @@ const fa: Partial<Record<Key, string>> = {
   "home.total.label.pay": "قابل پرداخت",
   "home.empty.collect.title": "هنوز چیزی برای وصول نیست",
   "home.empty.collect.subtitle":
-    "با دکمه + برای کسی که با او حساب دارید یک حساب بسازید — برای هر مشتری یکی.",
+    "با دکمهٔ پایین سمت راست برای کسی که با او حساب دارید یک حساب بسازید — برای هر مشتری یکی.",
   "home.empty.pay.title": "هنوز از کسی قرضدار نیستید",
   "home.empty.pay.subtitle":
     "وقتی جنس می‌گیرید یا پول قرض می‌کنید، از صفحه آن شخص ثبت کنید — همین‌جا ظاهر می‌شود.",

@@ -82,7 +82,7 @@ import { stopShopModeForegroundService } from "../lib/mesh/foreground";
 //
 // Cultural invariants relying on this neutralization (all static-physical):
 //   1. "I gave" / "I received" row in person/[id].tsx — give on right
-//   2. + FAB on home — stays right
+//   2. add/find FAB on home — stays right
 //   3. Swipe rail on home — collect physical left, pay physical right
 import { I18nManager as _I18nManager } from "react-native";
 const NEEDS_RESTART_FOR_LTR = _I18nManager.isRTL;

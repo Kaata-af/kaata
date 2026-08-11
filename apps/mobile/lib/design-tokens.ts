@@ -156,7 +156,7 @@
  * text gap, header chevron) must use the
  * isRTL ? { marginLeft: 14 } : { marginRight: 14 } shape, not bare margins.
  *
- * "I gave / + FAB stay on the RIGHT" invariants do not apply to settings
+ * "I gave / add-find FAB stay on the RIGHT" invariants do not apply to settings
  * screens — those are home-screen cultural anchors. Settings screens follow
  * standard LTR/RTL reflow.
  */

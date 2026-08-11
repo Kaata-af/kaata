@@ -59,8 +59,8 @@ new roles; nobody can grant them yet.
   `meetsRequirement` (drop the two-tier special-case for a rank comparison),
   PERMISSIONS matrix columns, role labels en+fa, pill styles, sort order.
   Fix the five unknown-role clamps to clamp DOWN to `'viewer'`, never editor.
-  Split `useActiveVaultCanWrite` into canCreate/canAmend (clerk shows the +
-  FAB but no edit affordances). Widen `RoleGateRejectionError.required_role`.
+  Split `useActiveVaultCanWrite` into canCreate/canAmend (clerk shows the
+  add/find FAB but no edit affordances). Widen `RoleGateRejectionError.required_role`.
 - Mobile chain rules (inert until a manager exists): membership events
   authorized for owner-bound devices (as today) OR manager-bound devices
   when target's current role AND the event's new role both rank < manager.

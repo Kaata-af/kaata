@@ -1481,7 +1481,7 @@ A code-review checklist item is added to every PR: "Does this feature work for a
 - `BackgroundCheckIn` (`_layout.tsx:360`) runs for everyone; the sync worker is **reactively mounted** when `account_id` transitions from null to non-null and unmounted on sign-out (resolves M9).
 - WhatsApp share, settings, language picker, currency picker, country picker all work without auth.
 - **Protected screens invariant (resolves AU1):** screens on the path between launch and entry-create may NOT show a sign-in CTA — specifically `index.tsx`, `person/[id].tsx`, `entry/new.tsx`, `entry/[id]/edit.tsx`. `account.tsx`, `settings.tsx`, and onboarding may show sign-in nudges.
-- **LTR direction invariant (resolves m14):** Every Phase 4 new screen (`vault/settings.tsx`, `vault/members.tsx`, `vault/invite.tsx`, `vault/audit-log.tsx`, `invite/[token].tsx`, `VaultPickerSheet.tsx`) is reviewed against the LTR-direction invariant from CLAUDE.md. Semantic-direction Pressables (give/receive row, + FAB) hardcode `right:` positioning regardless of `I18nManager.isRTL`.
+- **LTR direction invariant (resolves m14):** Every Phase 4 new screen (`vault/settings.tsx`, `vault/members.tsx`, `vault/invite.tsx`, `vault/audit-log.tsx`, `invite/[token].tsx`, `VaultPickerSheet.tsx`) is reviewed against the LTR-direction invariant from CLAUDE.md. Semantic-direction Pressables (give/receive row, add/find FAB) hardcode `right:` positioning regardless of `I18nManager.isRTL`.
 
 ### Tracking adoption
 

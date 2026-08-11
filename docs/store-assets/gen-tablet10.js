@@ -65,7 +65,7 @@ function home(lang) {
   <div class="tabs"><div class="tab tab-on">${t.collect}</div><div class="tab tab-off">${t.pay}</div></div>
   <div class="total"><div class="total-l">${t.lbl}</div><div class="total-row">${money("25,850", 14, "#0C745A")}</div><div class="total-sub">${t.sub}</div></div>
   <div class="card">${t.rows.map(row).join('<div class="div"></div>')}</div>
-  <div class="fab">${ic.plus(30)}</div>`;
+  <div class="fab">${ic.homeMark(22)}</div>`;
 }
 
 function person() {
@@ -86,7 +86,7 @@ function onboarding() {
   return `${statusBar()}
   <div class="ob"><div class="ob-c">${ic.check(54)}</div><div class="ob-t">Your kaata is ready!</div>
     <div class="ob-card"><span style="color:#171717;display:flex">${ic.storefront(24)}</span><span class="ob-shop">Baradaran Market</span></div>
-    <div class="ob-body">This is your shop's book. Add a tally<br>for each customer with the + button.</div></div>
+    <div class="ob-body">This is your shop's book. Add a tally for each<br>customer with the button at the bottom right.</div></div>
   <div class="ob-foot"><div class="ob-btn">Open my kaata</div></div>`;
 }
 

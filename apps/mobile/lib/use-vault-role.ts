@@ -199,7 +199,7 @@ export function useActiveVaultWriteCaps(vaultId: string | null): {
   return caps;
 }
 
-/** Back-compat sugar: the append capability (hides the + FAB for viewers). */
+/** Back-compat sugar: the append capability (hides the add/find FAB for viewers). */
 export function useActiveVaultCanWrite(vaultId: string | null): boolean {
   return useActiveVaultWriteCaps(vaultId).canCreate;
 }

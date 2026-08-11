@@ -87,7 +87,44 @@ const PROFILE_SLOT_SIZE = 36;
 // FAB diameter. Named so the inner circle's radius is FAB_SIZE / 2 rather than a
 // hardcoded 26 that silently stops being a circle if the size ever changes
 // (tokens.ts rule 3: circles are size/2, never a literal). Value unchanged.
+//
+// Do NOT retune this: Button.tsx documents 52 as a three-way family constant
+// (FAB / ping bar / hero CTA all optically aligned), and both rails' bottom
+// padding (96 + insets.bottom) is sized to clear it.
 const FAB_SIZE = 52;
+
+// The mark drawn inside the FAB: a rounded square — the glyph the iPhone 4s
+// printed on its physical home button (Matee, 2026-08-11). It replaced a "+".
+//
+// WHY NOT A PLUS. This FAB is the app's ONE master action: it opens
+// person/new, which is equally where you FIND an existing contact and where
+// you ADD a new one. A plus names only the second half. Matee's call was that
+// the psychology stops making sense on a button that is mostly how you reach
+// someone you already have.
+//
+// WHAT IT COSTS, so nobody "fixes" this back by accident: a rounded square
+// carries no verb — it has to be learned once, and an outlined square inside
+// a filled circle is also the STOP idiom on mobile. Two things carry the
+// meaning instead, and both must survive any future edit here: the FAB's
+// accessibilityLabel stays the full "Add or find person", and the copy that
+// used to read "the + button" (guide.p2, onboardingSuccess.body,
+// home.empty.collect.subtitle, en + fa) now points at the button's POSITION
+// rather than its glyph.
+//
+// WHY A BORDERED View AND NOT Ionicons `square-outline`: this mark IS its
+// proportions — corner radius and stroke weight are the entire design. A font
+// glyph fixes both to whatever the typeface chose and offers no way to tune
+// them; five style properties give exact control and render identically on
+// Android and iOS. Precedent: NinjaIcon / GoogleGIcon are also hand-drawn.
+//
+// SIZE is 42% of the button, the share the printed squircle occupied on the
+// 4s, which also leaves ~15px of black on every side so the mark reads as a
+// mark rather than a fill. RADIUS is a RATIO of the mark, not a literal —
+// resize the mark and it stays a squircle instead of quietly degrading into a
+// rounded-ish box. (tokens.ts rule 3 governs circles only; this isn't one.)
+const HOME_MARK_SIZE = 22;
+const HOME_MARK_RADIUS = HOME_MARK_SIZE * 0.32;
+const HOME_MARK_STROKE = 2;
 
 // Tab labels are computed at render time so locale changes (after a hot reload
 // during dev) flow through. The keys remain stable identifiers.
@@ -224,7 +261,7 @@ export default function HomeScreen() {
   // Viewer read-only gate: false only when I'm a viewer on the active (shared)
   // vault. Hides write affordances (FAB, long-press edit/delete). Defaults true
   // for local-only / owner / editor.
-  // Roles v2 split: canCreate gates the + FAB (clerks CAN append); canAmend
+  // Roles v2 split: canCreate gates the add/find FAB (clerks CAN append); canAmend
   // gates the long-press edit/delete sheet (clerks cannot touch history).
   const { canCreate, canAmend } = useActiveVaultWriteCaps(activeVaultId);
   // D-ARCHIVED-VAULT-FILTER: the picker and settings sheet consume only
@@ -1019,7 +1056,7 @@ export default function HomeScreen() {
       )}
 
       {/*
-       * INVARIANT: + FAB on the RIGHT side. Same right-hand-is-giving
+       * INVARIANT: the add/find FAB on the RIGHT side. Same right-hand-is-giving
        * cultural rule as the give/receive row in person/[id]. The
        * absolute `right: 20` works only because _layout.tsx neutralizes
        * I18nManager (allowRTL(false) + swapLeftAndRightInRTL(false))
@@ -1062,12 +1099,14 @@ export default function HomeScreen() {
             }}
             style={({ pressed }) => [styles.fabInner, pressed && { opacity: 0.85 }]}
           >
-            {/* "+" (add): this FAB is the primary "create anything" action — it
-              opens the search-or-add screen (person/new) where you find an
-              existing contact OR add a new one to start a tally. Matee: it's the
-              everything button, not just search, so a plus reads truer than a
-              magnifying glass. */}
-            <Ionicons name="add" size={icon.card} color={colors.textInverted} />
+            {/* The rounded-square home-button mark, NOT a "+" and not an
+              Ionicons glyph at all — see HOME_MARK_SIZE at the top of this
+              file for the full rationale and for what this trade costs.
+              Short version: the button is equally find-someone and
+              add-someone, so a plus named only half of it. The verb now lives
+              in accessibilityLabel above and in the copy that points at this
+              button's position. */}
+            <View style={styles.fabMark} />
           </Pressable>
         </Animated.View>
       ) : null}
@@ -1824,7 +1863,7 @@ const styles = StyleSheet.create({
   divider: { height: 1, backgroundColor: colors.borderDefault },
   fab: {
     position: "absolute",
-    // INVARIANT: + FAB stays on the physical RIGHT regardless of script.
+    // INVARIANT: the add/find FAB stays on the physical RIGHT regardless of script.
     // Relies on the Activity being LTR — _layout.tsx neutralizes
     // I18nManager (allowRTL(false) + swapLeftAndRightInRTL(false) + a
     // one-shot forceRTL(false) migration). Once that's persisted, every
@@ -1839,10 +1878,20 @@ const styles = StyleSheet.create({
   fabInner: {
     width: FAB_SIZE,
     height: FAB_SIZE,
-    // Circle = own size / 2, not a literal 26 (tokens.ts rule 3). Same pixels.
+    // The BUTTON stays a circle — only the mark inside it changed. Circle =
+    // own size / 2, not a literal 26 (tokens.ts rule 3). Same pixels.
     borderRadius: FAB_SIZE / 2,
     backgroundColor: colors.bgInverted,
     alignItems: "center",
     justifyContent: "center",
+  },
+  // The rounded-square home-button mark. A bordered View rather than an icon
+  // font, and sized/rounded by ratio — see HOME_MARK_SIZE for why both.
+  fabMark: {
+    width: HOME_MARK_SIZE,
+    height: HOME_MARK_SIZE,
+    borderRadius: HOME_MARK_RADIUS,
+    borderWidth: HOME_MARK_STROKE,
+    borderColor: colors.textInverted,
   },
 });

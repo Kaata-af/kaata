@@ -28,11 +28,17 @@ const svg = (inner, o = {}) =>
 const ic = {
   chevronDown: (w) => svg('<polyline points="6 9 12 15 18 9"/>', { w, sw: 2.2 }),
   chevronBack: (w) => svg('<polyline points="15 6 9 12 15 18"/>', { w, sw: 2.4 }),
-  plus: (w) =>
-    svg('<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>', {
-      w,
-      sw: 2.4,
-    }),
+  // The home FAB's mark. A rounded square, NOT a "+" — see HOME_MARK_SIZE in
+  // apps/mobile/app/index.tsx for why. (The old `plus` entry is gone; these
+  // two FABs were its only call sites.)
+  //
+  // The rect is inset by half the stroke so the mark's OUTER edge spans the
+  // full requested `w` px, which makes `w` mean the same thing here as
+  // HOME_MARK_SIZE does in the app. rx is the app's 32%-of-the-mark radius
+  // measured on the outer edge (0.32 * 24 = 7.68), minus the same half-stroke
+  // to convert it to the centerline the path is drawn on.
+  homeMark: (w) =>
+    svg('<rect x="1.1" y="1.1" width="21.8" height="21.8" rx="6.6"/>', { w, sw: 2.2 }),
   pencil: (w) =>
     svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>', {
       w,
@@ -132,7 +138,7 @@ function screenHome(opts = {}) {
     <div class="total-sub">${t.sub}</div>
   </div>
   <div class="card">${t.rows.map((r) => pRow(r[0], r[1], r[2])).join('<div class="div"></div>')}</div>
-  <div class="fab">${ic.plus(56)}</div>`;
+  <div class="fab">${ic.homeMark(44)}</div>`;
 }
 
 function screenPerson() {
@@ -199,7 +205,7 @@ function screenOnboarding() {
     <div class="ob-check">${ic.check(64)}</div>
     <div class="ob-title">Your kaata is ready!</div>
     <div class="ob-card"><span class="ob-store">${ic.storefront(40)}</span><span class="ob-shop">Baradaran Market</span></div>
-    <div class="ob-body">This is your shop's book. Add a tally<br>for each customer with the + button.</div>
+    <div class="ob-body">This is your shop's book. Add a tally for each<br>customer with the button at the bottom right.</div>
   </div>
   <div class="ob-foot"><div class="savebtn">Open my kaata</div></div>`;
 }
