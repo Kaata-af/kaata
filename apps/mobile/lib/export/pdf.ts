@@ -126,13 +126,13 @@ export async function renderPersonStatementPdf(
   st: PersonStatement,
   fileName: string,
 ): Promise<File> {
-  const { locale, currencySymbol: sym } = st;
+  const { locale, calendar, currencySymbol: sym } = st;
   const shopName = st.self?.shop_name ?? st.self?.name ?? "";
   const entryCount = st.rows.filter((r) => r.kind === "entry").length;
 
   const metaBits = [
     tIn(locale, "export.doc.generated", {
-      date: formatSettlementDate(st.generatedAtMs, locale),
+      date: formatSettlementDate(st.generatedAtMs, locale, calendar),
     }),
     tIn(locale, "export.doc.entriesCount", { n: entryCount }),
   ];
@@ -146,14 +146,14 @@ export async function renderPersonStatementPdf(
       .map((row) => {
         if (row.kind === "settled") {
           const label = tIn(locale, "person.history.settledOn", {
-            date: formatSettlementDate(row.ms, locale),
+            date: formatSettlementDate(row.ms, locale, calendar),
           });
           return `<tr class="settled"><td colspan="5">${esc(label)}</td></tr>`;
         }
         const e = row.entry;
         return (
           `<tr>` +
-          `<td>${esc(formatSettlementDate(e.created_at, locale))}</td>` +
+          `<td>${esc(formatSettlementDate(e.created_at, locale, calendar))}</td>` +
           `<td class="note" dir="auto">${esc(e.note ?? "")}</td>` +
           `<td class="n gave"><span class="num">${e.type === "debt" ? formatAmount(e.amount_afn) : ""}</span></td>` +
           `<td class="n received"><span class="num">${e.type === "payment" ? formatAmount(e.amount_afn) : ""}</span></td>` +
@@ -215,11 +215,11 @@ ${chip}
 }
 
 export async function renderVaultReportPdf(report: VaultReport, fileName: string): Promise<File> {
-  const { locale, currencySymbol: sym } = report;
+  const { locale, calendar, currencySymbol: sym } = report;
 
   const metaBits = [
     tIn(locale, "export.doc.generated", {
-      date: formatSettlementDate(report.generatedAtMs, locale),
+      date: formatSettlementDate(report.generatedAtMs, locale, calendar),
     }),
     tIn(locale, "export.doc.peopleCount", { n: report.people.length }),
     tIn(locale, "export.doc.entriesCount", { n: report.journal.length }),

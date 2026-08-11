@@ -48,6 +48,13 @@ type sharePayload struct {
 	Currency string  `json:"currency"`
 	Balance  float64 `json:"balance"`
 	Locale   string  `json:"locale"`
+	// Calendar the shopkeeper had selected when this bill was cut:
+	// "gregorian" | "jalali". FROZEN at issue time under the paper rule — a
+	// bill is the recipient's permanent asset and must not change shape when
+	// the shopkeeper later flips their setting. Absent on every snapshot
+	// predating the calendar setting; resolveCalendar falls back to deriving
+	// it from Locale, which is exactly the old behaviour.
+	Calendar string `json:"calendar"`
 	Entries  []struct {
 		Type   string  `json:"type"`
 		Amount float64 `json:"amount"`
@@ -55,6 +62,24 @@ type sharePayload struct {
 		Date   int64   `json:"date"`
 	} `json:"entries"`
 	GeneratedAt int64 `json:"generated_at"`
+}
+
+// resolveCalendar decides whether a bill renders in Afghan Solar Hijri.
+//
+// An explicit snapshot value always wins — that is the shopkeeper's frozen
+// choice. Only when the field is absent (a snapshot cut before the calendar
+// setting existed, or by an older client) do we fall back to the old rule,
+// where the calendar was a side effect of the message language. Any unknown
+// string is treated as absent rather than trusted.
+func resolveCalendar(calendar string, rtl bool) bool {
+	switch calendar {
+	case "jalali":
+		return true
+	case "gregorian":
+		return false
+	default:
+		return rtl
+	}
 }
 
 // Create — POST /v1/shared (PUBLIC, rate-limited). Body: the snapshot JSON.
@@ -153,6 +178,7 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 		dir = "credit"
 	}
 	rtl := strings.HasPrefix(p.Locale, "fa") || strings.HasPrefix(p.Locale, "ps")
+	jalali := resolveCalendar(p.Calendar, rtl)
 
 	// Format the balance once, in the snapshot's locale, so the instant
 	// server-painted hero matches the JS-rendered (fa-AF) row amounts.
@@ -169,11 +195,12 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 		AbsBalance: absBal,
 		Direction:  dir,
 		RTL:        rtl,
+		Jalali:     jalali,
 		Origin:     h.webBaseURL,
 		ShareURL:   h.shareBaseURL + "/v/" + token,
 		APIBase:    h.apiBaseURL,
 		OGTitle:    ogTitle(p),
-		OGDesc:     ogDesc(absBal, p.Currency, dir, rtl, billDate(p.GeneratedAt, rtl)),
+		OGDesc:     ogDesc(absBal, p.Currency, dir, rtl, billDate(p.GeneratedAt, rtl, jalali)),
 		// Bills are permanent (paper rule), so the issue date is load-bearing:
 		// a two-year-old link must read as "bill dated X", never as the
 		// current balance. Formatted by the inline script's fmtDate (Afghan
@@ -195,6 +222,7 @@ type viewData struct {
 	AbsBalance    string
 	Direction     string // owe | credit | settled
 	RTL           bool
+	Jalali        bool   // render dates in Afghan Solar Hijri (see sharePayload.Calendar)
 	Origin        string // canonical site origin for chrome links (kaata.af)
 	ShareURL      string // this page's own canonical URL (for og:url)
 	APIBase       string // absolute API origin for the inline fetch; "" → relative

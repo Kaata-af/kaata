@@ -30,6 +30,11 @@ type SharedLedger = {
   currency: string;
   balance: number;
   locale: string;
+  /** Calendar frozen at issue time: "gregorian" | "jalali". Optional — bills
+   *  cut before the calendar setting shipped lack it, and fall back to being
+   *  derived from `locale`, which is what they were rendered with originally.
+   *  Widened to string because this is untrusted JSON off the wire. */
+  calendar?: string;
   entries: SharedEntry[];
   // Settled-chapter structure (2026-07-27, optional — old snapshots lack it):
   // entries dated <= settled_boundary_ms belong to settled (ruled-off)
@@ -170,11 +175,15 @@ function Row({
   e,
   currency,
   rtl,
+  jalali,
   L,
 }: {
   e: SharedEntry;
   currency: string;
   rtl: boolean;
+  /** Calendar frozen into the bill; threaded alongside rtl because the two
+   *  are independent axes (calendar = which months, rtl = which script). */
+  jalali: boolean;
   L: ReturnType<typeof pickLabels>;
 }) {
   const gave = e.type !== "payment"; // debt → "I gave" (up); payment → "I received" (down)
@@ -242,7 +251,7 @@ function Row({
           </p>
           {/* Date only — the arrow carries direction. */}
           <p className="shrink-0 whitespace-nowrap text-[12px]" style={{ color: C.mut }}>
-            {fmtDate(e.date, rtl)}
+            {fmtDate(e.date, rtl, jalali)}
           </p>
         </div>
         {e.note ? (
@@ -318,14 +327,67 @@ const AFGHAN_MONTHS = [
 const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
 const faDigits = (v: number | string) => String(v).replace(/\d/g, (d) => FA_DIGITS[Number(d)]);
 
-function fmtDate(ms: number, rtl: boolean): string {
+// Latin transliteration + Gregorian month tables, mirroring the app's
+// lib/jalali.ts and the Go billDate. Needed because calendar and script are
+// now independent: a bill can be Solar Hijri in English, or Gregorian in Dari.
+const AFGHAN_MONTHS_LATIN = [
+  "Hamal",
+  "Sawr",
+  "Jawza",
+  "Saratan",
+  "Asad",
+  "Sunbula",
+  "Mizan",
+  "Aqrab",
+  "Qaws",
+  "Jadi",
+  "Dalw",
+  "Hut",
+];
+const GREGORIAN_MONTHS_EN = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+// Afghan Dari forms (اگست, جنوری) — not the Iranian اوت/ژانویه.
+const GREGORIAN_MONTHS_FA = [
+  "جنوری",
+  "فبروری",
+  "مارچ",
+  "اپریل",
+  "می",
+  "جون",
+  "جولای",
+  "اگست",
+  "سپتمبر",
+  "اکتوبر",
+  "نومبر",
+  "دسمبر",
+];
+
+/**
+ * `jalali` picks the CALENDAR, `rtl` picks the SCRIPT. Both come from the
+ * snapshot: the shopkeeper's calendar is frozen into the bill at issue time
+ * (paper rule), so this never resolves against the viewer's preferences.
+ * Day-first in all four combinations.
+ */
+function fmtDate(ms: number, rtl: boolean, jalali: boolean): string {
+  const num = (v: string | number): string => (rtl ? faDigits(v) : String(v));
   try {
-    if (!rtl) {
-      return new Date(ms).toLocaleDateString(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      });
+    if (!jalali) {
+      const dt = new Date(ms);
+      const m = dt.getMonth();
+      if (Number.isNaN(m)) return "";
+      return `${num(dt.getDate())} ${(rtl ? GREGORIAN_MONTHS_FA : GREGORIAN_MONTHS_EN)[m]} ${num(dt.getFullYear())}`;
     }
     // ASCII-digit parts from ICU's Persian-calendar conversion; the month
     // NUMBER indexes the Afghan name. e.g. "۵ اسد ۱۴۰۵".
@@ -343,7 +405,7 @@ function fmtDate(ms: number, rtl: boolean): string {
       else if (p.type === "day") d = p.value;
     }
     if (!y || !d || m < 1 || m > 12) throw new Error("persian calendar parts unavailable");
-    return `${faDigits(d)} ${AFGHAN_MONTHS[m - 1]} ${faDigits(y)}`;
+    return `${num(d)} ${(rtl ? AFGHAN_MONTHS : AFGHAN_MONTHS_LATIN)[m - 1]} ${num(y)}`;
   } catch {
     // Last resort: the old (Iranian-named) rendering beats no date at all.
     try {
@@ -409,6 +471,9 @@ export function CustomerView() {
 
 function Ledger({ data: d }: { data: SharedLedger }) {
   const rtl = isRTL(d.locale);
+  // Explicit snapshot value wins; absent (a bill cut before the calendar
+  // setting shipped) falls back to the old language-derived rule.
+  const jalali = d.calendar === "jalali" ? true : d.calendar === "gregorian" ? false : rtl;
   const L = pickLabels(d.locale);
   const dir = d.balance > 0 ? "owe" : d.balance < 0 ? "credit" : "settled";
   const accent = dir === "owe" ? C.owe : dir === "credit" ? C.credit : C.ink;
@@ -487,7 +552,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
               className="rounded-full border px-3 py-1 text-[12px] font-semibold"
               style={{ borderColor: C.line, background: C.bg, color: C.sub }}
             >
-              {L.billDated.replace("{date}", fmtDate(d.generated_at, rtl))}
+              {L.billDated.replace("{date}", fmtDate(d.generated_at, rtl, jalali))}
             </span>
           </div>
         ) : null}
@@ -590,12 +655,12 @@ function Ledger({ data: d }: { data: SharedLedger }) {
               >
                 <div className="h-px flex-1" style={{ background: C.mut, opacity: 0.4 }} />
                 <span className="text-[11px] font-medium" style={{ color: C.sub }}>
-                  {L.settledOn.replace("{date}", fmtDate(item.ms, rtl))}
+                  {L.settledOn.replace("{date}", fmtDate(item.ms, rtl, jalali))}
                 </span>
                 <div className="h-px flex-1" style={{ background: C.mut, opacity: 0.4 }} />
               </div>
             ) : (
-              <Row key={i} e={item.e} currency={d.currency} rtl={rtl} L={L} />
+              <Row key={i} e={item.e} currency={d.currency} rtl={rtl} jalali={jalali} L={L} />
             ),
           )
         )}

@@ -1,5 +1,7 @@
+import { getEffectiveCalendar } from "./calendar";
 import { getCurrentCurrencySymbol } from "./currency";
-import { t } from "./i18n";
+import { getLocale, t } from "./i18n";
+import { formatCalendarDate } from "./jalali";
 
 // Plain numeric formatter — thousands separator, no currency, no sign.
 // Pair with the chip/direction context to convey meaning.
@@ -13,15 +15,18 @@ export function formatAFN(amount: number): string {
   return `${formatAmount(amount)} ${getCurrentCurrencySymbol()}`;
 }
 
-// English-locale month abbreviations. We keep these short for Persian too —
-// Gregorian dates with English month abbreviations are a common Afghan
-// commerce convention, and switching to Solar Hijri month names (حمل/ثور)
-// would be a bigger calendar-system change than we want here.
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
+// Absolute date in the user's chosen calendar and language.
+//
+// This used to hold its own English month table and render Gregorian dates to
+// everyone, on the reasoning that Gregorian-with-English-months is a common
+// Afghan commerce convention. That reasoning is now a CHOICE rather than a
+// hardcode: it is exactly what the Gregorian + English setting produces, and
+// it stays the default for English installs. Persian installs default (via
+// 'auto') to Solar Hijri — the change this feature is for.
+//
+// Both tables live in lib/jalali.ts so the four month sets can't drift apart.
 export function formatDate(ms: number): string {
-  const d = new Date(ms);
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  return formatCalendarDate(ms, getLocale(), getEffectiveCalendar());
 }
 
 // Human-friendly "5 minutes ago" / "3 days ago". Used on list rows where

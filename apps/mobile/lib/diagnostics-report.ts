@@ -23,6 +23,7 @@ import { getBackendUrl } from "./api";
 import { isSignedIn } from "./auth";
 import { getAppMeta } from "./db";
 import { getActiveVaultIdSyncMaybe, getDb } from "./db-tx";
+import { getCalendarPref, getEffectiveCalendar } from "./calendar";
 import { getLocale } from "./i18n";
 import { getSyncIndicator } from "./sync/cursor";
 import { getLastSyncError } from "./sync/last-error";
@@ -170,6 +171,10 @@ export async function buildDiagnosticsReport(): Promise<string> {
   } catch {
     push(`Locale: ${getLocale()}`);
   }
+  // Both the stored choice AND what it resolves to: with 'auto' the raw value
+  // alone doesn't tell support which calendar the user is actually seeing, and
+  // "my dates look wrong" is the report this line exists to answer.
+  push(`Calendar: ${getEffectiveCalendar()} (pref ${getCalendarPref()})`);
   push(`Nearby sync: ${MESH_PARKED ? "parked" : "enabled"}`);
 
   // --- Sync / vault state (the "is this device actually backing up" block) ---

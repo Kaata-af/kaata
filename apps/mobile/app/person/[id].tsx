@@ -42,6 +42,7 @@ import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
 import { getLocale, getShareLangPref, resolveShareLang, t, type LocaleCode } from "../../lib/i18n";
 import { formatSettlementDate } from "../../lib/jalali";
+import { useCalendar } from "../../lib/calendar";
 import { shareKaataViaWhatsApp } from "../../lib/share";
 import { icon, radius, TOUCH_MIN, typography } from "../../lib/tokens";
 import { useActiveVaultWriteCaps } from "../../lib/use-vault-role";
@@ -56,6 +57,10 @@ export default function PersonDetailScreen() {
   // Subscribes to locale changes — flipping language in Settings re-renders
   // this screen and all its descendants, so strings via t() refresh too.
   const isRTL = useIsRTL();
+  // Repaints the settled-chapter lines when the calendar OR the language
+  // changes — the latter matters even at a fixed calendar, because language
+  // picks the script ("5 Aug 2026" vs "۵ اگست ۲۰۲۶").
+  const calendar = useCalendar();
 
   const [person, setPerson] = useState<PersonWithBalance | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -505,7 +510,7 @@ export default function PersonDetailScreen() {
                     <View style={styles.settleRule} />
                     <Text style={styles.chapterLineText} allowFontScaling={false}>
                       {t("person.history.settledOn", {
-                        date: formatSettlementDate(item.ms, getLocale()),
+                        date: formatSettlementDate(item.ms, getLocale(), calendar),
                       })}
                     </Text>
                     <View style={styles.settleRule} />

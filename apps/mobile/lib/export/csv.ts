@@ -37,7 +37,7 @@ function csvLine(cells: Array<string | number | null | undefined>): string {
 }
 
 export function buildPersonCsv(st: PersonStatement): string {
-  const { locale, currencyCode: code } = st;
+  const { locale, calendar, currencyCode: code } = st;
   const lines: string[] = [
     csvLine([
       tIn(locale, "export.col.date"),
@@ -59,7 +59,7 @@ export function buildPersonCsv(st: PersonStatement): string {
           "",
           row.balanceAfter,
           tIn(locale, "person.history.settledOn", {
-            date: formatSettlementDate(row.ms, locale),
+            date: formatSettlementDate(row.ms, locale, calendar),
           }),
           "",
         ]),

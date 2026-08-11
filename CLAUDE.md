@@ -88,6 +88,25 @@ To change the backend's domain in production: deploy the new backend at the new 
 
 `apps/mobile/lib/phone.ts` normalizes any reasonable Afghan-mobile input to E.164 `+937XXXXXXXX`. `users.phone_e164` has a UNIQUE constraint. `createPerson` and `updatePerson` return discriminated `CreatePersonResult` / `UpdatePersonResult` unions so the search-or-create flow surfaces `phone_invalid` and `phone_conflict` errors with the conflicting user's name. **Do not add a code path that catches the constraint violation and silently writes NULL** — that's the v0-style behavior we explicitly moved away from. **One deliberate exception:** `archivePerson` nulls `users.phone_e164` inside the same transaction that sets `relationships.archived_at`, so the number is free for re-use when a shopkeeper later re-adds the same contact. Without this, removing Ahmad and re-adding him hits the UNIQUE constraint and is unfixable from the UI. Migration-001 records `phones_invalid_count` / `phones_conflict_count` to `app_meta` and the next check-in sends them as optional fields; the backend stores them on the `installs` row.
 
+### Calendar system (Gregorian vs Afghan Solar Hijri)
+
+A **global** display preference in `app_meta.calendar_pref` = `'auto' | 'gregorian' | 'jalali'`, owned by `apps/mobile/lib/calendar.ts` (module global + listener set + `useCalendar()`, modeled on `lib/i18n.ts`'s locale machinery). `'auto'` is the default and resolves to Jalali when the app language is Persian — byte-identical to the pre-setting behaviour, so upgrading moves nobody's dates.
+
+**Calendar and language are independent axes.** Calendar picks _which months exist_; language picks _how they are written_:
+
+|             | English UI    | Persian UI    |
+| ----------- | ------------- | ------------- |
+| Gregorian   | `5 Aug 2026`  | `۵ اگست ۲۰۲۶` |
+| Solar Hijri | `5 Asad 1405` | `۵ اسد ۱۴۰۵`  |
+
+All four are day-first. Before this, one boolean drove both, so "Dari language, Gregorian dates" was inexpressible.
+
+- **Month names are the AFGHAN zodiac set** (حمل … حوت), never the Iranian names ICU ships for `fa` (فروردین …). Same calendar, same arithmetic, different vocabulary — this is the single easiest thing to get wrong. Four tables live together in `lib/jalali.ts`.
+- **Render-time only.** Every stored timestamp stays epoch ms — SQLite, event payloads, the sync wire, bill snapshots. A Jalali value written to any of them is a bug.
+- **Bills freeze their calendar.** `lib/share.ts` writes `calendar` into the `/v1/shared` snapshot at issue time, because the paper rule (`apps/backend/internal/shared/service.go`) makes a bill the recipient's permanent asset and the recipient has no settings of ours. Snapshots predating the setting lack the field; `resolveCalendar` (Go) and the equivalent ternary in `CustomerView.tsx` fall back to deriving it from `locale`, which is what those bills were originally rendered with. Never resolve a bill's calendar against the viewer.
+- **Four implementations must stay in lockstep** — `lib/jalali.ts`, `internal/shared/jalali.go`, the inline `fmtDate` in `internal/shared/templates.go` (the primary renderer in production), and `CustomerView.tsx`. A customer sees two of them side by side: the WhatsApp link preview and the page it opens. `npm run selftest:jalali` and Go's `TestBillDateGoldenVectors` pin the SAME vectors — add a case to one, add it to the other.
+- **`toJalali` throws on a non-finite timestamp, deliberately.** `jalCal`'s range check is `jy < lo || jy >= hi`, and both comparisons are false for NaN, so a corrupt ms used to sail through and render the literal string `"NaN undefined NaN"` into a bill.
+
 ### Routing
 
 Mobile uses `expo-router` (file-based). `apps/mobile/app/_layout.tsx` is the root: it wraps the Stack in `GestureHandlerRootView` → `SafeAreaProvider` → `ToastProvider` → `AppMetaProvider`, runs `initDb()` → `ensureInstallId()` → checks for `getLocalSelf()` to decide between `/onboarding` and `/`. Stack-modal screens are `person/new`, `person/[id]/edit`, `entry/new`, `entry/[id]/edit`; a regular push screen is `settings` (reachable by tapping the identity row in the home header). Any screen can read toast state via `useToast()` / `useToastOffset()`, app-meta via `useAppMeta()`.

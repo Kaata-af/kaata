@@ -1,13 +1,37 @@
-// Solar Hijri (Jalali) date rendering with AFGHAN month names — the zodiac
-// set (حمل … حوت), not the Iranian names (فروردین …). Pure JS on purpose:
-// Hermes' Intl has spotty `-u-ca-persian` calendar support across platforms,
-// and a settlement date must render identically everywhere. The conversion
-// core is the standard jalaali-js algorithm (MIT, Behrang Noruzi Niya) —
-// the same one the web surfaces get from ICU.
+// Date rendering for both calendar systems the app supports.
 //
-// Used for the settlement chapter lines on the person screen; the web/SSR
-// share pages do the equivalent via Intl (CustomerView.tsx fmtDate,
-// templates.go fmtDate) — keep the three in visual lockstep.
+// Solar Hijri uses AFGHAN month names — the zodiac set (حمل … حوت), not the
+// Iranian names (فروردین …) that ICU ships for `fa`. That distinction is the
+// single most important thing in this file: same calendar, same day numbering,
+// different vocabulary, and the Iranian names are wrong for this audience.
+//
+// The conversion is pure JS on purpose. Hermes DOES compile Intl in on both
+// platforms (RN 0.86.2 sets HERMES_ENABLE_INTL on Android and Apple), so this
+// is not a capability workaround — it is a determinism one. ICU would give us
+// Iranian month names to throw away, and its output can drift with the OEM's
+// ICU version; a bill date must render identically on every device forever.
+// The core is the standard jalaali-js algorithm (MIT, Behrang Noruzi Niya).
+//
+// ---------------------------------------------------------------------------
+// THE FOUR COMBINATIONS. Calendar picks which months exist; language picks how
+// they are written (see lib/calendar.ts for the rationale):
+//
+//                    ENGLISH UI        PERSIAN UI
+//     Gregorian      5 Aug 2026        ۵ اگست ۲۰۲۶
+//     Solar Hijri    5 Asad 1405       ۵ اسد ۱۴۰۵
+//
+// All four are DAY-FIRST and structurally identical, which is why the English
+// Gregorian form is "5 Aug 2026" and not the US "Aug 5, 2026" this file used
+// to emit from toLocaleDateString. Two English date shapes existed before
+// (that one, plus format.ts's own hand-rolled "5 Aug 2026"); they are now one.
+//
+// The web/SSR bill pages render the same four combinations via ICU
+// (CustomerView.tsx fmtDate, templates.go fmtDate) — keep the three in visual
+// lockstep, and see __dev__/jalali-selftest.ts for the golden vectors that
+// catch a drift between them.
+// ---------------------------------------------------------------------------
+
+import type { Calendar } from "./calendar";
 
 export const AFGHAN_MONTHS = [
   "حمل",
@@ -22,6 +46,62 @@ export const AFGHAN_MONTHS = [
   "جدی",
   "دلو",
   "حوت",
+] as const;
+
+// Latin transliteration of the same twelve Afghan months, for a Solar Hijri
+// date in an ENGLISH UI. Without this, picking Solar Hijri with English
+// strings would hand an English reader a date in Arabic script.
+export const AFGHAN_MONTHS_LATIN = [
+  "Hamal",
+  "Sawr",
+  "Jawza",
+  "Saratan",
+  "Asad",
+  "Sunbula",
+  "Mizan",
+  "Aqrab",
+  "Qaws",
+  "Jadi",
+  "Dalw",
+  "Hut",
+] as const;
+
+// Gregorian month abbreviations. The English set moved here from format.ts so
+// all four month tables live together and can't drift apart.
+export const GREGORIAN_MONTHS_EN = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
+// Dari names for the GREGORIAN months — the Afghan forms (اگست, not the
+// Iranian اوت; جنوری, not ژانویه). Needed for the Gregorian + Persian UI
+// corner, which had no representation before: format.ts rendered English
+// abbreviations to Persian readers on the argument that Gregorian-with-English
+// -months is an Afghan commerce convention. That stays available — it is what
+// an English UI gives you — but a Persian UI now reads in Persian.
+export const GREGORIAN_MONTHS_FA = [
+  "جنوری",
+  "فبروری",
+  "مارچ",
+  "اپریل",
+  "می",
+  "جون",
+  "جولای",
+  "اگست",
+  "سپتمبر",
+  "اکتوبر",
+  "نومبر",
+  "دسمبر",
 ] as const;
 
 const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
@@ -121,33 +201,61 @@ function d2j(jdn: number): { jy: number; jm: number; jd: number } {
   return { jy, jm, jd };
 }
 
-/** Gregorian ms-epoch → { jy, jm (1-12), jd } in the Solar Hijri calendar. */
+/** Gregorian ms-epoch → { jy, jm (1-12), jd } in the Solar Hijri calendar.
+ *
+ *  Throws on an unusable timestamp, which every caller already handles (they
+ *  all wrap this in try/catch and fall back to Gregorian). The explicit guard
+ *  is load-bearing: jalCal's range check is `jy < lo || jy >= hi`, and BOTH
+ *  comparisons are false when jy is NaN — so a NaN sailed straight through the
+ *  throw and came out the far side as `AFGHAN_MONTHS[NaN - 1]`, i.e. the
+ *  literal string "NaN undefined NaN" rendered into a customer's bill. The
+ *  CSV export's shamsiDate had the same hole ("NaN-NaN-NaN"). Caught by
+ *  __dev__/jalali-selftest.ts. */
 export function toJalali(ms: number): { jy: number; jm: number; jd: number } {
   const dt = new Date(ms);
-  return d2j(g2d(dt.getFullYear(), dt.getMonth() + 1, dt.getDate()));
+  const gy = dt.getFullYear();
+  if (!Number.isFinite(gy)) throw new Error(`unusable timestamp ${ms}`);
+  return d2j(g2d(gy, dt.getMonth() + 1, dt.getDate()));
 }
 
 /**
- * Locale-appropriate absolute date for ruled-off settlement lines:
- *   fa → Solar Hijri with Afghan month names, Persian digits ("۵ اسد ۱۴۰۵")
- *   en → Gregorian ("Aug 5, 2026")
+ * THE absolute-date formatter. Calendar chooses the month set, locale chooses
+ * the script and digits; the result is day-first in all four combinations.
+ *
+ * Deliberately PURE — it reads no module state, so the Go port and the golden
+ * vectors can exercise it directly. Callers that want the user's current
+ * setting go through lib/format.ts's formatDate, which does the wiring.
  */
-export function formatSettlementDate(ms: number, locale: "en" | "fa"): string {
-  if (locale === "fa") {
+export function formatCalendarDate(ms: number, locale: "en" | "fa", calendar: Calendar): string {
+  const fa = locale === "fa";
+  const num = (v: number): string => (fa ? faDigits(v) : String(v));
+
+  if (calendar === "jalali") {
     try {
       const { jy, jm, jd } = toJalali(ms);
-      return `${faDigits(jd)} ${AFGHAN_MONTHS[jm - 1]} ${faDigits(jy)}`;
+      return `${num(jd)} ${(fa ? AFGHAN_MONTHS : AFGHAN_MONTHS_LATIN)[jm - 1]} ${num(jy)}`;
     } catch {
-      /* fall through to gregorian */
+      // jalCal throws outside jy ∈ [-61, 3178). A garbage timestamp must not
+      // take a list row down with it — fall through to Gregorian.
     }
   }
-  try {
-    return new Date(ms).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  } catch {
-    return new Date(ms).toISOString().slice(0, 10);
-  }
+
+  const d = new Date(ms);
+  const m = d.getMonth();
+  // An Invalid Date yields NaN here, which would index the table as undefined
+  // and render "undefined" into a bill. Empty string is the honest answer.
+  if (Number.isNaN(m)) return "";
+  return `${num(d.getDate())} ${(fa ? GREGORIAN_MONTHS_FA : GREGORIAN_MONTHS_EN)[m]} ${num(d.getFullYear())}`;
+}
+
+/**
+ * Absolute date for ruled-off settlement lines and exports. Same formatter;
+ * the separate name is kept because those callers thread an EXPLICIT locale
+ * (an export or a bill can be in a different language than the app UI).
+ *
+ * Note this used to derive the calendar from the locale — fa implied Jalali.
+ * It no longer does: the calendar is the user's setting and is passed in.
+ */
+export function formatSettlementDate(ms: number, locale: "en" | "fa", calendar: Calendar): string {
+  return formatCalendarDate(ms, locale, calendar);
 }

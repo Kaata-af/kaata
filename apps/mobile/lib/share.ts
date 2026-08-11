@@ -1,5 +1,6 @@
 import { Linking } from "react-native";
 import { getBackendUrl } from "./api";
+import { getEffectiveCalendar } from "./calendar";
 import { getCurrentCurrencySymbol } from "./currency";
 import { bumpUsageCounter } from "./db";
 import { formatAmount } from "./format";
@@ -33,6 +34,18 @@ async function uploadSharedLedger(args: {
     // the web CustomerView both render the /v/<token> page from this field,
     // so the page the customer opens matches the message they received.
     locale: args.lang,
+    // Calendar is FROZEN INTO THE BILL at issue time, not resolved when the
+    // page is opened. The paper rule (backend internal/shared/service.go) makes
+    // a bill the recipient's permanent asset — a customer keeps it in a
+    // WhatsApp thread for years as tamper-evidence — and the recipient has no
+    // settings of ours. Resolving at view time would let a two-year-old bill
+    // silently change shape when the SHOPKEEPER later flips this setting,
+    // which is exactly the tampering the thread is supposed to rule out.
+    //
+    // Sent as a NEW field: the backend stores the payload verbatim, so old
+    // snapshots simply lack it, and both renderers fall back to deriving the
+    // calendar from `locale` — the pre-setting behaviour.
+    calendar: getEffectiveCalendar(),
     entries: args.entries.slice(0, MAX_SHARED_ENTRIES).map((e) => ({
       type: e.type,
       amount: e.amount_afn,

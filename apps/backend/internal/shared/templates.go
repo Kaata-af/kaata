@@ -204,6 +204,7 @@ a{color:inherit;text-decoration:none;}
 (function(){
   var dir = {{.Direction}};
   var rtl = {{.RTL}};
+  var jalali = {{.Jalali}};
   var apiBase = {{.APIBase}};
   // iOS Safari only fires :active when an ancestor has a touch listener; this
   // empty one lets every row show its tap-darken on iOS. Harmless elsewhere.
@@ -231,21 +232,32 @@ a{color:inherit;text-decoration:none;}
   document.getElementById('txTitle').textContent = L.tx;
   document.getElementById('foottag').textContent = L.tag;
   function esc(s){var d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
-  // Afghan (Dari) Solar Hijri month names — the zodiac set (حمل … حوت), not
-  // the Iranian names ICU ships for fa. Calendar conversion stays ICU's;
-  // only the vocabulary is substituted. Mirrors CustomerView.tsx fmtDate.
+  // Two INDEPENDENT axes, matching the app (lib/jalali.ts) and billDate:
+  //   jalali -> which calendar (which months exist)
+  //   rtl    -> which script (Arabic-script names + Persian digits, or Latin)
+  // One boolean used to drive both, so a Dari bill could not carry Gregorian
+  // dates. Calendar conversion stays ICU's; only the vocabulary is ours —
+  // the zodiac set (حمل … حوت), never the Iranian names ICU ships for fa.
   var AFM=['حمل','ثور','جوزا','سرطان','اسد','سنبله','میزان','عقرب','قوس','جدی','دلو','حوت'];
+  var AFML=['Hamal','Sawr','Jawza','Saratan','Asad','Sunbula','Mizan','Aqrab','Qaws','Jadi','Dalw','Hut'];
+  var GME=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var GMF=['جنوری','فبروری','مارچ','اپریل','می','جون','جولای','اگست','سپتمبر','اکتوبر','نومبر','دسمبر'];
   function faNum(s){return String(s).replace(/\d/g,function(d){return '۰۱۲۳۴۵۶۷۸۹'[+d];});}
+  function dnum(v){return rtl?faNum(v):String(v);}
   function fmtDate(ms){
     try{
-      if(!rtl) return new Date(ms).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
-      var parts=new Intl.DateTimeFormat('en-US-u-ca-persian',{year:'numeric',month:'numeric',day:'numeric'}).formatToParts(new Date(ms));
-      var y='',m=0,d='';
-      for(var i=0;i<parts.length;i++){var p=parts[i];if(p.type==='year')y=p.value;else if(p.type==='month')m=+p.value;else if(p.type==='day')d=p.value;}
-      if(!y||!d||m<1||m>12) throw 0;
-      return faNum(d)+' '+AFM[m-1]+' '+faNum(y);
+      var dt=new Date(ms);
+      if(jalali){
+        var parts=new Intl.DateTimeFormat('en-US-u-ca-persian',{year:'numeric',month:'numeric',day:'numeric'}).formatToParts(dt);
+        var y='',m=0,d='';
+        for(var i=0;i<parts.length;i++){var p=parts[i];if(p.type==='year')y=p.value;else if(p.type==='month')m=+p.value;else if(p.type==='day')d=p.value;}
+        if(!y||!d||m<1||m>12) throw 0;
+        return dnum(d)+' '+(rtl?AFM:AFML)[m-1]+' '+dnum(y);
+      }
+      // Day-first in every combination, so all four read the same shape.
+      return dnum(dt.getDate())+' '+(rtl?GMF:GME)[dt.getMonth()]+' '+dnum(dt.getFullYear());
     }catch(e){
-      try{return new Date(ms).toLocaleDateString('fa-AF',{year:'numeric',month:'short',day:'numeric'});}catch(e2){return '';}
+      try{return new Date(ms).toLocaleDateString(rtl?'fa-AF':undefined,{year:'numeric',month:'short',day:'numeric'});}catch(e2){return '';}
     }
   }
   function fmtAmt(n){try{return Math.abs(n).toLocaleString(rtl?'fa-AF':undefined);}catch(e){return Math.abs(n);}}

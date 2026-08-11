@@ -333,6 +333,21 @@ const en = {
   "settings.language.option.en": "English",
   "settings.language.option.fa": "دری",
   "settings.language.changed": "Language updated.",
+
+  // Calendar system. Independent of language: the app supports Dari with
+  // Gregorian dates and English with Solar Hijri dates, because the calendar
+  // is a bookkeeping convention and the language is a reading preference.
+  // "Automatic" resolves to Solar Hijri when the app language is Dari — the
+  // behaviour that shipped before this setting existed, so it is the default
+  // and nobody's dates move on upgrade.
+  "settings.calendar.label": "Calendar",
+  "settings.calendar.option.auto": "Automatic",
+  "settings.calendar.option.gregorian": "Gregorian",
+  "settings.calendar.option.jalali": "Solar Hijri",
+  // Subtitles carry a live example, which is the only thing that actually
+  // tells a shopkeeper what they are picking.
+  "settings.calendar.hint.auto": "Follows your language",
+  "settings.calendar.changed": "Calendar updated.",
   "settings.messageLang.label": "Message language",
   "settings.messageLang.hint": "For WhatsApp messages and the shared ledger link.",
   "settings.messageLang.option.auto": "App language",
@@ -1528,6 +1543,15 @@ const fa: Partial<Record<Key, string>> = {
   "settings.language.option.en": "English",
   "settings.language.option.fa": "دری",
   "settings.language.changed": "زبان تغییر کرد.",
+
+  // Calendar system — see the English block for why this is independent of
+  // language. "هجری شمسی" with the Afghan zodiac months (حمل … حوت).
+  "settings.calendar.label": "تقویم",
+  "settings.calendar.option.auto": "خودکار",
+  "settings.calendar.option.gregorian": "میلادی",
+  "settings.calendar.option.jalali": "هجری شمسی",
+  "settings.calendar.hint.auto": "از زبان شما پیروی می‌کند",
+  "settings.calendar.changed": "تقویم تغییر کرد.",
   "settings.messageLang.label": "زبان پیام",
   "settings.messageLang.hint": "برای پیام‌های واتساپ و لینک کاتا.",
   "settings.messageLang.option.auto": "زبان برنامه",

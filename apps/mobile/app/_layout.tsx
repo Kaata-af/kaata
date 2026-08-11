@@ -112,6 +112,7 @@ import {
   setLocalSelfUserIdCache,
 } from "../lib/db-tx";
 import { configureGoogleSignIn } from "../lib/auth";
+import { initCalendarFromPref } from "../lib/calendar";
 import { initCurrencyFromPref } from "../lib/currency";
 import { initDefaultCountryFromPref } from "../lib/phone";
 import { fonts, monoLineHeight, useAppFontsWithError } from "../lib/fonts";
@@ -435,6 +436,12 @@ export default function RootLayout() {
           initLocaleFromPref(),
           initCurrencyFromPref(),
           initDefaultCountryFromPref(),
+          // Must land before first render like the rest: a date that paints
+          // Gregorian and then flips to Solar Hijri a frame later is the
+          // exact "did my ledger change?" flicker this audience reads as
+          // data loss. initCalendarFromPref resolves 'auto' lazily, so it
+          // does not depend on initLocaleFromPref winning the race.
+          initCalendarFromPref(),
         ]);
       });
       if (aborted) return;

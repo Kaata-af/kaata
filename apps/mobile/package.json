@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "submit:ios": "node scripts/asc-submit.mjs",
     "selftest:hlc": "tsx lib/__dev__/hlc-selftest.ts",
+    "selftest:jalali": "tsx lib/__dev__/jalali-selftest.ts",
     "selftest:ingest": "tsx lib/__dev__/ingest-selftest.ts",
     "selftest:migration-014": "tsx lib/__dev__/migration-014-selftest.ts"
   },

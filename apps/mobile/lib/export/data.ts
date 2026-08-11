@@ -13,6 +13,7 @@
 //     currency/name for this one.
 import { Directory, File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
+import { getEffectiveCalendar, type Calendar } from "../calendar";
 import { getCurrencySymbol } from "../currency";
 import {
   getLocalSelf,
@@ -43,6 +44,11 @@ export type PersonStatement = {
   currencyCode: string;
   currencySymbol: string;
   locale: LocaleCode;
+  /** Calendar for the PROSE dates (doc header, settled lines, PDF date cell).
+   *  Snapshotted at build time so a document is a pure function of this
+   *  struct. Note the CSV's dedicated Shamsi column is NOT governed by this —
+   *  it is a machine column that is always Solar Hijri (see shamsiDate). */
+  calendar: Calendar;
   generatedAtMs: number;
 };
 
@@ -68,6 +74,8 @@ export type VaultReport = {
   currencyCode: string;
   currencySymbol: string;
   locale: LocaleCode;
+  /** See PersonStatement.calendar. */
+  calendar: Calendar;
   generatedAtMs: number;
 };
 
@@ -138,6 +146,11 @@ export async function buildPersonStatement(
     currencyCode,
     currencySymbol,
     locale,
+    // Read from the global rather than threaded in as a parameter (unlike
+    // locale, which callers override because an export can be in the MESSAGE
+    // language). There is exactly one calendar setting, so a second source of
+    // truth here could only ever disagree with the app.
+    calendar: getEffectiveCalendar(),
     generatedAtMs,
   };
 }
@@ -202,6 +215,7 @@ export async function buildVaultReport(
     currencyCode,
     currencySymbol: getCurrencySymbol(currencyCode),
     locale,
+    calendar: getEffectiveCalendar(),
     generatedAtMs,
   };
 }

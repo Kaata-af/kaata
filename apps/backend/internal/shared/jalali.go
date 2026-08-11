@@ -21,6 +21,25 @@ var afghanMonths = [12]string{
 	"میزان", "عقرب", "قوس", "جدی", "دلو", "حوت",
 }
 
+// Latin transliteration of the same twelve months, for Solar Hijri dates on
+// an English bill. Mirrors AFGHAN_MONTHS_LATIN in the app's lib/jalali.ts.
+var afghanMonthsLatin = [12]string{
+	"Hamal", "Sawr", "Jawza", "Saratan", "Asad", "Sunbula",
+	"Mizan", "Aqrab", "Qaws", "Jadi", "Dalw", "Hut",
+}
+
+// Gregorian month names. The Dari set uses the Afghan forms (اگست, جنوری) —
+// not the Iranian ones — matching GREGORIAN_MONTHS_FA in lib/jalali.ts.
+var gregorianMonthsEn = [12]string{
+	"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+	"Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+}
+
+var gregorianMonthsFa = [12]string{
+	"جنوری", "فبروری", "مارچ", "اپریل", "می", "جون",
+	"جولای", "اگست", "سپتمبر", "اکتوبر", "نومبر", "دسمبر",
+}
+
 var faDigitRunes = []rune("۰۱۲۳۴۵۶۷۸۹")
 
 func faDigits(s string) string {
@@ -127,18 +146,36 @@ func jalD2J(jdn int) (jy, jm, jd int, ok bool) {
 // server clock is UTC.
 var kabulTZ = time.FixedZone("AFT", 4*3600+30*60)
 
-// billDate renders a bill's issue date for the preview line: Afghan Solar
-// Hijri with Persian digits for fa ("۵ اسد ۱۴۰۵"), short Gregorian for en.
+// billDate renders a bill's issue date for the preview line.
+//
+// The two axes are now independent, matching the mobile app (lib/jalali.ts):
+// `jalali` picks the CALENDAR (which months exist), `rtl` picks the SCRIPT
+// (Persian digits + Arabic-script month names, or Latin). Previously one
+// boolean drove both, so "Dari language, Gregorian dates" was inexpressible.
 // Empty string when ms is unusable.
-func billDate(ms int64, rtl bool) string {
+func billDate(ms int64, rtl bool, jalali bool) string {
 	if ms <= 0 {
 		return ""
 	}
 	t := time.UnixMilli(ms).In(kabulTZ)
-	if rtl {
+	num := func(n int) string {
+		if rtl {
+			return faDigits(strconv.Itoa(n))
+		}
+		return strconv.Itoa(n)
+	}
+	if jalali {
 		if jy, jm, jd, ok := jalD2J(jalG2D(t.Year(), int(t.Month()), t.Day())); ok {
-			return faDigits(strconv.Itoa(jd)) + " " + afghanMonths[jm-1] + " " + faDigits(strconv.Itoa(jy))
+			month := afghanMonthsLatin[jm-1]
+			if rtl {
+				month = afghanMonths[jm-1]
+			}
+			return num(jd) + " " + month + " " + num(jy)
 		}
 	}
-	return t.Format("Jan 2, 2006")
+	month := gregorianMonthsEn[int(t.Month())-1]
+	if rtl {
+		month = gregorianMonthsFa[int(t.Month())-1]
+	}
+	return num(t.Day()) + " " + month + " " + num(t.Year())
 }

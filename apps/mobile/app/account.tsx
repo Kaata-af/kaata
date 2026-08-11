@@ -38,7 +38,22 @@ import { ensureInstallId } from "../lib/install-id";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../lib/event-log";
 import { fonts } from "../lib/fonts";
-import { getShareLangPref, setLocale, t, type LocalePref, type ShareLangPref } from "../lib/i18n";
+import {
+  getLocale,
+  getShareLangPref,
+  setLocale,
+  t,
+  type LocalePref,
+  type ShareLangPref,
+} from "../lib/i18n";
+import {
+  CALENDAR_PREF_KEY,
+  parseCalendarPref,
+  setCalendarPref,
+  type Calendar,
+  type CalendarPref,
+} from "../lib/calendar";
+import { formatCalendarDate } from "../lib/jalali";
 import {
   getCountry,
   getCurrentDefaultCountryCode,
@@ -62,6 +77,17 @@ const MESSAGE_LANGUAGE_OPTIONS: ReadonlyArray<{ value: ShareLangPref; labelKey: 
   { value: "ask", labelKey: "settings.messageLang.option.ask" },
   { value: "fa", labelKey: "settings.language.option.fa" },
   { value: "en", labelKey: "settings.language.option.en" },
+];
+
+// Calendar system. 'auto' first because it is the default and reproduces the
+// pre-setting behaviour (Solar Hijri when the app language is Dari); the two
+// explicit picks follow in the order a shopkeeper is likeliest to want them.
+// Independent of language on purpose — Dari + Gregorian is a real combination
+// that could not be expressed before. See lib/calendar.ts.
+const CALENDAR_OPTIONS: ReadonlyArray<{ value: CalendarPref; labelKey: string }> = [
+  { value: "auto", labelKey: "settings.calendar.option.auto" },
+  { value: "gregorian", labelKey: "settings.calendar.option.gregorian" },
+  { value: "jalali", labelKey: "settings.calendar.option.jalali" },
 ];
 
 // Public privacy policy — the same page linked from the web footer. Both stores
@@ -94,6 +120,8 @@ export default function AccountScreen() {
   const [langSheetVisible, setLangSheetVisible] = useState(false);
   const [shareLangPref, setShareLangPref] = useState<ShareLangPref>("auto");
   const [msgLangSheetVisible, setMsgLangSheetVisible] = useState(false);
+  const [calendarPref, setCalendarPrefState] = useState<CalendarPref>("auto");
+  const [calSheetVisible, setCalSheetVisible] = useState(false);
   const [prefCountry, setPrefCountry] = useState(getCurrentDefaultCountryCode);
   const [prefCountryVisible, setPrefCountryVisible] = useState(false);
 
@@ -120,6 +148,10 @@ export default function AccountScreen() {
       const storedPref = await getAppMeta("locale_pref");
       setLocalePref(storedPref === "en" || storedPref === "fa" ? storedPref : "system");
       setShareLangPref(await getShareLangPref());
+      // parseCalendarPref, not a raw cast — the row is untrusted (an older
+      // build, a restore, a manual edit) and an unknown value must land on
+      // 'auto' rather than poisoning every date on the screen.
+      setCalendarPrefState(parseCalendarPref(await getAppMeta(CALENDAR_PREF_KEY)));
       setPrefCountry(getCurrentDefaultCountryCode());
       setSignedIn(!!(await getSessionJWT()));
       setLoaded(true);
@@ -207,6 +239,19 @@ export default function AccountScreen() {
     toast.push(t("settings.language.changed"), "success");
   }
 
+  // Same commit order as pickLanguage, and the order matters: close the sheet,
+  // dedupe, local state, THEN the module global (which notifies subscribers and
+  // repaints every mounted date), then persist, and toast last so the
+  // confirmation itself is already rendered in the new calendar.
+  async function pickCalendar(value: CalendarPref) {
+    setCalSheetVisible(false);
+    if (value === calendarPref) return;
+    setCalendarPrefState(value);
+    setCalendarPref(value);
+    await setAppMeta(CALENDAR_PREF_KEY, value);
+    toast.push(t("settings.calendar.changed"), "success");
+  }
+
   async function pickMessageLang(value: ShareLangPref) {
     setMsgLangSheetVisible(false);
     if (value === shareLangPref) return;
@@ -249,6 +294,20 @@ export default function AccountScreen() {
     "settings.messageLang.option.auto";
   const messageLangValue = t(msgLangLabelKey as Parameters<typeof t>[0]);
   const prefC = getCountry(prefCountry);
+
+  // Calendar row + sheet. Every option carries a live example of TODAY in that
+  // calendar, because "Solar Hijri" names a system a shopkeeper may not map to
+  // a shape on sight — "۵ اسد ۱۴۰۵" does. One `now` for the whole render so the
+  // sheet can't show two different days across its rows.
+  const nowMs = Date.now();
+  const resolveCalendar = (p: CalendarPref): Calendar =>
+    p === "auto" ? (getLocale() === "fa" ? "jalali" : "gregorian") : p;
+  const calendarExample = (p: CalendarPref): string =>
+    formatCalendarDate(nowMs, getLocale(), resolveCalendar(p));
+  const calendarValue = t(
+    (CALENDAR_OPTIONS.find((o) => o.value === calendarPref)?.labelKey ??
+      "settings.calendar.option.auto") as Parameters<typeof t>[0],
+  );
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -374,6 +433,17 @@ export default function AccountScreen() {
             onPress={() => setLangSheetVisible(true)}
             isRTL={isRTL}
           />
+          {/* Directly under Language, because the two are read together and
+              'auto' ties them: the hint shows TODAY in the active calendar, so
+              the effect of either row is visible without opening a sheet. */}
+          <NavRow
+            icon="calendar-outline"
+            label={t("settings.calendar.label")}
+            hint={calendarExample(calendarPref)}
+            trailing={calendarValue}
+            onPress={() => setCalSheetVisible(true)}
+            isRTL={isRTL}
+          />
           <NavRow
             icon="chatbubble-ellipses-outline"
             label={t("settings.messageLang.label")}
@@ -453,6 +523,20 @@ export default function AccountScreen() {
         selected={localePref}
         onSelect={(k) => pickLanguage(k as LocalePref)}
         onDismiss={() => setLangSheetVisible(false)}
+        isRTL={isRTL}
+      />
+      <OptionSheet
+        visible={calSheetVisible}
+        title={t("settings.calendar.label")}
+        options={CALENDAR_OPTIONS.map((o) => ({
+          key: o.value,
+          // "Solar Hijri · ۵ اسد ۱۴۰۵" — the name alone doesn't tell a
+          // shopkeeper what they're choosing; the worked example does.
+          label: `${t(o.labelKey as Parameters<typeof t>[0])} · ${calendarExample(o.value)}`,
+        }))}
+        selected={calendarPref}
+        onSelect={(k) => pickCalendar(k as CalendarPref)}
+        onDismiss={() => setCalSheetVisible(false)}
         isRTL={isRTL}
       />
       <OptionSheet
