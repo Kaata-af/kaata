@@ -156,8 +156,18 @@ function QrGeneratorCard() {
 }
 
 function PerformanceCard(props: { stats: Stats }) {
-  // Sorted by attributed installs — the number that actually matters.
-  const rows = [...props.stats.by_source].sort((a, b) => b.attributed - a.attributed);
+  // Sorted by attributed installs — the number that actually matters — but
+  // falling through to visits and then EXCLUDED traffic. That last key is what
+  // keeps a just-printed campaign findable: its only traffic is likely to be
+  // the operator's own test scan, which is excluded from every real count, so
+  // sorting on installs alone buried it at the bottom of the table.
+  const rows = [...props.stats.by_source].sort(
+    (a, b) =>
+      b.attributed - a.attributed || b.visits - a.visits || (b.excluded ?? 0) - (a.excluded ?? 0),
+  );
+  // Old backend without per-source exclusion counts → hide the column rather
+  // than render a wall of zeros that means "unknown", not "none".
+  const hasExcluded = rows.some((r) => r.excluded !== undefined);
   // Old backend without store_clicks → show the legacy APK-download column
   // honestly instead of zeros.
   const hasStore = props.stats.store_clicks !== undefined;
@@ -180,6 +190,14 @@ function PerformanceCard(props: { stats: Stats }) {
               <TableHeaderCell className="px-0 py-2 text-right text-xs text-[#98a2b3]">
                 {clicksLabel}
               </TableHeaderCell>
+              {hasExcluded ? (
+                <TableHeaderCell
+                  className="px-0 py-2 text-right text-xs text-[#98a2b3]"
+                  title="Visits rejected as operator or bot traffic. Your own test scans land here."
+                >
+                  Excluded
+                </TableHeaderCell>
+              ) : null}
               <TableHeaderCell className="px-0 py-2 text-right text-xs text-[#98a2b3]">
                 Installs
               </TableHeaderCell>
@@ -200,6 +218,11 @@ function PerformanceCard(props: { stats: Stats }) {
                 <TableCell className="px-0 py-2 text-right text-sm tabular-nums text-[#475467]">
                   {fmtInt(hasStore ? (r.store_clicks ?? 0) : r.downloads)}
                 </TableCell>
+                {hasExcluded ? (
+                  <TableCell className="px-0 py-2 text-right text-sm tabular-nums text-[#98a2b3]">
+                    {r.excluded ? fmtInt(r.excluded) : "—"}
+                  </TableCell>
+                ) : null}
                 <TableCell className="px-0 py-2 text-right text-sm tabular-nums text-[#101828]">
                   {fmtInt(r.attributed)}
                 </TableCell>
@@ -211,6 +234,16 @@ function PerformanceCard(props: { stats: Stats }) {
           </TableBody>
         </Table>
       )}
+      {hasExcluded ? (
+        <p className="pt-3 text-xs text-[#98a2b3]">
+          A campaign appears here as soon as its first scan is recorded. “Excluded” is traffic
+          filtered out of the real counts — operator IPs and bot/link-preview user agents — so your
+          own test scan shows up there rather than nowhere. A brand-new slug with nothing in either
+          column was never recorded at all: check that the scanning browser doesn’t already have a
+          <span className="font-mono"> kaata_source </span>
+          pinned from an earlier QR (first source wins, and it persists in localStorage).
+        </p>
+      ) : null}
     </Card>
   );
 }

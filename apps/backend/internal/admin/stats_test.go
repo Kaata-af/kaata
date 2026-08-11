@@ -84,3 +84,72 @@ func TestGetStatsStoreClicks(t *testing.T) {
 		t.Errorf("by_source[(direct)] = %+v, want store_clicks=1", got)
 	}
 }
+
+// The reported bug (2026-08-11): "I generated a new QR on the admin page, I
+// scan it, and nothing changes — the new link doesn't appear at all."
+//
+// It wasn't the QR. A campaign scanned ONLY by the operator has every one of
+// its rows rejected by the keep predicate (operator IPs are filtered from all
+// aggregates by design), so it reported 0/0/0/0 — visually identical to a QR
+// nobody ever scanned. Worse, `ORDER BY visits DESC LIMIT 20` then sorted that
+// zero row last and cut it off entirely once 20 sources existed, so the
+// campaign genuinely vanished.
+//
+// The row must now be PRESENT and must say, honestly, that its traffic was
+// excluded rather than absent.
+func TestGetStatsBySourceShowsOperatorOnlyCampaign(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	ctx := t.Context()
+
+	const (
+		ua         = "Mozilla/5.0 (Android 14; Mobile) Firefox/128.0"
+		operatorIP = "203.0.113.99"
+	)
+	at := time.Now().UTC().Truncate(time.Hour).Add(10 * time.Minute)
+
+	seed := func(kind, source, ip, userAgent string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO web_visits (kind, source, ip, user_agent, visited_at)
+			VALUES ($1, $2, $3, $4, $5)
+		`, kind, source, ip, userAgent, at); err != nil {
+			t.Fatalf("seed web_visits: %v", err)
+		}
+	}
+
+	// A real campaign with genuine traffic, so the new one has something to be
+	// ordered against.
+	seed("visit", "mandawi-flyer-1", "198.51.100.1", ua)
+	// The campaign under test: scanned exactly once, by the operator.
+	seed("visit", "new-qr-test", operatorIP, ua)
+
+	svc := NewService(pool, nil, []string{operatorIP})
+	st, err := svc.GetStats(ctx, "day", 7)
+	if err != nil {
+		t.Fatalf("GetStats: %v", err)
+	}
+
+	bySource := map[string]SourceRow{}
+	for _, r := range st.BySource {
+		bySource[r.Source] = r
+	}
+
+	got, ok := bySource["new-qr-test"]
+	if !ok {
+		t.Fatalf("new-qr-test missing from by_source entirely; got %+v", st.BySource)
+	}
+	if got.Visits != 0 {
+		t.Errorf("Visits = %d, want 0 — operator traffic must stay out of the real count", got.Visits)
+	}
+	if got.Excluded != 1 {
+		t.Errorf("Excluded = %d, want 1 — the operator scan must be visible as excluded", got.Excluded)
+	}
+	if got.RawVisits != 1 {
+		t.Errorf("RawVisits = %d, want 1", got.RawVisits)
+	}
+
+	// The genuine campaign is unaffected and still counts normally.
+	if real := bySource["mandawi-flyer-1"]; real.Visits != 1 || real.Excluded != 0 {
+		t.Errorf("mandawi-flyer-1 = %+v, want visits=1 excluded=0", real)
+	}
+}

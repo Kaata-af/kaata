@@ -47,6 +47,14 @@ type SourceRow struct {
 	Downloads   int64  `json:"downloads"`
 	StoreClicks int64  `json:"store_clicks"`
 	Attributed  int64  `json:"attributed"`
+	// RawVisits / Excluded mirror the headline RawVisits / ExcludedVisits, per
+	// source. Without them a campaign scanned only by the operator (whose IP is
+	// filtered) or only by bots reports 0/0/0/0 and is indistinguishable from a
+	// QR that was never scanned at all — which is exactly how a working QR gets
+	// reported as broken. Excluded counts rows of EVERY kind that the keep
+	// predicate rejected.
+	RawVisits int64 `json:"raw_visits"`
+	Excluded  int64 `json:"excluded"`
 }
 
 type LocaleCount struct {
@@ -316,6 +324,20 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 
 	// Web visits/downloads + attributed installs per source — same dedup + bot +
 	// operator-IP filter as the headline web counts.
+	// NOTE on the shape: `keep` is applied inside FILTER, not as a WHERE on the
+	// CTE, so a source whose rows were ALL rejected still produces a group row
+	// (with zeroes) rather than disappearing. That is deliberate — see
+	// SourceRow.Excluded — and it is why the ordering below has to be careful.
+	//
+	// ORDER BY used to be a bare `2 DESC LIMIT 20`, which made a brand-new
+	// campaign invisible twice over: zero kept visits sorted it last, and the
+	// LIMIT then cut it off entirely once 20 sources existed. Recency is the
+	// tiebreak so the QR you just scanned surfaces at the top of the zero-traffic
+	// group instead of the bottom of an arbitrary list.
+	//
+	// The LIMIT stays (source is attacker-controllable — anyone can mint a new
+	// group by hitting the site with ?s=<anything>) but at a bound no real
+	// operator will reach.
 	srows, err := s.pool.Query(ctx, `
 		WITH w AS (
 		  SELECT COALESCE(source, '(direct)') AS source, kind, ip, user_agent, visited_at, claimed_by_install_id,
@@ -326,21 +348,24 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		  FROM web_visits
 		)
 		SELECT source,
-		       COUNT(DISTINCT (ip, user_agent, date_trunc('hour', visited_at))) FILTER (WHERE keep AND kind = 'visit'),
+		       COUNT(DISTINCT (ip, user_agent, date_trunc('hour', visited_at))) FILTER (WHERE keep AND kind = 'visit') AS visits,
 		       COUNT(DISTINCT (ip, user_agent, date_trunc('hour', visited_at))) FILTER (WHERE keep AND kind = 'download'),
 		       COUNT(DISTINCT (ip, user_agent, date_trunc('hour', visited_at))) FILTER (WHERE keep AND kind = 'store_click'),
-		       COUNT(DISTINCT claimed_by_install_id) FILTER (WHERE keep AND claimed_by_install_id IS NOT NULL)
+		       COUNT(DISTINCT claimed_by_install_id) FILTER (WHERE keep AND claimed_by_install_id IS NOT NULL),
+		       COUNT(*) FILTER (WHERE kind = 'visit') AS raw_visits,
+		       COUNT(*) FILTER (WHERE NOT keep) AS excluded_rows
 		FROM w
 		GROUP BY source
-		ORDER BY 2 DESC
-		LIMIT 20
+		ORDER BY visits DESC, excluded_rows DESC, MAX(visited_at) DESC
+		LIMIT 100
 	`, s.operatorIPs, botUARegex)
 	if err != nil {
 		return st, err
 	}
 	for srows.Next() {
 		var r SourceRow
-		if err := srows.Scan(&r.Source, &r.Visits, &r.Downloads, &r.StoreClicks, &r.Attributed); err != nil {
+		if err := srows.Scan(&r.Source, &r.Visits, &r.Downloads, &r.StoreClicks, &r.Attributed,
+			&r.RawVisits, &r.Excluded); err != nil {
 			srows.Close()
 			return st, err
 		}

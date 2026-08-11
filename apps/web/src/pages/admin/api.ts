@@ -31,6 +31,13 @@ export type SourceRow = {
   downloads: number;
   store_clicks?: number;
   attributed: number;
+  // Traffic the aggregate REJECTED for this source (operator IPs, bot/preview
+  // user agents) plus the undeduped visit count. Optional for the same
+  // old-backend reason as store_clicks. Without these a campaign scanned only
+  // by the operator reads 0/0/0/0 — identical to a QR nobody ever scanned,
+  // which is how a working QR gets reported as broken.
+  raw_visits?: number;
+  excluded?: number;
 };
 export type LocaleCount = { locale: string; count: number };
 export type SeriesPoint = { t: string; installs: number; active: number };
