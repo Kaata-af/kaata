@@ -908,6 +908,10 @@ const en = {
   "vaultSettings.section.membership": "Membership",
   "vaultSettings.name.label": "Kaata name",
   "vaultSettings.name.required": "Name is required",
+  // Own key rather than reusing entry.save/personEdit.save — shared keys
+  // across unrelated screens is how a later reword on one surface silently
+  // rewrites another (the personAdd.title lesson).
+  "vaultSettings.name.save": "Save",
   "vaultSettings.currency.label": "Currency",
   "vaultSettings.viewOnly": "View only — owner permission required.",
   "vaultSettings.toast.noActive": "No active Kaata",
@@ -1991,6 +1995,7 @@ const fa: Partial<Record<Key, string>> = {
   "vaultSettings.section.membership": "عضویت",
   "vaultSettings.name.label": "نام کاتا",
   "vaultSettings.name.required": "نام لازم است",
+  "vaultSettings.name.save": "ذخیره",
   "vaultSettings.currency.label": "ارز",
   "vaultSettings.viewOnly": "فقط مشاهده — اجازه مالک لازم است.",
   "vaultSettings.toast.noActive": "کاتای فعال نیست",

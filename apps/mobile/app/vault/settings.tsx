@@ -32,6 +32,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BottomSheet } from "../../components/BottomSheet";
+import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { FormField } from "../../components/FormField";
 import { OptionSheet } from "../../components/OptionSheet";
@@ -107,9 +108,20 @@ export default function VaultSettingsScreen() {
   // on the active vault, and settings can target a non-active one (?id=).
   const [removedPeopleCount, setRemovedPeopleCount] = useState<number>(0);
 
-  // Owner-editable fields. Auto-commit on blur.
+  // Owner-editable fields. The name saves via an EXPLICIT button (it used to
+  // auto-commit on blur, which had no visible affordance and silently lost the
+  // edit when Android's hardware back skipped the blur — Matee: "saving the
+  // kaata name doesn't have a button"). Currency still commits from its picker
+  // sheet on selection, like every picker in the app.
   const [name, setName] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
+  // True while the field holds an uncommitted edit. A ref, not derived state,
+  // because the focus-effect reload below needs to consult it from inside an
+  // async closure that captured stale state. Without this guard, popping back
+  // from Members/Invite re-runs the reload and setName(row.name) CLOBBERS the
+  // draft — a loss the old blur-commit design masked (tapping the nav row blurred
+  // the field, committing the draft before navigation) and explicit save exposes.
+  const nameDirtyRef = useRef(false);
   const [currency, setCurrency] = useState<string>("AFN");
   const [currencySheetVisible, setCurrencySheetVisible] = useState(false);
   const [savingName, setSavingName] = useState(false);
@@ -191,7 +203,11 @@ export default function VaultSettingsScreen() {
             return;
           }
           setVault(row);
-          setName(row.name);
+          // Keep an in-progress draft across a child-screen round trip
+          // (Members, Invite): only sync the field to the row while clean.
+          // A remote rename still lands the moment the draft is saved or
+          // abandoned — vault.name (the summary row) updates regardless.
+          if (!nameDirtyRef.current) setName(row.name);
           setCurrency(row.currency || "AFN");
 
           const accId = await getAppMeta("account_id");
@@ -259,11 +275,20 @@ export default function VaultSettingsScreen() {
         );
       }
       setVault({ ...vault, name: trimmed });
+      // Normalize the field to what was actually saved (trim) and mark clean —
+      // the Save button disappears on this render, which doubles as the
+      // completion cue next to the toast.
+      setName(trimmed);
+      nameDirtyRef.current = false;
       toast.push(t("vaultSettings.toast.saved"), "success");
     } catch (err) {
       console.warn("[vault/settings] patch name failed", err);
       toast.push(t("vaultSettings.toast.saveFailed"), "error");
-      setName(vault.name);
+      // Failure KEEPS the draft (and the Save button) so the user can retry.
+      // The old blur-commit design reverted to the committed name here, which
+      // was the right call when saving was an invisible side effect — a
+      // reverted field was the only signal — but with an explicit button,
+      // throwing away what the user typed on a network hiccup is hostile.
     } finally {
       setSavingName(false);
     }
@@ -632,11 +657,26 @@ export default function VaultSettingsScreen() {
               editable={canRename && !savingName}
               onChangeText={(s) => {
                 setName(s);
+                nameDirtyRef.current = s.trim() !== vault.name;
                 if (nameError) setNameError(null);
               }}
-              onBlur={commitName}
+              returnKeyType="done"
+              onSubmitEditing={commitName}
               error={nameError}
             />
+            {/* Save appears the moment the draft differs from the committed
+                name and disappears when the save lands — that vanishing is
+                the completion cue, alongside the toast. Rendered (not just
+                disabled) conditionally: a permanent Save on a screen that is
+                usually read-only would imply unsaved state where none exists.
+                Stays mounted while savingName so the spinner has a home. */}
+            {canRename && (name.trim() !== vault.name || savingName) ? (
+              <Button
+                label={t("vaultSettings.name.save")}
+                onPress={commitName}
+                loading={savingName}
+              />
+            ) : null}
             {!canRename ? (
               <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("vaultSettings.viewOnly")}</Text>
             ) : null}
