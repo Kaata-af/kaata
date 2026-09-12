@@ -14,10 +14,18 @@ export function Retention() {
     <div>
       <PageHeader
         title="Retention"
-        description="Whether installs come back — day-N pairs and weekly cohorts."
+        description="How often people return after their first check-in."
+        action={
+          <a
+            href="#users?view=follow-up"
+            className="text-sm font-medium text-[#0c745a] hover:underline"
+          >
+            Review follow-ups →
+          </a>
+        }
       />
       {stats.isPending ? (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
             <SkeletonCard key={i} lines={2} />
           ))}
@@ -44,31 +52,34 @@ export function Retention() {
 function DayNCards(props: { stats: Stats }) {
   const s = props.stats;
   const rows = [
-    { label: "D1", ret: s.ret_d1_retained, elig: s.ret_d1_eligible },
-    { label: "D7", ret: s.ret_d7_retained, elig: s.ret_d7_eligible },
-    { label: "D30", ret: s.ret_d30_retained, elig: s.ret_d30_eligible },
+    { label: "Day 1 return", day: 1, ret: s.ret_d1_retained, elig: s.ret_d1_eligible },
+    { label: "Day 7 return", day: 7, ret: s.ret_d7_retained, elig: s.ret_d7_eligible },
+    { label: "Day 30 return", day: 30, ret: s.ret_d30_retained, elig: s.ret_d30_eligible },
   ];
   const any = rows.some((r) => r.elig > 0);
   return (
     <div>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {rows.map((r) => (
-          <Card key={r.label} className="p-4 text-center">
-            <Text className="text-xs font-medium uppercase tracking-wide text-tremor-content-subtle">
-              {r.label}
-            </Text>
+          <Card key={r.label} className="p-4">
+            <Text className="text-xs font-medium text-[#667085]">{r.label}</Text>
             <Metric className="mt-1 tabular-nums">
               {r.elig ? `${Math.round((r.ret / r.elig) * 100)}%` : "—"}
             </Metric>
             <Text className="mt-0.5 text-xs tabular-nums text-tremor-content-subtle">
-              {r.elig ? `${fmtInt(r.ret)} of ${fmtInt(r.elig)}` : "no eligible installs yet"}
+              {r.elig
+                ? `${fmtInt(r.ret)} of ${fmtInt(r.elig)} eligible installs`
+                : "No eligible installs yet"}
             </Text>
+            <p className="mt-3 text-xs leading-5 text-[#667085]">
+              Checked in on day {r.day} after first seen.
+            </p>
           </Card>
         ))}
       </div>
       {!any ? (
         <p className="mt-2 text-xs text-[#98a2b3]">
-          Builds from the day per-day tracking deployed — needs installs old enough to measure.
+          These rates need installs old enough to have reached each return day.
         </p>
       ) : null}
     </div>
@@ -89,13 +100,13 @@ function weekLabel(iso: string): string {
 // tooltips.
 function CohortGrid(props: { growth: Growth | null }) {
   const cohorts = props.growth?.weekly_cohorts ?? [];
-  if (props.growth === null || cohorts.length === 0) {
+  if (props.growth === null || cohorts.length === 0 || !cohorts.some((c) => c.size > 0)) {
     return (
       <Card title="Weekly cohorts" sub="retention by install week">
-        <p className="py-6 text-center text-xs text-[#98a2b3]">
+        <p className="py-8 text-center text-sm text-[#667085]">
           {props.growth === null
-            ? "The /v1/admin/growth endpoint isn't deployed yet — cohorts fill in once it ships."
-            : "No cohorts yet."}
+            ? "Weekly retention is currently unavailable."
+            : "No installs were recorded in the last 12 install weeks."}
         </p>
       </Card>
     );
@@ -104,14 +115,17 @@ function CohortGrid(props: { growth: Growth | null }) {
   return (
     <Card
       title="Weekly cohorts"
-      sub="% of each install week active again N weeks later (W0 = install week)"
+      sub="Share of each install cohort that checked in during a later week"
     >
       <div className="overflow-x-auto">
-        <table className="w-full border-separate text-xs" style={{ borderSpacing: 2 }}>
+        <table
+          className="w-full min-w-[720px] border-separate text-xs"
+          style={{ borderSpacing: 3 }}
+        >
           <thead>
             <tr className="text-[#98a2b3]">
-              <th className="py-1 pr-2 text-left font-medium">Cohort</th>
-              <th className="py-1 pr-3 text-right font-medium">Size</th>
+              <th className="py-2 pr-2 text-left font-medium">Install week</th>
+              <th className="py-2 pr-3 text-right font-medium">Installs</th>
               {Array.from({ length: maxWeeks }).map((_, i) => (
                 <th key={i} className="w-11 py-1 text-center font-medium">
                   W{i}
@@ -122,7 +136,7 @@ function CohortGrid(props: { growth: Growth | null }) {
           <tbody className="font-mono tabular-nums">
             {cohorts.map((cRow) => (
               <tr key={cRow.week}>
-                <td className="whitespace-nowrap py-0.5 pr-2 font-sans text-[#475467]">
+                <td className="whitespace-nowrap py-2 pr-2 font-sans text-[#475467]">
                   {weekLabel(cRow.week)}
                 </td>
                 <td className="py-0.5 pr-3 text-right text-[#101828]">{fmtInt(cRow.size)}</td>
@@ -131,19 +145,30 @@ function CohortGrid(props: { growth: Growth | null }) {
                   // Cells beyond the cohort's elapsed weeks are the future —
                   // blank, not 0% (a cohort can't have churned from a week
                   // that hasn't happened).
-                  if (retained === undefined) return <td key={i} />;
+                  if (retained === undefined) return <td key={i} aria-label="Future week" />;
+                  if (cRow.size === 0)
+                    return (
+                      <td
+                        key={i}
+                        className="text-center text-[#98a2b3]"
+                        title="No installs in this cohort"
+                      >
+                        —
+                      </td>
+                    );
                   const frac = cRow.size > 0 ? retained / cRow.size : 0;
                   return (
                     <td
                       key={i}
-                      className="rounded py-1 text-center"
+                      className="rounded py-2 text-center"
+                      title={`${retained} of ${cRow.size} installs checked in during week ${i}`}
                       style={{
                         // White → brand ink; text flips to white past ~45%.
                         background: `rgba(16, 24, 40, ${(frac * 0.92).toFixed(3)})`,
                         color: frac > 0.45 ? "#ffffff" : "#101828",
                       }}
                     >
-                      {Math.round(frac * 100)}
+                      {Math.round(frac * 100)}%
                     </td>
                   );
                 })}
@@ -152,9 +177,10 @@ function CohortGrid(props: { growth: Growth | null }) {
           </tbody>
         </table>
       </div>
-      <p className="mt-2 text-xs text-[#98a2b3]">
-        Cell = % of the cohort with any active day in that week. Last 12 install weeks, oldest
-        first.
+      <p className="mt-3 text-xs leading-relaxed text-[#667085]">
+        W0 is the install week; W1 is the following week. Weeks start Monday in the reporting
+        calendar. The current week is incomplete. Blank cells are future weeks; a dash means no
+        installs in that cohort.
       </p>
     </Card>
   );

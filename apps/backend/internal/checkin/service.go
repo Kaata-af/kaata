@@ -35,6 +35,25 @@ func NewService(pool *pgxpool.Pool, migrateToBackendURL string, meshSvc *mesh.Se
 	return &Service{pool: pool, migrateToBackendURL: migrateToBackendURL, mesh: meshSvc}
 }
 
+// recordActivity uses one instant and one statement for both calendars. In
+// particular 19:30 UTC starts a NEW Kabul day even though the UTC day is the
+// same. Repeated check-ins must not increase the distinct-device count.
+func (s *Service) recordActivity(ctx context.Context, installID string, hadUsage bool, at time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		WITH legacy AS (
+		  INSERT INTO install_active_days (install_id, active_date, had_usage)
+		  VALUES ($1, ($3::timestamptz AT TIME ZONE 'UTC')::date, $2)
+		  ON CONFLICT (install_id, active_date)
+		  DO UPDATE SET had_usage = install_active_days.had_usage OR EXCLUDED.had_usage
+		)
+		INSERT INTO install_active_hours (install_id, active_hour, had_usage)
+		VALUES ($1, date_trunc('hour', $3::timestamptz AT TIME ZONE 'Asia/Kabul') AT TIME ZONE 'Asia/Kabul', $2)
+		ON CONFLICT (install_id, active_hour)
+		DO UPDATE SET had_usage = install_active_hours.had_usage OR EXCLUDED.had_usage
+	`, installID, hadUsage, at)
+	return err
+}
+
 type Request struct {
 	InstallID    string `json:"install_id"`
 	AppVersion   string `json:"app_version"`
@@ -263,17 +282,12 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 		return Response{}, err
 	}
 
-	// Record today's activity for DAU/WAU/MAU + retention. One row per
-	// (install, UTC day); ON CONFLICT keeps it idempotent across multiple
-	// launches in a day. The installs row above guarantees the FK target exists.
+	// Record check-in activity, including read-only and signed-out sessions.
+	// Kabul-aligned hours drive both DAU and the activity chart. Keep the UTC
+	// daily record for historical compatibility. The install FK now exists.
 	// Best-effort: an analytics write must never fail a check-in, so we log and
 	// continue (the response still carries update/announcement metadata).
-	if _, err := s.pool.Exec(ctx, `
-		INSERT INTO install_active_days (install_id, active_date, had_usage)
-		VALUES ($1, (NOW() AT TIME ZONE 'UTC')::date, $2)
-		ON CONFLICT (install_id, active_date)
-		DO UPDATE SET had_usage = install_active_days.had_usage OR EXCLUDED.had_usage
-	`, req.InstallID, hadUsage); err != nil {
+	if err := s.recordActivity(ctx, req.InstallID, hadUsage, time.Now()); err != nil {
 		log.Printf("[checkin] active-day record failed for install %s: %v", req.InstallID, err)
 	}
 

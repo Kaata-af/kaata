@@ -21,6 +21,7 @@ type Service struct {
 	pool               *pgxpool.Pool
 	operatorAccountIDs []string
 	operatorIPs        []string
+	now                func() time.Time
 }
 
 // NewService wires the analytics service. operatorAccountIDs / operatorIPs are
@@ -33,7 +34,7 @@ func NewService(pool *pgxpool.Pool, operatorAccountIDs, operatorIPs []string) *S
 	if operatorIPs == nil {
 		operatorIPs = []string{}
 	}
-	return &Service{pool: pool, operatorAccountIDs: operatorAccountIDs, operatorIPs: operatorIPs}
+	return &Service{pool: pool, operatorAccountIDs: operatorAccountIDs, operatorIPs: operatorIPs, now: time.Now}
 }
 
 type DayCount struct {
@@ -64,9 +65,9 @@ type LocaleCount struct {
 
 // SeriesPoint is one time bucket of the activity series. The bucket width
 // (hour/day/week/month) is chosen by the caller, so usage can be inspected at
-// any granularity. Active = distinct devices with ledger activity in the bucket
-// (from events.server_received_at, which has the timestamp precision
-// install_active_days — date-only — lacks).
+// any granularity. Active = distinct installs that checked in, including
+// signed-out/read-only sessions, exactly like DAU. Hours use Kabul-aligned
+// check-in records; older date-only history remains available for wider buckets.
 type SeriesPoint struct {
 	T        string `json:"t"`
 	Installs int64  `json:"installs"`
@@ -102,7 +103,7 @@ type Stats struct {
 	// Signal quality: how much was removed as operator/bot noise.
 	ExcludedInstalls int64 `json:"excluded_installs"`
 	ExcludedVisits   int64 `json:"excluded_visits"`
-	// Engagement — from install_active_days. Accrues from the day per-day
+	// Engagement — from admin_active_days. Accrues from the day per-day
 	// tracking deploys; 0 until then (frontend shows a "collecting since" state).
 	DAU int64 `json:"dau"`
 	WAU int64 `json:"wau"`
@@ -126,6 +127,8 @@ type Stats struct {
 	BySource []SourceRow `json:"by_source"`
 	// Server "as of" timestamp (RFC3339) so the dashboard can show freshness.
 	GeneratedAt string `json:"generated_at"`
+	// Earlier date-only history used UTC and cannot be exactly re-bucketed.
+	ActivityTimezoneSince string `json:"activity_timezone_since"`
 }
 
 // bucketSpec maps a granularity to the date_trunc field, generate_series step
@@ -141,6 +144,7 @@ var bucketSpec = map[string]struct{ field, interval, format string }{
 // `points` define the activity time series window; the point-in-time KPIs
 // (active_7d/30d, DAU/WAU/MAU, retention, language) use their own fixed windows.
 func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stats, error) {
+	now := s.now()
 	spec, ok := bucketSpec[bucket]
 	if !ok {
 		bucket = "day"
@@ -211,44 +215,70 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		return st, err
 	}
 
-	// Activity series — new installs + distinct active devices per time BUCKET
-	// (granularity from $2 date_trunc field / $3 step interval / $5 label fmt),
-	// dense + zero-filled + ascending. Installs come from installs.installed_at;
-	// "active" comes from events.server_received_at (full timestamp precision —
-	// install_active_days is date-only, so events are what make HOURLY possible).
-	// Operator excluded on both.
+	// Compute the series AND DAU/WAU/MAU in one database snapshot, using one
+	// captured time. Separate queries could disagree if a check-in or midnight
+	// lands between them. "Active" means checked in, not uploaded ledger edits.
+	// All new day/hour/week/month boundaries are explicitly Kabul-local.
 	rows, err := s.pool.Query(ctx, `
-		WITH buckets AS (
+		WITH clock AS (
+		  SELECT $6::timestamptz AT TIME ZONE 'Asia/Kabul' AS local_now
+		), buckets AS (
 		  SELECT generate_series(
-		    date_trunc($2, NOW() AT TIME ZONE 'UTC') - ($4 - 1) * $3::interval,
-		    date_trunc($2, NOW() AT TIME ZONE 'UTC'),
+		    date_trunc($2, local_now) - ($4 - 1) * $3::interval,
+		    date_trunc($2, local_now),
 		    $3::interval
 		  ) AS b
+		  FROM clock
 		),
 		ins AS (
-		  SELECT date_trunc($2, COALESCE(installed_at, first_seen_at) AT TIME ZONE 'UTC') AS b, COUNT(*) AS n
-		  FROM installs
-		  WHERE (account_id IS NULL OR account_id::text <> ALL($1::text[]))
+		  SELECT date_trunc($2, CASE WHEN $2 = 'hour'
+		    THEN COALESCE(i.installed_at, i.first_seen_at) AT TIME ZONE 'Asia/Kabul'
+		    ELSE d.installed_date::timestamp END) AS b, COUNT(*) AS n
+		  FROM installs i JOIN admin_install_dates d USING (install_id)
+		  WHERE (i.account_id IS NULL OR i.account_id::text <> ALL($1::text[]))
+		    AND COALESCE(i.installed_at, i.first_seen_at) <= $6
 		  GROUP BY 1
 		),
+		days AS (
+		  SELECT ad.install_id, ad.active_date
+		  FROM admin_active_days ad JOIN installs i USING (install_id)
+		  WHERE (i.account_id IS NULL OR i.account_id::text <> ALL($1::text[]))
+		    AND ad.active_date <= (SELECT local_now::date FROM clock)
+		),
+		activity AS (
+		  SELECT install_id, active_date::timestamp AS at FROM days WHERE $2 <> 'hour'
+		  UNION ALL
+		  SELECT h.install_id, h.active_hour AT TIME ZONE 'Asia/Kabul'
+		  FROM install_active_hours h JOIN installs i USING (install_id)
+		  WHERE $2 = 'hour' AND h.active_hour <= $6
+		    AND (i.account_id IS NULL OR i.account_id::text <> ALL($1::text[]))
+		),
 		act AS (
-		  SELECT date_trunc($2, server_received_at AT TIME ZONE 'UTC') AS b, COUNT(DISTINCT device_id) AS n
-		  FROM events
-		  WHERE (account_id IS NULL OR account_id::text <> ALL($1::text[]))
+		  SELECT date_trunc($2, at) AS b, COUNT(DISTINCT install_id) AS n
+		  FROM activity
 		  GROUP BY 1
+		), engagement AS (
+		  SELECT
+		    COUNT(DISTINCT install_id) FILTER (WHERE active_date = (SELECT local_now::date FROM clock)) AS dau,
+		    COUNT(DISTINCT install_id) FILTER (WHERE active_date >= (SELECT local_now::date FROM clock) - 6) AS wau,
+		    COUNT(DISTINCT install_id) FILTER (WHERE active_date >= (SELECT local_now::date FROM clock) - 29) AS mau
+		  FROM days
 		)
-		SELECT to_char(buckets.b, $5), COALESCE(ins.n, 0), COALESCE(act.n, 0)
+		SELECT to_char(buckets.b, $5), COALESCE(ins.n, 0), COALESCE(act.n, 0),
+		       engagement.dau, engagement.wau, engagement.mau,
+		       to_char(calendar.kabul_since, 'YYYY-MM-DD')
 		FROM buckets
+		CROSS JOIN engagement CROSS JOIN analytics_calendar calendar
 		LEFT JOIN ins ON ins.b = buckets.b
 		LEFT JOIN act ON act.b = buckets.b
 		ORDER BY buckets.b ASC
-	`, s.operatorAccountIDs, spec.field, spec.interval, points, spec.format)
+	`, s.operatorAccountIDs, spec.field, spec.interval, points, spec.format, now)
 	if err != nil {
 		return st, err
 	}
 	for rows.Next() {
 		var p SeriesPoint
-		if err := rows.Scan(&p.T, &p.Installs, &p.Active); err != nil {
+		if err := rows.Scan(&p.T, &p.Installs, &p.Active, &st.DAU, &st.WAU, &st.MAU, &st.ActivityTimezoneSince); err != nil {
 			rows.Close()
 			return st, err
 		}
@@ -259,39 +289,26 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		return st, err
 	}
 
-	// Engagement: DAU (today) / WAU (7d) / MAU (30d) — distinct non-operator
-	// installs that phoned home in the window. From install_active_days (accrues
-	// from deploy day; 0 until then).
-	if err := s.pool.QueryRow(ctx, `
-		SELECT
-		  COUNT(DISTINCT ad.install_id) FILTER (WHERE ad.active_date >= CURRENT_DATE),
-		  COUNT(DISTINCT ad.install_id) FILTER (WHERE ad.active_date >= CURRENT_DATE - 6),
-		  COUNT(DISTINCT ad.install_id) FILTER (WHERE ad.active_date >= CURRENT_DATE - 29)
-		FROM install_active_days ad
-		JOIN installs i ON i.install_id = ad.install_id
-		WHERE (i.account_id IS NULL OR i.account_id::text <> ALL($1::text[]))
-	`, s.operatorAccountIDs).Scan(&st.DAU, &st.WAU, &st.MAU); err != nil {
-		return st, err
-	}
-
 	// Day-N retention (eligible = had the chance; retained = active on exactly
 	// day d0+N). Raw counts; frontend divides. Meaningful only for installs first
 	// seen AFTER per-day tracking deployed.
 	if err := s.pool.QueryRow(ctx, `
-		WITH base AS (
-		  SELECT i.install_id, i.first_seen_at::date AS d0
-		  FROM installs i
+		WITH clock AS (
+		  SELECT ($2::timestamptz AT TIME ZONE 'Asia/Kabul')::date AS today
+		), base AS (
+		  SELECT i.install_id, d.first_seen_date AS d0
+		  FROM installs i JOIN admin_install_dates d USING (install_id)
 		  WHERE (i.account_id IS NULL OR i.account_id::text <> ALL($1::text[]))
 		)
 		SELECT
-		  COUNT(*) FILTER (WHERE d0 <= CURRENT_DATE - 1),
-		  COUNT(*) FILTER (WHERE d0 <= CURRENT_DATE - 1  AND EXISTS (SELECT 1 FROM install_active_days a WHERE a.install_id = base.install_id AND a.active_date = base.d0 + 1)),
-		  COUNT(*) FILTER (WHERE d0 <= CURRENT_DATE - 7),
-		  COUNT(*) FILTER (WHERE d0 <= CURRENT_DATE - 7  AND EXISTS (SELECT 1 FROM install_active_days a WHERE a.install_id = base.install_id AND a.active_date = base.d0 + 7)),
-		  COUNT(*) FILTER (WHERE d0 <= CURRENT_DATE - 30),
-		  COUNT(*) FILTER (WHERE d0 <= CURRENT_DATE - 30 AND EXISTS (SELECT 1 FROM install_active_days a WHERE a.install_id = base.install_id AND a.active_date = base.d0 + 30))
-		FROM base
-	`, s.operatorAccountIDs).Scan(
+		  COUNT(*) FILTER (WHERE d0 <= today - 1),
+		  COUNT(*) FILTER (WHERE d0 <= today - 1  AND EXISTS (SELECT 1 FROM admin_active_days a WHERE a.install_id = base.install_id AND a.active_date = base.d0 + 1)),
+		  COUNT(*) FILTER (WHERE d0 <= today - 7),
+		  COUNT(*) FILTER (WHERE d0 <= today - 7  AND EXISTS (SELECT 1 FROM admin_active_days a WHERE a.install_id = base.install_id AND a.active_date = base.d0 + 7)),
+		  COUNT(*) FILTER (WHERE d0 <= today - 30),
+		  COUNT(*) FILTER (WHERE d0 <= today - 30 AND EXISTS (SELECT 1 FROM admin_active_days a WHERE a.install_id = base.install_id AND a.active_date = base.d0 + 30))
+		FROM base CROSS JOIN clock
+	`, s.operatorAccountIDs, now).Scan(
 		&st.RetD1Eligible, &st.RetD1Retained,
 		&st.RetD7Eligible, &st.RetD7Retained,
 		&st.RetD30Eligible, &st.RetD30Retained,
@@ -386,6 +403,6 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 	if st.Languages == nil {
 		st.Languages = []LocaleCount{}
 	}
-	st.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
+	st.GeneratedAt = now.UTC().Format(time.RFC3339)
 	return st, nil
 }

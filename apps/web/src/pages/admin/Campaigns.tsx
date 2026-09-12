@@ -31,7 +31,7 @@ export function Campaigns() {
     <div>
       <PageHeader
         title="Campaigns"
-        description="Print a QR flyer per campaign, then read its funnel per source below."
+        description="Create a trackable flyer link and see which campaigns bring installs."
       />
       <div className="flex flex-col gap-4">
         <QrGeneratorCard />
@@ -49,8 +49,18 @@ export function Campaigns() {
 
 function QrGeneratorCard() {
   const [slug, setSlug] = useState("");
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const qrBoxRef = useRef<HTMLDivElement>(null);
   const url = `https://kaata.af/download?s=${slug}`;
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopyState("copied");
+    } catch {
+      setCopyState("failed");
+    }
+  }
 
   function serializeSvg(): string | null {
     const svg = qrBoxRef.current?.querySelector("svg");
@@ -101,44 +111,69 @@ function QrGeneratorCard() {
 
   return (
     <Card
-      title="QR generator"
-      sub="one slug per flyer batch — the slug becomes the install source below"
+      title="Create a campaign QR"
+      sub="Use a different campaign name for each location or flyer batch"
     >
       <div className="flex flex-col gap-6 sm:flex-row">
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           <label className="text-xs font-medium text-[#475467]" htmlFor="campaign-slug">
-            Campaign slug
+            Campaign name
           </label>
           <input
             id="campaign-slug"
             value={slug}
-            onChange={(e) => setSlug(sanitizeSlug(e.target.value))}
+            onChange={(e) => {
+              setSlug(sanitizeSlug(e.target.value));
+              setCopyState("idle");
+            }}
             placeholder="e.g. mandawi-flyer-1"
-            className="w-full max-w-xs rounded-lg border border-[#eaecf0] px-3 py-2 text-sm text-[#101828] placeholder-[#98a2b3] focus:border-[#98a2b3] focus:outline-none"
+            className="w-full max-w-sm rounded-lg border border-[#d0d5dd] px-3 py-2.5 text-sm text-[#101828] placeholder-[#98a2b3] focus:border-[#0c745a] focus:outline-none focus:ring-2 focus:ring-[#0c745a]/15"
           />
-          <p className="break-all font-mono text-xs text-[#98a2b3]" dir="ltr">
-            {slug ? url : "https://kaata.af/download?s=…"}
-          </p>
-          <div className="mt-1 flex gap-2">
+          <label className="text-xs font-medium text-[#475467]" htmlFor="campaign-link">
+            Campaign link
+          </label>
+          <input
+            id="campaign-link"
+            readOnly
+            value={slug ? url : ""}
+            placeholder="Enter a campaign name to create the link"
+            onFocus={(e) => e.currentTarget.select()}
+            className="w-full rounded-lg border border-[#eaecf0] bg-[#f9fafb] px-3 py-2 font-mono text-xs text-[#475467] focus:outline focus:outline-2 focus:outline-[#0c745a]"
+            dir="ltr"
+          />
+          <div className="mt-1 flex flex-wrap gap-2">
             <button
               onClick={downloadSvg}
               disabled={!slug}
-              className="rounded-lg bg-[#101828] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+              className="rounded-lg bg-[#0c745a] px-3 py-2 text-sm font-medium text-white hover:bg-[#095e49] disabled:cursor-not-allowed disabled:opacity-40"
             >
               Download SVG
             </button>
             <button
               onClick={downloadPng}
               disabled={!slug}
-              className="rounded-lg border border-[#eaecf0] px-3 py-1.5 text-sm font-medium text-[#101828] hover:bg-[#f9fafb] disabled:opacity-40"
+              className="rounded-lg border border-[#d0d5dd] px-3 py-2 text-sm font-medium text-[#344054] hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
             >
               Download PNG
             </button>
+            <button
+              onClick={() => void copyLink()}
+              disabled={!slug}
+              className="rounded-lg border border-[#d0d5dd] px-3 py-2 text-sm font-medium text-[#344054] hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {copyState === "copied" ? "Copied" : "Copy link"}
+            </button>
           </div>
-          <p className="text-xs text-[#98a2b3]">
-            Scanning opens the download page with{" "}
-            <span className="font-mono">?s={slug || "…"}</span>; the visit stamps that source onto
-            installs made within 60 minutes on the same network.
+          <p role="status" className="text-xs text-[#667085]">
+            {copyState === "failed"
+              ? "Select the campaign link above to copy it manually."
+              : copyState === "copied"
+                ? "Campaign link copied to clipboard."
+                : "SVG for print layouts; PNG for an image you can share."}
+          </p>
+          <p className="max-w-lg text-xs leading-relaxed text-[#667085]">
+            A scan opens the download page. An install may be attributed to this campaign when its
+            first check-in happens within 60 minutes on the same network.
           </p>
         </div>
         <div ref={qrBoxRef} className="flex shrink-0 items-center justify-center">
@@ -146,7 +181,7 @@ function QrGeneratorCard() {
             <QRCodeSVG value={url} size={224} level="M" includeMargin className="rounded-lg" />
           ) : (
             <div className="flex h-[224px] w-[224px] items-center justify-center rounded-lg border border-dashed border-[#eaecf0] px-6 text-center text-xs text-[#98a2b3]">
-              Type a slug to render the QR
+              Your campaign QR will appear here
             </div>
           )}
         </div>
@@ -156,18 +191,22 @@ function QrGeneratorCard() {
 }
 
 function PerformanceCard(props: { stats: Stats }) {
+  const [search, setSearch] = useState("");
   // Sorted by attributed installs — the number that actually matters — but
   // falling through to visits and then EXCLUDED traffic. That last key is what
   // keeps a just-printed campaign findable: its only traffic is likely to be
   // the operator's own test scan, which is excluded from every real count, so
   // sorting on installs alone buried it at the bottom of the table.
-  const rows = [...props.stats.by_source].sort(
+  const allRows = [...props.stats.by_source].sort(
     (a, b) =>
       b.attributed - a.attributed || b.visits - a.visits || (b.excluded ?? 0) - (a.excluded ?? 0),
   );
+  const rows = allRows.filter((row) =>
+    row.source.toLowerCase().includes(search.trim().toLowerCase()),
+  );
   // Old backend without per-source exclusion counts → hide the column rather
   // than render a wall of zeros that means "unknown", not "none".
-  const hasExcluded = rows.some((r) => r.excluded !== undefined);
+  const hasExcluded = allRows.some((r) => r.excluded !== undefined);
   // Old backend without store_clicks → show the legacy APK-download column
   // honestly instead of zeros.
   const hasStore = props.stats.store_clicks !== undefined;
@@ -175,12 +214,31 @@ function PerformanceCard(props: { stats: Stats }) {
   return (
     <Card
       title="Campaign performance"
-      sub="deduped web traffic and QR/IP-attributed installs per source"
+      sub="All-time web traffic and attributed installs, ordered by installs"
+      action={
+        <input
+          aria-label="Search campaign sources"
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search sources…"
+          className="w-full rounded-lg border border-[#d0d5dd] px-3 py-2 text-sm text-[#344054] focus:border-[#0c745a] focus:outline-none focus:ring-2 focus:ring-[#0c745a]/15 sm:w-52"
+        />
+      }
     >
       {rows.length === 0 ? (
-        <p className="py-4 text-center text-xs text-[#98a2b3]">No web visits recorded yet.</p>
+        <div className="py-8 text-center">
+          <p className="text-sm font-medium text-[#344054]">
+            {search ? "No matching campaign sources" : "No campaign traffic yet"}
+          </p>
+          <p className="mt-2 text-xs text-[#667085]">
+            {search
+              ? "Try another source name or clear your search."
+              : "A source appears after its first recorded visit. Creating a QR alone does not add a row."}
+          </p>
+        </div>
       ) : (
-        <Table>
+        <Table style={{ minWidth: 640 }}>
           <TableHead>
             <TableRow className="border-b border-[#eaecf0]">
               <TableHeaderCell className="px-0 py-2 text-xs text-[#98a2b3]">Source</TableHeaderCell>
@@ -193,13 +251,13 @@ function PerformanceCard(props: { stats: Stats }) {
               {hasExcluded ? (
                 <TableHeaderCell
                   className="px-0 py-2 text-right text-xs text-[#98a2b3]"
-                  title="Visits rejected as operator or bot traffic. Your own test scans land here."
+                  title="Web hits excluded as operator or bot traffic, including test scans."
                 >
                   Excluded
                 </TableHeaderCell>
               ) : null}
               <TableHeaderCell className="px-0 py-2 text-right text-xs text-[#98a2b3]">
-                Installs
+                Attributed installs
               </TableHeaderCell>
               <TableHeaderCell className="px-0 py-2 text-right text-xs text-[#98a2b3]">
                 Visit → install
@@ -210,7 +268,7 @@ function PerformanceCard(props: { stats: Stats }) {
             {rows.map((r) => (
               <TableRow key={r.source} className="border-b border-[#f2f4f7] last:border-0">
                 <TableCell className="px-0 py-2 text-sm font-medium text-[#101828]">
-                  {r.source}
+                  {r.source === "(direct)" ? "Direct / untagged" : r.source}
                 </TableCell>
                 <TableCell className="px-0 py-2 text-right text-sm tabular-nums text-[#475467]">
                   {fmtInt(r.visits)}
@@ -235,13 +293,11 @@ function PerformanceCard(props: { stats: Stats }) {
         </Table>
       )}
       {hasExcluded ? (
-        <p className="pt-3 text-xs text-[#98a2b3]">
-          A campaign appears here as soon as its first scan is recorded. “Excluded” is traffic
-          filtered out of the real counts — operator IPs and bot/link-preview user agents — so your
-          own test scan shows up there rather than nowhere. A brand-new slug with nothing in either
-          column was never recorded at all: check that the scanning browser doesn’t already have a
-          <span className="font-mono"> kaata_source </span>
-          pinned from an earlier QR (first source wins, and it persists in localStorage).
+        <p className="pt-4 text-xs leading-relaxed text-[#667085]">
+          Excluded hits include operator test scans, bots, and link previews. A browser keeps its
+          first campaign source, so later scans on the same browser can remain attributed to an
+          earlier campaign. Attribution is an estimate based on a shared network and a 60-minute
+          window.
         </p>
       ) : null}
     </Card>

@@ -15,7 +15,7 @@ import (
 // exclusion (an operator-account install with weekly activity must not move a
 // single number).
 //
-// Fixture timeline (weeks are ISO Monday-start UTC weeks; W0 = current week):
+// Fixture timeline (weeks are ISO Monday-start Kabul weeks; W0 = current week):
 //
 //	install A (acctA)  installed W-3, active W-3 W-2 W-1 W0  — the steady user
 //	install B          installed W-3, active W-3 only         — churns at W-2
@@ -26,10 +26,12 @@ func TestGetGrowth(t *testing.T) {
 	pool := testutil.ConnectTestDB(t)
 	ctx := context.Background()
 
-	// Monday of the current ISO week in UTC — must match Postgres's
-	// date_trunc('week', NOW() AT TIME ZONE 'UTC').
-	now := time.Now().UTC()
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	// Fixed Kabul calendar dates keep this fixture independent of wall time,
+	// and local Monday midnight exercises the half-hour timezone boundary.
+	setActivityCutover(t, pool, "2026-09-01")
+	kabul := time.FixedZone("Asia/Kabul", 4*60*60+30*60)
+	now := activityTime(t, "2026-09-28T10:00:00Z").In(kabul)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, kabul)
 	monday := today.AddDate(0, 0, -((int(today.Weekday()) + 6) % 7))
 	week := func(k int) time.Time { return monday.AddDate(0, 0, 7*k) } // week(-3) = W-3 Monday
 	label := func(k int) string { return week(k).Format("2006-01-02") }
@@ -60,11 +62,7 @@ func TestGetGrowth(t *testing.T) {
 		return id
 	}
 	active := func(installID string, day time.Time) {
-		if _, err := pool.Exec(ctx, `
-			INSERT INTO install_active_days (install_id, active_date) VALUES ($1::uuid, $2::date)
-		`, installID, day.Format("2006-01-02")); err != nil {
-			t.Fatalf("seed active day: %v", err)
-		}
+		seedActivityHour(t, pool, installID, day.Format(time.RFC3339))
 	}
 
 	instA := seedInstall(&acctA, week(-3), 0)
@@ -123,6 +121,7 @@ func TestGetGrowth(t *testing.T) {
 	settle(v2)
 
 	svc := NewService(pool, []string{opAcct}, nil)
+	svc.now = func() time.Time { return now }
 	g, err := svc.GetGrowth(ctx)
 	if err != nil {
 		t.Fatalf("GetGrowth: %v", err)
@@ -216,6 +215,7 @@ func TestGetGrowth(t *testing.T) {
 func TestGetGrowthEmpty(t *testing.T) {
 	pool := testutil.ConnectTestDB(t)
 	svc := NewService(pool, []string{}, nil)
+	svc.now = func() time.Time { return activityTime(t, "2026-09-28T10:00:00Z") }
 
 	g, err := svc.GetGrowth(context.Background())
 	if err != nil {

@@ -9,11 +9,12 @@ import (
 // growth accounting (new / retained / resurrected / churned), and feature
 // adoption, for the operator dashboard's Retention + Overview sections.
 //
-// Weeks are ISO weeks (Monday start) in UTC, matching date_trunc('week') in
-// Postgres. All installs-based numbers apply the SAME operator exclusion as
-// GetStats: keep = account_id IS NULL OR account_id NOT IN operatorAccountIDs
+// Weeks are ISO weeks (Monday start) in the reporting calendar: Kabul since
+// migration 036, with earlier UTC date-only history preserved. All install
+// metrics apply the SAME operator exclusion as GetStats:
+// keep = account_id IS NULL OR account_id NOT IN operatorAccountIDs
 // (NULL-account local-only installs are kept). Activity comes from
-// install_active_days, which accrues from the day per-day tracking deployed
+// admin_active_days, which accrues from the day per-day tracking deployed
 // (migration 022) — cohorts installed before that show honest zeros, not
 // backfilled history.
 
@@ -63,30 +64,35 @@ type Growth struct {
 	// appear with size 0 so the frontend grid stays rectangular).
 	WeeklyCohorts []CohortRow `json:"weekly_cohorts"`
 	// GrowthAccounting — last 12 weeks, oldest first, dense.
-	GrowthAccounting []GrowthWeek `json:"growth_accounting"`
-	Adoption         Adoption     `json:"adoption"`
-	GeneratedAt      string       `json:"generated_at"`
+	GrowthAccounting      []GrowthWeek `json:"growth_accounting"`
+	Adoption              Adoption     `json:"adoption"`
+	GeneratedAt           string       `json:"generated_at"`
+	ActivityTimezoneSince string       `json:"activity_timezone_since"`
 }
 
 // GetGrowth computes the growth dashboard aggregates. Read-only; a handful of
 // small queries over installs / install_active_days / vault_members / events —
 // fleet is ~100 installs, so per-install lateral scans are fine.
 func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
+	now := s.now()
 	var g Growth
+	if err := s.pool.QueryRow(ctx, `SELECT to_char(kabul_since, 'YYYY-MM-DD') FROM analytics_calendar`).Scan(&g.ActivityTimezoneSince); err != nil {
+		return g, err
+	}
 
 	// 1. Cohort sizes — dense 12-week series (generate_series) LEFT JOINed with
 	//    install weeks, so empty cohort weeks still emit a row. Same keep
 	//    predicate + installed_at fallback as GetStats' installs series.
 	rows, err := s.pool.Query(ctx, `
 		WITH cur AS (
-		  SELECT date_trunc('week', NOW() AT TIME ZONE 'UTC')::date AS w
+		  SELECT date_trunc('week', $3::timestamptz AT TIME ZONE 'Asia/Kabul')::date AS w
 		),
 		weeks AS (
 		  SELECT generate_series((SELECT w FROM cur) - 7 * ($2 - 1), (SELECT w FROM cur), '7 days'::interval)::date AS w
 		),
 		base AS (
-		  SELECT date_trunc('week', COALESCE(installed_at, first_seen_at) AT TIME ZONE 'UTC')::date AS cw
-		  FROM installs
+		  SELECT date_trunc('week', d.installed_date::timestamp)::date AS cw
+		  FROM installs JOIN admin_install_dates d USING (install_id)
 		  WHERE (account_id IS NULL OR account_id::text <> ALL($1::text[]))
 		)
 		SELECT to_char(weeks.w, 'YYYY-MM-DD'), COUNT(base.cw)
@@ -94,7 +100,7 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 		LEFT JOIN base ON base.cw = weeks.w
 		GROUP BY weeks.w
 		ORDER BY weeks.w ASC
-	`, s.operatorAccountIDs, growthWeeks)
+	`, s.operatorAccountIDs, growthWeeks, now)
 	if err != nil {
 		return g, err
 	}
@@ -125,17 +131,18 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 	//    (clock skew / reinstall edge) is dropped rather than mis-bucketed.
 	rrows, err := s.pool.Query(ctx, `
 		WITH cur AS (
-		  SELECT date_trunc('week', NOW() AT TIME ZONE 'UTC')::date AS w
+		  SELECT date_trunc('week', $3::timestamptz AT TIME ZONE 'Asia/Kabul')::date AS w
 		),
 		base AS (
 		  SELECT install_id,
-		         date_trunc('week', COALESCE(installed_at, first_seen_at) AT TIME ZONE 'UTC')::date AS cw
-		  FROM installs
+		         date_trunc('week', d.installed_date::timestamp)::date AS cw
+		  FROM installs JOIN admin_install_dates d USING (install_id)
 		  WHERE (account_id IS NULL OR account_id::text <> ALL($1::text[]))
 		),
 		act AS (
 		  SELECT DISTINCT install_id, date_trunc('week', active_date::timestamp)::date AS aw
-		  FROM install_active_days
+		  FROM admin_active_days
+		  WHERE active_date <= ($3::timestamptz AT TIME ZONE 'Asia/Kabul')::date
 		)
 		SELECT to_char(b.cw, 'YYYY-MM-DD'), (act.aw - b.cw) / 7 AS wk_offset, COUNT(DISTINCT b.install_id)
 		FROM base b
@@ -144,7 +151,7 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 		  AND act.aw >= b.cw
 		  AND (act.aw - b.cw) / 7 < $2
 		GROUP BY 1, 2
-	`, s.operatorAccountIDs, growthWeeks)
+	`, s.operatorAccountIDs, growthWeeks, now)
 	if err != nil {
 		return g, err
 	}
@@ -172,16 +179,17 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 	//    keeps the dense week series even when there are zero installs.
 	grows, err := s.pool.Query(ctx, `
 		WITH cur AS (
-		  SELECT date_trunc('week', NOW() AT TIME ZONE 'UTC')::date AS w
+		  SELECT date_trunc('week', $3::timestamptz AT TIME ZONE 'Asia/Kabul')::date AS w
 		),
 		weeks AS (
 		  SELECT generate_series((SELECT w FROM cur) - 7 * ($2 - 1), (SELECT w FROM cur), '7 days'::interval)::date AS w
 		),
 		aw AS (
 		  SELECT DISTINCT a.install_id, date_trunc('week', a.active_date::timestamp)::date AS w
-		  FROM install_active_days a
+		  FROM admin_active_days a
 		  JOIN installs i ON i.install_id = a.install_id
 		  WHERE (i.account_id IS NULL OR i.account_id::text <> ALL($1::text[]))
+		    AND a.active_date <= ($3::timestamptz AT TIME ZONE 'Asia/Kabul')::date
 		),
 		firsts AS (
 		  SELECT install_id, MIN(w) AS first_w FROM aw GROUP BY install_id
@@ -200,7 +208,7 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 		) t ON TRUE
 		GROUP BY weeks.w
 		ORDER BY weeks.w ASC
-	`, s.operatorAccountIDs, growthWeeks)
+	`, s.operatorAccountIDs, growthWeeks, now)
 	if err != nil {
 		return g, err
 	}
@@ -263,6 +271,6 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 	if g.GrowthAccounting == nil {
 		g.GrowthAccounting = []GrowthWeek{}
 	}
-	g.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
+	g.GeneratedAt = now.UTC().Format(time.RFC3339)
 	return g, nil
 }

@@ -207,4 +207,8 @@ These are coordination patterns that recur across screens and bit us once each. 
 
 ### Analytics queries (Postgres on production)
 
+Admin activity charts and DAU both count distinct check-in installs, including read-only and signed-out use. Reporting rolls over at **midnight Asia/Kabul**, independent of the server/browser timezone. Migration 036 preserves earlier UTC daily history explicitly; do not reinterpret those date-only rows as Kabul timestamps or switch the chart back to synced ledger events. See `docs/admin-analytics.md` for the calendar cutover, shared reporting views, and regression checks.
+
+Admin live updates reuse Go's existing `coder/websocket` dependency and a separate admin invalidation stream. Connect with a single-use 30-second ticket obtained through the existing Bearer-protected HTTP endpoint; never put the long-lived admin key in a WebSocket URL. Keep authenticated HTTP queries, 60-second polling, and the Kabul-midnight refresh authoritative. The in-process broker/ticket store assumes one backend replica; no Redis or new realtime service is required. See `docs/admin-analytics.md` for protocol and limits.
+
 The `web_visits` (kind `'visit'` / `'download'`, with `source` + IP) and `installs` (`has_onboarded`, `usage_*`, `attribution_method`) tables hold the full funnel. Query via `docker exec -it kaata-database-<suffix> psql -U kaata -d kaata`. The `web_visits.ip` + 60-min window is how the backend stamps `installs.source` on first check-in (QR attribution); see `apps/backend/internal/checkin/service.go`.

@@ -2,8 +2,8 @@
 // the public site (CustomerView palette): ink #101828, borders #eaecf0, white
 // Tremor cards, Inter, tabular-nums on every number.
 
-import { Card as TremorCard } from "@tremor/react";
 import type { ReactNode } from "react";
+import { REPORTING_TIME_ZONE } from "./dates";
 
 // Palette. Chart series colors were validated with the dataviz six-checks
 // script (CVD ΔE ≥ 15, all ≥ 3:1 on white) — don't swap hues casually.
@@ -49,7 +49,12 @@ export function fmtDate(iso: string): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  return d.toLocaleDateString(undefined, {
+    timeZone: REPORTING_TIME_ZONE,
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 // "last seen" relative label + whether the device is effectively online now
@@ -89,21 +94,27 @@ export function Card(props: {
   sub?: string;
   children: ReactNode;
   className?: string;
+  action?: ReactNode;
 }) {
   return (
-    <TremorCard className={`p-5 ${props.className ?? ""}`}>
+    <section
+      className={`rounded-2xl border border-[#e4e7ec] bg-white p-5 shadow-[0_2px_8px_-4px_rgba(16,24,40,0.08)] ${props.className ?? ""}`}
+    >
       {props.title ? (
-        <div className="mb-3">
-          <div className="text-tremor-default font-semibold text-tremor-content-strong">
-            {props.title}
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-[#101828]">
+              {props.title}
+            </h2>
+            {props.sub ? (
+              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-[#667085]">{props.sub}</p>
+            ) : null}
           </div>
-          {props.sub ? (
-            <div className="mt-0.5 text-tremor-label text-tremor-content-subtle">{props.sub}</div>
-          ) : null}
+          {props.action}
         </div>
       ) : null}
       {props.children}
-    </TremorCard>
+    </section>
   );
 }
 
@@ -114,7 +125,11 @@ export function Skeleton(props: { className?: string }) {
 
 export function SkeletonCard(props: { lines?: number; className?: string }) {
   return (
-    <div className={`rounded-xl border border-[#eaecf0] bg-white p-5 ${props.className ?? ""}`}>
+    <div
+      className={`rounded-2xl border border-[#e4e7ec] bg-white p-5 ${props.className ?? ""}`}
+      aria-label="Loading dashboard data"
+      role="status"
+    >
       <Skeleton className="mb-3 h-4 w-32" />
       {Array.from({ length: props.lines ?? 3 }).map((_, i) => (
         <Skeleton key={i} className="mb-2 h-3 w-full" />
@@ -127,7 +142,10 @@ export function SkeletonCard(props: { lines?: number; className?: string }) {
 // instead of its cards when its query fails (network, 5xx).
 export function ErrorCard(props: { message: string; onRetry: () => void }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-xl border border-[#eaecf0] bg-white p-5">
+    <div
+      role="alert"
+      className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-red-100 bg-red-50/50 p-5"
+    >
       <div className="text-sm text-[#475467]">{props.message}</div>
       <button
         onClick={props.onRetry}
@@ -140,11 +158,16 @@ export function ErrorCard(props: { message: string; onRetry: () => void }) {
 }
 
 // Section page header — title + one-line description, per the spec IA.
-export function PageHeader(props: { title: string; description: string }) {
+export function PageHeader(props: { title: string; description: string; action?: ReactNode }) {
   return (
-    <header className="mb-6">
-      <h1 className="text-xl font-semibold text-[#101828]">{props.title}</h1>
-      <p className="mt-1 text-sm text-[#98a2b3]">{props.description}</p>
+    <header className="mb-7 flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-[-0.035em] text-[#101828] sm:text-[30px]">
+          {props.title}
+        </h1>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[#667085]">{props.description}</p>
+      </div>
+      {props.action}
     </header>
   );
 }

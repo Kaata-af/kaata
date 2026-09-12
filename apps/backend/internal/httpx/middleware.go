@@ -4,14 +4,22 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 func Logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		ww := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		// Preserve Hijacker/Flusher for WebSocket upgrades and streaming routes.
+		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(ww, r)
-		log.Printf("%s %s -> %d (%s)", r.Method, r.URL.Path, ww.status, time.Since(start))
+		status := ww.Status()
+		if status == 0 {
+			status = http.StatusOK
+		}
+		// Path only: query strings can contain short-lived socket tickets.
+		log.Printf("%s %s -> %d (%s)", r.Method, r.URL.Path, status, time.Since(start))
 	})
 }
 
@@ -38,14 +46,4 @@ func CORS(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-type statusRecorder struct {
-	http.ResponseWriter
-	status int
-}
-
-func (s *statusRecorder) WriteHeader(code int) {
-	s.status = code
-	s.ResponseWriter.WriteHeader(code)
 }

@@ -7,14 +7,23 @@
 // backend's Bearer check is the security boundary. Any 401 clears the key and
 // returns to the prompt.
 
-import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryCache,
+  QueryClient,
+  QueryClientProvider,
+  useIsFetching,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { formatDistanceToNowStrict, parseISO } from "date-fns";
 import { useEffect, useRef, useState } from "react";
 import { Acquisition } from "./Acquisition";
 import { AdminTokenContext, AuthError, TOKEN_KEY, useStats } from "./api";
 import { Campaigns } from "./Campaigns";
+import { msUntilReportingMidnight, reportingDay } from "./dates";
+import { AdminIcon } from "./icons";
 import { Overview } from "./Overview";
 import { Retention } from "./Retention";
+import { useAdminLive } from "./useAdminLive";
 import { Users } from "./Users";
 
 const SECTIONS = [
@@ -27,7 +36,7 @@ const SECTIONS = [
 type SectionId = (typeof SECTIONS)[number]["id"];
 
 function sectionFromHash(): SectionId {
-  const h = window.location.hash.replace(/^#\/?/, "");
+  const h = window.location.hash.replace(/^#\/?/, "").split("?")[0];
   return (SECTIONS.find((s) => s.id === h)?.id ?? "overview") as SectionId;
 }
 
@@ -81,7 +90,11 @@ export function AdminApp() {
   return (
     <QueryClientProvider client={client}>
       <AdminTokenContext.Provider value={token}>
-        <Shell onSignOut={() => signOutRef.current(null)} />
+        <Shell
+          token={token}
+          onSignOut={() => signOutRef.current(null)}
+          onUnauthorized={() => signOutRef.current("Wrong admin key.")}
+        />
       </AdminTokenContext.Provider>
     </QueryClientProvider>
   );
@@ -90,35 +103,128 @@ export function AdminApp() {
 function KeyPrompt(props: { error: string | null; onSubmit: (key: string) => void }) {
   const [input, setInput] = useState("");
   return (
-    <div className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-4 p-6">
-      <h1 className="text-xl font-semibold text-[#101828]">
-        kaata.<span className="ml-1 text-sm font-normal text-[#98a2b3]">growth</span>
-      </h1>
-      <p className="text-sm text-[#475467]">Enter the admin key to view the dashboard.</p>
-      <input
-        type="password"
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        placeholder="Admin key"
-        className="rounded-lg border border-[#eaecf0] px-3 py-2 text-[#101828] focus:border-[#98a2b3] focus:outline-none"
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && input) props.onSubmit(input);
-        }}
-      />
-      <button
-        className="rounded-lg bg-[#101828] px-4 py-2 font-medium text-white disabled:opacity-50"
-        disabled={!input}
-        onClick={() => input && props.onSubmit(input)}
-      >
-        View dashboard
-      </button>
-      {props.error ? <p className="text-sm text-red-600">{props.error}</p> : null}
+    <div className="flex min-h-screen items-center justify-center bg-[#f6f7f9] p-5 sm:p-10">
+      <div className="grid w-full max-w-4xl overflow-hidden rounded-3xl border border-[#e4e7ec] bg-white shadow-xl shadow-[#101828]/5 md:grid-cols-2">
+        <div className="flex flex-col justify-between bg-[#112b24] p-8 text-white sm:p-12">
+          <div className="text-3xl font-bold tracking-tight">kaata.</div>
+          <div className="my-10 md:my-20">
+            <p className="mb-4 text-xs font-medium uppercase tracking-[0.2em] text-[#a1c9b8]">
+              Admin workspace
+            </p>
+            <h1 className="text-3xl font-semibold leading-tight tracking-tight">
+              See the people
+              <br />
+              behind the numbers.
+            </h1>
+            <p className="mt-5 max-w-xs text-sm leading-7 text-[#c0d3cb]">
+              Understand who uses Kaata, how they find it, and what keeps them coming back.
+            </p>
+          </div>
+          <p className="text-xs text-[#a1c9b8]">Kaata · Built for everyday business.</p>
+        </div>
+        <form
+          className="flex flex-col justify-center gap-5 p-8 sm:p-12"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (input.trim()) props.onSubmit(input.trim());
+          }}
+        >
+          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#eaf4ef] text-[#0c745a]">
+            <AdminIcon name="lock" className="h-5 w-5" />
+          </span>
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight">Welcome back</h2>
+            <p className="mt-2 text-sm leading-6 text-[#667085]">
+              Use your admin key to open the workspace.
+            </p>
+          </div>
+          <div>
+            <label htmlFor="admin-key" className="mb-2 block text-sm font-medium text-[#344054]">
+              Admin key
+            </label>
+            <input
+              id="admin-key"
+              type="password"
+              autoComplete="current-password"
+              autoFocus
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Enter your key"
+              aria-invalid={!!props.error}
+              aria-describedby={props.error ? "admin-key-error" : undefined}
+              className="w-full rounded-xl border border-[#d0d5dd] bg-white px-3.5 py-3 text-sm text-[#101828] outline-none transition focus:border-[#0c745a] focus:ring-4 focus:ring-[#0c745a]/10"
+            />
+          </div>
+          <button
+            type="submit"
+            className="flex items-center justify-center gap-2 rounded-xl bg-[#0c745a] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#095b47] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0c745a] disabled:opacity-40"
+            disabled={!input.trim()}
+          >
+            Open dashboard <AdminIcon name="arrow" className="h-4 w-4" />
+          </button>
+          {props.error ? (
+            <p id="admin-key-error" role="alert" className="text-sm text-red-600">
+              {props.error}
+            </p>
+          ) : null}
+          <p className="text-xs leading-5 text-[#98a2b3]">
+            For authorized Kaata operators. Your key stays in this browser until you sign out.
+          </p>
+        </form>
+      </div>
     </div>
   );
 }
 
-function Shell(props: { onSignOut: () => void }) {
+function Shell(props: { token: string; onSignOut: () => void; onUnauthorized: () => void }) {
   const [section, setSection] = useState<SectionId>(() => sectionFromHash());
+  const client = useQueryClient();
+  const liveState = useAdminLive(props.token, props.onUnauthorized);
+  const isRefreshing = useIsFetching({ queryKey: ["admin"] }) > 0;
+  const [refreshError, setRefreshError] = useState(false);
+
+  async function refresh() {
+    setRefreshError(false);
+    try {
+      await client.cancelQueries({ queryKey: ["admin"] });
+      await client.invalidateQueries({ queryKey: ["admin"] }, { throwOnError: true });
+    } catch {
+      setRefreshError(true);
+    }
+  }
+
+  // Polling keeps counts fresh, but its 60s interval isn't aligned to midnight.
+  // Invalidate at the reporting-day boundary, including when a sleeping or
+  // hidden tab resumes after the boundary with otherwise-fresh cached data.
+  useEffect(() => {
+    let day = reportingDay(Date.now());
+    let timer: ReturnType<typeof setTimeout>;
+    const checkDay = () => {
+      const current = reportingDay(Date.now());
+      if (current !== day) {
+        day = current;
+        // Invalidation alone reuses an in-flight FIRST fetch (no cached data),
+        // which could otherwise resolve with yesterday after the boundary.
+        void client
+          .cancelQueries({ queryKey: ["admin"] })
+          .then(() => client.invalidateQueries({ queryKey: ["admin"] }))
+          .catch(() => {
+            // Query errors use the existing error cards and polling retries.
+          });
+      }
+      clearTimeout(timer);
+      timer = setTimeout(checkDay, msUntilReportingMidnight() + 25);
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") checkDay();
+    };
+    checkDay();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [client]);
 
   // Hash routing — the admin host renders only this app (no react-router
   // routes), but #retention etc. survive a refresh and are linkable.
@@ -129,47 +235,161 @@ function Shell(props: { onSignOut: () => void }) {
   }, []);
 
   const Active = SECTIONS.find((s) => s.id === section)?.component ?? Overview;
+  const activeLabel = SECTIONS.find((s) => s.id === section)?.label ?? "Overview";
+
+  const navigate = (id: SectionId) => {
+    window.location.hash = id;
+    setSection(id);
+  };
 
   return (
-    <div className="flex min-h-screen bg-[#f9fafb] text-[#101828]">
-      <aside className="sticky top-0 flex h-screen w-52 shrink-0 flex-col border-r border-[#eaecf0] bg-white px-4 py-6">
-        <div className="mb-8 px-2">
-          <div className="text-lg font-bold tracking-tight">kaata.</div>
-          <div className="text-xs text-[#98a2b3]">growth</div>
+    <div className="min-h-screen bg-[#f6f7f9] text-[#101828] lg:flex">
+      <a
+        href="#admin-main"
+        onClick={(event) => {
+          event.preventDefault();
+          document.getElementById("admin-main")?.focus();
+        }}
+        className="sr-only z-50 rounded-lg bg-white p-3 focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
+      >
+        Skip to content
+      </a>
+      <aside className="sticky top-0 hidden h-screen w-[232px] shrink-0 flex-col bg-[#112b24] px-4 py-7 text-white lg:flex">
+        <div className="mb-11 px-3">
+          <div className="text-[28px] font-bold tracking-[-0.06em]">kaata.</div>
+          <div className="mt-1 text-xs text-[#a1c9b8]">Admin workspace</div>
         </div>
-        <nav className="flex flex-col gap-1">
+        <div className="mb-3 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#91b4a5]">
+          Workspace
+        </div>
+        <nav aria-label="Main navigation" className="flex flex-col gap-1.5">
           {SECTIONS.map((s) => (
             <button
               key={s.id}
-              onClick={() => {
-                window.location.hash = s.id;
-                setSection(s.id);
-              }}
-              className={`rounded-lg px-3 py-2 text-left text-sm font-medium ${
+              onClick={() => navigate(s.id)}
+              aria-current={section === s.id ? "page" : undefined}
+              className={`flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${
                 section === s.id
-                  ? "bg-[#f2f4f7] text-[#101828]"
-                  : "text-[#475467] hover:bg-[#f9fafb] hover:text-[#101828]"
+                  ? "bg-white/10 text-white ring-1 ring-inset ring-white/10"
+                  : "text-[#bfd0c9] hover:bg-white/5 hover:text-white"
               }`}
             >
+              <AdminIcon
+                name={s.id}
+                className={`h-[18px] w-[18px] ${section === s.id ? "text-[#94ddbd]" : ""}`}
+              />
               {s.label}
             </button>
           ))}
         </nav>
-        <div className="mt-auto flex flex-col gap-2 px-2">
-          <Freshness />
+        <div className="mt-auto flex flex-col gap-5 px-3 pt-8">
+          <div className="rounded-xl border border-white/10 bg-white/5 p-3.5">
+            <div className="flex items-center gap-2 text-xs font-medium text-[#dceae3]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#94ddbd]" />
+              Kabul reporting time
+            </div>
+            <p className="mt-2 text-[11px] leading-5 text-[#a1c9b8]">
+              Days reset at midnight.
+              <br />
+              UTC+04:30
+            </p>
+          </div>
           <button
             onClick={props.onSignOut}
-            className="text-left text-xs text-[#98a2b3] hover:text-[#475467]"
+            className="flex items-center gap-2 rounded-lg py-1 text-left text-xs text-[#bfd0c9] transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
           >
-            Sign out
+            <AdminIcon name="logout" className="h-4 w-4" /> Sign out
           </button>
         </div>
       </aside>
-      <main className="min-w-0 flex-1">
-        <div className="mx-auto max-w-6xl px-6 py-8">
+      <div className="min-w-0 flex-1">
+        <header className="sticky top-0 z-20 border-b border-[#e4e7ec] bg-white/95 backdrop-blur">
+          <div className="flex min-h-[72px] items-center justify-between gap-3 px-4 sm:px-8">
+            <div className="flex items-center gap-3">
+              <span className="text-xl font-bold tracking-tight lg:hidden">kaata.</span>
+              <span className="hidden text-sm text-[#98a2b3] sm:inline">Workspace</span>
+              <span className="hidden text-[#d0d5dd] sm:inline">/</span>
+              <span className="hidden text-sm font-medium sm:inline">{activeLabel}</span>
+            </div>
+            <div className="flex items-center gap-3 sm:gap-5">
+              <span
+                role="status"
+                title={
+                  liveState === "live"
+                    ? "Connected for live updates. Data also refreshes every 60 seconds."
+                    : "Data still refreshes every 60 seconds while live updates reconnect."
+                }
+                className={`inline-flex items-center gap-1.5 whitespace-nowrap text-[11px] font-medium ${liveState === "live" ? "text-[#0c745a]" : "text-[#667085]"}`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${liveState === "live" ? "bg-[#0c745a]" : "bg-[#98a2b3]"}`}
+                />
+                {liveState === "live"
+                  ? "Live updates"
+                  : liveState === "connecting"
+                    ? "Connecting"
+                    : "Auto-refresh"}
+              </span>
+              <div className="hidden sm:block">
+                <Freshness compact />
+              </div>
+              <button
+                onClick={() => void refresh()}
+                disabled={isRefreshing}
+                className="flex items-center gap-2 rounded-lg border border-[#d0d5dd] bg-white px-3 py-2 text-xs font-medium text-[#344054] shadow-sm transition hover:bg-[#f9fafb] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0c745a] disabled:opacity-60"
+                aria-label="Refresh dashboard"
+              >
+                <AdminIcon
+                  name="refresh"
+                  className={`h-4 w-4 ${isRefreshing ? "animate-spin motion-reduce:animate-none" : ""}`}
+                />
+                <span>{isRefreshing ? "Updating" : "Refresh"}</span>
+              </button>
+              <button
+                onClick={props.onSignOut}
+                aria-label="Sign out"
+                className="rounded-lg p-2 text-[#667085] hover:bg-[#f2f4f7] lg:hidden"
+              >
+                <AdminIcon name="logout" className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+          <nav
+            aria-label="Mobile navigation"
+            className="flex gap-1 overflow-x-auto px-3 pb-3 lg:hidden"
+          >
+            {SECTIONS.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => navigate(s.id)}
+                aria-current={section === s.id ? "page" : undefined}
+                className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium ${section === s.id ? "bg-[#eaf4ef] text-[#0c745a]" : "text-[#667085] hover:bg-[#f2f4f7]"}`}
+              >
+                <AdminIcon name={s.id} className="h-4 w-4" />
+                {s.label}
+              </button>
+            ))}
+          </nav>
+        </header>
+        <main
+          id="admin-main"
+          tabIndex={-1}
+          className="mx-auto max-w-[1440px] px-4 py-6 outline-none sm:px-8 sm:py-8 xl:px-10"
+        >
+          {refreshError ? (
+            <div
+              role="alert"
+              className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+            >
+              Couldn’t refresh all data. You can retry; any previous results remain visible.
+            </div>
+          ) : null}
           <Active />
-        </div>
-      </main>
+          <footer className="mt-8 border-t border-[#e4e7ec] pt-4">
+            <Freshness />
+          </footer>
+        </main>
+      </div>
     </div>
   );
 }
@@ -177,7 +397,7 @@ function Shell(props: { onSignOut: () => void }) {
 // "updated 2m ago" from the stats response's server-side generated_at.
 // react-query refetches every 60s; a 30s local tick keeps the label honest
 // between refetches without re-rendering the whole app.
-function Freshness() {
+function Freshness({ compact = false }: { compact?: boolean }) {
   const stats = useStats();
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -196,9 +416,24 @@ function Freshness() {
     label = "updated —";
   }
   return (
-    <span className="text-xs text-[#98a2b3]" title="Auto-refreshes every 60s">
-      {label}
-    </span>
+    <>
+      <span
+        className={`text-xs ${stats.isError ? "text-amber-700" : "text-[#667085]"}`}
+        title="Refreshes on live updates, every 60s, and at Kabul midnight"
+      >
+        {stats.isError ? "Connection issue · " : ""}
+        {label}
+      </span>
+      {!compact ? (
+        <span className="ml-2 text-xs text-[#98a2b3]">· Kabul time (UTC+04:30)</span>
+      ) : null}
+      {!compact && stats.data.activity_timezone_since ? (
+        <p className="mt-2 text-[11px] leading-5 text-[#98a2b3]">
+          Activity and install dates before {stats.data.activity_timezone_since} use UTC day
+          boundaries.
+        </p>
+      ) : null}
+    </>
   );
 }
 

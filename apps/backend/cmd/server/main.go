@@ -168,6 +168,7 @@ func main() {
 	authH.SetPublicAPIBaseURL(cfg.PublicAPIBaseURL)
 
 	adminH := admin.NewHandler(admin.NewService(pool, cfg.OperatorAccountIDs, cfg.OperatorIPs))
+	adminLive := admin.NewLive(ctx, cfg.AdminAPIKey != "")
 	authenticator := auth.NewSessionAuthenticator(authSvc, cfg.SessionJWTSecret)
 	// Wire the cache so SignOut purges the cached revocation entry instead of
 	// leaving up to 60s of valid-looking auth in front of a deleted credential.
@@ -268,6 +269,7 @@ func main() {
 	r.Use(httpx.Logger)
 	r.Use(httpx.Recoverer)
 	r.Use(httpx.CORS)
+	r.Use(adminLive.NotifyOnSuccess)
 
 	// PUBLIC routes. /v1/check-in is public for v0.4 back-compat (local-only
 	// installs must continue to work forever) and uses OptionalMiddleware to
@@ -339,7 +341,11 @@ func main() {
 		pr.Get("/v1/admin/stats", adminH.Stats)
 		pr.Get("/v1/admin/growth", adminH.Growth)
 		pr.Get("/v1/admin/users", adminH.Users)
+		pr.Post("/v1/admin/live-ticket", adminLive.Ticket)
 	})
+	// A browser cannot set Authorization on a WebSocket. Exchange the admin
+	// key for a 30-second, single-use ticket first; never put the key in a URL.
+	r.Get("/v1/admin/live", adminLive.Subscribe)
 	// Public invite landing read (kaata.af/i/<token>). 30/hr per IP caps
 	// token-enumeration attempts; the handler still returns a uniform 404
 	// on bad tokens so the limit does not leak token-existence either.

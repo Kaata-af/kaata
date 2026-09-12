@@ -13,7 +13,12 @@ export function Acquisition() {
     <div>
       <PageHeader
         title="Acquisition"
-        description="From a kaata.af visit to an active install — stage by stage."
+        description="Website reach, install activation, and the languages people use."
+        action={
+          <a href="#campaigns" className="text-sm font-medium text-[#0c745a] hover:underline">
+            View campaigns →
+          </a>
+        }
       />
       {stats.isPending ? (
         <div className="flex flex-col gap-4">
@@ -43,46 +48,77 @@ function FunnelCard(props: { stats: Stats }) {
       ? { label: "Store clicks", n: s.store_clicks }
       : { label: "APK downloads (legacy)", n: s.downloads };
   const stages = [
-    { label: "Web visits", n: s.visits },
-    clickStage,
     { label: "Installs", n: s.installs_total },
     { label: "Onboarded", n: s.onboarded },
     { label: "Made an entry", n: s.with_entries },
-    { label: "Active (7d)", n: s.active_7d },
+    { label: "Sent a share", n: s.with_shares },
+    { label: "Used a feature in 7 days", n: s.active_7d },
   ];
-  // Widths scale against the widest stage (usually visits — but installs can
-  // legitimately exceed visits when people share the app directly).
   const max = Math.max(1, ...stages.map((st) => st.n));
   return (
-    <Card title="Funnel" sub="each stage as absolute count + conversion from the previous stage">
-      <div className="flex flex-col gap-2">
-        {stages.map((st, i) => (
-          <div key={st.label} className="flex items-center gap-3">
-            <div className="w-40 shrink-0 text-sm text-[#475467]">{st.label}</div>
-            <div className="h-6 flex-1 overflow-hidden rounded bg-[#f2f4f7]">
-              <div
-                className="h-6 rounded"
-                style={{
-                  width: `${Math.max(st.n > 0 ? 1.5 : 0, (st.n / max) * 100)}%`,
-                  background: C.ink,
-                }}
-              />
+    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[0.8fr_1.2fr]">
+      <Card title="Website reach" sub="All-time recorded traffic">
+        <div className="grid grid-cols-2 gap-5 py-2">
+          {[{ label: "Web visits", n: s.visits }, clickStage].map((item) => (
+            <div key={item.label}>
+              <p className="text-3xl font-semibold tabular-nums text-[#101828]">{fmtInt(item.n)}</p>
+              <p className="mt-1 text-sm text-[#667085]">{item.label}</p>
             </div>
-            <div className="w-16 shrink-0 text-right text-sm font-medium tabular-nums text-[#101828]">
-              {fmtInt(st.n)}
-            </div>
-            <div className="w-14 shrink-0 text-right text-xs tabular-nums text-[#98a2b3]">
-              {i === 0 ? "" : fmtPct(st.n, stages[i - 1].n)}
-            </div>
+          ))}
+        </div>
+        <p className="mt-5 border-t border-[#eaecf0] pt-4 text-xs leading-relaxed text-[#667085]">
+          Repeat visits from the same browser and network count once per hour. Website traffic and
+          app installs are separate totals, not a matched conversion funnel.
+        </p>
+        <dl className="mt-4 space-y-2 text-xs text-[#667085]">
+          <div className="flex justify-between gap-3">
+            <dt>Raw visits</dt>
+            <dd className="tabular-nums">{fmtInt(s.raw_visits)}</dd>
           </div>
-        ))}
-      </div>
-      <p className="mt-3 text-xs text-[#98a2b3]">
-        Visits deduped per (ip, browser, hour). Raw visits: {fmtInt(s.raw_visits)} · filtered out:{" "}
-        {fmtInt(s.excluded_visits)} bot/operator web hits, {fmtInt(s.excluded_installs)}{" "}
-        operator/test installs.
-      </p>
-    </Card>
+          <div className="flex justify-between gap-3">
+            <dt>Bot / operator web hits excluded</dt>
+            <dd className="tabular-nums">{fmtInt(s.excluded_visits)}</dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt>Operator installs excluded</dt>
+            <dd className="tabular-nums">{fmtInt(s.excluded_installs)}</dd>
+          </div>
+        </dl>
+      </Card>
+      <Card title="Install activation" sub="Count and share of all installs">
+        {s.installs_total === 0 ? (
+          <p className="py-12 text-center text-sm text-[#667085]">
+            Activation will appear after the first app check-in.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            {stages.map((st) => (
+              <div key={st.label}>
+                <div className="mb-1.5 flex items-center justify-between gap-3 text-sm">
+                  <span className="text-[#475467]">{st.label}</span>
+                  <span className="shrink-0 font-medium tabular-nums text-[#101828]">
+                    {fmtInt(st.n)}{" "}
+                    <span className="ml-2 text-xs font-normal text-[#667085]">
+                      {fmtPct(st.n, s.installs_total)}
+                    </span>
+                  </span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-[#f2f4f7]">
+                  <div
+                    className="h-full rounded-full"
+                    style={{ width: `${(st.n / max) * 100}%`, background: C.ink }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="mt-4 text-xs leading-relaxed text-[#667085]">
+          Feature use means creating an entry, adding a contact, or sharing. The 7-day value is a
+          rolling usage window; other values are all-time.
+        </p>
+      </Card>
+    </div>
   );
 }
 
@@ -96,9 +132,11 @@ function LanguageCard(props: { stats: Stats }) {
   const langs = props.stats.languages;
   const total = langs.reduce((sum, l) => sum + l.count, 0);
   return (
-    <Card title="Language" sub="installs by in-app language">
+    <Card title="App language" sub="Latest reported language across installs">
       {total === 0 ? (
-        <p className="py-4 text-center text-xs text-[#98a2b3]">No data yet.</p>
+        <p className="py-6 text-center text-sm text-[#667085]">
+          Language data will appear when devices check in.
+        </p>
       ) : (
         <div>
           {/* Same runtime-vs-typing lag as the charts: CategoryBar accepts any

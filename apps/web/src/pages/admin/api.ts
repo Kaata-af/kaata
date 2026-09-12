@@ -75,6 +75,9 @@ export type Stats = {
   bucket: string;
   points: number;
   by_source: SourceRow[];
+  // Older activity was stored as UTC dates without times and cannot be
+  // accurately reassigned to Kabul days. Optional during backend rollout.
+  activity_timezone_since?: string;
   generated_at: string;
 };
 
@@ -187,13 +190,15 @@ async function fetchAdmin<T>(path: string, token: string): Promise<T> {
 export const AdminTokenContext = createContext("");
 export const useAdminToken = () => useContext(AdminTokenContext);
 
-export function useStats() {
+export function useStats(points = 30) {
   const token = useAdminToken();
   return useQuery({
-    queryKey: ["admin", "stats", token],
-    // Overview's activity card is speced as the daily 30-point series; other
-    // sections read the point-in-time KPIs off the same response.
-    queryFn: () => fetchAdmin<Stats>("/v1/admin/stats?bucket=day&points=30", token),
+    queryKey: ["admin", "stats", token, points],
+    // Only the chart range changes; DAU/WAU/MAU retain their fixed windows.
+    queryFn: () => fetchAdmin<Stats>(`/v1/admin/stats?bucket=day&points=${points}`, token),
+    // Keep the chart visible while changing its range, never across keys.
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[2] === token ? previousData : undefined,
     enabled: !!token,
   });
 }

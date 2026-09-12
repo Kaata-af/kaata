@@ -42,7 +42,7 @@
 		# hashed JS/CSS + self-hosted fonts from this origin, calls the API, and
 		# the download button frames the GitHub release asset in a hidden iframe).
 		header {
-			Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.kaata.af; frame-src https://github.com https://objects.githubusercontent.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+			Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.kaata.af wss://api.kaata.af; frame-src https://github.com https://objects.githubusercontent.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 		}
 
 		# index.html must always be revalidated: a heuristically-cached stale
