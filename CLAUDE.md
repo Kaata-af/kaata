@@ -55,6 +55,17 @@ Entry semantics: `entries.type` is still `'debt' | 'payment'` in the DB, but UI-
 
 The same vocabulary works whether the person is currently your debtor or your creditor.
 
+### Decimal money amounts
+
+`amount_afn` is a historical field name: values remain major units of the
+vault's display currency, with up to two decimal places. Existing `100` still
+means `100`, not `1.00`. Keep signed events, snapshots, and stored values in
+these units; use `lib/money.ts` and `lib/money-sql.ts` for integer-hundredth
+arithmetic. The backend uses `json.Number` for passive projection/snapshot
+amounts. No migration or history rewrite is needed. All editing devices must
+update before a shared kaata uses cents; old app edit code can turn `12.34`
+into `1234`. See `docs/decimal-amounts.md` for rollout and regression checks.
+
 ### Update / announcement delivery without push
 
 Workflow for shipping an update:

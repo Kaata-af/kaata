@@ -6,12 +6,13 @@ import { getLocale } from "./i18n";
 // AFN as the default, USD for parallel pricing (common in Afghan shops),
 // then the currencies of the diaspora and neighbouring countries.
 //
-// IMPORTANT data-integrity note: kaata currently stores `amount_afn` as an
-// integer with no per-entry currency tagging. The active currency is a
+// IMPORTANT data-integrity note: `amount_afn` keeps major-unit values with up
+// to two decimal places and no per-entry currency tagging. The active currency is a
 // DISPLAY label, not a math attribute — changing it relabels existing
 // amounts; it does not convert them. A shopkeeper who logs 500 entries in
 // AFN and then switches to USD now sees their numbers labeled with the new
 // symbol even though they were entered as AFN. We don't migrate.
+// Use lib/money.ts for arithmetic; never reinterpret old values as cents.
 //
 // True multi-currency (per-entry tagging + conversion) is a Phase 2
 // refactor: adds `currency TEXT NOT NULL` to entries, updates balance math

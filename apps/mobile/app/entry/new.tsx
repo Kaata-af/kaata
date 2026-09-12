@@ -9,11 +9,11 @@ import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
 import { createEntry, getActiveVaultArchivedState, getPerson } from "../../lib/db";
-import { toAsciiDigits } from "../../lib/digits";
 import { textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
+import { normalizeAmountInput, parseAmountInput } from "../../lib/money";
 import { radius, TOUCH_MIN, typography } from "../../lib/tokens";
 import { ENTRY_NOTE_MAX_LENGTH, type EntryType, type PersonWithBalance } from "../../lib/types";
 
@@ -106,8 +106,8 @@ export default function NewEntryScreen() {
 
   async function onSave() {
     if (savingRef.current || !personId) return;
-    const intAmount = parseInt(amount.replace(/[^0-9]/g, ""), 10);
-    if (!intAmount || intAmount <= 0) {
+    const parsedAmount = parseAmountInput(amount);
+    if (parsedAmount === null) {
       setAmountError(t("entry.invalidAmount"));
       return;
     }
@@ -132,7 +132,7 @@ export default function NewEntryScreen() {
       await createEntry(
         personId,
         type,
-        intAmount,
+        parsedAmount,
         note.trim().slice(0, ENTRY_NOTE_MAX_LENGTH) || null,
       );
       toast.push(t("entry.saved"), "success");
@@ -214,29 +214,16 @@ export default function NewEntryScreen() {
             ref={amountRef}
             style={[styles.amountInput, amountError ? styles.inputError : null]}
             value={amount}
-            // Transliterate Persian/Arabic-Indic digits (Persian keyboards
-            // emit them even on number-pad), then keep only the leading run
-            // of digits. Anything after the first non-digit (decimal, comma,
-            // space) is treated as fractional / separator and discarded —
-            // AFN is integer-only. Without this, typing "150.50" used to be
-            // parsed as "15050" because the save path stripped non-digits
-            // and joined what remained.
             onChangeText={(raw) => {
               setAmountError(null);
-              // Strip unambiguous grouping separators (comma, whitespace,
-              // Arabic thousands ٬ U+066C) BEFORE the leading-digits match so a
-              // pasted "25,000" isn't silently truncated to "25". '.' is left
-              // alone (ambiguous decimal vs grouping); AFN is integer so a
-              // decimal tail is still dropped by the ^\d* match.
-              const digits = toAsciiDigits(raw).replace(/[,\s٬]/g, "");
-              setAmount(digits.match(/^\d*/)?.[0] ?? "");
+              setAmount(normalizeAmountInput(raw));
             }}
             placeholder="0"
             placeholderTextColor={colors.textMuted}
-            keyboardType="number-pad"
-            // 10 digits ≈ 9.9 billion — far above any real ledger amount,
-            // far below where double precision (and the 36px display) break.
-            maxLength={10}
+            keyboardType="decimal-pad"
+            inputMode="decimal"
+            // Validate the amount instead of truncating pasted extra digits
+            // with maxLength, which could silently change a financial value.
             accessibilityLabel={t("entry.amount.labelTemplate", {
               code: getCurrentCurrencySymbol(),
             })}

@@ -9,11 +9,11 @@ import { useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../../lib/currency";
 import { getEntry, SettledChapterError, updateEntry } from "../../../lib/db";
-import { toAsciiDigits } from "../../../lib/digits";
 import { textDir, useIsRTL } from "../../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../../lib/event-log";
 import { fonts, sansLineHeight } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
+import { normalizeAmountInput, parseAmountInput } from "../../../lib/money";
 import { radius, TOUCH_MIN } from "../../../lib/tokens";
 import { ENTRY_NOTE_MAX_LENGTH, type EntryType } from "../../../lib/types";
 
@@ -78,8 +78,8 @@ export default function EditEntryScreen() {
 
   async function onSave() {
     if (savingRef.current || !id) return;
-    const intAmount = parseInt(amount.replace(/[^0-9]/g, ""), 10);
-    if (!intAmount || intAmount <= 0) {
+    const parsedAmount = parseAmountInput(amount);
+    if (parsedAmount === null) {
       setAmountError(t("entry.invalidAmount"));
       return;
     }
@@ -87,7 +87,7 @@ export default function EditEntryScreen() {
     setBusy(true);
     setSaveError(null);
     try {
-      await updateEntry(id, intAmount, note.trim().slice(0, ENTRY_NOTE_MAX_LENGTH) || null);
+      await updateEntry(id, parsedAmount, note.trim().slice(0, ENTRY_NOTE_MAX_LENGTH) || null);
       toast.push(t("entry.updated"), "success");
       router.back();
     } catch (err) {
@@ -168,20 +168,16 @@ export default function EditEntryScreen() {
             ref={amountRef}
             style={[styles.amountInput, amountError ? styles.inputError : null]}
             value={amount}
-            // See entry/new.tsx — transliterate Persian digits, then strip
-            // non-digits at typing time so "150.50" doesn't get parsed as
-            // "15050" on save. AFN is integer-only.
             onChangeText={(raw) => {
               setAmountError(null);
-              // Strip grouping separators (comma, whitespace, Arabic thousands
-              // ٬) so a pasted "25,000" isn't truncated to "25" — see entry/new.
-              const digits = toAsciiDigits(raw).replace(/[,\s٬]/g, "");
-              setAmount(digits.match(/^\d*/)?.[0] ?? "");
+              setAmount(normalizeAmountInput(raw));
             }}
             placeholder="0"
             placeholderTextColor={colors.textMuted}
-            keyboardType="number-pad"
-            maxLength={10}
+            keyboardType="decimal-pad"
+            inputMode="decimal"
+            // Keep over-precise pasted input intact so validation can reject
+            // it rather than quietly saving a truncated amount.
             accessibilityLabel={t("entry.amount.labelTemplate", {
               code: getCurrentCurrencySymbol(),
             })}

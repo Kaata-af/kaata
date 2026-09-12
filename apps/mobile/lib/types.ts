@@ -45,6 +45,8 @@ export type Entry = {
   id: string;
   relationship_id: string;
   type: EntryType;
+  // Historical name; major units of the vault's currency, up to two decimals.
+  // Old 100 remains 100. Arithmetic uses lib/money.ts integer hundredths.
   amount_afn: number;
   note: string | null;
   created_at: number;

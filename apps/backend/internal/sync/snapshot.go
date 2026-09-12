@@ -121,23 +121,23 @@ type SnapshotRelationship struct {
 }
 
 type SnapshotEntry struct {
-	ID               string  `json:"id"`
-	VaultID          string  `json:"vault_id"`
-	RelationshipID   string  `json:"relationship_id"`
-	Type             string  `json:"type"`
-	AmountAFN        int64   `json:"amount_afn"`
-	Note             *string `json:"note"`
-	CreatedAt        int64   `json:"created_at"`
-	UpdatedAt        int64   `json:"updated_at"`
-	DeletedAt        *int64  `json:"deleted_at"`
-	ProposedByUserID *string `json:"proposed_by_user_id"`
-	CurrentEventID   *string `json:"current_event_id"`
-	IsDeleted        int     `json:"is_deleted"`
-	IsSettled        int     `json:"is_settled"`
-	AcceptedAt       *int64  `json:"accepted_at"`
-	DisputedAt       *int64  `json:"disputed_at"`
-	DisputedReason   *string `json:"disputed_reason"`
-	SettledAt        *int64  `json:"settled_at"`
+	ID               string      `json:"id"`
+	VaultID          string      `json:"vault_id"`
+	RelationshipID   string      `json:"relationship_id"`
+	Type             string      `json:"type"`
+	AmountAFN        json.Number `json:"amount_afn"`
+	Note             *string     `json:"note"`
+	CreatedAt        int64       `json:"created_at"`
+	UpdatedAt        int64       `json:"updated_at"`
+	DeletedAt        *int64      `json:"deleted_at"`
+	ProposedByUserID *string     `json:"proposed_by_user_id"`
+	CurrentEventID   *string     `json:"current_event_id"`
+	IsDeleted        int         `json:"is_deleted"`
+	IsSettled        int         `json:"is_settled"`
+	AcceptedAt       *int64      `json:"accepted_at"`
+	DisputedAt       *int64      `json:"disputed_at"`
+	DisputedReason   *string     `json:"disputed_reason"`
+	SettledAt        *int64      `json:"settled_at"`
 }
 
 // LatestSnapshot returns the most recent vault_snapshots row for vaultID,

@@ -112,7 +112,9 @@ prerequisites must land before the feature ships). Read this before building it.
 
 **The core schema is sound — do NOT rebuild it:**
 
-- Money is `INTEGER` (`entries.amount_afn`) — no float, no rounding drift.
+- Money keeps major-unit values in `entries.amount_afn`, including cents;
+  arithmetic uses integer hundredths. Do not rescale historical values or
+  rewrite signed events. See [decimal-amounts.md](decimal-amounts.md).
 - Each entry already carries a real, editable **transaction date**
   (`occurred_at_ms` in the event payload) distinct from `created_at` — so
   importing historical rows can keep their true dates.

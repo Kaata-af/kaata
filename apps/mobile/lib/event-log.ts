@@ -52,6 +52,8 @@ import type {
 } from "./events";
 import { applyEvent } from "./projection";
 import type { EntryType } from "./types";
+import { parseAmountInput } from "./money";
+import { signedEntryMinorSumSql } from "./money-sql";
 
 // Re-exported so existing callers that do `import { applyEvent,
 // _dispatchProjectionApplier } from "./event-log"` keep compiling. New code
@@ -147,6 +149,12 @@ export async function appendEntryCreated(args: {
   note: string | null;
   occurredAtMs?: number;
 }): Promise<{ event_id: string; entry_id: string }> {
+  if (
+    typeof args.amountAfn !== "number" ||
+    parseAmountInput(String(args.amountAfn)) !== args.amountAfn
+  ) {
+    throw new Error("Invalid entry amount");
+  }
   const entryId = Crypto.randomUUID();
   const eventId = Crypto.randomUUID();
   const occurredAtMs = args.occurredAtMs ?? Date.now();
@@ -257,10 +265,7 @@ export async function appendEntrySettled(args: {
     // is enforced where it can't race.
     preflightAbort: async (tx) => {
       const row = await tx.getFirstAsync<{ bal: number }>(
-        `SELECT COALESCE(SUM(CASE
-             WHEN deleted_at IS NULL AND type = 'debt' THEN amount_afn
-             WHEN deleted_at IS NULL AND type = 'payment' THEN -amount_afn
-             ELSE 0 END), 0) AS bal
+        `SELECT ${signedEntryMinorSumSql()} AS bal
            FROM entries WHERE relationship_id = ?`,
         args.relationshipId,
       );
@@ -296,6 +301,13 @@ export async function appendEntryAmended(args: {
     occurred_at_ms: number;
   }>;
 }): Promise<{ event_id: string } | null> {
+  if (
+    args.changes.amount_afn !== undefined &&
+    (typeof args.changes.amount_afn !== "number" ||
+      parseAmountInput(String(args.changes.amount_afn)) !== args.changes.amount_afn)
+  ) {
+    throw new Error("Invalid entry amount");
+  }
   // Drop explicit-undefined keys so JSON round-trip and projection get the
   // same shape ("note: undefined" would survive in-process as a present key
   // but be stripped by JSON.stringify on persistence — leading to inconsistent

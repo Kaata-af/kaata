@@ -46,6 +46,7 @@ import type {
 } from "./types";
 import { KAATA_UUID_NAMESPACE, uuidv5 } from "./uuid-v5";
 import { serializeHLC } from "./hlc";
+import { signedEntryMinorSumSql } from "./money-sql";
 
 // Re-exported from db-tx.ts so existing call sites (`import { getDb } from
 // "./db"`) keep compiling unchanged. The handle/singleton lives in db-tx.ts
@@ -3713,11 +3714,7 @@ async function selectAllPeopleRaw(db: SQLite.SQLiteDatabase): Promise<PersonWith
             u.phone_e164    AS phone,
             u.created_at    AS created_at,
             r.archived_at   AS archived_at,
-            COALESCE(SUM(CASE
-              WHEN e.deleted_at IS NULL AND e.type = 'debt' THEN e.amount_afn
-              WHEN e.deleted_at IS NULL AND e.type = 'payment' THEN -e.amount_afn
-              ELSE 0
-            END), 0) AS balance,
+            (${signedEntryMinorSumSql("e")}) / 100.0 AS balance,
             MAX(CASE WHEN e.deleted_at IS NULL THEN e.created_at END) AS last_entry_at,
             -- Type of the most-recent non-deleted entry. Only meaningful for a
             -- SETTLED person (balance 0): that entry is the one that zeroed them,
@@ -3735,10 +3732,7 @@ async function selectAllPeopleRaw(db: SQLite.SQLiteDatabase): Promise<PersonWith
             -- is NOT settled — only the user's own settle act is. NULL
             -- comparison (no settlements) falls to ELSE 0.
             CASE
-              WHEN COALESCE(SUM(CASE
-                     WHEN e.deleted_at IS NULL AND e.type = 'debt' THEN e.amount_afn
-                     WHEN e.deleted_at IS NULL AND e.type = 'payment' THEN -e.amount_afn
-                     ELSE 0 END), 0) = 0
+              WHEN ${signedEntryMinorSumSql("e")} = 0
                AND (SELECT MAX(s.settled_at_ms) FROM settlements s
                      WHERE s.relationship_id = r.id)
                    >= COALESCE(MAX(CASE WHEN e.deleted_at IS NULL THEN e.created_at END), 0)
@@ -3805,11 +3799,7 @@ export async function getPerson(id: string): Promise<PersonWithBalance | null> {
             u.phone_e164    AS phone,
             u.created_at    AS created_at,
             r.archived_at   AS archived_at,
-            COALESCE(SUM(CASE
-              WHEN e.deleted_at IS NULL AND e.type = 'debt' THEN e.amount_afn
-              WHEN e.deleted_at IS NULL AND e.type = 'payment' THEN -e.amount_afn
-              ELSE 0
-            END), 0) AS balance,
+            (${signedEntryMinorSumSql("e")}) / 100.0 AS balance,
             MAX(CASE WHEN e.deleted_at IS NULL THEN e.created_at END) AS last_entry_at
      FROM relationships r
      INNER JOIN users u ON u.id = r.user_b_id
@@ -3853,11 +3843,7 @@ export async function listArchivedPeople(vaultId: string): Promise<ArchivedPerso
   return db.getAllAsync<ArchivedPersonRow>(
     `SELECT u.id           AS id,
             u.display_name AS name,
-            COALESCE(SUM(CASE
-              WHEN e.deleted_at IS NULL AND e.type = 'debt' THEN e.amount_afn
-              WHEN e.deleted_at IS NULL AND e.type = 'payment' THEN -e.amount_afn
-              ELSE 0
-            END), 0) AS balance,
+            (${signedEntryMinorSumSql("e")}) / 100.0 AS balance,
             COUNT(CASE WHEN e.deleted_at IS NULL THEN 1 END) AS entry_count,
             MAX(r.archived_at) AS archived_at
      FROM relationships r

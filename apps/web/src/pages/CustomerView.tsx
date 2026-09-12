@@ -299,7 +299,10 @@ function pickLabels(locale: string) {
 
 function fmtAmount(n: number, rtl: boolean): string {
   try {
-    return Math.abs(n).toLocaleString(rtl ? "fa-AF" : undefined);
+    return Math.abs(n).toLocaleString(rtl ? "fa-AF" : "en-US", {
+      minimumFractionDigits: Number.isInteger(n) ? 0 : 2,
+      maximumFractionDigits: 2,
+    });
   } catch {
     return String(Math.abs(n));
   }
@@ -490,11 +493,15 @@ function Ledger({ data: d }: { data: SharedLedger }) {
   const [showSettled, setShowSettled] = useState(false);
   const currentEntries = boundary == null ? d.entries : d.entries.filter((e) => e.date > boundary);
   const settledEntries = boundary == null ? [] : d.entries.filter((e) => e.date <= boundary);
-  const chapterSum = currentEntries.reduce(
-    (sum, e) => sum + (e.type === "payment" ? -e.amount : e.amount),
-    0,
-  );
-  const coherent = chapterSum === d.balance;
+  // Match the app and SSR renderer: sum integer hundredths, never binary
+  // fractions. An unsafe/invalid amount must leave the full history visible.
+  const chapterSum = currentEntries.reduce((sum, e) => {
+    const minor = typeof e.amount === "number" ? Math.round(e.amount * 100) : NaN;
+    const next = sum + (e.type === "payment" ? -minor : minor);
+    return Number.isSafeInteger(minor) && Number.isSafeInteger(next) ? next : NaN;
+  }, 0);
+  const balanceMinor = typeof d.balance === "number" ? Math.round(d.balance * 100) : NaN;
+  const coherent = Number.isSafeInteger(balanceMinor) && chapterSum === balanceMinor;
   const collapsed = coherent && !showSettled;
   const shownEntries = collapsed ? currentEntries : d.entries;
 

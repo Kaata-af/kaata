@@ -21,7 +21,7 @@ func localizeNum(s string) string {
 		case r == ',':
 			b.WriteRune('٬') // U+066C arabic thousands separator
 		case r == '.':
-			b.WriteRune('٫') // U+066B arabic decimal separator (rare — AFN is whole)
+			b.WriteRune('٫') // U+066B arabic decimal separator
 		default:
 			b.WriteRune(r)
 		}
@@ -29,15 +29,22 @@ func localizeNum(s string) string {
 	return b.String()
 }
 
-// absFmt formats |balance| with thousands separators and no trailing ".0".
+// absFmt formats |balance| with thousands separators and two decimal places
+// for fractional amounts (whole amounts retain their original appearance),
+// matching the inline and SPA bill renderers without rescaling stored amounts.
 func absFmt(v float64) string {
 	a := math.Abs(v)
-	// Integers are the common case (afghani). Keep up to 2 decimals otherwise.
+	precision := 2
 	if a == math.Trunc(a) {
-		return groupThousands(strconv.FormatInt(int64(a), 10))
+		precision = 0
 	}
-	s := strconv.FormatFloat(a, 'f', 2, 64)
-	return s
+	s := strconv.FormatFloat(a, 'f', precision, 64)
+	whole, fraction, _ := strings.Cut(s, ".")
+	formatted := groupThousands(whole)
+	if fraction != "" {
+		formatted += "." + fraction
+	}
+	return formatted
 }
 
 func groupThousands(s string) string {
@@ -260,7 +267,8 @@ a{color:inherit;text-decoration:none;}
       try{return new Date(ms).toLocaleDateString(rtl?'fa-AF':undefined,{year:'numeric',month:'short',day:'numeric'});}catch(e2){return '';}
     }
   }
-  function fmtAmt(n){try{return Math.abs(n).toLocaleString(rtl?'fa-AF':undefined);}catch(e){return Math.abs(n);}}
+  function fmtAmt(n){try{return Math.abs(n).toLocaleString(rtl?'fa-AF':'en-US',{minimumFractionDigits:Number.isInteger(n)?0:2,maximumFractionDigits:2});}catch(e){return Math.abs(n);}}
+  function moneyMinor(n){var minor=typeof n==='number'?Math.round(n*100):NaN;return Number.isSafeInteger(minor)?minor:NaN;}
   // Bill issue date at first paint (no fetch needed — server passed the ms).
   // 0 = pre-paper-rule snapshot without generated_at; leave the pill hidden.
   var genMs = {{.GeneratedAtMs}};
@@ -309,11 +317,15 @@ a{color:inherit;text-decoration:none;}
       for(var i=0;i<all.length;i++){
         (boundary != null && all[i].date <= boundary ? settled : current).push(all[i]);
       }
+      // Amounts stay in major units on the wire. Sum integer hundredths so
+      // 0.10 + 0.20 - 0.30 is settled, without float residuals opening history.
       var sum = 0;
       for(var j=0;j<current.length;j++){
-        sum += current[j].type === 'payment' ? -current[j].amount : current[j].amount;
+        var minor = moneyMinor(current[j].amount);
+        sum += current[j].type === 'payment' ? -minor : minor;
+        if(!Number.isSafeInteger(sum)){sum=NaN;break;}
       }
-      var coherent = (p && typeof p.balance === 'number') ? sum === p.balance : false;
+      var coherent = Number.isSafeInteger(sum) && p ? sum === moneyMinor(p.balance) : false;
       if(!coherent){ current = all; settled = []; }
       // Every dated boundary (newest first) for the expanded history's
       // ruled-off lines; older payloads carry only the single latest one.

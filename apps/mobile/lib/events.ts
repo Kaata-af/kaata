@@ -67,7 +67,7 @@ export type EntryCreatedEvent = EventEnvelope & {
     entry_id: string;
     relationship_id: string;
     type: EntryType; // 'debt' = I gave; 'payment' = I received
-    amount_afn: number;
+    amount_afn: number; // Major units, up to two decimals; never rescale old events.
     note: string | null;
     occurred_at_ms: number;
     // Optional backfill flags carried by migration 006 so that replaying the

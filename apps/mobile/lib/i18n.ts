@@ -295,7 +295,7 @@ const en = {
   "entry.edit.hint":
     'Direction can\'t be changed. To turn this into "{otherVerb}", delete this entry and add a new one.',
   "entry.notFound": "This entry no longer exists.",
-  "entry.invalidAmount": "Enter a valid amount",
+  "entry.invalidAmount": "Enter a positive amount with up to 2 decimal places",
   // D-DEFENSIVE-ARCHIVED-GUARD — surfaced when the active vault has been
   // archived by the user (locally) or via mesh between the screen load
   // and a create-flow tap.
@@ -1493,7 +1493,7 @@ const fa: Partial<Record<Key, string>> = {
   "entry.edit.hint":
     'جهت قابل تغییر نیست. برای تبدیل به "{otherVerb}" این ثبت را حذف کنید و یکی نو اضافه کنید.',
   "entry.notFound": "این ثبت دیگر وجود ندارد.",
-  "entry.invalidAmount": "یک مقدار درست وارد کنید",
+  "entry.invalidAmount": "یک مقدار مثبت با حداکثر ۲ رقم اعشار وارد کنید",
   "entry.noActiveVault": "کاتای فعال وجود ندارد. برای ادامه یک کاتا بسازید.",
   "entry.vaultArchived": "این کاتا بایگانی شده است. آن را بازیابی کنید یا کاتای دیگری انتخاب کنید.",
   "home.fab.blockedArchived":

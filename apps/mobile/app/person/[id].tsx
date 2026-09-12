@@ -40,6 +40,7 @@ import { useLedgerRefresh } from "../../lib/ledger-events";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
+import { sumAmounts } from "../../lib/money";
 import { getLocale, getShareLangPref, resolveShareLang, t, type LocaleCode } from "../../lib/i18n";
 import { formatSettlementDate } from "../../lib/jalali";
 import { useCalendar } from "../../lib/calendar";
@@ -115,11 +116,7 @@ export default function PersonDetailScreen() {
   // instead of hiding money. Nothing behind the fold can ever account for
   // the number in the header.
   const chapterSum = useMemo(
-    () =>
-      chapterEntries.reduce(
-        (sum, e) => sum + (e.type === "debt" ? e.amount_afn : -e.amount_afn),
-        0,
-      ),
+    () => sumAmounts(chapterEntries.map((e) => (e.type === "debt" ? e.amount_afn : -e.amount_afn))),
     [chapterEntries],
   );
   const chapterCoherent = person == null || chapterSum === person.balance;

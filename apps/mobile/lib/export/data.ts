@@ -26,6 +26,7 @@ import {
 import type { LocaleCode } from "../i18n";
 import { toJalali } from "../jalali";
 import type { Entry, PersonWithBalance, Self } from "../types";
+import { addAmounts } from "../money";
 
 export type StatementRow =
   | { kind: "entry"; entry: Entry; balanceAfter: number }
@@ -111,7 +112,7 @@ export async function buildPersonStatement(
     let consumed = 0;
     while (i < asc.length && asc[i].created_at <= boundary) {
       const entry = asc[i++];
-      running += signedAmount(entry);
+      running = addAmounts(running, signedAmount(entry));
       rows.push({ kind: "entry", entry, balanceAfter: running });
       consumed++;
     }
@@ -131,7 +132,7 @@ export async function buildPersonStatement(
   }
   while (i < asc.length) {
     const entry = asc[i++];
-    running += signedAmount(entry);
+    running = addAmounts(running, signedAmount(entry));
     rows.push({ kind: "entry", entry, balanceAfter: running });
   }
 
@@ -168,7 +169,7 @@ export async function buildVaultReport(
   const peopleById = new Map<string, ReportPerson>();
   const journal: JournalRow[] = entries.map((row) => {
     const prev = runningByPerson.get(row.person_id) ?? 0;
-    const next = prev + signedAmount(row);
+    const next = addAmounts(prev, signedAmount(row));
     runningByPerson.set(row.person_id, next);
     const p = peopleById.get(row.person_id);
     if (p) {
@@ -202,8 +203,8 @@ export async function buildVaultReport(
   let collect = 0;
   let pay = 0;
   for (const p of people) {
-    if (p.balance > 0) collect += p.balance;
-    else pay += -p.balance;
+    if (p.balance > 0) collect = addAmounts(collect, p.balance);
+    else pay = addAmounts(pay, -p.balance);
   }
 
   return {
@@ -211,7 +212,7 @@ export async function buildVaultReport(
     self,
     people,
     journal,
-    totals: { collect, pay, net: collect - pay },
+    totals: { collect, pay, net: addAmounts(collect, -pay) },
     currencyCode,
     currencySymbol: getCurrencySymbol(currencyCode),
     locale,

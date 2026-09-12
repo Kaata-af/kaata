@@ -2,11 +2,12 @@ import { getEffectiveCalendar } from "./calendar";
 import { getCurrentCurrencySymbol } from "./currency";
 import { getLocale, t } from "./i18n";
 import { formatCalendarDate } from "./jalali";
+import { formatMoneyAmount } from "./money";
 
 // Plain numeric formatter — thousands separator, no currency, no sign.
 // Pair with the chip/direction context to convey meaning.
 export function formatAmount(amount: number): string {
-  return Math.trunc(Math.abs(amount)).toLocaleString("en-US");
+  return formatMoneyAmount(amount);
 }
 
 // Numeric + current-currency-symbol suffix, unsigned. Used in callers that

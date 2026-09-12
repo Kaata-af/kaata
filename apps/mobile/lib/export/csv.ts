@@ -1,6 +1,6 @@
 // CSV builders. Pure table — no title/metadata rows above the header, so any
 // spreadsheet or future importer parses it without heuristics. Machine-clean
-// cells: ISO + Shamsi dates in ASCII digits, raw unseparated integers, and a
+// cells: ISO + Shamsi dates in ASCII digits, ungrouped decimal amounts, and a
 // stable entry id as the last column (the future import contract — dedupe key
 // once bulk import exists). Human-facing labels (headers, the settled ruled
 // line) render via tIn in the export's locale.

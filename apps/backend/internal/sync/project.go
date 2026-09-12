@@ -108,24 +108,24 @@ type LedgerEvent struct {
 // ---------- Per-entity payload structs ----------
 
 type entryCreatedPayload struct {
-	EntryID                string  `json:"entry_id"`
-	RelationshipID         string  `json:"relationship_id"`
-	Type                   string  `json:"type"`
-	AmountAFN              int64   `json:"amount_afn"`
-	Note                   *string `json:"note"`
-	OccurredAtMS           int64   `json:"occurred_at_ms"`
-	BackfillSynthetic      *bool   `json:"backfill_synthetic,omitempty"`
-	BackfillAcceptedAt     *int64  `json:"backfill_accepted_at,omitempty"`
-	BackfillDisputedAt     *int64  `json:"backfill_disputed_at,omitempty"`
-	BackfillDisputedReason *string `json:"backfill_disputed_reason,omitempty"`
-	BackfillSettledAt      *int64  `json:"backfill_settled_at,omitempty"`
+	EntryID                string      `json:"entry_id"`
+	RelationshipID         string      `json:"relationship_id"`
+	Type                   string      `json:"type"`
+	AmountAFN              json.Number `json:"amount_afn"`
+	Note                   *string     `json:"note"`
+	OccurredAtMS           int64       `json:"occurred_at_ms"`
+	BackfillSynthetic      *bool       `json:"backfill_synthetic,omitempty"`
+	BackfillAcceptedAt     *int64      `json:"backfill_accepted_at,omitempty"`
+	BackfillDisputedAt     *int64      `json:"backfill_disputed_at,omitempty"`
+	BackfillDisputedReason *string     `json:"backfill_disputed_reason,omitempty"`
+	BackfillSettledAt      *int64      `json:"backfill_settled_at,omitempty"`
 }
 
 // entryAmendedChanges uses json.RawMessage per field so we can distinguish
 // "field absent from changes" (do not amend) from "field present with null"
 // (amend to NULL).
 type entryAmendedChanges struct {
-	AmountAFN    *int64          `json:"amount_afn,omitempty"`
+	AmountAFN    *json.Number    `json:"amount_afn,omitempty"`
 	Note         json.RawMessage `json:"note,omitempty"`
 	Type         *string         `json:"type,omitempty"`
 	OccurredAtMS *int64          `json:"occurred_at_ms,omitempty"`
@@ -205,23 +205,27 @@ type RelationshipProjection struct {
 }
 
 type EntryProjection struct {
-	ID               string  `json:"id"`
-	VaultID          string  `json:"vault_id"`
-	RelationshipID   string  `json:"relationship_id"`
-	Type             string  `json:"type"`
-	AmountAFN        int64   `json:"amount_afn"`
-	Note             *string `json:"note"`
-	CreatedAt        int64   `json:"created_at"`
-	UpdatedAt        int64   `json:"updated_at"`
-	DeletedAt        *int64  `json:"deleted_at"`
-	ProposedByUserID string  `json:"proposed_by_user_id"`
-	AcceptedAt       *int64  `json:"accepted_at"`
-	DisputedAt       *int64  `json:"disputed_at"`
-	DisputedReason   *string `json:"disputed_reason"`
-	SettledAt        *int64  `json:"settled_at"`
-	CurrentEventID   string  `json:"current_event_id"`
-	IsDeleted        bool    `json:"is_deleted"`
-	IsSettled        bool    `json:"is_settled"`
+	ID             string `json:"id"`
+	VaultID        string `json:"vault_id"`
+	RelationshipID string `json:"relationship_id"`
+	Type           string `json:"type"`
+	// Keep the existing major-unit JSON number: 100 remains 100, while 12.34
+	// remains 12.34. Projection only copies LWW winners; json.Number avoids
+	// float rounding of old large integers and cent-scaling overflow. Signed
+	// event payloads are never rewritten. Money arithmetic belongs to clients.
+	AmountAFN        json.Number `json:"amount_afn"`
+	Note             *string     `json:"note"`
+	CreatedAt        int64       `json:"created_at"`
+	UpdatedAt        int64       `json:"updated_at"`
+	DeletedAt        *int64      `json:"deleted_at"`
+	ProposedByUserID string      `json:"proposed_by_user_id"`
+	AcceptedAt       *int64      `json:"accepted_at"`
+	DisputedAt       *int64      `json:"disputed_at"`
+	DisputedReason   *string     `json:"disputed_reason"`
+	SettledAt        *int64      `json:"settled_at"`
+	CurrentEventID   string      `json:"current_event_id"`
+	IsDeleted        bool        `json:"is_deleted"`
+	IsSettled        bool        `json:"is_settled"`
 
 	// Internal LWW bookkeeping. Per-field "winning HLC" so a later event
 	// touching a DIFFERENT field doesn't dethrone this field's value. Not

@@ -63,6 +63,7 @@ import { useLedgerRefresh } from "../lib/ledger-events";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { formatAmount } from "../lib/format";
+import { sumAmounts } from "../lib/money";
 import { t } from "../lib/i18n";
 import { icon, typography } from "../lib/tokens";
 import { useActiveVaultWriteCaps } from "../lib/use-vault-role";
@@ -1550,7 +1551,7 @@ function TabPage(props: {
   onPersonLongPress?: (person: PersonWithBalance) => void;
 }) {
   const isRTL = useIsRTL();
-  const total = props.people.reduce((sum, p) => sum + Math.abs(p.balance), 0);
+  const total = sumAmounts(props.people.map((p) => Math.abs(p.balance)));
   const active = props.people.filter((p) => p.balance !== 0).length;
   const totalLabel =
     props.direction === "collect" ? t("home.total.label.collect") : t("home.total.label.pay");
