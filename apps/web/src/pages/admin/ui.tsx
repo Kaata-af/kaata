@@ -98,19 +98,21 @@ export function Card(props: {
 }) {
   return (
     <section
-      className={`rounded-2xl border border-[#e4e7ec] bg-white p-5 shadow-[0_2px_8px_-4px_rgba(16,24,40,0.08)] ${props.className ?? ""}`}
+      className={`min-w-0 w-full max-w-full rounded-2xl border border-[#e4e7ec] bg-white p-4 shadow-[0_2px_8px_-4px_rgba(16,24,40,0.08)] sm:p-5 ${props.className ?? ""}`}
     >
       {props.title ? (
-        <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-[#101828]">
+        <div className="mb-4 flex min-w-0 flex-wrap items-start justify-between gap-3 sm:mb-5">
+          <div className="min-w-0 max-w-full">
+            <h2 className="break-words text-[15px] font-semibold tracking-[-0.01em] text-[#101828]">
               {props.title}
             </h2>
             {props.sub ? (
-              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-[#667085]">{props.sub}</p>
+              <p className="mt-1 max-w-2xl break-words text-xs leading-relaxed text-[#667085]">
+                {props.sub}
+              </p>
             ) : null}
           </div>
-          {props.action}
+          {props.action ? <div className="min-w-0 max-w-full">{props.action}</div> : null}
         </div>
       ) : null}
       {props.children}
@@ -120,13 +122,17 @@ export function Card(props: {
 
 // Pulse skeleton — one per card while its query is pending.
 export function Skeleton(props: { className?: string }) {
-  return <div className={`animate-pulse rounded-lg bg-[#f2f4f7] ${props.className ?? "h-24"}`} />;
+  return (
+    <div
+      className={`max-w-full animate-pulse rounded-lg bg-[#f2f4f7] ${props.className ?? "h-24"}`}
+    />
+  );
 }
 
 export function SkeletonCard(props: { lines?: number; className?: string }) {
   return (
     <div
-      className={`rounded-2xl border border-[#e4e7ec] bg-white p-5 ${props.className ?? ""}`}
+      className={`min-w-0 max-w-full rounded-2xl border border-[#e4e7ec] bg-white p-4 sm:p-5 ${props.className ?? ""}`}
       aria-label="Loading dashboard data"
       role="status"
     >
@@ -144,12 +150,12 @@ export function ErrorCard(props: { message: string; onRetry: () => void }) {
   return (
     <div
       role="alert"
-      className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-red-100 bg-red-50/50 p-5"
+      className="flex min-w-0 max-w-full flex-wrap items-center justify-between gap-4 rounded-2xl border border-red-100 bg-red-50/50 p-4 sm:p-5"
     >
-      <div className="text-sm text-[#475467]">{props.message}</div>
+      <div className="min-w-0 break-words text-sm text-[#475467]">{props.message}</div>
       <button
         onClick={props.onRetry}
-        className="shrink-0 rounded-lg border border-[#eaecf0] px-3 py-1.5 text-sm font-medium text-[#101828] hover:bg-[#f9fafb]"
+        className="min-h-11 shrink-0 rounded-lg border border-[#eaecf0] px-3 py-1.5 text-sm font-medium text-[#101828] hover:bg-[#f9fafb]"
       >
         Retry
       </button>
@@ -160,14 +166,16 @@ export function ErrorCard(props: { message: string; onRetry: () => void }) {
 // Section page header — title + one-line description, per the spec IA.
 export function PageHeader(props: { title: string; description: string; action?: ReactNode }) {
   return (
-    <header className="mb-7 flex flex-wrap items-start justify-between gap-4">
-      <div>
+    <header className="mb-5 flex min-w-0 max-w-full flex-wrap items-start justify-between gap-3 sm:mb-7 sm:gap-4">
+      <div className="min-w-0 max-w-full">
         <h1 className="text-2xl font-semibold tracking-[-0.035em] text-[#101828] sm:text-[30px]">
           {props.title}
         </h1>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[#667085]">{props.description}</p>
+        <p className="mt-2 max-w-2xl break-words text-sm leading-relaxed text-[#667085]">
+          {props.description}
+        </p>
       </div>
-      {props.action}
+      {props.action ? <div className="min-w-0 max-w-full">{props.action}</div> : null}
     </header>
   );
 }

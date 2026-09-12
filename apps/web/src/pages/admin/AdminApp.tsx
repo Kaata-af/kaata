@@ -103,11 +103,11 @@ export function AdminApp() {
 function KeyPrompt(props: { error: string | null; onSubmit: (key: string) => void }) {
   const [input, setInput] = useState("");
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#f6f7f9] p-5 sm:p-10">
+    <div className="flex min-h-screen min-w-0 items-center justify-center bg-[#f6f7f9] p-3 sm:p-10">
       <div className="grid w-full max-w-4xl overflow-hidden rounded-3xl border border-[#e4e7ec] bg-white shadow-xl shadow-[#101828]/5 md:grid-cols-2">
-        <div className="flex flex-col justify-between bg-[#112b24] p-8 text-white sm:p-12">
+        <div className="flex min-w-0 flex-col justify-between bg-[#112b24] p-6 text-white sm:p-12">
           <div className="text-3xl font-bold tracking-tight">kaata.</div>
-          <div className="my-10 md:my-20">
+          <div className="my-6 md:my-20">
             <p className="mb-4 text-xs font-medium uppercase tracking-[0.2em] text-[#a1c9b8]">
               Admin workspace
             </p>
@@ -123,7 +123,7 @@ function KeyPrompt(props: { error: string | null; onSubmit: (key: string) => voi
           <p className="text-xs text-[#a1c9b8]">Kaata · Built for everyday business.</p>
         </div>
         <form
-          className="flex flex-col justify-center gap-5 p-8 sm:p-12"
+          className="flex min-w-0 flex-col justify-center gap-5 p-6 sm:p-12"
           onSubmit={(e) => {
             e.preventDefault();
             if (input.trim()) props.onSubmit(input.trim());
@@ -152,7 +152,7 @@ function KeyPrompt(props: { error: string | null; onSubmit: (key: string) => voi
               placeholder="Enter your key"
               aria-invalid={!!props.error}
               aria-describedby={props.error ? "admin-key-error" : undefined}
-              className="w-full rounded-xl border border-[#d0d5dd] bg-white px-3.5 py-3 text-sm text-[#101828] outline-none transition focus:border-[#0c745a] focus:ring-4 focus:ring-[#0c745a]/10"
+              className="min-w-0 w-full rounded-xl border border-[#d0d5dd] bg-white px-3.5 py-3 text-base text-[#101828] outline-none transition focus:border-[#0c745a] focus:ring-4 focus:ring-[#0c745a]/10 sm:text-sm"
             />
           </div>
           <button
@@ -243,7 +243,7 @@ function Shell(props: { token: string; onSignOut: () => void; onUnauthorized: ()
   };
 
   return (
-    <div className="min-h-screen bg-[#f6f7f9] text-[#101828] lg:flex">
+    <div className="min-h-screen min-w-0 w-full bg-[#f6f7f9] text-[#101828] lg:flex">
       <a
         href="#admin-main"
         onClick={(event) => {
@@ -302,16 +302,16 @@ function Shell(props: { token: string; onSignOut: () => void; onUnauthorized: ()
           </button>
         </div>
       </aside>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 w-full lg:w-0 lg:flex-1">
         <header className="sticky top-0 z-20 border-b border-[#e4e7ec] bg-white/95 backdrop-blur">
-          <div className="flex min-h-[72px] items-center justify-between gap-3 px-4 sm:px-8">
-            <div className="flex items-center gap-3">
+          <div className="flex min-h-16 min-w-0 items-center justify-between gap-2 px-3 sm:min-h-[72px] sm:gap-3 sm:px-8">
+            <div className="flex min-w-0 items-center gap-3">
               <span className="text-xl font-bold tracking-tight lg:hidden">kaata.</span>
               <span className="hidden text-sm text-[#98a2b3] sm:inline">Workspace</span>
               <span className="hidden text-[#d0d5dd] sm:inline">/</span>
-              <span className="hidden text-sm font-medium sm:inline">{activeLabel}</span>
+              <span className="hidden truncate text-sm font-medium sm:inline">{activeLabel}</span>
             </div>
-            <div className="flex items-center gap-3 sm:gap-5">
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
               <span
                 role="status"
                 title={
@@ -330,25 +330,25 @@ function Shell(props: { token: string; onSignOut: () => void; onUnauthorized: ()
                     ? "Connecting"
                     : "Auto-refresh"}
               </span>
-              <div className="hidden sm:block">
+              <div className="hidden xl:block">
                 <Freshness compact />
               </div>
               <button
                 onClick={() => void refresh()}
                 disabled={isRefreshing}
-                className="flex items-center gap-2 rounded-lg border border-[#d0d5dd] bg-white px-3 py-2 text-xs font-medium text-[#344054] shadow-sm transition hover:bg-[#f9fafb] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0c745a] disabled:opacity-60"
+                className="flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-lg border border-[#d0d5dd] bg-white px-3 py-2 text-xs font-medium text-[#344054] shadow-sm transition hover:bg-[#f9fafb] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0c745a] disabled:opacity-60"
                 aria-label="Refresh dashboard"
               >
                 <AdminIcon
                   name="refresh"
                   className={`h-4 w-4 ${isRefreshing ? "animate-spin motion-reduce:animate-none" : ""}`}
                 />
-                <span>{isRefreshing ? "Updating" : "Refresh"}</span>
+                <span className="hidden sm:inline">{isRefreshing ? "Updating" : "Refresh"}</span>
               </button>
               <button
                 onClick={props.onSignOut}
                 aria-label="Sign out"
-                className="rounded-lg p-2 text-[#667085] hover:bg-[#f2f4f7] lg:hidden"
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-lg p-2 text-[#667085] hover:bg-[#f2f4f7] lg:hidden"
               >
                 <AdminIcon name="logout" className="h-4 w-4" />
               </button>
@@ -356,17 +356,19 @@ function Shell(props: { token: string; onSignOut: () => void; onUnauthorized: ()
           </div>
           <nav
             aria-label="Mobile navigation"
-            className="flex gap-1 overflow-x-auto px-3 pb-3 lg:hidden"
+            className="grid min-w-0 grid-cols-5 gap-1 px-2 pb-2 lg:hidden"
           >
             {SECTIONS.map((s) => (
               <button
                 key={s.id}
                 onClick={() => navigate(s.id)}
                 aria-current={section === s.id ? "page" : undefined}
-                className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium ${section === s.id ? "bg-[#eaf4ef] text-[#0c745a]" : "text-[#667085] hover:bg-[#f2f4f7]"}`}
+                aria-label={s.label}
+                className={`flex min-h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 text-[10px] font-medium sm:flex-row sm:gap-2 sm:text-xs ${section === s.id ? "bg-[#eaf4ef] text-[#0c745a]" : "text-[#667085] hover:bg-[#f2f4f7]"}`}
               >
                 <AdminIcon name={s.id} className="h-4 w-4" />
-                {s.label}
+                <span className="sm:hidden">{s.id === "acquisition" ? "Acquire" : s.label}</span>
+                <span className="hidden sm:inline">{s.label}</span>
               </button>
             ))}
           </nav>
@@ -374,7 +376,7 @@ function Shell(props: { token: string; onSignOut: () => void; onUnauthorized: ()
         <main
           id="admin-main"
           tabIndex={-1}
-          className="mx-auto max-w-[1440px] px-4 py-6 outline-none sm:px-8 sm:py-8 xl:px-10"
+          className="mx-auto min-w-0 w-full max-w-[1440px] px-3 py-5 outline-none sm:px-8 sm:py-8 xl:px-10"
         >
           {refreshError ? (
             <div

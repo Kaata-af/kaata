@@ -28,12 +28,12 @@ function sanitizeSlug(v: string): string {
 export function Campaigns() {
   const stats = useStats();
   return (
-    <div>
+    <div className="min-w-0 max-w-full">
       <PageHeader
         title="Campaigns"
         description="Create a trackable flyer link and see which campaigns bring installs."
       />
-      <div className="flex flex-col gap-4">
+      <div className="flex min-w-0 flex-col gap-4">
         <QrGeneratorCard />
         {stats.isPending ? (
           <SkeletonCard lines={4} />
@@ -114,7 +114,7 @@ function QrGeneratorCard() {
       title="Create a campaign QR"
       sub="Use a different campaign name for each location or flyer batch"
     >
-      <div className="flex flex-col gap-6 sm:flex-row">
+      <div className="flex min-w-0 flex-col gap-5 sm:flex-row sm:gap-6">
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           <label className="text-xs font-medium text-[#475467]" htmlFor="campaign-slug">
             Campaign name
@@ -127,7 +127,7 @@ function QrGeneratorCard() {
               setCopyState("idle");
             }}
             placeholder="e.g. mandawi-flyer-1"
-            className="w-full max-w-sm rounded-lg border border-[#d0d5dd] px-3 py-2.5 text-sm text-[#101828] placeholder-[#98a2b3] focus:border-[#0c745a] focus:outline-none focus:ring-2 focus:ring-[#0c745a]/15"
+            className="min-h-11 min-w-0 w-full max-w-sm rounded-lg border border-[#d0d5dd] px-3 py-2.5 text-base text-[#101828] placeholder-[#98a2b3] focus:border-[#0c745a] focus:outline-none focus:ring-2 focus:ring-[#0c745a]/15 sm:text-sm"
           />
           <label className="text-xs font-medium text-[#475467]" htmlFor="campaign-link">
             Campaign link
@@ -138,28 +138,28 @@ function QrGeneratorCard() {
             value={slug ? url : ""}
             placeholder="Enter a campaign name to create the link"
             onFocus={(e) => e.currentTarget.select()}
-            className="w-full rounded-lg border border-[#eaecf0] bg-[#f9fafb] px-3 py-2 font-mono text-xs text-[#475467] focus:outline focus:outline-2 focus:outline-[#0c745a]"
+            className="min-h-11 min-w-0 w-full rounded-lg border border-[#eaecf0] bg-[#f9fafb] px-3 py-2 font-mono text-base text-[#475467] focus:outline focus:outline-2 focus:outline-[#0c745a] sm:text-xs"
             dir="ltr"
           />
-          <div className="mt-1 flex flex-wrap gap-2">
+          <div className="mt-1 grid min-w-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             <button
               onClick={downloadSvg}
               disabled={!slug}
-              className="rounded-lg bg-[#0c745a] px-3 py-2 text-sm font-medium text-white hover:bg-[#095e49] disabled:cursor-not-allowed disabled:opacity-40"
+              className="min-h-11 min-w-0 rounded-lg bg-[#0c745a] px-2 py-2 text-sm font-medium text-white hover:bg-[#095e49] disabled:cursor-not-allowed disabled:opacity-40 sm:px-3"
             >
               Download SVG
             </button>
             <button
               onClick={downloadPng}
               disabled={!slug}
-              className="rounded-lg border border-[#d0d5dd] px-3 py-2 text-sm font-medium text-[#344054] hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
+              className="min-h-11 min-w-0 rounded-lg border border-[#d0d5dd] px-2 py-2 text-sm font-medium text-[#344054] hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40 sm:px-3"
             >
               Download PNG
             </button>
             <button
               onClick={() => void copyLink()}
               disabled={!slug}
-              className="rounded-lg border border-[#d0d5dd] px-3 py-2 text-sm font-medium text-[#344054] hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
+              className="col-span-2 min-h-11 min-w-0 rounded-lg border border-[#d0d5dd] px-2 py-2 text-sm font-medium text-[#344054] hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40 sm:px-3"
             >
               {copyState === "copied" ? "Copied" : "Copy link"}
             </button>
@@ -176,11 +176,20 @@ function QrGeneratorCard() {
             first check-in happens within 60 minutes on the same network.
           </p>
         </div>
-        <div ref={qrBoxRef} className="flex shrink-0 items-center justify-center">
+        <div
+          ref={qrBoxRef}
+          className="flex min-w-0 w-full max-w-[224px] shrink-0 items-center justify-center self-center"
+        >
           {slug ? (
-            <QRCodeSVG value={url} size={224} level="M" includeMargin className="rounded-lg" />
+            <QRCodeSVG
+              value={url}
+              size={224}
+              level="M"
+              includeMargin
+              className="h-auto max-w-full rounded-lg"
+            />
           ) : (
-            <div className="flex h-[224px] w-[224px] items-center justify-center rounded-lg border border-dashed border-[#eaecf0] px-6 text-center text-xs text-[#98a2b3]">
+            <div className="flex aspect-square w-full items-center justify-center rounded-lg border border-dashed border-[#eaecf0] px-5 text-center text-xs text-[#98a2b3]">
               Your campaign QR will appear here
             </div>
           )}
@@ -222,7 +231,7 @@ function PerformanceCard(props: { stats: Stats }) {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search sources…"
-          className="w-full rounded-lg border border-[#d0d5dd] px-3 py-2 text-sm text-[#344054] focus:border-[#0c745a] focus:outline-none focus:ring-2 focus:ring-[#0c745a]/15 sm:w-52"
+          className="min-h-11 min-w-0 w-full max-w-full rounded-lg border border-[#d0d5dd] px-3 py-2 text-base text-[#344054] focus:border-[#0c745a] focus:outline-none focus:ring-2 focus:ring-[#0c745a]/15 sm:w-52 sm:text-sm"
         />
       }
     >
@@ -238,7 +247,7 @@ function PerformanceCard(props: { stats: Stats }) {
           </p>
         </div>
       ) : (
-        <Table style={{ minWidth: 640 }}>
+        <Table className="min-w-0 max-w-full overscroll-x-contain" style={{ minWidth: 640 }}>
           <TableHead>
             <TableRow className="border-b border-[#eaecf0]">
               <TableHeaderCell className="px-0 py-2 text-xs text-[#98a2b3]">Source</TableHeaderCell>
@@ -267,8 +276,10 @@ function PerformanceCard(props: { stats: Stats }) {
           <TableBody>
             {rows.map((r) => (
               <TableRow key={r.source} className="border-b border-[#f2f4f7] last:border-0">
-                <TableCell className="px-0 py-2 text-sm font-medium text-[#101828]">
-                  {r.source === "(direct)" ? "Direct / untagged" : r.source}
+                <TableCell className="whitespace-normal px-0 py-3 pr-4 text-sm font-medium text-[#101828]">
+                  <span className="block max-w-52 break-words [overflow-wrap:anywhere]">
+                    {r.source === "(direct)" ? "Direct / untagged" : r.source}
+                  </span>
                 </TableCell>
                 <TableCell className="px-0 py-2 text-right text-sm tabular-nums text-[#475467]">
                   {fmtInt(r.visits)}

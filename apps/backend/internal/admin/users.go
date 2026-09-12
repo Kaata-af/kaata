@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // Operator user drill-down: who's actually using kaata. For each signed-in
@@ -73,7 +75,7 @@ type UserRow struct {
 	Kaatas         []UserKaata `json:"kaatas"`
 }
 
-// InstallRow is a device that has NOT signed in (account_id IS NULL). We have
+// InstallRow is a device with no known account binding. We have
 // install-level telemetry plus the shopkeeper's OWN self profile (name / phone /
 // shop, reported on check-in — migration 028) so the dashboard can show who's
 // using the app even without sign-in. The customer ledger still never leaves the
@@ -106,7 +108,7 @@ type InstallRow struct {
 
 type UsersResult struct {
 	Users []UserRow `json:"users"`
-	// AnonymousInstalls = devices that never signed in. Telemetry plus the
+	// AnonymousInstalls = devices with no unambiguous account binding. Telemetry plus the
 	// shopkeeper's own self profile reported on check-in (migration 028).
 	AnonymousInstalls []InstallRow `json:"anonymous_installs"`
 	SignedInCount     int          `json:"signed_in_count"`
@@ -126,17 +128,55 @@ type snapDoc struct {
 	} `json:"users"`
 }
 
+// Migration 006 populated auth_credentials.account_id without backfilling
+// installs.account_id. Authenticated check-in now repairs that link, but older
+// dormant installations can still have only the credential as evidence.
+// Resolve that proven link for this report without rewriting installation or
+// activity history. An explicit install binding wins; conflicting active
+// credential accounts remain unlinked. Names and self-reported phones are not
+// identity evidence. Every install-dependent query must use this same CTE.
+const userReportInstalls = `
+	WITH report_installs AS (
+		SELECT i.*, COALESCE(i.account_id, (
+			SELECT (array_agg(DISTINCT ac.account_id))[1]
+			FROM auth_credentials ac
+			WHERE ac.install_id = i.install_id AND ac.revoked_at IS NULL
+			HAVING COUNT(DISTINCT ac.account_id) = 1
+		)) AS resolved_account_id
+		FROM installs i
+	)
+`
+
 func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 	out := UsersResult{Users: []UserRow{}}
+	// Account linkage may change while this multi-query report is loading.
+	// Read all sections from one snapshot so an install cannot disappear
+	// between the account and anonymous lists (or appear in both on unlink).
+	// This groups only proven account links; matching names/phones do not prove
+	// that an older installation belongs to a signed-in account.
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{
+		IsoLevel:   pgx.RepeatableRead,
+		AccessMode: pgx.ReadOnly,
+	})
+	if err != nil {
+		return out, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	// 1. Accounts = the app's signed-in users (operator excluded).
 	byID := map[string]*UserRow{}
 	order := []string{}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := tx.Query(ctx, userReportInstalls+`
+		, account_last_seen AS (
+			SELECT resolved_account_id, MAX(last_seen_at) AS last_seen
+			FROM report_installs
+			WHERE resolved_account_id IS NOT NULL
+			GROUP BY resolved_account_id
+		)
 		SELECT a.id::text, COALESCE(a.name, ''), a.email, COALESCE(a.locale, ''),
-		       a.created_at, a.last_login_at,
-		       (SELECT MAX(i.last_seen_at) FROM installs i WHERE i.account_id = a.id) AS last_seen
+		       a.created_at, a.last_login_at, als.last_seen
 		FROM accounts a
+		LEFT JOIN account_last_seen als ON als.resolved_account_id = a.id
 		WHERE a.id::text <> ALL($1::text[])
 		ORDER BY last_seen DESC NULLS LAST, a.last_login_at DESC
 		LIMIT 1000
@@ -166,13 +206,15 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 		return out, err
 	}
 	// 1b. Fold device telemetry (platform, app version, install timeline, source)
-	//     from the installs table into each signed-in account. Best-effort.
-	s.enrichInstallTelemetry(ctx, byID)
+	//     from the installs table into each signed-in account.
+	if err := s.enrichInstallTelemetry(ctx, tx, byID); err != nil {
+		return out, err
+	}
 
 	// 2. Per-vault members (name/email/role) — built once, attached to every
 	//    member's kaata entry below.
 	members := map[string][]KaataMember{}
-	mrows, err := s.pool.Query(ctx, `
+	mrows, err := tx.Query(ctx, `
 		SELECT vm.vault_id::text, COALESCE(a.name, ''), a.email, vm.role
 		FROM vault_members vm
 		JOIN accounts a ON a.id = vm.account_id
@@ -200,7 +242,7 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 	//    tallies = created - deleted; net customers = added - archived.
 	type counts struct{ tallies, customers int64 }
 	vcounts := map[string]counts{}
-	crows, err := s.pool.Query(ctx, `
+	crows, err := tx.Query(ctx, `
 		SELECT vault_id::text,
 		  COUNT(*) FILTER (WHERE event_type = 'entry_created')
 		    - COUNT(*) FILTER (WHERE event_type = 'entry_deleted')  AS tallies,
@@ -228,7 +270,7 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 
 	// 4. Memberships → attach each kaata to its member account(s). A shared vault
 	//    legitimately appears under each member's list.
-	krows, err := s.pool.Query(ctx, `
+	krows, err := tx.Query(ctx, `
 		SELECT vm.account_id::text, v.vault_id::text, v.name, vm.role,
 		       (v.archived_at IS NOT NULL) AS archived
 		FROM vault_members vm
@@ -276,16 +318,20 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 	// 5. Best-effort: recover each shopkeeper's in-app name + phone from the
 	//    latest snapshot's self user. Missing/unparseable snapshots just leave
 	//    the fields blank — never an error (these are backed-up vaults only).
-	s.enrichLedgerIdentity(ctx, byID)
+	if err := s.enrichLedgerIdentity(ctx, tx, byID); err != nil {
+		return out, err
+	}
 
 	for _, id := range order {
 		out.Users = append(out.Users, *byID[id])
 	}
 
-	// 7. The "users without the ones signing in" — anonymous installs that never
-	//    created an account. Telemetry plus the self profile (name/phone/shop)
+	// 7. Installs with no proven account link. Telemetry plus the self profile (name/phone/shop)
 	//    the device reports on check-in regardless of sign-in.
-	out.AnonymousInstalls = s.fetchAnonymousInstalls(ctx)
+	out.AnonymousInstalls, err = s.fetchAnonymousInstalls(ctx, tx)
+	if err != nil {
+		return out, err
+	}
 
 	out.SignedInCount = len(out.Users)
 	out.AnonymousCount = len(out.AnonymousInstalls)
@@ -295,105 +341,119 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 	}
 	out.TotalInstalls = signedInInstalls + out.AnonymousCount
 	out.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
+	if err := tx.Commit(ctx); err != nil {
+		return out, err
+	}
 	return out, nil
 }
 
 // enrichInstallTelemetry folds device-level telemetry from the installs table
 // into each signed-in account: platform/version/source from the MOST RECENT
 // install, and timeline aggregates (install count, first install, last activity,
-// onboarded) across all the account's installs. Best-effort — a missing install
+// onboarded) across all the account's installs. A missing install
 // just leaves the fields blank. Operator accounts are already absent from byID,
 // so the unfiltered queries below only ever touch shown accounts.
-func (s *Service) enrichInstallTelemetry(ctx context.Context, byID map[string]*UserRow) {
+func (s *Service) enrichInstallTelemetry(ctx context.Context, tx pgx.Tx, byID map[string]*UserRow) error {
 	if len(byID) == 0 {
-		return
+		return nil
 	}
 	// Latest install per account → platform / version / source / locale fallback,
 	// plus the self profile (name/phone) the device reports on check-in. The self
 	// profile is a FALLBACK only: it fills LedgerName/LedgerPhone for accounts
 	// that signed in but never backed up a vault (so no snapshot to read from);
 	// the snapshot enrich below overrides it when a backed-up name/phone exists.
-	lrows, err := s.pool.Query(ctx, `
-		SELECT DISTINCT ON (account_id) account_id::text,
+	lrows, err := tx.Query(ctx, userReportInstalls+`
+		SELECT DISTINCT ON (resolved_account_id) resolved_account_id::text,
 		       COALESCE(platform, ''), COALESCE(app_version, ''),
 		       COALESCE(source, ''),
 		       COALESCE(NULLIF(app_locale, ''), COALESCE(device_locale, '')),
 		       COALESCE(self_name, ''), COALESCE(self_phone, ''),
 		       COALESCE(shop_name, '')
-		FROM installs
-		WHERE account_id IS NOT NULL
-		ORDER BY account_id, last_seen_at DESC NULLS LAST
+		FROM report_installs
+		WHERE resolved_account_id IS NOT NULL
+		ORDER BY resolved_account_id, last_seen_at DESC NULLS LAST
 	`)
-	if err == nil {
-		for lrows.Next() {
-			var acct, platform, ver, source, locale, selfName, selfPhone, shopName string
-			if lrows.Scan(&acct, &platform, &ver, &source, &locale, &selfName, &selfPhone, &shopName) != nil {
-				break
-			}
-			if u := byID[acct]; u != nil {
-				u.Platform = platform
-				u.AppVersion = ver
-				u.Source = source
-				if u.Locale == "" {
-					u.Locale = locale
-				}
-				if u.LedgerName == "" {
-					u.LedgerName = selfName
-				}
-				if u.LedgerPhone == "" {
-					u.LedgerPhone = selfPhone
-				}
-				// Installs are the only shop_name source (snapshots don't carry it).
-				u.ShopName = shopName
-			}
+	if err != nil {
+		return err
+	}
+	for lrows.Next() {
+		var acct, platform, ver, source, locale, selfName, selfPhone, shopName string
+		if err := lrows.Scan(&acct, &platform, &ver, &source, &locale, &selfName, &selfPhone, &shopName); err != nil {
+			lrows.Close()
+			return err
 		}
-		lrows.Close()
+		if u := byID[acct]; u != nil {
+			u.Platform = platform
+			u.AppVersion = ver
+			u.Source = source
+			if u.Locale == "" {
+				u.Locale = locale
+			}
+			if u.LedgerName == "" {
+				u.LedgerName = selfName
+			}
+			if u.LedgerPhone == "" {
+				u.LedgerPhone = selfPhone
+			}
+			// Installs are the only shop_name source (snapshots don't carry it).
+			u.ShopName = shopName
+		}
+	}
+	lrows.Close()
+	if err := lrows.Err(); err != nil {
+		return err
 	}
 	// Aggregates per account → install count, first install, last activity, onboarded.
-	arows, err := s.pool.Query(ctx, `
-		SELECT account_id::text, COUNT(*),
+	arows, err := tx.Query(ctx, userReportInstalls+`
+		SELECT resolved_account_id::text, COUNT(*),
 		       MIN(installed_at), MIN(first_seen_at), MAX(last_activity_at), bool_or(has_onboarded)
-		FROM installs
-		WHERE account_id IS NOT NULL
-		GROUP BY account_id
+		FROM report_installs
+		WHERE resolved_account_id IS NOT NULL
+		GROUP BY resolved_account_id
 	`)
-	if err == nil {
-		for arows.Next() {
-			var acct string
-			var cnt int64
-			var firstInstall, firstSeen, lastActivity *time.Time
-			var onboarded bool
-			if arows.Scan(&acct, &cnt, &firstInstall, &firstSeen, &lastActivity, &onboarded) != nil {
-				break
+	if err != nil {
+		return err
+	}
+	for arows.Next() {
+		var acct string
+		var cnt int64
+		var firstInstall, firstSeen, lastActivity *time.Time
+		var onboarded bool
+		if err := arows.Scan(&acct, &cnt, &firstInstall, &firstSeen, &lastActivity, &onboarded); err != nil {
+			arows.Close()
+			return err
+		}
+		if u := byID[acct]; u != nil {
+			u.InstallCount = int(cnt)
+			u.HasOnboarded = onboarded
+			if firstInstall != nil {
+				u.InstalledAt = firstInstall.UTC().Format(time.RFC3339)
 			}
-			if u := byID[acct]; u != nil {
-				u.InstallCount = int(cnt)
-				u.HasOnboarded = onboarded
-				if firstInstall != nil {
-					u.InstalledAt = firstInstall.UTC().Format(time.RFC3339)
-				}
-				if firstSeen != nil {
-					u.FirstSeen = firstSeen.UTC().Format(time.RFC3339)
-				}
-				if lastActivity != nil {
-					u.LastActivityAt = lastActivity.UTC().Format(time.RFC3339)
-				}
+			if firstSeen != nil {
+				u.FirstSeen = firstSeen.UTC().Format(time.RFC3339)
+			}
+			if lastActivity != nil {
+				u.LastActivityAt = lastActivity.UTC().Format(time.RFC3339)
 			}
 		}
-		arows.Close()
 	}
+	arows.Close()
+	if err := arows.Err(); err != nil {
+		return err
+	}
+	return nil
 }
 
-// fetchAnonymousInstalls returns every install that has not signed in
-// (account_id IS NULL). Carries device telemetry PLUS the shopkeeper's own
+// fetchAnonymousInstalls returns installs with no explicit account binding and
+// no unique active credential binding. Carries telemetry PLUS the shopkeeper's own
 // self profile (self_name/self_phone/shop_name, reported on every check-in
 // regardless of sign-in — migration 028) so the operator can identify and
 // reach offline-mode users. Never customer ledger data. These rows can't be
 // operator-filtered (no account, and installs don't store an IP), so a few of
 // the operator's own pre-sign-in test installs may appear here.
-func (s *Service) fetchAnonymousInstalls(ctx context.Context) []InstallRow {
+func (s *Service) fetchAnonymousInstalls(ctx context.Context, tx pgx.Tx) ([]InstallRow, error) {
 	out := []InstallRow{}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := tx.Query(ctx, userReportInstalls+`
 		SELECT install_id::text, COALESCE(platform, ''), COALESCE(app_version, ''),
 		       COALESCE(NULLIF(app_locale, ''), COALESCE(device_locale, '')),
 		       installed_at, first_seen_at, last_seen_at, last_activity_at,
@@ -401,25 +461,25 @@ func (s *Service) fetchAnonymousInstalls(ctx context.Context) []InstallRow {
 		       usage_entries_created, usage_customers_added, usage_shares_sent,
 		       check_in_count,
 		       COALESCE(self_name, ''), COALESCE(self_phone, ''), COALESCE(shop_name, '')
-		FROM installs
-		WHERE account_id IS NULL
+		FROM report_installs
+		WHERE resolved_account_id IS NULL
 		ORDER BY last_seen_at DESC NULLS LAST
 		LIMIT 1000
 	`)
 	if err != nil {
-		return out
+		return out, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var r InstallRow
 		var installedAt, lastActivity *time.Time
 		var firstSeen, lastSeen time.Time
-		if rows.Scan(&r.InstallID, &r.Platform, &r.AppVersion, &r.Locale,
+		if err := rows.Scan(&r.InstallID, &r.Platform, &r.AppVersion, &r.Locale,
 			&installedAt, &firstSeen, &lastSeen, &lastActivity,
 			&r.HasOnboarded, &r.Source, &r.Attribution,
 			&r.UsageEntries, &r.UsageCustomers, &r.UsageShares, &r.CheckInCount,
-			&r.SelfName, &r.SelfPhone, &r.ShopName) != nil {
-			return out
+			&r.SelfName, &r.SelfPhone, &r.ShopName); err != nil {
+			return out, err
 		}
 		r.FirstSeen = firstSeen.UTC().Format(time.RFC3339)
 		r.LastSeen = lastSeen.UTC().Format(time.RFC3339)
@@ -431,25 +491,25 @@ func (s *Service) fetchAnonymousInstalls(ctx context.Context) []InstallRow {
 		}
 		out = append(out, r)
 	}
-	return out
+	return out, rows.Err()
 }
 
 // enrichLedgerIdentity reads the latest snapshot per vault and, for its
 // self user, fills the owning account's ledger name + phone. Best-effort.
-func (s *Service) enrichLedgerIdentity(ctx context.Context, byID map[string]*UserRow) {
-	rows, err := s.pool.Query(ctx, `
+func (s *Service) enrichLedgerIdentity(ctx context.Context, tx pgx.Tx, byID map[string]*UserRow) error {
+	rows, err := tx.Query(ctx, `
 		SELECT DISTINCT ON (vault_id) snapshot
 		FROM vault_snapshots
 		ORDER BY vault_id, up_to_server_seq DESC
 	`)
 	if err != nil {
-		return
+		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var raw []byte
 		if err := rows.Scan(&raw); err != nil {
-			return
+			return err
 		}
 		var doc snapDoc
 		if json.Unmarshal(raw, &doc) != nil {
@@ -472,4 +532,5 @@ func (s *Service) enrichLedgerIdentity(ctx context.Context, byID map[string]*Use
 			}
 		}
 	}
+	return rows.Err()
 }

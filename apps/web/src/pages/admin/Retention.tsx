@@ -11,21 +11,21 @@ export function Retention() {
   const stats = useStats();
   const growth = useGrowth();
   return (
-    <div>
+    <div className="min-w-0 max-w-full">
       <PageHeader
         title="Retention"
         description="How often people return after their first check-in."
         action={
           <a
             href="#users?view=follow-up"
-            className="text-sm font-medium text-[#0c745a] hover:underline"
+            className="inline-flex min-h-11 max-w-full items-center text-sm font-medium text-[#0c745a] hover:underline"
           >
             Review follow-ups →
           </a>
         }
       />
       {stats.isPending ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
           {Array.from({ length: 3 }).map((_, i) => (
             <SkeletonCard key={i} lines={2} />
           ))}
@@ -36,7 +36,7 @@ export function Retention() {
         <DayNCards stats={stats.data} />
       )}
 
-      <div className="mt-4">
+      <div className="mt-4 min-w-0">
         {growth.isPending ? (
           <SkeletonCard lines={8} />
         ) : growth.isError ? (
@@ -58,22 +58,29 @@ function DayNCards(props: { stats: Stats }) {
   ];
   const any = rows.some((r) => r.elig > 0);
   return (
-    <div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+    <div className="min-w-0">
+      <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
         {rows.map((r) => (
-          <Card key={r.label} className="p-4">
-            <Text className="text-xs font-medium text-[#667085]">{r.label}</Text>
-            <Metric className="mt-1 tabular-nums">
-              {r.elig ? `${Math.round((r.ret / r.elig) * 100)}%` : "—"}
-            </Metric>
-            <Text className="mt-0.5 text-xs tabular-nums text-tremor-content-subtle">
-              {r.elig
-                ? `${fmtInt(r.ret)} of ${fmtInt(r.elig)} eligible installs`
-                : "No eligible installs yet"}
-            </Text>
-            <p className="mt-3 text-xs leading-5 text-[#667085]">
-              Checked in on day {r.day} after first seen.
-            </p>
+          <Card
+            key={r.label}
+            className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] items-center gap-x-3 sm:block"
+          >
+            <div className="min-w-0">
+              <Text className="text-xs font-medium text-[#667085]">{r.label}</Text>
+              <Metric className="mt-1 break-words text-2xl tabular-nums [overflow-wrap:anywhere] sm:text-3xl">
+                {r.elig ? `${Math.round((r.ret / r.elig) * 100)}%` : "—"}
+              </Metric>
+            </div>
+            <div className="min-w-0">
+              <Text className="break-words text-xs tabular-nums text-tremor-content-subtle [overflow-wrap:anywhere] sm:mt-0.5">
+                {r.elig
+                  ? `${fmtInt(r.ret)} of ${fmtInt(r.elig)} eligible installs`
+                  : "No eligible installs yet"}
+              </Text>
+              <p className="mt-1 text-xs leading-5 text-[#667085] sm:mt-3">
+                Checked in on day {r.day} after first seen.
+              </p>
+            </div>
           </Card>
         ))}
       </div>
@@ -117,7 +124,13 @@ function CohortGrid(props: { growth: Growth | null }) {
       title="Weekly cohorts"
       sub="Share of each install cohort that checked in during a later week"
     >
-      <div className="overflow-x-auto">
+      <p className="mb-2 text-xs text-[#667085] sm:hidden">Scroll across to see all weeks.</p>
+      <div
+        className="min-w-0 max-w-full overflow-x-auto overscroll-x-contain rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0c745a]"
+        tabIndex={0}
+        role="region"
+        aria-label="Weekly retention table; scroll horizontally for later weeks"
+      >
         <table
           className="w-full min-w-[720px] border-separate text-xs"
           style={{ borderSpacing: 3 }}

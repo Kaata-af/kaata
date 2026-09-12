@@ -693,7 +693,7 @@ export default function RootLayout() {
           <AppMetaProvider currentVersion={currentVersion}>
             <StatusBar style="dark" />
             <ForceDarkStatusBar />
-            {installId ? <BackgroundCheckIn installId={installId} /> : null}
+            {installId ? <BackgroundCheckIn /> : null}
             <AutoSync />
             {/* Phase 6: reactively starts mesh sync (BLE primary +
                 opportunistic wifi upgrade) when account_id and
@@ -1605,7 +1605,7 @@ function ForceDarkStatusBar() {
   return null;
 }
 
-function BackgroundCheckIn({ installId }: { installId: string }) {
+function BackgroundCheckIn() {
   const { applyCheckIn } = useAppMeta();
   useEffect(() => {
     let cancelled = false;
@@ -1617,6 +1617,13 @@ function BackgroundCheckIn({ installId }: { installId: string }) {
       try {
         const netState = await Network.getNetworkStateAsync();
         if (!netState.isConnected) return;
+
+        // Switching accounts with a local-data wipe replaces app_meta without
+        // remounting the root. Resolve the current install for every run so the
+        // new profile cannot keep checking in under the boot-time install ID.
+        // A missing ID means a reset is in progress; never mint one here.
+        const installId = await getAppMeta("install_id");
+        if (!installId || cancelled) return;
 
         // Mythos crash-reporter: on this online pass, (1) queue the OS's
         // verdict for the previous process death + the trailing memory
@@ -1651,6 +1658,7 @@ function BackgroundCheckIn({ installId }: { installId: string }) {
           getInstalledAtUnixMs(),
           getLocalSelf(),
         ]);
+        if (cancelled || (await getAppMeta("install_id")) !== installId) return;
         const resp = await checkIn({
           install_id: installId,
           app_version: currentVersion,
@@ -1694,10 +1702,13 @@ function BackgroundCheckIn({ installId }: { installId: string }) {
           last_revocation_seen_at_ms:
             Object.keys(lastRevocationSeenAtMs).length > 0 ? lastRevocationSeenAtMs : undefined,
         });
+        // A reset during the network request must not consume the new
+        // install's pending counters or apply the previous install's response.
+        if (cancelled || (await getAppMeta("install_id")) !== installId) return;
         // Subtract only what we successfully sent. Concurrent bumps that
         // happened between readPendingUsage() and now ride the next check-in.
         await decrementPendingUsage(usage);
-        if (!cancelled) await applyCheckIn(resp);
+        if (!cancelled && (await getAppMeta("install_id")) === installId) await applyCheckIn(resp);
       } catch (err) {
         // Backend unreachable or slow — ignore, the app must work offline.
         // Engineering critique: in production we genuinely don't care
@@ -1744,6 +1755,6 @@ function BackgroundCheckIn({ installId }: { installId: string }) {
       sub.remove();
       unsubImmediate();
     };
-  }, [installId, applyCheckIn]);
+  }, [applyCheckIn]);
   return null;
 }

@@ -10,25 +10,28 @@ import { C, Card, ErrorCard, PageHeader, SkeletonCard, fmtInt, fmtPct } from "./
 export function Acquisition() {
   const stats = useStats();
   return (
-    <div>
+    <div className="min-w-0 max-w-full">
       <PageHeader
         title="Acquisition"
         description="Website reach, install activation, and the languages people use."
         action={
-          <a href="#campaigns" className="text-sm font-medium text-[#0c745a] hover:underline">
+          <a
+            href="#campaigns"
+            className="inline-flex min-h-11 items-center text-sm font-medium text-[#0c745a] hover:underline"
+          >
             View campaigns →
           </a>
         }
       />
       {stats.isPending ? (
-        <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
           <SkeletonCard lines={6} />
           <SkeletonCard lines={2} />
         </div>
       ) : stats.isError ? (
         <ErrorCard message="Couldn't load acquisition data." onRetry={() => void stats.refetch()} />
       ) : (
-        <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
           <FunnelCard stats={stats.data} />
           <LanguageCard stats={stats.data} />
         </div>
@@ -56,12 +59,14 @@ function FunnelCard(props: { stats: Stats }) {
   ];
   const max = Math.max(1, ...stages.map((st) => st.n));
   return (
-    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[0.8fr_1.2fr]">
+    <div className="grid min-w-0 grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
       <Card title="Website reach" sub="All-time recorded traffic">
-        <div className="grid grid-cols-2 gap-5 py-2">
+        <div className="grid min-w-0 grid-cols-2 gap-3 py-1 sm:gap-5 sm:py-2">
           {[{ label: "Web visits", n: s.visits }, clickStage].map((item) => (
-            <div key={item.label}>
-              <p className="text-3xl font-semibold tabular-nums text-[#101828]">{fmtInt(item.n)}</p>
+            <div key={item.label} className="min-w-0">
+              <p className="break-words text-2xl font-semibold tabular-nums text-[#101828] [overflow-wrap:anywhere] sm:text-3xl">
+                {fmtInt(item.n)}
+              </p>
               <p className="mt-1 text-sm text-[#667085]">{item.label}</p>
             </div>
           ))}
@@ -71,32 +76,38 @@ function FunnelCard(props: { stats: Stats }) {
           app installs are separate totals, not a matched conversion funnel.
         </p>
         <dl className="mt-4 space-y-2 text-xs text-[#667085]">
-          <div className="flex justify-between gap-3">
-            <dt>Raw visits</dt>
-            <dd className="tabular-nums">{fmtInt(s.raw_visits)}</dd>
+          <div className="flex flex-wrap justify-between gap-x-3 gap-y-1">
+            <dt className="min-w-0">Raw visits</dt>
+            <dd className="min-w-0 break-words tabular-nums [overflow-wrap:anywhere]">
+              {fmtInt(s.raw_visits)}
+            </dd>
           </div>
-          <div className="flex justify-between gap-3">
-            <dt>Bot / operator web hits excluded</dt>
-            <dd className="tabular-nums">{fmtInt(s.excluded_visits)}</dd>
+          <div className="flex flex-wrap justify-between gap-x-3 gap-y-1">
+            <dt className="min-w-0">Bot / operator web hits excluded</dt>
+            <dd className="min-w-0 break-words tabular-nums [overflow-wrap:anywhere]">
+              {fmtInt(s.excluded_visits)}
+            </dd>
           </div>
-          <div className="flex justify-between gap-3">
-            <dt>Operator installs excluded</dt>
-            <dd className="tabular-nums">{fmtInt(s.excluded_installs)}</dd>
+          <div className="flex flex-wrap justify-between gap-x-3 gap-y-1">
+            <dt className="min-w-0">Operator installs excluded</dt>
+            <dd className="min-w-0 break-words tabular-nums [overflow-wrap:anywhere]">
+              {fmtInt(s.excluded_installs)}
+            </dd>
           </div>
         </dl>
       </Card>
       <Card title="Install activation" sub="Count and share of all installs">
         {s.installs_total === 0 ? (
-          <p className="py-12 text-center text-sm text-[#667085]">
+          <p className="py-8 text-center text-sm text-[#667085] sm:py-12">
             Activation will appear after the first app check-in.
           </p>
         ) : (
           <div className="space-y-4">
             {stages.map((st) => (
               <div key={st.label}>
-                <div className="mb-1.5 flex items-center justify-between gap-3 text-sm">
-                  <span className="text-[#475467]">{st.label}</span>
-                  <span className="shrink-0 font-medium tabular-nums text-[#101828]">
+                <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
+                  <span className="min-w-0 text-[#475467]">{st.label}</span>
+                  <span className="min-w-0 break-words font-medium tabular-nums text-[#101828] [overflow-wrap:anywhere]">
                     {fmtInt(st.n)}{" "}
                     <span className="ml-2 text-xs font-normal text-[#667085]">
                       {fmtPct(st.n, s.installs_total)}
@@ -138,7 +149,7 @@ function LanguageCard(props: { stats: Stats }) {
           Language data will appear when devices check in.
         </p>
       ) : (
-        <div>
+        <div className="min-w-0">
           {/* Same runtime-vs-typing lag as the charts: CategoryBar accepts any
               CSS color at runtime but types only the named palette. */}
           <CategoryBar
@@ -146,14 +157,22 @@ function LanguageCard(props: { stats: Stats }) {
             colors={langs.map((l) => (LANG_META[l.locale] ?? LANG_META.unknown).color) as Color[]}
             showLabels={false}
           />
-          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm">
+          <div className="mt-3 flex min-w-0 flex-wrap gap-x-5 gap-y-2 text-sm">
             {langs.map((l) => {
               const meta = LANG_META[l.locale] ?? { label: l.locale, color: C.gray };
               return (
-                <span key={l.locale} className="flex items-center gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: meta.color }} />
-                  <span className="font-medium text-[#101828]">{meta.label}</span>
-                  <span className="tabular-nums text-[#98a2b3]">
+                <span
+                  key={l.locale}
+                  className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1.5"
+                >
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ background: meta.color }}
+                  />
+                  <span className="min-w-0 break-words font-medium text-[#101828] [overflow-wrap:anywhere]">
+                    {meta.label}
+                  </span>
+                  <span className="min-w-0 break-words tabular-nums text-[#98a2b3] [overflow-wrap:anywhere]">
                     {fmtInt(l.count)} ({fmtPct(l.count, total)})
                   </span>
                 </span>

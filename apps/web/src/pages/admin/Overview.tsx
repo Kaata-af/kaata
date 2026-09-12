@@ -9,23 +9,23 @@ export function Overview() {
   const stats = useStats(days);
   const growth = useGrowth();
   return (
-    <div>
+    <div className="min-w-0 max-w-full">
       <PageHeader
         title="Overview"
         description="Who is using Kaata, how often they return, and what they use."
         action={
           <a
             href="#users?view=follow-up"
-            className="inline-flex items-center gap-2 rounded-lg border border-[#d0d5dd] bg-white px-3.5 py-2 text-sm font-medium text-[#344054] hover:border-[#0c745a] hover:text-[#0c745a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0c745a]"
+            className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-lg border border-[#d0d5dd] bg-white px-3.5 py-2 text-sm font-medium text-[#344054] hover:border-[#0c745a] hover:text-[#0c745a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0c745a]"
           >
             Review follow-ups <span aria-hidden="true">→</span>
           </a>
         }
       />
       {stats.isPending ? (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <div className="grid min-w-0 grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-5">
           {Array.from({ length: 5 }).map((_, i) => (
-            <SkeletonCard key={i} lines={2} />
+            <SkeletonCard key={i} lines={2} className={i === 0 ? "col-span-2 lg:col-span-1" : ""} />
           ))}
         </div>
       ) : stats.isError ? (
@@ -36,19 +36,19 @@ export function Overview() {
       ) : (
         <KpiStrip stats={stats.data} />
       )}
-      <div className="mt-5">
+      <div className="mt-4 min-w-0 sm:mt-5">
         <Card
           title="Daily activity"
           sub={`Active devices and new installs · last ${stats.data?.points ?? days} days, including today`}
           action={
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:gap-3">
               {stats.isFetching && !stats.isPending ? (
                 <span role="status" className="text-xs text-[#667085]">
                   Updating…
                 </span>
               ) : null}
               <div
-                className="inline-flex rounded-lg border border-[#eaecf0] bg-[#f9fafb] p-1"
+                className="inline-flex max-w-full rounded-lg border border-[#eaecf0] bg-[#f9fafb] p-1"
                 role="group"
                 aria-label="Activity date range"
               >
@@ -58,7 +58,7 @@ export function Overview() {
                     type="button"
                     aria-pressed={days === range}
                     onClick={() => setDays(range)}
-                    className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#0c745a] ${days === range ? "bg-white text-[#0c745a] shadow-sm" : "text-[#667085] hover:text-[#101828]"}`}
+                    className={`min-h-10 rounded-md px-3 py-2 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#0c745a] ${days === range ? "bg-white text-[#0c745a] shadow-sm" : "text-[#667085] hover:text-[#101828]"}`}
                   >
                     {range} days
                   </button>
@@ -68,7 +68,7 @@ export function Overview() {
           }
         >
           {stats.isPending ? (
-            <div className="h-64 animate-pulse rounded-lg bg-[#f2f4f7]" />
+            <div className="h-56 min-w-0 animate-pulse rounded-lg bg-[#f2f4f7] sm:h-64" />
           ) : stats.isError ? (
             <ErrorCard
               message="The activity chart couldn't be loaded."
@@ -79,7 +79,7 @@ export function Overview() {
           )}
         </Card>
       </div>
-      <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
+      <div className="mt-4 grid min-w-0 grid-cols-1 gap-4 sm:mt-5 sm:gap-5 xl:grid-cols-2">
         {growth.isPending ? (
           <SkeletonCard lines={6} />
         ) : growth.isError ? (
@@ -110,8 +110,8 @@ export function Overview() {
 
 function KpiStrip({ stats: s }: { stats: Stats }) {
   return (
-    <div>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+    <div className="min-w-0">
+      <div className="grid min-w-0 grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-5">
         <Kpi label="Active today" value={fmtInt(s.dau)} sub="DAU · since Kabul midnight" headline />
         <Kpi label="Active · 7 days" value={fmtInt(s.wau)} sub="WAU · today + previous 6 days" />
         <Kpi label="Active · 30 days" value={fmtInt(s.mau)} sub="MAU · today + previous 29 days" />
@@ -132,14 +132,16 @@ function KpiStrip({ stats: s }: { stats: Stats }) {
 
 function Kpi(props: { label: string; value: string; sub: string; headline?: boolean }) {
   return (
-    <Card className={`p-4 ${props.headline ? "border-[#b7d9cc]" : ""}`}>
+    <Card
+      className={`min-w-0 ${props.headline ? "col-span-2 border-[#b7d9cc] lg:col-span-1" : ""}`}
+    >
       <Text className="text-xs font-medium text-[#667085]">{props.label}</Text>
       <Metric
-        className={`mt-2 text-3xl tabular-nums ${props.headline ? "text-[#0c745a]" : "text-[#101828]"}`}
+        className={`mt-1.5 break-words text-2xl tabular-nums [overflow-wrap:anywhere] sm:mt-2 sm:text-3xl ${props.headline ? "text-[#0c745a]" : "text-[#101828]"}`}
       >
         {props.value}
       </Metric>
-      <p className="mt-2 text-xs leading-5 text-[#667085]">{props.sub}</p>
+      <p className="mt-1.5 text-xs leading-5 text-[#667085] sm:mt-2">{props.sub}</p>
     </Card>
   );
 }
@@ -160,9 +162,9 @@ function ActivityChart({ stats: s }: { stats: Stats }) {
     "New installs": p.installs,
   }));
   return (
-    <div>
+    <div className="min-w-0 max-w-full">
       {!hasData ? (
-        <div className="flex h-64 flex-col items-center justify-center gap-2 text-center">
+        <div className="flex min-h-44 flex-col items-center justify-center gap-2 py-5 text-center sm:min-h-64">
           <p className="text-sm font-medium text-[#344054]">No activity in these {s.points} days</p>
           <p className="text-xs text-[#667085]">
             {s.points < 90
@@ -172,7 +174,7 @@ function ActivityChart({ stats: s }: { stats: Stats }) {
         </div>
       ) : (
         <AreaChart
-          className="h-64"
+          className="h-56 min-w-0 max-w-full sm:h-64"
           data={data}
           index="date"
           categories={["Active devices", "New installs"]}
@@ -209,14 +211,14 @@ function GrowthAccountingCard({ growth }: { growth: Growth | null }) {
       sub={`New, returning, and inactive installs · ${weeks.length || 11} completed weeks`}
     >
       {!hasData ? (
-        <div className="flex h-56 items-center justify-center px-5 text-center text-sm text-[#667085]">
+        <div className="flex min-h-40 items-center justify-center px-2 py-5 text-center text-sm text-[#667085] sm:min-h-56 sm:px-5">
           {growth === null
             ? "Weekly activity is currently unavailable."
             : "Completed weekly activity will appear here as devices check in."}
         </div>
       ) : (
         <BarChart
-          className="h-56"
+          className="h-56 min-w-0 max-w-full"
           data={data}
           index="week"
           categories={["Retained", "New", "Reactivated", "Churned"]}
@@ -242,11 +244,11 @@ function AdoptionCard({ growth, stats }: { growth: Growth | null; stats: Stats }
   return (
     <Card title="Feature usage" sub={`Reported across ${fmtInt(stats.installs_total)} installs`}>
       {!a ? (
-        <p className="py-12 text-center text-sm text-[#667085]">
+        <p className="py-8 text-center text-sm text-[#667085] sm:py-12">
           Feature usage is currently unavailable.
         </p>
       ) : (
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-4 sm:space-y-5">
           <AdoptionRow
             label="Signed in"
             n={a.signed_in}
@@ -259,15 +261,15 @@ function AdoptionCard({ growth, stats }: { growth: Growth | null; stats: Stats }
             total={stats.installs_total}
             color={C.green}
           />
-          <div className="grid grid-cols-2 gap-5 border-t border-[#eaecf0] pt-4">
-            <div>
-              <p className="text-2xl font-semibold tabular-nums text-[#101828]">
+          <div className="grid min-w-0 grid-cols-2 gap-3 border-t border-[#eaecf0] pt-4 sm:gap-5">
+            <div className="min-w-0">
+              <p className="break-words text-2xl font-semibold tabular-nums text-[#101828] [overflow-wrap:anywhere]">
                 {fmtInt(a.multi_member)}
               </p>
               <p className="mt-1 text-xs leading-5 text-[#667085]">Accounts in shared kaatas</p>
             </div>
-            <div>
-              <p className="text-2xl font-semibold tabular-nums text-[#101828]">
+            <div className="min-w-0">
+              <p className="break-words text-2xl font-semibold tabular-nums text-[#101828] [overflow-wrap:anywhere]">
                 {fmtInt(a.with_settlements)}
               </p>
               <p className="mt-1 text-xs leading-5 text-[#667085]">Kaatas using settle-up</p>
@@ -275,7 +277,7 @@ function AdoptionCard({ growth, stats }: { growth: Growth | null; stats: Stats }
           </div>
           <a
             href="#users?view=onboarding"
-            className="inline-flex items-center gap-2 text-xs font-medium text-[#0c745a] hover:underline"
+            className="inline-flex min-h-11 max-w-full items-center gap-2 text-xs font-medium text-[#0c745a] hover:underline"
           >
             Review unfinished onboarding <span aria-hidden="true">→</span>
           </a>
@@ -297,10 +299,10 @@ function AdoptionRow({
   color: string;
 }) {
   return (
-    <div>
-      <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-        <span className="text-[#344054]">{label}</span>
-        <span className="font-medium tabular-nums text-[#101828]">
+    <div className="min-w-0">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
+        <span className="min-w-0 text-[#344054]">{label}</span>
+        <span className="min-w-0 break-words font-medium tabular-nums text-[#101828] [overflow-wrap:anywhere]">
           {fmtInt(n)}{" "}
           <span className="ml-1 text-xs font-normal text-[#667085]">
             installs · {fmtPct(n, total)}

@@ -1,4 +1,4 @@
-﻿import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useStats, useUsers } from "./api";
 import { reportingDay } from "./dates";
 import { ErrorCard, PageHeader, SkeletonCard, fmtDate, fmtInt, lastSeenInfo } from "./ui";
@@ -24,9 +24,9 @@ import {
 
 const STORAGE_KEY = "kaata_admin_user_filters_v1";
 const FIELD =
-  "min-h-10 w-full rounded-lg border border-[#dce1e6] bg-white px-3 py-2 text-sm text-[#344054] outline-none transition focus:border-[#0c745a] focus:ring-2 focus:ring-[#0c745a]/10";
+  "min-h-11 min-w-0 w-full max-w-full rounded-lg border border-[#dce1e6] bg-white px-3 py-2 text-base text-[#344054] outline-none transition focus:border-[#0c745a] focus:ring-2 focus:ring-[#0c745a]/10 md:text-sm";
 const BUTTON =
-  "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#dce1e6] bg-white px-3 py-2 text-sm font-medium text-[#344054] transition hover:border-[#aebbb5] hover:bg-[#f8faf9] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c745a] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40";
+  "inline-flex min-h-11 min-w-11 max-w-full items-center justify-center gap-2 rounded-lg border border-[#dce1e6] bg-white px-3 py-2 text-sm font-medium text-[#344054] transition hover:border-[#aebbb5] hover:bg-[#f8faf9] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c745a] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40";
 const PAGE_SIZES = [25, 50, 100];
 const SORT_OPTIONS: [SortKey, string][] = [
   ["last_seen", "Last seen"],
@@ -264,7 +264,7 @@ export function Users() {
   };
 
   return (
-    <div>
+    <div className="min-w-0 w-full max-w-full">
       <PageHeader
         title="Users"
         description="Understand who is using kaata, find people to follow up with, and inspect their reported activity."
@@ -280,7 +280,7 @@ export function Users() {
         />
       ) : (
         <>
-          <div className="mb-6 grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <div className="mb-5 grid min-w-0 grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
             <SummaryCard
               label="Identified people"
               value={summary.known}
@@ -314,12 +314,12 @@ export function Users() {
             />
           </div>
           <section
-            className="overflow-hidden rounded-2xl border border-[#e3e7ec] bg-white shadow-[0_2px_8px_rgba(16,24,40,0.02)]"
+            className="min-w-0 w-full max-w-full rounded-2xl border border-[#e3e7ec] bg-white shadow-[0_2px_8px_rgba(16,24,40,0.02)]"
             aria-label="User directory"
           >
             <div className="border-b border-[#edf0f3] px-4 pt-5 sm:px-6">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
+                <div className="min-w-0 flex-1">
                   <h2 className="text-base font-semibold text-[#101828]">People directory</h2>
                   <p className="mt-1 text-xs leading-5 text-[#667085]">
                     One row per account or signed-out device. Expand a person for details.
@@ -329,23 +329,26 @@ export function Users() {
                   {fmtInt(allRows.length)} total rows
                 </span>
               </div>
-              <div className="mt-5 flex gap-1 overflow-x-auto" aria-label="Quick views">
+              <div
+                className="mt-4 grid min-w-0 grid-cols-2 gap-1 sm:flex sm:flex-wrap"
+                aria-label="Quick views"
+              >
                 {PRESETS.map((preset) => (
                   <button
                     key={preset.id}
                     onClick={() => applyPreset(preset.id)}
                     aria-pressed={selectedPreset === preset.id}
                     title={preset.description}
-                    className={`shrink-0 border-b-2 px-3 pb-3 pt-1 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0c745a] ${selectedPreset === preset.id ? "border-[#0c745a] text-[#0c745a]" : "border-transparent text-[#667085] hover:text-[#344054]"}`}
+                    className={`min-h-11 min-w-0 border-b-2 px-2 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0c745a] sm:px-3 ${selectedPreset === preset.id ? "border-[#0c745a] text-[#0c745a]" : "border-transparent text-[#667085] hover:text-[#344054]"}`}
                   >
                     {preset.label}
                   </button>
                 ))}
               </div>
             </div>
-            <div className="space-y-4 px-4 py-5 sm:px-6">
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <div className="relative flex-1">
+            <div className="min-w-0 space-y-3 px-3 py-4 sm:space-y-4 sm:px-6 sm:py-5">
+              <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2 sm:gap-3">
+                <div className="relative min-w-0">
                   <span className="pointer-events-none absolute left-3 top-3 text-[#98a2b3]">
                     <Icon name="search" />
                   </span>
@@ -357,7 +360,7 @@ export function Users() {
                       setSearch(event.target.value);
                       setPage(0);
                     }}
-                    placeholder="Search name, phone, email or shop…"
+                    placeholder="Search people…"
                     className={`${FIELD} pl-10`}
                   />
                 </div>
@@ -374,7 +377,10 @@ export function Users() {
                       {activeFilters.length}
                     </span>
                   ) : null}
-                  <Icon name="chevron" className={showFilters ? "rotate-180" : ""} />
+                  <Icon
+                    name="chevron"
+                    className={`hidden sm:block ${showFilters ? "rotate-180" : ""}`}
+                  />
                 </button>
               </div>
               {selectedPreset && selectedPreset !== "all" ? (
@@ -385,9 +391,9 @@ export function Users() {
               {showFilters ? (
                 <div
                   id="user-filters"
-                  className="rounded-xl border border-[#e6eaee] bg-[#f8fafb] p-4"
+                  className="min-w-0 max-w-full rounded-xl border border-[#e6eaee] bg-[#f8fafb] p-3 sm:p-4"
                 >
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {SELECTS.slice(0, 3).map((field) => (
                       <FilterSelect
                         key={field.key}
@@ -442,7 +448,7 @@ export function Users() {
                         ].map(([days, label]) => (
                           <button
                             key={days}
-                            className="rounded-md px-2 py-1 text-xs font-medium text-[#0c745a] hover:bg-[#e7f4ee] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c745a]"
+                            className="min-h-11 rounded-md px-2 py-1 text-xs font-medium text-[#0c745a] hover:bg-[#e7f4ee] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c745a]"
                             onClick={() => updateFilters(quickDateRange(Number(days), Date.now()))}
                           >
                             {label}
@@ -450,14 +456,14 @@ export function Users() {
                         ))}
                         <button
                           onClick={() => updateFilters({ from: "", to: "" })}
-                          className="rounded-md px-2 py-1 text-xs text-[#667085] hover:bg-[#edf0f3]"
+                          className="min-h-11 rounded-md px-2 py-1 text-xs text-[#667085] hover:bg-[#edf0f3]"
                         >
                           Any date
                         </button>
                       </div>
                     </div>
                     <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <label className="text-xs font-medium text-[#667085]">
+                      <label className="min-w-0 text-xs font-medium text-[#667085]">
                         From
                         <input
                           type="date"
@@ -469,7 +475,7 @@ export function Users() {
                           className={`${FIELD} mt-1`}
                         />
                       </label>
-                      <label className="text-xs font-medium text-[#667085]">
+                      <label className="min-w-0 text-xs font-medium text-[#667085]">
                         Through
                         <input
                           type="date"
@@ -498,33 +504,36 @@ export function Users() {
                 </div>
               ) : null}
               {activeFilters.length > 0 || search ? (
-                <div className="flex flex-wrap items-center gap-2" aria-label="Active filters">
+                <div
+                  className="flex min-w-0 flex-wrap items-center gap-2"
+                  aria-label="Active filters"
+                >
                   {activeFilters.map((chip) => (
                     <button
                       key={chip.key}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-[#d7e8df] bg-[#f0f8f4] px-2.5 py-1 text-xs text-[#0c745a] hover:bg-[#e1f1e8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c745a]"
+                      className="inline-flex min-h-11 min-w-0 max-w-full items-center gap-1.5 rounded-2xl border border-[#d7e8df] bg-[#f0f8f4] px-2.5 py-1 text-left text-xs text-[#0c745a] hover:bg-[#e1f1e8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c745a] md:min-h-8"
                       aria-label={`Remove ${chip.label} filter`}
                       onClick={() => updateFilters({ [chip.key]: DEFAULT_FILTERS[chip.key] })}
                     >
-                      {chip.label}
+                      <span className="min-w-0 [overflow-wrap:anywhere]">{chip.label}</span>
                       <Icon name="close" className="h-3 w-3" />
                     </button>
                   ))}
                   {search ? (
                     <button
-                      className="inline-flex items-center gap-1.5 rounded-full border border-[#e3e7ec] px-2.5 py-1 text-xs text-[#475467]"
+                      className="inline-flex min-h-11 min-w-0 max-w-full items-center gap-1.5 rounded-2xl border border-[#e3e7ec] px-2.5 py-1 text-xs text-[#475467] md:min-h-8"
                       onClick={() => {
                         setSearch("");
                         setPage(0);
                       }}
                       aria-label="Clear search"
                     >
-                      Search: <span className="max-w-40 truncate">{search}</span>
+                      Search: <span className="min-w-0 max-w-40 truncate">{search}</span>
                       <Icon name="close" className="h-3 w-3" />
                     </button>
                   ) : null}
                   <button
-                    className="px-1 py-1 text-xs font-medium text-[#667085] underline decoration-[#c6cdd5] underline-offset-4 hover:text-[#101828]"
+                    className="min-h-11 px-1 py-1 text-xs font-medium text-[#667085] underline decoration-[#c6cdd5] underline-offset-4 hover:text-[#101828]"
                     onClick={reset}
                   >
                     Reset all
@@ -533,7 +542,7 @@ export function Users() {
               ) : null}
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3 border-y border-[#edf0f3] bg-[#fafbfc] px-4 py-3 sm:px-6">
-              <p className="text-xs text-[#667085]" role="status">
+              <p className="min-w-0 text-xs leading-5 text-[#667085]" role="status">
                 <strong className="font-semibold tabular-nums text-[#344054]">
                   {fmtInt(result.matching.length)} matching rows
                 </strong>
@@ -542,12 +551,12 @@ export function Users() {
                 {fmtInt(result.unidentified)} unidentified
                 {result.hidden ? ` (${fmtInt(result.hidden)} hidden)` : ""}
               </p>
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-[#475467]">
+              <label className="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 text-xs text-[#475467]">
                 <input
                   type="checkbox"
                   checked={filters.includeUnidentified}
                   onChange={(event) => updateFilters({ includeUnidentified: event.target.checked })}
-                  className="h-4 w-4 rounded accent-[#0c745a]"
+                  className="h-4 w-4 shrink-0 rounded accent-[#0c745a]"
                 />
                 Include unidentified installs
               </label>
@@ -558,13 +567,13 @@ export function Users() {
                   ? `${currentPage * pageSize + 1}–${Math.min((currentPage + 1) * pageSize, sorted.length)} of ${fmtInt(sorted.length)} visible rows`
                   : "No visible rows"}
               </span>
-              <div className="flex items-center gap-2">
-                <label className="flex items-center gap-2 text-xs text-[#667085]">
+              <div className="flex min-w-0 max-w-full items-center gap-2">
+                <label className="flex min-w-0 items-center gap-2 text-xs text-[#667085]">
                   Sort by
                   <select
                     value={sortKey}
                     onChange={(event) => sortBy(event.target.value as SortKey)}
-                    className="rounded-md border border-[#dce1e6] bg-white py-1.5 pl-2 pr-6 text-xs text-[#344054] focus-visible:outline-[#0c745a]"
+                    className="min-h-11 min-w-0 max-w-full rounded-md border border-[#dce1e6] bg-white py-1.5 pl-2 pr-6 text-base text-[#344054] focus-visible:outline-[#0c745a] md:text-xs"
                   >
                     {SORT_OPTIONS.map(([key, label]) => (
                       <option key={key} value={key}>
@@ -574,7 +583,7 @@ export function Users() {
                   </select>
                 </label>
                 <button
-                  className="rounded-md p-1.5 text-[#667085] hover:bg-[#f2f4f7] focus-visible:outline-[#0c745a]"
+                  className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md p-1.5 text-[#667085] hover:bg-[#f2f4f7] focus-visible:outline-[#0c745a]"
                   aria-label={sortDesc ? "Sort ascending" : "Sort descending"}
                   title={sortDesc ? "Descending" : "Ascending"}
                   onClick={() => sortBy(sortKey)}
@@ -584,7 +593,7 @@ export function Users() {
               </div>
             </div>
             {pageRows.length ? (
-              <UsersTable
+              <UserResults
                 rows={pageRows}
                 now={now}
                 sortKey={sortKey}
@@ -636,7 +645,7 @@ export function Users() {
                   Rows per page
                   <select
                     aria-label="Rows per page"
-                    className="rounded-md border border-[#dce1e6] bg-white px-2 py-1.5 text-xs focus-visible:outline-[#0c745a]"
+                    className="min-h-11 rounded-md border border-[#dce1e6] bg-white px-2 py-1.5 text-base focus-visible:outline-[#0c745a] md:text-xs"
                     value={pageSize}
                     onChange={(event) => {
                       setPreferences((p) => ({ ...p, pageSize: Number(event.target.value) }));
@@ -650,7 +659,10 @@ export function Users() {
                     ))}
                   </select>
                 </label>
-                <nav aria-label="User directory pages" className="flex items-center gap-3">
+                <nav
+                  aria-label="User directory pages"
+                  className="flex max-w-full items-center gap-2 sm:gap-3"
+                >
                   <button
                     className={BUTTON}
                     disabled={currentPage === 0}
@@ -723,7 +735,7 @@ function FilterSelect(props: {
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="text-xs font-medium text-[#667085]">
+    <label className="min-w-0 max-w-full text-xs font-medium text-[#667085]">
       {props.label}
       <select
         className={`${FIELD} mt-1`}
@@ -749,15 +761,15 @@ function SummaryCard(props: {
   return (
     <button
       onClick={props.onClick}
-      className="group rounded-2xl border border-[#e3e7ec] bg-white p-4 text-left transition hover:border-[#9ec3b6] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c745a] sm:p-5"
+      className="group min-w-0 rounded-2xl border border-[#e3e7ec] bg-white p-3 text-left transition hover:border-[#9ec3b6] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c745a] sm:p-5"
     >
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-[#667085]">{props.label}</span>
-        <span className="rounded-lg bg-[#f0f6f3] p-2 text-[#0c745a]">
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <span className="min-w-0 text-xs font-medium leading-5 text-[#667085]">{props.label}</span>
+        <span className="hidden shrink-0 rounded-lg bg-[#f0f6f3] p-2 text-[#0c745a] sm:block">
           <Icon name={props.icon} />
         </span>
       </div>
-      <div className="mt-2 text-3xl font-semibold tracking-tight tabular-nums text-[#101828]">
+      <div className="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-[#101828] [overflow-wrap:anywhere] sm:text-3xl">
         {fmtInt(props.value)}
       </div>
       <p className="mt-1 text-[11px] leading-5 text-[#667085]">{props.sub}</p>
@@ -767,7 +779,7 @@ function SummaryCard(props: {
 function Pill(props: { children: ReactNode; tone?: "green" | "amber" | "gray" }) {
   return (
     <span
-      className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ${props.tone === "green" ? "bg-[#e8f5ed] text-[#116b4f]" : props.tone === "amber" ? "bg-[#fff4df] text-[#8c621a]" : "bg-[#f0f2f5] text-[#667085]"}`}
+      className={`inline-flex min-w-0 max-w-full items-center rounded-md px-2 py-0.5 text-[11px] font-medium [overflow-wrap:anywhere] ${props.tone === "green" ? "bg-[#e8f5ed] text-[#116b4f]" : props.tone === "amber" ? "bg-[#fff4df] text-[#8c621a]" : "bg-[#f0f2f5] text-[#667085]"}`}
     >
       {props.children}
     </span>
@@ -782,7 +794,7 @@ const HEADERS: { label: string; key?: SortKey; className?: string }[] = [
   { label: "Entries", key: "entries", className: "text-right" },
   { label: "Details" },
 ];
-function UsersTable(props: {
+type UserResultsProps = {
   rows: UserListRow[];
   now: number;
   sortKey: SortKey;
@@ -790,9 +802,149 @@ function UsersTable(props: {
   onSort: (key: SortKey) => void;
   expanded: Record<string, boolean>;
   onToggle: (id: string) => void;
-}) {
+};
+
+function UserResults(props: UserResultsProps) {
   return (
-    <div className="overflow-x-auto">
+    <>
+      <UserCards {...props} />
+      <UsersTable {...props} />
+    </>
+  );
+}
+
+// Phones get their own reading layout. The wide sortable table is only
+// displayed from md upward and can scroll inside its bounded container.
+function UserCards(props: UserResultsProps) {
+  return (
+    <div className="grid min-w-0 w-full max-w-full gap-3 border-t border-[#edf0f3] bg-[#f6f8f7] p-3 md:hidden">
+      {props.rows.map((row) => {
+        const open = !!props.expanded[row.id];
+        const detailsId = `user-card-details-${row.id}`;
+        const seenValid =
+          Number.isFinite(Date.parse(row.last_seen)) && Date.parse(row.last_seen) <= props.now;
+        const seen = seenValid
+          ? lastSeenInfo(row.last_seen)
+          : { label: "Not recorded", online: false };
+        return (
+          <article
+            key={row.id}
+            className="min-w-0 max-w-full rounded-xl border border-[#e0e7e3] bg-white p-4"
+            aria-label={displayName(row)}
+          >
+            <div className="flex min-w-0 items-start gap-3">
+              <span
+                aria-hidden="true"
+                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${isIdentified(row) ? "bg-[#edf4f0] text-[#0c745a]" : "bg-[#f0f2f5] text-[#98a2b3]"}`}
+              >
+                {initials(row)}
+              </span>
+              <div className="min-w-0 flex-1">
+                <h3
+                  className="text-sm font-semibold leading-6 text-[#101828] [overflow-wrap:anywhere]"
+                  dir="auto"
+                >
+                  {displayName(row)}
+                </h3>
+                {row.shop && row.shop !== displayName(row) ? (
+                  <p
+                    className="mt-0.5 text-xs leading-5 text-[#667085] [overflow-wrap:anywhere]"
+                    dir="auto"
+                  >
+                    {row.shop}
+                  </p>
+                ) : null}
+                <p
+                  className="mt-0.5 text-xs leading-5 text-[#667085] [overflow-wrap:anywhere]"
+                  dir="ltr"
+                >
+                  {row.phone || row.email || "No contact details"}
+                </p>
+              </div>
+            </div>
+            <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2">
+              <Pill tone={row.kind === "account" ? "green" : "gray"}>
+                {row.kind === "account" ? "Signed in" : "Signed out"}
+              </Pill>
+              <Pill tone={row.onboarded ? "gray" : "amber"}>
+                {row.onboarded ? "Onboarded" : "Not onboarded"}
+              </Pill>
+            </div>
+            <dl className="mt-4 grid min-w-0 grid-cols-2 gap-x-3 gap-y-3 border-y border-[#edf0f3] py-3">
+              <div className="min-w-0">
+                <dt className="text-[11px] text-[#667085]">Last seen</dt>
+                <dd className="mt-1 min-w-0 text-sm font-medium text-[#344054]">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    {seen.online ? (
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#0c745a]" />
+                    ) : null}
+                    <span className="[overflow-wrap:anywhere]">{seen.label}</span>
+                  </span>
+                  {seenValid ? (
+                    <span className="mt-0.5 block text-[11px] font-normal leading-5 text-[#667085] [overflow-wrap:anywhere]">
+                      {fmtDate(row.last_seen)}
+                    </span>
+                  ) : null}
+                </dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-[11px] text-[#667085]">Entries</dt>
+                <dd className="mt-1 text-sm font-semibold tabular-nums text-[#344054] [overflow-wrap:anywhere]">
+                  {fmtInt(row.entries)}
+                  <span className="mt-0.5 block text-[11px] font-normal text-[#667085]">
+                    {fmtInt(row.customers)} customers
+                  </span>
+                </dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-[11px] text-[#667085]">Installed</dt>
+                <dd className="mt-1 text-xs leading-5 text-[#475467] [overflow-wrap:anywhere]">
+                  {fmtDay(row.installed_day)}
+                </dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-[11px] text-[#667085]">Device</dt>
+                <dd className="mt-1 text-xs leading-5 text-[#475467] [overflow-wrap:anywhere]">
+                  {row.platform === "ios"
+                    ? "iOS"
+                    : row.platform === "android"
+                      ? "Android"
+                      : row.platform || "Unknown"}
+                  {row.version ? ` · v${row.version}` : ""}
+                </dd>
+              </div>
+            </dl>
+            <button
+              className="mt-2 flex min-h-11 min-w-0 w-full items-center justify-between gap-3 rounded-lg px-1 text-sm font-medium text-[#0c745a] focus-visible:outline-2 focus-visible:outline-[#0c745a]"
+              aria-expanded={open}
+              aria-controls={detailsId}
+              aria-label={`${open ? "Hide" : "Show"} details for ${displayName(row)}`}
+              onClick={() => props.onToggle(row.id)}
+            >
+              {open ? "Hide details" : "View details"}
+              <Icon name="chevron" className={open ? "rotate-180" : ""} />
+            </button>
+            {open ? (
+              <div className="mt-2 min-w-0 border-t border-[#e3ebe6] pt-4">
+                <UserDetails row={row} id={detailsId} />
+              </div>
+            ) : null}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function UsersTable(props: UserResultsProps) {
+  // Contain absolutely positioned sr-only labels inside the local scroll area.
+  return (
+    <div
+      className="relative hidden min-w-0 w-full max-w-full overflow-x-auto overscroll-x-contain focus-visible:outline-2 focus-visible:outline-[#0c745a] md:block"
+      role="region"
+      aria-label="Scrollable user table"
+      tabIndex={0}
+    >
       <table
         className="w-full min-w-[850px] border-collapse text-left"
         aria-label="Users and reported activity"
@@ -959,42 +1111,7 @@ function UsersTable(props: {
                       colSpan={HEADERS.length}
                       className="border-b border-[#e2e9e5] bg-[#f7faf8] px-5 py-5"
                     >
-                      <div id={detailsId} className="space-y-4">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <h3 className="text-sm font-semibold text-[#344054]">
-                              {displayName(row)}
-                            </h3>
-                            <p className="mt-1 text-xs text-[#667085]">
-                              {row.kind === "account"
-                                ? `Signed-in account · ${fmtInt(row.account?.install_count ?? 0)} linked devices`
-                                : "Signed-out device profile"}
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <Pill>{fmtInt(row.entries)} entries</Pill>
-                            <Pill>{fmtInt(row.customers)} customers</Pill>
-                            <Pill>
-                              {row.shares === null
-                                ? "Shares not reported per account"
-                                : `${fmtInt(row.shares)} shares`}
-                            </Pill>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 gap-3 border-y border-[#e3ebe6] py-3 text-xs sm:grid-cols-3">
-                          <Detail label="Phone" value={row.phone} />
-                          <Detail label="Email" value={row.email} />
-                          <Detail label="Shop" value={row.shop} />
-                          <Detail label="Language" value={row.locale} />
-                          <Detail label="Source" value={row.source} />
-                          <Detail label="Installed" value={fmtDay(row.installed_day)} />
-                        </div>
-                        {row.account ? (
-                          <AccountDetail u={row.account} />
-                        ) : row.install ? (
-                          <InstallDetail d={row.install} />
-                        ) : null}
-                      </div>
+                      <UserDetails row={row} id={detailsId} />
                     </td>
                   </tr>
                 ) : null}
@@ -1006,11 +1123,51 @@ function UsersTable(props: {
     </div>
   );
 }
+function UserDetails({ row, id }: { row: UserListRow; id: string }) {
+  return (
+    <div id={id} className="min-w-0 max-w-full space-y-4">
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 max-w-full">
+          <h3 className="text-sm font-semibold text-[#344054] [overflow-wrap:anywhere]" dir="auto">
+            {displayName(row)}
+          </h3>
+          <p className="mt-1 text-xs leading-5 text-[#667085]">
+            {row.kind === "account"
+              ? `Signed-in account · ${fmtInt(row.account?.install_count ?? 0)} linked devices`
+              : "Signed-out device profile"}
+          </p>
+        </div>
+        <div className="flex min-w-0 max-w-full flex-wrap gap-2">
+          <Pill>{fmtInt(row.entries)} entries</Pill>
+          <Pill>{fmtInt(row.customers)} customers</Pill>
+          <Pill>
+            {row.shares === null
+              ? "Shares not reported per account"
+              : `${fmtInt(row.shares)} shares`}
+          </Pill>
+        </div>
+      </div>
+      <div className="grid min-w-0 grid-cols-1 gap-3 border-y border-[#e3ebe6] py-3 text-xs sm:grid-cols-3">
+        <Detail label="Phone" value={row.phone} />
+        <Detail label="Email" value={row.email} />
+        <Detail label="Shop" value={row.shop} />
+        <Detail label="Language" value={row.locale} />
+        <Detail label="Source" value={row.source} />
+        <Detail label="Installed" value={fmtDay(row.installed_day)} />
+      </div>
+      {row.account ? (
+        <AccountDetail u={row.account} />
+      ) : row.install ? (
+        <InstallDetail d={row.install} />
+      ) : null}
+    </div>
+  );
+}
 function Detail(props: { label: string; value: string }) {
   return (
     <div className="min-w-0">
       <p className="text-[11px] font-medium text-[#667085]">{props.label}</p>
-      <p className="mt-1 break-words text-[#344054]" dir="auto">
+      <p className="mt-1 leading-5 text-[#344054] [overflow-wrap:anywhere]" dir="auto">
         {props.value || "Not provided"}
       </p>
     </div>

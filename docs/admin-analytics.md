@@ -43,6 +43,16 @@ signed-out install. These rows are not DAU or unique-person counts: an account
 can have several devices, and a person can have several signed-out installs.
 Unidentified installs are hidden by default, with explicit counts and a toggle.
 
+The report reads all account and install queries from one read-only,
+repeatable-read snapshot. A verified `installs.account_id` takes precedence.
+For legacy installs missing that column's value, exactly one distinct active
+credential account provides a fallback (migration 006 populated credentials
+without backfilling the install link). These devices appear under their account,
+including their timeline and telemetry, rather than as a second offline row.
+Ambiguous/revoked credentials, names, and self-reported phone numbers do not
+establish account ownership. Reinstalls without a surviving verified link remain
+separate; the report never rewrites identities or device activity history.
+
 Search matches names, shops, email addresses, and phone numbers, including
 Persian/Arabic digits. Filters combine sign-in status, onboarding, check-in
 recency, platform, language, acquisition source, app version, reported entries,
@@ -57,6 +67,20 @@ calendar-based definitions above. No messages are sent by these views.
 
 Only filter/sort/page-size preferences are stored in sessionStorage. Search
 text, expanded identities, and API results are not persisted there.
+
+On phones, profiles render as expandable cards. The desktop table and cohort
+grid scroll only inside their own containers. Keep the Users table scroll
+container positioned (`relative`): its absolutely positioned screen-reader-only
+column label otherwise escapes clipping and adds blank page width. Narrow-screen
+checks should compare the document's scroll width with its client width, including
+expanded filters/details and long unbroken profile text, rather than hiding page
+overflow globally.
+
+Mobile background check-in resolves the current install ID on every run, since
+an explicit account-switch wipe can replace `app_meta` while the root stays
+mounted. Checks around the request prevent a replaced install from applying its
+response to the new profile. This client fix takes effect with the next mobile
+release; deploying the admin report does not update installed mobile binaries.
 
 ## Live updates
 
