@@ -1,7 +1,7 @@
 import { getEffectiveCalendar } from "./calendar";
 import { getCurrentCurrencySymbol } from "./currency";
 import { getLocale, t } from "./i18n";
-import { formatCalendarDate } from "./jalali";
+import { faDigits, formatCalendarDate } from "./jalali";
 import { formatMoneyAmount } from "./money";
 
 // Plain numeric formatter — thousands separator, no currency, no sign.
@@ -30,11 +30,28 @@ export function formatDate(ms: number): string {
   return formatCalendarDate(ms, getLocale(), getEffectiveCalendar());
 }
 
+// Display only: use the same local date/calendar as the ledger, with an
+// unambiguous 24-hour clock down to seconds. Isolate the date and clock so
+// their order survives mixed Dari/Latin text; the stored epoch never changes.
+export function formatTimestamp(ms: number): string {
+  const date = new Date(ms);
+  if (!Number.isFinite(date.getTime())) return "";
+  const clock = [date.getHours(), date.getMinutes(), date.getSeconds()]
+    .map((part) => String(part).padStart(2, "0"))
+    .join(":");
+  const localClock = getLocale() === "fa" ? faDigits(clock) : clock;
+  return `\u2068${formatDate(ms)}\u2069 · \u2068${localClock}\u2069`;
+}
+
 // Human-friendly "5 minutes ago" / "3 days ago". Used on list rows where
 // exact dates would be visual noise — the long date form stays for entry
 // detail. Strings flow through t() so Persian users see "همین حالا" /
 // "۳ روز پیش" etc. on the same render as their language switch.
-export function formatRelative(ms: number, now: number = Date.now()): string {
+export function formatRelative(
+  ms: number,
+  now: number = Date.now(),
+  options: { alwaysRelative?: boolean } = {},
+): string {
   const diff = Math.max(0, now - ms);
   const minutes = Math.floor(diff / 60_000);
   if (minutes < 1) return t("format.justNow");
@@ -45,6 +62,6 @@ export function formatRelative(ms: number, now: number = Date.now()): string {
   if (days === 1) return t("format.yesterday");
   if (days < 7) return t("format.daysAgo", { n: days });
   const weeks = Math.floor(days / 7);
-  if (weeks < 5) return t("format.weeksAgo", { n: weeks });
+  if (weeks < 5 || options.alwaysRelative) return t("format.weeksAgo", { n: weeks });
   return formatDate(ms);
 }

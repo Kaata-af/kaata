@@ -2,10 +2,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { memo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
+import { useCalendar } from "../lib/calendar";
 import { getCurrentCurrencySymbol } from "../lib/currency";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
-import { formatAmount, formatRelative } from "../lib/format";
+import { formatAmount, formatRelative, formatTimestamp } from "../lib/format";
 import { t } from "../lib/i18n";
 import { radius } from "../lib/tokens";
 import type { Entry } from "../lib/types";
@@ -22,6 +23,7 @@ export const EntryRow = memo(function EntryRow(props: {
   onLongPress?: (entry: Entry) => void;
 }) {
   const isRTL = useIsRTL();
+  useCalendar(); // This memoized row must also refresh when its calendar changes.
   const { entry } = props;
   const isGave = entry.type === "debt";
   const icon = isGave ? "arrow-up-outline" : "arrow-down-outline";
@@ -39,11 +41,16 @@ export const EntryRow = memo(function EntryRow(props: {
   const [measured, setMeasured] = useState(false);
   const [clipped, setClipped] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [showTimestamp, setShowTimestamp] = useState(false);
+  const when = showTimestamp
+    ? formatTimestamp(entry.created_at)
+    : formatRelative(entry.created_at, Date.now(), { alwaysRelative: true });
+  const timestampAction = t(showTimestamp ? "entry.showRelativeTime" : "entry.showExactTime");
 
   return (
     <Pressable
-      // A plain TAP does nothing (a tally is informational); the edit/delete
-      // sheet opens only on TAP-AND-HOLD (Matee) — mirrors the home contact
+      // A row tap expands a clipped note; the date has its own independent
+      // toggle below. The edit/delete sheet stays on TAP-AND-HOLD — like contact
       // rows. delayLongPress 250ms so a quick tap doesn't accidentally trigger
       // it; Pressable cancels if the finger moves enough to start a scroll, so
       // it doesn't fight the list's vertical scroll.
@@ -51,6 +58,21 @@ export const EntryRow = memo(function EntryRow(props: {
       onLongPress={props.onLongPress ? () => props.onLongPress?.(entry) : undefined}
       delayLongPress={250}
       accessibilityRole="button"
+      // VoiceOver may group nested controls into this row. Expose the date
+      // toggle as an explicit action as well as its visual touch target.
+      accessibilityActions={[
+        { name: "toggleTimestamp", label: timestampAction },
+        ...(clipped
+          ? [{ name: "activate", label: t(expanded ? "common.less" : "common.more") }]
+          : []),
+        ...(props.onLongPress ? [{ name: "longpress", label: t("entry.options") }] : []),
+      ]}
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === "toggleTimestamp") setShowTimestamp((value) => !value);
+        else if (event.nativeEvent.actionName === "activate" && clipped)
+          setExpanded((value) => !value);
+        else if (event.nativeEvent.actionName === "longpress") props.onLongPress?.(entry);
+      }}
       style={({ pressed }) => [
         styles.row,
         rowDir(isRTL),
@@ -77,12 +99,33 @@ export const EntryRow = memo(function EntryRow(props: {
       <View style={styles.middle}>
         {/* Amount on the leading end, date on the trailing end — the arrow
             carries direction, so the verb label is gone. */}
-        <View style={[styles.topRow, rowDir(isRTL)]}>
+        <View style={[styles.topRow, rowDir(isRTL), showTimestamp && styles.topRowExpanded]}>
           <View style={[styles.amountRow, rowDir(isRTL)]}>
             <Text style={styles.amount}>{formatAmount(entry.amount_afn)}</Text>
             <Text style={styles.afn}>{getCurrentCurrencySymbol()}</Text>
           </View>
-          <Text style={styles.when}>{formatRelative(entry.created_at)}</Text>
+          <Pressable
+            onPress={(event) => {
+              event.stopPropagation();
+              setShowTimestamp((value) => !value);
+            }}
+            onLongPress={props.onLongPress ? () => props.onLongPress?.(entry) : undefined}
+            delayLongPress={250}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`${when}. ${timestampAction}`}
+            accessibilityState={{ expanded: showTimestamp }}
+            style={[
+              styles.whenToggle,
+              {
+                alignSelf: showTimestamp ? (isRTL ? "flex-start" : "flex-end") : "auto",
+                marginLeft: isRTL ? 0 : "auto",
+                marginRight: isRTL ? "auto" : 0,
+              },
+            ]}
+          >
+            <Text style={[styles.when, { textAlign: isRTL ? "left" : "right" }]}>{when}</Text>
+          </Pressable>
         </View>
         {entry.note ? (
           expanded ? (
@@ -154,13 +197,15 @@ const styles = StyleSheet.create({
   },
   iconWrapLTR: { marginRight: 12 },
   iconWrapRTL: { marginLeft: 12 },
-  middle: { flex: 1 },
+  middle: { flex: 1, minWidth: 0 },
   topRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    flexWrap: "wrap",
     gap: 10,
   },
+  topRowExpanded: { flexDirection: "column", alignItems: "stretch", gap: 2 },
   amountRow: { flexDirection: "row", alignItems: "baseline", gap: 4 },
   amount: {
     fontSize: 15,
@@ -174,11 +219,18 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansMedium,
     color: colors.textMuted,
   },
+  whenToggle: {
+    maxWidth: "100%",
+    flexShrink: 1,
+    minHeight: 28, // Compact ledger control; hitSlop adds padding within the row.
+    justifyContent: "center",
+  },
   when: {
     fontSize: 12,
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
-    flexShrink: 0,
+    lineHeight: sansLineHeight(12, 17),
+    textDecorationLine: "underline",
   },
   // Note + cue share one line; the cue trails the single-line (truncating) note.
   // alignItems:'center', NOT 'baseline' — a flex:1 child (the note wrapper)
