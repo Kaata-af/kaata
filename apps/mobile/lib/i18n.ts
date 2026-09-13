@@ -96,19 +96,14 @@ const en = {
     "Default for all amounts in this kaata. You can change it later in settings.",
   "onboardingKaata.submit": "Create my kaata",
 
-  // Onboarding completion (app/onboarding/success.tsx) — the game-style
-  // "you made it" moment after the first kaata is created. This is where
-  // the kaata concept lands: celebrate + show the shop name + one line of
-  // what-next. Replaced the concept-diagram approach (Matee: teaching
-  // belongs in a success message, not a mid-form card).
-  "onboardingSuccess.title": "Your kaata is ready!",
+  // Quiet confirmation after the first kaata is created, with one next step.
+  "onboardingSuccess.title": "Your kaata is ready",
   // These three strings used to name the home button by its glyph ("the +
   // button"). The glyph is now a rounded square, which carries no verb, so
   // they name the button's POSITION instead — see HOME_MARK_SIZE in
   // app/index.tsx. "Bottom right" is literally true in Persian too: the app
   // is locked LTR (_layout.tsx) and the FAB is a hard right-side invariant.
-  "onboardingSuccess.body":
-    "This is your shop's book. Add a tally for each customer with the button at the bottom right.",
+  "onboardingSuccess.body": "Add someone with the button at the bottom right.",
   "onboardingSuccess.cta": "Open my kaata",
 
   // Permanent guide screen (app/guide.tsx), linked from the settings sheet.
@@ -1326,11 +1321,10 @@ const fa: Partial<Record<Key, string>> = {
   "onboardingKaata.submit": "ساختن کاتا",
 
   // Onboarding completion (success screen)
-  "onboardingSuccess.title": "کاتای شما آماده است!",
+  "onboardingSuccess.title": "کاتای شما آماده است",
   // Position, not glyph — see the English block. The FAB is physically
   // bottom-right in Persian too (the app is locked LTR).
-  "onboardingSuccess.body":
-    "این دفتر دکان شماست. با دکمهٔ پایین سمت راست برای هر مشتری یک حساب اضافه کنید.",
+  "onboardingSuccess.body": "با دکمهٔ پایین سمت راست، یک نفر را اضافه کنید.",
   "onboardingSuccess.cta": "باز کردن کاتای من",
 
   // Permanent guide screen
