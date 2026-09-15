@@ -24,9 +24,9 @@ import {
 
 const STORAGE_KEY = "kaata_admin_user_filters_v1";
 const FIELD =
-  "min-h-11 min-w-0 w-full max-w-full rounded-lg border border-[#dce1e6] bg-white px-3 py-2 text-base text-[#344054] outline-none transition focus:border-[#0c745a] focus:ring-2 focus:ring-[#0c745a]/10 md:text-sm";
+  "min-h-11 min-w-0 w-full max-w-full rounded-lg border border-[#e5e5e5] bg-white px-3 py-2 text-base text-[#404040] outline-none transition focus:border-[#171717] focus:ring-2 focus:ring-[#171717]/10 md:text-sm";
 const BUTTON =
-  "inline-flex min-h-11 min-w-11 max-w-full items-center justify-center gap-2 rounded-lg border border-[#dce1e6] bg-white px-3 py-2 text-sm font-medium text-[#344054] transition hover:border-[#aebbb5] hover:bg-[#f8faf9] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c745a] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40";
+  "inline-flex min-h-11 min-w-11 max-w-full items-center justify-center gap-2 rounded-lg border border-[#e5e5e5] bg-white px-3 py-2 text-sm font-medium text-[#404040] transition hover:border-[#d4d4d4] hover:bg-[#fafafa] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#171717] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40";
 const PAGE_SIZES = [25, 50, 100];
 const SORT_OPTIONS: [SortKey, string][] = [
   ["last_seen", "Last seen"],
@@ -267,7 +267,7 @@ export function Users() {
     <div className="min-w-0 w-full max-w-full">
       <PageHeader
         title="Users"
-        description="Understand who is using kaata, find people to follow up with, and inspect their reported activity."
+        description="Who is using Kaata, on which devices, and what they have reported."
       />
       {users.isPending || stats.isPending ? (
         <SkeletonCard lines={10} />
@@ -314,18 +314,18 @@ export function Users() {
             />
           </div>
           <section
-            className="min-w-0 w-full max-w-full rounded-2xl border border-[#e3e7ec] bg-white shadow-[0_2px_8px_rgba(16,24,40,0.02)]"
+            className="min-w-0 w-full max-w-full rounded-xl border border-[#e5e5e5] bg-white shadow-sm"
             aria-label="User directory"
           >
-            <div className="border-b border-[#edf0f3] px-4 pt-5 sm:px-6">
+            <div className="border-b border-[#f5f5f5] px-4 pt-5 sm:px-6">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
-                  <h2 className="text-base font-semibold text-[#101828]">People directory</h2>
-                  <p className="mt-1 text-xs leading-5 text-[#667085]">
+                  <h2 className="text-base font-semibold text-[#171717]">People directory</h2>
+                  <p className="mt-1 text-xs leading-5 text-[#737373]">
                     One row per account or signed-out device. Expand a person for details.
                   </p>
                 </div>
-                <span className="rounded-full bg-[#f3f5f7] px-3 py-1 text-xs font-medium tabular-nums text-[#667085]">
+                <span className="rounded-full bg-[#f5f5f5] px-3 py-1 text-xs font-medium tabular-nums text-[#737373]">
                   {fmtInt(allRows.length)} total rows
                 </span>
               </div>
@@ -339,7 +339,7 @@ export function Users() {
                     onClick={() => applyPreset(preset.id)}
                     aria-pressed={selectedPreset === preset.id}
                     title={preset.description}
-                    className={`min-h-11 min-w-0 border-b-2 px-2 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0c745a] sm:px-3 ${selectedPreset === preset.id ? "border-[#0c745a] text-[#0c745a]" : "border-transparent text-[#667085] hover:text-[#344054]"}`}
+                    className={`min-h-11 min-w-0 border-b-2 px-2 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#171717] sm:px-3 ${selectedPreset === preset.id ? "border-[#171717] text-[#171717]" : "border-transparent text-[#737373] hover:text-[#404040]"}`}
                   >
                     {preset.label}
                   </button>
@@ -349,7 +349,7 @@ export function Users() {
             <div className="min-w-0 space-y-3 px-3 py-4 sm:space-y-4 sm:px-6 sm:py-5">
               <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2 sm:gap-3">
                 <div className="relative min-w-0">
-                  <span className="pointer-events-none absolute left-3 top-3 text-[#98a2b3]">
+                  <span className="pointer-events-none absolute left-3 top-3 text-[#a3a3a3]">
                     <Icon name="search" />
                   </span>
                   <input
@@ -373,7 +373,7 @@ export function Users() {
                   <Icon name="filter" />
                   Filters
                   {activeFilters.length > 0 ? (
-                    <span className="rounded bg-[#e7f4ee] px-1.5 text-xs text-[#0c745a]">
+                    <span className="rounded bg-[#f5f5f5] px-1.5 text-xs text-[#171717]">
                       {activeFilters.length}
                     </span>
                   ) : null}
@@ -384,14 +384,14 @@ export function Users() {
                 </button>
               </div>
               {selectedPreset && selectedPreset !== "all" ? (
-                <p className="text-xs leading-5 text-[#667085]">
+                <p className="text-xs leading-5 text-[#737373]">
                   {PRESETS.find((preset) => preset.id === selectedPreset)?.description}
                 </p>
               ) : null}
               {showFilters ? (
                 <div
                   id="user-filters"
-                  className="min-w-0 max-w-full rounded-xl border border-[#e6eaee] bg-[#f8fafb] p-3 sm:p-4"
+                  className="min-w-0 max-w-full rounded-xl border border-[#e5e5e5] bg-[#fafafa] p-3 sm:p-4"
                 >
                   <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {SELECTS.slice(0, 3).map((field) => (
@@ -437,9 +437,9 @@ export function Users() {
                       />
                     ))}
                   </div>
-                  <div className="mt-4 border-t border-[#e3e7ec] pt-4">
+                  <div className="mt-4 border-t border-[#e5e5e5] pt-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <h3 className="text-xs font-semibold text-[#475467]">Install date range</h3>
+                      <h3 className="text-xs font-semibold text-[#525252]">Install date range</h3>
                       <div className="flex flex-wrap gap-1" aria-label="Quick install date ranges">
                         {[
                           [1, "Today"],
@@ -448,7 +448,7 @@ export function Users() {
                         ].map(([days, label]) => (
                           <button
                             key={days}
-                            className="min-h-11 rounded-md px-2 py-1 text-xs font-medium text-[#0c745a] hover:bg-[#e7f4ee] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c745a]"
+                            className="min-h-11 rounded-md px-2 py-1 text-xs font-medium text-[#171717] hover:bg-[#f5f5f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#171717]"
                             onClick={() => updateFilters(quickDateRange(Number(days), Date.now()))}
                           >
                             {label}
@@ -456,14 +456,14 @@ export function Users() {
                         ))}
                         <button
                           onClick={() => updateFilters({ from: "", to: "" })}
-                          className="min-h-11 rounded-md px-2 py-1 text-xs text-[#667085] hover:bg-[#edf0f3]"
+                          className="min-h-11 rounded-md px-2 py-1 text-xs text-[#737373] hover:bg-[#f5f5f5]"
                         >
                           Any date
                         </button>
                       </div>
                     </div>
                     <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <label className="min-w-0 text-xs font-medium text-[#667085]">
+                      <label className="min-w-0 text-xs font-medium text-[#737373]">
                         From
                         <input
                           type="date"
@@ -475,7 +475,7 @@ export function Users() {
                           className={`${FIELD} mt-1`}
                         />
                       </label>
-                      <label className="min-w-0 text-xs font-medium text-[#667085]">
+                      <label className="min-w-0 text-xs font-medium text-[#737373]">
                         Through
                         <input
                           type="date"
@@ -493,7 +493,7 @@ export function Users() {
                         The end date must be on or after the start date.
                       </p>
                     ) : (
-                      <p className="mt-2 text-xs leading-5 text-[#667085]">
+                      <p className="mt-2 text-xs leading-5 text-[#737373]">
                         Both dates are included.{" "}
                         {cutover
                           ? `Install dates before ${fmtDay(cutover)} use UTC; newer dates use Kabul time.`
@@ -511,7 +511,7 @@ export function Users() {
                   {activeFilters.map((chip) => (
                     <button
                       key={chip.key}
-                      className="inline-flex min-h-11 min-w-0 max-w-full items-center gap-1.5 rounded-2xl border border-[#d7e8df] bg-[#f0f8f4] px-2.5 py-1 text-left text-xs text-[#0c745a] hover:bg-[#e1f1e8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c745a] md:min-h-8"
+                      className="inline-flex min-h-11 min-w-0 max-w-full items-center gap-1.5 rounded-xl border border-[#e5e5e5] bg-[#f5f5f5] px-2.5 py-1 text-left text-xs text-[#171717] hover:bg-[#f5f5f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#171717] md:min-h-8"
                       aria-label={`Remove ${chip.label} filter`}
                       onClick={() => updateFilters({ [chip.key]: DEFAULT_FILTERS[chip.key] })}
                     >
@@ -521,7 +521,7 @@ export function Users() {
                   ))}
                   {search ? (
                     <button
-                      className="inline-flex min-h-11 min-w-0 max-w-full items-center gap-1.5 rounded-2xl border border-[#e3e7ec] px-2.5 py-1 text-xs text-[#475467] md:min-h-8"
+                      className="inline-flex min-h-11 min-w-0 max-w-full items-center gap-1.5 rounded-xl border border-[#e5e5e5] px-2.5 py-1 text-xs text-[#525252] md:min-h-8"
                       onClick={() => {
                         setSearch("");
                         setPage(0);
@@ -533,7 +533,7 @@ export function Users() {
                     </button>
                   ) : null}
                   <button
-                    className="min-h-11 px-1 py-1 text-xs font-medium text-[#667085] underline decoration-[#c6cdd5] underline-offset-4 hover:text-[#101828]"
+                    className="min-h-11 px-1 py-1 text-xs font-medium text-[#737373] underline decoration-[#d4d4d4] underline-offset-4 hover:text-[#171717]"
                     onClick={reset}
                   >
                     Reset all
@@ -541,9 +541,9 @@ export function Users() {
                 </div>
               ) : null}
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-3 border-y border-[#edf0f3] bg-[#fafbfc] px-4 py-3 sm:px-6">
-              <p className="min-w-0 text-xs leading-5 text-[#667085]" role="status">
-                <strong className="font-semibold tabular-nums text-[#344054]">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-y border-[#f5f5f5] bg-[#fafafa] px-4 py-3 sm:px-6">
+              <p className="min-w-0 text-xs leading-5 text-[#737373]" role="status">
+                <strong className="font-semibold tabular-nums text-[#404040]">
                   {fmtInt(result.matching.length)} matching rows
                 </strong>
                 <span className="mx-1.5">·</span>
@@ -551,29 +551,29 @@ export function Users() {
                 {fmtInt(result.unidentified)} unidentified
                 {result.hidden ? ` (${fmtInt(result.hidden)} hidden)` : ""}
               </p>
-              <label className="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 text-xs text-[#475467]">
+              <label className="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 text-xs text-[#525252]">
                 <input
                   type="checkbox"
                   checked={filters.includeUnidentified}
                   onChange={(event) => updateFilters({ includeUnidentified: event.target.checked })}
-                  className="h-4 w-4 shrink-0 rounded accent-[#0c745a]"
+                  className="h-4 w-4 shrink-0 rounded accent-[#171717]"
                 />
                 Include unidentified installs
               </label>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
-              <span className="text-xs text-[#667085]">
+              <span className="text-xs text-[#737373]">
                 {sorted.length
                   ? `${currentPage * pageSize + 1}–${Math.min((currentPage + 1) * pageSize, sorted.length)} of ${fmtInt(sorted.length)} visible rows`
                   : "No visible rows"}
               </span>
               <div className="flex min-w-0 max-w-full items-center gap-2">
-                <label className="flex min-w-0 items-center gap-2 text-xs text-[#667085]">
+                <label className="flex min-w-0 items-center gap-2 text-xs text-[#737373]">
                   Sort by
                   <select
                     value={sortKey}
                     onChange={(event) => sortBy(event.target.value as SortKey)}
-                    className="min-h-11 min-w-0 max-w-full rounded-md border border-[#dce1e6] bg-white py-1.5 pl-2 pr-6 text-base text-[#344054] focus-visible:outline-[#0c745a] md:text-xs"
+                    className="min-h-11 min-w-0 max-w-full rounded-md border border-[#e5e5e5] bg-white py-1.5 pl-2 pr-6 text-base text-[#404040] focus-visible:outline-[#171717] md:text-xs"
                   >
                     {SORT_OPTIONS.map(([key, label]) => (
                       <option key={key} value={key}>
@@ -583,7 +583,7 @@ export function Users() {
                   </select>
                 </label>
                 <button
-                  className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md p-1.5 text-[#667085] hover:bg-[#f2f4f7] focus-visible:outline-[#0c745a]"
+                  className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md p-1.5 text-[#737373] hover:bg-[#f5f5f5] focus-visible:outline-[#171717]"
                   aria-label={sortDesc ? "Sort ascending" : "Sort descending"}
                   title={sortDesc ? "Descending" : "Ascending"}
                   onClick={() => sortBy(sortKey)}
@@ -604,10 +604,10 @@ export function Users() {
               />
             ) : (
               <div className="flex min-h-64 flex-col items-center justify-center px-6 py-10 text-center">
-                <span className="mb-4 rounded-full bg-[#f2f5f7] p-4 text-[#98a2b3]">
+                <span className="mb-4 rounded-full bg-[#f2f5f7] p-4 text-[#a3a3a3]">
                   <Icon name="search" className="h-6 w-6" />
                 </span>
-                <h3 className="text-base font-semibold text-[#344054]">
+                <h3 className="text-base font-semibold text-[#404040]">
                   {invalidRange
                     ? "Check your date range"
                     : result.hidden
@@ -616,7 +616,7 @@ export function Users() {
                         ? "No people match these filters"
                         : "Your user directory is ready"}
                 </h3>
-                <p className="mt-2 max-w-md text-sm leading-6 text-[#667085]">
+                <p className="mt-2 max-w-md text-sm leading-6 text-[#737373]">
                   {invalidRange
                     ? "Choose an end date on or after the start date."
                     : result.hidden
@@ -640,12 +640,12 @@ export function Users() {
               </div>
             )}
             {sorted.length > 0 ? (
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#edf0f3] px-4 py-4 sm:px-6">
-                <label className="flex items-center gap-2 text-xs text-[#667085]">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#f5f5f5] px-4 py-4 sm:px-6">
+                <label className="flex items-center gap-2 text-xs text-[#737373]">
                   Rows per page
                   <select
                     aria-label="Rows per page"
-                    className="min-h-11 rounded-md border border-[#dce1e6] bg-white px-2 py-1.5 text-base focus-visible:outline-[#0c745a] md:text-xs"
+                    className="min-h-11 rounded-md border border-[#e5e5e5] bg-white px-2 py-1.5 text-base focus-visible:outline-[#171717] md:text-xs"
                     value={pageSize}
                     onChange={(event) => {
                       setPreferences((p) => ({ ...p, pageSize: Number(event.target.value) }));
@@ -675,7 +675,7 @@ export function Users() {
                     <span className="hidden sm:inline">Previous</span>
                     <span className="sr-only sm:hidden">Previous page</span>
                   </button>
-                  <span className="text-xs tabular-nums text-[#667085]">
+                  <span className="text-xs tabular-nums text-[#737373]">
                     Page {currentPage + 1} of {pageCount}
                   </span>
                   <button
@@ -694,7 +694,7 @@ export function Users() {
               </div>
             ) : null}
           </section>
-          <p className="mt-4 text-xs leading-5 text-[#667085]">
+          <p className="mt-4 text-xs leading-5 text-[#737373]">
             Accounts can include several devices. Account entries come from synced kaatas;
             signed-out entries come from reported usage. “No entries reported” does not prove an
             empty local ledger. Last seen is a device check-in, not a ledger edit.
@@ -735,7 +735,7 @@ function FilterSelect(props: {
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="min-w-0 max-w-full text-xs font-medium text-[#667085]">
+    <label className="min-w-0 max-w-full text-xs font-medium text-[#737373]">
       {props.label}
       <select
         className={`${FIELD} mt-1`}
@@ -761,25 +761,25 @@ function SummaryCard(props: {
   return (
     <button
       onClick={props.onClick}
-      className="group min-w-0 rounded-2xl border border-[#e3e7ec] bg-white p-3 text-left transition hover:border-[#9ec3b6] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c745a] sm:p-5"
+      className="group min-w-0 rounded-xl border border-[#e5e5e5] bg-white p-3 text-left transition hover:border-[#e5e5e5] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#171717] sm:p-5"
     >
       <div className="flex min-w-0 items-start justify-between gap-2">
-        <span className="min-w-0 text-xs font-medium leading-5 text-[#667085]">{props.label}</span>
-        <span className="hidden shrink-0 rounded-lg bg-[#f0f6f3] p-2 text-[#0c745a] sm:block">
+        <span className="min-w-0 text-xs font-medium leading-5 text-[#737373]">{props.label}</span>
+        <span className="hidden shrink-0 rounded-lg bg-[#f5f5f5] p-2 text-[#171717] sm:block">
           <Icon name={props.icon} />
         </span>
       </div>
-      <div className="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-[#101828] [overflow-wrap:anywhere] sm:text-3xl">
+      <div className="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-[#171717] [overflow-wrap:anywhere] sm:text-3xl">
         {fmtInt(props.value)}
       </div>
-      <p className="mt-1 text-[11px] leading-5 text-[#667085]">{props.sub}</p>
+      <p className="mt-1 text-[11px] leading-5 text-[#737373]">{props.sub}</p>
     </button>
   );
 }
 function Pill(props: { children: ReactNode; tone?: "green" | "amber" | "gray" }) {
   return (
     <span
-      className={`inline-flex min-w-0 max-w-full items-center rounded-md px-2 py-0.5 text-[11px] font-medium [overflow-wrap:anywhere] ${props.tone === "green" ? "bg-[#e8f5ed] text-[#116b4f]" : props.tone === "amber" ? "bg-[#fff4df] text-[#8c621a]" : "bg-[#f0f2f5] text-[#667085]"}`}
+      className={`inline-flex min-w-0 max-w-full items-center rounded-md px-2 py-0.5 text-[11px] font-medium [overflow-wrap:anywhere] ${props.tone === "green" ? "bg-[#e8f5ed] text-[#116b4f]" : props.tone === "amber" ? "bg-[#fff4df] text-[#8c621a]" : "bg-[#f5f5f5] text-[#737373]"}`}
     >
       {props.children}
     </span>
@@ -817,7 +817,7 @@ function UserResults(props: UserResultsProps) {
 // displayed from md upward and can scroll inside its bounded container.
 function UserCards(props: UserResultsProps) {
   return (
-    <div className="grid min-w-0 w-full max-w-full gap-3 border-t border-[#edf0f3] bg-[#f6f8f7] p-3 md:hidden">
+    <div className="grid min-w-0 w-full max-w-full gap-3 border-t border-[#f5f5f5] bg-[#fafafa] p-3 md:hidden">
       {props.rows.map((row) => {
         const open = !!props.expanded[row.id];
         const detailsId = `user-card-details-${row.id}`;
@@ -829,33 +829,33 @@ function UserCards(props: UserResultsProps) {
         return (
           <article
             key={row.id}
-            className="min-w-0 max-w-full rounded-xl border border-[#e0e7e3] bg-white p-4"
+            className="min-w-0 max-w-full rounded-xl border border-[#e5e5e5] bg-white p-4"
             aria-label={displayName(row)}
           >
             <div className="flex min-w-0 items-start gap-3">
               <span
                 aria-hidden="true"
-                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${isIdentified(row) ? "bg-[#edf4f0] text-[#0c745a]" : "bg-[#f0f2f5] text-[#98a2b3]"}`}
+                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${isIdentified(row) ? "bg-[#f5f5f5] text-[#171717]" : "bg-[#f5f5f5] text-[#a3a3a3]"}`}
               >
                 {initials(row)}
               </span>
               <div className="min-w-0 flex-1">
                 <h3
-                  className="text-sm font-semibold leading-6 text-[#101828] [overflow-wrap:anywhere]"
+                  className="text-sm font-semibold leading-6 text-[#171717] [overflow-wrap:anywhere]"
                   dir="auto"
                 >
                   {displayName(row)}
                 </h3>
                 {row.shop && row.shop !== displayName(row) ? (
                   <p
-                    className="mt-0.5 text-xs leading-5 text-[#667085] [overflow-wrap:anywhere]"
+                    className="mt-0.5 text-xs leading-5 text-[#737373] [overflow-wrap:anywhere]"
                     dir="auto"
                   >
                     {row.shop}
                   </p>
                 ) : null}
                 <p
-                  className="mt-0.5 text-xs leading-5 text-[#667085] [overflow-wrap:anywhere]"
+                  className="mt-0.5 text-xs leading-5 text-[#737373] [overflow-wrap:anywhere]"
                   dir="ltr"
                 >
                   {row.phone || row.email || "No contact details"}
@@ -870,41 +870,41 @@ function UserCards(props: UserResultsProps) {
                 {row.onboarded ? "Onboarded" : "Not onboarded"}
               </Pill>
             </div>
-            <dl className="mt-4 grid min-w-0 grid-cols-2 gap-x-3 gap-y-3 border-y border-[#edf0f3] py-3">
+            <dl className="mt-4 grid min-w-0 grid-cols-2 gap-x-3 gap-y-3 border-y border-[#f5f5f5] py-3">
               <div className="min-w-0">
-                <dt className="text-[11px] text-[#667085]">Last seen</dt>
-                <dd className="mt-1 min-w-0 text-sm font-medium text-[#344054]">
+                <dt className="text-[11px] text-[#737373]">Last seen</dt>
+                <dd className="mt-1 min-w-0 text-sm font-medium text-[#404040]">
                   <span className="flex min-w-0 items-center gap-1.5">
                     {seen.online ? (
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#0c745a]" />
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
                     ) : null}
                     <span className="[overflow-wrap:anywhere]">{seen.label}</span>
                   </span>
                   {seenValid ? (
-                    <span className="mt-0.5 block text-[11px] font-normal leading-5 text-[#667085] [overflow-wrap:anywhere]">
+                    <span className="mt-0.5 block text-[11px] font-normal leading-5 text-[#737373] [overflow-wrap:anywhere]">
                       {fmtDate(row.last_seen)}
                     </span>
                   ) : null}
                 </dd>
               </div>
               <div className="min-w-0">
-                <dt className="text-[11px] text-[#667085]">Entries</dt>
-                <dd className="mt-1 text-sm font-semibold tabular-nums text-[#344054] [overflow-wrap:anywhere]">
+                <dt className="text-[11px] text-[#737373]">Entries</dt>
+                <dd className="mt-1 text-sm font-semibold tabular-nums text-[#404040] [overflow-wrap:anywhere]">
                   {fmtInt(row.entries)}
-                  <span className="mt-0.5 block text-[11px] font-normal text-[#667085]">
+                  <span className="mt-0.5 block text-[11px] font-normal text-[#737373]">
                     {fmtInt(row.customers)} customers
                   </span>
                 </dd>
               </div>
               <div className="min-w-0">
-                <dt className="text-[11px] text-[#667085]">Installed</dt>
-                <dd className="mt-1 text-xs leading-5 text-[#475467] [overflow-wrap:anywhere]">
+                <dt className="text-[11px] text-[#737373]">Installed</dt>
+                <dd className="mt-1 text-xs leading-5 text-[#525252] [overflow-wrap:anywhere]">
                   {fmtDay(row.installed_day)}
                 </dd>
               </div>
               <div className="min-w-0">
-                <dt className="text-[11px] text-[#667085]">Device</dt>
-                <dd className="mt-1 text-xs leading-5 text-[#475467] [overflow-wrap:anywhere]">
+                <dt className="text-[11px] text-[#737373]">Device</dt>
+                <dd className="mt-1 text-xs leading-5 text-[#525252] [overflow-wrap:anywhere]">
                   {row.platform === "ios"
                     ? "iOS"
                     : row.platform === "android"
@@ -915,7 +915,7 @@ function UserCards(props: UserResultsProps) {
               </div>
             </dl>
             <button
-              className="mt-2 flex min-h-11 min-w-0 w-full items-center justify-between gap-3 rounded-lg px-1 text-sm font-medium text-[#0c745a] focus-visible:outline-2 focus-visible:outline-[#0c745a]"
+              className="mt-2 flex min-h-11 min-w-0 w-full items-center justify-between gap-3 rounded-lg px-1 text-sm font-medium text-[#171717] focus-visible:outline-2 focus-visible:outline-[#171717]"
               aria-expanded={open}
               aria-controls={detailsId}
               aria-label={`${open ? "Hide" : "Show"} details for ${displayName(row)}`}
@@ -925,7 +925,7 @@ function UserCards(props: UserResultsProps) {
               <Icon name="chevron" className={open ? "rotate-180" : ""} />
             </button>
             {open ? (
-              <div className="mt-2 min-w-0 border-t border-[#e3ebe6] pt-4">
+              <div className="mt-2 min-w-0 border-t border-[#e5e5e5] pt-4">
                 <UserDetails row={row} id={detailsId} />
               </div>
             ) : null}
@@ -940,7 +940,7 @@ function UsersTable(props: UserResultsProps) {
   // Contain absolutely positioned sr-only labels inside the local scroll area.
   return (
     <div
-      className="relative hidden min-w-0 w-full max-w-full overflow-x-auto overscroll-x-contain focus-visible:outline-2 focus-visible:outline-[#0c745a] md:block"
+      className="relative hidden min-w-0 w-full max-w-full overflow-x-auto overscroll-x-contain focus-visible:outline-2 focus-visible:outline-[#171717] md:block"
       role="region"
       aria-label="Scrollable user table"
       tabIndex={0}
@@ -950,7 +950,7 @@ function UsersTable(props: UserResultsProps) {
         aria-label="Users and reported activity"
       >
         <thead>
-          <tr className="border-y border-[#edf0f3] bg-[#fafbfc]">
+          <tr className="border-y border-[#f5f5f5] bg-[#fafafa]">
             {HEADERS.map((column) => (
               <th
                 key={column.label}
@@ -962,16 +962,16 @@ function UsersTable(props: UserResultsProps) {
                       : "ascending"
                     : undefined
                 }
-                className={`px-4 py-3 text-xs font-medium text-[#667085] ${column.className ?? ""}`}
+                className={`px-4 py-3 text-xs font-medium text-[#737373] ${column.className ?? ""}`}
               >
                 {column.key ? (
                   <button
-                    className="inline-flex items-center gap-1 rounded focus-visible:outline-2 focus-visible:outline-[#0c745a]"
+                    className="inline-flex items-center gap-1 rounded focus-visible:outline-2 focus-visible:outline-[#171717]"
                     onClick={() => props.onSort(column.key!)}
                   >
                     {column.label}
                     <span
-                      className={column.key === props.sortKey ? "text-[#0c745a]" : "text-[#c2c9d1]"}
+                      className={column.key === props.sortKey ? "text-[#171717]" : "text-[#d4d4d4]"}
                     >
                       {column.key === props.sortKey ? (props.sortDesc ? "↓" : "↑") : "↕"}
                     </span>
@@ -997,19 +997,19 @@ function UsersTable(props: UserResultsProps) {
             return (
               <Fragment key={row.id}>
                 <tr
-                  className={`border-b border-[#edf0f3] transition ${open ? "bg-[#f2f8f5]" : "hover:bg-[#fafcfb]"}`}
+                  className={`border-b border-[#f5f5f5] transition ${open ? "bg-[#fafafa]" : "hover:bg-[#fafafa]"}`}
                 >
                   <td className="px-4 py-4">
                     <div className="flex items-start gap-3">
                       <span
                         aria-hidden="true"
-                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${isIdentified(row) ? "bg-[#edf4f0] text-[#0c745a]" : "bg-[#f0f2f5] text-[#98a2b3]"}`}
+                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${isIdentified(row) ? "bg-[#f5f5f5] text-[#171717]" : "bg-[#f5f5f5] text-[#a3a3a3]"}`}
                       >
                         {initials(row)}
                       </span>
                       <div className="min-w-0">
                         <button
-                          className="max-w-[260px] truncate rounded text-left text-sm font-semibold text-[#101828] hover:text-[#0c745a] focus-visible:outline-2 focus-visible:outline-[#0c745a]"
+                          className="max-w-[260px] truncate rounded text-left text-sm font-semibold text-[#171717] hover:text-[#171717] focus-visible:outline-2 focus-visible:outline-[#171717]"
                           aria-expanded={open}
                           aria-controls={detailsId}
                           onClick={() => props.onToggle(row.id)}
@@ -1017,13 +1017,13 @@ function UsersTable(props: UserResultsProps) {
                           {displayName(row)}
                         </button>
                         {row.shop && row.shop !== displayName(row) ? (
-                          <p className="max-w-[260px] truncate text-xs text-[#667085]">
+                          <p className="max-w-[260px] truncate text-xs text-[#737373]">
                             {row.shop}
                           </p>
                         ) : null}
                         <p
                           dir="ltr"
-                          className="mt-0.5 max-w-[260px] truncate text-xs text-[#667085]"
+                          className="mt-0.5 max-w-[260px] truncate text-xs text-[#737373]"
                         >
                           {row.phone || row.email || "No contact details"}
                         </p>
@@ -1036,25 +1036,25 @@ function UsersTable(props: UserResultsProps) {
                         {row.kind === "account" ? "Signed in" : "Signed out"}
                       </Pill>
                       <span
-                        className={`text-[11px] ${row.onboarded ? "text-[#667085]" : "font-medium text-[#9a681d]"}`}
+                        className={`text-[11px] ${row.onboarded ? "text-[#737373]" : "font-medium text-[#9a681d]"}`}
                       >
                         {row.onboarded ? "Onboarded" : "Not onboarded"}
                       </span>
                     </div>
                   </td>
                   <td className="px-4 py-4">
-                    <p className="whitespace-nowrap text-xs font-medium text-[#475467]">
+                    <p className="whitespace-nowrap text-xs font-medium text-[#525252]">
                       {row.platform === "ios"
                         ? "iOS"
                         : row.platform === "android"
                           ? "Android"
                           : row.platform || "Unknown"}
                       {row.version ? (
-                        <span className="ml-1.5 font-normal text-[#667085]">v{row.version}</span>
+                        <span className="ml-1.5 font-normal text-[#737373]">v{row.version}</span>
                       ) : null}
                     </p>
                     <p
-                      className="mt-1 max-w-36 truncate text-[11px] text-[#667085]"
+                      className="mt-1 max-w-36 truncate text-[11px] text-[#737373]"
                       title={`${row.locale === "fa" ? "Dari" : row.locale === "en" ? "English" : row.locale || "Unknown language"} · ${row.source || "Unknown source"}`}
                     >
                       {row.locale === "fa"
@@ -1065,14 +1065,14 @@ function UsersTable(props: UserResultsProps) {
                       · {row.source || "Unattributed"}
                     </p>
                   </td>
-                  <td className="whitespace-nowrap px-4 py-4 text-xs text-[#667085]">
+                  <td className="whitespace-nowrap px-4 py-4 text-xs text-[#737373]">
                     {fmtDay(row.installed_day)}
                   </td>
                   <td className="px-4 py-4">
-                    <div className="flex items-center gap-1.5 whitespace-nowrap text-xs text-[#475467]">
+                    <div className="flex items-center gap-1.5 whitespace-nowrap text-xs text-[#525252]">
                       {seen.online ? (
                         <>
-                          <span className="h-1.5 w-1.5 rounded-full bg-[#0c745a]" />
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                           {seen.label}
                         </>
                       ) : (
@@ -1080,22 +1080,22 @@ function UsersTable(props: UserResultsProps) {
                       )}
                     </div>
                     {seenValid ? (
-                      <p className="mt-1 whitespace-nowrap text-[11px] text-[#98a2b3]">
+                      <p className="mt-1 whitespace-nowrap text-[11px] text-[#a3a3a3]">
                         {fmtDate(row.last_seen)}
                       </p>
                     ) : null}
                   </td>
                   <td className="px-4 py-4 text-right">
-                    <p className="text-sm font-semibold tabular-nums text-[#344054]">
+                    <p className="text-sm font-semibold tabular-nums text-[#404040]">
                       {fmtInt(row.entries)}
                     </p>
-                    <p className="mt-1 whitespace-nowrap text-[11px] text-[#667085]">
+                    <p className="mt-1 whitespace-nowrap text-[11px] text-[#737373]">
                       {fmtInt(row.customers)} customers
                     </p>
                   </td>
                   <td className="px-3 py-4">
                     <button
-                      className="rounded-lg p-2 text-[#667085] hover:bg-[#e7f0eb] hover:text-[#0c745a] focus-visible:outline-2 focus-visible:outline-[#0c745a]"
+                      className="rounded-lg p-2 text-[#737373] hover:bg-[#f5f5f5] hover:text-[#171717] focus-visible:outline-2 focus-visible:outline-[#171717]"
                       aria-label={`${open ? "Hide" : "Show"} details for ${displayName(row)}`}
                       aria-expanded={open}
                       aria-controls={detailsId}
@@ -1109,7 +1109,7 @@ function UsersTable(props: UserResultsProps) {
                   <tr>
                     <td
                       colSpan={HEADERS.length}
-                      className="border-b border-[#e2e9e5] bg-[#f7faf8] px-5 py-5"
+                      className="border-b border-[#e5e5e5] bg-[#fafafa] px-5 py-5"
                     >
                       <UserDetails row={row} id={detailsId} />
                     </td>
@@ -1128,10 +1128,10 @@ function UserDetails({ row, id }: { row: UserListRow; id: string }) {
     <div id={id} className="min-w-0 max-w-full space-y-4">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 max-w-full">
-          <h3 className="text-sm font-semibold text-[#344054] [overflow-wrap:anywhere]" dir="auto">
+          <h3 className="text-sm font-semibold text-[#404040] [overflow-wrap:anywhere]" dir="auto">
             {displayName(row)}
           </h3>
-          <p className="mt-1 text-xs leading-5 text-[#667085]">
+          <p className="mt-1 text-xs leading-5 text-[#737373]">
             {row.kind === "account"
               ? `Signed-in account · ${fmtInt(row.account?.install_count ?? 0)} linked devices`
               : "Signed-out device profile"}
@@ -1147,7 +1147,7 @@ function UserDetails({ row, id }: { row: UserListRow; id: string }) {
           </Pill>
         </div>
       </div>
-      <div className="grid min-w-0 grid-cols-1 gap-3 border-y border-[#e3ebe6] py-3 text-xs sm:grid-cols-3">
+      <div className="grid min-w-0 grid-cols-1 gap-3 border-y border-[#e5e5e5] py-3 text-xs sm:grid-cols-3">
         <Detail label="Phone" value={row.phone} />
         <Detail label="Email" value={row.email} />
         <Detail label="Shop" value={row.shop} />
@@ -1166,8 +1166,8 @@ function UserDetails({ row, id }: { row: UserListRow; id: string }) {
 function Detail(props: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <p className="text-[11px] font-medium text-[#667085]">{props.label}</p>
-      <p className="mt-1 leading-5 text-[#344054] [overflow-wrap:anywhere]" dir="auto">
+      <p className="text-[11px] font-medium text-[#737373]">{props.label}</p>
+      <p className="mt-1 leading-5 text-[#404040] [overflow-wrap:anywhere]" dir="auto">
         {props.value || "Not provided"}
       </p>
     </div>

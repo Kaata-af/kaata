@@ -15,14 +15,6 @@ export function Retention() {
       <PageHeader
         title="Retention"
         description="How often people return after their first check-in."
-        action={
-          <a
-            href="#users?view=follow-up"
-            className="inline-flex min-h-11 max-w-full items-center text-sm font-medium text-[#0c745a] hover:underline"
-          >
-            Review follow-ups →
-          </a>
-        }
       />
       {stats.isPending ? (
         <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
@@ -66,7 +58,7 @@ function DayNCards(props: { stats: Stats }) {
             className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] items-center gap-x-3 sm:block"
           >
             <div className="min-w-0">
-              <Text className="text-xs font-medium text-[#667085]">{r.label}</Text>
+              <Text className="text-xs font-medium text-[#737373]">{r.label}</Text>
               <Metric className="mt-1 break-words text-2xl tabular-nums [overflow-wrap:anywhere] sm:text-3xl">
                 {r.elig ? `${Math.round((r.ret / r.elig) * 100)}%` : "—"}
               </Metric>
@@ -77,7 +69,7 @@ function DayNCards(props: { stats: Stats }) {
                   ? `${fmtInt(r.ret)} of ${fmtInt(r.elig)} eligible installs`
                   : "No eligible installs yet"}
               </Text>
-              <p className="mt-1 text-xs leading-5 text-[#667085] sm:mt-3">
+              <p className="mt-1 text-xs leading-5 text-[#737373] sm:mt-3">
                 Checked in on day {r.day} after first seen.
               </p>
             </div>
@@ -85,7 +77,7 @@ function DayNCards(props: { stats: Stats }) {
         ))}
       </div>
       {!any ? (
-        <p className="mt-2 text-xs text-[#98a2b3]">
+        <p className="mt-2 text-xs text-[#a3a3a3]">
           These rates need installs old enough to have reached each return day.
         </p>
       ) : null}
@@ -110,7 +102,7 @@ function CohortGrid(props: { growth: Growth | null }) {
   if (props.growth === null || cohorts.length === 0 || !cohorts.some((c) => c.size > 0)) {
     return (
       <Card title="Weekly cohorts" sub="retention by install week">
-        <p className="py-8 text-center text-sm text-[#667085]">
+        <p className="py-8 text-center text-sm text-[#737373]">
           {props.growth === null
             ? "Weekly retention is currently unavailable."
             : "No installs were recorded in the last 12 install weeks."}
@@ -124,9 +116,9 @@ function CohortGrid(props: { growth: Growth | null }) {
       title="Weekly cohorts"
       sub="Share of each install cohort that checked in during a later week"
     >
-      <p className="mb-2 text-xs text-[#667085] sm:hidden">Scroll across to see all weeks.</p>
+      <p className="mb-2 text-xs text-[#737373] sm:hidden">Scroll across to see all weeks.</p>
       <div
-        className="min-w-0 max-w-full overflow-x-auto overscroll-x-contain rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0c745a]"
+        className="min-w-0 max-w-full overflow-x-auto overscroll-x-contain rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#171717]"
         tabIndex={0}
         role="region"
         aria-label="Weekly retention table; scroll horizontally for later weeks"
@@ -136,7 +128,7 @@ function CohortGrid(props: { growth: Growth | null }) {
           style={{ borderSpacing: 3 }}
         >
           <thead>
-            <tr className="text-[#98a2b3]">
+            <tr className="text-[#a3a3a3]">
               <th className="py-2 pr-2 text-left font-medium">Install week</th>
               <th className="py-2 pr-3 text-right font-medium">Installs</th>
               {Array.from({ length: maxWeeks }).map((_, i) => (
@@ -149,10 +141,10 @@ function CohortGrid(props: { growth: Growth | null }) {
           <tbody className="font-mono tabular-nums">
             {cohorts.map((cRow) => (
               <tr key={cRow.week}>
-                <td className="whitespace-nowrap py-2 pr-2 font-sans text-[#475467]">
+                <td className="whitespace-nowrap py-2 pr-2 font-sans text-[#525252]">
                   {weekLabel(cRow.week)}
                 </td>
-                <td className="py-0.5 pr-3 text-right text-[#101828]">{fmtInt(cRow.size)}</td>
+                <td className="py-0.5 pr-3 text-right text-[#171717]">{fmtInt(cRow.size)}</td>
                 {Array.from({ length: maxWeeks }).map((_, i) => {
                   const retained = cRow.retained?.[i];
                   // Cells beyond the cohort's elapsed weeks are the future —
@@ -163,7 +155,7 @@ function CohortGrid(props: { growth: Growth | null }) {
                     return (
                       <td
                         key={i}
-                        className="text-center text-[#98a2b3]"
+                        className="text-center text-[#a3a3a3]"
                         title="No installs in this cohort"
                       >
                         —
@@ -178,7 +170,7 @@ function CohortGrid(props: { growth: Growth | null }) {
                       style={{
                         // White → brand ink; text flips to white past ~45%.
                         background: `rgba(16, 24, 40, ${(frac * 0.92).toFixed(3)})`,
-                        color: frac > 0.45 ? "#ffffff" : "#101828",
+                        color: frac > 0.45 ? "#ffffff" : "#171717",
                       }}
                     >
                       {Math.round(frac * 100)}%
@@ -190,7 +182,7 @@ function CohortGrid(props: { growth: Growth | null }) {
           </tbody>
         </table>
       </div>
-      <p className="mt-3 text-xs leading-relaxed text-[#667085]">
+      <p className="mt-3 text-xs leading-relaxed text-[#737373]">
         W0 is the install week; W1 is the following week. Weeks start Monday in the reporting
         calendar. The current week is incomplete. Blank cells are future weeks; a dash means no
         installs in that cohort.

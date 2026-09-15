@@ -36,7 +36,7 @@ reconstruct earlier hourly activity; hourly history before
 `analytics_calendar.started_at` is incomplete. Existing ledger events are not
 used to fabricate missing check-ins.
 
-## Users and follow-up
+## Users directory
 
 The people directory combines one row per signed-in account with one row per
 signed-out install. These rows are not DAU or unique-person counts: an account
@@ -59,11 +59,16 @@ recency, platform, language, acquisition source, app version, reported entries,
 contact availability, and an inclusive install-date range. The historical
 UTC/Kabul cutover applies to both displayed install dates and date filters.
 
-"Needs follow-up" means completed onboarding, last seen at least seven elapsed
-days ago, and a phone number or email address available. It is a review list,
-not a predicted churn score. "Active" uses the preceding seven elapsed days;
-"Today" uses the Kabul calendar day. The DAU/WAU/MAU cards retain their separate
-calendar-based definitions above. No messages are sent by these views.
+"Active" uses the preceding seven elapsed days; "Today" uses the Kabul calendar
+day. The DAU/WAU/MAU cards retain their separate calendar-based definitions
+above. There is deliberately no outreach or "needs follow-up" list: the
+operator does not contact users, so the directory is a reporting surface only
+and no messages are sent by these views.
+
+The dashboard has no manual refresh control. Live invalidation over the admin
+WebSocket, 60-second polling, refresh on return from a hidden tab, and the
+Kabul-midnight invalidation keep every section current; the footer shows when
+the numbers were generated.
 
 Only filter/sort/page-size preferences are stored in sessionStorage. Search
 text, expanded identities, and API results are not persisted there.

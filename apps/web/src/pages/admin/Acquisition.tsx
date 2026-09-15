@@ -14,14 +14,6 @@ export function Acquisition() {
       <PageHeader
         title="Acquisition"
         description="Website reach, install activation, and the languages people use."
-        action={
-          <a
-            href="#campaigns"
-            className="inline-flex min-h-11 items-center text-sm font-medium text-[#0c745a] hover:underline"
-          >
-            View campaigns →
-          </a>
-        }
       />
       {stats.isPending ? (
         <div className="flex min-w-0 flex-col gap-4">
@@ -64,18 +56,18 @@ function FunnelCard(props: { stats: Stats }) {
         <div className="grid min-w-0 grid-cols-2 gap-3 py-1 sm:gap-5 sm:py-2">
           {[{ label: "Web visits", n: s.visits }, clickStage].map((item) => (
             <div key={item.label} className="min-w-0">
-              <p className="break-words text-2xl font-semibold tabular-nums text-[#101828] [overflow-wrap:anywhere] sm:text-3xl">
+              <p className="break-words text-2xl font-semibold tabular-nums text-[#171717] [overflow-wrap:anywhere] sm:text-3xl">
                 {fmtInt(item.n)}
               </p>
-              <p className="mt-1 text-sm text-[#667085]">{item.label}</p>
+              <p className="mt-1 text-sm text-[#737373]">{item.label}</p>
             </div>
           ))}
         </div>
-        <p className="mt-5 border-t border-[#eaecf0] pt-4 text-xs leading-relaxed text-[#667085]">
+        <p className="mt-5 border-t border-[#e5e5e5] pt-4 text-xs leading-relaxed text-[#737373]">
           Repeat visits from the same browser and network count once per hour. Website traffic and
           app installs are separate totals, not a matched conversion funnel.
         </p>
-        <dl className="mt-4 space-y-2 text-xs text-[#667085]">
+        <dl className="mt-4 space-y-2 text-xs text-[#737373]">
           <div className="flex flex-wrap justify-between gap-x-3 gap-y-1">
             <dt className="min-w-0">Raw visits</dt>
             <dd className="min-w-0 break-words tabular-nums [overflow-wrap:anywhere]">
@@ -98,7 +90,7 @@ function FunnelCard(props: { stats: Stats }) {
       </Card>
       <Card title="Install activation" sub="Count and share of all installs">
         {s.installs_total === 0 ? (
-          <p className="py-8 text-center text-sm text-[#667085] sm:py-12">
+          <p className="py-8 text-center text-sm text-[#737373] sm:py-12">
             Activation will appear after the first app check-in.
           </p>
         ) : (
@@ -106,15 +98,15 @@ function FunnelCard(props: { stats: Stats }) {
             {stages.map((st) => (
               <div key={st.label}>
                 <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
-                  <span className="min-w-0 text-[#475467]">{st.label}</span>
-                  <span className="min-w-0 break-words font-medium tabular-nums text-[#101828] [overflow-wrap:anywhere]">
+                  <span className="min-w-0 text-[#525252]">{st.label}</span>
+                  <span className="min-w-0 break-words font-medium tabular-nums text-[#171717] [overflow-wrap:anywhere]">
                     {fmtInt(st.n)}{" "}
-                    <span className="ml-2 text-xs font-normal text-[#667085]">
+                    <span className="ml-2 text-xs font-normal text-[#737373]">
                       {fmtPct(st.n, s.installs_total)}
                     </span>
                   </span>
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-[#f2f4f7]">
+                <div className="h-2 overflow-hidden rounded-full bg-[#f5f5f5]">
                   <div
                     className="h-full rounded-full"
                     style={{ width: `${(st.n / max) * 100}%`, background: C.ink }}
@@ -124,7 +116,7 @@ function FunnelCard(props: { stats: Stats }) {
             ))}
           </div>
         )}
-        <p className="mt-4 text-xs leading-relaxed text-[#667085]">
+        <p className="mt-4 text-xs leading-relaxed text-[#737373]">
           Feature use means creating an entry, adding a contact, or sharing. The 7-day value is a
           rolling usage window; other values are all-time.
         </p>
@@ -145,7 +137,7 @@ function LanguageCard(props: { stats: Stats }) {
   return (
     <Card title="App language" sub="Latest reported language across installs">
       {total === 0 ? (
-        <p className="py-6 text-center text-sm text-[#667085]">
+        <p className="py-6 text-center text-sm text-[#737373]">
           Language data will appear when devices check in.
         </p>
       ) : (
@@ -169,10 +161,10 @@ function LanguageCard(props: { stats: Stats }) {
                     className="h-2.5 w-2.5 shrink-0 rounded-full"
                     style={{ background: meta.color }}
                   />
-                  <span className="min-w-0 break-words font-medium text-[#101828] [overflow-wrap:anywhere]">
+                  <span className="min-w-0 break-words font-medium text-[#171717] [overflow-wrap:anywhere]">
                     {meta.label}
                   </span>
-                  <span className="min-w-0 break-words tabular-nums text-[#98a2b3] [overflow-wrap:anywhere]">
+                  <span className="min-w-0 break-words tabular-nums text-[#a3a3a3] [overflow-wrap:anywhere]">
                     {fmtInt(l.count)} ({fmtPct(l.count, total)})
                   </span>
                 </span>

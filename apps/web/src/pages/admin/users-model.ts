@@ -73,11 +73,6 @@ export const PRESETS = [
     description: "Seen in the last 7 days, based on device check-ins.",
   },
   {
-    id: "follow-up",
-    label: "Needs follow-up",
-    description: "Onboarded, not seen for 7+ days, and a phone or email is available.",
-  },
-  {
     id: "onboarding",
     label: "Not onboarded",
     description:
@@ -88,13 +83,6 @@ export type UserPreset = (typeof PRESETS)[number]["id"];
 
 export function presetFilters(preset: UserPreset): UserFilters {
   if (preset === "active") return { ...DEFAULT_FILTERS, activity: "7d" };
-  if (preset === "follow-up")
-    return {
-      ...DEFAULT_FILTERS,
-      onboarding: "complete",
-      activity: "inactive",
-      contact: "available",
-    };
   if (preset === "onboarding")
     return { ...DEFAULT_FILTERS, onboarding: "incomplete", includeUnidentified: true };
   return { ...DEFAULT_FILTERS };

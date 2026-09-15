@@ -4,8 +4,8 @@ import { fmtDate, fmtInt } from "./ui";
 function DetailItem(props: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[11px] font-medium text-[#667085]">{props.label}</dt>
-      <dd className="mt-1 text-xs leading-5 text-[#344054] [overflow-wrap:anywhere]" dir="auto">
+      <dt className="text-[11px] font-medium text-[#737373]">{props.label}</dt>
+      <dd className="mt-1 text-xs leading-5 text-[#404040] [overflow-wrap:anywhere]" dir="auto">
         {props.value || "Not provided"}
       </dd>
     </div>
@@ -29,12 +29,12 @@ export function AccountDetail(props: { u: UserRow }) {
         <DetailItem label="Onboarding" value={u.has_onboarded ? "Completed" : "Not completed"} />
       </dl>
       <div className="mt-5">
-        <h4 className="text-xs font-semibold text-[#475467]">
+        <h4 className="text-xs font-semibold text-[#525252]">
           Kaatas{" "}
-          <span className="ml-1 font-normal tabular-nums text-[#667085]">{u.kaatas.length}</span>
+          <span className="ml-1 font-normal tabular-nums text-[#737373]">{u.kaatas.length}</span>
         </h4>
         {u.kaatas.length === 0 ? (
-          <p className="mt-2 text-xs leading-5 text-[#667085]">
+          <p className="mt-2 text-xs leading-5 text-[#737373]">
             No synced kaatas available for this account.
           </p>
         ) : (
@@ -42,16 +42,16 @@ export function AccountDetail(props: { u: UserRow }) {
             {u.kaatas.map((kaata) => (
               <div
                 key={kaata.vault_id}
-                className="min-w-0 max-w-full rounded-xl border border-[#e0e8e3] bg-white p-3"
+                className="min-w-0 max-w-full rounded-xl border border-[#e5e5e5] bg-white p-3"
               >
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <span
-                    className="min-w-0 max-w-full text-sm font-medium text-[#344054] [overflow-wrap:anywhere]"
+                    className="min-w-0 max-w-full text-sm font-medium text-[#404040] [overflow-wrap:anywhere]"
                     dir="auto"
                   >
                     {kaata.name}
                   </span>
-                  <span className="max-w-full rounded bg-[#edf4f0] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[#0c745a] [overflow-wrap:anywhere]">
+                  <span className="max-w-full rounded bg-[#f5f5f5] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[#171717] [overflow-wrap:anywhere]">
                     {kaata.role}
                   </span>
                   {kaata.archived ? (
@@ -60,13 +60,13 @@ export function AccountDetail(props: { u: UserRow }) {
                     </span>
                   ) : null}
                 </div>
-                <p className="mt-2 text-xs leading-5 tabular-nums text-[#667085]">
+                <p className="mt-2 text-xs leading-5 tabular-nums text-[#737373]">
                   {fmtInt(kaata.tally_count)} tallies · {fmtInt(kaata.customer_count)} customers ·{" "}
                   {kaata.member_count} member{kaata.member_count === 1 ? "" : "s"}
                 </p>
                 {kaata.members.length > 0 ? (
                   <p
-                    className="mt-1 text-xs leading-5 text-[#667085] [overflow-wrap:anywhere]"
+                    className="mt-1 text-xs leading-5 text-[#737373] [overflow-wrap:anywhere]"
                     dir="auto"
                   >
                     {kaata.members

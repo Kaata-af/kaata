@@ -6,10 +6,7 @@ export type AdminIconName =
   | "campaigns"
   | "retention"
   | "users"
-  | "refresh"
-  | "logout"
-  | "lock"
-  | "arrow";
+  | "logout";
 
 const paths: Record<AdminIconName, React.ReactNode> = {
   overview: (
@@ -41,23 +38,11 @@ const paths: Record<AdminIconName, React.ReactNode> = {
       <path d="M3 20v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6m2 4a5 5 0 0 1 3 5" />
     </>
   ),
-  refresh: (
-    <>
-      <path d="M20 7v5h-5M4 17v-5h5M5.5 7a8 8 0 0 1 13-1L20 9M4 15l1.5 3a8 8 0 0 0 13-1" />
-    </>
-  ),
   logout: (
     <>
       <path d="M9 4H4v16h5m5-12 4 4-4 4m-6-4h10" />
     </>
   ),
-  lock: (
-    <>
-      <rect x="5" y="10" width="14" height="11" rx="2" />
-      <path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2" />
-    </>
-  ),
-  arrow: <path d="M5 12h14m-5-5 5 5-5 5" />,
 };
 
 export function AdminIcon({ name, ...props }: SVGProps<SVGSVGElement> & { name: AdminIconName }) {

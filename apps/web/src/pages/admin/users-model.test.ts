@@ -222,7 +222,7 @@ test("today follows Kabul midnight while recency uses elapsed time and rejects f
   assert.equal(matchesActivity(invalid, "never", NOW), true);
 });
 
-test("follow-up and onboarding presets have explicit useful definitions", () => {
+test("active and onboarding presets have explicit useful definitions", () => {
   const rows = userRows(
     data(
       [
@@ -239,9 +239,12 @@ test("follow-up and onboarding presets have explicit useful definitions", () => 
       [account()],
     ),
   );
+  // The old "needs follow-up" preset (onboarded, inactive, reachable) is gone
+  // on purpose: the operator does not contact people, so the directory offers
+  // no outreach list.
   assert.deepEqual(
-    filterUsers(rows, presetFilters("follow-up"), "", NOW).visible.map((r) => r.id),
-    ["a:account-1"],
+    filterUsers(rows, presetFilters("active"), "", NOW).visible.map((r) => r.id),
+    ["i:active"],
   );
   assert.deepEqual(
     filterUsers(rows, presetFilters("onboarding"), "", NOW).visible.map((r) => r.id),
