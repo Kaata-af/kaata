@@ -24,6 +24,11 @@
 //                        (default: release automatically once approved)
 //   --dry-run            preflight only; performs no writes
 //   --status             print current build/version/submission state and exit
+//   --supersede          the previous version is still waiting for / in review:
+//                        cancel that review submission and rename its App Store
+//                        version to app.json's version, so this build ships
+//                        instead. ASC allows ONE non-live version per platform,
+//                        so without this a newer train can't even be created.
 //
 // PREREQUISITE: the build must already be uploaded and finished processing,
 // i.e. `eas submit --platform ios --profile production` has run and App Store
@@ -50,6 +55,7 @@ function parseArgs(argv) {
     else if (a === "--manual") opts.releaseType = "MANUAL";
     else if (a === "--dry-run") opts.dryRun = true;
     else if (a === "--status") opts.status = true;
+    else if (a === "--supersede") opts.supersede = true;
     else if (a === "--help" || a === "-h") opts.help = true;
     else fail(`unknown flag: ${a}\nRun with --help for usage.`);
   }
@@ -177,6 +183,58 @@ async function findVersion(asc, cfg) {
   return r.data?.[0] ?? null;
 }
 
+// --supersede: a previous train is still sitting in review. Cancel its review
+// submission (Apple then hands the version back as editable) and rename that
+// version to app.json's version, so the normal flow below reuses it and
+// attaches the new build. Refuses to touch a version Apple has already
+// approved or released — those are past superseding; bump and ship after.
+async function supersedePending(asc, cfg, dryRun) {
+  const subs = await asc(
+    "GET",
+    `/apps/${cfg.appId}/reviewSubmissions?filter[platform]=IOS&filter[state]=WAITING_FOR_REVIEW,IN_REVIEW,UNRESOLVED_ISSUES&limit=5`,
+  );
+  for (const s of subs.data ?? []) {
+    console.log(`  supersede    cancel review submission ${s.id} (${s.attributes.state})`);
+    if (!dryRun) {
+      await asc("PATCH", `/reviewSubmissions/${s.id}`, {
+        data: { type: "reviewSubmissions", id: s.id, attributes: { canceled: true } },
+      });
+    }
+  }
+  const versions = await asc(
+    "GET",
+    `/apps/${cfg.appId}/appStoreVersions?filter[platform]=IOS&limit=5`,
+  );
+  const stale = (versions.data ?? []).find(
+    (v) =>
+      v.attributes.versionString !== cfg.version &&
+      (EDITABLE.has(v.attributes.appStoreState) ||
+        ["WAITING_FOR_REVIEW", "IN_REVIEW"].includes(v.attributes.appStoreState)),
+  );
+  if (!stale) return;
+  console.log(
+    `  supersede    rename version ${stale.attributes.versionString} (${stale.attributes.appStoreState}) -> ${cfg.version}`,
+  );
+  if (!dryRun) {
+    await asc("PATCH", `/appStoreVersions/${stale.id}`, {
+      data: {
+        type: "appStoreVersions",
+        id: stale.id,
+        attributes: { versionString: cfg.version },
+      },
+    });
+    // ASC is eventually consistent: the cancelled version can still read as
+    // WAITING_FOR_REVIEW for a little while after the cancel lands. Wait for
+    // it to come back editable before the normal flow re-checks the state.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const v = await findVersion(asc, cfg);
+      if (v && EDITABLE.has(v.attributes.appStoreState)) return;
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+    console.log("  supersede    version still not editable after 60s; continuing anyway");
+  }
+}
+
 async function printStatus(asc, cfg) {
   const builds = await asc(
     "GET",
@@ -291,6 +349,8 @@ if (opts.dryRun) console.log("DRY RUN — no writes\n");
 
 const build = await findBuild(asc, cfg);
 console.log(`  build        ${cfg.buildNumber} VALID (${build.id})`);
+
+if (opts.supersede) await supersedePending(asc, cfg, opts.dryRun);
 
 let version = await findVersion(asc, cfg);
 if (version && !EDITABLE.has(version.attributes.appStoreState)) {

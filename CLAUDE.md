@@ -68,6 +68,8 @@ into `1234`. See `docs/decimal-amounts.md` for rollout and regression checks.
 
 ### Update / announcement delivery without push
 
+**Retired for releases (2026-08, store-only distribution):** store installs update through Play / the App Store, and no `app_releases` row is inserted any more when a version ships — see "Release / deploy flow". The mechanism below still exists in code (the `apk` channel, announcements) and is described for completeness.
+
 Workflow for shipping an update:
 
 1. `INSERT INTO app_releases (...)` on the backend with a higher version + `apk_url` (or `play_store_url`)
@@ -178,55 +180,36 @@ These are coordination patterns that recur across screens and bit us once each. 
 
 ### Release / deploy flow
 
-**APK distribution is via GitHub Releases, NOT committed to the repo.** The APK now exceeds GitHub's 100 MB per-file git limit, so it CANNOT live in `apps/web/public/downloads/` (a push would be rejected). Release assets allow up to 2 GB; the web download button + the backend `/v1/download` 302 both point at the GitHub Release asset URL.
+Store-only since the Play listing went live (2026-08): Play Store for Android, App Store for iOS. The sideload APK, the GitHub Release asset, the Dokploy `APK_DOWNLOAD_URL` / `VITE_APK_*` args and the `INSERT INTO app_releases` update-banner rows are **retired** and no longer part of a release. (The code paths still exist for the `apk` channel; `docs/architecture.md` describes them for history.) Every release goes to the testing tracks first, gets checked on both of Matee's phones, and is promoted from there.
 
-1. Bump **all three** by hand in `apps/mobile/app.json`: `version`, `android.versionCode` and `ios.buildNumber` (e.g. `1.0.6`/`32`/`12` → `1.0.7`/`33`/`13`). versionCode MUST increase or the sideloaded APK won't install over the old one, and App Store Connect rejects a repeated buildNumber. **No profile auto-increments any more** — `appVersionSource` is `"local"`, and `autoIncrement` was removed from `production` (2026-08-09) because with a local version source EAS bumped the numbers at BUILD time and wrote `app.json` back: any commit made before the build was stale by one, so the tag never matched the artifact in the store. `app.json` is the single source of truth now, and the order is bump → commit → build. Trade-off: a rebuild after a failed upload needs another manual bump, which fails loudly at the store rather than silently shipping a mismatched number.
+1. **Bump all three by hand** in `apps/mobile/app.json`: `version`, `android.versionCode` and `ios.buildNumber` (e.g. `1.1.0`/`36`/`16` → `1.1.1`/`37`/`17`). versionCode MUST increase and App Store Connect rejects a repeated buildNumber. **No profile auto-increments** — `appVersionSource` is `"local"`; `autoIncrement` was removed (2026-08-09) because EAS bumped at BUILD time and wrote `app.json` back, so the commit never matched the artifact. Order is bump → commit → build. Matee commits and tags himself; Claude edits, builds and submits.
 
-   **`eas.json` takes NO comments.** It is strict JSON validated against a schema, and any unknown key — including a `_comment` string — fails the build with `"eas.json is not valid"` before anything uploads. Document build/submit config decisions here in CLAUDE.md instead.
+   **`eas.json` takes NO comments.** It is strict JSON validated against a schema; any unknown key — including a `_comment` string — fails the build with `"eas.json is not valid"`. Document build/submit config decisions here instead.
 
-   **Submit profiles — and the iOS half-step.** ⚠️ **`eas submit` never submits an iOS build for App Store review.** EAS Submit implements binary _upload_ only; every iOS flag it has is TestFlight-only (`--groups`, `--what-to-test`). The limit is EAS's, not Apple's — the ASC API does expose review submission (the 3-call `reviewSubmissions` flow; the older `appStoreVersionSubmissions` is gone), which is what fastlane's `deliver --submit_for_review` drives. So `--profile production --platform ios` does exactly what `--profile testing` does: upload to App Store Connect, where the build appears in TestFlight and stops. The `submit.production.ios` and `submit.testing.ios` blocks are byte-identical for this reason.
-
-   This is easy to miss three ways over: the profile is _named_ `production`, the CLI prints "✔ Submitted your app to App Store Connect!" (and "submitted" is Apple's own word for review), and the identical command on Android really does publish straight to production. **It has already cost two releases — 1.0.7 and 1.0.8 were built, uploaded and committed, and never reached a single user.** They sat in TestFlight until 1.0.9 shipped.
-
-   The second half is `apps/mobile/scripts/asc-submit.mjs`, run from `apps/mobile/`:
+2. **One build, both platforms, straight to the testing tracks** (must run from `apps/mobile/`; running from the repo root would create a bogus project with a fresh keystore — see Dev workflow quirks):
 
    ```
-   npm run submit:ios -- --status                              # what's live, what's stranded
-   npm run submit:ios -- --notes-file notes.txt --dry-run      # preflight, no writes
-   npm run submit:ios -- --notes-file notes.txt                # create version, attach build, submit
+   eas build --profile production --platform all --auto-submit-with-profile testing --non-interactive
    ```
 
-   It reads the version + buildNumber from `app.json` and the ASC API key from the `eas.json` submit profile, so there is no second copy of either. It creates the App Store version (ASC copies description, keywords, screenshots and review contact forward from the last one), attaches the matching build, writes "What's New", and submits. `--manual` holds at Pending Developer Release instead of releasing on approval. `--status` prints any train that exists as a build but has no App Store version — the 1.0.7/1.0.8 failure, surfaced.
+   Check the log says `Using Keystore from configuration` (never `Creating`). The `testing` submit profile puts Android on the Play **closed testing** track (`alpha`; `internal` = Internal testing, `beta` = Open testing) and uploads iOS to TestFlight. Both use the same `production` BUILD profile; only the destination differs. A phone joins the closed test once via `https://play.google.com/apps/testing/af.kaata.app` (its Google account must be on the track's tester list), then Play offers the build as a normal update; never sideload an APK over a Play install — different signing, it would wipe the ledger.
 
-   Needs `credentials/AuthKey_*.p8`, which is **gitignored** — a fresh clone must re-download it from App Store Connect → Users and Access → Integrations.
+3. **Promote Android in the Play Console.** `eas submit --profile production` is refused for a versionCode that is already on a track ("You've already submitted this version") — Play treats it as one release to promote, and EAS has no promote command. Play Console → Testing → Closed testing → alpha → the release → **Promote release → Production**.
 
-   Android is the genuinely automated half: `production` → Play production track (100% unless a `rollout` is set), `testing` → `track: "alpha"` = Play **Closed testing** (`internal` = Internal testing, `beta` = Open testing). Both profiles use the same `production` BUILD profile (release signing, app-bundle, `EXPO_PUBLIC_DISTRIBUTION=store`); only the destination differs.
+4. **iOS — actually submit for review.** ⚠️ **`eas submit` never submits an iOS build for App Store review.** EAS Submit implements binary _upload_ only; every iOS flag it has is TestFlight-only. The `submit.production.ios` and `submit.testing.ios` blocks are byte-identical for this reason, and the CLI's "✔ Submitted your app to App Store Connect!" means TestFlight. **It has already cost two releases — 1.0.7 and 1.0.8 were built, uploaded and committed, and never reached a single user.** The second half is `apps/mobile/scripts/asc-submit.mjs`, run from `apps/mobile/` once `--status` shows the build `VALID`:
 
-2. Build the APK from `apps/mobile/`: `bun apk --profile preview --local` (or `eas build --profile preview --platform android`) — **must be run from `apps/mobile/`** (see Dev workflow quirks). The `preview` profile points `EXPO_PUBLIC_BACKEND_URL` at `https://api.kaata.af`.
-3. **Create a GitHub Release** at tag `v<version>` (tags are `v`-prefixed: `v0.5.1`, `v0.6.0`, …) and upload the artifact as the asset `kaata-<version>.apk`. Either `cd <repo> && gh release create v<version> <artifact>.apk --title "Kaata <version>" --notes "<notes>"` (gh creates the tag if absent), or the web UI ("Draft a new release" → pick/create the tag → upload). The stable asset URL is `https://github.com/Kaata-af/kaata/releases/download/v<version>/kaata-<version>.apk`. Do NOT add the APK to git.
-4. In Dokploy, point both services at that asset URL: on `kaata-web` set build-args `VITE_APK_VERSION=<version>` AND `VITE_APK_DOWNLOAD_URL=https://github.com/Kaata-af/kaata/releases/download/v<version>/kaata-<version>.apk`; on `kaata-backend` set env `APK_DOWNLOAD_URL=https://github.com/Kaata-af/kaata/releases/download/v<version>/kaata-<version>.apk` and click **Redeploy** (env-only changes don't auto-trigger). Redeploy `kaata-web` too (build-arg change).
-5. Commit + push the version bump (`apps/mobile/app.json`) and the `v<version>` tag. (No APK in the commit — it's a Release asset.)
-6. Smoke test from outside any VPN:
    ```
-   curl -sSL -o /dev/null -w "%{http_code}\n" https://github.com/Kaata-af/kaata/releases/download/v<version>/kaata-<version>.apk
-   curl -sSL -o /dev/null -w "%{http_code} -> %{redirect_url}" https://api.kaata.af/v1/download
-   ```
-7. **`INSERT INTO app_releases`** via `docker exec -it kaata-database-<suffix> psql -U kaata -d kaata` so existing users see the UpdateBanner on next launch. Without this, only fresh downloads get the new version. The columns are `platform`, `version`, `min_supported_version`, `apk_url`, `play_store_url`, `release_notes` — there's **no `force_update` column**; force-update is computed at check-in time by comparing the client's version against `min_supported_version`. `apk_url` is the GitHub Release asset URL. For a non-forcing release, set `min_supported_version` to a version every existing install is at or above (e.g., `'0.1.0'`):
-
-   ```sql
-   INSERT INTO app_releases (platform, version, min_supported_version, apk_url, play_store_url, release_notes)
-   VALUES ('android', '0.6.0', '0.1.0', 'https://github.com/Kaata-af/kaata/releases/download/v0.6.0/kaata-0.6.0.apk', NULL, 'Release notes here.');
+   npm run submit:ios -- --status                                # what's live, what's stranded
+   npm run submit:ios -- --notes-file notes.txt --dry-run        # preflight, no writes
+   npm run submit:ios -- --notes-file notes.txt                  # create/reuse version, attach build, submit
+   npm run submit:ios -- --notes-file notes.txt --supersede      # previous train still in review: cancel it first
    ```
 
-   To force-update everyone below a version (only for critical fixes), set `min_supported_version` to that boundary.
+   It reads version + buildNumber from `app.json` and the ASC API key from the `eas.json` submit profile. It creates the App Store version (ASC copies description, keywords, screenshots and review contact forward), attaches the matching build, writes "What's New", and submits; `--manual` holds at Pending Developer Release. `--status` lists any train that exists as a build but has no App Store version — the 1.0.7/1.0.8 failure, surfaced. **`--supersede`** is for the case that recurs when a fix lands while the previous version is still `WAITING_FOR_REVIEW`: ASC allows ONE non-live version per platform, so the script cancels that review submission, renames the version to `app.json`'s, waits for it to read editable (`DEVELOPER_REJECTED`; ASC is eventually consistent, so a plain re-run may be needed), then continues. Never rename a version Apple has already approved.
 
-   **Per-platform / per-channel rows (client routing is in `apps/mobile/lib/update-url.ts`):** check-in filters rows by the client's platform, and each install picks its update URL by its build channel (`EXPO_PUBLIC_DISTRIBUTION` in `eas.json`: preview = `apk`, production = `store`):
-   - **android** rows: `apk_url` = the sideload APK (`https://api.kaata.af/v1/download` — served resumable from the backend's local cache); `play_store_url` = the Play listing once live. Sideload installs open `apk_url`; Play installs open `play_store_url` and their banner stays HIDDEN while it's NULL (a Play install cannot apply a sideloaded APK — Play App Signing signatures differ).
-   - **ios** rows: put the App Store listing (`https://apps.apple.com/us/app/kaata/id6789651127`) in `play_store_url` and leave `apk_url` NULL. The column name is historical — it means "the platform's store listing", and shipped iOS clients already read it as their fallback.
+   Write "What's New" against the last version that **actually shipped** on that platform, not the last one built; `--status` shows which. Needs `credentials/AuthKey_*.p8`, which is **gitignored** — re-download it from App Store Connect → Users and Access → Integrations on a fresh clone.
 
-8. **iOS only — actually submit for review.** `eas submit` has merely put the build in TestFlight at this point; nothing has reached users. From `apps/mobile/`, once the build shows `VALID`: `npm run submit:ios -- --status` to confirm, then `npm run submit:ios -- --notes-file <notes>`. See the ⚠️ under step 1. Skipping this is silent — the tag, the GitHub Release and the Play rollout all succeed while iOS stays on the previous version.
-
-   Write "What's New" against the last version that **actually shipped**, not the last one built. If earlier trains were stranded in TestFlight, their user-visible changes are still new to everyone (1.0.9's notes had to cover 1.0.7 and 1.0.8). `--status` lists the stranded trains.
+5. **Tag** `v<version>` on the bump commit and push it (Matee).
 
 ### Analytics queries (Postgres on production)
 
