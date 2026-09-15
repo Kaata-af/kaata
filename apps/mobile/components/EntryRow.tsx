@@ -35,42 +35,41 @@ export const EntryRow = memo(function EntryRow(props: {
     ? { bg: colors.payBg, fg: colors.payStrong }
     : { bg: colors.collectBg, fg: colors.collectStrong };
 
-  // Note expansion: clamped to 1 line; a TAP expands/collapses, but only once
-  // we've measured that the note actually overflows (`clipped`). A plain tap on
-  // a note-less / short-note row still does nothing (a tally is informational).
+  // ONE open/closed state per row (Matee, 2026-09): a tap anywhere on the
+  // tally is the toggle, exactly like the note's more/less. Open shows the
+  // exact date and time in the date's own slot (never dropped under the
+  // amount) and, when the note is clipped, expands the note in the same tap;
+  // closed shows the relative time and the one-line note. The note only
+  // expands once we've measured that it actually overflows (`clipped`), so a
+  // short note never grows a "less" cue.
   const [measured, setMeasured] = useState(false);
   const [clipped, setClipped] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const [showTimestamp, setShowTimestamp] = useState(false);
-  const when = showTimestamp
+  const [open, setOpen] = useState(false);
+  const expanded = open && clipped;
+  const when = open
     ? formatTimestamp(entry.created_at)
     : formatRelative(entry.created_at, Date.now(), { alwaysRelative: true });
-  const timestampAction = t(showTimestamp ? "entry.showRelativeTime" : "entry.showExactTime");
+  const toggleLabel = t(open ? "entry.showRelativeTime" : "entry.showExactTime");
 
   return (
     <Pressable
-      // A row tap expands a clipped note; the date has its own independent
-      // toggle below. The edit/delete sheet stays on TAP-AND-HOLD — like contact
-      // rows. delayLongPress 250ms so a quick tap doesn't accidentally trigger
-      // it; Pressable cancels if the finger moves enough to start a scroll, so
-      // it doesn't fight the list's vertical scroll.
-      onPress={clipped ? () => setExpanded((v) => !v) : undefined}
+      // A row tap toggles the row open/closed (exact time + note). The
+      // edit/delete sheet stays on TAP-AND-HOLD — like contact rows.
+      // delayLongPress 250ms so a quick tap doesn't accidentally trigger it;
+      // Pressable cancels if the finger moves enough to start a scroll, so it
+      // doesn't fight the list's vertical scroll.
+      onPress={() => setOpen((value) => !value)}
       onLongPress={props.onLongPress ? () => props.onLongPress?.(entry) : undefined}
       delayLongPress={250}
       accessibilityRole="button"
-      // VoiceOver may group nested controls into this row. Expose the date
-      // toggle as an explicit action as well as its visual touch target.
+      accessibilityState={{ expanded: open }}
+      accessibilityHint={toggleLabel}
       accessibilityActions={[
-        { name: "toggleTimestamp", label: timestampAction },
-        ...(clipped
-          ? [{ name: "activate", label: t(expanded ? "common.less" : "common.more") }]
-          : []),
+        { name: "activate", label: toggleLabel },
         ...(props.onLongPress ? [{ name: "longpress", label: t("entry.options") }] : []),
       ]}
       onAccessibilityAction={(event) => {
-        if (event.nativeEvent.actionName === "toggleTimestamp") setShowTimestamp((value) => !value);
-        else if (event.nativeEvent.actionName === "activate" && clipped)
-          setExpanded((value) => !value);
+        if (event.nativeEvent.actionName === "activate") setOpen((value) => !value);
         else if (event.nativeEvent.actionName === "longpress") props.onLongPress?.(entry);
       }}
       style={({ pressed }) => [
@@ -99,33 +98,14 @@ export const EntryRow = memo(function EntryRow(props: {
       <View style={styles.middle}>
         {/* Amount on the leading end, date on the trailing end — the arrow
             carries direction, so the verb label is gone. */}
-        <View style={[styles.topRow, rowDir(isRTL), showTimestamp && styles.topRowExpanded]}>
+        <View style={[styles.topRow, rowDir(isRTL)]}>
           <View style={[styles.amountRow, rowDir(isRTL)]}>
             <Text style={styles.amount}>{formatAmount(entry.amount_afn)}</Text>
             <Text style={styles.afn}>{getCurrentCurrencySymbol()}</Text>
           </View>
-          <Pressable
-            onPress={(event) => {
-              event.stopPropagation();
-              setShowTimestamp((value) => !value);
-            }}
-            onLongPress={props.onLongPress ? () => props.onLongPress?.(entry) : undefined}
-            delayLongPress={250}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={`${when}. ${timestampAction}`}
-            accessibilityState={{ expanded: showTimestamp }}
-            style={[
-              styles.whenToggle,
-              {
-                alignSelf: showTimestamp ? (isRTL ? "flex-start" : "flex-end") : "auto",
-                marginLeft: isRTL ? 0 : "auto",
-                marginRight: isRTL ? "auto" : 0,
-              },
-            ]}
-          >
-            <Text style={[styles.when, { textAlign: isRTL ? "left" : "right" }]}>{when}</Text>
-          </Pressable>
+          {/* The date stays in its trailing slot in both states; it only
+              shrinks (never the amount) if the exact form needs the room. */}
+          <Text style={[styles.when, { textAlign: isRTL ? "left" : "right" }]}>{when}</Text>
         </View>
         {entry.note ? (
           expanded ? (
@@ -202,11 +182,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    flexWrap: "wrap",
     gap: 10,
   },
-  topRowExpanded: { flexDirection: "column", alignItems: "stretch", gap: 2 },
-  amountRow: { flexDirection: "row", alignItems: "baseline", gap: 4 },
+  amountRow: { flexDirection: "row", alignItems: "baseline", gap: 4, flexShrink: 0 },
   amount: {
     fontSize: 15,
     // Bold (not semibold) so the number is unmistakably the row's anchor,
@@ -219,18 +197,12 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansMedium,
     color: colors.textMuted,
   },
-  whenToggle: {
-    maxWidth: "100%",
-    flexShrink: 1,
-    minHeight: 28, // Compact ledger control; hitSlop adds padding within the row.
-    justifyContent: "center",
-  },
   when: {
     fontSize: 12,
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
     lineHeight: sansLineHeight(12, 17),
-    textDecorationLine: "underline",
+    flexShrink: 1,
   },
   // Note + cue share one line; the cue trails the single-line (truncating) note.
   // alignItems:'center', NOT 'baseline' — a flex:1 child (the note wrapper)

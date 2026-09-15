@@ -30,17 +30,20 @@ export function formatDate(ms: number): string {
   return formatCalendarDate(ms, getLocale(), getEffectiveCalendar());
 }
 
-// Display only: use the same local date/calendar as the ledger, with an
-// unambiguous 24-hour clock down to seconds. Isolate the date and clock so
-// their order survives mixed Dari/Latin text; the stored epoch never changes.
+// Display only: the ledger's own date/calendar plus a 12-hour clock with an
+// AM/PM marker (Matee: the way a shopkeeper reads a clock; seconds are noise).
+// Persian gets ق.ظ / ب.ظ and Persian digits. The date and the clock are each
+// wrapped in bidi isolates so their order survives mixed Dari/Latin text; the
+// stored epoch never changes.
 export function formatTimestamp(ms: number): string {
   const date = new Date(ms);
   if (!Number.isFinite(date.getTime())) return "";
-  const clock = [date.getHours(), date.getMinutes(), date.getSeconds()]
-    .map((part) => String(part).padStart(2, "0"))
-    .join(":");
+  const hours24 = date.getHours();
+  const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
+  const clock = `${hours12}:${String(date.getMinutes()).padStart(2, "0")}`;
+  const marker = t(hours24 < 12 ? "format.am" : "format.pm");
   const localClock = getLocale() === "fa" ? faDigits(clock) : clock;
-  return `\u2068${formatDate(ms)}\u2069 · \u2068${localClock}\u2069`;
+  return `\u2068${formatDate(ms)}\u2069 · \u2068${localClock} ${marker}\u2069`;
 }
 
 // Human-friendly "5 minutes ago" / "3 days ago". Used on list rows where

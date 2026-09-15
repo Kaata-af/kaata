@@ -407,6 +407,8 @@ const en = {
   "format.yesterday": "yesterday",
   "format.daysAgo": "{n}d ago",
   "format.weeksAgo": "{n}w ago",
+  "format.am": "AM",
+  "format.pm": "PM",
 
   // Common
   // Update prompt + banner — the force-update recovery path must be
@@ -1619,6 +1621,8 @@ const fa: Partial<Record<Key, string>> = {
   "format.yesterday": "دیروز",
   "format.daysAgo": "{n} روز پیش",
   "format.weeksAgo": "{n} هفته پیش",
+  "format.am": "ق.ظ",
+  "format.pm": "ب.ظ",
 
   // Common
   "common.cancel": "لغو",
