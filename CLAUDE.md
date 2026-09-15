@@ -194,7 +194,15 @@ Store-only since the Play listing went live (2026-08): Play Store for Android, A
 
    Check the log says `Using Keystore from configuration` (never `Creating`). The `testing` submit profile puts Android on the Play **closed testing** track (`alpha`; `internal` = Internal testing, `beta` = Open testing) and uploads iOS to TestFlight. Both use the same `production` BUILD profile; only the destination differs. A phone joins the closed test once via `https://play.google.com/apps/testing/af.kaata.app` (its Google account must be on the track's tester list), then Play offers the build as a normal update; never sideload an APK over a Play install — different signing, it would wipe the ledger.
 
-3. **Promote Android in the Play Console.** `eas submit --profile production` is refused for a versionCode that is already on a track ("You've already submitted this version") — Play treats it as one release to promote, and EAS has no promote command. Play Console → Testing → Closed testing → alpha → the release → **Promote release → Production**.
+3. **Promote Android** once the phones check out. `eas submit --profile production` is refused for a versionCode that is already on a track ("You've already submitted this version") — Play treats it as one release to promote, and EAS has no promote command. `apps/mobile/scripts/play-promote.mjs` is that button via the Edits API, run from `apps/mobile/`:
+
+   ```
+   npm run promote:android -- --dry-run          # shows what would move, discards the edit
+   npm run promote:android                        # alpha -> production, 100%
+   npm run promote:android -- --rollout 0.2       # staged rollout instead
+   ```
+
+   It reads the package + versionCode from `app.json` and authenticates with the SAME service account EAS Submit uses (`kaata-eas-deploy@…`), expected at `credentials/google-service-account.json` (gitignored; Matee keeps the original under Documents/Security/Kaata) or passed with `--key`. Release notes on the closed-testing release travel with it. Play still runs its own review before the production rollout goes live. The manual equivalent is Play Console → Testing → Closed testing → alpha → the release → Promote release → Production.
 
 4. **iOS — actually submit for review.** ⚠️ **`eas submit` never submits an iOS build for App Store review.** EAS Submit implements binary _upload_ only; every iOS flag it has is TestFlight-only. The `submit.production.ios` and `submit.testing.ios` blocks are byte-identical for this reason, and the CLI's "✔ Submitted your app to App Store Connect!" means TestFlight. **It has already cost two releases — 1.0.7 and 1.0.8 were built, uploaded and committed, and never reached a single user.** The second half is `apps/mobile/scripts/asc-submit.mjs`, run from `apps/mobile/` once `--status` shows the build `VALID`:
 

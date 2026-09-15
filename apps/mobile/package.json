@@ -9,6 +9,7 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "submit:ios": "node scripts/asc-submit.mjs",
+    "promote:android": "node scripts/play-promote.mjs",
     "selftest:hlc": "tsx lib/__dev__/hlc-selftest.ts",
     "selftest:jalali": "tsx lib/__dev__/jalali-selftest.ts",
     "selftest:ingest": "tsx lib/__dev__/ingest-selftest.ts",
