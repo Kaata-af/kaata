@@ -1135,19 +1135,23 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
     // ("failed to archive" + repeated "your role changed"). Remote events never
     // reach here, and a paired NON-owner device's pubkey != the anchor, so it
     // stays gated — impersonation is still blocked.
+    //
+    // "Our device pubkey" includes keys this device has ROTATED AWAY from
+    // (lib/mesh/device-key.ts retired list): a vault minted under the old
+    // key keeps that key as its anchor forever, and the device that lost
+    // its seed is still the device that minted it. LOCAL origin only — this
+    // block is inside the `origin !== "remote"` branch, and the read-only
+    // accessor never repairs the key (we are inside the applyEvent
+    // transaction here).
     if (role == null || !meetsRequirement(role, requirement)) {
       try {
         const deviceKeyMod = await import("../mesh/device-key");
-        await deviceKeyMod.ensureDeviceKey();
-        const myPub = deviceKeyMod.getDevicePubkey();
-        if (myPub) {
-          const anchorRow = await tx.getFirstAsync<{ vault_trust_anchor_pubkey: string | null }>(
-            "SELECT vault_trust_anchor_pubkey FROM vaults WHERE id = ?",
-            event.vault_id,
-          );
-          if (anchorRow?.vault_trust_anchor_pubkey === myPub) {
-            return { ok: true };
-          }
+        const anchorRow = await tx.getFirstAsync<{ vault_trust_anchor_pubkey: string | null }>(
+          "SELECT vault_trust_anchor_pubkey FROM vaults WHERE id = ?",
+          event.vault_id,
+        );
+        if (await deviceKeyMod.isOwnDevicePubkey(anchorRow?.vault_trust_anchor_pubkey)) {
+          return { ok: true };
         }
       } catch {
         /* fall through to normal gating if the anchor can't be read */

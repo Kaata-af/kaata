@@ -19,7 +19,7 @@ import { getAppMetaInTx, getDb, getInstallIdSync, setAppMetaInTx, type SQLiteTx 
 import type { EventType, LedgerEvent } from "../events";
 import { isKnownEventType } from "../events";
 import { signEvent } from "../event-sig";
-import { ensureDeviceKey, getDevicePubkey, signWithDeviceKey } from "../mesh/device-key";
+import { DeviceKeyUnavailableError, getDeviceSigner, type DeviceSigner } from "../mesh/device-key";
 import { deserializeHLC, serializeHLC, tickLocal, tickReceive, type HLC } from "../hlc";
 
 import { applyAccountBound } from "./account";
@@ -216,36 +216,57 @@ export async function applyEvent(
     throw new Error(`no projection applier for event_type ${event.event_type}`);
   }
 
-  // Phase 8 event signing: pre-warm the device key OUTSIDE the tx (it
-  // hits SecureStore on first call; we don't want SecureStore I/O inside
-  // a SQLite transaction). Idempotent: subsequent calls are sync cache
-  // reads. Skipped for non-local origins — those events were signed by
-  // the authoring device and we re-verify their signature, not re-sign.
+  // Phase 8 event signing: take the device SIGNER outside the tx. This is
+  // the only place a local write touches SecureStore, and it must stay
+  // outside the transaction: getDeviceSigner() validates that the private
+  // seed and the app_meta pubkey mirror agree and REPAIRS them when they
+  // don't (a phone restored from Android backup carries the mirror but not
+  // the Keystore-wrapped seed — every write on that phone used to throw a
+  // plain Error mid-transaction and surface as "Couldn't save. Try again."
+  // forever). The repair writes app_meta, which inside the tx would roll
+  // back with it; device-key.ts refuses to repair in-transaction, so the
+  // ordering here is what makes the heal possible.
   //
-  // Mythos Fix Set A: guarantee the in-memory pubkey cache is WARM before
-  // we enter the tx. getDevicePubkey() reads only the cache; ensureDeviceKey
-  // populates it. On a fresh install the SecureStore write and the cache
-  // warmup can race, so we retry the ensure once. If the cache is STILL
-  // cold after the retry we must NOT proceed to write an event whose
-  // signer_device_pubkey would be null — that event gets refused at every
-  // peer's mesh ingest and silently breaks sync + the members projection.
+  // The snapshot is what gets used inside the tx — not a re-read of the
+  // module caches — so signOut's clearDeviceKey() racing this write cannot
+  // strip the key between pre-warm and sign, and the stamped
+  // signer_device_pubkey is always the key that produced the signature.
+  // Skipped for non-local origins: those events were signed by the
+  // authoring device and we re-verify their signature, not re-sign.
+  //
+  // A typed DeviceKeyUnavailableError (locked keychain, SecureStore refused
+  // the write, repair needed while some other transaction is open) becomes
+  // EventSigningUnavailableError so the save handlers show the actionable
+  // "couldn't prepare a secure save" copy. Anything else (a SQLite error
+  // reading app_meta) propagates as-is for the storage classifier.
+  let signer: DeviceSigner | null = null;
   if (opts.origin === "local") {
-    let pub = getDevicePubkey();
-    if (!pub) {
-      try {
-        await ensureDeviceKey();
-        pub = getDevicePubkey();
-      } catch (err) {
-        console.warn("[projection] ensureDeviceKey failed before signing", err);
+    try {
+      signer = await getDeviceSigner({ interactive: true });
+    } catch (err) {
+      if (err instanceof DeviceKeyUnavailableError && err.reason === "in_transaction") {
+        // A repair was needed while some other transaction was open (the
+        // launch sweep cycling per-event transactions is the realistic
+        // collider). Retry once under applyEventMutex: every event
+        // transaction holds it, so the repair runs between them. We hold no
+        // sweepMutex here, so the sweepMutex → applyEventMutex order stands.
+        try {
+          signer = await applyEventMutex.runExclusive(() => getDeviceSigner({ interactive: true }));
+        } catch (retryErr) {
+          if (retryErr instanceof DeviceKeyUnavailableError) {
+            throw new EventSigningUnavailableError(
+              `device signing key unavailable (${retryErr.reason}): ${retryErr.message}`,
+            );
+          }
+          throw retryErr;
+        }
+      } else if (err instanceof DeviceKeyUnavailableError) {
+        throw new EventSigningUnavailableError(
+          `device signing key unavailable (${err.reason}): ${err.message}`,
+        );
+      } else {
+        throw err;
       }
-    }
-    if (!pub) {
-      // Cannot produce a propagatable (signed-with-pubkey) event. Fail
-      // loud — the caller surfaces "couldn't prepare secure save, reopen
-      // the app" (Fix Set C). Reopening the app warms the key cache.
-      throw new EventSigningUnavailableError(
-        "device key/pubkey cache unavailable; refusing to write an unsigned local event",
-      );
     }
   }
 
@@ -308,26 +329,24 @@ export async function applyEvent(
       // here. Backfill-origin events are unsigned (synthetic pre-Phase 8).
       let stamped: LedgerEvent = stampedBase;
       if (opts.origin === "local") {
-        // Mythos Fix Set A: the pubkey cache was guaranteed warm above (we
-        // threw EventSigningUnavailableError otherwise), so pub is non-null
-        // here. We DELIBERATELY let signEvent throw rather than swallowing:
-        // a local write that cannot be signed must fail visibly instead of
-        // landing a non-propagatable row. The throw unwinds the tx (nothing
-        // is written) and the caller surfaces a clear message.
-        const pub = getDevicePubkey();
-        if (!pub) {
-          throw new EventSigningUnavailableError(
-            "device pubkey vanished between pre-warm and sign",
-          );
+        // The signer snapshot was taken above (we threw
+        // EventSigningUnavailableError otherwise) and holds the seed bytes,
+        // so signing here does no I/O and cannot observe a cleared cache. We
+        // DELIBERATELY let signEvent throw rather than swallowing: a local
+        // write that cannot be signed must fail visibly instead of landing a
+        // non-propagatable row. The throw unwinds the tx (nothing is written)
+        // and the caller surfaces a clear message.
+        if (!signer) {
+          throw new EventSigningUnavailableError("device signer missing for a local event");
         }
         const sig = await signEvent(
           stampedBase as unknown as Parameters<typeof signEvent>[0],
-          signWithDeviceKey,
+          signer.sign,
         );
         stamped = {
           ...stampedBase,
           event_sig_b64: sig,
-          signer_device_pubkey: pub,
+          signer_device_pubkey: signer.pubkey_b64,
         } as LedgerEvent;
       }
 

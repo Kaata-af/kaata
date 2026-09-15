@@ -258,6 +258,10 @@ const en = {
   "personAdd.phone.invalid": "Couldn't read that phone number. Try +93 70 123 4567.",
   "personAdd.phone.conflict": "Phone already used by {name}",
   "personAdd.phone.isSelf": "That's your own number — you can't add yourself.",
+  "personAdd.save.storageFull": "Your phone's storage is full. Free up some space and try again.",
+  "personAdd.save.storageBusy": "Kaata is busy saving changes. Wait a moment and try again.",
+  "personAdd.save.failed":
+    "Couldn't finish saving this person. Reopen Kaata and try again. If it keeps happening, share an App health report.",
   "personAdd.section.matches": "Matches",
   "personAdd.section.recent": "Recent",
   "personAdd.section.fromPhone": "From your phone",
@@ -309,12 +313,14 @@ const en = {
   // — usually because a co-owner demoted this device to viewer/editor and
   // the demotion gossiped in via mesh/sync between screen-load and save.
   "entry.roleDenied": "View only — ask the owner for editor access.",
-  // Mythos Fix Set C: shown when a save can't be signed because the device
-  // key cache isn't ready (EventSigningUnavailableError). Reopening the app
-  // warms the cache; the retry then succeeds. Actionable, unlike the
-  // generic saveFailed.
+  // Shown when a save can't be signed (EventSigningUnavailableError, from a
+  // DeviceKeyUnavailableError in lib/mesh/device-key.ts): the SecureStore
+  // read threw (locked keychain, Keystore hiccup), the store refused a write,
+  // or a repair was needed while another transaction was open. A plain retry
+  // usually succeeds — the save path repairs the key in place — so lead
+  // with that; reopening is the fallback. Actionable, unlike saveFailed.
   "entry.signingUnavailable":
-    "Couldn't prepare a secure save. Please reopen the app and try again.",
+    "Couldn't prepare a secure save. Try again — if it keeps failing, reopen Kaata.",
 
   // Projection-conflicts surface (Phase 8 D-PROJECTION-CONFLICTS-SURFACE).
   // Toasted by ProjectionConflictsListener at the root of the app.
@@ -1460,6 +1466,11 @@ const fa: Partial<Record<Key, string>> = {
   "personAdd.phone.invalid": "این شماره را نتوانستم بخوانم. مثلاً +93 70 123 4567.",
   "personAdd.phone.conflict": "این شماره قبلاً برای {name} ثبت شده",
   "personAdd.phone.isSelf": "این شماره خود شماست — نمی‌توانید خودتان را اضافه کنید.",
+  "personAdd.save.storageFull": "حافظهٔ گوشی شما پر است. کمی فضا خالی کنید و دوباره امتحان کنید.",
+  "personAdd.save.storageBusy":
+    "کاتا در حال ذخیرهٔ تغییرات است. کمی صبر کنید و دوباره امتحان کنید.",
+  "personAdd.save.failed":
+    "ذخیرهٔ این شخص کامل نشد. کاتا را دوباره باز کنید و امتحان کنید. اگر مشکل ادامه داشت، گزارش وضعیت برنامه را بفرستید.",
   "personAdd.section.matches": "نتایج",
   "personAdd.section.recent": "اخیر",
   "personAdd.section.fromPhone": "از مخاطبین تلفن",
@@ -1504,7 +1515,8 @@ const fa: Partial<Record<Key, string>> = {
   "entry.deleteFailed": "حذف نشد. دوباره امتحان کنید.",
   "entry.saveFailed": "ذخیره نشد. دوباره امتحان کنید.",
   "entry.roleDenied": "فقط مشاهده — از مالک اجازه ویرایشگر بخواهید.",
-  "entry.signingUnavailable": "ذخیره امن آماده نشد. لطفاً برنامه را دوباره باز کنید و امتحان کنید.",
+  "entry.signingUnavailable":
+    "ذخیره امن آماده نشد. دوباره امتحان کنید — اگر ادامه داشت، کاتا را دوباره باز کنید.",
   "projectionConflicts.toast.roleGate": "نقش شما تغییر کرد — آن تغییر ذخیره نشد.",
   "projectionConflicts.toast.serverRejected":
     "سرور آخرین تغییر شما را نپذیرفت. لطفاً تازه‌سازی کنید.",

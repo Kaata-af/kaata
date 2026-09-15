@@ -36,25 +36,103 @@ import {
 } from "../event-log";
 import type { MembershipWitness, VaultRole } from "../events";
 import { parseVaultRole } from "../vault-roles";
-import { ensureDeviceKey, getDevicePubkey } from "../mesh/device-key";
+import {
+  ensureDeviceKey,
+  getDevicePubkey,
+  META_REBIND_PENDING_KEY,
+  META_REREGISTER_PENDING_KEY,
+  registerDeviceKey,
+} from "../mesh/device-key";
 import { buildLocalAccountId } from "./account-id";
-import { fetchMembershipWitness } from "../vault-api";
+import { ApiError, fetchMembershipWitness } from "../vault-api";
 import { getLocalMembershipState } from "./proof";
 
 // Once per app session per vault — guards against useFocusEffect-driven
 // re-entry from app/index.tsx's load().
 const attemptedThisSession = new Set<string>();
 
+// A device-key rotation (lib/mesh/device-key.ts) raises ONE app_meta flag;
+// this expands it into a witnessed re-bind request per vault, once per
+// process, before ANY per-vault attempt is recorded — the home screen's
+// ensureChainBackfill(activeVault) and the scheduler's all-vaults sweep race,
+// and whichever runs first must already see the per-vault flag or the active
+// kaata's re-bind slips to the next launch. device-key.ts deliberately knows
+// nothing about vaults or this key format. ALL vaults, archived included: the
+// pending scan retries flagged vaults regardless of archived_at, so an
+// unarchive later finds its re-bind already queued.
+let rebindExpansion: Promise<void> | null = null;
+function expandRebindPendingOnce(): Promise<void> {
+  if (!rebindExpansion) {
+    rebindExpansion = (async () => {
+      if ((await getAppMeta(META_REBIND_PENDING_KEY)) !== "1") return;
+      const db = await getDb();
+      const every = await db.getAllAsync<{ id: string }>(`SELECT id FROM vaults`);
+      for (const v of every) await setAppMeta(witnessEmitPendingKey(v.id), "1");
+      await setAppMeta(META_REBIND_PENDING_KEY, "");
+    })().catch((err) => {
+      console.warn("[trust/backfill] rebind expansion failed", err);
+      rebindExpansion = null; // retry on the next entry
+    });
+  }
+  return rebindExpansion;
+}
+
+// After a rotation the new key must reach /v1/devices/register-key BEFORE a
+// witness is requested (the witness attests the REGISTERED key). One attempt
+// per process: a failed POST is not repeated for every flagged vault.
+let registerAttempt: Promise<Awaited<ReturnType<typeof registerDeviceKey>>> | null = null;
+async function ensureKeyRegisteredForWitness(): Promise<"ok" | "no_session" | "deferred"> {
+  if ((await getAppMeta(META_REREGISTER_PENDING_KEY)) !== "1") return "ok";
+  if (!registerAttempt) registerAttempt = registerDeviceKey();
+  const outcome = await registerAttempt;
+  if (outcome === "registered") return "ok";
+  registerAttempt = null; // a later caller in this session may retry
+  return outcome === "no_session" ? "no_session" : "deferred";
+}
+
+// Server answers that will never change for this (vault, install): the
+// device was chain-removed, the account is not a member, or the vault is not
+// on the server. Retrying every session only burns the witness rate limit and
+// logs a warning per launch forever.
+function isTerminalWitnessRefusal(err: unknown): boolean {
+  return err instanceof ApiError && (err.status === 403 || err.status === 404);
+}
+
 export async function ensureChainBackfill(vaultId: string): Promise<void> {
+  await expandRebindPendingOnce();
   if (attemptedThisSession.has(vaultId)) return;
   attemptedThisSession.add(vaultId);
 
   // Part 1 — pending witnessed self-admission retry (any device, not just
   // the anchor). Independent of the owner-side backfill below: a failure
   // here must not block genesis emission and vice versa.
+  //
+  // ORDER after a device-key rotation (lib/mesh/device-key.ts): the server
+  // witness attests the pubkey it has REGISTERED for this install, so the new
+  // key must reach /v1/devices/register-key BEFORE the witnessed device bind
+  // is requested — otherwise the witness covers the old key, the local
+  // self-add carve-out accepts the event anyway, the push is refused
+  // membership_unverified and permanently exiled, and the flag is cleared
+  // with nothing bound. emitWitnessedSelfAdmission enforces the same gate for
+  // its other callers (recovery, invite accept); here it additionally lets a
+  // signed-out device stay quiet: no witness to fetch, both flags stay set for
+  // the session that has a JWT.
   try {
     if ((await getAppMeta(witnessEmitPendingKey(vaultId))) === "1") {
-      await emitWitnessedSelfAdmission(vaultId);
+      const registered = await ensureKeyRegisteredForWitness();
+      if (registered === "no_session") return;
+      if (registered === "deferred") {
+        throw new Error("device key not re-registered yet; witnessed bind deferred");
+      }
+      try {
+        await emitWitnessedSelfAdmission(vaultId);
+      } catch (err) {
+        if (!isTerminalWitnessRefusal(err)) throw err;
+        console.warn(
+          `[trust/backfill] witness refused permanently for ${vaultId.slice(0, 8)}; dropping the pending re-bind`,
+          err,
+        );
+      }
       await setAppMeta(witnessEmitPendingKey(vaultId), "");
     }
   } catch (err) {
@@ -84,6 +162,9 @@ export async function ensureChainBackfillAllVaults(): Promise<void> {
       `SELECT id FROM vaults WHERE archived_at IS NULL`,
     );
     for (const v of vaults) ids.add(v.id);
+    // Post-rotation re-bind flags are expanded per vault BEFORE the pending
+    // scan below, so they are picked up in this same pass.
+    await expandRebindPendingOnce();
   } catch (err) {
     console.warn("[trust/backfill] vault list for backfill failed", err);
   }
@@ -307,6 +388,14 @@ export async function emitWitnessedSelfAdmission(
   const devicePubkey = getDevicePubkey();
   if (!devicePubkey) {
     throw new Error("device pubkey unavailable — cannot emit witnessed self-admission");
+  }
+  // Rotation gate, enforced for EVERY caller (recovery, invite accept, the
+  // backfill retry): the witness signs over the pubkey the server has
+  // registered for this install. Requesting it while the old key is still
+  // registered would bind nothing and permanently exile the event, so throw
+  // (the callers all keep witness_emit_pending set on throw).
+  if ((await ensureKeyRegisteredForWitness()) !== "ok") {
+    throw new Error("device key not re-registered with the server yet; witnessed bind deferred");
   }
 
   const res = await fetchMembershipWitness(vaultId);

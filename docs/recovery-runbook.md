@@ -82,6 +82,51 @@ offering sign-in/backup. Nothing kaata-side can recover it.
 
 ---
 
+## Scenario E — Ledger readable, EVERY save fails ("Couldn't save. Try again.")
+
+**Symptom:** the shopkeeper opens Kaata, sees all their people and tallies, but adding a
+contact or a tally shows "Couldn't save. Try again." on every attempt, every relaunch. Reported
+2026-09-02 from Australia while adding a +61 number (the number was irrelevant).
+
+**Cause (Android):** the app's Auto Backup / device-transfer rules restore `kaata.db` (which
+mirrors the device's signing PUBLIC key) but, by design, not the Keystore-wrapped SecureStore
+entry holding the PRIVATE seed. Routes: new phone, factory reset + cloud restore, **uninstall +
+reinstall with Google backup on**, and some OEM Keystore invalidations. Every local write is
+signed inside the SQLite transaction; with no seed the signature throws and the write rolls
+back. iOS carries the keychain item along with encrypted/iCloud backups, so it is affected only
+by unencrypted local backups restored to another device.
+
+**What happens automatically (app ≥ the 2026-09 fix):** `ensureDeviceKey()` validates the pair
+at boot and before every save. A mirror with no seed makes the device mint a fresh key, retire
+the old public key (kept in `app_meta.retired_device_pubkeys` so its vaults and membership rows
+still resolve as "mine"), and set two flags: re-register the key on the next check-in / sign-in,
+and re-bind it in the membership chain (per vault, witnessed, only after re-registration). The
+very next tap saves; no relaunch needed. Ordinary ledger events sync immediately (server ACL is
+the JWT). The App health report shows `Device key: ready; rotated 1x, …`.
+
+**Support guidance:**
+
+- On an OLD build, do **not** say "reinstall the app" — on Android that reproduces the state.
+  Update to a fixed build; the first launch repairs it.
+- Ask for the App health report: `Device key: NOT READY` (old build hitting the bug) or
+  `rotated Nx` (repaired). `Last contact save error: signing_unavailable` names it too.
+- If the OLD phone is still in use after a device-to-device transfer, both phones share one
+  `install_id`. The server's registered key flips to whichever phone registered last, author
+  sequences collide (handled by the client's `seq_conflict` strip, no data loss), and once the
+  new phone's witnessed re-bind lands the server's `vault_devices` row for that install carries
+  only the NEW key: the old phone's signed **membership** events (leave, role change, device
+  add/remove) on vaults it does not anchor are refused `membership_unverified` while its
+  ledger events still sync. Advise wiping Kaata on the retired phone BEFORE it performs any
+  leave/transfer/role change, or signing in and restoring instead of transferring.
+- A SecureStore read that THROWS (rather than returning nothing) is treated as transient for
+  the first two foreground launches and as a lost seed on the third consecutive one; the health
+  report shows `N consecutive read failures` while that is counting up.
+- A pre-sign-in vault whose chain owner is the old device-key sentinel cannot re-bind the new
+  key through the server witness (the chain owner is not the Google account). Local writes and
+  cloud sync work regardless; only mesh peers (parked) would quarantine the device's new events.
+
+---
+
 ## Notes for future operators
 
 - **OTP migration is lossless by design** (M1 `account_identities`): when OTP ships, an

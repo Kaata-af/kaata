@@ -128,7 +128,10 @@ export default function VaultNewScreen() {
       trustAnchorPubkey = pk;
     } catch (err) {
       console.warn("[vault/new] ensureDeviceKey failed", err);
-      toast.push(t("vaultNew.failed"), "error");
+      // Typed device-key failure (lib/mesh/device-key.ts) gets the actionable
+      // copy; anything else keeps the generic one.
+      const typed = err instanceof Error && err.name === "DeviceKeyUnavailableError";
+      toast.push(t(typed ? "entry.signingUnavailable" : "vaultNew.failed"), "error");
       creatingRef.current = false;
       setCreating(false);
       return;

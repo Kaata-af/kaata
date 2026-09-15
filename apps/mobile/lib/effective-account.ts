@@ -18,6 +18,20 @@
 // out. Signing out must never change which kaatas are "mine", so the
 // persisted binding is always included as a candidate.
 //
+// RETIRED DEVICE KEYS: a device whose signing key was rotated (the private
+// seed vanished — restored / transferred Android phone; see
+// lib/mesh/device-key.ts) still owns every vault and membership row keyed by
+// buildLocalAccountId(OLD pubkey). Those sentinels are appended AFTER the
+// current one, so readRoleFromDb's "prefer the primary id" rule is unchanged
+// and a retired id can only ADD a match, never shadow the live one. Without
+// this, leave / transfer / last-owner checks on a rotated device miss their
+// own owner row ("Failed to leave", not_owner) and sign-in treats it as a
+// foreign owner.
+//
+// READ-ONLY: this runs inside applyEvent's transaction (role-gate multi-id
+// resolution), so it must never trigger a key repair — readOwnDevicePubkeys
+// touches app_meta only, never SecureStore, never writes.
+//
 // Returns a deduped, non-empty-string list. Best-effort: never throws (a device
 // key that can't be read just yields the passed id, or [] if that's null too).
 
@@ -45,11 +59,18 @@ export async function resolveAccountIdCandidates(
       import("./mesh/device-key"),
       import("./trust/account-id"),
     ]);
-    await deviceKeyMod.ensureDeviceKey();
-    const pub = deviceKeyMod.getDevicePubkey();
-    if (pub) {
-      const localId = accountIdMod.buildLocalAccountId(pub);
-      if (localId && !ids.includes(localId)) ids.push(localId);
+    const { current, retired } = await deviceKeyMod.readOwnDevicePubkeys();
+    for (const pub of [current, ...retired]) {
+      if (!pub) continue;
+      // Each entry guarded on its own: buildLocalAccountId throws on a
+      // non-32-byte value, and one corrupt retired entry must not drop the
+      // live sentinel.
+      try {
+        const localId = accountIdMod.buildLocalAccountId(pub);
+        if (localId && !ids.includes(localId)) ids.push(localId);
+      } catch {
+        /* skip the unusable entry */
+      }
     }
   } catch {
     /* fall through — return whatever we have */

@@ -27,6 +27,7 @@ import { getCalendarPref, getEffectiveCalendar } from "./calendar";
 import { getLocale } from "./i18n";
 import { getSyncIndicator } from "./sync/cursor";
 import { getLastSyncError } from "./sync/last-error";
+import { getLastPersonSaveError } from "./person-save-error";
 
 function mb(kb: number | null | undefined): string {
   if (kb == null) return "—";
@@ -176,6 +177,27 @@ export async function buildDiagnosticsReport(): Promise<string> {
   // "my dates look wrong" is the report this line exists to answer.
   push(`Calendar: ${getEffectiveCalendar()} (pref ${getCalendarPref()})`);
   push(`Nearby sync: ${MESH_PARKED ? "parked" : "enabled"}`);
+  // Device signing key health — status only, never key material. "not ready"
+  // on a launched app, or a rotation count > 0, is the fingerprint of the
+  // restored-phone "Couldn't save" failure (lib/mesh/device-key.ts).
+  try {
+    const { getDeviceKeyStatus } = await import("./mesh/device-key");
+    const k = await getDeviceKeyStatus();
+    const rotated =
+      k.rotations > 0
+        ? `rotated ${k.rotations}x, last ${fmtMaybe(k.lastRotatedAt)}, ${k.retiredCount} retired`
+        : "never rotated";
+    const pending = [k.reregisterPending ? "re-register" : "", k.rebindPending ? "re-bind" : ""]
+      .filter(Boolean)
+      .join("+");
+    const state = k.ready
+      ? "ready"
+      : `NOT READY${k.lastFailure ? ` (${k.lastFailure})` : ""}${k.mirrored ? "" : ", no mirror"}`;
+    const failures = k.readFailures > 0 ? `; ${k.readFailures} consecutive read failures` : "";
+    push(`Device key: ${state}; ${rotated}${failures}${pending ? `; pending ${pending}` : ""}`);
+  } catch {
+    push("Device key: —");
+  }
 
   // --- Sync / vault state (the "is this device actually backing up" block) ---
   section("Sync");
@@ -267,6 +289,12 @@ export async function buildDiagnosticsReport(): Promise<string> {
 
   // --- Ledger size (counts only — never names / phones / amounts / notes) ---
   section("Ledger");
+  const lastPersonSaveError = await getLastPersonSaveError();
+  if (lastPersonSaveError) {
+    push(
+      `Last contact save error: ${lastPersonSaveError.code} (${lastPersonSaveError.stage}) @ ${fmtTime(lastPersonSaveError.at)}`,
+    );
+  }
   try {
     if (vaultId) {
       const db = await getDb();

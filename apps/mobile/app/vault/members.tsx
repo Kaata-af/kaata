@@ -89,8 +89,10 @@ export default function VaultMembersScreen() {
   // never matches — every row falls into the "unknown peer" branch and
   // the user's own row shows the generic role label instead of their
   // name. Computing buildLocalAccountId(devicePubkey) lets us match the
-  // mirror row that's actually self.
-  const [localSelfAccountId, setLocalSelfAccountId] = useState<string | null>(null);
+  // mirror row that's actually self. A LIST because a device whose signing
+  // key was rotated (lib/mesh/device-key.ts) still owns the row keyed by its
+  // retired key's sentinel.
+  const [localSelfAccountIds, setLocalSelfAccountIds] = useState<string[]>([]);
   const [members, setMembers] = useState<MemberRow[]>([]);
   // account_ids whose device is reachable over the mesh right now (presence).
   const [onlineAccounts, setOnlineAccounts] = useState<Set<string>>(new Set());
@@ -133,16 +135,26 @@ export default function VaultMembersScreen() {
       // "Owner" role label instead of their name. ensureDeviceKey()
       // populates the cache (idempotent, cheap on the warm path).
       const deviceKeyMod = await import("../../lib/mesh/device-key");
-      await deviceKeyMod.ensureDeviceKey();
+      // Best-effort warm-up only: readOwnDevicePubkeys below answers from the
+      // app_meta mirror even when the key cannot be made ready right now, so
+      // a keychain hiccup must not drop the self match.
+      await deviceKeyMod.ensureDeviceKey().catch(() => undefined);
       const [self, accountIdMod] = await Promise.all([
         getLocalSelf(),
         import("../../lib/trust/account-id"),
       ]);
       setSelfName(self?.name ?? null);
-      const devicePubkey = deviceKeyMod.getDevicePubkey();
-      if (devicePubkey) {
-        setLocalSelfAccountId(accountIdMod.buildLocalAccountId(devicePubkey));
+      const { current, retired } = await deviceKeyMod.readOwnDevicePubkeys();
+      const ids: string[] = [];
+      for (const pub of [current, ...retired]) {
+        if (!pub) continue;
+        try {
+          ids.push(accountIdMod.buildLocalAccountId(pub));
+        } catch {
+          /* skip an unusable entry */
+        }
       }
+      setLocalSelfAccountIds(ids);
     } catch {
       setSelfName(null);
     }
@@ -510,7 +522,7 @@ export default function VaultMembersScreen() {
             // (local-only path). Without the second branch, local-only
             // users' own row gets the generic role label instead of their
             // name.
-            const isSelf = m.account_id === accountId || m.account_id === localSelfAccountId;
+            const isSelf = m.account_id === accountId || localSelfAccountIds.includes(m.account_id);
             const last = i === members.length - 1;
             // Display name fallback (local-CA aware). The `users` LEFT
             // JOIN can't resolve synthesized `local:R%abc…` account ids,

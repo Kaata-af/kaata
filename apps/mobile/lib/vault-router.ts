@@ -333,21 +333,24 @@ export type TransferOwnershipError =
 // original owner by construction, so it can resolve "which owner row is me"
 // even when account-id binding has drifted away from every id it now presents
 // (device-key rotated after a reinstall) — the same reason the role-gate has a
-// trust-anchor carve-out. Best-effort; returns false if anything is unreadable.
+// trust-anchor carve-out. A key this device rotated away from (retired list in
+// lib/mesh/device-key.ts) still counts: the anchor never changes, the minting
+// device is still this one. Best-effort; returns false if anything is
+// unreadable.
 async function deviceIsVaultTrustAnchor(
   db: Awaited<ReturnType<typeof getDb>>,
   vaultId: string,
 ): Promise<boolean> {
   try {
     const mod = await import("./mesh/device-key");
-    await mod.ensureDeviceKey();
-    const myPub = mod.getDevicePubkey();
-    if (!myPub) return false;
+    // Out of any transaction here, so a needed repair may run; a typed
+    // failure just means "compare against whatever the mirror says".
+    await mod.ensureDeviceKey().catch(() => undefined);
     const row = await db.getFirstAsync<{ vault_trust_anchor_pubkey: string | null }>(
       "SELECT vault_trust_anchor_pubkey FROM vaults WHERE id = ?",
       vaultId,
     );
-    return row?.vault_trust_anchor_pubkey === myPub;
+    return await mod.isOwnDevicePubkey(row?.vault_trust_anchor_pubkey);
   } catch {
     return false;
   }

@@ -35,6 +35,11 @@ import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
 import { t } from "../../lib/i18n";
 import { getCountry, getCurrentDefaultCountryCode, inferCountryFromE164 } from "../../lib/phone";
+import {
+  classifyPersonSaveError,
+  recordPersonSaveError,
+  type PersonSaveStage,
+} from "../../lib/person-save-error";
 import { PHONE_SEARCH_MIN_DIGITS, searchContacts } from "../../lib/search";
 import { icon, radius, TOUCH_MIN } from "../../lib/tokens";
 import type { PersonWithBalance } from "../../lib/types";
@@ -229,6 +234,7 @@ export default function PersonAddOrFindScreen() {
     setBusy(true);
     setPhoneError(null);
     setSaveError(null);
+    let saveStage: PersonSaveStage = "vault_check";
     try {
       // Re-check at submit time in case a mesh archive landed mid-screen.
       const guard = await getActiveVaultArchivedState();
@@ -242,6 +248,7 @@ export default function PersonAddOrFindScreen() {
         router.replace("/vault/archived");
         return;
       }
+      saveStage = "create_person";
       const result = await createPerson(fn, last?.trim() || null, phoneInput.trim() || null, cc);
       if (!result.ok) {
         if (result.error === "phone_invalid") {
@@ -253,14 +260,28 @@ export default function PersonAddOrFindScreen() {
         }
         return;
       }
+      saveStage = "open_person";
       openPerson(result.id);
     } catch (err) {
       if (err instanceof EventSigningUnavailableError) {
+        // Recorded too: "which device can't sign" is the question the App
+        // health report answers for a restored phone (lib/mesh/device-key.ts).
+        void recordPersonSaveError("signing_unavailable", saveStage);
         setSaveError(t("entry.signingUnavailable"));
       } else if (err instanceof RoleGateRejectionError) {
         setSaveError(t("entry.roleDenied"));
       } else {
-        setSaveError(t("entry.saveFailed"));
+        const code = classifyPersonSaveError(err);
+        void recordPersonSaveError(code, saveStage);
+        setSaveError(
+          t(
+            code === "storage_full"
+              ? "personAdd.save.storageFull"
+              : code === "storage_busy"
+                ? "personAdd.save.storageBusy"
+                : "personAdd.save.failed",
+          ),
+        );
       }
     } finally {
       savingRef.current = false;

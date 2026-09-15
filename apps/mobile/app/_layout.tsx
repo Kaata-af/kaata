@@ -491,6 +491,46 @@ export default function RootLayout() {
       });
       if (aborted) return;
 
+      // 6b. Device signing key health. ensureDeviceKey() verifies that the
+      //     SecureStore seed and the app_meta pubkey mirror agree and repairs
+      //     them when they don't — the state an Android phone lands in after
+      //     a backup restore / device transfer / reinstall, which used to make
+      //     EVERY save fail with "Couldn't save. Try again." (see
+      //     lib/mesh/device-key.ts). Doing it here, outside any transaction and
+      //     before any screen can write, also closes the fresh-install race
+      //     where two boot paths generated two keypairs. Best-effort and
+      //     deliberately NOT a `step`: a locked keychain must not fail boot —
+      //     applyEvent's pre-warm repeats the check on the first save. Also
+      //     bounded: reading the ledger needs no signing key, so a stalled
+      //     Keystore daemon must not hold the splash screen. The in-flight
+      //     promise keeps running after the race and every later caller
+      //     simply awaits it.
+      try {
+        const { ensureDeviceKey } = await import("../lib/mesh/device-key");
+        const keyReady = ensureDeviceKey({ interactive: true }).then(
+          () => "ready" as const,
+          (err: unknown) => {
+            console.warn(
+              "[init] device signing key not ready at boot (retried on first save)",
+              err,
+            );
+            return "failed" as const;
+          },
+        );
+        const outcome = await Promise.race([
+          keyReady,
+          new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 2500)),
+        ]);
+        if (outcome === "timeout") {
+          console.warn(
+            "[init] device signing key check still running after 2.5s; not blocking boot",
+          );
+        }
+      } catch (err) {
+        console.warn("[init] device signing key check could not start", err);
+      }
+      if (aborted) return;
+
       // 7. Device locale probe (skip-language decision). Lazy-require to
       //    keep the top of the file clean.
       await step("device_locale", async () => {

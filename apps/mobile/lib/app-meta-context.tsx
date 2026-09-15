@@ -177,6 +177,20 @@ export function AppMetaProvider(props: { currentVersion: string; children: React
       }
       await setAppMeta("last_checkin_at", String(Date.now()));
 
+      // A device-key rotation (lib/mesh/device-key.ts — the restored-phone
+      // heal) leaves this flag set until the backend has the NEW pubkey.
+      // registerDeviceKey UPSERTs by install_id and clears the flag itself on
+      // a 2xx; signed out it returns without touching anything and the next
+      // sign-in's own registration call takes care of it.
+      try {
+        if ((await getAppMeta("device_key_reregister_pending")) === "1") {
+          const { registerDeviceKey } = await import("./mesh/device-key");
+          await registerDeviceKey();
+        }
+      } catch (err) {
+        console.warn("[app-meta] post-rotation device key re-registration failed", err);
+      }
+
       // Mesh (M4): pin the server WITNESS pubkey announcement and merge new
       // revocations. Both fields are optional. Dynamic imports keep the
       // module cost off cold-boot paths that don't need mesh. Order: pin

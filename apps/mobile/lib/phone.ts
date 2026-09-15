@@ -1,9 +1,9 @@
 import { getAppMeta } from "./db";
 import { toAsciiDigits } from "./digits";
 
-// Multi-country phone normalization. Afghan numbers stay the strict-format
-// canonical input; everything else (Afghan diaspora destinations, neighbours)
-// is accepted with a permissive E.164 check (+ followed by 7-15 digits).
+// Multi-country phone normalization. Both Afghan numbers and international
+// contacts (diaspora destinations, neighbours) are accepted with a permissive
+// E.164 shape check (+ followed by 7-15 digits), including landlines.
 //
 // This module is the ONLY place that decides what a phone number means.
 // Callers must pass user input through verbatim — pre-cleaning it upstream
@@ -118,8 +118,8 @@ function stripTrunkZeroAfterDialCode(e164: string): string {
 // is used only as a fallback when the input doesn't already include a country
 // prefix (+, 00) — if the user types `+61412345678` the AF default is ignored.
 //
-// Validation: strict for AF mobiles (+93 7XXXXXXXX); generic E.164 shape
-// otherwise.
+// Validation checks generic E.164 shape for every country; it does not verify
+// that the number is assigned or reachable.
 export function normalizePhone(
   input: string | null | undefined,
   countryCode: string = DEFAULT_COUNTRY_CODE,

@@ -3383,7 +3383,19 @@ export async function createSelfProfile(
   let trustAnchorPubkey: string | null = null;
   if (shouldMintVault || existingVaultId) {
     const deviceKey = await import("./mesh/device-key");
-    await deviceKey.ensureDeviceKey();
+    try {
+      await deviceKey.ensureDeviceKey({ interactive: true });
+    } catch (err) {
+      // Same typed surface as applyEvent, so the onboarding screen shows the
+      // "couldn't prepare a secure save" copy instead of the generic one.
+      if (err instanceof deviceKey.DeviceKeyUnavailableError) {
+        const { EventSigningUnavailableError } = await import("./event-log");
+        throw new EventSigningUnavailableError(
+          `device signing key unavailable (${err.reason}): ${err.message}`,
+        );
+      }
+      throw err;
+    }
     const pk = deviceKey.getDevicePubkey();
     if (!pk) {
       throw new Error(
@@ -4348,12 +4360,19 @@ export type UsageCounter = "entries_created" | "customers_added" | "shares_sent"
 const usageKey = (k: UsageCounter) => `usage_pending_${k}`;
 
 export async function bumpUsageCounter(k: UsageCounter): Promise<void> {
-  const db = await getDb();
-  await db.runAsync(
-    `INSERT INTO app_meta (key, value) VALUES (?, '1')
-     ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)`,
-    usageKey(k),
-  );
+  // Best effort: callers have already committed the contact/tally (or shared
+  // it). A failed analytics write must not turn that success into a save error
+  // and invite a retry that duplicates an already-saved tally.
+  try {
+    const db = await getDb();
+    await db.runAsync(
+      `INSERT INTO app_meta (key, value) VALUES (?, '1')
+       ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)`,
+      usageKey(k),
+    );
+  } catch {
+    // Losing a usage count must never affect ledger data or the save result.
+  }
 }
 
 export type PendingUsage = Record<UsageCounter, number>;

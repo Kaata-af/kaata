@@ -67,7 +67,8 @@ export async function reconcileVaultRegistrations(): Promise<void> {
   // Our device pubkey is the "we own this vault" signal. Ensure the key is
   // loaded first; without it we can't tell our vaults from joined ones, so we
   // skip this pass (the next sweep, after the key loads, picks them up).
-  const { ensureDeviceKey, getDevicePubkey } = await import("../mesh/device-key");
+  const { ensureDeviceKey, getDevicePubkey, getRetiredDevicePubkeysSync } =
+    await import("../mesh/device-key");
   try {
     await ensureDeviceKey();
   } catch {
@@ -75,9 +76,16 @@ export async function reconcileVaultRegistrations(): Promise<void> {
   }
   const ourPubkey = getDevicePubkey();
   if (!ourPubkey) return;
+  // A vault minted under a key this device has since rotated away from
+  // (restored phone, lost Keystore seed — lib/mesh/device-key.ts) keeps that
+  // key as its anchor. It is still OUR vault; without the retired keys here a
+  // repaired device would never register its own kaatas — the exact "never
+  // backed up" data-loss class this pass exists to close.
+  const ourPubkeys = [ourPubkey, ...getRetiredDevicePubkeysSync()];
 
   const db = await getDb();
-  // Ownership predicate: a vault is ours if its anchor is OUR device pubkey, OR
+  // Ownership predicate: a vault is ours if its anchor is one of OUR device
+  // pubkeys (current or retired), OR
   // its anchor is NULL **and it isn't a joined vault**. A NULL anchor occurs on
   // a self-minted bootstrap vault (migration 007 created the default vault
   // WITHOUT the anchor column; pre-anchor createSelfProfile likewise) — THE bug:
@@ -89,13 +97,14 @@ export async function reconcileVaultRegistrations(): Promise<void> {
   // vaults always carry a vault_members_mirror row identifying a FOREIGN owner
   // (or our own non-owner membership), so the NOT EXISTS guard excludes them.
   // archived own vaults are intentionally INCLUDED (unarchive is real; their
-  // data must survive a reinstall). Binds: ourPubkey, accountId, accountId.
+  // data must survive a reinstall). Binds: ...ourPubkeys, accountId, accountId.
+  const anchorPlaceholders = ourPubkeys.map(() => "?").join(", ");
   const rows = await db.getAllAsync<OwnedVault>(
     `SELECT id, name, currency, created_at, vault_trust_anchor_pubkey, account_id
        FROM vaults
       WHERE registered_with_server_at IS NULL
         AND (
-          vault_trust_anchor_pubkey = ?
+          vault_trust_anchor_pubkey IN (${anchorPlaceholders})
           OR (
             vault_trust_anchor_pubkey IS NULL
             AND NOT EXISTS (
@@ -109,7 +118,7 @@ export async function reconcileVaultRegistrations(): Promise<void> {
             )
           )
         )`,
-    ourPubkey,
+    ...ourPubkeys,
     accountId,
     accountId,
   );
