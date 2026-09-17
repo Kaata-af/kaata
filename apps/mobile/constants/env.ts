@@ -48,6 +48,15 @@ export const DISTRIBUTION: "apk" | "store" =
 // changes across releases), safe to bake as the iOS update fallback.
 export const APP_STORE_URL = "https://apps.apple.com/us/app/kaata/id6789651127";
 
+// SUPPORT_WHATSAPP_E164 — where "Send to support" on the App-health screen
+// delivers the diagnostics report. Same number the website already publishes
+// as its contact (apps/web VITE_WHATSAPP_CONTACT_URL), so this is public, not
+// a secret. Deliberately NOT env-driven: a support number that silently
+// differs between builds means a report goes nowhere, and the whole point of
+// the button is that a confused user does not have to be told an address.
+// E.164 with the leading +; callers strip everything but digits for wa.me.
+export const SUPPORT_WHATSAPP_E164 = "+93781696644";
+
 // MESH_PARKED hard-disables the offline Bluetooth/Wi-Fi "Nearby sync" mesh (and
 // its persistent foreground-service notification) WITHOUT deleting any feature
 // code — the whole subsystem is parked until a future release. Unlike

@@ -16,6 +16,7 @@
 // memory-slope table are commented out below — they depend on the mesh feature,
 // which is hidden for now. Re-enable them together when mesh ships again.
 
+import { Ionicons } from "@expo/vector-icons";
 import * as Application from "expo-application";
 import * as Clipboard from "expo-clipboard";
 import Constants from "expo-constants";
@@ -41,6 +42,7 @@ import { colors } from "../lib/colors";
 import { buildDiagnosticsReport } from "../lib/diagnostics-report";
 import { fonts, monoLineHeight, sansLineHeight } from "../lib/fonts";
 import { resetAllLocalData } from "../lib/db";
+import { openSupportWhatsApp } from "../lib/support";
 import { radius, TOUCH_MIN } from "../lib/tokens";
 // PARKED (Nearby sync / mesh): the live sync state + log and the mem-probe
 // memory-slope sampling belong to the mesh feature, which is hidden for now.
@@ -88,7 +90,7 @@ export default function DiagnosticsScreen() {
   const isRTL = useIsRTL();
   const [copyingReport, setCopyingReport] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [sharingReport, setSharingReport] = useState(false);
+  const [sendingReport, setSendingReport] = useState(false);
   // When the clipboard write fails (rare), we drop the report into a selectable
   // text block so the user can long-press → Select all → Copy by hand.
   const [fallbackText, setFallbackText] = useState<string | null>(null);
@@ -174,20 +176,31 @@ export default function DiagnosticsScreen() {
     }
   }, [copyingReport, toast]);
 
-  // One-tap alternative: open the OS share sheet with the report prefilled, so
-  // the user can fire it straight into WhatsApp (or any app) without a paste.
-  const onShareReport = useCallback(async () => {
-    if (sharingReport) return;
-    setSharingReport(true);
+  // One tap, addressed. This used to open the OS share sheet with the report as
+  // the body, which left the hardest step to the user: knowing who to send it
+  // to. Someone who has just hit a bug is the last person who will go hunting
+  // for our number, so reports died in the share sheet. Now it opens the Kaata
+  // support chat directly, with a prewritten first line above the report so the
+  // message reads like something a person sent — and still reads that way in
+  // the share-sheet fallback below, where the user picks the recipient.
+  const onSendReport = useCallback(async () => {
+    if (sendingReport) return;
+    setSendingReport(true);
     try {
-      await Share.share({ message: await buildDiagnosticsReport() });
+      const message = `${t("diagnostics.support.intro")}\n\n${await buildDiagnosticsReport()}`;
+      const handoff = await openSupportWhatsApp(message);
+      if (handoff === "failed") {
+        // No WhatsApp and no browser. Fall back to what this button did
+        // before, so the report is never trapped on the phone.
+        await Share.share({ message });
+      }
     } catch (err) {
-      console.warn("[diagnostics] share report failed", err);
-      toast.push(t("diagnostics.toast.shareFailed"), "error");
+      console.warn("[diagnostics] send report failed", err);
+      toast.push(t("diagnostics.toast.sendFailed"), "error");
     } finally {
-      setSharingReport(false);
+      setSendingReport(false);
     }
-  }, [sharingReport, toast]);
+  }, [sendingReport, toast]);
 
   // PARKED (mesh): live-update the sync log — push-driven on each new line, plus
   // a 2s poll so the running/paused snapshot stays fresh while the user watches.
@@ -263,12 +276,13 @@ export default function DiagnosticsScreen() {
             </Text>
           </Pressable>
           <Pressable
-            style={[styles.shareReport, sharingReport && { opacity: 0.6 }]}
-            onPress={onShareReport}
-            disabled={sharingReport}
+            style={[styles.shareReport, sendingReport && { opacity: 0.6 }]}
+            onPress={onSendReport}
+            disabled={sendingReport}
           >
+            <Ionicons name="logo-whatsapp" size={16} color={colors.textDefault} />
             <Text style={styles.shareReportText}>
-              {sharingReport ? "…" : t("diagnostics.share")}
+              {sendingReport ? "…" : t("diagnostics.sendToSupport")}
             </Text>
           </Pressable>
         </View>
@@ -434,7 +448,15 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     lineHeight: sansLineHeight(13, 18),
   },
-  actionRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
+  // flexWrap so the two labels drop to a second line on a narrow phone
+  // instead of the right-hand button clipping off the screen edge.
+  actionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 8,
+    flexWrap: "wrap",
+  },
   // The four buttons on this screen all measured 10+10 padding + a ~22px
   // 14px-sans line box = 42, i.e. 2px under the HIG floor. minHeight +
   // justifyContent lifts them to 44 without moving the label off its optical
@@ -449,6 +471,9 @@ const styles = StyleSheet.create({
   },
   copyReportText: { color: colors.textInverted, fontSize: 14, fontFamily: fonts.sansSemi },
   shareReport: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
     paddingHorizontal: 18,
     paddingVertical: 10,
     minHeight: TOUCH_MIN,

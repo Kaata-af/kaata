@@ -1241,14 +1241,20 @@ const en = {
   // on purpose: it is diagnostic data we read, not prose they read.
   "diagnostics.title": "App health",
   "diagnostics.hint":
-    "Something not working? Tap Copy (or Share), then send this to us on WhatsApp so we can see what’s happening and fix it.",
+    "Something not working? Tap Send to support — WhatsApp opens with this report already written, so we can see what’s happening and fix it. Or copy it and send it yourself.",
   "diagnostics.copyReport": "Copy report",
   "diagnostics.copying": "Copying…",
   "diagnostics.copied": "Copied ✓",
-  "diagnostics.share": "Share",
+  "diagnostics.sendToSupport": "Send to support",
+  // The first line of the WhatsApp message, above the report. It exists so
+  // the chat opens with something a PERSON would send rather than a wall of
+  // diagnostics — and so the share-sheet fallback (user picks the recipient)
+  // still reads as a message rather than a paste.
+  "diagnostics.support.intro":
+    "Hi Kaata — something isn’t working in the app. Here is my app health report.",
   "diagnostics.toast.copied": "Copied — now send it to us on WhatsApp",
   "diagnostics.toast.copyFailed": "Couldn’t auto-copy — copy the text below",
-  "diagnostics.toast.shareFailed": "Couldn’t open share",
+  "diagnostics.toast.sendFailed": "Couldn’t open WhatsApp — copy the report and send it to us",
   "diagnostics.fallbackHint": "Long-press the text below → Select all → Copy, then send it to us.",
   "diagnostics.section.version": "VERSION",
   "diagnostics.staleBuild":
@@ -2297,14 +2303,15 @@ const fa: Partial<Record<Key, string>> = {
   // taps and the screen it opens use the same words.
   "diagnostics.title": "وضعیت برنامه",
   "diagnostics.hint":
-    "مشکلی وجود دارد؟ روی کپی (یا اشتراک) بزنید و این را در واتساپ برای ما بفرستید تا ببینیم چه شده و آن را درست کنیم.",
+    "مشکلی وجود دارد؟ روی «ارسال به پشتیبانی» بزنید — واتساپ با همین گزارش آماده باز می‌شود تا ببینیم چه شده و آن را درست کنیم. یا آن را کپی کنید و خودتان بفرستید.",
   "diagnostics.copyReport": "کپی گزارش",
   "diagnostics.copying": "در حال کپی…",
   "diagnostics.copied": "کپی شد ✓",
-  "diagnostics.share": "اشتراک",
+  "diagnostics.sendToSupport": "ارسال به پشتیبانی",
+  "diagnostics.support.intro": "سلام کاتا — برنامه مشکل دارد. این گزارش وضعیت برنامهٔ من است.",
   "diagnostics.toast.copied": "کپی شد — حالا آن را در واتساپ برای ما بفرستید",
   "diagnostics.toast.copyFailed": "کپی خودکار نشد — متن پایین را کپی کنید",
-  "diagnostics.toast.shareFailed": "اشتراک باز نشد",
+  "diagnostics.toast.sendFailed": "واتساپ باز نشد — گزارش را کپی کنید و برای ما بفرستید",
   "diagnostics.fallbackHint":
     "روی متن پایین فشار دهید → همه را انتخاب کنید → کپی، بعد آن را برای ما بفرستید.",
   "diagnostics.section.version": "نسخه",
