@@ -18,7 +18,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - `cd apps/web && ./node_modules/.bin/tsc --noEmit` — web typecheck (plain `npx tsc` fails to resolve TypeScript installed by Bun; call the local binary directly)
   - Mobile package adds: `cd apps/mobile && npx expo install <pkg>` (not `npm install`) — Expo picks SDK-compatible versions.
 
-No test files exist in the repo yet.
+### Tests
+
+- **Backend (Go):** `cd apps/backend && go test ./...`. These run against a REAL Postgres — no mocks, because the schema, partial unique indexes and `ON CONFLICT` arbiters _are_ the behaviour under test. `internal/testutil.ConnectTestDB` resets `public` with `DROP SCHEMA` and replays the full migration chain, so it must NEVER be pointed at the dev database. It reads `POSTGRES_TEST_URL`, defaulting to `postgres://kaata:kaata@localhost:5432/kaata_test`; if that server is unreachable every DB-backed test SKIPS, so a green run means nothing until you check for `ok` vs `[no tests to run]`. The `kaata` role has no CREATEDB, so creating the database needs the superuser: `psql -h localhost -U postgres -c "CREATE DATABASE kaata_test OWNER kaata"`. Without the postgres password, the throwaway-cluster route works and touches nothing: `initdb -D <tmp> -U postgres --auth=trust`, `pg_ctl -D <tmp> -o "-p 55432" start`, create role + db there, then `POSTGRES_TEST_URL=postgres://kaata@localhost:55432/kaata_test go test ./...`, and `pg_ctl stop` after. Binaries live in `C:\Program Files\PostgreSQL\18\bin`.
+- **Mobile:** `cd apps/mobile && npm run selftest:<name>` — `hlc`, `jalali`, `ingest`, `migration-014`, `money`, `person-save`, `device-key`. Plain Node scripts against the real modules, no test runner. `jalali` shares its vectors with Go's `TestBillDateGoldenVectors` — add a case to one, add it to the other.
 
 ## Architecture
 

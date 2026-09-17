@@ -410,7 +410,55 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 			}
 		}
 
-		if !m2Verified && !legacySelfLeave {
+		// Legacy-path self-ADMISSION — the exact mirror of legacySelfLeave
+		// above, for JOINING instead of leaving, and the other half of the
+		// same hole. On an ANCHOR-LESS vault the M2 arms never run, so a
+		// joiner's own vault_member_added / vault_device_added (the two
+		// events app/invite/[token].tsx emits right after the invite is
+		// accepted) fall to the role matrix, which demands `owner` for both.
+		// The joiner is an editor/clerk/viewer, so every push cycle rejects
+		// them insufficient_role; the client deliberately never stamps
+		// rejected_at for that reason (it would be silent data loss), so the
+		// events retry forever, never reach the events table, and the OWNER —
+		// whose Members list is built only from applied membership events —
+		// never sees the member at all. That is the "member never adds on my
+		// first kaata, but a new kaata works" report: a first kaata registered
+		// through the sign-in pending block had no anchor, a later one created
+		// via POST /v1/vaults does.
+		//
+		// Authorization is the SESSION plus the server's OWN record, never the
+		// wire: the payload's account must be the JWT-authenticated pusher,
+		// and vault_members must already say that account is an accepted,
+		// non-revoked member — the row AcceptInvite wrote. For member_added
+		// the payload role must equal the stored role too, so this can only
+		// restate a fact the server already holds and can never self-elevate.
+		// Scoped to anchor-less vaults so anchored ones keep the strictly
+		// stronger chain rules.
+		legacySelfAdmission := false
+		if !m2Verified && !legacySelfLeave && len(vaultAnchor) != ed25519.PublicKeySize {
+			switch ev.EventType {
+			case EventVaultMemberAdded:
+				var p memberAddedWire
+				if json.Unmarshal(ev.Payload, &p) == nil && p.AccountID == in.AccountID {
+					ok, aerr := selfAdmissionCorroborated(ctx, tx, in.VaultID, in.AccountID, p.Role)
+					if aerr != nil {
+						return nil, fmt.Errorf("self-admission check for %s: %w", ev.EventID, aerr)
+					}
+					legacySelfAdmission = ok
+				}
+			case EventVaultDeviceAdded:
+				var p deviceAddedWire
+				if json.Unmarshal(ev.Payload, &p) == nil && p.AccountID == in.AccountID {
+					ok, aerr := selfAdmissionCorroborated(ctx, tx, in.VaultID, in.AccountID, "")
+					if aerr != nil {
+						return nil, fmt.Errorf("self-admission check for %s: %w", ev.EventID, aerr)
+					}
+					legacySelfAdmission = ok
+				}
+			}
+		}
+
+		if !m2Verified && !legacySelfLeave && !legacySelfAdmission {
 			allowed, atRole, requiredRole, err := CheckEventPermission(
 				ctx, tx, s.binding,
 				accountUUID, vaultUUID,

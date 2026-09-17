@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -86,6 +87,90 @@ type PendingVaultRegistration struct {
 	Name        string `json:"name"`
 	Currency    string `json:"currency,omitempty"`
 	CreatedAtMS int64  `json:"created_at_ms,omitempty"`
+	// VaultTrustAnchorPubkey is the owner device's Ed25519 public key, the
+	// vault's local-CA mesh trust anchor — std or URL-safe base64 of 32
+	// bytes. It MUST be carried here: this block is the ONLY way a kaata
+	// that already existed on the phone before sign-in reaches the server,
+	// and until 2026-09 the field did not exist, so those vaults landed with
+	// vaults.vault_trust_anchor_pubkey NULL. An anchor-less server row turns
+	// the whole M2 membership-chain path off (internal/sync/service.go's
+	// `len(vaultAnchor) == ed25519.PublicKeySize` gate), which drops a
+	// joiner's own admission onto the legacy owner-only role matrix and
+	// refuses it forever — the "member never appears on my first kaata" bug.
+	// Omitted (or malformed) is still accepted: a vault with no anchor is a
+	// valid legacy/server-anchored vault, and refusing the SIGN-IN over it
+	// would be far worse than registering it anchor-less. POST /v1/vaults
+	// fills a NULL anchor for the owner later (vaults.Service.Create).
+	VaultTrustAnchorPubkey string `json:"vault_trust_anchor_pubkey,omitempty"`
+}
+
+// decodeAnchorPubkey parses a client-supplied trust anchor. Returns nil for
+// an absent or malformed value — never an error, because this is only ever
+// reached from the sign-in path, where a bad anchor must not cost the user
+// their session (see PendingVaultRegistration.VaultTrustAnchorPubkey). Both
+// encodings are accepted: mobile's pair-QR uses URL-safe base64 while
+// POST /v1/vaults uses the standard alphabet.
+func decodeAnchorPubkey(s string) []byte {
+	if s == "" {
+		return nil
+	}
+	decoded, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		decoded, err = base64.RawURLEncoding.DecodeString(s)
+	}
+	if err != nil || len(decoded) != 32 {
+		return nil
+	}
+	return decoded
+}
+
+// upsertPendingVault registers — or idempotently re-registers — a vault the
+// mobile install minted locally before sign-in, returning the row's TRUE
+// owner so the caller can detect a vault_id collision. Split out of
+// SignInWithGoogle purely so this can be tested: the sign-in entry point
+// needs a live Google ID token, and it is the anchor semantics below, not
+// the token plumbing, that the "member never adds on my first kaata" bug
+// turned on.
+//
+// The anchor is carried through verbatim (nil → SQL NULL, which the column's
+// CHECK allows). On conflict it is a ONE-WAY NULL→value fill, gated on the
+// stored row already being ours:
+//
+//   - an anchor is the vault's root of trust, so a later registration must
+//     never silently ROTATE one;
+//   - a row with NO anchor is exactly what this path used to create, and an
+//     anchor-less server row turns the M2 membership chain off, so filling it
+//     is how such a vault heals;
+//   - the owner gate lives INSIDE the statement, not in the caller's
+//     collision check, because that check only runs after the UPDATE has
+//     already been applied.
+func upsertPendingVault(
+	ctx context.Context,
+	tx pgx.Tx,
+	accountID string,
+	pending *PendingVaultRegistration,
+	currency string,
+	createdAt time.Time,
+) (string, error) {
+	var existingOwner string
+	err := tx.QueryRow(ctx, `
+		INSERT INTO vaults (vault_id, owner_account_id, name, currency, vault_epoch, created_at, vault_trust_anchor_pubkey)
+		VALUES ($1::uuid, $2::uuid, $3, $4, 0, $5, $6)
+		ON CONFLICT (vault_id) DO UPDATE
+		SET vault_trust_anchor_pubkey = CASE
+			WHEN vaults.vault_trust_anchor_pubkey IS NULL
+			 AND vaults.owner_account_id = EXCLUDED.owner_account_id
+			 AND EXCLUDED.vault_trust_anchor_pubkey IS NOT NULL
+			THEN EXCLUDED.vault_trust_anchor_pubkey
+			ELSE vaults.vault_trust_anchor_pubkey
+		END
+		RETURNING owner_account_id::text
+	`, pending.ID, accountID, pending.Name, currency, createdAt,
+		decodeAnchorPubkey(pending.VaultTrustAnchorPubkey)).Scan(&existingOwner)
+	if err != nil {
+		return "", fmt.Errorf("upsert vault: %w", err)
+	}
+	return existingOwner, nil
 }
 
 // GoogleSignInResult is the response shape for POST /v1/auth/google.
@@ -328,16 +413,10 @@ func (s *Service) SignInWithGoogle(
 				createdAt = time.Now()
 			}
 
-			var existingOwner string
-			err := tx.QueryRow(ctx, `
-				INSERT INTO vaults (vault_id, owner_account_id, name, currency, vault_epoch, created_at)
-				VALUES ($1::uuid, $2::uuid, $3, $4, 0, $5)
-				ON CONFLICT (vault_id) DO UPDATE
-				SET vault_id = vaults.vault_id
-				RETURNING owner_account_id::text
-			`, pending.ID, accountID, pending.Name, currency, createdAt).Scan(&existingOwner)
+			existingOwner, err := upsertPendingVault(
+				ctx, tx, accountID, pending, currency, createdAt)
 			if err != nil {
-				return GoogleSignInResult{}, fmt.Errorf("upsert vault: %w", err)
+				return GoogleSignInResult{}, err
 			}
 			if existingOwner != accountID {
 				return GoogleSignInResult{}, errors.New("vault_id collides with vault owned by a different account")

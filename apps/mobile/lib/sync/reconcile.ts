@@ -36,7 +36,7 @@ import {
   getDb,
   refreshAccountIdCache,
 } from "../db-tx";
-import { createVaultOnServer } from "../vault-api";
+import { createVaultOnServer, listVaults } from "../vault-api";
 import { pullEvents } from "./pull";
 import { pushEvents } from "./push";
 
@@ -160,6 +160,79 @@ export async function reconcileVaultRegistrations(): Promise<void> {
   }
 }
 
+// Repair vaults that ARE registered server-side but whose server row has no
+// trust anchor, by re-POSTing them with the local one.
+//
+// How they got that way: a kaata that already existed on the phone when the
+// user signed in is registered through the sign-in pending block, and until
+// 2026-09 that block carried no anchor (lib/auth.ts
+// loadPendingVaultRegistration). An anchor-less server row turns the backend's
+// M2 membership-chain path off, so a joiner's own admission event is refused
+// forever by the legacy owner-only role matrix and the owner's Members list
+// never grows — the "member won't add on my first kaata" report. Only the
+// FIRST kaata is affected; every later one is registered by
+// createVaultOnServer, which has always sent the anchor.
+//
+// reconcileVaultRegistrations cannot cover this: it only looks at vaults with
+// registered_with_server_at IS NULL, and these were stamped at sign-in. So
+// this pass compares the SERVER's listing against the local column and
+// re-POSTs the difference. The backend's ON CONFLICT fills a NULL anchor for
+// the owner only, and never rewrites one that is already set, so this is
+// idempotent and cannot rotate anyone's anchor.
+//
+// The anchor sent is the LOCAL COLUMN, never the current device key: the
+// vault's genesis membership event was signed by the key it was minted with,
+// and on a device whose key has since rotated (see lib/mesh/device-key.ts)
+// the current key is a different one. Sending that would enshrine an anchor
+// no chain event was ever signed by.
+//
+// Costs one GET /v1/vaults per call, so it rides the periodic sweep rather
+// than the per-tick path. Best-effort throughout: never throws.
+export async function healMissingServerAnchors(): Promise<void> {
+  const jwt = await getSessionJWT();
+  if (!jwt) return;
+  let listings: Awaited<ReturnType<typeof listVaults>>;
+  try {
+    listings = await listVaults();
+  } catch {
+    return; // offline / transient — the next sweep retries
+  }
+  const anchorless = listings.filter((v) => !v.vault_trust_anchor_pubkey);
+  if (anchorless.length === 0) return;
+
+  const db = await getDb();
+  for (const listing of anchorless) {
+    try {
+      // Only OUR vaults, and only ones we hold an anchor for. `role` comes
+      // from the server's own membership row, so a joined vault (where the
+      // anchor is someone else's to publish) is skipped.
+      if (listing.role !== "owner") continue;
+      const row = await db.getFirstAsync<{
+        id: string;
+        name: string;
+        currency: string;
+        created_at: number;
+        vault_trust_anchor_pubkey: string | null;
+      }>(
+        `SELECT id, name, currency, created_at, vault_trust_anchor_pubkey
+           FROM vaults WHERE id = ? LIMIT 1`,
+        listing.vault_id,
+      );
+      if (!row?.vault_trust_anchor_pubkey) continue;
+      await createVaultOnServer({
+        vault_id: row.id,
+        name: row.name,
+        currency: row.currency || "AFN",
+        created_at_ms: row.created_at,
+        vault_trust_anchor_pubkey: row.vault_trust_anchor_pubkey,
+      });
+      console.warn(`[reconcile] filled missing server anchor for ${row.id.slice(0, 8)}`);
+    } catch (err) {
+      console.warn("[reconcile] anchor heal failed for", listing.vault_id.slice(0, 8), err);
+    }
+  }
+}
+
 // Ensure ONE specific vault (normally the active one) is registered server-side
 // BEFORE the scheduler pulls/pushes it. An unregistered vault 403s on pull,
 // which aborts the sync cycle before push can stamp last_push_at — so the backup
@@ -206,6 +279,10 @@ export async function fullBackupSweep(): Promise<void> {
   if (!net.isConnected) return;
 
   await reconcileVaultRegistrations();
+  // Repair anchor-less server rows in the same pass — same preconditions
+  // (signed in + online), one extra GET, and it is what lets an owner add a
+  // member to the kaata they created before signing in.
+  await healMissingServerAnchors();
 
   const db = await getDb();
   // The server_archived_probe clause sits OUTSIDE the registered filter:

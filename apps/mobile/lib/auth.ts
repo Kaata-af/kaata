@@ -671,8 +671,27 @@ async function completeAppleSignIn(
 // yet, so the sign-in round-trip can carry the registration block. Returns
 // undefined when there's no local vault (mid-onboarding) or when the vault
 // is already known to the server (registered_with_server_at IS NOT NULL).
+//
+// The TRUST ANCHOR must travel with it. This block is the only way a kaata
+// that already existed on the phone before sign-in reaches the server, and
+// until 2026-09 it carried no anchor — so those vaults landed server-side
+// with vault_trust_anchor_pubkey NULL, which switches the backend's whole
+// membership-chain path off and makes a joiner's own admission event be
+// refused forever by the legacy owner-only role matrix. Symptom: an invite
+// link works, the recipient accepts and sees success, and the owner's
+// Members list never grows — on the FIRST kaata only, because every later
+// one is registered by createVaultOnServer, which always sends the anchor.
+// healMissingServerAnchors (lib/sync/reconcile.ts) repairs the vaults that
+// are already in that state.
 async function loadPendingVaultRegistration(): Promise<
-  { id: string; name: string; currency: string; created_at_ms: number } | undefined
+  | {
+      id: string;
+      name: string;
+      currency: string;
+      created_at_ms: number;
+      vault_trust_anchor_pubkey?: string;
+    }
+  | undefined
 > {
   const vaultId = await getActiveVaultId();
   if (!vaultId) return undefined;
@@ -683,8 +702,10 @@ async function loadPendingVaultRegistration(): Promise<
     currency: string;
     created_at: number;
     registered_with_server_at: number | null;
+    vault_trust_anchor_pubkey: string | null;
   }>(
-    `SELECT id, name, currency, created_at, registered_with_server_at
+    `SELECT id, name, currency, created_at, registered_with_server_at,
+            vault_trust_anchor_pubkey
      FROM vaults WHERE id = ? LIMIT 1`,
     vaultId,
   );
@@ -695,6 +716,12 @@ async function loadPendingVaultRegistration(): Promise<
     name: row.name,
     currency: row.currency || "AFN",
     created_at_ms: row.created_at,
+    // Omitted rather than null when absent: a genuinely anchor-less vault
+    // (legacy / server-anchored) must stay that way, and the backend treats
+    // a missing field and a malformed one identically.
+    ...(row.vault_trust_anchor_pubkey
+      ? { vault_trust_anchor_pubkey: row.vault_trust_anchor_pubkey }
+      : {}),
   };
 }
 

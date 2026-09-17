@@ -54,6 +54,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 
@@ -149,6 +150,40 @@ type deviceAddedWire struct {
 
 type deviceRemovedWire struct {
 	DeviceID string `json:"device_id"`
+}
+
+// selfAdmissionCorroborated reports whether the server's OWN vault_members
+// row already says accountID is an accepted, non-revoked member of vaultID —
+// and, when wantRole is non-empty, that it holds exactly that role.
+//
+// This is the corroboration behind the legacy self-admission arm in
+// PushEvents (see the long comment there). It is deliberately a read of a
+// fact the server wrote itself — AcceptInvite's vault_members row — so
+// accepting the event restates server state rather than trusting the wire.
+// An empty wantRole ("does this account belong here at all?") is what
+// vault_device_added needs, since a device bind carries no role.
+func selfAdmissionCorroborated(
+	ctx context.Context, tx pgx.Tx, vaultID, accountID, wantRole string,
+) (bool, error) {
+	if vaultID == "" || accountID == "" {
+		return false, nil
+	}
+	var role string
+	err := tx.QueryRow(ctx, `
+		SELECT role FROM vault_members
+		 WHERE vault_id = $1::uuid AND account_id = $2::uuid
+		   AND accepted_at IS NOT NULL AND revoked_at IS NULL
+	`, vaultID, accountID).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read self membership: %w", err)
+	}
+	if wantRole != "" && wantRole != role {
+		return false, nil
+	}
+	return true, nil
 }
 
 // ---------------------------------------------------------------------------

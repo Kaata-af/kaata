@@ -80,10 +80,12 @@ type CreateInput struct {
 	// always send a value; Phase 5/6 clients omit it (the column stays
 	// NULL).
 	//
-	// Immutable after creation: no PATCH /v1/vaults code path mutates
-	// this column. Rotating the trust anchor requires creating a new
-	// vault and re-importing events (deferred — see backlog "trust
-	// anchor rotation").
+	// Write-once, not writable-twice: nothing rotates a stored anchor —
+	// no PATCH /v1/vaults path mutates the column, and Create's ON
+	// CONFLICT only ever fills a NULL one, for the owner (see the long
+	// comment on the statement). Rotating a real trust anchor still
+	// requires creating a new vault and re-importing events (deferred —
+	// see backlog "trust anchor rotation").
 	VaultTrustAnchorPubkey []byte
 }
 
@@ -135,17 +137,35 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 	// Phase 7: include vault_trust_anchor_pubkey ($6). pgx encodes a nil
 	// []byte as SQL NULL and a non-nil []byte as BYTEA, matching the
 	// CHECK constraint (NULL or exactly 32 bytes) and our two semantic
-	// modes. The ON CONFLICT DO UPDATE SET vault_id = vaults.vault_id
-	// no-op preserves the original anchor on idempotent retries — we
-	// deliberately do NOT update the column on conflict, because the
-	// owner's first write is authoritative and a later retry from a
-	// different device must never silently rotate the anchor.
+	// modes.
+	//
+	// ON CONFLICT is a ONE-WAY NULL→value fill, not a rewrite. An existing
+	// anchor is still never touched — the owner's first write is
+	// authoritative and a later retry from a different device must never
+	// silently rotate it — but a row that has NO anchor yet is exactly the
+	// vault the sign-in pending-registration path used to create (it carried
+	// no anchor field until 2026-09), and such a row disables the whole M2
+	// membership-chain path server-side, so a joiner's own admission is
+	// refused forever by the legacy owner-only role matrix. Letting the
+	// OWNER fill it by re-POSTing is how those vaults heal.
+	//
+	// The fill is gated on `vaults.owner_account_id = EXCLUDED.owner_account_id`
+	// INSIDE the statement, not on the collision check below: that check runs
+	// after the UPDATE has already been applied, so without the in-SQL gate a
+	// stranger who guessed a vault UUID could stamp an anchor onto someone
+	// else's anchor-less vault before being rejected.
 	var existingOwner string
 	err = tx.QueryRow(ctx, `
 		INSERT INTO vaults (vault_id, owner_account_id, name, currency, vault_epoch, created_at, vault_trust_anchor_pubkey)
 		VALUES ($1::uuid, $2::uuid, $3, $4, 0, $5, $6)
 		ON CONFLICT (vault_id) DO UPDATE
-		SET vault_id = vaults.vault_id
+		SET vault_trust_anchor_pubkey = CASE
+			WHEN vaults.vault_trust_anchor_pubkey IS NULL
+			 AND vaults.owner_account_id = EXCLUDED.owner_account_id
+			 AND EXCLUDED.vault_trust_anchor_pubkey IS NOT NULL
+			THEN EXCLUDED.vault_trust_anchor_pubkey
+			ELSE vaults.vault_trust_anchor_pubkey
+		END
 		RETURNING owner_account_id::text
 	`, in.VaultID, in.AccountID, in.Name, currency, createdAt, in.VaultTrustAnchorPubkey).Scan(&existingOwner)
 	if err != nil {
