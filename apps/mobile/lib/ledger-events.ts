@@ -45,26 +45,79 @@ export function emitLedgerApplied(vaultId: string, origin: LedgerOrigin): void {
   }
 }
 
+// Coalescing window for a burst of applies. emitLedgerApplied fires once PER
+// EVENT, so a sync that lands two hundred tallies used to call `reload` two
+// hundred times, each one a fresh round of screen queries against the same
+// database. Trailing edge, so the reload always reads the state AFTER the last
+// event in the burst rather than somewhere in the middle. Short enough that a
+// single local write still feels immediate.
+const REFRESH_COALESCE_MS = 150;
+
 /**
  * Re-run `reload` whenever the ledger projection changes for the visible vault.
- * Foreground-gated (a backgrounded screen re-queries on refocus anyway) and
- * vault-filtered. Pass activeVaultId=null to refresh on any vault's change.
- * `reload` should be a stable useCallback so the effect doesn't churn.
+ * Bursts are coalesced, a reload owed from the background is paid on the next
+ * foreground (see the AppState listener), and the subscription is
+ * vault-filtered. Pass activeVaultId=null to refresh on any vault's change —
+ * which is what a screen showing a CROSS-VAULT list must do, since a change to
+ * a vault that isn't the active one still changes what it renders.
+ *
+ * `reload` is held in a ref and the subscription keys only on activeVaultId, so
+ * an unstable callback no longer resubscribes. That is not just tidiness: with
+ * `reload` in the dep array, a new callback identity tore down the effect, and
+ * the cleanup would discard a coalesced reload that had not fired yet.
  */
 export function useLedgerRefresh(activeVaultId: string | null, reload: () => void): void {
   const appState = useRef(AppState.currentState);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const missedWhileAway = useRef(false);
+  const reloadRef = useRef(reload);
   useEffect(() => {
+    reloadRef.current = reload;
+  });
+  useEffect(() => {
+    const schedule = () => {
+      if (timer.current != null) clearTimeout(timer.current);
+      timer.current = setTimeout(() => {
+        timer.current = null;
+        reloadRef.current();
+      }, REFRESH_COALESCE_MS);
+    };
     const sub = AppState.addEventListener("change", (next) => {
+      const wasAway = appState.current !== "active";
       appState.current = next;
+      // Catch up on anything applied while we were in the background.
+      //
+      // The foreground gate below used to be justified by "a backgrounded
+      // screen re-queries on refocus anyway". That is not true of the screen
+      // that was already focused when the app went away: expo-router fires a
+      // focus effect on NAVIGATION, and returning from the background is not
+      // navigation, so nothing re-ran. A sync that landed while the phone was
+      // locked therefore stayed invisible until the user navigated somewhere
+      // and came back.
+      if (next === "active" && wasAway && missedWhileAway.current) {
+        missedWhileAway.current = false;
+        schedule();
+      }
     });
     const unsub = onLedgerApplied((vaultId) => {
-      if (appState.current !== "active") return;
       if (activeVaultId && vaultId !== activeVaultId) return;
-      reload();
+      if (appState.current !== "active") {
+        // Still skip the reload itself — querying for a screen nobody is
+        // looking at is wasted work — but remember that we owe one.
+        missedWhileAway.current = true;
+        return;
+      }
+      schedule();
     });
     return () => {
       sub.remove();
       unsub();
+      // Drop a pending reload when the subscription goes away: firing it would
+      // call back into a screen that is gone.
+      if (timer.current != null) {
+        clearTimeout(timer.current);
+        timer.current = null;
+      }
     };
-  }, [activeVaultId, reload]);
+  }, [activeVaultId]);
 }

@@ -406,13 +406,19 @@ export async function restoreFromSnapshot(
         const sp = snapshot.shop_profile;
         await db.runAsync(
           `INSERT OR REPLACE INTO shop_profile
-           (vault_id, owner_name, shop_name, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?)`,
+           (vault_id, owner_name, shop_name, created_at, updated_at, field_hlcs)
+         VALUES (?, ?, ?, ?, ?, ?)`,
           sp.vault_id,
           sp.owner_name,
           sp.shop_name,
           sp.created_at,
           sp.updated_at,
+          // The floor its three sibling seeds all get, and that this one was
+          // missed by. Without it the row lands with field_hlcs NULL, every
+          // field floors to FIELD_HLC_INIT, and the NEXT shop_profile_updated
+          // to arrive wins the per-field comparison even when it is older than
+          // what we just restored — overwriting the shop name with a stale one.
+          floorFieldHLCs(["shop_name", "owner_name"], sp.updated_at),
         );
       }
 

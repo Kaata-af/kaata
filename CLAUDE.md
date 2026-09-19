@@ -70,6 +70,16 @@ amounts. No migration or history rewrite is needed. All editing devices must
 update before a shared kaata uses cents; old app edit code can turn `12.34`
 into `1234`. See `docs/decimal-amounts.md` for rollout and regression checks.
 
+### A kaata's name lives in TWO tables, and both projections must mirror it
+
+`vaults.name` and `shop_profile.shop_name` are one user-perceived name. The vault switcher reads the first, the home header reads `COALESCE(shop_profile.shop_name, vaults.name)` (`getLocalSelf`), so a stale shop name **shadows** a correct vault name. A rename emits `vault_setting_set{key:"name"}` and nothing else — no `shop_profile_updated` is ever emitted for it — so **every applier that handles `vault_setting_set` must mirror onto the shop profile too**, under the same per-field HLC comparison a `shop_profile_updated` would use. Both sides now do: `apps/mobile/lib/projection/vault_settings.ts` and Go's `applyVaultSettingSet` (`internal/sync/project.go`).
+
+The Go half is the one that bites, because that projection is what a **snapshot** is built from, and a snapshot is the entire starting state for a reinstalling device and for every new member. Without the mirror the snapshot carried the current name in `vault.name` and the pre-rename name in `shop_profile.shop_name`; the restore cursor is set past the rename event (`restore.ts` → `setLastPulledServerSeq`), so the rename is never pulled and the mobile mirror never runs to repair it. The wrong name was permanent on that device, and it bled into share text, PDF exports and sync notifications, which all read `shop_name`. Pinned by `TestRenameMirrorsOntoShopProfile`.
+
+Related, same file: every table seeded by `restoreFromSnapshot` must get a `floorFieldHLCs(...)` value for its `field_hlcs` column. A NULL there floors every field to `FIELD_HLC_INIT`, so the next `*_updated` event wins the per-field comparison **even when it is older** than what was just restored. `shop_profile` was missing this while its three siblings had it.
+
+Known and currently unreachable: `vault_settings` rows carry HLCs locally but are not in the snapshot wire, so a restored device has no floor for them. Server pull cannot deliver a pre-snapshot rename (cursor), but a mesh peer could, and it would be applied unconditionally and regress the name. Harmless while `MESH_PARKED` is true; fix before un-parking by putting `vault_settings` plus their HLCs into `SnapshotResponse`.
+
 ### Update / announcement delivery without push
 
 **Retired for releases (2026-08, store-only distribution):** store installs update through Play / the App Store, and no `app_releases` row is inserted any more when a version ships — see "Release / deploy flow". The mechanism below still exists in code (the `apk` channel, announcements) and is described for completeness.

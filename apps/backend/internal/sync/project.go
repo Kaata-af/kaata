@@ -637,6 +637,37 @@ func applyVaultSettingSet(p *Projection, e *LedgerEvent) error {
 		return fmt.Errorf("decode vault_setting_set payload: %w", err)
 	}
 	p.VaultSettings[payload.Key] = payload.Value
+
+	// Mirror a RENAME onto the shop profile, exactly as the mobile applier
+	// does (apps/mobile/lib/projection/vault_settings.ts: "Two tables, one
+	// user-perceived name — keep them in lockstep on every rename").
+	//
+	// This projection is what a SNAPSHOT is built from, and a snapshot is how
+	// a reinstalling device and every new member get their starting state. A
+	// rename only ever emits vault_setting_set; nothing emits
+	// shop_profile_updated. So without this mirror the snapshot carried the
+	// vault's CURRENT name in vault.name and its PRE-RENAME name in
+	// shop_profile.shop_name — and mobile's getLocalSelf reads
+	// COALESCE(shop_profile.shop_name, vaults.name), so the stale one shadows
+	// the fresh one and the home header shows the original name. The restore
+	// cursor is set past the rename event, so the mobile mirror never gets a
+	// chance to run and repair it: the wrong name is permanent on that device.
+	// That is the "I see the kaata's original name after restoring, or when I
+	// add a new member" report.
+	//
+	// Same HLC field and comparison as applyShopProfileUpdated, so a rename
+	// and a shop-profile edit racing on the name resolve identically here and
+	// on the phone. Deliberately does NOT create a missing shop profile: when
+	// there is none, the COALESCE already falls back to the vault name, which
+	// is correct, and minting one would invent state no event asserted.
+	if payload.Key == "name" && p.ShopProfile != nil {
+		if CompareHLC(e.HLC, p.ShopProfile.hlcShopName) > 0 {
+			name := payload.Value
+			p.ShopProfile.ShopName = &name
+			p.ShopProfile.hlcShopName = e.HLC
+			p.ShopProfile.UpdatedAt = e.HLC.PMS
+		}
+	}
 	return nil
 }
 

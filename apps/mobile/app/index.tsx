@@ -444,9 +444,18 @@ export default function HomeScreen() {
     }, [load]),
   );
 
-  // Live refresh: a mesh/cloud sync that applies events for the visible vault
-  // re-runs load() immediately, so a synced tally appears without pull-refresh.
-  useLedgerRefresh(activeVaultId, load);
+  // Live refresh: a mesh/cloud sync that applies events re-runs load(), so a
+  // synced tally appears without pull-refresh.
+  //
+  // Subscribed to EVERY vault, not just the active one. This screen owns the
+  // `vaults` array that the switcher renders, which spans all of them — so a
+  // kaata renamed on another phone while a DIFFERENT kaata is active changed
+  // nothing here under the old active-only filter, and the switcher kept
+  // showing the stale name until the screen happened to reload on focus. The
+  // data was correct in SQLite the whole time; only this in-memory copy was
+  // behind. useLedgerRefresh coalesces a burst into one reload, so widening
+  // the filter does not multiply work during a sync.
+  useLedgerRefresh(null, load);
 
   // Pull-to-refresh — with mesh/vault sync now core, entries can land while
   // the shopkeeper sits on this screen (the dominant shop-counter posture).
@@ -792,6 +801,15 @@ export default function HomeScreen() {
               // during the close animation and Android renders the second
               // one blank-but-tappable (UX critique #5, same shape as the
               // BottomSheet chained() defer).
+              // Re-read before showing the list. The live-refresh
+              // subscription above should already have kept `vaults` current,
+              // but this list is the one surface where a stale entry is
+              // actually confusing rather than merely late — it is how you
+              // recognise a kaata — and a rename that arrived from another
+              // phone has no other cue that it happened. One query on a user
+              // gesture makes the switcher correct independently of whether
+              // the event plumbing fired.
+              void load();
               if (settingsVisible) {
                 setSettingsVisible(false);
                 setTimeout(() => setVaultPickerVisible(true), 220);
