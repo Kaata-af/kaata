@@ -789,7 +789,16 @@ export default function VaultSettingsScreen() {
                   owner's exit path is Transfer ownership, whose flow already
                   offers "transfer and leave" — a sole owner tapping Leave
                   could only ever hit the last-owner refusal. */}
-              {!SOLO_STORE_MODE ? (
+              {/* SOLO_STORE_MODE hides multi-account surface, and hiding this
+                  row made sense while it could only ever be a dead end. It is
+                  not a dead end once the kaata HAS other members, and the
+                  gate then locked owners out of the only exit they are given:
+                  there is deliberately no Leave row for an owner, and the
+                  Transfer button on the last-owner dialog is unreachable
+                  without one. So a store build left an owner with no way to
+                  hand the kaata over at all. Show it whenever there is
+                  somebody to hand it TO; solo shopkeepers still never see it. */}
+              {memberCount > 1 || !SOLO_STORE_MODE ? (
                 <NavRow
                   icon="key-outline"
                   label={t("vaultSettings.row.transfer")}
