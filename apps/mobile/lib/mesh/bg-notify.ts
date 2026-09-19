@@ -22,7 +22,7 @@
 // headless VM. The onLedgerApplied listener set is per-VM; whichever VM applied
 // the synced event fires its own listener.
 import { AppState, Platform } from "react-native";
-import * as Notifications from "expo-notifications";
+import { isRunningInExpoGo } from "expo";
 
 import { getAppMeta } from "../db";
 import { getDb } from "../db-tx";
@@ -32,15 +32,46 @@ const CHANNEL_ID = "ledger-updates";
 // Coalesce a sync batch (and a burst of vaults) into one notification.
 const DEBOUNCE_MS = 3000;
 
+// expo-notifications is loaded LAZILY, and in Expo Go not at all.
+//
+// Importing it has a side effect that THROWS on Android under Expo Go:
+// DevicePushTokenAutoRegistration.fx registers a push-token listener at module
+// scope, and since SDK 53 expo-notifications throws from that registration
+// because Expo Go dropped remote-push support. Since THIS file is imported from
+// index.js, before any UI exists, a static import took the entire app down at
+// boot with a red screen the moment anyone opened it in Expo Go — for a feature
+// that posts purely LOCAL notifications and never asks for a push token.
+//
+// Two guards, because either alone would be fragile. Expo Go skips the
+// subscription outright, since there is nothing it could deliver there. And
+// everywhere else the import is deferred to the first synced event that
+// actually needs to notify, so the cost never lands on startup. Development
+// builds and store builds behave exactly as before.
+type NotificationsModule = typeof import("expo-notifications");
+let notificationsPromise: Promise<NotificationsModule> | null = null;
+
+async function loadNotifications(): Promise<NotificationsModule | null> {
+  if (isRunningInExpoGo()) return null;
+  if (!notificationsPromise) {
+    notificationsPromise = import("expo-notifications").catch((err) => {
+      // Clear the cached rejection so a transient failure can be retried on the
+      // next sync instead of silencing notifications for the whole process.
+      notificationsPromise = null;
+      throw err;
+    });
+  }
+  return notificationsPromise;
+}
+
 let channelReady = false;
 const pendingVaults = new Set<string>();
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
-async function ensureChannel(): Promise<void> {
+async function ensureChannel(notifications: NotificationsModule): Promise<void> {
   if (channelReady) return;
-  await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
+  await notifications.setNotificationChannelAsync(CHANNEL_ID, {
     name: "Synced updates",
-    importance: Notifications.AndroidImportance.DEFAULT,
+    importance: notifications.AndroidImportance.DEFAULT,
     description: "New entries synced from your account while Kaata was in the background.",
   });
   channelReady = true;
@@ -68,8 +99,11 @@ async function flush(): Promise<void> {
   // build, and the channel is user-mutable in the OS too.
   if ((await getAppMeta("bg_notify_enabled")) === "0") return;
 
+  const notifications = await loadNotifications().catch(() => null);
+  if (!notifications) return;
+
   try {
-    await ensureChannel();
+    await ensureChannel(notifications);
   } catch {
     return;
   }
@@ -92,7 +126,7 @@ async function flush(): Promise<void> {
     //
     // The small icon and accent colour come from the expo-notifications config
     // plugin in app.json; there is no per-notification icon option.
-    await Notifications.scheduleNotificationAsync({
+    await notifications.scheduleNotificationAsync({
       content: { title, body },
       trigger: { channelId: CHANNEL_ID },
     });
@@ -101,7 +135,7 @@ async function flush(): Promise<void> {
   }
 }
 
-if (Platform.OS === "android") {
+if (Platform.OS === "android" && !isRunningInExpoGo()) {
   onLedgerApplied((vaultId, origin) => {
     // Only SYNCED entries (not the user's own local writes), and only when the
     // user isn't actively looking at the app. In the headless VM AppState is
