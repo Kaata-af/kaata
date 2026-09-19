@@ -31,8 +31,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { EmptyState } from "../../components/EmptyState";
 import { ScreenLoading } from "../../components/ScreenLoading";
+import { InitialAvatar } from "../../components/InitialAvatar";
 import { ScreenHeader } from "../../components/SettingsScreen";
 import { useToast } from "../../components/Toast";
+import { initialOf, loadMemberNames, memberTintFor } from "../../lib/attribution";
 import { colors } from "../../lib/colors";
 import { getActiveVaultId, getDb } from "../../lib/db-tx";
 import { getAppMeta } from "../../lib/db";
@@ -143,6 +145,14 @@ export default function VaultAuditLogScreen() {
       }
 
       // Actor-name lookup map — used for both local + server-mode rendering.
+      //
+      // The members mirror comes FIRST and is the reason this screen works at
+      // all. It used to read `users` alone, but users.account_id is only ever
+      // stamped on the local-self row (lib/auth.ts is the single writer), so
+      // the map resolved exactly one person: you. Every other member's row
+      // fell through to shortId() and rendered as "a1b2c3d4…" — an activity
+      // log that could not name the people whose activity it logged.
+      const map = await loadMemberNames(vid);
       const userRows = await db.getAllAsync<{
         account_id: string;
         display_name: string;
@@ -150,9 +160,12 @@ export default function VaultAuditLogScreen() {
         `SELECT account_id, display_name FROM users
           WHERE account_id IS NOT NULL`,
       );
-      const map = new Map<string, string>();
       for (const r of userRows) {
-        if (r.account_id) map.set(r.account_id, r.display_name);
+        // Mirror wins: it is the vault's own view of who a member is, while a
+        // local contact row is this device's nickname for them.
+        if (r.account_id && r.display_name && !map.has(r.account_id)) {
+          map.set(r.account_id, r.display_name);
+        }
       }
       setActorNames(map);
 
@@ -397,16 +410,23 @@ function AuditRow(props: {
 }) {
   const { entry, actorName, expanded, onToggle, isRTL } = props;
   const display = actorName ?? shortId(entry.actor_id) ?? t("auditLog.system");
-  const initial = (display.trim()[0] ?? "?").toUpperCase();
+  // Same tint the tally rows give this member, so a colour learned on the
+  // ledger still means the same person here. Actor-less (system) rows stay
+  // neutral — a hue would imply a member who isn't there.
+  const tint = entry.actor_id ? memberTintFor(entry.actor_id) : null;
   return (
     <Pressable
       onPress={onToggle}
       style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.bgMuted }]}
     >
       <View style={[styles.rowMain, rowDir(isRTL)]}>
-        <View style={[styles.avatarFallback, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}>
-          <Text style={styles.avatarLetter}>{initial}</Text>
-        </View>
+        <InitialAvatar
+          label={initialOf(display)}
+          size={AVATAR_SIZE}
+          backgroundColor={tint?.bg}
+          color={tint?.fg}
+          style={isRTL ? { marginLeft: 14 } : { marginRight: 14 }}
+        />
         <View style={styles.rowTextCol}>
           <Text style={[styles.rowKind, textDir(isRTL)]} numberOfLines={1}>
             {humanizeKind(entry.kind, entry.payload)}
@@ -596,19 +616,9 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   rowTextCol: { flex: 1 },
-  avatarFallback: {
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    borderRadius: AVATAR_SIZE / 2,
-    backgroundColor: colors.bgMuted,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarLetter: {
-    fontSize: 20,
-    fontFamily: fonts.sansBold,
-    color: colors.textEmphasis,
-  },
+  // The hand-rolled actor circle that used to live here is gone: it was a
+  // third copy of "centre a letter in a circle", and the shared InitialAvatar
+  // carries the Vazirmatn optical correction that this copy did not.
   rowKind: {
     fontSize: 15,
     fontFamily: fonts.sansSemi,

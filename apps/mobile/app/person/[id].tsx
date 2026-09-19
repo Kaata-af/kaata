@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -19,6 +19,7 @@ import { EmptyState } from "../../components/EmptyState";
 import { EntryRow } from "../../components/EntryRow";
 import { OptionSheet } from "../../components/OptionSheet";
 import { useToast, useToastOffset } from "../../components/Toast";
+import { loadRelationshipAttribution, type EntryAttribution } from "../../lib/attribution";
 import { colors } from "../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
 import {
@@ -30,7 +31,8 @@ import {
   SettledChapterError,
   softDeleteEntry,
 } from "../../lib/db";
-import { getActiveVaultIdSyncMaybe } from "../../lib/db-tx";
+import { getAccountIdSync, getActiveVaultIdSyncMaybe } from "../../lib/db-tx";
+import { resolveAccountIdCandidates } from "../../lib/effective-account";
 import {
   appendEntrySettled,
   RoleGateRejectionError,
@@ -47,7 +49,12 @@ import { useCalendar } from "../../lib/calendar";
 import { shareKaataViaWhatsApp } from "../../lib/share";
 import { icon, radius, TOUCH_MIN, typography } from "../../lib/tokens";
 import { useActiveVaultWriteCaps } from "../../lib/use-vault-role";
+import { useMembersCount } from "../../lib/use-vault-summary";
 import type { Entry, PersonWithBalance, Self } from "../../lib/types";
+
+// Shared empty map so a solo kaata (and the pre-load frame of a shared one)
+// never allocates, and the identity stays stable across renders.
+const EMPTY_ATTRIBUTION: Map<string, EntryAttribution> = new Map();
 
 export default function PersonDetailScreen() {
   const router = useRouter();
@@ -95,6 +102,54 @@ export default function PersonDetailScreen() {
   // Roles v2 split: canCreate gates give/receive (clerks CAN append new
   // entries); canAmend gates person-edit + entry long-press (clerks cannot).
   const { canCreate, canAmend } = useActiveVaultWriteCaps(getActiveVaultIdSyncMaybe());
+
+  // ATTRIBUTION — "who wrote this tally", for SHARED kaatas only.
+  //
+  // The gate is the whole design. In a solo kaata every answer is "you", so a
+  // chip on every row would be decoration that costs the ledger its calm; the
+  // screen therefore doesn't even run the query. useMembersCount floors at 1
+  // and only exceeds it once the members mirror really holds someone else, so
+  // the feature switches itself on the moment a kaata becomes shared and off
+  // again if it stops being.
+  const activeVaultId = getActiveVaultIdSyncMaybe();
+  const membersCount = useMembersCount(activeVaultId);
+  const isShared = membersCount > 1;
+  const [attribution, setAttribution] = useState<Map<string, EntryAttribution>>(EMPTY_ATTRIBUTION);
+
+  useEffect(() => {
+    if (!isShared || !activeVaultId || entries.length === 0) {
+      // Drop any map from a kaata we've navigated away from, but don't churn
+      // a fresh empty Map (and a re-render) when there was nothing anyway.
+      setAttribution((prev) => (prev.size === 0 ? prev : EMPTY_ATTRIBUTION));
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        // One query per distinct relationship. v1 collapses a person to a
+        // single 'peer' relationship — the settle path assumes it too — but
+        // deriving the set costs nothing and can't be wrong.
+        const relationshipIds = Array.from(
+          new Set(entries.map((e) => e.relationship_id).filter(Boolean)),
+        );
+        const selfIds = await resolveAccountIdCandidates(getAccountIdSync());
+        const maps = await Promise.all(
+          relationshipIds.map((rid) => loadRelationshipAttribution(activeVaultId, rid, selfIds)),
+        );
+        if (cancelled) return;
+        const merged = new Map<string, EntryAttribution>();
+        for (const m of maps) for (const [entryId, value] of m) merged.set(entryId, value);
+        setAttribution(merged);
+      } catch (err) {
+        // Never fails the screen: the rows just render the way they did
+        // before attribution existed.
+        console.warn("[person] attribution load failed", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isShared, activeVaultId, entries]);
 
   // Chapter view: entries after the latest settlement boundary. Boundary
   // compares created_at, which the applier sets to the entry's BUSINESS date
@@ -534,6 +589,7 @@ export default function PersonDetailScreen() {
                   <EntryRow
                     entry={entry}
                     onLongPress={canAmend && !inSettledChapter ? setSheetFor : undefined}
+                    attribution={attribution.get(entry.id)}
                   />
                 </View>
               );

@@ -48,6 +48,15 @@ export function InitialAvatar(props: {
   label: string;
   /** Circle diameter in px. */
   size: number;
+  /**
+   * Optional tint. Both default to the neutral chip (muted background,
+   * emphasis ink) that the header and settings-sheet call sites use. The
+   * member-attribution chips pass a pair from `memberTints` so a person is
+   * identifiable by hue at 20px; every other caller stays monochrome, which
+   * is the app's default (see lib/colors.ts).
+   */
+  backgroundColor?: string;
+  color?: string;
   style?: StyleProp<ViewStyle>;
 }) {
   const { label, size, style } = props;
@@ -56,10 +65,21 @@ export function InitialAvatar(props: {
   // Half-px precision: enough to land on a device pixel at 2x/3x densities.
   const nudge = Math.round(fontSize * OPTICAL_NUDGE_EM * 2) / 2;
   return (
-    <View style={[styles.circle, { width: size, height: size, borderRadius: size / 2 }, style]}>
+    <View
+      style={[
+        styles.circle,
+        { width: size, height: size, borderRadius: size / 2 },
+        props.backgroundColor ? { backgroundColor: props.backgroundColor } : null,
+        style,
+      ]}
+    >
       <Text
         allowFontScaling={false}
-        style={[styles.letter, { fontSize, lineHeight, transform: [{ translateY: nudge }] }]}
+        style={[
+          styles.letter,
+          { fontSize, lineHeight, transform: [{ translateY: nudge }] },
+          props.color ? { color: props.color } : null,
+        ]}
       >
         {label}
       </Text>

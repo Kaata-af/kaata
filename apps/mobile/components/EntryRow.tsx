@@ -1,6 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { memo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { InitialAvatar } from "./InitialAvatar";
+import { chipActorFor, initialOf, memberTintFor, type EntryAttribution } from "../lib/attribution";
 import { colors } from "../lib/colors";
 import { useCalendar } from "../lib/calendar";
 import { getCurrentCurrencySymbol } from "../lib/currency";
@@ -10,6 +12,12 @@ import { formatAmount, formatRelative, formatTimestamp } from "../lib/format";
 import { t } from "../lib/i18n";
 import { radius } from "../lib/tokens";
 import type { Entry } from "../lib/types";
+
+// The author chip's diameter. 20 is not a round number pulled from the air:
+// it is the line box of the 15px JetBrains Mono amount sitting beside it
+// (15 × 1.32 ≈ 19.8), so the chip occupies height the row already had and the
+// tally list's vertical rhythm is untouched by turning attribution on.
+const AUTHOR_CHIP_SIZE = 20;
 
 // type='debt'    → value left my hand  → "I gave"   → up arrow
 // type='payment' → value came to me    → "I received" → down arrow
@@ -21,6 +29,10 @@ export const EntryRow = memo(function EntryRow(props: {
   entry: Entry;
   // Omitted for a viewer (read-only) — tap-and-hold opens the edit/delete sheet.
   onLongPress?: (entry: Entry) => void;
+  // Who wrote / last changed this tally. Undefined in a SOLO kaata, where the
+  // answer is always "you" and a chip would be pure noise — the caller decides
+  // that (app/person/[id].tsx), so this component stays dumb about membership.
+  attribution?: EntryAttribution;
 }) {
   const isRTL = useIsRTL();
   useCalendar(); // This memoized row must also refresh when its calendar changes.
@@ -50,6 +62,31 @@ export const EntryRow = memo(function EntryRow(props: {
     ? formatTimestamp(entry.created_at)
     : formatRelative(entry.created_at, Date.now(), { alwaysRelative: true });
   const toggleLabel = t(open ? "entry.showRelativeTime" : "entry.showExactTime");
+
+  // ATTRIBUTION (shared kaatas only; see the prop's comment).
+  //
+  // Collapsed, it is one 20px tinted initial in the meta slot and nothing
+  // else — the brief was "vivid enough to notice, not big enough to ruin the
+  // look". 20px is the exact line box of the 15px mono amount beside it, so
+  // the chip adds a hue to the row without adding a pixel of height, and it
+  // appears ONLY on rows somebody else touched, so a ledger you keep alone
+  // looks exactly as it did before.
+  //
+  // Opened, the row spells the whole thing out in words. That is where a name
+  // belongs: the trailing slot already carries the exact date and time after
+  // a tap, and stacking a name in there would squeeze one of the two.
+  const chipActor = chipActorFor(props.attribution);
+  const chipTint = chipActor ? memberTintFor(chipActor.accountId) : null;
+  const nameOf = (actor: { name: string | null; isSelf: boolean }) =>
+    actor.isSelf ? t("entry.by.you") : (actor.name ?? t("entry.by.someone"));
+  const author = props.attribution?.author ?? null;
+  const editor = props.attribution?.editor ?? null;
+  const byLine = author
+    ? t("entry.addedBy", { name: nameOf(author) }) +
+      (editor ? ` · ${t("entry.editedBy", { name: nameOf(editor) })}` : "")
+    : editor
+      ? t("entry.editedByOnly", { name: nameOf(editor) })
+      : null;
 
   return (
     <Pressable
@@ -104,8 +141,37 @@ export const EntryRow = memo(function EntryRow(props: {
             <Text style={styles.afn}>{getCurrentCurrencySymbol()}</Text>
           </View>
           {/* The date stays in its trailing slot in both states; it only
-              shrinks (never the amount) if the exact form needs the room. */}
-          <Text style={[styles.when, { textAlign: isRTL ? "left" : "right" }]}>{when}</Text>
+              shrinks (never the amount) if the exact form needs the room. The
+              author chip rides in front of it, outside the shrinking text, so
+              a long exact timestamp ellipsizes the DATE rather than crushing
+              the one element that is a fixed-size graphic. */}
+          <View style={[styles.meta, rowDir(isRTL)]}>
+            {chipActor && chipTint ? (
+              <View
+                accessible
+                accessibilityLabel={
+                  author && author.accountId === chipActor.accountId
+                    ? t("entry.addedBy", { name: nameOf(chipActor) })
+                    : t("entry.editedByOnly", { name: nameOf(chipActor) })
+                }
+              >
+                <InitialAvatar
+                  label={initialOf(chipActor.name)}
+                  size={AUTHOR_CHIP_SIZE}
+                  backgroundColor={chipTint.bg}
+                  color={chipTint.fg}
+                />
+              </View>
+            ) : null}
+            {/* One line, always. Before the chip existed this could wrap, and
+                a wrapped date would now grow the row on every tap — the one
+                thing attribution was not allowed to cost. There is room to
+                spare for both forms at phone width; the amount never yields
+                (flexShrink:0), so only the date can give. */}
+            <Text numberOfLines={1} style={[styles.when, { textAlign: isRTL ? "left" : "right" }]}>
+              {when}
+            </Text>
+          </View>
         </View>
         {entry.note ? (
           expanded ? (
@@ -154,6 +220,15 @@ export const EntryRow = memo(function EntryRow(props: {
             </View>
           )
         ) : null}
+        {/* The full story, only once the row is open. Rendered even when the
+            chip is absent — a tally you wrote that nobody else has touched
+            still answers "who wrote this" when you ask it directly, and on a
+            shared ledger that reassurance is the other half of the feature. */}
+        {open && byLine ? (
+          <Text style={[styles.byLine, textDir(isRTL)]} numberOfLines={2}>
+            {byLine}
+          </Text>
+        ) : null}
       </View>
     </Pressable>
   );
@@ -183,6 +258,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
+  },
+  // Trailing meta: the author chip (fixed) + the date (shrinks). flexShrink on
+  // the WRAPPER, minWidth:0 so it can go below the date's intrinsic width.
+  meta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 1,
+    minWidth: 0,
+    justifyContent: "flex-end",
   },
   amountRow: { flexDirection: "row", alignItems: "baseline", gap: 4, flexShrink: 0 },
   amount: {
@@ -240,5 +325,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: fonts.sansSemi,
     color: colors.textEmphasis,
+  },
+  // One step quieter than the note (textSubtle, not textDefault): it is
+  // provenance, not content, and it must never out-weigh the note it sits
+  // under.
+  byLine: {
+    marginTop: 5,
+    fontSize: 12,
+    fontFamily: fonts.sansRegular,
+    color: colors.textSubtle,
+    lineHeight: sansLineHeight(12, 17),
   },
 });

@@ -297,6 +297,17 @@ const en = {
   "entry.showExactTime": "Show exact date and time",
   "entry.showRelativeTime": "Show relative time",
   "entry.options": "Tally options",
+  // Attribution on a shared kaata's tally row. The collapsed row shows only a
+  // tinted initial; these words appear when the row is opened, and as the
+  // chip's screen-reader label. `entry.editedBy` is lower-case on purpose —
+  // it only ever follows "Added by X · ".
+  "entry.addedBy": "Added by {name}",
+  "entry.editedBy": "edited by {name}",
+  "entry.editedByOnly": "Edited by {name}",
+  "entry.by.you": "you",
+  // When the member's name hasn't reached this device yet. Better than a
+  // truncated account id, which reads as a bug rather than as a person.
+  "entry.by.someone": "another member",
   "entry.invalidAmount": "Enter a positive amount with up to 2 decimal places",
   // D-DEFENSIVE-ARCHIVED-GUARD — surfaced when the active vault has been
   // archived by the user (locally) or via mesh between the screen load
@@ -1512,6 +1523,11 @@ const fa: Partial<Record<Key, string>> = {
   "entry.showExactTime": "نمایش تاریخ و ساعت دقیق",
   "entry.showRelativeTime": "نمایش زمان گذشته",
   "entry.options": "گزینه‌های ثبت",
+  "entry.addedBy": "ثبت‌شده توسط {name}",
+  "entry.editedBy": "ویرایش توسط {name}",
+  "entry.editedByOnly": "ویرایش‌شده توسط {name}",
+  "entry.by.you": "شما",
+  "entry.by.someone": "یکی از اعضا",
   "entry.invalidAmount": "یک مقدار مثبت با حداکثر ۲ رقم اعشار وارد کنید",
   "entry.noActiveVault": "کاتای فعال وجود ندارد. برای ادامه یک کاتا بسازید.",
   "entry.vaultArchived": "این کاتا بایگانی شده است. آن را بازیابی کنید یا کاتای دیگری انتخاب کنید.",
