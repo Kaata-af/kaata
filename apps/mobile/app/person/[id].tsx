@@ -38,8 +38,9 @@ import {
   RoleGateRejectionError,
   SettleNotZeroError,
 } from "../../lib/event-log";
+import { exportPersonStatement, type ExportDestination, type ExportFormat } from "../../lib/export";
 import { useLedgerRefresh } from "../../lib/ledger-events";
-import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
+import { bidiIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
 import { sumAmounts } from "../../lib/money";
@@ -97,6 +98,33 @@ export default function PersonDetailScreen() {
   const pingBusyRef = useRef(false);
   // Message-language picker for the ping, shown when share_lang_pref = 'ask'.
   const [askLangVisible, setAskLangVisible] = useState(false);
+  // Statement export. It used to live on the EDIT screen, behind the pencil —
+  // which hid it twice over. Nobody looks for "give me a copy of this account"
+  // inside a form for changing someone's name, and the pencil only renders
+  // when canAmend, so a clerk or viewer could never export a statement they
+  // were perfectly entitled to read. Exporting is a READ; it belongs here,
+  // next to the ledger it describes, ungated by write permission.
+  const [exportSheetVisible, setExportSheetVisible] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const exportingRef = useRef(false);
+
+  async function onExport(format: ExportFormat, destination: ExportDestination) {
+    if (!id || exportingRef.current) return;
+    exportingRef.current = true;
+    setExporting(true);
+    try {
+      const savedAs = await exportPersonStatement(id, format, destination);
+      // Non-null only on a completed save to the phone — a share needs no
+      // confirmation and a cancelled folder picker stays silent.
+      if (savedAs) toast.push(t("export.saved", { name: bidiIsolate(savedAs) }), "success");
+    } catch (err) {
+      console.warn("[person] export failed", err);
+      toast.push(t("personEdit.exportFailed"), "error");
+    } finally {
+      exportingRef.current = false;
+      setExporting(false);
+    }
+  }
   // Viewer read-only gate: false only when I'm a viewer on the active (shared)
   // kaata. Hides give/receive, edit-person, and entry edit/delete.
   // Roles v2 split: canCreate gates give/receive (clerks CAN append new
@@ -383,30 +411,48 @@ export default function PersonDetailScreen() {
             color={colors.textEmphasis}
           />
         </Pressable>
-        {canAmend ? (
+        {/* Trailing controls share one box so headerNav's space-between still
+            means "back at the start, actions at the end" with more than one. */}
+        <View style={[styles.headerActions, rowDir(isRTL)]}>
           <Pressable
-            onPress={() =>
-              router.push({ pathname: "/person/[id]/edit", params: { id: person.id } })
-            }
+            onPress={() => setExportSheetVisible(true)}
+            disabled={exporting}
             hitSlop={8}
             accessibilityRole="button"
-            accessibilityLabel={t("person.sheet.edit")}
-            style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.5 }]}
+            accessibilityLabel={t("personEdit.export")}
+            style={({ pressed }) => [styles.iconBtn, (pressed || exporting) && { opacity: 0.5 }]}
           >
-            <Ionicons name="create-outline" size={icon.row} color={colors.textEmphasis} />
+            {exporting ? (
+              <ActivityIndicator size="small" color={colors.textSubtle} />
+            ) : (
+              <Ionicons name="document-text-outline" size={icon.row} color={colors.textEmphasis} />
+            )}
           </Pressable>
-        ) : (
-          <View style={styles.readOnlyChip}>
-            {/* Stays 12, NOT icon.trailing (16): this glyph is composed against
-                an 11px caption inside a pill — a 16px mark would outweigh its
-                own label and force the badge taller than the edit button it
-                replaces. Composed graphic, not a row icon. */}
-            <Ionicons name="eye-outline" size={12} color={colors.textSubtle} />
-            <Text style={styles.readOnlyChipText} allowFontScaling={false}>
-              {t("readonly.badge")}
-            </Text>
-          </View>
-        )}
+          {canAmend ? (
+            <Pressable
+              onPress={() =>
+                router.push({ pathname: "/person/[id]/edit", params: { id: person.id } })
+              }
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={t("person.sheet.edit")}
+              style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.5 }]}
+            >
+              <Ionicons name="create-outline" size={icon.row} color={colors.textEmphasis} />
+            </Pressable>
+          ) : (
+            <View style={styles.readOnlyChip}>
+              {/* Stays 12, NOT icon.trailing (16): this glyph is composed against
+                  an 11px caption inside a pill — a 16px mark would outweigh its
+                  own label and force the badge taller than the edit button it
+                  replaces. Composed graphic, not a row icon. */}
+              <Ionicons name="eye-outline" size={12} color={colors.textSubtle} />
+              <Text style={styles.readOnlyChipText} allowFontScaling={false}>
+                {t("readonly.badge")}
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
 
       {/* One person's tallies are bounded, so render them as ONE bordered card
@@ -655,6 +701,36 @@ export default function PersonDetailScreen() {
         </Animated.View>
       ) : null}
 
+      {/* Statement export chooser. BottomSheet's 220ms action defer doubles as
+          clearance for the OS share sheet that follows generation. */}
+      <BottomSheet
+        visible={exportSheetVisible}
+        title={t("personEdit.export")}
+        onDismiss={() => setExportSheetVisible(false)}
+        actions={[
+          {
+            label: t("export.action.sharePdf"),
+            icon: "share-outline",
+            onPress: () => void onExport("pdf", "share"),
+          },
+          {
+            label: t("export.action.shareCsv"),
+            icon: "share-outline",
+            onPress: () => void onExport("csv", "share"),
+          },
+          {
+            label: t("export.action.savePdf"),
+            icon: "download-outline",
+            onPress: () => void onExport("pdf", "save"),
+          },
+          {
+            label: t("export.action.saveCsv"),
+            icon: "download-outline",
+            onPress: () => void onExport("csv", "save"),
+          },
+        ]}
+      />
+
       <BottomSheet
         visible={sheetFor !== null}
         title={
@@ -749,6 +825,9 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
   fillCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
   notFoundText: { fontSize: 14, fontFamily: fonts.sansRegular, color: colors.textSubtle },
+  // gap 2, not more: the two icon buttons are already 40px boxes with their own
+  // internal padding, so a wider gap reads as two unrelated controls.
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 2 },
   headerNav: {
     flexDirection: "row",
     justifyContent: "space-between",

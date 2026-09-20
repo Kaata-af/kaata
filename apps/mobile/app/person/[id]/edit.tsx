@@ -21,13 +21,8 @@ import { queuePendingToast, useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
 import { splitName } from "../../../lib/contacts-sync";
 import { archivePerson, getPerson, updatePerson } from "../../../lib/db";
-import { bidiIsolate, rowDir, textDir, useIsRTL } from "../../../lib/direction";
+import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../../lib/event-log";
-import {
-  exportPersonStatement,
-  type ExportDestination,
-  type ExportFormat,
-} from "../../../lib/export";
 import { fonts } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
 import { getCountry, getCurrentDefaultCountryCode, inferCountryFromE164 } from "../../../lib/phone";
@@ -82,32 +77,6 @@ export default function EditPersonScreen() {
   // phone). Result AND errors render inline — modal screen, toasts can't
   // draw above it (Toast.tsx). Ref guards same-frame double-fire like
   // savingRef.
-  const [exportSheetVisible, setExportSheetVisible] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
-  const [exportResult, setExportResult] = useState<string | null>(null);
-  const exportingRef = useRef(false);
-
-  async function onExport(format: ExportFormat, destination: ExportDestination) {
-    if (!id || exportingRef.current) return;
-    exportingRef.current = true;
-    setExporting(true);
-    setExportError(null);
-    setExportResult(null);
-    try {
-      const savedAs = await exportPersonStatement(id, format, destination);
-      // Non-null only on a completed save — a share needs no confirmation
-      // and a cancelled folder picker stays silent.
-      if (savedAs) setExportResult(t("export.saved", { name: bidiIsolate(savedAs) }));
-    } catch (err) {
-      console.warn("[person/edit] export failed", err);
-      setExportError(t("personEdit.exportFailed"));
-    } finally {
-      exportingRef.current = false;
-      setExporting(false);
-    }
-  }
-
   useEffect(() => {
     if (!id) return;
     getPerson(id)
@@ -249,16 +218,10 @@ export default function EditPersonScreen() {
   return (
     <SafeAreaView style={styles.container}>
       {/* The "Cancel" word becomes the shared chevron; it survives as the a11y
-          label so TalkBack still announces "Cancel", not "Back".
-          Dismissing mid-export drops the inline "Saved …" confirmation the user
-          is waiting for, and on the share path pops the OS sheet over the
-          person screen with no visible cause — so the chevron goes DIMMED AND
-          INERT while exporting (backDisabled), rather than staying live and
-          silently no-oping, which reads as a frozen app. */}
+label so TalkBack still announces "Cancel", not "Back". */}
       <ScreenHeader
         title={t("personEdit.title")}
         onBack={() => router.back()}
-        backDisabled={exporting}
         isRTL={isRTL}
         backLabel={t("common.cancel")}
       />
@@ -359,30 +322,7 @@ export default function EditPersonScreen() {
         <View style={{ height: 24 }} />
         {/* disabled during export: Save → router.back mid-export would pop
             the share sheet over the person screen with no visible cause. */}
-        <Button label={t("personEdit.save")} onPress={onSave} loading={busy} disabled={exporting} />
-
-        {/* Export statement — neutral utility, so it sits above the danger
-            Remove row. Opens a PDF/CSV chooser. `loading` reproduces the
-            hand-rolled spinner-instead-of-label swap exactly. */}
-        <View style={styles.exportRow}>
-          <Button
-            label={t("personEdit.export")}
-            onPress={() => setExportSheetVisible(true)}
-            variant="secondary"
-            loading={exporting}
-            disabled={busy}
-          />
-        </View>
-        {exportError ? (
-          <Text style={styles.exportError} accessibilityLiveRegion="polite">
-            {exportError}
-          </Text>
-        ) : null}
-        {exportResult ? (
-          <Text style={styles.exportDone} accessibilityLiveRegion="polite">
-            {exportResult}
-          </Text>
-        ) : null}
+        <Button label={t("personEdit.save")} onPress={onSave} loading={busy} />
 
         {/* Remove person — the ONE place removal works for every contact.
             The home list's long-press remove only exists for people WITH
@@ -392,9 +332,7 @@ export default function EditPersonScreen() {
             history), phone number freed for re-use. */}
         <Pressable
           onPress={() => setConfirmRemove(true)}
-          // also disabled during export: archiving mid-export makes getPerson
-          // return null and the export dies after the person is gone.
-          disabled={busy || exporting}
+          disabled={busy}
           accessibilityRole="button"
           style={({ pressed }) => [styles.removeRow, pressed && { opacity: 0.7 }]}
         >
@@ -421,36 +359,6 @@ export default function EditPersonScreen() {
         selectedCode={countryCode}
         onSelect={(c) => setCountryCode(c)}
         onDismiss={() => setPickerVisible(false)}
-      />
-
-      {/* Export chooser. BottomSheet's 220ms action defer doubles as
-          clearance for the OS share sheet that follows generation. */}
-      <BottomSheet
-        visible={exportSheetVisible}
-        title={t("personEdit.export")}
-        onDismiss={() => setExportSheetVisible(false)}
-        actions={[
-          {
-            label: t("export.action.sharePdf"),
-            icon: "share-outline",
-            onPress: () => void onExport("pdf", "share"),
-          },
-          {
-            label: t("export.action.shareCsv"),
-            icon: "share-outline",
-            onPress: () => void onExport("csv", "share"),
-          },
-          {
-            label: t("export.action.savePdf"),
-            icon: "download-outline",
-            onPress: () => void onExport("pdf", "save"),
-          },
-          {
-            label: t("export.action.saveCsv"),
-            icon: "download-outline",
-            onPress: () => void onExport("csv", "save"),
-          },
-        ]}
       />
     </SafeAreaView>
   );
@@ -532,22 +440,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansMedium,
     color: colors.danger,
     marginTop: 6,
-  },
-  // Spacing only — the button's own geometry comes from Button `secondary`.
-  exportRow: { marginTop: 16 },
-  exportError: {
-    fontSize: 12,
-    fontFamily: fonts.sansMedium,
-    color: colors.danger,
-    marginTop: 8,
-    textAlign: "center",
-  },
-  exportDone: {
-    fontSize: 12,
-    fontFamily: fonts.sansMedium,
-    color: colors.textSubtle,
-    marginTop: 8,
-    textAlign: "center",
   },
   removeRow: {
     minHeight: TOUCH_MIN,
