@@ -80,6 +80,24 @@ Related, same file: every table seeded by `restoreFromSnapshot` must get a `floo
 
 Known and currently unreachable: `vault_settings` rows carry HLCs locally but are not in the snapshot wire, so a restored device has no floor for them. Server pull cannot deliver a pre-snapshot rename (cursor), but a mesh peer could, and it would be applied unconditionally and regress the name. Harmless while `MESH_PARKED` is true; fix before un-parking by putting `vault_settings` plus their HLCs into `SnapshotResponse`.
 
+### PDF exports (`lib/export/pdf.ts`)
+
+Rebuilt 2026-09 after a shopkeeper called the old statement ugly and unreadable, sending a competitor's document he preferred. The shape now is masthead → party card → summary cards → titled section → one table with a dark header band, row numbers and zebra striping. Rules worth keeping:
+
+- **`print-color-adjust: exact` is load-bearing.** WebView print drops background colors by default, which renders the masthead and the table header band white-on-white. `thead { display: table-header-group }` likewise — these statements routinely run several pages and the column band must repeat.
+- **The running-balance column is gone on purpose.** Three numeric columns competing for one glance was the clutter; the summary cards answer the balance question above the table. The CSV still carries it — that is a machine contract and was deliberately left alone.
+- **Amounts are coloured by direction and never signed in rows.** "I gave" is garnet, "I received" is emerald, per `lib/colors.ts`. A sign there would encode the opposite axis, since a gave row increases what the customer owes. Signs appear only on balances, where they mean one thing.
+- **`.num` (`direction:ltr; unicode-bidi:isolate`) is for numbers only.** Wrapping a localized DATE in it reorders the Dari date. Dates are prose; give them `dir="auto"`.
+- **Isolate every item in a dot-separated meta line.** Without `unicode-bidi:isolate` per item, the bidi algorithm runs a date and the count after it together, so `۱۴۰۵ · ۴۸` renders as one nonsense number. The dot alone is not a boundary.
+- **Never reuse a UI chip string carrying `·` in a document.** In Dari that middle dot lands against the date's leading digit and reads as a Persian zero: `۱۳ سنبله` became `۱۳۰ سنبله`. `export.doc.settledOn` spells the word out instead.
+- Counts inside prose take the locale's digits (`countIn`); money and row indices stay Latin, matching the app and the reference document.
+
+`npm run preview:pdf -- <outDir>` writes the exact HTML both builders hand to expo-print, using a Dari fixture with Afghan month names. Open it in a browser, or screenshot it with headless Chrome, and look — none of the failure modes above are catchable by assertion. `selftest:money` group 6 pins the decimal cents through the new amount cells and summary cards.
+
+**Where each export lives, and who it is for.** The customer downloads their OWN ledger from the bill link (`internal/shared/templates.go`, "Save as PDF"), which is the right channel — they already have it, and it needs no app. The in-app statement export is the SHOPKEEPER's copy, and it sits on the person screen, not the edit screen: exporting is a READ, and the edit pencil only renders when `canAmend`, so parking it there silently denied it to clerks and viewers who may read the ledger perfectly well.
+
+**The bill page's Save-as-PDF uses the browser's own print pipeline** — no server-side PDF engine. Three things hold it up, all of which fail silently if removed: `print-color-adjust: exact` (browsers drop backgrounds, so the tinted direction chips and the balance print grey); a print rule that unwraps `.rnote` (notes are clipped to one line on screen with a "more" cue that print hides, so a clipped note loses what the entry was for); and the button forcing settled history OPEN before printing, because that history is a re-render rather than a CSS toggle — print CSS alone cannot reveal it, and a collapsed bill would print as a partial account, which the paper rule forbids. Preview it with `go test ./internal/shared/ -run TestWriteBillPreview -v -preview-out <dir>`; that test uses `html/template`, the same package the handler uses, because `text/template` emits `{{.Token}}` unquoted inside the script and previews a page that never ships.
+
 ### Update / announcement delivery without push
 
 **Retired for releases (2026-08, store-only distribution):** store installs update through Play / the App Store, and no `app_releases` row is inserted any more when a version ships — see "Release / deploy flow". The mechanism below still exists in code (the `apk` channel, announcements) and is described for completeness.

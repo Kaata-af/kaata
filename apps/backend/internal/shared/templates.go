@@ -170,6 +170,32 @@ a{color:inherit;text-decoration:none;}
 .chrule{flex:1;height:1px;background:var(--mut);opacity:.4;}
 .chtext{font-size:11px;font-weight:500;color:var(--sub);}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+/* Save-as-PDF. Hidden until the rows have actually loaded — offering it over a
+   skeleton would print three grey bars. The browser's own print dialog is the
+   download: no server-side PDF engine, and on both Android Chrome and iOS
+   Safari "Save as PDF" is the default destination. */
+.dl{display:none;width:100%;margin-top:14px;border:1px solid var(--line);background:var(--card);border-radius:12px;padding:13px 16px;font-family:inherit;font-size:13px;font-weight:600;color:var(--sub);cursor:pointer;align-items:center;justify-content:center;gap:8px;}
+.dl.on{display:flex;}
+.dl:active{background:var(--hair);}
+@media print{
+  /* WITHOUT this the tinted arrow chips and the balance colour print as grey:
+     browsers drop backgrounds and force black text unless told otherwise. */
+  html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact;background:#fff;}
+  @page{margin:14mm 12mm;}
+  .wrap{max-width:none;padding:0;}
+  .card,.rows{border-radius:0;border-color:var(--hair);}
+  /* Controls are not part of the document. */
+  .dl,.histbtn,.rmore{display:none !important;}
+  /* Notes are clipped to one line on screen and the "more" cue is gone above,
+     so a printed note must wrap or the reader loses what the entry was FOR. */
+  .rnoterow{display:block;}
+  .rnote{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:break-word;}
+  /* A row split across a page break is unreadable; a bill that starts on the
+     previous page's last line is worse. */
+  .row,.chline{break-inside:avoid;page-break-inside:avoid;}
+  .card{break-inside:avoid;page-break-inside:avoid;}
+  .foot{margin-top:18px;}
+}
 </style>
 </head>
 <body>
@@ -201,6 +227,10 @@ a{color:inherit;text-decoration:none;}
     <div class="row"><div class="ic"></div><div class="rmid"><div class="rtop"><div class="sk" style="width:68px;height:14px"></div><div class="sk" style="width:120px;height:11px"></div></div></div></div>
     <div class="row"><div class="ic"></div><div class="rmid"><div class="rtop"><div class="sk" style="width:54px;height:14px"></div><div class="sk" style="width:132px;height:11px"></div></div></div></div>
   </div>
+  <button type="button" class="dl" id="dlbtn">
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    <span id="dllabel"></span>
+  </button>
   <div class="foot">
     <!-- dir="ltr": the brand line is all-English in both locales; inside the
          RTL page the trailing "." of "kaata." would snap to the left edge. -->
@@ -223,13 +253,13 @@ a{color:inherit;text-decoration:none;}
     tx:"معاملات", empty:"معامله‌ای نیست", err:"بارگذاری ناموفق بود",
     debt:"دادم", payment:"گرفتم", tag:"Powered by", more:"بیشتر", less:"کمتر",
     hshow:"دیدن سابقهٔ تصفیه‌شده ({n})", hhide:"پنهان کردن سابقهٔ تصفیه‌شده",
-    seton:"تصفیه شد · {d}", bill:"بل مورخ {d}"
+    seton:"تصفیه شد · {d}", bill:"بل مورخ {d}", dl:"ذخیرهٔ PDF"
   } : {
     owe:"owes", credit:"is owed", settled:"is settled",
     tx:"Transactions", empty:"No transactions yet.", err:"Couldn't load this ledger.",
     debt:"I gave", payment:"I received", tag:"Powered by", more:"more", less:"less",
     hshow:"View settled history ({n})", hhide:"Hide settled history",
-    seton:"Settled · {d}", bill:"Bill dated {d}"
+    seton:"Settled · {d}", bill:"Bill dated {d}", dl:"Save as PDF"
   };
   var UP='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="7"/><polyline points="6 13 12 7 18 13"/></svg>';
   var DOWN='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="17"/><polyline points="18 11 12 17 6 11"/></svg>';
@@ -369,6 +399,26 @@ a{color:inherit;text-decoration:none;}
         if(hb){ hb.addEventListener('click', function(){ open = !open; render(); }); }
       }
       render();
+      // Save as PDF. Revealed only now, because until render() has run the
+      // page is three skeleton bars and printing them would be worse than
+      // offering nothing.
+      //
+      // Settled history is a RE-RENDER, not a CSS toggle, so print CSS alone
+      // cannot reveal it — a collapsed bill would print as a partial account,
+      // which under the paper rule is the one thing this document must never
+      // be. So force it open, re-render, and print on the next frame once the
+      // browser has laid the new rows out.
+      var db = document.getElementById('dlbtn');
+      if(db){
+        document.getElementById('dllabel').textContent = L.dl;
+        db.classList.add('on');
+        db.addEventListener('click', function(){
+          if(!open){ open = true; render(); }
+          requestAnimationFrame(function(){
+            requestAnimationFrame(function(){ window.print(); });
+          });
+        });
+      }
       el.addEventListener('click', function(ev){
         var r = ev.target.closest('.row[role="button"]'); if(!r) return;
         var o = r.classList.toggle('open');
