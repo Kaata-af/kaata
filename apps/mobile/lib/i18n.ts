@@ -1213,6 +1213,20 @@ const en = {
   "export.doc.net": "Net",
   "export.doc.balance": "Balance",
   "export.doc.empty": "No entries yet.",
+  // PDF document furniture. Section titles read as headings, not labels, so
+  // they carry no colon.
+  "export.doc.customer": "Customer",
+  "export.doc.preparedBy": "Prepared by",
+  "export.doc.summarySection": "Account summary",
+  "export.doc.transactionsSection": "Transactions",
+  "export.doc.peopleSection": "People",
+  "export.doc.totalGave": "Total gave",
+  "export.doc.totalReceived": "Total received",
+  // The full-width rule-off row in a PDF. Deliberately NOT the UI chip
+  // (person.history.settledOn, "Settled · {date}"): in Dari that middle dot
+  // lands against the leading digit of the date and reads as a Persian zero,
+  // turning "۱۳ سنبله" into "۱۳۰ سنبله". A document spells the word out.
+  "export.doc.settledOn": "Settled on {date}",
   "export.col.date": "Date",
   "export.col.dateShamsi": "Date (Shamsi)",
   "export.col.person": "Name",
@@ -1222,6 +1236,11 @@ const en = {
   "export.col.received": "Received",
   "export.col.balance": "Balance",
   "export.col.entries": "Entries",
+  "export.col.num": "#",
+  "export.col.amount": "Amount",
+  "export.col.type": "Type",
+  "export.col.status": "Status",
+  "export.col.lastActivity": "Last activity",
   "export.col.id": "Entry ID",
 
   // Removed people — the surface that makes the remove dialog's "entries
@@ -2282,6 +2301,14 @@ const fa: Partial<Record<Key, string>> = {
   "export.doc.net": "خالص",
   "export.doc.balance": "باقی‌مانده",
   "export.doc.empty": "هنوز ثبتی نیست.",
+  "export.doc.customer": "نام مشتری",
+  "export.doc.preparedBy": "تهیه‌کننده",
+  "export.doc.summarySection": "خلاصهٔ حساب",
+  "export.doc.transactionsSection": "لیست ثبت‌ها",
+  "export.doc.peopleSection": "لیست اشخاص",
+  "export.doc.totalGave": "مجموع دادم",
+  "export.doc.totalReceived": "مجموع گرفتم",
+  "export.doc.settledOn": "تصفیه شد در {date}",
   "export.col.date": "تاریخ",
   "export.col.dateShamsi": "تاریخ شمسی",
   "export.col.person": "نام",
@@ -2291,6 +2318,11 @@ const fa: Partial<Record<Key, string>> = {
   "export.col.received": "گرفتم",
   "export.col.balance": "باقی‌مانده",
   "export.col.entries": "ثبت‌ها",
+  "export.col.num": "شماره",
+  "export.col.amount": "مبلغ",
+  "export.col.type": "نوع",
+  "export.col.status": "وضعیت",
+  "export.col.lastActivity": "آخرین ثبت",
   // نمبر not شناسه — the table's Afghan-vernacular rule (شناسه is Iranian register).
   "export.col.id": "نمبر ثبت",
 

@@ -518,9 +518,14 @@ async function main(): Promise<void> {
       "fixture-vault.pdf",
     );
     assert.equal(html.length, 2);
-    assert.ok(html[0].includes('class="num">0.10</span>'));
-    assert.ok(html[0].includes('class="num">0.20</span>'));
-    assert.ok(html[0].includes('class="num">0.30</span>'));
+    // The statement's running-balance COLUMN is gone (2026-09 redesign), so
+    // the cents are pinned where they now live: each row's amount cell, which
+    // carries the currency symbol, and the summary cards above the table.
+    assert.ok(html[0].includes('class="num">0.10 $</span>'), "row amount keeps ten cents");
+    assert.ok(html[0].includes('class="num">0.20 $</span>'), "row amount keeps twenty cents");
+    // 0.1 + 0.2 summed through sumAmounts (integer cents) for the summary
+    // cards. This is the assertion that would catch a naive float add.
+    assert.ok(html[0].includes("0.30 $</div>"), "summary card totals exactly thirty cents");
     assert.ok(html[1].includes("0.30"));
     assert.ok(html.every((page) => !page.includes("0.30000000000000004")));
   });
