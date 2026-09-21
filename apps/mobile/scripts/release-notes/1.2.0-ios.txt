@@ -1,0 +1,9 @@
+See who wrote what, and send a statement people can actually read.
+
+• In a shared kaata, every tally now shows who added or changed it, at a glance.
+• Statements and kaata reports have been rebuilt: totals at the top, a running balance you can check line by line, and a much clearer layout.
+• Save a statement straight from a person's screen instead of hunting for it.
+• Your customers can now save their own ledger as a PDF from the bill link you send them.
+• Transfer ownership of a kaata is available again in kaata settings.
+• Fixed a crash when saving an export to the phone.
+• Renaming a kaata now updates everywhere, on every phone.

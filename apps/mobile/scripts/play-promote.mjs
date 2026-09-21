@@ -23,9 +23,18 @@
 //   --to <track>       target track (default: production)
 //   --rollout <0-1>    staged rollout fraction; omit for 100% (status completed)
 //   --key <path>       service-account JSON (default: credentials/google-service-account.json)
+//   --notes-file <p>   "What's new" text to attach (see below)
+//   --notes-lang <l>   locale for --notes-file, repeatable (default: en-US)
 //   --dry-run          open the edit, show what would move, then discard it
 //
-// Release notes attached to the source release travel with it.
+// RELEASE NOTES. Notes on the source release travel with it — but EAS Submit
+// does not set any when it uploads, so a straight promote ships production
+// with an EMPTY "What's new", and Play gives no way to fix that afterwards:
+// notes belong to a release, and a live release cannot be edited. Hence
+// --notes-file, which attaches them at promote time. Play caps each locale at
+// 500 characters and rejects a locale the listing does not have, so this
+// validates the length here and lets Play reject an unknown locale before the
+// commit (a failed edit is discarded whole — nothing half-promotes).
 
 import { createSign } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -45,6 +54,8 @@ function parseArgs(argv) {
     to: "production",
     rollout: null,
     key: path.join(MOBILE_DIR, "credentials", "google-service-account.json"),
+    notesFile: null,
+    notesLangs: [],
     dryRun: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -53,6 +64,8 @@ function parseArgs(argv) {
     else if (a === "--to") opts.to = argv[++i];
     else if (a === "--rollout") opts.rollout = Number(argv[++i]);
     else if (a === "--key") opts.key = path.resolve(argv[++i]);
+    else if (a === "--notes-file") opts.notesFile = path.resolve(argv[++i]);
+    else if (a === "--notes-lang") opts.notesLangs.push(argv[++i]);
     else if (a === "--dry-run") opts.dryRun = true;
     else if (a === "--help" || a === "-h") {
       console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n\n")[0]);
@@ -183,17 +196,33 @@ try {
     process.exit(0);
   }
 
+  // --notes-file wins over whatever the source release carries: the flag is an
+  // explicit instruction for THIS promotion, the source notes are a leftover.
+  let releaseNotes = sourceRelease.releaseNotes ?? null;
+  if (opts.notesFile) {
+    const text = readFileSync(opts.notesFile, "utf8").trim();
+    if (!text) fail(`--notes-file is empty: ${opts.notesFile}`);
+    if (text.length > 500) {
+      fail(
+        `release notes are ${text.length} characters; Play's limit is 500 per locale.\n` +
+          `  Shorten ${opts.notesFile} — Play rejects the whole edit otherwise.`,
+      );
+    }
+    const langs = opts.notesLangs.length ? opts.notesLangs : ["en-US"];
+    releaseNotes = langs.map((language) => ({ language, text }));
+  }
+
   const release = {
     name: sourceRelease.name ?? app.version,
     versionCodes: [versionCode],
-    ...(sourceRelease.releaseNotes ? { releaseNotes: sourceRelease.releaseNotes } : {}),
+    ...(releaseNotes ? { releaseNotes } : {}),
     ...(opts.rollout === null
       ? { status: "completed" }
       : { status: "inProgress", userFraction: opts.rollout }),
   };
   console.log(
     `  promote      ${release.name}: ${release.status}${opts.rollout === null ? " (100%)" : ` (${Math.round(opts.rollout * 100)}%)`}` +
-      `${release.releaseNotes ? `, ${release.releaseNotes.length} release-note locale(s)` : ""}`,
+      `${release.releaseNotes ? `, notes: ${release.releaseNotes.map((n) => n.language).join(", ")}` : ", NO release notes"}`,
   );
 
   if (opts.dryRun) {
