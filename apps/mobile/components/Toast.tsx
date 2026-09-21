@@ -299,16 +299,28 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
   // call to remove(id) is a no-op if we beat it to it.
   const pan = Gesture.Pan()
     .activeOffsetX([-8, 8])
+    // Same flag the home rail's pan carries (app/index.tsx), which has never
+    // crashed: it routes the callbacks through the JS event queue instead of
+    // the synchronous native→JS dispatch, so a throw inside them is a normal
+    // uncaught error rather than an abort of the process.
+    .runOnJS(true)
+    // These callbacks run on the JS thread with NO Reanimated installed, and
+    // on the new architecture gesture-handler delivers them synchronously from
+    // the native gesture — so anything thrown here is not a red box, it is a
+    // SIGABRT (Hermes throwPendingError → __cxa_throw → abort), which is the
+    // exact stack from the 2026-09-20 iPhone crash log. AnimatedValue.setValue
+    // throws on undefined, so the event fields are coalesced rather than
+    // trusted; a defensive floor, not a diagnosis.
     .onUpdate((e) => {
-      translateX.setValue(e.translationX);
+      translateX.setValue(e.translationX ?? 0);
     })
     .onEnd((e) => {
+      const tx = e.translationX ?? 0;
+      const vx = e.velocityX ?? 0;
       const shouldDismiss =
-        Math.abs(e.translationX) > SWIPE_DISMISS_DISTANCE ||
-        Math.abs(e.velocityX) > SWIPE_DISMISS_VELOCITY;
+        Math.abs(tx) > SWIPE_DISMISS_DISTANCE || Math.abs(vx) > SWIPE_DISMISS_VELOCITY;
       if (shouldDismiss) {
-        const direction =
-          e.translationX === 0 ? Math.sign(e.velocityX) || 1 : Math.sign(e.translationX);
+        const direction = tx === 0 ? Math.sign(vx) || 1 : Math.sign(tx);
         Animated.parallel([
           Animated.timing(translateX, {
             toValue: direction * SWIPE_DISMISS_TRAVEL,

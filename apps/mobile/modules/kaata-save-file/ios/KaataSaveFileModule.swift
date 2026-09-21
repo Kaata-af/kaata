@@ -62,6 +62,12 @@ public class KaataSaveFileModule: Module {
       picker.delegate = coordinator
       vc.present(picker, animated: true)
     }
+    // MUST run on main. Expo executes async functions on its own serial queue,
+    // and Utilities.currentViewController() is MainActor-isolated: called from
+    // that queue it hits dispatch_assert_queue and traps (SIGTRAP on
+    // expo.modules.AsyncFunctionQueue — four crash logs from build 19, every
+    // single export). Presenting the picker needs main anyway.
+    .runOnQueue(.main)
   }
 
   final class Coordinator: NSObject, UIDocumentPickerDelegate {

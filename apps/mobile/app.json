@@ -14,7 +14,7 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "19"
+      "buildNumber": "20"
     },
     "android": {
       "package": "af.kaata.app",
@@ -37,7 +37,7 @@
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.RECORD_AUDIO"
       ],
-      "versionCode": 39
+      "versionCode": 40
     },
     "web": {
       "favicon": "./assets/favicon.png"
