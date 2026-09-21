@@ -1203,6 +1203,9 @@ const en = {
   "export.action.savePdf": "Save PDF to phone",
   "export.action.saveCsv": "Save CSV to phone",
   "export.saved": "Saved {name}",
+  // Android lands the file in the public Downloads folder without asking, so
+  // the confirmation has to say WHERE; on iOS the user just chose the place.
+  "export.savedDownloads": "Saved to Downloads as {name}",
   "export.doc.statementTitle": "Statement",
   "export.doc.summaryTitle": "Kaata report",
   "export.doc.generated": "Generated {date}",
@@ -2291,6 +2294,7 @@ const fa: Partial<Record<Key, string>> = {
   "export.action.savePdf": "ذخیرهٔ PDF در تلفون",
   "export.action.saveCsv": "ذخیرهٔ CSV در تلفون",
   "export.saved": "{name} ذخیره شد",
+  "export.savedDownloads": "در پوشهٔ Downloads ذخیره شد: {name}",
   "export.doc.statementTitle": "صورت حساب",
   "export.doc.summaryTitle": "گزارش کاتا",
   "export.doc.generated": "تهیه شده در {date}",

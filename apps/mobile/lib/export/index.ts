@@ -15,7 +15,27 @@ import {
   saveExportFile,
   shareExportFile,
   writeExportFile,
+  type SaveOutcome,
 } from "./data";
+
+export type { SaveOutcome } from "./data";
+
+/**
+ * The confirmation for a completed save, or null when there is nothing to
+ * confirm. Shared by every export call site so the two screens can never
+ * word the same outcome differently.
+ */
+export function savedMessage(
+  t: (key: "export.saved" | "export.savedDownloads", vars: { name: string }) => string,
+  isolate: (s: string) => string,
+  outcome: ExportResult,
+): string | null {
+  if (!outcome || outcome.via === "share") return null;
+  const name = isolate(outcome.name);
+  return outcome.via === "downloads"
+    ? t("export.savedDownloads", { name })
+    : t("export.saved", { name });
+}
 import { buildPersonCsv, buildVaultCsv } from "./csv";
 import { renderPersonStatementPdf, renderVaultReportPdf } from "./pdf";
 
@@ -24,12 +44,11 @@ export type ExportFormat = "csv" | "pdf";
 export type ExportDestination = "share" | "save";
 
 /**
- * Resolves to the file name the OS actually created when saving to the phone
- * (providers dedupe, so it may differ from the requested one) — and to null
- * when sharing, or when the user backed out of the folder picker. Callers use
- * a non-null result as "confirm the save to the user".
+ * How a save was fulfilled — where the file went and under what name, so the
+ * caller can word its confirmation — or null when sharing (the OS sheet is its
+ * own feedback) and when the user backed out of the iOS destination picker.
  */
-export type ExportResult = string | null;
+export type ExportResult = SaveOutcome | null;
 
 /** Person statements always run on the active vault (person screens only
  *  exist there), so the active currency getters are correct here. */

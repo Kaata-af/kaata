@@ -13,6 +13,8 @@
 //     currency/name for this one.
 import { Directory, File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
+import { Platform } from "react-native";
+import { SAVE_FILE_ERR, saveFileToPhone } from "kaata-save-file";
 import { getEffectiveCalendar, type Calendar } from "../calendar";
 import { getCurrencySymbol } from "../currency";
 import {
@@ -291,49 +293,36 @@ function errorCode(err: unknown): string | null {
   return typeof code === "string" ? code : null;
 }
 
-// The picker rejects on cancel rather than resolving empty, with a different
-// code per platform (verified against the installed native source):
-// Android PickerCancelledException → ERR_PICKER_CANCELLED; iOS
-// FilePickingCancelledException → ERR_FILE_PICKING_CANCELLED. iOS also routes
-// a failed security-scope acquisition through the SAME cancel path, so a
-// genuine permission failure is indistinguishable from a user cancel there —
-// we treat both as "user backed out" and stay silent. Match on `code`, never
-// the message (the bridge decorates it).
-//
-// ERR_PICKING_IN_PROGRESS is deliberately NOT here: both call sites already
-// hold a re-entry ref for the whole picker round-trip, so a second pick can
-// only mean a stuck native picker — silence would look like a dead button.
-const PICKER_QUIET_CODES = new Set(["ERR_PICKER_CANCELLED", "ERR_FILE_PICKING_CANCELLED"]);
-
-export function isPickerDismissal(err: unknown): boolean {
-  const code = errorCode(err);
-  return code != null && PICKER_QUIET_CODES.has(code);
-}
-
-/** " (2)" before the extension: "kaata-Ahmad-2026-08-07.pdf" → "…-07 (2).pdf". */
-function nameWithSuffix(fileName: string, n: number): string {
-  const dot = fileName.lastIndexOf(".");
-  if (dot <= 0) return `${fileName} (${n})`;
-  return `${fileName.slice(0, dot)} (${n})${fileName.slice(dot)}`;
-}
+/** How a save was fulfilled — the caller words its confirmation from this. */
+export type SaveOutcome =
+  /** Android: it is in the public Downloads folder under `name`. */
+  | { via: "downloads"; name: string }
+  /** iOS: the user chose the destination themselves; `name` is what they saved. */
+  | { via: "files"; name: string }
+  /** Old Android (< 10) where Downloads is unreachable without a permission
+   *  prompt: the share sheet was opened instead. Nothing to confirm. */
+  | { via: "share" };
 
 /**
- * Write an export into a folder the user picks (Android: SAF / real Downloads;
- * iOS: Files). Returns the file name the OS actually created, or null if the
- * user backed out of the picker.
+ * Put an export where the user will find it. Returns null when the user
+ * backed out.
  *
- * Platform notes, both verified against the installed native source:
- *  - ANDROID (content:// tree): only `Directory.createFile(name, mime)` can
- *    create — `new File(dir, name)`, `File.create()`, `File.copy()` all fail
- *    there — and the mime MUST be right, or the provider appends its own
- *    extension ("report.pdf.txt"). The provider also dedupes collisions
- *    itself ("report (1).pdf"), so the created name is authoritative.
- *  - iOS: createFile ignores the mime argument entirely and defaults to
- *    overwrite:false, so a same-day re-save of the same statement (our file
- *    names are per-person-per-day) THROWS ERR_FILE_ALREADY_EXISTS with no
- *    dedupe. Hence the suffix loop below — never delete-and-replace, because
- *    the folder is the user's own and an older export may be something they
- *    deliberately kept.
+ * REWRITTEN 2026-09 around modules/kaata-save-file. The previous version used
+ * expo-file-system's directory picker on both platforms and was broken on
+ * both: Android 11+ forbids that picker from granting Downloads or the
+ * storage root, so users were bounced between folders they could not choose;
+ * and on iOS the round-trip crashed the app with an uncaught JS exception
+ * during the tap's re-render — reproduced on 1.1.1 from the store. Neither
+ * mechanism survives here.
+ *
+ *   Android  MediaStore.Downloads — public Downloads, no picker, no
+ *            permission on 10+. Below 10 the module reports E_UNSUPPORTED and
+ *            we open the share sheet instead of adding a permission prompt.
+ *   iOS      the system Save-to-Files exporter for ONE file. iOS does the
+ *            copy; we never touch the destination.
+ *
+ * The CSV path first writes the text into the exports cache so both kinds
+ * hand the native side a file uri, which is the only shape it takes.
  */
 export async function saveExportFile(args: {
   fileName: string;
@@ -342,57 +331,51 @@ export async function saveExportFile(args: {
   contents?: string;
   /** Source file (the printed PDF) to copy bytes from. */
   source?: File;
-}): Promise<string | null> {
+}): Promise<SaveOutcome | null> {
   if (args.contents == null && !args.source) {
     throw new Error("saveExportFile: neither contents nor source given");
   }
+  const source = args.source ?? writeExportFile(args.fileName, args.contents!);
 
   await afterSheetTeardown();
-  let picked: Directory;
   try {
-    // The static is declared on the native BASE class, so its .d.ts return
-    // type lacks createFile()/name — but the implementation really does
-    // `return new Directory(uri)` with this class (expo-file-system
-    // src/FileSystem.ts). Cast rather than reimplement the picker.
-    picked = (await Directory.pickDirectoryAsync()) as Directory;
+    const result = await saveFileToPhone(source.uri, args.fileName, MIME[args.kind]);
+    if (result == null) return null;
+    return Platform.OS === "android"
+      ? { via: "downloads", name: result.displayName }
+      : { via: "files", name: result.displayName };
   } catch (err) {
-    if (isPickerDismissal(err)) return null;
+    if (errorCode(err) === SAVE_FILE_ERR.UNSUPPORTED) {
+      await shareExportFile(source.uri, args.kind);
+      return { via: "share" };
+    }
+    // Recorded durably, with the step, before it surfaces as a toast: this
+    // is the path that used to crash on both platforms, and a failure we can
+    // read on the next launch is the difference between "it crashed once,
+    // idk why" and a fix.
+    void recordExportFailure("save", args.kind, err);
     throw err;
   }
+}
 
-  let target: File | null = null;
-  for (let attempt = 1; attempt <= 20 && target == null; attempt++) {
-    const name = attempt === 1 ? args.fileName : nameWithSuffix(args.fileName, attempt);
-    try {
-      target = picked.createFile(name, MIME[args.kind]);
-    } catch (err) {
-      // iOS-only path (Android dedupes before we ever see a collision).
-      if (errorCode(err) !== "ERR_FILE_ALREADY_EXISTS") throw err;
-    }
-  }
-  if (target == null) throw new Error("saveExportFile: no free file name in the chosen folder");
-
+/** Best-effort, never throws, never blocks the caller. */
+async function recordExportFailure(
+  stage: "save" | "share",
+  kind: string,
+  err: unknown,
+): Promise<void> {
   try {
-    if (args.contents != null) target.write(args.contents);
-    else if (args.source) target.write(await args.source.bytes());
-  } catch (err) {
-    // createFile already materialized the document, so a failed write would
-    // leave a 0-byte file sitting in the user's Downloads (and on iOS it
-    // would then block that name forever). Best-effort cleanup, then rethrow.
-    try {
-      target.delete();
-    } catch {
-      /* nothing better to do */
-    }
-    throw err;
+    const { queueCrashReport } = await import("../crash-report");
+    const e = err as { code?: unknown; message?: unknown; name?: unknown };
+    await queueCrashReport({
+      kind: "js",
+      stage: `export:${stage}:${kind}`,
+      name: typeof e?.code === "string" ? e.code : typeof e?.name === "string" ? e.name : "Error",
+      message: typeof e?.message === "string" ? e.message : String(err),
+    });
+  } catch {
+    /* the report must never become a second failure */
   }
-
-  // File.name is basename(uri), not the provider's display name — path-like
-  // SAF document ids resolve correctly, but an opaque id (Drive, Dropbox)
-  // would surface as a meaningless token. Only trust it when it still looks
-  // like the file we asked for.
-  const created = target.name;
-  return created.toLowerCase().endsWith(`.${args.kind}`) ? created : args.fileName;
 }
 
 // Callers reach the OS surface ~220ms after a BottomSheet action, but the

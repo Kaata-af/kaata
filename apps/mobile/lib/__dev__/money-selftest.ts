@@ -426,6 +426,14 @@ async function main(): Promise<void> {
       {
         "expo-file-system": {},
         "expo-sharing": {},
+        // data.ts now reaches react-native (Platform) and the kaata-save-file
+        // native facade for save-to-phone; neither loads under Node (Flow
+        // syntax / no native module). Nothing here exercises the save path.
+        "react-native": { Platform: { OS: "android" } },
+        "kaata-save-file": {
+          SAVE_FILE_ERR: { UNSUPPORTED: "E_UNSUPPORTED" },
+          saveFileToPhone: async () => null,
+        },
         "../calendar": { getEffectiveCalendar: () => "gregorian" },
         "../currency": { getCurrencySymbol: () => "$" },
         "../db": {

@@ -38,7 +38,12 @@ import {
   RoleGateRejectionError,
   SettleNotZeroError,
 } from "../../lib/event-log";
-import { exportPersonStatement, type ExportDestination, type ExportFormat } from "../../lib/export";
+import {
+  exportPersonStatement,
+  savedMessage,
+  type ExportDestination,
+  type ExportFormat,
+} from "../../lib/export";
 import { useLedgerRefresh } from "../../lib/ledger-events";
 import { bidiIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
@@ -113,10 +118,11 @@ export default function PersonDetailScreen() {
     exportingRef.current = true;
     setExporting(true);
     try {
-      const savedAs = await exportPersonStatement(id, format, destination);
+      const outcome = await exportPersonStatement(id, format, destination);
       // Non-null only on a completed save to the phone — a share needs no
-      // confirmation and a cancelled folder picker stays silent.
-      if (savedAs) toast.push(t("export.saved", { name: bidiIsolate(savedAs) }), "success");
+      // confirmation and a cancelled destination picker stays silent.
+      const msg = savedMessage(t, bidiIsolate, outcome);
+      if (msg) toast.push(msg, "success");
     } catch (err) {
       console.warn("[person] export failed", err);
       toast.push(t("personEdit.exportFailed"), "error");

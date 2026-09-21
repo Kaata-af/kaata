@@ -70,7 +70,12 @@ import {
   setAppMeta,
 } from "../../lib/db";
 import { resolveAccountIdCandidates } from "../../lib/effective-account";
-import { exportVaultReport, type ExportDestination, type ExportFormat } from "../../lib/export";
+import {
+  exportVaultReport,
+  savedMessage,
+  type ExportDestination,
+  type ExportFormat,
+} from "../../lib/export";
 import { bidiIsolate, rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
@@ -160,14 +165,15 @@ export default function VaultSettingsScreen() {
       // Normalized shape, not the raw row: a blank currency column is an
       // anticipated state (the load path does the same || "AFN") and would
       // render a financial document with unlabeled figures.
-      const savedAs = await exportVaultReport(
+      const outcome = await exportVaultReport(
         { id: vault.id, name: vault.name, currency: vault.currency || "AFN" },
         format,
         destination,
       );
       // Non-null only on a completed save — a share needs no confirmation
       // (the OS sheet is its own feedback) and a cancelled picker is silent.
-      if (savedAs) toast.push(t("export.saved", { name: bidiIsolate(savedAs) }), "success");
+      const msg = savedMessage(t, bidiIsolate, outcome);
+      if (msg) toast.push(msg, "success");
     } catch (e) {
       console.warn("[vault/settings] export failed", e);
       toast.push(t("vaultSettings.toast.exportFailed"), "error");

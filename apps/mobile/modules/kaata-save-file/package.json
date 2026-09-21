@@ -1,0 +1,8 @@
+{
+  "name": "kaata-save-file",
+  "version": "0.0.1",
+  "description": "Kaata local Expo module - save a generated file where the user expects it: Android public Downloads via MediaStore (no folder picker, no permission on 10+), iOS the system Save-to-Files exporter for one file.",
+  "main": "index.ts",
+  "types": "index.ts",
+  "private": true
+}
