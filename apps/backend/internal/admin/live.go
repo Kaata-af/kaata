@@ -238,9 +238,10 @@ func adminMutation(method, path string) bool {
 		return false
 	}
 	switch path {
-	case "/v1/check-in", "/v1/visit", "/v1/shared", "/v1/sync/push", "/v1/account", "/v1/vaults":
+	case "/v1/check-in", "/v1/visit", "/v1/shared", "/v1/sync/push", "/v1/account", "/v1/vaults", "/v1/tabs":
 		return true
 	}
 	return strings.HasPrefix(path, "/v1/auth/") ||
-		strings.HasPrefix(path, "/v1/account/") || strings.HasPrefix(path, "/v1/vaults/")
+		strings.HasPrefix(path, "/v1/account/") || strings.HasPrefix(path, "/v1/vaults/") ||
+		strings.HasPrefix(path, "/v1/tabs/")
 }

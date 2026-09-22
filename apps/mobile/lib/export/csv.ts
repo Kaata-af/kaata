@@ -5,6 +5,7 @@
 // once bulk import exists). Human-facing labels (headers, the settled ruled
 // line) render via tIn in the export's locale.
 import { tIn } from "../i18n";
+import { noteFor } from "./note";
 import { formatSettlementDate } from "../jalali";
 import { isoDate, shamsiDate, type PersonStatement, type VaultReport } from "./data";
 
@@ -74,7 +75,7 @@ export function buildPersonCsv(st: PersonStatement): string {
         e.type === "debt" ? e.amount_afn : "",
         e.type === "payment" ? e.amount_afn : "",
         row.balanceAfter,
-        guardText(e.note),
+        guardText(noteFor(e.note, e.tab?.kind, locale)),
         e.id,
       ]),
     );
@@ -107,7 +108,7 @@ export function buildVaultCsv(report: VaultReport): string {
         row.type === "debt" ? row.amount_afn : "",
         row.type === "payment" ? row.amount_afn : "",
         row.balanceAfter,
-        guardText(row.note),
+        guardText(noteFor(row.note, row.kind, locale)),
         row.id,
       ]),
     );

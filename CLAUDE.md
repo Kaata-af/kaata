@@ -22,7 +22,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Tests
 
 - **Backend (Go):** `cd apps/backend && go test ./...`. These run against a REAL Postgres — no mocks, because the schema, partial unique indexes and `ON CONFLICT` arbiters _are_ the behaviour under test. `internal/testutil.ConnectTestDB` resets `public` with `DROP SCHEMA` and replays the full migration chain, so it must NEVER be pointed at the dev database. It reads `POSTGRES_TEST_URL`, defaulting to `postgres://kaata:kaata@localhost:5432/kaata_test`; if that server is unreachable every DB-backed test SKIPS, so a green run means nothing until you check for `ok` vs `[no tests to run]`. The `kaata` role has no CREATEDB, so creating the database needs the superuser: `psql -h localhost -U postgres -c "CREATE DATABASE kaata_test OWNER kaata"`. Without the postgres password, the throwaway-cluster route works and touches nothing: `initdb -D <tmp> -U postgres --auth=trust`, `pg_ctl -D <tmp> -o "-p 55432" start`, create role + db there, then `POSTGRES_TEST_URL=postgres://kaata@localhost:55432/kaata_test go test ./...`, and `pg_ctl stop` after. Binaries live in `C:\Program Files\PostgreSQL\18\bin`.
-- **Mobile:** `cd apps/mobile && npm run selftest:<name>` — `hlc`, `jalali`, `ingest`, `migration-014`, `money`, `person-save`, `device-key`, `attribution`. Plain Node scripts against the real modules, no test runner. `jalali` shares its vectors with Go's `TestBillDateGoldenVectors` — add a case to one, add it to the other.
+- **Mobile:** `cd apps/mobile && npm run selftest:<name>` — `hlc`, `jalali`, `ingest`, `migration-014`, `money`, `person-save`, `device-key`, `attribution`, `tabs`. Plain Node scripts against the real modules, no test runner. `jalali` shares its vectors with Go's `TestBillDateGoldenVectors` — add a case to one, add it to the other.
 
 ## Architecture
 
@@ -69,6 +69,98 @@ arithmetic. The backend uses `json.Number` for passive projection/snapshot
 amounts. No migration or history rewrite is needed. All editing devices must
 update before a shared kaata uses cents; old app edit code can turn `12.34`
 into `1234`. See `docs/decimal-amounts.md` for rollout and regression checks.
+
+### Mutual tab (Kaata 2.0)
+
+A **tab** is one running account shared by two independent parties — a shopkeeper and
+a counterparty who may be another Kaata user or a person with only a browser. Both
+sides see the same figures; either can add a tally, the other can accept or dispute
+it, the author can void it. Nothing is ever edited or silently deleted. The normative
+contract is `docs/mutual-tab-design.md` — every wire shape, table and signature lives
+there, and the decision letters (D1…D17) cited below are its table. Change that
+document before changing the model.
+
+- **The server is the source of truth, and the tab is NEVER mirrored into the vault
+  event log (D2).** Mobile keeps a plain cache — `tab_links` / `tab_entries` /
+  `tab_outbox` (migration 028) — and `lib/db.ts`'s read sites JOIN it. A mirror was
+  tried on paper and fails four ways at once: the mirror event would be signed by
+  THIS device and attributed to THIS account, so the counterparty's tally would be
+  painted as yours; a viewer/clerk device could not mint it at all (role gate);
+  `entry_deleted` is a sticky hidden tombstone, so a VISIBLE void is impossible; and
+  mirrors enter the vault push outbox and replicate to members as shop-authored
+  events. Two parties plus a server need no CRDT — that is the whole point.
+- **The cursor rule: an op ack never advances `rev`.** `tab_links.rev` means "every
+  row with rev ≤ this is cached", and only a PULL can promise that. An append/accept/
+  dispute response carries ONE row plus the tab's current rev; the other party's rows
+  written in between are not in it. Advancing the cursor on an ack skipped them
+  permanently, because the pull that followed asked `after_rev=<ack rev>` and got
+  nothing. Acks apply with `advanceCursor:false` (`lib/tabs/db.ts upsertTabFromWire`)
+  and the pull after every flush starts from the untouched cursor; re-fetching the
+  acked row is an idempotent upsert.
+- **Closing a tab FREEZES it; it does not un-happen it (D8) — so no read site may
+  filter on `closed_at IS NULL`.** Once a contact has ever been linked, its account is
+  the tab's rows plus any local tallies written after the link, and the pre-link local
+  rows stay excluded FOREVER because the tab's opening entry already carries their sum.
+  Reverting a closed tab's contact to its bare local book does both halves of the
+  damage at once: every tally of the shared months disappears from the contact, and the
+  stale pre-link number reappears on the home screen as if it were today's. The read
+  sites therefore join the open tab **or the most recent closed one**
+  (`PERSON_BALANCE_SQL` / `TAB_LINK_JOIN` in `lib/db.ts`, `getLatestTabLinkForPerson`),
+  while the WRITE paths keep using `getTabLinkForPerson` (open only) so a closed tab
+  offers no verbs — a frozen row gets no long-press sheet rather than a menu of
+  no-ops. `signedEntryMinorSumSql(alias, onlyWhen)`'s second argument exists for the
+  `e.created_at > tl.linked_at` cut, so the sign-and-rounding rule is never re-derived.
+  `selftest:tabs` case 14 pins the whole sequence: link → close → the balance holds →
+  a new local tally adds on top of it.
+- **Currency is fixed at creation and locks the kaata (D9).** A tab takes the
+  creator's vault currency and can only be joined into a kaata with the same one; the
+  app never computes a rate, so a mixed-currency balance would be a lie.
+  `changeVaultCurrency` refuses while `vaultHasOpenTab(vaultId)` (`VaultHasOpenTabError`
+  → `t('tab.currencyLocked')`), and the join screen offers to create a kaata in the
+  tab's currency rather than bending either side.
+- **The duplicate hint fires on the SAME absolute direction, not the opposite one
+  (D17).** Both parties recording one cash handover is the settlement double-log: B
+  pays A 500, A records "received" (`b_to_a`) and B records "gave" (`b_to_a`) — an
+  identical pair that doubles the balance. Opposite directions are the ordinary
+  goods-then-cash pair and net correctly. v1 is a warning toast within ±24 h, not a
+  handshake.
+- **Two auth paths, and signed-out must keep working (D10).** Access is either the
+  per-party capability token (stored SHA-256 at rest server-side, held in
+  `tab_links.party_token` on the phone and in the URL for the web party) or a session
+  JWT whose account is bound to the party / is a member of the party's kaata (role-
+  gated: append needs clerk+, accept/dispute/void/close/label/regenerate need
+  editor+). `app/t/[token].tsx` therefore does NOT gate on a JWT the way
+  `invite/[token].tsx` does — gating it would lock out exactly the counterparty the
+  feature exists for.
+- **What survives a reinstall:** a signed-in phone's tabs come back through
+  `GET /v1/tabs/mine` (`reconcileTabsFromServer`, called from recovery and post-sign-in
+  housekeeping) because join/link pass `vault_id` + `relationship_id` and follow with
+  `/bind`. A signed-out phone's token lives only in SQLite and is lost with it — known,
+  documented, and the reason the link stays in the WhatsApp thread (D11: the invite
+  link IS party B's link and is not spent on join; party a can regenerate it).
+- **The web page is Go-templated at `/t/{token}`, like the bill page (D12).** Per-tab
+  WhatsApp previews need SSR, so the React SPA gets no `/t/` route in v1. Caddy's
+  `@sharessr path /v/* /v1/shared/* /t/* /v1/tabs/*` proxies BOTH the page and the API
+  its inline script polls to `api.kaata.af` with the Host header rewritten (leaving it
+  as `kaata.af` loops back into the web service). The web party has no JWT, so its live
+  updates are a 10 s poll, not the WebSocket. `robots.txt` disallows `/t/` and
+  `safeVisitPath` redacts `/t/:token` — the raw path carries a token that can WRITE.
+- **Mobile realtime** is `{"t":"tab_poke","tab_id"}` on the existing `/v1/sync/live`
+  socket under an `acct:<id>` pseudo-key; pokes are lossy by design and the backstop is
+  `startTabSyncLoop` (`<TabSync/>` in `_layout.tsx`, unconditional — a tab party need
+  not have an account). `lib/tabs/notify.ts` renews per-party Expo push subscriptions;
+  `internal/tabs/push.go` delivers generic alerts from a transactional outbox and
+  checks receipts/revocations. Enable `TAB_PUSH_ENABLED` only after FCM/APNs native
+  credentials are configured. Expo Go skips notifications; see `docs/kaata-2-testing.md`.
+  Refused offline intent is retained in `tab_failed_ops` (migration 029), separately
+  from the shared balance, and shown under the contact's “Not sent” fold.
+- **Tests:** `cd apps/mobile && npm run selftest:tabs` (direction mapping, balances
+  against `apps/_shared/tab-vectors.json`, outbox ordering/backoff, the wire merge) and
+  `./node_modules/.bin/tsc --noEmit`; `cd apps/backend && go test ./internal/tabs/...`
+  (real Postgres — `POSTGRES_TEST_URL`, never the dev DB). The balance vectors are
+  shared between Go and mobile like the Jalali ones: add a case to one, add it to the
+  other. Preview the web page with
+  `go test ./internal/tabs/ -run TestWriteTabPreview -v -preview-out <dir>`.
 
 ### A kaata's name lives in TWO tables, and both projections must mirror it
 

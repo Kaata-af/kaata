@@ -29,8 +29,24 @@ import {
   transferOwnership as apiTransferOwnership,
 } from "./vault-api";
 import type { VaultRole } from "./events";
+import { vaultHasOpenTab } from "./tabs/db";
 
 export type VaultOpResult = { kind: "local"; eventId: string } | { kind: "server" };
+
+/**
+ * A currency change was refused because the kaata has an OPEN mutual tab.
+ * A tab's currency is fixed at creation and must equal its kaata's (D9,
+ * docs/mutual-tab-design.md): relabelling the book under it would make the
+ * two parties read the same integers in different currencies. Unlink (close)
+ * every tab first; vault/settings shows t('tab.currencyLocked').
+ */
+export class VaultHasOpenTabError extends Error {
+  readonly kind = "vault_has_open_tab" as const;
+  constructor(readonly vaultId: string) {
+    super(`vault_has_open_tab: ${vaultId}`);
+    this.name = "VaultHasOpenTabError";
+  }
+}
 
 // ---------- routing helper ----------
 
@@ -112,6 +128,9 @@ export async function changeVaultCurrency(
   vaultId: string,
   newCurrency: string,
 ): Promise<VaultOpResult> {
+  // Before either routing branch: the refusal must hold whether the vault is
+  // local-CA or server-anchored, and before any event is appended.
+  if (await vaultHasOpenTab(vaultId)) throw new VaultHasOpenTabError(vaultId);
   if (await isLocalCAVault(vaultId)) {
     const { event_id } = await appendVaultSettingSet({
       targetVaultId: vaultId,

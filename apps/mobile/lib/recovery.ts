@@ -41,6 +41,7 @@ import { parseVaultRole } from "./vault-roles";
 import { pullEvents } from "./sync/pull";
 import { ensureDeviceKey, registerDeviceKey } from "./mesh/device-key";
 import { scheduleSweep } from "./projection/sweep";
+import { reconcileTabsFromServer } from "./tabs/sync";
 import { emitWitnessedSelfAdmission, witnessEmitPendingKey } from "./trust/backfill";
 import { persistPinnedServerPubkeys } from "./trust/proof";
 import { listVaults, type VaultListing } from "./vault-api";
@@ -273,6 +274,17 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
   // landed mid-flight) re-evaluate against the now-pinned witness keys and
   // apply immediately, rather than waiting for an incidental later pull.
   for (const vaultId of recovered) scheduleSweep(vaultId);
+
+  // Mutual tabs (docs/mutual-tab-design.md D10/§4.6): tab_links is a
+  // device-only table the snapshot never carried, so a reinstalled phone
+  // has none. The server knows which tabs this account's parties are bound
+  // to; re-fetch them now that the relationships they hang off exist again.
+  // Best effort — the tab loop reconciles on every sweep as well.
+  try {
+    await reconcileTabsFromServer();
+  } catch (err) {
+    console.warn("[recovery] tab reconcile failed (tab loop retries)", err);
+  }
 
   emit("done", 1);
   return { recovered, failed, activeVaultId };

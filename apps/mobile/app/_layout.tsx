@@ -15,9 +15,10 @@ import "../lib/mesh/_ed25519-setup";
 // a Doze kill, before the React tree mounts).
 import "../lib/mesh/foreground-bootstrap";
 
+import { isRunningInExpoGo } from "expo";
 import * as Application from "expo-application";
 import * as Network from "expo-network";
-import { Stack } from "expo-router";
+import { router, Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { setStatusBarStyle, StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
@@ -33,6 +34,7 @@ import {
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { initialWindowMetrics, SafeAreaProvider } from "react-native-safe-area-context";
 import { AutoSync } from "../components/AutoSync";
+import { TabSync } from "../components/TabSync";
 import { MeshController } from "../components/MeshController";
 import { ProjectionConflictsListener } from "../components/ProjectionConflictsListener";
 import { ToastProvider } from "../components/Toast";
@@ -186,6 +188,47 @@ function pickInitialRoute(args: {
   if (args.onboardingStep === "language") return "onboarding/language";
   // Fresh install — skip language for Persian-locale devices.
   return args.deviceIsPersian ? "onboarding/auth" : "onboarding/language";
+}
+
+// Deep-link prefix carried by a mutual-tab notification (lib/tabs/notify.ts).
+const NOTIFICATION_PERSON_PREFIX = "kaata://person/";
+// getLastNotificationResponseAsync returns the launch tap forever; this latch
+// makes the app act on it exactly once per process.
+let launchResponseHandled = false;
+
+/**
+ * Open the contact a tapped notification points at. Notification payloads are
+ * untyped JSON, so everything is checked before it becomes a route.
+ *
+ * push, never replace: a replace from a root-layout effect re-instantiates the
+ * layout and loops (the documented expo-router anti-pattern). push also leaves
+ * the user a back button to whatever they were on.
+ */
+function routeFromNotificationData(data: unknown): void {
+  const tabId = (data as { tab_id?: unknown } | null)?.tab_id;
+  if (typeof tabId === "string" && /^[0-9a-f-]{36}$/i.test(tabId)) {
+    void (async () => {
+      const { getTabLink, getPersonIdForRelationship } = await import("../lib/tabs/db");
+      const { reconcileTabsFromServer, syncTab } = await import("../lib/tabs/sync");
+      if (!(await getTabLink(tabId))) await reconcileTabsFromServer();
+      const link = await getTabLink(tabId);
+      if (!link) return; // belongs to an earlier account / erased install
+      const personId = await getPersonIdForRelationship(link.relationship_id);
+      if (!personId) return;
+      const { setActiveVaultId } = await import("../lib/db-tx");
+      const { applyVaultCurrency } = await import("../lib/currency");
+      await setActiveVaultId(link.vault_id);
+      await applyVaultCurrency(link.vault_id);
+      void syncTab(tabId);
+      router.push({ pathname: "/person/[id]", params: { id: personId } });
+    })().catch(() => {});
+    return;
+  }
+  const url = (data as { url?: unknown } | null | undefined)?.url;
+  if (typeof url !== "string" || !url.startsWith(NOTIFICATION_PERSON_PREFIX)) return;
+  const id = url.slice(NOTIFICATION_PERSON_PREFIX.length).split(/[?#]/)[0];
+  if (!id) return;
+  router.push({ pathname: "/person/[id]", params: { id } });
 }
 
 export default function RootLayout() {
@@ -653,6 +696,56 @@ export default function RootLayout() {
   // handlers + the pendingSyncNav state they drove were removed. Restore from
   // git history when reviving Nearby sync.
 
+  // Mutual tab: notification-tap routing (docs/mutual-tab-design.md §4.5).
+  //
+  // lib/tabs/notify.ts posts a local notification carrying
+  // data.url = "kaata://person/<id>" when a pull lands the counterparty's
+  // tallies while the app is not active. Tapping it must open THAT contact —
+  // dumping the user on home after telling them Ahmad added a tally is the
+  // whole value of the notification thrown away.
+  //
+  // Two deliveries, both needed: the listener covers a tap while the process
+  // is alive (backgrounded), and getLastNotificationResponseAsync covers the
+  // tap that LAUNCHED the process, which happened before any listener existed.
+  // Gated on appReady so the Stack is mounted and there is a route to push
+  // onto; lazy import + the Expo Go skip for the reason in lib/tabs/notify.ts
+  // (a static expo-notifications import throws at module scope in Expo Go).
+  useEffect(() => {
+    if (!appReady) return;
+    let cancelled = false;
+    let sub: { remove: () => void } | null = null;
+    void (async () => {
+      if (isRunningInExpoGo()) return;
+      let notifications: typeof import("expo-notifications");
+      try {
+        notifications = await import("expo-notifications");
+      } catch (err) {
+        console.warn("[layout] expo-notifications unavailable for tap routing", err);
+        return;
+      }
+      if (cancelled) return;
+      sub = notifications.addNotificationResponseReceivedListener((response) => {
+        routeFromNotificationData(response.notification.request.content.data);
+      });
+      try {
+        const last = await notifications.getLastNotificationResponseAsync();
+        // Once per process: this call keeps returning the SAME launch response
+        // for the life of the app, so without the latch a remount (fast
+        // refresh, a retryBoot) would re-navigate to a stale tap.
+        if (!cancelled && last && !launchResponseHandled) {
+          launchResponseHandled = true;
+          routeFromNotificationData(last.notification.request.content.data);
+        }
+      } catch (err) {
+        if (__DEV__) console.warn("[layout] last notification response failed", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      sub?.remove();
+    };
+  }, [appReady]);
+
   // Hide the native splash once a REAL surface is about to render — the app, or
   // an error card. (The RTL restart prompt is an early return before this hook,
   // so MigrationPrompt hides the splash itself.) We hold the splash across the
@@ -735,6 +828,7 @@ export default function RootLayout() {
             <ForceDarkStatusBar />
             {installId ? <BackgroundCheckIn /> : null}
             <AutoSync />
+            <TabSync />
             {/* Phase 6: reactively starts mesh sync (BLE primary +
                 opportunistic wifi upgrade) when account_id and
                 shop_mode_enabled are both set. Also renders the BLE
@@ -797,6 +891,11 @@ export default function RootLayout() {
               <Stack.Screen name="person/new" options={{ presentation: "modal" }} />
               <Stack.Screen name="entry/new" options={{ presentation: "modal" }} />
               <Stack.Screen name="entry/[id]/edit" options={{ presentation: "modal" }} />
+              <Stack.Screen name="tab/dispute" options={{ presentation: "modal" }} />
+              {/* Mutual-tab join deep link, kaata://t/<token> (D15). Modal so
+                  it sits over whatever the user was doing and dismisses back
+                  to it; signed-out visitors are allowed (D10). */}
+              <Stack.Screen name="t/[token]" options={{ presentation: "modal" }} />
               {/* Phase 7 D-ACCOUNT-PAGE-ROLE: the /account screen was
                   killed. Sign-in / sign-out / switch-account all run
                   inline from ProfileSettingsSheet now — the screen had

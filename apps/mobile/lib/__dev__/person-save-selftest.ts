@@ -186,6 +186,13 @@ function openFixture(): void {
       ingested_at INTEGER NOT NULL, applied_at INTEGER, author_seq INTEGER,
       quarantine_reason TEXT, UNIQUE(vault_id, device_id, author_seq)
     );
+    -- createEntry asks whether the contact is linked to a mutual tab before it
+    -- appends (lib/db.ts → lib/tabs/db.ts getTabLinkForPerson); only the
+    -- columns that lookup reads. Nothing here ever inserts a link, so every
+    -- save below takes the local path exactly as before migration 028.
+    CREATE TABLE tab_links (
+      tab_id TEXT PRIMARY KEY, relationship_id TEXT NOT NULL, closed_at INTEGER
+    );
     INSERT INTO vaults VALUES ('fixture-vault');
     INSERT INTO users VALUES ('fixture-self', '+93700111222', 'Synthetic Owner', 1,
       NULL, NULL, 1, 1, NULL, NULL);

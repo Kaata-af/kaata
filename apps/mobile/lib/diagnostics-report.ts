@@ -287,6 +287,30 @@ export async function buildDiagnosticsReport(): Promise<string> {
     }
   }
 
+  section("Shared accounts");
+  try {
+    const db = await getDb();
+    const shared = await db.getFirstAsync<{
+      open: number;
+      cached: number;
+      queued: number;
+      refused: number;
+    }>(
+      `SELECT (SELECT COUNT(*) FROM tab_links WHERE closed_at IS NULL) AS open,
+       (SELECT COUNT(*) FROM tab_entries) AS cached,
+       (SELECT COUNT(*) FROM tab_outbox) AS queued,
+       (SELECT COUNT(*) FROM tab_failed_ops) AS refused`,
+    );
+    push(
+      `open=${shared?.open ?? 0} cached=${shared?.cached ?? 0} queued=${shared?.queued ?? 0} refused=${shared?.refused ?? 0}`,
+    );
+    push(
+      `Remote alerts: ${(await getAppMeta("tab_push_active")) === "1" ? "registered" : "not active"}`,
+    );
+  } catch {
+    push("Shared accounts: —");
+  }
+
   // --- Ledger size (counts only — never names / phones / amounts / notes) ---
   section("Ledger");
   const lastPersonSaveError = await getLastPersonSaveError();

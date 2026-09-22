@@ -7,6 +7,83 @@ once we've watched real shopkeepers use the v0 APK."
 
 ---
 
+## Mutual tab / shared account (Kaata 2.0)
+
+**Status:** SHIPPED-IN-PROGRESS. Contract: `docs/mutual-tab-design.md` (normative —
+every wire shape, table and signature). Backend `internal/tabs` + migration 037,
+mobile `lib/tabs/*` + migration 028, the person-screen UI, the join deep link
+(`kaata://t/<token>`) and the local notification are built. This entry is the
+follow-up list, from §6 of that document plus what the build itself surfaced.
+Remaining work is **ops and polish, not architecture** — do not redesign the model
+here, change the design doc first.
+
+**Must ship with the public feature:**
+
+1. ~~**Close → purge.**~~ **Resolved 2026-09-22, no work needed.** Closing was
+   reframed as a FREEZE, not a deletion (D8): a closed tab's rows stay, still count
+   toward the contact's balance, and simply stop accepting writes — because reverting
+   a contact to its pre-link local book would erase months of shared tallies AND put a
+   months-old number on the home screen. `Privacy.tsx` now says exactly that, so there
+   is no promise left to keep. A purge would need its own product decision (both
+   parties' copies die together) before any cron.
+2. **App Links / Universal Links** (§6.2). Today a tab link opens the web page and the
+   page offers "Open in Kaata" (`kaata://t/<token>`; Android via
+   `intent://…S.browser_fallback_url`). Verified https links need
+   `android.intentFilters` + `/.well-known/assetlinks.json` (Play App Signing SHA-256
+   from Play Console → App integrity), `ios.associatedDomains` + an AASA file (Team ID
+   `2JPK69B8Z2`, and Caddy must serve it as `application/json`). Native rebuild.
+
+**Next, in rough value order:**
+
+3. **Push notifications** (§6.1). v1 is local-only: a phone learns about the other
+   party's tallies when it pulls (foreground, poke, 60 s sweep), so a backgrounded
+   phone can be minutes late and a killed one hears nothing until launch. Real push
+   needs Matee to create the Firebase project on GCP `987359341353`, register
+   `af.kaata.app`, drop `google-services.json` into `apps/mobile/`, upload an FCM V1
+   service-account key and an APNs key via `eas credentials`. Then:
+   `installs.expo_push_token` + registration on check-in, an `internal/push` Expo
+   sender with a receipts sweep, `tab_parties.install_id` (already stored) as the
+   target.
+4. **Settlement handshake** (D17 v2). v1 only warns when both parties record the same
+   amount in the same direction within 24 h ("Ahmad already recorded this"). A real
+   two-tap settlement ritual — and a tab-level "we are square" marker, since a linked
+   contact deliberately cannot use the local settle-up chapter — is the next honest
+   step.
+5. **Admin dashboard: tab counts** (§6.4). How many tabs exist, how many have a joined
+   party b, how many tallies flow through them. Today the only way to know if anyone
+   uses the feature is a manual `psql` count.
+6. **Mesh gap.** A tab is server-only by design (D1) and transmits nothing over the
+   nearby-phone mesh. Harmless while `MESH_PARKED=true`; decide what a tab means for an
+   offline-first mesh before un-parking.
+
+**Known rough edges (product calls, not bugs):**
+
+- A signed-out phone keeps its party token in SQLite only, so a reinstall loses access
+  to its tabs (D10 — documented). Signing in fixes it permanently via `GET /v1/tabs/mine`.
+- The join screen's "New contact" form normalizes the phone against the install's
+  default country (an explicit `+`/`00` prefix still wins). person/new's country picker
+  is not reachable there; add it if a foreign counterparty ever shows up in feedback.
+- A contact linked before it was ever settled can still show the "NOT SETTLED" chip at
+  balance zero. Cosmetic, worth a look with real data.
+- **Settle-up is permanently unavailable on a contact that has ever been linked**, even
+  after the tab is closed. Chapters are a local-book ritual and a tab's rows are not
+  partitionable by a line drawn before the tab existed; offering it would also mean two
+  definitions of "the balance" (the header's, which is tab-aware, and
+  `appendEntrySettled`'s preflight, which can only see local rows). Revisit only with a
+  tab-aware preflight.
+- **Re-linking a contact hides the PREVIOUS tab's rows.** Each new tab's opening entry
+  carries the displayed balance forward, so the old tab's tallies are already inside it
+  and counting them again would double the account — the read sites therefore resolve
+  exactly one link. The arithmetic is right and pinned (`selftest:tabs` case 15), but
+  the earlier shared period then has no surface in the app; it still exists on the
+  server and at its `/t/` link. If re-linking turns out to be common, give it a second
+  fold beside "Before linking" rather than changing the balance rule.
+- **Party b cannot join onto a contact that already holds a tab, open or frozen**
+  (`TabAlreadyLinkedError`). Party b mints no opening entry, so a second tab there would
+  silently zero the frozen balance. Party a's re-link is fine and is the supported path.
+
+---
+
 ## Manual export / restore (defense-in-depth for local data)
 
 **Status:** deferred. Build after 3-5 real shopkeepers have used the v0 APK
@@ -162,7 +239,9 @@ Full analysis: the schema-import-export-fitness workflow (2026-06).
 
 - Multi-shop / vaults → see `phase-2-roadmap.md` (different cadence, real
   architectural prep work).
-- Customer-side mutual ledger → see `phase-2-roadmap.md`, that's Phase 2.
+- Customer-side mutual ledger → BUILT, see "Mutual tab / shared account" above and
+  `docs/mutual-tab-design.md`. `phase-2-roadmap.md` described the ambition; the design
+  doc is what shipped.
 - `kaata.af/v/:token` customer-facing view → already stubbed at the route,
   to be built as part of Phase 1.5 (no backend dependency, can ship
   anytime).

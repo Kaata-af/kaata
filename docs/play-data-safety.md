@@ -1,11 +1,12 @@
 # Google Play — Data Safety answers (Kaata)
 
-Code-accurate as of app **0.8.6 / versionCode 19** (audited 9–10 July 2026 against
+Original audit: app **0.8.6 / versionCode 19**, with shared-account and notification
+implementation updates on **22 September 2026**. Original audit ran against
 `apps/mobile` + `apps/backend`, multi-agent code audit). If a data flow changes,
 update this and the Play form together. Source of truth is the code, not this file.
 
-**Three collection channels** (⚠️ corrected from the earlier draft — the check-in is
-NOT anonymous, and there is a third, offline path):
+**Four collection channels** (⚠️ corrected from the earlier draft — the check-in is
+NOT anonymous, and there is a third, offline path; the fourth arrived with mutual tabs):
 
 1. **Check-in** — `POST /v1/check-in`, every launch, **no opt-out → "required"**.
    Carries install/usage/diagnostics **AND the shopkeeper's own `self_name` /
@@ -21,12 +22,29 @@ NOT anonymous, and there is a third, offline path):
    (2026-08-07): a sent bill is the recipient's asset — no TTL, no revocation,
    not erased by account deletion (the snapshot table is anonymous).
 
+4. **Shared account (mutual tab)** — `POST /v1/tabs*`, **user-initiated, works signed
+   out** (a capability token in the link is the credential). A shared account is one
+   running account held by TWO independent parties, so it is **stored server-side in
+   plaintext for both of them**: each side's self-chosen **label**, and every tally's
+   **amount, date, note, author and accept/dispute/void status**. Either party (or
+   anyone holding the link) can read and append. It **survives either party's account
+   deletion** — `tab_parties.account_id` is `ON DELETE SET NULL`, because erasing one
+   side would erase the other person's record of the same debt. **Closing freezes it;
+   it does not delete it.** Same "both parties' asset" logic as the paper rule,
+   applied to a live account instead of a frozen bill. Disclosed on the Privacy page
+   under "Shared accounts with another person".
+
 So a user who never signs in **still transmits** their own name/phone/shop (check-in),
 crash+IP telemetry, and — if they use the share — a customer's ledger. **We collect
-data → Yes.** All off-device data goes to **Kaata's own backend (api.kaata.af)**;
-Google/Apple are used **only for sign-in**.
-→ **"Data shared with third parties" = NONE** (no analytics/ads/attribution/crash/
-messaging SDK exists — verified: no Firebase/Sentry/Segment/Amplitude/AdMob/FCM).
+data → Yes.** Ledger data goes to **Kaata's own backend (api.kaata.af)**.
+
+**2.0 notification delivery:** when the user grants permission and deployment
+enables push, the app sends an Expo push token, installation ID, locale and party
+subscription to the backend. Expo/FCM/APNs receive a generic update message and a
+tab identifier/revision, never a label, amount, note or invitation credential.
+Device identifiers are optional for app functionality (notification delivery).
+Review the current Play/Apple provider-processing declarations before release;
+the old assertion that no messaging provider exists no longer describes 2.0.
 
 ---
 
@@ -45,7 +63,9 @@ messaging SDK exists — verified: no Firebase/Sentry/Segment/Amplitude/AdMob/FC
 - **Gap:** a never-signed-in user's own `self_name`/`self_phone`/`shop_name` on the
   `installs` row has **no in-app delete**; `/v1/shared` bill links are **permanent and
   unrevocable by design** (paper rule 2026-08-07 — disclosed on the Privacy +
-  Delete-account pages). Provide an **email/web deletion request** URL
+  Delete-account pages); and an open **shared account** is deliberately NOT erased by
+  one party's account deletion (it is the other party's record too — the user closes it
+  instead, from the contact's Unlink action). Provide an **email/web deletion request** URL
   (hello@kaata.af / kaata.af/delete-account) as the catch-all so "Yes" is honest.
 
 ---

@@ -102,15 +102,22 @@ export async function buildPersonStatement(
   if (!person) return null;
 
   // listEntries is newest-first with no tie-break; re-sort ascending with an
-  // id tie-break so re-exporting the same book orders identically.
-  const asc = [...entries].sort(
-    (a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-  );
+  // id tie-break so re-exporting the same book orders identically. A linked
+  // contact's list is its mutual tab and carries voided originals (struck on
+  // screen); a statement is the account, not the audit trail, so they are
+  // dropped here and never reach the running balance.
+  const asc = entries
+    .filter((e) => !e.tab?.voided)
+    .sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  // Settle-up boundaries belong to the LOCAL book. Once linked, the tab is the
+  // account (D8) and its rows are not partitioned by the pre-link ruled-off
+  // lines — a backdated tab tally would otherwise fall "into" a closed chapter.
+  const chapters = person.tab_id ? [] : boundaries;
 
   const rows: StatementRow[] = [];
   let running = 0;
   let i = 0;
-  for (const boundary of boundaries) {
+  for (const boundary of chapters) {
     let consumed = 0;
     while (i < asc.length && asc[i].created_at <= boundary) {
       const entry = asc[i++];

@@ -35,6 +35,7 @@ import { pullEvents } from "./pull";
 import { pushEvents } from "./push";
 import { ensureVaultRegistered, fullBackupSweep } from "./reconcile";
 import { onLedgerApplied } from "../ledger-events";
+import { requestTabSync } from "../tabs/sync";
 
 const FOREGROUND_INTERVAL_MS = 5_000;
 const BACKGROUND_INTERVAL_MS = 30_000;
@@ -403,7 +404,14 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
     );
   };
 
-  const liveChannel = connectLiveChannel({ getJwt: getSessionJWT, onPoke });
+  // Tab pokes (docs/mutual-tab-design.md §3.5) ride the same socket and go
+  // straight to the tab loop's debounced per-tab sync — the scheduler itself
+  // never syncs tabs; lib/tabs/sync.ts owns that cadence (§4.6).
+  const liveChannel = connectLiveChannel({
+    getJwt: getSessionJWT,
+    onPoke,
+    onTabPoke: requestTabSync,
+  });
   // Foreground + signed-in only: torn down on background (the AppState
   // listener above) and never dialed while the JWT is absent. live.ts also
   // treats a missing JWT as retryable, so a sign-in that happens while the

@@ -89,15 +89,17 @@ export function getSource(): string {
   return pin?.source ?? "";
 }
 
-// Redact token-bearing routes before they reach analytics. The invite (/i/:token)
-// and shared-ledger (/v/:token) paths carry a secret token that the backend
-// deliberately stores only as a SHA-256 hash — beaconing the raw path would rest
-// the plaintext token in web_visits next to the visitor's IP, defeating that
-// design and letting anyone with DB/backup access redeem the invite. Send the
-// route pattern instead, and drop the query string on those routes.
+// Redact token-bearing routes before they reach analytics. The invite (/i/:token),
+// shared-ledger (/v/:token) and mutual-tab (/t/:token) paths carry a secret token
+// that the backend deliberately stores only as a SHA-256 hash — beaconing the raw
+// path would rest the plaintext token in web_visits next to the visitor's IP,
+// defeating that design and letting anyone with DB/backup access redeem the
+// invite or WRITE to the tab. Send the route pattern instead, and drop the query
+// string on those routes. (/t/ is Go-rendered in production, so this fires only
+// when Caddy's handle_errors falls back to the SPA shell — still a leak then.)
 function safeVisitPath(): string {
   const p = window.location.pathname;
-  const m = p.match(/^\/(i|v)\/.+/);
+  const m = p.match(/^\/(i|v|t)\/.+/);
   if (m) return `/${m[1]}/:token`;
   return p + window.location.search;
 }

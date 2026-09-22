@@ -45,6 +45,12 @@ export type LiveChannelOpts = {
   // Called for every poke. Must not block: do debounce/coalesce work inside.
   // Exceptions are swallowed here so a listener bug can't kill the socket.
   onPoke: (vaultId: string) => void;
+  // Mutual-tab poke (docs/mutual-tab-design.md §3.5): the server subscribes
+  // the socket under an acct:<id> pseudo-key as well and sends
+  // {"t":"tab_poke","tab_id":…} when a tab either party is bound to changes.
+  // Optional so the scheduler's existing call shape keeps working; the
+  // scheduler wires it to lib/tabs/sync requestTabSync. Same non-blocking rule.
+  onTabPoke?: (tabId: string) => void;
 };
 
 export type LiveChannel = {
@@ -102,12 +108,14 @@ export function connectLiveChannel(opts: LiveChannelOpts): LiveChannel {
   const handleMessage = (data: unknown): void => {
     try {
       if (typeof data !== "string") return;
-      const msg = JSON.parse(data) as { t?: string; vault_id?: string };
+      const msg = JSON.parse(data) as { t?: string; vault_id?: string; tab_id?: string };
       if (msg?.t === "ping") {
         // Keepalive: the server drops us after 2 unanswered pings.
         ws?.send(JSON.stringify({ t: "pong" }));
       } else if (msg?.t === "poke" && typeof msg.vault_id === "string" && msg.vault_id) {
         opts.onPoke(msg.vault_id);
+      } else if (msg?.t === "tab_poke" && typeof msg.tab_id === "string" && msg.tab_id) {
+        opts.onTabPoke?.(msg.tab_id);
       }
       // Unknown t → ignore (forward-compatible with new server frames).
     } catch (err) {

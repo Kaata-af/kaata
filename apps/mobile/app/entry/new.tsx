@@ -5,15 +5,22 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { ScreenLoading } from "../../components/ScreenLoading";
 import { ScreenHeader } from "../../components/SettingsScreen";
-import { useToast } from "../../components/Toast";
+import { queuePendingToast, useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
-import { createEntry, getActiveVaultArchivedState, getPerson } from "../../lib/db";
+import { createEntryDetailed, getActiveVaultArchivedState, getPerson } from "../../lib/db";
 import { textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { normalizeAmountInput, parseAmountInput } from "../../lib/money";
+import { getTabLinkForPerson } from "../../lib/tabs/db";
+import {
+  TabAuthUnavailableError,
+  TabClosedError,
+  TabInputError,
+  TabPermissionError,
+} from "../../lib/tabs/errors";
 import { radius, TOUCH_MIN, typography } from "../../lib/tokens";
 import { ENTRY_NOTE_MAX_LENGTH, type EntryType, type PersonWithBalance } from "../../lib/types";
 
@@ -129,13 +136,27 @@ export default function NewEntryScreen() {
         router.replace("/vault/archived");
         return;
       }
-      await createEntry(
+      // createEntryDetailed routes a LINKED contact's tally to the mutual tab
+      // (docs/mutual-tab-design.md §4.3) with no branching here; the only
+      // extra it hands back is the D17 duplicate hint.
+      const saved = await createEntryDetailed(
         personId,
         type,
         parsedAmount,
         note.trim().slice(0, ENTRY_NOTE_MAX_LENGTH) || null,
       );
       toast.push(t("entry.saved"), "success");
+      if (saved.duplicate_hint) {
+        // The other party recorded the same transfer within a day. Queued,
+        // not pushed: this modal is about to close, and a toast pushed from
+        // under it would never be seen (Toast.tsx). It surfaces on the person
+        // screen right after the save toast.
+        const link = await getTabLinkForPerson(personId).catch(() => null);
+        queuePendingToast(
+          t("tab.duplicateHint", { name: link?.other_label || t("tab.them") }),
+          "info",
+        );
+      }
       router.back();
     } catch (err) {
       // Distinguish "you don't have permission to edit this Kaata"
@@ -149,6 +170,17 @@ export default function NewEntryScreen() {
       } else if (err instanceof EventSigningUnavailableError) {
         // Mythos Fix Set C: signing-unavailable gets an actionable message.
         setSaveError(t("entry.signingUnavailable"));
+      } else if (err instanceof TabAuthUnavailableError) {
+        // Linked contact, signed out, and the party token is gone (reinstall
+        // without an account — D10): the phone cannot reach the tab at all.
+        setSaveError(t("tab.needsConnection"));
+      } else if (err instanceof TabClosedError) {
+        // The other side closed the shared account since this screen loaded.
+        setSaveError(t("tab.closed"));
+      } else if (err instanceof TabPermissionError) {
+        setSaveError(t("entry.roleDenied"));
+      } else if (err instanceof TabInputError) {
+        setSaveError(t("entry.saveFailed"));
       } else {
         setSaveError(t("entry.saveFailed"));
       }

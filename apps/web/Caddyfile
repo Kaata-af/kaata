@@ -17,15 +17,18 @@
 		-Server
 	}
 
-	# Shared-ledger preview. The share link is kaata.af/v/<token>, but the
-	# per-customer SSR (per-person og:title/og:description, NO box-logo image) is
-	# rendered by the Go backend — reachable publicly at api.kaata.af. Proxy the
-	# SSR page and the snapshot API its inline script fetches there. The Host
-	# header is rewritten to api.kaata.af so the outer proxy routes to the BACKEND
-	# (leaving it as kaata.af would route back to THIS web service — a loop).
-	# On any backend error, handle_errors below serves the SPA instead, so this
-	# can never hard-fail the page (worst case = today's generic preview).
-	@sharessr path /v/* /v1/shared/*
+	# Go-rendered token pages. The bill link is kaata.af/v/<token> and the
+	# mutual-tab link kaata.af/t/<token>, but both per-link SSR shells (per-person
+	# og:title/og:description, NO box-logo image) are rendered by the Go backend —
+	# reachable publicly at api.kaata.af. Proxy each page AND the API its inline
+	# script fetches (/v1/shared/* for bills, /v1/tabs/* for tabs — the tab page
+	# fetches relatively when PUBLIC_API_BASE_URL is unset). The Host header is
+	# rewritten to api.kaata.af so the outer proxy routes to the BACKEND (leaving
+	# it as kaata.af would route back to THIS web service — a loop). On any
+	# backend error, handle_errors below serves the SPA instead, so this can never
+	# hard-fail the page (worst case = today's generic preview; the SPA has no
+	# /t/ route, so a tab link then lands on its NotFound).
+	@sharessr path /v/* /v1/shared/* /t/* /v1/tabs/*
 	handle @sharessr {
 		reverse_proxy https://api.kaata.af {
 			header_up Host api.kaata.af

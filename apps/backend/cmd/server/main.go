@@ -25,6 +25,7 @@ import (
 	"github.com/matee/kaata-backend/internal/mesh"
 	"github.com/matee/kaata-backend/internal/shared"
 	syncapi "github.com/matee/kaata-backend/internal/sync"
+	"github.com/matee/kaata-backend/internal/tabs"
 	"github.com/matee/kaata-backend/internal/vaults"
 	"github.com/matee/kaata-backend/internal/visit"
 )
@@ -217,6 +218,15 @@ func main() {
 	sharedSvc := shared.NewService(pool)
 	sharedH := shared.NewHandler(sharedSvc, cfg.WebBaseURL, cfg.ShareLinkBaseURL, cfg.PublicAPIBaseURL)
 
+	// Mutual tabs (Kaata 2.0, docs/mutual-tab-design.md): one running account
+	// shared by two parties, server-authoritative, reachable by a capability
+	// token (kaata.af/t/<token>) or a session. Same three origins as the bill
+	// shell: the invite link resolves on ShareLinkBaseURL, the page's inline
+	// fetch on PublicAPIBaseURL. The live poke is wired after syncSvc exists.
+	tabsSvc := tabs.NewService(pool)
+	tabsSvc.StartPush(ctx, cfg.TabPushEnabled, cfg.ExpoAccessToken)
+	tabsH := tabs.NewHandler(tabsSvc, cfg.WebBaseURL, cfg.ShareLinkBaseURL, cfg.PublicAPIBaseURL)
+
 	// Sync (Phase 3). The service holds membership + page LRUs (60s TTL);
 	// the snapshot cron uses its own dedicated 4-conn Postgres pool so a
 	// slow snapshot replay can't starve user-facing request connections.
@@ -228,6 +238,11 @@ func main() {
 	// push gate must see it immediately instead of after the 60s LRU TTL.
 	// *sync.Service satisfies vaults.MembershipInvalidator structurally.
 	vaultsSvc.SetMembershipInvalidator(syncSvc)
+
+	// Tab changes poke every signed-in party (and their kaata's members) on
+	// the existing /v1/sync/live socket as {"t":"tab_poke","tab_id"} — same
+	// cycle-free pattern; *sync.Service satisfies tabs.Poker structurally.
+	tabsSvc.SetPoker(syncSvc)
 
 	// M2 (membership chain §8.2): pin the server witness verification key
 	// set on the sync service so push-side membership verification can
@@ -333,6 +348,50 @@ func main() {
 	// SSR preview shell — see deploy note: kaata.af/v/* must route to the backend
 	// for the OG preview; otherwise the SPA's /v/:token fallback renders it.
 	r.Get("/v/{token}", sharedH.View)
+	// Mutual tab page (kaata.af/t/<token>, Caddy @sharessr). The token in
+	// the path IS party B's credential (D11); the handler renders the uniform
+	// 404 page for anything it cannot resolve. No rate limit, like /v/.
+	r.Get("/t/{token}", tabsH.View)
+
+	// Mutual tab API. OptionalMiddleware because the web-only party has no
+	// account — it authenticates with `Authorization: Tab <token>`, which the
+	// session middleware ignores and the tabs handler reads itself. Every
+	// limit here is per IP; RateLimitPerAccount would 500 for anonymous
+	// callers (fail-closed, see httpx.keyByAccount). All routes are GET/POST
+	// so the browser page passes the global CORS preflight unchanged.
+	r.Group(func(pr chi.Router) {
+		pr.Use(authenticator.OptionalMiddleware())
+		pr.With(httpx.RateLimitPerIP(httpx.TabCreateLimit, httpx.TabCreateWindow)).
+			Post("/v1/tabs", tabsH.Create)
+		pr.With(httpx.RateLimitPerIP(httpx.TabWriteLimit, httpx.TabWriteWindow)).
+			Get("/v1/tabs/mine", tabsH.Mine)
+		pr.With(httpx.RateLimitPerIP(httpx.TabReadLimit, httpx.TabReadWindow)).
+			Get("/v1/tabs/by-token", tabsH.ByToken)
+		pr.With(httpx.RateLimitPerIP(httpx.TabReadLimit, httpx.TabReadWindow)).
+			Get("/v1/tabs/{tab_id}", tabsH.Get)
+		pr.With(httpx.RateLimitPerIP(httpx.TabJoinLimit, httpx.TabJoinWindow)).
+			Post("/v1/tabs/{tab_id}/notifications", tabsH.Notifications)
+		pr.With(httpx.RateLimitPerIP(httpx.TabJoinLimit, httpx.TabJoinWindow)).
+			Post("/v1/tabs/{tab_id}/join", tabsH.Join)
+		pr.With(httpx.RateLimitPerIP(httpx.TabJoinLimit, httpx.TabJoinWindow)).
+			Post("/v1/tabs/{tab_id}/bind", tabsH.Bind)
+		pr.With(httpx.RateLimitPerIP(httpx.TabJoinLimit, httpx.TabJoinWindow)).
+			Post("/v1/tabs/{tab_id}/label", tabsH.Label)
+		pr.With(httpx.RateLimitPerIP(httpx.TabWriteLimit, httpx.TabWriteWindow)).
+			Post("/v1/tabs/{tab_id}/entries", tabsH.Append)
+		pr.With(httpx.RateLimitPerIP(httpx.TabWriteLimit, httpx.TabWriteWindow)).
+			Post("/v1/tabs/{tab_id}/entries/{id}/accept", tabsH.Accept)
+		pr.With(httpx.RateLimitPerIP(httpx.TabWriteLimit, httpx.TabWriteWindow)).
+			Post("/v1/tabs/{tab_id}/entries/{id}/dispute", tabsH.Dispute)
+		pr.With(httpx.RateLimitPerIP(httpx.TabWriteLimit, httpx.TabWriteWindow)).
+			Post("/v1/tabs/{tab_id}/entries/{id}/void", tabsH.Void)
+		pr.With(httpx.RateLimitPerIP(httpx.TabJoinLimit, httpx.TabJoinWindow)).
+			Post("/v1/tabs/{tab_id}/close", tabsH.Close)
+		// Rotating B's link mints a new kaata.af/t/<token>; same budget as
+		// creating one.
+		pr.With(httpx.RateLimitPerIP(httpx.TabCreateLimit, httpx.TabCreateWindow)).
+			Post("/v1/tabs/{tab_id}/regenerate-link", tabsH.RegenerateLink)
+	})
 	// Operator-only analytics dashboard (admin.kaata.af / /admin web page).
 	// AdminKeyMiddleware 404s the whole group when ADMIN_API_KEY is unset, so a
 	// deployment without the key has no admin surface at all.

@@ -52,7 +52,9 @@ import {
   changeVaultName,
   isLocalCAVault,
   leaveVaultRouted,
+  VaultHasOpenTabError,
 } from "../../lib/vault-router";
+import { vaultHasOpenTab } from "../../lib/tabs/db";
 import { colors } from "../../lib/colors";
 import {
   clearActiveVaultId,
@@ -129,6 +131,11 @@ export default function VaultSettingsScreen() {
   const nameDirtyRef = useRef(false);
   const [currency, setCurrency] = useState<string>("AFN");
   const [currencySheetVisible, setCurrencySheetVisible] = useState(false);
+  // Mutual tab, D9: a tab's currency is fixed at creation to its kaata's, so
+  // while this kaata has an open tab the currency row is locked with the
+  // reason spelled out. changeVaultCurrency refuses too (VaultHasOpenTabError)
+  // for the race where a link lands between this load and the pick.
+  const [hasOpenTab, setHasOpenTab] = useState(false);
   const [savingName, setSavingName] = useState(false);
   const [savingCurrency, setSavingCurrency] = useState(false);
 
@@ -215,6 +222,7 @@ export default function VaultSettingsScreen() {
           // abandoned — vault.name (the summary row) updates regardless.
           if (!nameDirtyRef.current) setName(row.name);
           setCurrency(row.currency || "AFN");
+          setHasOpenTab(await vaultHasOpenTab(targetVaultId));
 
           const accId = await getAppMeta("account_id");
           setAccountId(accId);
@@ -326,6 +334,14 @@ export default function VaultSettingsScreen() {
       }
       toast.push(t("vaultSettings.toast.currencyUpdated"), "success");
     } catch (err) {
+      if (err instanceof VaultHasOpenTabError) {
+        // Not a failure of the save — a rule (D9). Lock the row so the
+        // second attempt is refused before the picker, not after.
+        setHasOpenTab(true);
+        toast.push(t("tab.currencyLocked"), "error");
+        setCurrency(vault.currency);
+        return;
+      }
       console.warn("[vault/settings] patch currency failed", err);
       toast.push(t("vaultSettings.toast.currencyFailed"), "error");
       setCurrency(vault.currency);
@@ -694,9 +710,12 @@ export default function VaultSettingsScreen() {
           <NavRow
             icon="cash-outline"
             label={t("vaultSettings.currency.label")}
+            // The lock reason rides as the row hint (D9) so the disabled
+            // state explains itself instead of looking like a permissions bug.
+            hint={hasOpenTab ? t("tab.currencyLocked") : undefined}
             trailing={currencyValue}
             onPress={() => setCurrencySheetVisible(true)}
-            disabled={!canRename || savingCurrency}
+            disabled={!canRename || savingCurrency || hasOpenTab}
             isRTL={isRTL}
             isLast
           />

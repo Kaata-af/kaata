@@ -168,6 +168,50 @@ func TestLivePokeOnMembershipInvalidationWithQueryToken(t *testing.T) {
 	}
 }
 
+// Mutual tabs (docs/mutual-tab-design.md §3.5): a tab change reaches a party
+// through the account pseudo-key, and the frame is {"t":"tab_poke","tab_id"}
+// with NO vault_id. Vault pokes on the same socket must stay byte-identical
+// to what shipped clients parse — asserted on the raw frame, not the struct.
+func TestLiveTabPokeReachesAccountSocket(t *testing.T) {
+	f := newLiveFixture(t)
+	conn := f.dial(t, f.server.URL, "Bearer "+f.jwt)
+
+	tabID := uuid.NewString()
+	// The second id is a stranger with no socket: fanning to an account
+	// nobody is listening under must be a silent no-op, not a panic.
+	f.svc.NotifyTab(tabID, []string{uuid.NewString(), f.accountID})
+
+	msg := readUntil(t, conn, "tab_poke", 5*time.Second)
+	if msg.TabID != tabID {
+		t.Fatalf("tab_poke tab_id = %q, want %q", msg.TabID, tabID)
+	}
+	if msg.VaultID != "" {
+		t.Fatalf("tab_poke carried vault_id %q, want none", msg.VaultID)
+	}
+
+	// The same socket still gets vault pokes, on the exact pre-tabs wire.
+	res := f.push(t, f.event(nil))
+	if len(res.Accepted) != 1 {
+		t.Fatalf("push accepted %d events, want 1", len(res.Accepted))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("read (waiting for poke): %v", err)
+		}
+		if string(data) == `{"t":"ping"}` {
+			continue
+		}
+		want := `{"t":"poke","vault_id":"` + f.vaultID + `"}`
+		if string(data) != want {
+			t.Fatalf("vault poke frame = %s, want %s (wire must not change)", data, want)
+		}
+		return
+	}
+}
+
 // ==========================================================================
 // Keepalive
 // ==========================================================================

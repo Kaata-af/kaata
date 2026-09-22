@@ -62,11 +62,18 @@ var livePingInterval = 30 * time.Second
 
 // liveMsg is the single wire shape for both directions.
 //
-//	server → client: {"t":"poke","vault_id":"<uuid>"} | {"t":"ping"}
+//	server → client: {"t":"poke","vault_id":"<uuid>"} | {"t":"tab_poke","tab_id":"<uuid>"} | {"t":"ping"}
 //	client → server: {"t":"pong"}
+//
+// tab_poke (mutual tabs, docs/mutual-tab-design.md §3.5) is the one frame
+// that is not vault-keyed: a signed-in phone learns "a tab you are a party
+// of changed — pull it". Both fields are omitempty so a vault poke stays
+// byte-identical to what shipped clients already parse, and a tab_poke
+// never carries a stray vault_id. Clients ignore unknown `t` values.
 type liveMsg struct {
 	T       string `json:"t"`
 	VaultID string `json:"vault_id,omitempty"`
+	TabID   string `json:"tab_id,omitempty"`
 }
 
 // liveSub is one connected socket's subscription. The vault set is resolved
@@ -75,18 +82,31 @@ type liveMsg struct {
 // mid-connection keeps receiving (harmless) pokes until disconnect. Both
 // staleness windows are acceptable because pokes carry no data and the pull
 // path re-checks membership on every request.
+//
+// The channel carries whole frames, not bare vault ids, because the
+// account-keyed tab_poke shares it: the writer loop forwards whatever it
+// receives unchanged, so a new frame type never touches the socket code.
 type liveSub struct {
 	accountID string
-	ch        chan string // buffered vault_id pokes
+	ch        chan liveMsg // buffered outbound frames
 }
 
-// liveBroker is the in-memory per-vault fanout. Single-instance deploy —
+// liveAccountKey is the pseudo-key every socket is ALSO subscribed under,
+// beside its vault ids, so a tab change can reach an account without the
+// broker knowing which tabs it is a party of. A single account-wide key
+// (rather than one per tab) means a contact linked mid-session gets its
+// pokes without a re-dial — the connect-time snapshot problem the vault set
+// has does not apply. Prefixed so a uuid vault key can never collide.
+func liveAccountKey(accountID string) string { return "acct:" + accountID }
+
+// liveBroker is the in-memory fanout, keyed by opaque strings: a vault_id
+// for vault pokes, liveAccountKey for tab pokes. Single-instance deploy —
 // same assumption as every other in-process cache in this Service (membership
 // LRU, pull-page LRU): one backend replica, so no Redis/pubsub indirection.
 type liveBroker struct {
 	mu gosync.Mutex
-	// subs is vault_id → the sockets subscribed to it. One liveSub appears
-	// under every vault in its connect-time membership list.
+	// subs is key → the sockets subscribed to it. One liveSub appears under
+	// every vault in its connect-time membership list plus its account key.
 	subs map[string]map[*liveSub]struct{}
 	// perAccount counts open sockets per account for the leak guard.
 	perAccount map[string]int
@@ -99,10 +119,11 @@ func newLiveBroker() *liveBroker {
 	}
 }
 
-// subscribe registers a socket for every vault in vaultIDs. Returns an error
-// when the account already holds maxLiveSocketsPerAccount sockets — callers
-// must reject BEFORE upgrading so the client sees a plain HTTP 429.
-func (b *liveBroker) subscribe(accountID string, vaultIDs []string) (*liveSub, error) {
+// subscribe registers a socket under every key in keys (vault ids and/or
+// liveAccountKey). Returns an error when the account already holds
+// maxLiveSocketsPerAccount sockets — callers must reject BEFORE upgrading so
+// the client sees a plain HTTP 429.
+func (b *liveBroker) subscribe(accountID string, keys []string) (*liveSub, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.perAccount[accountID] >= maxLiveSocketsPerAccount {
@@ -110,13 +131,13 @@ func (b *liveBroker) subscribe(accountID string, vaultIDs []string) (*liveSub, e
 	}
 	sub := &liveSub{
 		accountID: accountID,
-		ch:        make(chan string, livePokeBuffer),
+		ch:        make(chan liveMsg, livePokeBuffer),
 	}
-	for _, v := range vaultIDs {
-		set, ok := b.subs[v]
+	for _, k := range keys {
+		set, ok := b.subs[k]
 		if !ok {
 			set = make(map[*liveSub]struct{})
-			b.subs[v] = set
+			b.subs[k] = set
 		}
 		set[sub] = struct{}{}
 	}
@@ -145,17 +166,24 @@ func (b *liveBroker) unsubscribe(sub *liveSub) {
 	}
 }
 
-// notify fans a poke out to every subscriber of vaultID, INCLUDING the
+// notify fans a vault poke out to every subscriber of vaultID, INCLUDING the
 // pusher's own socket — the pusher's follow-up pull is a cursor-idempotent
 // no-op, and excluding it would require threading the pushing socket's
 // identity through PushEvents for zero benefit. Non-blocking by
 // construction: a full channel drops the poke (see livePokeBuffer).
 func (b *liveBroker) notify(vaultID string) {
+	b.notifyMsg(vaultID, liveMsg{T: "poke", VaultID: vaultID})
+}
+
+// notifyMsg is the generic fanout under one key. The frame is delivered
+// verbatim by the writer loop, so this is the single place that decides
+// what a subscriber sees for a given key.
+func (b *liveBroker) notifyMsg(key string, msg liveMsg) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for sub := range b.subs[vaultID] {
+	for sub := range b.subs[key] {
 		select {
-		case sub.ch <- vaultID:
+		case sub.ch <- msg:
 		default:
 			// Subscriber's buffer is full: it already has pending pokes it
 			// hasn't drained, so it will pull anyway. Dropping keeps this
@@ -170,6 +198,22 @@ func (b *liveBroker) notify(vaultID string) {
 func (s *Service) NotifyLive(vaultID string) {
 	if s.live != nil {
 		s.live.notify(vaultID)
+	}
+}
+
+// NotifyTab fans {"t":"tab_poke","tab_id":tabID} to every connected socket of
+// every account in accountIDs. It satisfies tabs.Poker (wired in main.go,
+// the vaults.MembershipInvalidator pattern) and, like the vault poke, must be
+// called only AFTER the tab transaction committed so a poked phone's
+// immediate pull observes the change. Carries no data and may be dropped;
+// the tab sync loop's 60 s poll is the backstop.
+func (s *Service) NotifyTab(tabID string, accountIDs []string) {
+	if s.live == nil {
+		return
+	}
+	msg := liveMsg{T: "tab_poke", TabID: tabID}
+	for _, id := range accountIDs {
+		s.live.notifyMsg(liveAccountKey(id), msg)
 	}
 }
 
@@ -236,7 +280,10 @@ func (h *Handler) Live(w http.ResponseWriter, r *http.Request) {
 
 	// Reserve the subscription BEFORE upgrading so the per-account limit is
 	// a clean HTTP 429 the client can back off on, not a post-upgrade close.
-	sub, err := h.svc.live.subscribe(claims.AccountID, vaultIDs)
+	// The account pseudo-key rides along so mutual-tab pokes (NotifyTab)
+	// reach this socket without the broker knowing the account's tabs.
+	keys := append(vaultIDs, liveAccountKey(claims.AccountID))
+	sub, err := h.svc.live.subscribe(claims.AccountID, keys)
 	if err != nil {
 		httpx.Error(w, http.StatusTooManyRequests, "too many live connections for this account")
 		return
@@ -309,8 +356,10 @@ func (h *Handler) Live(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-ctx.Done():
 			return
-		case vaultID := <-sub.ch:
-			if err := writeJSON(liveMsg{T: "poke", VaultID: vaultID}); err != nil {
+		case msg := <-sub.ch:
+			// Forwarded unchanged: the broker decided the frame's shape
+			// (vault poke or tab_poke) when it queued it.
+			if err := writeJSON(msg); err != nil {
 				return
 			}
 		case <-pongCh:

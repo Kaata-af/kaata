@@ -18,6 +18,7 @@
     "selftest:person-save": "tsx lib/__dev__/person-save-selftest.ts",
     "selftest:device-key": "tsx lib/__dev__/device-key-selftest.ts",
     "selftest:attribution": "tsx lib/__dev__/attribution-selftest.ts",
+    "selftest:tabs": "tsx lib/__dev__/tabs-selftest.ts",
     "preview:pdf": "tsx lib/__dev__/pdf-preview.ts"
   },
   "dependencies": {

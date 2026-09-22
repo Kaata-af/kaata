@@ -32,6 +32,12 @@ import {
 } from "../money";
 import { signedEntryMinorSumSql } from "../money-sql";
 
+// App code (and expo-modules-core's logger side effect, which lib/i18n.ts
+// pulls in through expo-localization) reads the bundler-provided __DEV__;
+// Node has none. Group 6 loads the real export builders, so this has to be
+// set before the first require of anything Expo.
+(globalThis as { __DEV__?: boolean }).__DEV__ = false;
+
 // Loading field-hlc's single DB constant must not initialize Expo SQLite.
 // Check the fixture constant against the real declaration so it cannot drift.
 const dbSource = readFileSync(require.resolve("../db"), "utf8");

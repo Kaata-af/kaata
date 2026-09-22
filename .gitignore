@@ -72,4 +72,5 @@ apps/mobile/ios/
 apps/mobile/android/
 
 credentials/
+apps/mobile/google-services.json
 *.p8

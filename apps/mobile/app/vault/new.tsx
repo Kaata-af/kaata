@@ -44,7 +44,7 @@ import {
   setAppMetaInTx,
 } from "../../lib/db-tx";
 // Mythos Issue 1: owner display-name source for the mirror row.
-import { getLocalSelf } from "../../lib/db";
+import { getAppMeta, getLocalSelf, setAppMeta } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { appendShopProfileUpdated, appendVaultMemberAdded } from "../../lib/event-log";
 import { t } from "../../lib/i18n";
@@ -331,6 +331,22 @@ export default function VaultNewScreen() {
       }
 
       toast.push(t("vaultNew.created", { name: trimmedShop }), "success");
+      // Mutual-tab handoff (docs/mutual-tab-design.md §4.4, D9): a tab can only
+      // be joined into a kaata of the tab's own currency, so app/t/[token].tsx
+      // sends a user with no matching kaata here with pending_tab_token armed.
+      // Go back to the join rather than home — the new kaata is exactly the
+      // one they came to make. Best effort: a failed read just lands home.
+      let pendingTab: string | null = null;
+      try {
+        pendingTab = await getAppMeta("pending_tab_token");
+        if (pendingTab) await setAppMeta("pending_tab_token", "");
+      } catch (err) {
+        console.warn("[vault/new] pending tab read failed", err);
+      }
+      if (pendingTab) {
+        router.replace({ pathname: "/t/[token]", params: { token: pendingTab } });
+        return;
+      }
       router.replace("/");
     } catch (err) {
       console.warn("[vault/new] create failed", err);

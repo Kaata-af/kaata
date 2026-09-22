@@ -41,6 +41,7 @@ import { Vazirmatn_400Regular, Vazirmatn_700Bold } from "@expo-google-fonts/vazi
 import { colors } from "../colors";
 import { formatAmount } from "../format";
 import { tIn } from "../i18n";
+import { noteFor } from "./note";
 import { faDigits, formatSettlementDate } from "../jalali";
 import { sumAmounts } from "../money";
 import { exportFileTarget, type PersonStatement, type VaultReport } from "./data";
@@ -333,7 +334,7 @@ ${card({ tone: "flat", label: tIn(locale, "export.doc.balance"), value: `${fmtSi
           // a different axis; two colour meanings side by side is what made
           // the old document unreadable.
           `<td class="n bal">${num(fmtSigned(row.balanceAfter))}</td>` +
-          `<td class="note" dir="auto">${esc(e.note ?? "")}</td>` +
+          `<td class="note" dir="auto">${esc(noteFor(e.note, e.tab?.kind, locale) ?? "")}</td>` +
           `</tr>`
         );
       })

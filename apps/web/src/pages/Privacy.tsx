@@ -8,7 +8,7 @@ import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 // require a reachable, truthful privacy policy URL once any personal data is
 // collected — this page is that URL (kaata.af/privacy) and must stay accurate to
 // what the app actually does. When you change a data flow, change this page.
-const UPDATED = "7 August 2026";
+const UPDATED = "22 September 2026";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -44,9 +44,10 @@ export function Privacy() {
           <p>
             Your ledger — the people you add, their phone numbers, the amounts, notes, and running
             balances — is stored in a database on your device. If you never sign in, that ledger
-            data is not uploaded to our servers, with one exception: if you choose to send a
-            WhatsApp reminder, a snapshot of that one customer’s balance and entries is uploaded to
-            create the shareable link (see “Sharing a bill over WhatsApp” below). Deleting the app
+            data is not uploaded unless you choose to share a bill or link a shared account.
+            A WhatsApp reminder uploads a snapshot of that one customer’s balance and entries to
+            create the shareable link (see below). Shared accounts also work without sign-in and
+            are stored on our server as described below. Deleting the app
             removes the on-device ledger from the phone.
           </p>
         </Section>
@@ -113,6 +114,40 @@ export function Privacy() {
           </p>
         </Section>
 
+        <Section title="Shared accounts with another person">
+          <p>
+            A contact’s account can be turned into a <strong>shared account</strong>, where the
+            other person opens a link (kaata.af/t/…) or the Kaata app and keeps the same running
+            account with you. Because both of you must see the same figures, a shared account is
+            <strong> stored on our server</strong>, not only on your phone: the name each of you
+            chooses to show the other, every tally’s amount, date and note, and who added, accepted,
+            disputed or cancelled it. Anyone holding that link can read and add to the account, so
+            send it only to the person it is for; you can replace the link at any time.
+          </p>
+          <p>
+            A shared account belongs to <strong>both</strong> of you, so it outlives either side
+            alone: it is not deleted when one of you deletes their Kaata account, because that would
+            erase the other person’s record of the same debt. When either of you closes it —
+            “Unlink” in the app — it stops accepting new tallies for both of you, and both of you
+            keep the closed account as a read-only record of what was owed.
+          </p>
+        </Section>
+
+        <Section title="Shared-account notifications">
+          <p>
+            If you allow notifications, we register your device’s notification token with the
+            shared accounts you can access. Expo’s push service and Apple or Google deliver the
+            alerts. Remote alerts contain a generic update message and a shared-account identifier,
+            not the people’s names, amounts, notes or invitation links. You can turn notifications
+            off in your phone’s settings; the shared account continues to work without them.
+          </p>
+          <p>
+            Delivery jobs expire after 24 hours and unrenewed device registrations stop receiving
+            alerts after 30 days. We check current access before sending. Local notifications
+            generated on your phone may show the other party’s name.
+          </p>
+        </Section>
+
         <Section title="Contacts">
           <p>
             With your permission, Kaata can read your phone’s contacts so you can add a customer by
@@ -166,7 +201,9 @@ export function Privacy() {
           </p>
           <p>
             Deleting the app from your phone removes the on-device ledger. If you never signed in,
-            that is the only copy.
+            unshared records have no cloud copy. Bills and shared accounts already sent to another
+            person remain available as described above; save your shared-account link before
+            uninstalling if it is not connected to a signed-in account.
           </p>
         </Section>
 

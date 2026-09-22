@@ -8,12 +8,13 @@ import { ScreenHeader } from "../../../components/SettingsScreen";
 import { useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../../lib/currency";
-import { getEntry, SettledChapterError, updateEntry } from "../../../lib/db";
+import { getEntry, SettledChapterError, TabLinkedEntryError, updateEntry } from "../../../lib/db";
 import { textDir, useIsRTL } from "../../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../../lib/event-log";
 import { fonts, sansLineHeight } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
 import { normalizeAmountInput, parseAmountInput } from "../../../lib/money";
+import { getTabLinkForRelationship } from "../../../lib/tabs/db";
 import { radius, TOUCH_MIN } from "../../../lib/tokens";
 import { ENTRY_NOTE_MAX_LENGTH, type EntryType } from "../../../lib/types";
 
@@ -37,6 +38,12 @@ export default function EditEntryScreen() {
   // Inline errors — modal screen, toasts can't render above it (Toast.tsx).
   const [amountError, setAmountError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Mutual tab (docs/mutual-tab-design.md §4.4): a local row of a LINKED
+  // contact is frozen — its sum is already the tab's opening tally (D8) —
+  // so the form shows the reason up front and disables Save instead of
+  // letting the user type and then refusing. The data layer refuses too
+  // (TabLinkedEntryError), which the catch below words the same way.
+  const [tabLocked, setTabLocked] = useState(false);
   const amountRef = useRef<TextInput>(null);
   const noteRef = useRef<TextInput>(null);
   // Synchronous re-entry guard — `busy` state can't stop a same-frame
@@ -49,11 +56,18 @@ export default function EditEntryScreen() {
       return;
     }
     getEntry(id)
-      .then((e) => {
+      .then(async (e) => {
         if (e) {
           setType(e.type);
           setAmount(String(e.amount_afn));
           setNote(e.note ?? "");
+          // Read-only probe; a failed lookup leaves the row editable and the
+          // data-layer guard still has the last word on save.
+          const link = await getTabLinkForRelationship(e.relationship_id).catch(() => null);
+          if (link) {
+            setTabLocked(true);
+            setSaveError(t("tab.editLocked"));
+          }
           setFound(true);
         }
         setLoaded(true);
@@ -71,13 +85,14 @@ export default function EditEntryScreen() {
   // focus call succeeds but the soft keyboard never opens. Deferring with
   // setTimeout past the modal slide-in (~250ms) makes it land consistently.
   useEffect(() => {
-    if (!loaded || !found) return;
+    // No keyboard for a locked row: there is nothing to type into.
+    if (!loaded || !found || tabLocked) return;
     const focusTimer = setTimeout(() => amountRef.current?.focus(), 280);
     return () => clearTimeout(focusTimer);
-  }, [loaded, found]);
+  }, [loaded, found, tabLocked]);
 
   async function onSave() {
-    if (savingRef.current || !id) return;
+    if (savingRef.current || !id || tabLocked) return;
     const parsedAmount = parseAmountInput(amount);
     if (parsedAmount === null) {
       setAmountError(t("entry.invalidAmount"));
@@ -97,6 +112,11 @@ export default function EditEntryScreen() {
       if (err instanceof SettledChapterError) {
         // Closed-period guard: this entry sits under a ruled-off line.
         setSaveError(t("entry.settledLocked"));
+      } else if (err instanceof TabLinkedEntryError) {
+        // The contact was linked while this form was open (or the probe
+        // above missed): the row is frozen behind the tab's opening tally.
+        setTabLocked(true);
+        setSaveError(t("tab.editLocked"));
       } else if (err instanceof RoleGateRejectionError) {
         setSaveError(t("entry.roleDenied"));
       } else if (err instanceof EventSigningUnavailableError) {
@@ -213,7 +233,12 @@ export default function EditEntryScreen() {
           </Text>
         ) : null}
         <View style={{ height: 24 }} />
-        <Button label={t("entry.saveChanges")} onPress={onSave} loading={busy} />
+        <Button
+          label={t("entry.saveChanges")}
+          onPress={onSave}
+          loading={busy}
+          disabled={tabLocked}
+        />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

@@ -46,12 +46,24 @@ async function uploadSharedLedger(args: {
     // snapshots simply lack it, and both renderers fall back to deriving the
     // calendar from `locale` — the pre-setting behaviour.
     calendar: getEffectiveCalendar(),
-    entries: args.entries.slice(0, MAX_SHARED_ENTRIES).map((e) => ({
-      type: e.type,
-      amount: e.amount_afn,
-      note: e.note,
-      date: e.created_at,
-    })),
+    // A linked contact's rows come from the mutual tab and include voided
+    // originals (struck on screen). A bill is a statement of account, not an
+    // audit trail: a voided tally is not part of the account, so it is left
+    // out here — the same rule lib/export applies.
+    entries: args.entries
+      .filter((e) => !e.tab?.voided)
+      .slice(0, MAX_SHARED_ENTRIES)
+      .map((e) => ({
+        type: e.type,
+        amount: e.amount_afn,
+        // A tab's opening entry stores no note (each side labels it in its
+        // own language), but a bill is frozen and the recipient has none of
+        // our settings — so the label is baked in here, in the language this
+        // bill is being written in, or the biggest line on a permanent
+        // document would have no description at all.
+        note: e.note ?? (e.tab?.kind === "opening" ? tIn(args.lang, "tab.opening.note") : null),
+        date: e.created_at,
+      })),
     // Settled-chapter structure (2026-07-27): the web view collapses entries
     // dated at/before the boundary behind an "N settled accounts" row — the
     // customer sees the current account, with history one tap away. The

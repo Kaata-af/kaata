@@ -34,9 +34,19 @@ export const PersonRow = memo(function PersonRow(props: {
   const settled = person.is_settled === 1;
   // Every row reads as a plain timeline — no "settled X ago" wording
   // (operator decision 2026-07-27: the check mark carries the state).
-  const subtitle = !person.last_entry_at
+  const timeline = !person.last_entry_at
     ? t("person.row.noEntries")
     : formatRelative(person.last_entry_at);
+  // Mutual tab (docs/mutual-tab-design.md §4.4): tallies the OTHER party
+  // added that this side has not reviewed lead the subtitle. On the sub line,
+  // never in the amount column — that column is baseline-aligned between the
+  // figure and its currency and switches to the settled tick; a pill stacked
+  // there would break both. "{n} to review", not "pending": a tally already
+  // counts (D6), so the only thing waiting is the shopkeeper's glance.
+  const subtitle =
+    person.tab_id && person.tab_pending > 0
+      ? `${t("tab.row.pending", { count: person.tab_pending })} · ${timeline}`
+      : timeline;
 
   return (
     <Pressable
@@ -69,9 +79,23 @@ export const PersonRow = memo(function PersonRow(props: {
           isRTL ? styles.leftRTL : styles.leftLTR,
         ]}
       >
-        <Text style={[styles.name, textDir(isRTL)]} numberOfLines={1}>
-          {person.name}
-        </Text>
+        <View style={[styles.nameRow, rowDir(isRTL)]}>
+          <Text style={[styles.name, styles.nameText, textDir(isRTL)]} numberOfLines={1}>
+            {person.name}
+          </Text>
+          {person.tab_id && person.tab_closed_at == null ? (
+            // Linked to the other party's kaata. 12px like the header's
+            // read-only eye: a mark composed against the 15px name, not a row
+            // icon (icon.trailing would outweigh the word it annotates).
+            // textMuted so it is a fact about the contact, not a call to act.
+            <Ionicons
+              name="link-outline"
+              size={12}
+              color={colors.textMuted}
+              accessibilityLabel={t("tab.link.title")}
+            />
+          ) : null}
+        </View>
         <Text style={[styles.sub, textDir(isRTL)]} numberOfLines={1}>
           {subtitle}
         </Text>
@@ -124,6 +148,11 @@ const styles = StyleSheet.create({
   left: { flex: 1 },
   leftLTR: { marginRight: 12 },
   leftRTL: { marginLeft: 12 },
+  // Name + optional link glyph on one line. The glyph is fixed; the name
+  // shrinks (flexShrink + minWidth:0) so a long name ellipsizes BEFORE the
+  // mark that says the account is shared is pushed out of the row.
+  nameRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+  nameText: { flexShrink: 1, minWidth: 0 },
   name: {
     fontSize: 15,
     fontFamily: fonts.sansSemi,

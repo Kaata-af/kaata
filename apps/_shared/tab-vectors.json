@@ -1,0 +1,81 @@
+{
+  "description": "Mutual-tab balance vectors shared by apps/backend/internal/tabs (Go) and apps/mobile/lib/tabs (TS, npm run selftest:tabs). Each case lists tab entries and the expected signed balance from `role`'s point of view as a decimal string in major units. Rules (docs/mutual-tab-design.md §2): only kind IN ('entry','opening') with voided_by_entry_id IS NULL count; the role that is the SOURCE of the direction gave value (balance goes up), the target received (balance goes down). status never affects the balance. Add a case here and both suites pick it up.",
+  "cases": [
+    { "name": "empty tab", "role": "a", "entries": [], "expected": "0" },
+    {
+      "name": "a gave 100, seen by a",
+      "role": "a",
+      "entries": [{ "direction": "a_to_b", "amount": "100", "kind": "entry", "voided": false, "status": "pending" }],
+      "expected": "100"
+    },
+    {
+      "name": "a gave 100, seen by b",
+      "role": "b",
+      "entries": [{ "direction": "a_to_b", "amount": "100", "kind": "entry", "voided": false, "status": "pending" }],
+      "expected": "-100"
+    },
+    {
+      "name": "both directions net",
+      "role": "a",
+      "entries": [
+        { "direction": "a_to_b", "amount": "1250", "kind": "entry", "voided": false, "status": "accepted" },
+        { "direction": "b_to_a", "amount": "250", "kind": "entry", "voided": false, "status": "accepted" },
+        { "direction": "b_to_a", "amount": "1000", "kind": "entry", "voided": false, "status": "pending" }
+      ],
+      "expected": "0"
+    },
+    {
+      "name": "decimal cents add exactly (integer hundredths, never floats)",
+      "role": "a",
+      "entries": [
+        { "direction": "a_to_b", "amount": "0.10", "kind": "entry", "voided": false, "status": "pending" },
+        { "direction": "a_to_b", "amount": "0.20", "kind": "entry", "voided": false, "status": "pending" },
+        { "direction": "b_to_a", "amount": "0.05", "kind": "entry", "voided": false, "status": "pending" }
+      ],
+      "expected": "0.25"
+    },
+    {
+      "name": "voided original and its void row are both excluded",
+      "role": "a",
+      "entries": [
+        { "direction": "a_to_b", "amount": "500", "kind": "entry", "voided": true, "status": "disputed" },
+        { "direction": "b_to_a", "amount": "500", "kind": "void", "voided": false, "status": "accepted" },
+        { "direction": "a_to_b", "amount": "75", "kind": "entry", "voided": false, "status": "pending" }
+      ],
+      "expected": "75"
+    },
+    {
+      "name": "opening entry counts like any entry",
+      "role": "b",
+      "entries": [
+        { "direction": "a_to_b", "amount": "3400", "kind": "opening", "voided": false, "status": "pending" },
+        { "direction": "b_to_a", "amount": "400", "kind": "entry", "voided": false, "status": "pending" }
+      ],
+      "expected": "-3000"
+    },
+    {
+      "name": "disputed entries still count until voided",
+      "role": "a",
+      "entries": [
+        { "direction": "a_to_b", "amount": "200", "kind": "entry", "voided": false, "status": "disputed" },
+        { "direction": "b_to_a", "amount": "50", "kind": "entry", "voided": false, "status": "disputed" }
+      ],
+      "expected": "150"
+    },
+    {
+      "name": "maximum single amount survives",
+      "role": "a",
+      "entries": [{ "direction": "a_to_b", "amount": "9999999999.99", "kind": "entry", "voided": false, "status": "pending" }],
+      "expected": "9999999999.99"
+    },
+    {
+      "name": "negative balance renders with sign and no trailing zeros",
+      "role": "a",
+      "entries": [
+        { "direction": "b_to_a", "amount": "12.50", "kind": "entry", "voided": false, "status": "pending" },
+        { "direction": "a_to_b", "amount": "2.50", "kind": "entry", "voided": false, "status": "pending" }
+      ],
+      "expected": "-10"
+    }
+  ]
+}

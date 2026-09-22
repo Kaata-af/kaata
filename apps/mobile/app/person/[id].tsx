@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -49,14 +50,52 @@ import { bidiIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/
 import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
 import { sumAmounts } from "../../lib/money";
-import { getLocale, getShareLangPref, resolveShareLang, t, type LocaleCode } from "../../lib/i18n";
+import {
+  getLocale,
+  getShareLangPref,
+  resolveShareLang,
+  t,
+  tIn,
+  type LocaleCode,
+} from "../../lib/i18n";
 import { formatSettlementDate } from "../../lib/jalali";
 import { useCalendar } from "../../lib/calendar";
 import { shareKaataViaWhatsApp } from "../../lib/share";
+import {
+  getLatestTabLinkForPerson,
+  listPreLinkEntries,
+  listFailedTabEntries,
+} from "../../lib/tabs/db";
+import {
+  acceptEntry,
+  linkContact,
+  regenerateInviteLink,
+  shareTabLinkOnWhatsApp,
+  TabAlreadyLinkedError,
+  TabAuthUnavailableError,
+  TabClosedError,
+  TabPermissionError,
+  unlinkContact,
+  voidEntry,
+} from "../../lib/tabs/link";
+import { onTabApplied, requestTabSync } from "../../lib/tabs/sync";
+import type { TabLink } from "../../lib/tabs/types";
 import { icon, radius, TOUCH_MIN, typography } from "../../lib/tokens";
 import { useActiveVaultWriteCaps } from "../../lib/use-vault-role";
 import { useMembersCount } from "../../lib/use-vault-summary";
 import type { Entry, PersonWithBalance, Self } from "../../lib/types";
+
+// Wording for a failed tab operation (accept / void / unlink / regenerate).
+// One mapper so every catch site on this screen agrees: the vault role gate
+// reads exactly like the local one (a demoted editor gets the same "view
+// only" sentence for a tab tally as for a local one), a closed tab names
+// itself, and no credential means "go online" rather than a generic failure.
+function tabErrorMessage(err: unknown): string {
+  if (err instanceof TabPermissionError) return t("entry.roleDenied");
+  if (err instanceof TabClosedError) return t("tab.closed");
+  if (err instanceof TabAuthUnavailableError) return t("tab.needsConnection");
+  return t("entry.saveFailed");
+}
 
 // Shared empty map so a solo kaata (and the pre-load frame of a shared one)
 // never allocates, and the identity stays stable across renders.
@@ -112,6 +151,37 @@ export default function PersonDetailScreen() {
   const [exportSheetVisible, setExportSheetVisible] = useState(false);
   const [exporting, setExporting] = useState(false);
   const exportingRef = useRef(false);
+
+  // MUTUAL TAB (docs/mutual-tab-design.md §4.4). `tabHistory` is the contact's
+  // tab whether it is live or closed; `link` is the same row only while it is
+  // OPEN, and is what every action reads — a closed tab accepts no writes.
+  // While linked, `entries` are the tab's rows and `person.balance` is the tab
+  // balance (D8); `preLink` holds the frozen local rows from before linking,
+  // shown behind a fold and excluded from the balance because the opening
+  // entry already carries their sum. Closing does not undo any of that: the
+  // rows and the fold stay, so the history and the number both survive.
+  const [tabHistory, setTabHistory] = useState<TabLink | null>(null);
+  const link = tabHistory != null && tabHistory.closed_at == null ? tabHistory : null;
+  const [preLink, setPreLink] = useState<Entry[]>([]);
+  const [preLinkOpen, setPreLinkOpen] = useState(false);
+  const [failedTallies, setFailedTallies] = useState<Entry[]>([]);
+  const [failedTalliesOpen, setFailedTalliesOpen] = useState(false);
+  // Sheets and dialogs of the link flow, in the order the user meets them:
+  // header button → link sheet → confirm → (network) → share sheet. Once
+  // linked, the chip beside the direction chip opens `linkedSheet`.
+  const [linkSheetVisible, setLinkSheetVisible] = useState(false);
+  const [confirmLink, setConfirmLink] = useState(false);
+  const [linking, setLinking] = useState(false);
+  const linkingRef = useRef(false);
+  const [shareSheetVisible, setShareSheetVisible] = useState(false);
+  // Parallel to askLangVisible: the invite is a WhatsApp message too, so it
+  // honours the same share_lang_pref = 'ask' flow, but through its own sheet
+  // so the pick can never be routed to the ping by mistake.
+  const [inviteAskLangVisible, setInviteAskLangVisible] = useState(false);
+  const [linkedSheetVisible, setLinkedSheetVisible] = useState(false);
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
+  const [confirmUnlink, setConfirmUnlink] = useState(false);
+  const [confirmVoidFor, setConfirmVoidFor] = useState<Entry | null>(null);
 
   async function onExport(format: ExportFormat, destination: ExportDestination) {
     if (!id || exportingRef.current) return;
@@ -190,12 +260,17 @@ export default function PersonDetailScreen() {
   // (occurred_at) — so a deliberately backdated entry files into the settled
   // chapter it belongs to; the balance (always all-time) is unaffected, and
   // "view all" reveals everything.
+  //
+  // A contact that has EVER been linked has no chapters: its `entries` are the
+  // tab's rows, and the local settlement boundaries belong to the pre-link
+  // history behind the fold. `tabHistory`, not `link` — a closed tab's rows
+  // are still not partitionable by a line drawn before the tab existed.
   const chapterEntries = useMemo(
     () =>
-      settlement.lastSettledAtMs == null
+      tabHistory || settlement.lastSettledAtMs == null
         ? entries
         : entries.filter((e) => e.created_at > settlement.lastSettledAtMs!),
-    [entries, settlement.lastSettledAtMs],
+    [entries, settlement.lastSettledAtMs, tabHistory],
   );
   // COHERENCE RULE (review fix — the load-bearing safety property): the
   // collapse only engages while the current chapter's sum EXACTLY explains
@@ -204,8 +279,15 @@ export default function PersonDetailScreen() {
   // history from another device, clock skew — makes the view fall OPEN
   // instead of hiding money. Nothing behind the fold can ever account for
   // the number in the header.
+  // Voided tab rows are listed (struck — D5) but count for nothing, so they
+  // must be zero here too or a linked account could never be coherent.
   const chapterSum = useMemo(
-    () => sumAmounts(chapterEntries.map((e) => (e.type === "debt" ? e.amount_afn : -e.amount_afn))),
+    () =>
+      sumAmounts(
+        chapterEntries.map((e) =>
+          e.tab?.voided ? 0 : e.type === "debt" ? e.amount_afn : -e.amount_afn,
+        ),
+      ),
     [chapterEntries],
   );
   const chapterCoherent = person == null || chapterSum === person.balance;
@@ -219,7 +301,10 @@ export default function PersonDetailScreen() {
   // have nothing to rule off and are dropped.
   type HistoryItem = { kind: "entry"; entry: Entry } | { kind: "marker"; ms: number };
   const historyItems = useMemo<HistoryItem[]>(() => {
-    if (!effectiveShowFull || boundaries.length === 0) {
+    // No markers on a linked account, open or frozen: the boundaries predate
+    // the link and rule off pre-link rows, which live behind the fold, not in
+    // this list.
+    if (tabHistory || !effectiveShowFull || boundaries.length === 0) {
       return visibleEntries.map((e) => ({ kind: "entry", entry: e }));
     }
     const items: HistoryItem[] = [];
@@ -235,9 +320,15 @@ export default function PersonDetailScreen() {
       items.push({ kind: "entry", entry: e });
     }
     return items;
-  }, [visibleEntries, effectiveShowFull, boundaries, entries]);
+  }, [visibleEntries, effectiveShowFull, boundaries, entries, tabHistory]);
+  // Never on a contact that has ever been linked (appendEntrySettled refuses
+  // the same set): the tab is shared state, one side cannot rule a line the
+  // other never drew — and once frozen, the displayed balance is the tab's
+  // while the settle preflight can only see LOCAL rows, so offering it on a
+  // visibly-zero account would always refuse with "balance must be zero".
   const canSettle =
     canAmend &&
+    !tabHistory &&
     chapterCoherent &&
     person != null &&
     person.balance === 0 &&
@@ -291,11 +382,20 @@ export default function PersonDetailScreen() {
         // carry the "N accounts settled together" trust line.
         entries,
         lang,
-        {
-          settledChapters: settlement.count,
-          settledBoundaryMs: settlement.lastSettledAtMs,
-          settledBoundaries: boundaries,
-        },
+        // D8: once the contact is linked, `entries` above ARE the tab's rows
+        // and the settle-up boundaries below belong to the pre-link local
+        // book, which is not on this bill at all. Sending them would print a
+        // dated ruled-off line and an "N accounts settled together" trust
+        // line with no rows behind either — on a document the paper rule
+        // makes the recipient's permanent asset. lib/export/data.ts drops
+        // the same boundaries for the same reason.
+        link
+          ? { settledChapters: 0, settledBoundaryMs: null, settledBoundaries: [] }
+          : {
+              settledChapters: settlement.count,
+              settledBoundaryMs: settlement.lastSettledAtMs,
+              settledBoundaries: boundaries,
+            },
       );
       if (!ok) toast.push(t("share.whatsappUnavailable"), "error");
     } finally {
@@ -304,44 +404,276 @@ export default function PersonDetailScreen() {
     }
   };
 
-  const load = useCallback(async () => {
+  // Returns the open tab link (or null) so the focus effect can ask for a
+  // pull without waiting on state; every other caller ignores the value.
+  const load = useCallback(async (): Promise<TabLink | null> => {
     if (!id) {
       setLoaded(true);
-      return;
+      return null;
     }
     // Guarded — an unhandled rejection here previously left the screen on
     // a permanent blank state with setLoaded never flipping.
     try {
-      const [p, list, s, settle, bounds] = await Promise.all([
+      const [p, list, s, settle, bounds, tl] = await Promise.all([
         getPerson(id),
         listEntries(id),
         getLocalSelf(),
         getSettlementSummary(id),
         listSettlementBoundaries(id),
+        getLatestTabLinkForPerson(id),
       ]);
+      // Sequential on purpose: the pre-link rows are defined by the link.
+      const before = tl ? await listPreLinkEntries(tl) : [];
+      const refused = tl ? await listFailedTabEntries(tl.relationship_id) : [];
       setPerson(p);
       setEntries(list);
       setSelf(s);
       setSettlement(settle);
       setBoundaries(bounds);
+      setTabHistory(tl);
+      setPreLink(before);
+      setFailedTallies(refused);
       setLoadFailed(false);
+      // Only an OPEN tab is worth syncing; a closed one never changes again.
+      return tl != null && tl.closed_at == null ? tl : null;
     } catch (err) {
       console.warn("[person] load failed", err);
       setLoadFailed(true);
+      return null;
     } finally {
       setLoaded(true);
     }
   }, [id]);
 
+  // Person-screen focus is one of the three pull triggers (D13; the others are
+  // foreground and the 60 s loop). Only HERE — not on every load(): a pull
+  // fires onTabApplied, which calls load(), and a sync request in load()
+  // would make that a loop.
   useFocusEffect(
     useCallback(() => {
-      load();
+      void load().then((tl) => {
+        if (tl) requestTabSync(tl.tab_id);
+      });
     }, [load]),
   );
 
   // Live refresh: re-load when a sync applies events for the active vault, so a
   // remote entry/payment for this person appears without navigating away/back.
   useLedgerRefresh(getActiveVaultIdSyncMaybe(), load);
+
+  // The tab's own refresh channel: upsertTabFromWire fires this after a pull
+  // (or this device's optimistic write) committed. Matched on the relationship
+  // rather than the tab id so a re-link under a new tab id keeps refreshing.
+  const linkRelationshipId = tabHistory?.relationship_id ?? null;
+  useEffect(() => {
+    if (!linkRelationshipId) return;
+    return onTabApplied((ev) => {
+      if (ev.relationshipId === linkRelationshipId) void load();
+    });
+  }, [linkRelationshipId, load]);
+
+  // ---- Mutual tab flows -------------------------------------------------
+  //
+  // Every rule (role, currency, already-linked, closed) lives in
+  // lib/tabs/link.ts; this screen only sequences the sheets and words the
+  // outcome. Two Modal-timing facts shape the sequencing below: BottomSheet
+  // defers each action 220 ms past its own exit, so a ConfirmDialog opened
+  // from a sheet action is safe as-is, but a sheet opened after a
+  // ConfirmDialog's onConfirm needs an explicit 220 ms so the two Modals
+  // never overlap mid-frame (Android renders the second one blank).
+
+  // How this kaata names itself to the other party — the shop's name when
+  // there is one, otherwise the shopkeeper's. Also the sender in the invite.
+  const myLabel = self?.shop_name || self?.name || "";
+
+  // Party a creates the tab (D7 opening entry inside linkContact), then goes
+  // straight to the share sheet: a link nobody has received is not a link.
+  async function doLink() {
+    if (!person || linkingRef.current) return;
+    linkingRef.current = true;
+    setLinking(true);
+    try {
+      // No openingNote: the opening entry's meaning is structural, so each
+      // side labels it in its own language (EntryRow and the web page both
+      // fall back to it) rather than freezing THIS phone's wording into a
+      // record the other party reads.
+      await linkContact(person.id, { myLabel });
+      await load();
+      setTimeout(() => setShareSheetVisible(true), 220);
+    } catch (err) {
+      if (err instanceof TabAlreadyLinkedError) {
+        // Another device (or a double tap that beat the guard) already did
+        // it — the reload shows the linked state; nothing to apologise for.
+        await load();
+      } else if (err instanceof TabPermissionError) {
+        toast.push(t("entry.roleDenied"), "error");
+      } else {
+        console.warn("[person] linkContact failed", err);
+        toast.push(t("tab.link.failed"), "error");
+      }
+    } finally {
+      linkingRef.current = false;
+      setLinking(false);
+    }
+  }
+
+  // Compose and send the invite in the given message language. The URL goes
+  // on its own line, untouched (see tab.invite.message in lib/i18n.ts).
+  const sendInvite = async (lang: LocaleCode) => {
+    if (!person || !link?.invite_url) return;
+    const text = tIn(lang, "tab.invite.message", { name: myLabel, url: link.invite_url });
+    const ok = await shareTabLinkOnWhatsApp(link, person, text);
+    if (ok) toast.push(t("tab.link.sent"), "success");
+    else toast.push(t("share.whatsappUnavailable"), "error");
+  };
+
+  // Same language rule as the ping: an explicit preference sends at once,
+  // 'ask' opens the per-send picker (its own sheet, see the state comment).
+  async function onShareInvite() {
+    const pref = await getShareLangPref();
+    if (pref === "ask") {
+      setInviteAskLangVisible(true);
+      return;
+    }
+    await sendInvite(resolveShareLang(pref));
+  }
+
+  async function onCopyInvite() {
+    if (!link?.invite_url) return;
+    try {
+      await Clipboard.setStringAsync(link.invite_url);
+      toast.push(t("tab.copied"), "success");
+    } catch (err) {
+      console.warn("[person] copy invite failed", err);
+      toast.push(t("entry.saveFailed"), "error");
+    }
+  }
+
+  // D11: rotating B's link is the only remedy for a forwarded invite. The
+  // new URL is what gets shared next, so the share sheet follows at once.
+  async function onRegenerate() {
+    setConfirmRegenerate(false);
+    if (!link) return;
+    try {
+      await regenerateInviteLink(link);
+      await load();
+      setTimeout(() => setShareSheetVisible(true), 220);
+    } catch (err) {
+      console.warn("[person] regenerateInviteLink failed", err);
+      toast.push(
+        err instanceof TabPermissionError || err instanceof TabClosedError
+          ? tabErrorMessage(err)
+          : err instanceof TabAuthUnavailableError
+            ? t("tab.needsConnection")
+            : t("tab.link.failed"),
+        "error",
+      );
+      if (err instanceof TabClosedError) await load();
+    }
+  }
+
+  // Unlink = close for both sides. Closed locally first inside unlinkContact,
+  // so the reload already shows the contact back on its own book.
+  async function onUnlink() {
+    setConfirmUnlink(false);
+    if (!link) return;
+    try {
+      await unlinkContact(link);
+      toast.push(t("tab.unlinked"), "success");
+      await load();
+    } catch (err) {
+      console.warn("[person] unlinkContact failed", err);
+      toast.push(tabErrorMessage(err), "error");
+    }
+  }
+
+  // Accept is optional (D6) and also how a dispute is withdrawn, so it is
+  // offered on pending AND disputed rows of theirs.
+  async function onAccept(entry: Entry) {
+    if (!link) return;
+    try {
+      await acceptEntry(link, entry.id);
+      toast.push(t("tab.accepted"), "success");
+      await load();
+    } catch (err) {
+      console.warn("[person] acceptEntry failed", err);
+      toast.push(tabErrorMessage(err), "error");
+    }
+  }
+
+  // The author's only correction (D5): a visible void, never an edit.
+  async function onVoid() {
+    const target = confirmVoidFor;
+    setConfirmVoidFor(null);
+    if (!link || !target) return;
+    try {
+      await voidEntry(link, target.id);
+      toast.push(t("tab.voided"), "success");
+      await load();
+    } catch (err) {
+      console.warn("[person] voidEntry failed", err);
+      toast.push(tabErrorMessage(err), "error");
+    }
+  }
+
+  // Long-press actions for the tally under `sheetFor`. Tab rows swap the
+  // local Edit/Delete pair for the tab verbs: the author may only void; the
+  // other side may accept or dispute, and a disputed row offers Accept (which
+  // clears the dispute) while an accepted row still offers Dispute. Voided
+  // rows never reach here — their long-press is disabled at the row.
+  const sheetActions = (() => {
+    const target = sheetFor;
+    if (!target) return [];
+    const meta = target.tab;
+    if (!meta) {
+      return [
+        {
+          label: t("person.sheet.edit"),
+          icon: "create-outline" as const,
+          onPress: () => {
+            router.push({ pathname: "/entry/[id]/edit", params: { id: target.id } });
+          },
+        },
+        {
+          label: t("person.sheet.delete"),
+          icon: "trash-outline" as const,
+          destructive: true,
+          onPress: () => setConfirmDeleteFor(target),
+        },
+      ];
+    }
+    if (meta.by === "me") {
+      return [
+        {
+          label: t("tab.void"),
+          icon: "close-circle-outline" as const,
+          destructive: true,
+          onPress: () => setConfirmVoidFor(target),
+        },
+      ];
+    }
+    const accept = {
+      label: t("tab.accept"),
+      icon: "checkmark-outline" as const,
+      onPress: () => void onAccept(target),
+    };
+    const dispute = {
+      label: t("tab.dispute"),
+      icon: "alert-circle-outline" as const,
+      onPress: () => {
+        if (!person) return;
+        router.push({
+          pathname: "/tab/dispute",
+          params: { personId: person.id, entryId: target.id },
+        });
+      },
+    };
+    return meta.status === "disputed"
+      ? [accept]
+      : meta.status === "accepted"
+        ? [dispute]
+        : [accept, dispute];
+  })();
 
   if (!person) {
     // Pre-load: spinner. Post-load null (stale id, person archived remotely
@@ -434,6 +766,26 @@ export default function PersonDetailScreen() {
               <Ionicons name="document-text-outline" size={icon.row} color={colors.textEmphasis} />
             )}
           </Pressable>
+          {/* Link with their kaata. Gated like the pencil (linking changes
+              what the account IS, so a clerk or viewer may not), and gone
+              once linked — from then on the chip in the info block is the
+              tab's handle. Between export and edit: read, share, write. */}
+          {canAmend && !link ? (
+            <Pressable
+              onPress={() => setLinkSheetVisible(true)}
+              disabled={linking}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={t("tab.link.title")}
+              style={({ pressed }) => [styles.iconBtn, (pressed || linking) && { opacity: 0.5 }]}
+            >
+              {linking ? (
+                <ActivityIndicator size="small" color={colors.textSubtle} />
+              ) : (
+                <Ionicons name="link-outline" size={icon.row} color={colors.textEmphasis} />
+              )}
+            </Pressable>
+          ) : null}
           {canAmend ? (
             <Pressable
               onPress={() =>
@@ -482,25 +834,49 @@ export default function PersonDetailScreen() {
               <Text style={[styles.phone, textDir(isRTL)]}>{person.phone}</Text>
             ) : null}
             <View style={{ height: 16 }} />
-            {chipLabel && chipVariant ? (
-              <Chip label={chipLabel} variant={chipVariant} />
-            ) : entries.length > 0 &&
-              settlement.count > 0 &&
-              chapterCoherent &&
-              chapterEntries.length === 0 ? (
-              // "SETTLED" only when the user actually drew the line and it
-              // covers everything.
-              <Chip label={t("person.balance.settled")} variant="neutral" />
-            ) : entries.length > 0 ? (
-              // A tally that merely SUMS to zero (or whose chapter no longer
-              // adds up after a sync) is not a settled account — say so
-              // rather than leaving the chip slot blank while every other
-              // state labels itself. Hollow pill: true, but not an
-              // achievement. The settle-row invitation sits below.
-              // Contacts with no entries at all keep an empty slot — there
-              // is no tally yet to have a state.
-              <Chip label={t("person.balance.notSettled")} variant="outline" />
-            ) : null}
+            <View style={[styles.chipRow, rowDir(isRTL)]}>
+              {chipLabel && chipVariant ? (
+                <Chip label={chipLabel} variant={chipVariant} />
+              ) : entries.length > 0 &&
+                settlement.count > 0 &&
+                chapterCoherent &&
+                chapterEntries.length === 0 ? (
+                // "SETTLED" only when the user actually drew the line and it
+                // covers everything.
+                <Chip label={t("person.balance.settled")} variant="neutral" />
+              ) : entries.length > 0 ? (
+                // A tally that merely SUMS to zero (or whose chapter no longer
+                // adds up after a sync) is not a settled account — say so
+                // rather than leaving the chip slot blank while every other
+                // state labels itself. Hollow pill: true, but not an
+                // achievement. The settle-row invitation sits below.
+                // Contacts with no entries at all keep an empty slot — there
+                // is no tally yet to have a state.
+                <Chip label={t("person.balance.notSettled")} variant="outline" />
+              ) : null}
+              {link ? (
+                // The tab's handle. Monochrome (readOnlyChip idiom) beside the
+                // coloured direction chip: linked-ness is a fact about the
+                // account, direction is the only thing colour says here. The
+                // label carries the other party's OWN name for themselves
+                // (their label) once they have joined, or says the link is
+                // still out there. Tapping opens the manage sheet for editors;
+                // viewers and clerks see the state and nothing more.
+                <Pressable
+                  onPress={canAmend ? () => setLinkedSheetVisible(true) : undefined}
+                  disabled={!canAmend}
+                  accessibilityRole={canAmend ? "button" : "text"}
+                  style={({ pressed }) => [styles.readOnlyChip, pressed && { opacity: 0.5 }]}
+                >
+                  <Ionicons name="link-outline" size={12} color={colors.textSubtle} />
+                  <Text style={styles.readOnlyChipText} allowFontScaling={false} numberOfLines={1}>
+                    {link.other_joined_at != null
+                      ? t("tab.chip.linked", { name: link.other_label || person.name })
+                      : t("tab.chip.waiting")}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
             <View style={[styles.balanceRow, rowDir(isRTL)]}>
               <Text
                 style={[styles.balance, { color: balanceColor, flexShrink: 1 }]}
@@ -628,8 +1004,18 @@ export default function PersonDetailScreen() {
               // handles those by falling open — but this device won't offer
               // the footgun.
               const inSettledChapter =
+                !entry.tab &&
                 settlement.lastSettledAtMs != null &&
                 entry.created_at <= settlement.lastSettledAtMs;
+              // Tab rows: the long-press sheet needs canAmend too (accept /
+              // dispute / void are editor verbs — §4.4), and a voided row has
+              // nothing left to do, so it gets no sheet at all. Once the tab
+              // is CLOSED its rows are frozen history — every verb the sheet
+              // offers writes to a tab that no longer accepts writes — so
+              // they get no sheet either, rather than a menu of no-ops.
+              const frozenTabRow = entry.tab != null && link == null;
+              const canOpenSheet =
+                canAmend && !inSettledChapter && !entry.tab?.voided && !frozenTabRow;
               return (
                 <View key={entry.id}>
                   {index > 0 && historyItems[index - 1].kind !== "marker" ? (
@@ -640,8 +1026,9 @@ export default function PersonDetailScreen() {
                       Opens the edit/delete sheet on TAP-AND-HOLD only. */}
                   <EntryRow
                     entry={entry}
-                    onLongPress={canAmend && !inSettledChapter ? setSheetFor : undefined}
+                    onLongPress={canOpenSheet ? setSheetFor : undefined}
                     attribution={attribution.get(entry.id)}
+                    tab={entry.tab}
                   />
                 </View>
               );
@@ -649,12 +1036,77 @@ export default function PersonDetailScreen() {
           </View>
         )}
 
+        {failedTallies.length > 0 ? (
+          <>
+            <Pressable
+              onPress={() => setFailedTalliesOpen((v) => !v)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: failedTalliesOpen }}
+              style={[styles.foldRow, rowDir(isRTL)]}
+            >
+              <Text style={styles.historyRowText}>
+                {t("tab.notSent", { count: failedTallies.length })}
+              </Text>
+              <Ionicons
+                name={failedTalliesOpen ? "chevron-up" : "chevron-down"}
+                size={14}
+                color={colors.textSubtle}
+              />
+            </Pressable>
+            {failedTalliesOpen ? (
+              <View style={[styles.entriesCard, styles.preLinkCard]}>
+                <Text style={[styles.historyRowText, { padding: 14 }, textDir(isRTL)]}>
+                  {t("tab.notSent.body")}
+                </Text>
+                {failedTallies.map((entry) => (
+                  <EntryRow key={entry.id} entry={entry} />
+                ))}
+              </View>
+            ) : null}
+          </>
+        ) : null}
+
+        {/* Pre-link history (D8). Visible but folded, in the settled-history
+            row's visual language: these rows are the book as it was before
+            the account became shared, their sum is already the opening tally
+            on the tab, and nothing here can be edited (TabLinkedEntryError).
+            No long-press, no attribution: frozen pages. */}
+        {tabHistory && preLink.length > 0 ? (
+          <>
+            <Pressable
+              onPress={() => setPreLinkOpen((v) => !v)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: preLinkOpen }}
+              style={({ pressed }) => [styles.foldRow, rowDir(isRTL), pressed && { opacity: 0.5 }]}
+            >
+              <Text style={styles.historyRowText} allowFontScaling={false}>
+                {t("tab.beforeLinking", { count: preLink.length })}
+              </Text>
+              <Ionicons
+                name={preLinkOpen ? "chevron-up" : "chevron-down"}
+                size={14}
+                color={colors.textSubtle}
+              />
+            </Pressable>
+            {preLinkOpen ? (
+              <View style={[styles.entriesCard, styles.preLinkCard]}>
+                {preLink.map((entry, index) => (
+                  <View key={entry.id}>
+                    {index > 0 ? <View style={styles.divider} /> : null}
+                    <EntryRow entry={entry} />
+                  </View>
+                ))}
+              </View>
+            ) : null}
+          </>
+        ) : null}
+
         {/* Settled history collapse — one quiet row, only when chapters
             exist AND the collapse is coherent (when the chapter can't
             explain the balance, the view is forced open and the toggle
             hides rather than pretend). Nothing was deleted; the book just
             has pages now. */}
-        {settlement.count > 0 && chapterCoherent ? (
+        {!tabHistory && settlement.count > 0 && chapterCoherent ? (
           <Pressable
             onPress={() => setShowFullHistory((v) => !v)}
             accessibilityRole="button"
@@ -745,22 +1197,138 @@ export default function PersonDetailScreen() {
             : undefined
         }
         onDismiss={() => setSheetFor(null)}
+        // Edit/Delete for a local tally, the tab verbs for a tab tally — see
+        // sheetActions above for the per-status rules.
+        actions={sheetActions}
+      />
+
+      {/* ---- Mutual tab sheets & dialogs ---- */}
+
+      {/* Step 1 of linking: one action, so the header icon is not itself a
+          one-tap irreversible network write. The explanation lives in the
+          ConfirmDialog that follows (BottomSheet has no description slot). */}
+      <BottomSheet
+        visible={linkSheetVisible}
+        title={t("tab.link.title")}
+        onDismiss={() => setLinkSheetVisible(false)}
         actions={[
           {
-            label: t("person.sheet.edit"),
-            icon: "create-outline",
-            onPress: () => {
-              const eid = sheetFor?.id;
-              if (eid) router.push({ pathname: "/entry/[id]/edit", params: { id: eid } });
-            },
-          },
-          {
-            label: t("person.sheet.delete"),
-            icon: "trash-outline",
-            destructive: true,
-            onPress: () => setConfirmDeleteFor(sheetFor),
+            label: t("tab.link.action"),
+            icon: "link-outline",
+            onPress: () => setConfirmLink(true),
           },
         ]}
+      />
+      <ConfirmDialog
+        visible={confirmLink}
+        title={t("tab.link.confirm.title")}
+        description={t("tab.link.confirm.body", { name: person.name })}
+        confirmLabel={t("tab.link.confirm.ok")}
+        onConfirm={() => {
+          // Close first (ConfirmDialog never self-dismisses), then the network
+          // step; the header spinner is the progress cue while it runs.
+          setConfirmLink(false);
+          void doLink();
+        }}
+        onCancel={() => setConfirmLink(false)}
+      />
+
+      {/* Share sheet (party a only — party b has no invite URL). Titled with
+          the contact's name because the message is addressed to them. Copy
+          is offered alongside WhatsApp for the contact whose number we do
+          not have, or who is reached some other way. */}
+      <BottomSheet
+        visible={shareSheetVisible && !!link?.invite_url}
+        title={person.name}
+        onDismiss={() => setShareSheetVisible(false)}
+        actions={[
+          {
+            label: t("tab.share.whatsapp"),
+            icon: "logo-whatsapp",
+            onPress: () => void onShareInvite(),
+          },
+          {
+            label: t("tab.share.copy"),
+            icon: "copy-outline",
+            onPress: () => void onCopyInvite(),
+          },
+        ]}
+      />
+      <OptionSheet
+        visible={inviteAskLangVisible}
+        title={t("share.askLang.title")}
+        options={[
+          { key: "fa", label: t("settings.language.option.fa") },
+          { key: "en", label: t("settings.language.option.en") },
+        ]}
+        selected=""
+        onSelect={(k) => {
+          setInviteAskLangVisible(false);
+          void sendInvite(k as LocaleCode);
+        }}
+        onDismiss={() => setInviteAskLangVisible(false)}
+        isRTL={isRTL}
+      />
+
+      {/* Manage sheet behind the linked chip. Re-share and regenerate exist
+          only for party a (the link is B's credential, D11); unlink is
+          either side's right and closes the tab for both. */}
+      <BottomSheet
+        visible={linkedSheetVisible}
+        title={person.name}
+        onDismiss={() => setLinkedSheetVisible(false)}
+        actions={[
+          ...(link?.role === "a" && link.invite_url
+            ? [
+                {
+                  label: t("tab.share.again"),
+                  icon: "share-outline" as const,
+                  onPress: () => setShareSheetVisible(true),
+                },
+              ]
+            : []),
+          ...(link?.role === "a"
+            ? [
+                {
+                  label: t("tab.regenerate"),
+                  icon: "refresh-outline" as const,
+                  onPress: () => setConfirmRegenerate(true),
+                },
+              ]
+            : []),
+          {
+            label: t("tab.unlink"),
+            icon: "unlink-outline",
+            destructive: true,
+            onPress: () => setConfirmUnlink(true),
+          },
+        ]}
+      />
+      <ConfirmDialog
+        visible={confirmRegenerate}
+        title={t("tab.regenerate.title")}
+        description={t("tab.regenerate.body", { name: person.name })}
+        confirmLabel={t("tab.regenerate.ok")}
+        onConfirm={() => void onRegenerate()}
+        onCancel={() => setConfirmRegenerate(false)}
+      />
+      <ConfirmDialog
+        visible={confirmUnlink}
+        title={t("tab.unlink.title", { name: person.name })}
+        description={t("tab.unlink.body")}
+        confirmLabel={t("tab.unlink")}
+        destructive
+        onConfirm={() => void onUnlink()}
+        onCancel={() => setConfirmUnlink(false)}
+      />
+      <ConfirmDialog
+        visible={confirmVoidFor !== null}
+        title={t("tab.void.title")}
+        description={t("tab.void.body")}
+        confirmLabel={t("tab.void")}
+        destructive
+        onConfirm={() => void onVoid()}
+        onCancel={() => setConfirmVoidFor(null)}
       />
 
       {/* Per-send message-language picker (share_lang_pref = 'ask'). Dari
@@ -866,6 +1434,11 @@ const styles = StyleSheet.create({
     color: colors.textSubtle,
   },
   info: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 20 },
+  // Direction chip + linked chip on one line. Chip's own alignSelf handles
+  // the script edge; this row just puts the two side by side. flexWrap so
+  // a long counterparty label drops the linked chip to a second line rather
+  // than squeezing the direction word.
+  chipRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
   // 22 → typography.heading (20): 22 was one of the scale's two orphan display
   // sizes and sat 2px from `heading`, which every other screen headline already
   // uses. The BOLD weight is kept (heading ships sansSemi) — this is a person's
@@ -1022,6 +1595,19 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansMedium,
     color: colors.textSubtle,
   },
+  // "Before linking · N" fold — the historyRow with a chevron, since unlike
+  // the settled toggle its label does not change wording between states.
+  foldRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingVertical: 14,
+    minHeight: TOUCH_MIN,
+  },
+  // Frozen pages sit on the muted ground the chapter lines use, so the eye
+  // reads them as history the moment the fold opens.
+  preLinkCard: { marginTop: 0, backgroundColor: colors.bgMuted },
   pingBar: {
     // Transparent container — NO opaque white background. The old
     // backgroundColor: colors.bgDefault painted a big white rectangle behind the

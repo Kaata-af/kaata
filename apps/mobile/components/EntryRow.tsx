@@ -11,6 +11,7 @@ import { fonts, sansLineHeight } from "../lib/fonts";
 import { formatAmount, formatRelative, formatTimestamp } from "../lib/format";
 import { t } from "../lib/i18n";
 import { radius } from "../lib/tokens";
+import type { TabEntryMeta } from "../lib/tabs/types";
 import type { Entry } from "../lib/types";
 
 // The author chip's diameter. 20 is not a round number pulled from the air:
@@ -33,10 +34,17 @@ export const EntryRow = memo(function EntryRow(props: {
   // answer is always "you" and a chip would be pure noise — the caller decides
   // that (app/person/[id].tsx), so this component stays dumb about membership.
   attribution?: EntryAttribution;
+  // Mutual-tab meta (docs/mutual-tab-design.md §4.4), present only on a
+  // linked contact's rows. A sibling of `attribution`, not an overload of it:
+  // the tab counterparty is not a kaata member, has no account id and no
+  // member tint, so nothing in the attribution machinery can describe them.
+  // The caller passes `entry.tab` straight through.
+  tab?: TabEntryMeta;
 }) {
   const isRTL = useIsRTL();
   useCalendar(); // This memoized row must also refresh when its calendar changes.
-  const { entry } = props;
+  const { entry, tab } = props;
+  const voided = tab?.voided === true;
   const isGave = entry.type === "debt";
   const icon = isGave ? "arrow-up-outline" : "arrow-down-outline";
   const verb = isGave ? t("person.action.iGave") : t("person.action.iReceived");
@@ -81,12 +89,54 @@ export const EntryRow = memo(function EntryRow(props: {
     actor.isSelf ? t("entry.by.you") : (actor.name ?? t("entry.by.someone"));
   const author = props.attribution?.author ?? null;
   const editor = props.attribution?.editor ?? null;
-  const byLine = author
+  const memberByLine = author
     ? t("entry.addedBy", { name: nameOf(author) }) +
       (editor ? ` · ${t("entry.editedBy", { name: nameOf(editor) })}` : "")
     : editor
       ? t("entry.editedByOnly", { name: nameOf(editor) })
       : null;
+
+  // TAB STATUS (linked contacts only). Same two-level design as attribution:
+  // collapsed, at most ONE monochrome word in a pill that fits the amount's
+  // line box; opened, the full sentence. Accepted rows show nothing — a
+  // tally counts the moment it lands (D6), so acknowledgement is the quiet
+  // default and only the exceptions speak: "New" is theirs and unreviewed,
+  // "Disputed" and "Voided" are the two states that change what the row
+  // means, "Sending…" is this phone's own row the server has not acked.
+  //
+  // Monochrome on purpose: emerald and garnet already mean give/receive on
+  // this very row, and danger means destructive. A red "Disputed" next to a
+  // red "I gave" arrow would read as one thing when it is two.
+  const pill = tab
+    ? voided
+      ? t("tab.status.voided")
+      : tab.local_pending
+        ? t("tab.status.sending")
+        : tab.status === "disputed"
+          ? t("tab.status.disputed")
+          : tab.by === "them" && tab.status === "pending"
+            ? t("tab.status.new")
+            : null
+    : null;
+  // On a tab row the author is one of exactly two parties, so the by-line is
+  // decided here and REPLACES the member by-line (a kaata member who wrote a
+  // tab tally still acted as "you", the kaata side of the tab).
+  const byLine = tab
+    ? tab.by === "me"
+      ? t("tab.addedByYou")
+      : t("tab.addedBy", { name: tab.other_label || t("tab.them") })
+    : memberByLine;
+  const disputeLine =
+    tab && tab.status === "disputed" && !voided && tab.dispute_reason
+      ? t("tab.disputedReason", { reason: tab.dispute_reason })
+      : null;
+
+  // An opening entry deliberately carries NO note on the wire: "the balance
+  // carried over" is structural, not something the author wrote, so each side
+  // labels it in ITS OWN language. (The web page does the same — a Dari
+  // customer must not read the shopkeeper's English.) A note the author
+  // actually typed always wins.
+  const note = entry.note ?? (tab?.kind === "opening" ? t("tab.opening.note") : null);
 
   return (
     <Pressable
@@ -120,6 +170,9 @@ export const EntryRow = memo(function EntryRow(props: {
           styles.iconWrap,
           { backgroundColor: tint.bg },
           isRTL ? styles.iconWrapRTL : styles.iconWrapLTR,
+          // A voided tally keeps its arrow (the audit trail says what it WAS,
+          // D5) at half strength, so the eye reads "cancelled" before "gave".
+          voided && styles.voidedTile,
         ]}
         // Direction is shown by the arrow's shape AND its color (red = I gave /
         // money out, green = I received / money in) — there's no text label —
@@ -137,7 +190,11 @@ export const EntryRow = memo(function EntryRow(props: {
             carries direction, so the verb label is gone. */}
         <View style={[styles.topRow, rowDir(isRTL)]}>
           <View style={[styles.amountRow, rowDir(isRTL)]}>
-            <Text style={styles.amount}>{formatAmount(entry.amount_afn)}</Text>
+            {/* Struck, not hidden: the number stays legible under the line so
+                both parties can still see what was cancelled. */}
+            <Text style={[styles.amount, voided && styles.voidedAmount]}>
+              {formatAmount(entry.amount_afn)}
+            </Text>
             <Text style={styles.afn}>{getCurrentCurrencySymbol()}</Text>
           </View>
           {/* The date stays in its trailing slot in both states; it only
@@ -146,6 +203,17 @@ export const EntryRow = memo(function EntryRow(props: {
               a long exact timestamp ellipsizes the DATE rather than crushing
               the one element that is a fixed-size graphic. */}
           <View style={[styles.meta, rowDir(isRTL)]}>
+            {/* Status pill: a fixed AUTHOR_CHIP_SIZE tall, so like the author
+                chip it costs the row no height. Text never scales — a scaled
+                word would overflow the fixed box, and this is a one-word
+                status the opened row spells out in full anyway. */}
+            {pill ? (
+              <View style={styles.statusPill} accessible accessibilityLabel={pill}>
+                <Text style={styles.statusPillText} allowFontScaling={false} numberOfLines={1}>
+                  {pill}
+                </Text>
+              </View>
+            ) : null}
             {chipActor && chipTint ? (
               <View
                 accessible
@@ -173,7 +241,7 @@ export const EntryRow = memo(function EntryRow(props: {
             </Text>
           </View>
         </View>
-        {entry.note ? (
+        {note ? (
           expanded ? (
             // Expanded: the full note renders as a single text block, with the
             // "less" cue flowing INLINE at the very end of the text. A nested
@@ -182,8 +250,8 @@ export const EntryRow = memo(function EntryRow(props: {
             // the first line (which is what a flex sibling did — and a
             // multi-line flex child under alignItems:'baseline' also clipped the
             // text on Android). A plain block <Text> wraps cleanly, every line.
-            <Text style={[styles.noteBlock, textDir(isRTL)]} accessibilityLabel={entry.note}>
-              {entry.note}
+            <Text style={[styles.noteBlock, textDir(isRTL)]} accessibilityLabel={note}>
+              {note}
               {"  "}
               <Text style={styles.more}>{t("common.less")}</Text>
             </Text>
@@ -205,7 +273,7 @@ export const EntryRow = memo(function EntryRow(props: {
                   style={[styles.note, textDir(isRTL)]}
                   numberOfLines={measured ? 1 : undefined}
                   // Full note for screen readers, regardless of the visual clamp.
-                  accessibilityLabel={entry.note}
+                  accessibilityLabel={note}
                   onTextLayout={(e) => {
                     if (!measured) {
                       setClipped(e.nativeEvent.lines.length > 1);
@@ -213,7 +281,7 @@ export const EntryRow = memo(function EntryRow(props: {
                     }
                   }}
                 >
-                  {entry.note}
+                  {note}
                 </Text>
               </View>
               {measured && clipped ? <Text style={styles.more}>{t("common.more")}</Text> : null}
@@ -228,6 +296,16 @@ export const EntryRow = memo(function EntryRow(props: {
           <Text style={[styles.byLine, textDir(isRTL)]} numberOfLines={2}>
             {byLine}
           </Text>
+        ) : null}
+        {/* The dispute reason is the other party's words about THIS tally,
+            so it gets the full width and no clamp: a shopkeeper resolving a
+            dispute needs the whole sentence, not its first line. "Voided"
+            repeats the pill in prose so the opened row is complete on its own. */}
+        {open && disputeLine ? (
+          <Text style={[styles.byLine, textDir(isRTL)]}>{disputeLine}</Text>
+        ) : null}
+        {open && voided ? (
+          <Text style={[styles.byLine, textDir(isRTL)]}>{t("tab.status.voided")}</Text>
         ) : null}
       </View>
     </Pressable>
@@ -252,6 +330,29 @@ const styles = StyleSheet.create({
   },
   iconWrapLTR: { marginRight: 12 },
   iconWrapRTL: { marginLeft: 12 },
+  voidedTile: { opacity: 0.5 },
+  // textMuted, not textSubtle: the strike already says "gone"; the colour
+  // only has to stop the number competing with the live ones around it.
+  voidedAmount: { textDecorationLine: "line-through", color: colors.textMuted },
+  // Monochrome micro-pill (the person header's readOnlyChip idiom), but with
+  // a FIXED height instead of vertical padding: it must fit the 20px line box
+  // of the amount beside it, and Vazirmatn's natural line height at 11px
+  // already exceeds that on iOS with any padding at all.
+  statusPill: {
+    height: AUTHOR_CHIP_SIZE,
+    paddingHorizontal: 7,
+    borderRadius: radius.pill,
+    backgroundColor: colors.bgMuted,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  statusPillText: {
+    fontSize: 11,
+    fontFamily: fonts.sansMedium,
+    color: colors.textSubtle,
+    lineHeight: sansLineHeight(11, 14),
+  },
   middle: { flex: 1, minWidth: 0 },
   topRow: {
     flexDirection: "row",

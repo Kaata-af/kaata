@@ -1296,6 +1296,125 @@ const en = {
   "diagnostics.noExits": "No exit records (Android < 11, or fresh install with no prior death).",
   "diagnostics.section.now": "RIGHT NOW",
   "diagnostics.refresh": "Refresh",
+
+  // Mutual tab (Kaata 2.0, docs/mutual-tab-design.md §4.4). The user-facing
+  // noun is "shared account" — a shopkeeper thinks "Ahmad's account", never
+  // "a tab" (D3). "Link" is the verb for creating one and the noun for the
+  // invite URL; both senses are deliberate, because the URL IS the other
+  // party's access (D11). Status words are calm on purpose: a tally counts
+  // the moment it lands (D6), so nothing here nags for an acknowledgement.
+  "tab.link.title": "Link with their kaata",
+  "tab.link.action": "Create shared account",
+  "tab.link.confirm.title": "Share this account?",
+  "tab.link.confirm.body":
+    "{name} will see every tally on this account and can add, accept or dispute tallies. The current balance is carried over as one visible opening tally.",
+  "tab.link.confirm.ok": "Link",
+  "tab.link.failed": "Couldn't link. Check your connection and try again.",
+  "tab.link.sent": "Link sent",
+  // Note on the D7 opening entry; the other party reads it in THEIR list.
+  "tab.opening.note": "Balance before linking",
+  "tab.share.whatsapp": "Send link on WhatsApp",
+  "tab.share.copy": "Copy link",
+  "tab.copied": "Link copied",
+  "tab.share.again": "Send link again",
+  "tab.regenerate": "New link (old one stops working)",
+  "tab.regenerate.title": "Make a new link?",
+  "tab.regenerate.body":
+    "The link you sent before stops working for everyone who has it. Send the new one to {name}.",
+  "tab.regenerate.ok": "New link",
+  "tab.unlink": "Unlink",
+  "tab.unlink.title": "Unlink {name}?",
+  // What closing actually does (docs/mutual-tab-design.md §4.3): the shared
+  // period FREEZES — its tallies and the balance they add up to stay on this
+  // contact, nobody can add to or review them any more, and new tallies are
+  // ordinary entries in your own book again. Says "for both of you" because
+  // close is a server-side act: the other party's link goes read-only too.
+  "tab.unlink.body":
+    "The shared account closes for both of you. Its tallies stay here and still count, but neither side can add to them any more. New tallies go back to your own book.",
+  "tab.unlinked": "Unlinked",
+  "tab.chip.linked": "Linked · {name}",
+  "tab.chip.waiting": "Link sent · waiting",
+  // Fold row over the pre-link local rows (D8: visible, excluded from the balance).
+  "tab.beforeLinking": "Before linking · {count}",
+  "tab.notSent": "Not sent · {count}",
+  "tab.notSent.body": "These tallies could not be added to the shared account. They are kept on this phone for you to review and are not included in the balance.",
+  // Row pills (≤ 20 px, monochrome). Accepted rows show nothing.
+  "tab.status.new": "New",
+  "tab.status.disputed": "Disputed",
+  "tab.status.voided": "Voided",
+  "tab.status.sending": "Sending…",
+  // Opened-row words. A tab counterparty is not a kaata member, so these
+  // replace entry.addedBy rather than feeding the attribution chip.
+  "tab.addedBy": "Added by {name}",
+  "tab.addedByYou": "Added by you",
+  "tab.disputedReason": "Disputed: {reason}",
+  "tab.void": "Void",
+  "tab.void.title": "Void this tally?",
+  "tab.void.body":
+    "It stays visible, struck through, and no longer counts. Add a new tally if the amount was wrong.",
+  "tab.voided": "Tally voided",
+  "tab.accept": "Accept",
+  "tab.accepted": "Accepted",
+  "tab.dispute": "Dispute…",
+  "tab.dispute.title": "Dispute · {amount}",
+  "tab.dispute.reasonLabel": "What is wrong?",
+  "tab.dispute.reasonPlaceholder": "e.g. I paid 300, not 500",
+  "tab.dispute.reasonRequired": "Write a reason so {name} understands.",
+  "tab.dispute.reasonTooLong": "Keep it under 300 characters.",
+  "tab.dispute.send": "Send dispute",
+  "tab.dispute.notFound": "This tally is no longer on the shared account.",
+  "tab.disputed": "Dispute sent",
+  "tab.closed": "This shared account was closed.",
+  "tab.needsConnection": "Go online to add to a shared account.",
+  "tab.editLocked": "Tallies on a shared account can't be edited — void it and add a new one.",
+  "tab.currencyLocked": "Unlink shared accounts before changing the currency.",
+  // D17 settlement double-log warning, toasted after the save lands.
+  "tab.duplicateHint": "Already recorded by {name} — check it isn't counted twice.",
+  // Fallback for {name} when the other party has not joined (no label yet).
+  // A NOUN PHRASE, not a pronoun: every template that takes it reads "Added
+  // by {name}" / "so {name} understands", and "they" turns both ungrammatical.
+  "tab.them": "the other side",
+  "tab.row.pending": "{count} to review",
+  // Outgoing WhatsApp invite. The URL sits on its own line, exactly like
+  // share.fullLedger's link: nothing (not even an invisible bidi mark) may
+  // touch it, or some clients stop recognising it as a link.
+  "tab.invite.message":
+    "{name} shares a Kaata account with you. Open the link to see the balance and add or confirm tallies:\n{url}",
+
+  // Joining someone else's shared account (app/t/[token].tsx, D10/D11). The
+  // visitor here may never have signed in and may not even have a kaata yet,
+  // so the copy explains the invitation before it asks for anything. Currency
+  // codes are Latin tokens inside Dari prose and are bidi-isolated at the call
+  // site, never here.
+  "tab.join.title": "Shared account",
+  "tab.join.from": "{name} shares an account with you",
+  "tab.join.balanceLabel": "Balance",
+  "tab.join.entries": "{count} tallies",
+  "tab.join.join": "Join",
+  "tab.join.pickKaata": "Which kaata is this for?",
+  "tab.join.pickContact": "Who is {name} in your kaata?",
+  "tab.join.newContact": "New contact",
+  // D9: the tab's currency is fixed at creation and a kaata cannot change its
+  // currency while it holds one, so the only way forward is a new kaata.
+  "tab.join.noCurrencyKaata": "You need a kaata in {currency} for this account.",
+  "tab.join.createKaata": "Create a {currency} kaata",
+  "tab.join.done": "Linked with {name}",
+  "tab.join.closed": "This shared account was closed.",
+  // Collapses unknown / regenerated / revoked — the server answers all three
+  // with the same 404 by design (uniform 404).
+  "tab.join.notFound": "This link is not valid any more.",
+  "tab.join.currencyMismatch": "Your kaata is in {kaata}; this account is in {tab}.",
+  "tab.join.sameKaata": "You can't share an account with your own kaata.",
+  "tab.join.alreadyLinked": "This contact already has a shared account.",
+
+  // Local notifications (lib/tabs/notify.ts, D14). The channel strings are read
+  // by the OS settings list, so they name the feature the way the app does.
+  "tab.notify.channel": "Shared accounts",
+  "tab.notify.channelDescription":
+    "Tallies the other party added or reviewed while Kaata was in the background.",
+  "tab.notify.fallbackTitle": "Shared account",
+  "tab.notify.newEntries": "{count} new tallies to review",
+  "tab.notify.reviewed": "Your tallies were reviewed",
 } as const;
 
 type Key = keyof typeof en;
@@ -2373,6 +2492,91 @@ const fa: Partial<Record<Key, string>> = {
   "diagnostics.noExits": "سابقه‌ای ثبت نشده (اندروید کمتر از ۱۱، یا نصب تازه).",
   "diagnostics.section.now": "همین حالا",
   "diagnostics.refresh": "تازه‌سازی",
+
+  // Mutual tab — حساب مشترک. Afghan register throughout (کاتا, دکان, لینک
+  // as shopkeepers say it); "پیوند" for link-as-verb, "لینک" for the URL.
+  "tab.link.title": "پیوند با کاتای او",
+  "tab.link.action": "ساختن حساب مشترک",
+  "tab.link.confirm.title": "این حساب مشترک شود؟",
+  "tab.link.confirm.body":
+    "{name} همهٔ ثبت‌های این حساب را می‌بیند و می‌تواند ثبت اضافه کند، تأیید کند یا اعتراض کند. باقی‌ماندهٔ فعلی به شکل یک ثبت آغازین قابل دید منتقل می‌شود.",
+  "tab.link.confirm.ok": "پیوند",
+  "tab.link.failed": "پیوند برقرار نشد. انترنت را بررسی کنید و دوباره امتحان کنید.",
+  "tab.link.sent": "لینک فرستاده شد",
+  "tab.opening.note": "باقی‌مانده پیش از پیوند",
+  "tab.share.whatsapp": "فرستادن لینک در واتساپ",
+  "tab.share.copy": "کپی لینک",
+  "tab.copied": "لینک کپی شد",
+  "tab.share.again": "فرستادن دوبارهٔ لینک",
+  "tab.regenerate": "لینک نو (لینک قبلی از کار می‌افتد)",
+  "tab.regenerate.title": "لینک نو ساخته شود؟",
+  "tab.regenerate.body":
+    "لینکی که پیشتر فرستادید برای همه از کار می‌افتد. لینک نو را به {name} بفرستید.",
+  "tab.regenerate.ok": "لینک نو",
+  "tab.unlink": "قطع پیوند",
+  "tab.unlink.title": "پیوند با {name} قطع شود؟",
+  "tab.unlink.body":
+    "حساب مشترک برای هر دوی شما بسته می‌شود. ثبت‌های آن همین‌جا می‌مانند و در حساب شمار می‌شوند، اما پس از این هیچ‌کدام‌تان چیزی به آن اضافه کرده نمی‌توانید. ثبت‌های نو دوباره به کتاب خودتان می‌روند.",
+  "tab.unlinked": "پیوند قطع شد",
+  "tab.chip.linked": "پیوند شده · {name}",
+  "tab.chip.waiting": "لینک فرستاده شد · در انتظار",
+  "tab.beforeLinking": "پیش از پیوند · {count}",
+  "tab.notSent": "فرستاده نشد · {count}",
+  "tab.notSent.body": "این ثبت‌ها به حساب مشترک افزوده نشدند. برای بررسی شما در این تلفون نگه‌داری شده‌اند و در ماندهٔ حساب شامل نیستند.",
+  "tab.status.new": "نو",
+  "tab.status.disputed": "اعتراض شده",
+  "tab.status.voided": "باطل",
+  "tab.status.sending": "در حال ارسال…",
+  "tab.addedBy": "ثبت‌شده توسط {name}",
+  "tab.addedByYou": "ثبت‌شده توسط شما",
+  "tab.disputedReason": "اعتراض: {reason}",
+  "tab.void": "باطل کردن",
+  "tab.void.title": "این ثبت باطل شود؟",
+  "tab.void.body":
+    "ثبت با خط خورده دیده می‌شود و دیگر حساب نمی‌شود. اگر مقدار غلط بود، یک ثبت نو اضافه کنید.",
+  "tab.voided": "ثبت باطل شد",
+  "tab.accept": "تأیید",
+  "tab.accepted": "تأیید شد",
+  "tab.dispute": "اعتراض…",
+  "tab.dispute.title": "اعتراض · {amount}",
+  "tab.dispute.reasonLabel": "مشکل چیست؟",
+  "tab.dispute.reasonPlaceholder": "مثلاً 300 دادم، نه 500",
+  "tab.dispute.reasonRequired": "دلیلی بنویسید تا {name} بفهمد.",
+  "tab.dispute.reasonTooLong": "کمتر از 300 حرف بنویسید.",
+  "tab.dispute.send": "فرستادن اعتراض",
+  "tab.dispute.notFound": "این ثبت دیگر در حساب مشترک نیست.",
+  "tab.disputed": "اعتراض فرستاده شد",
+  "tab.closed": "این حساب مشترک بسته شده است.",
+  "tab.needsConnection": "برای ثبت در حساب مشترک آنلاین شوید.",
+  "tab.editLocked": "ثبت‌های حساب مشترک ویرایش نمی‌شوند — آن را باطل کنید و یکی نو اضافه کنید.",
+  "tab.currencyLocked": "پیش از تغییر ارز، پیوند حساب‌های مشترک را قطع کنید.",
+  "tab.duplicateHint": "پیشتر توسط {name} ثبت شده — بررسی کنید دو بار حساب نشود.",
+  "tab.them": "او",
+  "tab.row.pending": "{count} برای بررسی",
+  "tab.invite.message":
+    "{name} یک حساب کاتا را با شما شریک کرده است. لینک را باز کنید تا باقی‌مانده را ببینید و ثبت اضافه یا تأیید کنید:\n{url}",
+  "tab.join.title": "حساب مشترک",
+  "tab.join.from": "{name} یک حساب مشترک با شما دارد",
+  "tab.join.balanceLabel": "باقی‌مانده",
+  "tab.join.entries": "{count} ثبت",
+  "tab.join.join": "پیوستن",
+  "tab.join.pickKaata": "این حساب برای کدام کاتا است؟",
+  "tab.join.pickContact": "{name} در کاتای شما کیست؟",
+  "tab.join.newContact": "مخاطب نو",
+  "tab.join.noCurrencyKaata": "برای این حساب به یک کاتا به {currency} ضرورت دارید.",
+  "tab.join.createKaata": "ساختن کاتا به {currency}",
+  "tab.join.done": "با {name} پیوند شد",
+  "tab.join.closed": "این حساب مشترک بسته شده است.",
+  "tab.join.notFound": "این لینک دیگر معتبر نیست.",
+  "tab.join.currencyMismatch": "کاتای شما به {kaata} است؛ این حساب به {tab} است.",
+  "tab.join.sameKaata": "حساب مشترک با کاتای خودتان ساخته نمی‌شود.",
+  "tab.join.alreadyLinked": "این مخاطب از قبل یک حساب مشترک دارد.",
+  "tab.notify.channel": "حساب‌های مشترک",
+  "tab.notify.channelDescription":
+    "ثبت‌هایی که طرف مقابل هنگام بسته بودن کاتا اضافه یا بررسی کرده است.",
+  "tab.notify.fallbackTitle": "حساب مشترک",
+  "tab.notify.newEntries": "{count} ثبت نو برای بررسی",
+  "tab.notify.reviewed": "ثبت‌های شما بررسی شد",
 };
 
 const TABLES = { en, fa } as const;

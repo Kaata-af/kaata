@@ -87,6 +87,17 @@ async function readRoleFromDb(vaultId: string, accountId: string | null): Promis
   return chosen.role;
 }
 
+/**
+ * Imperative (non-hook) read of the active user's role on `vaultId` — the
+ * same resolution useVaultRole / useActiveVaultWriteCaps render from, for
+ * data-layer guards that run inside an async flow rather than a component
+ * (lib/tabs/link.ts checks entry.create / entry.amend before touching the
+ * tab outbox). Same local-owner default, same full-candidate-set matching.
+ */
+export async function readVaultRole(vaultId: string, accountId: string | null): Promise<VaultRole> {
+  return readRoleFromDb(vaultId, accountId);
+}
+
 // Primer for the cache. auth.ts calls this after seeding vault_members_mirror
 // so the first render of useVaultRole after sign-in returns 'owner' without
 // a SELECT.

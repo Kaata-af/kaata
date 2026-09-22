@@ -964,6 +964,17 @@ async function postSignInHousekeeping(args: {
     // blocks the user.
     console.warn("[auth] appendAccountBound failed", err);
   }
+
+  // Mutual tabs (docs/mutual-tab-design.md §4.6): pull the account's tab
+  // bindings so a phone that linked contacts while signed OUT and now signs
+  // in, or a reinstalled phone whose kaatas were already on disk, gets its
+  // tab_links back without waiting for the loop's next sweep. Lazy import:
+  // lib/tabs/api.ts imports getSessionJWT from this module, and a static edge
+  // back would make the two evaluate in a cycle. Fire-and-forget — sign-in
+  // must never wait on /v1/tabs/mine, and reconcile never throws.
+  void import("./tabs/sync")
+    .then(({ reconcileTabsFromServer }) => reconcileTabsFromServer())
+    .catch((err) => console.warn("[auth] tab reconcile after sign-in failed", err));
 }
 
 // ---------- account-level phone (BUG-1: phone survives reinstall) ----------

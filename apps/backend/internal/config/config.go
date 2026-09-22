@@ -9,8 +9,10 @@ import (
 )
 
 type Config struct {
-	PostgresURL string
-	BackendPort string
+	TabPushEnabled  bool
+	ExpoAccessToken string
+	PostgresURL     string
+	BackendPort     string
 	// MigrateToBackendURL: when set, every check-in response carries it. Mobile
 	// clients persist it to their local `app_meta.backend_url_override` and
 	// switch to it on the next launch. The way to soft-migrate domains
@@ -95,6 +97,8 @@ type Config struct {
 func Load() Config {
 	_ = godotenv.Load()
 	return Config{
+		TabPushEnabled:      os.Getenv("TAB_PUSH_ENABLED") == "true",
+		ExpoAccessToken:     os.Getenv("EXPO_ACCESS_TOKEN"),
 		PostgresURL:         getenv("POSTGRES_URL", "postgres://kaata:kaata_dev@localhost:5432/kaata?sslmode=disable"),
 		BackendPort:         getenv("BACKEND_PORT", "8080"),
 		MigrateToBackendURL: os.Getenv("MIGRATE_TO_BACKEND_URL"),

@@ -54,6 +54,7 @@ import { applyEvent } from "./projection";
 import type { EntryType } from "./types";
 import { parseAmountInput } from "./money";
 import { signedEntryMinorSumSql } from "./money-sql";
+import { TabLinkedEntryError } from "./tabs/errors";
 
 // Re-exported so existing callers that do `import { applyEvent,
 // _dispatchProjectionApplier } from "./event-log"` keep compiling. New code
@@ -228,6 +229,23 @@ export async function appendEntrySettled(args: {
    */
   settledAtMs?: number;
 }): Promise<{ event_id: string }> {
+  // A linked contact's account IS its mutual tab (docs/mutual-tab-design.md
+  // D8): the local rows are frozen and the tab has no settle ritual, so a
+  // ruled-off line here would partition rows the balance no longer reads.
+  // This outlives the link — a closed tab still owns the balance.
+  // Data-layer guard like updateEntry's, checked before the tx and before an
+  // HLC tick is spent; the person screen hides the settle row as well.
+  {
+    const db = await getDb();
+    const linked = await db.getFirstAsync<{ one: number }>(
+      // ANY link, open or frozen: after a close the contact's displayed
+      // balance is the tab's (D8) while the zero-check below can only see
+      // LOCAL rows, so allowing the act here would refuse every time.
+      `SELECT 1 AS one FROM tab_links WHERE relationship_id = ? LIMIT 1`,
+      args.relationshipId,
+    );
+    if (linked) throw new TabLinkedEntryError();
+  }
   const eventId = Crypto.randomUUID();
   const installId = getInstallIdSync();
   const authorUserId = requireLocalSelfUserId();

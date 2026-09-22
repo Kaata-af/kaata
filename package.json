@@ -7,7 +7,7 @@
     "format:js": "prettier --write .",
     "format:go": "cd apps/backend && go fmt ./...",
     "dev": "concurrently -k -n backend,web,mobile -c blue,green,magenta \"bun run dev:backend\" \"bun run dev:web\" \"bun run dev:mobile\"",
-    "dev:backend": "cd apps/backend && go run ./cmd/server",
+    "dev:backend": "node scripts/dev-backend.mjs",
     "dev:web": "cd apps/web && bun run dev",
     "dev:mobile": "node apps/mobile/scripts/dev-with-qr.mjs",
     "apk": "cd apps/mobile && eas build --platform android",

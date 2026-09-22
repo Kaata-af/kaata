@@ -47,6 +47,16 @@ import type {
 import { KAATA_UUID_NAMESPACE, uuidv5 } from "./uuid-v5";
 import { serializeHLC } from "./hlc";
 import { signedEntryMinorSumSql } from "./money-sql";
+import { getLatestTabLinkForPerson, getTabLinkForPerson, listTabEntriesAsEntries } from "./tabs/db";
+import { entryTypeFor, tabBalanceSql } from "./tabs/direction";
+import type { DuplicateHint, TabDirection } from "./tabs/types";
+import { TabLinkedEntryError } from "./tabs/errors";
+
+// The mutual-tab immutability guard lives with its siblings in lib/tabs/errors.ts
+// (event-log.ts throws it too and cannot import this module); re-exported so
+// screens keep one import path for data-layer refusals alongside
+// SettledChapterError.
+export { TabLinkedEntryError };
 
 // Re-exported from db-tx.ts so existing call sites (`import { getDb } from
 // "./db"`) keep compiling unchanged. The handle/singleton lives in db-tx.ts
@@ -80,6 +90,8 @@ const MIGRATION_024 = "024_roles_v2_check_widen";
 const MIGRATION_025 = "025_settlements";
 const MIGRATION_026 = "026_drop_shared_links";
 const MIGRATION_027 = "027_relationships_field_hlcs";
+const MIGRATION_028 = "028_tabs";
+const MIGRATION_029 = "029_tab_failed_ops";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -442,6 +454,17 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
       console.error("[init] runMigration027 failed:", err);
       throw new Error("runMigration027 failed: " + String(err));
     }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_028))) {
+    try {
+      await runMigration028(db);
+    } catch (err) {
+      console.error("[init] runMigration028 failed:", err);
+      throw new Error("runMigration028 failed: " + String(err));
+    }
+  }
+  if (!(await hasRunMigration(db, MIGRATION_029))) {
+    await runMigration029(db);
   }
 }
 
@@ -3108,6 +3131,109 @@ async function runMigration027(db: SQLite.SQLiteDatabase): Promise<void> {
   });
 }
 
+// Migration 028 — mutual tab (Kaata 2.0, docs/mutual-tab-design.md §4.1).
+// A LOCAL CACHE of server-held tab state plus this device's outbox, in three
+// tables that are deliberately NOT a projection of the event log (D2): a
+// counterparty's tally is not this device's event, cannot be signed by it,
+// and must be voidable visibly — none of which entries/event_log can express.
+//   tab_links   — one row per tab this device is a party to, bound to ONE
+//                 contact (relationship_id) in ONE kaata (D3). The partial
+//                 unique index is the "one open tab per contact" rule; closed
+//                 links stay as history. party_token is the capability token
+//                 (NULL when the link was recovered through the account).
+//   tab_entries — the tab's rows as the server sent them. amount_minor is
+//                 INTEGER hundredths, unlike entries.amount_afn (major units):
+//                 the wire carries decimal strings and never a float.
+//                 local_pending=1 marks an optimistic row awaiting its ack.
+//   tab_outbox  — this device's intent, flushed in order by lib/tabs/sync.ts
+//                 with exponential backoff; for 'append' the op id IS the
+//                 entry id, the server's idempotency key.
+// The selftest (lib/__dev__/tabs-selftest.ts) extracts this DDL from the
+// source and builds its fixture from it, so the tables it exercises are the
+// shipped ones.
+async function runMigration028(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS tab_links (
+        tab_id          TEXT PRIMARY KEY,
+        vault_id        TEXT NOT NULL,
+        relationship_id TEXT NOT NULL,
+        role            TEXT NOT NULL CHECK (role IN ('a','b')),
+        currency        TEXT NOT NULL,
+        party_token     TEXT,
+        my_label        TEXT NOT NULL DEFAULT '',
+        other_label     TEXT NOT NULL DEFAULT '',
+        other_joined_at INTEGER,
+        invite_url      TEXT,
+        rev             INTEGER NOT NULL DEFAULT 0,
+        closed_at       INTEGER,
+        linked_at       INTEGER NOT NULL,
+        last_synced_at  INTEGER,
+        last_error      TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_tab_links_open_rel
+        ON tab_links(relationship_id) WHERE closed_at IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_tab_links_vault ON tab_links(vault_id);
+
+      CREATE TABLE IF NOT EXISTS tab_entries (
+        id                 TEXT PRIMARY KEY,
+        tab_id             TEXT NOT NULL REFERENCES tab_links(tab_id) ON DELETE CASCADE,
+        seq                INTEGER NOT NULL,
+        rev                INTEGER NOT NULL,
+        created_by         TEXT NOT NULL,
+        direction          TEXT NOT NULL,
+        amount_minor       INTEGER NOT NULL,
+        kind               TEXT NOT NULL,
+        note               TEXT,
+        occurred_at        INTEGER NOT NULL,
+        created_at         INTEGER NOT NULL,
+        status             TEXT NOT NULL,
+        status_at          INTEGER,
+        dispute_reason     TEXT,
+        voids_entry_id     TEXT,
+        voided_by_entry_id TEXT,
+        local_pending      INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_tab_entries_tab ON tab_entries(tab_id, occurred_at DESC);
+
+      CREATE TABLE IF NOT EXISTS tab_outbox (
+        id         TEXT PRIMARY KEY,
+        tab_id     TEXT NOT NULL,
+        op         TEXT NOT NULL CHECK (op IN ('append','accept','dispute','void','label','close')),
+        payload    TEXT NOT NULL CHECK (json_valid(payload)),
+        created_at INTEGER NOT NULL,
+        attempts   INTEGER NOT NULL DEFAULT 0,
+        next_at    INTEGER,
+        last_error TEXT
+      );
+    `);
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_028,
+      Date.now(),
+    );
+  });
+}
+
+// Keep refused offline intent separately: it must no longer affect the
+// shared balance, but what the user typed must not silently disappear.
+async function runMigration029(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS tab_failed_ops (
+        id TEXT PRIMARY KEY,
+        tab_id TEXT NOT NULL REFERENCES tab_links(tab_id) ON DELETE CASCADE,
+        op TEXT NOT NULL,
+        payload TEXT NOT NULL CHECK (json_valid(payload)),
+        created_at INTEGER NOT NULL,
+        reason TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_tab_failed_ops_tab ON tab_failed_ops(tab_id);
+    `);
+    await db.runAsync(`INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`, MIGRATION_029, Date.now());
+  });
+}
+
 // --- v0 row shapes (used only during migration) ---
 type V0Shopkeeper = {
   id: number;
@@ -3164,6 +3290,16 @@ async function findRelationshipIdForPerson(
   return row?.id ?? null;
 }
 
+/**
+ * The person's active relationship in the ACTIVE vault — the id every entry
+ * write and every tab link hangs off. Exported for lib/tabs/link.ts, which
+ * needs the same resolution createEntry uses without re-deriving the query.
+ */
+export async function getActiveRelationshipIdForPerson(personId: string): Promise<string | null> {
+  const db = await getDb();
+  return findRelationshipIdForPerson(db, personId);
+}
+
 // Dev-only: drops every kaata table so the next initDb() rebuilds them
 // fresh. Used by the Settings "Reset all data" button to simulate a clean
 // install without wiping all of Expo Go's storage. Reseting dbPromise to
@@ -3204,6 +3340,18 @@ export async function resetAllLocalData(opts: { keepLocalBackups?: boolean } = {
     DROP TABLE IF EXISTS revocation_list;
     DROP TABLE IF EXISTS mem_samples;
     DROP TABLE IF EXISTS crash_outbox;
+    -- Mutual tab (migration 028). tab_links holds per-party capability tokens:
+    -- left behind, a previous identity's tabs stay READABLE AND WRITABLE from
+    -- this device after "erase everything" — the L27 hole again, with money in
+    -- it. tab_entries would otherwise cascade only if its parent row went.
+    DROP TABLE IF EXISTS tab_entries;
+    DROP TABLE IF EXISTS tab_outbox;
+    DROP TABLE IF EXISTS tab_failed_ops;
+    DROP TABLE IF EXISTS tab_links;
+    -- settlements (migration 025) was never added here when it shipped
+    -- (2026-07-27), so a wipe kept the previous identity's ruled-off chapter
+    -- markers and re-attached them to any relationship id that matched.
+    DROP TABLE IF EXISTS settlements;
   `);
   await db.closeAsync();
   _resetDbHandleForReset();
@@ -3713,6 +3861,95 @@ export async function createPerson(
   return { ok: true, id };
 }
 
+// ---- mutual-tab read-site integration (docs/mutual-tab-design.md §4.3) ----
+//
+// A contact with an OPEN tab link reads its balance from the tab cache, not
+// from its local entries (D8: the opening entry already carries their sum;
+// counting both doubles it). The LEFT JOIN below is 0..1 per relationship
+// (idx_tab_links_open_rel), so it never multiplies the entries join, and for
+// an unlinked contact every tl.* column is NULL and each CASE falls to the
+// pre-existing expression — the numbers are byte-identical to before 028.
+
+/** Row shape the people queries return before finishTabColumns folds the
+ *  local-vs-tab "newest entry" pair into last_entry_at / last_entry_type. */
+type RawPersonRow = PersonWithBalance & {
+  tab_last_at: number | null;
+  tab_last_direction: TabDirection | null;
+  tab_role: "a" | "b" | null;
+};
+
+/** The tab-aware SELECT columns shared by selectAllPeopleRaw and getPerson. */
+const TAB_PERSON_COLUMNS = `
+            tl.tab_id AS tab_id,
+            CASE WHEN tl.tab_id IS NULL OR tl.closed_at IS NOT NULL THEN 0 ELSE
+              (SELECT COUNT(*) FROM tab_entries tp
+                WHERE tp.tab_id = tl.tab_id AND tp.created_by <> tl.role
+                  AND tp.status = 'pending' AND tp.kind <> 'void'
+                  AND tp.voided_by_entry_id IS NULL)
+            END AS tab_pending,
+            tl.closed_at AS tab_closed_at,
+            CASE WHEN tl.other_joined_at IS NOT NULL THEN 1 ELSE 0 END AS tab_other_joined,
+            (SELECT MAX(tn.occurred_at) FROM tab_entries tn
+              WHERE tn.tab_id = tl.tab_id AND tn.kind <> 'void') AS tab_last_at,
+            (SELECT tn.direction FROM tab_entries tn
+              WHERE tn.tab_id = tl.tab_id AND tn.kind <> 'void'
+                AND tn.voided_by_entry_id IS NULL
+              ORDER BY tn.occurred_at DESC, tn.created_at DESC, tn.id DESC
+              LIMIT 1) AS tab_last_direction,
+            tl.role AS tab_role`;
+
+/**
+ * Balance column. Once a contact has EVER been linked, its account is the
+ * tab's rows plus any local tallies written after the link — and never the
+ * pre-link local rows, whose sum the tab's opening entry already carries
+ * (D8). That rule outlives the link: closing a tab freezes its rows, it does
+ * not un-happen them, so a closed tab keeps counting and the pre-link rows
+ * stay out. Reverting to the bare local sum on close would both lose every
+ * tally of the shared period and put a months-old number on the home screen.
+ * Unlinked contacts take the ELSE arm and are untouched.
+ */
+const PERSON_BALANCE_SQL = `
+            CASE WHEN tl.tab_id IS NOT NULL THEN
+              (SELECT ${tabBalanceSql("tl.role", "te")} FROM tab_entries te WHERE te.tab_id = tl.tab_id)
+              + ${signedEntryMinorSumSql("e", "e.created_at > tl.linked_at")}
+            ELSE (${signedEntryMinorSumSql("e")}) END / 100.0 AS balance`;
+
+/**
+ * The contact's tab, open or closed — closed ones still own their history
+ * (see PERSON_BALANCE_SQL), so the read sites must not filter them out. One
+ * row per relationship: the open link if there is one (the partial unique
+ * index guarantees at most one), else the most recently linked closed one.
+ * `(x IS NULL)` is 1/0 in SQLite, so DESC sorts the open link first.
+ */
+const TAB_LINK_JOIN = `LEFT JOIN tab_links tl ON tl.tab_id = (
+       SELECT t2.tab_id FROM tab_links t2
+        WHERE t2.relationship_id = r.id
+        ORDER BY (t2.closed_at IS NULL) DESC, t2.linked_at DESC
+        LIMIT 1)`;
+
+/**
+ * last_entry_at is the home sort key and last_entry_type the settled-person
+ * side picker; for a linked contact both must consider the tab's newest row
+ * as well as the local book's (a linked contact with only tab activity would
+ * otherwise vanish from home, which hides people with no entries). Done in
+ * JS because SQLite's scalar MAX() is NULL when either side is NULL, and the
+ * mapping of a direction to a type needs the viewer's role (entryTypeFor).
+ * Unlinked rows pass through untouched.
+ */
+function finishTabColumns(row: RawPersonRow): PersonWithBalance {
+  const { tab_last_at, tab_last_direction, tab_role, ...person } = row;
+  if (row.tab_id != null && tab_last_at != null) {
+    const localAt = person.last_entry_at;
+    if (localAt == null || tab_last_at >= localAt) {
+      person.last_entry_at = tab_last_at;
+      if (tab_last_direction && tab_role) {
+        person.last_entry_type = entryTypeFor(tab_role, tab_last_direction);
+      }
+    }
+  }
+  return person;
+}
+
 async function selectAllPeopleRaw(db: SQLite.SQLiteDatabase): Promise<PersonWithBalance[]> {
   // Vault filter on BOTH relationships and the LEFT-JOINed entries. The
   // entries filter goes in the ON clause (not WHERE) because this is a
@@ -3720,13 +3957,13 @@ async function selectAllPeopleRaw(db: SQLite.SQLiteDatabase): Promise<PersonWith
   // Pre-onboarding (no vault yet) returns [] cleanly.
   const vaultId = getActiveVaultIdSyncMaybe();
   if (!vaultId) return [];
-  return db.getAllAsync<PersonWithBalance>(
+  const rows = await db.getAllAsync<RawPersonRow>(
     `SELECT u.id            AS id,
             u.display_name  AS name,
             u.phone_e164    AS phone,
             u.created_at    AS created_at,
             r.archived_at   AS archived_at,
-            (${signedEntryMinorSumSql("e")}) / 100.0 AS balance,
+            ${PERSON_BALANCE_SQL},
             MAX(CASE WHEN e.deleted_at IS NULL THEN e.created_at END) AS last_entry_at,
             -- Type of the most-recent non-deleted entry. Only meaningful for a
             -- SETTLED person (balance 0): that entry is the one that zeroed them,
@@ -3742,16 +3979,21 @@ async function selectAllPeopleRaw(db: SQLite.SQLiteDatabase): Promise<PersonWith
             -- Deliberately settled (2026-07-27): balance zero AND the latest
             -- ruled-off line covers every live entry. A merely-zero balance
             -- is NOT settled — only the user's own settle act is. NULL
-            -- comparison (no settlements) falls to ELSE 0.
+            -- comparison (no settlements) falls to ELSE 0. A LINKED contact
+            -- is never a settled chapter: the tab is the account (D8) and
+            -- its local rows are frozen history.
             CASE
-              WHEN ${signedEntryMinorSumSql("e")} = 0
+              WHEN tl.tab_id IS NULL
+               AND ${signedEntryMinorSumSql("e")} = 0
                AND (SELECT MAX(s.settled_at_ms) FROM settlements s
                      WHERE s.relationship_id = r.id)
                    >= COALESCE(MAX(CASE WHEN e.deleted_at IS NULL THEN e.created_at END), 0)
               THEN 1 ELSE 0
-            END AS is_settled
+            END AS is_settled,
+            ${TAB_PERSON_COLUMNS}
      FROM relationships r
      INNER JOIN users u ON u.id = r.user_b_id
+     ${TAB_LINK_JOIN}
      LEFT JOIN entries e
        ON e.relationship_id = r.id
       AND e.vault_id = ?
@@ -3762,6 +4004,7 @@ async function selectAllPeopleRaw(db: SQLite.SQLiteDatabase): Promise<PersonWith
     vaultId, // LEFT JOIN entries e ON ... e.vault_id = ?
     vaultId, // WHERE r.vault_id = ?
   );
+  return rows.map(finishTabColumns);
 }
 
 // Returns every active person, regardless of which tab they'd land in.
@@ -3805,16 +4048,18 @@ export async function getPerson(id: string): Promise<PersonWithBalance | null> {
   const db = await getDb();
   const vaultId = getActiveVaultIdSyncMaybe();
   if (!vaultId) return null;
-  const row = await db.getFirstAsync<PersonWithBalance>(
+  const row = await db.getFirstAsync<RawPersonRow>(
     `SELECT u.id            AS id,
             u.display_name  AS name,
             u.phone_e164    AS phone,
             u.created_at    AS created_at,
             r.archived_at   AS archived_at,
-            (${signedEntryMinorSumSql("e")}) / 100.0 AS balance,
-            MAX(CASE WHEN e.deleted_at IS NULL THEN e.created_at END) AS last_entry_at
+            ${PERSON_BALANCE_SQL},
+            MAX(CASE WHEN e.deleted_at IS NULL THEN e.created_at END) AS last_entry_at,
+            ${TAB_PERSON_COLUMNS}
      FROM relationships r
      INNER JOIN users u ON u.id = r.user_b_id
+     ${TAB_LINK_JOIN}
      LEFT JOIN entries e
        ON e.relationship_id = r.id
       AND e.vault_id = ?
@@ -3827,7 +4072,7 @@ export async function getPerson(id: string): Promise<PersonWithBalance | null> {
     id,
     vaultId,
   );
-  return row ?? null;
+  return row ? finishTabColumns(row) : null;
 }
 
 /** One row of the removed-people screen: an archived person with what the
@@ -3849,13 +4094,18 @@ export type ArchivedPersonRow = {
  * Excludes people who also hold an ACTIVE relationship in the vault
  * (defensive — restore clears archived_at rather than creating parallel
  * rows, so this shouldn't occur).
+ *
+ * Uses the same tab-aware balance as the home list: removing a contact does
+ * not un-link it, so a bare local sum here would print the stale pre-link
+ * number for a contact whose account was a shared one — the very number the
+ * screen it was removed from had stopped showing.
  */
 export async function listArchivedPeople(vaultId: string): Promise<ArchivedPersonRow[]> {
   const db = await getDb();
   return db.getAllAsync<ArchivedPersonRow>(
     `SELECT u.id           AS id,
             u.display_name AS name,
-            (${signedEntryMinorSumSql("e")}) / 100.0 AS balance,
+            ${PERSON_BALANCE_SQL},
             COUNT(CASE WHEN e.deleted_at IS NULL THEN 1 END) AS entry_count,
             MAX(r.archived_at) AS archived_at
      FROM relationships r
@@ -3863,6 +4113,7 @@ export async function listArchivedPeople(vaultId: string): Promise<ArchivedPerso
      LEFT JOIN entries e
        ON e.relationship_id = r.id
       AND e.vault_id = ?
+     ${TAB_LINK_JOIN}
      WHERE r.vault_id = ?
        AND r.archived_at IS NOT NULL
        AND NOT EXISTS (
@@ -4055,6 +4306,36 @@ export async function listEntries(personId: string): Promise<Entry[]> {
   const db = await getDb();
   const vaultId = getActiveVaultIdSyncMaybe();
   if (!vaultId) return [];
+  // Linked contact: the tab IS the account (D8). Tab rows come back here
+  // (voided originals flagged, void rows omitted) merged with any LOCAL
+  // tallies written after the link — there are none while the tab is open,
+  // because createEntry routes those to the tab, but once it is closed new
+  // tallies are ordinary local rows again and belong on the same list. The
+  // frozen pre-link rows are NOT here; the person screen folds them away
+  // separately via listPreLinkEntries.
+  const link = await getLatestTabLinkForPerson(personId);
+  if (link) {
+    const [tabRows, afterLink] = await Promise.all([
+      listTabEntriesAsEntries(link),
+      db.getAllAsync<Entry>(
+        `SELECT e.id, e.relationship_id, e.type, e.amount_afn, e.note,
+                e.created_at, e.updated_at, e.deleted_at, e.proposed_by_user_id,
+                e.accepted_at, e.disputed_at, e.disputed_reason, e.settled_at
+         FROM entries e
+         WHERE e.relationship_id = ?
+           AND e.vault_id        = ?
+           AND e.deleted_at IS NULL
+           AND e.created_at > ?`,
+        link.relationship_id,
+        vaultId,
+        link.linked_at,
+      ),
+    ]);
+    // Newest first, id breaking a same-date tie, exactly like both sources.
+    return [...tabRows, ...afterLink].sort(
+      (a, b) => b.created_at - a.created_at || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0),
+    );
+  }
   return db.getAllAsync<Entry>(
     `SELECT e.id, e.relationship_id, e.type, e.amount_afn, e.note,
             e.created_at, e.updated_at, e.deleted_at, e.proposed_by_user_id,
@@ -4083,6 +4364,9 @@ export type ExportEntryRow = {
   person_id: string;
   person_name: string;
   person_phone: string | null;
+  /** 'entry' for a local tally, or the tab row's kind ('entry' | 'opening').
+   *  The CSV journal uses it to label an opening row, which stores no note. */
+  kind: string;
 };
 
 /**
@@ -4095,19 +4379,69 @@ export type ExportEntryRow = {
  */
 export async function listEntriesForExport(vaultId: string): Promise<ExportEntryRow[]> {
   const db = await getDb();
+  // Linked contacts contribute their TAB rows (non-voided, never the void
+  // rows) and NOT their pre-link local rows — the opening entry carries that
+  // sum, and the journal's per-person running balance must end where the
+  // person's balance is (D8). Direction → type from the link's role, in SQL,
+  // so the UNION shares one ORDER BY. Neither arm filters on closed_at: a
+  // closed tab's rows are still the account's history and still counted by
+  // PERSON_BALANCE_SQL, and its pre-link rows are still excluded — the
+  // journal has to agree with the balance it is explaining. BOTH arms are
+  // scoped to the LATEST link, never "any link on this relationship": a
+  // contact can accumulate several tabs (the unique index only forbids two
+  // OPEN ones), an unscoped join is 0..N and would emit each post-link local
+  // row once per link, and an earlier tab's rows are already inside the
+  // latest tab's opening entry — counting them again doubles the account.
+  // Every column is aliased in BOTH arms: a compound SELECT's ORDER BY may
+  // only name result columns, and SQLite resolves an unaliased `e.id` in the
+  // first arm as "e.id", not "id" — the second ORDER BY term then matches
+  // nothing and the statement fails to prepare.
   return db.getAllAsync<ExportEntryRow>(
-    `SELECT e.id, e.type, e.amount_afn, e.note, e.created_at,
+    `SELECT e.id           AS id,
+            e.type         AS type,
+            e.amount_afn   AS amount_afn,
+            e.note         AS note,
+            e.created_at   AS created_at,
+            'entry'        AS kind,
             u.id           AS person_id,
             u.display_name AS person_name,
             u.phone_e164   AS person_phone
      FROM entries e
      INNER JOIN relationships r ON r.id = e.relationship_id
      INNER JOIN users u ON u.id = r.user_b_id
+     ${TAB_LINK_JOIN}
      WHERE e.vault_id   = ?
        AND r.vault_id   = ?
        AND r.archived_at IS NULL
        AND e.deleted_at IS NULL
-     ORDER BY e.created_at ASC, e.id ASC`,
+       AND (tl.tab_id IS NULL OR e.created_at > tl.linked_at)
+     UNION ALL
+     SELECT te.id          AS id,
+            CASE WHEN te.direction = CASE WHEN tl.role = 'a' THEN 'a_to_b' ELSE 'b_to_a' END
+                 THEN 'debt' ELSE 'payment' END AS type,
+            te.amount_minor / 100.0 AS amount_afn,
+            te.note        AS note,
+            te.occurred_at AS created_at,
+            te.kind        AS kind,
+            u.id           AS person_id,
+            u.display_name AS person_name,
+            u.phone_e164   AS person_phone
+     FROM tab_entries te
+     INNER JOIN tab_links tl ON tl.tab_id = te.tab_id
+       AND tl.tab_id = (SELECT t2.tab_id FROM tab_links t2
+                         WHERE t2.relationship_id = tl.relationship_id
+                         ORDER BY (t2.closed_at IS NULL) DESC, t2.linked_at DESC
+                         LIMIT 1)
+     INNER JOIN relationships r ON r.id = tl.relationship_id
+     INNER JOIN users u ON u.id = r.user_b_id
+     WHERE tl.vault_id  = ?
+       AND r.vault_id   = ?
+       AND r.archived_at IS NULL
+       AND te.kind <> 'void'
+       AND te.voided_by_entry_id IS NULL
+     ORDER BY created_at ASC, id ASC`,
+    vaultId,
+    vaultId,
     vaultId,
     vaultId,
   );
@@ -4124,6 +4458,32 @@ export async function createEntry(
   amountAfn: number,
   note: string | null,
 ): Promise<string> {
+  return (await createEntryDetailed(personId, type, amountAfn, note)).entry_id;
+}
+
+/**
+ * createEntry with the mutual-tab detail the entry screen needs: when the
+ * person is LINKED the tally goes to the tab (lib/tabs/link.ts addTabEntry —
+ * optimistic row, outbox, immediate flush) and `duplicate_hint` is the D17
+ * "the other side already recorded this transfer" warning, when the server
+ * answered within the flush wait. Unlinked contacts take the event-log path
+ * unchanged and always return a null hint. Lazy import: lib/tabs/link.ts
+ * imports this module, and it reaches react-native / expo-network, which the
+ * Node selftests that load lib/db.ts must never pull in.
+ */
+export async function createEntryDetailed(
+  personId: string,
+  type: EntryType,
+  amountAfn: number,
+  note: string | null,
+): Promise<{ entry_id: string; duplicate_hint: DuplicateHint | null }> {
+  const link = await getTabLinkForPerson(personId);
+  if (link) {
+    const { addTabEntry } = await import("./tabs/link");
+    const r = await addTabEntry(personId, type, amountAfn, note);
+    await bumpUsageCounter("entries_created");
+    return { entry_id: r.entryId, duplicate_hint: r.duplicateHint };
+  }
   const db = await getDb();
   const relId = await findRelationshipIdForPerson(db, personId);
   if (!relId) throw new Error(`no active relationship for person ${personId}`);
@@ -4134,7 +4494,7 @@ export async function createEntry(
     note,
   });
   await bumpUsageCounter("entries_created");
-  return entry_id;
+  return { entry_id, duplicate_hint: null };
 }
 
 // Same public API. Internally we compute a minimal delta against the current
@@ -4173,6 +4533,35 @@ async function assertNotInSettledChapter(
   if (row != null) throw new SettledChapterError();
 }
 
+// Mutual-tab guard (docs/mutual-tab-design.md §4.2/§4.3): a linked contact's
+// rows are immutable locally — the tab rows because they are append-only
+// server state (a void is the author's only correction, through the tab
+// flows), the pre-link local rows because the opening entry already carries
+// their sum and an edit would silently desync the two parties. The id may be
+// a tab_entries id (the person screen lists tab rows as Entry) or a local
+// entries id under a linked relationship; both refuse. Same data-layer
+// posture as assertNotInSettledChapter, and like it local-only: remote
+// events keep their own semantics.
+//
+// The pre-link cut is `created_at <= linked_at`, NOT "the link is open":
+// those rows stay frozen out of the balance after the tab closes (they are
+// still inside the opening entry), so they must stay uneditable too — while
+// a tally written AFTER the tab closed is an ordinary local row again and
+// edits normally.
+async function assertNotTabLinked(db: SQLite.SQLiteDatabase, entryId: string): Promise<void> {
+  const row = await db.getFirstAsync<{ one: number }>(
+    `SELECT 1 AS one FROM tab_entries te WHERE te.id = ?
+     UNION ALL
+     SELECT 1 AS one FROM entries e
+       INNER JOIN tab_links tl ON tl.relationship_id = e.relationship_id
+      WHERE e.id = ? AND e.created_at <= tl.linked_at
+     LIMIT 1`,
+    entryId,
+    entryId,
+  );
+  if (row != null) throw new TabLinkedEntryError();
+}
+
 export async function updateEntry(
   id: string,
   amountAfn: number,
@@ -4180,6 +4569,7 @@ export async function updateEntry(
 ): Promise<void> {
   const db = await getDb();
   const vaultId = getActiveVaultIdSync();
+  await assertNotTabLinked(db, id);
   await assertNotInSettledChapter(db, id);
   // Read the current row (vault-scoped) so we can compute a minimal delta.
   // A stale id from a different vault is treated as missing and no-ops.
@@ -4226,6 +4616,7 @@ export async function getEntry(id: string): Promise<Entry | null> {
 export async function softDeleteEntry(id: string): Promise<void> {
   const db = await getDb();
   const vaultId = getActiveVaultIdSync();
+  await assertNotTabLinked(db, id);
   await assertNotInSettledChapter(db, id);
   const current = await db.getFirstAsync<{ is_deleted: number | null }>(
     "SELECT is_deleted FROM entries WHERE id = ? AND vault_id = ?",

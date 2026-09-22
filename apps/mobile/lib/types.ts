@@ -1,5 +1,7 @@
 // Storage types — match the SQLite schema 1:1.
 
+import type { TabEntryMeta } from "./tabs/types";
+
 export type User = {
   id: string;
   phone_e164: string | null;
@@ -58,6 +60,12 @@ export type Entry = {
   disputed_at: number | null;
   disputed_reason: string | null;
   settled_at: number | null;
+  // Present ONLY on rows of a linked contact's mutual tab (Kaata 2.0,
+  // docs/mutual-tab-design.md): who authored it, its accept/dispute status,
+  // whether it was voided. lib/tabs/db.ts listTabEntriesAsEntries maps the
+  // tab_entries cache into this shape so every screen, bill and export keeps
+  // reading Entry[]; exporters and bills skip `tab?.voided` rows.
+  tab?: TabEntryMeta;
 };
 
 // Max characters a tally note can hold. Enforced on input (TextInput maxLength)
@@ -114,6 +122,19 @@ export type PersonWithBalance = Person & {
   // person has no entries. Optional because single-person queries (getPerson)
   // don't select it; the home split (selectAllPeopleRaw) does.
   last_entry_type?: EntryType | null;
+  // Mutual tab (Kaata 2.0). tab_id is set once the contact has EVER been
+  // linked — open or closed — and then `balance` is the tab's balance plus
+  // any local tallies written after the link (D8: the pre-link local rows are
+  // carried by the tab's opening entry and stay excluded forever, or closing
+  // the tab would double-count them). tab_closed_at is null while the tab is
+  // live and is the only thing that distinguishes "shared account" from
+  // "frozen shared history"; tab_pending (the other party's tallies awaiting
+  // my accept/dispute — the home badge) is therefore always 0 once closed.
+  // tab_other_joined = 1 once the counterparty has opened their link.
+  tab_id: string | null;
+  tab_closed_at: number | null;
+  tab_pending: number;
+  tab_other_joined: 0 | 1;
 };
 
 export type CreatePersonResult =

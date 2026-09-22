@@ -79,6 +79,29 @@ const (
 	// ping) but capped per IP so the public POST can't be used to flood storage.
 	shareCreateLimit  = 120
 	shareCreateWindow = time.Hour
+
+	// Mutual tabs (docs/mutual-tab-design.md §3.3). Every /v1/tabs route sits
+	// in an OptionalMiddleware group — the web-only party has no account — so
+	// ALL of these are per IP, and per IP means Afghan carrier CGNAT: one
+	// address fronts a whole cell of shopkeepers.
+	//   tabCreate: 60/hr. A shop links a handful of contacts ever; this is
+	//   the only route that mints a kaata.af/t/<token> link and it also caps
+	//   regenerate-link, which rotates a token.
+	//   tabRead: 3000/hr. The web page polls GET /v1/tabs/{id} every 10 s
+	//   while visible (360/hr per open tab) and the phones pull on focus and
+	//   every 60 s; a CGNAT cell with eight open tabs must not trip it.
+	//   tabWrite: 600/hr. Append / accept / dispute / void — one per human
+	//   action, so 10/min per IP is far above organic use and still stops a
+	//   scripted flood of a tab.
+	//   tabJoin: 120/hr. Join / bind / label / close are once-per-tab acts.
+	tabCreateLimit  = 60
+	tabCreateWindow = time.Hour
+	tabReadLimit    = 3000
+	tabReadWindow   = time.Hour
+	tabWriteLimit   = 600
+	tabWriteWindow  = time.Hour
+	tabJoinLimit    = 120
+	tabJoinWindow   = time.Hour
 )
 
 // keyByAccount pulls the authenticated account_id off the request via the
@@ -219,4 +242,13 @@ var (
 
 	ShareCreateLimit  = shareCreateLimit
 	ShareCreateWindow = shareCreateWindow
+
+	TabCreateLimit  = tabCreateLimit
+	TabCreateWindow = tabCreateWindow
+	TabReadLimit    = tabReadLimit
+	TabReadWindow   = tabReadWindow
+	TabWriteLimit   = tabWriteLimit
+	TabWriteWindow  = tabWriteWindow
+	TabJoinLimit    = tabJoinLimit
+	TabJoinWindow   = tabJoinWindow
 )

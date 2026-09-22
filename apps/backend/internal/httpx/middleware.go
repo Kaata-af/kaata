@@ -3,6 +3,7 @@ package httpx
 import (
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
@@ -19,7 +20,14 @@ func Logger(next http.Handler) http.Handler {
 			status = http.StatusOK
 		}
 		// Path only: query strings can contain short-lived socket tickets.
-		log.Printf("%s %s -> %d (%s)", r.Method, r.URL.Path, status, time.Since(start))
+		path := r.URL.Path
+		for _, prefix := range []string{"/t/", "/v/", "/i/"} {
+			if strings.HasPrefix(path, prefix) {
+				path = prefix + "[redacted]"
+				break
+			}
+		}
+		log.Printf("%s %s -> %d (%s)", r.Method, path, status, time.Since(start))
 	})
 }
 
@@ -39,7 +47,7 @@ func CORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Kaata-Party")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
