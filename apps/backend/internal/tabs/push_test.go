@@ -28,7 +28,7 @@ func TestPushOutboxDeliveryAndRevocation(t *testing.T) {
 				t.Error("missing navigation data")
 			}
 			// Neither balances nor invitation credentials go to Expo.
-			if len(body["data"].(map[string]any)) != 2 {
+			if len(body["data"].(map[string]any)) > 5 {
 				t.Error("unexpected private data in payload")
 			}
 			if mode == "retry" {
@@ -49,8 +49,11 @@ func TestPushOutboxDeliveryAndRevocation(t *testing.T) {
 	f.svc.push = &pushClient{client: provider.Client(), baseURL: provider.URL}
 	created := f.createOverHTTP(t, "")
 	path := "/v1/tabs/" + created.Tab.ID
-	for _, token := range []string{created.MyToken, created.InviteToken} {
-		r := f.do(t, "POST", path+"/notifications", "Tab "+token, map[string]any{
+	if _, err := f.svc.Bind(context.Background(), f.party(t, created.InviteToken, created.Tab.ID), BindInput{AccountID: f.acctB}); err != nil {
+		t.Fatal(err)
+	}
+	for _, account := range []string{f.acctA, f.acctB} {
+		r := f.do(t, "POST", path+"/notifications", "Bearer "+f.jwtFor(t, account), map[string]any{
 			"install_id": uuid.NewString(), "token": "ExpoPushToken[synthetic_test_123456]", "locale": "fa",
 		})
 		if r.status != 200 {
@@ -102,12 +105,15 @@ func TestPushOutboxDeliveryAndRevocation(t *testing.T) {
 		t.Fatal("unregistered device must be removed")
 	}
 
-	// Register again, queue, then rotate the credential BEFORE delivery.
-	f.do(t, "POST", path+"/notifications", "Tab "+created.InviteToken, map[string]any{
-		"install_id": uuid.NewString(), "token": "ExpoPushToken[synthetic_test_123456]",
-	})
+	// A pre-upgrade capability registration is no longer authorized.
+	_, err := f.pool.Exec(ctx, `INSERT INTO tab_push_subscriptions(tab_id,role,install_id,token,capability_hash)
+	 VALUES($1::uuid,'b',$2::uuid,'ExpoPushToken[synthetic_test_123456]',$3)`,
+		created.Tab.ID, uuid.NewString(), hashPartyToken(created.InviteToken))
+	if err != nil {
+		t.Fatal(err)
+	}
 	f.append(t, pa, "a_to_b", "30", time.Now().UnixMilli())
-	_, err := f.svc.RegenerateLink(ctx, pa)
+	_, err = f.svc.RegenerateLink(ctx, pa)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,5 +169,132 @@ func TestPushDoesNotDeliverToRevokedVaultMember(t *testing.T) {
 	}
 	if sent {
 		t.Fatal("revoked member received a notification")
+	}
+}
+
+func TestPushReviewActionsRequireCurrentEntryAndRole(t *testing.T) {
+	for _, tc := range []struct {
+		name, memberRole                 string
+		reviewed, downgrade, wantActions bool
+	}{
+		{"bound owner", "", false, false, true},
+		{"editor", "editor", false, false, true},
+		{"viewer", "viewer", false, false, false},
+		{"clerk", "clerk", false, false, false},
+		{"role changed before delivery", "editor", false, true, false},
+		{"reviewed before delivery", "", true, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newHTTPFixture(t)
+			ctx := context.Background()
+			payloads := make(chan map[string]any, 1)
+			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				payloads <- body
+				_, _ = w.Write([]byte(`{"data":{"status":"ok","id":"ticket"}}`))
+			}))
+			defer provider.Close()
+			f.svc.push = &pushClient{client: provider.Client(), baseURL: provider.URL}
+			c := f.createOverHTTP(t, "")
+			pa, pb := f.party(t, c.MyToken, c.Tab.ID), f.party(t, c.InviteToken, c.Tab.ID)
+			if _, err := f.svc.Bind(ctx, pb, BindInput{AccountID: f.acctB, VaultID: &f.vaultB}); err != nil {
+				t.Fatal(err)
+			}
+			recipient := f.acctB
+			if tc.memberRole != "" {
+				recipient = seedAccount(t, f.pool, "reviewer@example.com", "Reviewer")
+				seedMember(t, f.pool, f.vaultB, recipient, tc.memberRole)
+			}
+			reg := f.do(t, "POST", "/v1/tabs/"+c.Tab.ID+"/notifications", "Bearer "+f.jwtFor(t, recipient), map[string]any{
+				"install_id": uuid.NewString(), "token": "ExpoPushToken[synthetic_test_123456]", "locale": "fa",
+			})
+			if reg.status != 200 {
+				t.Fatalf("registration: %s", reg.body)
+			}
+			added := f.append(t, pa, "a_to_b", "100", time.Now().UnixMilli())
+			if tc.reviewed {
+				if _, err := f.svc.Accept(ctx, pb, added.Entry.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.downgrade {
+				if _, err := f.pool.Exec(ctx, "UPDATE vault_members SET role='viewer' WHERE account_id=$1::uuid", recipient); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if more, err := f.svc.deliverPush(ctx); err != nil || !more {
+				t.Fatalf("delivery: %v %v", more, err)
+			}
+			select {
+			case payload := <-payloads:
+				_, actions := payload["categoryId"]
+				if actions != tc.wantActions {
+					t.Fatalf("action availability: %v, want %v", actions, tc.wantActions)
+				}
+				if actions && payload["categoryId"] != "tab-review-fa" {
+					t.Fatal("wrong localized action category")
+				}
+				data := payload["data"].(map[string]any)
+				if data["entry_id"] != added.Entry.ID || data["kind"] != "entry_created" || data["role"] != "b" || data["rev"] != float64(added.Entry.Rev) || len(data) != 5 {
+					t.Fatalf("wrong action target: %v", data)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("no delivery")
+			}
+		})
+	}
+}
+
+func TestPushReviewOutcomeText(t *testing.T) {
+	for _, locale := range []string{"en", "fa"} {
+		seen := map[string]bool{}
+		for _, kind := range []string{"updated", "entry_created", "entry_accepted", "entry_rejected", "entry_voided"} {
+			body := pushBody(kind, locale)
+			if body == "" || seen[body] {
+				t.Fatalf("outcome %s/%s is not distinct", locale, kind)
+			}
+			seen[body] = true
+		}
+	}
+}
+
+func TestPushStopsAfterInstallationSignsOut(t *testing.T) {
+	f := newHTTPFixture(t)
+	ctx := context.Background()
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("signed-out phone reached push provider")
+		w.WriteHeader(500)
+	}))
+	defer provider.Close()
+	f.svc.push = &pushClient{client: provider.Client(), baseURL: provider.URL}
+	c := f.createOverHTTP(t, "")
+	if _, err := f.svc.Bind(ctx, f.party(t, c.InviteToken, c.Tab.ID), BindInput{AccountID: f.acctB}); err != nil {
+		t.Fatal(err)
+	}
+	spoofedInstall := uuid.NewString()
+	r := f.do(t, "POST", "/v1/tabs/"+c.Tab.ID+"/notifications", "Bearer "+f.jwtFor(t, f.acctB), map[string]any{
+		"install_id": spoofedInstall, "token": "ExpoPushToken[synthetic_test_123456]",
+	})
+	if r.status != 200 {
+		t.Fatal(string(r.body))
+	}
+	var stored string
+	if err := f.pool.QueryRow(ctx, "SELECT install_id::text FROM tab_push_subscriptions").Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored == spoofedInstall {
+		t.Fatal("trusted request installation instead of session")
+	}
+	f.append(t, f.party(t, c.MyToken, c.Tab.ID), "a_to_b", "1", time.Now().UnixMilli())
+	// SignOut deletes this installation's credential. Delivery checks it even
+	// if the job was queued while the phone was still signed in.
+	if _, err := f.pool.Exec(ctx, "DELETE FROM auth_credentials WHERE install_id=$1::uuid", stored); err != nil {
+		t.Fatal(err)
+	}
+	if more, err := f.svc.deliverPush(ctx); err != nil || !more {
+		t.Fatalf("discard: %v %v", more, err)
 	}
 }

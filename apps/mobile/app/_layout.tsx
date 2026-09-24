@@ -725,7 +725,8 @@ export default function RootLayout() {
       }
       if (cancelled) return;
       sub = notifications.addNotificationResponseReceivedListener((response) => {
-        routeFromNotificationData(response.notification.request.content.data);
+        if (response.actionIdentifier === notifications.DEFAULT_ACTION_IDENTIFIER)
+          routeFromNotificationData(response.notification.request.content.data);
       });
       try {
         const last = await notifications.getLastNotificationResponseAsync();
@@ -734,7 +735,8 @@ export default function RootLayout() {
         // refresh, a retryBoot) would re-navigate to a stale tap.
         if (!cancelled && last && !launchResponseHandled) {
           launchResponseHandled = true;
-          routeFromNotificationData(last.notification.request.content.data);
+          if (last.actionIdentifier === notifications.DEFAULT_ACTION_IDENTIFIER)
+            routeFromNotificationData(last.notification.request.content.data);
         }
       } catch (err) {
         if (__DEV__) console.warn("[layout] last notification response failed", err);

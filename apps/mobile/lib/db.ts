@@ -4438,7 +4438,7 @@ export async function listEntriesForExport(vaultId: string): Promise<ExportEntry
        AND r.vault_id   = ?
        AND r.archived_at IS NULL
        AND te.kind <> 'void'
-       AND te.voided_by_entry_id IS NULL
+       AND te.voided_by_entry_id IS NULL AND te.status <> 'disputed'
      ORDER BY created_at ASC, id ASC`,
     vaultId,
     vaultId,

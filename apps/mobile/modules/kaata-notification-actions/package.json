@@ -1,0 +1,7 @@
+{
+  "name": "kaata-notification-actions",
+  "version": "0.0.1",
+  "private": true,
+  "main": "index.ts",
+  "description": "Durable iOS notification action handoff to the shared-account outbox"
+}

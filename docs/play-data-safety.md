@@ -22,12 +22,12 @@ NOT anonymous, and there is a third, offline path; the fourth arrived with mutua
    (2026-08-07): a sent bill is the recipient's asset — no TTL, no revocation,
    not erased by account deletion (the snapshot table is anonymous).
 
-4. **Shared account (mutual tab)** — `POST /v1/tabs*`, **user-initiated, works signed
-   out** (a capability token in the link is the credential). A shared account is one
+4. **Shared account (mutual tab)** — `POST /v1/tabs*`, **user-initiated, requires sign-in
+   in the app** (links are invitations, not ongoing browser access). A shared account is one
    running account held by TWO independent parties, so it is **stored server-side in
    plaintext for both of them**: each side's self-chosen **label**, and every tally's
-   **amount, date, note, author and accept/dispute/void status**. Either party (or
-   anyone holding the link) can read and append. It **survives either party's account
+   **amount, date, note, author and accept/reject/void status**. Authenticated parties
+   and their authorized kaata members can read and append. It **survives either party's account
    deletion** — `tab_parties.account_id` is `ON DELETE SET NULL`, because erasing one
    side would erase the other person's record of the same debt. **Closing freezes it;
    it does not delete it.** Same "both parties' asset" logic as the paper rule,
@@ -41,7 +41,7 @@ data → Yes.** Ledger data goes to **Kaata's own backend (api.kaata.af)**.
 **2.0 notification delivery:** when the user grants permission and deployment
 enables push, the app sends an Expo push token, installation ID, locale and party
 subscription to the backend. Expo/FCM/APNs receive a generic update message and a
-tab identifier/revision, never a label, amount, note or invitation credential.
+tab/entry identifiers, party, revision and event kind, never a label, amount, note or invitation credential.
 Device identifiers are optional for app functionality (notification delivery).
 Review the current Play/Apple provider-processing declarations before release;
 the old assertion that no messaging provider exists no longer describes 2.0.

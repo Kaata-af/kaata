@@ -1,5 +1,33 @@
 # Mutual tab (Kaata 2.0) — design contract
 
+## Device-test decisions — 2026-09-24 (override the original sections below)
+
+- Shared accounts are **app-only, signed-in**. `/t/{token}` is a private,
+  generic app-install/open landing page, with no balances, customer names,
+  ledger JSON, polling or browser mutations. Bills at `/v/` are unchanged.
+  Session authentication is required by the tab API. Tokens are invitation /
+  legacy-unbound-party recovery proofs, never ongoing read/write authority.
+  Once bound, a forwarded invitation cannot claim or read another account's side.
+- **Reject excludes a tally from both balances immediately**, but preserves the
+  row and its rejection status in history. Pending and accepted tallies count.
+  Accepting a rejected tally reinstates it. The wire/database value `disputed`
+  is retained for compatibility; user-facing text is “Rejected”. A reason is
+  optional so notification actions can reject in one tap. This replaces D6.
+  Existing immutable bills remain unchanged; newly generated bills/exports
+  exclude rejected tallies along with voided tallies.
+- A single header overflow menu contains edit, link/manage and export.
+  Counterparty tallies expose inline check / cross review controls; no review
+  action sheet is required. Author-only voiding remains in the long-press menu.
+- Push jobs identify the event kind and entry (no financial text or credentials).
+  New-entry alerts provide Accept / Reject actions; review results notify the
+  author explicitly. Actions recheck authenticated party authority on the server,
+  reject stale entry revisions, and never interpret the push itself as authority.
+  FCM/APNs configuration and a native rebuild remain required for real delivery.
+- Notification permission is requested once at link/join, or on a signed-in
+  foreground sweep for already-linked upgrades/restores. Never prompt from a
+  background task or before a shared contact exists (supersedes D14's boot rule).
+
+
 Status: **implementation contract** (2026-09-21) · Owner: Matee · Supersedes the
 routing/naming parts of `docs/shared-ledger-spec.md` (which stays as prior art)
 and implements `docs/phase-2-roadmap.md` "Phase 2: Mutual ledger" with the

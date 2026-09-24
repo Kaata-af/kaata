@@ -69,10 +69,14 @@ func noStore(w http.ResponseWriter) {
 // identical for every not-yours / unknown case).
 func mapServiceError(err error) (int, string, string) {
 	switch {
+	case errors.Is(err, ErrAuthRequired):
+		return http.StatusUnauthorized, "authentication_required", "authentication required"
 	case errors.Is(err, ErrNotFound):
 		return http.StatusNotFound, "tab_not_found", "tab not found"
 	case errors.Is(err, ErrEntryNotFound):
 		return http.StatusNotFound, "entry_not_found", "entry not found"
+	case errors.Is(err, ErrStaleReview):
+		return http.StatusConflict, "stale_review", err.Error()
 	case errors.Is(err, ErrTabClosed):
 		return http.StatusConflict, "tab_closed", err.Error()
 	case errors.Is(err, ErrNotAuthor):
@@ -248,7 +252,8 @@ type appendRequest struct {
 }
 
 type disputeRequest struct {
-	Reason string `json:"reason"`
+	ExpectedRev int64  `json:"expected_rev"`
+	Reason      string `json:"reason"`
 }
 
 // --------------------------------------------------------------------------
@@ -259,6 +264,10 @@ type disputeRequest struct {
 // request binds the account (D10) so the phone can recover the tab later.
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
+	if _, ok := auth.ClaimsFromContext(r.Context()); !ok {
+		httpx.Error(w, 401, "authentication required")
+		return
+	}
 	var req createRequest
 	if !decodeBody(w, r, &req) {
 		return
@@ -348,10 +357,28 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 // ByToken resolves an invitation without putting its credential in an API URL.
 func (h *Handler) ByToken(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
-	p, err := h.svc.PartyByToken(r.Context(), tabTokenFromHeader(r.Header.Get("Authorization")), "")
+	claims, ok := auth.ClaimsFromContext(r.Context())
+	if !ok {
+		httpx.Error(w, 401, "authentication required")
+		return
+	}
+	var req struct {
+		Token string `json:"token"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	p, err := h.svc.PartyByToken(r.Context(), req.Token, "")
 	if err != nil {
 		writeServiceError(w, err)
 		return
+	}
+	if p.AccountBoundOnce || p.AccountID != nil || p.VaultID != nil {
+		p, err = h.svc.partyByAccountRole(r.Context(), p.TabID, claims.AccountID, p.Role)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
 	}
 	res, err := h.svc.Get(r.Context(), p, 0)
 	if err != nil {
@@ -365,6 +392,11 @@ func (h *Handler) ByToken(w http.ResponseWriter, r *http.Request) {
 // and a Bearer session identifies the account to bind. Body tokens are read
 // only on these routes; a bad token never falls back to unrelated JWT access.
 func (h *Handler) invitationParty(w http.ResponseWriter, r *http.Request, token string) (Party, bool) {
+	claims, signedIn := auth.ClaimsFromContext(r.Context())
+	if !signedIn {
+		httpx.Error(w, 401, "authentication required")
+		return Party{}, false
+	}
 	if token == "" {
 		return h.partyOr404(w, r)
 	}
@@ -377,6 +409,13 @@ func (h *Handler) invitationParty(w http.ResponseWriter, r *http.Request, token 
 	if err != nil {
 		writeServiceError(w, err)
 		return Party{}, false
+	}
+	if p.AccountBoundOnce || p.AccountID != nil || p.VaultID != nil {
+		p, err = h.svc.partyByAccountRole(r.Context(), p.TabID, claims.AccountID, p.Role)
+		if err != nil {
+			writeServiceError(w, err)
+			return Party{}, false
+		}
 	}
 	return p, true
 }
@@ -516,7 +555,11 @@ func (h *Handler) Accept(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	res, err := h.svc.Accept(r.Context(), p, chi.URLParam(r, "id"))
+	var req disputeRequest
+	if r.ContentLength != 0 && !decodeBody(w, r, &req) {
+		return
+	}
+	res, err := h.svc.Accept(r.Context(), p, chi.URLParam(r, "id"), req.ExpectedRev)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -535,7 +578,7 @@ func (h *Handler) Dispute(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &req) {
 		return
 	}
-	res, err := h.svc.Dispute(r.Context(), p, chi.URLParam(r, "id"), req.Reason)
+	res, err := h.svc.Dispute(r.Context(), p, chi.URLParam(r, "id"), req.Reason, req.ExpectedRev)
 	if err != nil {
 		writeServiceError(w, err)
 		return

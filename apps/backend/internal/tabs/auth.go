@@ -1,20 +1,9 @@
 package tabs
 
-// Party resolution (docs/mutual-tab-design.md §3.2).
-//
-// Every /v1/tabs/* route sits behind authenticator.OptionalMiddleware(), so
-// a request arrives either anonymous or with session claims. The caller's
-// party is then resolved in this order, and NOTHING else:
-//
-//  1. `Authorization: Tab <token>` — the capability token. OptionalMiddleware
-//     ignores a non-Bearer scheme, so the header reaches us untouched and we
-//     hash it ourselves. The party must belong to the URL's tab.
-//  2. Session claims: the party of this tab whose account_id is the caller,
-//     or, failing that, whose vault_id is one of the caller's active
-//     memberships — in which case the membership ROLE gates writes (viewer <
-//     clerk < editor < manager < owner; append needs clerk, everything else
-//     editor). Token callers and the bound account itself have full rights.
-//  3. Otherwise ErrNotFound — the same 404 an unknown tab gets.
+// Shared accounts require a session. Party tokens are only invitation proofs
+// on join/bind and are never accepted by the ledger read/write resolver.
+// Directly bound accounts have party authority; other kaata members keep their
+// viewer/clerk/editor/manager/owner permissions. X-Kaata-Party is only a selector.
 
 import (
 	"context"
@@ -34,13 +23,14 @@ import (
 // Party is the resolved caller: which side of which tab, with the bindings
 // the write routes need and the privilege the caller reaches it with.
 type Party struct {
-	TabID          string
-	Role           string // 'a' | 'b'
-	Label          string
-	AccountID      *string
-	VaultID        *string
-	RelationshipID *string
-	JoinedAt       *time.Time
+	TabID            string
+	Role             string // 'a' | 'b'
+	Label            string
+	AccountID        *string
+	VaultID          *string
+	RelationshipID   *string
+	JoinedAt         *time.Time
+	AccountBoundOnce bool
 	// MemberRole is "" when the caller holds the party token or IS the
 	// bound account (full party rights); otherwise the caller's
 	// vault_members.role in the party's kaata, which allows() ranks.
@@ -74,7 +64,7 @@ func (p Party) Other() string { return otherRole(p.Role) }
 
 // partyCols is the SELECT list both resolvers share.
 const partyCols = `p.tab_id::text, p.role, p.label, p.account_id::text, p.vault_id::text,
-	p.relationship_id::text, p.joined_at`
+	p.relationship_id::text, p.joined_at, p.account_bound_once`
 
 // PartyByToken resolves a capability token. tabID "" skips the URL check
 // (the /t/{token} page has no tab id). Every failure is ErrNotFound: unknown
@@ -88,7 +78,7 @@ func (s *Service) PartyByToken(ctx context.Context, token, tabID string) (Party,
 	var p Party
 	err := s.pool.QueryRow(ctx, `
 		SELECT `+partyCols+` FROM tab_parties p WHERE p.token_hash = $1
-	`, hashPartyToken(token)).Scan(&p.TabID, &p.Role, &p.Label, &p.AccountID, &p.VaultID, &p.RelationshipID, &p.JoinedAt)
+	`, hashPartyToken(token)).Scan(&p.TabID, &p.Role, &p.Label, &p.AccountID, &p.VaultID, &p.RelationshipID, &p.JoinedAt, &p.AccountBoundOnce)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return Party{}, ErrNotFound
@@ -137,7 +127,7 @@ func (s *Service) partyByAccountRole(ctx context.Context, tabID, accountID, role
 		   AND ($3 = '' OR p.role = $3)
 		 ORDER BY COALESCE(p.account_id = $2::uuid, FALSE) DESC, p.role ASC
 		 LIMIT 1
-	`, tabID, accountID, role).Scan(&p.TabID, &p.Role, &p.Label, &p.AccountID, &p.VaultID, &p.RelationshipID, &p.JoinedAt,
+	`, tabID, accountID, role).Scan(&p.TabID, &p.Role, &p.Label, &p.AccountID, &p.VaultID, &p.RelationshipID, &p.JoinedAt, &p.AccountBoundOnce,
 		&direct, &memberRole)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -194,15 +184,10 @@ func installIDFromClaims(claims *auth.SessionClaims) *string {
 func (h *Handler) resolveParty(r *http.Request, tabID string) (Party, error) {
 	ctx := r.Context()
 	claims, _ := auth.ClaimsFromContext(ctx)
-
-	if token := tabTokenFromHeader(r.Header.Get("Authorization")); token != "" {
-		p, err := h.svc.PartyByToken(ctx, token, tabID)
-		if err != nil {
-			return Party{}, err
-		}
-		h.svc.touchParty(ctx, p, installIDFromClaims(claims))
-		return p, nil
+	if claims == nil && strings.HasPrefix(strings.ToLower(r.Header.Get("Authorization")), "bearer ") {
+		return Party{}, ErrAuthRequired
 	}
+
 	if claims != nil {
 		p, err := h.svc.partyByAccountRole(ctx, tabID, claims.AccountID, r.Header.Get("X-Kaata-Party"))
 		if err != nil {

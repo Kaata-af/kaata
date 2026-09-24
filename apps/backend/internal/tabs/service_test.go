@@ -250,8 +250,8 @@ func TestCreateJoinAppendReviewVoidClose(t *testing.T) {
 	if dis.Entry.Status != "disputed" || dis.Entry.DisputeReason == nil || *dis.Entry.DisputeReason != "It was 3000, not 3400" {
 		t.Fatalf("after dispute: %+v", dis.Entry)
 	}
-	// Disputed entries still count (§2) until voided.
-	if dis.Tab.Balance["b"] != "-3000" {
+	// Rejected entries remain visible but no longer count.
+	if dis.Tab.Balance["b"] != "400" || dis.Tab.Balance["a"] != "-400" {
 		t.Fatalf("disputed balance = %v", dis.Tab.Balance)
 	}
 
@@ -322,8 +322,8 @@ func TestAcceptDisputeVoidRules(t *testing.T) {
 	if _, err := f.svc.Dispute(ctx, pa, mine.Entry.ID, "x"); !errors.Is(err, ErrOwnEntry) {
 		t.Fatalf("dispute own entry = %v, want ErrOwnEntry", err)
 	}
-	if _, err := f.svc.Dispute(ctx, pb, mine.Entry.ID, "   "); !errors.Is(err, ErrReasonRequired) {
-		t.Fatalf("dispute without reason = %v, want ErrReasonRequired", err)
+	if _, err := f.svc.Dispute(ctx, pb, mine.Entry.ID, "   "); err != nil {
+		t.Fatalf("dispute without reason = %v, reason is optional for notification rejection", err)
 	}
 	if _, err := f.svc.Void(ctx, pb, mine.Entry.ID); !errors.Is(err, ErrNotAuthor) {
 		t.Fatalf("void by the other party = %v, want ErrNotAuthor", err)
@@ -781,12 +781,12 @@ func TestMembershipRoleGateAndBindings(t *testing.T) {
 
 	// Bind: A's owner session re-binds with a relationship; a party bound by
 	// membership only (the editor) is allowed to bind THEIR account.
-	if _, err := f.svc.Bind(ctx, pEditor, BindInput{AccountID: editor}); err != nil {
+	if _, err := f.svc.Bind(ctx, pEditor, BindInput{AccountID: editor}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("editor bind: %v", err)
 	}
 	pEditorNow, err := f.svc.PartyByAccount(ctx, tabID, editor)
-	if err != nil || pEditorNow.MemberRole != "" {
-		t.Fatalf("after bind the editor must resolve directly: %+v %v", pEditorNow, err)
+	if err != nil || pEditorNow.MemberRole != "editor" {
+		t.Fatalf("a member must not take ownership through bind: %+v %v", pEditorNow, err)
 	}
 }
 

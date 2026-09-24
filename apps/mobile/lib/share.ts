@@ -51,7 +51,7 @@ async function uploadSharedLedger(args: {
     // audit trail: a voided tally is not part of the account, so it is left
     // out here — the same rule lib/export applies.
     entries: args.entries
-      .filter((e) => !e.tab?.voided)
+      .filter((e) => !e.tab?.voided && e.tab?.status !== "disputed")
       .slice(0, MAX_SHARED_ENTRIES)
       .map((e) => ({
         type: e.type,

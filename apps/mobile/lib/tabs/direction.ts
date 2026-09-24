@@ -6,7 +6,7 @@
 // directly and pins it against apps/_shared/tab-vectors.json, the same vectors
 // the Go side runs. Balance rule (§2): rows with kind IN ('entry','opening')
 // and voided_by_entry_id IS NULL count; the source of the direction gave value
-// (balance up), the target received (balance down); status never matters.
+// (balance up), the target received (balance down); rejected (wire: disputed) tallies do not count.
 
 import type { EntryType } from "../types";
 import type { TabDirection, TabEntryKind, TabRole } from "./types";
@@ -41,6 +41,7 @@ export type BalanceRow = {
   direction: TabDirection;
   amount_minor: number;
   kind: TabEntryKind;
+  status?: "pending" | "accepted" | "disputed";
   voided_by_entry_id: string | null;
 };
 
@@ -50,7 +51,7 @@ export type BalanceRow = {
  * a voided pair nets to nothing without special-casing at the call site.
  */
 export function signedMinorFor(role: TabRole, e: BalanceRow): number {
-  if (e.kind === "void" || e.voided_by_entry_id != null) return 0;
+  if (e.kind === "void" || e.voided_by_entry_id != null || e.status === "disputed") return 0;
   return sourceOf(e.direction) === role ? e.amount_minor : -e.amount_minor;
 }
 
@@ -82,7 +83,7 @@ export function tabBalanceSql(roleExpr: string, alias = "te"): string {
     throw new Error("Invalid tab role expression");
   }
   const p = `${alias}.`;
-  const live = `${p}kind IN ('entry','opening') AND ${p}voided_by_entry_id IS NULL`;
+  const live = `${p}kind IN ('entry','opening') AND ${p}voided_by_entry_id IS NULL AND ${p}status <> 'disputed'`;
   const gave = `${p}direction = CASE WHEN ${roleExpr} = 'a' THEN 'a_to_b' ELSE 'b_to_a' END`;
   return `COALESCE(SUM(CASE
     WHEN ${live} AND ${gave} THEN ${p}amount_minor

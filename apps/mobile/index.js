@@ -39,12 +39,9 @@ import "./lib/mesh/bg-task";
 // #46: per-sync notifications. Subscribes to ledger-applied at load so it's active
 // in both the foreground (when backgrounded) and the headless context.
 import "./lib/mesh/bg-notify";
-// Mutual tab (docs/mutual-tab-design.md §4.5): the counterparty is not a kaata
-// member and there is no push yet, so a pull that lands their tallies while the
-// app is backgrounded is announced with a LOCAL notification. Subscribes to
-// onTabApplied at load, beside bg-notify and for the same reason — the
-// subscription must exist in whichever VM applied the pull. Loads
-// expo-notifications lazily and never in Expo Go.
+// Register shared-account notification responses early, including Android
+// headless actions and iOS launch handoffs. Remote push and local fallback
+// reuse the same durable review outbox. Expo Go skips native notifications.
 import "./lib/tabs/notify";
 
 // Keep the native (black, branded) splash up until the React tree has actually

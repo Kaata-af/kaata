@@ -4,13 +4,7 @@
 // in Kaata" button that fires it, and the token in the path IS the credential
 // (D11: the invite link is party B's link, and it is never spent on join).
 //
-// SIGNED-OUT IS ALLOWED, deliberately. The whole point of a tab is that the
-// other side may be a person with only a browser or an app and no account
-// (D10), so this screen must never gate on a JWT the way invite/[token].tsx
-// does. A session, when there is one, only buys reinstall recovery: join
-// passes vault_id/relationship_id and follows with /bind so GET /v1/tabs/mine
-// can hand the link back later. Without one, the token stored in tab_links is
-// the only credential this device will ever have for the tab.
+// Sign-in is required; the invitation is claimed by an account, not by a browser.
 //
 // Stages: loading → preview (what am I being invited to?) → pick (which kaata,
 // which contact?) → joining → done. Errors are rendered INLINE on the stage
@@ -47,6 +41,7 @@ import { Button } from "../../components/Button";
 import { ScreenLoading } from "../../components/ScreenLoading";
 import { ScreenHeader } from "../../components/SettingsScreen";
 import { queuePendingToast } from "../../components/Toast";
+import { getSessionJWT } from "../../lib/auth";
 import { colors } from "../../lib/colors";
 import { getCurrencySymbol, applyVaultCurrency } from "../../lib/currency";
 import {
@@ -153,6 +148,11 @@ export default function TabJoinScreen() {
         if (!self) {
           await setAppMeta(PENDING_TOKEN_KEY, token);
           router.replace(await onboardingRouteForStash());
+          return;
+        }
+        if (!(await getSessionJWT())) {
+          await setAppMeta(PENDING_TOKEN_KEY, token);
+          router.replace("/onboarding/auth");
           return;
         }
         // We are past the handoffs: the stash has done its job. Cleared here

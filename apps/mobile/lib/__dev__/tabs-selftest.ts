@@ -14,7 +14,7 @@
 //     survival and clearing, the notifier counts, cursor monotonicity.
 //   - the outbox: order, backoff ladder, verdict-vs-transient handling — by
 //     running the REAL lib/tabs/sync.ts against an in-memory fake of the
-//     /v1/tabs server (global fetch), including the JWT→token fallback,
+//     /v1/tabs server (global fetch), including the authenticated legacy-party claim,
 //     per-tab coalescing, the 300 ms debounce and /mine reconcile.
 //   - the read-site integration in the REAL lib/db.ts (people balance CASE,
 //     listEntries routing, the immutability guards, the export UNION).
@@ -200,7 +200,7 @@ function openFixture(): void {
   dbTx.setLocalSelfUserIdCache(SELF);
   dbTx.setActiveVaultIdCache(VAULT);
   dbTx.setAccountIdCache(null);
-  session.jwt = null;
+  session.jwt = "jwt-1";
   net.connected = true;
   ledgerEmits.length = 0;
   server.reset();
@@ -243,7 +243,7 @@ const server = {
       a: { label: "Synthetic Shop", joined_at_ms: 1_000, bound: false },
       b: { label: "", joined_at_ms: null, bound: false },
     };
-    this.jwtRole = null;
+    this.jwtRole = "a";
     this.calls = [];
     this.failNext = null;
     this.mine = [];
@@ -345,6 +345,10 @@ const fakeFetch = async (
   if (u.pathname === "/v1/tabs/mine") {
     if (!authz.startsWith("Bearer ")) return errorReply(401, "unauthorized");
     return reply(200, { tabs: server.mine });
+  }
+  if (u.pathname.endsWith("/bind") && authz === "Bearer jwt-1" && body.token === server.tokens.a) {
+    server.jwtRole = "a";
+    return reply(200, { tab: server.view("a"), entries: server.entries, full: true });
   }
   if (!role) return errorReply(404, "tab_not_found");
   const m = /^\/v1\/tabs\/([^/]+)(?:\/(.*))?$/.exec(u.pathname);
@@ -489,7 +493,7 @@ type Vector = {
     amount: string;
     kind: "entry" | "opening" | "void";
     voided: boolean;
-    status: string;
+    status: "pending" | "accepted" | "disputed";
   }>;
   expected: string;
 };
@@ -532,8 +536,8 @@ async function main(): Promise<void> {
     assert.equal(
       direction.tabBalanceSql("tl.role", "te"),
       `COALESCE(SUM(CASE
-    WHEN te.kind IN ('entry','opening') AND te.voided_by_entry_id IS NULL AND te.direction = CASE WHEN tl.role = 'a' THEN 'a_to_b' ELSE 'b_to_a' END THEN te.amount_minor
-    WHEN te.kind IN ('entry','opening') AND te.voided_by_entry_id IS NULL THEN -te.amount_minor
+    WHEN te.kind IN ('entry','opening') AND te.voided_by_entry_id IS NULL AND te.status <> 'disputed' AND te.direction = CASE WHEN tl.role = 'a' THEN 'a_to_b' ELSE 'b_to_a' END THEN te.amount_minor
+    WHEN te.kind IN ('entry','opening') AND te.voided_by_entry_id IS NULL AND te.status <> 'disputed' THEN -te.amount_minor
     ELSE 0 END), 0)`,
     );
     assert.throws(() => direction.tabBalanceSql("tl.role", "te; DROP TABLE te"));
@@ -543,6 +547,7 @@ async function main(): Promise<void> {
         direction: e.direction,
         amount_minor: wire.wireToMinor(e.amount),
         kind: e.kind,
+        status: e.status,
         voided_by_entry_id: e.voided ? "void-row" : null,
       }));
       const minor = direction.tabBalanceMinor(c.role, rows);
@@ -1163,7 +1168,7 @@ async function main(): Promise<void> {
     );
   });
 
-  await test("syncTab: JWT first, token when the account is not a party; offline and no credential recorded", async () => {
+  await test("syncTab: JWT only, claim an unbound legacy party when necessary; offline and no credential recorded", async () => {
     await tabsDb.upsertTabLink(link());
     server.seed({ id: "b1", created_by: "b", direction: "b_to_a", amount: "9" });
     session.jwt = "jwt-1";
@@ -1171,7 +1176,11 @@ async function main(): Promise<void> {
     const r = await sync.syncTab(TAB);
     assert.equal(r.ok, true);
     assert.equal(r.pulled, 1);
-    assert.equal(server.calls.length, 2, "404 on Bearer, retried with the token");
+    assert.equal(
+      server.calls.length,
+      3,
+      "404 on Bearer, claim unbound legacy party, retry session",
+    );
     // Once bound, the JWT alone works and no stored token is needed.
     server.jwtRole = "a";
     server.calls.length = 0;
@@ -1596,7 +1605,7 @@ async function main(): Promise<void> {
     assert.equal(storedLink().rev, 1);
   });
 
-  await test("signed-in invitation sends BOTH proofs; anonymous invitation remains usable", async () => {
+  await test("signed-in invitation sends BOTH proofs; anonymous invitation is refused", async () => {
     const api = require("../tabs/api") as typeof import("../tabs/api");
     const previous = globalThis.fetch;
     const seen: Array<{ headers: Record<string, string>; body: Record<string, unknown> }> = [];
@@ -1617,23 +1626,90 @@ async function main(): Promise<void> {
       assert.equal(seen[0].headers.Authorization, "Bearer jwt-1");
       assert.equal(seen[0].body.token, "invitation");
       session.jwt = null;
-      await api.joinTab({ token: "invitation" }, TAB, {
-        label: "B",
-        vault_id: null,
-        relationship_id: null,
-      });
-      assert.equal(seen[1].headers.Authorization, "Tab invitation");
+      await assert.rejects(() =>
+        api.joinTab({ token: "invitation" }, TAB, {
+          label: "B",
+          vault_id: null,
+          relationship_id: null,
+        }),
+      );
+      assert.equal(seen.length, 1, "no anonymous request");
       session.jwt = "jwt-1";
       const auth = await api.resolveTabAuth(link({ role: "b" }));
       await api.fetchTab(auth, TAB, 0);
       assert.equal(
-        seen[2].headers["X-Kaata-Party"],
+        seen[1].headers["X-Kaata-Party"],
         "b",
         "shared-vault membership cannot switch the authoring side",
       );
     } finally {
       globalThis.fetch = previous;
     }
+  });
+
+  await test("notification action: validate IDs, queue once, keep receipt after acknowledgement", async () => {
+    const { parseTabReview, TAB_ACCEPT, TAB_REJECT } = require("../tabs/notification-data");
+    const data = {
+      tab_id: randomUUID(),
+      entry_id: randomUUID(),
+      role: "b",
+      rev: 12,
+      kind: "entry_created",
+    };
+    assert.equal(parseTabReview(TAB_ACCEPT, data).action, "accept");
+    assert.equal(parseTabReview(TAB_REJECT, data).action, "dispute");
+    for (const bad of [
+      { ...data, rev: -1 },
+      { ...data, rev: Infinity },
+      { ...data, role: "owner" },
+      { ...data, entry_id: "../other" },
+      { ...data, kind: "entry_accepted" },
+      null,
+    ]) {
+      assert.equal(parseTabReview(TAB_ACCEPT, bad), null);
+    }
+    assert.equal(parseTabReview("default", data), null);
+    const tl = link();
+    await tabsDb.upsertTabLink(tl);
+    await Promise.all([
+      tabsDb.queueNotificationReview(tl, "their-entry", 12, "accept"),
+      tabsDb.queueNotificationReview(tl, "their-entry", 12, "dispute"),
+    ]);
+    const ops = await tabsDb.listDueTabOps(TAB);
+    assert.equal(ops.length, 1, "first tap wins across duplicate OS callbacks");
+    assert.deepEqual(JSON.parse(ops[0].payload), {
+      entry_id: "their-entry",
+      expected_rev: 12,
+      reason: "",
+    });
+    await tabsDb.completeTabOp(ops[0].id);
+    await tabsDb.queueNotificationReview(tl, "their-entry", 12, "accept");
+    assert.equal(
+      (await tabsDb.listDueTabOps(TAB)).length,
+      0,
+      "cold-start replay cannot repeat a completed action",
+    );
+  });
+
+  await test("reject removes amounts from contact and kaata export, accept restores them", async () => {
+    const tl = link();
+    await tabsDb.upsertTabLink(tl);
+    server.seed({ id: "goods", created_by: "b", direction: "a_to_b", amount: "100" });
+    await sync.syncTab(TAB);
+    assert.equal((await db.getPerson(CONTACT))?.balance, 100);
+    const before = await tabsDb.listTabEntriesAsEntries(tl);
+    assert.equal(before.length, 1);
+    await tabsDb.applyOptimisticStatus(tl, "goods", "disputed", null);
+    assert.equal((await db.getPerson(CONTACT))?.balance, 0);
+    const rows = await tabsDb.listTabEntriesAsEntries(tl);
+    assert.equal(rows.length, 1, "history kept");
+    assert.equal(rows[0].tab?.status, "disputed");
+    assert.equal(
+      (await db.listEntriesForExport(VAULT)).filter((e: any) => e.id === "goods").length,
+      0,
+    );
+    await tabsDb.applyOptimisticStatus(tl, "goods", "accepted", null);
+    assert.equal((await db.getPerson(CONTACT))?.balance, 100);
   });
 
   console.log(`\n${passed} tab regressions passed; ${failed} failed.`);

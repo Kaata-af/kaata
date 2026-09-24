@@ -18,7 +18,7 @@
 export type TabRole = "a" | "b";
 /** Value moved from X to Y. The target now owes the source more. */
 export type TabDirection = "a_to_b" | "b_to_a";
-/** A tally counts from the moment it lands; accept/dispute are optional flags (D6). */
+/** Pending/accepted tallies count; rejected (wire: disputed) tallies do not. */
 export type TabEntryStatus = "pending" | "accepted" | "disputed";
 /** `opening` is the carried-over balance at link time (D7); `void` is the
  *  visible cancellation row that references the original (D5). */
@@ -225,4 +225,6 @@ export type TabAppliedEvent = {
   statusChangedOnMine: number;
   /** "pull" = server state landed; "local" = this device's own optimistic write. */
   origin: "pull" | "local";
+  changes?: Array<{ entryId: string; rev: number; kind: "entry_created" | "entry_accepted" | "entry_rejected" | "entry_voided" }>;
+
 };

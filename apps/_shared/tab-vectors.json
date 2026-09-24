@@ -1,5 +1,5 @@
 {
-  "description": "Mutual-tab balance vectors shared by apps/backend/internal/tabs (Go) and apps/mobile/lib/tabs (TS, npm run selftest:tabs). Each case lists tab entries and the expected signed balance from `role`'s point of view as a decimal string in major units. Rules (docs/mutual-tab-design.md §2): only kind IN ('entry','opening') with voided_by_entry_id IS NULL count; the role that is the SOURCE of the direction gave value (balance goes up), the target received (balance goes down). status never affects the balance. Add a case here and both suites pick it up.",
+  "description": "Mutual-tab balance vectors shared by apps/backend/internal/tabs (Go) and apps/mobile/lib/tabs (TS, npm run selftest:tabs). Each case lists tab entries and the expected signed balance from `role`'s point of view as a decimal string in major units. Rules (docs/mutual-tab-design.md §2): only kind IN ('entry','opening') with voided_by_entry_id IS NULL count; the role that is the SOURCE of the direction gave value (balance goes up), the target received (balance goes down). Rejected (wire: disputed) entries do not count; pending and accepted entries do. Add a case here and both suites pick it up.",
   "cases": [
     { "name": "empty tab", "role": "a", "entries": [], "expected": "0" },
     {
@@ -54,13 +54,13 @@
       "expected": "-3000"
     },
     {
-      "name": "disputed entries still count until voided",
+      "name": "rejected entries in both directions are excluded",
       "role": "a",
       "entries": [
         { "direction": "a_to_b", "amount": "200", "kind": "entry", "voided": false, "status": "disputed" },
         { "direction": "b_to_a", "amount": "50", "kind": "entry", "voided": false, "status": "disputed" }
       ],
-      "expected": "150"
+      "expected": "0"
     },
     {
       "name": "maximum single amount survives",

@@ -54,6 +54,8 @@ var (
 	ErrTabClosed         = errors.New("tab is closed")
 	ErrNotAuthor         = errors.New("only the author can void an entry")
 	ErrOwnEntry          = errors.New("cannot accept or dispute your own entry")
+	ErrAuthRequired      = errors.New("authentication required")
+	ErrStaleReview       = errors.New("tally has changed; review its latest state")
 	ErrAlreadyVoided     = errors.New("entry is already voided")
 	ErrIDTaken           = errors.New("entry id belongs to another tab or author")
 	ErrInvalidAmount     = errors.New("amount must be a decimal string with up to two decimals, above 0 and at most 9999999999.99")
@@ -507,14 +509,14 @@ func lockOpenTab(ctx context.Context, tx pgx.Tx, tabID string) (tabRow, error) {
 
 // bumpRev advances the tab's change counter and returns the new value, which
 // the mutation then stamps on every row it touched.
-func bumpRev(ctx context.Context, tx pgx.Tx, tabID, actor string) (int64, error) {
+func bumpRev(ctx context.Context, tx pgx.Tx, tabID, actor string, event ...pushEvent) (int64, error) {
 	var rev int64
 	if err := tx.QueryRow(ctx, `
 		UPDATE tabs SET rev = rev + 1 WHERE id = $1::uuid RETURNING rev
 	`, tabID).Scan(&rev); err != nil {
 		return 0, fmt.Errorf("bump rev: %w", err)
 	}
-	if err := queuePush(ctx, tx, tabID, actor, rev); err != nil {
+	if err := queuePush(ctx, tx, tabID, actor, rev, event...); err != nil {
 		return 0, err
 	}
 	return rev, nil
@@ -592,7 +594,7 @@ func loadEntryForUpdate(ctx context.Context, tx pgx.Tx, tabID, entryID string) (
 // loadTab builds the Tab meta from `you`'s point of view: balance from BOTH
 // views (b is the negation of a), pending_for_you = the other party's
 // pending, non-voided tallies. Balance excludes void rows and voided
-// originals; status never affects it (§2).
+// originals and rejected (wire: disputed) tallies.
 func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 	var (
 		t                Tab
@@ -611,7 +613,7 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 		       pb.label, pb.joined_at, pb.account_id IS NOT NULL,
 		       COALESCE((SELECT SUM(CASE WHEN e.direction = 'a_to_b' THEN e.amount_minor ELSE -e.amount_minor END)
 		                   FROM tab_entries e
-		                  WHERE e.tab_id = t.id AND e.kind <> 'void' AND e.voided_by_entry_id IS NULL), 0)::BIGINT,
+		                  WHERE e.tab_id = t.id AND e.kind <> 'void' AND e.voided_by_entry_id IS NULL AND e.status <> 'disputed'), 0)::BIGINT,
 		       (SELECT COUNT(*) FROM tab_entries e
 		         WHERE e.tab_id = t.id AND e.created_by <> $2 AND e.status = 'pending'
 		           AND e.kind <> 'void' AND e.voided_by_entry_id IS NULL)::INT
@@ -1066,6 +1068,9 @@ func (s *Service) Join(ctx context.Context, p Party, in JoinInput) (TabResponse,
 	if err != nil {
 		return TabResponse{}, err
 	}
+	if err := checkPartyClaim(ctx, tx, p, in.AccountID); err != nil {
+		return TabResponse{}, err
+	}
 	if err := checkContactBinding(ctx, tx, p.TabID, p.Role, locked.Currency, in.VaultID, in.RelationshipID); err != nil {
 		return TabResponse{}, err
 	}
@@ -1122,6 +1127,9 @@ func (s *Service) Bind(ctx context.Context, p Party, in BindInput) (TabResponse,
 
 	locked, err := lockOpenTab(ctx, tx, p.TabID)
 	if err != nil {
+		return TabResponse{}, err
+	}
+	if err := checkPartyClaim(ctx, tx, p, &in.AccountID); err != nil {
 		return TabResponse{}, err
 	}
 	if err := checkContactBinding(ctx, tx, p.TabID, p.Role, locked.Currency, in.VaultID, in.RelationshipID); err != nil {
@@ -1280,7 +1288,7 @@ func (s *Service) Append(ctx context.Context, p Party, in AppendInput) (AppendRe
 		return AppendResult{}, ErrTabClosed
 	}
 
-	rev, err := bumpRev(ctx, tx, p.TabID, p.Role)
+	rev, err := bumpRev(ctx, tx, p.TabID, p.Role, pushEvent{Kind: "entry_created", EntryID: in.ID})
 	if err != nil {
 		return AppendResult{}, err
 	}
@@ -1327,7 +1335,7 @@ func duplicateHint(ctx context.Context, q querier, tabID string, e Entry) (*Dupl
 		SELECT id::text, created_by, occurred_at_ms FROM tab_entries
 		 WHERE tab_id = $1::uuid AND id <> $2::uuid
 		   AND created_by <> $3 AND direction = $4 AND amount_minor = $5
-		   AND kind <> 'void' AND voided_by_entry_id IS NULL
+		   AND kind <> 'void' AND voided_by_entry_id IS NULL AND status <> 'disputed'
 		   AND abs(occurred_at_ms - $6) <= $7
 		 ORDER BY abs(occurred_at_ms - $6) ASC, seq DESC
 		 LIMIT 1
@@ -1345,7 +1353,7 @@ func duplicateHint(ctx context.Context, q querier, tabID string, e Entry) (*Dupl
 // setStatus is the shared body of Accept and Dispute: only the OTHER party
 // may review a tally (ErrOwnEntry), never a voided one (ErrAlreadyVoided),
 // and the tab's rev advances with the row's.
-func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string, reason *string) (EntryResponse, error) {
+func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string, reason *string, expectedRev ...int64) (EntryResponse, error) {
 	if !p.allows(rankEditor) {
 		return EntryResponse{}, ErrRoleInsufficient
 	}
@@ -1372,7 +1380,19 @@ func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string
 	if e.CreatedBy == p.Role {
 		return EntryResponse{}, ErrOwnEntry
 	}
-	rev, err := bumpRev(ctx, tx, p.TabID, p.Role)
+	// Lost acknowledgements and duplicate OS callbacks must not emit another alert.
+	if e.Status == status && (reason == nil || (e.DisputeReason != nil && *e.DisputeReason == *reason)) {
+		tab, err := loadTab(ctx, tx, p.TabID, p.Role)
+		return EntryResponse{Entry: e, Tab: tab}, err
+	}
+	if len(expectedRev) > 0 && expectedRev[0] > 0 && e.Rev != expectedRev[0] {
+		return EntryResponse{}, ErrStaleReview
+	}
+	kind := "entry_accepted"
+	if status == "disputed" {
+		kind = "entry_rejected"
+	}
+	rev, err := bumpRev(ctx, tx, p.TabID, p.Role, pushEvent{Kind: kind, EntryID: entryID})
 	if err != nil {
 		return EntryResponse{}, err
 	}
@@ -1399,21 +1419,18 @@ func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string
 
 // Accept marks the other party's tally accepted. Accepting a disputed entry
 // clears the dispute (reason back to NULL).
-func (s *Service) Accept(ctx context.Context, p Party, entryID string) (EntryResponse, error) {
-	return s.setStatus(ctx, p, entryID, "accepted", nil)
+func (s *Service) Accept(ctx context.Context, p Party, entryID string, expectedRev ...int64) (EntryResponse, error) {
+	return s.setStatus(ctx, p, entryID, "accepted", nil, expectedRev...)
 }
 
 // Dispute flags the other party's tally with a reason (≤ 300 chars). The
 // author resolves it by voiding (and re-adding) — the roadmap's model.
-func (s *Service) Dispute(ctx context.Context, p Party, entryID, reason string) (EntryResponse, error) {
+func (s *Service) Dispute(ctx context.Context, p Party, entryID, reason string, expectedRev ...int64) (EntryResponse, error) {
 	reason = strings.TrimSpace(reason)
-	if reason == "" {
-		return EntryResponse{}, ErrReasonRequired
-	}
 	if utf8.RuneCountInString(reason) > maxReasonRunes {
 		return EntryResponse{}, ErrInvalidReason
 	}
-	return s.setStatus(ctx, p, entryID, "disputed", &reason)
+	return s.setStatus(ctx, p, entryID, "disputed", &reason, expectedRev...)
 }
 
 // Void appends the reversing row (D5): kind='void', the original's amount,
@@ -1448,7 +1465,7 @@ func (s *Service) Void(ctx context.Context, p Party, entryID string) (VoidRespon
 	if orig.CreatedBy != p.Role {
 		return VoidResponse{}, ErrNotAuthor
 	}
-	rev, err := bumpRev(ctx, tx, p.TabID, p.Role)
+	rev, err := bumpRev(ctx, tx, p.TabID, p.Role, pushEvent{Kind: "entry_voided", EntryID: entryID})
 	if err != nil {
 		return VoidResponse{}, err
 	}
@@ -1555,4 +1572,18 @@ func (s *Service) RegenerateLink(ctx context.Context, p Party) (string, error) {
 	}
 	s.poke(ctx, p.TabID)
 	return token, nil
+}
+
+// The tab lock serializes first claims. An invite can recover an unbound
+// legacy party, but can never transfer an already claimed account.
+func checkPartyClaim(ctx context.Context, tx pgx.Tx, p Party, accountID *string) error {
+	var bound *string
+	var claimed bool
+	if err := tx.QueryRow(ctx, "SELECT account_id::text, account_bound_once FROM tab_parties WHERE tab_id=$1::uuid AND role=$2", p.TabID, p.Role).Scan(&bound, &claimed); err != nil {
+		return err
+	}
+	if (claimed && bound == nil) || (bound != nil && (accountID == nil || *bound != *accountID)) {
+		return ErrNotFound
+	}
+	return nil
 }

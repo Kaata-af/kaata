@@ -542,6 +542,22 @@ async function main(): Promise<void> {
     assert.ok(html[0].includes("0.30 $</div>"), "summary card totals exactly thirty cents");
     assert.ok(html[1].includes("0.30"));
     assert.ok(html.every((page) => !page.includes("0.30000000000000004")));
+
+    // A linked contact keeps rejected/voided rows on screen, but a statement
+    // must omit them and calculate its running balance from counted rows only.
+    const reviewed: Entry = {
+      ...fixture[0], id: "reviewed", amount_afn: 100, created_at: 5000,
+      tab: { by: "them", status: "disputed", kind: "entry", dispute_reason: null,
+        voided: false, local_pending: false, other_label: "Other shop" },
+    };
+    fixture.push(reviewed, { ...reviewed, id: "voided", tab: { ...reviewed.tab!, status: "accepted", voided: true } });
+    const rejectedStatement = await buildPersonStatement("person", "en", "USD", "$", 6000);
+    assert.ok(rejectedStatement);
+    assert.equal(rejectedStatement.balance, 0);
+    assert.ok(rejectedStatement.rows.every((r) => r.kind !== "entry" || !["reviewed", "voided"].includes(r.entry.id)));
+    reviewed.tab!.status = "accepted";
+    const acceptedStatement = await buildPersonStatement("person", "en", "USD", "$", 6000);
+    assert.equal(acceptedStatement?.balance, 100, "re-accepting restores exactly one amount");
   });
 
   console.log(`\n${passed} money regression groups passed.`);

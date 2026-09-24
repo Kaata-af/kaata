@@ -117,12 +117,14 @@ export function Privacy() {
         <Section title="Shared accounts with another person">
           <p>
             A contact’s account can be turned into a <strong>shared account</strong>, where the
-            other person opens a link (kaata.af/t/…) or the Kaata app and keeps the same running
+            other person opens an invitation (kaata.af/t/…) in the Kaata app, signs in, and keeps the same running
             account with you. Because both of you must see the same figures, a shared account is
             <strong> stored on our server</strong>, not only on your phone: the name each of you
             chooses to show the other, every tally’s amount, date and note, and who added, accepted,
-            disputed or cancelled it. Anyone holding that link can read and add to the account, so
-            send it only to the person it is for; you can replace the link at any time.
+            rejected or cancelled it. The browser only opens the app; it does not display your ledger.
+            Send the invitation only to its intended recipient. Once claimed, the link alone
+            cannot access the account. Access requires a signed-in party or an authorized member
+            of their kaata.
           </p>
           <p>
             A shared account belongs to <strong>both</strong> of you, so it outlives either side

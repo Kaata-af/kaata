@@ -5,7 +5,7 @@
 // of this device's intent — never a projection of the vault event log (D2).
 // Nothing here writes entries, event_log or any vault table, and nothing here
 // is signed or role-gated: the server is the source of truth (D1) and the
-// per-party token / JWT is the whole authorization story.
+// session JWT and server-side party membership authorize requests.
 //
 // Rules every function follows:
 //   - getDb() from lib/db-tx and its own (implicit or explicit) transaction.
@@ -311,6 +311,7 @@ export async function upsertTabFromWire(
   const now = Date.now();
   let newFromThem = 0;
   let statusChangedOnMine = 0;
+  const changes: NonNullable<TabAppliedEvent["changes"]> = [];
   let changed = false;
   let vaultId = link.vault_id;
   let relationshipId = link.relationship_id;
@@ -382,11 +383,26 @@ export async function upsertTabFromWire(
       );
       changed = true;
       if (!before) {
-        if (e.created_by === them && e.kind !== "void") newFromThem++;
+        if (e.created_by === them && e.kind !== "void") {
+          newFromThem++;
+          if (stored.last_synced_at != null && e.status === "pending" && !e.voided_by_entry_id)
+            changes.push({ entryId: e.id, rev: e.rev, kind: "entry_created" });
+        }
       } else if (e.created_by === me) {
         const wasVoided = before.voided_by_entry_id != null;
         const isVoided = e.voided_by_entry_id != null;
-        if (before.status !== e.status || wasVoided !== isVoided) statusChangedOnMine++;
+        if (before.status !== e.status || wasVoided !== isVoided) {
+          statusChangedOnMine++;
+          changes.push({
+            entryId: e.id,
+            rev: e.rev,
+            kind: isVoided
+              ? "entry_voided"
+              : e.status === "accepted"
+                ? "entry_accepted"
+                : "entry_rejected",
+          });
+        }
       }
     }
 
@@ -431,6 +447,7 @@ export async function upsertTabFromWire(
       newFromThem,
       statusChangedOnMine,
       origin: opts.origin ?? "pull",
+      changes,
     });
   }
   return { newFromThem, statusChangedOnMine };
@@ -872,4 +889,41 @@ export async function failTabOp(id: string, err: string, backoffMs: number): Pro
     clampError(err),
     id,
   );
+}
+
+/** Persist a notification action ONCE, even across the Android headless and
+ * foreground VMs. The receipt and the outbox row commit together. Do not
+ * mutate the cache optimistically: this is an old notification, not an open
+ * ledger. The server checks expected_rev before changing a newer decision. */
+export async function queueNotificationReview(
+  link: TabLink,
+  entryId: string,
+  rev: number,
+  action: "accept" | "dispute",
+): Promise<void> {
+  const db = await getDb();
+  const key = `tab_notification_review:${link.tab_id}:${entryId}:${rev}`;
+  await transaction(async () => {
+    const claimed = await db.runAsync(
+      "INSERT OR IGNORE INTO app_meta (key,value) VALUES (?,?)",
+      key,
+      String(Date.now()),
+    );
+    if (!claimed.changes) return;
+    await enqueueTabOp({
+      id: key,
+      tab_id: link.tab_id,
+      op: action,
+      payload: JSON.stringify({ entry_id: entryId, expected_rev: rev, reason: "" }),
+      created_at: Date.now(),
+      attempts: 0,
+      next_at: 0,
+      last_error: null,
+    });
+    // Keep the receipt for 30 days (pushes expire after 24 hours).
+    await db.runAsync(
+      "DELETE FROM app_meta WHERE key LIKE 'tab_notification_review:%' AND CAST(value AS INTEGER) < ?",
+      Date.now() - 30 * 86400_000,
+    );
+  });
 }

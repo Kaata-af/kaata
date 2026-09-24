@@ -6,13 +6,10 @@ import { startTabSyncLoop } from "../lib/tabs/sync";
 // app root beside <AutoSync/> and starts the tab loop: syncAllTabs on start,
 // on every foreground, and every 60 s while active. Renders nothing.
 //
-// Unlike AutoSync it is UNCONDITIONAL — not gated on app_meta.account_id or
-// an active vault. A tab party can exist without any account (D10): a
-// shopkeeper who never signed in still holds the party token in tab_links,
-// and their tallies must keep flowing. With no links at all the loop's sweep
-// is one SELECT a minute and no network. Sign-in state is read per run
-// (reconcileTabsFromServer no-ops without a JWT), so a mid-session sign-in
-// or sign-out needs no remount.
+// Unlike AutoSync it is not gated on an active vault. Shared accounts now
+// require sign-in; each sweep checks the live session, so a mid-session
+// sign-in/sign-out needs no remount. Saved invitation tokens are only used
+// for a signed-in legacy claim, never as ongoing read/write authority.
 export function TabSync() {
   useEffect(() => startTabSyncLoop(), []);
   return null;

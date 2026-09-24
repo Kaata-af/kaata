@@ -107,7 +107,7 @@ export async function buildPersonStatement(
   // screen); a statement is the account, not the audit trail, so they are
   // dropped here and never reach the running balance.
   const asc = entries
-    .filter((e) => !e.tab?.voided)
+    .filter((e) => !e.tab?.voided && e.tab?.status !== "disputed")
     .sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   // Settle-up boundaries belong to the LOCAL book. Once linked, the tab is the
   // account (D8) and its rows are not partitioned by the pre-link ruled-off

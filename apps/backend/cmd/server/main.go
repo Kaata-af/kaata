@@ -219,10 +219,9 @@ func main() {
 	sharedH := shared.NewHandler(sharedSvc, cfg.WebBaseURL, cfg.ShareLinkBaseURL, cfg.PublicAPIBaseURL)
 
 	// Mutual tabs (Kaata 2.0, docs/mutual-tab-design.md): one running account
-	// shared by two parties, server-authoritative, reachable by a capability
-	// token (kaata.af/t/<token>) or a session. Same three origins as the bill
-	// shell: the invite link resolves on ShareLinkBaseURL, the page's inline
-	// fetch on PublicAPIBaseURL. The live poke is wired after syncSvc exists.
+	// shared by two signed-in parties, server-authoritative and app-only.
+	// kaata.af/t/<token> is an invitation landing, never a web ledger.
+	// The live poke is wired after syncSvc exists.
 	tabsSvc := tabs.NewService(pool)
 	tabsSvc.StartPush(ctx, cfg.TabPushEnabled, cfg.ExpoAccessToken)
 	tabsH := tabs.NewHandler(tabsSvc, cfg.WebBaseURL, cfg.ShareLinkBaseURL, cfg.PublicAPIBaseURL)
@@ -349,16 +348,14 @@ func main() {
 	// for the OG preview; otherwise the SPA's /v/:token fallback renders it.
 	r.Get("/v/{token}", sharedH.View)
 	// Mutual tab page (kaata.af/t/<token>, Caddy @sharessr). The token in
-	// the path IS party B's credential (D11); the handler renders the uniform
-	// 404 page for anything it cannot resolve. No rate limit, like /v/.
+	// the path is an invitation, not read/write authority. The page only opens
+	// the app, and renders a uniform 404 for unknown/rotated links.
 	r.Get("/t/{token}", tabsH.View)
 
-	// Mutual tab API. OptionalMiddleware because the web-only party has no
-	// account — it authenticates with `Authorization: Tab <token>`, which the
-	// session middleware ignores and the tabs handler reads itself. Every
-	// limit here is per IP; RateLimitPerAccount would 500 for anonymous
-	// callers (fail-closed, see httpx.keyByAccount). All routes are GET/POST
-	// so the browser page passes the global CORS preflight unchanged.
+	// Every handler requires a session; OptionalMiddleware lets the resolver
+	// return uniform not-found for unauthorized party lookups and explicit
+	// 401 for an expired session (mobile must retain its offline outbox).
+	// Per-IP limits also apply before anonymous probes reach the handlers.
 	r.Group(func(pr chi.Router) {
 		pr.Use(authenticator.OptionalMiddleware())
 		pr.With(httpx.RateLimitPerIP(httpx.TabCreateLimit, httpx.TabCreateWindow)).
@@ -366,7 +363,7 @@ func main() {
 		pr.With(httpx.RateLimitPerIP(httpx.TabWriteLimit, httpx.TabWriteWindow)).
 			Get("/v1/tabs/mine", tabsH.Mine)
 		pr.With(httpx.RateLimitPerIP(httpx.TabReadLimit, httpx.TabReadWindow)).
-			Get("/v1/tabs/by-token", tabsH.ByToken)
+			Post("/v1/tabs/by-token", tabsH.ByToken)
 		pr.With(httpx.RateLimitPerIP(httpx.TabReadLimit, httpx.TabReadWindow)).
 			Get("/v1/tabs/{tab_id}", tabsH.Get)
 		pr.With(httpx.RateLimitPerIP(httpx.TabJoinLimit, httpx.TabJoinWindow)).

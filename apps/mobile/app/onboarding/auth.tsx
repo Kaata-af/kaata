@@ -15,7 +15,7 @@ import {
 } from "../../lib/auth";
 import { queueCrashReport } from "../../lib/crash-report";
 import { colors } from "../../lib/colors";
-import { getAppMeta, setAppMeta } from "../../lib/db";
+import { getAppMeta, getLocalSelf, setAppMeta } from "../../lib/db";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
@@ -118,6 +118,17 @@ export default function OnboardingAuthScreen() {
     //      pending_pair_deeplink and re-route to /onboarding/auth,
     //      producing an infinite redirect loop.
     // The parsed-route handoff in-process sidesteps both issues.
+    const pendingPerson = await getAppMeta("pending_tab_person");
+    if (pendingPerson && (await getLocalSelf())) {
+      await setAppMeta("pending_tab_person", "");
+      router.replace({ pathname: "/person/[id]", params: { id: pendingPerson } });
+      return;
+    }
+    const pendingTab = await getAppMeta("pending_tab_token");
+    if (pendingTab && (await getLocalSelf())) {
+      router.replace({ pathname: "/t/[token]", params: { token: pendingTab } });
+      return;
+    }
     const pendingPair = await getAppMeta("pending_pair_deeplink");
     if (pendingPair) {
       await setAppMeta("pending_pair_deeplink", "");

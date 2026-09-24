@@ -18,6 +18,7 @@ import { Chip } from "../../components/Chip";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { EmptyState } from "../../components/EmptyState";
 import { EntryRow } from "../../components/EntryRow";
+import { OverflowMenu } from "../../components/OverflowMenu";
 import { OptionSheet } from "../../components/OptionSheet";
 import { useToast, useToastOffset } from "../../components/Toast";
 import { loadRelationshipAttribution, type EntryAttribution } from "../../lib/attribution";
@@ -25,6 +26,7 @@ import { colors } from "../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
 import {
   getLocalSelf,
+  setAppMeta,
   getPerson,
   getSettlementSummary,
   listEntries,
@@ -68,6 +70,7 @@ import {
 } from "../../lib/tabs/db";
 import {
   acceptEntry,
+  disputeEntry,
   linkContact,
   regenerateInviteLink,
   shareTabLinkOnWhatsApp,
@@ -285,7 +288,7 @@ export default function PersonDetailScreen() {
     () =>
       sumAmounts(
         chapterEntries.map((e) =>
-          e.tab?.voided ? 0 : e.type === "debt" ? e.amount_afn : -e.amount_afn,
+          (e.tab?.voided || e.tab?.status === "disputed") ? 0 : e.type === "debt" ? e.amount_afn : -e.amount_afn,
         ),
       ),
     [chapterEntries],
@@ -505,6 +508,9 @@ export default function PersonDetailScreen() {
         // Another device (or a double tap that beat the guard) already did
         // it — the reload shows the linked state; nothing to apologise for.
         await load();
+      } else if (err instanceof TabAuthUnavailableError) {
+        await setAppMeta("pending_tab_person", person.id);
+        router.push("/onboarding/auth");
       } else if (err instanceof TabPermissionError) {
         toast.push(t("entry.roleDenied"), "error");
       } else {
@@ -601,6 +607,17 @@ export default function PersonDetailScreen() {
     }
   }
 
+  async function onReject(entry: Entry) {
+    if (!link) return;
+    try {
+      await disputeEntry(link, entry.id, "");
+      toast.push(t("tab.disputed"), "success");
+      await load();
+    } catch (err) {
+      toast.push(tabErrorMessage(err), "error");
+    }
+  }
+
   // The author's only correction (D5): a visible void, never an edit.
   async function onVoid() {
     const target = confirmVoidFor;
@@ -652,27 +669,7 @@ export default function PersonDetailScreen() {
         },
       ];
     }
-    const accept = {
-      label: t("tab.accept"),
-      icon: "checkmark-outline" as const,
-      onPress: () => void onAccept(target),
-    };
-    const dispute = {
-      label: t("tab.dispute"),
-      icon: "alert-circle-outline" as const,
-      onPress: () => {
-        if (!person) return;
-        router.push({
-          pathname: "/tab/dispute",
-          params: { personId: person.id, entryId: target.id },
-        });
-      },
-    };
-    return meta.status === "disputed"
-      ? [accept]
-      : meta.status === "accepted"
-        ? [dispute]
-        : [accept, dispute];
+    return []; // Counterparty review lives on the tally itself.
   })();
 
   if (!person) {
@@ -749,68 +746,18 @@ export default function PersonDetailScreen() {
             color={colors.textEmphasis}
           />
         </Pressable>
-        {/* Trailing controls share one box so headerNav's space-between still
-            means "back at the start, actions at the end" with more than one. */}
-        <View style={[styles.headerActions, rowDir(isRTL)]}>
-          <Pressable
-            onPress={() => setExportSheetVisible(true)}
-            disabled={exporting}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={t("personEdit.export")}
-            style={({ pressed }) => [styles.iconBtn, (pressed || exporting) && { opacity: 0.5 }]}
-          >
-            {exporting ? (
-              <ActivityIndicator size="small" color={colors.textSubtle} />
-            ) : (
-              <Ionicons name="document-text-outline" size={icon.row} color={colors.textEmphasis} />
-            )}
-          </Pressable>
-          {/* Link with their kaata. Gated like the pencil (linking changes
-              what the account IS, so a clerk or viewer may not), and gone
-              once linked — from then on the chip in the info block is the
-              tab's handle. Between export and edit: read, share, write. */}
-          {canAmend && !link ? (
-            <Pressable
-              onPress={() => setLinkSheetVisible(true)}
-              disabled={linking}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel={t("tab.link.title")}
-              style={({ pressed }) => [styles.iconBtn, (pressed || linking) && { opacity: 0.5 }]}
-            >
-              {linking ? (
-                <ActivityIndicator size="small" color={colors.textSubtle} />
-              ) : (
-                <Ionicons name="link-outline" size={icon.row} color={colors.textEmphasis} />
-              )}
-            </Pressable>
-          ) : null}
-          {canAmend ? (
-            <Pressable
-              onPress={() =>
-                router.push({ pathname: "/person/[id]/edit", params: { id: person.id } })
-              }
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel={t("person.sheet.edit")}
-              style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.5 }]}
-            >
-              <Ionicons name="create-outline" size={icon.row} color={colors.textEmphasis} />
-            </Pressable>
-          ) : (
-            <View style={styles.readOnlyChip}>
-              {/* Stays 12, NOT icon.trailing (16): this glyph is composed against
-                  an 11px caption inside a pill — a 16px mark would outweigh its
-                  own label and force the badge taller than the edit button it
-                  replaces. Composed graphic, not a row icon. */}
-              <Ionicons name="eye-outline" size={12} color={colors.textSubtle} />
-              <Text style={styles.readOnlyChipText} allowFontScaling={false}>
-                {t("readonly.badge")}
-              </Text>
-            </View>
-          )}
-        </View>
+        <OverflowMenu actions={[
+          ...(canAmend ? [{
+            label: t("person.sheet.edit"), icon: "create-outline" as const,
+            onPress: () => router.push({ pathname: "/person/[id]/edit", params: { id: person.id } }),
+          }, {
+            label: link ? t("tab.join.title") : t("tab.link.title"), icon: "link-outline" as const,
+            disabled: linking,
+            onPress: () => link ? setLinkedSheetVisible(true) : setLinkSheetVisible(true),
+          }] : []),
+          { label: t("personEdit.export"), icon: "document-text-outline", disabled: exporting,
+            onPress: () => setExportSheetVisible(true) },
+        ]} />
       </View>
 
       {/* One person's tallies are bounded, so render them as ONE bordered card
@@ -1015,7 +962,7 @@ export default function PersonDetailScreen() {
               // they get no sheet either, rather than a menu of no-ops.
               const frozenTabRow = entry.tab != null && link == null;
               const canOpenSheet =
-                canAmend && !inSettledChapter && !entry.tab?.voided && !frozenTabRow;
+                canAmend && !inSettledChapter && !entry.tab?.voided && !frozenTabRow && (!entry.tab || entry.tab.by === "me");
               return (
                 <View key={entry.id}>
                   {index > 0 && historyItems[index - 1].kind !== "marker" ? (
@@ -1029,6 +976,8 @@ export default function PersonDetailScreen() {
                     onLongPress={canOpenSheet ? setSheetFor : undefined}
                     attribution={attribution.get(entry.id)}
                     tab={entry.tab}
+                    onAccept={canAmend && link ? onAccept : undefined}
+                    onReject={canAmend && link ? onReject : undefined}
                   />
                 </View>
               );

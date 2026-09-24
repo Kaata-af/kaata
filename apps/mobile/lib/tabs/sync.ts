@@ -5,10 +5,10 @@
 // sibling of lib/sync/scheduler.ts, not a leg of it, for one reason the
 // scheduler cannot accommodate: AutoSync mounts the scheduler only when
 // app_meta.account_id AND active_vault_id are set, and syncOnce returns early
-// without a JWT. A tab party may have no account at all (D10) — a shopkeeper
-// who never signed in still holds the party token in tab_links — so this loop
-// is mounted unconditionally (components/TabSync.tsx) and authenticates per
-// tab through resolveTabAuth.
+// without a JWT. This loop is mounted unconditionally (components/TabSync.tsx)
+// so restores and mid-session sign-in are picked up without a remount. Every
+// shared-account request still requires a JWT through resolveTabAuth; saved
+// party tokens are only for signed-in legacy claims.
 //
 // Shape copied from the scheduler's pushVaultNow: ONE run in flight per tab,
 // a second request during the run marks it dirty and gets a single trailing
@@ -72,7 +72,7 @@ export { onTabApplied } from "./events";
 // one pull.
 const DEBOUNCE_MS = 300;
 // The foreground backstop. Pokes make the common case ~1 RTT; this catches a
-// dropped socket and every token-only phone (no JWT → no live channel).
+// dropped socket or a missed account-channel invalidation.
 const LOOP_INTERVAL_MS = 60_000;
 // Op retry ladder — lib/sync/push.ts rejectBackoffMs, same constants.
 const BACKOFF_BASE_MS = 30_000;
@@ -140,8 +140,8 @@ function describe(err: unknown): string {
 /**
  * Run `fn` with `auth`; when the JWT is refused (401, or 404 tab_not_found —
  * the account is not bound to this party, e.g. bind failed at join time) and
- * the link still holds its party token, retry once with the token. Returns
- * the credential that worked so the rest of the run reuses it.
+ * the link still holds its party token, attempt an authenticated legacy
+ * claim and retry with the JWT. Never fall back to anonymous authority.
  */
 async function withAuthFallback<T>(
   link: TabLink,
@@ -156,8 +156,14 @@ async function withAuthFallback<T>(
       "jwt" in auth &&
       (err.status === 401 || (err.status === 404 && err.code === "tab_not_found"));
     if (!jwtRefused || !link.party_token) throw err;
-    const fallback: TabAuth = { token: link.party_token };
-    return { value: await fn(fallback), auth: fallback };
+    // Legacy signed-out tabs can be claimed once with a session + token.
+    // Never retry a rejected session as an anonymous write capability.
+    await bindTab(link.party_token, link.tab_id, {
+      vault_id: link.vault_id,
+      relationship_id: link.relationship_id,
+      linked_at_ms: link.linked_at,
+    });
+    return { value: await fn(auth), auth };
   }
 }
 
@@ -172,7 +178,12 @@ async function performOp(auth: TabAuth, link: TabLink, op: TabOutboxRow): Promis
       return { apply: entriesResponse(r.tab, [r.entry]), hint: r.duplicate_hint };
     }
     case "accept": {
-      const r = await acceptTabEntry(auth, link.tab_id, String(payload.entry_id));
+      const r = await acceptTabEntry(
+        auth,
+        link.tab_id,
+        String(payload.entry_id),
+        typeof payload.expected_rev === "number" ? payload.expected_rev : undefined,
+      );
       return { apply: entriesResponse(r.tab, [r.entry]), hint: null };
     }
     case "dispute": {
@@ -181,6 +192,7 @@ async function performOp(auth: TabAuth, link: TabLink, op: TabOutboxRow): Promis
         link.tab_id,
         String(payload.entry_id),
         String(payload.reason ?? ""),
+        typeof payload.expected_rev === "number" ? payload.expected_rev : undefined,
       );
       return { apply: entriesResponse(r.tab, [r.entry]), hint: null };
     }

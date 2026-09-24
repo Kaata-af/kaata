@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { memo, useState } from "react";
+import { memo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { InitialAvatar } from "./InitialAvatar";
 import { chipActorFor, initialOf, memberTintFor, type EntryAttribution } from "../lib/attribution";
@@ -40,6 +40,8 @@ export const EntryRow = memo(function EntryRow(props: {
   // member tint, so nothing in the attribution machinery can describe them.
   // The caller passes `entry.tab` straight through.
   tab?: TabEntryMeta;
+  onAccept?: (entry: Entry) => void | Promise<void>;
+  onReject?: (entry: Entry) => void | Promise<void>;
 }) {
   const isRTL = useIsRTL();
   useCalendar(); // This memoized row must also refresh when its calendar changes.
@@ -64,6 +66,19 @@ export const EntryRow = memo(function EntryRow(props: {
   // short note never grows a "less" cue.
   const [measured, setMeasured] = useState(false);
   const [clipped, setClipped] = useState(false);
+  const reviewBusy = useRef(false);
+  const [reviewing, setReviewing] = useState(false);
+  const review = async (action: (entry: Entry) => void | Promise<void>) => {
+    if (reviewBusy.current) return;
+    reviewBusy.current = true;
+    setReviewing(true);
+    try {
+      await action(entry);
+    } finally {
+      reviewBusy.current = false;
+      setReviewing(false);
+    }
+  };
   const [open, setOpen] = useState(false);
   const expanded = open && clipped;
   const when = open
@@ -139,180 +154,254 @@ export const EntryRow = memo(function EntryRow(props: {
   const note = entry.note ?? (tab?.kind === "opening" ? t("tab.opening.note") : null);
 
   return (
-    <Pressable
-      // A row tap toggles the row open/closed (exact time + note). The
-      // edit/delete sheet stays on TAP-AND-HOLD — like contact rows.
-      // delayLongPress 250ms so a quick tap doesn't accidentally trigger it;
-      // Pressable cancels if the finger moves enough to start a scroll, so it
-      // doesn't fight the list's vertical scroll.
-      onPress={() => setOpen((value) => !value)}
-      onLongPress={props.onLongPress ? () => props.onLongPress?.(entry) : undefined}
-      delayLongPress={250}
-      accessibilityRole="button"
-      accessibilityState={{ expanded: open }}
-      accessibilityHint={toggleLabel}
-      accessibilityActions={[
-        { name: "activate", label: toggleLabel },
-        ...(props.onLongPress ? [{ name: "longpress", label: t("entry.options") }] : []),
-      ]}
-      onAccessibilityAction={(event) => {
-        if (event.nativeEvent.actionName === "activate") setOpen((value) => !value);
-        else if (event.nativeEvent.actionName === "longpress") props.onLongPress?.(entry);
-      }}
-      style={({ pressed }) => [
-        styles.row,
-        rowDir(isRTL),
-        pressed && { backgroundColor: colors.bgMuted },
-      ]}
-    >
-      <View
-        style={[
-          styles.iconWrap,
-          { backgroundColor: tint.bg },
-          isRTL ? styles.iconWrapRTL : styles.iconWrapLTR,
-          // A voided tally keeps its arrow (the audit trail says what it WAS,
-          // D5) at half strength, so the eye reads "cancelled" before "gave".
-          voided && styles.voidedTile,
+    <View>
+      <Pressable
+        // A row tap toggles the row open/closed (exact time + note). The
+        // edit/delete sheet stays on TAP-AND-HOLD — like contact rows.
+        // delayLongPress 250ms so a quick tap doesn't accidentally trigger it;
+        // Pressable cancels if the finger moves enough to start a scroll, so it
+        // doesn't fight the list's vertical scroll.
+        onPress={() => setOpen((value) => !value)}
+        onLongPress={props.onLongPress ? () => props.onLongPress?.(entry) : undefined}
+        delayLongPress={250}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityHint={toggleLabel}
+        accessibilityActions={[
+          { name: "activate", label: toggleLabel },
+          ...(props.onLongPress ? [{ name: "longpress", label: t("entry.options") }] : []),
         ]}
-        // Direction is shown by the arrow's shape AND its color (red = I gave /
-        // money out, green = I received / money in) — there's no text label —
-        // so carry it for screen readers here.
-        accessible
-        accessibilityLabel={verb}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === "activate") setOpen((value) => !value);
+          else if (event.nativeEvent.actionName === "longpress") props.onLongPress?.(entry);
+        }}
+        style={({ pressed }) => [
+          styles.row,
+          rowDir(isRTL),
+          pressed && { backgroundColor: colors.bgMuted },
+        ]}
       >
-        {/* 16 inside the 32×32 well is a composed graphic (half the tile), not
+        <View
+          style={[
+            styles.iconWrap,
+            { backgroundColor: tint.bg },
+            isRTL ? styles.iconWrapRTL : styles.iconWrapLTR,
+            // A voided tally keeps its arrow (the audit trail says what it WAS,
+            // D5) at half strength, so the eye reads "cancelled" before "gave".
+            voided && styles.voidedTile,
+          ]}
+          // Direction is shown by the arrow's shape AND its color (red = I gave /
+          // money out, green = I received / money in) — there's no text label —
+          // so carry it for screen readers here.
+          accessible
+          accessibilityLabel={verb}
+        >
+          {/* 16 inside the 32×32 well is a composed graphic (half the tile), not
             a token slot — icon.trailing happens to be 16 but means "chevron in
             a row". Left as a literal so the arrow's ratio to its well stays. */}
-        <Ionicons name={icon} size={16} color={tint.fg} />
-      </View>
-      <View style={styles.middle}>
-        {/* Amount on the leading end, date on the trailing end — the arrow
+          <Ionicons name={icon} size={16} color={tint.fg} />
+        </View>
+        <View style={styles.middle}>
+          {/* Amount on the leading end, date on the trailing end — the arrow
             carries direction, so the verb label is gone. */}
-        <View style={[styles.topRow, rowDir(isRTL)]}>
-          <View style={[styles.amountRow, rowDir(isRTL)]}>
-            {/* Struck, not hidden: the number stays legible under the line so
+          <View style={[styles.topRow, rowDir(isRTL)]}>
+            <View style={[styles.amountRow, rowDir(isRTL)]}>
+              {/* Struck, not hidden: the number stays legible under the line so
                 both parties can still see what was cancelled. */}
-            <Text style={[styles.amount, voided && styles.voidedAmount]}>
-              {formatAmount(entry.amount_afn)}
-            </Text>
-            <Text style={styles.afn}>{getCurrentCurrencySymbol()}</Text>
-          </View>
-          {/* The date stays in its trailing slot in both states; it only
+              <Text style={[styles.amount, voided && styles.voidedAmount]}>
+                {formatAmount(entry.amount_afn)}
+              </Text>
+              <Text style={styles.afn}>{getCurrentCurrencySymbol()}</Text>
+            </View>
+            {/* The date stays in its trailing slot in both states; it only
               shrinks (never the amount) if the exact form needs the room. The
               author chip rides in front of it, outside the shrinking text, so
               a long exact timestamp ellipsizes the DATE rather than crushing
               the one element that is a fixed-size graphic. */}
-          <View style={[styles.meta, rowDir(isRTL)]}>
-            {/* Status pill: a fixed AUTHOR_CHIP_SIZE tall, so like the author
+            <View style={[styles.meta, rowDir(isRTL)]}>
+              {/* Status pill: a fixed AUTHOR_CHIP_SIZE tall, so like the author
                 chip it costs the row no height. Text never scales — a scaled
                 word would overflow the fixed box, and this is a one-word
                 status the opened row spells out in full anyway. */}
-            {pill ? (
-              <View style={styles.statusPill} accessible accessibilityLabel={pill}>
-                <Text style={styles.statusPillText} allowFontScaling={false} numberOfLines={1}>
-                  {pill}
-                </Text>
-              </View>
-            ) : null}
-            {chipActor && chipTint ? (
-              <View
-                accessible
-                accessibilityLabel={
-                  author && author.accountId === chipActor.accountId
-                    ? t("entry.addedBy", { name: nameOf(chipActor) })
-                    : t("entry.editedByOnly", { name: nameOf(chipActor) })
-                }
-              >
-                <InitialAvatar
-                  label={initialOf(chipActor.name)}
-                  size={AUTHOR_CHIP_SIZE}
-                  backgroundColor={chipTint.bg}
-                  color={chipTint.fg}
-                />
-              </View>
-            ) : null}
-            {/* One line, always. Before the chip existed this could wrap, and
+              {pill ? (
+                <View style={styles.statusPill} accessible accessibilityLabel={pill}>
+                  <Text style={styles.statusPillText} allowFontScaling={false} numberOfLines={1}>
+                    {pill}
+                  </Text>
+                </View>
+              ) : null}
+              {chipActor && chipTint ? (
+                <View
+                  accessible
+                  accessibilityLabel={
+                    author && author.accountId === chipActor.accountId
+                      ? t("entry.addedBy", { name: nameOf(chipActor) })
+                      : t("entry.editedByOnly", { name: nameOf(chipActor) })
+                  }
+                >
+                  <InitialAvatar
+                    label={initialOf(chipActor.name)}
+                    size={AUTHOR_CHIP_SIZE}
+                    backgroundColor={chipTint.bg}
+                    color={chipTint.fg}
+                  />
+                </View>
+              ) : null}
+              {/* One line, always. Before the chip existed this could wrap, and
                 a wrapped date would now grow the row on every tap — the one
                 thing attribution was not allowed to cost. There is room to
                 spare for both forms at phone width; the amount never yields
                 (flexShrink:0), so only the date can give. */}
-            <Text numberOfLines={1} style={[styles.when, { textAlign: isRTL ? "left" : "right" }]}>
-              {when}
-            </Text>
-          </View>
-        </View>
-        {note ? (
-          expanded ? (
-            // Expanded: the full note renders as a single text block, with the
-            // "less" cue flowing INLINE at the very end of the text. A nested
-            // <Text> stays in the text flow, so the cue trails the last word
-            // instead of floating in a baseline-aligned column to the right of
-            // the first line (which is what a flex sibling did — and a
-            // multi-line flex child under alignItems:'baseline' also clipped the
-            // text on Android). A plain block <Text> wraps cleanly, every line.
-            <Text style={[styles.noteBlock, textDir(isRTL)]} accessibilityLabel={note}>
-              {note}
-              {"  "}
-              <Text style={styles.more}>{t("common.less")}</Text>
-            </Text>
-          ) : (
-            // Collapsed: the note clamps to ONE line and the "more" cue trails
-            // it on the SAME line — shown only once we've measured the note
-            // overflows. The first paint renders unclamped so onTextLayout can
-            // count the true line span, then it clamps to 1.
-            //
-            // The flex:1 lives on a wrapping <View>, NOT on the <Text> itself:
-            // on iOS a flex:1 <Text numberOfLines={1}> computes its full
-            // (untruncated) width during layout and won't cede room to a row
-            // sibling, which bumped the cue onto its own line below. A View
-            // wrapper gives the <Text> a definite width to ellipsize within and
-            // keeps the cue inline at the end of the truncated line.
-            <View style={[styles.noteRow, rowDir(isRTL)]}>
-              <View style={styles.noteFlex}>
-                <Text
-                  style={[styles.note, textDir(isRTL)]}
-                  numberOfLines={measured ? 1 : undefined}
-                  // Full note for screen readers, regardless of the visual clamp.
-                  accessibilityLabel={note}
-                  onTextLayout={(e) => {
-                    if (!measured) {
-                      setClipped(e.nativeEvent.lines.length > 1);
-                      setMeasured(true);
-                    }
-                  }}
-                >
-                  {note}
-                </Text>
-              </View>
-              {measured && clipped ? <Text style={styles.more}>{t("common.more")}</Text> : null}
+              <Text
+                numberOfLines={1}
+                style={[styles.when, { textAlign: isRTL ? "left" : "right" }]}
+              >
+                {when}
+              </Text>
             </View>
-          )
-        ) : null}
-        {/* The full story, only once the row is open. Rendered even when the
+          </View>
+          {note ? (
+            expanded ? (
+              // Expanded: the full note renders as a single text block, with the
+              // "less" cue flowing INLINE at the very end of the text. A nested
+              // <Text> stays in the text flow, so the cue trails the last word
+              // instead of floating in a baseline-aligned column to the right of
+              // the first line (which is what a flex sibling did — and a
+              // multi-line flex child under alignItems:'baseline' also clipped the
+              // text on Android). A plain block <Text> wraps cleanly, every line.
+              <Text style={[styles.noteBlock, textDir(isRTL)]} accessibilityLabel={note}>
+                {note}
+                {"  "}
+                <Text style={styles.more}>{t("common.less")}</Text>
+              </Text>
+            ) : (
+              // Collapsed: the note clamps to ONE line and the "more" cue trails
+              // it on the SAME line — shown only once we've measured the note
+              // overflows. The first paint renders unclamped so onTextLayout can
+              // count the true line span, then it clamps to 1.
+              //
+              // The flex:1 lives on a wrapping <View>, NOT on the <Text> itself:
+              // on iOS a flex:1 <Text numberOfLines={1}> computes its full
+              // (untruncated) width during layout and won't cede room to a row
+              // sibling, which bumped the cue onto its own line below. A View
+              // wrapper gives the <Text> a definite width to ellipsize within and
+              // keeps the cue inline at the end of the truncated line.
+              <View style={[styles.noteRow, rowDir(isRTL)]}>
+                <View style={styles.noteFlex}>
+                  <Text
+                    style={[styles.note, textDir(isRTL)]}
+                    numberOfLines={measured ? 1 : undefined}
+                    // Full note for screen readers, regardless of the visual clamp.
+                    accessibilityLabel={note}
+                    onTextLayout={(e) => {
+                      if (!measured) {
+                        setClipped(e.nativeEvent.lines.length > 1);
+                        setMeasured(true);
+                      }
+                    }}
+                  >
+                    {note}
+                  </Text>
+                </View>
+                {measured && clipped ? <Text style={styles.more}>{t("common.more")}</Text> : null}
+              </View>
+            )
+          ) : null}
+          {/* The full story, only once the row is open. Rendered even when the
             chip is absent — a tally you wrote that nobody else has touched
             still answers "who wrote this" when you ask it directly, and on a
             shared ledger that reassurance is the other half of the feature. */}
-        {open && byLine ? (
-          <Text style={[styles.byLine, textDir(isRTL)]} numberOfLines={2}>
-            {byLine}
-          </Text>
-        ) : null}
-        {/* The dispute reason is the other party's words about THIS tally,
+          {open && byLine ? (
+            <Text style={[styles.byLine, textDir(isRTL)]} numberOfLines={2}>
+              {byLine}
+            </Text>
+          ) : null}
+          {/* The dispute reason is the other party's words about THIS tally,
             so it gets the full width and no clamp: a shopkeeper resolving a
             dispute needs the whole sentence, not its first line. "Voided"
             repeats the pill in prose so the opened row is complete on its own. */}
-        {open && disputeLine ? (
-          <Text style={[styles.byLine, textDir(isRTL)]}>{disputeLine}</Text>
-        ) : null}
-        {open && voided ? (
-          <Text style={[styles.byLine, textDir(isRTL)]}>{t("tab.status.voided")}</Text>
-        ) : null}
-      </View>
-    </Pressable>
+          {open && disputeLine ? (
+            <Text style={[styles.byLine, textDir(isRTL)]}>{disputeLine}</Text>
+          ) : null}
+          {open && tab?.status === "disputed" && !voided ? (
+            <Text style={[styles.byLine, textDir(isRTL)]}>{t("tab.rejectedHint")}</Text>
+          ) : null}
+          {open && voided ? (
+            <Text style={[styles.byLine, textDir(isRTL)]}>{t("tab.status.voided")}</Text>
+          ) : null}
+        </View>
+      </Pressable>
+      {tab &&
+      tab.by === "them" &&
+      !voided &&
+      !tab.local_pending &&
+      (tab.status === "pending" || open) &&
+      (props.onAccept || props.onReject) ? (
+        <View style={[styles.reviewRow, rowDir(isRTL)]}>
+          {props.onAccept ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t("tab.accept")}
+              accessibilityState={{ disabled: reviewing || tab.status === "accepted" }}
+              disabled={reviewing || tab.status === "accepted"}
+              onPress={() => void review(props.onAccept!)}
+              style={({ pressed }) => [
+                styles.reviewButton,
+                rowDir(isRTL),
+                (pressed || reviewing) && { opacity: 0.5 },
+              ]}
+            >
+              <Ionicons name="checkmark-outline" size={18} color={colors.textEmphasis} />
+              <Text style={styles.reviewLabel}>
+                {t(tab.status === "accepted" ? "tab.accepted" : "tab.accept")}
+              </Text>
+            </Pressable>
+          ) : null}
+          <View style={styles.reviewDivider} />
+          {props.onReject ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t("tab.reject")}
+              accessibilityState={{ disabled: reviewing || tab.status === "disputed" }}
+              disabled={reviewing || tab.status === "disputed"}
+              onPress={() => void review(props.onReject!)}
+              style={({ pressed }) => [
+                styles.reviewButton,
+                rowDir(isRTL),
+                (pressed || reviewing) && { opacity: 0.5 },
+              ]}
+            >
+              <Ionicons name="close-outline" size={18} color={colors.textEmphasis} />
+              <Text style={styles.reviewLabel}>
+                {t(tab.status === "disputed" ? "tab.status.disputed" : "tab.reject")}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
   );
 });
 
 const styles = StyleSheet.create({
+  reviewRow: {
+    marginHorizontal: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.borderDefault,
+    alignItems: "center",
+  },
+  reviewButton: { flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center", gap: 6 },
+  reviewDivider: {
+    width: StyleSheet.hairlineWidth,
+    height: 16,
+    backgroundColor: colors.borderDefault,
+  },
+  reviewLabel: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    lineHeight: sansLineHeight(12, 17),
+    color: colors.textSubtle,
+  },
   row: {
     flexDirection: "row",
     alignItems: "center",

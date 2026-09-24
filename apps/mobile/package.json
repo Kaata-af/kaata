@@ -19,6 +19,7 @@
     "selftest:device-key": "tsx lib/__dev__/device-key-selftest.ts",
     "selftest:attribution": "tsx lib/__dev__/attribution-selftest.ts",
     "selftest:tabs": "tsx lib/__dev__/tabs-selftest.ts",
+    "selftest:notifications": "tsx lib/__dev__/notifications-selftest.ts",
     "preview:pdf": "tsx lib/__dev__/pdf-preview.ts"
   },
   "dependencies": {
@@ -61,6 +62,7 @@
     "expo-task-manager": "~57.0.8",
     "expo-web-browser": "~57.0.2",
     "kaata-bt-classic": "file:./modules/kaata-bt-classic",
+    "kaata-notification-actions": "file:./modules/kaata-notification-actions",
     "kaata-save-file": "file:./modules/kaata-save-file",
     "kaata-gatt-server": "file:./modules/kaata-gatt-server",
     "react": "19.2.3",

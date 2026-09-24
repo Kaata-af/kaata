@@ -37,12 +37,11 @@ export class TabApiError extends Error {
   }
 }
 
-/** Neither a session JWT nor a stored party token: the phone cannot talk to
- *  this tab right now (signed out AND the token was never stored / was wiped). */
+/** A shared-account request needs sign-in; a saved invitation is not authority. */
 export class TabAuthUnavailableError extends Error {
   readonly kind = "tab_auth_unavailable" as const;
   constructor() {
-    super("no credential for this tab (not signed in and no party token)");
+    super("sign in to use this shared account");
     this.name = "TabAuthUnavailableError";
   }
 }

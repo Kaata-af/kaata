@@ -1,25 +1,8 @@
 // apps/mobile/lib/tabs/api.ts
 //
-// The /v1/tabs/* client. Deliberately NOT built on lib/vault-api.ts: its
-// private `http` calls requireJwt() unconditionally, and a tab party may have
-// no account at all — party b on a phone that never signed in talks to the
-// server with its capability token alone (D10). So the headers are built here
-// the way lib/api.ts checkIn builds them: `Authorization: Bearer <jwt>` when
-// the caller resolved a session, `Authorization: Tab <token>` otherwise.
-// OptionalMiddleware ignores the non-Bearer prefix and the tabs handler reads
-// the header itself (§3.2).
-//
-// Two contract points the design doc leaves implicit; both are single
-// constants below so the backend half can be matched in one edit:
-//   - bind (and join-when-signed-in) needs the token AND the JWT. One
-//     Authorization header cannot carry both, so the JWT rides the header and
-//     the token rides the JSON body as `token` — the shape
-//     POST /v1/vaults/invites/accept already uses for a Bearer-authenticated
-//     token redemption.
-//   - The deep link is kaata://t/<token> (D15) but every §3.3 route is keyed by
-//     tab_id. Resolving a token to its tab is BY_TOKEN_PATH (a token-authorised
-//     GET returning a full TabResponse); §3.2's "must match the URL's tab_id
-//     WHEN PRESENT" is what makes a tab_id-less token route legitimate.
+// App-only shared accounts use a session JWT for every server request.
+// The invitation token rides in a POST body alongside that JWT on preview,
+// join and legacy-party binding. It is not ongoing read/write authority.
 //
 // Every failure is a TabApiError: transport failures use status 0 with code
 // "timeout" / "network", so callers have one type to switch on and
@@ -52,12 +35,12 @@ const TIMEOUT_MS = 15_000;
 /** Token→tab resolution for the join flow. See the header note. */
 const BY_TOKEN_PATH = "/v1/tabs/by-token";
 
-/** How the caller is identified. JWT when signed in, else the party token. */
-export type TabAuth = { jwt: string; role?: TabLink["role"] } | { token: string };
+/** Read/write authority always comes from the signed-in account. */
+export type TabAuth = { jwt: string; role?: TabLink["role"] };
 
 function authorization(auth: TabAuth | null): string | null {
   if (!auth) return null;
-  return "jwt" in auth ? `Bearer ${auth.jwt}` : `Tab ${auth.token}`;
+  return `Bearer ${auth.jwt}`;
 }
 
 async function request<T>(
@@ -123,11 +106,6 @@ async function request<T>(
   return (await res.json()) as T;
 }
 
-async function optionalJwt(): Promise<TabAuth | null> {
-  const jwt = await getSessionJWT().catch(() => null);
-  return jwt ? { jwt } : null;
-}
-
 async function requireJwt(): Promise<TabAuth> {
   const jwt = await getSessionJWT().catch(() => null);
   if (!jwt) throw new TabAuthUnavailableError();
@@ -136,21 +114,19 @@ async function requireJwt(): Promise<TabAuth> {
 
 /**
  * Credential for talking to `link`'s tab. The JWT wins when present because it
- * needs no stored secret and survives reinstall (D10); the party token is the
- * fallback for signed-out phones. Neither → TabAuthUnavailableError, which
+ * needs no stored secret and survives reinstall; the party token is
+ * retained only for legacy-party claim. Signed out → TabAuthUnavailableError, which
  * sync records on the link and skips.
  */
 export async function resolveTabAuth(link: TabLink): Promise<TabAuth> {
   const jwt = await getSessionJWT().catch(() => null);
   if (jwt) return { jwt, role: link.role };
-  if (link.party_token) return { token: link.party_token };
   throw new TabAuthUnavailableError();
 }
 
-/** POST /v1/tabs — the caller becomes party a. Anonymous when signed out
- *  (the response's my_token is then the only credential; store it). */
+/** POST /v1/tabs — authenticated caller becomes party a. */
 export async function createTab(req: CreateRequest): Promise<CreateResponse> {
-  return request<CreateResponse>("POST", "/v1/tabs", await optionalJwt(), req);
+  return request<CreateResponse>("POST", "/v1/tabs", await requireJwt(), req);
 }
 
 /** GET /v1/tabs/mine — every tab a party of which is bound to this account or
@@ -171,28 +147,26 @@ export async function fetchTab(
   return request<TabResponse>("GET", `/v1/tabs/${encodeURIComponent(tabId)}${q}`, auth);
 }
 
-/** Token-only resolution of a deep link / invite URL to its tab, full state. */
+/** Signed-in preview of an invitation; possession alone is not authority. */
 export async function fetchTabByToken(
   token: string,
 ): Promise<{ tab: WireTab; entries: WireEntry[] }> {
-  const resp = await request<TabResponse>("GET", BY_TOKEN_PATH, { token });
+  const resp = await request<TabResponse>("POST", BY_TOKEN_PATH, await requireJwt(), { token });
   return { tab: resp.tab, entries: resp.entries };
 }
 
 /** POST /v1/tabs/{id}/join — party b's first contact; idempotent re-join updates the label. */
 export async function joinTab(
-  auth: TabAuth,
+  auth: TabAuth | { token: string },
   tabId: string,
   req: JoinRequest,
 ): Promise<TabResponse> {
   if ("token" in auth) {
-    const session = await optionalJwt();
-    if (session) {
-      return request<TabResponse>("POST", `/v1/tabs/${encodeURIComponent(tabId)}/join`, session, {
-        ...req,
-        token: auth.token,
-      });
-    }
+    const session = await requireJwt();
+    return request<TabResponse>("POST", `/v1/tabs/${encodeURIComponent(tabId)}/join`, session, {
+      ...req,
+      token: auth.token,
+    });
   }
   return request<TabResponse>("POST", `/v1/tabs/${encodeURIComponent(tabId)}/join`, auth, req);
 }
@@ -241,27 +215,29 @@ export async function acceptTabEntry(
   auth: TabAuth,
   tabId: string,
   entryId: string,
+  expectedRev?: number,
 ): Promise<EntryResponse> {
   return request<EntryResponse>(
     "POST",
     `/v1/tabs/${encodeURIComponent(tabId)}/entries/${encodeURIComponent(entryId)}/accept`,
     auth,
-    {},
+    { expected_rev: expectedRev },
   );
 }
 
-/** POST /v1/tabs/{id}/entries/{entryId}/dispute — reason ≤ 300 chars, required. */
+/** POST /v1/tabs/{id}/entries/{entryId}/dispute — optional reason ≤ 300 chars. */
 export async function disputeTabEntry(
   auth: TabAuth,
   tabId: string,
   entryId: string,
   reason: string,
+  expectedRev?: number,
 ): Promise<EntryResponse> {
   return request<EntryResponse>(
     "POST",
     `/v1/tabs/${encodeURIComponent(tabId)}/entries/${encodeURIComponent(entryId)}/dispute`,
     auth,
-    { reason },
+    { reason, expected_rev: expectedRev },
   );
 }
 

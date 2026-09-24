@@ -307,6 +307,7 @@ export async function buildDiagnosticsReport(): Promise<string> {
     push(
       `Remote alerts: ${(await getAppMeta("tab_push_active")) === "1" ? "registered" : "not active"}`,
     );
+    push(`Alert setup: ${(await getAppMeta("tab_push_error")) || "no error recorded"}`);
   } catch {
     push("Shared accounts: —");
   }

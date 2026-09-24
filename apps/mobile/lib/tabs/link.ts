@@ -49,6 +49,7 @@ import { directionFor } from "./direction";
 import {
   TabAlreadyLinkedError,
   TabApiError,
+  TabAuthUnavailableError,
   TabClosedError,
   TabCreatePersonError,
   TabCurrencyMismatchError,
@@ -152,6 +153,7 @@ async function newOp(
   payload: Record<string, unknown>,
   id = Crypto.randomUUID(),
 ): Promise<string> {
+  if (!(await getSessionJWT())) throw new TabAuthUnavailableError();
   await queueTabMutation(link, {
     id,
     tab_id: link.tab_id,
@@ -220,6 +222,7 @@ export async function linkContact(
         };
 
   const signedIn = (await getSessionJWT().catch(() => null)) != null;
+  if (!signedIn) throw new TabAuthUnavailableError();
   const resp = await createTab({
     linked_at_ms: now,
     currency,
@@ -469,11 +472,10 @@ export async function acceptEntry(link: TabLink, entryId: string): Promise<void>
   void syncTab(link.tab_id);
 }
 
-/** Dispute the other party's tally with a required reason (≤ 300 chars). */
+/** Reject the other party's tally, with an optional reason (≤ 300 chars). */
 export async function disputeEntry(link: TabLink, entryId: string, reason: string): Promise<void> {
   requireOpen(link);
   const clean = reason.trim();
-  if (!clean) throw new TabInputError("reason_required");
   if (clean.length > REASON_MAX) throw new TabInputError("reason_too_long");
   await assertVaultAction(link.vault_id, "entry.amend");
   await newOp(link, "dispute", { entry_id: entryId, reason: clean });

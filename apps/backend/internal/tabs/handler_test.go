@@ -43,7 +43,7 @@ func newHTTPFixture(t *testing.T) *httpFixture {
 		pr.Use(authenticator.OptionalMiddleware())
 		pr.Post("/v1/tabs", h.Create)
 		pr.Get("/v1/tabs/mine", h.Mine)
-		pr.Get("/v1/tabs/by-token", h.ByToken)
+		pr.Post("/v1/tabs/by-token", h.ByToken)
 		pr.Get("/v1/tabs/{tab_id}", h.Get)
 		pr.Post("/v1/tabs/{tab_id}/notifications", h.Notifications)
 		pr.Post("/v1/tabs/{tab_id}/join", h.Join)
@@ -139,6 +139,9 @@ func (f *httpFixture) do(t *testing.T, method, path, authz string, body any, par
 // anonymously) and returns the decoded CreateResponse.
 func (f *httpFixture) createOverHTTP(t *testing.T, authz string) CreateResponse {
 	t.Helper()
+	if authz == "" {
+		authz = "Bearer " + f.jwtFor(t, f.acctA)
+	}
 	res := f.do(t, "POST", "/v1/tabs", authz, map[string]any{"currency": "AFN", "label": "Saafi Store"})
 	if res.status != http.StatusCreated {
 		t.Fatalf("create = %d %s", res.status, res.body)
@@ -158,7 +161,7 @@ func TestHTTPMobileInvitationAndRecovery(t *testing.T) {
 	f := newHTTPFixture(t)
 	created := f.createOverHTTP(t, "")
 	path := "/v1/tabs/" + created.Tab.ID
-	preview := f.do(t, "GET", "/v1/tabs/by-token", "Tab "+created.InviteToken, nil)
+	preview := f.do(t, "POST", "/v1/tabs/by-token", "Bearer "+f.jwtFor(t, f.acctB), map[string]any{"token": created.InviteToken})
 	if preview.status != 200 || preview.json(t)["tab"].(map[string]any)["you"] != "b" {
 		t.Fatalf("mobile preview: %d %s", preview.status, preview.body)
 	}
@@ -209,10 +212,10 @@ func TestHTTPAuthResolutionOrder(t *testing.T) {
 	path := "/v1/tabs/" + created.Tab.ID
 
 	// 1. `Tab <token>` — either party's token, case-insensitive scheme.
-	if r := f.do(t, "GET", path, "Tab "+created.MyToken, nil); r.status != 200 || r.json(t)["tab"].(map[string]any)["you"] != "a" {
+	if r := f.do(t, "GET", path, "Tab "+created.MyToken, nil); r.status != 404 {
 		t.Fatalf("A's token: %d %s", r.status, r.body)
 	}
-	if r := f.do(t, "GET", path, "tab "+created.InviteToken, nil); r.status != 200 || r.json(t)["tab"].(map[string]any)["you"] != "b" {
+	if r := f.do(t, "GET", path, "tab "+created.InviteToken, nil); r.status != 404 {
 		t.Fatalf("B's token (lowercase scheme): %d %s", r.status, r.body)
 	}
 	// 2. Session claims — the bound account.
@@ -224,13 +227,15 @@ func TestHTTPAuthResolutionOrder(t *testing.T) {
 		"anonymous":        "",
 		"stranger session": "Bearer " + jwtStranger,
 		"garbage token":    "Tab nope",
-		"garbage bearer":   "Bearer not-a-jwt",
 		"other scheme":     "Basic abc",
 	} {
 		r := f.do(t, "GET", path, authz, nil)
 		if r.status != 404 || string(r.body) != uniform404 {
 			t.Errorf("%s: %d %q, want 404 %q", name, r.status, r.body, uniform404)
 		}
+	}
+	if r := f.do(t, "GET", path, "Bearer not-a-jwt", nil); r.status != 401 {
+		t.Fatalf("expired/invalid session must be retryable: %d", r.status)
 	}
 	// Token for a different tab than the URL, and a malformed tab id.
 	other := f.createOverHTTP(t, "")
@@ -250,7 +255,7 @@ func TestHTTPMineRequiresSession(t *testing.T) {
 	if r := f.do(t, "GET", "/v1/tabs/mine", "", nil); r.status != 401 || r.json(t)["error"] != "authentication required" {
 		t.Fatalf("anonymous /mine = %d %s", r.status, r.body)
 	}
-	created := f.createOverHTTP(t, "")
+	created := f.create(t, "Legacy unbound", "", "")
 	// A party token is not a session either.
 	if r := f.do(t, "GET", "/v1/tabs/mine", "Tab "+created.MyToken, nil); r.status != 401 {
 		t.Fatalf("token /mine = %d %s", r.status, r.body)
@@ -329,7 +334,12 @@ func TestHTTPAppendStatusCodesAndErrors(t *testing.T) {
 	f := newHTTPFixture(t)
 	created := f.createOverHTTP(t, "")
 	path := "/v1/tabs/" + created.Tab.ID + "/entries"
-	authz := "Tab " + created.MyToken
+	authz := "Bearer " + f.jwtFor(t, f.acctA)
+	jwtB := "Bearer " + f.jwtFor(t, f.acctB)
+	joined := f.do(t, "POST", "/v1/tabs/"+created.Tab.ID+"/join", jwtB, map[string]any{"token": created.InviteToken, "label": "B"})
+	if joined.status != 200 {
+		t.Fatalf("join: %d %s", joined.status, joined.body)
+	}
 
 	body := map[string]any{"id": uuid.NewString(), "direction": "a_to_b", "amount": "500", "note": "cement", "occurred_at_ms": 1_756_000_000_000}
 	first := f.do(t, "POST", path, authz, body)
@@ -342,7 +352,7 @@ func TestHTTPAppendStatusCodesAndErrors(t *testing.T) {
 	if replay := f.do(t, "POST", path, authz, body); replay.status != 200 {
 		t.Fatalf("replay = %d %s, want 200", replay.status, replay.body)
 	}
-	if r := f.do(t, "POST", path, "Tab "+created.InviteToken, body); r.status != 409 || r.json(t)["error_code"] != "id_taken" {
+	if r := f.do(t, "POST", path, jwtB, body); r.status != 409 || r.json(t)["error_code"] != "id_taken" {
 		t.Fatalf("id reuse by B = %d %s", r.status, r.body)
 	}
 	for name, tc := range map[string]struct {
@@ -366,13 +376,13 @@ func TestHTTPAppendStatusCodesAndErrors(t *testing.T) {
 	if r := f.do(t, "POST", "/v1/tabs/"+created.Tab.ID+"/entries/"+entryID+"/accept", authz, map[string]any{}); r.status != 403 || r.json(t)["error_code"] != "own_entry" {
 		t.Errorf("accept own = %d %s", r.status, r.body)
 	}
-	if r := f.do(t, "POST", "/v1/tabs/"+created.Tab.ID+"/entries/"+entryID+"/dispute", "Tab "+created.InviteToken, map[string]any{"reason": ""}); r.status != 400 || r.json(t)["error_code"] != "reason_required" {
+	if r := f.do(t, "POST", "/v1/tabs/"+created.Tab.ID+"/entries/"+entryID+"/dispute", jwtB, map[string]any{"reason": ""}); r.status != 200 || r.json(t)["entry"].(map[string]any)["status"] != "disputed" {
 		t.Errorf("dispute without reason = %d %s", r.status, r.body)
 	}
 	if r := f.do(t, "POST", "/v1/tabs/"+created.Tab.ID+"/entries/"+entryID+"/void", authz, map[string]any{}); r.status != 201 || r.json(t)["void"] == nil || r.json(t)["voided"] == nil {
 		t.Errorf("void = %d %s", r.status, r.body)
 	}
-	if r := f.do(t, "POST", "/v1/tabs/"+created.Tab.ID+"/regenerate-link", "Tab "+created.InviteToken, map[string]any{}); r.status != 403 || r.json(t)["error_code"] != "not_party_a" {
+	if r := f.do(t, "POST", "/v1/tabs/"+created.Tab.ID+"/regenerate-link", jwtB, map[string]any{}); r.status != 403 || r.json(t)["error_code"] != "not_party_a" {
 		t.Errorf("B regenerate = %d %s", r.status, r.body)
 	}
 	if r := f.do(t, "POST", "/v1/tabs/"+created.Tab.ID+"/close", authz, map[string]any{}); r.status != 200 || r.json(t)["tab"].(map[string]any)["closed_by"] != "a" {
@@ -436,7 +446,7 @@ func TestHTTPRateLimitWiring(t *testing.T) {
 		resp.Body.Close()
 		return resp
 	}
-	if resp := get(); resp.StatusCode != 200 {
+	if resp := get(); resp.StatusCode != 404 {
 		t.Fatalf("first = %d", resp.StatusCode)
 	}
 	if resp := get(); resp.StatusCode != 429 || resp.Header.Get("Retry-After") == "" {
@@ -462,14 +472,9 @@ func TestHTTPViewPage(t *testing.T) {
 	html := string(r.body)
 	for _, want := range []string{
 		`<html lang="en" dir="ltr">`,
-		`<meta property="og:title" content="Kaata tab">`,
-		`content="You owe 1,250 AFN — Live tab on Kaata — updates as tallies are added"`,
-		`<meta name="robots" content="noindex, nofollow">`,
-		`var you = "b";`,
-		`var tabId = "` + created.Tab.ID + `";`,
+		`Kaata shared-account invitation`,
 		`var token = "` + created.InviteToken + `";`,
-		`class="statement owe"`,
-		`id="balNum">1,250<`,
+		"Open in Kaata", "App Store", "Google Play",
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("page missing %q", want)
@@ -490,7 +495,7 @@ func TestHTTPViewPage(t *testing.T) {
 	raw, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	fa := string(raw)
-	for _, want := range []string{`<html lang="fa" dir="rtl">`, `var you = "a";`, `class="statement credit"`, `id="balNum">۱٬۲۵۰<`, "به نفع شما"} {
+	for _, want := range []string{`<html lang="fa" dir="rtl">`, "باز کردن در کاتا"} {
 		if !strings.Contains(fa, want) {
 			t.Errorf("fa page missing %q", want)
 		}
