@@ -44,9 +44,9 @@ export function Privacy() {
           <p>
             Your ledger — the people you add, their phone numbers, the amounts, notes, and running
             balances — is stored in a database on your device. If you never sign in, that ledger
-            data is not uploaded unless you choose to share a bill or link a shared account.
+            data is not uploaded unless you choose to share a bill.
             A WhatsApp reminder uploads a snapshot of that one customer’s balance and entries to
-            create the shareable link (see below). Shared accounts also work without sign-in and
+            create the shareable link (see below). Shared accounts require sign-in in the app and
             are stored on our server as described below. Deleting the app
             removes the on-device ledger from the phone.
           </p>
