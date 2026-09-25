@@ -266,9 +266,11 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 			// (see account_binding.go scanBindings), never from target_id.
 			// target_id is still validated as a syntactic UUID below.
 		}
-		// Optional UUID syntactic checks for envelope refs.
+		// Ledger refs remain UUIDs. Local-only membership targets are the one
+		// exception: a pre-sign-in genesis must survive unchanged to verify its
+		// signature on the joining phone. The service still requires M2 proof.
 		if ev.TargetID != nil && *ev.TargetID != "" {
-			if _, err := uuid.Parse(*ev.TargetID); err != nil {
+			if _, err := uuid.Parse(*ev.TargetID); err != nil && !hasLocalMemberTarget(&ev) {
 				httpx.Error(w, http.StatusBadRequest, "events["+strconv.Itoa(i)+"].target_id must be a uuid")
 				return
 			}

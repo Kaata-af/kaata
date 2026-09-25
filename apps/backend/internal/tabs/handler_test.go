@@ -381,7 +381,7 @@ func TestHTTPAppendStatusCodesAndErrors(t *testing.T) {
 	if r := f.do(t, "POST", "/v1/tabs/"+created.Tab.ID+"/entries/"+entryID+"/dispute", jwtB, map[string]any{"reason": ""}); r.status != 200 || r.json(t)["entry"].(map[string]any)["status"] != "disputed" {
 		t.Errorf("dispute without reason = %d %s", r.status, r.body)
 	}
-	if r := f.do(t, "POST", "/v1/tabs/"+created.Tab.ID+"/entries/"+entryID+"/void", authz, map[string]any{}); r.status != 201 || r.json(t)["void"] == nil || r.json(t)["voided"] == nil {
+	if r := f.do(t, "POST", "/v1/tabs/"+created.Tab.ID+"/entries/"+entryID+"/void", authz, map[string]any{}); r.status != 409 || r.json(t)["error_code"] != "review_final" {
 		t.Errorf("void = %d %s", r.status, r.body)
 	}
 	if r := f.do(t, "POST", "/v1/tabs/"+created.Tab.ID+"/regenerate-link", jwtB, map[string]any{}); r.status != 403 || r.json(t)["error_code"] != "not_party_a" {

@@ -55,8 +55,10 @@ export const EntryRow = memo(function EntryRow(props: {
   // membership and its member tints.
   // The caller passes `entry.tab` straight through.
   tab?: TabEntryMeta;
+  selfAccountId?: string | null;
   onAccept?: (entry: Entry) => void | Promise<void>;
   onReject?: (entry: Entry) => void | Promise<void>;
+  onCancel?: (entry: Entry) => void | Promise<void>;
 }) {
   const isRTL = useIsRTL();
   useCalendar(); // This memoized row must also refresh when its calendar changes.
@@ -119,7 +121,11 @@ export const EntryRow = memo(function EntryRow(props: {
   const chipActor = chipActorFor(props.attribution);
   const chipTint = chipActor ? memberTintFor(chipActor.accountId) : null;
   const nameOf = (actor: { name: string | null; isSelf: boolean }) =>
-    actor.isSelf ? t("entry.by.you") : (actor.name ?? t("entry.by.someone"));
+    actor.isSelf
+      ? actor.name?.trim()
+        ? t("entry.by.self", { name: actor.name })
+        : t("entry.by.you")
+      : actor.name || t("entry.by.someone");
   const author = props.attribution?.author ?? null;
   const editor = props.attribution?.editor ?? null;
   const memberByLine = author ? (
@@ -148,7 +154,14 @@ export const EntryRow = memo(function EntryRow(props: {
     : null;
   // Side A/B is not authorship: a store can have several writers.
   const byLine = tab
-    ? namedByLine("tab.addedBy", tab.author_name || t("entry.by.someone"))
+    ? namedByLine(
+        "tab.addedBy",
+        nameOf({
+          name: tab.author_name ?? null,
+          // Party membership is not authorship: a colleague is not "you".
+          isSelf: !!props.selfAccountId && tab.author_account_id === props.selfAccountId,
+        }),
+      )
     : memberByLine;
   const disputeLine =
     tab && tab.status === "disputed" && !voided && tab.dispute_reason
@@ -360,6 +373,25 @@ export const EntryRow = memo(function EntryRow(props: {
           ) : null}
         </View>
       </Pressable>
+      {open && tab?.by === "me" && pending && props.onCancel ? (
+        <View style={[styles.reviewRow, rowDir(isRTL)]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t("tab.cancel")}
+            accessibilityState={{ disabled: reviewing }}
+            disabled={reviewing}
+            onPress={() => void review(props.onCancel!)}
+            style={({ pressed }) => [
+              styles.reviewButton,
+              rowDir(isRTL),
+              (pressed || reviewing) && { opacity: 0.5 },
+            ]}
+          >
+            <Ionicons name="close-outline" size={18} color={colors.textSubtle} />
+            <Text style={styles.reviewLabel}>{t("tab.cancel")}</Text>
+          </Pressable>
+        </View>
+      ) : null}
       {tab &&
       tab.by === "them" &&
       !voided &&

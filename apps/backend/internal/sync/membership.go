@@ -57,6 +57,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"regexp"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -104,6 +105,26 @@ func IsMembershipEventType(eventType string) bool {
 		return true
 	}
 	return false
+}
+
+var localAccountTargetPattern = regexp.MustCompile(`^local:[A-Za-z0-9_-]{16}$`)
+
+// This is wire shape only, NEVER authorization. The service additionally
+// requires normal M2 signature/chain verification before persisting it.
+// Mobile buildLocalAccountId uses this sentinel before the first sign-in.
+func hasLocalMemberTarget(ev *PushEvent) bool {
+	if ev.TargetID == nil || !localAccountTargetPattern.MatchString(*ev.TargetID) {
+		return false
+	}
+	switch ev.EventType {
+	case EventVaultMemberAdded, EventVaultMemberRoleChng, EventVaultMemberRemoved:
+		var p struct {
+			AccountID string `json:"account_id"`
+		}
+		return json.Unmarshal(ev.Payload, &p) == nil && p.AccountID == *ev.TargetID
+	default:
+		return false
+	}
 }
 
 // SetWitnessPubkeys pins the server signing pubkey set used to verify the

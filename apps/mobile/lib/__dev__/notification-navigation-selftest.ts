@@ -1,6 +1,51 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
+import { tallyScrollTarget } from "../tally-viewport";
+
+const viewport = { offset: 100, viewport: 700, bottomInset: 100, height: 80 };
+assert.equal(tallyScrollTarget({ ...viewport, top: 250 }), null, "upper-middle tally stays put");
+assert.equal(tallyScrollTarget({ ...viewport, top: 420 }), null, "middle tally stays put");
+assert.equal(
+  tallyScrollTarget({ ...viewport, top: 550 }),
+  null,
+  "fully visible lower tally stays put",
+);
+assert.equal(
+  tallyScrollTarget({ ...viewport, top: 900 }),
+  640,
+  "offscreen tally centered, not pinned to top",
+);
+assert.equal(
+  tallyScrollTarget({ ...viewport, top: 40 }),
+  0,
+  "above viewport: clamp to content start",
+);
+assert.equal(
+  tallyScrollTarget({ ...viewport, top: 660 }),
+  400,
+  "reveal tally covered by floating actions",
+);
+assert.equal(
+  tallyScrollTarget({ ...viewport, top: 550, bottomInset: 250 }),
+  365,
+  "account for toast-raised footer",
+);
+assert.equal(
+  tallyScrollTarget({ ...viewport, top: 250, height: 800 }),
+  null,
+  "visible long note does not jump",
+);
+assert.equal(
+  tallyScrollTarget({ ...viewport, top: 900, height: 800 }),
+  884,
+  "offscreen long note reveals its beginning",
+);
+assert.equal(
+  tallyScrollTarget({ ...viewport, top: 900, viewport: 0 }),
+  null,
+  "wait for measured viewport",
+);
 
 const TAB = "00000000-0000-4000-8000-000000000001";
 const ENTRY = "00000000-0000-4000-8000-000000000002";

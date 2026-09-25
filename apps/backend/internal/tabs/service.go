@@ -1449,8 +1449,9 @@ func (s *Service) Dispute(ctx context.Context, p Party, entryID, reason string, 
 // Void appends the reversing row (D5): kind='void', the original's amount,
 // the OPPOSITE direction, status 'accepted' (a void needs no review),
 // voids_entry_id → original; the original gets voided_by_entry_id and the
-// same rev. Only the author may void (ErrNotAuthor); voiding a disputed
-// entry IS the dispute resolution; a second void is ErrAlreadyVoided.
+// same rev. Only the author may cancel a PENDING tally. Accept/reject is final,
+// even for older clients: review and cancellation take the same locks, so only
+// one can win. A second void is ErrAlreadyVoided.
 func (s *Service) Void(ctx context.Context, p Party, entryID string) (VoidResponse, error) {
 	if !p.allows(rankEditor) {
 		return VoidResponse{}, ErrRoleInsufficient
@@ -1477,6 +1478,9 @@ func (s *Service) Void(ctx context.Context, p Party, entryID string) (VoidRespon
 	}
 	if orig.CreatedBy != p.Role {
 		return VoidResponse{}, ErrNotAuthor
+	}
+	if orig.Status != "pending" {
+		return VoidResponse{}, ErrReviewFinal
 	}
 	rev, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("entry_voided", entryID))
 	if err != nil {

@@ -70,6 +70,7 @@ const mocks: Record<string, any> = {
       if (key === "tab.addedBy" || key === "entry.addedBy")
         value = rtl ? "ثبت‌شده توسط {name}" : "Added by {name}";
       if (key === "entry.editedBy") value = rtl ? "ویرایش توسط {name}" : "edited by {name}";
+      if (key === "entry.by.self") value = rtl ? "{name} (شما)" : "{name} (you)";
       for (const [k, v] of Object.entries(vars ?? {})) value = value.replaceAll("{" + k + "}", v);
       return value;
     },
@@ -121,6 +122,61 @@ function opened(props: any) {
 }
 for (const isRTL of [false, true]) {
   rtl = isRTL;
+  const selfProps = {
+    ...base,
+    selfAccountId: "self",
+    tab: { by: "me", status: "pending", author_name: "Matee", author_account_id: "self" },
+    onCancel() {},
+  };
+  slots = [];
+  assert.equal(
+    nodes(render(selfProps)).some((n) => n.props.accessibilityLabel === "tab.cancel"),
+    false,
+    "cancel is hidden until expanded",
+  );
+  const own = opened(selfProps);
+  assert.ok(words(own).includes(rtl ? "Matee (شما)" : "Matee (you)"));
+  assert.equal(nodes(own).filter((n) => n.props.accessibilityLabel === "tab.cancel").length, 1);
+  assert.equal(
+    nodes(own).filter(
+      (n) =>
+        n.props.accessibilityLabel === "tab.accept" || n.props.accessibilityLabel === "tab.reject",
+    ).length,
+    0,
+  );
+  for (const meta of [
+    { status: "accepted" },
+    { status: "disputed" },
+    { voided: true },
+    { by: "them" },
+  ]) {
+    assert.equal(
+      nodes(opened({ ...selfProps, tab: { ...selfProps.tab, ...meta } })).some(
+        (n) => n.props.accessibilityLabel === "tab.cancel",
+      ),
+      false,
+    );
+  }
+  assert.equal(
+    nodes(opened({ ...selfProps, onCancel: undefined })).some(
+      (n) => n.props.accessibilityLabel === "tab.cancel",
+    ),
+    false,
+    "viewer/closed tab has no cancellation",
+  );
+  for (const authorId of ["colleague", undefined, null]) {
+    const colleague = opened({
+      ...selfProps,
+      tab: { ...selfProps.tab, author_account_id: authorId },
+    });
+    assert.equal(
+      words(colleague).includes(rtl ? "(شما)" : "(you)"),
+      false,
+      "same party or unknown author does not mean self",
+    );
+  }
+  const selfMember = opened({ ...base, attribution: { author: { name: "Matee", isSelf: true } } });
+  assert.ok(words(selfMember).includes(rtl ? "Matee (شما)" : "Matee (you)"));
   for (const status of ["pending", "accepted", "disputed"]) {
     const tree = opened({
       ...base,
@@ -313,6 +369,18 @@ assert.equal(style(badge.props.style).flexShrink, 0);
 assert.equal(nodes(badge).find((n) => n.type === "MaterialIcon")?.props.name, "verified");
 assert.match(person, /icon: "link-outline" as const/);
 assert.equal(person.includes('t("tab.chip.linked"'), false);
+assert.equal(person.includes("confirmVoidFor"), false, "no cancellation sheet/dialog");
+for (const source of [
+  person,
+  readFileSync(require.resolve("../../components/PersonRow"), "utf8"),
+  readFileSync(require.resolve("../../app/person/new"), "utf8"),
+]) {
+  assert.doesNotMatch(
+    source,
+    /\.(other_account_name|tab_account_name)/,
+    "no parenthesized identity beside contact names",
+  );
+}
 
 // A highlight never intercepts a row tap; its cue fades rather than staying on.
 let timing: any,
@@ -358,11 +426,12 @@ const glow = TallyHighlight({ requestKey: "tap" });
 assert.equal(glow.props.pointerEvents, "none");
 assert.equal(glow.props.accessible, false);
 assert.equal(timing.toValue, 0);
-assert.equal(timing.duration + timing.delay, 2900);
+assert.equal(timing.duration + timing.delay, 1500);
+assert.equal(style(glow.props.style).backgroundColor, "#D4D4D4");
 assert.equal(timing.useNativeDriver, true);
 assert.equal(started, true);
 cleanup();
 assert.equal(stopped, true);
 console.log(
-  "PASS: centered scalloped identity badge, link action icon, touch-through 2.9s highlight with cleanup",
+  "PASS: centered badge without account suffix, self attribution, inline pending-only cancellation, touch-through gray 1.5s highlight",
 );

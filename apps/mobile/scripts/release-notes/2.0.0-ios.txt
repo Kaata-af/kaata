@@ -1,0 +1,11 @@
+Kaata 2.0 introduces shared accounts between you and another Kaata user.
+
+- Link a contact through an invitation and keep one shared ledger.
+- Accept or reject tallies from the other person. Rejected tallies stay visible but do not count toward the balance.
+- Get notifications for new tallies and review decisions, with an in-app inbox and quick review actions.
+- See who added each tally, with clear pending, accepted, rejected and cancelled states. Only pending tallies can be cancelled.
+- Enjoy easier-to-reach tally buttons, a cleaner contact menu and improved navigation from notifications.
+- Restore contacts access from the contact picker if permission was previously declined.
+- Fix upload problems affecting some older or first-created kaatas when adding members, while preserving existing records.
+
+Your private kaatas remain private unless you choose to share them.

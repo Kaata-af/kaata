@@ -4,7 +4,7 @@ import { memo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
 import { getCurrentCurrencySymbol } from "../lib/currency";
-import { bidiIsolate, rowDir, textDir, useIsRTL } from "../lib/direction";
+import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { formatAmount, formatRelative } from "../lib/format";
 import { t } from "../lib/i18n";
@@ -83,9 +83,6 @@ export const PersonRow = memo(function PersonRow(props: {
         <View style={[styles.nameRow, rowDir(isRTL)]}>
           <Text style={[styles.name, styles.nameText, textDir(isRTL)]} numberOfLines={1}>
             {person.name}
-            {person.tab_id && person.tab_closed_at == null && person.tab_account_name ? (
-              <Text style={styles.sub}>{` (${bidiIsolate(person.tab_account_name)})`}</Text>
-            ) : null}
           </Text>
           {person.tab_id && person.tab_closed_at == null ? <SharedAccountBadge /> : null}
         </View>

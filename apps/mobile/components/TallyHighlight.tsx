@@ -6,11 +6,11 @@ import { colors } from "../lib/colors";
 export function TallyHighlight({ requestKey }: { requestKey: string }) {
   const opacity = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    opacity.setValue(0.7);
+    opacity.setValue(0.4);
     const animation = Animated.timing(opacity, {
       toValue: 0,
-      duration: 2000,
-      delay: 900,
+      duration: 1200,
+      delay: 300,
       useNativeDriver: true,
     });
     animation.start();

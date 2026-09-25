@@ -110,21 +110,24 @@ export type DeviceContactsResult = {
   contacts: DeviceContact[];
   granted: boolean;
   canAskAgain: boolean;
+  limited: boolean;
 };
 
 /** Read the device phone book (name split into first/last + first number) for the
  *  WhatsApp-style inline contacts list on the add screen. Best-effort: returns an
  *  empty list (with the permission state) on no permission or any read error — the
- *  add screen still works (you can type a new name). Requests permission once if
- *  it can. */
-export async function readDeviceContacts(): Promise<DeviceContactsResult> {
+ *  add screen still works (you can type a new name). Only an explicit tap may
+ *  request permission; silent refreshes must never nag on app resume. */
+export async function readDeviceContacts({
+  requestPermission = false,
+} = {}): Promise<DeviceContactsResult> {
   try {
     let perm = await Contacts.getPermissionsAsync();
-    if (!perm.granted && perm.canAskAgain) {
+    if (requestPermission && !perm.granted && perm.canAskAgain) {
       perm = await Contacts.requestPermissionsAsync();
     }
     if (!perm.granted) {
-      return { contacts: [], granted: false, canAskAgain: perm.canAskAgain };
+      return { contacts: [], granted: false, canAskAgain: perm.canAskAgain, limited: false };
     }
     const { data } = await Contacts.getContactsAsync({
       fields: [
@@ -165,10 +168,15 @@ export async function readDeviceContacts(): Promise<DeviceContactsResult> {
       const id = c.id ?? `${display}-${phone ?? ""}`;
       out.push({ id, firstName, lastName, name: display, phone });
     }
-    return { contacts: out, granted: true, canAskAgain: perm.canAskAgain };
+    return {
+      contacts: out,
+      granted: true,
+      canAskAgain: perm.canAskAgain,
+      limited: perm.accessPrivileges === "limited",
+    };
   } catch (err) {
     if (__DEV__) console.warn("[contacts-sync] readDeviceContacts failed:", err);
-    return { contacts: [], granted: false, canAskAgain: true };
+    return { contacts: [], granted: false, canAskAgain: true, limited: false };
   }
 }
 

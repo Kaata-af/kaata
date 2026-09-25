@@ -119,10 +119,8 @@ func TestManagerCannotExceedCap(t *testing.T) {
 
 // Review fix: managerCapSatisfied must not refuse a NON-UUID (`local:…`
 // pair-admitted) target — such ids can't hold a vault_members seat, so no
-// server-side role can rank >= manager. NOTE this is defense-in-depth
-// parity only: events.target_id is UUID-typed (migration 007), so today's
-// push path can't even STORE such an event (any signer, owner included) —
-// exercised as a direct unit call, not through PushEvents.
+// server-side role can rank >= manager. Migration 043 preserves these signed
+// targets in events.local_target_id; pre_signin_push_test covers HTTP transport.
 func TestManagerCapAllowsLocalTarget(t *testing.T) {
 	f, _, _ := newManagerFixture(t)
 	ctx := context.Background()

@@ -124,7 +124,7 @@ func (br *BindingResolver) ResolveTx(
 		return *entry.resolved, true, nil
 	}
 
-	resolved, found, err := scanBindings(ctx, tx, vaultID, hlcPMS, hlcLogical, hlcDeviceID)
+	resolved, found, err := scanBindings(ctx, tx, vaultID, eventID, hlcPMS, hlcLogical, hlcDeviceID)
 	if err != nil {
 		return uuid.Nil, false, err
 	}
@@ -213,6 +213,7 @@ func scanBindings(
 	ctx context.Context,
 	tx pgx.Tx,
 	vaultID uuid.UUID,
+	eventID uuid.UUID,
 	evtPMS int64,
 	evtLogical int64,
 	evtDeviceID uuid.UUID,
@@ -242,9 +243,17 @@ func scanBindings(
 		cutoffPMS, cutoffLogical, cutoffDevice, err := eventHLCTx(ctx, tx, vaultID, b.retroactiveThroughEventID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				// retroactive_through_event_id points to an event we haven't
-				// seen yet (out-of-order arrival). Skip; a subsequent retry
-				// will resolve it.
+				// The cutoff may itself be an unsynced pre-sign-in event.
+				// Requiring it to ALREADY exist deadlocks the whole pre-sign-in
+				// history forever. Admit only that EXACT named event, from the
+				// binding's device and no later than the binding. The normal
+				// pusher-equality and role gates still apply in permissions.go.
+				if eventID == b.retroactiveThroughEventID && evtDeviceID == b.hlcDeviceID &&
+					hlcLEQ(evtPMS, evtLogical, evtDeviceID, b.hlcPMS, b.hlcLogical, b.hlcDeviceID) {
+					return b.accountID, true, nil
+				}
+				// Other missing cutoffs remain unresolved; never guess a
+				// boundary or treat all events before sign-in as authorized.
 				continue
 			}
 			return uuid.Nil, false, err

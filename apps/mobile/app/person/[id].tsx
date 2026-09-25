@@ -86,6 +86,7 @@ import type { TabLink } from "../../lib/tabs/types";
 import { icon, radius, TOUCH_MIN, typography } from "../../lib/tokens";
 import { useActiveVaultWriteCaps } from "../../lib/use-vault-role";
 import { useMembersCount } from "../../lib/use-vault-summary";
+import { tallyScrollTarget } from "../../lib/tally-viewport";
 import type { Entry, PersonWithBalance, Self } from "../../lib/types";
 
 // Wording for a failed tab operation (accept / void / unlink / regenerate).
@@ -111,6 +112,8 @@ export default function PersonDetailScreen() {
   const toastOffset = useToastOffset();
   const [actionsHeight, setActionsHeight] = useState(100);
   const insets = useSafeAreaInsets();
+  // Clerks can add; only editors and above can amend/review/cancel.
+  const { canCreate, canAmend } = useActiveVaultWriteCaps(getActiveVaultIdSyncMaybe());
   const { id, entryId, notificationKey } = useLocalSearchParams<{
     id: string;
     entryId?: string;
@@ -118,7 +121,14 @@ export default function PersonDetailScreen() {
   }>();
   const scrollRef = useRef<ScrollView>(null);
   const entriesCardY = useRef<number | null>(null);
-  const entryPositions = useRef(new Map<string, number>());
+  const entryPositions = useRef(new Map<string, { y: number; height: number }>());
+  const viewport = useRef({ offset: 0, height: 0, lift: 0 });
+  useEffect(() => {
+    const listener = toastOffset.addListener(({ value }) => {
+      viewport.current.lift = Math.max(0, -value);
+    });
+    return () => toastOffset.removeListener(listener);
+  }, [toastOffset]);
   const highlightedRequest = useRef("");
   const [highlight, setHighlight] = useState<{ id: string; key: string } | null>(null);
   // Subscribes to locale changes — flipping language in Settings re-renders
@@ -159,12 +169,28 @@ export default function PersonDetailScreen() {
       highlightedRequest.current === key
     )
       return;
-    const y = entryPositions.current.get(entryId);
-    if (y == null || entriesCardY.current == null) return;
+    const row = entryPositions.current.get(entryId);
+    if (!row || entriesCardY.current == null || !viewport.current.height) return;
     highlightedRequest.current = key;
-    scrollRef.current?.scrollTo({ y: Math.max(0, entriesCardY.current + y - 24), animated: true });
+    const target = tallyScrollTarget({
+      top: entriesCardY.current + row.y,
+      height: row.height,
+      offset: viewport.current.offset,
+      viewport: viewport.current.height,
+      bottomInset: canCreate ? actionsHeight + viewport.current.lift : insets.bottom,
+    });
+    if (target != null) scrollRef.current?.scrollTo({ y: target, animated: true });
     setHighlight({ id: entryId, key });
-  }, [id, entryId, notificationKey, showFullHistory, entries]);
+  }, [
+    id,
+    entryId,
+    notificationKey,
+    showFullHistory,
+    entries,
+    canCreate,
+    actionsHeight,
+    insets.bottom,
+  ]);
   useEffect(() => {
     // Wait for the expanded history's layout; onLayout/content-size handle cold loads.
     const frame = requestAnimationFrame(revealNotificationTally);
@@ -209,7 +235,6 @@ export default function PersonDetailScreen() {
   const [linkedSheetVisible, setLinkedSheetVisible] = useState(false);
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [confirmUnlink, setConfirmUnlink] = useState(false);
-  const [confirmVoidFor, setConfirmVoidFor] = useState<Entry | null>(null);
 
   async function onExport(format: ExportFormat, destination: ExportDestination) {
     if (!id || exportingRef.current) return;
@@ -231,9 +256,6 @@ export default function PersonDetailScreen() {
   }
   // Viewer read-only gate: false only when I'm a viewer on the active (shared)
   // kaata. Hides give/receive, edit-person, and entry edit/delete.
-  // Roles v2 split: canCreate gates give/receive (clerks CAN append new
-  // entries); canAmend gates person-edit + entry long-press (clerks cannot).
-  const { canCreate, canAmend } = useActiveVaultWriteCaps(getActiveVaultIdSyncMaybe());
 
   // ATTRIBUTION — "who wrote this tally", for SHARED kaatas only.
   //
@@ -578,11 +600,10 @@ export default function PersonDetailScreen() {
     }
   }
 
-  // The author's only correction (D5): a visible void, never an edit.
-  async function onVoid() {
-    const target = confirmVoidFor;
-    setConfirmVoidFor(null);
-    if (!link || !target) return;
+  // Inline withdrawal of a pending tally; reviewed rows are immutable.
+  async function onVoid(target: Entry) {
+    if (!link || target.tab?.by !== "me" || target.tab.status !== "pending" || target.tab.voided)
+      return;
     try {
       await voidEntry(link, target.id);
       toast.push(t("tab.voided"), "success");
@@ -593,10 +614,7 @@ export default function PersonDetailScreen() {
     }
   }
 
-  // Long-press actions for the tally under `sheetFor`. Tab rows swap the
-  // local Edit/Delete pair for the tab verbs: the author may only void; the
-  // other side reviews pending tallies inline, not through this sheet. Voided
-  // rows never reach here — their long-press is disabled at the row.
+  // Only private tallies use the edit/delete sheet. Shared tally actions are inline.
   const sheetActions = (() => {
     const target = sheetFor;
     if (!target) return [];
@@ -618,17 +636,7 @@ export default function PersonDetailScreen() {
         },
       ];
     }
-    if (meta.by === "me") {
-      return [
-        {
-          label: t("tab.void"),
-          icon: "close-circle-outline" as const,
-          destructive: true,
-          onPress: () => setConfirmVoidFor(target),
-        },
-      ];
-    }
-    return []; // Counterparty review lives on the tally itself.
+    return [];
   })();
 
   if (!person) {
@@ -759,6 +767,14 @@ export default function PersonDetailScreen() {
           style flip, so it can't happen. */}
       <ScrollView
         ref={scrollRef}
+        onLayout={(event) => {
+          viewport.current.height = event.nativeEvent.layout.height;
+          revealNotificationTally();
+        }}
+        onScroll={(event) => {
+          viewport.current.offset = event.nativeEvent.contentOffset.y;
+        }}
+        scrollEventThrottle={16}
         onContentSizeChange={revealNotificationTally}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
@@ -768,14 +784,7 @@ export default function PersonDetailScreen() {
         <View>
           <View style={styles.info}>
             <View style={[styles.nameRow, rowDir(isRTL)]}>
-              <Text style={[styles.name, { flexShrink: 1 }, textDir(isRTL)]}>
-                {person.name}
-                {link?.other_account_name ? (
-                  <Text
-                    style={styles.accountName}
-                  >{` (${bidiIsolate(link.other_account_name)})`}</Text>
-                ) : null}
-              </Text>
+              <Text style={[styles.name, { flexShrink: 1 }, textDir(isRTL)]}>{person.name}</Text>
               {link ? <SharedAccountBadge size={20} /> : null}
             </View>
             {person.phone ? (
@@ -907,24 +916,13 @@ export default function PersonDetailScreen() {
                 !entry.tab &&
                 settlement.lastSettledAtMs != null &&
                 entry.created_at <= settlement.lastSettledAtMs;
-              // Tab rows: the long-press sheet needs canAmend too (accept /
-              // dispute / void are editor verbs — §4.4), and a voided row has
-              // nothing left to do, so it gets no sheet at all. Once the tab
-              // is CLOSED its rows are frozen history — every verb the sheet
-              // offers writes to a tab that no longer accepts writes — so
-              // they get no sheet either, rather than a menu of no-ops.
-              const frozenTabRow = entry.tab != null && link == null;
-              const canOpenSheet =
-                canAmend &&
-                !inSettledChapter &&
-                !entry.tab?.voided &&
-                !frozenTabRow &&
-                (!entry.tab || entry.tab.by === "me");
+              const canOpenSheet = canAmend && !inSettledChapter && !entry.tab;
               return (
                 <View
                   key={entry.id}
                   onLayout={(event) => {
-                    entryPositions.current.set(entry.id, event.nativeEvent.layout.y);
+                    const { y, height } = event.nativeEvent.layout;
+                    entryPositions.current.set(entry.id, { y, height });
                     revealNotificationTally();
                   }}
                 >
@@ -939,8 +937,10 @@ export default function PersonDetailScreen() {
                     onLongPress={canOpenSheet ? setSheetFor : undefined}
                     attribution={attribution.get(entry.id)}
                     tab={entry.tab}
+                    selfAccountId={getAccountIdSync()}
                     onAccept={canAmend && link ? onAccept : undefined}
                     onReject={canAmend && link ? onReject : undefined}
+                    onCancel={canAmend && link ? onVoid : undefined}
                   />
                   {highlight?.id === entry.id ? (
                     <TallyHighlight requestKey={highlight.key} />
@@ -1133,8 +1133,7 @@ export default function PersonDetailScreen() {
             : undefined
         }
         onDismiss={() => setSheetFor(null)}
-        // Edit/Delete for a local tally, the tab verbs for a tab tally — see
-        // sheetActions above for the per-status rules.
+        // Edit/Delete for private tallies only.
         actions={sheetActions}
       />
 
@@ -1208,15 +1207,6 @@ export default function PersonDetailScreen() {
         destructive
         onConfirm={() => void onUnlink()}
         onCancel={() => setConfirmUnlink(false)}
-      />
-      <ConfirmDialog
-        visible={confirmVoidFor !== null}
-        title={t("tab.void.title")}
-        description={t("tab.void.body")}
-        confirmLabel={t("tab.void")}
-        destructive
-        onConfirm={() => void onVoid()}
-        onCancel={() => setConfirmVoidFor(null)}
       />
 
       {/* Per-send message-language picker (share_lang_pref = 'ask'). Dari
@@ -1333,7 +1323,6 @@ const styles = StyleSheet.create({
   // name, the anchor of the screen, and dropping a weight step here would read
   // as a demotion rather than a scale fix. Same fontFamily-override idiom as
   // Button's `textPill`.
-  accountName: { fontFamily: fonts.sansRegular, fontSize: 16, color: colors.textSubtle },
   nameRow: { flexDirection: "row", alignItems: "center", gap: 7 },
   name: { ...typography.heading, fontFamily: fonts.sansBold, color: colors.textEmphasis },
   phone: {

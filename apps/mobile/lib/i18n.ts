@@ -293,6 +293,9 @@ const en = {
   // contacts permission isn't granted (so the list isn't silently empty).
   "personAdd.contacts.allow": "Allow contacts access to add from your phone book",
   "personAdd.contacts.openSettings": "Enable contacts access in Settings",
+  "personAdd.contacts.manage": "Choose more contacts in Settings",
+  "personAdd.contacts.failed":
+    "Couldn't open Settings. You can allow contacts access from your phone's Settings app.",
   // Overflow row under the truncated Matches list — invites the user to
   // refine the search instead of scrolling an unbounded result set.
   "personAdd.moreResults": "+{count} more — keep typing to narrow",
@@ -321,6 +324,7 @@ const en = {
   "entry.editedBy": "edited by {name}",
   "entry.editedByOnly": "Edited by {name}",
   "entry.by.you": "you",
+  "entry.by.self": "{name} (you)",
   // When the member's name hasn't reached this device yet. Better than a
   // truncated account id, which reads as a bug rather than as a person.
   "entry.by.someone": "another member",
@@ -1376,6 +1380,7 @@ const en = {
   "tab.addedByYou": "Added by you",
   "tab.disputedReason": "Rejected: {reason}",
   "tab.void": "Void",
+  "tab.cancel": "Cancel tally",
   "tab.void.title": "Void this tally?",
   "tab.void.body":
     "It stays visible, struck through, and no longer counts. Add a new tally if the amount was wrong.",
@@ -1694,6 +1699,9 @@ const fa: Partial<Record<Key, string>> = {
   // Inline affordance when contacts permission isn't granted.
   "personAdd.contacts.allow": "برای افزودن از دفترچه تلفن، اجازهٔ دسترسی به مخاطبین را بدهید",
   "personAdd.contacts.openSettings": "دسترسی به مخاطبین را در تنظیمات فعال کنید",
+  "personAdd.contacts.manage": "مخاطبین بیشتری را در تنظیمات انتخاب کنید",
+  "personAdd.contacts.failed":
+    "تنظیمات باز نشد. می‌توانید دسترسی به مخاطبین را از تنظیمات تلفن فعال کنید.",
   // Overflow row under the truncated Matches list.
   "personAdd.moreResults": "{count}+ نتیجهٔ دیگر — برای محدود کردن، بیشتر تایپ کنید",
   "personAdd.moreContacts": "برای یافتن مخاطبین بیشتر، نام یا شماره را تایپ کنید.",
@@ -1717,6 +1725,7 @@ const fa: Partial<Record<Key, string>> = {
   "entry.editedBy": "ویرایش توسط {name}",
   "entry.editedByOnly": "ویرایش‌شده توسط {name}",
   "entry.by.you": "شما",
+  "entry.by.self": "{name} (شما)",
   "entry.by.someone": "یکی از اعضا",
   "entry.invalidAmount": "یک مقدار مثبت با حداکثر ۲ رقم اعشار وارد کنید",
   "entry.noActiveVault": "کاتای فعال وجود ندارد. برای ادامه یک کاتا بسازید.",
@@ -2590,6 +2599,7 @@ const fa: Partial<Record<Key, string>> = {
   "tab.addedByYou": "ثبت‌شده توسط شما",
   "tab.disputedReason": "رد شده: {reason}",
   "tab.void": "باطل کردن",
+  "tab.cancel": "لغو ثبت",
   "tab.void.title": "این ثبت باطل شود؟",
   "tab.void.body":
     "ثبت با خط خورده دیده می‌شود و دیگر حساب نمی‌شود. اگر مقدار غلط بود، یک ثبت نو اضافه کنید.",

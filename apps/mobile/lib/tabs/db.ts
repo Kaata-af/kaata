@@ -615,13 +615,16 @@ export async function applyOptimisticVoid(
   notify = true,
 ): Promise<void> {
   const db = await getDb();
-  await db.runAsync(
-    `UPDATE tab_entries SET voided_by_entry_id = COALESCE(voided_by_entry_id, ?)
-      WHERE id = ? AND tab_id = ?`,
+  const result = await db.runAsync(
+    `UPDATE tab_entries SET voided_by_entry_id = ?
+      WHERE id = ? AND tab_id = ? AND status = 'pending'
+        AND kind <> 'void' AND voided_by_entry_id IS NULL AND created_by = ?`,
     marker,
     entryId,
     link.tab_id,
+    link.role,
   );
+  if (result.changes === 0) throw new TabReviewFinalError();
   if (notify)
     notifyTabChanged(link.vault_id, {
       tabId: link.tab_id,

@@ -26,6 +26,7 @@ import { isUserLedgerEventType } from "../events";
 import { applyEventMutex } from "../projection";
 import { notifyProjectionConflictsChanged } from "../projection-conflicts";
 import { markPushDone } from "./cursor";
+import { pushFailureMessage } from "./push-error";
 import { markSelfMembershipRevoked, markVaultArchivedFromServer } from "./pull";
 import {
   PermissionRejectedError,
@@ -306,7 +307,8 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
     throw new VaultNotRegisteredError();
   }
   if (!res.ok) {
-    throw new Error(`push failed: ${res.status}`);
+    const errorBody: unknown = await res.json().catch(() => null);
+    throw new Error(pushFailureMessage(res.status, errorBody));
   }
 
   const body = (await res.json()) as PushResponse;

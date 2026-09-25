@@ -255,14 +255,18 @@ func TestCreateJoinAppendReviewVoidClose(t *testing.T) {
 		t.Fatalf("disputed balance = %v", dis.Tab.Balance)
 	}
 
-	// A resolves the dispute by voiding the opening: a reversing row, the
-	// original struck, and both drop out of the balance.
-	v, err := f.svc.Void(ctx, pa, opening.ID)
+	// A cannot erase either decision. A correction must be a NEW pending row;
+	// only that pending row may be withdrawn with a visible reversing row.
+	if _, err := f.svc.Void(ctx, pa, opening.ID); !errors.Is(err, ErrReviewFinal) {
+		t.Fatalf("void rejected opening = %v", err)
+	}
+	correction := f.append(t, pa, "a_to_b", "3000", opening.OccurredAtMS)
+	v, err := f.svc.Void(ctx, pa, correction.Entry.ID)
 	if err != nil {
 		t.Fatalf("Void: %v", err)
 	}
-	if v.Void.Kind != "void" || v.Void.Direction != "b_to_a" || v.Void.Amount != "3400" || v.Void.Status != "accepted" ||
-		v.Void.VoidsEntryID == nil || *v.Void.VoidsEntryID != opening.ID || v.Void.Seq != 3 {
+	if v.Void.Kind != "void" || v.Void.Direction != "b_to_a" || v.Void.Amount != "3000" || v.Void.Status != "accepted" ||
+		v.Void.VoidsEntryID == nil || *v.Void.VoidsEntryID != correction.Entry.ID || v.Void.Seq != 4 {
 		t.Fatalf("void row = %+v", v.Void)
 	}
 	if v.Voided.VoidedByEntryID == nil || *v.Voided.VoidedByEntryID != v.Void.ID || v.Voided.Rev != v.Void.Rev {
@@ -275,8 +279,8 @@ func TestCreateJoinAppendReviewVoidClose(t *testing.T) {
 	if after.Tab.Balance["a"] != "-400" || after.Tab.Balance["b"] != "400" {
 		t.Fatalf("balance after void = %v", after.Tab.Balance)
 	}
-	if len(after.Entries) != 3 {
-		t.Fatalf("entries after void = %d, want 3 (audit trail keeps everything)", len(after.Entries))
+	if len(after.Entries) != 4 {
+		t.Fatalf("entries after void = %d, want 4 (audit trail keeps everything)", len(after.Entries))
 	}
 
 	// Close by B; every write is refused, reads still work, a repeat close
@@ -345,11 +349,15 @@ func TestAcceptDisputeVoidRules(t *testing.T) {
 
 	// Void once, then every further review or void of it is already_voided —
 	// including acting on the void row itself.
-	v, err := f.svc.Void(ctx, pa, mine.Entry.ID)
+	if _, err := f.svc.Void(ctx, pa, mine.Entry.ID); !errors.Is(err, ErrReviewFinal) {
+		t.Fatalf("void rejected = %v", err)
+	}
+	pending := f.append(t, pa, "a_to_b", "500", 1_756_000_000_001)
+	v, err := f.svc.Void(ctx, pa, pending.Entry.ID)
 	if err != nil {
 		t.Fatalf("void: %v", err)
 	}
-	for _, id := range []string{mine.Entry.ID, v.Void.ID} {
+	for _, id := range []string{pending.Entry.ID, v.Void.ID} {
 		if _, err := f.svc.Void(ctx, pa, id); !errors.Is(err, ErrAlreadyVoided) {
 			t.Fatalf("re-void %s = %v, want ErrAlreadyVoided", id, err)
 		}

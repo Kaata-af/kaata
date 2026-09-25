@@ -1,0 +1,8 @@
+Kaata 2.0: keep a shared account with another Kaata user.
+
+- Link a contact by invitation.
+- Accept or reject tallies; rejected tallies do not count in balances.
+- Receive new-tally and review notifications, with an in-app inbox.
+- See each tally's author and status. Only pending tallies can be cancelled.
+- Cleaner menus, easier tally buttons and contacts-permission recovery.
+- Fix sync for some older and first-created kaatas without resetting records.

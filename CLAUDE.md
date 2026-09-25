@@ -396,3 +396,41 @@ Person actions live at the bottom (received LEFT, gave RIGHT in both locales).
 WhatsApp ping, export, edit and shared-account management live in the ellipsis bottom
 sheet. SharedAccountBadge is a blue shared-account marker, not verified identity.
 Phone display uses LRI/PDI, not forced RTL or FSI alone; never persist isolates.
+
+Pending-only cancellation: `tabs.Service.Void` checks status under the same locks
+as accept/reject. Accepted AND rejected tallies return `review_final` without any
+balance/revision/notification change. The mobile outbox applies the same guard
+atomically; stale offline cancellations are refused and repaired from server state.
+Cancel tally is inline on expanded own pending rows, never in a long-press sheet.
+Do not infer “you” from party membership; compare the recorded author account ID.
+
+Contacts access: `useDeviceContacts` silently loads/refreshes on app resume; only
+the explicit button above the Add/find contact list may request permission.
+Blocked or limited access routes to Settings and reloads on return. Keep the
+`expo-contacts/legacy` import. Run `selftest:contacts-access` for the recovery paths.
+
+### First-kaata uploads and pre-sign-in history
+
+The initial signed membership event can target `local:<16 base64url chars>`
+before sign-in. Rejecting that target as non-UUID rejects the ENTIRE upload
+batch: an invite succeeds but the member sees an empty kaata. Backend migration
+043 adds nullable `events.local_target_id`; UUID targets and existing records
+are untouched. Only member add/role/remove events with matching payload targets
+and verified M2 signatures may use it. Pull, snapshot tails, membership chains,
+and snapshot replay must read `COALESCE(local_target_id, target_id::text)`.
+Never replace the local target with the signed-in account or drop the genesis.
+
+`actor_account_id` is signed too. Binding resolution must NOT replace NULL on
+signed pulled events; doing so invalidates their proof on peers. Unsigned legacy
+events still get resolved attribution. If an account binding's cutoff event is
+itself unsynced, only that exact event ID from the binding's device at/before the
+binding HLC can bootstrap the cutoff; normal account-equality/role checks remain.
+Invalidate binding misses after successful pushes so earlier queued rows drain.
+
+Regression: Go `TestPreSignInFirstVaultDrainsAndRestores` uploads 18 people and
+70 tallies, preserves signatures/amounts/notes through pull and snapshots, and
+delivers the invitee's admission to the owner. `npm run selftest:sync-push` checks
+104 queued records survive a 400 and drain unchanged on retry. Push diagnostics
+include only allowlisted validation text, never arbitrary response/payload data.
+This is backward-compatible with 1.2.0; deploy the backend/migration for the fix
+to take effect. Do not tell affected users to clear data or recreate their kaata.

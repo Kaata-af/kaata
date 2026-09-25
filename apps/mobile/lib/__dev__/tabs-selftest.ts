@@ -412,6 +412,7 @@ const fakeFetch = async (
     if (target.voided_by_entry_id) return errorReply(409, "already_voided");
     if (em[2] === "void") {
       if (target.created_by !== role) return errorReply(403, "not_author");
+      if (target.status !== "pending") return errorReply(409, "review_final");
       const voidRow = server.seed({
         created_by: role,
         direction: target.direction === "a_to_b" ? "b_to_a" : "a_to_b",
@@ -1819,6 +1820,81 @@ async function main(): Promise<void> {
     assert.equal(count("tab_outbox"), 0);
     assert.equal(server.entries[0].status, before);
   });
+
+  await test("only my pending tallies can be cancelled, including concurrent taps", async () => {
+    const tl = link();
+    await tabsDb.upsertTabLink(tl);
+    for (const status of ["accepted", "disputed", "pending"] as const) {
+      server.seed({ id: status, created_by: "a", status, amount: "10", direction: "a_to_b" });
+    }
+    server.seed({
+      id: "theirs",
+      created_by: "b",
+      status: "pending",
+      amount: "10",
+      direction: "b_to_a",
+    });
+    await sync.syncTab(TAB);
+    const cancel = (id: string) =>
+      tabsDb.queueTabMutation(tl, {
+        id: randomUUID(),
+        tab_id: TAB,
+        op: "void",
+        payload: JSON.stringify({ entry_id: id }),
+        created_at: Date.now(),
+        attempts: 0,
+        next_at: null,
+        last_error: null,
+      });
+    const before = (await db.getPerson(CONTACT))?.balance;
+    for (const id of ["accepted", "disputed", "theirs", "missing"]) {
+      await assert.rejects(cancel(id), errors.TabReviewFinalError);
+      assert.equal(count("tab_outbox"), 0);
+      assert.equal((await db.getPerson(CONTACT))?.balance, before);
+    }
+    const results = await Promise.allSettled([cancel("pending"), cancel("pending")]);
+    assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
+    assert.equal(count("tab_outbox"), 1);
+    await sync.syncTab(TAB);
+    assert.ok(server.entries.find((e) => e.id === "pending")?.voided_by_entry_id);
+    assert.equal(count("tab_outbox"), 0);
+  });
+
+  for (const verdict of ["accepted", "disputed"] as const) {
+    await test(`offline cancellation cannot override a remote ${verdict} decision`, async () => {
+      const tl = link();
+      await tabsDb.upsertTabLink(tl);
+      const target = server.seed({
+        id: "offline-cancel",
+        created_by: "a",
+        direction: "a_to_b",
+        amount: "10",
+      });
+      await sync.syncTab(TAB);
+      await tabsDb.queueTabMutation(tl, {
+        id: randomUUID(),
+        tab_id: TAB,
+        op: "void",
+        payload: JSON.stringify({ entry_id: target.id }),
+        created_at: Date.now(),
+        attempts: 0,
+        next_at: null,
+        last_error: null,
+      });
+      assert.equal((await db.getPerson(CONTACT))?.balance, 0);
+      target.status = verdict;
+      target.rev = ++server.rev;
+      const result = await sync.syncTab(TAB);
+      assert.equal(result.failed, 1);
+      assert.equal(count("tab_outbox"), 0);
+      assert.equal(count("tab_failed_ops"), 1);
+      const restored = (await tabsDb.listTabEntriesAsEntries(tl))[0];
+      assert.equal(restored.tab!.voided, false);
+      assert.equal(restored.tab!.status, verdict);
+      assert.equal((await db.getPerson(CONTACT))?.balance, verdict === "accepted" ? 10 : 0);
+      assert.equal(count("tab_entries"), 1, "reviewed tally is kept, no void row minted");
+    });
+  }
 
   await test("another phone's committed review wins over an offline optimistic decision", async () => {
     const tl = link();

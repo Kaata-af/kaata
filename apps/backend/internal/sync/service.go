@@ -387,6 +387,12 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 			}
 			m2Verified = true
 		}
+		// A sentinel is chain history, not a JWT account. Never let legacy ACL
+		// fallback admit an unsigned/unanchored local-target event.
+		if hasLocalMemberTarget(&ev) && !m2Verified {
+			rejected = append(rejected, RejectedEvent{EventID: ev.EventID, Reason: RejectReasonMembershipUnverified})
+			continue
+		}
 
 		// Legacy-path self-leave ("leave kaata" on an anchor-less vault, or an
 		// unsigned event): the role matrix demands owner for
@@ -553,7 +559,10 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 		nextSeq := curSeq + 1
 		// Allow nullable target_id / relationship_id / account_id.
 		var targetID interface{}
-		if ev.TargetID != nil && *ev.TargetID != "" {
+		var localTargetID interface{}
+		if hasLocalMemberTarget(&ev) {
+			localTargetID = *ev.TargetID
+		} else if ev.TargetID != nil && *ev.TargetID != "" {
 			targetID = *ev.TargetID
 		}
 		var relID interface{}
@@ -593,7 +602,7 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 				target_id, relationship_id,
 				author_seq,
 				event_sig_b64, signer_device_pubkey,
-				payload, server_received_at
+				payload, server_received_at, local_target_id
 			) VALUES (
 				$1::uuid, $2::uuid, $3,
 				$4, $5,
@@ -602,7 +611,7 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 				$11, $12,
 				$13,
 				$14, $15,
-				$16::jsonb, NOW()
+				$16::jsonb, NOW(), $17
 			)
 			ON CONFLICT (event_id) DO NOTHING
 		`,
@@ -613,7 +622,7 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 			targetID, relID,
 			authorSeq,
 			eventSig, signerPubkey,
-			string(ev.Payload),
+			string(ev.Payload), localTargetID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("insert event %s: %w", ev.EventID, err)
@@ -780,6 +789,9 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 	}
 
 	if n := len(accepted); n > 0 {
+		// A just-arrived cutoff event can make an existing account_bound
+		// usable. Clear negative binding answers too, not only on a NEW bind.
+		s.binding.InvalidateVault(in.VaultID)
 		// Freshness: accepted events extended the tip of the log, and the
 		// tip page is cached under the same (vault, after, limit) key a
 		// polling co-editor keeps re-hitting — without this purge a peer's
@@ -1018,7 +1030,7 @@ func (s *Service) PullEvents(ctx context.Context, in PullInput) (*PullResult, er
 			hlc_device_id::text,
 			device_id::text,
 			account_id::text,
-			target_id::text,
+			COALESCE(local_target_id, target_id::text),
 			relationship_id::text,
 			event_type,
 			schema_version,
@@ -1212,7 +1224,7 @@ func (s *Service) DeviceVectors(ctx context.Context, accountID, vaultID string) 
 }
 
 // resolveBindingsOnPulled re-stamps account_id on PulledEvent rows whose
-// stored account_id is NULL but are covered by a subsequent
+// stored account_id is NULL, are UNSIGNED, and are covered by a subsequent
 // account_bound binding. Mutates the slice in place. Soft-fails per
 // event: a lookup error leaves account_id nil rather than aborting the
 // page. The events table itself is NEVER mutated — only the wire
@@ -1230,6 +1242,13 @@ func (s *Service) resolveBindingsOnPulled(ctx context.Context, vaultID string, e
 		return
 	}
 	for i := range events {
+		// actor_account_id is SIGNED, including an explicit null before
+		// sign-in. Replacing it with the bound UUID invalidates the original
+		// signature on every receiving phone (genesis/ledger quarantined).
+		// Binding still applies to server ACL and unsigned legacy attribution.
+		if derefStr(events[i].EventSigB64) != "" {
+			continue
+		}
 		if events[i].AccountID != nil && *events[i].AccountID != "" {
 			continue
 		}

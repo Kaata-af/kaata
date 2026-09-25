@@ -49,7 +49,7 @@ export const colors = {
   pendingText: "#856000",
   acceptedBg: "#E8F4EF",
   acceptedText: "#0A5A46",
-  tallyHighlight: "#DBEAFE",
+  tallyHighlight: "#D4D4D4",
   rejectedBg: "#FBECEC",
   rejectedText: "#A34242",
 

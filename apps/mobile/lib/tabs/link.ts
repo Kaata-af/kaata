@@ -482,7 +482,7 @@ export async function disputeEntry(link: TabLink, entryId: string, reason: strin
   void syncTab(link.tab_id);
 }
 
-/** Void MY tally (the author's only correction — D5): struck at once, server void row follows. */
+/** Cancel my pending tally. The cache and server both refuse reviewed rows. */
 export async function voidEntry(link: TabLink, entryId: string): Promise<void> {
   requireOpen(link);
   await assertVaultAction(link.vault_id, "entry.amend");

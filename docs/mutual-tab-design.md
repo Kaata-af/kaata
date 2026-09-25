@@ -7,12 +7,16 @@ of phone ownership.
 New tallies record the authenticated author's account ID and person-name snapshot;
 review/void notifications record their actual actor, not the party/store label.
 Historical authors that were not recorded remain unknown; do not invent authors.
-Party metadata separately exposes the bound account's name for the identity badge.
+Party metadata retains the bound account's name, but contact headings show only
+the saved contact name and blue badge (no parenthesized account name). Expanded
+attribution uses the actual author name with localized “(you)” only when the
+author account ID matches the signed-in account, never just the same party.
 Push delivery excludes the acting account/install, including dual-vault members.
 While the app is active, notifications update its UI/inbox without OS banners,
 list entries or sounds. Notification body taps target and briefly highlight the
-specific tally. Status pills show accepted (green), pending/new (yellow), and
-rejected/voided (soft red). Existing balance and final-review rules are unchanged.
+specific tally. The cue is gray and fades within 1.5 seconds; already-visible
+rows do not scroll, offscreen rows center in the viewport above the floating footer.
+Status pills show accepted (green), pending/new (yellow), and rejected/voided (soft red).
 Redirected sign-in uses a dedicated route, not the optional offline onboarding flow.
 
 ## September 25 refinement
@@ -29,7 +33,11 @@ tallies may be reviewed; identical retries do not change the revision or emit an
 notification. Opposite decisions (including old notification actions), and changes to
 a rejection reason, return 409 `review_final`, even without `expected_rev`.
 To try again, send a NEW tally; the rejected original remains visible and excluded.
-Voiding remains a separate author-only correction and never changes its recorded review.
+Cancellation is also pending-only. An accepted OR rejected tally cannot be voided,
+including via old clients or offline intents. The server returns 409 `review_final`
+before changing rows, revision, balance or notifications. The author can cancel a
+pending tally using the inline button shown only when that row is expanded, not
+a long-press sheet. Historical void rows are preserved; this rule rewrites no data.
 The server's locked transaction arbitrates concurrent/offline devices. Mobile refuses
 second decisions atomically with its outbox, but still accepts authoritative server
 state when another phone won. Review buttons never reappear when a row is expanded.
@@ -63,14 +71,15 @@ Re-sharing uses this surface too; rotation/unlink retain their destructive confi
   Once bound, a forwarded invitation cannot claim or read another account's side.
 - **Reject excludes a tally from both balances immediately**, but preserves the
   row and its rejection status in history. Pending and accepted tallies count.
-  Accepting a rejected tally reinstates it. The wire/database value `disputed`
+  A rejected tally cannot be accepted or cancelled later. The wire/database value `disputed`
   is retained for compatibility; user-facing text is “Rejected”. A reason is
   optional so notification actions can reject in one tap. This replaces D6.
   Existing immutable bills remain unchanged; newly generated bills/exports
   exclude rejected tallies along with voided tallies.
 - A single header overflow menu contains edit, link/manage and export.
   Counterparty tallies expose inline check / cross review controls; no review
-  action sheet is required. Author-only voiding remains in the long-press menu.
+  action sheet is required. Pending own tallies show an inline Cancel tally button
+  only after expansion. Accepted/rejected tallies expose no cancellation.
 - Push jobs identify the event kind and entry (no financial text or credentials).
   New-entry alerts provide Accept / Reject actions; review results notify the
   author explicitly. Actions recheck authenticated party authority on the server,
@@ -105,7 +114,7 @@ page. Every JSON shape, table and function signature below is normative.
 | D3  | **The tab is a property of a contact.** `tab_links.relationship_id` binds a tab to one contact in one kaata. Never a second kaata.                                                                                                                                                                                                                                                         | Users think "Ahmad's account", not "a tab". No vault-switcher exposure.                                                                                                                                                                                                                                                                                                                                                                                         |
 | D4  | **Absolute direction on the wire**: `a_to_b` / `b_to_a` = _value moved from X to Y_. Each side derives its own "I gave / I received".                                                                                                                                                                                                                                                      | No "relative to me" ambiguity; both parties compute identical balances.                                                                                                                                                                                                                                                                                                                                                                                         |
 | D5  | **Append-only + visible voids.** A void is a new row (`kind='void'`) that references the original; the original is shown struck.                                                                                                                                                                                                                                                           | Dispute-proof. The list is the audit trail.                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| D6  | **Accept / dispute are optional.** A tally counts the moment it lands (`status='pending'`). Only the _other_ party can accept/dispute; only the _author_ can void.                                                                                                                                                                                                                         | "Mandatory ack" is slower than paper; nobody would use it. Disputes are a flag the author resolves by voiding (and re-adding) — the roadmap's model.                                                                                                                                                                                                                                                                                                            |
+| D6 | **Optional, final review; pending-only cancellation.** Pending tallies count immediately. Only the other party can accept/reject; rejection excludes the tally. Only the authoring party can cancel a pending tally. | Accepted/rejected decisions are permanent. Corrections require a new tally; cancellation cannot erase a reviewed record. |
 | D7  | **Opening balance = one visible `kind='opening'` entry** authored by the creator at link time, disputable like any other.                                                                                                                                                                                                                                                                  | Never a silent history merge. The counterparty sees exactly what was carried over.                                                                                                                                                                                                                                                                                                                                                                              |
 | D8  | **After linking, the contact's balance IS the tab balance.** Pre-link local entries stay visible under a collapsed "Before linking" fold and are excluded from the balance — **permanently, including after the tab is closed**. Closing FREEZES the shared period (rows stay, still counted, no longer writable); tallies added after a close are ordinary local entries that add on top. | The opening entry already carries the pre-link sum, and that stays true forever. Reverting to the bare local sum on close would do both halves of the damage at once: months of shared tallies would vanish from the contact, and a months-old number would appear on the home screen as if it were today's.                                                                                                                                                    |
 | D9  | **Currency is fixed at creation** = the creator's kaata currency. A tab can only be linked into a kaata with the same currency.                                                                                                                                                                                                                                                            | A mixed-currency balance is meaningless without a rate; the app never computes rates. Changing a kaata's currency is refused while it has an open tab.                                                                                                                                                                                                                                                                                                          |
@@ -207,7 +216,7 @@ Rules:
 - `seq` and `rev` are assigned inside a `ReadCommitted` tx after `SELECT rev FROM tabs WHERE id=$1 FOR UPDATE` (the sync `PushEvents` pattern). `UPDATE tabs SET rev = rev + 1 … RETURNING rev` gives the new rev; `seq` = `COALESCE(MAX(seq),0)+1`.
 - `dispute_reason` ≤ 300 chars, `note` ≤ 500, `label` ≤ 80. Amount parsed from the wire string: `^\d{1,10}(\.\d{1,2})?$`, `> 0`, ≤ `9999999999.99` (mirrors `MAX_ENTRY_AMOUNT`).
 - Void rows: `amount_minor` = original's amount, `direction` = the **opposite** of the original, `kind='void'`, `voids_entry_id`=original, `status='accepted'` (a void needs no review). Same tx sets `original.voided_by_entry_id`, bumps both rows' `rev`. Balance excludes both (`kind <> 'void' AND voided_by_entry_id IS NULL`).
-- Voiding a `status='disputed'` entry is the dispute resolution. Voiding an already-voided entry → 409 `already_voided`. Only `created_by == caller role` may void → else 403 `not_author`.
+- Only a `status='pending'` entry can be cancelled. Accepted/disputed entries → 409 `review_final`; an already-voided entry → 409 `already_voided`. Only `created_by == caller role` may void → else 403 `not_author`. Review/cancel share locks, so simultaneous requests cannot both succeed.
 - Accept/dispute only by the _other_ party (`created_by <> caller role`) → else 403 `own_entry`. Only pending entries can change review state; decisions and rejection reasons are final → 409 `review_final`. Identical retries return the existing state without another revision/notification. Voided entries cannot be accepted/disputed → 409 `already_voided`. Opening entries follow the same rules (B can dispute A's opening).
 - Idempotent append: `INSERT … ON CONFLICT (id) DO NOTHING`; on conflict return the existing row with 200 (not 201) **only if** it belongs to the same tab and author; otherwise 409 `id_taken`.
 - Closed tab (`closed_at`): every write → 409 `tab_closed`; reads still work.
@@ -507,7 +516,7 @@ Errors: `TabCurrencyMismatchError`, `TabSameKaataError`, `TabAlreadyLinkedError`
   - Header: third icon button `link-outline` (gated `canAmend`, hidden while the contact is linked). Tapping opens a BottomSheet: `Link with their kaata` → runs `linkContact` with `myLabel = self.shop_name ?? self.name`; on success opens the **share sheet**: WhatsApp (via `shareTabLinkOnWhatsApp`, respecting `getShareLangPref`/OptionSheet ask), Copy link (`expo-clipboard` if present — otherwise skip copy), and shows the link.
   - Linked state: a monochrome chip beside the direction chip: `Linked · Ahmad` (other joined) or `Link sent · waiting` (not joined). Tapping it opens a BottomSheet: `Share link again`, `Regenerate link` (party a only), `Unlink` (destructive, ConfirmDialog with description).
   - Entries card: tab rows via `EntryRow` with `tab` meta; **pre-link rows** under a collapsed fold titled `Before linking · {count}` (reuse the settled-chapter fold visual). Hide the settle row for linked contacts.
-  - Long-press sheet for tab rows: mine → `Void` (destructive → ConfirmDialog); theirs (not voided) → `Accept` / `Dispute…` (dispute pushes `/tab/dispute` modal with `{personId, entryId}`); voided → no sheet. Long-press gate for tab rows uses `canAmend` (viewer/clerk cannot accept/dispute/void).
+  - Shared rows have no long-press sheet. Own pending rows expose `Cancel tally` only when expanded; incoming pending rows expose inline Accept/Reject. All actions require `canAmend` and an open tab. Accepted/rejected/voided rows have no cancellation or review controls.
   - Ping bar unchanged (bills still work — they snapshot the tab rows).
   - `useLedgerRefresh` + `onTabApplied` both trigger `load`; a `useFocusEffect` also calls `requestTabSync(link.tab_id)`.
 - **EntryRow**: new prop `tab?: TabEntryMeta`. Meta slot (≤ 20 px): pill `New` (theirs+pending), `Disputed`, `Voided`, `Sending…` (local_pending); accepted rows show nothing (calm by default). Opened row: byLine `Added by {other_label}` / `by you`; `Disputed: {reason}`; `Voided`. Voided rows: amount struck (`textDecorationLine: 'line-through'`, `textMuted`), tile at 50 % opacity. Colours stay monochrome (`bgMuted`/`textSubtle`); never emerald/garnet/danger for status.

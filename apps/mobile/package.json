@@ -16,6 +16,8 @@
     "selftest:migration-014": "tsx lib/__dev__/migration-014-selftest.ts",
     "selftest:money": "tsx lib/__dev__/money-selftest.ts",
     "selftest:person-save": "tsx lib/__dev__/person-save-selftest.ts",
+    "selftest:sync-push": "tsx lib/__dev__/sync-push-selftest.ts",
+    "selftest:contacts-access": "tsx lib/__dev__/contacts-access-selftest.ts",
     "selftest:device-key": "tsx lib/__dev__/device-key-selftest.ts",
     "selftest:attribution": "tsx lib/__dev__/attribution-selftest.ts",
     "selftest:tabs": "tsx lib/__dev__/tabs-selftest.ts",

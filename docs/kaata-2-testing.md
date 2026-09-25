@@ -5,14 +5,19 @@ author-only visible voids, app-only signed-in participation, durable offline que
 push delivery infrastructure. Existing private ledger events are not rewritten.
 This is not a production release sign-off. Native two-phone testing is required.
 
-Current testing candidate: **2.0.0 / Android 44 / iOS 24**. Includes actual account
-names for attribution/notifications, quiet foreground alerts, own-action notification
-suppression, redirected sign-in without onboarding, colored tally states,
-notification-to-tally scrolling/highlight, and refined shared-account badges.
-Both native builds and testing submissions finished. Play's alpha track contains
-versionCode 44; Apple reports iOS build 24 as VALID.
-Store review/availability is separate from successful upload. Test these builds
-on both phones before authorizing any production promotion.
+Current release candidate: **2.0.0 / Android 45 / iOS 25**. Adds pending-only
+cancellation (server and offline queue), inline expanded-row cancellation,
+badge-only linked names, self-authorship suffixes, contacts-permission recovery,
+and brief gray notification highlights that leave already-visible tallies in place.
+Backend migration 043 repairs first-kaata pre-sign-in uploads without rewriting
+ledger history. The fix is compatible with existing 1.2.0 clients.
+
+On 25 September 2026, Matee explicitly authorized commit/push, testing delivery,
+then production submission once this new build is available in TestFlight.
+This overrides the usual wait-for-another-approval step for this delivery only;
+it does not claim that the new native builds have already been phone-tested.
+Last verified delivery remains 44/24 below until new build/submission results
+are recorded. Store review/availability is separate from successful upload.
 
 ### Current testing delivery — 25 September 2026 (44/24)
 
@@ -103,7 +108,9 @@ Use a new test contact on each device; keep real customer data out of this trial
    immediately excludes it from BOTH balances while preserving the visible row.
    Both decisions are final: old alerts and repeated taps cannot change them.
    After rejection, send a NEW tally to try again. Pending tallies count until rejected.
-4. Void a tally. Both see it struck out and the balance changes once. Review
+4. Expand an own pending tally and cancel it inline. Both see it struck out and
+   the balance changes once. Accepted and rejected tallies cannot be cancelled.
+   Review
    clerk/viewer access separately: a clerk adds, an editor reviews, a viewer reads.
 5. Turn off data, add several tallies, restart, reconnect. Each arrives exactly
    once. Retry after a timeout; later operations must not pass a deferred one.
@@ -148,7 +155,7 @@ Expo Go cannot test remote notifications. Fresh native builds are required.
    for package `af.kaata.app`; credential setup above is already complete.
 2. Keep the assigned FCM V1 and APNs credentials. If enhanced Expo push security
    is enabled, supply `EXPO_ACCESS_TOKEN` to the backend through its secret store.
-3. Deploy backend migrations through 042 and the worker, then enable
+3. Deploy backend migrations through 043 and the worker, then enable
    `TAB_PUSH_ENABLED=true` in the testing backend. It defaults to false.
 4. Build/install native testing builds and allow notifications after linking.
    Existing linked-contact upgrades/restores must prompt once on a signed-in

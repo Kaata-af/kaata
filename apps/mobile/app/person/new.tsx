@@ -4,7 +4,6 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
-  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -20,12 +19,7 @@ import { EmptyState } from "../../components/EmptyState";
 import { ScreenHeader } from "../../components/SettingsScreen";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
-import {
-  joinName,
-  phoneKey,
-  readDeviceContacts,
-  type DeviceContact,
-} from "../../lib/contacts-sync";
+import { joinName, phoneKey, type DeviceContact } from "../../lib/contacts-sync";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
 import { createPerson, getActiveVaultArchivedState, listAllPeopleForSearch } from "../../lib/db";
 import { toAsciiDigits } from "../../lib/digits";
@@ -51,6 +45,7 @@ import { PHONE_SEARCH_MIN_DIGITS, searchContacts } from "../../lib/search";
 import { icon, radius, TOUCH_MIN } from "../../lib/tokens";
 import type { PersonWithBalance } from "../../lib/types";
 import { SharedAccountBadge } from "../../components/SharedAccountBadge";
+import { useDeviceContacts } from "../../lib/use-device-contacts";
 
 // Max device contacts rendered in the "All contacts" card at once. The list is
 // a plain card (not virtualized), so a huge phone book would jank; typing
@@ -84,9 +79,13 @@ export default function PersonAddOrFindScreen() {
   const [pickerVisible, setPickerVisible] = useState(false);
   const [people, setPeople] = useState<PersonWithBalance[] | null>(null);
   // Device phone book + its permission state (null = still loading).
-  const [deviceContacts, setDeviceContacts] = useState<DeviceContact[]>([]);
-  const [contactsGranted, setContactsGranted] = useState<boolean | null>(null);
-  const [contactsCanAsk, setContactsCanAsk] = useState(true);
+  const {
+    access: contactsAccess,
+    busy: contactsBusy,
+    failed: contactsFailed,
+    requestAccess,
+  } = useDeviceContacts();
+  const deviceContacts = contactsAccess?.contacts ?? [];
   const [busy, setBusy] = useState(false);
   // Inline errors — modal screen, toasts can't render above it (Toast.tsx).
   const [phoneError, setPhoneError] = useState<string | null>(null);
@@ -127,20 +126,6 @@ export default function PersonAddOrFindScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load the device phone book once, best-effort + non-blocking.
-  useEffect(() => {
-    let cancelled = false;
-    void readDeviceContacts().then((res) => {
-      if (cancelled) return;
-      setDeviceContacts(res.contacts);
-      setContactsGranted(res.granted);
-      setContactsCanAsk(res.canAskAgain);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   // Focus the first-name field via ref + delay, NOT autoFocus: on a stack-modal
   // screen autoFocus fires before the slide-in finishes, so focus succeeds but
   // the soft keyboard never opens on Android. 280ms clears the animation.
@@ -148,20 +133,6 @@ export default function PersonAddOrFindScreen() {
     const tmr = setTimeout(() => firstNameRef.current?.focus(), 280);
     return () => clearTimeout(tmr);
   }, []);
-
-  // Retry contacts access when the permission affordance is tapped: re-ask if we
-  // still can, otherwise send the user to system settings.
-  async function onRequestContacts() {
-    if (contactsGranted === false && !contactsCanAsk) {
-      void Linking.openSettings();
-      return;
-    }
-    const res = await readDeviceContacts();
-    setDeviceContacts(res.contacts);
-    setContactsGranted(res.granted);
-    setContactsCanAsk(res.canAskAgain);
-    if (!res.granted && !res.canAskAgain) void Linking.openSettings();
-  }
 
   const nameQuery = joinName(firstName, lastName);
   const phoneDigits = toAsciiDigits(phone).replace(/\D/g, "");
@@ -336,9 +307,6 @@ export default function PersonAddOrFindScreen() {
             <View style={[rowDir(isRTL), { alignItems: "center", gap: 5 }]}>
               <Text style={[styles.rowName, textDir(isRTL), { flexShrink: 1 }]} numberOfLines={1}>
                 {p.name}
-                {p.tab_id && p.tab_closed_at == null && p.tab_account_name ? (
-                  <Text style={styles.rowSub}>{` (${bidiIsolate(p.tab_account_name)})`}</Text>
-                ) : null}
               </Text>
               {p.tab_id && p.tab_closed_at == null ? <SharedAccountBadge /> : null}
             </View>
@@ -400,20 +368,40 @@ export default function PersonAddOrFindScreen() {
     );
   }
 
-  // Footer affordance to grant contacts access when the book is unavailable, so
-  // the device-contacts section isn't just silently missing.
-  function renderFooter() {
-    if (contactsGranted !== false) return null;
+  // Before the list, never buried below the user's existing kaata contacts.
+  function renderContactsAccess() {
+    if (!contactsAccess || (contactsAccess.granted && !contactsAccess.limited)) return null;
+    const label = contactsAccess.limited
+      ? t("personAdd.contacts.manage")
+      : contactsAccess.canAskAgain
+        ? t("personAdd.contacts.allow")
+        : t("personAdd.contacts.openSettings");
     return (
-      <Pressable
-        onPress={onRequestContacts}
-        style={({ pressed }) => [styles.permRow, rowDir(isRTL), pressed && styles.rowPressed]}
-      >
-        <Ionicons name="people-outline" size={icon.row} color={colors.textSubtle} />
-        <Text style={[styles.permText, textDir(isRTL)]}>
-          {contactsCanAsk ? t("personAdd.contacts.allow") : t("personAdd.contacts.openSettings")}
-        </Text>
-      </Pressable>
+      <View style={styles.permCard}>
+        <Pressable
+          onPress={() => void requestAccess()}
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          accessibilityState={{ disabled: contactsBusy }}
+          disabled={contactsBusy}
+          style={({ pressed }) => [styles.permRow, rowDir(isRTL), pressed && styles.rowPressed]}
+        >
+          {contactsBusy ? (
+            <ActivityIndicator size="small" color={colors.textSubtle} />
+          ) : (
+            <Ionicons name="people-outline" size={icon.row} color={colors.textSubtle} />
+          )}
+          <Text style={[styles.permText, textDir(isRTL)]}>{label}</Text>
+          <Ionicons
+            name={isRTL ? "chevron-back" : "chevron-forward"}
+            size={icon.trailing}
+            color={colors.textMuted}
+          />
+        </Pressable>
+        {contactsFailed ? (
+          <Text style={[styles.permError, textDir(isRTL)]}>{t("personAdd.contacts.failed")}</Text>
+        ) : null}
+      </View>
     );
   }
 
@@ -527,6 +515,7 @@ export default function PersonAddOrFindScreen() {
           keyboardDismissMode="on-drag"
           contentContainerStyle={styles.listContent}
         >
+          {renderContactsAccess()}
           {people === null || sections.length === 0
             ? renderEmpty()
             : sections.map((section) => (
@@ -553,7 +542,6 @@ export default function PersonAddOrFindScreen() {
                   ) : null}
                 </View>
               ))}
-          {renderFooter()}
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -702,6 +690,20 @@ const styles = StyleSheet.create({
   noMatchSection: { paddingVertical: 16, paddingHorizontal: 16 },
   noMatchText: { fontSize: 13, fontFamily: fonts.sansRegular, color: colors.textSubtle },
 
+  permCard: {
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: radius.md,
+    marginBottom: 16,
+    overflow: "hidden",
+  },
+  permError: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 13,
+    color: colors.danger,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
   permRow: {
     flexDirection: "row",
     alignItems: "center",
