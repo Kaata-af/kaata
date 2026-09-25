@@ -23,6 +23,8 @@ import (
 // Party is the resolved caller: which side of which tab, with the bindings
 // the write routes need and the privilege the caller reaches it with.
 type Party struct {
+	ActorAccountID   string // authenticated writer, NOT necessarily the bound party owner
+	ActorInstallID   *string
 	TabID            string
 	Role             string // 'a' | 'b'
 	Label            string
@@ -135,6 +137,7 @@ func (s *Service) partyByAccountRole(ctx context.Context, tabID, accountID, role
 	case err != nil:
 		return Party{}, fmt.Errorf("party by account: %w", err)
 	}
+	p.ActorAccountID = accountID
 	if !direct {
 		p.MemberRole = memberRole
 	}
@@ -193,7 +196,8 @@ func (h *Handler) resolveParty(r *http.Request, tabID string) (Party, error) {
 		if err != nil {
 			return Party{}, err
 		}
-		h.svc.touchParty(ctx, p, installIDFromClaims(claims))
+		p.ActorInstallID = installIDFromClaims(claims)
+		h.svc.touchParty(ctx, p, p.ActorInstallID)
 		return p, nil
 	}
 	return Party{}, ErrNotFound

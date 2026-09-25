@@ -262,7 +262,7 @@ export default function InviteAcceptScreen() {
   function onSignIn() {
     // The auth screen reads pending_invite_token from app_meta after
     // sign-in completes and routes back to this screen with the token.
-    router.replace("/onboarding/auth");
+    router.replace("/sign-in");
   }
 
   // Confirm-stage body is ONE i18n sentence with {inviter} + {role}

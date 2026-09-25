@@ -133,6 +133,7 @@ export type PersonWithBalance = Person & {
   // tab_other_joined = 1 once the counterparty has opened their link.
   tab_id: string | null;
   tab_closed_at: number | null;
+  tab_account_name?: string | null;
   tab_pending: number;
   tab_other_joined: 0 | 1;
 };

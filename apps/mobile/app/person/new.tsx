@@ -29,7 +29,14 @@ import {
 import { getCurrentCurrencySymbol } from "../../lib/currency";
 import { createPerson, getActiveVaultArchivedState, listAllPeopleForSearch } from "../../lib/db";
 import { toAsciiDigits } from "../../lib/digits";
-import { ltrIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
+import {
+  bidiIsolate,
+  ltrIsolate,
+  rowDir,
+  textDir,
+  trackingSafe,
+  useIsRTL,
+} from "../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
 import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
@@ -329,6 +336,9 @@ export default function PersonAddOrFindScreen() {
             <View style={[rowDir(isRTL), { alignItems: "center", gap: 5 }]}>
               <Text style={[styles.rowName, textDir(isRTL), { flexShrink: 1 }]} numberOfLines={1}>
                 {p.name}
+                {p.tab_id && p.tab_closed_at == null && p.tab_account_name ? (
+                  <Text style={styles.rowSub}>{` (${bidiIsolate(p.tab_account_name)})`}</Text>
+                ) : null}
               </Text>
               {p.tab_id && p.tab_closed_at == null ? <SharedAccountBadge /> : null}
             </View>

@@ -152,14 +152,14 @@ export default function TabJoinScreen() {
         // + first vault, and there is nothing to join INTO before that.
         const self = await getLocalSelf();
         if (cancelled) return;
+        if (!(await getSessionJWT())) {
+          await setAppMeta(PENDING_TOKEN_KEY, token);
+          router.replace("/sign-in");
+          return;
+        }
         if (!self) {
           await setAppMeta(PENDING_TOKEN_KEY, token);
           router.replace(await onboardingRouteForStash());
-          return;
-        }
-        if (!(await getSessionJWT())) {
-          await setAppMeta(PENDING_TOKEN_KEY, token);
-          router.replace("/onboarding/auth");
           return;
         }
         // We are past the handoffs: the stash has done its job. Cleared here

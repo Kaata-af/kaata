@@ -1362,6 +1362,11 @@ const en = {
     "These tallies could not be added to the shared account. They are kept on this phone for you to review and are not included in the balance.",
   // Row pills (≤ 20 px, monochrome). Accepted rows show nothing.
   "tab.status.new": "New",
+  "auth.redirect.title": "Sign in to continue",
+  "auth.redirect.subtitle":
+    "Use your Kaata account. Your existing kaatas will be restored automatically.",
+  "tab.status.accepted": "Accepted",
+  "tab.status.pending": "Pending",
   "tab.status.disputed": "Rejected",
   "tab.status.voided": "Voided",
   "tab.status.sending": "Sending…",
@@ -2574,6 +2579,10 @@ const fa: Partial<Record<Key, string>> = {
   "tab.notSent.body":
     "این ثبت‌ها به حساب مشترک افزوده نشدند. برای بررسی شما در این تلفون نگه‌داری شده‌اند و در ماندهٔ حساب شامل نیستند.",
   "tab.status.new": "نو",
+  "auth.redirect.title": "برای ادامه وارد شوید",
+  "auth.redirect.subtitle": "با حساب کاتای خود وارد شوید. کاتاهای قبلی شما خودکار بازیابی می‌شوند.",
+  "tab.status.accepted": "پذیرفته شده",
+  "tab.status.pending": "در انتظار",
   "tab.status.disputed": "رد شده",
   "tab.status.voided": "باطل",
   "tab.status.sending": "در حال ارسال…",

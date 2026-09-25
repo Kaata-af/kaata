@@ -4,9 +4,12 @@ import { applyVaultCurrency } from "../currency";
 import { getTabLink, getPersonIdForRelationship } from "./db";
 import { reconcileTabsFromServer, syncTab } from "./sync";
 
-export async function openTabNotification(tabId: string): Promise<void> {
+let tapSequence = 0;
+
+export async function openTabNotification(tabId: string, entryId?: string | null): Promise<void> {
   const account = getAccountIdSync();
   if (!account) throw new Error("Signed out");
+  if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(tabId)) throw new Error("Invalid tab");
   if (!(await getTabLink(tabId))) await reconcileTabsFromServer();
   const link = await getTabLink(tabId);
   if (!link || getAccountIdSync() !== account) throw new Error("Account unavailable");
@@ -17,5 +20,13 @@ export async function openTabNotification(tabId: string): Promise<void> {
   if (!personId || getAccountIdSync() !== account) throw new Error("Contact unavailable");
   await setActiveVaultId(link.vault_id);
   await applyVaultCurrency(link.vault_id);
-  router.push({ pathname: "/person/[id]", params: { id: personId } });
+  router.push({
+    pathname: "/person/[id]",
+    params: {
+      id: personId,
+      ...(entryId && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(entryId)
+        ? { entryId, notificationKey: `${Date.now()}:${++tapSequence}` }
+        : {}),
+    },
+  });
 }

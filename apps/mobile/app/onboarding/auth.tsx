@@ -1,12 +1,17 @@
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { GoogleGIcon } from "../../components/GoogleGIcon";
+import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { recoverAllVaults } from "../../lib/recovery";
+import { reconcileVaultRegistrations } from "../../lib/sync/reconcile";
 import { NinjaIcon } from "../../components/NinjaIcon";
 import {
+  type DifferentAccountChoice,
+  type DifferentAccountPromptArgs,
   isCancellation,
   isGoogleSignInAvailable,
   signInWithApple,
@@ -16,6 +21,8 @@ import {
 import { queueCrashReport } from "../../lib/crash-report";
 import { colors } from "../../lib/colors";
 import { getAppMeta, getLocalSelf, setAppMeta } from "../../lib/db";
+import { getActiveVaultIdSyncMaybe, setActiveVaultId } from "../../lib/db-tx";
+import { applyVaultCurrency } from "../../lib/currency";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
@@ -78,6 +85,10 @@ function reportSignInFailure(provider: "google" | "apple", err: unknown): void {
 }
 
 export default function OnboardingAuthScreen() {
+  return <AuthScreen />;
+}
+
+export function AuthScreen({ redirected = false }: { redirected?: boolean }) {
   const router = useRouter();
   const isRTL = useIsRTL();
   // WHICH provider is mid-handshake (null = idle). Both cards disable while
@@ -85,6 +96,21 @@ export default function OnboardingAuthScreen() {
   // boolean used to put a spinner on BOTH cards at once.
   const [busy, setBusy] = useState<null | "google" | "apple">(null);
   const [error, setError] = useState<string | null>(null);
+
+  const busyRef = useRef(false);
+  const decisionRef = useRef<((choice: DifferentAccountChoice) => void) | null>(null);
+  const [decision, setDecision] = useState<DifferentAccountPromptArgs | null>(null);
+  useEffect(() => () => decisionRef.current?.("cancel"), []);
+  const decide = (choice: DifferentAccountChoice) => {
+    decisionRef.current?.(choice);
+    decisionRef.current = null;
+    setDecision(null);
+  };
+  const promptDifferentAccount = (args: DifferentAccountPromptArgs) =>
+    new Promise<DifferentAccountChoice>((resolve) => {
+      decisionRef.current = resolve;
+      setDecision(args);
+    });
 
   // Post-sign-in navigation shared by Google and Apple: stash the returned
   // profile for the "Signed in as X" subtitle, then honor any pending pair /
@@ -104,6 +130,43 @@ export default function OnboardingAuthScreen() {
     // /v1/auth/google) — stash it so the profile screen can prefill it like
     // the name. Google itself never provides a phone; this is the only source.
     if (user.phone) await setAppMeta("onboarding_pending_phone", user.phone);
+    if (redirected) {
+      // A redirect is authentication, not onboarding. Recover existing books
+      // before deciding this is a new user; a failed lookup is NOT "no books".
+      const hadSelf = await getLocalSelf();
+      const previousVault = getActiveVaultIdSyncMaybe();
+      await reconcileVaultRegistrations().catch(() => undefined);
+      const result = await recoverAllVaults();
+      if (result.failed.length && !hadSelf && !result.recovered.length) {
+        throw new Error("Account recovery unavailable");
+      }
+      if (hadSelf || result.recovered.length) {
+        if (hadSelf && previousVault) {
+          await setActiveVaultId(previousVault);
+          await applyVaultCurrency(previousVault);
+        }
+        await setAppMeta("onboarding_step", "done");
+        const pendingPerson = await getAppMeta("pending_tab_person");
+        const pendingTab = await getAppMeta("pending_tab_token");
+        const pendingInvite = await getAppMeta("pending_invite_token");
+        if (pendingPerson) {
+          await setAppMeta("pending_tab_person", "");
+          router.replace({ pathname: "/person/[id]", params: { id: pendingPerson } });
+        } else if (pendingTab) {
+          router.replace({ pathname: "/t/[token]", params: { token: pendingTab } });
+        } else if (pendingInvite) {
+          await setAppMeta("pending_invite_token", "");
+          router.replace({ pathname: "/invite/[token]", params: { token: pendingInvite } });
+        } else {
+          router.replace("/");
+        }
+        return;
+      }
+      // Only a genuinely new account without a local ledger needs setup.
+      await setAppMeta("onboarding_step", "profile");
+      router.replace("/onboarding/profile");
+      return;
+    }
     // Phase 5.1: if the user signed in BECAUSE a kaata://pair/<token>
     // deep link triggered the "needs sign-in" gate, hand off back to
     // that deep link rather than the restore probe — the pair flow is
@@ -176,10 +239,12 @@ export default function OnboardingAuthScreen() {
   const googleAvailable = isGoogleSignInAvailable();
 
   async function onSignIn() {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setError(null);
     setBusy("google");
     try {
-      const user = await signInWithGoogle();
+      const user = await signInWithGoogle(promptDifferentAccount);
       await completeSignIn(user, "google");
     } catch (err) {
       if (isCancellation(err)) return; // user-cancelled → silent
@@ -190,21 +255,25 @@ export default function OnboardingAuthScreen() {
         reportSignInFailure("google", err);
       }
     } finally {
+      busyRef.current = false;
       setBusy(null);
     }
   }
 
   async function onAppleSignIn() {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setError(null);
     setBusy("apple");
     try {
-      const user = await signInWithApple();
+      const user = await signInWithApple(promptDifferentAccount);
       await completeSignIn(user, "apple");
     } catch (err) {
       if (isCancellation(err)) return; // user-cancelled → silent
       setError(describeSignInFailure(err));
       reportSignInFailure("apple", err);
     } finally {
+      busyRef.current = false;
       setBusy(null);
     }
   }
@@ -223,11 +292,33 @@ export default function OnboardingAuthScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {redirected ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t("common.back")}
+          disabled={busy !== null}
+          onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
+          style={{
+            minHeight: 44,
+            minWidth: 44,
+            alignSelf: isRTL ? "flex-end" : "flex-start",
+            padding: 12,
+          }}
+        >
+          <Ionicons
+            name={isRTL ? "chevron-forward" : "chevron-back"}
+            size={26}
+            color={colors.textEmphasis}
+          />
+        </Pressable>
+      ) : null}
       <View style={styles.content}>
         <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
-          {t("onboardingMode.title")}
+          {t(redirected ? "auth.redirect.title" : "onboardingMode.title")}
         </Text>
-        <Text style={[styles.subtitle, textDir(isRTL)]}>{t("onboardingMode.subtitle")}</Text>
+        <Text style={[styles.subtitle, textDir(isRTL)]}>
+          {t(redirected ? "auth.redirect.subtitle" : "onboardingMode.subtitle")}
+        </Text>
 
         <View style={styles.spacer} />
 
@@ -302,37 +393,64 @@ export default function OnboardingAuthScreen() {
         {/* Hard break between the two offers — the offline choice is not a
             third sign-in provider, and stacking it flush under the provider
             cards made it read like one. */}
-        <View style={styles.divider} />
+        {!redirected ? (
+          <>
+            <View style={styles.divider} />
 
-        <Text style={[styles.groupLabel, textDir(isRTL)]}>{t("onboardingMode.offline.label")}</Text>
-        <Text style={[styles.groupBody, textDir(isRTL)]}>{t("onboardingMode.offline.body")}</Text>
+            <Text style={[styles.groupLabel, textDir(isRTL)]}>
+              {t("onboardingMode.offline.label")}
+            </Text>
+            <Text style={[styles.groupBody, textDir(isRTL)]}>
+              {t("onboardingMode.offline.body")}
+            </Text>
 
-        <Pressable
-          onPress={onStayOffline}
-          disabled={busy !== null}
-          accessibilityRole="button"
-          accessibilityLabel={t("onboardingMode.offline.title")}
-          style={({ pressed }) => [
-            styles.card,
-            rowDir(isRTL),
-            styles.cardGhost,
-            pressed && { opacity: 0.85 },
-            busy !== null && { opacity: 0.5 },
-          ]}
-        >
-          <View style={[styles.cardIcon, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}>
-            {/* NOT icon.card (28) like the G / Apple marks above: NinjaIcon's
+            <Pressable
+              onPress={onStayOffline}
+              disabled={busy !== null}
+              accessibilityRole="button"
+              accessibilityLabel={t("onboardingMode.offline.title")}
+              style={({ pressed }) => [
+                styles.card,
+                rowDir(isRTL),
+                styles.cardGhost,
+                pressed && { opacity: 0.85 },
+                busy !== null && { opacity: 0.5 },
+              ]}
+            >
+              <View style={[styles.cardIcon, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}>
+                {/* NOT icon.card (28) like the G / Apple marks above: NinjaIcon's
                 viewBox is "0 -64 640 640" and the head circle fills only ~77%
                 of it (the rest is katana headroom), so at 28 the ninja reads
                 visibly smaller than its two siblings in the shared 32px well.
                 30 is the optical-size compensation — a composed graphic. */}
-            <NinjaIcon size={30} />
-          </View>
-          <Text style={[styles.cardTitle, textDir(isRTL)]}>
-            {t("onboardingMode.offline.title")}
-          </Text>
-        </Pressable>
+                <NinjaIcon size={30} />
+              </View>
+              <Text style={[styles.cardTitle, textDir(isRTL)]}>
+                {t("onboardingMode.offline.title")}
+              </Text>
+            </Pressable>
+          </>
+        ) : null}
       </View>
+      <ConfirmDialog
+        visible={decision !== null}
+        title={t("account.differentAccount.title")}
+        description={
+          decision
+            ? t("account.differentAccount.body", {
+                oldEmail: decision.cachedEmail ?? "—",
+                newEmail: decision.newEmail ?? "—",
+              })
+            : ""
+        }
+        confirmLabel={t("account.differentAccount.keep")}
+        tertiaryLabel={t("account.differentAccount.wipe")}
+        tertiaryDestructive
+        cancelLabel={t("account.differentAccount.cancel")}
+        onConfirm={() => decide("keep")}
+        onTertiary={() => decide("wipe")}
+        onCancel={() => decide("cancel")}
+      />
     </SafeAreaView>
   );
 }

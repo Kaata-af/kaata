@@ -122,7 +122,10 @@ function opened(props: any) {
 for (const isRTL of [false, true]) {
   rtl = isRTL;
   for (const status of ["pending", "accepted", "disputed"]) {
-    const tree = opened({ ...base, tab: { by: "them", status, other_label: "احمد" } });
+    const tree = opened({
+      ...base,
+      tab: { by: "them", status, other_label: "Shop", author_name: "احمد" },
+    });
     const buttons = nodes(tree).filter(
       (n) =>
         n.type === "Pressable" && ["tab.accept", "tab.reject"].includes(n.props.accessibilityLabel),
@@ -137,6 +140,19 @@ for (const isRTL of [false, true]) {
     const name = nodes(author).find((n) => n.type === "Text" && n.props.children === "احمد")!;
     assert.equal(style(name.props.style).fontFamily, "Bold");
     assert.equal(words(author), rtl ? "ثبت‌شده توسط احمد" : "Added by احمد");
+    const statusKey =
+      status === "pending" ? "new" : status === "accepted" ? "accepted" : "disputed";
+    const statusPill = nodes(tree).find(
+      (n) => n.type === "View" && n.props.accessibilityLabel === "tab.status." + statusKey,
+    )!;
+    assert.equal(
+      style(statusPill.props.style).backgroundColor,
+      status === "pending"
+        ? colors.pendingBg
+        : status === "accepted"
+          ? colors.acceptedBg
+          : colors.rejectedBg,
+    );
     if (status === "disputed") {
       const pill = nodes(tree).find(
         (n) => n.type === "View" && n.props.accessibilityLabel === "tab.status.disputed",
@@ -153,6 +169,15 @@ for (const isRTL of [false, true]) {
     1,
     "Voided appears only in the date pill",
   );
+  const voidPill = nodes(voided).find(
+    (n) => n.type === "View" && n.props.accessibilityLabel === "tab.status.voided",
+  )!;
+  assert.equal(style(voidPill.props.style).backgroundColor, colors.rejectedBg);
+  const sent = opened({ ...base, tab: { by: "me", status: "pending", author_name: "Matee" } });
+  const pendingPill = nodes(sent).find(
+    (n) => n.type === "View" && n.props.accessibilityLabel === "tab.status.pending",
+  )!;
+  assert.equal(style(pendingPill.props.style).backgroundColor, colors.pendingBg);
   const member = opened({
     ...base,
     attribution: {
@@ -274,4 +299,70 @@ assert.equal(
 );
 console.log(
   "PASS: centered edge-to-edge inbox in EN/FA at 320/390/430/844px, symmetric page header, no duplicate title",
+);
+
+// The identity badge stays a fixed centered scalloped glyph, not a menu icon.
+mocks["@expo/vector-icons"].MaterialIcons = "MaterialIcon";
+const { SharedAccountBadge } = compile(
+  readFileSync(require.resolve("../../components/SharedAccountBadge"), "utf8"),
+);
+const badge = SharedAccountBadge({ size: 20 });
+assert.equal(style(badge.props.style).alignItems, "center");
+assert.equal(style(badge.props.style).justifyContent, "center");
+assert.equal(style(badge.props.style).flexShrink, 0);
+assert.equal(nodes(badge).find((n) => n.type === "MaterialIcon")?.props.name, "verified");
+assert.match(person, /icon: "link-outline" as const/);
+assert.equal(person.includes('t("tab.chip.linked"'), false);
+
+// A highlight never intercepts a row tap; its cue fades rather than staying on.
+let timing: any,
+  started = false,
+  stopped = false,
+  cleanup: any;
+mocks.react.useEffect = (fn: any) => {
+  cleanup = fn();
+};
+mocks["react-native"].StyleSheet.absoluteFill = {
+  position: "absolute",
+  top: 0,
+  bottom: 0,
+  left: 0,
+  right: 0,
+};
+mocks["react-native"].Animated = {
+  View: "AnimatedView",
+  Value: class {
+    constructor(public value: number) {}
+    setValue(n: number) {
+      this.value = n;
+    }
+  },
+  timing: (_: any, opts: any) => {
+    timing = opts;
+    return {
+      start() {
+        started = true;
+      },
+      stop() {
+        stopped = true;
+      },
+    };
+  },
+};
+const { TallyHighlight } = compile(
+  readFileSync(require.resolve("../../components/TallyHighlight"), "utf8"),
+);
+slots = [];
+cursor = 0;
+const glow = TallyHighlight({ requestKey: "tap" });
+assert.equal(glow.props.pointerEvents, "none");
+assert.equal(glow.props.accessible, false);
+assert.equal(timing.toValue, 0);
+assert.equal(timing.duration + timing.delay, 2900);
+assert.equal(timing.useNativeDriver, true);
+assert.equal(started, true);
+cleanup();
+assert.equal(stopped, true);
+console.log(
+  "PASS: centered scalloped identity badge, link action icon, touch-through 2.9s highlight with cleanup",
 );

@@ -21,7 +21,7 @@
 //     shape lib/projection/index.ts uses, so loading this module never pulls
 //     react-native into a Node selftest that loads lib/db.ts.
 
-import { getActiveVaultIdSyncMaybe, getDb } from "../db-tx";
+import { getAccountIdSync, getActiveVaultIdSyncMaybe, getDb } from "../db-tx";
 import { fromMinorUnits, toMinorUnits } from "../money";
 import type { Entry, EntryType } from "../types";
 import { directionFor, entryTypeFor, otherRole } from "./direction";
@@ -268,7 +268,7 @@ export async function vaultHasOpenTab(vaultId: string): Promise<boolean> {
 
 const ENTRY_COLUMNS = `id, tab_id, seq, rev, created_by, direction, amount_minor, kind, note,
    occurred_at, created_at, status, status_at, dispute_reason, voids_entry_id,
-   voided_by_entry_id, local_pending`;
+   voided_by_entry_id, local_pending, author_account_id, author_name`;
 
 type PrevRow = Pick<TabEntryRow, "id" | "created_by" | "status" | "voided_by_entry_id">;
 
@@ -364,7 +364,7 @@ export async function upsertTabFromWire(
       const before = prev.get(e.id);
       await db.runAsync(
         `INSERT OR REPLACE INTO tab_entries (${ENTRY_COLUMNS})
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
         e.id,
         link.tab_id,
         e.seq,
@@ -381,6 +381,8 @@ export async function upsertTabFromWire(
         e.dispute_reason,
         e.voids_entry_id,
         e.voided_by_entry_id,
+        e.author_account_id ?? null,
+        e.author_name ?? "",
       );
       changed = true;
       if (!before) {
@@ -407,6 +409,11 @@ export async function upsertTabFromWire(
       }
     }
 
+    await db.runAsync(
+      "UPDATE tab_links SET other_account_name=? WHERE tab_id=?",
+      resp.tab.parties[them].account_name ?? "",
+      link.tab_id,
+    );
     const meta = {
       my_label: resp.tab.parties[me].label,
       other_label: resp.tab.parties[them].label,
@@ -414,6 +421,7 @@ export async function upsertTabFromWire(
       closed_at: resp.tab.closed_at_ms,
     };
     if (
+      (resp.tab.parties[them].account_name ?? "") !== (stored.other_account_name ?? "") ||
       meta.my_label !== stored.my_label ||
       meta.other_label !== stored.other_label ||
       meta.other_joined_at !== stored.other_joined_at ||
@@ -477,6 +485,8 @@ function rowToEntry(link: TabLink, r: TabEntryRow): Entry {
     disputed_reason: r.status === "disputed" ? r.dispute_reason : null,
     settled_at: null,
     tab: {
+      author_name: r.author_name ?? "",
+      author_account_id: r.author_account_id ?? null,
       by: r.created_by === link.role ? "me" : "them",
       status: r.status,
       dispute_reason: r.dispute_reason,
@@ -534,7 +544,7 @@ export async function insertOptimisticEntry(
   const now = Date.now();
   await db.runAsync(
     `INSERT INTO tab_entries (${ENTRY_COLUMNS})
-     VALUES (?, ?, -1, 0, ?, ?, ?, 'entry', ?, ?, ?, 'pending', NULL, NULL, NULL, NULL, 1)`,
+     VALUES (?, ?, -1, 0, ?, ?, ?, 'entry', ?, ?, ?, 'pending', NULL, NULL, NULL, NULL, 1, ?, ?)`,
     e.id,
     link.tab_id,
     link.role,
@@ -543,6 +553,12 @@ export async function insertOptimisticEntry(
     e.note,
     e.occurred_at,
     now,
+    getAccountIdSync(),
+    (
+      await db.getFirstAsync<{ display_name: string }>(
+        "SELECT display_name FROM users WHERE is_local_self=1 LIMIT 1",
+      )
+    )?.display_name ?? "",
   );
   if (notify)
     notifyTabChanged(link.vault_id, {

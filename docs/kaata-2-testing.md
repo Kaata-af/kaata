@@ -5,14 +5,15 @@ author-only visible voids, app-only signed-in participation, durable offline que
 push delivery infrastructure. Existing private ledger events are not rewritten.
 This is not a production release sign-off. Native two-phone testing is required.
 
-Current testing candidate: **2.0.0 / Android 43 / iOS 23**. Includes the notification
-inbox, final accept/reject decisions, customer-screen polish, single-dialog linking,
-and store-only update delivery. Both native builds and testing submissions finished.
-Apple reports build 23 VALID; Play's alpha track contains versionCode 43.
+Current testing candidate: **2.0.0 / Android 44 / iOS 24**. Includes actual account
+names for attribution/notifications, quiet foreground alerts, own-action notification
+suppression, redirected sign-in without onboarding, colored tally states,
+notification-to-tally scrolling/highlight, and refined shared-account badges.
+Builds and testing submissions are pending; the last delivered pair is 43/23 below.
 Store review/availability is separate from successful upload. Test these builds
 on both phones before authorizing any production promotion.
 
-### Current testing delivery — 25 September 2026
+### Previous testing delivery — 25 September 2026 (43/23)
 
 - Source commit: `44b1c76`. Mobile typecheck and all selftests passed; backend
   tests passed against isolated Postgres, `go vet` passed, and the web production
@@ -29,7 +30,7 @@ on both phones before authorizing any production promotion.
   The old direct-download service and obsolete publishing instructions are removed.
   Historical migrations, ledger records and Git history are preserved.
 
-### Previous testing delivery — 25 September 2026
+### Previous testing delivery — 25 September 2026 (42/22)
 
 - Feature commit: `9112235`; web privacy follow-up: `2fee7da`. Backend's new
   authenticated invitation route and the updated web privacy copy were verified live.
@@ -81,7 +82,8 @@ Use a new test contact on each device; keep real customer data out of this trial
 3. Add on A, then B. Check both balances and opposite I-gave/I-received labels.
    Accept and reject the other side's tally using its inline controls. Rejection
    immediately excludes it from BOTH balances while preserving the visible row.
-   Re-accept it: its amount returns once. Pending tallies count until rejected.
+   Both decisions are final: old alerts and repeated taps cannot change them.
+   After rejection, send a NEW tally to try again. Pending tallies count until rejected.
 4. Void a tally. Both see it struck out and the balance changes once. Review
    clerk/viewer access separately: a clerk adds, an editor reviews, a viewer reads.
 5. Turn off data, add several tallies, restart, reconnect. Each arrives exactly
@@ -127,17 +129,22 @@ Expo Go cannot test remote notifications. Fresh native builds are required.
    for package `af.kaata.app`; credential setup above is already complete.
 2. Keep the assigned FCM V1 and APNs credentials. If enhanced Expo push security
    is enabled, supply `EXPO_ACCESS_TOKEN` to the backend through its secret store.
-3. Deploy backend migrations 037–040 and the worker, then enable
+3. Deploy backend migrations through 042 and the worker, then enable
    `TAB_PUSH_ENABLED=true` in the testing backend. It defaults to false.
 4. Build/install native testing builds and allow notifications after linking.
    Existing linked-contact upgrades/restores must prompt once on a signed-in
    foreground sweep too; there must be no need to unlink/relink to enable alerts.
    With B backgrounded and then fully closed, add/review on A. B must receive a
-   generic notification with Accept/Reject actions (expand or long-press the
+   notification naming the actual actor and signed amount/currency, with
+   Accept/Reject actions (expand or long-press the
    alert on iOS). Actions must work without navigating into the app; tapping the
-   notification body switches to the correct kaata/contact. Repeat offline and
+   notification body switches to the correct kaata/contact, scrolls to the tally,
+   and briefly highlights it. Repeat offline and
    after restart: one tap must enqueue only once. An older alert must not undo
-   a more recent decision. The author gets accepted/rejected notifications.
+   a final decision. The author gets accepted/rejected notifications, not alerts
+   for their own actions. While foregrounded, the inbox and ledger update without
+   an OS banner/list entry or sound. Test both phones, including account switching
+   on one install and an account that belongs to both sides' kaatas.
 5. Revoke permission, sign out, and remove a vault member;
    verify no further alerts reach those revoked subscriptions. Test an expired
    token and a provider outage (server tests exercise receipt and backoff paths).
@@ -160,9 +167,9 @@ the device checklist passes. Universal/app links are
 not yet configured; the browser's explicit **Open in Kaata** button uses the
 existing `kaata://` scheme.
 
-## Pending follow-up: inbox and customer-screen polish (2026-09-25)
+## Delivered in 43/23: inbox and customer-screen polish (2026-09-25)
 
-Not committed, deployed or built for stores yet. User confirmed notifications on
+Delivered to testing as recorded above. User confirmed notifications on
 Android 42/iOS 22; these changes build on that working baseline.
 
 - Home bell: preview, unread count, mark all read, and paginated /notifications.
@@ -211,3 +218,18 @@ Phone checks still required on new testing binaries:
    offers inline Dari/English choices. Offline create/WhatsApp/clipboard failure stays
    recoverable; delivery retries do not duplicate the tab or opening balance.
    `npm run selftest:invite-dialog` covers these paths with native boundaries mocked.
+
+## Additional phone checks for 44/24
+
+1. Give account and kaata different names. New tally attribution and alerts use the
+   actual account name; historical rows with no author identity do not guess the owner.
+   The blue shared-account badge shows the other account name, while actions use a link icon.
+2. Incoming unreviewed tallies show yellow New; outgoing show yellow Pending.
+   Accepted is green, Rejected and Voided are soft red. The redundant Linked pill is gone.
+3. Tap a tally notification from the bell and from the OS, including a cold launch
+   and a tally in older history. It scrolls into view and highlights briefly; the
+   highlight must not intercept taps. Repeat the same notification after navigating away.
+4. Follow an invitation while signed out on an install with existing kaatas.
+   Redirected sign-in has no Ninja option, restores/selects existing kaatas, and
+   resumes the invitation instead of sending the user through new-kaata onboarding.
+   Test the different-account keep/wipe/cancel safeguard separately with test data.

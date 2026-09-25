@@ -92,6 +92,7 @@ const MIGRATION_026 = "026_drop_shared_links";
 const MIGRATION_027 = "027_relationships_field_hlcs";
 const MIGRATION_028 = "028_tabs";
 const MIGRATION_029 = "029_tab_failed_ops";
+const MIGRATION_030 = "030_tab_actor_identity";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -465,6 +466,9 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   }
   if (!(await hasRunMigration(db, MIGRATION_029))) {
     await runMigration029(db);
+  }
+  if (!(await hasRunMigration(db, MIGRATION_030))) {
+    await runMigration030(db);
   }
 }
 
@@ -3230,7 +3234,26 @@ async function runMigration029(db: SQLite.SQLiteDatabase): Promise<void> {
       );
       CREATE INDEX IF NOT EXISTS idx_tab_failed_ops_tab ON tab_failed_ops(tab_id);
     `);
-    await db.runAsync(`INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`, MIGRATION_029, Date.now());
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_029,
+      Date.now(),
+    );
+  });
+}
+
+async function runMigration030(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`
+      ALTER TABLE tab_entries ADD COLUMN author_account_id TEXT;
+      ALTER TABLE tab_entries ADD COLUMN author_name TEXT NOT NULL DEFAULT '';
+      ALTER TABLE tab_links ADD COLUMN other_account_name TEXT NOT NULL DEFAULT '';
+    `);
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_030,
+      Date.now(),
+    );
   });
 }
 
@@ -3881,6 +3904,7 @@ type RawPersonRow = PersonWithBalance & {
 /** The tab-aware SELECT columns shared by selectAllPeopleRaw and getPerson. */
 const TAB_PERSON_COLUMNS = `
             tl.tab_id AS tab_id,
+            tl.other_account_name AS tab_account_name,
             CASE WHEN tl.tab_id IS NULL OR tl.closed_at IS NOT NULL THEN 0 ELSE
               (SELECT COUNT(*) FROM tab_entries tp
                 WHERE tp.tab_id = tl.tab_id AND tp.created_by <> tl.role

@@ -29,10 +29,10 @@ func TestPushOutboxDeliveryAndRevocation(t *testing.T) {
 				t.Error("missing navigation data")
 			}
 			// Neither balances nor invitation credentials go to Expo.
-			if !strings.Contains(body["body"].(string), "Saafi Store") || !strings.Contains(body["body"].(string), "AFN") {
+			if !strings.Contains(body["body"].(string), "Matee") || !strings.Contains(body["body"].(string), "AFN") {
 				t.Error("push lost actor/amount context")
 			}
-			if len(body["data"].(map[string]any)) > 5 {
+			if len(body["data"].(map[string]any)) > 6 {
 				t.Error("unexpected private data in payload")
 			}
 			if mode == "retry" {
@@ -56,9 +56,9 @@ func TestPushOutboxDeliveryAndRevocation(t *testing.T) {
 	if _, err := f.svc.Bind(context.Background(), f.party(t, created.InviteToken, created.Tab.ID), BindInput{AccountID: f.acctB}); err != nil {
 		t.Fatal(err)
 	}
-	for _, account := range []string{f.acctA, f.acctB} {
+	for i, account := range []string{f.acctA, f.acctB} {
 		r := f.do(t, "POST", path+"/notifications", "Bearer "+f.jwtFor(t, account), map[string]any{
-			"install_id": uuid.NewString(), "token": "ExpoPushToken[synthetic_test_123456]", "locale": "fa",
+			"install_id": uuid.NewString(), "token": []string{"ExpoPushToken[synthetic_test_A_123456]", "ExpoPushToken[synthetic_test_B_123456]"}[i], "locale": "fa",
 		})
 		if r.status != 200 {
 			t.Fatalf("subscribe: %d %s", r.status, r.body)
@@ -242,7 +242,7 @@ func TestPushReviewActionsRequireCurrentEntryAndRole(t *testing.T) {
 					t.Fatal("wrong localized action category")
 				}
 				data := payload["data"].(map[string]any)
-				if data["entry_id"] != added.Entry.ID || data["kind"] != "entry_created" || data["role"] != "b" || data["rev"] != float64(added.Entry.Rev) || len(data) != 5 {
+				if data["entry_id"] != added.Entry.ID || data["kind"] != "entry_created" || data["role"] != "b" || data["rev"] != float64(added.Entry.Rev) || len(data) != 6 {
 					t.Fatalf("wrong action target: %v", data)
 				}
 			case <-time.After(time.Second):

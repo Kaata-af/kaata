@@ -208,19 +208,9 @@ function routeFromNotificationData(data: unknown): void {
   const tabId = (data as { tab_id?: unknown } | null)?.tab_id;
   if (typeof tabId === "string" && /^[0-9a-f-]{36}$/i.test(tabId)) {
     void (async () => {
-      const { getTabLink, getPersonIdForRelationship } = await import("../lib/tabs/db");
-      const { reconcileTabsFromServer, syncTab } = await import("../lib/tabs/sync");
-      if (!(await getTabLink(tabId))) await reconcileTabsFromServer();
-      const link = await getTabLink(tabId);
-      if (!link) return; // belongs to an earlier account / erased install
-      const personId = await getPersonIdForRelationship(link.relationship_id);
-      if (!personId) return;
-      const { setActiveVaultId } = await import("../lib/db-tx");
-      const { applyVaultCurrency } = await import("../lib/currency");
-      await setActiveVaultId(link.vault_id);
-      await applyVaultCurrency(link.vault_id);
-      void syncTab(tabId);
-      router.push({ pathname: "/person/[id]", params: { id: personId } });
+      const { openTabNotification } = await import("../lib/tabs/open-notification");
+      const entryId = (data as { entry_id?: unknown }).entry_id;
+      await openTabNotification(tabId, typeof entryId === "string" ? entryId : null);
     })().catch(() => {});
     return;
   }
@@ -867,6 +857,7 @@ export default function RootLayout() {
                   navigate forward only, except via explicit on-screen Back
                   on the profile screen. */}
               <Stack.Screen name="onboarding/language" options={{ gestureEnabled: false }} />
+              <Stack.Screen name="sign-in" />
               <Stack.Screen name="onboarding/auth" options={{ gestureEnabled: false }} />
               {/* Phase 3 restore probe. Sits between auth and profile —
                   the screen fetches the snapshot/v0.4-backup endpoints

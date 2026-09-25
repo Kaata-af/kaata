@@ -31,6 +31,9 @@ let canAskAgain = true;
 let grantOnRequest = true;
 let asks = 0;
 let task: any;
+let handler: any;
+let appliedListener: any;
+let currentEntry: any;
 let responseListener: any;
 let receivedListener: any;
 let registeredTask = "";
@@ -55,7 +58,12 @@ stub("../db", {
     meta.set(key, value);
   },
 });
-stub("../db-tx", { getInstallIdSync: () => "install", getAccountIdSync: () => "account" });
+stub("../db-tx", {
+  getInstallIdSync: () => "install",
+  getAccountIdSync: () => "account",
+  getDb: async () => ({ getFirstAsync: async () => currentEntry }),
+});
+stub("../use-vault-role", { readVaultRole: async () => "editor", canPerformAction: () => true });
 stub("../i18n", {
   getLocale: () => "en",
   t: (key: string) => key,
@@ -88,7 +96,11 @@ stub("../tabs/sync", {
     calls.push(`poke:${id}`);
   },
 });
-stub("../tabs/events", { onTabApplied: () => {} });
+stub("../tabs/events", {
+  onTabApplied: (fn: any) => {
+    appliedListener = fn;
+  },
+});
 stub("../tabs/link", { setTabNotifyHook: () => {} });
 stub("../../modules/kaata-notification-actions", {
   notificationActions: {
@@ -105,7 +117,9 @@ stub("expo-notifications", {
   setNotificationCategoryAsync: async (id: string, actions: any[]) => {
     categories.push({ id, actions });
   },
-  setNotificationHandler: () => {},
+  setNotificationHandler: (value: any) => {
+    handler = value;
+  },
   addNotificationResponseReceivedListener: (fn: any) => {
     responseListener = fn;
   },
@@ -266,6 +280,58 @@ async function main() {
     await task({ data: response("tab-accept") });
     assert.equal(queued.size, 0);
     assert.equal(scheduled[0].content.body, "tab.notify.actionFailed");
+  });
+  await test("OS presentation stays silent in foreground on both platforms", async () => {
+    for (const os of ["android", "ios"]) {
+      platform.OS = os;
+      state.currentState = "active";
+      const result = await handler.handleNotification(response("default").notification);
+      assert.deepEqual(result, {
+        shouldShowBanner: false,
+        shouldShowList: false,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+      });
+      state.currentState = "background";
+      assert.equal(
+        (await handler.handleNotification(response("default").notification)).shouldShowBanner,
+        true,
+      );
+      const own = response("default", { ...payload, actor_account_id: "account" }).notification;
+      assert.equal((await handler.handleNotification(own)).shouldShowBanner, false);
+    }
+  });
+  await test("pull fallback ignores foreground and own acknowledgements", async () => {
+    const ev = {
+      tabId: TAB,
+      origin: "pull",
+      changes: [{ entryId: ENTRY, rev: 1, kind: "entry_created" }],
+    };
+    currentEntry = {
+      created_by: "a",
+      status: "pending",
+      amount_minor: 100,
+      direction: "a_to_b",
+      author_name: "Writer",
+      author_account_id: "peer",
+    };
+    appliedListener(ev);
+    await settled();
+    assert.equal(scheduled.length, 0);
+    state.currentState = "background";
+    currentEntry.created_by = "b";
+    appliedListener(ev);
+    await settled();
+    assert.equal(scheduled.length, 0, "own side");
+    currentEntry.created_by = "a";
+    currentEntry.author_account_id = "account";
+    appliedListener(ev);
+    await settled();
+    assert.equal(scheduled.length, 0, "same account on opposite side");
+    currentEntry.author_account_id = "peer";
+    appliedListener(ev);
+    await settled();
+    assert.equal(scheduled.length, 1, "real incoming fallback");
   });
   await test("Expo Go skips native registration", async () => {
     expoGo = true;

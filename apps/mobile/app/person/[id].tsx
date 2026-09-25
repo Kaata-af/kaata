@@ -16,6 +16,7 @@ import { BottomSheet } from "../../components/BottomSheet";
 import { Chip } from "../../components/Chip";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { EmptyState } from "../../components/EmptyState";
+import { TallyHighlight } from "../../components/TallyHighlight";
 import { EntryRow } from "../../components/EntryRow";
 import { SharedAccountBadge } from "../../components/SharedAccountBadge";
 import { LinkAccountDialog } from "../../components/LinkAccountDialog";
@@ -110,7 +111,16 @@ export default function PersonDetailScreen() {
   const toastOffset = useToastOffset();
   const [actionsHeight, setActionsHeight] = useState(100);
   const insets = useSafeAreaInsets();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, entryId, notificationKey } = useLocalSearchParams<{
+    id: string;
+    entryId?: string;
+    notificationKey?: string;
+  }>();
+  const scrollRef = useRef<ScrollView>(null);
+  const entriesCardY = useRef<number | null>(null);
+  const entryPositions = useRef(new Map<string, number>());
+  const highlightedRequest = useRef("");
+  const [highlight, setHighlight] = useState<{ id: string; key: string } | null>(null);
   // Subscribes to locale changes — flipping language in Settings re-renders
   // this screen and all its descendants, so strings via t() refresh too.
   const isRTL = useIsRTL();
@@ -137,6 +147,29 @@ export default function PersonDetailScreen() {
   // ruled-off line with its settlement date, like a paper khata.
   const [boundaries, setBoundaries] = useState<number[]>([]);
   const [showFullHistory, setShowFullHistory] = useState(false);
+  useEffect(() => {
+    if (entryId) setShowFullHistory(true);
+  }, [entryId, notificationKey]);
+  const revealNotificationTally = useCallback(() => {
+    const key = [id, entryId, notificationKey].join(":");
+    if (
+      !entryId ||
+      !showFullHistory ||
+      !entries.some((e) => e.id === entryId) ||
+      highlightedRequest.current === key
+    )
+      return;
+    const y = entryPositions.current.get(entryId);
+    if (y == null || entriesCardY.current == null) return;
+    highlightedRequest.current = key;
+    scrollRef.current?.scrollTo({ y: Math.max(0, entriesCardY.current + y - 24), animated: true });
+    setHighlight({ id: entryId, key });
+  }, [id, entryId, notificationKey, showFullHistory, entries]);
+  useEffect(() => {
+    // Wait for the expanded history's layout; onLayout/content-size handle cold loads.
+    const frame = requestAnimationFrame(revealNotificationTally);
+    return () => cancelAnimationFrame(frame);
+  }, [revealNotificationTally, entries]);
   const [confirmSettle, setConfirmSettle] = useState(false);
   const settlingRef = useRef(false);
   // L12: synchronous re-entry guard for the WhatsApp ping — the share awaits an
@@ -701,7 +734,7 @@ export default function PersonDetailScreen() {
                   },
                   {
                     label: link ? t("tab.join.title") : t("tab.link.title"),
-                    icon: "checkmark-circle" as const,
+                    icon: "link-outline" as const,
                     onPress: () => (link ? setLinkedSheetVisible(true) : setInviteVisible(true)),
                   },
                 ]
@@ -725,6 +758,8 @@ export default function PersonDetailScreen() {
           by going back and returning"). A single uniform card has no per-row
           style flip, so it can't happen. */}
       <ScrollView
+        ref={scrollRef}
+        onContentSizeChange={revealNotificationTally}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
           paddingBottom: canCreate ? actionsHeight + 24 : 24 + insets.bottom,
@@ -733,7 +768,14 @@ export default function PersonDetailScreen() {
         <View>
           <View style={styles.info}>
             <View style={[styles.nameRow, rowDir(isRTL)]}>
-              <Text style={[styles.name, { flexShrink: 1 }, textDir(isRTL)]}>{person.name}</Text>
+              <Text style={[styles.name, { flexShrink: 1 }, textDir(isRTL)]}>
+                {person.name}
+                {link?.other_account_name ? (
+                  <Text
+                    style={styles.accountName}
+                  >{` (${bidiIsolate(link.other_account_name)})`}</Text>
+                ) : null}
+              </Text>
               {link ? <SharedAccountBadge size={20} /> : null}
             </View>
             {person.phone ? (
@@ -767,23 +809,18 @@ export default function PersonDetailScreen() {
                 // is no tally yet to have a state.
                 <Chip label={t("person.balance.notSettled")} variant="outline" />
               ) : null}
-              {link ? (
-                // The shared-account handle beside the direction chip. The
-                // label carries the other party's OWN name for themselves
-                // (their label) once they have joined, or says the link is
-                // still out there. Tapping opens the manage sheet for editors;
-                // viewers and clerks see the state and nothing more.
+              {link && link.other_joined_at == null ? (
+                // Keep the invitation-waiting cue until the other side joins.
+                // Once linked, the name badge is enough; no duplicate chip.
                 <Pressable
                   onPress={canAmend ? () => setLinkedSheetVisible(true) : undefined}
                   disabled={!canAmend}
                   accessibilityRole={canAmend ? "button" : "text"}
                   style={({ pressed }) => [styles.readOnlyChip, pressed && { opacity: 0.5 }]}
                 >
-                  <SharedAccountBadge size={14} />
+                  <Ionicons name="link-outline" size={14} color={colors.textSubtle} />
                   <Text style={styles.readOnlyChipText} allowFontScaling={false} numberOfLines={1}>
-                    {link.other_joined_at != null
-                      ? t("tab.chip.linked", { name: link.other_label || person.name })
-                      : t("tab.chip.waiting")}
+                    {t("tab.chip.waiting")}
                   </Text>
                 </Pressable>
               ) : null}
@@ -838,7 +875,13 @@ export default function PersonDetailScreen() {
             />
           )
         ) : (
-          <View style={styles.entriesCard}>
+          <View
+            style={styles.entriesCard}
+            onLayout={(event) => {
+              entriesCardY.current = event.nativeEvent.layout.y;
+              revealNotificationTally();
+            }}
+          >
             {historyItems.map((item, index) => {
               if (item.kind === "marker") {
                 // The ruled-off line, dated — a khata page's visible mark.
@@ -878,7 +921,13 @@ export default function PersonDetailScreen() {
                 !frozenTabRow &&
                 (!entry.tab || entry.tab.by === "me");
               return (
-                <View key={entry.id}>
+                <View
+                  key={entry.id}
+                  onLayout={(event) => {
+                    entryPositions.current.set(entry.id, event.nativeEvent.layout.y);
+                    revealNotificationTally();
+                  }}
+                >
                   {index > 0 && historyItems[index - 1].kind !== "marker" ? (
                     <View style={styles.divider} />
                   ) : null}
@@ -893,6 +942,9 @@ export default function PersonDetailScreen() {
                     onAccept={canAmend && link ? onAccept : undefined}
                     onReject={canAmend && link ? onReject : undefined}
                   />
+                  {highlight?.id === entry.id ? (
+                    <TallyHighlight requestKey={highlight.key} />
+                  ) : null}
                 </View>
               );
             })}
@@ -1101,7 +1153,7 @@ export default function PersonDetailScreen() {
         onAuthRequired={() => {
           void (async () => {
             await setAppMeta("pending_tab_person", person.id);
-            router.push("/onboarding/auth");
+            router.push("/sign-in");
           })().catch(() => toast.push(t("tab.link.failed"), "error"));
         }}
       />
@@ -1281,6 +1333,7 @@ const styles = StyleSheet.create({
   // name, the anchor of the screen, and dropping a weight step here would read
   // as a demotion rather than a scale fix. Same fontFamily-override idiom as
   // Button's `textPill`.
+  accountName: { fontFamily: fonts.sansRegular, fontSize: 16, color: colors.textSubtle },
   nameRow: { flexDirection: "row", alignItems: "center", gap: 7 },
   name: { ...typography.heading, fontFamily: fonts.sansBold, color: colors.textEmphasis },
   phone: {

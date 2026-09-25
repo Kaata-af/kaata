@@ -226,7 +226,7 @@ export function LinkAccountDialog(props: {
                         ? "tab.link.whatsapp"
                         : "tab.link.action",
                   )}
-                  icon={hasPhone || ready ? "logo-whatsapp" : "checkmark-circle-outline"}
+                  icon={hasPhone || ready ? "logo-whatsapp" : "link-outline"}
                   onPress={() => void run(ready ? "whatsapp" : "create")}
                 />
                 {ready && (!hasPhone || shareFailed) ? (

@@ -135,6 +135,12 @@ const MIGRATION_029_DDL =
   /execAsync\(`([^`]*CREATE TABLE IF NOT EXISTS tab_failed_ops[^`]*)`\)/.exec(dbSource)?.[1];
 assert.ok(MIGRATION_029_DDL, "migration 029 preserves refused offline intent");
 
+const MIGRATION_030_DDL =
+  /execAsync\(`([^`]*ALTER TABLE tab_entries ADD COLUMN author_account_id[^`]*)`\)/.exec(
+    dbSource,
+  )?.[1];
+assert.ok(MIGRATION_030_DDL, "migration 030 is additive identity metadata");
+
 const VAULT = "fixture-vault";
 const SELF = "fixture-self";
 const CONTACT = "fixture-contact";
@@ -190,6 +196,7 @@ function openFixture(): void {
     );
     ${MIGRATION_028_DDL}
     ${MIGRATION_029_DDL}
+    ${MIGRATION_030_DDL}
     INSERT INTO vaults VALUES ('${VAULT}', 'AFN');
     INSERT INTO users VALUES ('${SELF}', '+93700111222', 'Synthetic Owner', 1, NULL, NULL, 1, 1, NULL, NULL);
     INSERT INTO users VALUES ('${CONTACT}', '+93700333444', 'Synthetic Contact', 0, NULL, NULL, 1, 1, NULL, NULL);
@@ -222,7 +229,7 @@ const server = {
   entries: [] as ServerEntry[],
   parties: {
     a: { label: "Synthetic Shop", joined_at_ms: 1_000, bound: false },
-    b: { label: "", joined_at_ms: null as number | null, bound: false },
+    b: { label: "", joined_at_ms: null, bound: false } as import("../tabs/types").WireParty,
   },
   tokens: { a: "tok-a", b: "tok-b" },
   /** Which party a Bearer JWT resolves to; null = the account is not bound. */
@@ -649,6 +656,7 @@ async function main(): Promise<void> {
       "linked_at",
       "last_synced_at",
       "last_error",
+      "other_account_name",
     ]);
     assert.deepEqual(cols("tab_entries"), [
       "id",
@@ -668,6 +676,8 @@ async function main(): Promise<void> {
       "voids_entry_id",
       "voided_by_entry_id",
       "local_pending",
+      "author_account_id",
+      "author_name",
     ]);
     assert.deepEqual(cols("tab_outbox"), [
       "id",
@@ -719,6 +729,30 @@ async function main(): Promise<void> {
     }
   });
 
+  await test("identity migration preserves old tallies and unsent operations", async () => {
+    const old = new Database(":memory:");
+    try {
+      old.exec(MIGRATION_028_DDL!);
+      old.exec(`INSERT INTO tab_links(tab_id,vault_id,relationship_id,role,currency,linked_at,rev) VALUES('t','v','r','a','USD',1,9);
+        INSERT INTO tab_entries(id,tab_id,seq,rev,created_by,direction,amount_minor,kind,occurred_at,created_at,status,local_pending)
+        VALUES('e','t',1,9,'a','a_to_b',50025,'entry',1,1,'disputed',1);
+        INSERT INTO tab_outbox VALUES('op','t','append','{}',1,2,99,'offline');`);
+      const entry = old.prepare("SELECT * FROM tab_entries").get();
+      const outbox = old.prepare("SELECT * FROM tab_outbox").get();
+      old.exec(MIGRATION_030_DDL!);
+      const { author_account_id, author_name, ...preserved } = old
+        .prepare("SELECT * FROM tab_entries")
+        .get() as any;
+      assert.deepEqual(preserved, entry);
+      assert.equal(author_account_id, null);
+      assert.equal(author_name, "");
+      assert.deepEqual(old.prepare("SELECT * FROM tab_outbox").get(), outbox);
+      assert.equal(old.prepare("SELECT rev FROM tab_links").pluck().get(), 9);
+    } finally {
+      old.close();
+    }
+  });
+
   await test("upsertTabFromWire: full replace, optimistic survival, counts, cursor monotonic, notifiers", async () => {
     const applied: Array<{ newFromThem: number; statusChangedOnMine: number; origin: string }> = [];
     const off = events.onTabApplied((ev) =>
@@ -730,7 +764,12 @@ async function main(): Promise<void> {
     );
     try {
       await tabsDb.upsertTabLink(link());
-      server.parties.b = { label: "Synthetic Customer", joined_at_ms: 2_000, bound: true };
+      server.parties.b = {
+        label: "Synthetic Customer",
+        account_name: "Ahmad",
+        joined_at_ms: 2_000,
+        bound: true,
+      };
       const opening = server.seed({
         id: "op",
         created_by: "a",
@@ -740,6 +779,8 @@ async function main(): Promise<void> {
       });
       const theirs1 = server.seed({
         id: "b1",
+        author_account_id: "writer",
+        author_name: "Ahmad",
         created_by: "b",
         direction: "b_to_a",
         amount: "20.50",
@@ -755,6 +796,15 @@ async function main(): Promise<void> {
       let stored = storedLink();
       assert.equal(stored.rev, 3);
       assert.equal(stored.other_label, "Synthetic Customer");
+      assert.equal(stored.other_account_name, "Ahmad");
+      assert.equal((await db.getPerson(CONTACT))?.tab_account_name, "Ahmad");
+      const authors = await tabsDb.listTabEntriesAsEntries(stored);
+      assert.equal(authors.find((e) => e.id === "b1")?.tab?.author_name, "Ahmad");
+      assert.equal(
+        authors.find((e) => e.id === "op")?.tab?.author_name,
+        "",
+        "legacy authors are unknown, not the party owner",
+      );
       assert.equal(stored.other_joined_at, 2_000);
       assert.equal(stored.last_error, null);
       assert.ok(stored.last_synced_at, "last_synced_at stamped");
@@ -1824,7 +1874,7 @@ async function main(): Promise<void> {
         other_label: "احمد",
       } as import("../tabs/types").TabLink;
       assert.deepEqual(notificationVars(tl, entry, "Other"), {
-        name: "\u2068احمد\u2069",
+        name: "\u2068Other\u2069",
         amount: `\u2066+500.25 ${currency}\u2069`,
       });
       assert.equal(

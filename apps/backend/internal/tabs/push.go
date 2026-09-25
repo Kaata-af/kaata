@@ -100,12 +100,30 @@ func (h *Handler) Notifications(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		_, err := h.svc.pool.Exec(r.Context(), `INSERT INTO tab_push_subscriptions
+		tx, err := h.svc.pool.Begin(r.Context())
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		defer tx.Rollback(r.Context())
+		// An Expo token identifies one physical app installation. A reinstall
+		// or account switch must not retain delivery under an older identity.
+		if _, err = tx.Exec(r.Context(), "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", req.Token); err == nil {
+			_, err = tx.Exec(r.Context(), "DELETE FROM tab_push_subscriptions WHERE token=$1 AND (install_id<>$2::uuid OR account_id IS DISTINCT FROM $3::uuid)", req.Token, req.InstallID, claims.AccountID)
+		}
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		_, err = tx.Exec(r.Context(), `INSERT INTO tab_push_subscriptions
    (tab_id,role,install_id,token,locale,account_id,capability_hash)
    VALUES($1::uuid,$2,$3::uuid,$4,$5,$6::uuid,$7)
    ON CONFLICT(tab_id,install_id) DO UPDATE SET role=EXCLUDED.role,token=EXCLUDED.token,
     locale=EXCLUDED.locale,account_id=EXCLUDED.account_id,capability_hash=EXCLUDED.capability_hash,renewed_at=NOW()`,
 			p.TabID, p.Role, req.InstallID, req.Token, req.Locale, claims.AccountID, nil)
+		if err == nil {
+			err = tx.Commit(r.Context())
+		}
 		if err != nil {
 			writeServiceError(w, err)
 			return
@@ -114,7 +132,25 @@ func (h *Handler) Notifications(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, 200, map[string]bool{"enabled": true})
 }
 
-type pushEvent struct{ Kind, EntryID string }
+type pushEvent struct {
+	Kind, EntryID  string
+	ActorAccountID *string
+	ActorInstallID *string
+}
+
+func (p Party) actorAccount() *string {
+	if p.ActorAccountID != "" {
+		return &p.ActorAccountID
+	}
+	// Service-internal legacy callers may hold only a directly bound party.
+	if p.MemberRole == "" {
+		return p.AccountID
+	}
+	return nil
+}
+func (p Party) pushEvent(kind, entryID string) pushEvent {
+	return pushEvent{Kind: kind, EntryID: entryID, ActorAccountID: p.actorAccount(), ActorInstallID: p.ActorInstallID}
+}
 
 func queuePush(ctx context.Context, tx pgx.Tx, tabID, actor string, rev int64, events ...pushEvent) error {
 	event := pushEvent{Kind: "updated"}
@@ -124,16 +160,18 @@ func queuePush(ctx context.Context, tx pgx.Tx, tabID, actor string, rev int64, e
 
 	// Also persist when no device has granted push permission. A delivery job
 	// can expire or be deleted without erasing the user's notification history.
-	_, err := tx.Exec(ctx, `INSERT INTO tab_notifications(tab_id,rev,recipient_role,event_kind,entry_id,actor_label)
- SELECT $1::uuid,$2,CASE WHEN $3='a' THEN 'b' ELSE 'a' END,$4,NULLIF($5,'')::uuid,label
+	_, err := tx.Exec(ctx, `INSERT INTO tab_notifications(tab_id,rev,recipient_role,event_kind,entry_id,actor_label,actor_account_id,actor_install_id)
+ SELECT $1::uuid,$2,CASE WHEN $3='a' THEN 'b' ELSE 'a' END,$4,NULLIF($5,'')::uuid,COALESCE((SELECT name FROM accounts WHERE id=$6::uuid),''),$6::uuid,$7::uuid
  FROM tab_parties WHERE tab_id=$1::uuid AND role=$3 ON CONFLICT DO NOTHING`,
-		tabID, rev, actor, event.Kind, event.EntryID)
+		tabID, rev, actor, event.Kind, event.EntryID, event.ActorAccountID, event.ActorInstallID)
 	if err != nil {
 		return err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO tab_push_outbox(subscription_id,rev,event_kind,entry_id)
   SELECT id,$2,$4,NULLIF($5,'')::uuid FROM tab_push_subscriptions WHERE tab_id=$1::uuid AND role<>$3
-   AND renewed_at>NOW()-INTERVAL '30 days' ON CONFLICT DO NOTHING`, tabID, rev, actor, event.Kind, event.EntryID)
+   AND renewed_at>NOW()-INTERVAL '30 days'
+ AND account_id IS DISTINCT FROM $6::uuid AND install_id IS DISTINCT FROM $7::uuid
+ ON CONFLICT DO NOTHING`, tabID, rev, actor, event.Kind, event.EntryID, event.ActorAccountID, event.ActorInstallID)
 	return err
 }
 
@@ -190,6 +228,8 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
   COALESCE(s.account_id=p.account_id OR EXISTS(SELECT 1 FROM vault_members vm WHERE vm.vault_id=p.vault_id AND vm.account_id=s.account_id AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL AND vm.role IN ('owner','manager','editor')),FALSE),
 	  s.renewed_at>NOW()-INTERVAL '30 days' AND o.created_at>NOW()-INTERVAL '24 hours'
 	  AND EXISTS(SELECT 1 FROM auth_credentials ac WHERE ac.install_id=s.install_id AND ac.account_id=s.account_id)
+ AND NOT EXISTS(SELECT 1 FROM tab_notifications n WHERE n.tab_id=s.tab_id AND n.rev=o.rev
+   AND (n.actor_account_id=s.account_id OR n.actor_install_id=s.install_id))
 	  AND COALESCE((
    (s.account_id IS NOT NULL AND (s.account_id=p.account_id OR EXISTS(
     SELECT 1 FROM vault_members vm WHERE vm.vault_id=p.vault_id AND vm.account_id=s.account_id
@@ -213,7 +253,7 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
 			body := pushBody(kind, locale)
 			var actor, direction, currency string
 			var minor int64
-			err = tx.QueryRow(ctx, `SELECT n.actor_label,COALESCE(e.amount_minor,0),COALESCE(e.direction,''),t.currency
+			err = tx.QueryRow(ctx, `SELECT CASE WHEN n.actor_account_id IS NULL THEN '' ELSE n.actor_label END,COALESCE(e.amount_minor,0),COALESCE(e.direction,''),t.currency
  FROM tab_notifications n JOIN tabs t ON t.id=n.tab_id
  LEFT JOIN tab_entries e ON e.id=n.entry_id AND e.tab_id=n.tab_id
  WHERE n.tab_id=$1::uuid AND n.rev=$2`, tabID, rev).Scan(&actor, &minor, &direction, &currency)
@@ -224,6 +264,10 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
 				body = detailedPushBody(kind, locale, actor, minor, direction, currency, role)
 			}
 			data := map[string]any{"tab_id": tabID, "rev": rev, "kind": kind, "role": role}
+			var actorID *string
+			if err := tx.QueryRow(ctx, "SELECT actor_account_id::text FROM tab_notifications WHERE tab_id=$1::uuid AND rev=$2", tabID, rev).Scan(&actorID); err == nil && actorID != nil {
+				data["actor_account_id"] = *actorID
+			}
 			if entryID != "" {
 				data["entry_id"] = entryID
 			}

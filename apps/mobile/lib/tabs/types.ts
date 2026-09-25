@@ -30,6 +30,8 @@ export type TabOutboxOp = "append" | "accept" | "dispute" | "void" | "label" | "
 // Wire (§3.4). All timestamps are epoch ms; all amounts are decimal strings.
 
 export type WireEntry = {
+  author_account_id?: string | null;
+  author_name?: string;
   id: string;
   seq: number;
   rev: number;
@@ -48,6 +50,7 @@ export type WireEntry = {
 };
 
 export type WireParty = {
+  account_name?: string;
   /** How this party names ITSELF; shown to the other side. */
   label: string;
   joined_at_ms: number | null;
@@ -143,6 +146,7 @@ export type MineResponse = {
 // Local cache rows (§4.1). Column-for-column with migration 028 in lib/db.ts.
 
 export type TabLink = {
+  other_account_name?: string;
   tab_id: string;
   vault_id: string;
   relationship_id: string;
@@ -164,6 +168,8 @@ export type TabLink = {
 };
 
 export type TabEntryRow = {
+  author_account_id?: string | null;
+  author_name?: string;
   id: string;
   tab_id: string;
   seq: number;
@@ -203,6 +209,8 @@ export type TabOutboxRow = {
  * mapped `Entry` as `entry.tab`. Absent on ordinary local entries.
  */
 export type TabEntryMeta = {
+  author_name?: string;
+  author_account_id?: string | null;
   by: "me" | "them";
   status: TabEntryStatus;
   dispute_reason: string | null;
@@ -225,6 +233,9 @@ export type TabAppliedEvent = {
   statusChangedOnMine: number;
   /** "pull" = server state landed; "local" = this device's own optimistic write. */
   origin: "pull" | "local";
-  changes?: Array<{ entryId: string; rev: number; kind: "entry_created" | "entry_accepted" | "entry_rejected" | "entry_voided" }>;
-
+  changes?: Array<{
+    entryId: string;
+    rev: number;
+    kind: "entry_created" | "entry_accepted" | "entry_rejected" | "entry_voided";
+  }>;
 };

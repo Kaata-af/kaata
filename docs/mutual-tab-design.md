@@ -1,8 +1,25 @@
+## September 25 follow-up
+
+WhatsApp invitations remain the only invitation delivery flow. In-app invitations
+and phone-number verification are deferred. A shared-account badge is NOT proof
+of phone ownership.
+
+New tallies record the authenticated author's account ID and person-name snapshot;
+review/void notifications record their actual actor, not the party/store label.
+Historical authors that were not recorded remain unknown; do not invent authors.
+Party metadata separately exposes the bound account's name for the identity badge.
+Push delivery excludes the acting account/install, including dual-vault members.
+While the app is active, notifications update its UI/inbox without OS banners,
+list entries or sounds. Notification body taps target and briefly highlight the
+specific tally. Status pills show accepted (green), pending/new (yellow), and
+rejected/voided (soft red). Existing balance and final-review rules are unchanged.
+Redirected sign-in uses a dedicated route, not the optional offline onboarding flow.
+
 ## September 25 refinement
 
 Notifications now have durable, per-party history and per-account read state (migration
-041), with a home bell preview and full inbox. Push previews include the actor’s party
-label and the tally’s signed amount/currency, from the recipient’s balance perspective.
+041), with a home bell preview and full inbox. Push previews include the actor’s
+personal account name (042) and the tally’s signed amount/currency, from the recipient’s balance perspective.
 No notes, balance, tokens or authority in the payload. This overrides older generic-only
 copy below. Rejected tallies are gray and crossed out; balances still exclude them.
 Customer actions use a bottom sheet and bottom-mounted received/gave buttons.
@@ -17,7 +34,7 @@ The server's locked transaction arbitrates concurrent/offline devices. Mobile re
 second decisions atomically with its outbox, but still accepts authoritative server
 state when another phone won. Review buttons never reappear when a row is expanded.
 
-UI: one neutral Voided pill only; Rejected uses a soft red pill with gray struck
+UI: one soft-red Voided pill only; Rejected uses a soft red pill with gray struck
 amount/note. Attribution is date-side with bold names. Received/gave buttons float at
 full touch size and share the old ping bar's toast lift. WhatsApp is first in the
 bottom sheet. The bell preview spans the safe viewport; the full inbox title is

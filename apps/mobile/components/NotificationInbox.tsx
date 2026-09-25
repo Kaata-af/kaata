@@ -165,7 +165,7 @@ export function NotificationBell() {
   const open = (item: InboxItem) =>
     close(() => {
       void (async () => {
-        await openTabNotification(item.tab_id);
+        await openTabNotification(item.tab_id, item.entry_id);
         await inbox.read(item.id);
       })().catch(() => toast.push(t("inbox.openFailed"), "error"));
     });
@@ -248,7 +248,7 @@ export function FullNotificationInbox() {
     if (busy.current) return;
     busy.current = true;
     void (async () => {
-      await openTabNotification(item.tab_id);
+      await openTabNotification(item.tab_id, item.entry_id);
       await inbox.read(item.id);
     })()
       .catch(() => toast.push(t("inbox.openFailed"), "error"))

@@ -21,6 +21,8 @@
     "selftest:tabs": "tsx lib/__dev__/tabs-selftest.ts",
     "selftest:notifications": "tsx lib/__dev__/notifications-selftest.ts",
     "selftest:inbox": "tsx lib/__dev__/inbox-selftest.ts",
+    "selftest:notification-navigation": "tsx lib/__dev__/notification-navigation-selftest.ts",
+    "selftest:auth-redirect": "tsx lib/__dev__/auth-redirect-selftest.ts",
     "selftest:tally-ui": "tsx lib/__dev__/tally-ui-selftest.ts",
     "selftest:invite-dialog": "tsx lib/__dev__/invite-dialog-selftest.ts",
     "selftest:update-url": "tsx lib/__dev__/update-url-selftest.ts",

@@ -419,6 +419,8 @@ func (h *Handler) invitationParty(w http.ResponseWriter, r *http.Request, token 
 			return Party{}, false
 		}
 	}
+	p.ActorAccountID = claims.AccountID
+	p.ActorInstallID = installIDFromClaims(claims)
 	return p, true
 }
 

@@ -51,8 +51,8 @@ export const EntryRow = memo(function EntryRow(props: {
   attribution?: EntryAttribution;
   // Mutual-tab meta (docs/mutual-tab-design.md §4.4), present only on a
   // linked contact's rows. A sibling of `attribution`, not an overload of it:
-  // the tab counterparty is not a kaata member, has no account id and no
-  // member tint, so nothing in the attribution machinery can describe them.
+  // tab rows carry their server-recorded writer independently of local-vault
+  // membership and its member tints.
   // The caller passes `entry.tab` straight through.
   tab?: TabEntryMeta;
   onAccept?: (entry: Entry) => void | Promise<void>;
@@ -131,9 +131,10 @@ export const EntryRow = memo(function EntryRow(props: {
     namedByLine("entry.editedByOnly", nameOf(editor))
   ) : null;
 
-  // One small status pill beside the date. Rejection is a soft red exception;
-  // its amount and note stay struck gray. Voids keep their neutral pill.
-  const rejected = tab?.status === "disputed" && !voided;
+  // Review state is separate from money direction. Every synced tally has a status.
+  const rejected = voided || tab?.status === "disputed";
+  const accepted = !voided && tab?.status === "accepted";
+  const pending = !voided && tab?.status === "pending";
   const pill = tab
     ? voided
       ? t("tab.status.voided")
@@ -141,18 +142,13 @@ export const EntryRow = memo(function EntryRow(props: {
         ? t("tab.status.sending")
         : tab.status === "disputed"
           ? t("tab.status.disputed")
-          : tab.by === "them" && tab.status === "pending"
-            ? t("tab.status.new")
-            : null
+          : tab.status === "accepted"
+            ? t("tab.status.accepted")
+            : t(tab.by === "them" ? "tab.status.new" : "tab.status.pending")
     : null;
-  // On a tab row the author is one of exactly two parties, so the by-line is
-  // decided here and REPLACES the member by-line (a kaata member who wrote a
-  // tab tally still acted as "you", the kaata side of the tab).
+  // Side A/B is not authorship: a store can have several writers.
   const byLine = tab
-    ? namedByLine(
-        "tab.addedBy",
-        tab.by === "me" ? t("entry.by.you") : tab.other_label || t("tab.them"),
-      )
+    ? namedByLine("tab.addedBy", tab.author_name || t("entry.by.someone"))
     : memberByLine;
   const disputeLine =
     tab && tab.status === "disputed" && !voided && tab.dispute_reason
@@ -238,12 +234,22 @@ export const EntryRow = memo(function EntryRow(props: {
                 status the opened row spells out in full anyway. */}
               {pill ? (
                 <View
-                  style={[styles.statusPill, rejected && styles.rejectedPill]}
+                  style={[
+                    styles.statusPill,
+                    pending && styles.pendingPill,
+                    accepted && styles.acceptedPill,
+                    rejected && styles.rejectedPill,
+                  ]}
                   accessible
                   accessibilityLabel={pill}
                 >
                   <Text
-                    style={[styles.statusPillText, rejected && styles.rejectedPillText]}
+                    style={[
+                      styles.statusPillText,
+                      pending && styles.pendingPillText,
+                      accepted && styles.acceptedPillText,
+                      rejected && styles.rejectedPillText,
+                    ]}
                     allowFontScaling={false}
                     numberOfLines={1}
                   >
@@ -442,7 +448,7 @@ const styles = StyleSheet.create({
   // textMuted, not textSubtle: the strike already says "gone"; the colour
   // only has to stop the number competing with the live ones around it.
   voidedAmount: { textDecorationLine: "line-through", color: colors.textMuted },
-  // Monochrome micro-pill (the person header's readOnlyChip idiom), but with
+  // Compact semantic micro-pill (the person header's readOnlyChip idiom), with
   // a FIXED height instead of vertical padding: it must fit the 20px line box
   // of the amount beside it, and Vazirmatn's natural line height at 11px
   // already exceeds that on iOS with any padding at all.
@@ -455,6 +461,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexShrink: 0,
   },
+  pendingPill: { backgroundColor: colors.pendingBg },
+  pendingPillText: { color: colors.pendingText },
+  acceptedPill: { backgroundColor: colors.acceptedBg },
+  acceptedPillText: { color: colors.acceptedText },
   rejectedPill: { backgroundColor: colors.rejectedBg },
   rejectedPillText: { color: colors.rejectedText },
   byName: { fontFamily: fonts.sansBold },

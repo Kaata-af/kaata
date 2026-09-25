@@ -151,6 +151,8 @@ type querier interface {
 
 // Entry is one tally as the client sees it.
 type Entry struct {
+	AuthorAccountID *string `json:"author_account_id"`
+	AuthorName      string  `json:"author_name"`
 	ID              string  `json:"id"`
 	Seq             int64   `json:"seq"`
 	Rev             int64   `json:"rev"`
@@ -174,8 +176,9 @@ type Entry struct {
 
 // PartyMeta is one side of the tab as shown to either side.
 type PartyMeta struct {
-	Label      string `json:"label"`
-	JoinedAtMS *int64 `json:"joined_at_ms"`
+	AccountName string `json:"account_name"`
+	Label       string `json:"label"`
+	JoinedAtMS  *int64 `json:"joined_at_ms"`
 	// Bound is true when a session account is attached — the phone can
 	// recover this tab through GET /v1/tabs/mine after a reinstall.
 	Bound bool `json:"bound"`
@@ -538,14 +541,14 @@ func nextSeq(ctx context.Context, tx pgx.Tx, tabID string) (int64, error) {
 // consumes it in the same order.
 const entryCols = `id::text, seq, rev, created_by, direction, amount_minor, kind, note,
 	occurred_at_ms, created_at, status, status_at_ms, dispute_reason,
-	voids_entry_id::text, voided_by_entry_id::text`
+	voids_entry_id::text, voided_by_entry_id::text, author_account_id::text, author_name`
 
 func scanEntry(row pgx.Row) (Entry, error) {
 	var e Entry
 	var createdAt time.Time
 	if err := row.Scan(&e.ID, &e.Seq, &e.Rev, &e.CreatedBy, &e.Direction, &e.amountMinor, &e.Kind, &e.Note,
 		&e.OccurredAtMS, &createdAt, &e.Status, &e.StatusAtMS, &e.DisputeReason,
-		&e.VoidsEntryID, &e.VoidedByEntryID); err != nil {
+		&e.VoidsEntryID, &e.VoidedByEntryID, &e.AuthorAccountID, &e.AuthorName); err != nil {
 		return Entry{}, err
 	}
 	e.Amount = formatMinor(e.amountMinor)
@@ -602,6 +605,7 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 		createdAt        time.Time
 		closedAt         *time.Time
 		aLabel, bLabel   string
+		aName, bName     string
 		aJoined, bJoined *time.Time
 		aBound, bBound   bool
 		balanceA         int64
@@ -610,8 +614,8 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 	)
 	err := q.QueryRow(ctx, `
 		SELECT t.currency, t.rev, t.created_at, t.closed_at, t.closed_by,
-		       pa.label, pa.joined_at, pa.account_id IS NOT NULL,
-		       pb.label, pb.joined_at, pb.account_id IS NOT NULL,
+		       pa.label, pa.joined_at, pa.account_id IS NOT NULL, COALESCE(aa.name, ''),
+		       pb.label, pb.joined_at, pb.account_id IS NOT NULL, COALESCE(ab.name, ''),
 		       COALESCE((SELECT SUM(CASE WHEN e.direction = 'a_to_b' THEN e.amount_minor ELSE -e.amount_minor END)
 		                   FROM tab_entries e
 		                  WHERE e.tab_id = t.id AND e.kind <> 'void' AND e.voided_by_entry_id IS NULL AND e.status <> 'disputed'), 0)::BIGINT,
@@ -621,9 +625,11 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 		  FROM tabs t
 		  JOIN tab_parties pa ON pa.tab_id = t.id AND pa.role = 'a'
 		  JOIN tab_parties pb ON pb.tab_id = t.id AND pb.role = 'b'
+		  LEFT JOIN accounts aa ON aa.id=pa.account_id
+		  LEFT JOIN accounts ab ON ab.id=pb.account_id
 		 WHERE t.id = $1::uuid
 	`, tabID, you).Scan(&t.Currency, &t.Rev, &createdAt, &closedAt, &closedBy,
-		&aLabel, &aJoined, &aBound, &bLabel, &bJoined, &bBound, &balanceA, &pending)
+		&aLabel, &aJoined, &aBound, &aName, &bLabel, &bJoined, &bBound, &bName, &balanceA, &pending)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return Tab{}, ErrNotFound
@@ -636,8 +642,8 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 	t.ClosedBy = closedBy
 	t.You = you
 	t.Parties = map[string]PartyMeta{
-		"a": {Label: aLabel, JoinedAtMS: msPtr(aJoined), Bound: aBound},
-		"b": {Label: bLabel, JoinedAtMS: msPtr(bJoined), Bound: bBound},
+		"a": {Label: aLabel, AccountName: aName, JoinedAtMS: msPtr(aJoined), Bound: aBound},
+		"b": {Label: bLabel, AccountName: bName, JoinedAtMS: msPtr(bJoined), Bound: bBound},
 	}
 	t.Balance = map[string]string{
 		"a": formatMinor(balanceA),
@@ -785,16 +791,16 @@ func checkContactBinding(ctx context.Context, tx pgx.Tx, tabID, role, currency s
 // as the wire Entry. voidsEntryID is set on kind='void' rows only.
 func insertEntry(ctx context.Context, tx pgx.Tx, tabID string, id string, seq, rev int64,
 	createdBy, direction string, amountMinor int64, kind string, note *string,
-	occurredAtMS int64, status string, statusAtMS *int64, voidsEntryID *string) (Entry, error) {
+	occurredAtMS int64, status string, statusAtMS *int64, voidsEntryID *string, authorAccountID *string) (Entry, error) {
 	e, err := scanEntry(tx.QueryRow(ctx, `
 		INSERT INTO tab_entries (
 			id, tab_id, seq, rev, created_by, direction, amount_minor, kind, note,
-			occurred_at_ms, status, status_at_ms, voids_entry_id
-		) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::uuid)
+			occurred_at_ms, status, status_at_ms, voids_entry_id, author_account_id, author_name
+		) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::uuid, $14::uuid, COALESCE((SELECT name FROM accounts WHERE id=$14::uuid), ''))
 		ON CONFLICT (id) DO NOTHING
 		RETURNING `+entryCols,
 		id, tabID, seq, rev, createdBy, direction, amountMinor, kind, note,
-		occurredAtMS, status, statusAtMS, voidsEntryID))
+		occurredAtMS, status, statusAtMS, voidsEntryID, authorAccountID))
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		// ON CONFLICT DO NOTHING returned no row: the id landed in ANOTHER
@@ -937,12 +943,12 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 
 	entries := make([]Entry, 0, 1)
 	if in.Opening != nil {
-		rev, err := bumpRev(ctx, tx, tabID, "a")
+		rev, err := bumpRev(ctx, tx, tabID, "a", pushEvent{Kind: "updated", ActorAccountID: in.AccountID})
 		if err != nil {
 			return CreateResult{}, err
 		}
 		e, err := insertEntry(ctx, tx, tabID, uuid.NewString(), 1, rev, "a", in.Opening.Direction,
-			openingMinor, "opening", openingNote, in.Opening.OccurredAtMS, "pending", nil, nil)
+			openingMinor, "opening", openingNote, in.Opening.OccurredAtMS, "pending", nil, nil, in.AccountID)
 		if err != nil {
 			return CreateResult{}, err
 		}
@@ -1094,7 +1100,7 @@ func (s *Service) Join(ctx context.Context, p Party, in JoinInput) (TabResponse,
 	if err := setLinkBoundary(ctx, tx, p.TabID, p.Role, in.LinkedAtMS); err != nil {
 		return TabResponse{}, err
 	}
-	if _, err := bumpRev(ctx, tx, p.TabID, p.Role); err != nil {
+	if _, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("updated", "")); err != nil {
 		return TabResponse{}, err
 	}
 	resp, err := fullResponse(ctx, tx, p.TabID, p.Role)
@@ -1164,7 +1170,7 @@ func (s *Service) Bind(ctx context.Context, p Party, in BindInput) (TabResponse,
 		return TabResponse{}, err
 	}
 	if !unchanged {
-		if _, err := bumpRev(ctx, tx, p.TabID, p.Role); err != nil {
+		if _, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("updated", "")); err != nil {
 			return TabResponse{}, err
 		}
 	}
@@ -1203,7 +1209,7 @@ func (s *Service) SetLabel(ctx context.Context, p Party, label string) (TabRespo
 	`, p.TabID, p.Role, label); err != nil {
 		return TabResponse{}, fmt.Errorf("set label: %w", err)
 	}
-	if _, err := bumpRev(ctx, tx, p.TabID, p.Role); err != nil {
+	if _, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("updated", "")); err != nil {
 		return TabResponse{}, err
 	}
 	resp, err := fullResponse(ctx, tx, p.TabID, p.Role)
@@ -1289,7 +1295,7 @@ func (s *Service) Append(ctx context.Context, p Party, in AppendInput) (AppendRe
 		return AppendResult{}, ErrTabClosed
 	}
 
-	rev, err := bumpRev(ctx, tx, p.TabID, p.Role, pushEvent{Kind: "entry_created", EntryID: in.ID})
+	rev, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("entry_created", in.ID))
 	if err != nil {
 		return AppendResult{}, err
 	}
@@ -1298,7 +1304,7 @@ func (s *Service) Append(ctx context.Context, p Party, in AppendInput) (AppendRe
 		return AppendResult{}, err
 	}
 	e, err := insertEntry(ctx, tx, p.TabID, in.ID, seq, rev, p.Role, in.Direction, minor, "entry", note,
-		in.OccurredAtMS, "pending", nil, nil)
+		in.OccurredAtMS, "pending", nil, nil, p.actorAccount())
 	if err != nil {
 		return AppendResult{}, err
 	}
@@ -1400,7 +1406,7 @@ func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string
 	if status == "disputed" {
 		kind = "entry_rejected"
 	}
-	rev, err := bumpRev(ctx, tx, p.TabID, p.Role, pushEvent{Kind: kind, EntryID: entryID})
+	rev, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent(kind, entryID))
 	if err != nil {
 		return EntryResponse{}, err
 	}
@@ -1472,7 +1478,7 @@ func (s *Service) Void(ctx context.Context, p Party, entryID string) (VoidRespon
 	if orig.CreatedBy != p.Role {
 		return VoidResponse{}, ErrNotAuthor
 	}
-	rev, err := bumpRev(ctx, tx, p.TabID, p.Role, pushEvent{Kind: "entry_voided", EntryID: entryID})
+	rev, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("entry_voided", entryID))
 	if err != nil {
 		return VoidResponse{}, err
 	}
@@ -1482,7 +1488,7 @@ func (s *Service) Void(ctx context.Context, p Party, entryID string) (VoidRespon
 	}
 	now := nowMS()
 	void, err := insertEntry(ctx, tx, p.TabID, uuid.NewString(), seq, rev, p.Role, opposite(orig.Direction),
-		orig.amountMinor, "void", nil, now, "accepted", &now, &orig.ID)
+		orig.amountMinor, "void", nil, now, "accepted", &now, &orig.ID, p.actorAccount())
 	if err != nil {
 		return VoidResponse{}, err
 	}
@@ -1527,7 +1533,7 @@ func (s *Service) Close(ctx context.Context, p Party) (TabResponse, error) {
 	`, p.TabID, p.Role); err != nil {
 		return TabResponse{}, fmt.Errorf("close tab: %w", err)
 	}
-	if _, err := bumpRev(ctx, tx, p.TabID, p.Role); err != nil {
+	if _, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("updated", "")); err != nil {
 		return TabResponse{}, err
 	}
 	resp, err := fullResponse(ctx, tx, p.TabID, p.Role)
@@ -1571,7 +1577,7 @@ func (s *Service) RegenerateLink(ctx context.Context, p Party) (string, error) {
 	`, p.TabID, hashPartyToken(token)); err != nil {
 		return "", fmt.Errorf("rotate token: %w", err)
 	}
-	if _, err := bumpRev(ctx, tx, p.TabID, p.Role); err != nil {
+	if _, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("updated", "")); err != nil {
 		return "", err
 	}
 	if err := tx.Commit(ctx); err != nil {

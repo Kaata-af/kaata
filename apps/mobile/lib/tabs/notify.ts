@@ -21,6 +21,7 @@ const TASK = "kaata-tab-notification-actions";
 const CHANNEL = "tab-updates";
 const ASKED = "tab_notify_asked";
 let nextRegistration = 0;
+let registrationAccount: string | null = null;
 let registering: Promise<void> | null = null;
 let notificationsPromise: Promise<typeof import("expo-notifications")> | null = null;
 const processing = new Map<string, Promise<void>>();
@@ -133,12 +134,20 @@ async function bootstrap() {
   const n = await notifications();
   if (!n) return;
   n.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowBanner: true,
-      shouldShowList: true,
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-    }),
+    handleNotification: async (notification) => {
+      const data = notification.request.content.data;
+      const show =
+        (AppState.currentState === "background" || AppState.currentState === "inactive") &&
+        !(
+          typeof data?.actor_account_id === "string" && data.actor_account_id === getAccountIdSync()
+        );
+      return {
+        shouldShowBanner: show,
+        shouldShowList: show,
+        shouldPlaySound: show,
+        shouldSetBadge: false,
+      };
+    },
   });
   n.addNotificationResponseReceivedListener((r) => {
     void handleResponse(r);
@@ -156,7 +165,19 @@ async function bootstrap() {
 if (!isRunningInExpoGo()) void bootstrap().catch(() => undefined);
 
 export function syncTabPushSubscriptions(): Promise<void> {
-  if (registering) return registering;
+  // Finish an in-flight registration under its original identity before a new
+  // account starts. Otherwise the old task can throttle the new one for an hour.
+  if (registering) {
+    return registering.then(() => {
+      if (getAccountIdSync() !== registrationAccount) return syncTabPushSubscriptions();
+    });
+  }
+  const account = getAccountIdSync();
+  if (account !== registrationAccount) {
+    nextRegistration = 0;
+    registrationAccount = account;
+  }
+  if (!account) return Promise.resolve();
   if (Date.now() < nextRegistration) return Promise.resolve();
   registering = (async () => {
     await drainNativeReviews();
@@ -185,13 +206,16 @@ export function syncTabPushSubscriptions(): Promise<void> {
     let enabled = false;
     let failed = false;
     for (const link of links) {
+      if (account !== getAccountIdSync()) return;
       try {
         const auth = await resolveTabAuth(link);
+        if (account !== getAccountIdSync()) return;
         const result = await registerTabNotifications(auth, link.tab_id, {
           install_id: getInstallIdSync(),
           token,
           locale: getLocale(),
         });
+        if (account !== getAccountIdSync()) return;
         const active = result.enabled && !!token;
         enabled ||= active;
         await setAppMeta("tab_push_active:" + link.tab_id, active ? String(Date.now()) : "0");
@@ -213,6 +237,7 @@ export function syncTabPushSubscriptions(): Promise<void> {
     nextRegistration = Date.now() + (failed ? 60_000 : 3600_000);
   })()
     .catch(async () => {
+      if (account !== getAccountIdSync()) return;
       nextRegistration = Date.now() + 60_000;
       await setAppMeta("tab_push_active", "0").catch(() => undefined);
       await setAppMeta("tab_push_error", "credentials_or_network").catch(() => undefined);
@@ -228,10 +253,10 @@ export async function ensureTabNotificationPermission() {
   await syncTabPushSubscriptions();
 }
 
-// Foreground pulls also notify. With server delivery active they only update
-// the UI; remote alerts are shown by the handler above, avoiding duplicates.
+// Foreground pulls only refresh UI. Background fallback alerts are used only
+// when remote delivery is unavailable, and never for our own write/ack.
 onTabApplied((ev) => {
-  if (ev.origin !== "pull" || !ev.changes?.length) return;
+  if (AppState.currentState === "active" || ev.origin !== "pull" || !ev.changes?.length) return;
   void (async () => {
     const registered = Number(await getAppMeta("tab_push_active:" + ev.tabId));
     if (registered && Date.now() - registered < 2 * 3600_000) return;
@@ -262,6 +287,20 @@ onTabApplied((ev) => {
         change.entryId,
         ev.tabId,
       );
+      // A pull/ack can race a local write. Never alert the writer or replay
+      // stale state as a new tally. Remote push is the main background path.
+      if (AppState.currentState === "active") return;
+      if (
+        change.kind === "entry_created" &&
+        (!entry ||
+          entry.created_by === link.role ||
+          entry.author_account_id === getAccountIdSync() ||
+          entry.local_pending ||
+          entry.status !== "pending" ||
+          entry.voided_by_entry_id)
+      )
+        continue;
+      if (change.kind === "entry_voided") continue; // our side's own cancellation
       if (entry) {
         body = t(
           change.kind === "entry_created"

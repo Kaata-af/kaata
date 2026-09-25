@@ -45,6 +45,11 @@ export const colors = {
   payStrong: "#A3203A",
 
   // Review state, independent of the money-direction colors above.
+  pendingBg: "#FFF4CF",
+  pendingText: "#856000",
+  acceptedBg: "#E8F4EF",
+  acceptedText: "#0A5A46",
+  tallyHighlight: "#DBEAFE",
   rejectedBg: "#FBECEC",
   rejectedText: "#A34242",
 
