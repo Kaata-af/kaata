@@ -29,7 +29,7 @@ import {
 import { getCurrentCurrencySymbol } from "../../lib/currency";
 import { createPerson, getActiveVaultArchivedState, listAllPeopleForSearch } from "../../lib/db";
 import { toAsciiDigits } from "../../lib/digits";
-import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
+import { ltrIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
 import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
@@ -43,6 +43,7 @@ import {
 import { PHONE_SEARCH_MIN_DIGITS, searchContacts } from "../../lib/search";
 import { icon, radius, TOUCH_MIN } from "../../lib/tokens";
 import type { PersonWithBalance } from "../../lib/types";
+import { SharedAccountBadge } from "../../components/SharedAccountBadge";
 
 // Max device contacts rendered in the "All contacts" card at once. The list is
 // a plain card (not virtualized), so a huge phone book would jank; typing
@@ -325,11 +326,14 @@ export default function PersonAddOrFindScreen() {
           style={({ pressed }) => [styles.row, rowDir(isRTL), pressed && styles.rowPressed]}
         >
           <View style={[styles.rowLeft, isRTL && styles.rowLeftRTL]}>
-            <Text style={[styles.rowName, textDir(isRTL)]} numberOfLines={1}>
-              {p.name}
-            </Text>
+            <View style={[rowDir(isRTL), { alignItems: "center", gap: 5 }]}>
+              <Text style={[styles.rowName, textDir(isRTL), { flexShrink: 1 }]} numberOfLines={1}>
+                {p.name}
+              </Text>
+              {p.tab_id && p.tab_closed_at == null ? <SharedAccountBadge /> : null}
+            </View>
             <Text style={[styles.rowSub, textDir(isRTL)]} numberOfLines={1}>
-              {p.phone ?? t("contacts.noPhone")}
+              {p.phone ? ltrIsolate(p.phone) : t("contacts.noPhone")}
             </Text>
           </View>
           <RightAmount balance={p.balance} hasEntries={p.last_entry_at !== null} />
@@ -349,7 +353,7 @@ export default function PersonAddOrFindScreen() {
             {c.name}
           </Text>
           <Text style={[styles.rowSub, textDir(isRTL)]} numberOfLines={1}>
-            {c.phone ?? t("contacts.noPhone")}
+            {c.phone ? ltrIsolate(c.phone) : t("contacts.noPhone")}
           </Text>
         </View>
         <Ionicons name="add-circle-outline" size={icon.row} color={colors.textMuted} />
@@ -468,7 +472,7 @@ export default function PersonAddOrFindScreen() {
               ]}
             >
               <Text style={styles.countryFlag}>{country.flag}</Text>
-              <Text style={styles.countryDial}>{country.dialCode}</Text>
+              <Text style={styles.countryDial}>{ltrIsolate(country.dialCode)}</Text>
               <Ionicons name="chevron-down" size={icon.trailing} color={colors.textMuted} />
             </Pressable>
             <TextInput

@@ -56,6 +56,7 @@ var (
 	ErrOwnEntry          = errors.New("cannot accept or dispute your own entry")
 	ErrAuthRequired      = errors.New("authentication required")
 	ErrStaleReview       = errors.New("tally has changed; review its latest state")
+	ErrReviewFinal       = errors.New("tally already reviewed; send a new tally instead")
 	ErrAlreadyVoided     = errors.New("entry is already voided")
 	ErrIDTaken           = errors.New("entry id belongs to another tab or author")
 	ErrInvalidAmount     = errors.New("amount must be a decimal string with up to two decimals, above 0 and at most 9999999999.99")
@@ -1385,6 +1386,13 @@ func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string
 		tab, err := loadTab(ctx, tx, p.TabID, p.Role)
 		return EntryResponse{Entry: e, Tab: tab}, err
 	}
+	// The row is locked: concurrent phones/notification actions can only make
+	// ONE decision. Identical retries above remain safe after a lost response;
+	// neither a different verdict nor an edited rejection reason may replace it.
+	// Enforce this even for older clients that omit expectedRev.
+	if e.Status != "pending" {
+		return EntryResponse{}, ErrReviewFinal
+	}
 	if len(expectedRev) > 0 && expectedRev[0] > 0 && e.Rev != expectedRev[0] {
 		return EntryResponse{}, ErrStaleReview
 	}
@@ -1417,14 +1425,13 @@ func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string
 	return EntryResponse{Entry: updated, Tab: tab}, nil
 }
 
-// Accept marks the other party's tally accepted. Accepting a disputed entry
-// clears the dispute (reason back to NULL).
+// Accept makes the other party's pending tally permanently accepted.
 func (s *Service) Accept(ctx context.Context, p Party, entryID string, expectedRev ...int64) (EntryResponse, error) {
 	return s.setStatus(ctx, p, entryID, "accepted", nil, expectedRev...)
 }
 
-// Dispute flags the other party's tally with a reason (≤ 300 chars). The
-// author resolves it by voiding (and re-adding) — the roadmap's model.
+// Dispute permanently rejects a pending tally, with an optional reason
+// (≤ 300 chars). A correction must be sent as a new tally.
 func (s *Service) Dispute(ctx context.Context, p Party, entryID, reason string, expectedRev ...int64) (EntryResponse, error) {
 	reason = strings.TrimSpace(reason)
 	if utf8.RuneCountInString(reason) > maxReasonRunes {

@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Clipboard from "expo-clipboard";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -18,6 +17,8 @@ import { Chip } from "../../components/Chip";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { EmptyState } from "../../components/EmptyState";
 import { EntryRow } from "../../components/EntryRow";
+import { SharedAccountBadge } from "../../components/SharedAccountBadge";
+import { LinkAccountDialog } from "../../components/LinkAccountDialog";
 import { OverflowMenu } from "../../components/OverflowMenu";
 import { OptionSheet } from "../../components/OptionSheet";
 import { useToast, useToastOffset } from "../../components/Toast";
@@ -48,18 +49,18 @@ import {
   type ExportFormat,
 } from "../../lib/export";
 import { useLedgerRefresh } from "../../lib/ledger-events";
-import { bidiIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
-import { fonts } from "../../lib/fonts";
+import {
+  bidiIsolate,
+  ltrIsolate,
+  rowDir,
+  textDir,
+  trackingSafe,
+  useIsRTL,
+} from "../../lib/direction";
+import { fonts, sansLineHeight } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
 import { sumAmounts } from "../../lib/money";
-import {
-  getLocale,
-  getShareLangPref,
-  resolveShareLang,
-  t,
-  tIn,
-  type LocaleCode,
-} from "../../lib/i18n";
+import { getLocale, getShareLangPref, resolveShareLang, t, type LocaleCode } from "../../lib/i18n";
 import { formatSettlementDate } from "../../lib/jalali";
 import { useCalendar } from "../../lib/calendar";
 import { shareKaataViaWhatsApp } from "../../lib/share";
@@ -71,10 +72,7 @@ import {
 import {
   acceptEntry,
   disputeEntry,
-  linkContact,
   regenerateInviteLink,
-  shareTabLinkOnWhatsApp,
-  TabAlreadyLinkedError,
   TabAuthUnavailableError,
   TabClosedError,
   TabPermissionError,
@@ -82,6 +80,7 @@ import {
   voidEntry,
 } from "../../lib/tabs/link";
 import { onTabApplied, requestTabSync } from "../../lib/tabs/sync";
+import { TabReviewFinalError } from "../../lib/tabs/errors";
 import type { TabLink } from "../../lib/tabs/types";
 import { icon, radius, TOUCH_MIN, typography } from "../../lib/tokens";
 import { useActiveVaultWriteCaps } from "../../lib/use-vault-role";
@@ -95,6 +94,7 @@ import type { Entry, PersonWithBalance, Self } from "../../lib/types";
 // itself, and no credential means "go online" rather than a generic failure.
 function tabErrorMessage(err: unknown): string {
   if (err instanceof TabPermissionError) return t("entry.roleDenied");
+  if (err instanceof TabReviewFinalError) return t("tab.reviewFinal");
   if (err instanceof TabClosedError) return t("tab.closed");
   if (err instanceof TabAuthUnavailableError) return t("tab.needsConnection");
   return t("entry.saveFailed");
@@ -108,6 +108,7 @@ export default function PersonDetailScreen() {
   const router = useRouter();
   const toast = useToast();
   const toastOffset = useToastOffset();
+  const [actionsHeight, setActionsHeight] = useState(100);
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   // Subscribes to locale changes — flipping language in Settings re-renders
@@ -169,18 +170,9 @@ export default function PersonDetailScreen() {
   const [preLinkOpen, setPreLinkOpen] = useState(false);
   const [failedTallies, setFailedTallies] = useState<Entry[]>([]);
   const [failedTalliesOpen, setFailedTalliesOpen] = useState(false);
-  // Sheets and dialogs of the link flow, in the order the user meets them:
-  // header button → link sheet → confirm → (network) → share sheet. Once
-  // linked, the chip beside the direction chip opens `linkedSheet`.
-  const [linkSheetVisible, setLinkSheetVisible] = useState(false);
-  const [confirmLink, setConfirmLink] = useState(false);
-  const [linking, setLinking] = useState(false);
-  const linkingRef = useRef(false);
-  const [shareSheetVisible, setShareSheetVisible] = useState(false);
-  // Parallel to askLangVisible: the invite is a WhatsApp message too, so it
-  // honours the same share_lang_pref = 'ask' flow, but through its own sheet
-  // so the pick can never be routed to the ping by mistake.
-  const [inviteAskLangVisible, setInviteAskLangVisible] = useState(false);
+  // The menu opens ONE invitation dialog: explanation, creation, and (only
+  // without a saved number) delivery choices all stay on the same surface.
+  const [inviteVisible, setInviteVisible] = useState(false);
   const [linkedSheetVisible, setLinkedSheetVisible] = useState(false);
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [confirmUnlink, setConfirmUnlink] = useState(false);
@@ -288,7 +280,11 @@ export default function PersonDetailScreen() {
     () =>
       sumAmounts(
         chapterEntries.map((e) =>
-          (e.tab?.voided || e.tab?.status === "disputed") ? 0 : e.type === "debt" ? e.amount_afn : -e.amount_afn,
+          e.tab?.voided || e.tab?.status === "disputed"
+            ? 0
+            : e.type === "debt"
+              ? e.amount_afn
+              : -e.amount_afn,
         ),
       ),
     [chapterEntries],
@@ -478,92 +474,24 @@ export default function PersonDetailScreen() {
   // ---- Mutual tab flows -------------------------------------------------
   //
   // Every rule (role, currency, already-linked, closed) lives in
-  // lib/tabs/link.ts; this screen only sequences the sheets and words the
-  // outcome. Two Modal-timing facts shape the sequencing below: BottomSheet
-  // defers each action 220 ms past its own exit, so a ConfirmDialog opened
-  // from a sheet action is safe as-is, but a sheet opened after a
-  // ConfirmDialog's onConfirm needs an explicit 220 ms so the two Modals
-  // never overlap mid-frame (Android renders the second one blank).
+  // lib/tabs/link.ts. LinkAccountDialog owns the single-surface invitation flow.
+  // BottomSheet waits for its exit before opening that dialog; destructive
+  // management actions still have their own explicit confirmations.
 
   // How this kaata names itself to the other party — the shop's name when
   // there is one, otherwise the shopkeeper's. Also the sender in the invite.
   const myLabel = self?.shop_name || self?.name || "";
 
-  // Party a creates the tab (D7 opening entry inside linkContact), then goes
-  // straight to the share sheet: a link nobody has received is not a link.
-  async function doLink() {
-    if (!person || linkingRef.current) return;
-    linkingRef.current = true;
-    setLinking(true);
-    try {
-      // No openingNote: the opening entry's meaning is structural, so each
-      // side labels it in its own language (EntryRow and the web page both
-      // fall back to it) rather than freezing THIS phone's wording into a
-      // record the other party reads.
-      await linkContact(person.id, { myLabel });
-      await load();
-      setTimeout(() => setShareSheetVisible(true), 220);
-    } catch (err) {
-      if (err instanceof TabAlreadyLinkedError) {
-        // Another device (or a double tap that beat the guard) already did
-        // it — the reload shows the linked state; nothing to apologise for.
-        await load();
-      } else if (err instanceof TabAuthUnavailableError) {
-        await setAppMeta("pending_tab_person", person.id);
-        router.push("/onboarding/auth");
-      } else if (err instanceof TabPermissionError) {
-        toast.push(t("entry.roleDenied"), "error");
-      } else {
-        console.warn("[person] linkContact failed", err);
-        toast.push(t("tab.link.failed"), "error");
-      }
-    } finally {
-      linkingRef.current = false;
-      setLinking(false);
-    }
-  }
-
-  // Compose and send the invite in the given message language. The URL goes
-  // on its own line, untouched (see tab.invite.message in lib/i18n.ts).
-  const sendInvite = async (lang: LocaleCode) => {
-    if (!person || !link?.invite_url) return;
-    const text = tIn(lang, "tab.invite.message", { name: myLabel, url: link.invite_url });
-    const ok = await shareTabLinkOnWhatsApp(link, person, text);
-    if (ok) toast.push(t("tab.link.sent"), "success");
-    else toast.push(t("share.whatsappUnavailable"), "error");
-  };
-
-  // Same language rule as the ping: an explicit preference sends at once,
-  // 'ask' opens the per-send picker (its own sheet, see the state comment).
-  async function onShareInvite() {
-    const pref = await getShareLangPref();
-    if (pref === "ask") {
-      setInviteAskLangVisible(true);
-      return;
-    }
-    await sendInvite(resolveShareLang(pref));
-  }
-
-  async function onCopyInvite() {
-    if (!link?.invite_url) return;
-    try {
-      await Clipboard.setStringAsync(link.invite_url);
-      toast.push(t("tab.copied"), "success");
-    } catch (err) {
-      console.warn("[person] copy invite failed", err);
-      toast.push(t("entry.saveFailed"), "error");
-    }
-  }
-
   // D11: rotating B's link is the only remedy for a forwarded invite. The
-  // new URL is what gets shared next, so the share sheet follows at once.
+  // new URL is what gets shared next, using the same invitation dialog.
   async function onRegenerate() {
     setConfirmRegenerate(false);
     if (!link) return;
     try {
-      await regenerateInviteLink(link);
+      const inviteUrl = await regenerateInviteLink(link);
+      setTabHistory({ ...link, invite_url: inviteUrl });
       await load();
-      setTimeout(() => setShareSheetVisible(true), 220);
+      setTimeout(() => setInviteVisible(true), 220);
     } catch (err) {
       console.warn("[person] regenerateInviteLink failed", err);
       toast.push(
@@ -593,8 +521,7 @@ export default function PersonDetailScreen() {
     }
   }
 
-  // Accept is optional (D6) and also how a dispute is withdrawn, so it is
-  // offered on pending AND disputed rows of theirs.
+  // Only pending tallies can be reviewed; the first decision is final.
   async function onAccept(entry: Entry) {
     if (!link) return;
     try {
@@ -635,8 +562,7 @@ export default function PersonDetailScreen() {
 
   // Long-press actions for the tally under `sheetFor`. Tab rows swap the
   // local Edit/Delete pair for the tab verbs: the author may only void; the
-  // other side may accept or dispute, and a disputed row offers Accept (which
-  // clears the dispute) while an accepted row still offers Dispute. Voided
+  // other side reviews pending tallies inline, not through this sheet. Voided
   // rows never reach here — their long-press is disabled at the row.
   const sheetActions = (() => {
     const target = sheetFor;
@@ -746,18 +672,48 @@ export default function PersonDetailScreen() {
             color={colors.textEmphasis}
           />
         </Pressable>
-        <OverflowMenu actions={[
-          ...(canAmend ? [{
-            label: t("person.sheet.edit"), icon: "create-outline" as const,
-            onPress: () => router.push({ pathname: "/person/[id]/edit", params: { id: person.id } }),
-          }, {
-            label: link ? t("tab.join.title") : t("tab.link.title"), icon: "link-outline" as const,
-            disabled: linking,
-            onPress: () => link ? setLinkedSheetVisible(true) : setLinkSheetVisible(true),
-          }] : []),
-          { label: t("personEdit.export"), icon: "document-text-outline", disabled: exporting,
-            onPress: () => setExportSheetVisible(true) },
-        ]} />
+        <OverflowMenu
+          actions={[
+            ...(entries.length > 0
+              ? [
+                  {
+                    label: t("person.ping", { name: person.name }),
+                    icon: "logo-whatsapp" as const,
+                    disabled: pinging,
+                    onPress: () => {
+                      void (async () => {
+                        if (pingBusyRef.current) return;
+                        const pref = await getShareLangPref();
+                        if (pref === "ask") setAskLangVisible(true);
+                        else await sendPing(resolveShareLang(pref));
+                      })().catch(() => toast.push(t("share.whatsappUnavailable"), "error"));
+                    },
+                  },
+                ]
+              : []),
+            ...(canAmend
+              ? [
+                  {
+                    label: t("person.sheet.edit"),
+                    icon: "create-outline" as const,
+                    onPress: () =>
+                      router.push({ pathname: "/person/[id]/edit", params: { id: person.id } }),
+                  },
+                  {
+                    label: link ? t("tab.join.title") : t("tab.link.title"),
+                    icon: "checkmark-circle" as const,
+                    onPress: () => (link ? setLinkedSheetVisible(true) : setInviteVisible(true)),
+                  },
+                ]
+              : []),
+            {
+              label: t("personEdit.export"),
+              icon: "document-text-outline",
+              disabled: exporting,
+              onPress: () => setExportSheetVisible(true),
+            },
+          ]}
+        />
       </View>
 
       {/* One person's tallies are bounded, so render them as ONE bordered card
@@ -771,14 +727,24 @@ export default function PersonDetailScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingBottom: (entries.length > 0 ? 96 : 24) + insets.bottom,
+          paddingBottom: canCreate ? actionsHeight + 24 : 24 + insets.bottom,
         }}
       >
         <View>
           <View style={styles.info}>
-            <Text style={[styles.name, textDir(isRTL)]}>{person.name}</Text>
+            <View style={[styles.nameRow, rowDir(isRTL)]}>
+              <Text style={[styles.name, { flexShrink: 1 }, textDir(isRTL)]}>{person.name}</Text>
+              {link ? <SharedAccountBadge size={20} /> : null}
+            </View>
             {person.phone ? (
-              <Text style={[styles.phone, textDir(isRTL)]}>{person.phone}</Text>
+              <Text
+                style={[
+                  styles.phone,
+                  { writingDirection: "ltr", textAlign: isRTL ? "right" : "left" },
+                ]}
+              >
+                {ltrIsolate(person.phone)}
+              </Text>
             ) : null}
             <View style={{ height: 16 }} />
             <View style={[styles.chipRow, rowDir(isRTL)]}>
@@ -802,9 +768,7 @@ export default function PersonDetailScreen() {
                 <Chip label={t("person.balance.notSettled")} variant="outline" />
               ) : null}
               {link ? (
-                // The tab's handle. Monochrome (readOnlyChip idiom) beside the
-                // coloured direction chip: linked-ness is a fact about the
-                // account, direction is the only thing colour says here. The
+                // The shared-account handle beside the direction chip. The
                 // label carries the other party's OWN name for themselves
                 // (their label) once they have joined, or says the link is
                 // still out there. Tapping opens the manage sheet for editors;
@@ -815,7 +779,7 @@ export default function PersonDetailScreen() {
                   accessibilityRole={canAmend ? "button" : "text"}
                   style={({ pressed }) => [styles.readOnlyChip, pressed && { opacity: 0.5 }]}
                 >
-                  <Ionicons name="link-outline" size={12} color={colors.textSubtle} />
+                  <SharedAccountBadge size={14} />
                   <Text style={styles.readOnlyChipText} allowFontScaling={false} numberOfLines={1}>
                     {link.other_joined_at != null
                       ? t("tab.chip.linked", { name: link.other_label || person.name })
@@ -836,60 +800,6 @@ export default function PersonDetailScreen() {
               <Text style={styles.balanceAfn}>{getCurrentCurrencySymbol()}</Text>
             </View>
           </View>
-
-          {/*
-           * INVARIANT: "I gave" on the RIGHT, "I received" on the LEFT.
-           * Right-hand-is-giving cultural rule. The actions style below uses
-           * `flexDirection: "row"` and relies on the Activity being LTR —
-           * that's guaranteed by _layout.tsx's I18nManager neutralization +
-           * one-shot migration prompt. If the Activity were RTL, Yoga would
-           * auto-reverse children and "I gave" would land on the left
-           * (the v0.2.4 bug).
-           */}
-          {canCreate ? (
-            <View style={styles.actions}>
-              <View style={styles.actionBtnWrap}>
-                <Pressable
-                  onPress={() =>
-                    router.push({
-                      pathname: "/entry/new",
-                      params: { personId: person.id, type: "payment" },
-                    })
-                  }
-                  style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
-                >
-                  {/* 16 is composed INTO the fixed 26px coin (see
-                      actionIconCoin), so the icon scale does not apply here —
-                      icon.trailing/row would fill or overflow the well. */}
-                  <View style={styles.actionIconCoin}>
-                    <Ionicons name="arrow-down-outline" size={16} color={colors.textInverted} />
-                  </View>
-                  <Text style={[styles.actionText, trackingSafe(isRTL)]}>
-                    {t("person.action.iReceived")}
-                  </Text>
-                </Pressable>
-              </View>
-              <View style={styles.actionBtnWrap}>
-                <Pressable
-                  onPress={() =>
-                    router.push({
-                      pathname: "/entry/new",
-                      params: { personId: person.id, type: "debt" },
-                    })
-                  }
-                  style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
-                >
-                  {/* 16, composed into the coin — same reason as "I received". */}
-                  <View style={styles.actionIconCoin}>
-                    <Ionicons name="arrow-up-outline" size={16} color={colors.textInverted} />
-                  </View>
-                  <Text style={[styles.actionText, trackingSafe(isRTL)]}>
-                    {t("person.action.iGave")}
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-          ) : null}
         </View>
 
         {/* Settle-up affordance — deliberately NOT a button. A ruled line,
@@ -962,7 +872,11 @@ export default function PersonDetailScreen() {
               // they get no sheet either, rather than a menu of no-ops.
               const frozenTabRow = entry.tab != null && link == null;
               const canOpenSheet =
-                canAmend && !inSettledChapter && !entry.tab?.voided && !frozenTabRow && (!entry.tab || entry.tab.by === "me");
+                canAmend &&
+                !inSettledChapter &&
+                !entry.tab?.voided &&
+                !frozenTabRow &&
+                (!entry.tab || entry.tab.by === "me");
               return (
                 <View key={entry.id}>
                   {index > 0 && historyItems[index - 1].kind !== "marker" ? (
@@ -1070,41 +984,62 @@ export default function PersonDetailScreen() {
         ) : null}
       </ScrollView>
 
-      {entries.length > 0 ? (
+      {/* Same floating geometry as the old ping bar, including its toast lift.
+          Received LEFT, gave RIGHT regardless of language. */}
+      {canCreate ? (
         <Animated.View
           pointerEvents="box-none"
+          onLayout={(event) => setActionsHeight(event.nativeEvent.layout.height)}
           style={[
-            styles.pingBar,
-            { paddingBottom: 20 + insets.bottom, transform: [{ translateY: toastOffset }] },
+            styles.actions,
+            {
+              paddingBottom: 20 + insets.bottom,
+              transform: [{ translateY: toastOffset }],
+            },
           ]}
         >
-          <Pressable
-            onPress={async () => {
-              if (pingBusyRef.current) return;
-              const pref = await getShareLangPref();
-              if (pref === "ask") {
-                setAskLangVisible(true);
-                return;
+          <View style={styles.actionBtnWrap}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() =>
+                router.push({
+                  pathname: "/entry/new",
+                  params: { personId: person.id, type: "payment" },
+                })
               }
-              await sendPing(resolveShareLang(pref));
-            }}
-            disabled={pinging}
-            accessibilityRole="button"
-            style={({ pressed }) => [
-              styles.pingButton,
-              pressed && { opacity: 0.85 },
-              pinging && { opacity: 0.6 },
-            ]}
-          >
-            {pinging ? (
-              <ActivityIndicator size="small" color={colors.textInverted} />
-            ) : (
-              <Ionicons name="logo-whatsapp" size={icon.row} color={colors.textInverted} />
-            )}
-            <Text style={styles.pingButtonLabel} numberOfLines={1}>
-              {t("person.ping", { name: person.name })}
-            </Text>
-          </Pressable>
+              style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
+            >
+              {/* 16 is composed INTO the fixed 26px coin (see
+                      actionIconCoin), so the icon scale does not apply here —
+                      icon.trailing/row would fill or overflow the well. */}
+              <View style={styles.actionIconCoin}>
+                <Ionicons name="arrow-down-outline" size={16} color={colors.textInverted} />
+              </View>
+              <Text style={[styles.actionText, trackingSafe(isRTL)]}>
+                {t("person.action.iReceived")}
+              </Text>
+            </Pressable>
+          </View>
+          <View style={styles.actionBtnWrap}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() =>
+                router.push({
+                  pathname: "/entry/new",
+                  params: { personId: person.id, type: "debt" },
+                })
+              }
+              style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
+            >
+              {/* 16, composed into the coin — same reason as "I received". */}
+              <View style={styles.actionIconCoin}>
+                <Ionicons name="arrow-up-outline" size={16} color={colors.textInverted} />
+              </View>
+              <Text style={[styles.actionText, trackingSafe(isRTL)]}>
+                {t("person.action.iGave")}
+              </Text>
+            </Pressable>
+          </View>
         </Animated.View>
       ) : null}
 
@@ -1153,70 +1088,22 @@ export default function PersonDetailScreen() {
 
       {/* ---- Mutual tab sheets & dialogs ---- */}
 
-      {/* Step 1 of linking: one action, so the header icon is not itself a
-          one-tap irreversible network write. The explanation lives in the
-          ConfirmDialog that follows (BottomSheet has no description slot). */}
-      <BottomSheet
-        visible={linkSheetVisible}
-        title={t("tab.link.title")}
-        onDismiss={() => setLinkSheetVisible(false)}
-        actions={[
-          {
-            label: t("tab.link.action"),
-            icon: "link-outline",
-            onPress: () => setConfirmLink(true),
-          },
-        ]}
-      />
-      <ConfirmDialog
-        visible={confirmLink}
-        title={t("tab.link.confirm.title")}
-        description={t("tab.link.confirm.body", { name: person.name })}
-        confirmLabel={t("tab.link.confirm.ok")}
-        onConfirm={() => {
-          // Close first (ConfirmDialog never self-dismisses), then the network
-          // step; the header spinner is the progress cue while it runs.
-          setConfirmLink(false);
-          void doLink();
+      <LinkAccountDialog
+        visible={inviteVisible}
+        person={person}
+        myLabel={myLabel}
+        link={link}
+        onLinked={(created) => {
+          setTabHistory(created);
+          void load();
         }}
-        onCancel={() => setConfirmLink(false)}
-      />
-
-      {/* Share sheet (party a only — party b has no invite URL). Titled with
-          the contact's name because the message is addressed to them. Copy
-          is offered alongside WhatsApp for the contact whose number we do
-          not have, or who is reached some other way. */}
-      <BottomSheet
-        visible={shareSheetVisible && !!link?.invite_url}
-        title={person.name}
-        onDismiss={() => setShareSheetVisible(false)}
-        actions={[
-          {
-            label: t("tab.share.whatsapp"),
-            icon: "logo-whatsapp",
-            onPress: () => void onShareInvite(),
-          },
-          {
-            label: t("tab.share.copy"),
-            icon: "copy-outline",
-            onPress: () => void onCopyInvite(),
-          },
-        ]}
-      />
-      <OptionSheet
-        visible={inviteAskLangVisible}
-        title={t("share.askLang.title")}
-        options={[
-          { key: "fa", label: t("settings.language.option.fa") },
-          { key: "en", label: t("settings.language.option.en") },
-        ]}
-        selected=""
-        onSelect={(k) => {
-          setInviteAskLangVisible(false);
-          void sendInvite(k as LocaleCode);
+        onDismiss={() => setInviteVisible(false)}
+        onAuthRequired={() => {
+          void (async () => {
+            await setAppMeta("pending_tab_person", person.id);
+            router.push("/onboarding/auth");
+          })().catch(() => toast.push(t("tab.link.failed"), "error"));
         }}
-        onDismiss={() => setInviteAskLangVisible(false)}
-        isRTL={isRTL}
       />
 
       {/* Manage sheet behind the linked chip. Re-share and regenerate exist
@@ -1232,7 +1119,7 @@ export default function PersonDetailScreen() {
                 {
                   label: t("tab.share.again"),
                   icon: "share-outline" as const,
-                  onPress: () => setShareSheetVisible(true),
+                  onPress: () => setInviteVisible(true),
                 },
               ]
             : []),
@@ -1394,6 +1281,7 @@ const styles = StyleSheet.create({
   // name, the anchor of the screen, and dropping a weight step here would read
   // as a demotion rather than a scale fix. Same fontFamily-override idiom as
   // Button's `textPill`.
+  nameRow: { flexDirection: "row", alignItems: "center", gap: 7 },
   name: { ...typography.heading, fontFamily: fonts.sansBold, color: colors.textEmphasis },
   phone: {
     fontSize: 13,
@@ -1431,17 +1319,23 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     paddingHorizontal: 16,
     gap: 10,
-    marginBottom: 20,
+    paddingTop: 12,
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   // Wrap View just exists to hang a ref for the tour spotlight. flex:1
   // so it behaves identically to the bare Pressable did before.
-  actionBtnWrap: { flex: 1 },
+  actionBtnWrap: { flex: 1, minWidth: 0 },
   actionBtn: {
-    flex: 1,
+    // No vertical flex:1 inside the auto-height wrapper: it collapses in Yoga.
+    minHeight: 54,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 9,
+    gap: 8,
+    paddingHorizontal: 10,
     paddingVertical: 13,
     borderRadius: radius.md,
     // Solid primary-button fill — same high-affordance language as the FAB and
@@ -1476,6 +1370,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   actionText: {
+    flexShrink: 1,
+    textAlign: "center",
+    lineHeight: sansLineHeight(15, 20),
     fontSize: 15,
     fontFamily: fonts.sansSemi,
     color: colors.textInverted,
@@ -1557,42 +1454,4 @@ const styles = StyleSheet.create({
   // Frozen pages sit on the muted ground the chapter lines use, so the eye
   // reads them as history the moment the fold opens.
   preLinkCard: { marginTop: 0, backgroundColor: colors.bgMuted },
-  pingBar: {
-    // Transparent container — NO opaque white background. The old
-    // backgroundColor: colors.bgDefault painted a big white rectangle behind the
-    // button. The button floats over the content (the ScrollView reserves
-    // paddingBottom so entries never sit under it); pointerEvents="box-none" lets
-    // touches in the empty area pass through.
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-  },
-  pingButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    height: 52,
-    borderRadius: radius.md,
-    backgroundColor: colors.bgInverted,
-    paddingHorizontal: 16,
-    // Subtle lift so the floating button reads cleanly without a backing bar.
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOpacity: 0.18,
-        shadowRadius: 12,
-        shadowOffset: { width: 0, height: 4 },
-      },
-      android: { elevation: 6 },
-    }),
-  },
-  pingButtonLabel: {
-    color: colors.textInverted,
-    fontFamily: fonts.sansSemi,
-    fontSize: 15,
-  },
 });

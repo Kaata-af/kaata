@@ -7,7 +7,7 @@ item is marked **DONE** (implemented + compile-verified: `tsc` and, for native,
 confirm. No overclaiming.
 
 Branch: `main` (Matee merged everything; working on main per his request).
-Build for him: `cd apps/mobile && bun apk --profile preview --local`.
+For current builds, follow CLAUDE.md’s testing-first store workflow.
 
 ---
 
@@ -76,12 +76,12 @@ are marked NEEDS-DEVICE-TEST (I couldn't run your Xiaomi/Galaxy overnight).
 - **C4** + FAB → search button — DONE (96c0a3e).
 - **C5** contacts ↔ phone book — DONE (fef96fd): write-on-add (best-effort, deduped) + READ via existing picker. NEEDS-DEVICE-TEST (phone-book write + WRITE_CONTACTS perm).
 - **D1** Xiaomi blank-white on launch — DONE (96c0a3e): screenWidth>0 rail gate. NEEDS-DEVICE-TEST.
-- **E1–E3** settings declutter + hide mesh — DONE (438f7c3): SOLO_STORE_MODE flag (set in eas.json preview/production), Kaata list + Nearby toggle hidden. NEEDS-DEVICE-TEST (visual).
+- **E1–E3** settings declutter + hide mesh — DONE (438f7c3): SOLO_STORE_MODE flag (set in eas.json production), Kaata list + Nearby toggle hidden. NEEDS-DEVICE-TEST (visual).
 - **F1–F3** admin analytics dashboard — DONE (c6c8a6e): backend /v1/admin/stats + /admin web page. DEPLOY: set ADMIN_API_KEY on kaata-backend, redeploy backend + web, route /admin + /v1/admin to backend, open kaata.af/admin.
 - **G1** shared-ledger schema — DONE (c6c8a6e): migration 021 added; schema READY. Applies on next backend deploy.
 
 REMAINING (your actions, can't do from here):
 
-- Rebuild the APK: `cd apps/mobile && bun apk --profile preview --local` (now solo-mode).
+- Build and submit to the store testing tracks using CLAUDE.md’s release workflow.
 - Redeploy the backend (picks up migration 021 + the admin endpoint) and set ADMIN_API_KEY.
 - On-device test the NEEDS-DEVICE-TEST items above.

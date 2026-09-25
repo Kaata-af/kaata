@@ -52,17 +52,22 @@ func TestNotificationReviewRevisionBalanceAndIdempotency(t *testing.T) {
 	if jobs != 1 {
 		t.Fatalf("duplicate alerts: %d", jobs)
 	}
-	if _, err = f.svc.Accept(ctx, pb, added.Entry.ID, added.Entry.Rev); !errors.Is(err, ErrStaleReview) {
+	if _, err = f.svc.Accept(ctx, pb, added.Entry.ID, added.Entry.Rev); !errors.Is(err, ErrReviewFinal) {
 		t.Fatalf("stale alert: %v", err)
 	}
-	accepted, err := f.svc.Accept(ctx, pb, added.Entry.ID, rejected.Entry.Rev)
+	if _, err = f.svc.Accept(ctx, pb, added.Entry.ID, rejected.Entry.Rev); !errors.Is(err, ErrReviewFinal) {
+		t.Fatalf("latest revision must not reopen a rejected tally: %v", err)
+	}
+	// Trying again is a NEW tally, not a status change on the rejected history.
+	fresh := f.append(t, pa, "a_to_b", "100", time.Now().UnixMilli())
+	accepted, err := f.svc.Accept(ctx, pb, fresh.Entry.ID, fresh.Entry.Rev)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if accepted.Tab.Balance["a"] != "100" || accepted.Tab.Balance["b"] != "-100" {
 		t.Fatal(accepted.Tab.Balance)
 	}
-	if _, err = f.svc.Accept(ctx, pa, added.Entry.ID, accepted.Entry.Rev); !errors.Is(err, ErrOwnEntry) {
+	if _, err = f.svc.Accept(ctx, pa, fresh.Entry.ID, accepted.Entry.Rev); !errors.Is(err, ErrOwnEntry) {
 		t.Fatalf("own review: %v", err)
 	}
 }

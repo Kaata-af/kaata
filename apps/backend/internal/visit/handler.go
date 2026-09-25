@@ -3,6 +3,7 @@ package visit
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"unicode/utf8"
 
 	"github.com/matee/kaata-backend/internal/httpx"
@@ -26,11 +27,9 @@ type visitRequest struct {
 
 // POST /v1/visit — fired once per browser session from the web bundle
 // (kind omitted / "visit"), and on every store-badge click on the download
-// page (kind "store_click", detail "play" | "appstore" — the store badges
-// replaced the direct APK button, so badge clicks are the new "download"
-// funnel stage). Server harvests IP + Accept-Language directly from the
-// request so the fingerprint can't be forged from the body. Source comes
-// from the `?s=` query param the QR encodes (passed through by the client).
+// page (kind "store_click", detail "play" | "appstore"). Server harvests
+// IP + Accept-Language directly from the request. Source comes from the
+// `?s=` query param the QR encodes (passed through by the client).
 func (h *Handler) Visit(w http.ResponseWriter, r *http.Request) {
 	var req visitRequest
 	// Public + anonymous: cap the body and clamp every client-controlled
@@ -73,19 +72,8 @@ func (h *Handler) Visit(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// GET /v1/download?s=foo — counts the download click then serves the APK.
-// QR codes can point straight here, skipping the landing page entirely:
-//
-//	kaata.af/v1/download?s=mandawi_qr_03
-//
-// Scan → tap → APK starts downloading, and the source is captured. The
-// fingerprint (IP) recorded here is later matched against the install's
-// first /v1/check-in to tie source → install_id.
-//
-// The bytes come from the LOCAL APK cache when warm (Range-capable, no
-// third-party URL expiry — the fix for "download stuck at 99%" on slow
-// connections, see apkcache.go), falling back to the classic 302 to
-// APK_DOWNLOAD_URL until the cache is ready.
+// GET /v1/download?s=foo preserves printed QR links and their attribution.
+// It redirects to the store landing page; analytics failures never block it.
 func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
 	// Range continuations are the SAME download being resumed, and HEAD
 	// requests are download-manager probes, not downloads — only count the
@@ -102,22 +90,16 @@ func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
 			AcceptLanguage: truncateUTF8(r.Header.Get("Accept-Language"), 200),
 		})
 	}
-	// count_only=1 is the web bundle's analytics beacon (used when the
-	// download button points straight at an external APK URL). Record the
-	// click but skip the body/redirect — a redirect can't be followed by the
-	// beacon's no-cors fetch and would make the request a network error,
-	// which is why web download counts were 0 once.
+	// Keep old clients' count-only analytics beacons compatible.
 	if r.URL.Query().Get("count_only") == "1" {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	// Fail open, twice over: analytics errors never block the download, and
-	// a cold/unwarmable cache falls back to the redirect this endpoint has
-	// always served.
-	if h.svc.ServeAPK(w, r) {
-		return
+	target := h.svc.DownloadURL()
+	if source := truncateUTF8(r.URL.Query().Get("s"), 200); source != "" {
+		target += "?" + url.Values{"s": []string{source}}.Encode()
 	}
-	http.Redirect(w, r, h.svc.APKDownloadURL(), http.StatusFound)
+	http.Redirect(w, r, target, http.StatusFound)
 }
 
 // truncateUTF8 caps s at max bytes, backing up to a rune boundary so the

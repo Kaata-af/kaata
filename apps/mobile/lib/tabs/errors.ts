@@ -85,6 +85,15 @@ export class TabClosedError extends Error {
   }
 }
 
+/** An accept/reject is final, including an already-queued offline decision. */
+export class TabReviewFinalError extends Error {
+  readonly kind = "tab_review_final" as const;
+  constructor() {
+    super("tally already reviewed; send a new tally instead");
+    this.name = "TabReviewFinalError";
+  }
+}
+
 /** Local input validation, so screens can map a code to copy without
  *  round-tripping to the server for what the phone can already see. */
 export type TabInputErrorCode =

@@ -385,8 +385,7 @@ class KaataBtClassicModule : Module() {
     // whitelist, hostile OEMs (MIUI/Huawei/Xiaomi) kill the unwhitelisted process
     // on swipe BEFORE the revival alarm can fire, so the FGS notification vanishes
     // and the native engine never runs. REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is
-    // already declared in the manifest; kaata sideloads (GitHub Releases), so the
-    // Play-Store restriction on this intent does not apply.
+    // already declared in the manifest. Nearby sync stays parked in store builds.
     AsyncFunction("isIgnoringBatteryOptimizations") { promise: Promise ->
       try {
         val pm = appCtx.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager

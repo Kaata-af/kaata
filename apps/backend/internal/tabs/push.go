@@ -1,8 +1,8 @@
 package tabs
 
 // Push is a delivery hint, never the ledger. Mutations enqueue inside their
-// transaction; the worker sends generic text and a tab ID, with no customer
-// name, balance, note, invitation token or authority to accept a tally.
+// transaction; the worker sends actor + tally amount, never balances, notes,
+// invitation tokens or authority to accept a tally. Inbox history is independent.
 import (
 	"bytes"
 	"context"
@@ -122,7 +122,16 @@ func queuePush(ctx context.Context, tx pgx.Tx, tabID, actor string, rev int64, e
 		event = events[0]
 	}
 
-	_, err := tx.Exec(ctx, `INSERT INTO tab_push_outbox(subscription_id,rev,event_kind,entry_id)
+	// Also persist when no device has granted push permission. A delivery job
+	// can expire or be deleted without erasing the user's notification history.
+	_, err := tx.Exec(ctx, `INSERT INTO tab_notifications(tab_id,rev,recipient_role,event_kind,entry_id,actor_label)
+ SELECT $1::uuid,$2,CASE WHEN $3='a' THEN 'b' ELSE 'a' END,$4,NULLIF($5,'')::uuid,label
+ FROM tab_parties WHERE tab_id=$1::uuid AND role=$3 ON CONFLICT DO NOTHING`,
+		tabID, rev, actor, event.Kind, event.EntryID)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO tab_push_outbox(subscription_id,rev,event_kind,entry_id)
   SELECT id,$2,$4,NULLIF($5,'')::uuid FROM tab_push_subscriptions WHERE tab_id=$1::uuid AND role<>$3
    AND renewed_at>NOW()-INTERVAL '30 days' ON CONFLICT DO NOTHING`, tabID, rev, actor, event.Kind, event.EntryID)
 	return err
@@ -202,6 +211,18 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
 		var sendErr error
 		if receipt == nil {
 			body := pushBody(kind, locale)
+			var actor, direction, currency string
+			var minor int64
+			err = tx.QueryRow(ctx, `SELECT n.actor_label,COALESCE(e.amount_minor,0),COALESCE(e.direction,''),t.currency
+ FROM tab_notifications n JOIN tabs t ON t.id=n.tab_id
+ LEFT JOIN tab_entries e ON e.id=n.entry_id AND e.tab_id=n.tab_id
+ WHERE n.tab_id=$1::uuid AND n.rev=$2`, tabID, rev).Scan(&actor, &minor, &direction, &currency)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return false, err
+			}
+			if err == nil {
+				body = detailedPushBody(kind, locale, actor, minor, direction, currency, role)
+			}
 			data := map[string]any{"tab_id": tabID, "rev": rev, "kind": kind, "role": role}
 			if entryID != "" {
 				data["entry_id"] = entryID

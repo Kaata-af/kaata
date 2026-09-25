@@ -77,6 +77,8 @@ func mapServiceError(err error) (int, string, string) {
 		return http.StatusNotFound, "entry_not_found", "entry not found"
 	case errors.Is(err, ErrStaleReview):
 		return http.StatusConflict, "stale_review", err.Error()
+	case errors.Is(err, ErrReviewFinal):
+		return http.StatusConflict, "review_final", err.Error()
 	case errors.Is(err, ErrTabClosed):
 		return http.StatusConflict, "tab_closed", err.Error()
 	case errors.Is(err, ErrNotAuthor):

@@ -125,3 +125,5 @@ export function trackingSafe(isRTL: boolean): { letterSpacing: 0 } | null {
 export function bidiIsolate(value: string): string {
   return `⁨${value}⁩`;
 }
+
+export { ltrIsolate } from "./bidi";

@@ -22,7 +22,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Tests
 
 - **Backend (Go):** `cd apps/backend && go test ./...`. These run against a REAL Postgres — no mocks, because the schema, partial unique indexes and `ON CONFLICT` arbiters _are_ the behaviour under test. `internal/testutil.ConnectTestDB` resets `public` with `DROP SCHEMA` and replays the full migration chain, so it must NEVER be pointed at the dev database. It reads `POSTGRES_TEST_URL`, defaulting to `postgres://kaata:kaata@localhost:5432/kaata_test`; if that server is unreachable every DB-backed test SKIPS, so a green run means nothing until you check for `ok` vs `[no tests to run]`. The `kaata` role has no CREATEDB, so creating the database needs the superuser: `psql -h localhost -U postgres -c "CREATE DATABASE kaata_test OWNER kaata"`. Without the postgres password, the throwaway-cluster route works and touches nothing: `initdb -D <tmp> -U postgres --auth=trust`, `pg_ctl -D <tmp> -o "-p 55432" start`, create role + db there, then `POSTGRES_TEST_URL=postgres://kaata@localhost:55432/kaata_test go test ./...`, and `pg_ctl stop` after. Binaries live in `C:\Program Files\PostgreSQL\18\bin`.
-- **Mobile:** `cd apps/mobile && npm run selftest:<name>` — `hlc`, `jalali`, `ingest`, `migration-014`, `money`, `person-save`, `device-key`, `attribution`, `tabs`, `notifications`. Plain Node scripts against the real modules, no test runner. `jalali` shares its vectors with Go's `TestBillDateGoldenVectors` — add a case to one, add it to the other. `notifications` stubs only the native/network boundaries; it cannot verify APNs/FCM delivery or Swift execution.
+- **Mobile:** `cd apps/mobile && npm run selftest:<name>` — `hlc`, `jalali`, `ingest`, `migration-014`, `money`, `person-save`, `device-key`, `attribution`, `tabs`, `notifications`, `inbox`, `tally-ui`, `invite-dialog`. Plain Node scripts against the real modules, no test runner. `jalali` shares its vectors with Go's `TestBillDateGoldenVectors` — add a case to one, add it to the other. `notifications` stubs only the native/network boundaries; it cannot verify APNs/FCM delivery or Swift execution. `tally-ui` checks rendered control/name/pill structure and layout constraints; native Yoga layout still needs phone testing.
 
 ## Architecture
 
@@ -76,8 +76,11 @@ A **tab** is one running account shared by two independent parties — a shopkee
 a counterparty, both signed in to the app. Either can add a tally; the other can
 accept or reject it, and only the author can void it. Rejected tallies remain
 visible but are EXCLUDED from both balances and new exports/bills. The wire enum
-remains `disputed` for compatibility. Pending/accepted tallies count; re-accepting
-a rejected tally reinstates it. Existing frozen bill links never change. The normative
+remains `disputed` for compatibility. Pending/accepted tallies count. The FIRST
+accept/reject decision is final (409 `review_final`); identical retries are idempotent,
+but even the rejection reason cannot be changed. Corrections require a NEW tally.
+Enforce this under the backend row lock and in the local mutation transaction;
+hide review controls on all non-pending rows. Existing frozen bill links never change. The normative
 contract is `docs/mutual-tab-design.md` — every wire shape, table and signature lives
 there, and the decision letters (D1…D17) cited below are its table. Change that
 document before changing the model.
@@ -141,7 +144,7 @@ document before changing the model.
 - **Mobile realtime** is `{"t":"tab_poke","tab_id"}` on the existing `/v1/sync/live`
   socket under an `acct:<id>` pseudo-key; pokes are lossy by design and the backstop is
   `startTabSyncLoop` (`<TabSync/>` in `_layout.tsx`). `lib/tabs/notify.ts` renews per-party Expo push subscriptions;
-  `internal/tabs/push.go` delivers generic alerts from a transactional outbox and
+  `internal/tabs/push.go` delivers actor-and-amount alerts from a transactional outbox and
   checks receipts/revocations. Enable `TAB_PUSH_ENABLED` only after FCM/APNs native
   credentials are configured. Expo Go skips notifications; see `docs/kaata-2-testing.md`.
   Refused offline intent is retained in `tab_failed_ops` (migration 029), separately
@@ -197,18 +200,13 @@ Two rules learned from the crash logs of that rewrite, both cheap to break again
 
 **The bill page's Save-as-PDF uses the browser's own print pipeline** — no server-side PDF engine. Three things hold it up, all of which fail silently if removed: `print-color-adjust: exact` (browsers drop backgrounds, so the tinted direction chips and the balance print grey); a print rule that unwraps `.rnote` (notes are clipped to one line on screen with a "more" cue that print hides, so a clipped note loses what the entry was for); and the button forcing settled history OPEN before printing, because that history is a re-render rather than a CSS toggle — print CSS alone cannot reveal it, and a collapsed bill would print as a partial account, which the paper rule forbids. Preview it with `go test ./internal/shared/ -run TestWriteBillPreview -v -preview-out <dir>`; that test uses `html/template`, the same package the handler uses, because `text/template` emits `{{.Token}}` unquoted inside the script and previews a page that never ships.
 
-### Update / announcement delivery without push
+### Store updates and announcements
 
-**Retired for releases (2026-08, store-only distribution):** store installs update through Play / the App Store, and no `app_releases` row is inserted any more when a version ships — see "Release / deploy flow". The mechanism below still exists in code (the `apk` channel, announcements) and is described for completeness.
-
-Workflow for shipping an update:
-
-1. `INSERT INTO app_releases (...)` on the backend with a higher version + `apk_url` (or `play_store_url`)
-2. Next mobile check-in returns the row in the `update` block
-3. Mobile persists `latest_known_version` etc. to `app_meta`
-4. `UpdateBanner` renders from `app_meta` — survives offline; dismissed-version is also stored in `app_meta`
-
-Same flow for `announcements`. To switch distribution channels (e.g. APK link → Play Store) just insert a new row with the URL in the new column. The full ops playbook is `docs/architecture.md`.
+App updates are delivered through Google Play and the App Store; the release
+procedure is below. Check-in's historical update metadata remains readable for
+older clients, but current update actions always open the platform's official
+store. Announcements still use check-in and persist in `app_meta` for offline
+display; see `docs/architecture.md`.
 
 ### Backend URL soft-migration (`migrate_to_backend_url`)
 
@@ -222,10 +220,10 @@ To change the backend's domain in production: deploy the new backend at the new 
 
 ### Env vars (one place per concern)
 
-- **`apps/backend/.env.example`** — `POSTGRES_URL`, `BACKEND_PORT`, `MIGRATE_TO_BACKEND_URL` (optional, soft-migration), `APK_DOWNLOAD_URL` (the APK's canonical source; `/v1/download` serves it from a local disk cache with Range/resume support — see `internal/visit/apkcache.go` — and 302s to this URL only while the cache is cold; optional `APK_CACHE_DIR` overrides the cache location), `GOOGLE_WEB_CLIENT_ID` (Google sign-in audience), `APPLE_CLIENT_ID` (Apple sign-in audience = iOS bundle id; compiled default `af.kaata.app`, must match `apps/mobile/app.json` `ios.bundleIdentifier`), `JWT_SECRET` (session JWTs; legacy alias `SESSION_JWT_SECRET`), `ADMIN_API_KEY` + `OPERATOR_*` (admin dashboard), plus optional share-link origins and mesh signing keys (full docs in the file).
+- **`apps/backend/.env.example`** — `POSTGRES_URL`, `BACKEND_PORT`, `MIGRATE_TO_BACKEND_URL` (optional, soft-migration), `GOOGLE_WEB_CLIENT_ID` (Google sign-in audience), `APPLE_CLIENT_ID` (Apple sign-in audience = iOS bundle id; compiled default `af.kaata.app`, must match `apps/mobile/app.json` `ios.bundleIdentifier`), `JWT_SECRET` (session JWTs; legacy alias `SESSION_JWT_SECRET`), `ADMIN_API_KEY` + `OPERATOR_*` (admin dashboard), plus optional share-link origins and mesh signing keys (full docs in the file).
 - **`apps/mobile/.env.example`** — `EXPO_PUBLIC_BACKEND_URL` (first-launch fallback only; documented above), `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`, `EXPO_PUBLIC_SOLO_STORE_MODE`. Sign in with Apple needs **no mobile env var** — the audience is the bundle id configured in `app.json` (`ios.usesAppleSignIn: true` + the `expo-apple-authentication` plugin).
 - **`apps/mobile/eas.json`** — `env` blocks on `preview` / `production` profiles set `EXPO_PUBLIC_BACKEND_URL` + `EXPO_PUBLIC_SOLO_STORE_MODE` at build time.
-- **`apps/web/.env.example`** — `VITE_BACKEND_URL`, `VITE_WHATSAPP_CONTACT_URL`, `VITE_APK_VERSION`, `VITE_APK_DOWNLOAD_URL`. All read from `apps/web/src/env.ts` with safe defaults.
+- **`apps/web/.env.example`** — `VITE_BACKEND_URL`, `VITE_WHATSAPP_CONTACT_URL`. All read from `apps/web/src/env.ts` with safe defaults.
 - **`.env.production` at repo root** — Dokploy paste-source for all three services; per-app `.env.production` files mirror their slice.
 
 ### Phone is canonical identity
@@ -312,13 +310,22 @@ These are coordination patterns that recur across screens and bit us once each. 
 - `docs/backlog.md` lists near-term deferred work. **The backup/restore item is no longer indefinitely deferred** — shopkeeper interviews validated it as the #1 ask; the next phase will likely ship either WhatsApp-share manual backup (cheap, no auth) or PIN-encrypted server backup (mid-cost, prepares for Phase 2 OTP). Persian-language translations are the #2 ask. Read backlog.md before building anything related.
 - Multi-shop / vaults support is planned but not built — see `docs/phase-2-roadmap.md` "Multi-shop / vaults".
 - `docs/refactor-notes.md` documents the v0 → v1 schema move (function signature changes, what stayed, what didn't).
-- `docs/architecture.md` is the backend operations playbook — version comparison rules, release publishing SQL (`INSERT INTO app_releases`), force-update behavior.
+- `docs/architecture.md` is the backend operations playbook — check-in compatibility, announcements, version comparison and force-update behavior.
 
 ### Release / deploy flow
 
-Store-only since the Play listing went live (2026-08): Play Store for Android, App Store for iOS. The sideload APK, the GitHub Release asset, the Dokploy `APK_DOWNLOAD_URL` / `VITE_APK_*` args and the `INSERT INTO app_releases` update-banner rows are **retired** and no longer part of a release. (The code paths still exist for the `apk` channel; `docs/architecture.md` describes them for history.) Every release goes to the testing tracks first, gets checked on both of Matee's phones, and is promoted from there.
+Distribution is through Google Play for Android and the App Store for iOS.
+Every release goes to TestFlight and Play closed testing first, gets checked on
+both of Matee's phones, and is promoted only after explicit approval. Pushing
+`main` automatically redeploys the backend and web in Dokploy. No release
+database writes or repository tags are required.
 
-1. **Bump all three by hand** in `apps/mobile/app.json`: `version`, `android.versionCode` and `ios.buildNumber` (e.g. `1.1.0`/`36`/`16` → `1.1.1`/`37`/`17`). versionCode MUST increase and App Store Connect rejects a repeated buildNumber. **No profile auto-increments** — `appVersionSource` is `"local"`; `autoIncrement` was removed (2026-08-09) because EAS bumped at BUILD time and wrote `app.json` back, so the commit never matched the artifact. Order is bump → commit → build. Matee commits and tags himself; Claude edits, builds and submits.
+1. **Bump native build identifiers** in `apps/mobile/app.json`:
+   `android.versionCode` and `ios.buildNumber` must increase for each upload.
+   Keep `version` unchanged when iterating on the same testing release.
+   `appVersionSource` is `"local"`; no profile auto-increments. Order is
+   bump → verify → commit/push when authorized → build, so artifacts match
+   their source commit. Use the existing project, signing keys and store credentials.
 
    **`eas.json` takes NO comments.** It is strict JSON validated against a schema; any unknown key — including a `_comment` string — fails the build with `"eas.json is not valid"`. Document build/submit config decisions here instead.
 
@@ -328,7 +335,8 @@ Store-only since the Play listing went live (2026-08): Play Store for Android, A
    eas build --profile production --platform all --auto-submit-with-profile testing --non-interactive
    ```
 
-   Check the log says `Using Keystore from configuration` (never `Creating`). The `testing` submit profile puts Android on the Play **closed testing** track (`alpha`; `internal` = Internal testing, `beta` = Open testing) and uploads iOS to TestFlight. Both use the same `production` BUILD profile; only the destination differs. A phone joins the closed test once via `https://play.google.com/apps/testing/af.kaata.app` (its Google account must be on the track's tester list), then Play offers the build as a normal update; never sideload an APK over a Play install — different signing, it would wipe the ledger.
+   Set `EXPO_APPLE_TEAM_ID=2JPK69B8Z2` for non-interactive credential validation.
+   Check the log says `Using Keystore from configuration` (never `Creating`). The `testing` submit profile puts Android on the Play **closed testing** track (`alpha`; `internal` = Internal testing, `beta` = Open testing) and uploads iOS to TestFlight. Both use the same `production` BUILD profile; only the destination differs. A phone joins the closed test once via `https://play.google.com/apps/testing/af.kaata.app` (its Google account must be on the track's tester list), then Play offers the build as a normal update. Keep installed app data intact; do not uninstall to test updates.
 
 3. **Promote Android** once the phones check out. `eas submit --profile production` is refused for a versionCode that is already on a track ("You've already submitted this version") — Play treats it as one release to promote, and EAS has no promote command. `apps/mobile/scripts/play-promote.mjs` is that button via the Edits API, run from `apps/mobile/`:
 
@@ -353,7 +361,7 @@ Store-only since the Play listing went live (2026-08): Play Store for Android, A
 
    Write "What's New" against the last version that **actually shipped** on that platform, not the last one built; `--status` shows which. Needs `credentials/AuthKey_*.p8`, which is **gitignored** — re-download it from App Store Connect → Users and Access → Integrations on a fresh clone.
 
-5. **Tag** `v<version>` on the bump commit and push it (Matee).
+5. **Verify delivery** in TestFlight and the Play testing track. Record build identifiers and submission status; upload completion is not production approval.
 
 ### Analytics queries (Postgres on production)
 
@@ -362,3 +370,25 @@ Admin activity charts and DAU both count distinct check-in installs, including r
 Admin live updates reuse Go's existing `coder/websocket` dependency and a separate admin invalidation stream. Connect with a single-use 30-second ticket obtained through the existing Bearer-protected HTTP endpoint; never put the long-lived admin key in a WebSocket URL. Keep authenticated HTTP queries, 60-second polling, and the Kabul-midnight refresh authoritative. The in-process broker/ticket store assumes one backend replica; no Redis or new realtime service is required. See `docs/admin-analytics.md` for protocol and limits.
 
 The `web_visits` (kind `'visit'` / `'download'`, with `source` + IP) and `installs` (`has_onboarded`, `usage_*`, `attribution_method`) tables hold the full funnel. Query via `docker exec -it kaata-database-<suffix> psql -U kaata -d kaata`. The `web_visits.ip` + 60-min window is how the backend stamps `installs.source` on first check-in (QR attribution); see `apps/backend/internal/checkin/service.go`.
+
+### Notification inbox and customer actions (2026-09-25)
+
+Migration 041 adds append-only party-scoped notification history independently of the
+push delivery queue. Reads and mark-read re-check current JWT/party/vault membership;
+read state belongs to the account, not the installation. Home's bell previews five
+notices; /notifications pages through all history. History begins with this migration,
+not fabricated from old tallies' latest statuses. There is no ledger rewrite.
+
+Alert copy now includes the party label and signed tally amount/currency (recipient's
+balance perspective); no notes, balance or invitation credential. This supersedes the
+old generic-only policy. Keep Privacy.tsx and data-safety notes aligned.
+
+Android notification masks must NOT reuse the opaque launcher icon. The code-native
+notification-icon.svg is rendered to a 96×96 white/transparent PNG by
+scripts/render-notification-icon.cjs; --check verifies the checked-in asset. A native
+Android rebuild is required. Existing APNs/FCM review actions stay unchanged.
+
+Person actions live at the bottom (received LEFT, gave RIGHT in both locales).
+WhatsApp ping, export, edit and shared-account management live in the ellipsis bottom
+sheet. SharedAccountBadge is a blue shared-account marker, not verified identity.
+Phone display uses LRI/PDI, not forced RTL or FSI alone; never persist isolates.

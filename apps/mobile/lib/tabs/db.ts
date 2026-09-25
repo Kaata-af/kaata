@@ -26,6 +26,7 @@ import { fromMinorUnits, toMinorUnits } from "../money";
 import type { Entry, EntryType } from "../types";
 import { directionFor, entryTypeFor, otherRole } from "./direction";
 import { emitTabApplied } from "./events";
+import { TabReviewFinalError } from "./errors";
 import type {
   TabAppliedEvent,
   TabEntryRow,
@@ -554,7 +555,7 @@ export async function insertOptimisticEntry(
     });
 }
 
-/** Accept / dispute shown immediately; the server's verdict overwrites it. */
+/** First review only. The server still arbitrates concurrent offline phones. */
 export async function applyOptimisticStatus(
   link: TabLink,
   entryId: string,
@@ -563,15 +564,18 @@ export async function applyOptimisticStatus(
   notify = true,
 ): Promise<void> {
   const db = await getDb();
-  await db.runAsync(
+  const result = await db.runAsync(
     `UPDATE tab_entries SET status = ?, status_at = ?, dispute_reason = ?
-      WHERE id = ? AND tab_id = ?`,
+      WHERE id = ? AND tab_id = ? AND status = 'pending'
+        AND kind <> 'void' AND voided_by_entry_id IS NULL AND created_by <> ?`,
     status,
     Date.now(),
     reason,
     entryId,
     link.tab_id,
+    link.role,
   );
+  if (result.changes === 0) throw new TabReviewFinalError();
   if (notify)
     notifyTabChanged(link.vault_id, {
       tabId: link.tab_id,
@@ -894,7 +898,7 @@ export async function failTabOp(id: string, err: string, backoffMs: number): Pro
 /** Persist a notification action ONCE, even across the Android headless and
  * foreground VMs. The receipt and the outbox row commit together. Do not
  * mutate the cache optimistically: this is an old notification, not an open
- * ledger. The server checks expected_rev before changing a newer decision. */
+ * ledger. The server enforces final decisions and checks expected_rev. */
 export async function queueNotificationReview(
   link: TabLink,
   entryId: string,

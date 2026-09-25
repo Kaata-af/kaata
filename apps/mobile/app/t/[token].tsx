@@ -53,7 +53,14 @@ import {
 } from "../../lib/db";
 import { getActiveVaultIdSyncMaybe, setActiveVaultId } from "../../lib/db-tx";
 import { toAsciiDigits } from "../../lib/digits";
-import { bidiIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
+import {
+  ltrIsolate,
+  bidiIsolate,
+  rowDir,
+  textDir,
+  trackingSafe,
+  useIsRTL,
+} from "../../lib/direction";
 import { fonts, monoLineHeight, sansLineHeight } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
 import { t } from "../../lib/i18n";
@@ -559,7 +566,7 @@ export default function TabJoinScreen() {
                       <View style={styles.phoneRow}>
                         <View style={styles.countryBadge}>
                           <Text style={styles.countryFlag}>{country.flag}</Text>
-                          <Text style={styles.countryDial}>{country.dialCode}</Text>
+                          <Text style={styles.countryDial}>{ltrIsolate(country.dialCode)}</Text>
                         </View>
                         <TextInput
                           style={[styles.phoneInput, phoneError ? styles.inputError : null]}

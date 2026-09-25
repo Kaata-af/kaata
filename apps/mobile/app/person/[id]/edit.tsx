@@ -21,7 +21,7 @@ import { queuePendingToast, useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
 import { splitName } from "../../../lib/contacts-sync";
 import { archivePerson, getPerson, updatePerson } from "../../../lib/db";
-import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
+import { ltrIsolate, rowDir, textDir, useIsRTL } from "../../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../../lib/event-log";
 import { fonts } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
@@ -287,7 +287,7 @@ label so TalkBack still announces "Cancel", not "Back". */}
               ]}
             >
               <Text style={styles.countryFlag}>{country.flag}</Text>
-              <Text style={styles.countryDial}>{country.dialCode}</Text>
+              <Text style={styles.countryDial}>{ltrIsolate(country.dialCode)}</Text>
               <Ionicons name="chevron-down" size={icon.trailing} color={colors.textMuted} />
             </Pressable>
             <TextInput

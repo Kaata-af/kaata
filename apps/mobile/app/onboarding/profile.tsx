@@ -17,7 +17,7 @@ import { CountryPickerSheet } from "../../components/CountryPickerSheet";
 import { FormField } from "../../components/FormField";
 import { colors } from "../../lib/colors";
 import { getAppMeta, setAppMeta } from "../../lib/db";
-import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
+import { ltrIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import {
@@ -303,7 +303,7 @@ export default function OnboardingProfileScreen() {
                 accessibilityLabel={t("onboarding.phone.label")}
               >
                 <Text style={styles.countryFlag}>{country.flag}</Text>
-                <Text style={styles.countryDial}>{country.dialCode}</Text>
+                <Text style={styles.countryDial}>{ltrIsolate(country.dialCode)}</Text>
                 <Ionicons name="chevron-down" size={icon.trailing} color={colors.textMuted} />
               </Pressable>
               <TextInput

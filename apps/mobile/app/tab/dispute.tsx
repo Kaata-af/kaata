@@ -1,10 +1,7 @@
 // Dispute a tally on a mutual tab (docs/mutual-tab-design.md §4.4, D6).
 //
-// presentation:"modal", reached from the person screen's long-press sheet on a
-// tally the OTHER party wrote. A dispute is a flag with words attached, not a
-// veto — the tally keeps counting (D6) and the author resolves it by voiding
-// (D5). The reason is required because a bare "disputed" gives the author
-// nothing to act on, and it is what the other side reads on their row.
+// Legacy deep-linkable reason form. Only the other party's pending tally can
+// be reviewed; rejection is final and excludes it from the balance.
 //
 // Built on entry/new.tsx's modal template: inline errors (toasts cannot render
 // above native stack modals — components/Toast.tsx), ref + 280 ms focus so the
@@ -32,6 +29,7 @@ import {
   TabInputError,
   TabPermissionError,
 } from "../../lib/tabs/link";
+import { TabReviewFinalError } from "../../lib/tabs/errors";
 import type { TabLink } from "../../lib/tabs/types";
 import { radius, TOUCH_MIN } from "../../lib/tokens";
 import type { Entry } from "../../lib/types";
@@ -79,7 +77,11 @@ export default function DisputeEntryScreen() {
         if (cancelled) return;
         const row = rows.find((e) => e.id === entryId) ?? null;
         setLink(tl);
-        setEntry(row && !row.tab?.voided ? row : null);
+        setEntry(
+          row && !row.tab?.voided && row.tab?.by === "them" && row.tab.status === "pending"
+            ? row
+            : null,
+        );
       } catch (err) {
         // A rejected read must still flip `loaded` — otherwise this modal is a
         // permanent spinner with no header/back. Render the not-found branch.
@@ -137,6 +139,8 @@ export default function DisputeEntryScreen() {
         );
       } else if (err instanceof TabPermissionError) {
         setError(t("entry.roleDenied"));
+      } else if (err instanceof TabReviewFinalError) {
+        setError(t("tab.reviewFinal"));
       } else if (err instanceof TabClosedError) {
         setError(t("tab.closed"));
       } else {

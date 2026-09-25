@@ -18,7 +18,7 @@ export const GOOGLE_WEB_CLIENT_ID =
 // single-shopkeeper release. When "1", hides the Nearby (Bluetooth/WiFi) sync
 // toggle + the kaata-pairing entry points — a lone shopkeeper has no use for them
 // and they read as broken/confusing. Cloud backup (the solo-relevant sync) stays.
-// Build-time, like the other EXPO_PUBLIC_ flags; set in eas.json preview/production.
+// Build-time, like the other EXPO_PUBLIC_ flags; set in eas.json production.
 export const SOLO_STORE_MODE = process.env.EXPO_PUBLIC_SOLO_STORE_MODE === "1";
 
 // Google OAuth iOS Client ID — the "iOS" OAuth client in Google Cloud
@@ -31,22 +31,10 @@ export const SOLO_STORE_MODE = process.env.EXPO_PUBLIC_SOLO_STORE_MODE === "1";
 // (com.googleusercontent.apps.<id-without-suffix>). Public value.
 export const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || "";
 
-// DISTRIBUTION — which channel THIS BINARY was built for, deciding where the
-// update banner / force-update screen send the user:
-//   "apk"   → sideload builds (preview profile). Updates come as a direct APK
-//             download (the resumable backend endpoint).
-//   "store" → store builds (production profile: Play AAB / App Store IPA).
-//             Updates must go through the store listing — a Play install
-//             CANNOT apply a sideloaded APK (Play App Signing re-signs, so
-//             the signatures differ) and vice versa.
-// Build-time via eas.json env. Defaults to "apk": every existing sideload
-// install predates this flag, and dev builds behave like sideloads.
-export const DISTRIBUTION: "apk" | "store" =
-  process.env.EXPO_PUBLIC_DISTRIBUTION === "store" ? "store" : "apk";
-
 // The app's App Store listing — stable brand URL (the Apple app id never
 // changes across releases), safe to bake as the iOS update fallback.
 export const APP_STORE_URL = "https://apps.apple.com/us/app/kaata/id6789651127";
+export const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=af.kaata.app";
 
 // SUPPORT_WHATSAPP_E164 — where "Send to support" on the App-health screen
 // delivers the diagnostics report. Same number the website already publishes

@@ -16,7 +16,7 @@ import (
 // by /v1/download only).
 func TestVisitHandlerKinds(t *testing.T) {
 	pool := testutil.ConnectTestDB(t)
-	h := NewHandler(NewService(pool, "http://example.invalid/kaata.apk", t.TempDir()))
+	h := NewHandler(NewService(pool, "https://example.invalid"))
 
 	post := func(t *testing.T, body string) *httptest.ResponseRecorder {
 		t.Helper()

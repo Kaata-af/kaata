@@ -335,16 +335,12 @@ func TestAcceptDisputeVoidRules(t *testing.T) {
 		t.Fatalf("accept malformed id = %v, want ErrEntryNotFound", err)
 	}
 
-	// Dispute, then accept: the dispute clears (reason back to NULL).
-	if _, err := f.svc.Dispute(ctx, pb, mine.Entry.ID, "wrong amount"); err != nil {
-		t.Fatalf("dispute: %v", err)
+	// A review is final, including its optional reason. Corrections are new rows.
+	if _, err := f.svc.Dispute(ctx, pb, mine.Entry.ID, "wrong amount"); !errors.Is(err, ErrReviewFinal) {
+		t.Fatalf("changed rejection reason: %v", err)
 	}
-	acc, err := f.svc.Accept(ctx, pb, mine.Entry.ID)
-	if err != nil {
-		t.Fatalf("accept after dispute: %v", err)
-	}
-	if acc.Entry.Status != "accepted" || acc.Entry.DisputeReason != nil {
-		t.Fatalf("accept must clear the dispute: %+v", acc.Entry)
+	if _, err := f.svc.Accept(ctx, pb, mine.Entry.ID); !errors.Is(err, ErrReviewFinal) {
+		t.Fatalf("accept after rejection: %v", err)
 	}
 
 	// Void once, then every further review or void of it is already_voided —

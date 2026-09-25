@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { SharedAccountBadge } from "./SharedAccountBadge";
 import { memo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
@@ -83,18 +84,7 @@ export const PersonRow = memo(function PersonRow(props: {
           <Text style={[styles.name, styles.nameText, textDir(isRTL)]} numberOfLines={1}>
             {person.name}
           </Text>
-          {person.tab_id && person.tab_closed_at == null ? (
-            // Linked to the other party's kaata. 12px like the header's
-            // read-only eye: a mark composed against the 15px name, not a row
-            // icon (icon.trailing would outweigh the word it annotates).
-            // textMuted so it is a fact about the contact, not a call to act.
-            <Ionicons
-              name="link-outline"
-              size={12}
-              color={colors.textMuted}
-              accessibilityLabel={t("tab.link.title")}
-            />
-          ) : null}
+          {person.tab_id && person.tab_closed_at == null ? <SharedAccountBadge /> : null}
         </View>
         <Text style={[styles.sub, textDir(isRTL)]} numberOfLines={1}>
           {subtitle}

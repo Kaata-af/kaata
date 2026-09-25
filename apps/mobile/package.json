@@ -20,6 +20,10 @@
     "selftest:attribution": "tsx lib/__dev__/attribution-selftest.ts",
     "selftest:tabs": "tsx lib/__dev__/tabs-selftest.ts",
     "selftest:notifications": "tsx lib/__dev__/notifications-selftest.ts",
+    "selftest:inbox": "tsx lib/__dev__/inbox-selftest.ts",
+    "selftest:tally-ui": "tsx lib/__dev__/tally-ui-selftest.ts",
+    "selftest:invite-dialog": "tsx lib/__dev__/invite-dialog-selftest.ts",
+    "selftest:update-url": "tsx lib/__dev__/update-url-selftest.ts",
     "preview:pdf": "tsx lib/__dev__/pdf-preview.ts"
   },
   "dependencies": {

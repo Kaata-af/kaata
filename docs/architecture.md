@@ -1,6 +1,6 @@
 # Architecture & Operations
 
-This is the operations manual for Kaata's v0 backend. The mobile app is offline-first; this doc covers everything that happens _server-side_ when the app phones home, and how to publish releases and announcements.
+This documents Kaata's check-in compatibility and announcements. For the current store-testing and production workflow, see the release/deploy section in CLAUDE.md. Other backend modules, including cloud sync and mutual accounts, have their own design documents.
 
 ## Check-in protocol
 
@@ -27,8 +27,8 @@ Response:
   "force_update": false,
   "update": {
     "version": "0.2.0",
-    "apk_url": "https://kaata.af/downloads/kaata-0.2.0.apk",
-    "play_store_url": null,
+    "apk_url": null,
+    "play_store_url": "https://play.google.com/store/apps/details?id=af.kaata.app",
     "release_notes": "Bug fixes."
   },
   "announcement": {
@@ -62,30 +62,16 @@ Versions are dotted decimals like `"0.2.1"` or `"1.10.3"`. The backend (`cmpSemv
 
 This means `"0.10.0" > "0.2.0"` correctly (lexicographic comparison would invert). We do **not** parse pre-release tags — `"1.0.0-beta" == "1.0.0"` per this rule. If you need real semver semantics later, replace `cmpSemver` with a tested library.
 
-## Publishing a new release
+## Store delivery
 
-Insert into `app_releases`:
+Build the production profile and submit to TestFlight and Play closed testing.
+After two-phone testing and explicit approval, promote those same builds through
+their stores. See CLAUDE.md for the EAS and store promotion commands.
 
-```sql
-INSERT INTO app_releases (
-  platform, version, min_supported_version,
-  apk_url, play_store_url, release_notes, is_active
-) VALUES (
-  'android',
-  '0.2.0',
-  '0.1.0',
-  'https://kaata.af/downloads/kaata-0.2.0.apk',
-  NULL,
-  'Adds WhatsApp share. Fixes balance calculation in detail view.',
-  TRUE
-);
-```
-
-Notes:
-
-- `min_supported_version` is the floor: any client below it gets `force_update: true`. Bump it cautiously — it locks every install below that line out of the app.
-- The backend picks the most recent active row. To roll back a bad release, set `is_active = FALSE` on it; the previous active row becomes current.
-- Prefer inserting new rows over updating old ones — `app_releases` doubles as the audit log of every published version.
+Historical `app_releases` data and the check-in response shape remain for client
+compatibility; they are not a publishing workflow. Current app update actions
+always open the official store. Existing `/v1/download` links redirect to
+`/download`, preserving the QR source parameter and analytics.
 
 ## Publishing an announcement
 
@@ -109,7 +95,7 @@ INSERT INTO announcements (
 
 ## Force-update flow
 
-- The blocking screen lives at `app/update-prompt.tsx` in the mobile app. It cannot be dismissed; the only action is "Install update," which opens the APK URL (or Play Store URL if `apk_url` is null) via `Linking.openURL`.
+- The blocking screen lives at `app/update-prompt.tsx` in the mobile app. It cannot be dismissed; the only action is "Install update," which opens the platform’s official store via `Linking.openURL`.
 - `force_update` is held in memory only — never persisted to `app_meta`. An updated client that hasn't yet checked in will not be falsely locked out.
 - Because the app is offline-capable, `force_update` cannot be enforced when there is no network. The next successful check-in re-enforces it.
 - The Stack screen for `/update-prompt` has `gestureEnabled: false` and `headerShown: false`. Android hardware back closes the app rather than dismissing the screen, which is acceptable for v0 — the user simply cannot reach the rest of the app without installing.
@@ -125,7 +111,7 @@ The mobile app's local SQLite has an `app_meta` key-value table that holds:
 - `dismissed_update_version` — last version the user explicitly dismissed; banner stays hidden until a newer version arrives
 - `dismissed_announcement_id` — last announcement id the user explicitly dismissed
 
-## v0 scope reminder
+## Historical v0 scope
 
 Ledger data (shopkeeper, customers, entries) is **never** sent to the backend. Only the install ID, app version, platform, and locale leave the device. The backend has no schema for ledger data in v0.
 
@@ -190,11 +176,6 @@ SELECT COUNT(*) FROM installs WHERE last_seen_at > NOW() - INTERVAL '24 hours';
 
 -- Distribution of app versions in the wild
 SELECT app_version, COUNT(*) FROM installs GROUP BY app_version ORDER BY 2 DESC;
-
--- Current active release per platform
-SELECT platform, version, min_supported_version, published_at
-FROM app_releases WHERE is_active = TRUE
-ORDER BY platform, published_at DESC;
 
 -- Active announcements
 SELECT id, title, min_app_version, max_app_version, expires_at

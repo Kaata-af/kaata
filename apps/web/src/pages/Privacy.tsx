@@ -44,11 +44,10 @@ export function Privacy() {
           <p>
             Your ledger — the people you add, their phone numbers, the amounts, notes, and running
             balances — is stored in a database on your device. If you never sign in, that ledger
-            data is not uploaded unless you choose to share a bill.
-            A WhatsApp reminder uploads a snapshot of that one customer’s balance and entries to
-            create the shareable link (see below). Shared accounts require sign-in in the app and
-            are stored on our server as described below. Deleting the app
-            removes the on-device ledger from the phone.
+            data is not uploaded unless you choose to share a bill. A WhatsApp reminder uploads a
+            snapshot of that one customer’s balance and entries to create the shareable link (see
+            below). Shared accounts require sign-in in the app and are stored on our server as
+            described below. Deleting the app removes the on-device ledger from the phone.
           </p>
         </Section>
 
@@ -117,14 +116,15 @@ export function Privacy() {
         <Section title="Shared accounts with another person">
           <p>
             A contact’s account can be turned into a <strong>shared account</strong>, where the
-            other person opens an invitation (kaata.af/t/…) in the Kaata app, signs in, and keeps the same running
-            account with you. Because both of you must see the same figures, a shared account is
+            other person opens an invitation (kaata.af/t/…) in the Kaata app, signs in, and keeps
+            the same running account with you. Because both of you must see the same figures, a
+            shared account is
             <strong> stored on our server</strong>, not only on your phone: the name each of you
             chooses to show the other, every tally’s amount, date and note, and who added, accepted,
-            rejected or cancelled it. The browser only opens the app; it does not display your ledger.
-            Send the invitation only to its intended recipient. Once claimed, the link alone
-            cannot access the account. Access requires a signed-in party or an authorized member
-            of their kaata.
+            rejected or cancelled it. The browser only opens the app; it does not display your
+            ledger. Send the invitation only to its intended recipient. Once claimed, the link alone
+            cannot access the account. Access requires a signed-in party or an authorized member of
+            their kaata.
           </p>
           <p>
             A shared account belongs to <strong>both</strong> of you, so it outlives either side
@@ -137,16 +137,18 @@ export function Privacy() {
 
         <Section title="Shared-account notifications">
           <p>
-            If you allow notifications, we register your device’s notification token with the
-            shared accounts you can access. Expo’s push service and Apple or Google deliver the
-            alerts. Remote alerts contain a generic update message and a shared-account identifier,
-            not the people’s names, amounts, notes or invitation links. You can turn notifications
-            off in your phone’s settings; the shared account continues to work without them.
+            If you allow notifications, we register your device’s notification token with the shared
+            accounts you can access. Expo’s push service and Apple or Google deliver the alerts.
+            Alerts include the other party’s display name, the tally amount and currency, its
+            outcome, and shared-account identifiers — never notes, balances or invitation links. You
+            can turn notifications off in your phone’s settings; the shared account continues to
+            work without them.
           </p>
           <p>
             Delivery jobs expire after 24 hours and unrenewed device registrations stop receiving
-            alerts after 30 days. We check current access before sending. Local notifications
-            generated on your phone may show the other party’s name.
+            alerts after 30 days. We check current access before sending. Your in-app notification
+            history and read status are stored with your shared accounts independently of push
+            delivery. You can hide notification previews using your phone’s settings.
           </p>
         </Section>
 

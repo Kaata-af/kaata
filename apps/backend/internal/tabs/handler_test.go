@@ -43,6 +43,8 @@ func newHTTPFixture(t *testing.T) *httpFixture {
 		pr.Use(authenticator.OptionalMiddleware())
 		pr.Post("/v1/tabs", h.Create)
 		pr.Get("/v1/tabs/mine", h.Mine)
+		pr.Get("/v1/tabs/inbox", h.Inbox)
+		pr.Post("/v1/tabs/inbox/read", h.ReadInbox)
 		pr.Post("/v1/tabs/by-token", h.ByToken)
 		pr.Get("/v1/tabs/{tab_id}", h.Get)
 		pr.Post("/v1/tabs/{tab_id}/notifications", h.Notifications)

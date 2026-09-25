@@ -2,7 +2,7 @@
 
 ## 0.8.7 — 2026-07-11
 
-The sideload/APK build catches up with everything shipped since 0.8.4 — the
+This version catches up with everything shipped since 0.8.4 — the
 0.8.5 hardening + polish pass and 0.8.6 groundwork — plus a new onboarding
 celebration. If you're updating from 0.8.4, this is a large release.
 

@@ -13,6 +13,8 @@
 // you", on balances AND entries. Kept in sync with the web app
 // (apps/web/src/theme.ts) + the backend SSR ledger (internal/shared/templates.go).
 export const colors = {
+  // Linked two-party account marker; never used for money direction.
+  sharedAccount: "#2563EB",
   // Backgrounds
   bgDefault: "#FFFFFF",
   bgMuted: "#FAFAFA",
@@ -41,6 +43,10 @@ export const colors = {
   payBg: "#F8EAEC",
   payText: "#7E1B30",
   payStrong: "#A3203A",
+
+  // Review state, independent of the money-direction colors above.
+  rejectedBg: "#FBECEC",
+  rejectedText: "#A34242",
 
   // Reserved for destructive actions only
   danger: "#DC2626",

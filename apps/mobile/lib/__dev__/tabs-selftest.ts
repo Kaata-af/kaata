@@ -418,9 +418,16 @@ const fakeFetch = async (
       return reply(201, { voided: target, void: voidRow });
     }
     if (target.created_by === role) return errorReply(403, "own_entry");
-    target.status = em[2] === "accept" ? "accepted" : "disputed";
+    const status = em[2] === "accept" ? "accepted" : "disputed";
+    const reason = em[2] === "dispute" ? String(body.reason ?? "").trim() : null;
+    if (target.status === status && (reason == null || target.dispute_reason === reason))
+      return reply(200, { entry: target, tab: server.view(role) });
+    if (target.status !== "pending") return errorReply(409, "review_final");
+    if (body.expected_rev && body.expected_rev !== target.rev)
+      return errorReply(409, "stale_review");
+    target.status = status;
     target.status_at_ms = 20_000;
-    target.dispute_reason = em[2] === "dispute" ? String(body.reason) : null;
+    target.dispute_reason = reason;
     target.rev = ++server.rev;
     return reply(200, { entry: target, tab: server.view(role), duplicate_hint: null });
   }
@@ -1691,7 +1698,7 @@ async function main(): Promise<void> {
     );
   });
 
-  await test("reject removes amounts from contact and kaata export, accept restores them", async () => {
+  await test("rejected history stays excluded; only a fresh tally can count again", async () => {
     const tl = link();
     await tabsDb.upsertTabLink(tl);
     server.seed({ id: "goods", created_by: "b", direction: "a_to_b", amount: "100" });
@@ -1708,8 +1715,128 @@ async function main(): Promise<void> {
       (await db.listEntriesForExport(VAULT)).filter((e: any) => e.id === "goods").length,
       0,
     );
-    await tabsDb.applyOptimisticStatus(tl, "goods", "accepted", null);
+    await assert.rejects(
+      tabsDb.applyOptimisticStatus(tl, "goods", "accepted", null),
+      errors.TabReviewFinalError,
+    );
+    assert.equal((await db.getPerson(CONTACT))?.balance, 0);
+    // Mirror the committed rejection, then send a distinct correction.
+    const original = server.entries.find((e) => e.id === "goods")!;
+    original.status = "disputed";
+    original.rev = ++server.rev;
+    server.seed({ id: "corrected", created_by: "b", direction: "a_to_b", amount: "100" });
+    await sync.syncTab(TAB);
+    await tabsDb.applyOptimisticStatus(tl, "corrected", "accepted", null);
     assert.equal((await db.getPerson(CONTACT))?.balance, 100);
+    assert.equal(
+      (await tabsDb.listTabEntriesAsEntries(tl)).length,
+      2,
+      "original history preserved",
+    );
+  });
+
+  await test("concurrent local reviews queue only the first decision", async () => {
+    const tl = link();
+    await tabsDb.upsertTabLink(tl);
+    server.seed({ id: "review-once", created_by: "b", direction: "a_to_b", amount: "10" });
+    await sync.syncTab(TAB);
+    const reviewOp = (op: "accept" | "dispute") => ({
+      id: randomUUID(),
+      tab_id: TAB,
+      op,
+      payload: JSON.stringify({ entry_id: "review-once", reason: "" }),
+      created_at: Date.now(),
+      attempts: 0,
+      next_at: null,
+      last_error: null,
+    });
+    const results = await Promise.allSettled([
+      tabsDb.queueTabMutation(tl, reviewOp("accept")),
+      tabsDb.queueTabMutation(tl, reviewOp("dispute")),
+    ]);
+    assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
+    const failure = results.find((r) => r.status === "rejected") as PromiseRejectedResult;
+    assert.ok(failure.reason instanceof errors.TabReviewFinalError);
+    assert.equal(count("tab_outbox"), 1);
+    const before = (await tabsDb.listTabEntriesAsEntries(tl))[0].tab!.status;
+    const opposite = before === "accepted" ? "dispute" : "accept";
+    await assert.rejects(
+      tabsDb.queueTabMutation(tl, reviewOp(opposite)),
+      errors.TabReviewFinalError,
+    );
+    assert.equal(count("tab_outbox"), 1, "refused review creates no durable operation");
+    await sync.syncTab(TAB);
+    assert.equal(count("tab_outbox"), 0);
+    assert.equal(server.entries[0].status, before);
+  });
+
+  await test("another phone's committed review wins over an offline optimistic decision", async () => {
+    const tl = link();
+    await tabsDb.upsertTabLink(tl);
+    const target = server.seed({
+      id: "offline-review",
+      created_by: "b",
+      direction: "a_to_b",
+      amount: "10",
+    });
+    await sync.syncTab(TAB);
+    await tabsDb.queueTabMutation(tl, {
+      id: randomUUID(),
+      tab_id: TAB,
+      op: "accept",
+      payload: JSON.stringify({ entry_id: target.id }),
+      created_at: Date.now(),
+      attempts: 0,
+      next_at: null,
+      last_error: null,
+    });
+    assert.equal((await db.getPerson(CONTACT))?.balance, 10);
+    // Other phone rejected while this one had not yet uploaded its accept.
+    target.status = "disputed";
+    target.dispute_reason = "Wrong amount";
+    target.rev = ++server.rev;
+    const outcome = await sync.syncTab(TAB);
+    assert.equal(outcome.failed, 1);
+    assert.equal(count("tab_outbox"), 0);
+    assert.equal(count("tab_failed_ops"), 1, "keep the refused offline intent for diagnostics");
+    assert.equal((await tabsDb.listTabEntriesAsEntries(tl))[0].tab!.status, "disputed");
+    assert.equal(
+      (await db.getPerson(CONTACT))?.balance,
+      0,
+      "authoritative rejected balance restored",
+    );
+    assert.equal(count("tab_entries"), 1, "no history lost");
+  });
+
+  await test("notification amounts use recipient perspective, currency and exact cents", async () => {
+    const { notificationVars } = await import("../tabs/notification-text");
+    const { ltrIsolate } = await import("../bidi");
+    const entry = {
+      direction: "a_to_b",
+      amount_minor: 50025,
+      status: "disputed",
+    } as import("../tabs/types").TabEntryRow;
+    for (const currency of ["AFN", "USD", "AED"]) {
+      const tl = {
+        ...link(),
+        role: "a",
+        currency,
+        other_label: "احمد",
+      } as import("../tabs/types").TabLink;
+      assert.deepEqual(notificationVars(tl, entry, "Other"), {
+        name: "\u2068احمد\u2069",
+        amount: `\u2066+500.25 ${currency}\u2069`,
+      });
+      assert.equal(
+        notificationVars({ ...tl, role: "b" }, entry, "Other").amount,
+        `\u2066−500.25 ${currency}\u2069`,
+      );
+    }
+    assert.equal(
+      notificationVars({ ...link(), other_label: "\n\u202e" }, entry, "Other").name,
+      "\u2068Other\u2069",
+    );
+    assert.equal(ltrIsolate("+93781696644"), "\u2066+93781696644\u2069");
   });
 
   console.log(`\n${passed} tab regressions passed; ${failed} failed.`);

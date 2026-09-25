@@ -5,11 +5,12 @@ author-only visible voids, app-only signed-in participation, durable offline que
 push delivery infrastructure. Existing private ledger events are not rewritten.
 This is not a production release sign-off. Native two-phone testing is required.
 
-Current testing candidate: **2.0.0 / Android 42 / iOS 22**. Source checks,
-native compilation and testing uploads passed. Real-phone delivery/action
-checks remain pending; this is not a production release sign-off.
+Current testing candidate: **2.0.0 / Android 43 / iOS 23**. Includes the notification
+inbox, final accept/reject decisions, customer-screen polish, single-dialog linking,
+and store-only update delivery. Native builds and testing uploads are pending for
+this candidate. No production promotion is authorized.
 
-### Testing delivery — 25 September 2026
+### Previous testing delivery — 25 September 2026
 
 - Feature commit: `9112235`; web privacy follow-up: `2fee7da`. Backend's new
   authenticated invitation route and the updated web privacy copy were verified live.
@@ -19,10 +20,7 @@ checks remain pending; this is not a production release sign-off.
   (`alpha`) submission `2be05153-1bd3-4b89-a8b6-0bdc42ace052` finished.
   This retries `fea1b5f6-fb4b-4c9c-99c9-45f87d1ae3c9`, which failed with an
   EAS SERVER_ERROR uploading its archive; that first submission was canceled.
-- Play generated a universal APK for 42 using the same app-signing certificate
-  as the previously tested 41 APK. Use that Play-signed APK if review delays
-  distribution; do not substitute an EAS upload-key-signed preview APK or
-  uninstall/clear data to work around a signature mismatch.
+- Install Android updates through the Play closed-testing track. Keep app data intact.
 - Neither store was promoted to production. Update BOTH testing phones before
   checking rejected-tally balances, notifications and inline reviews.
 
@@ -142,3 +140,55 @@ shared records and notification identifiers. Leave production promotion until
 the device checklist passes. Universal/app links are
 not yet configured; the browser's explicit **Open in Kaata** button uses the
 existing `kaata://` scheme.
+
+## Pending follow-up: inbox and customer-screen polish (2026-09-25)
+
+Not committed, deployed or built for stores yet. User confirmed notifications on
+Android 42/iOS 22; these changes build on that working baseline.
+
+- Home bell: preview, unread count, mark all read, and paginated /notifications.
+  History starts at backend migration 041; no fictional past status transitions.
+  Persisted independently of push permissions/receipts; read state follows account.
+- Alerts include party label, signed tally amount and ISO currency (recipient view).
+  Notes, balances and credentials remain excluded. Privacy copy updated accordingly.
+- Rejected tallies: gray amount/icon and struck amount/note; still excluded from totals.
+- Person footer: received LEFT / gave RIGHT, safe-area inset. Ellipsis opens a bottom
+  sheet including WhatsApp ping. Blue shared-account badge replaces identity link marks.
+- Explicit LTR isolation for phones and calling codes, including contact pickers.
+- Native Android icon: white-on-transparent mask instead of the opaque launcher logo.
+
+Checks: isolated Postgres full Go suite + vet (including concurrent first-review-wins
+and WebSocket regressions); 23 tab regression groups, 10 notification orchestration
+regressions, inbox lifecycle tests, EN/FA tally/inbox layout-structure regressions,
+other existing mobile selftests, tsc,
+web build, and deterministic 96×96 icon validation. The general Expo --platform all
+check also attempts the unsupported mobile-web build and hits the existing SQLite
+WASM resolver issue; use explicit android/ios for mobile release bundle checks.
+
+Phone checks still required on new testing binaries:
+
+1. Add separate fractional USD/AFN/AED tallies, accept one and reject another.
+   Neither can change decision when expanded, after relaunch, on a second phone,
+   or from an old notification. Try opposite decisions simultaneously: first wins.
+   Send a NEW tally after rejection; only the new tally counts if accepted.
+   Check signed amount, counterparty label, one notification per decision and balances.
+2. Open the bell, mark one/all read, reopen/relaunch; check the full page and both phones
+   on the SAME account. Switch accounts; old inbox content must not cross over.
+3. Rejected amount/note crossed out gray with a soft red Rejected pill; voided rows
+   show Voided only once beside the date. Expanded attribution aligns with the date
+   and names are bold in both English and Dari.
+4. Persian +937… and country codes stay LTR. Long names fit with the blue badge.
+5. Give/receive labels remain visible at phone widths and large text sizes (Expo Go too).
+   Both floating buttons rise with a toast and return afterward. Last tally is scrollable
+   above the footer. WhatsApp is the first bottom-sheet row; PDF/share still works.
+6. Xiaomi lock-screen/status-bar icon is the Kaata silhouette, no square block.
+7. Bell preview has equal side margins on small/large iPhones, in English/Dari and
+   after rotation. Full inbox title is centered on the back-button row, not duplicated.
+8. With WARP off, foreground changes arrive via WebSocket pokes immediately; reconnect
+   and foreground catch-up still work. Background pushes retain their separate OS path.
+9. Link an unlinked contact from the ellipsis menu: only one confirmation modal.
+   Saved number → confirm → targeted WhatsApp compose (the user still presses Send).
+   No number → sharing/copy choices remain in the same modal. "Ask" language preference
+   offers inline Dari/English choices. Offline create/WhatsApp/clipboard failure stays
+   recoverable; delivery retries do not duplicate the tab or opening balance.
+   `npm run selftest:invite-dialog` covers these paths with native boundaries mocked.

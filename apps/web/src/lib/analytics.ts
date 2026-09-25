@@ -167,9 +167,4 @@ function postBeacon(payload: Record<string, string>): void {
   });
 }
 
-// NOTE (2026-07-26, Play launch): the tracked-APK-download helpers
-// (getTrackedDownloadUrl / reportDownloadClick) retired with the sideload
-// button — the download page is store-badges-only now, and store taps can't
-// be beaconed the same way. Web-side funnel attribution is the visit beacon
-// above + Play/App Store install analytics; the backend's /v1/download stays
-// alive for the in-app update banner of the existing sideload fleet.
+// Funnel attribution uses visit and store-click beacons plus store install analytics.

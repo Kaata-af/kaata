@@ -44,10 +44,9 @@
 		file_server
 
 		# CSP for the SPA (index.html has no inline script; the bundle loads
-		# hashed JS/CSS + self-hosted fonts from this origin, calls the API, and
-		# the download button frames the GitHub release asset in a hidden iframe).
+		# hashed JS/CSS + self-hosted fonts from this origin and calls the API).
 		header {
-			Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.kaata.af wss://api.kaata.af; frame-src https://github.com https://objects.githubusercontent.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+			Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.kaata.af wss://api.kaata.af; frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 		}
 
 		# index.html must always be revalidated: a heuristically-cached stale
@@ -60,13 +59,6 @@
 		@hashed_assets path /assets/*
 		header @hashed_assets Cache-Control "public, max-age=31536000, immutable"
 
-		# APK downloads: force correct MIME + Content-Disposition so the browser
-		# downloads the file rather than guessing.
-		@apk path *.apk
-		header @apk {
-			Content-Type "application/vnd.android.package-archive"
-			Content-Disposition "attachment"
-		}
 	}
 
 	# Backend unreachable / 5xx → fall back to the SPA shell (its React

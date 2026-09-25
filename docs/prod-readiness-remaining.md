@@ -107,4 +107,4 @@ recovery orchestration; a wrong change can deadlock or corrupt. Do with the
 - `app.json` (M1/M4/M8): `usesCleartextTraffic` is dropped by SDK 54 anyway and ships in the store build — remove it or scope to dev via `expo-build-properties`.
 - `app.json` (L7): notification small icon is the full-color launcher icon → blank square. Provide a white-on-transparent silhouette.
 - `app.json` (L8): `expo-updates` installed but unconfigured — remove it or set a `runtimeVersion` fingerprint policy.
-- APK self-update flow (H4): gate the sideload `apk_url` off for store builds (installer-source check).
+- Store update routing (H4): update actions use the official platform listing.

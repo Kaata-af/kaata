@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,6 +29,9 @@ func TestPushOutboxDeliveryAndRevocation(t *testing.T) {
 				t.Error("missing navigation data")
 			}
 			// Neither balances nor invitation credentials go to Expo.
+			if !strings.Contains(body["body"].(string), "Saafi Store") || !strings.Contains(body["body"].(string), "AFN") {
+				t.Error("push lost actor/amount context")
+			}
 			if len(body["data"].(map[string]any)) > 5 {
 				t.Error("unexpected private data in payload")
 			}

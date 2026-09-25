@@ -26,6 +26,22 @@ import { getAppMeta } from "./db";
 
 // Source-of-truth English strings. All other locales must use the same keys.
 const en = {
+  "inbox.title": "Notifications",
+  "inbox.bell": "Notifications, {count} unread",
+  "inbox.unread": "Unread",
+  "inbox.markAll": "Mark all read",
+  "inbox.seeAll": "See all notifications",
+  "inbox.empty": "You're all caught up. Shared-account updates will appear here.",
+  "inbox.unavailable": "Connect to load your notifications.",
+  "inbox.signIn": "Sign in to see your shared-account notifications.",
+  "inbox.failed": "Couldn't refresh notifications.",
+  "inbox.retry": "Tap to retry.",
+  "inbox.openFailed": "Couldn't open this account. Check your connection and access.",
+  "tab.notify.detail.new": "{name} added a tally ({amount}). Accept or reject it.",
+  "tab.notify.detail.accepted": "Your tally ({amount}) was accepted by {name}.",
+  "tab.notify.detail.rejected":
+    "Your tally ({amount}) was rejected by {name}. Excluded from the balance.",
+  "tab.notify.detail.voided": "{name} voided a tally ({amount}).",
   // Onboarding
   "onboarding.subtitle": "A quiet ledger between you and the people you trust.",
   "onboarding.name.label": "Your name",
@@ -1309,6 +1325,11 @@ const en = {
   "tab.link.confirm.body":
     "{name} will see every tally on this account and can add, accept or reject tallies. Rejected tallies stay visible but do not count toward the balance. The current balance is carried over as one visible opening tally.",
   "tab.link.confirm.ok": "Link",
+  "tab.link.whatsapp": "Link and open WhatsApp",
+  "tab.link.ready": "Invitation ready",
+  "tab.link.readyBody": "Send this invitation to {name} so they can join from their Kaata app.",
+  "tab.link.inviteUnavailable":
+    "This account is already linked. Only the side that created it can share its invitation.",
   "tab.link.failed": "Couldn't link. Check your connection and try again.",
   "tab.link.sent": "Link sent",
   // Note on the D7 opening entry; the other party reads it in THEIR list.
@@ -1337,7 +1358,8 @@ const en = {
   // Fold row over the pre-link local rows (D8: visible, excluded from the balance).
   "tab.beforeLinking": "Before linking · {count}",
   "tab.notSent": "Not sent · {count}",
-  "tab.notSent.body": "These tallies could not be added to the shared account. They are kept on this phone for you to review and are not included in the balance.",
+  "tab.notSent.body":
+    "These tallies could not be added to the shared account. They are kept on this phone for you to review and are not included in the balance.",
   // Row pills (≤ 20 px, monochrome). Accepted rows show nothing.
   "tab.status.new": "New",
   "tab.status.disputed": "Rejected",
@@ -1356,6 +1378,7 @@ const en = {
   "tab.accept": "Accept",
   "tab.accepted": "Accepted",
   "tab.rejectedHint": "Not included in the balance.",
+  "tab.reviewFinal": "This tally has already been reviewed. Send a new tally to try again.",
   "tab.reject": "Reject",
   "tab.dispute": "Add a reason…",
   "tab.dispute.title": "Rejection · {amount}",
@@ -1433,6 +1456,21 @@ type Key = keyof typeof en;
 // Missing keys fall back to English; half-translated UI doesn't break. Add a
 // new key here as soon as you add it to the en table.
 const fa: Partial<Record<Key, string>> = {
+  "inbox.title": "اعلان‌ها",
+  "inbox.bell": "اعلان‌ها، {count} ناخوانده",
+  "inbox.unread": "ناخوانده",
+  "inbox.markAll": "همه خوانده شد",
+  "inbox.seeAll": "دیدن همهٔ اعلان‌ها",
+  "inbox.empty": "اعلان تازه‌ای ندارید. تغییرات حساب مشترک اینجا می‌آید.",
+  "inbox.unavailable": "برای دیدن اعلان‌ها به اینترنت وصل شوید.",
+  "inbox.signIn": "برای دیدن اعلان‌های حساب مشترک وارد شوید.",
+  "inbox.failed": "اعلان‌ها به‌روز نشد.",
+  "inbox.retry": "برای تلاش دوباره بزنید.",
+  "inbox.openFailed": "حساب باز نشد. اتصال و دسترسی خود را بررسی کنید.",
+  "tab.notify.detail.new": "{name} یک ثبت {amount} افزود. قبول یا رد کنید.",
+  "tab.notify.detail.accepted": "ثبت {amount} شما توسط {name} قبول شد.",
+  "tab.notify.detail.rejected": "ثبت {amount} شما توسط {name} رد شد؛ در مانده حساب نمی‌شود.",
+  "tab.notify.detail.voided": "ثبت {amount} توسط {name} لغو شد.",
   // Onboarding
   "onboarding.subtitle": "یک دفتر آرام میان شما و کسانی که اعتماد دارید.",
   "onboarding.name.label": "نام شما",
@@ -2507,6 +2545,11 @@ const fa: Partial<Record<Key, string>> = {
   "tab.link.confirm.body":
     "{name} همهٔ ثبت‌های این حساب را می‌بیند و می‌تواند ثبت اضافه کند، قبول کند یا رد کند. ثبت‌های ردشده در ماندهٔ حساب حساب نمی‌شوند. باقی‌ماندهٔ فعلی به شکل یک ثبت آغازین قابل دید منتقل می‌شود.",
   "tab.link.confirm.ok": "پیوند",
+  "tab.link.whatsapp": "پیوند و باز کردن واتساپ",
+  "tab.link.ready": "دعوت‌نامه آماده است",
+  "tab.link.readyBody": "این دعوت‌نامه را به {name} بفرستید تا از برنامهٔ کاتای خود بپیوندد.",
+  "tab.link.inviteUnavailable":
+    "این حساب قبلاً پیوند شده است. فقط طرفی که آن را ایجاد کرده می‌تواند دعوت‌نامه را بفرستد.",
   "tab.link.failed": "پیوند برقرار نشد. انترنت را بررسی کنید و دوباره امتحان کنید.",
   "tab.link.sent": "لینک فرستاده شد",
   "tab.opening.note": "باقی‌مانده پیش از پیوند",
@@ -2528,7 +2571,8 @@ const fa: Partial<Record<Key, string>> = {
   "tab.chip.waiting": "لینک فرستاده شد · در انتظار",
   "tab.beforeLinking": "پیش از پیوند · {count}",
   "tab.notSent": "فرستاده نشد · {count}",
-  "tab.notSent.body": "این ثبت‌ها به حساب مشترک افزوده نشدند. برای بررسی شما در این تلفون نگه‌داری شده‌اند و در ماندهٔ حساب شامل نیستند.",
+  "tab.notSent.body":
+    "این ثبت‌ها به حساب مشترک افزوده نشدند. برای بررسی شما در این تلفون نگه‌داری شده‌اند و در ماندهٔ حساب شامل نیستند.",
   "tab.status.new": "نو",
   "tab.status.disputed": "رد شده",
   "tab.status.voided": "باطل",
@@ -2544,6 +2588,7 @@ const fa: Partial<Record<Key, string>> = {
   "tab.accept": "تأیید",
   "tab.accepted": "تأیید شد",
   "tab.rejectedHint": "در ماندهٔ حساب حساب نمی‌شود.",
+  "tab.reviewFinal": "این ثبت قبلاً پذیرفته یا رد شده است. برای تلاش دوباره، یک ثبت جدید بفرستید.",
   "tab.reject": "رد کردن",
   "tab.dispute": "افزودن دلیل…",
   "tab.dispute.title": "دلیل رد · {amount}",

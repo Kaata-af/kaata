@@ -13,6 +13,8 @@ import { setTabPushRefreshHook, syncTab, requestTabSync } from "./sync";
 import { onTabApplied } from "./events";
 import { setTabNotifyHook } from "./link";
 import { parseTabReview, TAB_ACCEPT, TAB_REJECT } from "./notification-data";
+import { notificationVars } from "./notification-text";
+import type { TabEntryRow } from "./types";
 import type { NotificationResponse, NotificationTaskPayload } from "expo-notifications";
 
 const TASK = "kaata-tab-notification-actions";
@@ -242,7 +244,7 @@ onTabApplied((ev) => {
       link.closed_at == null &&
       canPerformAction(await readVaultRole(link.vault_id, getAccountIdSync()), "entry.amend");
     for (const change of ev.changes!) {
-      const body =
+      let body =
         change.kind === "entry_created"
           ? t("tab.notify.newEntries", { count: 1 })
           : t(
@@ -252,6 +254,26 @@ onTabApplied((ev) => {
                   ? "tab.notify.rejected"
                   : "tab.notify.voided",
             );
+      const { getDb } = await import("../db-tx");
+      const entry = await (
+        await getDb()
+      ).getFirstAsync<TabEntryRow>(
+        "SELECT * FROM tab_entries WHERE id=? AND tab_id=?",
+        change.entryId,
+        ev.tabId,
+      );
+      if (entry) {
+        body = t(
+          change.kind === "entry_created"
+            ? "tab.notify.detail.new"
+            : change.kind === "entry_accepted"
+              ? "tab.notify.detail.accepted"
+              : change.kind === "entry_rejected"
+                ? "tab.notify.detail.rejected"
+                : "tab.notify.detail.voided",
+          notificationVars(link, entry, t("tab.them")),
+        );
+      }
       await n.scheduleNotificationAsync({
         identifier: `tab:${ev.tabId}:${change.entryId}:${change.rev}`,
         content: {

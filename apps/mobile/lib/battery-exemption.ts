@@ -6,8 +6,8 @@
 // fire, so the foreground-service notification vanishes and the native engine
 // never runs. We fire the REAL system intent
 // (Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS) via the native module —
-// kaata sideloads (GitHub Releases), so the old "Play Store flags this" note was
-// wrong. REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is already declared in the manifest.
+// REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is declared in the manifest. This
+// helper belongs to Nearby sync, which remains parked in store builds.
 
 import { Platform } from "react-native";
 import { getAppMeta, setAppMeta } from "./db";

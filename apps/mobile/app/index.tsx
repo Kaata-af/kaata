@@ -24,6 +24,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
 import { InitialAvatar } from "../components/InitialAvatar";
+import { NotificationBell } from "../components/NotificationInbox";
 import { PersonRow } from "../components/PersonRow";
 import { ProfileSettingsSheet, type VaultListItem } from "../components/ProfileSettingsSheet";
 import { RestoreProgress, restoreProgressLabel } from "../components/RestoreProgress";
@@ -893,6 +894,7 @@ export default function HomeScreen() {
 
         <View style={{ flex: 1 }} pointerEvents="none" />
 
+        <NotificationBell />
         {/* Profile chip — top-RIGHT. Phase 7: opens the unified
             ProfileSettingsSheet (replaces the deprecated hamburger +
             ProfileMenuSheet). The icon is either the user's Google

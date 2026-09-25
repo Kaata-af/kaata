@@ -281,3 +281,32 @@ export async function registerTabNotifications(
 ): Promise<{ enabled: boolean }> {
   return request("POST", `/v1/tabs/${encodeURIComponent(tabId)}/notifications`, auth, body);
 }
+
+export type InboxItem = {
+  id: string;
+  tab_id: string;
+  role: TabLink["role"];
+  rev: number;
+  kind: string;
+  entry_id: string;
+  body: string;
+  created_at_ms: number;
+  read: boolean;
+};
+export type InboxPage = {
+  items: InboxItem[];
+  unread: number;
+  latest_id: string;
+  next_before: string;
+};
+
+export async function fetchInbox(locale: string, before = ""): Promise<InboxPage> {
+  return request(
+    "GET",
+    `/v1/tabs/inbox?locale=${encodeURIComponent(locale)}&before=${encodeURIComponent(before)}`,
+    await requireJwt(),
+  );
+}
+export async function markInboxRead(body: { id: string } | { through: string }): Promise<void> {
+  await request("POST", "/v1/tabs/inbox/read", await requireJwt(), body);
+}

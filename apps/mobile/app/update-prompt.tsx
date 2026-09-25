@@ -42,10 +42,8 @@ export default function UpdatePromptScreen() {
           }
           onPress={() => {
             // This is the ONLY affordance on a blocking screen — it must
-            // never silently do nothing. Channel-aware target (APK for
-            // sideloads, store listing for Play/App Store builds), with the
-            // website as the never-dead-end floor; openURL rejections
-            // surface inline.
+            // never silently do nothing. Open the official store (or the
+            // website on an unknown platform); show URL failures inline.
             Linking.openURL(forceUpdateTargetUrl(update)).catch(() => setOpenFailed(true));
           }}
         />

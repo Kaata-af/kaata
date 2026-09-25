@@ -15,6 +15,7 @@ export type SheetAction = {
   icon?: ComponentProps<typeof Ionicons>["name"];
   onPress: () => void;
   destructive?: boolean;
+  disabled?: boolean;
 };
 
 const OFFSCREEN = 600;
@@ -35,9 +36,18 @@ export function BottomSheet(props: {
   const isRTL = useIsRTL();
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(OFFSCREEN)).current;
+  const actionPending = useRef(false);
+  const actionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (actionTimer.current) clearTimeout(actionTimer.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (props.visible) {
+      actionPending.current = false;
       setRendered(true);
       requestAnimationFrame(() => {
         Animated.parallel([
@@ -95,13 +105,19 @@ export function BottomSheet(props: {
               return (
                 <Pressable
                   key={i}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: !!a.disabled }}
+                  disabled={a.disabled}
                   onPress={() => {
+                    if (actionPending.current) return;
+                    actionPending.current = true;
                     props.onDismiss();
-                    setTimeout(a.onPress, EXIT_DURATION_MS);
+                    actionTimer.current = setTimeout(a.onPress, EXIT_DURATION_MS);
                   }}
                   style={({ pressed }) => [
                     styles.row,
                     rowDir(isRTL),
+                    a.disabled && { opacity: 0.4 },
                     i !== props.actions.length - 1 && styles.rowDivider,
                     pressed && { backgroundColor: colors.bgMuted },
                   ]}

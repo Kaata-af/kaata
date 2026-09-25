@@ -1501,17 +1501,12 @@ FROM installs
 WHERE last_seen_at > NOW() - INTERVAL '30 days';
 ```
 
-### Force-upgrade
+### Critical client fixes
 
-Existing `app_releases.min_supported_version` mechanism (CLAUDE.md §"Release / deploy flow") handles this. If a critical bug ships in v0.7.0 and is fixed in v0.7.1:
-
-```sql
-INSERT INTO app_releases (platform, version, min_supported_version, apk_url, release_notes)
-VALUES ('android', '0.7.1', '0.7.1', 'https://kaata.af/downloads/kaata-0.7.1.apk',
-        'Critical sync fix. Required update.');
-```
-
-v0.4 and earlier are not force-upgraded by this — sync bugs don't affect them. Pinning `min_supported_version` only against v0.5.x or later means v0.4 holdouts are tolerated.
+Ship fixes through the testing-first store workflow in CLAUDE.md, verify both
+phones, and obtain explicit approval before production promotion. Historical
+check-in version floors remain compatible, but publishing a fix does not require
+a database release row. Never lock users out before the store update is available.
 
 ---
 

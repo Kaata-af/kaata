@@ -6,8 +6,8 @@ This monorepo contains:
 
 - **`apps/mobile/`** — Expo React Native app. The shopkeeper's tool. v0 ledger is fully offline (SQLite); a single non-blocking phone-home on launch checks for updates and announcements.
 - **`apps/backend/`** — Go API server. Single endpoint in v0: `POST /v1/check-in`. Records anonymous installs and serves update + announcement metadata.
-- **`apps/web/`** — Vite + React SPA. Landing page, APK download page, and `/v/:token` customer-facing kaata view (stub). Single static bundle, no Node runtime at deploy.
-- **`docs/`** — Operations manual (release/announcement publishing, version comparison, force-update flow).
+- **`apps/web/`** — Vite + React SPA. Landing page, official store download page, and `/v/:token` customer-facing kaata view (stub). Single static bundle, no Node runtime at deploy.
+- **`docs/`** — Operations manual (store delivery, announcements, version comparison, force-update compatibility).
 
 ## Quickstart
 
@@ -81,7 +81,7 @@ On every launch, the mobile app:
 5. Stores returned update/announcement metadata in `app_meta` and shows a dismissible banner on the home screen.
 6. If `force_update: true` comes back (client version below `min_supported_version`), redirects to a non-dismissible update-prompt screen.
 
-See [docs/architecture.md](docs/architecture.md) for the full operations manual: how to publish a release, publish an announcement, the version comparison rules, and the force-update flow.
+See [docs/architecture.md](docs/architecture.md) for the full operations manual: check-in compatibility, announcements, version comparison rules, and force-update behavior. See [CLAUDE.md](CLAUDE.md#release--deploy-flow) for testing-first store delivery.
 
 ## Status
 

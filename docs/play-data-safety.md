@@ -40,8 +40,10 @@ data → Yes.** Ledger data goes to **Kaata's own backend (api.kaata.af)**.
 
 **2.0 notification delivery:** when the user grants permission and deployment
 enables push, the app sends an Expo push token, installation ID, locale and party
-subscription to the backend. Expo/FCM/APNs receive a generic update message and a
-tab/entry identifiers, party, revision and event kind, never a label, amount, note or invitation credential.
+subscription to the backend. Expo/FCM/APNs receive the actor’s party label, tally amount,
+currency and outcome, plus tab/entry identifiers, party and revision. They do not receive
+notes, balances or invitation credentials. Durable in-app history and per-account read
+state are stored server-side; the app caches its first page per account and locale.
 Device identifiers are optional for app functionality (notification delivery).
 Review the current Play/Apple provider-processing declarations before release;
 the old assertion that no messaging provider exists no longer describes 2.0.

@@ -15,7 +15,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
 import { SHEET_BLUR_METHOD } from "../lib/blur";
-import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
+import { ltrIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { t } from "../lib/i18n";
 import { COUNTRIES } from "../lib/phone";
@@ -164,7 +164,7 @@ export function CountryPickerSheet(props: {
                         {c.name}
                       </Text>
                       <Text style={[styles.dial, isRTL ? styles.dialRTL : styles.dialLTR]}>
-                        {c.dialCode}
+                        {ltrIsolate(c.dialCode)}
                       </Text>
                       {selected ? (
                         <Ionicons

@@ -20,6 +20,21 @@ import type { Entry } from "../lib/types";
 // tally list's vertical rhythm is untouched by turning attribution on.
 const AUTHOR_CHIP_SIZE = 20;
 
+// Keep each language's word order while giving only the name bold weight.
+function namedByLine(
+  key: "entry.addedBy" | "entry.editedBy" | "entry.editedByOnly" | "tab.addedBy",
+  name: string,
+) {
+  const [before, after] = t(key, { name: "\uFFFC" }).split("\uFFFC");
+  return (
+    <>
+      {before}
+      <Text style={styles.byName}>{name}</Text>
+      {after}
+    </>
+  );
+}
+
 // type='debt'    → value left my hand  → "I gave"   → up arrow
 // type='payment' → value came to me    → "I received" → down arrow
 // Same in both directions; the row doesn't need to know which tab it lives in.
@@ -47,15 +62,18 @@ export const EntryRow = memo(function EntryRow(props: {
   useCalendar(); // This memoized row must also refresh when its calendar changes.
   const { entry, tab } = props;
   const voided = tab?.voided === true;
+  const excluded = voided || tab?.status === "disputed";
   const isGave = entry.type === "debt";
   const icon = isGave ? "arrow-up-outline" : "arrow-down-outline";
   const verb = isGave ? t("person.action.iGave") : t("person.action.iReceived");
   // Direction by color (Khatabook flow): "I gave" = value out → pay side;
   // "I received" = value in → collect side. Same axis as the balance, so one
   // color always means "money toward you".
-  const tint = isGave
-    ? { bg: colors.payBg, fg: colors.payStrong }
-    : { bg: colors.collectBg, fg: colors.collectStrong };
+  const tint = excluded
+    ? { bg: colors.bgSubtle, fg: colors.textMuted }
+    : isGave
+      ? { bg: colors.payBg, fg: colors.payStrong }
+      : { bg: colors.collectBg, fg: colors.collectStrong };
 
   // ONE open/closed state per row (Matee, 2026-09): a tap anywhere on the
   // tally is the toggle, exactly like the note's more/less. Open shows the
@@ -104,24 +122,18 @@ export const EntryRow = memo(function EntryRow(props: {
     actor.isSelf ? t("entry.by.you") : (actor.name ?? t("entry.by.someone"));
   const author = props.attribution?.author ?? null;
   const editor = props.attribution?.editor ?? null;
-  const memberByLine = author
-    ? t("entry.addedBy", { name: nameOf(author) }) +
-      (editor ? ` · ${t("entry.editedBy", { name: nameOf(editor) })}` : "")
-    : editor
-      ? t("entry.editedByOnly", { name: nameOf(editor) })
-      : null;
+  const memberByLine = author ? (
+    <>
+      {namedByLine("entry.addedBy", nameOf(author))}
+      {editor ? <> · {namedByLine("entry.editedBy", nameOf(editor))}</> : null}
+    </>
+  ) : editor ? (
+    namedByLine("entry.editedByOnly", nameOf(editor))
+  ) : null;
 
-  // TAB STATUS (linked contacts only). Same two-level design as attribution:
-  // collapsed, at most ONE monochrome word in a pill that fits the amount's
-  // line box; opened, the full sentence. Accepted rows show nothing — a
-  // tally counts the moment it lands (D6), so acknowledgement is the quiet
-  // default and only the exceptions speak: "New" is theirs and unreviewed,
-  // "Disputed" and "Voided" are the two states that change what the row
-  // means, "Sending…" is this phone's own row the server has not acked.
-  //
-  // Monochrome on purpose: emerald and garnet already mean give/receive on
-  // this very row, and danger means destructive. A red "Disputed" next to a
-  // red "I gave" arrow would read as one thing when it is two.
+  // One small status pill beside the date. Rejection is a soft red exception;
+  // its amount and note stay struck gray. Voids keep their neutral pill.
+  const rejected = tab?.status === "disputed" && !voided;
   const pill = tab
     ? voided
       ? t("tab.status.voided")
@@ -137,9 +149,10 @@ export const EntryRow = memo(function EntryRow(props: {
   // decided here and REPLACES the member by-line (a kaata member who wrote a
   // tab tally still acted as "you", the kaata side of the tab).
   const byLine = tab
-    ? tab.by === "me"
-      ? t("tab.addedByYou")
-      : t("tab.addedBy", { name: tab.other_label || t("tab.them") })
+    ? namedByLine(
+        "tab.addedBy",
+        tab.by === "me" ? t("entry.by.you") : tab.other_label || t("tab.them"),
+      )
     : memberByLine;
   const disputeLine =
     tab && tab.status === "disputed" && !voided && tab.dispute_reason
@@ -188,7 +201,7 @@ export const EntryRow = memo(function EntryRow(props: {
             isRTL ? styles.iconWrapRTL : styles.iconWrapLTR,
             // A voided tally keeps its arrow (the audit trail says what it WAS,
             // D5) at half strength, so the eye reads "cancelled" before "gave".
-            voided && styles.voidedTile,
+            excluded && styles.voidedTile,
           ]}
           // Direction is shown by the arrow's shape AND its color (red = I gave /
           // money out, green = I received / money in) — there's no text label —
@@ -208,7 +221,7 @@ export const EntryRow = memo(function EntryRow(props: {
             <View style={[styles.amountRow, rowDir(isRTL)]}>
               {/* Struck, not hidden: the number stays legible under the line so
                 both parties can still see what was cancelled. */}
-              <Text style={[styles.amount, voided && styles.voidedAmount]}>
+              <Text style={[styles.amount, excluded && styles.voidedAmount]}>
                 {formatAmount(entry.amount_afn)}
               </Text>
               <Text style={styles.afn}>{getCurrentCurrencySymbol()}</Text>
@@ -224,8 +237,16 @@ export const EntryRow = memo(function EntryRow(props: {
                 word would overflow the fixed box, and this is a one-word
                 status the opened row spells out in full anyway. */}
               {pill ? (
-                <View style={styles.statusPill} accessible accessibilityLabel={pill}>
-                  <Text style={styles.statusPillText} allowFontScaling={false} numberOfLines={1}>
+                <View
+                  style={[styles.statusPill, rejected && styles.rejectedPill]}
+                  accessible
+                  accessibilityLabel={pill}
+                >
+                  <Text
+                    style={[styles.statusPillText, rejected && styles.rejectedPillText]}
+                    allowFontScaling={false}
+                    numberOfLines={1}
+                  >
                     {pill}
                   </Text>
                 </View>
@@ -269,7 +290,10 @@ export const EntryRow = memo(function EntryRow(props: {
               // the first line (which is what a flex sibling did — and a
               // multi-line flex child under alignItems:'baseline' also clipped the
               // text on Android). A plain block <Text> wraps cleanly, every line.
-              <Text style={[styles.noteBlock, textDir(isRTL)]} accessibilityLabel={note}>
+              <Text
+                style={[styles.noteBlock, textDir(isRTL), excluded && styles.voidedAmount]}
+                accessibilityLabel={note}
+              >
                 {note}
                 {"  "}
                 <Text style={styles.more}>{t("common.less")}</Text>
@@ -289,7 +313,7 @@ export const EntryRow = memo(function EntryRow(props: {
               <View style={[styles.noteRow, rowDir(isRTL)]}>
                 <View style={styles.noteFlex}>
                   <Text
-                    style={[styles.note, textDir(isRTL)]}
+                    style={[styles.note, textDir(isRTL), excluded && styles.voidedAmount]}
                     numberOfLines={measured ? 1 : undefined}
                     // Full note for screen readers, regardless of the visual clamp.
                     accessibilityLabel={note}
@@ -312,22 +336,21 @@ export const EntryRow = memo(function EntryRow(props: {
             still answers "who wrote this" when you ask it directly, and on a
             shared ledger that reassurance is the other half of the feature. */}
           {open && byLine ? (
-            <Text style={[styles.byLine, textDir(isRTL)]} numberOfLines={2}>
+            <Text
+              style={[styles.byLine, textDir(isRTL), { textAlign: isRTL ? "left" : "right" }]}
+              numberOfLines={2}
+            >
               {byLine}
             </Text>
           ) : null}
           {/* The dispute reason is the other party's words about THIS tally,
             so it gets the full width and no clamp: a shopkeeper resolving a
-            dispute needs the whole sentence, not its first line. "Voided"
-            repeats the pill in prose so the opened row is complete on its own. */}
+            dispute needs the whole sentence, not its first line. */}
           {open && disputeLine ? (
             <Text style={[styles.byLine, textDir(isRTL)]}>{disputeLine}</Text>
           ) : null}
           {open && tab?.status === "disputed" && !voided ? (
             <Text style={[styles.byLine, textDir(isRTL)]}>{t("tab.rejectedHint")}</Text>
-          ) : null}
-          {open && voided ? (
-            <Text style={[styles.byLine, textDir(isRTL)]}>{t("tab.status.voided")}</Text>
           ) : null}
         </View>
       </Pressable>
@@ -335,15 +358,15 @@ export const EntryRow = memo(function EntryRow(props: {
       tab.by === "them" &&
       !voided &&
       !tab.local_pending &&
-      (tab.status === "pending" || open) &&
+      tab.status === "pending" &&
       (props.onAccept || props.onReject) ? (
         <View style={[styles.reviewRow, rowDir(isRTL)]}>
           {props.onAccept ? (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={t("tab.accept")}
-              accessibilityState={{ disabled: reviewing || tab.status === "accepted" }}
-              disabled={reviewing || tab.status === "accepted"}
+              accessibilityState={{ disabled: reviewing }}
+              disabled={reviewing}
               onPress={() => void review(props.onAccept!)}
               style={({ pressed }) => [
                 styles.reviewButton,
@@ -352,9 +375,7 @@ export const EntryRow = memo(function EntryRow(props: {
               ]}
             >
               <Ionicons name="checkmark-outline" size={18} color={colors.textEmphasis} />
-              <Text style={styles.reviewLabel}>
-                {t(tab.status === "accepted" ? "tab.accepted" : "tab.accept")}
-              </Text>
+              <Text style={styles.reviewLabel}>{t("tab.accept")}</Text>
             </Pressable>
           ) : null}
           <View style={styles.reviewDivider} />
@@ -362,8 +383,8 @@ export const EntryRow = memo(function EntryRow(props: {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={t("tab.reject")}
-              accessibilityState={{ disabled: reviewing || tab.status === "disputed" }}
-              disabled={reviewing || tab.status === "disputed"}
+              accessibilityState={{ disabled: reviewing }}
+              disabled={reviewing}
               onPress={() => void review(props.onReject!)}
               style={({ pressed }) => [
                 styles.reviewButton,
@@ -372,9 +393,7 @@ export const EntryRow = memo(function EntryRow(props: {
               ]}
             >
               <Ionicons name="close-outline" size={18} color={colors.textEmphasis} />
-              <Text style={styles.reviewLabel}>
-                {t(tab.status === "disputed" ? "tab.status.disputed" : "tab.reject")}
-              </Text>
+              <Text style={styles.reviewLabel}>{t("tab.reject")}</Text>
             </Pressable>
           ) : null}
         </View>
@@ -436,6 +455,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexShrink: 0,
   },
+  rejectedPill: { backgroundColor: colors.rejectedBg },
+  rejectedPillText: { color: colors.rejectedText },
+  byName: { fontFamily: fonts.sansBold },
   statusPillText: {
     fontSize: 11,
     fontFamily: fonts.sansMedium,

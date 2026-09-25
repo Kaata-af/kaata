@@ -28,11 +28,7 @@ export function UpdateBanner() {
   const isRTL = useIsRTL();
   const toast = useToast();
 
-  // Channel-aware target (lib/update-url.ts): the APK for sideload builds,
-  // the store listing for Play/App Store builds. null = the announced
-  // release has no target for THIS install's channel (e.g. a Play build
-  // told about a sideload-only release) — show nothing rather than offer an
-  // APK the install can't apply; the announcement branch below still runs.
+  // Existing update metadata always leads to the platform’s official store.
   const updateUrl = update ? updateTargetUrl(update) : null;
 
   if (update && updateUrl) {

@@ -78,8 +78,7 @@ const en = {
   "footer.followYoutube": "Follow Kaata on YouTube",
   "footer.copyright": "© 2026 Kaata · Made in Kabul.",
 
-  // Download page — store badges only (the sideload APK flow retired when
-  // Google Play went live).
+  // Download page — official store badges.
   "download.title": "Install Kaata",
   "download.sub": "Get Kaata on Google Play for Android, or on the App Store for iPhone.",
   "download.appStoreButton": "Download on the App Store",

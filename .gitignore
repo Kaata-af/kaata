@@ -36,12 +36,10 @@ apps/backend/bin/
 apps/backend/server
 apps/backend/server.exe
 
-# APK / release artifacts
+# Native build artifacts
 *.apk
 *.aab
 *.ipa
-# Exception: APKs in the web service's public/downloads/ are intentional
-# release artifacts (we host them at kaata.af/downloads/ until Play Store).
 
 # logs
 npm-debug.*

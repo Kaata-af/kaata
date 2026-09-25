@@ -2,46 +2,22 @@ package visit
 
 import (
 	"context"
-	"net/http"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Service struct {
-	pool   *pgxpool.Pool
-	apkURL string
-	cache  *apkCache
+	pool        *pgxpool.Pool
+	downloadURL string
 }
 
-// NewService wires the visit recorder + the local APK cache. cacheDir is
-// where /v1/download keeps its resumable local copy of the APK (see
-// apkcache.go); the cache warms lazily from apkURL and the endpoint serves
-// the 302 fallback until it is ready.
-func NewService(pool *pgxpool.Pool, apkURL, cacheDir string) *Service {
-	return &Service{
-		pool:   pool,
-		apkURL: apkURL,
-		cache:  newAPKCache(apkURL, cacheDir),
-	}
+// NewService keeps existing QR links working by routing them to the store page.
+func NewService(pool *pgxpool.Pool, webBaseURL string) *Service {
+	return &Service{pool: pool, downloadURL: strings.TrimRight(webBaseURL, "/") + "/download"}
 }
 
-func (s *Service) APKDownloadURL() string { return s.apkURL }
-
-// WarmAPKCache kicks the background cache warm. Called once at startup
-// (main.go) so the first phone to download never pays the fallback, and
-// again on demand from the handler if the startup warm failed.
-func (s *Service) WarmAPKCache() { s.cache.warmAsync() }
-
-// ServeAPK writes the cached APK (Range-capable, non-expiring) and returns
-// true, or returns false when the cache isn't warm yet — the caller then
-// 302s to APKDownloadURL exactly as the endpoint always did.
-func (s *Service) ServeAPK(w http.ResponseWriter, r *http.Request) bool {
-	if ok := s.cache.serve(w, r); ok {
-		return true
-	}
-	s.cache.warmAsync()
-	return false
-}
+func (s *Service) DownloadURL() string { return s.downloadURL }
 
 type RecordParams struct {
 	Kind           string // "visit" | "download" | "store_click"

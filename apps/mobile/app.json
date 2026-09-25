@@ -14,7 +14,7 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "22"
+      "buildNumber": "23"
     },
     "android": {
       "package": "af.kaata.app",
@@ -37,7 +37,7 @@
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.RECORD_AUDIO"
       ],
-      "versionCode": 42
+      "versionCode": 43
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -83,7 +83,7 @@
         "expo-notifications",
         {
           "color": "#000000",
-          "icon": "./assets/icon.png"
+          "icon": "./assets/notification-icon.png"
         }
       ],
       "./plugins/withBackupRules",

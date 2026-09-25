@@ -2,11 +2,7 @@
 //   - "Download on the App Store": Apple's genuine badge (fetched from
 //     Apple's marketing-toolbox badge API), linked to the listing.
 //   - "Get it on Google Play": Google's official badge, linked to the Play
-//     listing (live since 2026-07-26 — the dimmed "coming soon" state and
-//     the direct-APK sideload button retired with it; the backend's
-//     /v1/download + the in-app update banner keep serving the EXISTING
-//     sideload fleet, which cannot migrate to Play in place because Play
-//     App Signing re-signs with a different key).
+//     listing.
 //
 // Both badges are BUNDLED (src/assets, hashed by Vite), never hotlinked:
 // the site's CSP blocks foreign origins, and self-hosted assets match the

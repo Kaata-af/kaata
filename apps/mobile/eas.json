@@ -14,18 +14,6 @@
         "EXPO_PUBLIC_BACKEND_URL": "http://192.168.1.10:8080"
       }
     },
-    "preview": {
-      "distribution": "internal",
-      "android": {
-        "buildType": "apk"
-      },
-      "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://api.kaata.af",
-        "EXPO_PUBLIC_SOLO_STORE_MODE": "1",
-        "EXPO_PUBLIC_DISTRIBUTION": "apk",
-        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "987359341353-dgceg8n94aem9pgorclo11l4nr5906i8.apps.googleusercontent.com"
-      }
-    },
     "production": {
       "android": {
         "buildType": "app-bundle"
@@ -36,7 +24,6 @@
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://api.kaata.af",
         "EXPO_PUBLIC_SOLO_STORE_MODE": "1",
-        "EXPO_PUBLIC_DISTRIBUTION": "store",
         "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "987359341353-dgceg8n94aem9pgorclo11l4nr5906i8.apps.googleusercontent.com"
       }
     }

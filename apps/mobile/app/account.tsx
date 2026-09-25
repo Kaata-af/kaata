@@ -35,7 +35,7 @@ import { colors } from "../lib/colors";
 import { joinName, splitName } from "../lib/contacts-sync";
 import { getAppMeta, getLocalSelf, initDb, setAppMeta, updateSelfProfile } from "../lib/db";
 import { ensureInstallId } from "../lib/install-id";
-import { rowDir, textDir, useIsRTL } from "../lib/direction";
+import { ltrIsolate, rowDir, textDir, useIsRTL } from "../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../lib/event-log";
 import { fonts } from "../lib/fonts";
 import {
@@ -385,7 +385,7 @@ export default function AccountScreen() {
                 ]}
               >
                 <Text style={styles.countryFlag}>{phoneC.flag}</Text>
-                <Text style={styles.countryDial}>{phoneC.dialCode}</Text>
+                <Text style={styles.countryDial}>{ltrIsolate(phoneC.dialCode)}</Text>
                 <Ionicons name="chevron-down" size={icon.trailing} color={colors.textMuted} />
               </Pressable>
               <TextInput
