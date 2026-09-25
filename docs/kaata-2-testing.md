@@ -5,8 +5,26 @@ author-only visible voids, app-only signed-in participation, durable offline que
 push delivery infrastructure. Existing private ledger events are not rewritten.
 This is not a production release sign-off. Native two-phone testing is required.
 
-Current testing candidate: **2.0.0 / Android 42 / iOS 22**. Source checks pass;
-native compilation, testing uploads and real-phone delivery checks remain pending.
+Current testing candidate: **2.0.0 / Android 42 / iOS 22**. Source checks,
+native compilation and testing uploads passed. Real-phone delivery/action
+checks remain pending; this is not a production release sign-off.
+
+### Testing delivery — 25 September 2026
+
+- Feature commit: `9112235`; web privacy follow-up: `2fee7da`. Backend's new
+  authenticated invitation route and the updated web privacy copy were verified live.
+- iOS build `245115f9-f801-4632-b209-7d7b3b62d4db`: finished; TestFlight
+  submission `bde0aed0-f0ab-4b3f-be1f-d626a905ffea` finished; build 22 is VALID.
+- Android build `03f637b4-16b0-40a3-bffb-42e5d3372971`: finished; closed-testing
+  (`alpha`) submission `2be05153-1bd3-4b89-a8b6-0bdc42ace052` finished.
+  This retries `fea1b5f6-fb4b-4c9c-99c9-45f87d1ae3c9`, which failed with an
+  EAS SERVER_ERROR uploading its archive; that first submission was canceled.
+- Play generated a universal APK for 42 using the same app-signing certificate
+  as the previously tested 41 APK. Use that Play-signed APK if review delays
+  distribution; do not substitute an EAS upload-key-signed preview APK or
+  uninstall/clear data to work around a signature mismatch.
+- Neither store was promoted to production. Update BOTH testing phones before
+  checking rejected-tally balances, notifications and inline reviews.
 
 ## Local checks
 
