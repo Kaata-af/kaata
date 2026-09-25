@@ -1,9 +1,10 @@
 # Kaata 2.0 — testing and rollout
 
 Implementation: mutual accounts attached to contacts, inline accept/reject,
-author-only visible voids, app-only signed-in participation, durable offline queue, and
-push delivery infrastructure. Existing private ledger events are not rewritten.
-This is not a production release sign-off. Native two-phone testing is required.
+author-only cancellation of pending tallies, app-only signed-in participation,
+durable offline queue, and push delivery infrastructure. Existing private ledger
+events are not rewritten.
+Automated checks and store submissions do not replace native two-phone testing.
 
 Current release candidate: **2.0.0 / Android 45 / iOS 25**. Adds pending-only
 cancellation (server and offline queue), inline expanded-row cancellation,
@@ -16,10 +17,34 @@ On 25 September 2026, Matee explicitly authorized commit/push, testing delivery,
 then production submission once this new build is available in TestFlight.
 This overrides the usual wait-for-another-approval step for this delivery only;
 it does not claim that the new native builds have already been phone-tested.
-Last verified delivery remains 44/24 below until new build/submission results
-are recorded. Store review/availability is separate from successful upload.
+Store review/availability is separate from successful upload.
 
-### Current testing delivery — 25 September 2026 (44/24)
+### Current delivery — 26 September 2026 Kabul (45/25)
+
+- Source commit: `a7df93c124aa6d2b32f93c1573737caff5f651b0`, pushed to main.
+  Full isolated-Postgres Go tests, Go build/vet, mobile typecheck and all 18
+  selftests passed before delivery. Release preflight repeated the typecheck,
+  both native bundle exports, notification-mask validation and release-note checks.
+- Android build: `1668ec44-4b12-486d-8554-49e1892546a1`; closed-testing submission:
+  `ebf3b9e2-7e28-4c88-a1c8-97b470fcf95a`. Both FINISHED; Play alpha contains 45.
+- iOS build: `381cb0f2-ecf5-4e41-9f9f-9d59c279b4ac`; TestFlight submission:
+  `21bd0844-384c-4094-99fb-499557038c79`. Both FINISHED; build 25 is VALID in ASC
+  (`f8a99c1c-858e-4a46-a453-2dc03271c23f`). The long delay was in Expo's
+  submission queue; the existing build was uploaded without rebuilding.
+- After TestFlight processing completed, iOS 2.0.0 was submitted for production
+  review at `2026-09-25T21:20:48.948Z`: WAITING_FOR_REVIEW, build 25 attached,
+  release type AFTER_APPROVAL, English release notes included.
+  App Store version ID: `23d5f09a-51ac-4533-b4b1-2abac0f18dca`.
+- Android 45 was then verified on the production track at 100% (`completed`),
+  promoted from alpha with English release notes. Google review/public availability
+  is separate; this does not assert that the update is already visible to everyone.
+- Pushing main triggered the configured Dokploy auto-deploy. Backend health is OK
+  and the web returns HTTP 200. Health still reports commit `unknown`, so the exact
+  deployed revision and migration state could not be independently verified there.
+- Migration 043 preserves ledger history and supports old 1.2.0 clients. Existing
+  app data should be kept intact. No direct-install Android build was created.
+
+### Previous testing delivery — 25 September 2026 (44/24)
 
 - Source commit: `105ef08643500cc5d3e88b28e7bb90cf05cdd81d`.
   Full isolated-Postgres Go tests, Go build/vet, mobile typecheck and all selftests,
