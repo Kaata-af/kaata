@@ -9,9 +9,28 @@ Current testing candidate: **2.0.0 / Android 44 / iOS 24**. Includes actual acco
 names for attribution/notifications, quiet foreground alerts, own-action notification
 suppression, redirected sign-in without onboarding, colored tally states,
 notification-to-tally scrolling/highlight, and refined shared-account badges.
-Builds and testing submissions are pending; the last delivered pair is 43/23 below.
+Both native builds and testing submissions finished. Play's alpha track contains
+versionCode 44; Apple reports iOS build 24 as VALID.
 Store review/availability is separate from successful upload. Test these builds
 on both phones before authorizing any production promotion.
+
+### Current testing delivery — 25 September 2026 (44/24)
+
+- Source commit: `105ef08643500cc5d3e88b28e7bb90cf05cdd81d`.
+  Full isolated-Postgres Go tests, Go build/vet, mobile typecheck and all selftests,
+  Android/iOS bundle exports passed before delivery. Release preflight repeated
+  the tabs tests, Go vet and mobile typecheck; the web production build also passed.
+- Android build: `b25bc493-26a4-4d66-b7ff-3c73ffba4b35`; closed-testing submission:
+  `31c571e9-7b3c-4397-832b-70fc24aebe4a`. Both FINISHED; Play alpha contains 44.
+- iOS build: `2493b0db-a7f5-4024-9553-10f5395b4688`; TestFlight submission:
+  `3ce5e48b-3285-4b77-a695-74e63006cd3c`. Both FINISHED; build 24 VALID in ASC.
+- Pushing main triggered the configured Dokploy auto-deploy. Backend health is OK
+  and the web returns HTTP 200. The health response still reports commit `unknown`,
+  so the exact deployed revision could not be independently verified from it.
+- Production unchanged: Play versionCode 40; App Store 1.2.0 READY_FOR_SALE.
+  Play inspection used a discarded dry-run edit; no production promotion or
+  App Store review submission was made. No direct-install Android build was created.
+- Identity migration 042 is additive. Existing tallies and balances are not rewritten.
 
 ### Previous testing delivery — 25 September 2026 (43/23)
 
