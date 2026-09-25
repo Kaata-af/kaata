@@ -335,15 +335,17 @@ database writes or repository tags are required.
    eas build --profile production --platform all --auto-submit-with-profile testing --non-interactive
    ```
 
+   Invoke the store scripts directly with `node`, as below. PowerShell/npm can
+   consume flags such as `--status`; never use that ambiguous wrapper for read-only checks.
    Set `EXPO_APPLE_TEAM_ID=2JPK69B8Z2` for non-interactive credential validation.
    Check the log says `Using Keystore from configuration` (never `Creating`). The `testing` submit profile puts Android on the Play **closed testing** track (`alpha`; `internal` = Internal testing, `beta` = Open testing) and uploads iOS to TestFlight. Both use the same `production` BUILD profile; only the destination differs. A phone joins the closed test once via `https://play.google.com/apps/testing/af.kaata.app` (its Google account must be on the track's tester list), then Play offers the build as a normal update. Keep installed app data intact; do not uninstall to test updates.
 
 3. **Promote Android** once the phones check out. `eas submit --profile production` is refused for a versionCode that is already on a track ("You've already submitted this version") — Play treats it as one release to promote, and EAS has no promote command. `apps/mobile/scripts/play-promote.mjs` is that button via the Edits API, run from `apps/mobile/`:
 
    ```
-   npm run promote:android -- --dry-run          # shows what would move, discards the edit
-   npm run promote:android                        # alpha -> production, 100%
-   npm run promote:android -- --rollout 0.2       # staged rollout instead
+   node scripts/play-promote.mjs --dry-run          # shows what would move, discards the edit
+   node scripts/play-promote.mjs                        # alpha -> production, 100%
+   node scripts/play-promote.mjs --rollout 0.2       # staged rollout instead
    ```
 
    It reads the package + versionCode from `app.json` and authenticates with the SAME service account EAS Submit uses (`kaata-eas-deploy@…`), expected at `credentials/google-service-account.json` (gitignored; Matee keeps the original under Documents/Security/Kaata) or passed with `--key`. Release notes on the closed-testing release travel with it. Play still runs its own review before the production rollout goes live. The manual equivalent is Play Console → Testing → Closed testing → alpha → the release → Promote release → Production.
@@ -351,10 +353,10 @@ database writes or repository tags are required.
 4. **iOS — actually submit for review.** ⚠️ **`eas submit` never submits an iOS build for App Store review.** EAS Submit implements binary _upload_ only; every iOS flag it has is TestFlight-only. The `submit.production.ios` and `submit.testing.ios` blocks are byte-identical for this reason, and the CLI's "✔ Submitted your app to App Store Connect!" means TestFlight. **It has already cost two releases — 1.0.7 and 1.0.8 were built, uploaded and committed, and never reached a single user.** The second half is `apps/mobile/scripts/asc-submit.mjs`, run from `apps/mobile/` once `--status` shows the build `VALID`:
 
    ```
-   npm run submit:ios -- --status                                # what's live, what's stranded
-   npm run submit:ios -- --notes-file notes.txt --dry-run        # preflight, no writes
-   npm run submit:ios -- --notes-file notes.txt                  # create/reuse version, attach build, submit
-   npm run submit:ios -- --notes-file notes.txt --supersede      # previous train still in review: cancel it first
+   node scripts/asc-submit.mjs --status                                # what's live, what's stranded
+   node scripts/asc-submit.mjs --notes-file notes.txt --dry-run        # preflight, no writes
+   node scripts/asc-submit.mjs --notes-file notes.txt                  # create/reuse version, attach build, submit
+   node scripts/asc-submit.mjs --notes-file notes.txt --supersede      # previous train still in review: cancel it first
    ```
 
    It reads version + buildNumber from `app.json` and the ASC API key from the `eas.json` submit profile. It creates the App Store version (ASC copies description, keywords, screenshots and review contact forward), attaches the matching build, writes "What's New", and submits; `--manual` holds at Pending Developer Release. `--status` lists any train that exists as a build but has no App Store version — the 1.0.7/1.0.8 failure, surfaced. **`--supersede`** is for the case that recurs when a fix lands while the previous version is still `WAITING_FOR_REVIEW`: ASC allows ONE non-live version per platform, so the script cancels that review submission, renames the version to `app.json`'s, waits for it to read editable (`DEVELOPER_REJECTED`; ASC is eventually consistent, so a plain re-run may be needed), then continues. Never rename a version Apple has already approved.

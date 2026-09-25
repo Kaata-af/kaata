@@ -7,8 +7,27 @@ This is not a production release sign-off. Native two-phone testing is required.
 
 Current testing candidate: **2.0.0 / Android 43 / iOS 23**. Includes the notification
 inbox, final accept/reject decisions, customer-screen polish, single-dialog linking,
-and store-only update delivery. Native builds and testing uploads are pending for
-this candidate. No production promotion is authorized.
+and store-only update delivery. Both native builds and testing submissions finished.
+Apple reports build 23 VALID; Play's alpha track contains versionCode 43.
+Store review/availability is separate from successful upload. Test these builds
+on both phones before authorizing any production promotion.
+
+### Current testing delivery — 25 September 2026
+
+- Source commit: `44b1c76`. Mobile typecheck and all selftests passed; backend
+  tests passed against isolated Postgres, `go vet` passed, and the web production
+  build passed. Android notification mask was verified.
+- Android build: `ced29d23-324b-4603-b92b-21fd2e27ba6e`; closed-testing submission:
+  `96df6e6e-e28f-42c3-ab72-2de787addfae`. Both FINISHED.
+- iOS build: `d9435548-d45e-4eaa-83ee-8a8543f9ce9a`; TestFlight submission:
+  `14462cdd-7ce8-41fc-b353-b8c0d918f2af`. Both FINISHED; build 23 VALID in ASC.
+- Dokploy auto-deploy verified: existing download links redirect to the store page
+  with their source retained; the web serves its updated store-only security policy.
+- Production unchanged: Play versionCode 40; App Store 1.2.0. The Play inspection
+  used a discarded dry-run edit, not a promotion.
+- This delivery used only the production build profile and testing submit profile.
+  The old direct-download service and obsolete publishing instructions are removed.
+  Historical migrations, ledger records and Git history are preserved.
 
 ### Previous testing delivery — 25 September 2026
 
