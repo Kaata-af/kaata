@@ -1,3 +1,4 @@
+import { DownloadDemo } from "../components/DownloadDemo";
 import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 import { AppStoreBadge, PlayStoreBadge } from "../components/StoreButtons";
 import { useI18n } from "../lib/i18n";
@@ -12,7 +13,7 @@ export function Download() {
     <main>
       <SiteHeader />
 
-      <section className="px-6 py-16 md:py-20 max-w-2xl mx-auto">
+      <section className="px-5 py-10 sm:px-6 md:py-20 max-w-2xl mx-auto">
         <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-neutral-900">
           {t("download.title")}
         </h1>
@@ -31,6 +32,8 @@ export function Download() {
             </>
           )}
         </div>
+
+        <DownloadDemo />
       </section>
 
       <SiteFooter />

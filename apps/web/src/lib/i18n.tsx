@@ -83,6 +83,8 @@ const en = {
   "download.sub": "Get Kaata on Google Play for Android, or on the App Store for iPhone.",
   "download.appStoreButton": "Download on the App Store",
   "download.playStoreButton": "Get it on Google Play",
+  "download.demo.title": "How to use Kaata",
+  "download.demo.youtube": "Watch on YouTube",
 
   // Not found
   "notFound.kicker": "404",
@@ -226,11 +228,13 @@ const fa: Record<keyof typeof en, string> = {
   "footer.followYoutube": "کاتا را در یوتیوب دنبال کنید",
   "footer.copyright": "© ۲۰۲۶ کاتا · ساخت کابل.",
 
-  // Download page — store badges only.
+  // Download page — store badges and video guide.
   "download.title": "نصب کاتا",
   "download.sub": "کاتا را برای اندروید از Google Play و برای آیفون از App Store بگیرید.",
   "download.appStoreButton": "دانلود از App Store",
   "download.playStoreButton": "دریافت از Google Play",
+  "download.demo.title": "طرز استفاده از کاتا",
+  "download.demo.youtube": "تماشا در یوتیوب",
 
   // Not found
   "notFound.kicker": "۴۰۴",
