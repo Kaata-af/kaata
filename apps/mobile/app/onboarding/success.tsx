@@ -52,7 +52,12 @@ export default function OnboardingSuccessScreen() {
     let pendingTab: string | null = null;
     try {
       pendingTab = await getAppMeta("pending_tab_token");
-      if (pendingTab) await setAppMeta("pending_tab_token", "");
+      if (pendingTab) {
+        // The pair travels together (app/t/[token].tsx): a currency left
+        // armed alone would preset a later, unrelated vault/new.
+        await setAppMeta("pending_tab_token", "");
+        await setAppMeta("pending_tab_currency", "");
+      }
     } catch (err) {
       console.warn("[onboarding/success] pending tab read failed", err);
     }

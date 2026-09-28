@@ -56,6 +56,13 @@ export type WireParty = {
   joined_at_ms: number | null;
   /** True once an account is bound to the party (JWT access works). */
   bound: boolean;
+  /**
+   * The bound account's phone (accounts.phone_e164): E.164, "" when the account
+   * has none, absent from servers that predate it. Exposed to the OTHER party
+   * exactly like `label`, so the join screen can suggest which contact the
+   * invitation came from (lib/tabs/join-plan.ts suggestJoinContact).
+   */
+  phone?: string;
 };
 
 export type WireTab = {

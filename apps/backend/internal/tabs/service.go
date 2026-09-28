@@ -182,6 +182,13 @@ type PartyMeta struct {
 	// Bound is true when a session account is attached — the phone can
 	// recover this tab through GET /v1/tabs/mine after a reinstall.
 	Bound bool `json:"bound"`
+	// Phone is the bound account's own E.164 number (accounts.phone_e164,
+	// PUT /v1/account/phone), "" when the party is unbound or never set one.
+	// It rides on every Tab payload so the OTHER party can match the
+	// invitation to a contact at join time (D18) — the same exposure as the
+	// label, and the invitation already arrives over WhatsApp from that
+	// number. Display/matching only; never an identity proof or an ACL key.
+	Phone string `json:"phone"`
 }
 
 // Tab is the meta block: identity, both parties, the balance from EACH view
@@ -606,6 +613,7 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 		closedAt         *time.Time
 		aLabel, bLabel   string
 		aName, bName     string
+		aPhone, bPhone   string
 		aJoined, bJoined *time.Time
 		aBound, bBound   bool
 		balanceA         int64
@@ -614,8 +622,8 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 	)
 	err := q.QueryRow(ctx, `
 		SELECT t.currency, t.rev, t.created_at, t.closed_at, t.closed_by,
-		       pa.label, pa.joined_at, pa.account_id IS NOT NULL, COALESCE(aa.name, ''),
-		       pb.label, pb.joined_at, pb.account_id IS NOT NULL, COALESCE(ab.name, ''),
+		       pa.label, pa.joined_at, pa.account_id IS NOT NULL, COALESCE(aa.name, ''), COALESCE(aa.phone_e164, ''),
+		       pb.label, pb.joined_at, pb.account_id IS NOT NULL, COALESCE(ab.name, ''), COALESCE(ab.phone_e164, ''),
 		       COALESCE((SELECT SUM(CASE WHEN e.direction = 'a_to_b' THEN e.amount_minor ELSE -e.amount_minor END)
 		                   FROM tab_entries e
 		                  WHERE e.tab_id = t.id AND e.kind <> 'void' AND e.voided_by_entry_id IS NULL AND e.status <> 'disputed'), 0)::BIGINT,
@@ -629,7 +637,7 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 		  LEFT JOIN accounts ab ON ab.id=pb.account_id
 		 WHERE t.id = $1::uuid
 	`, tabID, you).Scan(&t.Currency, &t.Rev, &createdAt, &closedAt, &closedBy,
-		&aLabel, &aJoined, &aBound, &aName, &bLabel, &bJoined, &bBound, &bName, &balanceA, &pending)
+		&aLabel, &aJoined, &aBound, &aName, &aPhone, &bLabel, &bJoined, &bBound, &bName, &bPhone, &balanceA, &pending)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return Tab{}, ErrNotFound
@@ -642,8 +650,8 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 	t.ClosedBy = closedBy
 	t.You = you
 	t.Parties = map[string]PartyMeta{
-		"a": {Label: aLabel, AccountName: aName, JoinedAtMS: msPtr(aJoined), Bound: aBound},
-		"b": {Label: bLabel, AccountName: bName, JoinedAtMS: msPtr(bJoined), Bound: bBound},
+		"a": {Label: aLabel, AccountName: aName, JoinedAtMS: msPtr(aJoined), Bound: aBound, Phone: aPhone},
+		"b": {Label: bLabel, AccountName: bName, JoinedAtMS: msPtr(bJoined), Bound: bBound, Phone: bPhone},
 	}
 	t.Balance = map[string]string{
 		"a": formatMinor(balanceA),

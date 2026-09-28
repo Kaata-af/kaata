@@ -20,19 +20,24 @@ import * as Crypto from "expo-crypto";
 import * as Network from "expo-network";
 import { Linking } from "react-native";
 
-import { getSessionJWT } from "../auth";
+import { getSessionJWT, updateAccountPhone } from "../auth";
 import { applyVaultCurrency } from "../currency";
 import {
   archivePerson,
   bumpUsageCounter,
   createPerson,
   getActiveRelationshipIdForPerson,
+  getLocalSelf,
   getPerson,
+  listActiveVaults,
 } from "../db";
 import { getAccountIdSync, getActiveVaultIdSyncMaybe, getDb, setActiveVaultId } from "../db-tx";
+import { RoleGateRejectionError } from "../event-log";
 import { parseAmountInput, toMinorUnits } from "../money";
+import { pushEvents } from "../sync/push";
 import { ENTRY_NOTE_MAX_LENGTH, type EntryType } from "../types";
 import { readVaultRole } from "../use-vault-role";
+import { changeVaultCurrency, VaultHasOpenTabError } from "../vault-router";
 import { canPerformAction, type VaultAction } from "../vault-roles";
 import { createTab, fetchTabByToken, joinTab, regenerateTabLink, resolveTabAuth } from "./api";
 import {
@@ -44,6 +49,7 @@ import {
   setTabInviteUrl,
   upsertTabFromWire,
   upsertTabLink,
+  vaultHasOpenTab,
 } from "./db";
 import { directionFor } from "./direction";
 import {
@@ -58,8 +64,16 @@ import {
   TabSameKaataError,
   isRetryableTabError,
 } from "./errors";
+import type { VaultFacts } from "./join-plan";
 import { reconcileTabsFromServer, syncTab, takeAppendOutcome } from "./sync";
-import type { DuplicateHint, TabLink, TabOutboxRow, WireEntry, WireTab } from "./types";
+import type {
+  DuplicateHint,
+  TabLink,
+  TabOutboxRow,
+  TabResponse,
+  WireEntry,
+  WireTab,
+} from "./types";
 import { minorToWire } from "./wire";
 
 export {
@@ -167,6 +181,118 @@ async function newOp(
   return id;
 }
 
+/**
+ * Best-effort: make sure the server holds MY phone before a tab exists that
+ * the other party can read it from (WireParty.phone — the join screen's
+ * contact suggestion keys on it, lib/tabs/join-plan.ts). updateAccountPhone is
+ * JWT-gated and swallows transport failures, and the PUT is never awaited: a
+ * stale or missing server phone only costs the other side a suggestion, never
+ * the link.
+ */
+async function resendSelfPhone(): Promise<void> {
+  try {
+    const self = await getLocalSelf();
+    if (self?.phone) void updateAccountPhone(self.phone).catch(() => undefined);
+  } catch {
+    /* best-effort */
+  }
+}
+
+// pushEvents sends ONE batch (MAX_BATCH_SIZE = 500, oldest HLC first), and the
+// currency event we want on the server is the NEWEST row, so a kaata that
+// signed in after months offline needs several batches before it is there.
+// Bounded: 5 × 500 events is more than any shop has queued.
+const PUSH_MAX_BATCHES = 5;
+// How long the join screen waits for a best-effort push before moving on.
+// pushEvents' own timeout is 30 s (lib/sync/push.ts PUSH_TIMEOUT_MS), and a
+// stalled connection (captive portal, flaky data) hangs the full 30 s rather
+// than failing fast; the local switch is done in milliseconds and only this
+// network side effect would be holding the screen. The push keeps running in
+// the background past the cap, and the join's own 409 retry covers a push
+// that has not landed by the time the user taps.
+const SWITCH_PUSH_CAP_MS = 5_000;
+// The 409 retry's push must actually land for the retry to succeed, so it is
+// given longer — but not the whole 30 s twice over on a dead link; a second
+// 409 is reported as "not synced yet" and the user retries once it has.
+const RETRY_PUSH_CAP_MS = 10_000;
+
+/**
+ * Push a vault's queued events so the server's projection catches up with this
+ * device's, draining up to PUSH_MAX_BATCHES batches; never throws (offline, an
+ * expired session, an unregistered vault are all "not now", and the caller's
+ * own request reports the consequence). Returns how many events the server
+ * accepted (duplicates count — the server already had them). With `capMs` the
+ * wait is bounded: the drain continues in the background and the result says
+ * what had landed by the cap (`timedOut`).
+ */
+async function pushVaultBestEffort(
+  vaultId: string,
+  opts: { capMs?: number } = {},
+): Promise<{ pushed: number; timedOut: boolean }> {
+  let pushed = 0;
+  const drain = (async () => {
+    try {
+      for (let i = 0; i < PUSH_MAX_BATCHES; i++) {
+        const r = await pushEvents(vaultId);
+        pushed += r.pushed + r.duplicates;
+        if (r.pushed + r.duplicates === 0) break;
+      }
+    } catch (err) {
+      if (__DEV__) console.warn("[tabs.link] vault push before join failed", err);
+    }
+  })();
+  if (opts.capMs == null) {
+    await drain;
+    return { pushed, timedOut: false };
+  }
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timedOut = await Promise.race([
+    drain.then(() => false),
+    new Promise<true>((resolve) => {
+      timer = setTimeout(() => resolve(true), opts.capMs);
+    }),
+  ]);
+  if (timer) clearTimeout(timer);
+  return { pushed, timedOut };
+}
+
+/**
+ * Map a refused join to its typed error — after undoing the contact THIS call
+ * minted. Leaving it makes the obvious retry (same name, same number) fail
+ * with phone_conflict on a contact the person never knowingly created, which
+ * is a baffling way to meet the app: this is the counterparty's FIRST screen.
+ * Archiving clears the number off the active set, so the retry behaves like a
+ * first try. Best effort; the join error is what the caller must see. A
+ * timeout is ambiguous — the server may already have attached this exact
+ * contact — so retryable failures keep it, and recovery/retry cannot orphan
+ * that binding. Returns rather than throws so the caller's `throw await`
+ * keeps the rollback on the FINAL failure only (the currency retry in
+ * joinTabAsContact asks the server twice).
+ */
+async function joinFailure(
+  err: unknown,
+  createdPersonId: string | null,
+  vaultCurrency: string,
+  tab: WireTab,
+  afterPush: boolean,
+): Promise<unknown> {
+  if (createdPersonId && err instanceof TabApiError && !isRetryableTabError(err)) {
+    try {
+      await archivePerson(createdPersonId);
+    } catch (cleanupErr) {
+      console.warn("[tabs.link] could not roll back the contact after a failed join", cleanupErr);
+    }
+  }
+  if (err instanceof TabApiError) {
+    if (err.code === "same_kaata") return new TabSameKaataError();
+    if (err.code === "tab_closed") return new TabClosedError();
+    if (err.code === "currency_mismatch")
+      return new TabCurrencyMismatchError(vaultCurrency, tab.currency, { serverStale: afterPush });
+    if (err.code === "already_linked") return new TabAlreadyLinkedError(tab.id);
+  }
+  return err;
+}
+
 // ---------------------------------------------------------------------------
 // Link (party a)
 
@@ -223,6 +349,7 @@ export async function linkContact(
 
   const signedIn = (await getSessionJWT().catch(() => null)) != null;
   if (!signedIn) throw new TabAuthUnavailableError();
+  await resendSelfPhone();
   const resp = await createTab({
     linked_at_ms: now,
     currency,
@@ -281,9 +408,102 @@ export async function fetchTabPreview(
   return fetchTabByToken(token);
 }
 
+// ---------------------------------------------------------------------------
+// Join preflight: which kaata, and in which currency (D9)
+
+/**
+ * Every kaata the join screen may attach a tab to, with the facts
+ * planCurrency (lib/tabs/join-plan.ts) sorts them by: currency; whether the
+ * book is empty (no live tally and never a tab — a switch relabels nothing);
+ * whether an OPEN tab pins the currency (changeVaultCurrency's
+ * VaultHasOpenTabError); and whether the active user's role may change it —
+ * the same `vault.rename` gate vault/settings.tsx uses for its currency row.
+ * Lives here rather than lib/tabs/db.ts because it reads listActiveVaults from
+ * lib/db.ts, which imports tabs/db (the reverse edge would be a cycle — see
+ * that file's header).
+ */
+export async function listVaultFactsForJoin(): Promise<VaultFacts[]> {
+  const vaults = await listActiveVaults();
+  const db = await getDb();
+  const accountId = getAccountIdSync();
+  const out: VaultFacts[] = [];
+  for (const v of vaults) {
+    // deleted_at IS NULL is the live-row predicate every entries read uses
+    // (listEntries, the balance sums); is_deleted mirrors it as a cache.
+    const live = await db.getFirstAsync<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM entries WHERE vault_id = ? AND deleted_at IS NULL`,
+      v.id,
+    );
+    const anyTab = await db.getFirstAsync<{ one: number }>(
+      `SELECT 1 AS one FROM tab_links WHERE vault_id = ? LIMIT 1`,
+      v.id,
+    );
+    const role = await readVaultRole(v.id, accountId);
+    out.push({
+      id: v.id,
+      name: v.name,
+      currency: v.currency,
+      liveEntries: live?.n ?? 0,
+      hasAnyTab: anyTab != null,
+      hasOpenTab: await vaultHasOpenTab(v.id),
+      canChangeCurrency: canPerformAction(role, "vault.rename"),
+    });
+  }
+  return out;
+}
+
+/**
+ * Switch a kaata to the tab's currency from the join screen, so "no kaata in
+ * USD" is never a dead end. Same rules as vault/settings' commitCurrency:
+ * changeVaultCurrency refuses while the kaata holds an OPEN tab
+ * (VaultHasOpenTabError, rethrown as-is → t('tab.join.lockedByTab')) and the
+ * role gate refuses below manager (RoleGateRejectionError, mapped to
+ * TabPermissionError → t('tab.join.lockedByRole')). When it is the active
+ * kaata the display currency follows (applyVaultCurrency also mirrors
+ * app_meta.default_currency, exactly what commitCurrency does by hand). The
+ * vault's events are then pushed best-effort so the server's copy of
+ * vaults.currency — what its join handler compares the tab against — catches
+ * up before joinTabAsContact asks; a push failure is not an error here, the
+ * join's own 409 retry reports it as tab.join.currencyNotSynced. The wait for
+ * that push is capped (SWITCH_PUSH_CAP_MS): the switch itself is local and
+ * instant, and the screen must not sit greyed for a 30 s network stall.
+ *
+ * A server-anchored (pre-local-CA) kaata is switched by changeVaultCurrency
+ * as "append the event, THEN PATCH the server", and the local applier
+ * mirrors vaults.currency on the append — so when the PATCH throws (offline)
+ * the kaata IS already switched here. That is not a failed switch: reading
+ * it as one left the screen listing the kaata under its old currency while
+ * the DB said otherwise, so "Create a separate USD kaata" minted a second USD
+ * kaata and a second tap appended a second identical event. Anything thrown
+ * after the local currency already equals the target is therefore treated
+ * as "switched locally, server behind", which the join's 409 path reports.
+ */
+export async function switchVaultCurrencyForTab(vaultId: string, currency: string): Promise<void> {
+  try {
+    await changeVaultCurrency(vaultId, currency);
+  } catch (err) {
+    if (err instanceof RoleGateRejectionError) throw new TabPermissionError();
+    if (err instanceof VaultHasOpenTabError) throw err;
+    if ((await vaultCurrency(vaultId)) !== currency) throw err;
+    if (__DEV__) console.warn("[tabs.link] currency switched locally; server behind", err);
+  }
+  if (getActiveVaultIdSyncMaybe() === vaultId) await applyVaultCurrency(vaultId);
+  await pushVaultBestEffort(vaultId, { capMs: SWITCH_PUSH_CAP_MS });
+}
+
 export type JoinTarget = { vaultId: string } & (
   | { personId: string }
-  | { newPerson: { firstName: string; lastName: string | null; phone: string | null } }
+  | {
+      newPerson: {
+        firstName: string;
+        lastName: string | null;
+        phone: string | null;
+        /** ISO country for a national-format number (a phone-book contact or
+         *  the invitation's own number, lib/tabs/join-plan.ts); omitted = the
+         *  install default, as createPerson resolves it. */
+        countryCode?: string;
+      };
+    }
 );
 
 /**
@@ -297,6 +517,9 @@ export type JoinTarget = { vaultId: string } & (
  * into another kaata switches to it first (the invite-accept flow does the
  * same). With a session the join is followed by /bind so /mine recovers the
  * link after a reinstall; without one the token in tab_links is the credential.
+ * My own phone is re-sent to the account first (best-effort) so party a's
+ * screens can name me by number; a server currency_mismatch is retried once
+ * after pushing the kaata's events (see joinFailure / serverStale).
  */
 export async function joinTabAsContact(
   token: string,
@@ -332,6 +555,7 @@ export async function joinTabAsContact(
       target.newPerson.firstName,
       target.newPerson.lastName,
       target.newPerson.phone,
+      target.newPerson.countryCode,
     );
     if (!created.ok) throw new TabCreatePersonError(created);
     createdPersonId = created.id;
@@ -340,39 +564,35 @@ export async function joinTabAsContact(
   }
 
   const signedIn = (await getSessionJWT().catch(() => null)) != null;
+  await resendSelfPhone();
   const now = Date.now();
-  let resp;
+  const req = {
+    linked_at_ms: now,
+    label,
+    vault_id: signedIn ? target.vaultId : null,
+    relationship_id: signedIn ? relId : null,
+  };
+  let resp: TabResponse;
   try {
-    resp = await joinTab({ token }, tab.id, {
-      linked_at_ms: now,
-      label,
-      vault_id: signedIn ? target.vaultId : null,
-      relationship_id: signedIn ? relId : null,
-    });
+    resp = await joinTab({ token }, tab.id, req);
   } catch (err) {
-    // The contact was minted for a join that did not happen. Leaving it makes
-    // the obvious retry — same name, same number — fail with phone_conflict on
-    // a contact the person never knowingly created, which is a baffling way to
-    // meet the app: this is the counterparty's FIRST screen. Archiving clears
-    // the number off the active set, so the retry behaves like a first try.
-    // Best effort; the join error is what the caller must see.
-    // A timeout is ambiguous: the server may already have attached this
-    // exact contact. Keep it so recovery/retry cannot orphan that binding.
-    if (createdPersonId && err instanceof TabApiError && !isRetryableTabError(err)) {
-      try {
-        await archivePerson(createdPersonId);
-      } catch (cleanupErr) {
-        console.warn("[tabs.link] could not roll back the contact after a failed join", cleanupErr);
-      }
+    if (!(err instanceof TabApiError && err.code === "currency_mismatch")) {
+      throw await joinFailure(err, createdPersonId, currency, tab, false);
     }
-    if (err instanceof TabApiError) {
-      if (err.code === "same_kaata") throw new TabSameKaataError();
-      if (err.code === "tab_closed") throw new TabClosedError();
-      if (err.code === "currency_mismatch")
-        throw new TabCurrencyMismatchError(currency, tab.currency);
-      if (err.code === "already_linked") throw new TabAlreadyLinkedError(tab.id);
+    // The local check above passed, so the server's vaults.currency is behind
+    // this device's: the vault_setting_set{currency} event that changed it has
+    // not been pushed yet (the server mirrors the column from that event, and
+    // its join handler compares the tab against the column). Push and ask once
+    // more; a second refusal is reported as "not synced yet" (serverStale)
+    // rather than the self-contradicting "your kaata is in USD; this account
+    // is in USD". The wait is capped: past it the drain runs on in the
+    // background and the retry's own answer says whether it landed.
+    await pushVaultBestEffort(target.vaultId, { capMs: RETRY_PUSH_CAP_MS });
+    try {
+      resp = await joinTab({ token }, tab.id, req);
+    } catch (retryErr) {
+      throw await joinFailure(retryErr, createdPersonId, currency, tab, true);
     }
-    throw err;
   }
   const me = resp.tab.you;
   const them = me === "a" ? "b" : "a";

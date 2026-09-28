@@ -16,14 +16,15 @@ import { Button } from "../../components/Button";
 import { FormField } from "../../components/FormField";
 import { OptionSheet } from "../../components/OptionSheet";
 import { NavRow } from "../../components/SettingsScreen";
-import { updateAccountPhone } from "../../lib/auth";
+import { getSessionJWT, updateAccountPhone } from "../../lib/auth";
 import { colors } from "../../lib/colors";
 import { CURRENCIES, DEFAULT_CURRENCY, getCurrencyName } from "../../lib/currency";
 import { createSelfProfile, getAppMeta, setAppMeta } from "../../lib/db";
 import { SETTINGS_ROW_PADDING_X } from "../../lib/design-tokens";
-import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
+import { bidiIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError } from "../../lib/event-log";
 import { t } from "../../lib/i18n";
+import { fetchTabPreview } from "../../lib/tabs/link";
 import { gutter, icon, space, TOUCH_MIN, typography } from "../../lib/tokens";
 
 // Onboarding final step — create the shopkeeper's first kaata (their shop's
@@ -57,6 +58,16 @@ export default function OnboardingKaataScreen() {
   // in the form below. Only the CONTROL changed; `currency` / setCurrency are
   // still what createSelfProfile() is called with.
   const [currencySheetVisible, setCurrencySheetVisible] = useState(false);
+  // Mutual-tab handoff (docs/mutual-tab-design.md §4.4, D9): a link followed
+  // before this install had a kaata stashed pending_tab_token (app/t/[token])
+  // and sent the user through onboarding; THIS is the screen that mints the
+  // kaata the tab will join, so it should be minted in the tab's currency
+  // rather than the AFN default that bounced the user straight back to "you
+  // need a USD kaata". Preset from the background read below; the row stays
+  // changeable, a pick made before it resolves wins (currencyDirtyRef), and
+  // the hint names the shared account only while the row shows its currency.
+  const [presetCurrency, setPresetCurrency] = useState<string | null>(null);
+  const currencyDirtyRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -82,6 +93,42 @@ export default function OnboardingKaataScreen() {
       setSelfPhone((phone ?? "").trim() || null);
       setLoaded(true);
     })();
+  }, []);
+
+  // The pending tab's currency, in the background: never blocks the form and
+  // swallows every failure (no session yet, offline, a dead link) — the row
+  // simply keeps its default. The preview needs the session JWT the auth step
+  // just created. A currency already stashed by the join screen presets the
+  // row at once; the fetched one is then stashed too, so vault/new can reuse
+  // it without a second round trip.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const token = await getAppMeta("pending_tab_token");
+        if (!token || cancelled) return;
+        const stashed = await getAppMeta("pending_tab_currency");
+        if (cancelled) return;
+        if (stashed && CURRENCIES.some((c) => c.code === stashed) && !currencyDirtyRef.current) {
+          setCurrency(stashed);
+          setPresetCurrency(stashed);
+        }
+        if (!(await getSessionJWT())) return;
+        const preview = await fetchTabPreview(token);
+        if (cancelled) return;
+        const code = preview.tab.currency;
+        if (!CURRENCIES.some((c) => c.code === code)) return;
+        await setAppMeta("pending_tab_currency", code);
+        if (cancelled || currencyDirtyRef.current) return;
+        setCurrency(code);
+        setPresetCurrency(code);
+      } catch (err) {
+        console.warn("[onboarding/kaata] pending tab preview failed", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // If we reached this step without a stashed name (app_meta cleared
@@ -242,8 +289,13 @@ export default function OnboardingKaataScreen() {
               isLast
             />
           </View>
+          {/* ONE hint under the row: the shared-account line replaces the
+              generic one while the row still shows the preset currency (the
+              ISO code is a Latin token in Dari prose — isolate it). */}
           <Text style={[styles.fieldHint, textDir(isRTL)]}>
-            {t("onboardingKaata.currency.hint")}
+            {presetCurrency && currency === presetCurrency
+              ? t("tab.join.currencyPreset", { currency: bidiIsolate(presetCurrency) })
+              : t("onboardingKaata.currency.hint")}
           </Text>
 
           {submitError ? (
@@ -275,6 +327,7 @@ export default function OnboardingKaataScreen() {
         selected={currency}
         onSelect={(code) => {
           setCurrencySheetVisible(false);
+          currencyDirtyRef.current = true;
           setCurrency(code);
         }}
         onDismiss={() => setCurrencySheetVisible(false)}

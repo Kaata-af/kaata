@@ -121,10 +121,12 @@ export function Privacy() {
             shared account is
             <strong> stored on our server</strong>, not only on your phone: the name each of you
             chooses to show the other, every tally’s amount, date and note, and who added, accepted,
-            rejected or cancelled it. The browser only opens the app; it does not display your
-            ledger. Send the invitation only to its intended recipient. Once claimed, the link alone
-            cannot access the account. Access requires a signed-in party or an authorized member of
-            their kaata.
+            rejected or cancelled it. The <strong>phone number on your account</strong> is also
+            shown to the other party, and to the members of their kaata, so they can match the
+            invitation to a contact on their phone; it is a display detail, not verified identity.
+            The browser only opens the app; it does not display your ledger. Send the invitation
+            only to its intended recipient. Once claimed, the link alone cannot access the account.
+            Access requires a signed-in party or an authorized member of their kaata.
           </p>
           <p>
             A shared account belongs to <strong>both</strong> of you, so it outlives either side

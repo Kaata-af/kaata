@@ -49,12 +49,22 @@ export class TabAuthUnavailableError extends Error {
 /** D9: a tab can only live in a kaata whose currency equals the tab's. */
 export class TabCurrencyMismatchError extends Error {
   readonly kind = "tab_currency_mismatch" as const;
+  /**
+   * True when the LOCAL kaata already matches and only the server's copy of
+   * vaults.currency is behind — the vault_setting_set{currency} event has not
+   * been pushed, so the server's join handler still sees the old currency. The
+   * screen then says "the change hasn't reached the server yet" instead of the
+   * self-contradicting "your kaata is in USD; this account is in USD".
+   */
+  readonly serverStale: boolean;
   constructor(
     readonly vaultCurrency: string,
     readonly tabCurrency: string,
+    opts: { serverStale?: boolean } = {},
   ) {
     super(`kaata is ${vaultCurrency}, tab is ${tabCurrency}`);
     this.name = "TabCurrencyMismatchError";
+    this.serverStale = opts.serverStale === true;
   }
 }
 

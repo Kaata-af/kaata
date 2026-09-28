@@ -27,6 +27,7 @@
     "selftest:auth-redirect": "tsx lib/__dev__/auth-redirect-selftest.ts",
     "selftest:tally-ui": "tsx lib/__dev__/tally-ui-selftest.ts",
     "selftest:invite-dialog": "tsx lib/__dev__/invite-dialog-selftest.ts",
+    "selftest:tab-join": "tsx lib/__dev__/tab-join-selftest.ts",
     "selftest:update-url": "tsx lib/__dev__/update-url-selftest.ts",
     "preview:pdf": "tsx lib/__dev__/pdf-preview.ts"
   },

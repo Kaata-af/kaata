@@ -26,7 +26,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Crypto from "expo-crypto";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
@@ -45,7 +45,7 @@ import {
 } from "../../lib/db-tx";
 // Mythos Issue 1: owner display-name source for the mirror row.
 import { getAppMeta, getLocalSelf, setAppMeta } from "../../lib/db";
-import { rowDir, textDir, useIsRTL } from "../../lib/direction";
+import { bidiIsolate, rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { appendShopProfileUpdated, appendVaultMemberAdded } from "../../lib/event-log";
 import { t } from "../../lib/i18n";
 import { ensureDeviceKey, getDevicePubkey } from "../../lib/mesh/device-key";
@@ -76,6 +76,16 @@ export default function VaultNewScreen() {
   // in the form below. Only the CONTROL changed; `currency` / setCurrency are
   // still the single source of truth for the INSERT.
   const [currencySheetVisible, setCurrencySheetVisible] = useState(false);
+  // Mutual-tab handoff (docs/mutual-tab-design.md §4.4, D9): app/t/[token].tsx
+  // sends a user with no kaata in the tab's currency here with
+  // pending_tab_token AND pending_tab_currency armed. The row is preset to that
+  // currency — the kaata they came to make is exactly one in it, and the AFN
+  // default here used to mint the wrong kaata and bounce them straight back
+  // to the same prompt. The row stays changeable; a pick made before the read
+  // resolves wins (currencyDirtyRef), and the hint below the row names the
+  // shared account only while the row still shows its currency.
+  const [presetCurrency, setPresetCurrency] = useState<string | null>(null);
+  const currencyDirtyRef = useRef(false);
   const [creating, setCreating] = useState(false);
   // Synchronous re-entry guard — `creating` state can't stop a same-frame
   // double-tap (setState is async); see entry/new.tsx. Without it a
@@ -92,6 +102,30 @@ export default function VaultNewScreen() {
   // unlikely, but the hint UI shouldn't reactively appear/disappear under the
   // user mid-tap).
   const accountIdAtMount = useMemo(() => getAccountIdSync(), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        // Both halves must be armed: the currency is only meaningful for the
+        // join that stashed it (t/[token] and onCreate below clear the pair).
+        const [pendingTab, code] = await Promise.all([
+          getAppMeta("pending_tab_token"),
+          getAppMeta("pending_tab_currency"),
+        ]);
+        if (cancelled || !pendingTab || !code || currencyDirtyRef.current) return;
+        if (!CURRENCIES.some((c) => c.code === code)) return;
+        setCurrency(code);
+        setPresetCurrency(code);
+      } catch (err) {
+        // Best effort: a failed read just keeps the default currency.
+        console.warn("[vault/new] pending tab currency read failed", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function onCreate() {
     if (creatingRef.current) return;
@@ -339,7 +373,10 @@ export default function VaultNewScreen() {
       let pendingTab: string | null = null;
       try {
         pendingTab = await getAppMeta("pending_tab_token");
-        if (pendingTab) await setAppMeta("pending_tab_token", "");
+        if (pendingTab) {
+          await setAppMeta("pending_tab_token", "");
+          await setAppMeta("pending_tab_currency", "");
+        }
       } catch (err) {
         console.warn("[vault/new] pending tab read failed", err);
       }
@@ -446,7 +483,14 @@ export default function VaultNewScreen() {
           />
 
           <View style={styles.formInset}>
-            <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("vaultNew.currency.hint")}</Text>
+            {/* ONE hint under the row: the shared-account line replaces the
+                generic one while the row still shows the preset currency (the
+                ISO code is a Latin token in Dari prose — isolate it). */}
+            <Text style={[styles.fieldHint, textDir(isRTL)]}>
+              {presetCurrency && currency === presetCurrency
+                ? t("tab.join.currencyPreset", { currency: bidiIsolate(presetCurrency) })
+                : t("vaultNew.currency.hint")}
+            </Text>
 
             {/* Local-only disclosure sits ABOVE the Create button so users
                 see it BEFORE they tap. Snapshotted at mount so it doesn't
@@ -490,6 +534,7 @@ export default function VaultNewScreen() {
         selected={currency}
         onSelect={(code) => {
           setCurrencySheetVisible(false);
+          currencyDirtyRef.current = true;
           setCurrency(code);
         }}
         onDismiss={() => setCurrencySheetVisible(false)}

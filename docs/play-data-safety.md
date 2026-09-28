@@ -27,7 +27,11 @@ NOT anonymous, and there is a third, offline path; the fourth arrived with mutua
    running account held by TWO independent parties, so it is **stored server-side in
    plaintext for both of them**: each side's self-chosen **label**, and every tally's
    **amount, date, note, author and accept/reject/void status**. Authenticated parties
-   and their authorized kaata members can read and append. It **survives either party's account
+   and their authorized kaata members can read and append. Since D18 each party also
+   reads the OTHER party's **account phone** (`accounts.phone_e164`, the number set at
+   onboarding) on every shared-account payload, including the pre-join preview a
+   signed-in holder of the invitation link sees — display/matching only (the join screen
+   suggests which contact the invitation came from), never verified identity. It **survives either party's account
    deletion** — `tab_parties.account_id` is `ON DELETE SET NULL`, because erasing one
    side would erase the other person's record of the same debt. **Closing freezes it;
    it does not delete it.** Same "both parties' asset" logic as the paper rule,

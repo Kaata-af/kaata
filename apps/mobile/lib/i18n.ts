@@ -1430,7 +1430,9 @@ const en = {
   "tab.join.pickContact": "Who is {name} in your kaata?",
   "tab.join.newContact": "New contact",
   // D9: the tab's currency is fixed at creation and a kaata cannot change its
-  // currency while it holds one, so the only way forward is a new kaata.
+  // currency while it holds an OPEN tab. When no kaata matches, the screen
+  // offers to switch one (lib/tabs/join-plan.ts planCurrency) or to create a
+  // new kaata preset to the tab's currency — never a dead end.
   "tab.join.noCurrencyKaata": "You need a kaata in {currency} for this account.",
   "tab.join.createKaata": "Create a {currency} kaata",
   "tab.join.done": "Linked with {name}",
@@ -1441,6 +1443,44 @@ const en = {
   "tab.join.currencyMismatch": "Your kaata is in {kaata}; this account is in {tab}.",
   "tab.join.sameKaata": "You can't share an account with your own kaata.",
   "tab.join.alreadyLinked": "This contact already has a shared account.",
+  // TabCurrencyMismatchError.serverStale: the kaata already matches locally,
+  // only the server's copy of its currency is behind (event not pushed yet).
+  "tab.join.currencyNotSynced":
+    "Your kaata's currency change hasn't reached the server yet. Check your connection and try again.",
+  // Currency plan (both codes are bidi-isolated by the caller).
+  "tab.join.currencyIntro": "Your kaata is in {kaata}. This shared account is in {tab}.",
+  "tab.join.switchCurrency": "Use {name} in {currency}",
+  "tab.join.switchEmptyHint": "No tallies yet, so nothing changes.",
+  "tab.join.switchRelabelHint": "Existing amounts will be shown in {currency}, not converted.",
+  "tab.join.lockedByTab": "Locked to {currency} by a shared account",
+  "tab.join.lockedByRole": "Only a manager can change this kaata's currency",
+  "tab.join.createSeparate": "Create a separate {currency} kaata",
+  // Heading over the secondary switch rows. It names the VERB: a row under
+  // "choose another kaata" read as a picker, and one tap relabelled every
+  // tally of a full book. Rows with tallies confirm first (switchConfirmTitle).
+  "tab.join.orPick": "Or switch a kaata to {currency}",
+  "tab.join.switchConfirmTitle": "Switch {name} to {currency}?",
+  // Hint under the currency row of vault/new + onboarding/kaata when a pending
+  // invitation preset it.
+  "tab.join.currencyPreset":
+    "This shared account uses {currency}. The kaata is created in that currency.",
+  // Contact suggestion (suggestJoinContact): who the invitation's number is.
+  "tab.join.suggestTitle": "Matches the number this invitation came from",
+  "tab.join.suggestFromPhone": "From your phone contacts",
+  "tab.join.suggestFromInvite": "From the invitation",
+  // suggestWillCreate only when the person is NOT in the phone book yet AND
+  // contacts access is granted (createPerson's phone-book write is silent
+  // otherwise); suggestWillAdd everywhere else a person is created.
+  "tab.join.suggestWillCreate": "Added to your kaata and phone contacts",
+  "tab.join.suggestWillAdd": "Added to your kaata",
+  "tab.join.linkTo": "Will be linked to",
+  "tab.join.chooseElse": "Choose someone else",
+  // The object is the CONTACT the account links to, never an identity: "Join
+  // as Matee" read as joining under the other party's name.
+  "tab.join.joinAs": "Link with {name}",
+  "tab.join.searchContacts": "Search contacts",
+  "tab.join.inKaata": "In your kaata",
+  "tab.join.switched": "{name} now uses {currency}",
 
   // Local notifications (lib/tabs/notify.ts, D14). The channel strings are read
   // by the OS settings list, so they name the feature the way the app does.
@@ -2643,6 +2683,30 @@ const fa: Partial<Record<Key, string>> = {
   "tab.join.currencyMismatch": "کاتای شما به {kaata} است؛ این حساب به {tab} است.",
   "tab.join.sameKaata": "حساب مشترک با کاتای خودتان ساخته نمی‌شود.",
   "tab.join.alreadyLinked": "این مخاطب از قبل یک حساب مشترک دارد.",
+  "tab.join.currencyNotSynced":
+    "تغییر ارز کاتای شما هنوز به سرور نرسیده است. اتصال انترنت را بررسی کنید و دوباره تلاش کنید.",
+  "tab.join.currencyIntro": "کاتای شما به {kaata} است. این حساب مشترک به {tab} است.",
+  "tab.join.switchCurrency": "تغییر {name} به {currency}",
+  "tab.join.switchEmptyHint": "هنوز ثبتی ندارد، پس چیزی تغییر نمی‌کند.",
+  "tab.join.switchRelabelHint": "مبالغ موجود به {currency} نشان داده می‌شوند و تبدیل نمی‌شوند.",
+  "tab.join.lockedByTab": "به خاطر یک حساب مشترک به {currency} قفل است",
+  "tab.join.lockedByRole": "فقط مدیر می‌تواند ارز این کاتا را تغییر دهد",
+  "tab.join.createSeparate": "ساختن یک کاتای جداگانه به {currency}",
+  "tab.join.orPick": "یا یک کاتا را به {currency} تغییر دهید",
+  "tab.join.switchConfirmTitle": "{name} به {currency} تغییر کند؟",
+  "tab.join.currencyPreset":
+    "این حساب مشترک از {currency} استفاده می‌کند. کاتا به همین ارز ساخته می‌شود.",
+  "tab.join.suggestTitle": "با شماره‌ای که این دعوت از آن آمده مطابقت دارد",
+  "tab.join.suggestFromPhone": "از مخاطبین تلفن شما",
+  "tab.join.suggestFromInvite": "از دعوت‌نامه",
+  "tab.join.suggestWillCreate": "به کاتا و مخاطبین تلفن شما اضافه می‌شود",
+  "tab.join.suggestWillAdd": "به کاتای شما اضافه می‌شود",
+  "tab.join.linkTo": "پیوند می‌خورد با",
+  "tab.join.chooseElse": "انتخاب کس دیگری",
+  "tab.join.joinAs": "پیوند با {name}",
+  "tab.join.searchContacts": "جستجوی مخاطبین",
+  "tab.join.inKaata": "در کاتای شما",
+  "tab.join.switched": "{name} حالا از {currency} استفاده می‌کند",
   "tab.notify.channel": "حساب‌های مشترک",
   "tab.notify.channelDescription":
     "ثبت‌هایی که طرف مقابل هنگام بسته بودن کاتا اضافه یا بررسی کرده است.",

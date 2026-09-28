@@ -19,7 +19,8 @@ import { EmptyState } from "../../components/EmptyState";
 import { ScreenHeader } from "../../components/SettingsScreen";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
-import { joinName, phoneKey, type DeviceContact } from "../../lib/contacts-sync";
+import { mergeContactSections, type MergedRow } from "../../lib/contacts-merge";
+import { joinName, type DeviceContact } from "../../lib/contacts-sync";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
 import { createPerson, getActiveVaultArchivedState, listAllPeopleForSearch } from "../../lib/db";
 import { toAsciiDigits } from "../../lib/digits";
@@ -41,22 +42,18 @@ import {
   recordPersonSaveError,
   type PersonSaveStage,
 } from "../../lib/person-save-error";
-import { PHONE_SEARCH_MIN_DIGITS, searchContacts } from "../../lib/search";
+import { PHONE_SEARCH_MIN_DIGITS } from "../../lib/search";
 import { icon, radius, TOUCH_MIN } from "../../lib/tokens";
 import type { PersonWithBalance } from "../../lib/types";
 import { SharedAccountBadge } from "../../components/SharedAccountBadge";
 import { useDeviceContacts } from "../../lib/use-device-contacts";
 
-// Max device contacts rendered in the "All contacts" card at once. The list is
-// a plain card (not virtualized), so a huge phone book would jank; typing
-// filters well under this. A truncation hint shows when the book is larger.
-const DEVICE_LIST_CAP = 80;
-
 // One row in the merged contacts list. App people open on tap; device contacts
-// are created (and added to the ledger) on tap.
-type Row = { kind: "app"; person: PersonWithBalance } | { kind: "device"; contact: DeviceContact };
-
-type Section = { key: string; title: string; data: Row[] };
+// are created (and added to the ledger) on tap. The merge itself (dedup by
+// phoneKey, the 80-row device cap, the section titles) is lib/contacts-merge.ts,
+// shared with the shared-account join screen so the two lists cannot drift;
+// selftest:tab-join pins it against this screen's original memo pair.
+type Row = MergedRow<PersonWithBalance, DeviceContact>;
 
 // Add-or-find screen. The form (first name + last name + number + Add button)
 // lives fixed at the top; below it is one virtualized list that merges the
@@ -146,58 +143,22 @@ export default function PersonAddOrFindScreen() {
   const dFirst = useDeferredValue(firstName.trim());
   const dLast = useDeferredValue(lastName.trim());
   const dPhone = useDeferredValue(phoneFilter);
-  const dQuerying = dFirst.length > 0 || dLast.length > 0 || dPhone.length > 0;
 
-  // Phone keys of people already in this kaata, to dedup the device book against
-  // the ledger (never offer to add someone you already have).
-  const appPhoneKeys = useMemo(() => {
-    const s = new Set<string>();
-    for (const p of people ?? []) {
-      const k = phoneKey(p.phone);
-      if (k) s.add(k);
-    }
-    return s;
-  }, [people]);
-
-  const dedupedDevice = useMemo(
+  // Each section renders as ONE bordered card (no virtualization), so the
+  // helper caps the device list when not searching — a full phone book
+  // (hundreds/thousands of rows) mounted at once would jank. Typing narrows it
+  // well under the cap; `deviceTruncated` drives the hint under the card.
+  const { sections, deviceTruncated } = useMemo(
     () =>
-      deviceContacts.filter((c) => {
-        const k = phoneKey(c.phone);
-        return !k || !appPhoneKeys.has(k);
+      mergeContactSections({
+        people: people ?? [],
+        deviceContacts,
+        first: dFirst,
+        last: dLast,
+        phoneDigits: dPhone,
       }),
-    [deviceContacts, appPhoneKeys],
+    [people, deviceContacts, dFirst, dLast, dPhone],
   );
-
-  // Each section renders as ONE bordered card (no virtualization), so cap the
-  // device list when not searching — a full phone book (hundreds/thousands of
-  // rows) mounted at once would jank. Typing narrows it well under the cap.
-  const { sections, deviceTruncated } = useMemo<{
-    sections: Section[];
-    deviceTruncated: boolean;
-  }>(() => {
-    const out: Section[] = [];
-    const appList = people ?? [];
-    const appMatches = dQuerying ? searchContacts(dFirst, dLast, dPhone, appList) : appList;
-    if (appMatches.length > 0) {
-      out.push({
-        key: "app",
-        title: dQuerying ? t("personAdd.section.matches") : t("personAdd.section.recent"),
-        data: appMatches.map((person) => ({ kind: "app", person })),
-      });
-    }
-    const deviceFull = dQuerying
-      ? searchContacts(dFirst, dLast, dPhone, dedupedDevice)
-      : dedupedDevice;
-    const deviceShown = deviceFull.slice(0, DEVICE_LIST_CAP);
-    if (deviceShown.length > 0) {
-      out.push({
-        key: "device",
-        title: dQuerying ? t("personAdd.section.fromPhone") : t("personAdd.section.allContacts"),
-        data: deviceShown.map((contact) => ({ kind: "device", contact })),
-      });
-    }
-    return { sections: out, deviceTruncated: deviceFull.length > deviceShown.length };
-  }, [people, dedupedDevice, dQuerying, dFirst, dLast, dPhone]);
 
   function openPerson(id: string) {
     router.replace({ pathname: "/person/[id]", params: { id } });
@@ -521,7 +482,7 @@ export default function PersonAddOrFindScreen() {
             : sections.map((section) => (
                 <View key={section.key} style={styles.section}>
                   <Text style={[styles.sectionLabel, textDir(isRTL), trackingSafe(isRTL)]}>
-                    {section.title}
+                    {t(section.titleKey)}
                   </Text>
                   <View style={styles.peopleCard}>
                     {section.data.map((item, index) => (
