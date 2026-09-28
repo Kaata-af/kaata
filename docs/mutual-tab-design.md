@@ -114,7 +114,7 @@ page. Every JSON shape, table and function signature below is normative.
 | D3  | **The tab is a property of a contact.** `tab_links.relationship_id` binds a tab to one contact in one kaata. Never a second kaata.                                                                                                                                                                                                                                                         | Users think "Ahmad's account", not "a tab". No vault-switcher exposure.                                                                                                                                                                                                                                                                                                                                                                                         |
 | D4  | **Absolute direction on the wire**: `a_to_b` / `b_to_a` = _value moved from X to Y_. Each side derives its own "I gave / I received".                                                                                                                                                                                                                                                      | No "relative to me" ambiguity; both parties compute identical balances.                                                                                                                                                                                                                                                                                                                                                                                         |
 | D5  | **Append-only + visible voids.** A void is a new row (`kind='void'`) that references the original; the original is shown struck.                                                                                                                                                                                                                                                           | Dispute-proof. The list is the audit trail.                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| D6 | **Optional, final review; pending-only cancellation.** Pending tallies count immediately. Only the other party can accept/reject; rejection excludes the tally. Only the authoring party can cancel a pending tally. | Accepted/rejected decisions are permanent. Corrections require a new tally; cancellation cannot erase a reviewed record. |
+| D6  | **Optional, final review; pending-only cancellation.** Pending tallies count immediately. Only the other party can accept/reject; rejection excludes the tally. Only the authoring party can cancel a pending tally.                                                                                                                                                                       | Accepted/rejected decisions are permanent. Corrections require a new tally; cancellation cannot erase a reviewed record.                                                                                                                                                                                                                                                                                                                                        |
 | D7  | **Opening balance = one visible `kind='opening'` entry** authored by the creator at link time, disputable like any other.                                                                                                                                                                                                                                                                  | Never a silent history merge. The counterparty sees exactly what was carried over.                                                                                                                                                                                                                                                                                                                                                                              |
 | D8  | **After linking, the contact's balance IS the tab balance.** Pre-link local entries stay visible under a collapsed "Before linking" fold and are excluded from the balance — **permanently, including after the tab is closed**. Closing FREEZES the shared period (rows stay, still counted, no longer writable); tallies added after a close are ordinary local entries that add on top. | The opening entry already carries the pre-link sum, and that stays true forever. Reverting to the bare local sum on close would do both halves of the damage at once: months of shared tallies would vanish from the contact, and a months-old number would appear on the home screen as if it were today's.                                                                                                                                                    |
 | D9  | **Currency is fixed at creation** = the creator's kaata currency. A tab can only be linked into a kaata with the same currency.                                                                                                                                                                                                                                                            | A mixed-currency balance is meaningless without a rate; the app never computes rates. Changing a kaata's currency is refused while it has an open tab.                                                                                                                                                                                                                                                                                                          |
@@ -126,7 +126,7 @@ page. Every JSON shape, table and function signature below is normative.
 | D15 | **Deep link v1 = `kaata://t/<token>`** via the web page's "Open in Kaata" button (Android `intent://…S.browser_fallback_url`). App Links / Universal Links are a follow-up (§12).                                                                                                                                                                                                          | Needs Play App Signing SHA-256 + AASA hosting + native rebuild; not blocking.                                                                                                                                                                                                                                                                                                                                                                                   |
 | D16 | **Money**: server stores `amount_minor BIGINT` (hundredths); the wire carries `amount` as a **decimal string in major units** (`"12.34"`, `"100"`). Never floats.                                                                                                                                                                                                                          | Matches mobile's major-unit convention (`lib/money.ts`); Go does integer arithmetic only.                                                                                                                                                                                                                                                                                                                                                                       |
 | D17 | **Settlement double-log** (both parties record the same cash handover): v1 shows a warning when a tally with the same amount and opposite author lands within 24 h ("Ahmad already recorded 500 received today"). No handshake.                                                                                                                                                            | Cheapest honest mitigation; a handshake is a v2 question.                                                                                                                                                                                                                                                                                                                                                                                                       |
-| D18 | **Party phone rides the wire.** `parties[role].phone` = the bound account's `accounts.phone_e164` (`""` when unbound or unset), visible to the other party on every Tab payload (by-token preview, get, mine, join/append responses), so the join screen can match the invitation to a contact (kaata contact → phone book → the invitation itself). | The label is already exposed the same way and the invitation arrives over WhatsApp from that number anyway. Matching only — never an identity proof or an ACL key; the shared-account badge is not phone verification. |
+| D18 | **Party phone rides the wire.** `parties[role].phone` = the bound account's `accounts.phone_e164` (`""` when unbound or unset), visible to the other party on every Tab payload (by-token preview, get, mine, join/append responses), so the join screen can match the invitation to a contact (kaata contact → phone book → the invitation itself).                                       | The label is already exposed the same way and the invitation arrives over WhatsApp from that number anyway. Matching only — never an identity proof or an ACL key; the shared-account badge is not phone verification.                                                                                                                                                                                                                                          |
 
 ---
 
@@ -554,6 +554,53 @@ Errors: `TabCurrencyMismatchError`, `TabSameKaataError`, `TabAlreadyLinkedError`
 - Notification taps resolve the tab's local relationship, switch to its kaata,
   refresh it, then navigate to the contact. The OS notification itself never
   accepts, disputes or changes money.
+- **Notification read model (2026-09-28) — "handled means read".** Reads are per
+  ACCOUNT and per ROW (`tab_notification_reads`). `POST /v1/tabs/inbox/read` takes
+  exactly ONE selector — `{id}`, `{through}` (mark all up to an inbox id),
+  `{tab_id, entry_id}` (every notice about that tally, any kind), `{tab_id, rev}`
+  (the notice at that revision) or `{tab_id, through_rev}` (every notice of the
+  tab with `rev <= through_rev`, the contact-screen form) — and answers
+  `{ok:true, marked:<rows newly marked>}`; anything else is 400 `invalid_body`.
+  Every form is filtered by the inbox access predicate, so an outsider marks
+  nothing, and a notice created after the mark is a new unread row. The app marks
+  on a bell/inbox tap, on landing from an OS notification, on accept/reject
+  by any path (a cancel marks nothing: the author never had a notice about its
+  own tally), and whenever the contact's screen is shown (through the locally
+  applied rev), from a durable queue (`lib/tabs/inbox-reads.ts`) that flushes
+  right away, on every inbox refresh and after every tab pull. A client that
+  knows the notice's rev sends the EXACT `{tab_id, rev}` (OS push payloads carry
+  it; a review reads it off the cached row, whose rev only moves with its
+  status) and keeps the entry id as a tray hint; `{tab_id, entry_id}` is the
+  last resort, because it is unbounded in time and a deferred flush of it would
+  read a notice created after the tap. The contact-screen mark requires the route
+  focused AND `AppState` active — navigation focus survives the lock screen and
+  pulls run there (an OS button's sync, a sweep in flight), so without the gate a
+  tally nobody saw would be read, its push dropped and its tray item dismissed;
+  returning to the foreground re-marks through the applied rev. A `through_rev`
+  the server acknowledged is not re-sent (nor any single rev under it) for that
+  account and tab. A 400 `invalid_body` for a tab-form body is version skew (a
+  backend without these selectors) and keeps the entry for retry; for `{id}` /
+  `{through}` it is a verdict. The cached first page is patched outside any
+  focus scope, so a mark flushed while the bell was away still reads as handled
+  when it comes back. The OS tray: a handled mark dismisses matching
+  notifications; read rows in a fetched page (the other phone's review, the
+  server's auto-read) are announced as server reads and dismiss by `(tab, rev)`
+  without being sent back; and on return to the foreground and after every pull
+  the tray is swept against the local cache, dropping any `entry_created` item
+  whose tally is no longer pending / is voided or whose tab is closed.
+  Server side, an accept, reject or void marks the ACTING account's own notices
+  about that tally read inside the decision's transaction, so a second phone and
+  the OS action buttons need no client work. Delivery suppression: at lease time
+  the worker deletes a queued push when the subscription's account already has a
+  read row for that `(tab_id, rev)`, or when the job is `entry_created` and the
+  tally is no longer pending (reviewed/voided) or the tab is closed;
+  `entry_accepted`, `entry_rejected`, `entry_voided` and `updated` still send
+  unless read. A negative provider ticket or receipt other than
+  `DeviceNotRegistered` is re-sent at most ONCE, then the job is dropped; a
+  receipt that is not ready yet is looked up again in 15 minutes without counting
+  as an attempt; HTTP/network failures keep the exponential backoff within the
+  24-hour job life. Rollout order matters: pushing `main` deploys the backend
+  (the selectors) before any store build carries the client that sends them.
 
 ### 4.6 Sync loop placement
 

@@ -2,6 +2,7 @@ package tabs
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/matee/kaata-backend/internal/auth"
 	"github.com/matee/kaata-backend/internal/httpx"
@@ -111,6 +113,21 @@ func (s *Service) listInbox(ctx context.Context, accountID, locale string, befor
 	return page, tx.Commit(ctx)
 }
 
+// ReadInbox marks notices read for the calling ACCOUNT. Exactly one selector
+// is accepted (400 invalid_body otherwise):
+//
+//	{id}                   one notice by inbox id
+//	{through}              every notice with id <= through (mark all)
+//	{tab_id, entry_id}     every notice of that tab about that tally, any kind
+//	{tab_id, rev}          the notice at (tab_id, rev)
+//	{tab_id, through_rev}  every notice of that tab with rev <= through_rev
+//
+// The tab selectors exist because "handled means read": a phone that opened
+// the tally from an OS notification, reviewed it, or showed the contact's
+// screen knows the tab and a rev or entry, not the inbox id. Every form is
+// filtered by inboxAccess, so an outsider marks nothing on anyone's rows, and
+// reads are per row: a notice created after the mark is a new unread row.
+// `marked` is the number of rows newly marked (0 when they were already read).
 func (h *Handler) ReadInbox(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
 	claims, ok := auth.ClaimsFromContext(r.Context())
@@ -119,31 +136,81 @@ func (h *Handler) ReadInbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		ID      string `json:"id"`
-		Through string `json:"through"`
+		ID         string      `json:"id"`
+		Through    string      `json:"through"`
+		TabID      string      `json:"tab_id"`
+		EntryID    string      `json:"entry_id"`
+		Rev        json.Number `json:"rev"`
+		ThroughRev json.Number `json:"through_rev"`
 	}
 	if !decodeBody(w, r, &req) {
 		return
 	}
-	value := req.ID
-	if value == "" {
-		value = req.Through
-	}
-	id, err := strconv.ParseInt(value, 10, 64)
-	if err != nil || id <= 0 || (req.ID != "" && req.Through != "") {
-		httpx.ErrorCode(w, 400, "invalid_body", "provide one notification id or through cursor")
+	where, args, ok := inboxReadSelector(req.ID, req.Through, req.TabID, req.EntryID, string(req.Rev), string(req.ThroughRev))
+	if !ok {
+		httpx.ErrorCode(w, 400, "invalid_body", "provide exactly one of: id, through, tab_id+entry_id, tab_id+rev, tab_id+through_rev")
 		return
 	}
-	_, err = h.svc.pool.Exec(r.Context(), `INSERT INTO tab_notification_reads(notification_id,account_id)
+	tag, err := h.svc.pool.Exec(r.Context(), `INSERT INTO tab_notification_reads(notification_id,account_id)
  SELECT n.id,$1::uuid FROM tab_notifications n
  JOIN tab_parties p ON p.tab_id=n.tab_id AND p.role=n.recipient_role
- WHERE `+inboxAccess+` AND (n.id=$2 OR ($3::boolean AND n.id<=$2))
- ON CONFLICT DO NOTHING`, claims.AccountID, id, req.Through != "")
+ WHERE `+inboxAccess+` AND `+where+`
+ ON CONFLICT DO NOTHING`, append([]any{claims.AccountID}, args...)...)
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
-	httpx.JSON(w, 200, map[string]bool{"ok": true})
+	httpx.JSON(w, 200, map[string]any{"ok": true, "marked": tag.RowsAffected()})
+}
+
+// inboxReadSelector validates one read body and returns its predicate over
+// `n` with $2… placeholders ($1 is the account). ok is false for zero or
+// several selectors, a tab_id/entry_id that is not a uuid, or an id, cursor
+// or revision that is not a positive integer. rev/through_rev arrive as
+// json.Number text, so a JSON number and a numeric string both work — the
+// id/through forms are strings on the wire and a client may mirror that.
+func inboxReadSelector(id, through, tabID, entryID, rev, throughRev string) (string, []any, bool) {
+	positive := func(v string) (int64, bool) {
+		n, err := strconv.ParseInt(v, 10, 64)
+		return n, err == nil && n > 0
+	}
+	forms := 0
+	for _, present := range []bool{id != "", through != "", entryID != "", rev != "", throughRev != ""} {
+		if present {
+			forms++
+		}
+	}
+	if forms != 1 {
+		return "", nil, false
+	}
+	if tabID == "" {
+		switch {
+		case id != "":
+			n, ok := positive(id)
+			return "n.id=$2", []any{n}, ok
+		case through != "":
+			n, ok := positive(through)
+			return "n.id<=$2", []any{n}, ok
+		}
+		return "", nil, false
+	}
+	if _, err := uuid.Parse(tabID); err != nil {
+		return "", nil, false
+	}
+	switch {
+	case entryID != "":
+		if _, err := uuid.Parse(entryID); err != nil {
+			return "", nil, false
+		}
+		return "n.tab_id=$2::uuid AND n.entry_id=$3::uuid", []any{tabID, entryID}, true
+	case rev != "":
+		n, ok := positive(rev)
+		return "n.tab_id=$2::uuid AND n.rev=$3", []any{tabID, n}, ok
+	case throughRev != "":
+		n, ok := positive(throughRev)
+		return "n.tab_id=$2::uuid AND n.rev<=$3", []any{tabID, n}, ok
+	}
+	return "", nil, false
 }
 
 func notificationLabel(label string) string {

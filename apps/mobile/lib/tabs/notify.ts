@@ -11,6 +11,7 @@ import { getTabLink, listTabLinks, queueNotificationReview } from "./db";
 import { registerTabNotifications, resolveTabAuth } from "./api";
 import { setTabPushRefreshHook, syncTab, requestTabSync } from "./sync";
 import { onTabApplied } from "./events";
+import { markInboxHandled, onInboxReadsApplied, type InboxReadSpec } from "./inbox-reads";
 import { setTabNotifyHook } from "./link";
 import { parseTabReview, TAB_ACCEPT, TAB_REJECT } from "./notification-data";
 import { notificationVars } from "./notification-text";
@@ -73,6 +74,11 @@ async function review(action: string, data: unknown, notificationId: string) {
     // Never turn a signed-out tap into an operation for a later account.
     await resolveTabAuth(link);
     await queueNotificationReview(link, parsed.entryId, parsed.rev, parsed.action);
+    // Reviewing from the notification handles its notice (bell + tray);
+    // durable and never awaited, like the person-screen verbs in link.ts.
+    // The payload's rev IS the notice, so the mark is exact; the entry id
+    // is only a tray hint (lib/tabs/inbox-reads.ts toReadBody).
+    void markInboxHandled({ tab_id: parsed.tabId, rev: parsed.rev, entry_id: parsed.entryId });
     const n = await notifications();
     // Durable now. A weak connection retries through the existing ordered
     // outbox; a stale/revoked/closed verdict becomes a visible failed operation.
@@ -332,6 +338,93 @@ onTabApplied((ev) => {
       });
     }
   })().catch(() => undefined);
+});
+
+/**
+ * Whether a notification sitting in the tray is about the notice(s) `spec`
+ * handled. Both the server push and the local fallback carry
+ * {tab_id, entry_id?, rev} in `data` (FCM may stringify the rev). The same
+ * precedence as the server body (lib/tabs/inbox-reads.ts toReadBody): an
+ * exact rev names ONE notice, a through_rev a range, the entry only when no
+ * rev is known; "mark all" ({through}) clears every tab notification, and a
+ * spec that names neither rev nor entry vouches for nothing.
+ */
+function trayMatches(data: Record<string, unknown> | undefined, spec: InboxReadSpec): boolean {
+  if (typeof data?.tab_id !== "string") return false;
+  if ("through" in spec) return true;
+  if (!spec.tab_id || data.tab_id !== spec.tab_id) return false;
+  const rev = Number(data.rev);
+  if ("through_rev" in spec) return rev <= spec.through_rev;
+  if (typeof spec.rev === "number") return rev === spec.rev;
+  if (spec.entry_id) return data.entry_id === spec.entry_id;
+  return false;
+}
+
+// A handled notice leaves the OS tray too. The server stops sending a push
+// once it holds the read row, but one already showing stays until the app
+// dismisses it — and "I accepted it in the app, why is it still on my lock
+// screen" is the same complaint as the unread bell. The same for a read the
+// server reports (the other phone on the account reviewed it). Best-effort;
+// Expo Go has no tray to clear. One tray read per announcement, batch or not.
+onInboxReadsApplied((specs) => {
+  void (async () => {
+    const n = await notifications();
+    if (!n) return;
+    for (const shown of await n.getPresentedNotificationsAsync()) {
+      if (specs.some((spec) => trayMatches(shown.request.content.data, spec)))
+        await n.dismissNotificationAsync(shown.request.identifier).catch(() => undefined);
+    }
+  })().catch(() => undefined);
+});
+
+/**
+ * The tray against the truth: an "Accept or reject it" notification for a
+ * tally that is no longer pending (reviewed by this account's other phone or
+ * a kaata member, or cancelled by its author) or whose tab is closed is moot
+ * — its buttons would only answer review_final. The server drops such a
+ * push while it is still queued (decision C); one that was already delivered
+ * — a late FCM arrival after the review, or a phone that got it before the
+ * account handled it elsewhere — is only ever cleared here. Runs on return to
+ * the foreground and after every pull, reads the local cache only, never
+ * throws, and leaves anything it cannot vouch for.
+ */
+async function sweepTray(): Promise<void> {
+  const n = await notifications();
+  if (!n) return;
+  const shown = await n.getPresentedNotificationsAsync();
+  if (!shown.length) return;
+  const { getDb } = await import("../db-tx");
+  const db = await getDb();
+  const links = new Map<string, Awaited<ReturnType<typeof getTabLink>>>();
+  for (const s of shown) {
+    const data = s.request.content.data as Record<string, unknown> | undefined;
+    if (
+      typeof data?.tab_id !== "string" ||
+      data.kind !== "entry_created" ||
+      typeof data.entry_id !== "string"
+    )
+      continue;
+    let link = links.get(data.tab_id);
+    if (link === undefined) {
+      link = await getTabLink(data.tab_id);
+      links.set(data.tab_id, link);
+    }
+    const row = await db.getFirstAsync<Pick<TabEntryRow, "status" | "voided_by_entry_id">>(
+      "SELECT status, voided_by_entry_id FROM tab_entries WHERE id=? AND tab_id=?",
+      data.entry_id,
+      data.tab_id,
+    );
+    const moot =
+      (link != null && link.closed_at != null) ||
+      (row != null && (row.status !== "pending" || row.voided_by_entry_id != null));
+    if (moot) await n.dismissNotificationAsync(s.request.identifier).catch(() => undefined);
+  }
+}
+AppState.addEventListener("change", (state) => {
+  if (state === "active") void sweepTray().catch(() => undefined);
+});
+onTabApplied((ev) => {
+  if (ev.origin === "pull") void sweepTray().catch(() => undefined);
 });
 setTabNotifyHook(ensureTabNotificationPermission);
 setTabPushRefreshHook(syncTabPushSubscriptions);

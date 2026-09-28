@@ -64,6 +64,7 @@ import {
   TabSameKaataError,
   isRetryableTabError,
 } from "./errors";
+import { markInboxHandled } from "./inbox-reads";
 import type { VaultFacts } from "./join-plan";
 import { reconcileTabsFromServer, syncTab, takeAppendOutcome } from "./sync";
 import type {
@@ -684,11 +685,46 @@ export async function addTabEntry(
   return { entryId: id, duplicateHint: outcome?.hint ?? null };
 }
 
+/**
+ * Reviewing a tally handles its notice: the bell entry flips, the OS tray
+ * clears and the read reaches the server through lib/tabs/inbox-reads.ts's
+ * durable queue (the server also writes the reviewer's own read row inside
+ * the review transaction, which covers a second phone on the same account).
+ * The notice about a pending tally is the one at the tally's own rev — a
+ * row's rev only moves with its status, and the optimistic status write
+ * leaves it alone — so the mark is that exact (tab, rev) and the entry id is
+ * a tray hint; only when the row is somehow not cached does the unbounded
+ * entry form stand in. Fired after the op is durable and never awaited: a
+ * mark can never fail or delay the review itself.
+ */
+function markReviewed(link: TabLink, entryId: string): void {
+  void (async () => {
+    let rev: number | null = null;
+    try {
+      const db = await getDb();
+      const row = await db.getFirstAsync<{ rev: number }>(
+        "SELECT rev FROM tab_entries WHERE id = ? AND tab_id = ?",
+        entryId,
+        link.tab_id,
+      );
+      if (row && Number.isSafeInteger(row.rev) && row.rev > 0) rev = row.rev;
+    } catch {
+      /* the entry form below still names the notice */
+    }
+    await markInboxHandled(
+      rev != null
+        ? { tab_id: link.tab_id, rev, entry_id: entryId }
+        : { tab_id: link.tab_id, entry_id: entryId },
+    );
+  })().catch(() => undefined);
+}
+
 /** Accept the other party's tally: optimistic status, outbox, flush. */
 export async function acceptEntry(link: TabLink, entryId: string): Promise<void> {
   requireOpen(link);
   await assertVaultAction(link.vault_id, "entry.amend");
   await newOp(link, "accept", { entry_id: entryId });
+  markReviewed(link, entryId);
   void syncTab(link.tab_id);
 }
 
@@ -699,6 +735,7 @@ export async function disputeEntry(link: TabLink, entryId: string, reason: strin
   if (clean.length > REASON_MAX) throw new TabInputError("reason_too_long");
   await assertVaultAction(link.vault_id, "entry.amend");
   await newOp(link, "dispute", { entry_id: entryId, reason: clean });
+  markReviewed(link, entryId);
   void syncTab(link.tab_id);
 }
 
@@ -708,6 +745,10 @@ export async function voidEntry(link: TabLink, entryId: string): Promise<void> {
   await assertVaultAction(link.vault_id, "entry.amend");
   const opId = Crypto.randomUUID();
   await newOp(link, "void", { entry_id: entryId }, opId);
+  // No markReviewed: a party gets no notice about its OWN pending tally (the
+  // creation notice went to the other side), so there is nothing to read
+  // here — the server's void path marks nothing for the same reason, and the
+  // counterparty's entry_voided notice is theirs to handle.
   void syncTab(link.tab_id);
 }
 

@@ -55,8 +55,9 @@ const mocks: Record<string, any> = {
     textDir: (r: boolean) => ({ textAlign: r ? "right" : "left" }),
   },
   "../lib/fonts": {
-    fonts: { sansRegular: "Regular", sansBold: "Bold" },
+    fonts: { sansRegular: "Regular", sansBold: "Bold", monoSemi: "MonoSemi" },
     sansLineHeight: (_: number, h: number) => h,
+    monoLineHeight: (_: number, h: number) => h,
   },
   "../lib/format": {
     formatAmount: String,

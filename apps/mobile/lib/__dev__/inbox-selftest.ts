@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import type { InboxPage } from "../tabs/api";
+import { TabApiError } from "../tabs/errors";
 
 const saved = new Map<string, NodeJS.Module | undefined>();
 function stub(name: string, exports: object) {
@@ -35,6 +36,14 @@ const schedule = () => {
     queued = true;
     queueMicrotask(render);
   }
+};
+// The bell leaves the screen: its focus effect is cleaned up and no longer
+// re-armed by render() until `focused` is set again.
+const unmount = () => {
+  focused = false;
+  cleanup?.();
+  cleanup = undefined;
+  activeEffect = undefined;
 };
 const same = (a: unknown[], b: unknown[]) =>
   a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
@@ -74,7 +83,10 @@ stub("react-native", {
 let account: string | null = "a";
 let locale = "en";
 const cache = new Map<string, string>();
-stub("../db-tx", { getAccountIdSync: () => account });
+stub("../db-tx", {
+  getAccountIdSync: () => account,
+  getDb: async () => ({ isInTransactionSync: () => false }),
+});
 stub("../db", {
   getAppMeta: async (key: string) => cache.get(key) ?? null,
   setAppMeta: async (key: string, value: string) => {
@@ -125,6 +137,9 @@ compiled._compile(
   filename,
 );
 hook = compiled.exports.useInbox;
+// The real read queue, loaded AFTER the stubs so it shares them (and the
+// module instance) with the hook.
+const inboxReads = require("../tabs/inbox-reads") as typeof import("../tabs/inbox-reads");
 async function settle() {
   for (let i = 0; i < 12; i++) await new Promise<void>((r) => setImmediate(r));
 }
@@ -220,6 +235,132 @@ async function main() {
   assert.equal(output.page.unread, 0);
   assert(!output.signedIn);
   console.log("PASS 7: locale refresh and sign-out clear the visible inbox");
+
+  account = "c";
+  fetcher = async () => page("5", "C");
+  render();
+  await settle();
+  assert.equal(output.page.unread, 1);
+  let fetches = 0;
+  fetcher = async () => {
+    fetches++;
+    return page("5", "C");
+  };
+  const marks: unknown[] = [];
+  marker = async (body) => {
+    marks.push(body);
+  };
+  await inboxReads.markInboxHandled({ tab_id: "tab", entry_id: "entry" });
+  await settle();
+  assert.equal(output.page.unread, 0, "badge did not drop on the handled event");
+  assert(output.page.items[0].read, "cached item did not flip");
+  assert.equal(fetches, 0, "the flip must not need a round trip");
+  assert(JSON.parse(cache.get("notification_inbox:c:fa")!).items[0].read, "flip not persisted");
+  assert.deepEqual(marks, [{ tab_id: "tab", entry_id: "entry" }]);
+  console.log("PASS 8: a handled event flips the cached notice and the badge without a fetch");
+
+  marker = async () => {
+    throw new TabApiError(0, "network", "offline");
+  };
+  await inboxReads.markInboxHandled({ tab_id: "tab", rev: 7 });
+  await settle();
+  assert.equal(JSON.parse(cache.get("inbox_read_queue")!).length, 1, "offline mark not queued");
+  const order: string[] = [];
+  marker = async () => {
+    order.push("mark");
+  };
+  fetcher = async () => {
+    order.push("fetch");
+    return page("5", "C", true);
+  };
+  await output.reload();
+  await settle();
+  assert.deepEqual(order, ["mark", "fetch"], "reload must flush queued marks before fetching");
+  assert.equal(JSON.parse(cache.get("inbox_read_queue")!).length, 0);
+  console.log("PASS 9: reload flushes the read queue before it fetches");
+
+  // A mark made while the bell was NOT focused (person screen) and still
+  // unsent (offline) must flip the cached page when the bell regains focus.
+  unmount();
+  marker = async () => {
+    throw new TabApiError(0, "network", "offline");
+  };
+  fetcher = async () => {
+    throw new Error("offline");
+  };
+  cache.set("notification_inbox:c:fa", JSON.stringify(page("6", "unseen")));
+  await inboxReads.markInboxHandled({ tab_id: "tab", through_rev: 1 });
+  await settle();
+  focused = true;
+  render();
+  await settle();
+  assert.equal(output.page.items[0].id, "6");
+  assert(output.page.items[0].read, "queued mark not applied to the cached page on focus");
+  assert.equal(output.page.unread, 0);
+  console.log("PASS 10: a still-queued mark flips the cached page when the bell regains focus");
+
+  // The same mark made ONLINE while the bell was not focused: the flush
+  // sends it and empties the queue, so only the cached page can carry it
+  // back — it must already read as handled before any fetch, and a failed
+  // fetch must not put the badge back.
+  unmount();
+  marker = async () => {};
+  cache.set("notification_inbox:c:fa", JSON.stringify(page("8", "handled elsewhere")));
+  await inboxReads.markInboxHandled({ tab_id: "tab", through_rev: 2 });
+  await settle();
+  assert.equal(JSON.parse(cache.get("inbox_read_queue")!).length, 0, "the mark was sent");
+  assert(
+    JSON.parse(cache.get("notification_inbox:c:fa")!).items[0].read,
+    "a sent mark must patch the cached page while the bell is away",
+  );
+  fetcher = async () => {
+    throw new Error("offline");
+  };
+  focused = true;
+  render();
+  await settle();
+  assert.equal(output.page.items[0].id, "8");
+  assert(output.page.items[0].read, "cached page shown unread after a flushed mark");
+  assert.equal(output.page.unread, 0);
+  console.log(
+    "PASS 11: a mark flushed while the bell was away is read on the cached page at refocus",
+  );
+
+  // "Mark all" offline with more history than the page shows: the badge goes
+  // to zero, not to "unread minus the flips on screen".
+  fetcher = async () => ({ ...page("9", "one of many"), unread: 7, next_before: "9" });
+  marker = async () => {};
+  await output.reload();
+  await settle();
+  assert.equal(output.page.unread, 7);
+  marker = async () => {
+    throw new TabApiError(0, "network", "offline");
+  };
+  fetcher = async () => {
+    throw new Error("offline");
+  };
+  await output.read();
+  await settle();
+  assert.equal(output.page.unread, 0, "mark-all past latest_id must empty the badge");
+  assert(output.page.items[0].read);
+  console.log("PASS 12: an offline mark-all zeroes the badge beyond the cached page");
+
+  // A page that comes back with read rows announces them as server reads
+  // (the other phone reviewed the tally), so this phone's tray can drop them;
+  // nothing is queued for it.
+  const announced: Array<[unknown, string]> = [];
+  const offAnnounce = inboxReads.onInboxReadsApplied((specs, source) => {
+    announced.push([specs, source]);
+  });
+  marker = async () => {};
+  fetcher = async () => page("10", "read on the other phone", true);
+  await output.reload();
+  await settle();
+  assert.deepEqual(announced, [[[{ tab_id: "tab", rev: 1 }], "server"]]);
+  assert.equal(JSON.parse(cache.get("inbox_read_queue") ?? "[]").length, 0);
+  assert.equal(output.page.unread, 0);
+  offAnnounce();
+  console.log("PASS 13: read rows of a fetched page are announced as server reads, never queued");
 }
 main()
   .catch((e) => {

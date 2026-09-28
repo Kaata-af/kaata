@@ -211,6 +211,14 @@ func (p *pushClient) post(ctx context.Context, path string, body any, out any) e
 // same revision together. An ambiguous network failure can deliver twice;
 // the stable tab_id/rev lets clients dedupe. Receipt success is provider
 // acceptance, not a promise that a person saw the notification.
+//
+// `valid` is decided at lease time, not enqueue time, because the world
+// moves between the two. Beyond the subscription/credential/membership
+// checks, "handled means read": a notice the subscription's account already
+// read in the app (a review reads it server-side) must not ring the phone
+// afterwards, and an entry_created request to review a tally is moot once
+// that tally is no longer pending (reviewed or voided) or the tab is closed.
+// The other kinds still send unless read. An invalid job is deleted.
 func (s *Service) deliverPush(ctx context.Context) (bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -230,6 +238,10 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
 	  AND EXISTS(SELECT 1 FROM auth_credentials ac WHERE ac.install_id=s.install_id AND ac.account_id=s.account_id)
  AND NOT EXISTS(SELECT 1 FROM tab_notifications n WHERE n.tab_id=s.tab_id AND n.rev=o.rev
    AND (n.actor_account_id=s.account_id OR n.actor_install_id=s.install_id))
+ AND NOT EXISTS(SELECT 1 FROM tab_notifications n JOIN tab_notification_reads nr ON nr.notification_id=n.id
+   WHERE n.tab_id=s.tab_id AND n.rev=o.rev AND nr.account_id=s.account_id)
+ AND (o.event_kind<>'entry_created' OR EXISTS(SELECT 1 FROM tab_entries e JOIN tabs t ON t.id=e.tab_id
+   WHERE e.id=o.entry_id AND e.tab_id=s.tab_id AND e.status='pending' AND e.voided_by_entry_id IS NULL AND t.closed_at IS NULL))
 	  AND COALESCE((
    (s.account_id IS NOT NULL AND (s.account_id=p.account_id OR EXISTS(
     SELECT 1 FROM vault_members vm WHERE vm.vault_id=p.vault_id AND vm.account_id=s.account_id
@@ -305,10 +317,23 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
 			_, err = tx.Exec(ctx, `DELETE FROM tab_push_outbox WHERE id=$1`, id)
 		case sendErr == nil && ticket.Status == "ok" && ticket.ID != "":
 			_, err = tx.Exec(ctx, `UPDATE tab_push_outbox SET receipt_id=$2,next_at=NOW()+INTERVAL '15 minutes' WHERE id=$1`, id, ticket.ID)
+		case sendErr == nil && ticket.Status == "error" && attempts >= 1:
+			// The provider rejected the message (negative ticket or receipt) and
+			// this job has already failed once. Nothing but an unregistered
+			// device (handled above) is fixed by sending again, so a second
+			// negative answer drops the job instead of re-sending in a loop.
+			_, err = tx.Exec(ctx, `DELETE FROM tab_push_outbox WHERE id=$1`, id)
+		case sendErr == nil && receipt != nil && ticket.Status == "":
+			// The receipt is not there yet (Expo can lag past the first look).
+			// Not a failure: look again in a while WITHOUT counting an attempt,
+			// or a slow receipt would use up the one re-send a negative answer
+			// is allowed and the next negative receipt would drop the job cold.
+			_, err = tx.Exec(ctx, `UPDATE tab_push_outbox SET next_at=NOW()+INTERVAL '15 minutes' WHERE id=$1`, id)
 		default:
 			// Never log a provider message: it can contain the device token.
 			delay := time.Minute * time.Duration(1<<min(attempts, 6))
-			// A negative receipt needs a new send; a missing receipt just needs another lookup.
+			// A negative receipt needs ONE new send; an HTTP/network failure
+			// keeps its backoff. Both count as the attempt they are.
 			if receipt != nil && ticket.Status == "error" {
 				receipt = nil
 			}

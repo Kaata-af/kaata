@@ -209,8 +209,17 @@ function routeFromNotificationData(data: unknown): void {
   if (typeof tabId === "string" && /^[0-9a-f-]{36}$/i.test(tabId)) {
     void (async () => {
       const { openTabNotification } = await import("../lib/tabs/open-notification");
-      const entryId = (data as { entry_id?: unknown }).entry_id;
-      await openTabNotification(tabId, typeof entryId === "string" ? entryId : null);
+      const payload = data as { entry_id?: unknown; rev?: unknown };
+      const entryId = typeof payload.entry_id === "string" ? payload.entry_id : null;
+      // The tab revision the push announced rides along, so landing on the
+      // contact marks THAT notice read (lib/tabs/inbox-reads.ts, "handled
+      // means read") even when the payload names no tally, e.g. a label
+      // change. Untyped JSON, and FCM may stringify numbers: only a safe
+      // positive integer is a rev.
+      const rev = typeof payload.rev === "string" ? Number(payload.rev) : payload.rev;
+      const opts =
+        typeof rev === "number" && Number.isSafeInteger(rev) && rev > 0 ? { rev } : undefined;
+      await openTabNotification(tabId, entryId, opts);
     })().catch(() => {});
     return;
   }

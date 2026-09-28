@@ -14,6 +14,7 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
+import { fonts, monoLineHeight } from "../lib/fonts";
 import { formatRelative } from "../lib/format";
 import { t } from "../lib/i18n";
 import { icon, radius, TOUCH_MIN, typography } from "../lib/tokens";
@@ -162,10 +163,17 @@ export function NotificationBell() {
     if (timer.current) clearTimeout(timer.current);
     if (after) timer.current = setTimeout(after, 250);
   };
+  // Navigation first, then the read. openTabNotification marks the notice
+  // handled by its inbox id (with the tally and rev as tray hints) the moment
+  // the push lands; inbox.read repeats the same canonical mark — deduplicated
+  // in the queue, idempotent on the server — and refreshes the page.
   const open = (item: InboxItem) =>
     close(() => {
       void (async () => {
-        await openTabNotification(item.tab_id, item.entry_id);
+        await openTabNotification(item.tab_id, item.entry_id, {
+          notificationId: item.id,
+          rev: item.rev,
+        });
         await inbox.read(item.id);
       })().catch(() => toast.push(t("inbox.openFailed"), "error"));
     });
@@ -189,7 +197,7 @@ export function NotificationBell() {
           <Ionicons name="notifications-outline" size={icon.row} color={colors.textEmphasis} />
           {inbox.page.unread > 0 ? (
             <View style={styles.count}>
-              <Text style={styles.countText}>
+              <Text style={styles.countText} numberOfLines={1} allowFontScaling={false}>
                 {inbox.page.unread > 99 ? "99+" : inbox.page.unread}
               </Text>
             </View>
@@ -247,8 +255,12 @@ export function FullNotificationInbox() {
   const open = (item: InboxItem) => {
     if (busy.current) return;
     busy.current = true;
+    // Same order and same double mark as the bell's open, for the same reason.
     void (async () => {
-      await openTabNotification(item.tab_id, item.entry_id);
+      await openTabNotification(item.tab_id, item.entry_id, {
+        notificationId: item.id,
+        rev: item.rev,
+      });
       await inbox.read(item.id);
     })()
       .catch(() => toast.push(t("inbox.openFailed"), "error"))
@@ -258,6 +270,21 @@ export function FullNotificationInbox() {
   };
   return <InboxContent inbox={inbox} open={open} />;
 }
+
+// The unread badge. Its digits are centred by arithmetic, not by eye: the
+// text's line box is EXACTLY the circle's inner height (the size minus the two
+// borders), so neither platform has slack to distribute unevenly. Mono digits
+// on purpose — JetBrains Mono's natural height at 10px is ceil(10 × 1.32) = 14,
+// under the 15 the box asks for, so monoLineHeight(10, 15) is 15 on iOS as
+// well as Android. The previous caption style (Vazirmatn 11px, sansLineHeight
+// 15) floored to 18 on iOS — taller than the circle — and on Android kept the
+// font's Persian-ascender headroom above the glyphs, so the number sat low and
+// to one side. includeFontPadding:false removes that headroom; textAlign and
+// textAlignVertical centre the run inside the box. selftest:bell-badge pins
+// every number here against the real lib/fonts.ts on both platforms.
+const BADGE_SIZE = 17;
+const BADGE_BORDER = 1;
+const BADGE_INNER = BADGE_SIZE - 2 * BADGE_BORDER;
 
 const styles = StyleSheet.create({
   bell: {
@@ -270,17 +297,28 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 1,
     top: 0,
-    minWidth: 17,
-    height: 17,
-    borderRadius: 9,
-    paddingHorizontal: 3,
+    minWidth: BADGE_SIZE,
+    height: BADGE_SIZE,
+    borderRadius: BADGE_SIZE / 2,
+    // "99+" is three 6px mono glyphs: 18 + 4 + 4 keeps it a pill on ONE line
+    // (numberOfLines={1}, no tracking); a single digit stays a full circle
+    // because minWidth wins.
+    paddingHorizontal: 4,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.sharedAccount,
-    borderWidth: 1,
+    borderWidth: BADGE_BORDER,
     borderColor: colors.bgDefault,
   },
-  countText: { ...typography.caption, color: colors.textInverted, fontSize: 10 },
+  countText: {
+    fontFamily: fonts.monoSemi,
+    fontSize: 10,
+    lineHeight: monoLineHeight(10, BADGE_INNER),
+    color: colors.textInverted,
+    textAlign: "center",
+    textAlignVertical: "center",
+    includeFontPadding: false,
+  },
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.08)" },
   popup: {
     position: "absolute",

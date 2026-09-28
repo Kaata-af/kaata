@@ -63,6 +63,7 @@ import {
 } from "./db";
 import { otherRole } from "./direction";
 import { isRetryableTabError, TabApiError, TabAuthUnavailableError } from "./errors";
+import { flushInboxReads } from "./inbox-reads";
 import type { AppendRequest, DuplicateHint, TabLink, TabOutboxRow, TabResponse } from "./types";
 
 export { onTabApplied } from "./events";
@@ -298,6 +299,11 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
       result.error = flushError;
       await setTabLinkError(tabId, flushError);
     }
+    // The link is up: notices handled offline (lib/tabs/inbox-reads.ts) go
+    // out now rather than waiting for the bell to be looked at, so the
+    // server can drop a push still queued for them. Never awaited, never
+    // throws, and independent of this run's outcome.
+    void flushInboxReads();
     return result;
   } catch (err) {
     const msg = describe(err);

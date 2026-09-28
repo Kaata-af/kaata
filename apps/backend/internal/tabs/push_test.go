@@ -3,6 +3,7 @@ package tabs
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -232,6 +233,21 @@ func TestPushReviewActionsRequireCurrentEntryAndRole(t *testing.T) {
 			if more, err := f.svc.deliverPush(ctx); err != nil || !more {
 				t.Fatalf("delivery: %v %v", more, err)
 			}
+			if tc.reviewed {
+				// Handled means read: B's review read its own notice and the tally
+				// is no longer pending, so the queued request is dropped unsent.
+				select {
+				case payload := <-payloads:
+					t.Fatalf("reviewed tally still pushed: %v", payload)
+				default:
+				}
+				var jobs int
+				_ = f.pool.QueryRow(ctx, "SELECT COUNT(*) FROM tab_push_outbox").Scan(&jobs)
+				if jobs != 0 {
+					t.Fatalf("dropped job still queued: %d", jobs)
+				}
+				return
+			}
 			select {
 			case payload := <-payloads:
 				_, actions := payload["categoryId"]
@@ -300,5 +316,207 @@ func TestPushStopsAfterInstallationSignsOut(t *testing.T) {
 	}
 	if more, err := f.svc.deliverPush(ctx); err != nil || !more {
 		t.Fatalf("discard: %v %v", more, err)
+	}
+}
+
+// Handled means read: a phone that read a notice in the app, or reviewed the
+// tally by any path, is not rung about it afterwards; a review request is
+// dropped once the tally is no longer pending or the tab is closed, while the
+// outcome kinds still go out; and a provider that keeps rejecting a message
+// gets exactly one re-send before the job is dropped.
+func TestPushSkipsReadAndReviewed(t *testing.T) {
+	f := newHTTPFixture(t)
+	ctx := context.Background()
+	sends, receipts := 0, 0
+	sendMode, receiptMode, lastKind := "ok", "ok", ""
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/send" {
+			sends++
+			lastKind, _ = body["data"].(map[string]any)["kind"].(string)
+			if sendMode == "error" {
+				_, _ = w.Write([]byte(`{"data":{"status":"error","details":{"error":"MessageTooBig"}}}`))
+				return
+			}
+			_, _ = fmt.Fprintf(w, `{"data":{"status":"ok","id":"ticket-%d"}}`, sends)
+			return
+		}
+		receipts++
+		id, _ := body["ids"].([]any)[0].(string)
+		status := `{"status":"ok"}`
+		switch receiptMode {
+		case "error":
+			status = `{"status":"error","details":{"error":"MessageRateExceeded"}}`
+		case "missing":
+			// Expo answers without the id when the receipt is not ready yet.
+			_, _ = w.Write([]byte(`{"data":{}}`))
+			return
+		}
+		_, _ = fmt.Fprintf(w, `{"data":{%q:%s}}`, id, status)
+	}))
+	defer provider.Close()
+	f.svc.push = &pushClient{client: provider.Client(), baseURL: provider.URL}
+	c := f.createOverHTTP(t, "")
+	tab := c.Tab.ID
+	pa, pb := f.party(t, c.MyToken, tab), f.party(t, c.InviteToken, tab)
+	if _, err := f.svc.Bind(ctx, pb, BindInput{AccountID: f.acctB, VaultID: &f.vaultB}); err != nil {
+		t.Fatal(err)
+	}
+	jwtB := "Bearer " + f.jwtFor(t, f.acctB)
+	if r := f.do(t, "POST", "/v1/tabs/"+tab+"/notifications", jwtB, map[string]any{
+		"install_id": uuid.NewString(), "token": "ExpoPushToken[synthetic_test_B_123456]", "locale": "en",
+	}); r.status != 200 {
+		t.Fatalf("subscribe: %d %s", r.status, r.body)
+	}
+	jobs := func() int {
+		t.Helper()
+		var n int
+		if err := f.pool.QueryRow(ctx, "SELECT COUNT(*) FROM tab_push_outbox").Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	deliver := func(want bool) {
+		t.Helper()
+		more, err := f.svc.deliverPush(ctx)
+		if err != nil || more != want {
+			t.Fatalf("deliverPush: more=%v err=%v", more, err)
+		}
+	}
+	rearm := func() {
+		t.Helper()
+		if _, err := f.pool.Exec(ctx, "UPDATE tab_push_outbox SET next_at=NOW()"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now().UnixMilli()
+
+	// (1) Read in the app before delivery, from another phone on the account.
+	e1 := f.append(t, pa, "a_to_b", "10", now)
+	if jobs() != 1 {
+		t.Fatalf("jobs=%d", jobs())
+	}
+	if r := f.do(t, "POST", "/v1/tabs/inbox/read", "Bearer "+f.jwtFor(t, f.acctB), map[string]any{"tab_id": tab, "entry_id": e1.Entry.ID}); r.status != 200 {
+		t.Fatalf("read: %d %s", r.status, r.body)
+	}
+	deliver(true)
+	if sends != 0 || jobs() != 0 {
+		t.Fatalf("read notice was pushed: sends=%d jobs=%d", sends, jobs())
+	}
+
+	// (2) Reviewed before delivery: the server-side auto-read and the
+	// not-pending rule both apply; no send either way.
+	e2 := f.append(t, pa, "a_to_b", "20", now)
+	if r := f.do(t, "POST", "/v1/tabs/"+tab+"/entries/"+e2.Entry.ID+"/accept", jwtB, nil); r.status != 200 {
+		t.Fatalf("accept: %d %s", r.status, r.body)
+	}
+	deliver(true)
+	if sends != 0 || jobs() != 0 {
+		t.Fatalf("reviewed tally was pushed: sends=%d jobs=%d", sends, jobs())
+	}
+
+	// (2b) Cancelled by its author, never read by B: the review request is
+	// dropped, the entry_voided outcome still goes out and settles.
+	e3 := f.append(t, pa, "a_to_b", "30", now)
+	if _, err := f.svc.Void(ctx, pa, e3.Entry.ID); err != nil {
+		t.Fatal(err)
+	}
+	if jobs() != 2 {
+		t.Fatalf("jobs=%d", jobs())
+	}
+	deliver(true)
+	deliver(true)
+	if sends != 1 || lastKind != "entry_voided" || jobs() != 1 {
+		t.Fatalf("void: sends=%d kind=%s jobs=%d", sends, lastKind, jobs())
+	}
+	rearm()
+	deliver(true)
+	if receipts != 1 || jobs() != 0 {
+		t.Fatalf("receipt: receipts=%d jobs=%d", receipts, jobs())
+	}
+
+	// (3) Nobody reads: it sends and settles.
+	f.append(t, pa, "a_to_b", "40", now)
+	deliver(true)
+	if sends != 2 || lastKind != "entry_created" || jobs() != 1 {
+		t.Fatalf("unread: sends=%d kind=%s jobs=%d", sends, lastKind, jobs())
+	}
+	rearm()
+	deliver(true)
+	if jobs() != 0 {
+		t.Fatal("settled job still queued")
+	}
+
+	// (4) A negative receipt other than DeviceNotRegistered: one re-send, then
+	// drop. A receipt that is not ready yet is looked up again and does NOT
+	// use up that re-send.
+	f.append(t, pa, "a_to_b", "50", now)
+	deliver(true)
+	rearm()
+	receiptMode = "missing"
+	deliver(true)
+	var ticket *string
+	var attempts int
+	if err := f.pool.QueryRow(ctx, "SELECT receipt_id,attempts FROM tab_push_outbox").Scan(&ticket, &attempts); err != nil {
+		t.Fatal(err)
+	}
+	if ticket == nil || attempts != 0 {
+		t.Fatalf("missing receipt counted as a failure: ticket=%v attempts=%d", ticket, attempts)
+	}
+	rearm()
+	receiptMode = "error"
+	deliver(true)
+	if err := f.pool.QueryRow(ctx, "SELECT receipt_id,attempts FROM tab_push_outbox").Scan(&ticket, &attempts); err != nil {
+		t.Fatal(err)
+	}
+	if ticket != nil || attempts != 1 {
+		t.Fatalf("re-send not armed: ticket=%v attempts=%d", ticket, attempts)
+	}
+	rearm()
+	deliver(true)
+	if sends != 4 {
+		t.Fatalf("no re-send: sends=%d", sends)
+	}
+	rearm()
+	deliver(true)
+	if jobs() != 0 {
+		t.Fatal("second negative receipt did not drop the job")
+	}
+	deliver(false)
+	receiptMode = "ok"
+	if sends != 4 || receipts != 5 {
+		t.Fatalf("looping re-send: sends=%d receipts=%d", sends, receipts)
+	}
+
+	// (5) A negative /send ticket gets the same single re-send.
+	sendMode = "error"
+	f.append(t, pa, "a_to_b", "60", now)
+	deliver(true)
+	if sends != 5 || jobs() != 1 {
+		t.Fatalf("ticket error: sends=%d jobs=%d", sends, jobs())
+	}
+	rearm()
+	deliver(true)
+	if sends != 6 || jobs() != 0 {
+		t.Fatalf("ticket error re-send: sends=%d jobs=%d", sends, jobs())
+	}
+	sendMode = "ok"
+
+	// (6) Closing the tab moots a pending review request; the close itself is announced.
+	f.append(t, pa, "a_to_b", "70", now)
+	if _, err := f.svc.Close(ctx, pa); err != nil {
+		t.Fatal(err)
+	}
+	if jobs() != 2 {
+		t.Fatalf("jobs=%d", jobs())
+	}
+	deliver(true)
+	deliver(true)
+	if sends != 7 || lastKind != "updated" || jobs() != 1 {
+		t.Fatalf("close: sends=%d kind=%s jobs=%d", sends, lastKind, jobs())
 	}
 }

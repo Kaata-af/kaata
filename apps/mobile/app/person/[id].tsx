@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
+  AppState,
   Platform,
   Pressable,
   ScrollView,
@@ -70,6 +71,7 @@ import {
   listPreLinkEntries,
   listFailedTabEntries,
 } from "../../lib/tabs/db";
+import { markTabNoticesSeen } from "../../lib/tabs/inbox-reads";
 import {
   acceptEntry,
   disputeEntry,
@@ -458,8 +460,13 @@ export default function PersonDetailScreen() {
     }
   };
 
-  // Returns the open tab link (or null) so the focus effect can ask for a
-  // pull without waiting on state; every other caller ignores the value.
+  // The link load() last found (open OR closed), for the marks below that
+  // must not wait on state.
+  const latestLink = useRef<TabLink | null>(null);
+
+  // Returns the contact's latest tab link — open OR closed — so the focus
+  // effect and the pull listener can ask for a sync and mark the tab's
+  // notices seen without waiting on state; every other caller ignores it.
   const load = useCallback(async (): Promise<TabLink | null> => {
     if (!id) {
       setLoaded(true);
@@ -485,11 +492,11 @@ export default function PersonDetailScreen() {
       setSettlement(settle);
       setBoundaries(bounds);
       setTabHistory(tl);
+      latestLink.current = tl;
       setPreLink(before);
       setFailedTallies(refused);
       setLoadFailed(false);
-      // Only an OPEN tab is worth syncing; a closed one never changes again.
-      return tl != null && tl.closed_at == null ? tl : null;
+      return tl;
     } catch (err) {
       console.warn("[person] load failed", err);
       setLoadFailed(true);
@@ -499,16 +506,48 @@ export default function PersonDetailScreen() {
     }
   }, [id]);
 
+  // "Handled means read" (lib/tabs/inbox-reads.ts markTabNoticesSeen), this
+  // screen's share of it: with a linked contact's rows on screen, its
+  // notices up to the applied rev are handled. `focused` is navigation focus
+  // (true between focus and blur) and is NOT visibility — the route stays
+  // focused while the app sits behind the lock screen, and pulls run there
+  // too — so every mark also asks AppState, and a load or a pull that lands
+  // after the user left, or while the app is in the background, marks
+  // nothing they never saw. `latestLink` (above) is what load() last found,
+  // for the return-to-foreground mark.
+  const focused = useRef(false);
+  const seen = useCallback((tl: TabLink | null) => {
+    if (tl) markTabNoticesSeen(tl, { focused: focused.current, appState: AppState.currentState });
+  }, []);
+
   // Person-screen focus is one of the three pull triggers (D13; the others are
   // foreground and the 60 s loop). Only HERE — not on every load(): a pull
   // fires onTabApplied, which calls load(), and a sync request in load()
   // would make that a loop.
   useFocusEffect(
     useCallback(() => {
+      focused.current = true;
       void load().then((tl) => {
-        if (tl) requestTabSync(tl.tab_id);
+        if (!tl) return;
+        // Only an OPEN tab is worth syncing; a closed one never changes again.
+        if (tl.closed_at == null) requestTabSync(tl.tab_id);
+        // Decision A4: the screen is up with the tab's rows on it, so its
+        // notices up to the applied rev are handled — unless the user left
+        // (or the app did) while the load was in flight.
+        seen(tl);
       });
-    }, [load]),
+      // Back in the foreground with this screen still up: the rows are
+      // visible again, so what the phone had applied by now is seen. A pull
+      // the sync loop kicks at the same moment re-marks through its newer
+      // rev via the listener below, once its rows are on screen.
+      const app = AppState.addEventListener("change", (state) => {
+        if (state === "active") seen(latestLink.current);
+      });
+      return () => {
+        focused.current = false;
+        app.remove();
+      };
+    }, [load, seen]),
   );
 
   // Live refresh: re-load when a sync applies events for the active vault, so a
@@ -522,9 +561,17 @@ export default function PersonDetailScreen() {
   useEffect(() => {
     if (!linkRelationshipId) return;
     return onTabApplied((ev) => {
-      if (ev.relationshipId === linkRelationshipId) void load();
+      if (ev.relationshipId !== linkRelationshipId) return;
+      void load().then((tl) => {
+        // A pull that lands while the user is LOOKING at the contact is seen
+        // the moment its rows render: mark through the NEW rev (the focus +
+        // foreground gate lives in `seen`). Not for a local write — its
+        // notice belongs to the other party, and the review verbs mark their
+        // own notice in lib/tabs/link.ts.
+        if (ev.origin === "pull") seen(tl);
+      });
     });
-  }, [linkRelationshipId, load]);
+  }, [linkRelationshipId, load, seen]);
 
   // ---- Mutual tab flows -------------------------------------------------
   //

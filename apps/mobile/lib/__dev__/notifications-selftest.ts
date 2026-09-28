@@ -18,8 +18,22 @@ function stub(name: string, exports: object) {
 }
 const TAB = "00000000-0000-4000-8000-000000000001";
 const ENTRY = "00000000-0000-4000-8000-000000000002";
+const ENTRY2 = "00000000-0000-4000-8000-000000000003";
+const TAB2 = "00000000-0000-4000-8000-000000000004";
 const link = { tab_id: TAB, role: "b", closed_at: null, vault_id: "vault" } as TabLink;
-const state = { currentState: "active" };
+const closedLink = { tab_id: TAB2, role: "b", closed_at: 1, vault_id: "vault" } as TabLink;
+const appStateListeners: Array<(s: string) => void> = [];
+const state = {
+  currentState: "active",
+  addEventListener: (_: string, fn: (s: string) => void) => {
+    appStateListeners.push(fn);
+    return { remove() {} };
+  },
+};
+const emitAppState = (s: string) => {
+  state.currentState = s;
+  for (const fn of appStateListeners) fn(s);
+};
 const platform = { OS: "android" };
 const meta = new Map<string, string>();
 const calls: string[] = [];
@@ -32,8 +46,13 @@ let grantOnRequest = true;
 let asks = 0;
 let task: any;
 let handler: any;
-let appliedListener: any;
+const appliedListeners: any[] = [];
+const emitApplied = (ev: unknown) => {
+  for (const fn of appliedListeners) fn(ev);
+};
 let currentEntry: any;
+// tab_entries rows by id for the tray sweep; anything else answers currentEntry.
+const rows = new Map<string, any>();
 let responseListener: any;
 let receivedListener: any;
 let registeredTask = "";
@@ -43,6 +62,10 @@ let scheduled: any[] = [];
 let nativePending: any[] = [];
 let authFailure = false;
 const queued = new Set<string>();
+// The OS tray, and what left it; the read marks that reached the server stub.
+let presented: any[] = [];
+const dismissed: string[] = [];
+const inboxMarks: unknown[] = [];
 
 stub("react-native", { AppState: state, Platform: platform });
 stub("expo", { isRunningInExpoGo: () => expoGo });
@@ -61,7 +84,10 @@ stub("../db", {
 stub("../db-tx", {
   getInstallIdSync: () => "install",
   getAccountIdSync: () => "account",
-  getDb: async () => ({ getFirstAsync: async () => currentEntry }),
+  getDb: async () => ({
+    getFirstAsync: async (_sql: string, ...args: unknown[]) =>
+      rows.get(String(args[0])) ?? currentEntry,
+  }),
 });
 stub("../use-vault-role", { readVaultRole: async () => "editor", canPerformAction: () => true });
 stub("../i18n", {
@@ -86,6 +112,9 @@ stub("../tabs/api", {
     registrations.push({ id, options });
     return { enabled: true };
   },
+  markInboxRead: async (body: unknown) => {
+    inboxMarks.push(body);
+  },
 });
 stub("../tabs/sync", {
   setTabPushRefreshHook: () => {},
@@ -98,7 +127,8 @@ stub("../tabs/sync", {
 });
 stub("../tabs/events", {
   onTabApplied: (fn: any) => {
-    appliedListener = fn;
+    appliedListeners.push(fn);
+    return () => {};
   },
 });
 stub("../tabs/link", { setTabNotifyHook: () => {} });
@@ -137,9 +167,11 @@ stub("expo-notifications", {
     return { granted, canAskAgain };
   },
   getExpoPushTokenAsync: async () => ({ data: "synthetic-push-token" }),
-  dismissNotificationAsync: async () => {
+  dismissNotificationAsync: async (id: string) => {
     calls.push("dismiss");
+    dismissed.push(id);
   },
+  getPresentedNotificationsAsync: async () => presented,
   scheduleNotificationAsync: async (n: unknown) => {
     scheduled.push(n);
   },
@@ -163,7 +195,11 @@ compiled._compile(
   filename,
 );
 const notify = compiled.exports as typeof import("../tabs/notify");
+// The real read queue (its db / api boundaries are the stubs above), the
+// same module instance notify.ts subscribed to at load.
+const inboxReads = require("../tabs/inbox-reads") as typeof import("../tabs/inbox-reads");
 const payload = { tab_id: TAB, entry_id: ENTRY, rev: 1, kind: "entry_created", role: "b" };
+const shown = (id: string, data: unknown) => ({ request: { identifier: id, content: { data } } });
 const response = (action: string, data: unknown = payload) => ({
   actionIdentifier: action,
   notification: { request: { identifier: "notice", content: { data } } },
@@ -187,6 +223,10 @@ function reset() {
   links = [link];
   queued.clear();
   nativePending = [];
+  presented = [];
+  dismissed.length = 0;
+  inboxMarks.length = 0;
+  rows.clear();
 }
 let passed = 0;
 async function test(name: string, fn: () => Promise<void>) {
@@ -239,10 +279,16 @@ async function main() {
     await notify.ensureTabNotificationPermission();
     assert.equal(asks, 0);
   });
-  await test("Android background accept queues before dismiss and sync", async () => {
+  await test("Android background accept queues before dismiss and sync, and marks handled", async () => {
     await task({ data: response("tab-accept") });
     assert.deepEqual(calls.slice(0, 3), ["queue", "dismiss", "sync"]);
     assert.equal(queued.has(`${ENTRY}:1:accept`), true);
+    await settled();
+    assert.deepEqual(
+      inboxMarks,
+      [{ tab_id: TAB, rev: 1 }],
+      "review must read exactly the notice the push announced",
+    );
   });
   await test("reject and foreground listener use the same non-navigation path", async () => {
     responseListener(response("tab-reject"));
@@ -260,6 +306,103 @@ async function main() {
       await task({ data: r });
     }
     assert.equal(queued.size, 0);
+    await settled();
+    assert.equal(inboxMarks.length, 0, "nothing reviewed, nothing read");
+  });
+  await test("a handled notice leaves the tray: by entry, by rev, through a rev, mark-all", async () => {
+    presented = [
+      shown("n1", { tab_id: TAB, entry_id: ENTRY, rev: 1 }),
+      shown("n2", { tab_id: TAB, entry_id: ENTRY2, rev: 2 }),
+      shown("n3", { tab_id: TAB, rev: 3 }),
+      shown("n4", { tab_id: TAB2, entry_id: ENTRY, rev: 1 }),
+      shown("n5", { unrelated: true }),
+    ];
+    const handled = async (spec: any) => {
+      dismissed.length = 0;
+      await inboxReads.markInboxHandled(spec);
+      await settled();
+      return [...dismissed];
+    };
+    assert.deepEqual(await handled({ tab_id: TAB, entry_id: ENTRY }), ["n1"]);
+    assert.deepEqual(await handled({ tab_id: TAB, rev: 2 }), ["n2"]);
+    assert.deepEqual(await handled({ tab_id: TAB, through_rev: 2 }), ["n1", "n2"]);
+    assert.deepEqual(await handled({ id: "9", tab_id: TAB, entry_id: ENTRY2 }), ["n2"], "hints");
+    assert.deepEqual(
+      await handled({ tab_id: TAB, entry_id: ENTRY, rev: 2 }),
+      ["n2"],
+      "a known rev names the notice; the entry is only a hint",
+    );
+    assert.deepEqual(await handled({ id: "9" }), [], "an id alone names nothing in the tray");
+    assert.deepEqual(await handled({ id: "9", tab_id: TAB }), [], "nor a tab without a rev/entry");
+    assert.deepEqual(
+      await handled({ through: "9" }),
+      ["n1", "n2", "n3", "n4"],
+      "mark-all clears every tab notification and nothing else",
+    );
+  });
+  await test("a read the server reports (the other phone) clears the tray by rev, without a mark", async () => {
+    presented = [
+      shown("n1", { tab_id: TAB, entry_id: ENTRY, rev: 1, kind: "entry_created" }),
+      shown("n2", { tab_id: TAB, entry_id: ENTRY2, rev: "2", kind: "entry_created" }),
+      shown("n3", { tab_id: TAB, rev: 3, kind: "entry_accepted" }),
+    ];
+    inboxReads.announceServerReads([
+      { tab_id: TAB, rev: 2, read: true },
+      { tab_id: TAB, rev: 1, read: false },
+      { tab_id: TAB, rev: 3, read: true },
+    ]);
+    await settled();
+    assert.deepEqual(dismissed, ["n2", "n3"], "FCM's stringified rev matches too");
+    assert.equal(inboxMarks.length, 0, "nothing is sent back for a read learned from the server");
+  });
+  await test("the tray is swept against the truth on resume and after a pull", async () => {
+    links = [link, closedLink];
+    rows.set(ENTRY, { status: "accepted", voided_by_entry_id: null });
+    rows.set(ENTRY2, { status: "pending", voided_by_entry_id: null });
+    const sweepable = () => [
+      shown("reviewed", { tab_id: TAB, entry_id: ENTRY, rev: 1, kind: "entry_created" }),
+      shown("pending", { tab_id: TAB, entry_id: ENTRY2, rev: 2, kind: "entry_created" }),
+      shown("outcome", { tab_id: TAB, entry_id: ENTRY, rev: 3, kind: "entry_accepted" }),
+      shown("closed", { tab_id: TAB2, entry_id: ENTRY2, rev: 1, kind: "entry_created" }),
+      shown("unknown", {
+        tab_id: TAB,
+        entry_id: ENTRY2.replace("3", "9"),
+        rev: 4,
+        kind: "entry_created",
+      }),
+    ];
+    presented = sweepable();
+    emitAppState("background");
+    await settled();
+    assert.deepEqual(dismissed, [], "backgrounding sweeps nothing");
+    emitAppState("active");
+    await settled();
+    assert.deepEqual(
+      dismissed,
+      ["reviewed", "closed"],
+      "a request to review a tally that is no longer pending, or on a closed tab, is moot; a pending one, an outcome and an unknown row stay",
+    );
+    dismissed.length = 0;
+    presented = sweepable();
+    rows.set(ENTRY2, { status: "pending", voided_by_entry_id: "void-row" });
+    emitApplied({ tabId: TAB, relationshipId: "r", vaultId: "vault", origin: "pull", changes: [] });
+    await settled();
+    assert.deepEqual(
+      dismissed,
+      ["reviewed", "pending", "closed"],
+      "a pull sweeps; a voided tally is moot too",
+    );
+    dismissed.length = 0;
+    presented = sweepable();
+    emitApplied({
+      tabId: TAB,
+      relationshipId: "r",
+      vaultId: "vault",
+      origin: "local",
+      changes: [],
+    });
+    await settled();
+    assert.deepEqual(dismissed, [], "a local write is not new truth");
   });
   await test("iOS cold-start handoff survives keychain failure, then drains", async () => {
     platform.OS = "ios";
@@ -315,29 +458,33 @@ async function main() {
       author_name: "Writer",
       author_account_id: "peer",
     };
-    appliedListener(ev);
+    emitApplied(ev);
     await settled();
     assert.equal(scheduled.length, 0);
     state.currentState = "background";
     currentEntry.created_by = "b";
-    appliedListener(ev);
+    emitApplied(ev);
     await settled();
     assert.equal(scheduled.length, 0, "own side");
     currentEntry.created_by = "a";
     currentEntry.author_account_id = "account";
-    appliedListener(ev);
+    emitApplied(ev);
     await settled();
     assert.equal(scheduled.length, 0, "same account on opposite side");
     currentEntry.author_account_id = "peer";
-    appliedListener(ev);
+    emitApplied(ev);
     await settled();
     assert.equal(scheduled.length, 1, "real incoming fallback");
   });
-  await test("Expo Go skips native registration", async () => {
+  await test("Expo Go skips native registration and tray dismissal", async () => {
     expoGo = true;
     await notify.ensureTabNotificationPermission();
     assert.equal(asks, 0);
     assert.equal(registrations.length, 0);
+    presented = [shown("n1", { tab_id: TAB, entry_id: ENTRY, rev: 1 })];
+    await inboxReads.markInboxHandled({ tab_id: TAB, entry_id: ENTRY });
+    await settled();
+    assert.deepEqual(dismissed, []);
   });
   console.log(`\n${passed} notification orchestration regressions passed.`);
 }

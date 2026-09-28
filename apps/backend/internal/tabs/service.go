@@ -533,6 +533,31 @@ func bumpRev(ctx context.Context, tx pgx.Tx, tabID, actor string, event ...pushE
 	return rev, nil
 }
 
+// markEntryNoticesRead is "handled means read" on the server: the account
+// that accepts, rejects or cancels a tally has, by that act, dealt with every
+// notice it received about that tally, so those rows are read in the SAME
+// transaction as the decision. A second phone on the account and the OS
+// action buttons therefore need no client work, and deliverPush drops a push
+// still queued for it. Only the ACTING account's rows for its own party side
+// are touched (a kaata member's review reads the member's rows, never the
+// bound owner's); the counterparty's history is untouched, and a legacy
+// token-only party with no account marks nothing.
+func markEntryNoticesRead(ctx context.Context, tx pgx.Tx, p Party, entryID string) error {
+	acct := p.actorAccount()
+	if acct == nil {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO tab_notification_reads (notification_id, account_id)
+		SELECT n.id, $3::uuid FROM tab_notifications n
+		 WHERE n.tab_id = $1::uuid AND n.entry_id = $2::uuid AND n.recipient_role = $4
+		ON CONFLICT DO NOTHING
+	`, p.TabID, entryID, *acct, p.Role); err != nil {
+		return fmt.Errorf("mark notices read: %w", err)
+	}
+	return nil
+}
+
 // nextSeq is COALESCE(MAX(seq),0)+1 under the row lock.
 func nextSeq(ctx context.Context, tx pgx.Tx, tabID string) (int64, error) {
 	var cur int64
@@ -1428,6 +1453,9 @@ func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string
 	if err != nil {
 		return EntryResponse{}, fmt.Errorf("update status: %w", err)
 	}
+	if err := markEntryNoticesRead(ctx, tx, p, entryID); err != nil {
+		return EntryResponse{}, err
+	}
 	tab, err := loadTab(ctx, tx, p.TabID, p.Role)
 	if err != nil {
 		return EntryResponse{}, err
@@ -1511,6 +1539,9 @@ func (s *Service) Void(ctx context.Context, p Party, entryID string) (VoidRespon
 		p.TabID, orig.ID, void.ID, rev))
 	if err != nil {
 		return VoidResponse{}, fmt.Errorf("mark voided: %w", err)
+	}
+	if err := markEntryNoticesRead(ctx, tx, p, orig.ID); err != nil {
+		return VoidResponse{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return VoidResponse{}, fmt.Errorf("commit tx: %w", err)

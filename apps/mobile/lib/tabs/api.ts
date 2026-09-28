@@ -307,6 +307,20 @@ export async function fetchInbox(locale: string, before = ""): Promise<InboxPage
     await requireJwt(),
   );
 }
-export async function markInboxRead(body: { id: string } | { through: string }): Promise<void> {
+/**
+ * POST /v1/tabs/inbox/read — one notice by inbox id, everything up to an id
+ * ("mark all"), or by what the client actually knows about the notice it
+ * handled: the tally (every notice of that entry), one tab revision, or
+ * every revision of a tab up to the one it has applied. The server answers
+ * {ok, marked} and refuses nothing it cannot find (idempotent INSERT).
+ */
+export type InboxReadBody =
+  | { id: string }
+  | { through: string }
+  | { tab_id: string; entry_id: string }
+  | { tab_id: string; rev: number }
+  | { tab_id: string; through_rev: number };
+
+export async function markInboxRead(body: InboxReadBody): Promise<void> {
   await request("POST", "/v1/tabs/inbox/read", await requireJwt(), body);
 }
