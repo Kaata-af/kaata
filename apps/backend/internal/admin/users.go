@@ -16,6 +16,11 @@ import (
 // come from the latest server snapshot (only present for backed-up vaults);
 // everything else is structured-table data. Operator's own accounts are
 // excluded via the same OPERATOR_ACCOUNT_IDS allowlist as the stats.
+//
+// 2026-09-29: this page is still the "who" view and never shows tally
+// contents. The phone numbers the operator contacts — shopkeepers' own and the
+// people recorded in synced kaatas, with balances folded from the event log —
+// live in the Outreach section (outreach.go), not here.
 
 type KaataMember struct {
 	Name  string `json:"name"`

@@ -409,6 +409,35 @@ the explicit button above the Add/find contact list may request permission.
 Blocked or limited access routes to Settings and reloads on return. Keep the
 `expo-contacts/legacy` import. Run `selftest:contacts-access` for the recovery paths.
 
+### Admin Outreach section (2026-09-29)
+
+Matee decided to grow by WhatsApp-messaging, personally and by hand, both the shopkeepers
+who installed Kaata and the people they recorded in their ledgers. The admin dashboard's
+**Outreach** section (`apps/web/src/pages/admin/Outreach.tsx`, pure logic in
+`outreach-model.ts` + its node test) lists every phone number the server holds:
+shopkeepers from `installs.self_phone` and `accounts.phone_e164`, ledger contacts folded
+per vault from `events` with `sync.ApplyEvents` (NOT `vault_snapshots`, which lag by up to
+1000 events or 24 h; and `admin.snapDoc` in users.go never matched the stored shape), merged
+by normalized `+digits` string into `kind = shopkeeper | customer | both`. The ledger fold
+also yields per-listing balance and direction (positive = the person owes the shop): a
+number that is a supplier anywhere or appears in two or more books is flagged
+`is_wholesaler`, the highest-value segment. A listing whose relationship is bound to a
+mutual tab carries `linked: true`, because its balance is the LOCAL fold only (the tab's
+rows are not folded), so the page labels it "Shared account · local tallies only" rather
+than showing a number the app itself would not show. Sent-tracking is manual: `outreach_contacts`
+(migration 044; keyed by the phone string, no FK, so history survives account deletion),
+an append-only `outreach_touches` timeline, and `outreach_settings` for templates, link
+slugs and prefs. Endpoints, all behind `ADMIN_API_KEY`: `GET /v1/admin/outreach`,
+`POST /v1/admin/outreach/mark`, `POST /v1/admin/outreach/setting`. Phones travel only in
+JSON bodies, never in paths: the request logger prints paths. POSTs, not PUT/PATCH: CORS
+allows only GET/POST. Operator accounts, their installs and their vaults are excluded like
+the Users page. `converted` = the number appeared as an install after `contacted_at`;
+`follow_up_due` = status `sent` for 48 h with no reply. Attribution of a message to an
+install is the existing IP match within 60 minutes of tapping `kaata.af/download?s=<slug>`
+(per-audience slugs `wa-shop` / `wa-cust`, editable on the page), so it under-counts on
+shared networks; the manual sent/replied ticks are the reliable half of the funnel. The
+mobile app was deliberately left untouched by this work.
+
 ### First-kaata uploads and pre-sign-in history
 
 The initial signed membership event can target `local:<16 base64url chars>`

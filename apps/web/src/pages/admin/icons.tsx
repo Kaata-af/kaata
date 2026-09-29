@@ -6,6 +6,7 @@ export type AdminIconName =
   | "campaigns"
   | "retention"
   | "users"
+  | "outreach"
   | "logout";
 
 const paths: Record<AdminIconName, React.ReactNode> = {
@@ -36,6 +37,12 @@ const paths: Record<AdminIconName, React.ReactNode> = {
     <>
       <circle cx="9" cy="8" r="3" />
       <path d="M3 20v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6m2 4a5 5 0 0 1 3 5" />
+    </>
+  ),
+  // Paper plane — the section is the operator's WhatsApp desk.
+  outreach: (
+    <>
+      <path d="M21 3 3 10.5l8 2.5 2.5 8L21 3Zm0 0L11 13" />
     </>
   ),
   logout: (

@@ -29,6 +29,7 @@ import { AdminTokenContext, AuthError, TOKEN_KEY, useStats } from "./api";
 import { Campaigns } from "./Campaigns";
 import { msUntilReportingMidnight, reportingDay } from "./dates";
 import { AdminIcon } from "./icons";
+import { Outreach } from "./Outreach";
 import { Overview } from "./Overview";
 import { Retention } from "./Retention";
 import { useAdminLive } from "./useAdminLive";
@@ -40,6 +41,7 @@ const SECTIONS = [
   { id: "campaigns", label: "Campaigns", component: Campaigns },
   { id: "retention", label: "Retention", component: Retention },
   { id: "users", label: "Users", component: Users },
+  { id: "outreach", label: "Outreach", component: Outreach },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]["id"];
 

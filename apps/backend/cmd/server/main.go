@@ -398,6 +398,12 @@ func main() {
 		pr.Get("/v1/admin/stats", adminH.Stats)
 		pr.Get("/v1/admin/growth", adminH.Growth)
 		pr.Get("/v1/admin/users", adminH.Users)
+		// Operator outreach: the numbers list plus hand-ticked sent/replied/
+		// status/note state and message templates (internal/admin/outreach.go).
+		// Phones travel only in POST bodies — the request logger prints paths.
+		pr.Get("/v1/admin/outreach", adminH.Outreach)
+		pr.Post("/v1/admin/outreach/mark", adminH.OutreachMark)
+		pr.Post("/v1/admin/outreach/setting", adminH.OutreachSetting)
 		pr.Post("/v1/admin/live-ticket", adminLive.Ticket)
 	})
 	// A browser cannot set Authorization on a WebSocket. Exchange the admin

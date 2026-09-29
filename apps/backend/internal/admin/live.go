@@ -238,7 +238,11 @@ func adminMutation(method, path string) bool {
 		return false
 	}
 	switch path {
-	case "/v1/check-in", "/v1/visit", "/v1/shared", "/v1/sync/push", "/v1/account", "/v1/vaults", "/v1/tabs":
+	case "/v1/check-in", "/v1/visit", "/v1/shared", "/v1/sync/push", "/v1/account", "/v1/vaults", "/v1/tabs",
+		// Outreach ticks and template saves are the one admin-side mutation;
+		// other open dashboards must see a "sent" flip without waiting on the
+		// 60 s poll.
+		"/v1/admin/outreach/mark", "/v1/admin/outreach/setting":
 		return true
 	}
 	return strings.HasPrefix(path, "/v1/auth/") ||

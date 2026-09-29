@@ -167,8 +167,9 @@ export function ErrorCard(props: { message: string; onRetry: () => void }) {
 
 // Section page header — title + one-line description, nothing else. Header
 // actions were removed on purpose (Matee, 2026-09): a link hanging off the
-// right edge broke the page's balance, and the one it pointed at (an outreach
-// list) no longer exists. Navigation lives in the sidebar only.
+// right edge broke the page's balance. The outreach list it once pointed at
+// is now its own sidebar section (Outreach.tsx, 2026-09-29), reached like
+// every other section. Navigation lives in the sidebar only.
 export function PageHeader(props: { title: string; description: string }) {
   return (
     <header className="mb-6 min-w-0 max-w-full sm:mb-8">

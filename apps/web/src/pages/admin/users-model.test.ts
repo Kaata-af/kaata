@@ -240,8 +240,8 @@ test("active and onboarding presets have explicit useful definitions", () => {
     ),
   );
   // The old "needs follow-up" preset (onboarded, inactive, reachable) is gone
-  // on purpose: the operator does not contact people, so the directory offers
-  // no outreach list.
+  // on purpose: outreach has its own section (outreach-model.ts, 2026-09-29)
+  // and the Users directory stays a reporting surface.
   assert.deepEqual(
     filterUsers(rows, presetFilters("active"), "", NOW).visible.map((r) => r.id),
     ["i:active"],

@@ -793,7 +793,52 @@ func buildSnapshotInTx(ctx context.Context, tx pgx.Tx, vaultID string, priorUpTo
 
 	// Read ALL events for the vault, ordered by server_seq. Replay-from-
 	// scratch is deliberate — see comment above.
-	rows, err := tx.Query(ctx, `
+	events, upTo, err := loadVaultEvents(ctx, tx, vaultID)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if err := ApplyEventsOnto(&projection, events); err != nil {
+		return nil, 0, fmt.Errorf("apply events to projection: %w", err)
+	}
+
+	out, err := ProjectionToJSON(projection)
+	if err != nil {
+		return nil, 0, fmt.Errorf("serialize projection: %w", err)
+	}
+	return out, upTo, nil
+}
+
+// EventQuerier is the slice of pgx.Tx / *pgxpool.Pool the vault event scan
+// needs, so a caller can fold inside its own transaction.
+type EventQuerier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+// LoadVaultProjection folds one vault's whole event log into a fresh
+// Projection — the same replay-from-scratch buildSnapshotInTx performs, minus
+// the serialization. Added 2026-09-29 for the admin outreach report, which
+// needs current person phones and balances rather than a vault_snapshots row
+// that may lag the log by up to 1000 events / 24 h. Read-only; sync itself is
+// unchanged.
+func LoadVaultProjection(ctx context.Context, q EventQuerier, vaultID string) (*Projection, error) {
+	events, _, err := loadVaultEvents(ctx, q, vaultID)
+	if err != nil {
+		return nil, err
+	}
+	p := NewProjection()
+	if err := ApplyEventsOnto(&p, events); err != nil {
+		return nil, fmt.Errorf("apply events to projection: %w", err)
+	}
+	return &p, nil
+}
+
+// loadVaultEvents reads every non-redacted event of one vault in server_seq
+// order into LedgerEvents (targets as COALESCE(local_target_id, target_id))
+// and returns the highest server_seq seen. Shared by the snapshot generator
+// and LoadVaultProjection so both fold byte-identical envelopes.
+func loadVaultEvents(ctx context.Context, q EventQuerier, vaultID string) ([]LedgerEvent, int64, error) {
+	rows, err := q.Query(ctx, `
 		SELECT
 			event_id::text,
 			event_type,
@@ -865,14 +910,5 @@ func buildSnapshotInTx(ctx context.Context, tx pgx.Tx, vaultID string, priorUpTo
 	if err := rows.Err(); err != nil {
 		return nil, 0, fmt.Errorf("rows err: %w", err)
 	}
-
-	if err := ApplyEventsOnto(&projection, events); err != nil {
-		return nil, 0, fmt.Errorf("apply events to projection: %w", err)
-	}
-
-	out, err := ProjectionToJSON(projection)
-	if err != nil {
-		return nil, 0, fmt.Errorf("serialize projection: %w", err)
-	}
-	return out, upTo, nil
+	return events, upTo, nil
 }

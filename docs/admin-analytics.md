@@ -61,9 +61,9 @@ UTC/Kabul cutover applies to both displayed install dates and date filters.
 
 "Active" uses the preceding seven elapsed days; "Today" uses the Kabul calendar
 day. The DAU/WAU/MAU cards retain their separate calendar-based definitions
-above. There is deliberately no outreach or "needs follow-up" list: the
-operator does not contact users, so the directory is a reporting surface only
-and no messages are sent by these views.
+above. The Users directory is a reporting surface: it never shows tally
+contents, and it sends nothing. Phone numbers, message templates and the
+per-number contact log live in the Outreach section below.
 
 The dashboard has no manual refresh control. Live invalidation over the admin
 WebSocket, 60-second polling, refresh on return from a hidden tab, and the
@@ -86,6 +86,70 @@ an explicit account-switch wipe can replace `app_meta` while the root stays
 mounted. Checks around the request prevent a replaced install from applying its
 response to the new profile. This client fix takes effect with the next mobile
 release; deploying the admin report does not update installed mobile binaries.
+
+## Outreach
+
+The Outreach section (`apps/web/src/pages/admin/Outreach.tsx`, backend
+`internal/admin/outreach.go`, migration 044) lists every phone number the
+server knows, one row per normalized number, so the operator can message
+people on WhatsApp by hand and record where each conversation stands.
+
+Sources: shopkeeper numbers come from `installs.self_phone` and
+`accounts.phone_e164`, aggregated per number (the latest install by
+`last_seen_at` supplies platform, version, locale and source; counts and usage
+are summed). Customer numbers come from the ledger events of every non-purged,
+non-operator vault: the backend folds each vault's events into a
+`sync.Projection` and reads each relationship's person and phone, so the list
+never lags the way `vault_snapshots` can. A number found on both sides is one
+row of kind `both`. Operator accounts, their installs and their vaults are
+excluded. Customer numbers exist only for kaatas synced while signed in.
+
+Fold rule: per relationship, `debt` adds and `payment` subtracts, deleted
+entries are excluded, and amounts are integer hundredths. A positive balance
+means the person owes the shop (role `customer`), negative means the shop owes
+them (`supplier`), zero is `settled`. A wholesaler is a customer number listed
+in two or more books or recorded as a supplier anywhere.
+A listing whose relationship is bound to a mutual tab is flagged `linked`; its
+balance is the vault's local fold only (the tab's rows are not folded), so the
+page labels it "Shared account" instead of presenting it as the live balance.
+
+Statuses are `new`, `sent`, `replied`, `interested`, `installed`, `declined`
+and `do_not_contact`. Every send, reply, status change and note edit is an
+append-only row in `outreach_touches`; the page shows the latest 20 per number
+as a timeline. Follow-up due means status `sent`, contacted 48 hours ago or
+more, no reply. Converted means an install with that number was first seen
+after the contact. Both flags are computed server-side and read as-is by the
+page; the client never re-derives them.
+
+The prospecting views (All, Shopkeepers, Customers, Wholesalers, To contact)
+hide customer numbers that are archived in every book that lists them; the
+tracking views (Sent, Replied, Interested, Installed, Declined, Follow-ups due)
+show them, so a conversation in progress never drops out of its queue. The
+summary cards and the pipeline strip are counted client-side over the same
+preset filters, so a card always equals the list it opens; only the "Today"
+line comes from the server's touch counts.
+
+Endpoints, all inside the admin-key group: `GET /v1/admin/outreach`;
+`POST /v1/admin/outreach/mark` with
+`{phones[], status?, note?, contacted?, replied?, template_key?}` (phones only
+in the body, never in the path, up to 500 per call; absent fields are left
+alone); `POST /v1/admin/outreach/setting` with `{key, value}`, where an empty
+value deletes the row. Both POSTs trigger the live invalidation so other open
+dashboards refresh.
+
+Settings keys: `template.shopkeeper.en|fa` and `template.customer.en|fa`
+(placeholders `{name}`, `{shop}`, `{link}`; the link always ends up alone on
+its own line), `slug.shopkeeper` (default `wa-shop`), `slug.customer` (default
+`wa-cust`) and `pref.auto_mark` (`off` stops a WhatsApp open from marking the
+row sent). Message links are `https://kaata.af/download?s=<slug>`, so an
+install that follows a message is attributed like a flyer scan: the slug is
+stamped only when the install's first check-in comes from the same IP within
+60 minutes of the visit. Someone who taps the link on mobile data and installs
+later, or from another network, is not attributed; the `converted` flag
+(install after contact) is the broader signal.
+
+Only enum/number preferences are stored in sessionStorage; search text, phone
+numbers, notes and the row selection are not.
 
 ## Live updates
 
@@ -124,7 +188,7 @@ Tests cover local midnight, operator exclusion, repeated/anonymous check-ins,
 calendar cutover, and PostgreSQL session timezone independence.
 
 From `apps/web`, run
-`node --experimental-strip-types --test src/pages/admin/dates.test.ts src/pages/admin/users-model.test.ts src/pages/admin/live.test.ts`,
+`node --experimental-strip-types --test src/pages/admin/dates.test.ts src/pages/admin/users-model.test.ts src/pages/admin/outreach-model.test.ts src/pages/admin/live.test.ts`,
 `bun run typecheck`, and `bun run build`.
 
 The backend live-channel tests exercise authentication, ticket expiry/replay,
