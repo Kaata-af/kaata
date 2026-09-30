@@ -90,7 +90,7 @@ release; deploying the admin report does not update installed mobile binaries.
 ## Outreach
 
 The Outreach section (`apps/web/src/pages/admin/Outreach.tsx`, backend
-`internal/admin/outreach.go`, migration 044) lists every phone number the
+`internal/admin/outreach.go`, migrations 044 and 045) lists every phone number the
 server knows, one row per normalized number, so the operator can message
 people on WhatsApp by hand and record where each conversation stands.
 
@@ -101,8 +101,29 @@ are summed). Customer numbers come from the ledger events of every non-purged,
 non-operator vault: the backend folds each vault's events into a
 `sync.Projection` and reads each relationship's person and phone, so the list
 never lags the way `vault_snapshots` can. A number found on both sides is one
-row of kind `both`. Operator accounts, their installs and their vaults are
-excluded. Customer numbers exist only for kaatas synced while signed in.
+row of kind `both`. Numbers are merged by their libphonenumber E.164 form when
+that form is valid, so "+93 0700 000 001" and "+93 700 000 001" are one row,
+one outreach history and one wa.me link; a number the plan rejects keeps its
+plain `+digits` form. Outreach history recorded under a non-canonical key
+before this merge is not re-keyed. Operator accounts, their installs and their
+vaults are excluded. Customer numbers exist only for kaatas synced while
+signed in.
+
+Test data is excluded by source, never inferred: the operator presses
+"Exclude this book", "Exclude this account" or "Exclude this install" in a
+row's details, which writes one row to `outreach_exclusions` (kind + UUID +
+reason). An excluded book drops only its own listing from each number, so a
+number that also appears in a legitimate book stays, with that book's listing
+only; a number is removed only when no source is left. An excluded book also
+leaves its owner's aggregates (it no longer counts toward that shopkeeper's
+kaatas, people, tallies, receivable and payable totals or last tally), and the
+supplier and wholesaler flags of the numbers it listed are recomputed without
+it. An excluded account or install drops only its own shopkeeper
+contribution: excluding one of two installs, or an install whose account has
+its own phone, keeps the shopkeeper side (the row's details say so under the
+install list); a `both` number becomes a customer once no shopkeeper source is
+left. The "Excluded sources" card lists every exclusion with an Undo. Nothing
+is excluded because of a currency or a name.
 
 Fold rule: per relationship, `debt` adds and `payment` subtracts, deleted
 entries are excluded, and amounts are integer hundredths. A positive balance
@@ -113,35 +134,140 @@ A listing whose relationship is bound to a mutual tab is flagged `linked`; its
 balance is the vault's local fold only (the tab's rows are not folded), so the
 page labels it "Shared account" instead of presenting it as the live balance.
 
-Statuses are `new`, `sent`, `replied`, `interested`, `installed`, `declined`
-and `do_not_contact`. Every send, reply, status change and note edit is an
-append-only row in `outreach_touches`; the page shows the latest 20 per number
-as a timeline. Follow-up due means status `sent`, contacted 48 hours ago or
+Statuses are `new`, `sent`, `replied`, `interested`, `installed`, `declined`,
+`do_not_contact`, `no_whatsapp` and `invalid`. Every open, send, reply, skip,
+retry, status change and note edit is an append-only row in `outreach_touches`
+(kinds `opened`, `sent`, `replied`, `skipped`, `retry`, `status`, `note`); the
+page shows the latest 20 per number as a timeline. Follow-up due means status `sent`, contacted 48 hours ago or
 more, no reply. Converted means an install with that number was first seen
 after the contact. Both flags are computed server-side and read as-is by the
 page; the client never re-derives them.
 
-The prospecting views (All, Shopkeepers, Customers, Wholesalers, To contact)
-hide customer numbers that are archived in every book that lists them; the
-tracking views (Sent, Replied, Interested, Installed, Declined, Follow-ups due)
-show them, so a conversation in progress never drops out of its queue. The
+The prospecting views (All, Prospects, Shopkeepers, Customers, Wholesalers,
+To contact) hide customer numbers that are archived in every book that lists
+them; the tracking views (Awaiting outcome, Follow-ups due, Sent, Replied,
+Interested, Installed, Declined, Unreachable) show them, so a conversation in progress never drops out of its queue. The
 summary cards and the pipeline strip are counted client-side over the same
 preset filters, so a card always equals the list it opens; only the "Today"
-line comes from the server's touch counts.
+line comes from the server's touch counts, which include every touch recorded
+since Kabul midnight, also for numbers whose source has been excluded since.
 
-Endpoints, all inside the admin-key group: `GET /v1/admin/outreach`;
+**Opened is not sent.** Opening a chat — a row's WhatsApp button, "Open
+next", "Open chat again" or the second half of "Sent & next" — is always
+recorded before the chat opens: the page creates the tab in the click, records
+`opened` with the row's version, and points the tab at wa.me only after the
+server accepted the record; a refused or failed record closes the tab. The
+page has no wa.me links, only buttons, so a middle-click or "open in new tab"
+cannot open an unrecorded chat. Copy message records `opened` too: the
+clipboard write happens in the click, then `opened` is recorded the same way,
+with the row's version, so a message pasted into WhatsApp by hand lands in the
+strip like an opened chat; a copy the browser refuses records nothing, and a
+copy whose record fails says so. `opened` sets `pending_since` and never
+counts a message. A pending contact sits in the "Awaiting outcome" strip,
+longest wait first, across every view and every reload, until the operator
+records one outcome: Sent, Not on WhatsApp, Invalid number or Skip for now.
+Skip for now is offered only for a first contact; any other pending row
+(status not New, or a number already recorded as sent) offers "Close — nothing
+sent" instead, which records the same skip with that reason. "Sent & next"
+picks the next row of the current view before anything opens (an empty view
+opens no tab), records Sent, then opens that row the same way; a failed save
+never advances and never opens a chat.
+
+Two paths count a message. The version-checked outcome `sent` (the strip's
+Sent and Sent & next, or a row's Sent box) counts every message, first or
+follow-up: every outcome carries `expected_version`,
+`outreach_contacts.version` is bumped by every write, and a mismatch is 409
+`stale outcome` with nothing written, so a double click, a retried request
+after a lost response, or a second dashboard tab cannot count one message
+twice. The page answers a 409 by refetching, never by retrying. Bulk "Mark
+sent" (`mark` with `contacted: true`) records only a FIRST message: it counts
+a row only if it is New, Not on WhatsApp or Invalid and was never recorded as
+sent (`contact_count` 0), leaves every other row untouched and reports it as
+skipped, so repeating it never counts anything twice. The row Sent box is
+ticked whenever a send is on record and cannot be unticked; a further message
+to the same number is recorded by opening the chat and pressing Sent in
+"Awaiting outcome". The status menu relabels a row and never counts a
+message; any status other than New ends the wait (clears "Awaiting outcome"
+and a same-day skip), as does a reply, while New keeps it, so resetting a row
+cannot silently drop a chat opened without an outcome. A `mark` that combines
+`status` with `contacted: true` or `replied: true` is rejected whole (400
+`invalid body`), so a status change is always its own request.
+
+Declined and Do not contact refuse `opened`, `sent`, `no_whatsapp` and
+`invalid` server-side (409 `contact stopped`, nothing written) until the
+status changes; such a row shows "Stopped" instead of the WhatsApp button.
+Skip always works, so a pending chat can always be closed. Not-on-WhatsApp
+and Invalid rows offer only Retry. A stop is lifted only from the row's own
+status menu, one row at a time: that request carries `lift_stop: true`. A
+`mark` that would move a Declined or Do-not-contact row to any other status
+without `lift_stop` leaves the row untouched and reports it as skipped, so a
+bulk status action, which never sends the flag, cannot put a stopped number
+back in the queue ("change them one at a time", the page says). Setting or
+re-setting a stop always applies, and a reply or a note on a stopped row is
+recorded without lifting it.
+
+The prospect queue is the Prospects view, which a fresh tab opens on:
+customer-only numbers (no install matched that number), status New, never
+messaged, a valid number, not archived everywhere, not awaiting an outcome,
+not skipped today, Afghanistan unless the country filter says otherwise. Open
+next and Prospects are first contact only, and "never messaged" is the
+state's `never_messaged` flag, which the server computes over the whole
+touch log (not the 20 touches the page shows): a number counts as never
+messaged only if it was never recorded as sent and every chat ever opened for
+it was resolved as nothing sent (Skip for now, Retry, Not on WhatsApp or
+Invalid number). A chat still awaiting its outcome, or one that was opened and
+then only relabelled (Interested, then New, say), counts as messaged, because
+a message may have gone out; so does a number with any recorded send, even
+after a reset to New. The "Messaged before" filter ("Never messaged" /
+"Messaged or opened") shows the same split. Facing an older backend without
+the flag, the page assumes messaged whenever a send, an open or a pending chat
+is on record. Do-not-contact, declined, not-on-WhatsApp and invalid numbers
+are never New, and excluded sources are gone server-side, so none of them can
+be opened from the queue. "Skip for now" hides a number until the next Kabul
+reporting day. `no_whatsapp` and `invalid` stay out until the operator
+presses Retry, which puts the number back to New; the queue offers it again
+only if it was never messaged, otherwise it is opened by hand. Retry is
+refused (409 `not retryable`) for any other status.
+
+Number validity comes from libphonenumber's numbering-plan metadata
+(`github.com/nyaruka/phonenumbers`, pinned in `go.mod`): every contact carries
+`number.valid`, `possible`, `type` (mobile, fixed line, ...), `region` and the
+national format. Open next skips invalid numbers; a row's WhatsApp button
+stays as a manual override and warns that the plan calls the number invalid.
+Validity says nothing about whether the number uses WhatsApp; that is the
+`no_whatsapp` outcome, which only the operator can observe. Bumping the
+library bumps the metadata.
+
+Endpoints, all inside the admin-key group: `GET /v1/admin/outreach` (every
+contact's `outreach` state carries `never_messaged`);
 `POST /v1/admin/outreach/mark` with
-`{phones[], status?, note?, contacted?, replied?, template_key?}` (phones only
-in the body, never in the path, up to 500 per call; absent fields are left
-alone); `POST /v1/admin/outreach/setting` with `{key, value}`, where an empty
-value deletes the row. Both POSTs trigger the live invalidation so other open
-dashboards refresh.
+`{phones[], status?, note?, contacted?, replied?, template_key?, lift_stop?}`
+(phones only in the body, never in the path, up to 500 per call; absent fields
+are left alone; `status` together with `contacted` or `replied` is 400
+`invalid body`), answering `{updated, skipped}`: `updated` is every requested
+phone's current state in input order, `skipped` the phones the mark left
+untouched (a `contacted` mark: not New, Not on WhatsApp or Invalid, or already
+recorded as sent; a status mark: Declined or Do not contact without
+`lift_stop`); `POST /v1/admin/outreach/outcome` with
+`{phone, outcome, expected_version?, template_key?, reason?}` for ONE contact,
+where outcome is `opened`, `sent`, `no_whatsapp`, `invalid`, `skip` or `retry`,
+`expected_version` is required for everything but `opened` (the page sends it
+with `opened` too), the answer is `{state}`, and a 409 is `stale outcome`,
+`contact stopped` or `not retryable`; `POST /v1/admin/outreach/exclude` with
+`{kind, id, excluded, reason?}` (kind `vault`, `account` or `install`, id a
+UUID), answering the full `{exclusions}` list; `POST /v1/admin/outreach/setting`
+with `{key, value}`, where an empty value deletes the row. Every POST triggers
+the live invalidation so other open dashboards refresh; a 4xx does not. The
+page gives every POST 20 seconds; with no answer by then it stops waiting,
+says "No answer from the server in 20 s — refresh before trying again." and
+never retries, since the write may still have landed (it refetches once the
+request settles).
 
 Settings keys: `template.shopkeeper.en|fa` and `template.customer.en|fa`
 (placeholders `{name}`, `{shop}`, `{link}`; the link always ends up alone on
 its own line), `slug.shopkeeper` (default `wa-shop`), `slug.customer` (default
-`wa-cust`) and `pref.auto_mark` (`off` stops a WhatsApp open from marking the
-row sent). Message links are `https://kaata.af/download?s=<slug>`, so an
+`wa-cust`). The old `pref.auto_mark` key is retired: opening a chat never
+marks it sent any more, so there is nothing to switch off. Message links are `https://kaata.af/download?s=<slug>`, so an
 install that follows a message is attributed like a flyer scan: the slug is
 stamped only when the install's first check-in comes from the same IP within
 60 minutes of the visit. Someone who taps the link on mobile data and installs
@@ -171,7 +297,8 @@ with backoff, and closes its connection when signing out. The header displays
 manual refresh, and the Kabul-midnight refresh remain available.
 
 Notifications follow successful relevant HTTP mutations (check-ins, visits,
-account/auth, vault, sync, and share changes), plus GET downloads. They are
+account/auth, vault, sync, and share changes, and the four outreach POSTs:
+mark, outcome, exclude and setting), plus GET downloads. They are
 best-effort hints, not a durable changefeed. Background jobs, direct SQL edits,
 and writes on another backend replica are covered by polling. Like the current
 mobile live-sync broker, the ticket store and fanout live in a single backend

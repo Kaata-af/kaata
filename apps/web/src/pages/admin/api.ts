@@ -5,13 +5,18 @@
 // anywhere throws AuthError, which the QueryCache in AdminApp catches to clear
 // the stored key and re-show the prompt (the same "wrong key" UX the old
 // single-file dashboard had). Reads are GETs through `fetchAdmin`; the
-// Outreach section's writes (2026-09-29) are JSON POSTs through `postAdmin` —
-// POST rather than PATCH/DELETE because the backend's CORS allow-list is
-// GET/POST/OPTIONS only.
+// Outreach section's writes (2026-09-29; outcome + exclude 2026-09-30) are
+// JSON POSTs through `postAdmin` — POST rather than PATCH/DELETE because the
+// backend's CORS allow-list is GET/POST/OPTIONS only. An outcome's 409 is a
+// StaleError ("stale outcome") or a ConflictError (any other reason, e.g.
+// "contact stopped"): the write failures the page answers with a refetch,
+// never a retry. Every POST gives up after 20 s (2026-09-30) with an error
+// that says so; that is never retried either.
 
 import { useQuery } from "@tanstack/react-query";
 import { createContext, useContext } from "react";
 import { BACKEND_URL } from "../../env";
+import { withOutreachDefaults } from "./outreach-model";
 
 // Key name is load-bearing: existing operator browsers already hold the admin
 // key under this exact name — renaming would sign everyone out.
@@ -252,7 +257,21 @@ export type OutreachStatus =
   | "interested"
   | "installed"
   | "declined"
-  | "do_not_contact";
+  | "do_not_contact"
+  | "no_whatsapp"
+  | "invalid";
+// libphonenumber's verdict on the normalized number (backend
+// describeOutreachNumber). Plausibility only — nothing here says whether the
+// number uses WhatsApp.
+export type OutreachNumber = {
+  valid: boolean;
+  possible: boolean;
+  // mobile | fixed_line | fixed_line_or_mobile | voip | toll_free | premium_rate
+  // | shared_cost | personal | pager | uan | voicemail | unknown
+  type: string;
+  region: string; // "AF"; "" when unknown
+  national: string; // "070 000 0001"; "" when unparsable
+};
 export type OutreachKaata = {
   vault_id: string;
   name: string;
@@ -292,6 +311,9 @@ export type OutreachShopkeeper = {
   payable_total: string;
   currency: string;
   last_tally_at: string;
+  // Every install that contributed this number, so one anonymous install can
+  // be excluded as a test source on its own. Never null.
+  install_ids: string[];
 };
 export type OutreachListing = {
   vault_id: string;
@@ -324,7 +346,7 @@ export type OutreachCustomer = {
   is_wholesaler: boolean;
 };
 export type OutreachTouch = {
-  kind: "sent" | "replied" | "status" | "note";
+  kind: "sent" | "replied" | "status" | "note" | "opened" | "skipped" | "retry";
   detail: string;
   at: string;
 };
@@ -335,9 +357,24 @@ export type OutreachState = {
   first_contacted_at: string;
   replied_at: string;
   contact_count: number;
+  // First contact only (2026-09-30), read over the WHOLE touch log
+  // server-side: true when no send was ever recorded AND every chat ever
+  // opened for the number was resolved as "nothing sent" (skip, retry, not
+  // on WhatsApp, invalid). A pending chat reads false; any counted send makes
+  // it false for good; a number with no row reads true. Open next and the
+  // Prospects view offer only these. An older backend omits it and
+  // withStateDefaults derives it conservatively.
+  never_messaged: boolean;
   note: string;
   updated_at: string;
   touches: OutreachTouch[]; // never null; newest first; max 20
+  opened_at: string; // last chat open; RFC3339 UTC or ""
+  pending_since: string; // opened, no outcome recorded since; "" otherwise
+  skipped_at: string; // "skip for now"; a Kabul-day fact, see isSkippedToday
+  open_count: number;
+  // Bumped on every write. Outcome POSTs send it back as `expected_version`;
+  // a mismatch is a 409 (StaleError), never a silent overwrite. 0 = no row.
+  version: number;
 };
 export type OutreachContact = {
   phone: string;
@@ -345,6 +382,7 @@ export type OutreachContact = {
   name: string;
   shop_name: string;
   locale: string;
+  number: OutreachNumber;
   shopkeeper: OutreachShopkeeper | null; // null for pure customers
   customer: OutreachCustomer | null; // null for pure shopkeepers
   outreach: OutreachState;
@@ -367,16 +405,34 @@ export type OutreachCounts = {
   converted: number;
   sent_today: number; // since Kabul midnight
   replied_today: number;
+  pending: number; // pending_since set
+  unreachable: number; // status no_whatsapp + invalid
+  invalid: number; // number.valid == false
+  opened_today: number; // opened touches since Kabul midnight
+};
+// An operator-verified test source. Excluding one drops only that source's
+// contribution to a number; a number that also appears in a real book stays.
+export type OutreachExclusionKind = "vault" | "account" | "install";
+export type OutreachExclusion = {
+  kind: OutreachExclusionKind;
+  id: string;
+  // vault: "<vault name> · <owner name>"; account: name or email; install:
+  // self_name / shop_name / install id prefix.
+  label: string;
+  reason: string;
+  created_at: string;
 };
 export type OutreachResult = {
   contacts: OutreachContact[]; // never null
   settings: Record<string, string>; // never null
   counts: OutreachCounts;
+  exclusions: OutreachExclusion[]; // never null
   generated_at: string;
 };
 // POST /v1/admin/outreach/mark. Absent fields are left alone server-side, so
 // every optional key is genuinely optional — never send `note: ""` to mean
-// "unchanged".
+// "unchanged". A `status` together with `contacted` or `replied` is refused
+// whole (400 invalid body, 2026-09-30): the page never combines them.
 export type OutreachMarkBody = {
   phones: string[];
   status?: OutreachStatus;
@@ -384,27 +440,92 @@ export type OutreachMarkBody = {
   contacted?: boolean;
   replied?: boolean;
   template_key?: string;
+  // Lifts a stop (2026-09-30). A status mark that would move a Declined or
+  // Do-not-contact row to any other status skips that row unless this is
+  // true. Only a row's own status menu sends it; bulk actions never do, so a
+  // stop is lifted one row at a time. Setting a stop needs no flag.
+  lift_stop?: boolean;
 };
-export type OutreachMarkResult = { updated: OutreachState[] };
+// `updated` carries every requested phone's CURRENT state, in input order.
+// `skipped` (2026-09-30) lists every row the mark left untouched: a bulk
+// `contacted` mark records only a FIRST message, so it counts rows that are
+// New, Not on WhatsApp or Invalid AND never recorded as sent, and skips the
+// rest (already messaged, stopped); a status mark skips Declined /
+// Do-not-contact rows it would move to another status without `lift_stop`.
+// Optional for a backend that predates it.
+export type OutreachMarkResult = { updated: OutreachState[]; skipped?: string[] };
 export type OutreachSettingResult = { key: string; value: string; updated_at: string };
-
-const EMPTY_OUTREACH_COUNTS: OutreachCounts = {
-  total: 0,
-  shopkeepers: 0,
-  customers: 0,
-  both: 0,
-  wholesalers: 0,
-  to_contact: 0,
-  sent: 0,
-  replied: 0,
-  interested: 0,
-  installed: 0,
-  declined: 0,
-  follow_ups_due: 0,
-  converted: 0,
-  sent_today: 0,
-  replied_today: 0,
+// POST /v1/admin/outreach/outcome — ONE contact, one outcome. `opened` is what
+// a chat open records (never sent); `sent` is the operator's confirmation;
+// `no_whatsapp` / `invalid` / `skip` / `retry` are the other verdicts.
+// `expected_version` is the row's `version` as last read; the server refuses
+// a mismatch with 409 (StaleError). The page sends it with EVERY outcome,
+// `opened` included (2026-09-30): a chat opens only after its record was
+// accepted, so refusing a stale open loses nothing. Required here so no call
+// site can drop it.
+export type OutreachOutcome = "opened" | "sent" | "no_whatsapp" | "invalid" | "skip" | "retry";
+export type OutreachOutcomeBody = {
+  phone: string;
+  outcome: OutreachOutcome;
+  template_key?: string;
+  reason?: string;
+  expected_version: number;
 };
+export type OutreachOutcomeResult = { state: OutreachState };
+// POST /v1/admin/outreach/exclude — `excluded: true` upserts (reason
+// replaces), `false` deletes. The answer is the full current list.
+export type OutreachExclusionBody = {
+  kind: OutreachExclusionKind;
+  id: string;
+  excluded: boolean;
+  reason?: string;
+};
+export type OutreachExclusionResult = { exclusions: OutreachExclusion[] };
+
+// 409 "stale outcome": the row's version moved since this page last read it
+// (another tab, or an earlier click that already landed). The write was not
+// applied; the page refetches instead of retrying, because retrying is how a
+// second message gets sent.
+export class StaleError extends Error {
+  constructor(message: string) {
+    super(message || "Already recorded elsewhere.");
+    this.name = "StaleError";
+  }
+}
+// Any other 409 from an outcome (2026-09-30): the row's CURRENT status
+// refuses it — "contact stopped" (Declined / Do not contact refuse opened,
+// sent, not-on-WhatsApp and invalid) or "not retryable" (retry on a row that
+// is not unreachable). Nothing was written; the message is the server's
+// reason, which the page maps to its own wording.
+export class ConflictError extends Error {
+  constructor(message: string) {
+    super(message || "Refused by the server.");
+    this.name = "ConflictError";
+  }
+}
+
+// Every POST gives up after 20 s (2026-09-30). A write that never answers
+// would otherwise hold the page's `busy` flag, and with it every outcome
+// button, until the tab is closed. The timeout is surfaced, never retried:
+// the server may still have applied the write, so the operator refreshes
+// before trying again (the page refetches once the write settles anyway).
+const POST_TIMEOUT_MS = 20_000;
+const POST_TIMEOUT_MESSAGE = "No answer from the server in 20 s — refresh before trying again.";
+// AbortSignal.timeout rejects with a TimeoutError DOMException, and the same
+// reason again if it fires while the body is read. Nothing here aborts a
+// POST any other way, so an AbortError is the timeout too.
+function isTimeout(error: unknown): boolean {
+  return (
+    error instanceof DOMException && (error.name === "TimeoutError" || error.name === "AbortError")
+  );
+}
+async function readJson<T>(res: Response): Promise<T> {
+  try {
+    return (await res.json()) as T;
+  } catch (error) {
+    throw isTimeout(error) ? new Error(POST_TIMEOUT_MESSAGE) : error;
+  }
+}
 
 // A 4xx from the outreach writes carries `{"error":"invalid phone"}` etc.;
 // surface that text so the toast says why, and fall back to the status.
@@ -412,25 +533,39 @@ async function responseError(res: Response): Promise<Error> {
   try {
     const body = (await res.json()) as { error?: unknown };
     if (typeof body.error === "string" && body.error) return new Error(body.error);
-  } catch {
+  } catch (error) {
+    if (isTimeout(error)) return new Error(POST_TIMEOUT_MESSAGE);
     /* Not JSON — the status is all we know. */
   }
   return new Error(`Server error (${res.status}).`);
 }
 
-export async function postAdmin<T>(path: string, token: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BACKEND_URL}${path}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+async function postAdminResponse(path: string, token: string, body: unknown): Promise<Response> {
+  let res: Response;
+  try {
+    res = await fetch(`${BACKEND_URL}${path}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(POST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    throw isTimeout(error) ? new Error(POST_TIMEOUT_MESSAGE) : error;
+  }
   if (res.status === 401) throw new AuthError();
+  return res;
+}
+
+export async function postAdmin<T>(path: string, token: string, body: unknown): Promise<T> {
+  const res = await postAdminResponse(path, token, body);
   if (!res.ok) throw await responseError(res);
-  return (await res.json()) as T;
+  return readJson<T>(res);
 }
 
 // Like useGrowth: the outreach endpoints deploy with the backend, so a 404
-// resolves to `null` ("not deployed yet") rather than an error.
+// resolves to `null` ("not deployed yet") rather than an error. Fields added
+// after the first deploy are defaulted by `withOutreachDefaults`, so a page
+// deployed ahead of its backend still renders every row.
 export function useOutreach() {
   const token = useAdminToken();
   return useQuery({
@@ -442,13 +577,7 @@ export function useOutreach() {
       if (res.status === 401) throw new AuthError();
       if (res.status === 404) return null;
       if (!res.ok) throw new Error(`Server error (${res.status}).`);
-      const r = (await res.json()) as Partial<OutreachResult>;
-      return {
-        contacts: Array.isArray(r.contacts) ? r.contacts : [],
-        settings: r.settings && typeof r.settings === "object" ? r.settings : {},
-        counts: { ...EMPTY_OUTREACH_COUNTS, ...(r.counts ?? {}) },
-        generated_at: r.generated_at ?? "",
-      };
+      return withOutreachDefaults(await res.json());
     },
     enabled: !!token,
   });
@@ -456,6 +585,26 @@ export function useOutreach() {
 
 export function markOutreach(token: string, body: OutreachMarkBody): Promise<OutreachMarkResult> {
   return postAdmin<OutreachMarkResult>("/v1/admin/outreach/mark", token, body);
+}
+
+export async function postOutcome(
+  token: string,
+  body: OutreachOutcomeBody,
+): Promise<OutreachOutcomeResult> {
+  const res = await postAdminResponse("/v1/admin/outreach/outcome", token, body);
+  if (res.status === 409) {
+    const reason = (await responseError(res)).message;
+    throw reason === "stale outcome" ? new StaleError(reason) : new ConflictError(reason);
+  }
+  if (!res.ok) throw await responseError(res);
+  return readJson<OutreachOutcomeResult>(res);
+}
+
+export function postExclusion(
+  token: string,
+  body: OutreachExclusionBody,
+): Promise<OutreachExclusionResult> {
+  return postAdmin<OutreachExclusionResult>("/v1/admin/outreach/exclude", token, body);
 }
 
 // An empty/whitespace value deletes the row server-side (back to the default).

@@ -438,6 +438,48 @@ install is the existing IP match within 60 minutes of tapping `kaata.af/download
 shared networks; the manual sent/replied ticks are the reliable half of the funnel. The
 mobile app was deliberately left untouched by this work.
 
+**Batch 2 (2026-09-30), after a tour of the live page:** opening a chat records `opened`
+only, never `sent`. A contact that was opened without an outcome is `pending`
+(`pending_since` set, server-side) and shows in the "Awaiting outcome" strip until one of
+Sent, Not on WhatsApp, Invalid number or Skip for now is recorded through
+`POST /v1/admin/outreach/outcome`; that endpoint is single-contact and version-checked
+(`expected_version` vs `outreach_contacts.version`, which every write bumps; a mismatch is
+409 `stale outcome`), which is what makes "Sent & next" safe against double clicks and
+second tabs. The client creates the tab synchronously in the click (`window.open("about:blank")`,
+opener nulled) and only navigates it after the outcome saved, so a failed save never
+advances. "Skip for now" hides a number from the queue for the rest of the Kabul reporting
+day (the session definition; there is no session table). `no_whatsapp` and `invalid` are
+statuses that stay out until an explicit Retry. Number plausibility is libphonenumber
+(`github.com/nyaruka/phonenumbers`) on the server (`number.valid/possible/type/region`) and
+is deliberately separate from WhatsApp availability, which only the operator can observe.
+Test data is excluded BY SOURCE through `outreach_exclusions` (vault, account or install,
+migration 045, `POST /v1/admin/outreach/exclude`): an excluded book drops only its own
+listing, so a number that also appears in a legitimate book stays, and it no longer counts
+toward its owner's kaatas or totals. Nothing infers test data from currency or names.
+Deferred on purpose: priority scoring, named saved views, session charts.
+
+Rules the review of batch 2 added, all load-bearing for "never message anyone twice":
+the handler REQUIRES `expected_version` for every outcome except `opened`; there is no
+`<a href>` to wa.me on the page, every chat opens through the record-then-navigate helper
+(a middle-click on a link used to open an unrecorded chat), and Copy message records
+`opened` too; the row Sent box is one-way (checked once anything was counted) and the
+status menu relabels without counting; bulk "Mark sent" records FIRST sends only (New /
+Not on WhatsApp / Invalid with `contact_count == 0`) and reports the rest as `skipped`, so
+repeating it counts nothing, while every further message goes through the versioned
+outcome; a body mixing `status` with `contacted` or `replied` is a 400; any explicit status
+other than New ends the wait; Declined and Do not contact refuse `opened` / `sent` /
+`no_whatsapp` / `invalid` with 409 `contact stopped` (Skip always works, it is the exit for a
+pending row), and a bulk status change skips stopped rows, so a stop is lifted only from
+that row's own status menu (`lift_stop: true`). Open next and the Prospects view are first
+contact only, decided by the server's `never_messaged`: no counted send, and every chat
+ever opened was resolved as nothing sent (skip, retry, not on WhatsApp, invalid), read
+from the FULL touch log. That closes the path open → reply → relabel "Interested" →
+reset to New, which used to look never-messaged. Contact keys are libphonenumber E.164
+when the number is valid, so the trunk-zero spelling "+93 0700…" (common in pre-2026-08
+app data) merges with "+93 700…" instead of queueing one person twice; keys therefore
+depend on the pinned metadata, and outreach rows stored under a non-canonical key before
+this change are not re-keyed.
+
 ### First-kaata uploads and pre-sign-in history
 
 The initial signed membership event can target `local:<16 base64url chars>`

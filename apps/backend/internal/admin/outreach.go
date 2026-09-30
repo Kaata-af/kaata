@@ -4,12 +4,13 @@ package admin
 // (a) shopkeepers who installed Kaata and (b) the people those shopkeepers
 // recorded, from numbers the backend already holds — installs.self_phone,
 // accounts.phone_e164 and the person_* events of synced kaatas — and ticks
-// sent / replied / status / note by hand. Numbers are keyed by their normalized
-// digit string, never by FK: one number surfaces from several tables, installs
-// are never deleted while accounts can be, and a contacted number must keep its
-// history after every source row is gone. Customer numbers come from folding
-// each vault's event log directly (sync.LoadVaultProjection) because
-// vault_snapshots lag the log by up to 1000 events / 24 h.
+// sent / replied / status / note by hand. Numbers are keyed by their
+// normalized form (normalizeOutreachPhone), never by FK: one number surfaces
+// from several tables, installs are never deleted while accounts can be, and
+// a contacted number must keep its history after every source row is gone.
+// Customer numbers come from folding each vault's event log directly
+// (sync.LoadVaultProjection) because vault_snapshots lag the log by up to
+// 1000 events / 24 h.
 //
 // Balance rule, mirrored from apps/mobile/lib/money-sql.ts signedEntryMinorSumSql
 // (the app's PERSON_BALANCE_SQL): deleted entries are excluded, settled entries
@@ -23,10 +24,32 @@ package admin
 // tallies written after the link — never the shared account's tab_entries. The
 // app shows such a contact through the tab arm of PERSON_BALANCE_SQL (D8), so a
 // linked listing's number is the local side of that account, not the account.
+//
+// Batch 2 (2026-09-30): opening a WhatsApp chat records `opened` and starts a
+// pending window (pending_since); only a recorded verdict ends it — an
+// outcome (sent, not on WhatsApp, invalid number, skip for the Kabul day), a
+// send or reply ticked in bulk, or any status but New — so an interrupted
+// session cannot message a number twice and the queue resumes from the
+// server, not the browser. Every row carries a version that each
+// write bumps and each outcome may pin (expected_version → 409), because two
+// dashboard tabs can hold the same contact. Test data is excluded BY SOURCE
+// (outreach_exclusions: a vault, an account or an install the operator
+// verified) and only that source's contribution is dropped, so a test book
+// cannot hide a number a real book also holds. Number plausibility is
+// libphonenumber (outreach_number.go); it never implies WhatsApp presence.
+//
+// Final round (2026-09-30): a number is offered for a first message only
+// while never_messaged holds — no send ever recorded, and every chat ever
+// opened for it resolved as "nothing sent" — read from the whole touch log
+// (readOutreachStates). Bulk "Mark sent" records first sends only; a
+// follow-up is the version-checked outcome `sent`. A status never rides with
+// a send or a reply in one mark, and a declined or do-not-contact row keeps
+// its stop until a one-phone status mark carries lift_stop.
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -36,7 +59,9 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/nyaruka/phonenumbers"
 
 	"github.com/matee/kaata-backend/internal/httpx"
 	ksync "github.com/matee/kaata-backend/internal/sync"
@@ -51,13 +76,51 @@ const (
 	outreachNoteTouchRunes  = 200
 	outreachDetailRunes     = 100
 	outreachSettingRunes    = 8000
+	outreachReasonRunes     = 200
 	outreachFollowUpAfter   = 48 * time.Hour
 )
 
 var outreachStatuses = map[string]bool{
 	"new": true, "sent": true, "replied": true, "interested": true,
 	"installed": true, "declined": true, "do_not_contact": true,
+	"no_whatsapp": true, "invalid": true,
 }
+
+// outreachSendable are the statuses a send promotes to 'sent': a fresh
+// contact, or one the operator had written off and then reached after all.
+var outreachSendable = map[string]bool{"new": true, "no_whatsapp": true, "invalid": true}
+
+// outreachRetryable are the only statuses `retry` may reopen; anything else
+// is 409 not retryable, so a stale queue cannot reset a real conversation.
+var outreachRetryable = map[string]bool{"no_whatsapp": true, "invalid": true}
+
+// outreachStopped are the statuses that stop contact (2026-09-30). The
+// outcome endpoint refuses opened / sent / no_whatsapp / invalid on them with
+// 409 contact stopped: opening or sending would message someone who said no,
+// and an unreachable verdict would replace the stop with a status that Retry
+// resets to New. skip stays allowed, since it sends nothing and closes a
+// pending window. Only a one-phone status mark carrying lift_stop lifts a
+// stop; a bulk relabel skips stopped rows (MarkOutreach).
+var outreachStopped = map[string]bool{"do_not_contact": true, "declined": true}
+
+var outreachOutcomes = map[string]bool{
+	"opened": true, "sent": true, "no_whatsapp": true, "invalid": true, "skip": true, "retry": true,
+}
+
+var outreachExclusionKinds = map[string]bool{"vault": true, "account": true, "install": true}
+
+var (
+	// ErrOutreachStale — expected_version is behind the row: another tab, or
+	// a retried click after a lost response, already recorded an outcome for
+	// this contact. Nothing was written.
+	ErrOutreachStale = errors.New("stale outcome")
+	// ErrOutreachNotRetryable — retry on a contact that is not no_whatsapp /
+	// invalid. Nothing was written.
+	ErrOutreachNotRetryable = errors.New("not retryable")
+	// ErrOutreachStopped — opened / sent / no_whatsapp / invalid on a
+	// declined or do-not-contact contact. Nothing was written.
+	ErrOutreachStopped = errors.New("contact stopped")
+)
 
 var outreachSettingKeyRe = regexp.MustCompile(`^[a-z_]{1,32}(\.[a-z_]{1,16}){0,2}$`)
 
@@ -82,6 +145,7 @@ type OutreachShopkeeper struct {
 	Email           string          `json:"email"`
 	SignedIn        bool            `json:"signed_in"`
 	InstallCount    int             `json:"install_count"`
+	InstallIDs      []string        `json:"install_ids"` // never null; most recently seen first
 	Platform        string          `json:"platform"`
 	AppVersion      string          `json:"app_version"`
 	Locale          string          `json:"locale"`
@@ -147,14 +211,21 @@ type OutreachState struct {
 	FirstContactedAt string          `json:"first_contacted_at"`
 	RepliedAt        string          `json:"replied_at"`
 	ContactCount     int             `json:"contact_count"`
+	NeverMessaged    bool            `json:"never_messaged"` // first-contact test over the whole log; true without a row (readOutreachStates)
 	Note             string          `json:"note"`
 	UpdatedAt        string          `json:"updated_at"`
+	OpenedAt         string          `json:"opened_at"`     // last chat open
+	PendingSince     string          `json:"pending_since"` // opened with no outcome since; "" otherwise
+	SkippedAt        string          `json:"skipped_at"`    // "skip for now"; the page hides it for that Kabul day
+	OpenCount        int             `json:"open_count"`
+	Version          int64           `json:"version"` // bumped on every write; 0 without a row
 	Touches          []OutreachTouch `json:"touches"` // never null; newest first; max 20
 }
 
 type OutreachContact struct {
 	Phone       string              `json:"phone"`
 	Kind        string              `json:"kind"` // shopkeeper | customer | both
+	Number      OutreachNumber      `json:"number"`
 	Name        string              `json:"name"`
 	ShopName    string              `json:"shop_name"`
 	Locale      string              `json:"locale"`     // shopkeeper locale, else the first listing owner's install locale, else ""
@@ -181,18 +252,35 @@ type OutreachCounts struct {
 	Converted    int `json:"converted"`
 	SentToday    int `json:"sent_today"` // touches kind=sent on the Kabul reporting day
 	RepliedToday int `json:"replied_today"`
+	Pending      int `json:"pending"`      // pending_since set
+	Unreachable  int `json:"unreachable"`  // status no_whatsapp + invalid
+	Invalid      int `json:"invalid"`      // number.valid == false
+	OpenedToday  int `json:"opened_today"` // touches kind=opened on the Kabul reporting day
+}
+
+// OutreachExclusion is one operator-verified test source. Label is resolved
+// at read time so the page can name what it is undoing.
+type OutreachExclusion struct {
+	Kind      string `json:"kind"` // vault | account | install
+	ID        string `json:"id"`
+	Label     string `json:"label"` // vault: "<name> · <owner>"; account: name or email; install: self_name / shop_name / id prefix
+	Reason    string `json:"reason"`
+	CreatedAt string `json:"created_at"`
 }
 
 type OutreachResult struct {
-	Contacts    []OutreachContact `json:"contacts"` // never null
-	Settings    map[string]string `json:"settings"` // never null ({})
-	Counts      OutreachCounts    `json:"counts"`
-	GeneratedAt string            `json:"generated_at"`
+	Contacts    []OutreachContact   `json:"contacts"` // never null
+	Settings    map[string]string   `json:"settings"` // never null ({})
+	Counts      OutreachCounts      `json:"counts"`
+	Exclusions  []OutreachExclusion `json:"exclusions"` // never null; newest first
+	GeneratedAt string              `json:"generated_at"`
 }
 
 // OutreachMarkInput is a validated POST /v1/admin/outreach/mark body: phones
 // already normalized and deduplicated, status already checked, note already
-// clamped. Nil pointers mean "absent from the body".
+// clamped. Nil pointers mean "absent from the body". Status never comes with
+// Contacted or Replied, and LiftStop only with exactly one phone: the handler
+// refuses both bodies.
 type OutreachMarkInput struct {
 	Phones      []string
 	Status      *string
@@ -200,6 +288,18 @@ type OutreachMarkInput struct {
 	Contacted   bool
 	Replied     bool
 	TemplateKey string
+	LiftStop    bool // lets Status replace declined / do_not_contact (MarkOutreach)
+}
+
+// OutreachOutcomeInput is a validated POST /v1/admin/outreach/outcome body:
+// one normalized phone, one outcome, detail text already clamped. A nil
+// ExpectedVersion skips the version check (the page omits it for `opened`).
+type OutreachOutcomeInput struct {
+	Phone           string
+	Outcome         string // opened | sent | no_whatsapp | invalid | skip | retry
+	TemplateKey     string
+	Reason          string
+	ExpectedVersion *int64
 }
 
 // OutreachSetting is the POST /v1/admin/outreach/setting response; Value and
@@ -212,11 +312,29 @@ type OutreachSetting struct {
 
 // ---------- phone normalization ----------
 
-// normalizeOutreachPhone keeps ASCII digits only and returns "+"+digits when
-// 7..15 remain. Persian / Arabic-Indic digits are NOT converted — they are not
-// ASCII, so they drop out and the value fails — and a "00" trunk prefix stays
-// as digits, so "0093700000001" is a different key from "+93700000001". Every
-// source value and every phone in a POST body goes through this. Pure.
+// normalizeOutreachPhone keeps ASCII digits only and requires 7..15 of them.
+// Persian / Arabic-Indic digits are NOT converted — they are not ASCII, so
+// they drop out and the value fails. The digits are then read as an
+// international number by libphonenumber (2026-09-30): when that is a VALID
+// number the key is its E.164 form, so a trunk zero typed after the country
+// code ("+93 0700 000 001") lands on the same key, contact and outreach row as
+// "+93 700 000 001", and every wa.me link is canonical. Anything else keeps
+// "+"+digits as before: a "00" trunk prefix stays as digits ("0093700000001"
+// is a different key from "+93700000001") and an invalid number is not
+// guessed at. A valid number whose E.164 form would be under 7 digits
+// ("+98 0 9601" → "+989601") keeps its digits too, because this function
+// would refuse that form on the way back in. Outreach rows written under a
+// non-canonical key before this are not re-keyed; production held
+// essentially no outreach history then.
+// Keys therefore depend on the libphonenumber metadata pinned in go.mod
+// (github.com/nyaruka/phonenumbers): an upgrade that changes a numbering plan
+// can make a number valid or invalid, or change its E.164 form, and so re-key
+// it — the contact then shows under the new key while its outreach row and
+// touches stay under the old one. After an upgrade, check
+// `SELECT phone_e164 FROM outreach_contacts` for keys that no longer
+// normalize to themselves.
+// Every source value and every phone in a POST body goes through this, and
+// its output normalizes to itself. Pure.
 func normalizeOutreachPhone(s string) (string, bool) {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
@@ -227,6 +345,11 @@ func normalizeOutreachPhone(s string) (string, bool) {
 	digits := b.String()
 	if len(digits) < 7 || len(digits) > 15 {
 		return "", false
+	}
+	if n, err := phonenumbers.Parse("+"+digits, ""); err == nil && phonenumbers.IsValidNumber(n) {
+		if e164 := phonenumbers.Format(n, phonenumbers.E164); len(e164) > 7 {
+			return e164, true
+		}
 	}
 	return "+" + digits, true
 }
@@ -474,7 +597,19 @@ type outreachQuerier interface {
 }
 
 // readOutreachStates loads outreach_contacts plus the newest 20 touches per
-// phone; phones == nil means every row.
+// phone; phones == nil means every row. GET, the mark response and the
+// outcome response all read states here, so each carries never_messaged.
+//
+// never_messaged (2026-09-30) is the queue's first-contact test: the number
+// was never recorded as sent (contact_count 0), and the latest "chat" touch
+// — opened, skipped, retry, or a status touch no_whatsapp / invalid, by
+// created_at then id — is not an unresolved `opened`. So a pending row is
+// false and turns true again after skip, retry, not on WhatsApp or invalid;
+// any counted send makes it false for good; a status or note alone (say
+// Interested, then New again) never resolves an open. It is computed over
+// the WHOLE touch log, not the 20-touch window below: a chat opened long ago
+// and followed by many notes is still unresolved. A contact with no row is
+// never messaged (GetOutreach's default).
 func readOutreachStates(ctx context.Context, q outreachQuerier, phones []string) (map[string]*outreachRow, error) {
 	all := phones == nil
 	if phones == nil {
@@ -482,20 +617,33 @@ func readOutreachStates(ctx context.Context, q outreachQuerier, phones []string)
 	}
 	out := map[string]*outreachRow{}
 	rows, err := q.Query(ctx, `
-		SELECT phone_e164, status, contacted_at, first_contacted_at, replied_at,
-		       contact_count, note, updated_at
-		FROM outreach_contacts
-		WHERE $2::boolean OR phone_e164 = ANY($1::text[])
+		SELECT c.phone_e164, c.status, c.contacted_at, c.first_contacted_at, c.replied_at,
+		       c.contact_count, c.note, c.updated_at,
+		       c.opened_at, c.pending_since, c.skipped_at, c.open_count, c.version,
+		       c.contact_count = 0 AND chat.kind IS DISTINCT FROM 'opened' AS never_messaged
+		FROM outreach_contacts c
+		LEFT JOIN LATERAL (
+			SELECT t.kind
+			FROM outreach_touches t
+			WHERE t.phone_e164 = c.phone_e164
+			  AND (t.kind IN ('opened', 'skipped', 'retry')
+			       OR (t.kind = 'status' AND t.detail IN ('no_whatsapp', 'invalid')))
+			ORDER BY t.created_at DESC, t.id DESC
+			LIMIT 1
+		) chat ON TRUE
+		WHERE $2::boolean OR c.phone_e164 = ANY($1::text[])
 	`, phones, all)
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
 		var r outreachRow
-		var first, replied *time.Time
+		var first, replied, opened, pending, skipped *time.Time
 		var updated time.Time
 		if err := rows.Scan(&r.state.Phone, &r.state.Status, &r.contactedAt, &first, &replied,
-			&r.state.ContactCount, &r.state.Note, &updated); err != nil {
+			&r.state.ContactCount, &r.state.Note, &updated,
+			&opened, &pending, &skipped, &r.state.OpenCount, &r.state.Version,
+			&r.state.NeverMessaged); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -503,6 +651,9 @@ func readOutreachStates(ctx context.Context, q outreachQuerier, phones []string)
 		r.state.FirstContactedAt = outreachTime(first)
 		r.state.RepliedAt = outreachTime(replied)
 		r.state.UpdatedAt = updated.UTC().Format(time.RFC3339)
+		r.state.OpenedAt = outreachTime(opened)
+		r.state.PendingSince = outreachTime(pending)
+		r.state.SkippedAt = outreachTime(skipped)
 		r.state.Touches = []OutreachTouch{}
 		out[r.state.Phone] = &r
 	}
@@ -540,6 +691,134 @@ func readOutreachStates(ctx context.Context, q outreachQuerier, phones []string)
 		r.state.Touches = append(r.state.Touches, touch)
 	}
 	return out, trows.Err()
+}
+
+// ---------- exclusions ----------
+
+// outreachExclusionSet is outreach_exclusions loaded once per request: the id
+// sets the builders consult plus the labelled list the page shows.
+type outreachExclusionSet struct {
+	vaults, accounts, installs map[string]bool
+	list                       []OutreachExclusion
+}
+
+type outreachSourceKey struct{ kind, id string }
+
+// outreachIDPrefix labels a source whose row is gone or blank: the first UUID
+// group is enough to tell exclusions apart on the page.
+func outreachIDPrefix(id string) string { return clampRunes(id, 8) }
+
+// readOutreachExclusions loads every exclusion, newest first, and resolves the
+// labels straight from vaults / accounts / installs — not through the
+// operator-filtered maps GetOutreach builds, because an excluded source may be
+// exactly the kind of row those filters drop, and the page still has to name
+// it so the operator can undo it.
+func readOutreachExclusions(ctx context.Context, q outreachQuerier) (*outreachExclusionSet, error) {
+	set := &outreachExclusionSet{
+		vaults: map[string]bool{}, accounts: map[string]bool{}, installs: map[string]bool{},
+		list: []OutreachExclusion{},
+	}
+	rows, err := q.Query(ctx, `
+		SELECT kind, id, reason, created_at
+		FROM outreach_exclusions
+		ORDER BY created_at DESC, kind, id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	ids := map[string][]string{}
+	for rows.Next() {
+		var x OutreachExclusion
+		var at time.Time
+		if err := rows.Scan(&x.Kind, &x.ID, &x.Reason, &at); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		x.CreatedAt = at.UTC().Format(time.RFC3339)
+		x.Label = outreachIDPrefix(x.ID)
+		switch x.Kind {
+		case "vault":
+			set.vaults[x.ID] = true
+		case "account":
+			set.accounts[x.ID] = true
+		case "install":
+			set.installs[x.ID] = true
+		}
+		ids[x.Kind] = append(ids[x.Kind], x.ID)
+		set.list = append(set.list, x)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Each label query returns id + three text columns; ids are compared as
+	// text so a hand-inserted non-UUID row cannot fail the whole report.
+	labels := map[outreachSourceKey]string{}
+	resolve := func(kind, sql string, label func(a, b, c string) string) error {
+		if len(ids[kind]) == 0 {
+			return nil
+		}
+		lrows, err := q.Query(ctx, sql, ids[kind])
+		if err != nil {
+			return err
+		}
+		defer lrows.Close()
+		for lrows.Next() {
+			var id, a, b, c string
+			if err := lrows.Scan(&id, &a, &b, &c); err != nil {
+				return err
+			}
+			if l := label(a, b, c); l != "" {
+				labels[outreachSourceKey{kind, id}] = l
+			}
+		}
+		return lrows.Err()
+	}
+	if err := resolve("vault", `
+		SELECT v.vault_id::text, v.name, COALESCE(a.name, ''), COALESCE(a.email, '')
+		FROM vaults v LEFT JOIN accounts a ON a.id = v.owner_account_id
+		WHERE v.vault_id::text = ANY($1::text[])
+	`, func(name, owner, email string) string {
+		if owner == "" {
+			owner = email
+		}
+		if owner == "" {
+			return name
+		}
+		return name + " · " + owner
+	}); err != nil {
+		return nil, err
+	}
+	if err := resolve("account", `
+		SELECT id::text, COALESCE(name, ''), email, ''
+		FROM accounts
+		WHERE id::text = ANY($1::text[])
+	`, func(name, email, _ string) string {
+		if name != "" {
+			return name
+		}
+		return email
+	}); err != nil {
+		return nil, err
+	}
+	if err := resolve("install", `
+		SELECT install_id::text, COALESCE(self_name, ''), COALESCE(shop_name, ''), ''
+		FROM installs
+		WHERE install_id::text = ANY($1::text[])
+	`, func(selfName, shopName, _ string) string {
+		if selfName != "" {
+			return selfName
+		}
+		return shopName
+	}); err != nil {
+		return nil, err
+	}
+	for i := range set.list {
+		if l := labels[outreachSourceKey{set.list[i].Kind, set.list[i].ID}]; l != "" {
+			set.list[i].Label = l
+		}
+	}
+	return set, nil
 }
 
 // ---------- GET /v1/admin/outreach ----------
@@ -698,7 +977,7 @@ type outreachShopBuilt struct {
 }
 
 func buildOutreachShopkeeper(g *outreachShopGroup, vaults map[string]*outreachVault, membersByAccount map[string][]outreachMember) outreachShopBuilt {
-	b := outreachShopBuilt{sk: OutreachShopkeeper{Kaatas: []OutreachKaata{}}}
+	b := outreachShopBuilt{sk: OutreachShopkeeper{Kaatas: []OutreachKaata{}, InstallIDs: []string{}}}
 	sk := &b.sk
 	if g.account != nil {
 		sk.AccountID = g.account.id
@@ -708,6 +987,7 @@ func buildOutreachShopkeeper(g *outreachShopGroup, vaults map[string]*outreachVa
 	sk.InstallCount = len(g.installs)
 	var firstSeen, lastActivity *time.Time
 	for i, in := range g.installs {
+		sk.InstallIDs = append(sk.InstallIDs, in.installID)
 		if i == 0 {
 			sk.Platform = in.platform
 			sk.AppVersion = in.appVersion
@@ -755,7 +1035,7 @@ func buildOutreachShopkeeper(g *outreachShopGroup, vaults map[string]*outreachVa
 		for _, m := range membersByAccount[g.account.id] {
 			v := vaults[m.vaultID]
 			if v == nil || v.fold == nil {
-				continue
+				continue // operator-owned, purged or excluded
 			}
 			sk.Kaatas = append(sk.Kaatas, OutreachKaata{
 				VaultID:     v.id,
@@ -864,10 +1144,13 @@ func buildOutreachCustomer(g *outreachCustGroup) outreachCustBuilt {
 // GetOutreach builds the whole section in one RepeatableRead snapshot, like
 // GetUsers, so an install cannot flip between shopkeeper and customer halves
 // mid-report. Operator accounts, installs resolved to them and vaults they own
-// are excluded; purged vaults are skipped, archived ones kept.
+// are excluded; purged vaults are skipped, archived ones kept. Operator-
+// verified test sources (outreach_exclusions) are dropped per source on top:
+// a vault loses its listings and its place in its members' kaatas and totals,
+// an account or install its shopkeeper half.
 func (s *Service) GetOutreach(ctx context.Context) (OutreachResult, error) {
 	now := s.now()
-	out := OutreachResult{Contacts: []OutreachContact{}, Settings: map[string]string{}}
+	out := OutreachResult{Contacts: []OutreachContact{}, Settings: map[string]string{}, Exclusions: []OutreachExclusion{}}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{
 		IsoLevel:   pgx.RepeatableRead,
 		AccessMode: pgx.ReadOnly,
@@ -885,10 +1168,46 @@ func (s *Service) GetOutreach(ctx context.Context) (OutreachResult, error) {
 	if err != nil {
 		return out, err
 	}
+	excl, err := readOutreachExclusions(ctx, tx)
+	if err != nil {
+		return out, err
+	}
+	out.Exclusions = excl.list
+	// An excluded install — or one resolved to an excluded account —
+	// contributes no shopkeeper block and feeds neither the owner-phone nor
+	// the locale fallback below; an excluded account's own phone is no
+	// shopkeeper source either (the accounts loop). The account row itself
+	// stays loaded, so a listing in a book that account owns still shows the
+	// owner's name and the account's own phone (never an excluded install's):
+	// excluding an account does not exclude its books. A number known only
+	// through test data is never emitted, while a real book's listing of the
+	// same number survives.
+	kept := installs[:0]
+	for _, in := range installs {
+		if excl.installs[in.installID] || (in.accountID != "" && excl.accounts[in.accountID]) {
+			continue
+		}
+		kept = append(kept, in)
+	}
+	installs = kept
 	vaults, vaultOrder, membersByAccount, err := s.outreachVaults(ctx, tx)
 	if err != nil {
 		return out, err
 	}
+	// An excluded book contributes nothing either (2026-09-30): no listings,
+	// and no kaata, people, tallies, totals, currency or last tally under any
+	// member's shopkeeper block, so a test book cannot inflate a real
+	// shopkeeper's receivable. Dropped before the fold, it is never folded;
+	// buildOutreachShopkeeper skips a membership whose vault is gone.
+	keptVaults := vaultOrder[:0]
+	for _, vid := range vaultOrder {
+		if excl.vaults[vid] {
+			delete(vaults, vid)
+			continue
+		}
+		keptVaults = append(keptVaults, vid)
+	}
+	vaultOrder = keptVaults
 	linked, err := outreachLinkedRelationships(ctx, tx)
 	if err != nil {
 		return out, err
@@ -953,7 +1272,7 @@ func (s *Service) GetOutreach(ctx context.Context) (OutreachResult, error) {
 	}
 	for _, id := range accountOrder {
 		a := accounts[id]
-		if a.phone == "" {
+		if a.phone == "" || excl.accounts[id] {
 			continue
 		}
 		ph, ok := normalizeOutreachPhone(a.phone)
@@ -1022,7 +1341,7 @@ func (s *Service) GetOutreach(ctx context.Context) (OutreachResult, error) {
 	items := make([]sortable, 0, len(phones))
 	for _, ph := range phones {
 		sg, cg := shops[ph], customers[ph]
-		item := sortable{c: OutreachContact{Phone: ph}}
+		item := sortable{c: OutreachContact{Phone: ph, Number: describeOutreachNumber(ph)}}
 		c := &item.c
 		switch {
 		case sg != nil && cg != nil:
@@ -1035,7 +1354,7 @@ func (s *Service) GetOutreach(ctx context.Context) (OutreachResult, error) {
 		if row := states[ph]; row != nil {
 			c.Outreach = row.state
 		} else {
-			c.Outreach = OutreachState{Phone: ph, Status: "new", Touches: []OutreachTouch{}}
+			c.Outreach = OutreachState{Phone: ph, Status: "new", NeverMessaged: true, Touches: []OutreachTouch{}}
 		}
 		var installedAt *time.Time
 		if sg != nil {
@@ -1117,6 +1436,8 @@ func (s *Service) GetOutreach(ctx context.Context) (OutreachResult, error) {
 			out.Counts.Installed++
 		case "declined", "do_not_contact":
 			out.Counts.Declined++
+		case "no_whatsapp", "invalid":
+			out.Counts.Unreachable++
 		}
 		if c.FollowUpDue {
 			out.Counts.FollowUpsDue++
@@ -1124,19 +1445,27 @@ func (s *Service) GetOutreach(ctx context.Context) (OutreachResult, error) {
 		if c.Converted {
 			out.Counts.Converted++
 		}
+		if c.Outreach.PendingSince != "" {
+			out.Counts.Pending++
+		}
+		if !c.Number.Valid {
+			out.Counts.Invalid++
+		}
 	}
 
 	// Today = the Kabul reporting day, like every other admin count.
-	var sentToday, repliedToday int64
+	var sentToday, repliedToday, openedToday int64
 	if err := tx.QueryRow(ctx, `
-		SELECT COUNT(*) FILTER (WHERE kind = 'sent'), COUNT(*) FILTER (WHERE kind = 'replied')
+		SELECT COUNT(*) FILTER (WHERE kind = 'sent'), COUNT(*) FILTER (WHERE kind = 'replied'),
+		       COUNT(*) FILTER (WHERE kind = 'opened')
 		FROM outreach_touches
 		WHERE (created_at AT TIME ZONE 'Asia/Kabul')::date = ($1::timestamptz AT TIME ZONE 'Asia/Kabul')::date
-	`, now).Scan(&sentToday, &repliedToday); err != nil {
+	`, now).Scan(&sentToday, &repliedToday, &openedToday); err != nil {
 		return out, err
 	}
 	out.Counts.SentToday = int(sentToday)
 	out.Counts.RepliedToday = int(repliedToday)
+	out.Counts.OpenedToday = int(openedToday)
 
 	srows, err := tx.Query(ctx, `SELECT key, value FROM outreach_settings`)
 	if err != nil {
@@ -1161,100 +1490,302 @@ func (s *Service) GetOutreach(ctx context.Context) (OutreachResult, error) {
 	return out, nil
 }
 
+// ---------- row writes shared by mark and outcome ----------
+
+// lockOutreachRow inserts-or-locks one outreach_contacts row in one statement
+// — the no-op DO UPDATE takes the row lock — and returns its current status,
+// version and send count. A row created here and then refused (stale version,
+// not retryable) is rolled back with the transaction, so a refusal writes
+// nothing.
+func lockOutreachRow(ctx context.Context, tx pgx.Tx, ph string, now time.Time) (status string, version int64, contactCount int, err error) {
+	err = tx.QueryRow(ctx, `
+		INSERT INTO outreach_contacts (phone_e164, updated_at) VALUES ($1, $2::timestamptz)
+		ON CONFLICT (phone_e164) DO UPDATE SET phone_e164 = EXCLUDED.phone_e164
+		RETURNING status, version, contact_count
+	`, ph, now).Scan(&status, &version, &contactCount)
+	return status, version, contactCount, err
+}
+
+func insertOutreachTouch(ctx context.Context, tx pgx.Tx, ph, kind, detail string, now time.Time) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO outreach_touches (phone_e164, kind, detail, created_at)
+		VALUES ($1, $2, $3, $4::timestamptz)
+	`, ph, kind, detail, now)
+	return err
+}
+
+// writeOutreachMark applies one mark to a locked row — the contacted / replied
+// / status / note fields, the version bump and the touches. The bulk mark and
+// the outcome `sent` both go through here, so contact_count, contacted_at and
+// the sent touch cannot drift between the two buttons. A send also clears
+// pending_since and skipped_at: the message went out, so the contact is no
+// longer awaiting an outcome or parked for the day. A reply or an explicit
+// status other than "new" clears both too (2026-09-30): a decided row is
+// neither awaiting an outcome nor parked. An explicit "new" keeps both, so
+// resetting a row to New cannot silently put a chat that was opened without
+// an outcome back in the queue, where it could be opened and sent again.
+func writeOutreachMark(ctx context.Context, tx pgx.Tx, ph string, now time.Time, in OutreachMarkInput, current string) error {
+	endsWait := in.Contacted || in.Replied || (in.Status != nil && *in.Status != "new")
+	status := current
+	if in.Contacted && outreachSendable[status] {
+		status = "sent"
+	}
+	if in.Replied && (status == "new" || status == "sent") {
+		status = "replied"
+	}
+	if in.Status != nil {
+		status = *in.Status
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE outreach_contacts SET
+		  contacted_at       = CASE WHEN $2::boolean THEN $6::timestamptz ELSE contacted_at END,
+		  first_contacted_at = CASE WHEN $2::boolean THEN COALESCE(first_contacted_at, $6::timestamptz)
+		                            ELSE first_contacted_at END,
+		  contact_count      = contact_count + CASE WHEN $2::boolean THEN 1 ELSE 0 END,
+		  pending_since      = CASE WHEN $7::boolean THEN NULL ELSE pending_since END,
+		  skipped_at         = CASE WHEN $7::boolean THEN NULL ELSE skipped_at END,
+		  replied_at         = CASE WHEN $3::boolean THEN $6::timestamptz ELSE replied_at END,
+		  status             = $4,
+		  note               = COALESCE($5::text, note),
+		  version            = version + 1,
+		  updated_at         = $6::timestamptz
+		WHERE phone_e164 = $1
+	`, ph, in.Contacted, in.Replied, status, in.Note, now, endsWait); err != nil {
+		return err
+	}
+	if in.Contacted {
+		if err := insertOutreachTouch(ctx, tx, ph, "sent", in.TemplateKey, now); err != nil {
+			return err
+		}
+	}
+	if in.Replied {
+		if err := insertOutreachTouch(ctx, tx, ph, "replied", "", now); err != nil {
+			return err
+		}
+	}
+	if in.Status != nil {
+		if err := insertOutreachTouch(ctx, tx, ph, "status", *in.Status, now); err != nil {
+			return err
+		}
+	}
+	if in.Note != nil {
+		if err := insertOutreachTouch(ctx, tx, ph, "note", clampRunes(*in.Note, outreachNoteTouchRunes), now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ---------- POST /v1/admin/outreach/mark ----------
 
 // MarkOutreach applies one tick to every phone inside ONE transaction and
 // returns the re-read states, in input order. Timestamps come from s.now()
 // rather than SQL NOW() so tests can pin the clock the follow-up rule reads.
-func (s *Service) MarkOutreach(ctx context.Context, in OutreachMarkInput) ([]OutreachState, error) {
+//
+// A contacted mark records a FIRST message only (2026-09-30): it counts a row
+// only while the status is sendable (new, no_whatsapp or invalid) AND no send
+// was ever recorded (contact_count 0). Any other row — already sent, replied,
+// stopped, or messaged before and since relabelled — is left exactly as it
+// was, with no count, touch, version bump or other field, and its phone is
+// returned in skipped (input order, never nil). A repeated or overlapping
+// bulk "Mark sent" therefore cannot count a message twice or write to a
+// stopped contact; a follow-up message is recorded only through the
+// version-checked outcome `sent`. updated still carries every requested
+// phone's current state, skipped ones included.
+//
+// A stop is lifted one row at a time (2026-09-30): a status that is not
+// itself a stop, on a declined or do-not-contact row, skips that row the same
+// way unless LiftStop is set — which the handler accepts for one phone only,
+// the row's own status menu — so a bulk relabel cannot put a number that said
+// no back in front of the operator. Setting or re-setting a stop always
+// applies, and a reply or a note never lifts one.
+func (s *Service) MarkOutreach(ctx context.Context, in OutreachMarkInput) (updated []OutreachState, skipped []string, err error) {
+	now := s.now()
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	// Row locks are taken in one canonical order so two overlapping bulk marks
+	// cannot wait on each other's rows (40P01); the response keeps in.Phones'
+	// order below. The checks read the row under its lock, so of two
+	// overlapping marks only the first counts.
+	locked := append([]string(nil), in.Phones...)
+	sort.Strings(locked)
+	left := map[string]bool{}
+	for _, ph := range locked {
+		current, _, sends, err := lockOutreachRow(ctx, tx, ph, now)
+		if err != nil {
+			return nil, nil, err
+		}
+		liftsStop := in.Status != nil && outreachStopped[current] && !outreachStopped[*in.Status]
+		if (in.Contacted && (!outreachSendable[current] || sends > 0)) || (liftsStop && !in.LiftStop) {
+			left[ph] = true
+			continue
+		}
+		if err := writeOutreachMark(ctx, tx, ph, now, in, current); err != nil {
+			return nil, nil, err
+		}
+	}
+	states, err := readOutreachStates(ctx, tx, in.Phones)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, nil, err
+	}
+	updated = make([]OutreachState, 0, len(in.Phones))
+	skipped = []string{}
+	for _, ph := range in.Phones {
+		if row := states[ph]; row != nil {
+			updated = append(updated, row.state)
+		}
+		if left[ph] {
+			skipped = append(skipped, ph)
+		}
+	}
+	return updated, skipped, nil
+}
+
+// ---------- POST /v1/admin/outreach/outcome ----------
+
+// RecordOutreachOutcome applies one outcome to one contact under its row lock.
+// The lock and the version check come first, so a second "sent" from another
+// tab — or a retried click after a lost response — is refused before it can
+// count a message twice; the outcome then reads the row exactly as the first
+// caller left it. A declined or do-not-contact row then refuses opened, sent,
+// no_whatsapp and invalid (outreachStopped); skip still applies and retry
+// keeps its own rule. The state is re-read in the same transaction.
+func (s *Service) RecordOutreachOutcome(ctx context.Context, in OutreachOutcomeInput) (OutreachState, error) {
+	now := s.now()
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return OutreachState{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	current, version, _, err := lockOutreachRow(ctx, tx, in.Phone, now)
+	if err != nil {
+		return OutreachState{}, err
+	}
+	if in.ExpectedVersion != nil && *in.ExpectedVersion != version {
+		return OutreachState{}, ErrOutreachStale
+	}
+	if outreachStopped[current] {
+		switch in.Outcome {
+		case "opened", "sent", "no_whatsapp", "invalid":
+			return OutreachState{}, ErrOutreachStopped
+		}
+	}
+	switch in.Outcome {
+	case "opened":
+		// Reopening a pending chat is legitimate and keeps pending_since: the
+		// queue shows when the operator FIRST opened it, not the last time.
+		_, err = tx.Exec(ctx, `
+			UPDATE outreach_contacts SET
+			  opened_at     = $2::timestamptz,
+			  pending_since = COALESCE(pending_since, $2::timestamptz),
+			  open_count    = open_count + 1,
+			  version       = version + 1,
+			  updated_at    = $2::timestamptz
+			WHERE phone_e164 = $1
+		`, in.Phone, now)
+		if err == nil {
+			err = insertOutreachTouch(ctx, tx, in.Phone, "opened", in.TemplateKey, now)
+		}
+	case "sent":
+		err = writeOutreachMark(ctx, tx, in.Phone, now, OutreachMarkInput{Contacted: true, TemplateKey: in.TemplateKey}, current)
+	case "no_whatsapp", "invalid":
+		_, err = tx.Exec(ctx, `
+			UPDATE outreach_contacts SET
+			  status        = $2,
+			  pending_since = NULL,
+			  skipped_at    = NULL,
+			  version       = version + 1,
+			  updated_at    = $3::timestamptz
+			WHERE phone_e164 = $1
+		`, in.Phone, in.Outcome, now)
+		if err == nil {
+			err = insertOutreachTouch(ctx, tx, in.Phone, "status", in.Outcome, now)
+		}
+	case "skip":
+		_, err = tx.Exec(ctx, `
+			UPDATE outreach_contacts SET
+			  skipped_at    = $2::timestamptz,
+			  pending_since = NULL,
+			  version       = version + 1,
+			  updated_at    = $2::timestamptz
+			WHERE phone_e164 = $1
+		`, in.Phone, now)
+		if err == nil {
+			err = insertOutreachTouch(ctx, tx, in.Phone, "skipped", in.Reason, now)
+		}
+	case "retry":
+		if !outreachRetryable[current] {
+			return OutreachState{}, ErrOutreachNotRetryable
+		}
+		_, err = tx.Exec(ctx, `
+			UPDATE outreach_contacts SET
+			  status     = 'new',
+			  skipped_at = NULL,
+			  version    = version + 1,
+			  updated_at = $2::timestamptz
+			WHERE phone_e164 = $1
+		`, in.Phone, now)
+		if err == nil {
+			err = insertOutreachTouch(ctx, tx, in.Phone, "retry", in.Reason, now)
+		}
+	default:
+		return OutreachState{}, fmt.Errorf("outreach outcome %q", in.Outcome)
+	}
+	if err != nil {
+		return OutreachState{}, err
+	}
+	states, err := readOutreachStates(ctx, tx, []string{in.Phone})
+	if err != nil {
+		return OutreachState{}, err
+	}
+	row := states[in.Phone]
+	if row == nil {
+		return OutreachState{}, errors.New("outreach outcome: row missing after write")
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return OutreachState{}, err
+	}
+	return row.state, nil
+}
+
+// ---------- POST /v1/admin/outreach/exclude ----------
+
+// SetOutreachExclusion records or lifts one operator-verified test source and
+// returns the full labelled list from the same transaction, so the response
+// cannot show a list the write is missing from. Re-excluding replaces the
+// reason and keeps the original created_at.
+func (s *Service) SetOutreachExclusion(ctx context.Context, kind, id string, excluded bool, reason string) ([]OutreachExclusion, error) {
 	now := s.now()
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	// Row locks are taken in one canonical order so two overlapping bulk marks
-	// cannot wait on each other's rows (40P01); the response keeps in.Phones'
-	// order below.
-	locked := append([]string(nil), in.Phones...)
-	sort.Strings(locked)
-	for _, ph := range locked {
-		// Insert-or-lock in one statement; the no-op DO UPDATE takes the row
-		// lock and RETURNING hands back the current status either way.
-		var current string
-		if err := tx.QueryRow(ctx, `
-			INSERT INTO outreach_contacts (phone_e164, updated_at) VALUES ($1, $2::timestamptz)
-			ON CONFLICT (phone_e164) DO UPDATE SET phone_e164 = EXCLUDED.phone_e164
-			RETURNING status
-		`, ph, now).Scan(&current); err != nil {
-			return nil, err
-		}
-		status := current
-		if in.Contacted && status == "new" {
-			status = "sent"
-		}
-		if in.Replied && (status == "new" || status == "sent") {
-			status = "replied"
-		}
-		if in.Status != nil {
-			status = *in.Status
-		}
-		if _, err := tx.Exec(ctx, `
-			UPDATE outreach_contacts SET
-			  contacted_at       = CASE WHEN $2::boolean THEN $6::timestamptz ELSE contacted_at END,
-			  first_contacted_at = CASE WHEN $2::boolean THEN COALESCE(first_contacted_at, $6::timestamptz)
-			                            ELSE first_contacted_at END,
-			  contact_count      = contact_count + CASE WHEN $2::boolean THEN 1 ELSE 0 END,
-			  replied_at         = CASE WHEN $3::boolean THEN $6::timestamptz ELSE replied_at END,
-			  status             = $4,
-			  note               = COALESCE($5::text, note),
-			  updated_at         = $6::timestamptz
-			WHERE phone_e164 = $1
-		`, ph, in.Contacted, in.Replied, status, in.Note, now); err != nil {
-			return nil, err
-		}
-		touch := func(kind, detail string) error {
-			_, err := tx.Exec(ctx, `
-				INSERT INTO outreach_touches (phone_e164, kind, detail, created_at)
-				VALUES ($1, $2, $3, $4::timestamptz)
-			`, ph, kind, detail, now)
-			return err
-		}
-		if in.Contacted {
-			if err := touch("sent", in.TemplateKey); err != nil {
-				return nil, err
-			}
-		}
-		if in.Replied {
-			if err := touch("replied", ""); err != nil {
-				return nil, err
-			}
-		}
-		if in.Status != nil {
-			if err := touch("status", *in.Status); err != nil {
-				return nil, err
-			}
-		}
-		if in.Note != nil {
-			if err := touch("note", clampRunes(*in.Note, outreachNoteTouchRunes)); err != nil {
-				return nil, err
-			}
-		}
+	if excluded {
+		_, err = tx.Exec(ctx, `
+			INSERT INTO outreach_exclusions (kind, id, reason, created_at) VALUES ($1, $2, $3, $4::timestamptz)
+			ON CONFLICT (kind, id) DO UPDATE SET reason = EXCLUDED.reason
+		`, kind, id, reason, now)
+	} else {
+		_, err = tx.Exec(ctx, `DELETE FROM outreach_exclusions WHERE kind = $1 AND id = $2`, kind, id)
 	}
-	states, err := readOutreachStates(ctx, tx, in.Phones)
+	if err != nil {
+		return nil, err
+	}
+	set, err := readOutreachExclusions(ctx, tx)
 	if err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	out := make([]OutreachState, 0, len(in.Phones))
-	for _, ph := range in.Phones {
-		if row := states[ph]; row != nil {
-			out = append(out, row.state)
-		}
-	}
-	return out, nil
+	return set.list, nil
 }
 
 // ---------- POST /v1/admin/outreach/setting ----------
@@ -1298,15 +1829,30 @@ type outreachMarkBody struct {
 	Contacted   *bool    `json:"contacted"`
 	Replied     *bool    `json:"replied"`
 	TemplateKey *string  `json:"template_key"`
+	LiftStop    *bool    `json:"lift_stop"`
 }
 
 // OutreachMark — POST /v1/admin/outreach/mark. Phones travel only in the JSON
 // body (the request logger prints paths), 1..500 per call, each normalized.
-// Pointer fields tell an absent key from an empty one.
+// Pointer fields tell an absent key from an empty one. Two bodies are 400
+// invalid body with nothing written (2026-09-30): a status together with
+// contacted:true or replied:true, and lift_stop:true naming more than one
+// phone after dedupe. The response is {"updated": [state…], "skipped":
+// [phone…]}: skipped lists the phones the mark left untouched — a contacted
+// mark on a row that is not a first send, or a status that would lift a stop
+// without lift_stop (MarkOutreach).
 func (h *Handler) OutreachMark(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, outreachBodyLimit)
 	var body outreachMarkBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	// A status says what a row IS; contacted and replied record what
+	// happened. Together they are ambiguous — does the status or the send's
+	// promotion win, and does a skipped send drop the status too? — so the
+	// body is refused whole and a status is always its own mark.
+	if body.Status != nil && ((body.Contacted != nil && *body.Contacted) || (body.Replied != nil && *body.Replied)) {
 		httpx.Error(w, http.StatusBadRequest, "invalid body")
 		return
 	}
@@ -1340,17 +1886,148 @@ func (h *Handler) OutreachMark(w http.ResponseWriter, r *http.Request) {
 	}
 	in.Contacted = body.Contacted != nil && *body.Contacted
 	in.Replied = body.Replied != nil && *body.Replied
+	in.LiftStop = body.LiftStop != nil && *body.LiftStop
+	// A stop is lifted one row at a time, from that row's own status menu.
+	if in.LiftStop && len(in.Phones) != 1 {
+		httpx.Error(w, http.StatusBadRequest, "invalid body")
+		return
+	}
 	if body.TemplateKey != nil {
 		in.TemplateKey = outreachText(*body.TemplateKey, outreachDetailRunes)
 	}
-	updated, err := h.svc.MarkOutreach(r.Context(), in)
+	updated, skipped, err := h.svc.MarkOutreach(r.Context(), in)
 	if err != nil {
 		httpx.Error(w, http.StatusInternalServerError, "outreach update failed")
 		return
 	}
 	httpx.JSON(w, http.StatusOK, struct {
 		Updated []OutreachState `json:"updated"`
-	}{Updated: updated})
+		Skipped []string        `json:"skipped"`
+	}{Updated: updated, Skipped: skipped})
+}
+
+type outreachOutcomeBody struct {
+	Phone           *string `json:"phone"`
+	Outcome         *string `json:"outcome"`
+	TemplateKey     *string `json:"template_key"`
+	Reason          *string `json:"reason"`
+	ExpectedVersion *int64  `json:"expected_version"`
+}
+
+// OutreachOutcome — POST /v1/admin/outreach/outcome. One contact, one outcome,
+// version-checked: 409 "stale outcome" when expected_version is behind the
+// row, 409 "not retryable" for a retry on a contact that is not no_whatsapp /
+// invalid, 409 "contact stopped" for opened / sent / no_whatsapp / invalid on
+// a declined or do-not-contact contact; none of them writes anything. The
+// phone travels only in the body.
+func (h *Handler) OutreachOutcome(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, outreachBodyLimit)
+	var body outreachOutcomeBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	in := OutreachOutcomeInput{ExpectedVersion: body.ExpectedVersion}
+	if body.Phone == nil {
+		httpx.Error(w, http.StatusBadRequest, "invalid phone")
+		return
+	}
+	ph, ok := normalizeOutreachPhone(*body.Phone)
+	if !ok {
+		httpx.Error(w, http.StatusBadRequest, "invalid phone")
+		return
+	}
+	in.Phone = ph
+	if body.Outcome == nil || !outreachOutcomes[*body.Outcome] {
+		httpx.Error(w, http.StatusBadRequest, "invalid outcome")
+		return
+	}
+	in.Outcome = *body.Outcome
+	// Every verdict must name the version it was decided against. Without it a
+	// repeated "sent" — a double click, a retried request after a lost
+	// response — would count one message twice, and that guarantee must not
+	// depend on the client remembering to send it. Only "opened" is exempt: a
+	// chat that opened is a fact whatever the row looked like meanwhile.
+	if in.Outcome != "opened" && body.ExpectedVersion == nil {
+		httpx.Error(w, http.StatusBadRequest, "expected_version required")
+		return
+	}
+	if body.TemplateKey != nil {
+		in.TemplateKey = outreachText(*body.TemplateKey, outreachDetailRunes)
+	}
+	if body.Reason != nil {
+		in.Reason = outreachText(*body.Reason, outreachReasonRunes)
+	}
+	state, err := h.svc.RecordOutreachOutcome(r.Context(), in)
+	switch {
+	case errors.Is(err, ErrOutreachStale):
+		httpx.Error(w, http.StatusConflict, "stale outcome")
+		return
+	case errors.Is(err, ErrOutreachNotRetryable):
+		httpx.Error(w, http.StatusConflict, "not retryable")
+		return
+	case errors.Is(err, ErrOutreachStopped):
+		httpx.Error(w, http.StatusConflict, "contact stopped")
+		return
+	case err != nil:
+		httpx.Error(w, http.StatusInternalServerError, "outreach outcome failed")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, struct {
+		State OutreachState `json:"state"`
+	}{State: state})
+}
+
+type outreachExcludeBody struct {
+	Kind     *string `json:"kind"`
+	ID       *string `json:"id"`
+	Excluded *bool   `json:"excluded"`
+	Reason   *string `json:"reason"`
+}
+
+// OutreachExclude — POST /v1/admin/outreach/exclude. The only way a source
+// becomes test data: a kind plus the UUID from the page's own buttons, never
+// an inference. excluded is required (2026-09-30): true records, false lifts,
+// and an absent or null flag is 400 invalid body with nothing written, so a
+// truncated body cannot hide a source by default. The id is stored in
+// canonical UUID form so every lookup compares equal text.
+func (h *Handler) OutreachExclude(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, outreachBodyLimit)
+	var body outreachExcludeBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if body.Kind == nil || !outreachExclusionKinds[*body.Kind] {
+		httpx.Error(w, http.StatusBadRequest, "invalid kind")
+		return
+	}
+	if body.ID == nil || *body.ID == "" || len(*body.ID) > 64 {
+		httpx.Error(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	id, err := uuid.Parse(*body.ID)
+	if err != nil {
+		httpx.Error(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if body.Excluded == nil {
+		httpx.Error(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	excluded := *body.Excluded
+	reason := ""
+	if body.Reason != nil {
+		reason = outreachText(*body.Reason, outreachReasonRunes)
+	}
+	list, err := h.svc.SetOutreachExclusion(r.Context(), *body.Kind, id.String(), excluded, reason)
+	if err != nil {
+		httpx.Error(w, http.StatusInternalServerError, "outreach exclusion failed")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, struct {
+		Exclusions []OutreachExclusion `json:"exclusions"`
+	}{Exclusions: list})
 }
 
 type outreachSettingBody struct {

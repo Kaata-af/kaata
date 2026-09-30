@@ -3,12 +3,15 @@ module github.com/matee/kaata-backend
 go 1.25.8
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/go-chi/chi/v5 v5.2.5
+	github.com/go-chi/httprate v0.15.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/joho/godotenv v1.5.1
+	github.com/nyaruka/phonenumbers v1.8.1
 	google.golang.org/api v0.283.0
 )
 
@@ -17,9 +20,7 @@ require (
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/coder/websocket v1.8.15 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
-	github.com/go-chi/httprate v0.15.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect

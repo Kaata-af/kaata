@@ -399,10 +399,14 @@ func main() {
 		pr.Get("/v1/admin/growth", adminH.Growth)
 		pr.Get("/v1/admin/users", adminH.Users)
 		// Operator outreach: the numbers list plus hand-ticked sent/replied/
-		// status/note state and message templates (internal/admin/outreach.go).
+		// status/note state, per-contact outcomes (opened / sent / not on
+		// WhatsApp / invalid / skip / retry, version-checked), source
+		// exclusions and message templates (internal/admin/outreach.go).
 		// Phones travel only in POST bodies — the request logger prints paths.
 		pr.Get("/v1/admin/outreach", adminH.Outreach)
 		pr.Post("/v1/admin/outreach/mark", adminH.OutreachMark)
+		pr.Post("/v1/admin/outreach/outcome", adminH.OutreachOutcome)
+		pr.Post("/v1/admin/outreach/exclude", adminH.OutreachExclude)
 		pr.Post("/v1/admin/outreach/setting", adminH.OutreachSetting)
 		pr.Post("/v1/admin/live-ticket", adminLive.Ticket)
 	})

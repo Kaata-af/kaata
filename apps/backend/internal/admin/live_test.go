@@ -293,10 +293,14 @@ func TestAdminLiveNotifyRouting(t *testing.T) {
 		{"POST", "/v1/check-in", 0, true}, // implicit 200.
 		{"POST", "/v1/admin/outreach/mark", 200, true},
 		{"POST", "/v1/admin/outreach/setting", 200, true},
+		{"POST", "/v1/admin/outreach/outcome", 200, true},
+		{"POST", "/v1/admin/outreach/exclude", 200, true},
 		{"HEAD", "/v1/download", 200, false},
 		{"GET", "/v1/admin/users", 200, false},
 		{"GET", "/v1/admin/outreach", 200, false},
 		{"POST", "/v1/admin/outreach/mark", 400, false},
+		{"POST", "/v1/admin/outreach/outcome", 409, false}, // stale / not retryable: nothing changed
+		{"POST", "/v1/admin/outreach/exclude", 400, false},
 		{"POST", "/v1/admin/outreach", 200, false},
 		{"POST", "/v1/admin/live-ticket", 200, false},
 		{"GET", "/v1/sync/pull", 200, false},

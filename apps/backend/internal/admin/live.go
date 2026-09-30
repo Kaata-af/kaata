@@ -239,10 +239,12 @@ func adminMutation(method, path string) bool {
 	}
 	switch path {
 	case "/v1/check-in", "/v1/visit", "/v1/shared", "/v1/sync/push", "/v1/account", "/v1/vaults", "/v1/tabs",
-		// Outreach ticks and template saves are the one admin-side mutation;
-		// other open dashboards must see a "sent" flip without waiting on the
-		// 60 s poll.
-		"/v1/admin/outreach/mark", "/v1/admin/outreach/setting":
+		// Outreach ticks, outcomes, exclusions and template saves are the
+		// admin-side mutations; other open dashboards must see a "sent" flip or
+		// a newly pending contact without waiting on the 60 s poll. A 409 from
+		// outcome never notifies: NotifyOnSuccess only fires on 2xx/3xx.
+		"/v1/admin/outreach/mark", "/v1/admin/outreach/setting",
+		"/v1/admin/outreach/outcome", "/v1/admin/outreach/exclude":
 		return true
 	}
 	return strings.HasPrefix(path, "/v1/auth/") ||

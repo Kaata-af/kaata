@@ -1,8 +1,10 @@
-// Pure model behind the admin Outreach section (2026-09-29). React-free so
+// Pure model behind the admin Outreach section (2026-09-29; outcomes, the
+// prospect queue and source exclusions added 2026-09-30). React-free so
 // `node --test` can pin it: search/filter/sort/preset predicates, the
 // dial-code and Afghan-carrier tables, template filling and the wa.me link,
-// the "send next" picker, the CSV export and the optimistic patch that flips a
-// tick before the server answers. Two rules shape it:
+// the "open next" picker and the awaiting-outcome strip, the CSV export, the
+// optimistic patch that flips a tick before the server answers and the
+// authoritative patch that takes an outcome's state as-is. Four rules shape it:
 //
 // - `converted` and `follow_up_due` are READ from the server, never
 //   recomputed. The backend owns the 48 h rule and the install-after-contact
@@ -10,6 +12,17 @@
 //   with the counts on the summary cards.
 // - Money stays in integer hundredths parsed from the wire's decimal string
 //   ("1234.50"), the same rule as lib/money.ts on mobile. No float64 anywhere.
+// - An outcome (opened, sent, no_whatsapp, invalid, skip, retry) is never
+//   applied optimistically. The server checks `expected_version` and answers
+//   with the row's state; a guessed state would paint as sent a chat the
+//   server refused, which is the double-message the versioning exists to stop.
+// - Two paths count a message (2026-09-30): the version-checked outcome
+//   `sent` (every message, first or follow-up) and bulk "Mark sent", which
+//   records only a FIRST message — a row that is New, Not on WhatsApp or
+//   Invalid and never recorded as sent. The mark mirror counts exactly the
+//   rows the server would, and the queue offers only numbers the server
+//   reports as never messaged (`never_messaged`), so nothing here can paint
+//   a second message.
 //
 // Types mirror api.ts field-for-field; nothing here is persisted except the
 // enum/number preferences that `parseOutreachPreferences` admits.
@@ -18,7 +31,9 @@ import type {
   OutreachContact,
   OutreachCounts,
   OutreachCustomer,
+  OutreachExclusion,
   OutreachMarkBody,
+  OutreachNumber,
   OutreachResult,
   OutreachState,
   OutreachStatus,
@@ -34,6 +49,8 @@ export const OUTREACH_STATUSES: OutreachStatus[] = [
   "installed",
   "declined",
   "do_not_contact",
+  "no_whatsapp",
+  "invalid",
 ];
 export const STATUS_LABELS: Record<OutreachStatus, string> = {
   new: "New",
@@ -43,9 +60,35 @@ export const STATUS_LABELS: Record<OutreachStatus, string> = {
   installed: "Installed",
   declined: "Declined",
   do_not_contact: "Do not contact",
+  no_whatsapp: "Not on WhatsApp",
+  invalid: "Invalid number",
 };
 export function isOutreachStatus(value: unknown): value is OutreachStatus {
   return typeof value === "string" && (OUTREACH_STATUSES as string[]).includes(value);
+}
+// The server's status gates (2026-09-30), mirrored so the page never offers
+// what the server refuses. Stopped: Declined and Do not contact refuse
+// opened, sent, not-on-WhatsApp and invalid (409 "contact stopped").
+// Unreachable: Not on WhatsApp and Invalid wait for Retry. Sendable: the
+// statuses a send promotes to Sent; a bulk "Mark sent" leaves every other
+// row untouched.
+export function isStoppedStatus(status: OutreachStatus): boolean {
+  return status === "declined" || status === "do_not_contact";
+}
+export function isUnreachableStatus(status: OutreachStatus): boolean {
+  return status === "no_whatsapp" || status === "invalid";
+}
+export function isSendableStatus(status: OutreachStatus): boolean {
+  return status === "new" || isUnreachableStatus(status);
+}
+// First contact only (2026-09-30): the server's `never_messaged` — no send
+// ever recorded, and every chat ever opened for the number resolved as
+// "nothing sent" (skip, retry, not on WhatsApp, invalid) — plus the
+// contact_count check it implies, so no state, however it was built, can
+// offer a number with a recorded send. Open next, the Prospects view and the
+// "Messaged before" filter all read this one predicate.
+export function isNeverMessaged(contact: OutreachContact): boolean {
+  return contact.outreach.never_messaged === true && contact.outreach.contact_count === 0;
 }
 
 // ---- digits, dial codes, carriers ----
@@ -223,7 +266,33 @@ export const DEFAULT_SLUGS: Record<Audience, string> = {
   shopkeeper: "wa-shop",
   customer: "wa-cust",
 };
-export const AUTO_MARK_KEY = "pref.auto_mark";
+
+// ---- numbers (libphonenumber verdicts from the backend) ----
+
+// The backend describes every number with the numbering plan
+// (nyaruka/phonenumbers). An older backend omits the block; the default reads
+// as VALID so a missing verdict never hides a row — only a real "false" does.
+// Validity says nothing about WhatsApp: that is the operator-recorded status
+// `no_whatsapp`.
+export const DEFAULT_OUTREACH_NUMBER: OutreachNumber = {
+  valid: true,
+  possible: true,
+  type: "unknown",
+  region: "",
+  national: "",
+};
+export function isMobileNumber(number: OutreachNumber): boolean {
+  return number.type === "mobile" || number.type === "fixed_line_or_mobile";
+}
+export function numberTypeLabel(type: string): string {
+  if (!type || type === "unknown") return "";
+  if (type === "fixed_line_or_mobile") return "fixed or mobile";
+  return type.replace(/_/g, " ");
+}
+// "AF · mobile": what the numbering plan reports, "" when it reports nothing.
+export function numberCaption(number: OutreachNumber): string {
+  return [number.region, numberTypeLabel(number.type)].filter(Boolean).join(" · ");
+}
 
 export function templateKey(audience: Audience, language: MessageLanguage): string {
   return `template.${audience}.${language}`;
@@ -399,26 +468,119 @@ export function listingsSummary(customer: OutreachCustomer | null | undefined): 
 }
 
 export type PillTone = "green" | "amber" | "gray" | "red" | "blue";
-export type ContactPill = { label: string; tone: PillTone };
-// Every pill comes straight from a server flag — nothing here is re-derived.
-export function contactPills(contact: OutreachContact): ContactPill[] {
+export type ContactPill = { label: string; tone: PillTone; caption?: string };
+// Every pill comes straight from a server flag or field — nothing here is
+// re-derived. "Skipped today" is the one pill that needs the clock: a skip is
+// a Kabul-day fact, not a stored flag.
+export function contactPills(contact: OutreachContact, now: number): ContactPill[] {
   const pills: ContactPill[] = [
     { label: kindLabel(contact.kind), tone: contact.kind === "customer" ? "gray" : "blue" },
   ];
+  if (!contact.number.valid)
+    pills.push({
+      label: "Invalid number",
+      tone: "red",
+      caption: numberCaption(contact.number) || undefined,
+    });
   if (contact.customer?.is_wholesaler) pills.push({ label: "Wholesaler", tone: "amber" });
   if (contact.kind === "both") pills.push({ label: "Already a user", tone: "green" });
   if (contact.converted) pills.push({ label: "Converted", tone: "green" });
   if (contact.follow_up_due) pills.push({ label: "Follow-up due", tone: "amber" });
+  if (isPending(contact)) pills.push({ label: "Awaiting outcome", tone: "amber" });
+  if (isSkippedToday(contact, now)) pills.push({ label: "Skipped today", tone: "gray" });
+  if (contact.outreach.status === "no_whatsapp")
+    pills.push({ label: "Not on WhatsApp", tone: "gray" });
+  // The operator's verdict, distinct from the numbering plan's above.
+  if (contact.outreach.status === "invalid") pills.push({ label: "Marked invalid", tone: "gray" });
   if (contact.outreach.status === "do_not_contact")
     pills.push({ label: "Do not contact", tone: "red" });
   return pills;
+}
+
+// ---- the queue: pending, skipped, prospects, open next ----
+
+// "Pending" = a chat was opened and no outcome has been recorded since. It is
+// server state (pending_since), so a closed tab or a crashed browser cannot
+// lose it, and the strip that lists these survives a reload. A missing field
+// (older backend) reads as not pending.
+export function isPending(contact: OutreachContact): boolean {
+  return !!contact.outreach.pending_since;
+}
+// "Skip for now" hides a row for the rest of the Kabul reporting day; it comes
+// back tomorrow on its own. No session table, no unskip button.
+export function isSkippedToday(contact: OutreachContact, now: number): boolean {
+  const day = reportingDay(contact.outreach.skipped_at);
+  return day !== "" && day === reportingDay(now);
+}
+// The resumable prospect queue: customer-only numbers (no install matched),
+// still New, never messaged (isNeverMessaged: a number reset to New after a
+// send, or after a chat that was opened and never closed as nothing sent, is
+// not a prospect), plausible per the numbering plan, not archived
+// everywhere, not awaiting an outcome, not skipped today; Afghanistan unless
+// told otherwise. The country test uses the same dial-code lookup as the
+// country filter so this predicate and `presetFilters("prospects")` select
+// identical rows.
+export function isProspect(contact: OutreachContact, now: number, country = "+93"): boolean {
+  return (
+    contact.kind === "customer" &&
+    contact.outreach.status === "new" &&
+    isNeverMessaged(contact) &&
+    contact.number.valid &&
+    !contact.converted &&
+    !contact.customer?.archived_everywhere &&
+    !isPending(contact) &&
+    !isSkippedToday(contact, now) &&
+    (country ? dialCode(contact.phone).code === country : true)
+  );
+}
+// What "Open next" may pick: New and never messaged (isNeverMessaged, first
+// contact only), valid, not awaiting an outcome, not skipped today, not seen
+// installing after an earlier contact. Declined, do-not-contact,
+// not-on-WhatsApp and invalid rows are never New, so they fall out without a
+// special case.
+export function canOpen(contact: OutreachContact, now: number): boolean {
+  return (
+    contact.outreach.status === "new" &&
+    isNeverMessaged(contact) &&
+    contact.number.valid &&
+    !isPending(contact) &&
+    !isSkippedToday(contact, now) &&
+    !contact.converted
+  );
+}
+// The "Open next" target: the first openable row of the CURRENT view, in its
+// sort order.
+export function nextToOpen(rows: OutreachContact[], now: number): OutreachContact | undefined {
+  return rows.find((contact) => canOpen(contact, now));
+}
+export function openableCount(rows: OutreachContact[], now: number): number {
+  return rows.filter((contact) => canOpen(contact, now)).length;
+}
+// Whether a row offers the manual WhatsApp button at all (unlike canOpen,
+// which is Open next's picker): never for a stopped row (the server refuses
+// it until the status changes) nor an unreachable one (Retry first). An
+// invalid-per-plan number keeps the button as a deliberate manual override.
+export function offersChat(contact: OutreachContact): boolean {
+  const status = contact.outreach.status;
+  return !isStoppedStatus(status) && !isUnreachableStatus(status);
+}
+// Every chat opened without an outcome yet, across ALL contacts (not the
+// current view), oldest first, so the longest-waiting chat is at the top.
+export function pendingRows(contacts: OutreachContact[]): OutreachContact[] {
+  return contacts
+    .filter(isPending)
+    .sort(
+      (a, b) =>
+        (parseTime(a.outreach.pending_since) ?? 0) - (parseTime(b.outreach.pending_since) ?? 0) ||
+        a.phone.localeCompare(b.phone),
+    );
 }
 
 // ---- filters, presets, search, sort ----
 
 export type OutreachFilters = {
   kind: "all" | "shopkeeper" | "customer" | "both";
-  status: "all" | OutreachStatus | "declined_any";
+  status: "all" | OutreachStatus | "declined_any" | "unreachable";
   country: string;
   carrier: "" | AfghanCarrier;
   platform: string;
@@ -436,6 +598,18 @@ export type OutreachFilters = {
   followUp: "all" | "due";
   converted: "all" | "yes";
   wholesaler: "all" | "yes";
+  // Numbering-plan verdict (libphonenumber), not WhatsApp use.
+  validity: "all" | "valid" | "invalid";
+  // mobile = mobile or fixed_line_or_mobile; fixed = fixed_line only.
+  numberType: "all" | "mobile" | "fixed";
+  // Opened with no outcome recorded since.
+  pending: "all" | "yes" | "no";
+  // "Skip for now" within the current Kabul day.
+  skipped: "all" | "hide" | "only";
+  // Messaged before: never = never messaged (isNeverMessaged, the queue's
+  // own test); ever = a recorded send, or a chat opened and not closed as
+  // nothing sent.
+  contacted: "all" | "never" | "ever";
   minMentions: number;
   minTallies: number;
   minReceivable: number;
@@ -460,13 +634,18 @@ export const DEFAULT_OUTREACH_FILTERS: OutreachFilters = {
   followUp: "all",
   converted: "all",
   wholesaler: "all",
+  validity: "all",
+  numberType: "all",
+  pending: "all",
+  skipped: "all",
+  contacted: "all",
   minMentions: 0,
   minTallies: 0,
   minReceivable: 0,
 };
 export const FILTER_ENUMS = {
   kind: ["all", "shopkeeper", "customer", "both"],
-  status: ["all", ...OUTREACH_STATUSES, "declined_any"],
+  status: ["all", ...OUTREACH_STATUSES, "declined_any", "unreachable"],
   carrier: ["", ...AFGHAN_CARRIERS],
   signedIn: ["all", "yes", "no"],
   onboarded: ["all", "yes", "no"],
@@ -478,6 +657,11 @@ export const FILTER_ENUMS = {
   followUp: ["all", "due"],
   converted: ["all", "yes"],
   wholesaler: ["all", "yes"],
+  validity: ["all", "valid", "invalid"],
+  numberType: ["all", "mobile", "fixed"],
+  pending: ["all", "yes", "no"],
+  skipped: ["all", "hide", "only"],
+  contacted: ["all", "never", "ever"],
 } as const;
 
 export const OUTREACH_PRESETS = [
@@ -485,6 +669,12 @@ export const OUTREACH_PRESETS = [
     id: "all",
     label: "All",
     description: "Every number the server knows, except customers archived in every book.",
+  },
+  {
+    id: "prospects",
+    label: "Prospects",
+    description:
+      "Customer-only numbers, status New, never messaged (no send recorded, every opened chat closed as nothing sent), valid, not awaiting an outcome, not skipped today; Afghanistan by default (change the country filter).",
   },
   {
     id: "shopkeepers",
@@ -503,6 +693,11 @@ export const OUTREACH_PRESETS = [
   },
   { id: "to_contact", label: "To contact", description: "Status New — nothing sent yet." },
   {
+    id: "pending",
+    label: "Awaiting outcome",
+    description: "Chats opened with no outcome recorded yet.",
+  },
+  {
     id: "follow_ups",
     label: "Follow-ups due",
     description: "Sent 48 hours ago or more with no reply.",
@@ -512,17 +707,33 @@ export const OUTREACH_PRESETS = [
   { id: "interested", label: "Interested", description: "Marked interested by hand." },
   { id: "installed", label: "Installed", description: "Marked installed by hand." },
   { id: "declined", label: "Declined", description: "Declined or do not contact." },
+  {
+    id: "unreachable",
+    label: "Unreachable",
+    description: "Not on WhatsApp or invalid number — Retry puts a row back in the queue.",
+  },
 ] as const;
 export type OutreachPreset = (typeof OUTREACH_PRESETS)[number]["id"];
 
-// Prospecting presets (all, shopkeepers, customers, wholesalers, to_contact)
-// hide customers archived in every book; the status and follow-up presets show
-// them, so a conversation already in progress never vanishes from its queue
-// because a shopkeeper archived the person meanwhile.
+// Prospecting presets (all, prospects, shopkeepers, customers, wholesalers,
+// to_contact) hide customers archived in every book; the status, pending and
+// follow-up presets show them, so a conversation already in progress never
+// vanishes from its queue because a shopkeeper archived the person meanwhile.
 export function presetFilters(preset: OutreachPreset): OutreachFilters {
   const base = { ...DEFAULT_OUTREACH_FILTERS };
   const tracking: OutreachFilters = { ...base, archived: "show" };
   switch (preset) {
+    case "prospects":
+      return {
+        ...base,
+        kind: "customer",
+        status: "new",
+        country: "+93",
+        validity: "valid",
+        pending: "no",
+        skipped: "hide",
+        contacted: "never",
+      };
     case "shopkeepers":
       return { ...base, kind: "shopkeeper" };
     case "customers":
@@ -531,6 +742,10 @@ export function presetFilters(preset: OutreachPreset): OutreachFilters {
       return { ...base, wholesaler: "yes" };
     case "to_contact":
       return { ...base, status: "new" };
+    case "pending":
+      return { ...tracking, pending: "yes" };
+    case "unreachable":
+      return { ...tracking, status: "unreachable" };
     case "follow_ups":
       return { ...tracking, followUp: "due" };
     case "sent":
@@ -622,7 +837,19 @@ export function filterOutreach(
     if (filters.kind !== "all" && contact.kind !== filters.kind) return false;
     if (filters.status === "declined_any") {
       if (outreach.status !== "declined" && outreach.status !== "do_not_contact") return false;
+    } else if (filters.status === "unreachable") {
+      if (outreach.status !== "no_whatsapp" && outreach.status !== "invalid") return false;
     } else if (filters.status !== "all" && outreach.status !== filters.status) return false;
+    if (filters.validity === "valid" && !contact.number.valid) return false;
+    if (filters.validity === "invalid" && contact.number.valid) return false;
+    if (filters.numberType === "mobile" && !isMobileNumber(contact.number)) return false;
+    if (filters.numberType === "fixed" && contact.number.type !== "fixed_line") return false;
+    if (filters.pending === "yes" && !isPending(contact)) return false;
+    if (filters.pending === "no" && isPending(contact)) return false;
+    if (filters.skipped === "hide" && isSkippedToday(contact, now)) return false;
+    if (filters.skipped === "only" && !isSkippedToday(contact, now)) return false;
+    if (filters.contacted === "never" && !isNeverMessaged(contact)) return false;
+    if (filters.contacted === "ever" && isNeverMessaged(contact)) return false;
     if (filters.country && dialCode(contact.phone).code !== filters.country) return false;
     if (filters.carrier && afghanCarrier(contact.phone) !== filters.carrier) return false;
     for (const field of ["platform", "language", "source"] as const) {
@@ -755,18 +982,6 @@ export function sortOutreach(
   });
 }
 
-// The "Send next" target: first row of the CURRENT view that is still New and
-// was not seen installing after an earlier contact. Do-not-contact rows can
-// never be New, but the check stays explicit.
-export function nextToContact(rows: OutreachContact[]): OutreachContact | undefined {
-  return rows.find(
-    (c) =>
-      c.outreach.status === "new" &&
-      (c.outreach.status as OutreachStatus) !== "do_not_contact" &&
-      !c.converted,
-  );
-}
-
 export function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
@@ -790,11 +1005,18 @@ export const CSV_COLUMNS: [string, (c: OutreachContact) => string | number | boo
   ["locale", (c) => c.locale],
   ["country", (c) => dialCode(c.phone).country],
   ["carrier", (c) => afghanCarrier(c.phone)],
+  ["number_valid", (c) => c.number.valid],
+  ["number_type", (c) => c.number.type],
+  ["region", (c) => c.number.region],
   ["status", (c) => c.outreach.status],
   ["contact_count", (c) => c.outreach.contact_count],
   ["contacted_at", (c) => c.outreach.contacted_at],
   ["first_contacted_at", (c) => c.outreach.first_contacted_at],
   ["replied_at", (c) => c.outreach.replied_at],
+  ["opened_at", (c) => c.outreach.opened_at],
+  ["pending_since", (c) => c.outreach.pending_since],
+  ["skipped_at", (c) => c.outreach.skipped_at],
+  ["open_count", (c) => c.outreach.open_count],
   ["note", (c) => c.outreach.note],
   ["converted", (c) => c.converted],
   ["follow_up_due", (c) => c.follow_up_due],
@@ -864,21 +1086,50 @@ export function outreachCsv(rows: OutreachContact[]): string {
 function clampRunes(text: string, max: number): string {
   return Array.from(text).slice(0, max).join("");
 }
-// Mirrors the backend's mark rules so a tick flips before the round trip:
-// contacted bumps the count and stamps contacted_at (first_contacted_at once);
-// replied stamps replied_at; an explicit status wins; the note is clamped to
-// 2000 runes and its touch to 200. follow_up_due is only ever CLEARED here —
-// a reply or a fresh send cancels it; nothing sets it.
+// Whether the server leaves a row out of a mark entirely (2026-09-30), so
+// the mirror below leaves it exactly as it was: no count, no touch, no
+// version bump, not even the other fields of the same mark. A `contacted`
+// mark records only a FIRST message: it skips a row that is not sendable
+// (New, Not on WhatsApp, Invalid) or already has a recorded send. A status
+// mark never lifts a stop by accident: it skips a Declined / Do-not-contact
+// row it would move to any other status unless `lift_stop`. Setting or
+// re-setting a stop always applies; a reply or a note on a stopped row
+// applies and keeps the stop.
+function markSkipsRow(state: OutreachState, body: OutreachMarkBody): boolean {
+  if (body.contacted && (!isSendableStatus(state.status) || state.contact_count > 0)) return true;
+  return (
+    body.status !== undefined &&
+    isStoppedStatus(state.status) &&
+    !isStoppedStatus(body.status) &&
+    body.lift_stop !== true
+  );
+}
+// Mirrors the backend's mark rules (MarkOutreach + writeOutreachMark) so a
+// tick flips before the round trip. Rows the server would skip stay as they
+// were (markSkipsRow): a second "Mark sent" never counts a message twice,
+// and a bulk status change never lifts a stop. A status together with
+// contacted or replied is refused whole by the server (400), so the mirror
+// changes nothing at all. A counted send promotes the row to Sent and ends
+// first contact (never_messaged false); a Not-on-WhatsApp or Invalid status
+// resolves an opened chat as nothing sent, as the server's reading of the
+// touch log does. A send, a reply, or an explicit status other than New ends
+// any pending/skipped state; an explicit New keeps it, so resetting a row
+// cannot silently drop a chat opened without an outcome. replied stamps
+// replied_at; the note is clamped to 2000 runes and its touch to 200; every
+// write bumps `version`, as the server does. follow_up_due is only ever
+// CLEARED here — a reply or a fresh send cancels it; nothing sets it.
 export function applyMarkLocally(
   result: OutreachResult,
   body: OutreachMarkBody,
   nowIso: string,
 ): OutreachResult {
+  if (body.status !== undefined && (body.contacted || body.replied)) return result;
   const phones = new Set(body.phones);
   let sent = 0;
   let replied = 0;
   const contacts = result.contacts.map((contact) => {
     if (!phones.has(contact.phone)) return contact;
+    if (markSkipsRow(contact.outreach, body)) return contact;
     const touches: OutreachTouch[] = [...contact.outreach.touches];
     const touch = (kind: OutreachTouch["kind"], detail: string) =>
       touches.unshift({ kind, detail, at: nowIso });
@@ -888,26 +1139,33 @@ export function applyMarkLocally(
       outreach.contacted_at = nowIso;
       outreach.first_contacted_at = outreach.first_contacted_at || nowIso;
       outreach.contact_count += 1;
+      outreach.never_messaged = false;
       touch("sent", body.template_key ?? "");
-      if (body.status === undefined && status === "new") status = "sent";
+      status = "sent";
       sent += 1;
     }
     if (body.replied) {
       outreach.replied_at = nowIso;
       touch("replied", "");
-      if (body.status === undefined && (status === "new" || status === "sent")) status = "replied";
+      if (status === "new" || status === "sent") status = "replied";
       replied += 1;
     }
     if (body.status !== undefined) {
       status = body.status;
       touch("status", body.status);
+      if (isUnreachableStatus(body.status)) outreach.never_messaged = outreach.contact_count === 0;
     }
     if (body.note !== undefined) {
       outreach.note = clampRunes(body.note, 2000);
       touch("note", clampRunes(body.note, 200));
     }
+    if (body.contacted || body.replied || (body.status !== undefined && body.status !== "new")) {
+      outreach.pending_since = "";
+      outreach.skipped_at = "";
+    }
     outreach.status = status;
     outreach.updated_at = nowIso;
+    outreach.version += 1;
     outreach.touches = touches.slice(0, 20);
     const follow_up_due =
       contact.follow_up_due && status === "sent" && !body.contacted && !body.replied;
@@ -924,26 +1182,33 @@ export function applyMarkLocally(
   };
 }
 // The mark response is authoritative: each returned state replaces the
-// matching contact's outreach block wholesale (touch ids, server timestamps,
-// clamps). follow_up_due is not in the response, so the same clearing rule as
-// the optimistic patch applies — a send or a reply cancels it, nothing sets it.
+// matching contact's outreach block wholesale (server timestamps, touch
+// order, clamps), normalized by withStateDefaults. `skipped` lists the rows
+// the mark left untouched (see markSkipsRow): they keep their follow-up
+// flag. For the rest follow_up_due, which is not in the response, follows
+// the optimistic patch's rule — a send or a reply cancels it, nothing sets
+// it.
 export function applyMarkResponse(
   result: OutreachResult,
   updated: OutreachState[],
   body: OutreachMarkBody,
+  skipped: string[] = [],
 ): OutreachResult {
   const byPhone = new Map(updated.map((state) => [state.phone, state]));
+  const untouched = new Set(skipped);
   const contacts = result.contacts.map((contact) => {
-    const outreach = byPhone.get(contact.phone);
-    if (!outreach) return contact;
-    const follow_up_due =
-      contact.follow_up_due && outreach.status === "sent" && !body.contacted && !body.replied;
+    const state = byPhone.get(contact.phone);
+    if (!state) return contact;
+    const outreach = withStateDefaults(state);
+    const follow_up_due = untouched.has(contact.phone)
+      ? contact.follow_up_due
+      : contact.follow_up_due && outreach.status === "sent" && !body.contacted && !body.replied;
     return { ...contact, outreach, follow_up_due };
   });
   return { ...result, contacts, counts: recountOutreach(contacts, result.counts) };
 }
 // Status-derived counts follow the contacts; source-derived ones (total, the
-// kinds, wholesalers, today's tallies) stay the server's.
+// kinds, wholesalers, invalid numbers, today's tallies) stay the server's.
 export function recountOutreach(
   contacts: OutreachContact[],
   counts: OutreachCounts,
@@ -956,6 +1221,8 @@ export function recountOutreach(
     interested: 0,
     installed: 0,
     declined: 0,
+    unreachable: 0,
+    pending: 0,
     follow_ups_due: 0,
     converted: 0,
   };
@@ -976,13 +1243,47 @@ export function recountOutreach(
       case "installed":
         next.installed += 1;
         break;
+      case "no_whatsapp":
+      case "invalid":
+        next.unreachable += 1;
+        break;
       default:
         next.declined += 1;
     }
+    if (isPending(contact)) next.pending += 1;
     if (contact.follow_up_due) next.follow_ups_due += 1;
     if (contact.converted) next.converted += 1;
   }
   return next;
+}
+// An outcome's answer is the row's state read back in the server's own
+// transaction; it replaces the cached block wholesale (normalized by
+// withStateDefaults) — nothing was applied ahead of it. follow_up_due is not
+// in the response, so the same rule as the mark patches applies: a fresh
+// send (contacted_at moved) or any status other than sent clears it;
+// nothing sets it.
+export function applyStateLocally(result: OutreachResult, raw: OutreachState): OutreachResult {
+  const state = withStateDefaults(raw);
+  let changed = false;
+  const contacts = result.contacts.map((contact) => {
+    if (contact.phone !== state.phone) return contact;
+    changed = true;
+    const follow_up_due =
+      contact.follow_up_due &&
+      state.status === "sent" &&
+      state.contacted_at === contact.outreach.contacted_at;
+    return { ...contact, outreach: state, follow_up_due };
+  });
+  if (!changed) return result;
+  return { ...result, contacts, counts: recountOutreach(contacts, result.counts) };
+}
+// The exclusion endpoints answer with the full current list. The contacts
+// themselves are refetched (an excluded source changes which rows exist).
+export function applyExclusionsLocally(
+  result: OutreachResult,
+  exclusions: OutreachExclusion[],
+): OutreachResult {
+  return { ...result, exclusions };
 }
 export function applySettingLocally(
   result: OutreachResult,
@@ -993,6 +1294,103 @@ export function applySettingLocally(
   if (value.trim()) settings[key] = value;
   else delete settings[key];
   return { ...result, settings };
+}
+
+// ---- wire tolerance (older backends) ----
+
+export const EMPTY_OUTREACH_COUNTS: OutreachCounts = {
+  total: 0,
+  shopkeepers: 0,
+  customers: 0,
+  both: 0,
+  wholesalers: 0,
+  to_contact: 0,
+  sent: 0,
+  replied: 0,
+  interested: 0,
+  installed: 0,
+  declined: 0,
+  follow_ups_due: 0,
+  converted: 0,
+  sent_today: 0,
+  replied_today: 0,
+  pending: 0,
+  unreachable: 0,
+  invalid: 0,
+  opened_today: 0,
+};
+// Every OutreachState that enters the cache passes through here — the GET
+// (withOutreachDefaults), a mark's answer (applyMarkResponse) and an
+// outcome's answer (applyStateLocally) — so a field an older backend omits
+// reads as empty, never undefined: strings "", numbers 0, touches []. A
+// missing status reads as New, the server's own default for a number with
+// no row. A missing never_messaged is derived CONSERVATIVELY: true only when
+// no send, no open and no pending chat is on record, so a number that was
+// opened and then skipped reads as messaged until the backend itself says
+// otherwise — never offered twice. The result is a fresh object with
+// exactly the known fields.
+export function withStateDefaults(raw: unknown): OutreachState {
+  const s = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const text = (value: unknown) => (typeof value === "string" ? value : "");
+  const count = (value: unknown) =>
+    typeof value === "number" && Number.isFinite(value) ? value : 0;
+  const contactCount = count(s.contact_count);
+  const openCount = count(s.open_count);
+  const pendingSince = text(s.pending_since);
+  return {
+    phone: text(s.phone),
+    status: typeof s.status === "string" && s.status ? (s.status as OutreachStatus) : "new",
+    contacted_at: text(s.contacted_at),
+    first_contacted_at: text(s.first_contacted_at),
+    replied_at: text(s.replied_at),
+    contact_count: contactCount,
+    never_messaged:
+      typeof s.never_messaged === "boolean"
+        ? s.never_messaged
+        : contactCount === 0 && openCount === 0 && !pendingSince,
+    note: text(s.note),
+    updated_at: text(s.updated_at),
+    touches: Array.isArray(s.touches) ? (s.touches as OutreachTouch[]) : [],
+    opened_at: text(s.opened_at),
+    pending_since: pendingSince,
+    skipped_at: text(s.skipped_at),
+    open_count: openCount,
+    version: count(s.version),
+  };
+}
+// The outreach endpoints deploy with the backend, and this page may be
+// deployed first. Every field batch 2 added is defaulted here so a payload
+// from the 2026-09-29 backend still renders: no verdict reads as valid (never
+// hide a row by accident), no exclusions, no pending/skipped state, version 0
+// (the old backend ignores expected_version), never_messaged derived from the
+// send count (withStateDefaults). Arrays are never null.
+export function withOutreachDefaults(raw: unknown): OutreachResult {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Partial<OutreachResult>;
+  const contacts = (Array.isArray(r.contacts) ? r.contacts : []).map(
+    (contact): OutreachContact => ({
+      ...contact,
+      number:
+        contact.number && typeof contact.number === "object"
+          ? { ...DEFAULT_OUTREACH_NUMBER, ...contact.number }
+          : DEFAULT_OUTREACH_NUMBER,
+      shopkeeper: contact.shopkeeper
+        ? {
+            ...contact.shopkeeper,
+            install_ids: Array.isArray(contact.shopkeeper.install_ids)
+              ? contact.shopkeeper.install_ids
+              : [],
+          }
+        : null,
+      outreach: withStateDefaults(contact.outreach),
+    }),
+  );
+  return {
+    contacts,
+    settings: r.settings && typeof r.settings === "object" ? r.settings : {},
+    counts: { ...EMPTY_OUTREACH_COUNTS, ...(r.counts ?? {}) },
+    exclusions: Array.isArray(r.exclusions) ? r.exclusions : [],
+    generated_at: r.generated_at ?? "",
+  };
 }
 
 // ---- preferences (sessionStorage) ----

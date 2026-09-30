@@ -1,41 +1,66 @@
-// Outreach — the operator's WhatsApp desk (2026-09-29). One row per phone
-// number the server knows: shopkeepers (installs.self_phone,
-// accounts.phone_e164) and the people inside synced kaatas (person events
-// folded per vault by the backend, see internal/admin/outreach.go). The
-// operator ticks "sent" by hand, tracks replies/status/notes, sees follow-ups
-// due and opens WhatsApp with a filled template. Everything is client-side
-// over one GET /v1/admin/outreach payload, the same pipeline as Users:
-// presets → filters → search → sort → page. Writes go through two POSTs (mark,
-// setting); each tick patches the cached result optimistically
-// (outreach-model.applyMarkLocally), rolls back on error, takes the server's
-// answer on success (applyMarkResponse) and refetches once the last write in
-// flight settles, so a slow network never leaves a stale checkbox. Summary
-// cards count the rows their click opens (presetCounts). Idioms are copied
-// from Users.tsx on purpose (FIELD/BUTTON, Pill, FilterSelect, SummaryCard,
-// the card/table split, sessionStorage prefs that hold only enums and
-// numbers); its file-local helpers are duplicated minimally rather than
-// lifted so Users.tsx stays untouched.
+// Outreach — the operator's WhatsApp desk (2026-09-29; outcomes, the prospect
+// queue and source exclusions 2026-09-30). One row per phone number the server
+// knows: shopkeepers (installs.self_phone, accounts.phone_e164) and the people
+// inside synced kaatas (person events folded per vault by the backend, see
+// internal/admin/outreach.go). Everything is client-side over one GET
+// /v1/admin/outreach payload, the same pipeline as Users: presets → filters →
+// search → sort → page. Summary cards count the rows their click opens
+// (presetCounts).
+//
+// Writes come in three shapes. Bulk `mark` and `setting` patch the cached
+// result optimistically (outreach-model.applyMarkLocally), roll back on error,
+// take the server's answer on success and refetch once the last write in
+// flight settles, so a slow network never leaves a stale checkbox. An
+// `outcome` (opened, sent, no_whatsapp, invalid, skip, retry) is one contact,
+// version-checked, and NEVER optimistic: the server's answer replaces the row
+// (applyStateLocally); a 409 means another tab already recorded something or
+// the row's status refuses it (contact stopped, not retryable), and the page
+// refetches instead of retrying. Every chat opens the same way (openChat,
+// 2026-09-30): the tab is created in the click, "opened" is recorded with the
+// row's version, and only then is the tab pointed at wa.me — the page has no
+// wa.me link, so a middle-click cannot open a chat around the record. Opening
+// records "opened" only — "sent" is the operator's own confirmation — so a
+// closed tab or a crashed browser cannot mark a message that never went out,
+// and the Queue card lists every opened-but-unconfirmed chat until it gets an
+// outcome. Copy message records "opened" the same way once the clipboard
+// write has landed (copyMessage), since a pasted message is an opened chat.
+// `exclude` marks a book, account or install as verified test data; the list
+// is refetched because rows disappear.
+//
+// Idioms are copied from Users.tsx on purpose (FIELD/BUTTON, Pill,
+// FilterSelect, SummaryCard, the card/table split, sessionStorage prefs that
+// hold only enums and numbers); its file-local helpers are duplicated
+// minimally rather than lifted so Users.tsx stays untouched.
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useToast } from "../../components/Toast";
 import {
+  ConflictError,
+  StaleError,
   markOutreach,
+  postExclusion,
+  postOutcome,
   saveOutreachSetting,
   useAdminToken,
   useOutreach,
   type OutreachContact,
   type OutreachCustomer,
+  type OutreachExclusion,
+  type OutreachExclusionBody,
+  type OutreachExclusionKind,
   type OutreachMarkBody,
+  type OutreachMarkResult,
+  type OutreachOutcomeBody,
   type OutreachResult,
   type OutreachShopkeeper,
   type OutreachState,
   type OutreachStatus,
+  type OutreachTouch,
 } from "./api";
 import { reportingDay } from "./dates";
 import {
   AFGHAN_CARRIERS,
-  AUTO_MARK_KEY,
   CONVERTED_FILTERS,
   DEFAULT_OUTREACH_FILTERS,
   DEFAULT_SLUGS,
@@ -45,9 +70,11 @@ import {
   STATUS_LABELS,
   activePreset,
   afghanCarrier,
+  applyExclusionsLocally,
   applyMarkLocally,
   applyMarkResponse,
   applySettingLocally,
+  applyStateLocally,
   balanceSummary,
   buildMessage,
   chunk,
@@ -58,14 +85,24 @@ import {
   facetValue,
   filterOutreach,
   formatMoney,
+  isNeverMessaged,
   isOutreachStatus,
+  isProspect,
+  isSkippedToday,
+  isStoppedStatus,
+  isUnreachableStatus,
   languageLabel,
   lastTallyAt,
-  nextToContact,
+  nextToOpen,
+  numberCaption,
+  numberTypeLabel,
+  offersChat,
+  openableCount,
   outreachCsv,
   ownerNames,
   parseMoney,
   parseOutreachPreferences,
+  pendingRows,
   platformLabel,
   presetCounts,
   presetFilters,
@@ -85,7 +122,9 @@ import {
 } from "./outreach-model";
 import { Card, ErrorCard, PageHeader, SkeletonCard, fmtDate, fmtInt, lastSeenInfo } from "./ui";
 
-const STORAGE_KEY = "kaata_admin_outreach_filters_v1";
+// v2 (2026-09-30): "Messaged before" now follows never_messaged, so a v1
+// value is ignored and a tab that held one opens on Prospects like a fresh one.
+const STORAGE_KEY = "kaata_admin_outreach_filters_v2";
 const FIELD =
   "min-h-11 min-w-0 w-full max-w-full rounded-lg border border-[#e5e5e5] bg-white px-3 py-2 text-base text-[#404040] outline-none transition focus:border-[#171717] focus:ring-2 focus:ring-[#171717]/10 md:text-sm";
 const BUTTON =
@@ -99,7 +138,9 @@ const SMALL_SELECT =
   "min-h-11 min-w-0 max-w-full rounded-md border border-[#e5e5e5] bg-white py-1.5 pl-2 pr-6 text-base text-[#404040] focus-visible:outline-[#171717] md:min-h-8 md:text-xs";
 const PAGE_SIZES = [25, 50, 100];
 const WA_BUTTON =
-  "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md bg-[#e8f5ed] px-2.5 py-1 text-xs font-semibold text-[#116b4f] transition hover:bg-[#d7eede] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#171717] md:min-h-8";
+  "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md bg-[#e8f5ed] px-2.5 py-1 text-xs font-semibold text-[#116b4f] transition hover:bg-[#d7eede] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#171717] disabled:cursor-not-allowed disabled:opacity-40 md:min-h-8";
+const SMALL_PRIMARY =
+  "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md bg-[#171717] px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-[#404040] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#171717] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 md:min-h-8";
 
 type SelectKey =
   | "kind"
@@ -111,10 +152,15 @@ type SelectKey =
   | "direction"
   | "archived"
   | "lastSeen"
+  | "contacted"
   | "replied"
   | "followUp"
   | "converted"
-  | "wholesaler";
+  | "wholesaler"
+  | "validity"
+  | "numberType"
+  | "pending"
+  | "skipped";
 const SELECTS: { key: SelectKey; label: string; options: [string, string][] }[] = [
   {
     key: "kind",
@@ -133,6 +179,7 @@ const SELECTS: { key: SelectKey; label: string; options: [string, string][] }[] 
       ["all", "Any status"],
       ...OUTREACH_STATUSES.map((status): [string, string] => [status, STATUS_LABELS[status]]),
       ["declined_any", "Declined or do not contact"],
+      ["unreachable", "Not on WhatsApp or invalid"],
     ],
   },
   {
@@ -197,6 +244,15 @@ const SELECTS: { key: SelectKey; label: string; options: [string, string][] }[] 
     ],
   },
   {
+    key: "contacted",
+    label: "Messaged before",
+    options: [
+      ["all", "All"],
+      ["never", "Never messaged"],
+      ["ever", "Messaged or opened"],
+    ],
+  },
+  {
     key: "replied",
     label: "Replied",
     options: [
@@ -229,22 +285,84 @@ const SELECTS: { key: SelectKey; label: string; options: [string, string][] }[] 
       ["yes", "Wholesalers only"],
     ],
   },
+  {
+    key: "validity",
+    label: "Number validity (numbering plan)",
+    options: [
+      ["all", "Any"],
+      ["valid", "Valid"],
+      ["invalid", "Invalid"],
+    ],
+  },
+  {
+    key: "numberType",
+    label: "Number type",
+    options: [
+      ["all", "Any"],
+      ["mobile", "Mobile"],
+      ["fixed", "Fixed line"],
+    ],
+  },
+  {
+    key: "pending",
+    label: "Awaiting outcome",
+    options: [
+      ["all", "Any"],
+      ["yes", "Opened, no outcome yet"],
+      ["no", "Not awaiting"],
+    ],
+  },
+  {
+    key: "skipped",
+    label: "Skipped today",
+    options: [
+      ["all", "Any"],
+      ["hide", "Hide skipped today"],
+      ["only", "Only skipped today"],
+    ],
+  },
 ];
+const TOUCH_LABELS: Record<OutreachTouch["kind"], string> = {
+  sent: "Sent",
+  replied: "Replied",
+  status: "Status",
+  note: "Note",
+  opened: "Opened",
+  skipped: "Skipped",
+  retry: "Retry",
+};
+const EXCLUSION_KIND_LABELS: Record<OutreachExclusionKind, string> = {
+  vault: "Book",
+  account: "Account",
+  install: "Install",
+};
+type Verdict = "sent" | "no_whatsapp" | "invalid" | "skip";
+// The strip's exit for a pending row (2026-09-30). Only a first contact —
+// status New, no recorded send — gets "Skip for now" (back tomorrow). Any
+// other pending row is a reopened conversation: its exit reads "Close —
+// nothing sent" and records that reason, because "skip until tomorrow" would
+// misdescribe it (the queue never offers it again anyway).
+function closesFollowUp(contact: OutreachContact): boolean {
+  return contact.outreach.status !== "new" || contact.outreach.contact_count > 0;
+}
 
 function presetFromHash(): OutreachPreset | undefined {
   if (window.location.hash.split("?")[0].replace(/^#\/?/, "") !== "outreach") return undefined;
   const value = new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("view");
   return OUTREACH_PRESETS.find((p) => p.id === value)?.id;
 }
+// A first visit (nothing saved this session, no preset in the hash) opens on
+// Prospects, so "Open next" has the resumable queue under it without a click;
+// a saved view is restored as before.
 function initialPreferences(): OutreachPreferences {
-  let saved: unknown;
+  let saved: unknown = null;
   try {
     saved = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null");
   } catch {
     /* Storage may be unavailable. */
   }
   const preferences = parseOutreachPreferences(saved);
-  const preset = presetFromHash();
+  const preset = presetFromHash() ?? (saved === null ? "prospects" : undefined);
   return preset ? { ...preferences, filters: presetFilters(preset) } : preferences;
 }
 function fmtDay(day: string): string {
@@ -283,6 +401,20 @@ function downloadBlob(blob: Blob, filename: string) {
   // Deferred revoke — revoking synchronously races the download in Safari.
   setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
 }
+// Starts a clipboard write and reports whether it landed. Browsers only
+// allow the write during the click that asked for it, so callers invoke this
+// before their first await; a missing clipboard API (insecure context) reads
+// as a refusal.
+function writeClipboard(text: string): Promise<boolean> {
+  try {
+    return navigator.clipboard.writeText(text).then(
+      () => true,
+      () => false,
+    );
+  } catch {
+    return Promise.resolve(false);
+  }
+}
 
 // Both writes patch the cached GET first so the UI answers at once, put the
 // snapshot back on failure, patch again from the server's answer on success,
@@ -294,6 +426,31 @@ function downloadBlob(blob: Blob, filename: string) {
 // the settle refetch hits the same 401 and the shell's sign-out fires from there.
 const MARK_MUTATION_KEY = ["admin", "outreach", "mark"];
 const SETTING_MUTATION_KEY = ["admin", "outreach", "setting"];
+const OUTCOME_MUTATION_KEY = ["admin", "outreach", "outcome"];
+const EXCLUSION_MUTATION_KEY = ["admin", "outreach", "exclude"];
+// An outcome request; `quiet` leaves the failure toast to the caller, which
+// has a better sentence for it (Sent & next's second half).
+type OutcomeRequest = { body: OutreachOutcomeBody; quiet?: boolean };
+// What a refused or failed outcome tells the operator (2026-09-30). The three
+// 409 reasons all mean the cached row is behind the server, so they refetch;
+// nothing is ever retried, because a retry is how a second message goes out.
+function describeOutcomeError(error: Error): {
+  text: string;
+  tone: "info" | "error";
+  refresh: boolean;
+} {
+  if (error instanceof StaleError)
+    return { text: "Already recorded elsewhere — refreshed", tone: "info", refresh: true };
+  if (error instanceof ConflictError && error.message === "contact stopped")
+    return {
+      text: "This number is marked Declined or Do not contact. Change its status first.",
+      tone: "error",
+      refresh: true,
+    };
+  if (error instanceof ConflictError && error.message === "not retryable")
+    return { text: "Can't retry: the status changed — refreshed", tone: "error", refresh: true };
+  return { text: error.message || "Couldn't record the outcome.", tone: "error", refresh: false };
+}
 function useOutreachMutations() {
   const token = useAdminToken();
   const client = useQueryClient();
@@ -305,13 +462,15 @@ function useOutreachMutations() {
   };
   const mark = useMutation({
     mutationKey: MARK_MUTATION_KEY,
-    mutationFn: async (body: OutreachMarkBody): Promise<OutreachState[]> => {
+    mutationFn: async (body: OutreachMarkBody): Promise<Required<OutreachMarkResult>> => {
       const updated: OutreachState[] = [];
+      const skipped: string[] = [];
       for (const phones of chunk(body.phones, 500)) {
         const response = await markOutreach(token, { ...body, phones });
         if (Array.isArray(response.updated)) updated.push(...response.updated);
+        if (Array.isArray(response.skipped)) skipped.push(...response.skipped);
       }
-      return updated;
+      return { updated, skipped };
     },
     onMutate: async (body) => {
       await client.cancelQueries({ queryKey: key });
@@ -320,9 +479,13 @@ function useOutreachMutations() {
         client.setQueryData(key, applyMarkLocally(snapshot, body, new Date().toISOString()));
       return { snapshot };
     },
-    onSuccess: (updated, body) => {
+    onSuccess: (response, body) => {
       const current = client.getQueryData<OutreachResult | null>(key);
-      if (current) client.setQueryData(key, applyMarkResponse(current, updated, body));
+      if (current)
+        client.setQueryData(
+          key,
+          applyMarkResponse(current, response.updated, body, response.skipped),
+        );
     },
     onError: (error, _body, context) => {
       if (context && context.snapshot !== undefined) client.setQueryData(key, context.snapshot);
@@ -351,13 +514,48 @@ function useOutreachMutations() {
     },
     onSettled: () => settleUnlessMoreInFlight(SETTING_MUTATION_KEY),
   });
-  return { mark, setting };
+  // Outcomes are NOT patched optimistically: the server checks
+  // `expected_version` and answers with the row's state, which replaces the
+  // cached block as-is. A 409 means another tab, or an earlier click that
+  // already landed, wrote this row first (StaleError), or its status refuses
+  // the outcome (ConflictError); nothing was applied, and the answer is a
+  // refetch, never a retry — a retry is how a second message gets sent. Every
+  // other failure just says why.
+  const outcome = useMutation({
+    mutationKey: OUTCOME_MUTATION_KEY,
+    mutationFn: (request: OutcomeRequest) => postOutcome(token, request.body),
+    onSuccess: (response) => {
+      const current = client.getQueryData<OutreachResult | null>(key);
+      if (current && response.state)
+        client.setQueryData(key, applyStateLocally(current, response.state));
+    },
+    onError: (error, request) => {
+      const failure = describeOutcomeError(error);
+      if (failure.refresh) void client.invalidateQueries({ queryKey: ["admin", "outreach"] });
+      if (!request.quiet) toast.push(failure.text, failure.tone);
+    },
+    onSettled: () => settleUnlessMoreInFlight(OUTCOME_MUTATION_KEY),
+  });
+  // Excluding a source changes which rows exist, so the contact list is
+  // always refetched; the exclusions card takes the server's list at once.
+  const exclude = useMutation({
+    mutationKey: EXCLUSION_MUTATION_KEY,
+    mutationFn: (body: OutreachExclusionBody) => postExclusion(token, body),
+    onSuccess: (response) => {
+      const current = client.getQueryData<OutreachResult | null>(key);
+      if (current && Array.isArray(response.exclusions))
+        client.setQueryData(key, applyExclusionsLocally(current, response.exclusions));
+    },
+    onError: (error) => toast.push(error.message || "Couldn't update the exclusion.", "error"),
+    onSettled: () => void client.invalidateQueries({ queryKey: ["admin", "outreach"] }),
+  });
+  return { mark, setting, outcome, exclude };
 }
 
 export function Outreach() {
   const outreach = useOutreach();
   const toast = useToast();
-  const { mark, setting } = useOutreachMutations();
+  const { mark, setting, outcome, exclude } = useOutreachMutations();
   const [preferences, setPreferences] = useState(initialPreferences);
   const { filters, sortKey, sortDesc, pageSize } = preferences;
   const [search, setSearch] = useState("");
@@ -367,11 +565,22 @@ export function Outreach() {
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [overrides, setOverrides] = useState<Record<string, LanguageOverride>>({});
   const [clockTick, setNow] = useState(Date.now);
+  // One flag for every write in flight (2026-09-30): an outcome flow (row
+  // open, Open next, Sent & next, the strip's buttons, the row tick, Retry),
+  // plus every outcome and mark request counted by key — `isPending` would
+  // only track each hook's latest call. The ref answers in the same tick a
+  // double click lands in; the state re-renders the buttons disabled. A
+  // pending mark counts, so no outcome goes out with a version a mark is
+  // about to bump.
+  const [outcomeFlow, setOutcomeFlow] = useState(false);
+  const outcomeFlowRef = useRef(false);
+  const outcomesInFlight = useIsMutating({ mutationKey: OUTCOME_MUTATION_KEY });
+  const marksInFlight = useIsMutating({ mutationKey: MARK_MUTATION_KEY });
+  const busy = outcomeFlow || outcomesInFlight > 0 || marksInFlight > 0;
   const now = Math.max(clockTick, outreach.dataUpdatedAt);
   const data = outreach.data ?? null;
   const contacts = useMemo(() => data?.contacts ?? [], [data]);
   const settings = useMemo(() => data?.settings ?? {}, [data]);
-  const autoMark = settings[AUTO_MARK_KEY] !== "off";
   const selectedPreset = activePreset(filters);
   // Card values come from the same predicates the cards apply (see
   // outreach-model.presetCounts); only "Today" is the server's touch count.
@@ -392,18 +601,29 @@ export function Outreach() {
     filters.contactedTo &&
     filters.contactedFrom > filters.contactedTo
   );
-  // Chips describe what the operator changed on top of the current view, so a
-  // preset's own baseline (e.g. the tracking tabs showing archived customers)
-  // is not reported as an extra filter.
-  const activeFilters = filterChips(
-    filters,
-    selectedPreset ? presetFilters(selectedPreset) : DEFAULT_OUTREACH_FILTERS,
-  );
+  // Chips compare against the active preset's filters while the view still
+  // matches a preset exactly, so a preset's own values (the tracking tabs
+  // showing archived customers, Prospects' +93) are not reported as extra
+  // filters; once the view matches no preset they compare against the
+  // defaults. Removing a chip puts that field back to the same baseline.
+  const chipBaseline = selectedPreset ? presetFilters(selectedPreset) : DEFAULT_OUTREACH_FILTERS;
+  const activeFilters = filterChips(filters, chipBaseline);
   const selectedPhones = useMemo(
     () => Object.keys(selected).filter((phone) => selected[phone]),
     [selected],
   );
-  const next = nextToContact(sorted);
+  const next = nextToOpen(sorted, now);
+  const openable = openableCount(sorted, now);
+  // The strip spans ALL contacts, not the current view: an opened chat waits
+  // for its outcome whatever tab the operator moved to since.
+  const pending = useMemo(() => pendingRows(contacts), [contacts]);
+  const prospectsRemaining = useMemo(
+    () => contacts.filter((contact) => isProspect(contact, now, "+93")).length,
+    [contacts, now],
+  );
+  const viewLabel = selectedPreset
+    ? (OUTREACH_PRESETS.find((preset) => preset.id === selectedPreset)?.label ?? "this view")
+    : "a custom view";
 
   useEffect(() => {
     try {
@@ -507,12 +727,8 @@ export function Outreach() {
   }, [contacts, filters.country]);
 
   async function copyText(text: string, message: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.push(message, "success");
-    } catch {
-      toast.push("Couldn't copy — the browser blocked clipboard access.", "error");
-    }
+    if (await writeClipboard(text)) toast.push(message, "success");
+    else toast.push("Couldn't copy — the browser blocked clipboard access.", "error");
   }
   function markPhones(body: OutreachMarkBody, message: string) {
     mark.mutate(body, { onSuccess: () => toast.push(message, "success") });
@@ -520,25 +736,208 @@ export function Outreach() {
   function messageFor(contact: OutreachContact) {
     return buildMessage(contact, settings, overrides[contact.phone] ?? "auto");
   }
-  function onWhatsApp(contact: OutreachContact) {
-    if (!autoMark) return;
-    const message = messageFor(contact);
-    markPhones(
-      { phones: [contact.phone], contacted: true, template_key: message.templateKey },
-      `${contact.phone} marked sent`,
-    );
+  function beginOutcome(): boolean {
+    if (outcomeFlowRef.current) return false;
+    outcomeFlowRef.current = true;
+    setOutcomeFlow(true);
+    return true;
   }
-  function sendNext() {
-    if (!next) {
-      toast.push("No new numbers in this view.", "info");
+  function endOutcome() {
+    outcomeFlowRef.current = false;
+    setOutcomeFlow(false);
+  }
+  // Every outcome POST goes through here, always inside beginOutcome /
+  // endOutcome. The hook toasts a failure unless `quiet` (the caller then
+  // words it); either way the caller gets the row's state or the error and
+  // decides whether to go on — never whether to retry.
+  async function recordOutcome(
+    body: OutreachOutcomeBody,
+    quiet = false,
+  ): Promise<OutreachState | Error> {
+    try {
+      return (await outcome.mutateAsync({ body, quiet })).state;
+    } catch (error) {
+      return error instanceof Error ? error : new Error("Couldn't record the outcome.");
+    }
+  }
+  function verdictMessage(contact: OutreachContact, verdict: Verdict | "retry"): string {
+    switch (verdict) {
+      case "sent":
+        return `${contact.phone} marked sent`;
+      case "no_whatsapp":
+        return `${contact.phone}: not on WhatsApp`;
+      case "invalid":
+        return `${contact.phone}: invalid number`;
+      case "skip":
+        return closesFollowUp(contact)
+          ? `${contact.phone}: closed, nothing sent`
+          : `${contact.phone} skipped until tomorrow`;
+      case "retry":
+        return `${contact.phone} back to New`;
+    }
+  }
+  // One verdict for one row, version-checked, from the strip or the row.
+  function recordVerdict(contact: OutreachContact, verdict: Verdict | "retry") {
+    if (!beginOutcome()) return;
+    const body: OutreachOutcomeBody = {
+      phone: contact.phone,
+      outcome: verdict,
+      expected_version: contact.outreach.version,
+    };
+    if (verdict === "sent") body.template_key = messageFor(contact).templateKey;
+    if (verdict === "skip" && closesFollowUp(contact)) body.reason = "nothing sent";
+    void recordOutcome(body)
+      .then((state) => {
+        if (!(state instanceof Error)) toast.push(verdictMessage(contact, verdict), "success");
+      })
+      .finally(endOutcome);
+  }
+  // Pop-up rule: a tab opened after an await is a blocked pop-up, so the tab
+  // is created synchronously in the click handler, pointed at about:blank,
+  // and only navigated to wa.me once the server accepted the record. Cutting
+  // `opener` leaves the new tab no handle on the dashboard.
+  function openBlankTab(): Window | null {
+    const tab = window.open("about:blank");
+    if (tab) tab.opener = null;
+    return tab;
+  }
+  // Every chat opens through here — a row's WhatsApp button, "Open next",
+  // the strip's "Open chat again" (2026-09-30: always record-then-navigate).
+  // The tab is created synchronously in the click, "opened" is recorded with
+  // the row's version, and only on success is the tab pointed at wa.me; a
+  // refused or failed record closes it, so a row another tab already opened
+  // or sent is never opened twice, and no chat opens unrecorded.
+  async function openChat(contact: OutreachContact) {
+    if (outcomeFlowRef.current) return;
+    const tab = openBlankTab();
+    if (!tab) {
+      toast.push("Allow pop-ups for this site to open chats.", "error");
       return;
     }
-    const message = messageFor(next);
-    window.open(waLink(next.phone, message.text), "_blank", "noopener,noreferrer");
-    markPhones(
-      { phones: [next.phone], contacted: true, template_key: message.templateKey },
-      `Sent to ${next.phone} marked`,
+    beginOutcome();
+    try {
+      const message = messageFor(contact);
+      const opened = await recordOutcome({
+        phone: contact.phone,
+        outcome: "opened",
+        template_key: message.templateKey,
+        expected_version: contact.outreach.version,
+      });
+      if (opened instanceof Error) {
+        tab.close();
+        return;
+      }
+      tab.location.href = waLink(contact.phone, message.text);
+    } finally {
+      endOutcome();
+    }
+  }
+  // Copy message is an open too (2026-09-30): the operator pastes the text
+  // into a chat by hand, so the row must land in "Awaiting outcome" like an
+  // opened chat. The clipboard write starts first, synchronously in the
+  // click (it needs the user activation an await would spend); then "opened"
+  // is recorded through the same guarded path as every open, with the row's
+  // version. A copy the browser refused records nothing — there is nothing in
+  // hand to send. Only rows that offer a chat have the button (RowActions).
+  async function copyMessage(contact: OutreachContact) {
+    if (outcomeFlowRef.current) return;
+    const message = messageFor(contact);
+    const copied = writeClipboard(message.text);
+    beginOutcome();
+    try {
+      if (!(await copied)) {
+        toast.push("Couldn't copy — the browser blocked clipboard access.", "error");
+        return;
+      }
+      const opened = await recordOutcome(
+        {
+          phone: contact.phone,
+          outcome: "opened",
+          template_key: message.templateKey,
+          expected_version: contact.outreach.version,
+        },
+        true,
+      );
+      if (opened instanceof Error)
+        toast.push(
+          "Copied, but couldn't record it as opened — record the outcome by hand.",
+          "error",
+        );
+      else toast.push(`Message copied · ${contact.phone} awaiting outcome`, "success");
+    } finally {
+      endOutcome();
+    }
+  }
+  // "Open next": the first openable row of the CURRENT view (first contact
+  // only, see canOpen), opened like any other chat.
+  function openNext() {
+    if (outcomeFlowRef.current) return;
+    const target = nextToOpen(sorted, now);
+    if (!target) {
+      toast.push("Nothing to open in this view.", "info");
+      return;
+    }
+    void openChat(target);
+  }
+  // "Sent & next" on a pending row. The next target comes from the current
+  // view BEFORE anything opens, so an empty queue opens no tab at all; then
+  // sent is recorded (version-checked), then opened for the target, and only
+  // then is the tab navigated. Any failure closes the tab and never advances;
+  // a sent record that already landed stays — that is the outcome that must
+  // not be lost — and one toast says both halves.
+  async function sentAndNext(contact: OutreachContact) {
+    if (outcomeFlowRef.current) return;
+    const target = nextToOpen(
+      sorted.filter((row) => row.phone !== contact.phone),
+      now,
     );
+    const tab = target ? openBlankTab() : null;
+    beginOutcome();
+    try {
+      const sent = await recordOutcome({
+        phone: contact.phone,
+        outcome: "sent",
+        template_key: messageFor(contact).templateKey,
+        expected_version: contact.outreach.version,
+      });
+      if (sent instanceof Error) {
+        tab?.close();
+        return;
+      }
+      if (!target) {
+        toast.push("Marked sent — queue empty in this view.", "info");
+        return;
+      }
+      if (!tab) {
+        toast.push("Marked sent — allow pop-ups for this site to open the next chat.", "info");
+        return;
+      }
+      const message = messageFor(target);
+      const opened = await recordOutcome(
+        {
+          phone: target.phone,
+          outcome: "opened",
+          template_key: message.templateKey,
+          expected_version: target.outreach.version,
+        },
+        true,
+      );
+      if (opened instanceof Error) {
+        tab.close();
+        toast.push(
+          `Marked sent · couldn't open the next chat (${describeOutcomeError(opened).text})`,
+          "error",
+        );
+        return;
+      }
+      tab.location.href = waLink(target.phone, message.text);
+      toast.push(`Marked sent · opened ${target.phone}`, "success");
+    } finally {
+      endOutcome();
+    }
+  }
+  function onExclude(body: OutreachExclusionBody, message: string) {
+    exclude.mutate(body, { onSuccess: () => toast.push(message, "success") });
   }
   function exportCsv() {
     downloadBlob(
@@ -548,15 +947,28 @@ export function Outreach() {
     toast.push(`Exported ${fmtInt(sorted.length)} rows`, "success");
   }
   // The selection survives a failed bulk mark so a retry needs no re-ticking;
-  // it clears once the server has answered.
-  function bulk(body: Omit<OutreachMarkBody, "phones">, label: string) {
+  // it clears once the server has answered. The server leaves some rows out
+  // and reports them as skipped (2026-09-30): "Mark sent" records only a
+  // FIRST message (New, Not on WhatsApp or Invalid, never recorded as sent),
+  // and a status action never lifts a stop — the body type has no lift_stop,
+  // so no bulk action can send it. The toast says how many and why.
+  function bulk(body: Omit<OutreachMarkBody, "phones" | "lift_stop">, label: string) {
     if (!selectedPhones.length) return;
-    const message = `${label} · ${fmtInt(selectedPhones.length)} numbers`;
+    const phones = selectedPhones;
     mark.mutate(
-      { ...body, phones: selectedPhones },
+      { ...body, phones },
       {
-        onSuccess: () => {
-          toast.push(message, "success");
+        onSuccess: ({ skipped }) => {
+          const counted = fmtInt(phones.length - skipped.length);
+          const n = fmtInt(skipped.length);
+          const unchanged = !skipped.length
+            ? ""
+            : body.contacted
+              ? ` · ${n} not counted (already messaged or stopped)`
+              : body.status !== undefined
+                ? ` · ${n} stopped numbers left unchanged — change them one at a time`
+                : ` · ${n} left unchanged`;
+          toast.push(`${label} · ${counted} numbers${unchanged}`, "success");
           setSelected({});
         },
       },
@@ -568,30 +980,34 @@ export function Outreach() {
     expanded,
     selected,
     overrides,
-    saving: mark.isPending,
+    saving: busy,
+    busy,
+    excluding: exclude.isPending,
     onToggle: (phone: string) => setExpanded((value) => ({ ...value, [phone]: !value[phone] })),
     onSelect: (phone: string, on: boolean) => setSelected((value) => ({ ...value, [phone]: on })),
     onOverride: (phone: string, value: LanguageOverride) =>
       setOverrides((current) => ({ ...current, [phone]: value })),
+    // A stop is lifted only here, one row at a time (2026-09-30): moving a
+    // Declined or Do-not-contact row to another status sends lift_stop, which
+    // no bulk action can, so a bulk status change leaves every stop alone.
     onStatus: (contact: OutreachContact, status: OutreachStatus) =>
-      markPhones({ phones: [contact.phone], status }, `${contact.phone}: ${STATUS_LABELS[status]}`),
-    onSent: (contact: OutreachContact, on: boolean) => {
-      if (on) {
-        const message = messageFor(contact);
-        markPhones(
-          { phones: [contact.phone], contacted: true, template_key: message.templateKey },
-          `${contact.phone} marked sent`,
-        );
-      } else
-        markPhones({ phones: [contact.phone], status: "new" }, `${contact.phone} reset to New`);
-    },
+      markPhones(
+        isStoppedStatus(contact.outreach.status)
+          ? { phones: [contact.phone], status, lift_stop: true }
+          : { phones: [contact.phone], status },
+        `${contact.phone}: ${STATUS_LABELS[status]}`,
+      ),
+    // The tick is the outcome "sent" (version-checked) and one-way
+    // (2026-09-30): there is no untick; resetting to New is the status menu's.
+    onSent: (contact: OutreachContact) => recordVerdict(contact, "sent"),
     onReplied: (contact: OutreachContact) =>
       markPhones({ phones: [contact.phone], replied: true }, `${contact.phone} marked replied`),
     onNote: (contact: OutreachContact, note: string) =>
       markPhones({ phones: [contact.phone], note }, "Note saved"),
-    onWhatsApp,
-    onCopyMessage: (contact: OutreachContact) =>
-      void copyText(messageFor(contact).text, "Message copied"),
+    onRetry: (contact: OutreachContact) => recordVerdict(contact, "retry"),
+    onExclude,
+    onOpenChat: (contact: OutreachContact) => void openChat(contact),
+    onCopyMessage: (contact: OutreachContact) => void copyMessage(contact),
     onCopyPhone: (contact: OutreachContact) => void copyText(contact.phone, "Copied"),
     messageFor,
   };
@@ -614,13 +1030,27 @@ export function Outreach() {
         </Card>
       ) : (
         <>
-          <div className="mb-3 grid min-w-0 grid-cols-2 gap-2 sm:gap-3 md:grid-cols-4">
+          <div className="mb-3 grid min-w-0 grid-cols-2 gap-2 sm:gap-3 md:grid-cols-4 lg:grid-cols-5">
             <SummaryCard
               label="All numbers"
               value={cards.all}
               sub={`${fmtInt(data.counts.both)} are both`}
               onClick={() => applyPreset("all")}
               icon="people"
+            />
+            <SummaryCard
+              label="Prospects"
+              value={cards.prospects}
+              sub="Customer-only · never messaged · valid · AF"
+              onClick={() => applyPreset("prospects")}
+              icon="list"
+            />
+            <SummaryCard
+              label="Awaiting outcome"
+              value={cards.pending}
+              sub="Chat opened, nothing recorded yet"
+              onClick={() => applyPreset("pending")}
+              icon="hourglass"
             />
             <SummaryCard
               label="Shopkeepers"
@@ -692,12 +1122,28 @@ export function Outreach() {
               ))}
               <span className="mx-1.5 text-[#d4d4d4]">·</span>
               Declined {fmtInt(cards.declined)}
+              <span className="mx-1.5 text-[#d4d4d4]">·</span>
+              Unreachable {fmtInt(cards.unreachable)}
             </p>
             <p className="tabular-nums" role="status">
-              Today: {fmtInt(data.counts.sent_today)} sent · {fmtInt(data.counts.replied_today)}{" "}
-              replied
+              Today: {fmtInt(data.counts.opened_today)} opened · {fmtInt(data.counts.sent_today)}{" "}
+              sent · {fmtInt(data.counts.replied_today)} replied
             </p>
           </div>
+          <QueueCard
+            next={next}
+            openable={openable}
+            viewLabel={viewLabel}
+            prospectsRemaining={prospectsRemaining}
+            pending={pending}
+            busy={busy}
+            messageFor={messageFor}
+            onOpenNext={openNext}
+            onSentAndNext={(contact) => void sentAndNext(contact)}
+            onVerdict={recordVerdict}
+            onOpenAgain={(contact) => void openChat(contact)}
+            onCopyPhone={(contact) => void copyText(contact.phone, "Copied")}
+          />
           <section
             className="min-w-0 w-full max-w-full rounded-xl border border-[#e5e5e5] bg-white shadow-sm"
             aria-label="Outreach directory"
@@ -902,10 +1348,8 @@ export function Outreach() {
                     <button
                       key={chip.key}
                       className="inline-flex min-h-11 min-w-0 max-w-full items-center gap-1.5 rounded-xl border border-[#e5e5e5] bg-[#f5f5f5] px-2.5 py-1 text-left text-xs text-[#171717] hover:bg-[#f5f5f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#171717] md:min-h-8"
-                      aria-label={`Remove ${chip.label} filter`}
-                      onClick={() =>
-                        updateFilters({ [chip.key]: DEFAULT_OUTREACH_FILTERS[chip.key] })
-                      }
+                      aria-label={`${chip.label} — remove filter`}
+                      onClick={() => updateFilters({ [chip.key]: chipBaseline[chip.key] })}
                     >
                       <span className="min-w-0 [overflow-wrap:anywhere]">{chip.label}</span>
                       <Icon name="close" className="h-3 w-3" />
@@ -918,7 +1362,7 @@ export function Outreach() {
                         setSearch("");
                         setPage(0);
                       }}
-                      aria-label="Clear search"
+                      aria-label={`Search: ${search} — clear search`}
                     >
                       Search: <span className="min-w-0 max-w-40 truncate">{search}</span>
                       <Icon name="close" className="h-3 w-3" />
@@ -941,35 +1385,16 @@ export function Outreach() {
                 <span className="mx-1.5">·</span>
                 {fmtInt(sorted.filter((c) => c.outreach.status === "new").length)} new
                 <span className="mx-1.5">·</span>
+                {fmtInt(openable)} openable
+                <span className="mx-1.5">·</span>
                 {fmtInt(sorted.filter((c) => c.follow_up_due).length)} follow-ups due
               </p>
-              <label className="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 text-xs text-[#525252]">
-                <input
-                  type="checkbox"
-                  checked={autoMark}
-                  disabled={setting.isPending}
-                  onChange={(event) =>
-                    setting.mutate({ key: AUTO_MARK_KEY, value: event.target.checked ? "" : "off" })
-                  }
-                  className={CHECKBOX}
-                />
-                Auto-mark sent when opening WhatsApp
-              </label>
+              <span className="min-w-0 text-xs leading-5 text-[#737373]">
+                WhatsApp and Copy message record "opened" only — record Sent once the message is
+                out.
+              </span>
             </div>
             <div className="flex flex-wrap items-center gap-2 px-4 py-3 sm:px-6">
-              <button
-                className={PRIMARY}
-                onClick={sendNext}
-                disabled={!next || mark.isPending}
-                title={
-                  next
-                    ? `Opens WhatsApp for ${next.phone} and marks it sent`
-                    : "No New numbers in this view"
-                }
-              >
-                <Icon name="send" className="text-white" />
-                Send next{next ? ` · ${next.phone}` : ""}
-              </button>
               <button className={BUTTON} onClick={exportCsv} disabled={!sorted.length}>
                 Export CSV
               </button>
@@ -997,14 +1422,14 @@ export function Outreach() {
                 </span>
                 <button
                   className={SMALL_BUTTON}
-                  disabled={mark.isPending}
+                  disabled={busy}
                   onClick={() => bulk({ contacted: true }, "Marked sent")}
                 >
                   Mark sent
                 </button>
                 <button
                   className={SMALL_BUTTON}
-                  disabled={mark.isPending}
+                  disabled={busy}
                   onClick={() => bulk({ replied: true }, "Marked replied")}
                 >
                   Mark replied
@@ -1021,7 +1446,7 @@ export function Outreach() {
                   <button
                     key={status}
                     className={SMALL_BUTTON}
-                    disabled={mark.isPending}
+                    disabled={busy}
                     onClick={() => bulk({ status }, label)}
                   >
                     {label}
@@ -1164,7 +1589,12 @@ export function Outreach() {
           </section>
           <p className="mt-4 text-xs leading-5 text-[#737373]">
             Customer numbers exist only for kaatas synced while signed in. Follow-up due = sent 48 h
-            ago with no reply. Last seen is a device check-in, not a ledger edit.
+            ago with no reply. Last seen is a device check-in, not a ledger edit. Validity comes
+            from the numbering plan (libphonenumber); it says nothing about whether the number uses
+            WhatsApp. Prospects = customer-only numbers, status New, never messaged (no send
+            recorded and every opened chat closed as nothing sent), valid, not awaiting an outcome,
+            not skipped today; Afghanistan by default (change the country filter). Open next and
+            Prospects are first contact only.
           </p>
           <div className="mt-6">
             <TemplatesCard
@@ -1177,44 +1607,377 @@ export function Outreach() {
               }
             />
           </div>
+          <div className="mt-6">
+            <ExclusionsCard
+              exclusions={data.exclusions}
+              busy={exclude.isPending}
+              onUndo={(exclusion) =>
+                onExclude(
+                  { kind: exclusion.kind, id: exclusion.id, excluded: false },
+                  `${exclusion.label || exclusion.id} included again`,
+                )
+              }
+            />
+          </div>
         </>
       )}
     </div>
   );
 }
 
+// The strip's outcome buttons for one pending row. Each accessible name is
+// the visible label first, then the phone (WCAG 2.5.3), e.g. "Skip for now:
+// +93…". A pending row that is not a first contact closes with "nothing
+// sent" instead of a skip-until-tomorrow (see closesFollowUp).
+type VerdictButton = { verdict: Verdict; label: string; title?: string };
+function queueVerdicts(contact: OutreachContact): VerdictButton[] {
+  return [
+    { verdict: "sent", label: "Sent" },
+    { verdict: "no_whatsapp", label: "Not on WhatsApp" },
+    { verdict: "invalid", label: "Invalid number" },
+    closesFollowUp(contact)
+      ? {
+          verdict: "skip",
+          label: "Close — nothing sent",
+          title: "Nothing was sent; ends the wait without counting a message.",
+        }
+      : {
+          verdict: "skip",
+          label: "Skip for now",
+          title: "Nothing was sent; the number comes back tomorrow.",
+        },
+  ];
+}
+// The Queue card: "Open next" over the current directory view, and the strip
+// of chats opened without an outcome — across ALL contacts, longest wait
+// first, so nothing opened in another tab or before a reload is forgotten.
+// Every button sends the row's version and is disabled while any write is in
+// flight; "Open chat again" is a button like every other open (2026-09-30):
+// it records another "opened" before the tab is pointed at wa.me.
+function QueueCard(props: {
+  next: OutreachContact | undefined;
+  openable: number;
+  viewLabel: string;
+  prospectsRemaining: number;
+  pending: OutreachContact[];
+  busy: boolean;
+  messageFor: (contact: OutreachContact) => ReturnType<typeof buildMessage>;
+  onOpenNext: () => void;
+  onSentAndNext: (contact: OutreachContact) => void;
+  onVerdict: (contact: OutreachContact, verdict: Verdict) => void;
+  onOpenAgain: (contact: OutreachContact) => void;
+  onCopyPhone: (contact: OutreachContact) => void;
+}) {
+  const nextMessage = props.next ? props.messageFor(props.next) : null;
+  return (
+    <Card
+      title="Queue"
+      sub="Open next takes the first openable row of the current directory view — first contact only, never a number messaged before. A chat you opened waits below until you record what happened."
+      className="mb-5"
+    >
+      <div className="flex min-w-0 flex-wrap items-center gap-3">
+        <button
+          className={PRIMARY}
+          onClick={props.onOpenNext}
+          disabled={props.busy}
+          title={
+            props.next
+              ? `Records opened for ${props.next.phone}, then opens the chat`
+              : "Nothing to open in this view"
+          }
+        >
+          <Icon name="send" className="text-white" />
+          Open next{props.next ? ` · ${props.next.phone}` : ""}
+        </button>
+        <p
+          className="min-w-0 text-xs leading-5 text-[#737373] [overflow-wrap:anywhere]"
+          role="status"
+        >
+          {props.next && nextMessage ? (
+            <>
+              Next:{" "}
+              <span className="font-medium text-[#404040]" dir="auto">
+                {contactDisplayName(props.next)}
+              </span>
+              {" · "}
+              <span dir="ltr" className="font-mono tabular-nums">
+                {props.next.phone}
+              </span>
+              {" · "}
+              {nextMessage.language === "fa" ? "Dari" : "English"}
+            </>
+          ) : (
+            "Nothing to open in this view."
+          )}
+          <span className="mx-1.5">·</span>
+          <span className="tabular-nums">
+            {fmtInt(props.openable)} openable in this view ({props.viewLabel})
+          </span>
+          <span className="mx-1.5">·</span>
+          <span className="tabular-nums">
+            {fmtInt(props.prospectsRemaining)} prospects left in Afghanistan
+          </span>
+        </p>
+      </div>
+      <div className="mt-4 border-t border-[#f5f5f5] pt-4">
+        <h3 className="text-xs font-semibold text-[#525252]">
+          Awaiting outcome
+          <span className="ml-1 font-normal tabular-nums text-[#737373]">
+            {fmtInt(props.pending.length)}
+          </span>
+        </h3>
+        {props.pending.length === 0 ? (
+          <p className="mt-2 text-xs text-[#737373]">No chats awaiting an outcome.</p>
+        ) : (
+          <ul
+            className="mt-2 grid min-w-0 grid-cols-1 gap-2"
+            aria-label="Chats awaiting an outcome"
+          >
+            {props.pending.map((contact) => {
+              const message = props.messageFor(contact);
+              const o = contact.outreach;
+              return (
+                <li
+                  key={contact.phone}
+                  className="min-w-0 max-w-full rounded-lg border border-[#e5e5e5] bg-[#fafafa] p-3"
+                >
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                    <span
+                      className="min-w-0 text-sm font-semibold text-[#171717] [overflow-wrap:anywhere]"
+                      dir="auto"
+                    >
+                      {contactDisplayName(contact)}
+                    </span>
+                    <button
+                      dir="ltr"
+                      className="min-h-11 rounded font-mono text-sm tabular-nums text-[#171717] hover:underline focus-visible:outline-2 focus-visible:outline-[#171717]"
+                      title="Copy number"
+                      onClick={() => props.onCopyPhone(contact)}
+                    >
+                      {contact.phone}
+                    </button>
+                    <span className="text-xs text-[#737373]">
+                      waiting since {fmtDateTime(o.pending_since)}
+                      {o.open_count > 1 ? ` · opened ${o.open_count}×` : ""} ·{" "}
+                      {message.language === "fa" ? "Dari" : "English"}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
+                    <button
+                      className={SMALL_PRIMARY}
+                      disabled={props.busy}
+                      onClick={() => props.onSentAndNext(contact)}
+                      aria-label={`Sent & next: mark ${contact.phone} sent, then open the next chat`}
+                      title="Records sent, then opens the next chat in the current view"
+                    >
+                      Sent &amp; next
+                    </button>
+                    {queueVerdicts(contact).map((button) => (
+                      <button
+                        key={button.verdict}
+                        className={SMALL_BUTTON}
+                        disabled={props.busy}
+                        aria-label={`${button.label}: ${contact.phone}`}
+                        title={button.title}
+                        onClick={() => props.onVerdict(contact, button.verdict)}
+                      >
+                        {button.label}
+                      </button>
+                    ))}
+                    {offersChat(contact) ? (
+                      <button
+                        type="button"
+                        className={WA_BUTTON}
+                        disabled={props.busy}
+                        aria-label={`Open chat again with ${contact.phone}`}
+                        title="Records another 'opened', then opens the chat"
+                        onClick={() => props.onOpenAgain(contact)}
+                      >
+                        <Icon name="whatsapp" className="h-4 w-4" />
+                        Open chat again
+                      </button>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+      <p className="mt-4 text-xs leading-5 text-[#737373]">
+        Opening a chat or copying its message records 'opened' only. Skipped numbers return
+        tomorrow. Not-on-WhatsApp and invalid numbers stay out until you press Retry, and return to
+        the queue only if they were never messaged.
+      </p>
+    </Card>
+  );
+}
+
+// Verified test sources, with the way back. Excluding drops only that
+// source's own contribution; the card says so because the row a shopkeeper
+// also keeps in a real book stays in the directory on purpose.
+function ExclusionsCard(props: {
+  exclusions: OutreachExclusion[];
+  busy: boolean;
+  onUndo: (exclusion: OutreachExclusion) => void;
+}) {
+  return (
+    <Card
+      title="Excluded sources"
+      sub="Books, accounts and installs you verified as test data. Only their own contribution is dropped; a number that also appears in a real book stays listed. Undo puts a source back."
+    >
+      {props.exclusions.length === 0 ? (
+        <p className="text-sm text-[#737373]">Nothing excluded.</p>
+      ) : (
+        <ul className="grid min-w-0 grid-cols-1 gap-2" aria-label="Excluded sources">
+          {props.exclusions.map((exclusion) => (
+            <li
+              key={`${exclusion.kind}:${exclusion.id}`}
+              className="flex min-w-0 max-w-full flex-wrap items-center justify-between gap-3 rounded-lg border border-[#e5e5e5] bg-[#fafafa] p-3"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-medium text-[#404040]">
+                  <Pill tone="gray">{EXCLUSION_KIND_LABELS[exclusion.kind] ?? exclusion.kind}</Pill>
+                  <span className="min-w-0 [overflow-wrap:anywhere]" dir="auto">
+                    {exclusion.label || exclusion.id}
+                  </span>
+                </p>
+                <p className="mt-1 text-xs leading-5 text-[#737373] [overflow-wrap:anywhere]">
+                  <span dir="auto">{exclusion.reason || "No reason given"}</span> ·{" "}
+                  {fmtDateTime(exclusion.created_at)} ·{" "}
+                  <span dir="ltr" className="font-mono">
+                    {exclusion.id}
+                  </span>
+                </p>
+              </div>
+              <button
+                className={SMALL_BUTTON}
+                disabled={props.busy}
+                aria-label={`Undo: ${exclusion.label || exclusion.id}`}
+                onClick={() => props.onUndo(exclusion)}
+              >
+                Undo
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+// "Exclude this …" asks for a one-line reason right where it was clicked. No
+// dialog and no inference: these buttons are the only way a source is excluded.
+function ExcludeButton(props: {
+  label: string;
+  // The visible label first, then the source (WCAG 2.5.3), e.g. "Exclude
+  // this book: Sabz Grocery"; the visible label alone is the same on every
+  // row. The form's "Exclude" button shares it.
+  ariaLabel: string;
+  kind: OutreachExclusionKind;
+  id: string;
+  busy: boolean;
+  onExclude: (body: OutreachExclusionBody) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("test data");
+  const inputId = `exclude-${props.kind}-${props.id.replace(/[^A-Za-z0-9_-]/g, "")}`;
+  if (!open)
+    return (
+      <button
+        className={SMALL_BUTTON}
+        disabled={props.busy}
+        aria-label={props.ariaLabel}
+        onClick={() => setOpen(true)}
+      >
+        {props.label}
+      </button>
+    );
+  return (
+    <form
+      className="flex min-w-0 max-w-full flex-wrap items-center gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        props.onExclude({
+          kind: props.kind,
+          id: props.id,
+          excluded: true,
+          reason: reason.trim() || "test data",
+        });
+        setOpen(false);
+      }}
+    >
+      <label className="sr-only" htmlFor={inputId}>
+        Reason for excluding
+      </label>
+      <input
+        id={inputId}
+        autoFocus
+        className={`${FIELD} sm:w-56 sm:flex-none`}
+        value={reason}
+        maxLength={200}
+        dir="auto"
+        placeholder="Reason"
+        onChange={(event) => setReason(event.target.value)}
+      />
+      <button
+        type="submit"
+        className={SMALL_BUTTON}
+        disabled={props.busy}
+        aria-label={props.ariaLabel}
+      >
+        Exclude
+      </button>
+      <button type="button" className={SMALL_BUTTON} onClick={() => setOpen(false)}>
+        Cancel
+      </button>
+    </form>
+  );
+}
+
+// A chip is a field that differs from the baseline it is given: the ACTIVE
+// preset's filters while the view still matches a preset exactly, so a
+// preset's own values — Prospects' +93 among them — never show as chips or
+// as a reason for "Reset all" (2026-09-30); the defaults once the view
+// matches no preset, so after one change on top of a preset every field that
+// differs from the defaults, the preset's own included, is a chip.
 function filterChips(
   filters: OutreachFilters,
   baseline: OutreachFilters,
 ): { key: keyof OutreachFilters; label: string }[] {
   const chips: { key: keyof OutreachFilters; label: string }[] = [];
+  const changed = (key: keyof OutreachFilters) => filters[key] !== baseline[key];
   for (const select of SELECTS) {
-    if (filters[select.key] !== baseline[select.key])
+    if (changed(select.key))
       chips.push({
         key: select.key,
         label: `${select.label}: ${select.options.find(([value]) => value === filters[select.key])?.[1]}`,
       });
   }
-  if (filters.country) {
-    const country = dialCode(`${filters.country}0`).country;
-    chips.push({ key: "country", label: `Country: ${country || filters.country}` });
+  if (changed("country")) {
+    const country = filters.country ? dialCode(`${filters.country}0`).country : "";
+    chips.push({
+      key: "country",
+      label: `Country: ${country || filters.country || "All countries"}`,
+    });
   }
   for (const [key, label] of [
     ["platform", "Platform"],
     ["language", "Language"],
     ["source", "Source"],
   ] as const) {
-    if (filters[key]) chips.push({ key, label: `${label}: ${humanValue(filters[key])}` });
+    if (changed(key))
+      chips.push({ key, label: `${label}: ${filters[key] ? humanValue(filters[key]) : "All"}` });
   }
-  if (filters.minMentions)
+  if (changed("minMentions"))
     chips.push({ key: "minMentions", label: `Mentions ≥ ${filters.minMentions}` });
-  if (filters.minTallies)
+  if (changed("minTallies"))
     chips.push({ key: "minTallies", label: `Tallies ≥ ${filters.minTallies}` });
-  if (filters.minReceivable)
+  if (changed("minReceivable"))
     chips.push({ key: "minReceivable", label: `Receivable ≥ ${filters.minReceivable}` });
-  if (filters.contactedFrom)
+  if (changed("contactedFrom"))
     chips.push({ key: "contactedFrom", label: `Contacted from ${fmtDay(filters.contactedFrom)}` });
-  if (filters.contactedTo)
+  if (changed("contactedTo"))
     chips.push({ key: "contactedTo", label: `Contacted through ${fmtDay(filters.contactedTo)}` });
   return chips;
 }
@@ -1293,12 +2056,18 @@ const PILL_TONE: Record<PillTone, string> = {
   red: "bg-[#fdecec] text-[#a32d2d]",
   blue: "bg-[#e8f0fb] text-[#1f4f8f]",
 };
-function Pill(props: { children: ReactNode; tone?: PillTone }) {
+// The caption ("AF · mobile" on an invalid-number pill) is the numbering
+// plan's own description; it rides inside the pill so the verdict and its
+// reason never separate when the row wraps.
+function Pill(props: { children: ReactNode; tone?: PillTone; caption?: string }) {
   return (
     <span
       className={`inline-flex min-w-0 max-w-full items-center rounded-md px-2 py-0.5 text-[11px] font-medium [overflow-wrap:anywhere] ${PILL_TONE[props.tone ?? "gray"]}`}
     >
       {props.children}
+      {props.caption ? (
+        <span className="ml-1 font-normal opacity-80">· {props.caption}</span>
+      ) : null}
     </span>
   );
 }
@@ -1311,14 +2080,18 @@ type RowProps = {
   selected: Record<string, boolean>;
   overrides: Record<string, LanguageOverride>;
   saving: boolean;
+  busy: boolean;
+  excluding: boolean;
   onToggle: (phone: string) => void;
   onSelect: (phone: string, on: boolean) => void;
   onOverride: (phone: string, value: LanguageOverride) => void;
   onStatus: (contact: OutreachContact, status: OutreachStatus) => void;
-  onSent: (contact: OutreachContact, on: boolean) => void;
+  onSent: (contact: OutreachContact) => void;
   onReplied: (contact: OutreachContact) => void;
   onNote: (contact: OutreachContact, note: string) => void;
-  onWhatsApp: (contact: OutreachContact) => void;
+  onRetry: (contact: OutreachContact) => void;
+  onExclude: (body: OutreachExclusionBody, message: string) => void;
+  onOpenChat: (contact: OutreachContact) => void;
   onCopyMessage: (contact: OutreachContact) => void;
   onCopyPhone: (contact: OutreachContact) => void;
   messageFor: (contact: OutreachContact) => ReturnType<typeof buildMessage>;
@@ -1339,11 +2112,12 @@ function secondLine(contact: OutreachContact): string {
 function PhoneButton(props: { contact: OutreachContact; onCopy: () => void; className?: string }) {
   const { code, country } = dialCode(props.contact.phone);
   const carrier = afghanCarrier(props.contact.phone);
+  const lineType = numberTypeLabel(props.contact.number.type);
   return (
     <div className={`min-w-0 ${props.className ?? ""}`}>
       <button
         dir="ltr"
-        className="max-w-full truncate rounded font-mono text-sm tabular-nums text-[#171717] hover:underline focus-visible:outline-2 focus-visible:outline-[#171717]"
+        className="min-h-11 max-w-full truncate rounded font-mono text-sm tabular-nums text-[#171717] hover:underline focus-visible:outline-2 focus-visible:outline-[#171717]"
         title="Copy number"
         onClick={props.onCopy}
       >
@@ -1352,6 +2126,7 @@ function PhoneButton(props: { contact: OutreachContact; onCopy: () => void; clas
       <p className="mt-0.5 truncate text-[11px] text-[#a3a3a3]">
         {country && country !== code ? country : code}
         {carrier ? ` · ${carrier}` : ""}
+        {lineType ? ` · ${lineType}` : ""}
       </p>
     </div>
   );
@@ -1379,23 +2154,39 @@ function StatusSelect(props: {
     </select>
   );
 }
-function SentControl(props: {
-  contact: OutreachContact;
-  disabled: boolean;
-  onChange: (on: boolean) => void;
-}) {
+// The row's Sent box records the FIRST message (2026-09-30): a tick records
+// the outcome "sent" (version-checked); the box is ticked whenever a send is
+// on record and has no untick, so it can neither un-count a message nor
+// reset a row — resetting to New is the status menu, which never counts
+// anything. A further message goes the way of every follow-up: open the
+// chat, then Sent in "Awaiting outcome". Stopped rows wait for a status
+// change, unreachable ones for Retry.
+function SentControl(props: { contact: OutreachContact; disabled: boolean; onSent: () => void }) {
   const o = props.contact.outreach;
+  const checked = o.contact_count > 0;
+  const stopped = isStoppedStatus(o.status);
+  const unreachable = isUnreachableStatus(o.status);
   return (
     <label
       className="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 text-xs text-[#525252] md:min-h-8"
-      title="Ticked = a message was sent. Unticking resets the status to New; the send count is kept."
+      title={
+        checked
+          ? `Recorded as sent ×${o.contact_count}. To record a further message, open the chat and use Sent in 'Awaiting outcome'.`
+          : stopped
+            ? "Change the status first."
+            : unreachable
+              ? "Press Retry first."
+              : "Tick once the message is out (records the outcome 'sent')."
+      }
     >
       <input
         type="checkbox"
         className={CHECKBOX}
-        checked={o.contact_count > 0 && o.status !== "new"}
-        disabled={props.disabled}
-        onChange={(event) => props.onChange(event.target.checked)}
+        checked={checked}
+        disabled={checked || stopped || unreachable || props.disabled}
+        onChange={(event) => {
+          if (event.target.checked) props.onSent();
+        }}
       />
       <span className="min-w-0 whitespace-nowrap tabular-nums">
         {o.contact_count > 0 ? `×${o.contact_count} · ${fmtDate(o.contacted_at)}` : "Sent"}
@@ -1428,27 +2219,76 @@ function RepliedControl(props: {
     </label>
   );
 }
+// What a row offers for reaching the number (2026-09-30): the WhatsApp
+// button (record-then-navigate, see openChat) and Copy message, which records
+// "opened" too (see copyMessage); only Retry for Not on WhatsApp / Invalid;
+// a muted "Stopped" for Declined / Do not contact, which the server refuses
+// until the status changes. An invalid-per-plan number keeps the button as a
+// manual override (Open next still skips it).
 function RowActions(props: {
   contact: OutreachContact;
-  message: string;
-  onWhatsApp: () => void;
+  busy: boolean;
+  onOpenChat: () => void;
   onCopy: () => void;
+  onRetry: () => void;
 }) {
+  const { contact } = props;
+  const status = contact.outreach.status;
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2">
-      <a
-        className={WA_BUTTON}
-        href={waLink(props.contact.phone, props.message)}
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={props.onWhatsApp}
-      >
-        <Icon name="whatsapp" className="h-4 w-4" />
-        WhatsApp
-      </a>
-      <button className={SMALL_BUTTON} onClick={props.onCopy}>
-        Copy message
-      </button>
+      {isStoppedStatus(status) ? (
+        <span
+          className="inline-flex min-h-11 items-center rounded-md bg-[#f5f5f5] px-2.5 py-1 text-xs font-medium text-[#737373] md:min-h-8"
+          title="Change the status first to contact this number."
+        >
+          Stopped
+          <span className="sr-only">: change the status first to contact this number.</span>
+        </span>
+      ) : isUnreachableStatus(status) ? (
+        <button
+          className={SMALL_BUTTON}
+          disabled={props.busy}
+          onClick={props.onRetry}
+          aria-label={`Retry: ${contact.phone}`}
+          title={
+            isNeverMessaged(contact)
+              ? "Back to New; the queue can offer this number again."
+              : "Back to New. It was messaged before, so the queue won't offer it; open it by hand."
+          }
+        >
+          Retry
+        </button>
+      ) : (
+        <>
+          <button
+            type="button"
+            className={WA_BUTTON}
+            disabled={props.busy}
+            aria-label={`WhatsApp: open a chat with ${contact.phone}`}
+            title={
+              !contact.number.valid
+                ? "The numbering plan says this number is invalid"
+                : contact.outreach.contact_count > 0
+                  ? "Records 'opened', then opens the chat; use Sent in 'Awaiting outcome' once the message is out"
+                  : "Records 'opened', then opens the chat; tick Sent once the message is out"
+            }
+            onClick={props.onOpenChat}
+          >
+            <Icon name="whatsapp" className="h-4 w-4" />
+            WhatsApp
+          </button>
+          <button
+            type="button"
+            className={SMALL_BUTTON}
+            disabled={props.busy}
+            aria-label={`Copy message: ${contact.phone}`}
+            title="Copies the message and records 'opened'; record the outcome once it is sent"
+            onClick={props.onCopy}
+          >
+            Copy message
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -1508,7 +2348,6 @@ function ContactCards(props: RowProps) {
       {props.rows.map((contact) => {
         const open = !!props.expanded[contact.phone];
         const detailsId = `outreach-card-${contact.phone.replace(/\D/g, "")}`;
-        const message = props.messageFor(contact);
         const line2 = secondLine(contact);
         return (
           <article
@@ -1556,8 +2395,8 @@ function ContactCards(props: RowProps) {
               </div>
             </div>
             <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2">
-              {contactPills(contact).map((pill) => (
-                <Pill key={pill.label} tone={pill.tone}>
+              {contactPills(contact, props.now).map((pill) => (
+                <Pill key={pill.label} tone={pill.tone} caption={pill.caption}>
                   {pill.label}
                 </Pill>
               ))}
@@ -1576,7 +2415,7 @@ function ContactCards(props: RowProps) {
               <SentControl
                 contact={contact}
                 disabled={props.saving}
-                onChange={(on) => props.onSent(contact, on)}
+                onSent={() => props.onSent(contact)}
               />
               <RepliedControl
                 contact={contact}
@@ -1587,16 +2426,17 @@ function ContactCards(props: RowProps) {
             <div className="mt-3">
               <RowActions
                 contact={contact}
-                message={message.text}
-                onWhatsApp={() => props.onWhatsApp(contact)}
+                busy={props.busy}
+                onOpenChat={() => props.onOpenChat(contact)}
                 onCopy={() => props.onCopyMessage(contact)}
+                onRetry={() => props.onRetry(contact)}
               />
             </div>
             <button
               className="mt-2 flex min-h-11 min-w-0 w-full items-center justify-between gap-3 rounded-lg px-1 text-sm font-medium text-[#171717] focus-visible:outline-2 focus-visible:outline-[#171717]"
               aria-expanded={open}
               aria-controls={detailsId}
-              aria-label={`${open ? "Hide" : "Show"} details for ${contactDisplayName(contact)}`}
+              aria-label={`${open ? "Hide details" : "View details"}: ${contactDisplayName(contact)}`}
               onClick={() => props.onToggle(contact.phone)}
             >
               {open ? "Hide details" : "View details"}
@@ -1691,7 +2531,6 @@ function ContactsTable(
           {props.rows.map((contact) => {
             const open = !!props.expanded[contact.phone];
             const detailsId = `outreach-details-${contact.phone.replace(/\D/g, "")}`;
-            const message = props.messageFor(contact);
             const line2 = secondLine(contact);
             return (
               <Fragment key={contact.phone}>
@@ -1731,8 +2570,8 @@ function ContactsTable(
                           </p>
                         ) : null}
                         <div className="mt-1.5 flex max-w-[260px] flex-wrap gap-1">
-                          {contactPills(contact).map((pill) => (
-                            <Pill key={pill.label} tone={pill.tone}>
+                          {contactPills(contact, props.now).map((pill) => (
+                            <Pill key={pill.label} tone={pill.tone} caption={pill.caption}>
                               {pill.label}
                             </Pill>
                           ))}
@@ -1757,7 +2596,7 @@ function ContactsTable(
                     <SentControl
                       contact={contact}
                       disabled={props.saving}
-                      onChange={(on) => props.onSent(contact, on)}
+                      onSent={() => props.onSent(contact)}
                     />
                   </td>
                   <td className="px-3 py-4 align-top">
@@ -1770,9 +2609,10 @@ function ContactsTable(
                   <td className="px-3 py-4 align-top">
                     <RowActions
                       contact={contact}
-                      message={message.text}
-                      onWhatsApp={() => props.onWhatsApp(contact)}
+                      busy={props.busy}
+                      onOpenChat={() => props.onOpenChat(contact)}
                       onCopy={() => props.onCopyMessage(contact)}
+                      onRetry={() => props.onRetry(contact)}
                     />
                   </td>
                   <td className="px-3 py-4 align-top">
@@ -1825,18 +2665,33 @@ function ContactDetails(props: RowProps & { contact: OutreachContact; id: string
             {afghanCarrier(contact.phone) ? ` · ${afghanCarrier(contact.phone)}` : ""} ·{" "}
             {languageLabel(contact.locale)}
           </p>
+          <p className="mt-1 text-xs leading-5 text-[#737373]" dir="ltr">
+            Numbering plan: {contact.number.valid ? "valid" : "invalid"}
+            {contact.number.possible && !contact.number.valid ? " (possible)" : ""}
+            {numberCaption(contact.number) ? ` · ${numberCaption(contact.number)}` : ""}
+            {contact.number.national ? ` · ${contact.number.national}` : ""}
+          </p>
         </div>
         <div className="flex min-w-0 max-w-full flex-wrap gap-2">
-          {contactPills(contact).map((pill) => (
-            <Pill key={pill.label} tone={pill.tone}>
+          {contactPills(contact, props.now).map((pill) => (
+            <Pill key={pill.label} tone={pill.tone} caption={pill.caption}>
               {pill.label}
             </Pill>
           ))}
         </div>
       </div>
       <div className="grid min-w-0 grid-cols-1 gap-5 lg:grid-cols-2">
-        <ShopkeeperBlock contact={contact} shopkeeper={contact.shopkeeper} />
-        <CustomerBlock customer={contact.customer} />
+        <ShopkeeperBlock
+          contact={contact}
+          shopkeeper={contact.shopkeeper}
+          excluding={props.excluding}
+          onExclude={props.onExclude}
+        />
+        <CustomerBlock
+          customer={contact.customer}
+          excluding={props.excluding}
+          onExclude={props.onExclude}
+        />
       </div>
       <div className="min-w-0 rounded-xl border border-[#e5e5e5] bg-white p-4">
         <h4 className="text-xs font-semibold text-[#525252]">Outreach</h4>
@@ -1852,11 +2707,28 @@ function ContactDetails(props: RowProps & { contact: OutreachContact; id: string
           />
           <Detail label="Replied" value={o.replied_at ? fmtDateTime(o.replied_at) : "No reply"} />
           <Detail
+            label="Opened"
+            value={
+              o.open_count
+                ? `×${o.open_count} · last ${fmtDateTime(o.opened_at)}${o.pending_since ? ` · awaiting outcome since ${fmtDateTime(o.pending_since)}` : ""}`
+                : "Not yet"
+            }
+          />
+          <Detail
+            label="Skipped"
+            value={
+              o.skipped_at
+                ? `${fmtDateTime(o.skipped_at)}${isSkippedToday(contact, props.now) ? " · hidden from the queue today" : ""}`
+                : "—"
+            }
+          />
+          <Detail
             label="Flags"
             value={
               [
                 contact.converted ? "Installed after contact" : "",
                 contact.follow_up_due ? "Follow-up due" : "",
+                o.pending_since ? "Awaiting outcome" : "",
               ]
                 .filter(Boolean)
                 .join(" · ") || "—"
@@ -1925,9 +2797,10 @@ function ContactDetails(props: RowProps & { contact: OutreachContact; id: string
             <div className="mt-2">
               <RowActions
                 contact={contact}
-                message={message.text}
-                onWhatsApp={() => props.onWhatsApp(contact)}
+                busy={props.busy}
+                onOpenChat={() => props.onOpenChat(contact)}
                 onCopy={() => props.onCopyMessage(contact)}
+                onRetry={() => props.onRetry(contact)}
               />
             </div>
           </div>
@@ -1947,13 +2820,7 @@ function ContactDetails(props: RowProps & { contact: OutreachContact; id: string
                     {fmtDateTime(touch.at)}
                   </span>
                   <span className="font-medium text-[#404040]">
-                    {touch.kind === "sent"
-                      ? "Sent"
-                      : touch.kind === "replied"
-                        ? "Replied"
-                        : touch.kind === "status"
-                          ? "Status"
-                          : "Note"}
+                    {TOUCH_LABELS[touch.kind] ?? touch.kind}
                   </span>
                   {touch.detail ? (
                     <span className="min-w-0 [overflow-wrap:anywhere]" dir="auto">
@@ -1974,8 +2841,11 @@ function ContactDetails(props: RowProps & { contact: OutreachContact; id: string
 function ShopkeeperBlock(props: {
   contact: OutreachContact;
   shopkeeper: OutreachShopkeeper | null;
+  excluding: boolean;
+  onExclude: (body: OutreachExclusionBody, message: string) => void;
 }) {
   const s = props.shopkeeper;
+  const hasAccount = !!s && s.signed_in && !!s.account_id;
   return (
     <div className="min-w-0 rounded-xl border border-[#e5e5e5] bg-white p-4">
       <h4 className="text-xs font-semibold text-[#525252]">Shopkeeper</h4>
@@ -2020,6 +2890,63 @@ function ShopkeeperBlock(props: {
             />
             <DetailItem label="Last tally" value={fmtDateTime(s.last_tally_at)} />
           </dl>
+          <div className="mt-4">
+            <h5 className="text-xs font-semibold text-[#525252]">Sources</h5>
+            <p className="mt-1 text-[11px] leading-4 text-[#737373]">
+              Excluding a source drops only what it contributed; the number stays listed if a real
+              book has it.
+            </p>
+            <div className="mt-2 grid min-w-0 grid-cols-1 gap-2">
+              {hasAccount ? (
+                <div className="flex min-w-0 max-w-full flex-wrap items-center justify-between gap-2 rounded-lg border border-[#e5e5e5] bg-[#fafafa] p-2">
+                  <span className="min-w-0 text-xs text-[#525252] [overflow-wrap:anywhere]">
+                    Account{" "}
+                    <span dir="ltr" className="font-mono">
+                      {s.account_id}
+                    </span>
+                  </span>
+                  <ExcludeButton
+                    label="Exclude this account"
+                    ariaLabel={`Exclude this account: ${s.email || s.account_id}`}
+                    kind="account"
+                    id={s.account_id}
+                    busy={props.excluding}
+                    onExclude={(body) => props.onExclude(body, "Account excluded")}
+                  />
+                </div>
+              ) : null}
+              {s.install_ids.map((installId) => (
+                <div
+                  key={installId}
+                  className="flex min-w-0 max-w-full flex-wrap items-center justify-between gap-2 rounded-lg border border-[#e5e5e5] bg-[#fafafa] p-2"
+                >
+                  <span className="min-w-0 text-xs text-[#525252] [overflow-wrap:anywhere]">
+                    Install{" "}
+                    <span dir="ltr" className="font-mono">
+                      {installId}
+                    </span>
+                  </span>
+                  <ExcludeButton
+                    label="Exclude this install"
+                    ariaLabel={`Exclude this install: ${installId}`}
+                    kind="install"
+                    id={installId}
+                    busy={props.excluding}
+                    onExclude={(body) => props.onExclude(body, "Install excluded")}
+                  />
+                </div>
+              ))}
+              {!hasAccount && s.install_ids.length === 0 ? (
+                <p className="text-xs text-[#737373]">No install ids reported.</p>
+              ) : null}
+            </div>
+            {hasAccount ? (
+              <p className="mt-2 text-[11px] leading-4 text-[#737373]">
+                If this number is also the account's own phone, the account keeps this row listed;
+                exclude the account to remove it.
+              </p>
+            ) : null}
+          </div>
           <div className="mt-4">
             <h5 className="text-xs font-semibold text-[#525252]">
               Kaatas{" "}
@@ -2070,7 +2997,11 @@ function ShopkeeperBlock(props: {
     </div>
   );
 }
-function CustomerBlock(props: { customer: OutreachCustomer | null }) {
+function CustomerBlock(props: {
+  customer: OutreachCustomer | null;
+  excluding: boolean;
+  onExclude: (body: OutreachExclusionBody, message: string) => void;
+}) {
   const c = props.customer;
   return (
     <div className="min-w-0 rounded-xl border border-[#e5e5e5] bg-white p-4">
@@ -2176,6 +3107,18 @@ function CustomerBlock(props: { customer: OutreachCustomer | null }) {
                       · {fmtInt(listing.tallies)} tallies · added {fmtDate(listing.first_added_at)}{" "}
                       · last tally {fmtDate(listing.last_tally_at)}
                     </p>
+                    <div className="mt-2">
+                      <ExcludeButton
+                        label="Exclude this book"
+                        ariaLabel={`Exclude this book: ${listing.vault_name || listing.vault_id}`}
+                        kind="vault"
+                        id={listing.vault_id}
+                        busy={props.excluding}
+                        onExclude={(body) =>
+                          props.onExclude(body, `${listing.vault_name || "Book"} excluded`)
+                        }
+                      />
+                    </div>
                   </div>
                 );
               })}
@@ -2361,9 +3304,13 @@ type IconName =
   | "clock"
   | "reply"
   | "check"
-  | "whatsapp";
+  | "whatsapp"
+  | "list"
+  | "hourglass";
 function Icon(props: { name: IconName; className?: string }) {
   const paths: Record<IconName, ReactNode> = {
+    list: <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />,
+    hourglass: <path d="M6 3h12M6 21h12M8 3v4l4 5-4 5v4M16 3v4l-4 5 4 5v4" />,
     search: (
       <>
         <circle cx="10.5" cy="10.5" r="6.5" />
