@@ -4,7 +4,10 @@
 // dial-code and Afghan-carrier tables, template filling and the wa.me link,
 // the "open next" picker and the awaiting-outcome strip, the CSV export, the
 // optimistic patch that flips a tick before the server answers and the
-// authoritative patch that takes an outcome's state as-is. Four rules shape it:
+// authoritative patch that takes an outcome's state as-is; since batch 3
+// (2026-09-30) also the message-language resolution (and the language an
+// open chat keeps), each preset's opening order and the Books list's search
+// and order. Four rules shape it:
 //
 // - `converted` and `follow_up_due` are READ from the server, never
 //   recomputed. The backend owns the 48 h rule and the install-after-contact
@@ -28,10 +31,12 @@
 // enum/number preferences that `parseOutreachPreferences` admits.
 
 import type {
+  OutreachBook,
   OutreachContact,
   OutreachCounts,
   OutreachCustomer,
   OutreachExclusion,
+  OutreachLang,
   OutreachMarkBody,
   OutreachNumber,
   OutreachResult,
@@ -238,18 +243,53 @@ export function balanceSummary(customer: OutreachCustomer | null | undefined): B
 
 export type Audience = "shopkeeper" | "customer";
 export type MessageLanguage = "en" | "fa";
-export type LanguageOverride = "auto" | MessageLanguage;
+export const LANGUAGE_NAMES: Record<MessageLanguage, string> = { fa: "Dari", en: "English" };
 
 export function audienceFor(contact: OutreachContact): Audience {
   return contact.kind === "customer" ? "customer" : "shopkeeper";
 }
-export function messageLanguage(
-  locale: string,
-  override: LanguageOverride = "auto",
-): MessageLanguage {
-  if (override !== "auto") return override;
+// The message language lives on the server (2026-09-30, batch 3), never in
+// page memory, so every tab and device writes the same message: a
+// session-wide choice in the outreach setting `pref.message_lang` (Dari when
+// unset or unknown) and a per-number choice, `outreach.lang`, that wins over
+// it. "Auto" is the locale rule below.
+export type SessionLanguage = MessageLanguage | "auto";
+export const SESSION_LANGUAGE_KEY = "pref.message_lang";
+export const SESSION_LANGUAGE_OPTIONS: [SessionLanguage, string][] = [
+  ["fa", "Dari"],
+  ["en", "English"],
+  ["auto", "Auto (each shop's app language)"],
+];
+export function sessionLanguage(settings: Record<string, string>): SessionLanguage {
+  const value = settings[SESSION_LANGUAGE_KEY];
+  return value === "en" || value === "auto" ? value : "fa";
+}
+export function isOutreachLang(value: unknown): value is OutreachLang {
+  return value === "" || value === "en" || value === "fa";
+}
+// Auto: Dari for a fa or prs locale — the shop's app language (the
+// shopkeeper's own install, else the first listing owner's) — else English.
+export function localeLanguage(locale: string): MessageLanguage {
   const lower = (locale || "").toLowerCase();
   return lower.startsWith("fa") || lower.startsWith("prs") ? "fa" : "en";
+}
+// One contact's language: the per-number choice when set, else the session
+// choice, else (Auto) the locale rule.
+export function messageLanguage(
+  contact: OutreachContact,
+  settings: Record<string, string>,
+): MessageLanguage {
+  const own = contact.outreach.lang;
+  if (own === "fa" || own === "en") return own;
+  const session = sessionLanguage(settings);
+  return session === "auto" ? localeLanguage(contact.locale) : session;
+}
+// What "Use session choice (…)" names for one number: the session's language,
+// or on Auto what the locale rule picks for this number ("Auto: Dari").
+export function sessionChoiceLabel(session: SessionLanguage, locale: string): string {
+  return session === "auto"
+    ? `Auto: ${LANGUAGE_NAMES[localeLanguage(locale)]}`
+    : LANGUAGE_NAMES[session];
 }
 
 export const DEFAULT_TEMPLATES: Record<string, string> = {
@@ -370,13 +410,15 @@ export type BuiltMessage = {
   link: string;
   text: string;
 };
+// The message for one contact in its resolved language (messageLanguage);
+// `templateKey` (template.<audience>.<lang>) is what an opened or sent
+// outcome records.
 export function buildMessage(
   contact: OutreachContact,
   settings: Record<string, string>,
-  override: LanguageOverride = "auto",
 ): BuiltMessage {
   const audience = audienceFor(contact);
-  const language = messageLanguage(contact.locale, override);
+  const language = messageLanguage(contact, settings);
   const link = linkFor(settings, audience);
   return {
     audience,
@@ -389,6 +431,24 @@ export function buildMessage(
       link,
     }),
   };
+}
+// An open chat keeps the language it was opened in (2026-09-30). The text in
+// the WhatsApp tab was prefilled when the chat opened, so that is what goes
+// out, whatever the session or the number's own language says by the time
+// Sent is pressed. While a contact is pending, its newest "opened" touch
+// (touches arrive newest first) names that template, and `sent` records the
+// same key. A detail that is not a template key reads as undefined; the
+// caller then falls back to the current resolution (buildMessage).
+const TEMPLATE_KEY = /^template\.(shopkeeper|customer)\.(en|fa)$/;
+export function openedTemplateKey(contact: OutreachContact): string | undefined {
+  if (!isPending(contact)) return undefined;
+  const opened = contact.outreach.touches.find((touch) => touch.kind === "opened");
+  return opened && TEMPLATE_KEY.test(opened.detail) ? opened.detail : undefined;
+}
+// The language a template key names ("template.customer.fa" → "fa").
+export function templateLanguage(key: string): MessageLanguage | undefined {
+  const match = TEMPLATE_KEY.exec(key);
+  return match ? (match[2] as MessageLanguage) : undefined;
 }
 
 // ---- row helpers ----
@@ -515,17 +575,20 @@ export function isSkippedToday(contact: OutreachContact, now: number): boolean {
 // The resumable prospect queue: customer-only numbers (no install matched),
 // still New, never messaged (isNeverMessaged: a number reset to New after a
 // send, or after a chat that was opened and never closed as nothing sent, is
-// not a prospect), plausible per the numbering plan, not archived
-// everywhere, not awaiting an outcome, not skipped today; Afghanistan unless
-// told otherwise. The country test uses the same dial-code lookup as the
-// country filter so this predicate and `presetFilters("prospects")` select
-// identical rows.
+// not a prospect), plausible per the numbering plan and a mobile number
+// (2026-09-30: the plan's mobile or fixed-or-mobile, isMobileNumber, the
+// same test as the "Number type: Mobile" filter), not archived everywhere,
+// not awaiting an outcome, not skipped today; Afghanistan unless told
+// otherwise. The country test uses the same dial-code lookup as the country
+// filter so this predicate and `presetFilters("prospects")` select identical
+// rows.
 export function isProspect(contact: OutreachContact, now: number, country = "+93"): boolean {
   return (
     contact.kind === "customer" &&
     contact.outreach.status === "new" &&
     isNeverMessaged(contact) &&
     contact.number.valid &&
+    isMobileNumber(contact.number) &&
     !contact.converted &&
     !contact.customer?.archived_everywhere &&
     !isPending(contact) &&
@@ -664,6 +727,9 @@ export const FILTER_ENUMS = {
   contacted: ["all", "never", "ever"],
 } as const;
 
+// `order` is the sentence a description spends on the preset's opening order
+// (presetSort); presetDescription shows it only while that order is the one
+// on screen (2026-09-30).
 export const OUTREACH_PRESETS = [
   {
     id: "all",
@@ -674,7 +740,8 @@ export const OUTREACH_PRESETS = [
     id: "prospects",
     label: "Prospects",
     description:
-      "Customer-only numbers, status New, never messaged (no send recorded, every opened chat closed as nothing sent), valid, not awaiting an outcome, not skipped today; Afghanistan by default (change the country filter).",
+      "Customer-only mobile numbers, status New, never messaged (no send recorded, every opened chat closed as nothing sent), valid, not awaiting an outcome, not skipped today; Afghanistan by default (change the country filter).",
+    order: "Newest tally first.",
   },
   {
     id: "shopkeepers",
@@ -685,11 +752,13 @@ export const OUTREACH_PRESETS = [
     id: "customers",
     label: "Customers",
     description: "Numbers that appear only inside synced books, never as an install.",
+    order: "Newest tally first.",
   },
   {
     id: "wholesalers",
     label: "Wholesalers",
     description: "Listed in two or more books, or recorded as a supplier anywhere.",
+    order: "Newest tally first.",
   },
   { id: "to_contact", label: "To contact", description: "Status New — nothing sent yet." },
   {
@@ -730,6 +799,7 @@ export function presetFilters(preset: OutreachPreset): OutreachFilters {
         status: "new",
         country: "+93",
         validity: "valid",
+        numberType: "mobile",
         pending: "no",
         skipped: "hide",
         contacted: "never",
@@ -765,6 +835,7 @@ export function presetFilters(preset: OutreachPreset): OutreachFilters {
 // The "Installed after contact" card is not a preset tab; it applies the
 // default view narrowed to converted rows.
 export const CONVERTED_FILTERS: OutreachFilters = { ...DEFAULT_OUTREACH_FILTERS, converted: "yes" };
+// Matches on filters only: a sort changed on top of a preset keeps its tab.
 export function activePreset(filters: OutreachFilters): OutreachPreset | undefined {
   return OUTREACH_PRESETS.find((p) => {
     const preset = presetFilters(p.id);
@@ -774,16 +845,23 @@ export function activePreset(filters: OutreachFilters): OutreachPreset | undefin
   })?.id;
 }
 
+// A search that looks like a phone number (digits, +, spaces, brackets,
+// dashes; Persian and Arabic-Indic digits too) finds `phone` when its digits
+// appear in it, or when its international form IS it ("0700 123 456" is
+// +93700123456). Shared by the directory and the Books list (2026-09-30).
+export function phoneQueryMatches(phone: string, search: string): boolean {
+  const trimmed = search.trim();
+  if (!phone || !/^[+\d\s()\-۰-۹٠-٩]+$/.test(trimmed)) return false;
+  const compact = phone.replace(/\D/g, "");
+  const digits = normalizeDigits(trimmed).replace(/\D/g, "");
+  if (digits && compact.includes(digits)) return true;
+  const international = internationalDigits(trimmed);
+  return !!international && compact === international;
+}
 export function matchesOutreachSearch(contact: OutreachContact, search: string): boolean {
   const query = normalizedText(search.trim());
   if (!query) return true;
-  const compactPhone = contact.phone.replace(/\D/g, "");
-  if (/^[+\d\s()\-۰-۹٠-٩]+$/.test(search.trim())) {
-    const digits = query.replace(/\D/g, "");
-    if (digits && compactPhone.includes(digits)) return true;
-    const international = internationalDigits(query);
-    if (international && compactPhone === international) return true;
-  }
+  if (phoneQueryMatches(contact.phone, search)) return true;
   const fields = [
     contact.name,
     contact.shop_name,
@@ -926,7 +1004,8 @@ export const OUTREACH_SORT_OPTIONS: [OutreachSortKey, string][] = [
   ["replied", "Replied"],
   ["name", "Name"],
   ["phone", "Phone"],
-  ["mentions", "Mentions"],
+  // mention_count counts distinct books (2026-09-30), so the label says so.
+  ["mentions", "Books listing it"],
   ["tallies", "Tallies"],
   ["receivable", "Receivable"],
   ["installed", "Installed"],
@@ -934,12 +1013,59 @@ export const OUTREACH_SORT_OPTIONS: [OutreachSortKey, string][] = [
   ["people", "People"],
 ];
 
+export type OutreachSort = { sortKey: OutreachSortKey; sortDesc: boolean };
+export const DEFAULT_OUTREACH_SORT: OutreachSort = { sortKey: "last_seen", sortDesc: true };
+// Each preset's opening order (2026-09-30). The views of ledger people —
+// Prospects, Customers, Wholesalers — open on the newest tally, the person a
+// shop dealt with most recently; every other view, and the default one,
+// keeps last seen. A sort chosen afterwards holds until a preset is applied
+// again (withPreset).
+export function presetSort(preset: OutreachPreset): OutreachSort {
+  switch (preset) {
+    case "prospects":
+    case "customers":
+    case "wholesalers":
+      return { sortKey: "last_tally", sortDesc: true };
+    default:
+      return { ...DEFAULT_OUTREACH_SORT };
+  }
+}
+// Applying a preset — a tab, a summary card, a #outreach?view= link or the
+// fresh-tab default — sets its filters AND its sort; page size stays.
+export function withPreset(
+  preferences: OutreachPreferences,
+  preset: OutreachPreset,
+): OutreachPreferences {
+  return { ...preferences, filters: presetFilters(preset), ...presetSort(preset) };
+}
+// A preset's description as the page shows it (2026-09-30). The sentence
+// about its opening order ("Newest tally first.") is kept only while the
+// current sort IS that order: once the operator re-sorts, it would describe
+// a list that is no longer on screen. A tab's tooltip passes the preset's
+// own sort, because clicking the tab applies it.
+export function presetDescription(preset: OutreachPreset, sort: OutreachSort): string {
+  const entry = OUTREACH_PRESETS.find((p) => p.id === preset);
+  if (!entry) return "";
+  const own = presetSort(preset);
+  return "order" in entry && own.sortKey === sort.sortKey && own.sortDesc === sort.sortDesc
+    ? `${entry.description} ${entry.order}`
+    : entry.description;
+}
+
+// Missing values sort last in both directions. Ties break on the phone,
+// except on the last tally (2026-09-30): there the number more books list
+// comes first (mention_count, most first, whatever the direction), then the
+// phone. The ties that matter are the people with no tally at all, who sort
+// last together.
 export function sortOutreach(
   rows: OutreachContact[],
   key: OutreachSortKey,
   descending: boolean,
 ): OutreachContact[] {
   const direction = descending ? -1 : 1;
+  const mentions = (c: OutreachContact) => c.customer?.mention_count ?? 0;
+  const tie = (a: OutreachContact, b: OutreachContact) =>
+    (key === "last_tally" ? mentions(b) - mentions(a) : 0) || a.phone.localeCompare(b.phone);
   const value = (c: OutreachContact): string | number | null => {
     switch (key) {
       case "name":
@@ -971,14 +1097,14 @@ export function sortOutreach(
   return [...rows].sort((a, b) => {
     const av = value(a),
       bv = value(b);
-    if (av === null && bv === null) return a.phone.localeCompare(b.phone);
+    if (av === null && bv === null) return tie(a, b);
     if (av === null) return 1;
     if (bv === null) return -1;
     const result =
       typeof av === "number" && typeof bv === "number"
         ? av - bv
         : String(av).localeCompare(String(bv));
-    return result * direction || a.phone.localeCompare(b.phone);
+    return result * direction || tie(a, b);
   });
 }
 
@@ -1018,6 +1144,8 @@ export const CSV_COLUMNS: [string, (c: OutreachContact) => string | number | boo
   ["skipped_at", (c) => c.outreach.skipped_at],
   ["open_count", (c) => c.outreach.open_count],
   ["note", (c) => c.outreach.note],
+  // The stored per-number choice ("" = follows the session language).
+  ["lang", (c) => c.outreach.lang],
   ["converted", (c) => c.converted],
   ["follow_up_due", (c) => c.follow_up_due],
   ["account_id", (c) => c.shopkeeper?.account_id ?? ""],
@@ -1053,7 +1181,9 @@ export const CSV_COLUMNS: [string, (c: OutreachContact) => string | number | boo
         )
         .join(" · "),
   ],
-  ["mention_count", (c) => c.customer?.mention_count ?? ""],
+  // The distinct books that list the number (mention_count); the header says
+  // what it counts (2026-09-30).
+  ["books", (c) => c.customer?.mention_count ?? ""],
   ["first_added_at", (c) => c.customer?.first_added_at ?? ""],
   ["customer_last_tally_at", (c) => c.customer?.last_tally_at ?? ""],
   ["tallies_total", (c) => c.customer?.tallies_total ?? ""],
@@ -1079,6 +1209,78 @@ export function outreachCsv(rows: OutreachContact[]): string {
     ...rows.map((contact) => CSV_COLUMNS.map(([, pick]) => csvCell(pick(contact))).join(",")),
   ];
   return `﻿${lines.join("\r\n")}\r\n`;
+}
+
+// ---- books (the Books list in the Excluded sources card, 2026-09-30) ----
+
+// The owner as the operator reads it: name, else email, else phone, else id.
+export function bookOwnerLabel(book: OutreachBook): string {
+  return book.owner_name || book.owner_email || book.owner_phone || book.owner_account_id;
+}
+// Book name, owner name, email and phone; a phone-shaped search goes through
+// the directory's own phone matching (phoneQueryMatches), and every word of a
+// text search must appear somewhere, as in the directory.
+export function matchesBookSearch(book: OutreachBook, search: string): boolean {
+  const query = normalizedText(search.trim());
+  if (!query) return true;
+  if (phoneQueryMatches(book.owner_phone, search)) return true;
+  const fields = [book.name, book.owner_name, book.owner_email, book.owner_phone].map(
+    normalizedText,
+  );
+  return query.split(/\s+/).every((word) => fields.some((field) => field.includes(word)));
+}
+export type BookSortKey = "numbers" | "last_activity" | "created" | "owner" | "name";
+export const BOOK_SORT_OPTIONS: [BookSortKey, string][] = [
+  ["numbers", "Numbers"],
+  ["last_activity", "Last activity"],
+  ["created", "Created"],
+  ["owner", "Owner"],
+  ["name", "Name"],
+];
+function newestFirst(a: string, b: string): number {
+  const at = parseTime(a);
+  const bt = parseTime(b);
+  if (at === null || bt === null) return at === bt ? 0 : at === null ? 1 : -1;
+  return bt - at;
+}
+function textFirst(a: string, b: string): number {
+  if (!a || !b) return a === b ? 0 : a ? -1 : 1;
+  return a.localeCompare(b);
+}
+// Numbers is the server's own order (sortOutreachBooks: most numbers, then
+// the newest last tally, then name and vault id compared byte-wise, as Go
+// compares strings), kept exactly as received (2026-09-30): re-deriving it
+// here with localeCompare disagreed with Go wherever case or accents differ
+// ("Zebra" comes before "apple" byte-wise), so the default list was not the
+// server's. Last activity and Created: newest first; Owner and Name: A to Z.
+// A missing date or name sorts last, and every tie keeps the server's order
+// (its index), never a client comparison.
+export function sortBooks(books: OutreachBook[], key: BookSortKey): OutreachBook[] {
+  if (key === "numbers") return [...books];
+  const primary = (a: OutreachBook, b: OutreachBook): number => {
+    switch (key) {
+      case "last_activity":
+        return newestFirst(a.last_tally_at, b.last_tally_at);
+      case "created":
+        return newestFirst(a.created_at, b.created_at);
+      case "owner":
+        return textFirst(bookOwnerLabel(a), bookOwnerLabel(b));
+      case "name":
+        return textFirst(a.name, b.name);
+    }
+  };
+  return books
+    .map((book, index) => ({ book, index }))
+    .sort((a, b) => primary(a.book, b.book) || a.index - b.index)
+    .map(({ book }) => book);
+}
+// Distinct numbers among these books' listings, read from the contacts: a
+// number that several of the books list counts once, as in the directory.
+export function numbersInBooks(contacts: OutreachContact[], books: OutreachBook[]): number {
+  const vaults = new Set(books.map((book) => book.vault_id));
+  return contacts.filter((contact) =>
+    contact.customer?.listings.some((listing) => vaults.has(listing.vault_id)),
+  ).length;
 }
 
 // ---- optimistic patches ----
@@ -1115,9 +1317,10 @@ function markSkipsRow(state: OutreachState, body: OutreachMarkBody): boolean {
 // touch log does. A send, a reply, or an explicit status other than New ends
 // any pending/skipped state; an explicit New keeps it, so resetting a row
 // cannot silently drop a chat opened without an outcome. replied stamps
-// replied_at; the note is clamped to 2000 runes and its touch to 200; every
-// write bumps `version`, as the server does. follow_up_due is only ever
-// CLEARED here — a reply or a fresh send cancels it; nothing sets it.
+// replied_at; the note is clamped to 2000 runes and its touch to 200; a lang
+// is set without a touch and never ends a wait; every write bumps `version`,
+// as the server does. follow_up_due is only ever CLEARED here — a reply or a
+// fresh send cancels it; nothing sets it.
 export function applyMarkLocally(
   result: OutreachResult,
   body: OutreachMarkBody,
@@ -1159,6 +1362,9 @@ export function applyMarkLocally(
       outreach.note = clampRunes(body.note, 2000);
       touch("note", clampRunes(body.note, 200));
     }
+    // A preference, not an outreach event (2026-09-30): no touch, but a
+    // write like any other, so the version still moves below.
+    if (body.lang !== undefined) outreach.lang = body.lang;
     if (body.contacted || body.replied || (body.status !== undefined && body.status !== "new")) {
       outreach.pending_since = "";
       outreach.skipped_at = "";
@@ -1279,11 +1485,24 @@ export function applyStateLocally(result: OutreachResult, raw: OutreachState): O
 }
 // The exclusion endpoints answer with the full current list. The contacts
 // themselves are refetched (an excluded source changes which rows exist).
+// The Books list drops at once every book the new list excludes (2026-09-30)
+// — the book itself, or any book whose owner account is excluded, the
+// server's own rule — so no book sits in Books and in the exclusions list at
+// the same time. An Undo brings a book back with the refetch only.
 export function applyExclusionsLocally(
   result: OutreachResult,
   exclusions: OutreachExclusion[],
 ): OutreachResult {
-  return { ...result, exclusions };
+  const vaults = new Set<string>();
+  const accounts = new Set<string>();
+  for (const exclusion of exclusions) {
+    if (exclusion.kind === "vault") vaults.add(exclusion.id);
+    else if (exclusion.kind === "account") accounts.add(exclusion.id);
+  }
+  const books = result.books.filter(
+    (book) => !vaults.has(book.vault_id) && !accounts.has(book.owner_account_id),
+  );
+  return { ...result, exclusions, books };
 }
 export function applySettingLocally(
   result: OutreachResult,
@@ -1327,8 +1546,9 @@ export const EMPTY_OUTREACH_COUNTS: OutreachCounts = {
 // no row. A missing never_messaged is derived CONSERVATIVELY: true only when
 // no send, no open and no pending chat is on record, so a number that was
 // opened and then skipped reads as messaged until the backend itself says
-// otherwise — never offered twice. The result is a fresh object with
-// exactly the known fields.
+// otherwise — never offered twice. A missing or unknown lang (a backend
+// before migration 046) reads as "", which follows the session choice. The
+// result is a fresh object with exactly the known fields.
 export function withStateDefaults(raw: unknown): OutreachState {
   const s = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const text = (value: unknown) => (typeof value === "string" ? value : "");
@@ -1356,6 +1576,7 @@ export function withStateDefaults(raw: unknown): OutreachState {
     skipped_at: text(s.skipped_at),
     open_count: openCount,
     version: count(s.version),
+    lang: isOutreachLang(s.lang) ? s.lang : "",
   };
 }
 // The outreach endpoints deploy with the backend, and this page may be
@@ -1363,7 +1584,8 @@ export function withStateDefaults(raw: unknown): OutreachState {
 // from the 2026-09-29 backend still renders: no verdict reads as valid (never
 // hide a row by accident), no exclusions, no pending/skipped state, version 0
 // (the old backend ignores expected_version), never_messaged derived from the
-// send count (withStateDefaults). Arrays are never null.
+// send count (withStateDefaults). Batch 3's fields likewise (2026-09-30): no
+// books, and every lang "" (withStateDefaults). Arrays are never null.
 export function withOutreachDefaults(raw: unknown): OutreachResult {
   const r = (raw && typeof raw === "object" ? raw : {}) as Partial<OutreachResult>;
   const contacts = (Array.isArray(r.contacts) ? r.contacts : []).map(
@@ -1389,6 +1611,7 @@ export function withOutreachDefaults(raw: unknown): OutreachResult {
     settings: r.settings && typeof r.settings === "object" ? r.settings : {},
     counts: { ...EMPTY_OUTREACH_COUNTS, ...(r.counts ?? {}) },
     exclusions: Array.isArray(r.exclusions) ? r.exclusions : [],
+    books: Array.isArray(r.books) ? r.books : [],
     generated_at: r.generated_at ?? "",
   };
 }
@@ -1406,8 +1629,7 @@ export type OutreachPreferences = {
 export function parseOutreachPreferences(value: unknown): OutreachPreferences {
   const defaults: OutreachPreferences = {
     filters: { ...DEFAULT_OUTREACH_FILTERS },
-    sortKey: "last_seen",
-    sortDesc: true,
+    ...DEFAULT_OUTREACH_SORT,
     pageSize: 25,
   };
   if (!value || typeof value !== "object") return defaults;

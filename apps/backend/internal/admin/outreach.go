@@ -45,6 +45,17 @@ package admin
 // follow-up is the version-checked outcome `sent`. A status never rides with
 // a send or a reply in one mark, and a declined or do-not-contact row keeps
 // its stop until a one-phone status mark carries lift_stop.
+//
+// Batch 3 (2026-09-30): excluding an ACCOUNT also drops every book it owns,
+// as OPERATOR_ACCOUNT_IDS drops an operator's — its own number, the installs
+// resolved to it and each owned book's listings, kaatas and totals all go —
+// while a book it is merely a member of stays whole. GET lists `books`, one
+// row per book whose data feeds the list, so a test book or its owner can be
+// found and excluded from one list. Every number carries the operator's
+// message language (outreach_contacts.lang, migration 046): "" follows the
+// session-wide setting pref.message_lang, which the backend stores and never
+// interprets. Mark writes lang as a preference: it bumps the version like
+// every write but records no touch.
 
 import (
 	"context"
@@ -108,6 +119,11 @@ var outreachOutcomes = map[string]bool{
 }
 
 var outreachExclusionKinds = map[string]bool{"vault": true, "account": true, "install": true}
+
+// outreachLangs are the per-number message languages a mark may set
+// (outreach_contacts.lang, migration 046): "" follows the session-wide
+// setting pref.message_lang, "fa" is Dari, "en" English.
+var outreachLangs = map[string]bool{"": true, "en": true, "fa": true}
 
 var (
 	// ErrOutreachStale — expected_version is behind the row: another tab, or
@@ -213,6 +229,7 @@ type OutreachState struct {
 	ContactCount     int             `json:"contact_count"`
 	NeverMessaged    bool            `json:"never_messaged"` // first-contact test over the whole log; true without a row (readOutreachStates)
 	Note             string          `json:"note"`
+	Lang             string          `json:"lang"` // per-number message language: "" follows pref.message_lang | "en" | "fa"; "" without a row
 	UpdatedAt        string          `json:"updated_at"`
 	OpenedAt         string          `json:"opened_at"`     // last chat open
 	PendingSince     string          `json:"pending_since"` // opened with no outcome since; "" otherwise
@@ -263,9 +280,30 @@ type OutreachCounts struct {
 type OutreachExclusion struct {
 	Kind      string `json:"kind"` // vault | account | install
 	ID        string `json:"id"`
-	Label     string `json:"label"` // vault: "<name> · <owner>"; account: name or email; install: self_name / shop_name / id prefix
+	Label     string `json:"label"` // vault: "<name> · <owner>"; account: name / email / id prefix, + " · owns N books" ("1 book") when N > 0; install: self_name / shop_name / id prefix
 	Reason    string `json:"reason"`
 	CreatedAt string `json:"created_at"`
+}
+
+// OutreachBook is one book whose data feeds the list (batch 3): every
+// non-purged vault that no operator owns, that is not excluded, and whose
+// owner is not an excluded account. The page lists them so a test book — or
+// its owner — can be found and excluded at the source.
+type OutreachBook struct {
+	VaultID        string `json:"vault_id"`
+	Name           string `json:"name"`
+	Currency       string `json:"currency"`
+	Archived       bool   `json:"archived"`   // vaults.archived_at set
+	CreatedAt      string `json:"created_at"` // vaults.created_at, RFC3339 UTC
+	OwnerAccountID string `json:"owner_account_id"`
+	OwnerName      string `json:"owner_name"`    // accounts.name ("" when unset)
+	OwnerEmail     string `json:"owner_email"`   // accounts.email
+	OwnerPhone     string `json:"owner_phone"`   // same resolution listings use for owner_phone
+	MemberCount    int    `json:"member_count"`  // accepted, non-revoked members
+	People         int    `json:"people"`        // non-archived relationships
+	Numbers        int    `json:"numbers"`       // distinct normalized phones among this book's listings (archived relationships included when a phone remains)
+	Tallies        int    `json:"tallies"`       // non-deleted entries
+	LastTallyAt    string `json:"last_tally_at"` // RFC3339 UTC or ""
 }
 
 type OutreachResult struct {
@@ -273,18 +311,20 @@ type OutreachResult struct {
 	Settings    map[string]string   `json:"settings"` // never null ({})
 	Counts      OutreachCounts      `json:"counts"`
 	Exclusions  []OutreachExclusion `json:"exclusions"` // never null; newest first
+	Books       []OutreachBook      `json:"books"`      // never null; sortOutreachBooks order
 	GeneratedAt string              `json:"generated_at"`
 }
 
 // OutreachMarkInput is a validated POST /v1/admin/outreach/mark body: phones
-// already normalized and deduplicated, status already checked, note already
-// clamped. Nil pointers mean "absent from the body". Status never comes with
-// Contacted or Replied, and LiftStop only with exactly one phone: the handler
-// refuses both bodies.
+// already normalized and deduplicated, status and lang already checked, note
+// already clamped. Nil pointers mean "absent from the body". Status never
+// comes with Contacted or Replied, and LiftStop only with exactly one phone:
+// the handler refuses both bodies.
 type OutreachMarkInput struct {
 	Phones      []string
 	Status      *string
 	Note        *string
+	Lang        *string // "" | "en" | "fa" (outreachLangs); a preference, so it writes no touch
 	Contacted   bool
 	Replied     bool
 	TemplateKey string
@@ -476,6 +516,7 @@ type outreachInstall struct {
 type outreachVault struct {
 	id, name, currency, ownerID string
 	archived                    bool
+	createdAt                   time.Time
 	memberCount                 int
 	fold                        *outreachFold
 }
@@ -598,7 +639,8 @@ type outreachQuerier interface {
 
 // readOutreachStates loads outreach_contacts plus the newest 20 touches per
 // phone; phones == nil means every row. GET, the mark response and the
-// outcome response all read states here, so each carries never_messaged.
+// outcome response all read states here, so each carries never_messaged and
+// the per-number lang (batch 3).
 //
 // never_messaged (2026-09-30) is the queue's first-contact test: the number
 // was never recorded as sent (contact_count 0), and the latest "chat" touch
@@ -618,7 +660,7 @@ func readOutreachStates(ctx context.Context, q outreachQuerier, phones []string)
 	out := map[string]*outreachRow{}
 	rows, err := q.Query(ctx, `
 		SELECT c.phone_e164, c.status, c.contacted_at, c.first_contacted_at, c.replied_at,
-		       c.contact_count, c.note, c.updated_at,
+		       c.contact_count, c.note, c.lang, c.updated_at,
 		       c.opened_at, c.pending_since, c.skipped_at, c.open_count, c.version,
 		       c.contact_count = 0 AND chat.kind IS DISTINCT FROM 'opened' AS never_messaged
 		FROM outreach_contacts c
@@ -641,7 +683,7 @@ func readOutreachStates(ctx context.Context, q outreachQuerier, phones []string)
 		var first, replied, opened, pending, skipped *time.Time
 		var updated time.Time
 		if err := rows.Scan(&r.state.Phone, &r.state.Status, &r.contactedAt, &first, &replied,
-			&r.state.ContactCount, &r.state.Note, &updated,
+			&r.state.ContactCount, &r.state.Note, &r.state.Lang, &updated,
 			&opened, &pending, &skipped, &r.state.OpenCount, &r.state.Version,
 			&r.state.NeverMessaged); err != nil {
 			rows.Close()
@@ -754,7 +796,7 @@ func readOutreachExclusions(ctx context.Context, q outreachQuerier) (*outreachEx
 	// Each label query returns id + three text columns; ids are compared as
 	// text so a hand-inserted non-UUID row cannot fail the whole report.
 	labels := map[outreachSourceKey]string{}
-	resolve := func(kind, sql string, label func(a, b, c string) string) error {
+	resolve := func(kind, sql string, label func(id, a, b, c string) string) error {
 		if len(ids[kind]) == 0 {
 			return nil
 		}
@@ -768,7 +810,7 @@ func readOutreachExclusions(ctx context.Context, q outreachQuerier) (*outreachEx
 			if err := lrows.Scan(&id, &a, &b, &c); err != nil {
 				return err
 			}
-			if l := label(a, b, c); l != "" {
+			if l := label(id, a, b, c); l != "" {
 				labels[outreachSourceKey{kind, id}] = l
 			}
 		}
@@ -778,7 +820,7 @@ func readOutreachExclusions(ctx context.Context, q outreachQuerier) (*outreachEx
 		SELECT v.vault_id::text, v.name, COALESCE(a.name, ''), COALESCE(a.email, '')
 		FROM vaults v LEFT JOIN accounts a ON a.id = v.owner_account_id
 		WHERE v.vault_id::text = ANY($1::text[])
-	`, func(name, owner, email string) string {
+	`, func(_, name, owner, email string) string {
 		if owner == "" {
 			owner = email
 		}
@@ -789,15 +831,31 @@ func readOutreachExclusions(ctx context.Context, q outreachQuerier) (*outreachEx
 	}); err != nil {
 		return nil, err
 	}
+	// An account also names how many books it owns (batch 3): excluding it
+	// drops them all (GetOutreach), so the undo line says what comes back.
+	// Every non-purged book counts, whatever else excludes it. An account
+	// with neither name nor email (Apple / OTP sign-ins may carry no email)
+	// keeps its id prefix in front of the count.
 	if err := resolve("account", `
-		SELECT id::text, COALESCE(name, ''), email, ''
-		FROM accounts
-		WHERE id::text = ANY($1::text[])
-	`, func(name, email, _ string) string {
-		if name != "" {
-			return name
+		SELECT a.id::text, COALESCE(a.name, ''), a.email,
+		       (SELECT COUNT(*) FROM vaults v WHERE v.owner_account_id = a.id AND v.purged_at IS NULL)::text
+		FROM accounts a
+		WHERE a.id::text = ANY($1::text[])
+	`, func(id, name, email, owned string) string {
+		label := name
+		if label == "" {
+			label = email
 		}
-		return email
+		if label == "" {
+			label = outreachIDPrefix(id)
+		}
+		switch owned {
+		case "0":
+			return label
+		case "1":
+			return label + " · owns 1 book"
+		}
+		return label + " · owns " + owned + " books"
 	}); err != nil {
 		return nil, err
 	}
@@ -805,7 +863,7 @@ func readOutreachExclusions(ctx context.Context, q outreachQuerier) (*outreachEx
 		SELECT install_id::text, COALESCE(self_name, ''), COALESCE(shop_name, ''), ''
 		FROM installs
 		WHERE install_id::text = ANY($1::text[])
-	`, func(selfName, shopName, _ string) string {
+	`, func(_, selfName, shopName, _ string) string {
 		if selfName != "" {
 			return selfName
 		}
@@ -890,7 +948,7 @@ func (s *Service) outreachVaults(ctx context.Context, tx pgx.Tx) (map[string]*ou
 	order := []string{}
 	rows, err := tx.Query(ctx, `
 		SELECT v.vault_id::text, v.name, COALESCE(v.currency, ''), v.owner_account_id::text,
-		       (v.archived_at IS NOT NULL)
+		       (v.archived_at IS NOT NULL), v.created_at
 		FROM vaults v
 		WHERE v.purged_at IS NULL AND v.owner_account_id::text <> ALL($1::text[])
 		ORDER BY v.name, v.vault_id
@@ -900,7 +958,7 @@ func (s *Service) outreachVaults(ctx context.Context, tx pgx.Tx) (map[string]*ou
 	}
 	for rows.Next() {
 		var v outreachVault
-		if err := rows.Scan(&v.id, &v.name, &v.currency, &v.ownerID, &v.archived); err != nil {
+		if err := rows.Scan(&v.id, &v.name, &v.currency, &v.ownerID, &v.archived, &v.createdAt); err != nil {
 			rows.Close()
 			return nil, nil, nil, err
 		}
@@ -1133,7 +1191,16 @@ func buildOutreachCustomer(g *outreachCustGroup) outreachCustBuilt {
 			firstAdded = l.firstAddedMS
 		}
 	}
-	cu.MentionCount = len(cu.Listings)
+	// MentionCount counts BOOKS, not listings (2026-09-30): one book can hold
+	// a number twice — two people records, or a trunk-zero twin merged by
+	// normalizeOutreachPhone — and that is still one shop knowing the person.
+	// The wholesaler flag and the Prospects tie-break ("how many books list
+	// this number") both read it that way.
+	books := make(map[string]struct{}, len(cu.Listings))
+	for _, l := range cu.Listings {
+		books[l.VaultID] = struct{}{}
+	}
+	cu.MentionCount = len(books)
 	cu.FirstAddedAt = outreachMS(firstAdded)
 	cu.LastTallyAt = outreachMS(b.lastTallyMS)
 	cu.ArchivedEverywhere = archivedEverywhere
@@ -1141,16 +1208,44 @@ func buildOutreachCustomer(g *outreachCustGroup) outreachCustBuilt {
 	return b
 }
 
+// sortOutreachBooks is the server order of GET's books: most numbers first,
+// then the latest last_tally_at (a book never tallied last), then name, then
+// vault id, so the order is total. It compares the wire values themselves —
+// last_tally_at as its RFC3339 UTC string, which orders like the instant it
+// names and puts "" below every instant, and the name and vault_id ties
+// byte-wise (Go string order: "Zebra" before "apple", no locale collation) —
+// so a client can reproduce it from the JSON alone. Pure.
+func sortOutreachBooks(books []OutreachBook) {
+	sort.Slice(books, func(i, j int) bool {
+		a, b := books[i], books[j]
+		if a.Numbers != b.Numbers {
+			return a.Numbers > b.Numbers
+		}
+		if a.LastTallyAt != b.LastTallyAt {
+			return a.LastTallyAt > b.LastTallyAt
+		}
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+		return a.VaultID < b.VaultID
+	})
+}
+
 // GetOutreach builds the whole section in one RepeatableRead snapshot, like
 // GetUsers, so an install cannot flip between shopkeeper and customer halves
 // mid-report. Operator accounts, installs resolved to them and vaults they own
 // are excluded; purged vaults are skipped, archived ones kept. Operator-
 // verified test sources (outreach_exclusions) are dropped per source on top:
-// a vault loses its listings and its place in its members' kaatas and totals,
-// an account or install its shopkeeper half.
+// a vault loses its listings and its place in its members' kaatas and totals;
+// an account loses its shopkeeper half and, like an operator account, every
+// book it owns, each dropped exactly like an excluded vault (batch 3); an
+// install loses its shopkeeper half.
 func (s *Service) GetOutreach(ctx context.Context) (OutreachResult, error) {
 	now := s.now()
-	out := OutreachResult{Contacts: []OutreachContact{}, Settings: map[string]string{}, Exclusions: []OutreachExclusion{}}
+	out := OutreachResult{
+		Contacts: []OutreachContact{}, Settings: map[string]string{},
+		Exclusions: []OutreachExclusion{}, Books: []OutreachBook{},
+	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{
 		IsoLevel:   pgx.RepeatableRead,
 		AccessMode: pgx.ReadOnly,
@@ -1176,12 +1271,10 @@ func (s *Service) GetOutreach(ctx context.Context) (OutreachResult, error) {
 	// An excluded install — or one resolved to an excluded account —
 	// contributes no shopkeeper block and feeds neither the owner-phone nor
 	// the locale fallback below; an excluded account's own phone is no
-	// shopkeeper source either (the accounts loop). The account row itself
-	// stays loaded, so a listing in a book that account owns still shows the
-	// owner's name and the account's own phone (never an excluded install's):
-	// excluding an account does not exclude its books. A number known only
-	// through test data is never emitted, while a real book's listing of the
-	// same number survives.
+	// shopkeeper source either (the accounts loop), and every book it owns is
+	// dropped below with the excluded books. A number known only through test
+	// data is never emitted, while a real book's listing of the same number
+	// survives.
 	kept := installs[:0]
 	for _, in := range installs {
 		if excl.installs[in.installID] || (in.accountID != "" && excl.accounts[in.accountID]) {
@@ -1198,10 +1291,13 @@ func (s *Service) GetOutreach(ctx context.Context) (OutreachResult, error) {
 	// and no kaata, people, tallies, totals, currency or last tally under any
 	// member's shopkeeper block, so a test book cannot inflate a real
 	// shopkeeper's receivable. Dropped before the fold, it is never folded;
-	// buildOutreachShopkeeper skips a membership whose vault is gone.
+	// buildOutreachShopkeeper skips a membership whose vault is gone. A book
+	// OWNED by an excluded account goes the same way (batch 3), matching the
+	// operator allowlist, whose books never load at all; a book that account
+	// is merely a member of stays whole, member_count included.
 	keptVaults := vaultOrder[:0]
 	for _, vid := range vaultOrder {
-		if excl.vaults[vid] {
+		if excl.vaults[vid] || excl.accounts[vaults[vid].ownerID] {
 			delete(vaults, vid)
 			continue
 		}
@@ -1289,16 +1385,21 @@ func (s *Service) GetOutreach(ctx context.Context) (OutreachResult, error) {
 		}
 	}
 
-	// CUSTOMER numbers: every listing of every folded vault.
+	// CUSTOMER numbers: every listing of every folded vault. The same pass
+	// lists each folded vault as a book: exactly the vaults left after the
+	// operator filter and the exclusions, so a book is listed iff its data
+	// feeds the list.
 	customers := map[string]*outreachCustGroup{}
 	for _, vid := range vaultOrder {
 		v := vaults[vid]
-		ownerName := ""
+		ownerName, ownerEmail := "", ""
 		if a := accounts[v.ownerID]; a != nil {
-			ownerName = a.name
+			ownerName, ownerEmail = a.name, a.email
 		}
 		oPhone := ownerPhone(v.ownerID)
+		numbers := map[string]bool{}
 		for _, fl := range v.fold.listings {
+			numbers[fl.phone] = true
 			fl.listing.VaultID = v.id
 			fl.listing.VaultName = v.name
 			fl.listing.Currency = v.currency
@@ -1313,7 +1414,24 @@ func (s *Service) GetOutreach(ctx context.Context) (OutreachResult, error) {
 			g.listings = append(g.listings, fl)
 			g.owners = append(g.owners, v.ownerID)
 		}
+		out.Books = append(out.Books, OutreachBook{
+			VaultID:        v.id,
+			Name:           v.name,
+			Currency:       v.currency,
+			Archived:       v.archived,
+			CreatedAt:      v.createdAt.UTC().Format(time.RFC3339),
+			OwnerAccountID: v.ownerID,
+			OwnerName:      ownerName,
+			OwnerEmail:     ownerEmail,
+			OwnerPhone:     oPhone,
+			MemberCount:    v.memberCount,
+			People:         v.fold.people,
+			Numbers:        len(numbers),
+			Tallies:        v.fold.tallies,
+			LastTallyAt:    outreachMS(v.fold.lastTallyMS),
+		})
 	}
+	sortOutreachBooks(out.Books)
 
 	states, err := readOutreachStates(ctx, tx, nil)
 	if err != nil {
@@ -1523,7 +1641,10 @@ func insertOutreachTouch(ctx context.Context, tx pgx.Tx, ph, kind, detail string
 // status other than "new" clears both too (2026-09-30): a decided row is
 // neither awaiting an outcome nor parked. An explicit "new" keeps both, so
 // resetting a row to New cannot silently put a chat that was opened without
-// an outcome back in the queue, where it could be opened and sent again.
+// an outcome back in the queue, where it could be opened and sent again. A
+// lang (batch 3) is written like the note but is a preference, not an
+// outreach event: it bumps the version with the rest of the write, records
+// no touch, and neither ends a wait nor changes never_messaged.
 func writeOutreachMark(ctx context.Context, tx pgx.Tx, ph string, now time.Time, in OutreachMarkInput, current string) error {
 	endsWait := in.Contacted || in.Replied || (in.Status != nil && *in.Status != "new")
 	status := current
@@ -1547,10 +1668,11 @@ func writeOutreachMark(ctx context.Context, tx pgx.Tx, ph string, now time.Time,
 		  replied_at         = CASE WHEN $3::boolean THEN $6::timestamptz ELSE replied_at END,
 		  status             = $4,
 		  note               = COALESCE($5::text, note),
+		  lang               = COALESCE($8::text, lang),
 		  version            = version + 1,
 		  updated_at         = $6::timestamptz
 		WHERE phone_e164 = $1
-	`, ph, in.Contacted, in.Replied, status, in.Note, now, endsWait); err != nil {
+	`, ph, in.Contacted, in.Replied, status, in.Note, now, endsWait, in.Lang); err != nil {
 		return err
 	}
 	if in.Contacted {
@@ -1599,6 +1721,10 @@ func writeOutreachMark(ctx context.Context, tx pgx.Tx, ph string, now time.Time,
 // the row's own status menu — so a bulk relabel cannot put a number that said
 // no back in front of the operator. Setting or re-setting a stop always
 // applies, and a reply or a note never lifts one.
+//
+// A lang (batch 3) rides with whatever else the mark carries and follows the
+// row: a row these rules skip keeps its lang as well, while a lang-only mark
+// applies to any row, a stopped one included, because it lifts nothing.
 func (s *Service) MarkOutreach(ctx context.Context, in OutreachMarkInput) (updated []OutreachState, skipped []string, err error) {
 	now := s.now()
 	tx, err := s.pool.Begin(ctx)
@@ -1826,6 +1952,7 @@ type outreachMarkBody struct {
 	Phones      []string `json:"phones"`
 	Status      *string  `json:"status"`
 	Note        *string  `json:"note"`
+	Lang        *string  `json:"lang"`
 	Contacted   *bool    `json:"contacted"`
 	Replied     *bool    `json:"replied"`
 	TemplateKey *string  `json:"template_key"`
@@ -1837,10 +1964,11 @@ type outreachMarkBody struct {
 // Pointer fields tell an absent key from an empty one. Two bodies are 400
 // invalid body with nothing written (2026-09-30): a status together with
 // contacted:true or replied:true, and lift_stop:true naming more than one
-// phone after dedupe. The response is {"updated": [state…], "skipped":
-// [phone…]}: skipped lists the phones the mark left untouched — a contacted
-// mark on a row that is not a first send, or a status that would lift a stop
-// without lift_stop (MarkOutreach).
+// phone after dedupe. A lang (batch 3) must be "", "en" or "fa", else 400
+// invalid lang with nothing written; null is absent. The response is
+// {"updated": [state…], "skipped": [phone…]}: skipped lists the phones the
+// mark left untouched — a contacted mark on a row that is not a first send,
+// or a status that would lift a stop without lift_stop (MarkOutreach).
 func (h *Handler) OutreachMark(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, outreachBodyLimit)
 	var body outreachMarkBody
@@ -1879,6 +2007,13 @@ func (h *Handler) OutreachMark(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		in.Status = body.Status
+	}
+	if body.Lang != nil {
+		if !outreachLangs[*body.Lang] {
+			httpx.Error(w, http.StatusBadRequest, "invalid lang")
+			return
+		}
+		in.Lang = body.Lang
 	}
 	if body.Note != nil {
 		note := outreachText(*body.Note, outreachNoteRunes)

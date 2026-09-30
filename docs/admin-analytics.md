@@ -90,7 +90,7 @@ release; deploying the admin report does not update installed mobile binaries.
 ## Outreach
 
 The Outreach section (`apps/web/src/pages/admin/Outreach.tsx`, backend
-`internal/admin/outreach.go`, migrations 044 and 045) lists every phone number the
+`internal/admin/outreach.go`, migrations 044, 045 and 046) lists every phone number the
 server knows, one row per normalized number, so the operator can message
 people on WhatsApp by hand and record where each conversation stands.
 
@@ -110,26 +110,62 @@ vaults are excluded. Customer numbers exist only for kaatas synced while
 signed in.
 
 Test data is excluded by source, never inferred: the operator presses
-"Exclude this book", "Exclude this account" or "Exclude this install" in a
-row's details, which writes one row to `outreach_exclusions` (kind + UUID +
-reason). An excluded book drops only its own listing from each number, so a
-number that also appears in a legitimate book stays, with that book's listing
-only; a number is removed only when no source is left. An excluded book also
-leaves its owner's aggregates (it no longer counts toward that shopkeeper's
-kaatas, people, tallies, receivable and payable totals or last tally), and the
-supplier and wholesaler flags of the numbers it listed are recomputed without
-it. An excluded account or install drops only its own shopkeeper
-contribution: excluding one of two installs, or an install whose account has
-its own phone, keeps the shopkeeper side (the row's details say so under the
-install list); a `both` number becomes a customer once no shopkeeper source is
-left. The "Excluded sources" card lists every exclusion with an Undo. Nothing
-is excluded because of a currency or a name.
+"Exclude book" or "Exclude owner" in the Books list, or "Exclude this book",
+"Exclude this account" or "Exclude this install" in a row's details, which
+writes one row to `outreach_exclusions` (kind + UUID + reason). An excluded
+book drops only its own listing from each number, so a number that also
+appears in a legitimate book stays, with that book's listing only; a number is
+removed only when no source is left. An excluded book also leaves its owner's
+aggregates (it no longer counts toward that shopkeeper's kaatas, people,
+tallies, receivable and payable totals or last tally), and the supplier and
+wholesaler flags of the numbers it listed are recomputed without it. An
+excluded account drops the account's own number and every book it owns
+(`vaults.owner_account_id`), the way `OPERATOR_ACCOUNT_IDS` does: each owned
+book is dropped before the fold exactly like an excluded book (no listings, no
+owner totals, not in the Books list); a book the account is merely a member of
+stays. Its exclusion label is the account's name or email, followed by
+" · owns 1 book" or " · owns N books" when it owns any (every non-purged book
+it owns, whatever else excludes it); an account with neither a name nor an
+email is named by the first eight characters of its id instead. An excluded
+install drops only its own shopkeeper contribution: excluding
+one of two installs, or an install whose account has its own phone, keeps the
+shopkeeper side (the row's details say so under the install list); a `both`
+number becomes a customer once no shopkeeper source is left. Nothing is
+excluded because of a currency or a name.
+
+The "Excluded sources" card opens with the Books list: every non-purged book
+whose people feed the directory — not operator-owned, not excluded, and not
+owned by an excluded account — from the GET's `books`. A row shows the book's
+name, currency and an Archived pill; the owner's name, email and phone; when
+the book was created; its numbers (distinct normalized phones among its
+listings), people (non-archived relationships) and tallies; its last activity
+(last tally); and two actions with the usual inline reason (default "test
+data"): "Exclude book", and "Exclude owner", which removes the owner's own
+number and every book they own (its open reason form says so in one line above
+the input). The list searches book name, owner name, email and phone (the
+directory's phone matching) and sorts ("Sort books by") by Numbers, Last
+activity, Created, Owner or Name. Numbers is the default and is the server's
+own order, kept exactly as received: most numbers, then the newest last tally,
+then name and vault id compared byte-wise (so "Zebra" precedes "apple"); the
+page never re-derives it, and every other sort breaks its ties by that server
+order too. It shows 25 books a page, and its count line ("N books · M numbers")
+counts a number once however many of the shown books list it. An exclusion
+moves the book from the Books list to the exclusions list under it at once,
+then refetches; until the refetched list has arrived the exclusion counts as a
+write in flight, so every write control on the page stays disabled and a number
+whose only source was just excluded cannot be opened, sent or relabelled from
+the stale list. Every exclusion keeps its Undo, which confirms with "Included
+again: <label>".
 
 Fold rule: per relationship, `debt` adds and `payment` subtracts, deleted
 entries are excluded, and amounts are integer hundredths. A positive balance
 means the person owes the shop (role `customer`), negative means the shop owes
 them (`supplier`), zero is `settled`. A wholesaler is a customer number listed
-in two or more books or recorded as a supplier anywhere.
+in two or more books or recorded as a supplier anywhere. `mention_count` counts
+those books: distinct books, not listings, so a book that lists a number twice
+(two people saved with one phone) counts once. The page calls it "Books
+listing it" (sort), "Min books listing it" / "Books ≥ N" (filter) and `books`
+(CSV column).
 A listing whose relationship is bound to a mutual tab is flagged `linked`; its
 balance is the vault's local fold only (the tab's rows are not folded), so the
 page labels it "Shared account" instead of presenting it as the live balance.
@@ -179,7 +215,10 @@ follow-up: every outcome carries `expected_version`,
 `outreach_contacts.version` is bumped by every write, and a mismatch is 409
 `stale outcome` with nothing written, so a double click, a retried request
 after a lost response, or a second dashboard tab cannot count one message
-twice. The page answers a 409 by refetching, never by retrying. Bulk "Mark
+twice. The page answers a 409 by refetching, never by retrying; a stale
+version reads "Changed elsewhere — refreshed. Check the row and try again.",
+since any write (a note, a language, a status from another tab) moves the
+version, not only this outcome. Bulk "Mark
 sent" (`mark` with `contacted: true`) records only a FIRST message: it counts
 a row only if it is New, Not on WhatsApp or Invalid and was never recorded as
 sent (`contact_count` 0), leaves every other row untouched and reports it as
@@ -208,8 +247,10 @@ recorded without lifting it.
 
 The prospect queue is the Prospects view, which a fresh tab opens on:
 customer-only numbers (no install matched that number), status New, never
-messaged, a valid number, not archived everywhere, not awaiting an outcome,
-not skipped today, Afghanistan unless the country filter says otherwise. Open
+messaged, a valid number, a mobile number (the numbering plan's `mobile` or
+`fixed_line_or_mobile`; a landline or an unknown type is not a prospect), not
+archived everywhere, not awaiting an outcome, not skipped today, Afghanistan
+unless the country filter says otherwise. Open
 next and Prospects are first contact only, and "never messaged" is the
 state's `never_messaged` flag, which the server computes over the whole
 touch log (not the 20 touches the page shows): a number counts as never
@@ -229,6 +270,60 @@ presses Retry, which puts the number back to New; the queue offers it again
 only if it was never messaged, otherwise it is opened by hand. Retry is
 refused (409 `not retryable`) for any other status.
 
+Each preset opens in its own order. Prospects, Customers and Wholesalers sort
+by last tally, newest first; a tie goes to the number more books list
+(`mention_count`, distinct books, most first, in either direction), then to
+the phone, and numbers with no tally at all come last. Every other view, and
+the default one, sorts by last seen. Applying a preset — its tab, its summary
+card, a `#outreach?view=` link, or the Prospects view a fresh tab opens on —
+sets its filters and its sort; a sort picked afterwards holds until a preset
+is applied again, and the highlighted tab still follows the filters alone. The
+view's description under the search states its order ("Newest tally first.")
+only while that order is the current sort. The
+"Installed after contact" card applies the default order. The session-storage
+key is `kaata_admin_outreach_filters_v3`, so a view stored before this order
+existed is dropped rather than restored.
+
+Message language. The session-wide choice is the outreach setting
+`pref.message_lang` — `fa` (Dari), `en` (English) or `auto` (each shop's app
+language) — picked in the Queue card and Dari when unset or unknown; the
+backend stores it and never interprets it. A per-number choice,
+`outreach_contacts.lang` (migration 046: `''`, `en` or `fa`, enforced by a
+CHECK), set in a row's details, wins over it. For one number the message uses
+its own `lang` when set, else the session's Dari or English, else (Auto) the
+locale rule: Dari for a `fa` or `prs` locale (the shopkeeper's own install,
+else the first listing owner's install), English otherwise. The template is
+`template.<audience>.<lang>`, which is what `opened` and `sent` record. A
+per-number choice is a `mark` with `lang`: it bumps the version like every
+write but writes no touch (a preference, not an outreach event), and a
+lang-only mark applies to a stopped row without lifting the stop. A `lang`
+follows its row: whenever a mark skips a row — a `contacted` mark on a row that
+is not sendable or was already messaged, or a status mark that would lift a
+stop without `lift_stop` — the row keeps its `lang` too, a stopped row
+included. The page toasts success only when the mark's answer carries the
+requested `lang`; a backend from before migration 046 answers without it, and
+the page says "Language not saved — the server is on an older version; reload
+after the deploy."
+
+An open chat keeps the language it was opened in. While a contact awaits an
+outcome, `sent` — the strip's Sent, the row's Sent box, or the first half of
+Sent & next — records the template key of the contact's newest `opened` touch,
+not today's resolution, because the text prefilled in the WhatsApp tab is what
+went out, whatever the session or the number's own language says by then. When
+the newest `opened` touch names no template (or none is among the 20 touches
+the page receives), Sent falls back to today's resolution and the strip shows
+that language. The strip names the opened language ("opened in Dari") and adds
+"· reopens in English" (or the reverse) when "Open chat again" would now use
+the other; on a pending row the per-number select says the chat was opened in
+that language and that a change applies to the next message.
+
+The Queue card's next line, the "Awaiting outcome" strip, each row's WhatsApp
+and Copy message buttons (a small "Dari" / "English" label before them, and
+the language at the end of their accessible names) and a row's message preview
+show which language the message will use, and the CSV carries the stored
+`lang`. The page holds no language of its own, so every tab and device writes
+the same message.
+
 Number validity comes from libphonenumber's numbering-plan metadata
 (`github.com/nyaruka/phonenumbers`, pinned in `go.mod`): every contact carries
 `number.valid`, `possible`, `type` (mobile, fixed line, ...), `region` and the
@@ -239,12 +334,20 @@ Validity says nothing about whether the number uses WhatsApp; that is the
 library bumps the metadata.
 
 Endpoints, all inside the admin-key group: `GET /v1/admin/outreach` (every
-contact's `outreach` state carries `never_messaged`);
+contact's `outreach` state carries `never_messaged` and `lang`; the result
+carries `books`, never null, one row per book feeding the list with
+`vault_id`, `name`, `currency`, `archived`, `created_at`, `owner_account_id`,
+`owner_name`, `owner_email`, `owner_phone`, `member_count`, `people`,
+`numbers`, `tallies` and `last_tally_at`, ordered by numbers, then last tally,
+name and vault id; the page reads a missing `books` as empty and a missing
+`lang` as `''`);
 `POST /v1/admin/outreach/mark` with
-`{phones[], status?, note?, contacted?, replied?, template_key?, lift_stop?}`
+`{phones[], status?, note?, contacted?, replied?, template_key?, lift_stop?, lang?}`
 (phones only in the body, never in the path, up to 500 per call; absent fields
 are left alone; `status` together with `contacted` or `replied` is 400
-`invalid body`), answering `{updated, skipped}`: `updated` is every requested
+`invalid body`; `lang` other than `''`, `en` or `fa` is 400 `invalid lang`,
+and the page sends it only for one number, from that row's language menu),
+answering `{updated, skipped}`: `updated` is every requested
 phone's current state in input order, `skipped` the phones the mark left
 untouched (a `contacted` mark: not New, Not on WhatsApp or Invalid, or already
 recorded as sent; a status mark: Declined or Do not contact without
@@ -266,7 +369,8 @@ request settles).
 Settings keys: `template.shopkeeper.en|fa` and `template.customer.en|fa`
 (placeholders `{name}`, `{shop}`, `{link}`; the link always ends up alone on
 its own line), `slug.shopkeeper` (default `wa-shop`), `slug.customer` (default
-`wa-cust`). The old `pref.auto_mark` key is retired: opening a chat never
+`wa-cust`), `pref.message_lang` (`fa`, `en` or `auto`; Dari when unset). The
+old `pref.auto_mark` key is retired: opening a chat never
 marks it sent any more, so there is nothing to switch off. Message links are `https://kaata.af/download?s=<slug>`, so an
 install that follows a message is attributed like a flyer scan: the slug is
 stamped only when the install's first check-in comes from the same IP within
@@ -275,7 +379,9 @@ later, or from another network, is not attributed; the `converted` flag
 (install after contact) is the broader signal.
 
 Only enum/number preferences are stored in sessionStorage; search text, phone
-numbers, notes and the row selection are not.
+numbers, notes and the row selection are not, and neither is anything about
+the message language, which lives on the server. The Books list's search,
+order and page are not stored at all.
 
 ## Live updates
 

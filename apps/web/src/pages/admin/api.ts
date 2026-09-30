@@ -336,6 +336,8 @@ export type OutreachListing = {
 };
 export type OutreachCustomer = {
   listings: OutreachListing[]; // never null
+  // Distinct BOOKS that list the number (2026-09-30), not listings: one book
+  // can list it twice (two people saved with one phone), and counts once.
   mention_count: number;
   first_added_at: string;
   last_tally_at: string;
@@ -350,6 +352,11 @@ export type OutreachTouch = {
   detail: string;
   at: string;
 };
+// The operator's per-number message language (2026-09-30, migration 046):
+// "" follows the session-wide choice (setting `pref.message_lang`), "fa" is
+// Dari, "en" English. A preference, not an outreach event: setting it writes
+// no touch.
+export type OutreachLang = "" | "en" | "fa";
 export type OutreachState = {
   phone: string;
   status: OutreachStatus;
@@ -375,6 +382,9 @@ export type OutreachState = {
   // Bumped on every write. Outcome POSTs send it back as `expected_version`;
   // a mismatch is a 409 (StaleError), never a silent overwrite. 0 = no row.
   version: number;
+  // "" for a number with no row, and from a backend that predates it
+  // (withStateDefaults).
+  lang: OutreachLang;
 };
 export type OutreachContact = {
   phone: string;
@@ -412,21 +422,48 @@ export type OutreachCounts = {
 };
 // An operator-verified test source. Excluding one drops only that source's
 // contribution to a number; a number that also appears in a real book stays.
+// An account (2026-09-30) takes its own number AND every book it owns, like
+// OPERATOR_ACCOUNT_IDS; books it is merely a member of stay.
 export type OutreachExclusionKind = "vault" | "account" | "install";
 export type OutreachExclusion = {
   kind: OutreachExclusionKind;
   id: string;
-  // vault: "<vault name> · <owner name>"; account: name or email; install:
-  // self_name / shop_name / install id prefix.
+  // vault: "<vault name> · <owner name>"; account: name or email, plus
+  // " · owns N books" when it owns any; install: self_name / shop_name /
+  // install id prefix.
   label: string;
   reason: string;
   created_at: string;
+};
+// One book whose people feed the list (2026-09-30): every non-purged vault
+// that is not operator-owned, not excluded, and whose owner is not an
+// excluded account. The server orders them by numbers, then last tally, then
+// name and vault id byte-wise; the page's Numbers sort is that order as-is.
+export type OutreachBook = {
+  vault_id: string;
+  name: string;
+  currency: string;
+  archived: boolean; // vaults.archived_at set
+  created_at: string; // RFC3339 UTC
+  owner_account_id: string;
+  owner_name: string; // "" when unset
+  owner_email: string;
+  owner_phone: string; // resolved like a listing's owner_phone
+  member_count: number; // accepted, non-revoked members
+  people: number; // non-archived relationships
+  // Distinct normalized phones among this book's listings (archived
+  // relationships included while a phone remains).
+  numbers: number;
+  tallies: number; // non-deleted entries
+  last_tally_at: string; // RFC3339 UTC or ""
 };
 export type OutreachResult = {
   contacts: OutreachContact[]; // never null
   settings: Record<string, string>; // never null
   counts: OutreachCounts;
   exclusions: OutreachExclusion[]; // never null
+  // Never null; [] from a backend that predates it (withOutreachDefaults).
+  books: OutreachBook[];
   generated_at: string;
 };
 // POST /v1/admin/outreach/mark. Absent fields are left alone server-side, so
@@ -445,6 +482,11 @@ export type OutreachMarkBody = {
   // true. Only a row's own status menu sends it; bulk actions never do, so a
   // stop is lifted one row at a time. Setting a stop needs no flag.
   lift_stop?: boolean;
+  // The per-number message language (2026-09-30); "" clears it. Bumps the
+  // version like every write, records no touch, and applies to a stopped row
+  // without lifting anything. A `contacted` mark that skips a row skips its
+  // lang too. Only a row's own language menu sends it.
+  lang?: OutreachLang;
 };
 // `updated` carries every requested phone's CURRENT state, in input order.
 // `skipped` (2026-09-30) lists every row the mark left untouched: a bulk
@@ -488,7 +530,7 @@ export type OutreachExclusionResult = { exclusions: OutreachExclusion[] };
 // second message gets sent.
 export class StaleError extends Error {
   constructor(message: string) {
-    super(message || "Already recorded elsewhere.");
+    super(message || "Changed elsewhere.");
     this.name = "StaleError";
   }
 }

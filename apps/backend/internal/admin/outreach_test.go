@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/matee/kaata-backend/internal/testutil"
@@ -534,6 +535,71 @@ func TestGetOutreachMergesCustomerAcrossVaults(t *testing.T) {
 	}
 	if res.Counts.Wholesalers != 1 || res.Counts.Customers != 1 || res.Counts.Shopkeepers != 2 || res.Counts.Total != 3 {
 		t.Fatalf("counts wrong: %+v", res.Counts)
+	}
+}
+
+// ---------- one book holding a number twice is still one book ----------
+
+func TestOutreachMentionCountCountsBooks(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	ctx := t.Context()
+	owner := seedOutreachAccount(t, pool, "Owner One", "+93790000021")
+	vault := seedOutreachVault(t, pool, owner, "Only Shop", "AFN")
+	relA, relB := uuid.NewString(), uuid.NewString()
+	ev := newOutreachEvents(t, pool, vault)
+	// Two people records in ONE book carry the same number, the second in the
+	// trunk-zero spelling normalizeOutreachPhone merges into the first.
+	ev.person(uuid.NewString(), relA, "Karim", "+93700000451")
+	ev.entry(relA, "debt", "100")
+	ev.person(uuid.NewString(), relB, "Karim Jan", "+930700000451")
+	ev.entry(relB, "debt", "50")
+
+	res, err := NewService(pool, nil, nil).GetOutreach(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cu := findOutreach(t, res, "+93700000451").Customer
+	if cu == nil || len(cu.Listings) != 2 {
+		t.Fatalf("both records must stay listed: %+v", cu)
+	}
+	if cu.MentionCount != 1 || cu.IsWholesaler || cu.IsSupplierAnywhere {
+		t.Fatalf("one book listing a number twice is one book, not a wholesaler: %+v", cu)
+	}
+	if res.Counts.Wholesalers != 0 {
+		t.Fatalf("no wholesaler expected: %+v", res.Counts)
+	}
+	if b := findOutreachBook(t, res, vault); b.Numbers != 1 || b.People != 2 {
+		t.Fatalf("book must count the shared number once: %+v", b)
+	}
+}
+
+// ---------- one owner's two books listing a number are two books ----------
+
+// MentionCount counts books, not owners: one shopkeeper keeping the same
+// number in two of their books is two books that know the person, which
+// alone makes the number a wholesaler.
+func TestOutreachMentionCountSameOwnerTwoBooks(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	ctx := t.Context()
+	owner := seedOutreachAccount(t, pool, "Two Books", "+93790000023")
+	first := seedOutreachVault(t, pool, owner, "First Book", "AFN")
+	second := seedOutreachVault(t, pool, owner, "Second Book", "AFN")
+	newOutreachEvents(t, pool, first).person(uuid.NewString(), uuid.NewString(), "Karim", "+93700000452")
+	newOutreachEvents(t, pool, second).person(uuid.NewString(), uuid.NewString(), "Karim", "+93700000452")
+
+	res, err := NewService(pool, nil, nil).GetOutreach(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cu := findOutreach(t, res, "+93700000452").Customer
+	if cu == nil || len(cu.Listings) != 2 {
+		t.Fatalf("both books must list the number: %+v", cu)
+	}
+	if cu.MentionCount != 2 || !cu.IsWholesaler || cu.IsSupplierAnywhere {
+		t.Fatalf("one owner's two books are two books, a wholesaler by that count alone: %+v", cu)
+	}
+	if res.Counts.Wholesalers != 1 {
+		t.Fatalf("one wholesaler expected: %+v", res.Counts)
 	}
 }
 
@@ -1463,13 +1529,15 @@ func TestOutreachExclusions(t *testing.T) {
 		t.Fatalf("GET must carry the labelled exclusion: %+v", res.Exclusions)
 	}
 
-	// 2. Owner B's account: the `both` number keeps its customer side, the
-	// install resolved to B goes, and B's own book is NOT excluded by that.
+	// 2. Owner B's account: the `both` number keeps its customer side (C's
+	// book), the install resolved to B goes, and so does B's own book (batch
+	// 3: an account takes the books it owns with it). The shared number was
+	// left with only B's book, so it goes too.
 	clock = clock.Add(time.Hour)
 	if list, err = svc.SetOutreachExclusion(ctx, "account", ownerB, true, "my own account"); err != nil {
 		t.Fatal(err)
 	}
-	if len(list) != 2 || list[0].Kind != "account" || list[0].ID != ownerB || list[0].Label != "Owner B" ||
+	if len(list) != 2 || list[0].Kind != "account" || list[0].ID != ownerB || list[0].Label != "Owner B · owns 1 book" ||
 		list[0].Reason != "my own account" || list[0].CreatedAt != "2026-09-10T09:00:00Z" || list[1].Kind != "vault" {
 		t.Fatalf("account exclusion wrong (newest first): %+v", list)
 	}
@@ -1481,9 +1549,8 @@ func TestOutreachExclusions(t *testing.T) {
 	if hasOutreach(res, "+93700000705") {
 		t.Fatal("an install resolved to an excluded account must go with it")
 	}
-	if c := findOutreach(t, res, shared); len(c.Customer.Listings) != 1 || c.Customer.Listings[0].VaultID != vaultB ||
-		c.Customer.Listings[0].OwnerName != "Owner B" || c.Customer.Listings[0].OwnerPhone != "+93790000022" {
-		t.Fatalf("excluding an account must not exclude its book or hide its owner: %+v", c.Customer)
+	if hasOutreach(res, shared) {
+		t.Fatal("a number left only in a book the excluded account owns must disappear")
 	}
 
 	// 3. One install of a two-install shopkeeper, then the other. The list is
@@ -1532,7 +1599,9 @@ func TestOutreachExclusions(t *testing.T) {
 	}
 	res = get()
 	findOutreach(t, res, onlyA)
-	if c := findOutreach(t, res, shared); len(c.Customer.Listings) != 2 || !c.Customer.IsSupplierAnywhere {
+	// The test book is back; Owner B is still excluded, so B's book is not.
+	if c := findOutreach(t, res, shared); len(c.Customer.Listings) != 1 || c.Customer.Listings[0].VaultID != vaultA ||
+		!c.Customer.IsSupplierAnywhere {
 		t.Fatalf("shared after lift wrong: %+v", c.Customer)
 	}
 	if sk := findOutreach(t, res, "+93790000021").Shopkeeper; len(sk.Kaatas) != 2 || sk.ReceivableTotal != "350.00" {
@@ -1546,7 +1615,7 @@ func TestOutreachExclusions(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("re-exclude: %d %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `{"kind":"account","id":"`+ownerB+`","label":"Owner B","reason":"changed reason","created_at":"2026-09-10T09:00:00Z"}`) {
+	if !strings.Contains(rec.Body.String(), `{"kind":"account","id":"`+ownerB+`","label":"Owner B · owns 1 book","reason":"changed reason","created_at":"2026-09-10T09:00:00Z"}`) {
 		t.Fatalf("re-exclude response wrong: %s", rec.Body.String())
 	}
 	if !strings.HasPrefix(rec.Body.String(), `{"exclusions":[`) {
@@ -2325,4 +2394,650 @@ func TestOutreachMarkRefusesStatusCombos(t *testing.T) {
 			t.Fatalf("%s: %d %s want status %s count %d", tc.body, rec.Code, rec.Body.String(), tc.status, tc.count)
 		}
 	}
+}
+
+// ---------- batch 3 (2026-09-30), case 1: books on GET ----------
+
+func outreachBookIDs(res OutreachResult) string {
+	ids := make([]string, 0, len(res.Books))
+	for _, b := range res.Books {
+		ids = append(ids, b.VaultID)
+	}
+	return strings.Join(ids, ",")
+}
+
+// findOutreachBook fails the test when the book is absent, so an assertion
+// about a book's fields can never pass vacuously.
+func findOutreachBook(t *testing.T, res OutreachResult, vaultID string) OutreachBook {
+	t.Helper()
+	for _, b := range res.Books {
+		if b.VaultID == vaultID {
+			return b
+		}
+	}
+	t.Fatalf("book %s missing from books [%s]", vaultID, outreachBookIDs(res))
+	return OutreachBook{}
+}
+
+// GET lists every book whose data feeds the list — each non-purged vault that
+// no operator owns, that is not excluded and whose owner is not an excluded
+// account — once, with its owner and counts, in the server order.
+func TestGetOutreachBooks(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	ctx := t.Context()
+	iso := func(ms int64) string { return time.UnixMilli(ms).UTC().Format(time.RFC3339) }
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	// A report with no books still carries books as [], never null.
+	empty, err := NewService(pool, nil, nil).GetOutreach(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw, err := json.Marshal(empty); err != nil || !strings.Contains(string(raw), `"books":[]`) {
+		t.Fatalf("books must serialize as []: %s %v", raw, err)
+	}
+
+	named := seedOutreachAccount(t, pool, "Book Owner", "+93 79 000 0031")
+	unnamed := seedOutreachAccount(t, pool, "", "")
+	clerk := seedOutreachAccount(t, pool, "Clerk", "")
+	op := seedOutreachAccount(t, pool, "Operator", "")
+	exec(`UPDATE accounts SET email = 'named@example.test' WHERE id = $1::uuid`, named)
+	exec(`UPDATE accounts SET name = NULL, email = 'unnamed@example.test' WHERE id = $1::uuid`, unnamed)
+	// No account phone: the unnamed owner's book shows its latest install's
+	// number, exactly as the book's listings do.
+	seedOutreachInstall(t, pool, &unnamed, "2026-09-02T10:00:00Z", "+93 790 000 032", "", "")
+
+	shared := seedOutreachVault(t, pool, named, "Shared Phone Book", "AFN")
+	seedOutreachMember(t, pool, shared, clerk, "editor")
+	noPhone := seedOutreachVault(t, pool, unnamed, "No Phone Book", "USD")
+	archived := seedOutreachVault(t, pool, named, "Archived Book", "AFN")
+	testBook := seedOutreachVault(t, pool, named, "Test Book", "AFN")
+	opBook := seedOutreachVault(t, pool, op, "Operator Book", "AFN")
+	for id, at := range map[string]string{
+		shared: "2026-08-01T10:00:00Z", noPhone: "2026-08-02T10:00:00Z", archived: "2026-08-03T10:00:00Z",
+		testBook: "2026-08-04T10:00:00Z", opBook: "2026-08-05T10:00:00Z",
+	} {
+		exec(`UPDATE vaults SET created_at = $2 WHERE vault_id = $1::uuid`, id, activityTime(t, at))
+	}
+	exec(`UPDATE vaults SET archived_at = $2 WHERE vault_id = $1::uuid`, archived, activityTime(t, "2026-09-05T10:00:00Z"))
+
+	// Two people share one number through different spellings, a third has
+	// their own. The book's last event is a deleted tally, which counts for
+	// neither tallies nor last_tally_at.
+	evS := newOutreachEvents(t, pool, shared)
+	relPlain, relTrunk, relOwn := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	evS.person(uuid.NewString(), relPlain, "Spelled Plain", "+93700000911")
+	evS.person(uuid.NewString(), relTrunk, "Spelled Trunk", "+93 0700 000 911")
+	evS.person(uuid.NewString(), relOwn, "Own Number", "+93700000912")
+	evS.entry(relPlain, "debt", "100")
+	evS.entry(relTrunk, "payment", "40")
+	sharedLast := evS.pms
+	gone := uuid.NewString()
+	evS.add("entry_created", "", relOwn, fmt.Sprintf(
+		`{"entry_id":%q,"relationship_id":%q,"type":"debt","amount_afn":5,"note":null,"occurred_at_ms":%d}`,
+		gone, relOwn, evS.pms+60_000))
+	evS.add("entry_deleted", gone, relOwn, `{}`)
+
+	// A person with no number is a person but not a number; an archived
+	// relationship whose number remains is a number but not a person. No
+	// tallies at all.
+	evN := newOutreachEvents(t, pool, noPhone)
+	nobody := uuid.NewString()
+	evN.add("person_added", nobody, uuid.NewString(), fmt.Sprintf(
+		`{"user_id":%q,"name":"No Number","phone_e164":null,"relationship_context":"peer"}`, nobody))
+	evN.person(uuid.NewString(), uuid.NewString(), "Has Number", "+93700000913")
+	relArchived := uuid.NewString()
+	evN.person(uuid.NewString(), relArchived, "Archived Keeps Number", "+93700000914")
+	evN.add("person_archived", "", relArchived, `{}`)
+
+	// One number and the latest tally of all: still after both two-number books.
+	evA := newOutreachEvents(t, pool, archived)
+	evA.pms = evS.pms + 3_600_000
+	relLate := uuid.NewString()
+	evA.person(uuid.NewString(), relLate, "Late", "+93700000915")
+	evA.entry(relLate, "debt", "10")
+	archivedLast := evA.pms
+
+	newOutreachEvents(t, pool, testBook).person(uuid.NewString(), uuid.NewString(), "Test Person", "+93700000916")
+	newOutreachEvents(t, pool, opBook).person(uuid.NewString(), uuid.NewString(), "Operator Person", "+93700000917")
+
+	// Without the operator allowlist every book is listed: numbers first, then
+	// the latest tally (a book never tallied last), then name.
+	all, err := NewService(pool, nil, nil).GetOutreach(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := outreachBookIDs(all), strings.Join([]string{shared, noPhone, archived, opBook, testBook}, ","); got != want {
+		t.Fatalf("unfiltered books = %s want %s", got, want)
+	}
+	svc := NewService(pool, []string{op}, nil)
+	res, err := svc.GetOutreach(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := outreachBookIDs(res), strings.Join([]string{shared, noPhone, archived, testBook}, ","); got != want {
+		t.Fatalf("an operator-owned book must be absent: %s want %s", got, want)
+	}
+	if _, err := svc.SetOutreachExclusion(ctx, "vault", testBook, true, "test data"); err != nil {
+		t.Fatal(err)
+	}
+	if res, err = svc.GetOutreach(ctx); err != nil {
+		t.Fatal(err)
+	}
+	want := []OutreachBook{{
+		VaultID: shared, Name: "Shared Phone Book", Currency: "AFN", CreatedAt: "2026-08-01T10:00:00Z",
+		OwnerAccountID: named, OwnerName: "Book Owner", OwnerEmail: "named@example.test", OwnerPhone: "+93790000031",
+		MemberCount: 2, People: 3, Numbers: 2, Tallies: 2, LastTallyAt: iso(sharedLast),
+	}, {
+		VaultID: noPhone, Name: "No Phone Book", Currency: "USD", CreatedAt: "2026-08-02T10:00:00Z",
+		OwnerAccountID: unnamed, OwnerEmail: "unnamed@example.test", OwnerPhone: "+93790000032",
+		MemberCount: 1, People: 2, Numbers: 2,
+	}, {
+		VaultID: archived, Name: "Archived Book", Currency: "AFN", Archived: true, CreatedAt: "2026-08-03T10:00:00Z",
+		OwnerAccountID: named, OwnerName: "Book Owner", OwnerEmail: "named@example.test", OwnerPhone: "+93790000031",
+		MemberCount: 1, People: 1, Numbers: 1, Tallies: 1, LastTallyAt: iso(archivedLast),
+	}}
+	if len(res.Books) != len(want) {
+		t.Fatalf("books = %s want the three kept books", outreachBookIDs(res))
+	}
+	for i := range want {
+		if res.Books[i] != want[i] {
+			t.Fatalf("book %d:\n got %+v\nwant %+v", i, res.Books[i], want[i])
+		}
+	}
+	// The two spellings are one number, listed twice by that book; the owner
+	// phone is the listings' own.
+	if c := findOutreach(t, res, "+93700000911"); len(c.Customer.Listings) != 2 {
+		t.Fatalf("both spellings must list one number: %+v", c.Customer.Listings)
+	}
+	if l := findOutreach(t, res, "+93700000913").Customer.Listings[0]; l.OwnerPhone != "+93790000032" || l.OwnerName != "" {
+		t.Fatalf("book and listing owner must agree: %+v", l)
+	}
+	if hasOutreach(res, "+93700000916") || hasOutreach(res, "+93700000917") {
+		t.Fatal("the excluded and the operator-owned book must not feed the list")
+	}
+	// The wire tags the page reads.
+	raw, err := json.Marshal(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"books":[{"vault_id":"` + shared + `",`,
+		`{"vault_id":"` + noPhone + `","name":"No Phone Book","currency":"USD","archived":false,` +
+			`"created_at":"2026-08-02T10:00:00Z","owner_account_id":"` + unnamed + `","owner_name":"",` +
+			`"owner_email":"unnamed@example.test","owner_phone":"+93790000032","member_count":1,"people":2,` +
+			`"numbers":2,"tallies":0,"last_tally_at":""}`,
+	} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("GET JSON lacks %s:\n%s", want, raw)
+		}
+	}
+}
+
+// The server order of books, rule by rule: numbers desc, then last_tally_at
+// desc with a never-tallied book last, then name, then vault id. Pure.
+func TestSortOutreachBooks(t *testing.T) {
+	books := []OutreachBook{
+		{VaultID: "v7", Name: "Fewest", Numbers: 1, LastTallyAt: "2026-09-20T08:00:00Z"},
+		{VaultID: "v0", Name: "Beta", Numbers: 3},
+		{VaultID: "v2", Name: "Alpha", Numbers: 3},
+		{VaultID: "v4", Name: "Older", Numbers: 3, LastTallyAt: "2026-09-01T08:00:00Z"},
+		{VaultID: "v1", Name: "Alpha", Numbers: 3},
+		{VaultID: "v3", Name: "Newer", Numbers: 3, LastTallyAt: "2026-09-10T08:00:00Z"},
+		{VaultID: "v5", Name: "Most", Numbers: 4},
+	}
+	sortOutreachBooks(books)
+	if got, want := outreachBookIDs(OutreachResult{Books: books}), "v5,v3,v4,v1,v2,v0,v7"; got != want {
+		t.Fatalf("books order = %s want %s", got, want)
+	}
+	// Name ties compare byte-wise, not by locale — "Zebra" before "apple" —
+	// and the page keeps this order for its Numbers sort instead of re-sorting.
+	byteWise := []OutreachBook{
+		{VaultID: "va", Name: "apple", Numbers: 2},
+		{VaultID: "vz", Name: "Zebra", Numbers: 2},
+	}
+	sortOutreachBooks(byteWise)
+	if got, want := outreachBookIDs(OutreachResult{Books: byteWise}), "vz,va"; got != want {
+		t.Fatalf("byte-wise name order = %s want %s", got, want)
+	}
+}
+
+// An owner account with no phone lends its books — and their listings — the
+// number of its most recently seen install, but only of an install that
+// still feeds the list: an excluded install supplies neither that owner_phone
+// nor the customer locale the same fallback reads. With every install
+// excluded, both are "".
+func TestOutreachBookOwnerPhoneSkipsExcludedInstall(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	ctx := t.Context()
+	svc := NewService(pool, nil, nil)
+	owner := seedOutreachAccount(t, pool, "No Phone Owner", "")
+	older := seedOutreachInstall(t, pool, &owner, "2026-09-01T10:00:00Z", "+93790000051", "", "")
+	newer := seedOutreachInstall(t, pool, &owner, "2026-09-05T10:00:00Z", "+93790000052", "", "")
+	for id, locale := range map[string]string{older: "fa", newer: "en"} {
+		if _, err := pool.Exec(ctx, `UPDATE installs SET app_locale = $2 WHERE install_id = $1::uuid`, id, locale); err != nil {
+			t.Fatal(err)
+		}
+	}
+	book := seedOutreachVault(t, pool, owner, "Owner Book", "AFN")
+	cust := "+93700000461"
+	newOutreachEvents(t, pool, book).person(uuid.NewString(), uuid.NewString(), "Customer", cust)
+
+	check := func(stage, wantPhone, wantLocale string) {
+		t.Helper()
+		res, err := svc.GetOutreach(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b := findOutreachBook(t, res, book)
+		c := findOutreach(t, res, cust)
+		if c.Customer == nil || len(c.Customer.Listings) != 1 {
+			t.Fatalf("%s: the book must still list %s: %+v", stage, cust, c.Customer)
+		}
+		if l := c.Customer.Listings[0]; b.OwnerPhone != wantPhone || l.OwnerPhone != wantPhone || c.Locale != wantLocale {
+			t.Fatalf("%s: book owner_phone %q, listing owner_phone %q, locale %q; want %q, %q",
+				stage, b.OwnerPhone, l.OwnerPhone, c.Locale, wantPhone, wantLocale)
+		}
+	}
+	exclude := func(install string) {
+		t.Helper()
+		if _, err := svc.SetOutreachExclusion(ctx, "install", install, true, "test install"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check("baseline", "+93790000052", "en")
+	exclude(newer)
+	check("newer install excluded", "+93790000051", "fa")
+	exclude(older)
+	check("both installs excluded", "", "")
+}
+
+// ---------- batch 3, case 2: an account exclusion takes the books it owns ----------
+
+// Excluding an ACCOUNT drops every book it owns exactly like excluding each
+// book, as OPERATOR_ACCOUNT_IDS does: no listings, no kaata or totals under
+// any member, no row in books. A book it is only a member of stays whole, a
+// number it shares with another owner's book keeps that listing, and lifting
+// the exclusion restores the report exactly.
+func TestOutreachAccountExclusionDropsOwnedBooks(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	ctx := t.Context()
+	svc := NewService(pool, nil, nil)
+	svc.now = func() time.Time { return activityTime(t, "2026-09-10T08:00:00Z") }
+	h := NewHandler(svc)
+	get := func() OutreachResult {
+		t.Helper()
+		res, err := svc.GetOutreach(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	ownerA := seedOutreachAccount(t, pool, "Owner A", "+93790000041")
+	ownerB := seedOutreachAccount(t, pool, "Owner B", "+93790000042")
+	member := seedOutreachAccount(t, pool, "Member M", "+93790000043")
+	bookA1 := seedOutreachVault(t, pool, ownerA, "A Book One", "AFN")
+	bookA2 := seedOutreachVault(t, pool, ownerA, "A Book Two", "AFN")
+	purged := seedOutreachVault(t, pool, ownerA, "A Purged Book", "AFN")
+	bookB := seedOutreachVault(t, pool, ownerB, "B Book", "AFN")
+	bookM := seedOutreachVault(t, pool, member, "M Book", "AFN")
+	if _, err := pool.Exec(ctx, `UPDATE vaults SET archived_at = NOW(), purged_at = NOW() WHERE vault_id = $1::uuid`, purged); err != nil {
+		t.Fatal(err)
+	}
+	seedOutreachMember(t, pool, bookB, ownerA, "editor")  // A is only a member of B's book
+	seedOutreachMember(t, pool, bookA1, member, "editor") // M is a member of A's book
+	seedOutreachInstall(t, pool, &ownerA, "2026-09-02T10:00:00Z", "+93700000945", "Owner A Phone", "")
+	both, onlyA, onlyB, onlyM := "+93700000941", "+93700000942", "+93700000943", "+93700000944"
+	relA1, relA2, relBoth, relB, relM := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
+	evA1 := newOutreachEvents(t, pool, bookA1)
+	evA1.person(uuid.NewString(), relA1, "In A And B", both)
+	evA1.entry(relA1, "debt", "100")
+	evA2 := newOutreachEvents(t, pool, bookA2)
+	evA2.person(uuid.NewString(), relA2, "Only In A", onlyA)
+	evA2.entry(relA2, "debt", "30")
+	evB := newOutreachEvents(t, pool, bookB)
+	evB.person(uuid.NewString(), relBoth, "In B And A", both)
+	evB.person(uuid.NewString(), relB, "Only In B", onlyB)
+	evB.entry(relBoth, "debt", "70")
+	evB.entry(relB, "payment", "20")
+	evM := newOutreachEvents(t, pool, bookM)
+	evM.person(uuid.NewString(), relM, "Only In M", onlyM)
+	evM.entry(relM, "debt", "5")
+
+	base := get()
+	if c := findOutreach(t, base, both); len(c.Customer.Listings) != 2 || !c.Customer.IsWholesaler {
+		t.Fatalf("baseline shared number wrong: %+v", c.Customer)
+	}
+	findOutreach(t, base, onlyA)
+	findOutreach(t, base, "+93700000945")
+	if sk := findOutreach(t, base, "+93790000041").Shopkeeper; len(sk.Kaatas) != 3 {
+		t.Fatalf("baseline owner A kaatas wrong: %+v", sk.Kaatas)
+	}
+	if sk := findOutreach(t, base, "+93790000043").Shopkeeper; len(sk.Kaatas) != 2 || sk.ReceivableTotal != "105.00" {
+		t.Fatalf("baseline member M wrong: %+v", sk)
+	}
+	if len(base.Books) != 4 {
+		t.Fatalf("baseline books = %s", outreachBookIDs(base))
+	}
+
+	list, err := svc.SetOutreachExclusion(ctx, "account", ownerA, true, "test account")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Two books: the purged one is not counted.
+	if len(list) != 1 || list[0].Label != "Owner A · owns 2 books" {
+		t.Fatalf("account exclusion label wrong: %+v", list)
+	}
+	res := get()
+	// A's own number, its install's number and the number only its book held go.
+	for _, ph := range []string{"+93790000041", "+93700000945", onlyA} {
+		if hasOutreach(res, ph) {
+			t.Fatalf("%s must go with the excluded account", ph)
+		}
+	}
+	// The shared number keeps B's listing only, as it is.
+	if c := findOutreach(t, res, both); len(c.Customer.Listings) != 1 || c.Customer.Listings[0].VaultID != bookB ||
+		c.Customer.Listings[0].OwnerName != "Owner B" || c.Customer.Listings[0].Balance != "70.00" || c.Customer.IsWholesaler {
+		t.Fatalf("the shared number must keep only B's listing: %+v", c.Customer)
+	}
+	// B's book, where A is only a member, stays whole: its listings, its
+	// owner's kaata and totals, its member_count.
+	findOutreach(t, res, onlyB)
+	if sk := findOutreach(t, res, "+93790000042").Shopkeeper; len(sk.Kaatas) != 1 || sk.Kaatas[0].VaultID != bookB ||
+		sk.Kaatas[0].MemberCount != 2 || sk.ReceivableTotal != "70.00" || sk.PayableTotal != "20.00" {
+		t.Fatalf("a book A is only a member of must stay whole: %+v", sk)
+	}
+	// A member of A's book loses that kaata and everything it added.
+	if sk := findOutreach(t, res, "+93790000043").Shopkeeper; len(sk.Kaatas) != 1 || sk.Kaatas[0].VaultID != bookM ||
+		sk.People != 1 || sk.Tallies != 1 || sk.ReceivableTotal != "5.00" || sk.PayableTotal != "0.00" {
+		t.Fatalf("A's book must leave its member's totals: %+v", sk)
+	}
+	if got, want := outreachBookIDs(res), bookB+","+bookM; got != want || res.Books[0].MemberCount != 2 {
+		t.Fatalf("books after the account exclusion = %s want %s (%+v)", got, want, res.Books)
+	}
+
+	// Lifting it (the handler, as the page does) brings everything back.
+	rec := postOutreach(h.OutreachExclude, `{"kind":"account","id":"`+ownerA+`","excluded":false}`)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `{"exclusions":[]}`) {
+		t.Fatalf("lift: %d %s", rec.Code, rec.Body.String())
+	}
+	before, err := json.Marshal(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := json.Marshal(get())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("lifting the exclusion must restore the report:\nbefore %s\nafter  %s", before, after)
+	}
+}
+
+// The account label says what excluding it removes: "<name or email>" plus
+// " · owns N books" (one book singular) for its N > 0 non-purged owned books,
+// archived ones included and books it is only a member of not. An account
+// with neither name nor email keeps its id prefix in front of the count.
+func TestOutreachAccountExclusionLabel(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	ctx := t.Context()
+	svc := NewService(pool, nil, nil)
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	two := seedOutreachAccount(t, pool, "Two Books", "")
+	one := seedOutreachAccount(t, pool, "One Book", "")
+	none := seedOutreachAccount(t, pool, "No Books", "")
+	mailOnly := seedOutreachAccount(t, pool, "", "")
+	blank := seedOutreachAccount(t, pool, "", "")
+	exec(`UPDATE accounts SET name = NULL, email = 'mail.only@example.test' WHERE id = $1::uuid`, mailOnly)
+	exec(`UPDATE accounts SET name = NULL, email = '' WHERE id = $1::uuid`, blank)
+	twoFirst := seedOutreachVault(t, pool, two, "Two First", "AFN")
+	seedOutreachVault(t, pool, two, "Two Second", "AFN")
+	exec(`UPDATE vaults SET archived_at = NOW(), purged_at = NOW() WHERE vault_id = $1::uuid`,
+		seedOutreachVault(t, pool, two, "Two Purged", "AFN"))
+	exec(`UPDATE vaults SET archived_at = NOW() WHERE vault_id = $1::uuid`,
+		seedOutreachVault(t, pool, one, "One Archived", "AFN"))
+	seedOutreachMember(t, pool, twoFirst, none, "editor")
+	seedOutreachVault(t, pool, mailOnly, "Mail Book", "AFN")
+	seedOutreachVault(t, pool, blank, "Blank Book", "AFN")
+	var list []OutreachExclusion
+	for _, id := range []string{two, one, none, mailOnly, blank} {
+		var err error
+		if list, err = svc.SetOutreachExclusion(ctx, "account", id, true, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := map[string]string{
+		two:      "Two Books · owns 2 books",
+		one:      "One Book · owns 1 book",
+		none:     "No Books",
+		mailOnly: "mail.only@example.test · owns 1 book",
+		blank:    blank[:8] + " · owns 1 book",
+	}
+	if len(list) != len(want) {
+		t.Fatalf("exclusions = %+v", list)
+	}
+	for _, x := range list {
+		if x.Label != want[x.ID] {
+			t.Fatalf("label of %s = %q want %q", x.ID, x.Label, want[x.ID])
+		}
+	}
+}
+
+// ---------- batch 3, case 3: the per-number message language ----------
+
+// A mark's lang is a preference, not an outreach event: it is stored and
+// returned by GET, mark and outcome alike, bumps the version like every
+// write, and records no touch, ends no wait and leaves never_messaged alone.
+// Only "", "en" and "fa" are accepted. It follows the row through the
+// batch-2 rules: a row a mark skips keeps its lang, while a lang-only mark
+// applies to a stopped row because it lifts nothing.
+func TestOutreachMarkLang(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	ctx := t.Context()
+	svc := NewService(pool, nil, nil)
+	clock := activityTime(t, "2026-09-10T08:00:00Z")
+	svc.now = func() time.Time { return clock }
+	h := NewHandler(svc)
+	pending, stopped, sentBefore, fresh, firstSend, noRow := "+93700002001", "+93700002002", "+93700002003",
+		"+93700002004", "+93700002005", "+93700002006"
+	for _, ph := range []string{pending, stopped, sentBefore, fresh, firstSend, noRow} {
+		seedOutreachInstall(t, pool, nil, "2026-09-01T10:00:00Z", ph, "", "")
+	}
+	type markResponse struct {
+		Updated []OutreachState `json:"updated"`
+		Skipped []string        `json:"skipped"`
+	}
+	post := func(body string) (markResponse, string) {
+		t.Helper()
+		rec := postOutreach(h.OutreachMark, body)
+		var out markResponse
+		if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &out) != nil {
+			t.Fatalf("%s: %d %s", body, rec.Code, rec.Body.String())
+		}
+		return out, rec.Body.String()
+	}
+	stored := func(ph string) OutreachState {
+		t.Helper()
+		states, err := readOutreachStates(ctx, pool, []string{ph})
+		if err != nil || states[ph] == nil {
+			t.Fatalf("read %s: %v", ph, err)
+		}
+		return states[ph].state
+	}
+	touches := func(ph string) int {
+		t.Helper()
+		var n int
+		if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM outreach_touches WHERE phone_e164 = $1`, ph).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	// 1. A lang-only mark on a chat opened without an outcome: stored, the
+	// version bumped, no touch, and the row still pending.
+	opened, err := svc.RecordOutreachOutcome(ctx, OutreachOutcomeInput{Phone: pending, Outcome: "opened"})
+	if err != nil || opened.Version != 1 || opened.Lang != "" {
+		t.Fatalf("opened: %+v %v", opened, err)
+	}
+	clock = clock.Add(time.Minute)
+	out, raw := post(`{"phones":["+93700002001"],"lang":"fa"}`)
+	if u := out.Updated[0]; len(out.Skipped) != 0 || u.Lang != "fa" || u.Version != 2 || u.UpdatedAt != "2026-09-10T08:01:00Z" ||
+		u.Status != "new" || u.PendingSince != "2026-09-10T08:00:00Z" || u.NeverMessaged || len(u.Touches) != 1 {
+		t.Fatalf("lang-only mark wrong: %+v", out)
+	}
+	if n := touches(pending); n != 1 || !strings.Contains(raw, `"lang":"fa"`) {
+		t.Fatalf("a lang writes no touch (%d) and is on the wire: %s", n, raw)
+	}
+	if out, _ = post(`{"phones":["+93700002001"],"lang":"en"}`); out.Updated[0].Lang != "en" || out.Updated[0].Version != 3 {
+		t.Fatalf("switch to en: %+v", out.Updated[0])
+	}
+	if out, _ = post(`{"phones":["+93700002001"],"lang":""}`); out.Updated[0].Lang != "" || out.Updated[0].Version != 4 || touches(pending) != 1 {
+		t.Fatalf("an empty lang must clear it: %+v", out.Updated[0])
+	}
+
+	// 2. Anything else is 400 invalid lang with nothing written: not the
+	// known row, and no row for an unknown phone. "auto" is a session value.
+	before := stored(pending)
+	for _, bad := range []string{`"ps"`, `"FA"`, `"auto"`, `"fa "`, `"en-US"`} {
+		body := `{"phones":["+93700002001","+93700002009"],"note":"x","lang":` + bad + `}`
+		if rec := postOutreach(h.OutreachMark, body); rec.Code != 400 || outreachError(t, rec) != "invalid lang" {
+			t.Fatalf("%s: %d %s want 400 invalid lang", body, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := postOutreach(h.OutreachMark, `{"phones":["+93700002001"],"lang":1}`); rec.Code != 400 || outreachError(t, rec) != "invalid body" {
+		t.Fatalf("a non-string lang: %d %s", rec.Code, rec.Body.String())
+	}
+	states, err := readOutreachStates(ctx, pool, []string{pending, "+93700002009"})
+	if err != nil || states["+93700002009"] != nil || states[pending].state.Version != before.Version ||
+		states[pending].state.Note != "" || touches(pending) != 1 {
+		t.Fatalf("a refused lang must write nothing: %+v %v", states, err)
+	}
+
+	// 3. A lang rides with a note (one touch, the note's); a null lang is absent.
+	out, _ = post(`{"phones":["+93700002001"],"note":"prefers Dari","lang":"fa"}`)
+	if u := out.Updated[0]; u.Lang != "fa" || u.Note != "prefers Dari" || len(u.Touches) != 2 || u.Touches[0].Kind != "note" {
+		t.Fatalf("lang with a note: %+v", u)
+	}
+	if out, _ = post(`{"phones":["+93700002001"],"note":"still Dari","lang":null}`); out.Updated[0].Lang != "fa" {
+		t.Fatalf("a null lang is absent: %+v", out.Updated[0])
+	}
+
+	// 4. A lang-only mark on a do-not-contact row applies and lifts nothing.
+	stop, _ := post(`{"phones":["+93700002002"],"status":"do_not_contact"}`)
+	out, _ = post(`{"phones":["+93700002002"],"lang":"en"}`)
+	if u := out.Updated[0]; len(out.Skipped) != 0 || u.Status != "do_not_contact" || u.Lang != "en" ||
+		u.Version != stop.Updated[0].Version+1 || len(u.Touches) != len(stop.Updated[0].Touches) {
+		t.Fatalf("lang-only on a stopped row: %+v", out)
+	}
+	// A bulk relabel skips the stopped row, lang included; the fresh row takes both.
+	out, _ = post(`{"phones":["+93700002002","+93700002004"],"status":"interested","lang":"fa"}`)
+	if strings.Join(out.Skipped, ",") != stopped || out.Updated[0].Lang != "en" || out.Updated[0].Status != "do_not_contact" ||
+		out.Updated[1].Status != "interested" || out.Updated[1].Lang != "fa" {
+		t.Fatalf("a skipped relabel must skip its lang: %+v", out)
+	}
+	// The row's own status menu still lifts the stop, lang and all.
+	out, _ = post(`{"phones":["+93700002002"],"status":"new","lift_stop":true,"lang":"fa"}`)
+	if u := out.Updated[0]; len(out.Skipped) != 0 || u.Status != "new" || u.Lang != "fa" {
+		t.Fatalf("lang with a lifted stop: %+v", out)
+	}
+
+	// 5. A contacted mark that skips a row does not apply its lang there; a
+	// first send applies it with the send.
+	if out, _ = post(`{"phones":["+93700002003"],"contacted":true}`); out.Updated[0].ContactCount != 1 || out.Updated[0].Lang != "" {
+		t.Fatalf("setup send: %+v", out)
+	}
+	sentState := stored(sentBefore)
+	out, _ = post(`{"phones":["+93700002003","+93700002005"],"contacted":true,"lang":"en"}`)
+	if strings.Join(out.Skipped, ",") != sentBefore || out.Updated[0].Lang != "" || out.Updated[0].Version != sentState.Version {
+		t.Fatalf("a skipped send must not apply its lang: %+v", out)
+	}
+	if u := out.Updated[1]; u.Status != "sent" || u.ContactCount != 1 || u.Lang != "en" {
+		t.Fatalf("a first send applies its lang: %+v", u)
+	}
+	// The batch-2 refusals stand with a lang in the body.
+	for _, body := range []string{
+		`{"phones":["+93700002004"],"status":"new","contacted":true,"lang":"fa"}`,
+		`{"phones":["+93700002004"],"status":"new","replied":true,"lang":"fa"}`,
+		`{"phones":["+93700002004","+93700002002"],"status":"new","lift_stop":true,"lang":"fa"}`,
+	} {
+		if rec := postOutreach(h.OutreachMark, body); rec.Code != 400 || outreachError(t, rec) != "invalid body" {
+			t.Fatalf("%s: %d %s want 400 invalid body", body, rec.Code, rec.Body.String())
+		}
+	}
+
+	// 6. The outcome response carries lang, and an outcome leaves it alone.
+	rec := postOutreach(h.OutreachOutcome, fmt.Sprintf(`{"phone":%q,"outcome":"skip","expected_version":%d}`, pending, stored(pending).Version))
+	var oc struct {
+		State OutreachState `json:"state"`
+	}
+	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &oc) != nil || oc.State.Lang != "fa" ||
+		!strings.Contains(rec.Body.String(), `"lang":"fa"`) {
+		t.Fatalf("outcome response: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// 7. GET carries every row's lang; a number with no row reads "".
+	res, err := svc.GetOutreach(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for ph, want := range map[string]string{pending: "fa", stopped: "fa", sentBefore: "", fresh: "fa", firstSend: "en", noRow: ""} {
+		if c := findOutreach(t, res, ph); c.Outreach.Lang != want {
+			t.Fatalf("GET %s: lang = %q want %q", ph, c.Outreach.Lang, want)
+		}
+	}
+	if raw, err := json.Marshal(findOutreach(t, res, noRow).Outreach); err != nil || !strings.Contains(string(raw), `"lang":""`) {
+		t.Fatalf("GET wire for a number with no row: %s %v", raw, err)
+	}
+
+	// 8. The session-wide choice is the generic setting pref.message_lang:
+	// stored and returned as is, never interpreted.
+	if rec := postOutreach(h.OutreachSetting, `{"key":"pref.message_lang","value":"auto"}`); rec.Code != 200 {
+		t.Fatalf("pref.message_lang: %d %s", rec.Code, rec.Body.String())
+	}
+	if res, err = svc.GetOutreach(ctx); err != nil || res.Settings["pref.message_lang"] != "auto" ||
+		findOutreach(t, res, pending).Outreach.Lang != "fa" {
+		t.Fatalf("session language wrong: %+v %v", res.Settings, err)
+	}
+}
+
+// Migration 046: lang is NOT NULL, defaults to the empty string and takes
+// only "", "en" and "fa"; anything else is refused by
+// outreach_contacts_lang_chk, whatever a caller lets through.
+func TestOutreachLangCheckConstraint(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	ctx := t.Context()
+	refused := func(what, code, constraint string, err error) {
+		t.Helper()
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != code || (constraint != "" && pgErr.ConstraintName != constraint) {
+			t.Fatalf("%s: err = %v want %s %s", what, err, code, constraint)
+		}
+	}
+	_, err := pool.Exec(ctx, `INSERT INTO outreach_contacts (phone_e164, lang) VALUES ('+93700002101', 'xx')`)
+	refused("insert lang 'xx'", "23514", "outreach_contacts_lang_chk", err)
+	if _, err := pool.Exec(ctx, `INSERT INTO outreach_contacts (phone_e164) VALUES ('+93700002102')`); err != nil {
+		t.Fatal(err)
+	}
+	var lang string
+	if err := pool.QueryRow(ctx, `SELECT lang FROM outreach_contacts WHERE phone_e164 = '+93700002102'`).Scan(&lang); err != nil || lang != "" {
+		t.Fatalf("default lang = %q %v want ''", lang, err)
+	}
+	for _, ok := range []string{"en", "fa", ""} {
+		if _, err := pool.Exec(ctx, `UPDATE outreach_contacts SET lang = $1 WHERE phone_e164 = '+93700002102'`, ok); err != nil {
+			t.Fatalf("lang %q must be accepted: %v", ok, err)
+		}
+	}
+	_, err = pool.Exec(ctx, `UPDATE outreach_contacts SET lang = 'auto' WHERE phone_e164 = '+93700002102'`)
+	refused("update lang 'auto'", "23514", "outreach_contacts_lang_chk", err)
+	_, err = pool.Exec(ctx, `UPDATE outreach_contacts SET lang = NULL WHERE phone_e164 = '+93700002102'`)
+	refused("update lang NULL", "23502", "", err)
 }

@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type {
+  OutreachBook,
   OutreachContact,
   OutreachCustomer,
   OutreachExclusion,
+  OutreachLang,
   OutreachListing,
   OutreachMarkBody,
   OutreachNumber,
@@ -12,12 +14,17 @@ import type {
   OutreachState,
 } from "./api";
 import {
+  BOOK_SORT_OPTIONS,
   CONVERTED_FILTERS,
   DEFAULT_OUTREACH_FILTERS,
   DEFAULT_OUTREACH_NUMBER,
+  DEFAULT_OUTREACH_SORT,
   DEFAULT_TEMPLATES,
+  LANGUAGE_NAMES,
   OUTREACH_PRESETS,
   OUTREACH_STATUSES,
+  SESSION_LANGUAGE_KEY,
+  SESSION_LANGUAGE_OPTIONS,
   STATUS_LABELS,
   activePreset,
   afghanCarrier,
@@ -27,6 +34,7 @@ import {
   applySettingLocally,
   applyStateLocally,
   balanceSummary,
+  bookOwnerLabel,
   buildMessage,
   canOpen,
   contactPills,
@@ -38,6 +46,7 @@ import {
   internationalDigits,
   isMobileNumber,
   isNeverMessaged,
+  isOutreachLang,
   isPending,
   isProspect,
   isSendableStatus,
@@ -45,23 +54,35 @@ import {
   isStoppedStatus,
   isUnreachableStatus,
   listingsSummary,
+  localeLanguage,
+  matchesBookSearch,
   messageLanguage,
   nextToOpen,
   normalizeDigits,
   numberCaption,
   numberTypeLabel,
+  numbersInBooks,
   offersChat,
   openableCount,
+  openedTemplateKey,
   outreachCsv,
   parseMoney,
   parseOutreachPreferences,
   pendingRows,
+  phoneQueryMatches,
   presetCounts,
+  presetDescription,
   presetFilters,
+  presetSort,
   recountOutreach,
+  sessionChoiceLabel,
+  sessionLanguage,
+  sortBooks,
   sortOutreach,
+  templateLanguage,
   waLink,
   withOutreachDefaults,
+  withPreset,
   withStateDefaults,
 } from "./outreach-model.ts";
 
@@ -92,6 +113,7 @@ function state(overrides: Partial<OutreachState> = {}): OutreachState {
     skipped_at: "",
     open_count: 0,
     version: 0,
+    lang: "",
     ...overrides,
   };
   if (overrides.never_messaged === undefined)
@@ -172,11 +194,13 @@ function listing(overrides: Partial<OutreachListing> = {}): OutreachListing {
     ...overrides,
   };
 }
+// mention_count counts distinct BOOKS, as the server does (2026-09-30): one
+// book listing a number twice still counts once.
 function customer(overrides: Partial<OutreachCustomer> = {}): OutreachCustomer {
   const listings = overrides.listings ?? [listing()];
   return {
     listings,
-    mention_count: listings.length,
+    mention_count: new Set(listings.map((l) => l.vault_id)).size,
     first_added_at: iso(15),
     last_tally_at: iso(3),
     tallies_total: listings.reduce((sum, l) => sum + l.tallies, 0),
@@ -207,6 +231,7 @@ function result(
   contacts: OutreachContact[],
   settings: Record<string, string> = {},
   exclusions: OutreachExclusion[] = [],
+  books: OutreachBook[] = [],
 ): OutreachResult {
   const counts = {
     total: contacts.length,
@@ -233,7 +258,14 @@ function result(
     invalid: contacts.filter((c) => !c.number.valid).length,
     opened_today: 0,
   };
-  return { contacts, settings, counts, exclusions, generated_at: new Date(NOW).toISOString() };
+  return {
+    contacts,
+    settings,
+    counts,
+    exclusions,
+    books,
+    generated_at: new Date(NOW).toISOString(),
+  };
 }
 
 // One fixture set exercised by every preset/filter/sort test below.
@@ -422,7 +454,8 @@ const queue: OutreachContact[] = [
     {},
     { opened_at: iso(2), pending_since: iso(2), open_count: 3, version: 5 },
   ),
-  // A landline: valid and a prospect, but not a mobile.
+  // A landline: valid and New, but not a mobile, so never a prospect
+  // (2026-09-30: Prospects is mobile numbers only).
   prospect("+93201000111", {
     number: number({ type: "fixed_line", national: "020 100 0111" }),
   }),
@@ -475,6 +508,69 @@ const resolved: OutreachContact[] = [
 ];
 // The next Kabul reporting day, when today's skips are over.
 const TOMORROW = NOW + 86_400_000;
+
+// The Books list (2026-09-30): the books behind the fixtures' listings.
+function book(overrides: Partial<OutreachBook> = {}): OutreachBook {
+  return {
+    vault_id: "vault-1",
+    name: "Sabz Grocery",
+    currency: "AFN",
+    archived: false,
+    created_at: iso(30),
+    owner_account_id: "acct-1",
+    owner_name: "Ahmad Karimi",
+    owner_email: "ahmad@example.test",
+    owner_phone: "+93700000001",
+    member_count: 1,
+    people: 8,
+    numbers: 4,
+    tallies: 30,
+    last_tally_at: iso(2),
+    ...overrides,
+  };
+}
+const books: OutreachBook[] = [
+  book(),
+  book({
+    vault_id: "vault-2",
+    name: "Mandawi Rice",
+    owner_account_id: "acct-2",
+    owner_name: "Zahra Noori",
+    owner_email: "zahra@example.test",
+    owner_phone: "+93790000007",
+    people: 1,
+    numbers: 1,
+    tallies: 4,
+    last_tally_at: iso(1),
+    created_at: iso(40),
+  }),
+  // No owner name and no owner phone; archived; never a tally.
+  book({
+    vault_id: "vault-7",
+    name: "Nazir Store",
+    archived: true,
+    owner_account_id: "acct-7",
+    owner_name: "",
+    owner_email: "nazir@example.test",
+    owner_phone: "",
+    people: 3,
+    numbers: 1,
+    tallies: 0,
+    last_tally_at: "",
+    created_at: iso(5),
+  }),
+  // Ahmad's second book: nothing in it yet.
+  book({
+    vault_id: "vault-9",
+    name: "Test book",
+    people: 0,
+    numbers: 0,
+    tallies: 0,
+    last_tally_at: "",
+    created_at: iso(1),
+  }),
+];
+const vaultIds = (rows: OutreachBook[]) => rows.map((row) => row.vault_id);
 
 test("statuses gained the two unreachable verdicts with their labels", () => {
   assert.deepEqual(OUTREACH_STATUSES.slice(-2), ["no_whatsapp", "invalid"]);
@@ -651,16 +747,22 @@ test("each preset selects exactly its fixture rows", () => {
   assert.equal(activePreset({ ...presetFilters("sent"), archived: "hide" }), undefined);
   assert.equal(activePreset({ ...presetFilters("prospects"), country: "" }), undefined);
   assert.equal(activePreset({ ...presetFilters("prospects"), contacted: "all" }), undefined);
+  assert.equal(activePreset({ ...presetFilters("prospects"), numberType: "all" }), undefined);
   assert.equal(presetFilters("prospects").contacted, "never", "first contact only");
   assert.equal(OUTREACH_PRESETS[1].id, "prospects", "Prospects is the first tab after All");
 });
 
 test("the prospect queue: preset and predicate agree, and each rule removes its row", () => {
   const prospects = ids(filterOutreach(all, presetFilters("prospects"), "", NOW));
-  // +93700000112 was messaged before and reset to New: in neither list.
-  assert.deepEqual(prospects, ["+93700000101", "+93700000104", "+93201000111"]);
+  // +93700000112 was messaged before and reset to New, and +93201000111 is a
+  // landline (Prospects is mobile numbers only): in neither list.
+  assert.deepEqual(prospects, ["+93700000101", "+93700000104"]);
   assert.equal(
     all.some((c) => c.phone === "+93700000112"),
+    true,
+  );
+  assert.equal(
+    all.some((c) => c.phone === "+93201000111"),
     true,
   );
   assert.deepEqual(ids(all.filter((c) => isProspect(c, NOW, "+93"))), prospects);
@@ -670,8 +772,23 @@ test("the prospect queue: preset and predicate agree, and each rule removes its 
     "+93700000101",
     "+93700000104",
     "+61400000106",
-    "+93201000111",
   ]);
+  // Mobile numbers only: the landline is out of both lists and the same row
+  // with a mobile verdict is in; a fixed-or-mobile number counts as mobile,
+  // an unknown type does not.
+  const landline = all.find((c) => c.phone === "+93201000111")!;
+  assert.equal(landline.number.type, "fixed_line");
+  assert.equal(isProspect(landline, NOW), false);
+  assert.equal(isProspect({ ...landline, number: number() }, NOW), true);
+  assert.equal(presetFilters("prospects").numberType, "mobile");
+  const typed = [
+    ...all,
+    prospect("+93700000119", { number: number({ type: "fixed_line_or_mobile" }) }),
+    prospect("+93700000120", { number: number({ type: "unknown" }) }),
+  ];
+  const typedProspects = ids(filterOutreach(typed, presetFilters("prospects"), "", NOW));
+  assert.deepEqual(typedProspects, ["+93700000101", "+93700000104", "+93700000119"]);
+  assert.deepEqual(ids(typed.filter((c) => isProspect(c, NOW))), typedProspects);
   assert.deepEqual(ids(all.filter((c) => isProspect(c, NOW, "+61"))), ["+61400000106"]);
   // A shopkeeper or "both" row is never a prospect, whatever its status.
   assert.equal(isProspect(fixtures[0], NOW, ""), false);
@@ -692,14 +809,13 @@ test("the prospect queue: preset and predicate agree, and each rule removes its 
   // 115 tomorrow, together with the base queue's own skip, 103).
   const reopened = [...all, ...resolved];
   const today = ids(filterOutreach(reopened, presetFilters("prospects"), "", NOW));
-  assert.deepEqual(today, ["+93700000101", "+93700000104", "+93201000111", "+93700000114"]);
+  assert.deepEqual(today, ["+93700000101", "+93700000104", "+93700000114"]);
   assert.deepEqual(ids(reopened.filter((c) => isProspect(c, NOW))), today);
   const tomorrow = ids(filterOutreach(reopened, presetFilters("prospects"), "", TOMORROW));
   assert.deepEqual(tomorrow, [
     "+93700000101",
     "+93700000103",
     "+93700000104",
-    "+93201000111",
     "+93700000114",
     "+93700000115",
   ]);
@@ -831,7 +947,8 @@ test("presetCounts equals the length of the list each card or tab opens", () => 
       preset.id,
     );
   assert.equal(counts.all, 18);
-  assert.equal(counts.prospects, 3);
+  // The landline is New, valid and never messaged, but not a mobile.
+  assert.equal(counts.prospects, 2);
   assert.equal(counts.pending, 2);
   assert.equal(counts.unreachable, 2);
   // Twelve New rows, minus the archived-everywhere pure customer the tab hides.
@@ -994,28 +1111,101 @@ test("fillTemplate puts the link alone on its own line and collapses a missing n
   );
 });
 
-test("message language follows the locale unless overridden; templates and slugs come from settings", () => {
-  assert.equal(messageLanguage("fa"), "fa");
-  assert.equal(messageLanguage("prs-AF"), "fa");
-  assert.equal(messageLanguage("fa-AF"), "fa");
-  assert.equal(messageLanguage("en"), "en");
-  assert.equal(messageLanguage(""), "en");
-  assert.equal(messageLanguage("fa", "en"), "en");
+// A contact with a per-number message language, as the server stores it.
+const speaking = (c: OutreachContact, lang: OutreachLang): OutreachContact => ({
+  ...c,
+  outreach: { ...c.outreach, lang },
+});
+const AUTO = { "pref.message_lang": "auto" };
+
+test("the locale rule (Auto) reads fa and prs as Dari; templates and slugs come from settings", () => {
+  assert.equal(localeLanguage("fa"), "fa");
+  assert.equal(localeLanguage("prs-AF"), "fa");
+  assert.equal(localeLanguage("fa-AF"), "fa");
+  assert.equal(localeLanguage("en"), "en");
+  assert.equal(localeLanguage(""), "en");
   const shop = buildMessage(fixtures[0], {});
   assert.equal(shop.templateKey, "template.shopkeeper.fa");
   assert.equal(shop.link, "https://kaata.af/download?s=wa-shop");
   assert.equal(shop.text.split("\n")[1], shop.link);
+  // On Auto the customer's empty locale reads as English.
   const cust = buildMessage(fixtures[1], {
+    ...AUTO,
     "slug.customer": "Flyer Two!",
     "template.customer.en": "Hello {name}",
   });
+  assert.equal(cust.language, "en");
   assert.equal(cust.templateKey, "template.customer.en");
   assert.equal(cust.link, "https://kaata.af/download?s=flyer-two");
   assert.equal(cust.text, `Hello Wali Wholesale\n${cust.link}`);
-  const both = buildMessage(fixtures[2], { "template.shopkeeper.en": "   " }, "fa");
+  // A person's Dari wins over Auto's English locale.
+  const both = buildMessage(speaking(fixtures[2], "fa"), {
+    ...AUTO,
+    "template.shopkeeper.en": "   ",
+  });
   assert.equal(both.templateKey, "template.shopkeeper.fa");
   assert.equal(both.audience, "shopkeeper");
-  assert.equal(buildMessage(fixtures[2], {}).text.startsWith("Salaam Zahra Noori."), true);
+  assert.equal(buildMessage(fixtures[2], AUTO).text.startsWith("Salaam Zahra Noori."), true);
+  // A blank saved template falls back to the default.
+  assert.equal(
+    buildMessage(fixtures[2], { ...AUTO, "template.shopkeeper.en": "   " }).text.startsWith(
+      "Salaam Zahra Noori. This is the Kaata team.",
+    ),
+    true,
+  );
+});
+
+test("message language: the person's choice, then the session's (Dari by default), then Auto's locale", () => {
+  assert.equal(SESSION_LANGUAGE_KEY, "pref.message_lang");
+  assert.deepEqual(
+    SESSION_LANGUAGE_OPTIONS.map(([value]) => value),
+    ["fa", "en", "auto"],
+  );
+  assert.deepEqual(LANGUAGE_NAMES, { fa: "Dari", en: "English" });
+  // The session choice: Dari unless the server holds en or auto.
+  assert.equal(sessionLanguage({}), "fa");
+  assert.equal(sessionLanguage({ "pref.message_lang": "fa" }), "fa");
+  assert.equal(sessionLanguage({ "pref.message_lang": "en" }), "en");
+  assert.equal(sessionLanguage(AUTO), "auto");
+  for (const junk of ["", "ps", "EN", " en", "Auto", "prs"])
+    assert.equal(sessionLanguage({ "pref.message_lang": junk }), "fa", junk);
+  // Zahra's app runs in English, Ahmad's in Dari.
+  const zahra = fixtures[2];
+  const ahmad = fixtures[0];
+  const session = (value?: string): Record<string, string> =>
+    value === undefined ? {} : { "pref.message_lang": value };
+  assert.equal(messageLanguage(zahra, session()), "fa", "Dari by default, whatever the locale");
+  assert.equal(messageLanguage(zahra, session("fa")), "fa");
+  assert.equal(messageLanguage(ahmad, session("en")), "en");
+  assert.equal(messageLanguage(zahra, session("auto")), "en");
+  assert.equal(messageLanguage(ahmad, session("auto")), "fa");
+  // A person's choice wins over every session choice; "" follows the session.
+  for (const value of [undefined, "fa", "en", "auto"]) {
+    assert.equal(messageLanguage(speaking(zahra, "fa"), session(value)), "fa", String(value));
+    assert.equal(messageLanguage(speaking(ahmad, "en"), session(value)), "en", String(value));
+    assert.equal(
+      messageLanguage(speaking(ahmad, ""), session(value)),
+      messageLanguage(ahmad, session(value)),
+    );
+  }
+  // A state that skipped withStateDefaults (no lang at all) follows the session.
+  const raw = speaking(zahra, undefined as unknown as OutreachLang);
+  assert.equal(messageLanguage(raw, session("en")), "en");
+  assert.equal(messageLanguage(raw, session()), "fa");
+  // buildMessage records the resolved language's template key.
+  assert.equal(buildMessage(fixtures[1], {}).templateKey, "template.customer.fa");
+  assert.equal(buildMessage(fixtures[1], session("en")).templateKey, "template.customer.en");
+  assert.equal(buildMessage(speaking(fixtures[1], "en"), {}).templateKey, "template.customer.en");
+  assert.equal(buildMessage(speaking(fixtures[1], "fa"), session("en")).language, "fa");
+  // What "Use session choice (…)" names for one number.
+  assert.equal(sessionChoiceLabel("fa", "en"), "Dari");
+  assert.equal(sessionChoiceLabel("en", "fa"), "English");
+  assert.equal(sessionChoiceLabel("auto", "prs-AF"), "Auto: Dari");
+  assert.equal(sessionChoiceLabel("auto", ""), "Auto: English");
+  // Only the three stored values are a per-number language.
+  for (const value of ["", "en", "fa"]) assert.equal(isOutreachLang(value), true, value);
+  for (const value of ["ps", "auto", "EN", undefined, null, 1])
+    assert.equal(isOutreachLang(value), false, String(value));
 });
 
 test("waLink strips the plus and encodes newlines and Persian text", () => {
@@ -1055,6 +1245,19 @@ test("csv escapes quotes and newlines, keeps Persian, guards formula prefixes an
     true,
     header,
   );
+  // The stored per-number language, "" when the number follows the session.
+  assert.equal(header.includes(",note,lang,converted,"), true, header);
+  assert.equal(row.includes(",0,,,false,true,"), true, `no note, no lang: ${row}`);
+  // mention_count counts distinct books, so its column is headed `books`
+  // (2026-09-30); the value is unchanged (two books list +93720000002).
+  assert.equal(header.includes(",kaatas,books,first_added_at,"), true, header);
+  assert.equal(header.includes("mention_count"), false, header);
+  assert.equal(row.includes(`,,2,${iso(15)},`), true, `no kaatas, 2 books: ${row}`);
+  const noted = { ...queue[0], outreach: { ...queue[0].outreach, note: "call" } };
+  const langRow = outreachCsv([speaking(noted, "fa")])
+    .slice(1)
+    .split("\r\n")[1];
+  assert.equal(langRow.includes(",0,call,fa,false,false,"), true, langRow);
   assert.equal(
     row.startsWith(
       "'+93720000002,customer,Wali Wholesale,,,Afghanistan,Roshan,true,mobile,AF,sent",
@@ -1566,16 +1769,20 @@ test("withOutreachDefaults tolerates the 2026-09-29 backend and passes a current
   assert.equal(legacy.contacts[0].outreach.status, "new");
   assert.equal(legacy.contacts[0].outreach.never_messaged, true, "no send, no open: derived");
   assert.deepEqual(legacy.contacts[0].outreach.touches, []);
+  assert.equal(legacy.contacts[0].outreach.lang, "", "no lang: follows the session");
   assert.deepEqual(legacy.exclusions, []);
+  assert.deepEqual(legacy.books, [], "no books before batch 3");
   assert.equal(legacy.counts.total, 1);
   assert.equal(legacy.counts.pending, 0);
   assert.equal(legacy.counts.opened_today, 0);
   assert.deepEqual(legacy.settings, { "slug.customer": "flyer" });
   assert.equal(legacy.generated_at, "2026-09-29T08:00:00Z");
-  assert.equal(
-    isProspect({ ...legacy.contacts[0], kind: "customer", shopkeeper: null }, NOW),
-    true,
-  );
+  // The defaulted state keeps a customer in the queue; the defaulted number
+  // has no type, and Prospects is mobile numbers only (2026-09-30), so it
+  // takes a real mobile verdict to be one.
+  const legacyCustomer = { ...legacy.contacts[0], kind: "customer" as const, shopkeeper: null };
+  assert.equal(isProspect(legacyCustomer, NOW), false, "no number type: not a mobile");
+  assert.equal(isProspect({ ...legacyCustomer, number: number() }, NOW), true);
   // A current payload keeps every field, including a partial number block.
   const exclusions: OutreachExclusion[] = [
     {
@@ -1586,19 +1793,30 @@ test("withOutreachDefaults tolerates the 2026-09-29 backend and passes a current
       created_at: iso(1),
     },
   ];
-  const current = withOutreachDefaults(result([queue[1], queue[4]], {}, exclusions));
+  const current = withOutreachDefaults(
+    result([speaking(queue[1], "en"), queue[4]], {}, exclusions, books),
+  );
   assert.deepEqual(current.contacts[0].number, queue[1].number);
   assert.equal(current.contacts[0].outreach.version, 2);
   assert.equal(current.contacts[0].outreach.pending_since, queue[1].outreach.pending_since);
+  assert.equal(current.contacts[0].outreach.lang, "en");
   assert.equal(current.contacts[1].number.valid, false, "a real false is kept");
   assert.equal(current.exclusions, exclusions);
+  assert.equal(current.books, books);
   const partial = withOutreachDefaults({ contacts: [{ ...queue[0], number: { valid: false } }] });
   assert.deepEqual(partial.contacts[0].number, { ...DEFAULT_OUTREACH_NUMBER, valid: false });
   // Garbage never crashes a render.
-  for (const raw of [null, undefined, "nope", 42, { contacts: "nope", exclusions: {} }]) {
+  for (const raw of [
+    null,
+    undefined,
+    "nope",
+    42,
+    { contacts: "nope", exclusions: {}, books: "nope" },
+  ]) {
     const r = withOutreachDefaults(raw);
     assert.deepEqual(r.contacts, []);
     assert.deepEqual(r.exclusions, []);
+    assert.deepEqual(r.books, []);
     assert.deepEqual(r.settings, {});
     assert.equal(r.counts.total, 0);
     assert.equal(r.generated_at, "");
@@ -1625,7 +1843,13 @@ test("withStateDefaults fills a pre-045 state and never leaves a field undefined
     skipped_at: "",
     open_count: 0,
     version: 0,
+    lang: "",
   });
+  // lang (migration 046): only "", "en" and "fa" are kept; anything else is "".
+  assert.equal(withStateDefaults({ lang: "fa" }).lang, "fa");
+  assert.equal(withStateDefaults({ lang: "en" }).lang, "en");
+  for (const junk of ["ps", "auto", "EN", 1, null])
+    assert.equal(withStateDefaults({ lang: junk }).lang, "", String(junk));
   // Nothing at all, or the wrong types, read as a New row with no history.
   assert.deepEqual(withStateDefaults(undefined), state());
   assert.deepEqual(withStateDefaults({ touches: null, contact_count: "3", version: NaN }), state());
@@ -1761,4 +1985,380 @@ test("preferences restore only enum and number fields, never search, phones, not
   assert.equal(bogus.filters.contacted, "all");
   assert.equal(parseOutreachPreferences(null).pageSize, 25);
   assert.deepEqual(parseOutreachPreferences(null).filters, DEFAULT_OUTREACH_FILTERS);
+});
+
+// ---- batch 3 (2026-09-30): language, order, books ----
+
+test("applyMarkLocally sets a per-number language: a write without a touch, skipped with its row", () => {
+  const base = result(fixtures);
+  const at = new Date(NOW).toISOString();
+  const find = (r: OutreachResult, phone: string) => r.contacts.find((c) => c.phone === phone)!;
+  const dari = applyMarkLocally(base, { phones: ["+93700000001"], lang: "fa" }, at);
+  const row = find(dari, "+93700000001").outreach;
+  assert.equal(row.lang, "fa");
+  assert.equal(row.version, 1, "every write bumps the version");
+  assert.equal(row.updated_at, at);
+  assert.deepEqual(row.touches, [], "a preference, not an outreach event");
+  assert.equal(row.status, "new");
+  assert.equal(row.contact_count, 0);
+  assert.equal(row.never_messaged, true);
+  assert.equal(dari.counts.to_contact, base.counts.to_contact);
+  assert.equal(dari.counts.sent_today, 0);
+  assert.equal(find(dari, "+93720000002"), find(base, "+93720000002"), "other rows keep identity");
+  // "" clears it; still a write.
+  const cleared = applyMarkLocally(dari, { phones: ["+93700000001"], lang: "" }, at);
+  assert.equal(find(cleared, "+93700000001").outreach.lang, "");
+  assert.equal(find(cleared, "+93700000001").outreach.version, 2);
+  // A stopped row takes a language and stays stopped: nothing is lifted.
+  const stopped = applyMarkLocally(base, { phones: ["+93760000005"], lang: "en" }, at);
+  assert.equal(find(stopped, "+93760000005").outreach.status, "do_not_contact");
+  assert.equal(find(stopped, "+93760000005").outreach.lang, "en");
+  assert.equal(find(stopped, "+93760000005").outreach.version, 1);
+  assert.equal(stopped.counts.declined, base.counts.declined);
+  // A contacted mark that skips a row skips its lang too; a counted row takes it.
+  const mixed = applyMarkLocally(
+    base,
+    { phones: ["+93720000002", "+93700000001"], contacted: true, lang: "en" },
+    at,
+  );
+  assert.equal(find(mixed, "+93720000002"), find(base, "+93720000002"), "already sent: untouched");
+  assert.equal(find(mixed, "+93720000002").outreach.lang, "");
+  assert.equal(find(mixed, "+93700000001").outreach.lang, "en");
+  assert.equal(find(mixed, "+93700000001").outreach.contact_count, 1);
+  // A language never ends a wait nor cancels a follow-up.
+  const queued = result(all);
+  const waiting = applyMarkLocally(queued, { phones: ["+93700000102"], lang: "fa" }, at);
+  assert.equal(find(waiting, "+93700000102").outreach.pending_since, iso(0.5));
+  assert.equal(waiting.counts.pending, queued.counts.pending);
+  const due = applyMarkLocally(base, { phones: ["+93720000002"], lang: "fa" }, at);
+  assert.equal(find(due, "+93720000002").follow_up_due, true);
+  assert.equal(find(due, "+93720000002").outreach.status, "sent");
+  // The server's answer carries the lang; a backend before 046 answers without one.
+  const body: OutreachMarkBody = { phones: ["+93700000001"], lang: "fa" };
+  const answered = applyMarkResponse(
+    base,
+    [state({ ...fixtures[0].outreach, lang: "fa", version: 1, updated_at: at })],
+    body,
+  );
+  assert.equal(answered.contacts[0].outreach.lang, "fa");
+  const { lang: _lang, ...withoutLang } = answered.contacts[0].outreach;
+  const older = applyMarkResponse(answered, [withoutLang as OutreachState], body);
+  assert.equal(older.contacts[0].outreach.lang, "");
+  // An outcome's state carries it too.
+  const opened = applyStateLocally(
+    base,
+    state({ ...fixtures[0].outreach, lang: "en", opened_at: at, pending_since: at, version: 1 }),
+  );
+  assert.equal(opened.contacts[0].outreach.lang, "en");
+});
+
+test("last tally sorts newest first; ties go to the number more books list, then the phone; no tally last", () => {
+  const tallied = (phone: string, lastTally: string, mentions: number) =>
+    prospect(phone, {
+      customer: customer({
+        listings: Array.from({ length: mentions }, (_, index) =>
+          listing({ vault_id: `vault-${index + 1}`, last_tally_at: lastTally }),
+        ),
+        last_tally_at: lastTally,
+      }),
+    });
+  const rows = [
+    tallied("+93700000301", iso(1), 1),
+    tallied("+93700000302", iso(1), 3),
+    tallied("+93700000300", iso(1), 3),
+    tallied("+93700000303", iso(5), 1),
+    tallied("+93700000304", "", 2),
+    tallied("+93700000299", "", 1),
+    // A shopkeeper with no tally and no customer side: no books at all.
+    contact("+93700000298", { shopkeeper: shopkeeper({ last_tally_at: "" }) }),
+  ];
+  assert.deepEqual(ids(sortOutreach(rows, "last_tally", true)), [
+    "+93700000300",
+    "+93700000302",
+    "+93700000301",
+    "+93700000303",
+    "+93700000304",
+    "+93700000299",
+    "+93700000298",
+  ]);
+  // Ascending flips the dates only: ties still put more books first, and no
+  // tally stays last.
+  assert.deepEqual(ids(sortOutreach(rows, "last_tally", false)), [
+    "+93700000303",
+    "+93700000300",
+    "+93700000302",
+    "+93700000301",
+    "+93700000304",
+    "+93700000299",
+    "+93700000298",
+  ]);
+  // Every other key still breaks ties on the phone alone: the customers have
+  // no last seen, so they follow by phone whatever their books.
+  assert.deepEqual(ids(sortOutreach(rows, "last_seen", true)), [
+    "+93700000298",
+    "+93700000299",
+    "+93700000300",
+    "+93700000301",
+    "+93700000302",
+    "+93700000303",
+    "+93700000304",
+  ]);
+  assert.equal(ids(rows)[0], "+93700000301", "sorting must not mutate the input");
+});
+
+test("a preset brings its own sort; a later sort holds, and the tab still matches on filters", () => {
+  assert.deepEqual(DEFAULT_OUTREACH_SORT, { sortKey: "last_seen", sortDesc: true });
+  const byTally = ["prospects", "customers", "wholesalers"];
+  for (const { id } of OUTREACH_PRESETS)
+    assert.deepEqual(
+      presetSort(id),
+      byTally.includes(id) ? { sortKey: "last_tally", sortDesc: true } : DEFAULT_OUTREACH_SORT,
+      id,
+    );
+  // The default view (nothing stored) keeps last seen.
+  const defaults = parseOutreachPreferences(null);
+  assert.equal(defaults.sortKey, "last_seen");
+  assert.equal(defaults.sortDesc, true);
+  // Applying a preset sets its filters AND its sort, and keeps the page size.
+  const start = { ...defaults, pageSize: 50 };
+  const prospects = withPreset(start, "prospects");
+  assert.deepEqual(prospects.filters, presetFilters("prospects"));
+  assert.equal(prospects.sortKey, "last_tally");
+  assert.equal(prospects.sortDesc, true);
+  assert.equal(prospects.pageSize, 50);
+  assert.equal(start.sortKey, "last_seen", "input untouched");
+  // A sort picked afterwards keeps the tab: activePreset reads filters only.
+  const resorted = { ...prospects, sortKey: "name" as const, sortDesc: false };
+  assert.equal(activePreset(resorted.filters), "prospects");
+  // The next preset brings its own sort back.
+  const every = withPreset(resorted, "all");
+  assert.equal(every.sortKey, "last_seen");
+  assert.equal(every.sortDesc, true);
+  assert.equal(withPreset(every, "wholesalers").sortKey, "last_tally");
+  assert.equal(withPreset(every, "follow_ups").sortKey, "last_seen");
+  // A stored sort is restored as-is.
+  assert.equal(parseOutreachPreferences(resorted).sortKey, "name");
+  assert.equal(parseOutreachPreferences(resorted).sortDesc, false);
+});
+
+test("books: owner label, search by name, owner, email and phone, and the five orders", () => {
+  assert.equal(bookOwnerLabel(books[0]), "Ahmad Karimi");
+  assert.equal(bookOwnerLabel(books[2]), "nazir@example.test", "no name: the email");
+  assert.equal(
+    bookOwnerLabel(book({ owner_name: "", owner_email: "", owner_phone: "+93700000009" })),
+    "+93700000009",
+  );
+  assert.equal(
+    bookOwnerLabel(
+      book({ owner_name: "", owner_email: "", owner_phone: "", owner_account_id: "a" }),
+    ),
+    "a",
+  );
+  const s = (search: string) => vaultIds(books.filter((b) => matchesBookSearch(b, search)));
+  assert.deepEqual(s(""), vaultIds(books));
+  assert.deepEqual(s("   "), vaultIds(books));
+  assert.deepEqual(s("sabz"), ["vault-1"]);
+  assert.deepEqual(s("zahra"), ["vault-2"]);
+  assert.deepEqual(s("NAZIR@example"), ["vault-7"]);
+  assert.deepEqual(s("ahmad"), ["vault-1", "vault-9"]);
+  assert.deepEqual(s("ahmad grocery"), ["vault-1"], "every word, across fields");
+  assert.deepEqual(s("0790 000 007"), ["vault-2"], "national form");
+  assert.deepEqual(s("+۹۳ ۷۹۰"), ["vault-2"], "Persian digits");
+  assert.deepEqual(s("700000001"), ["vault-1", "vault-9"]);
+  assert.deepEqual(s("nobody"), []);
+  // The phone matching the directory uses, shared.
+  assert.equal(phoneQueryMatches("+93700000001", "0700 000 001"), true);
+  assert.equal(phoneQueryMatches("+93700000001", "0093 700 000 001"), true);
+  assert.equal(phoneQueryMatches("+93700000001", "0093 700"), false, "as in the directory");
+  assert.equal(phoneQueryMatches("+93700000001", "+۹۳ ۷۰۰"), true);
+  assert.equal(phoneQueryMatches("+93700000001", "ahmad"), false);
+  assert.equal(phoneQueryMatches("", "0700"), false, "no phone, no match");
+  // Numbers is the server's order as received (the fixture list is in it);
+  // the other four keep it for ties.
+  assert.deepEqual(
+    BOOK_SORT_OPTIONS.map(([key]) => key),
+    ["numbers", "last_activity", "created", "owner", "name"],
+  );
+  const order = (key: Parameters<typeof sortBooks>[1]) => vaultIds(sortBooks(books, key));
+  assert.deepEqual(order("numbers"), ["vault-1", "vault-2", "vault-7", "vault-9"]);
+  assert.deepEqual(order("last_activity"), ["vault-2", "vault-1", "vault-7", "vault-9"]);
+  assert.deepEqual(order("created"), ["vault-9", "vault-7", "vault-1", "vault-2"]);
+  assert.deepEqual(order("owner"), ["vault-1", "vault-9", "vault-7", "vault-2"]);
+  assert.deepEqual(order("name"), ["vault-2", "vault-7", "vault-1", "vault-9"]);
+  // A missing name or date sorts last.
+  const gaps = [
+    book({ vault_id: "a", name: "", created_at: "" }),
+    book({ vault_id: "b", name: "Zed", created_at: iso(100) }),
+  ];
+  assert.deepEqual(vaultIds(sortBooks(gaps, "name")), ["b", "a"]);
+  assert.deepEqual(vaultIds(sortBooks(gaps, "created")), ["b", "a"]);
+  assert.deepEqual(
+    vaultIds(books),
+    ["vault-1", "vault-2", "vault-7", "vault-9"],
+    "input untouched",
+  );
+});
+
+test("books count each number once across the books shown, as the directory does", () => {
+  const byId = (...wanted: string[]) => books.filter((b) => wanted.includes(b.vault_id));
+  // vault-1 lists 002, 003, 004 (archived) and 006: its own `numbers`.
+  assert.equal(numbersInBooks(fixtures, byId("vault-1")), books[0].numbers);
+  assert.equal(numbersInBooks(fixtures, byId("vault-2")), 1);
+  // 002 is in both books: counted once, where the per-book sum says 5.
+  assert.equal(numbersInBooks(fixtures, byId("vault-1", "vault-2")), 4);
+  assert.equal(numbersInBooks(fixtures, byId("vault-2", "vault-7")), 2);
+  assert.equal(numbersInBooks(fixtures, books), 5);
+  assert.equal(numbersInBooks(fixtures, []), 0);
+  assert.equal(numbersInBooks([], books), 0);
+});
+
+test("applyExclusionsLocally drops excluded books at once, an owner's with it; Undo waits for the refetch", () => {
+  const withBooks = result(fixtures, {}, [], books);
+  const excluded = (kind: OutreachExclusion["kind"], id: string): OutreachExclusion => ({
+    kind,
+    id,
+    label: id,
+    reason: "test data",
+    created_at: iso(0),
+  });
+  const oneBook = applyExclusionsLocally(withBooks, [excluded("vault", "vault-2")]);
+  assert.deepEqual(vaultIds(oneBook.books), ["vault-1", "vault-7", "vault-9"]);
+  assert.equal(oneBook.contacts, withBooks.contacts, "contacts wait for the refetch");
+  // An account takes every book it owns (vault-1 and vault-9 are Ahmad's).
+  const owner = applyExclusionsLocally(withBooks, [excluded("account", "acct-1")]);
+  assert.deepEqual(vaultIds(owner.books), ["vault-2", "vault-7"]);
+  // An install owns no book.
+  const install = applyExclusionsLocally(withBooks, [excluded("install", "install-1")]);
+  assert.deepEqual(vaultIds(install.books), vaultIds(books));
+  // Undo shortens the list; the book comes back with the refetch, not here.
+  const undone = applyExclusionsLocally(oneBook, []);
+  assert.deepEqual(undone.exclusions, []);
+  assert.deepEqual(vaultIds(undone.books), ["vault-1", "vault-7", "vault-9"]);
+  assert.deepEqual(vaultIds(withBooks.books), vaultIds(books), "input untouched");
+});
+
+// ---- review fixes (2026-09-30) ----
+
+test("an open chat keeps the language it was opened in: the newest opened touch names its template", () => {
+  const at = iso(0.5);
+  const opened = (detail: string, daysAgo = 0.5) => ({
+    kind: "opened" as const,
+    detail,
+    at: iso(daysAgo),
+  });
+  const pendingWith = (touches: OutreachState["touches"]) =>
+    prospect(
+      "+93700000401",
+      {},
+      { opened_at: at, pending_since: at, open_count: 2, version: 3, touches },
+    );
+  // Opened while the session was Dari. The session says English now, and the
+  // number's own language may change as well: Sent still records Dari.
+  const dari = pendingWith([opened("template.customer.fa")]);
+  assert.equal(isPending(dari), true);
+  assert.equal(openedTemplateKey(dari), "template.customer.fa");
+  assert.equal(
+    buildMessage(dari, { "pref.message_lang": "en" }).templateKey,
+    "template.customer.en",
+    "the current resolution has moved on",
+  );
+  assert.equal(openedTemplateKey(speaking(dari, "en")), "template.customer.fa");
+  // Not pending: no chat is open, so nothing is kept, whatever the log holds.
+  const closed = { ...dari, outreach: { ...dari.outreach, pending_since: "" } };
+  assert.equal(openedTemplateKey(closed), undefined);
+  assert.equal(openedTemplateKey(fixtures[1]), undefined, "sent, nothing open");
+  // A detail that is not a template key reads as undefined.
+  for (const detail of [
+    "",
+    "nothing sent",
+    "template.customer.ps",
+    "template.supplier.fa",
+    "Template.customer.fa",
+    "template.customer.fa ",
+    "xtemplate.customer.fa",
+    "template.customer",
+  ])
+    assert.equal(openedTemplateKey(pendingWith([opened(detail)])), undefined, detail);
+  // The newest opened touch wins (touches arrive newest first); touches of
+  // other kinds in front of it are passed over.
+  const reopened = pendingWith([
+    { kind: "note", detail: "call back", at: iso(0.1) },
+    opened("template.shopkeeper.en", 0.2),
+    opened("template.customer.fa"),
+  ]);
+  assert.equal(openedTemplateKey(reopened), "template.shopkeeper.en");
+  // Only the newest open names the chat: junk there never falls back to an
+  // older open's key.
+  assert.equal(
+    openedTemplateKey(pendingWith([opened("", 0.2), opened("template.customer.fa")])),
+    undefined,
+  );
+  // Pending, but no opened touch among the 20 kept.
+  assert.equal(openedTemplateKey(pendingWith([])), undefined);
+  // templateLanguage reads exactly the keys openedTemplateKey accepts.
+  assert.equal(templateLanguage("template.shopkeeper.en"), "en");
+  assert.equal(templateLanguage("template.customer.fa"), "fa");
+  for (const key of ["", "fa", "template.customer.ps", "template.customer.fa.x"])
+    assert.equal(templateLanguage(key), undefined, key);
+});
+
+test("a preset's description states its order only while that order is on screen", () => {
+  assert.deepEqual(
+    OUTREACH_PRESETS.filter((preset) => "order" in preset).map((preset) => preset.id),
+    ["prospects", "customers", "wholesalers"],
+  );
+  const byName = { sortKey: "name", sortDesc: false } as const;
+  const prospects = presetDescription("prospects", presetSort("prospects"));
+  assert.equal(prospects.endsWith("(change the country filter). Newest tally first."), true);
+  // Re-sorted: the sentence goes, the rest stays.
+  assert.equal(
+    presetDescription("prospects", byName),
+    prospects.replace(" Newest tally first.", ""),
+  );
+  assert.equal(
+    presetDescription("customers", { sortKey: "last_tally", sortDesc: false }),
+    "Numbers that appear only inside synced books, never as an install.",
+    "ascending is another order",
+  );
+  assert.equal(
+    presetDescription("wholesalers", DEFAULT_OUTREACH_SORT).includes("Newest tally first."),
+    false,
+  );
+  // A preset without an order sentence reads the same under any sort.
+  for (const id of ["all", "follow_ups", "unreachable"] as const)
+    assert.equal(presetDescription(id, byName), presetDescription(id, presetSort(id)), id);
+  assert.equal(
+    presetDescription("all", byName),
+    "Every number the server knows, except customers archived in every book.",
+  );
+});
+
+test("books keep the server's order: Numbers as received, and every other sort breaks ties by its index", () => {
+  const order = (rows: OutreachBook[], key: Parameters<typeof sortBooks>[1]) =>
+    vaultIds(sortBooks(rows, key));
+  // Go compares names byte-wise, so at equal numbers and last tally "Zebra"
+  // comes before "apple"; localeCompare would swap them.
+  const server = [
+    book({ vault_id: "vault-z", name: "Zebra", numbers: 2, last_tally_at: iso(1) }),
+    book({ vault_id: "vault-a", name: "apple", numbers: 2, last_tally_at: iso(1) }),
+  ];
+  assert.deepEqual(order(server, "numbers"), ["vault-z", "vault-a"]);
+  assert.deepEqual(order(server, "last_activity"), ["vault-z", "vault-a"], "same last tally");
+  assert.deepEqual(order(server, "created"), ["vault-z", "vault-a"], "same creation");
+  assert.deepEqual(order(server, "owner"), ["vault-z", "vault-a"], "same owner");
+  // Name is the operator's A to Z, which is not the server's byte order.
+  assert.deepEqual(order(server, "name"), ["vault-a", "vault-z"]);
+  // Numbers never re-sorts: the order that arrives is the order shown, copied.
+  const unsorted = [book({ vault_id: "few", numbers: 1 }), book({ vault_id: "many", numbers: 9 })];
+  assert.deepEqual(order(unsorted, "numbers"), ["few", "many"]);
+  assert.notEqual(sortBooks(unsorted, "numbers"), unsorted);
+  // A tie between rows that are not neighbours keeps the server's index, not
+  // the names.
+  const owners = [
+    book({ vault_id: "b1", name: "Zebra", owner_name: "Bashir" }),
+    book({ vault_id: "b2", name: "Mid", owner_name: "Amina" }),
+    book({ vault_id: "b3", name: "apple", owner_name: "Bashir" }),
+  ];
+  assert.deepEqual(order(owners, "owner"), ["b2", "b1", "b3"]);
+  assert.deepEqual(vaultIds(owners), ["b1", "b2", "b3"], "input untouched");
 });

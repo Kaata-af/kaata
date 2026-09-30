@@ -27,13 +27,26 @@
 // `exclude` marks a book, account or install as verified test data; the list
 // is refetched because rows disappear.
 //
+// Batch 3 (2026-09-30). The message language lives on the server, never in
+// this page's memory: a session-wide choice (the setting pref.message_lang,
+// Dari when unset) in the Queue card, and a per-number choice in a row's
+// details (a mark with `lang`, which bumps the version like any write) that
+// wins over it; Auto falls back to the shop's app language. An open chat keeps
+// the language it was opened in: Sent records the template of its newest
+// "opened" touch (openedTemplateKey), since that text is what went out. Each
+// preset opens in its own order (presetSort: the ledger-people views on the
+// newest tally), and Prospects is mobile numbers only. The Excluded sources
+// card lists every book whose people feed the directory, with Exclude book
+// and Exclude owner; excluding an account takes its own number and every book
+// it owns, and every write control waits until the refreshed list is in.
+//
 // Idioms are copied from Users.tsx on purpose (FIELD/BUTTON, Pill,
 // FilterSelect, SummaryCard, the card/table split, sessionStorage prefs that
 // hold only enums and numbers); its file-local helpers are duplicated
 // minimally rather than lifted so Users.tsx stays untouched.
 
 import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useToast } from "../../components/Toast";
 import {
   ConflictError,
@@ -44,11 +57,13 @@ import {
   saveOutreachSetting,
   useAdminToken,
   useOutreach,
+  type OutreachBook,
   type OutreachContact,
   type OutreachCustomer,
   type OutreachExclusion,
   type OutreachExclusionBody,
   type OutreachExclusionKind,
+  type OutreachLang,
   type OutreachMarkBody,
   type OutreachMarkResult,
   type OutreachOutcomeBody,
@@ -61,12 +76,17 @@ import {
 import { reportingDay } from "./dates";
 import {
   AFGHAN_CARRIERS,
+  BOOK_SORT_OPTIONS,
   CONVERTED_FILTERS,
   DEFAULT_OUTREACH_FILTERS,
+  DEFAULT_OUTREACH_SORT,
   DEFAULT_SLUGS,
+  LANGUAGE_NAMES,
   OUTREACH_PRESETS,
   OUTREACH_SORT_OPTIONS,
   OUTREACH_STATUSES,
+  SESSION_LANGUAGE_KEY,
+  SESSION_LANGUAGE_OPTIONS,
   STATUS_LABELS,
   activePreset,
   afghanCarrier,
@@ -76,6 +96,7 @@ import {
   applySettingLocally,
   applyStateLocally,
   balanceSummary,
+  bookOwnerLabel,
   buildMessage,
   chunk,
   contactDisplayName,
@@ -86,6 +107,7 @@ import {
   filterOutreach,
   formatMoney,
   isNeverMessaged,
+  isOutreachLang,
   isOutreachStatus,
   isProspect,
   isSkippedToday,
@@ -93,11 +115,15 @@ import {
   isUnreachableStatus,
   languageLabel,
   lastTallyAt,
+  matchesBookSearch,
+  messageLanguage,
   nextToOpen,
   numberCaption,
   numberTypeLabel,
+  numbersInBooks,
   offersChat,
   openableCount,
+  openedTemplateKey,
   outreachCsv,
   ownerNames,
   parseMoney,
@@ -105,26 +131,39 @@ import {
   pendingRows,
   platformLabel,
   presetCounts,
+  presetDescription,
   presetFilters,
+  presetSort,
   sanitizeSlug,
+  sessionChoiceLabel,
+  sessionLanguage,
   slugKey,
+  sortBooks,
   sortOutreach,
   templateFor,
   templateKey,
+  templateLanguage,
   waLink,
+  withPreset,
   type Audience,
-  type LanguageOverride,
+  type BookSortKey,
+  type MessageLanguage,
   type OutreachFilters,
   type OutreachPreferences,
   type OutreachPreset,
+  type OutreachSort,
   type OutreachSortKey,
   type PillTone,
+  type SessionLanguage,
 } from "./outreach-model";
 import { Card, ErrorCard, PageHeader, SkeletonCard, fmtDate, fmtInt, lastSeenInfo } from "./ui";
 
 // v2 (2026-09-30): "Messaged before" now follows never_messaged, so a v1
 // value is ignored and a tab that held one opens on Prospects like a fresh one.
-const STORAGE_KEY = "kaata_admin_outreach_filters_v2";
+// v3 (2026-09-30, batch 3): a preset now brings its own sort — Prospects
+// opens on the newest tally — so a stored v2 view, whose sort meant nothing
+// for Prospects, is dropped rather than left to linger.
+const STORAGE_KEY = "kaata_admin_outreach_filters_v3";
 const FIELD =
   "min-h-11 min-w-0 w-full max-w-full rounded-lg border border-[#e5e5e5] bg-white px-3 py-2 text-base text-[#404040] outline-none transition focus:border-[#171717] focus:ring-2 focus:ring-[#171717]/10 md:text-sm";
 const BUTTON =
@@ -353,7 +392,8 @@ function presetFromHash(): OutreachPreset | undefined {
 }
 // A first visit (nothing saved this session, no preset in the hash) opens on
 // Prospects, so "Open next" has the resumable queue under it without a click;
-// a saved view is restored as before.
+// a saved view is restored as before. A preset, from the hash or the fresh
+// default, brings its own sort too (withPreset, 2026-09-30).
 function initialPreferences(): OutreachPreferences {
   let saved: unknown = null;
   try {
@@ -363,7 +403,7 @@ function initialPreferences(): OutreachPreferences {
   }
   const preferences = parseOutreachPreferences(saved);
   const preset = presetFromHash() ?? (saved === null ? "prospects" : undefined);
-  return preset ? { ...preferences, filters: presetFilters(preset) } : preferences;
+  return preset ? withPreset(preferences, preset) : preferences;
 }
 function fmtDay(day: string): string {
   if (!day) return "—";
@@ -434,13 +474,20 @@ type OutcomeRequest = { body: OutreachOutcomeBody; quiet?: boolean };
 // What a refused or failed outcome tells the operator (2026-09-30). The three
 // 409 reasons all mean the cached row is behind the server, so they refetch;
 // nothing is ever retried, because a retry is how a second message goes out.
+// A stale version says only that the row changed, never that this outcome was
+// "already recorded": any write bumps the version (a note, a language, a
+// status from another tab), so the operator checks the row before acting again.
 function describeOutcomeError(error: Error): {
   text: string;
   tone: "info" | "error";
   refresh: boolean;
 } {
   if (error instanceof StaleError)
-    return { text: "Already recorded elsewhere — refreshed", tone: "info", refresh: true };
+    return {
+      text: "Changed elsewhere — refreshed. Check the row and try again.",
+      tone: "info",
+      refresh: true,
+    };
   if (error instanceof ConflictError && error.message === "contact stopped")
     return {
       text: "This number is marked Declined or Do not contact. Change its status first.",
@@ -538,6 +585,12 @@ function useOutreachMutations() {
   });
   // Excluding a source changes which rows exist, so the contact list is
   // always refetched; the exclusions card takes the server's list at once.
+  // onSettled RETURNS the refetch (2026-09-30): the mutation stays pending
+  // until the refreshed list has arrived, and the page's `busy` counts it, so
+  // a number whose only source was just excluded can't be opened, sent or
+  // relabelled from the stale list in the gap. The hold is capped at 20 s,
+  // the same bound as every write, so a GET that never answers cannot leave
+  // the whole page disabled until a reload.
   const exclude = useMutation({
     mutationKey: EXCLUSION_MUTATION_KEY,
     mutationFn: (body: OutreachExclusionBody) => postExclusion(token, body),
@@ -547,7 +600,11 @@ function useOutreachMutations() {
         client.setQueryData(key, applyExclusionsLocally(current, response.exclusions));
     },
     onError: (error) => toast.push(error.message || "Couldn't update the exclusion.", "error"),
-    onSettled: () => void client.invalidateQueries({ queryKey: ["admin", "outreach"] }),
+    onSettled: () =>
+      Promise.race([
+        client.invalidateQueries({ queryKey: ["admin", "outreach"] }),
+        new Promise<void>((resolve) => setTimeout(resolve, 20_000)),
+      ]),
   });
   return { mark, setting, outcome, exclude };
 }
@@ -563,7 +620,6 @@ export function Outreach() {
   const [page, setPage] = useState(0);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [selected, setSelected] = useState<Record<string, boolean>>({});
-  const [overrides, setOverrides] = useState<Record<string, LanguageOverride>>({});
   const [clockTick, setNow] = useState(Date.now);
   // One flag for every write in flight (2026-09-30): an outcome flow (row
   // open, Open next, Sent & next, the strip's buttons, the row tick, Retry),
@@ -571,16 +627,28 @@ export function Outreach() {
   // only track each hook's latest call. The ref answers in the same tick a
   // double click lands in; the state re-renders the buttons disabled. A
   // pending mark counts, so no outcome goes out with a version a mark is
-  // about to bump.
+  // about to bump. So does an exclusion, from its POST until the refetched
+  // list is in (2026-09-30; its onSettled returns the refetch): until then
+  // the rows on screen may include numbers that are no longer listed.
   const [outcomeFlow, setOutcomeFlow] = useState(false);
   const outcomeFlowRef = useRef(false);
   const outcomesInFlight = useIsMutating({ mutationKey: OUTCOME_MUTATION_KEY });
   const marksInFlight = useIsMutating({ mutationKey: MARK_MUTATION_KEY });
-  const busy = outcomeFlow || outcomesInFlight > 0 || marksInFlight > 0;
+  const exclusionsInFlight = useIsMutating({ mutationKey: EXCLUSION_MUTATION_KEY });
+  const busy = outcomeFlow || outcomesInFlight > 0 || marksInFlight > 0 || exclusionsInFlight > 0;
+  // The session language is a setting write of its own (2026-09-30); its
+  // select waits for every save of that key in flight, so two quick changes
+  // can never land on the server in the wrong order.
+  const languageSaves = useIsMutating({
+    mutationKey: SETTING_MUTATION_KEY,
+    predicate: (mutation) =>
+      (mutation.state.variables as { key?: unknown } | undefined)?.key === SESSION_LANGUAGE_KEY,
+  });
   const now = Math.max(clockTick, outreach.dataUpdatedAt);
   const data = outreach.data ?? null;
   const contacts = useMemo(() => data?.contacts ?? [], [data]);
   const settings = useMemo(() => data?.settings ?? {}, [data]);
+  const session = sessionLanguage(settings);
   const selectedPreset = activePreset(filters);
   // Card values come from the same predicates the cards apply (see
   // outreach-model.presetCounts); only "Today" is the server's touch count.
@@ -643,7 +711,7 @@ export function Outreach() {
     const onHash = () => {
       const preset = presetFromHash();
       if (!preset) return;
-      setPreferences((p) => ({ ...p, filters: presetFilters(preset) }));
+      setPreferences((p) => withPreset(p, preset));
       setSearch("");
       setPage(0);
       setExpanded({});
@@ -664,14 +732,17 @@ export function Outreach() {
     setPage(0);
     setExpanded({});
   }
-  function applyView(next: OutreachFilters) {
-    setPreferences((p) => ({ ...p, filters: next }));
+  // A view is applied with its sort (2026-09-30): a preset with its own
+  // (presetSort), the converted card with the default view's. A sort changed
+  // afterwards (sortBy) holds until the next view is applied.
+  function applyView(next: OutreachFilters, sort: OutreachSort) {
+    setPreferences((p) => ({ ...p, filters: next, ...sort }));
     setSearch("");
     setPage(0);
     setExpanded({});
   }
   function applyPreset(preset: OutreachPreset) {
-    applyView(presetFilters(preset));
+    applyView(presetFilters(preset), presetSort(preset));
   }
   function reset() {
     applyPreset("all");
@@ -733,8 +804,26 @@ export function Outreach() {
   function markPhones(body: OutreachMarkBody, message: string) {
     mark.mutate(body, { onSuccess: () => toast.push(message, "success") });
   }
+  // The message in the contact's resolved language: its own choice, else the
+  // session's, else (Auto) its locale — all read from the server's answer.
   function messageFor(contact: OutreachContact) {
-    return buildMessage(contact, settings, overrides[contact.phone] ?? "auto");
+    return buildMessage(contact, settings);
+  }
+  // The template a "sent" records (2026-09-30). An open chat keeps the
+  // language it was opened in — the prefilled text in its tab is what went
+  // out — so a pending row records its opened template, and only a row with
+  // no open chat on record takes today's resolution. Every path that marks a
+  // pending row sent comes through here: the strip's Sent, the row's Sent
+  // box, and the first half of Sent & next.
+  function sentTemplateKey(contact: OutreachContact): string {
+    return openedTemplateKey(contact) ?? messageFor(contact).templateKey;
+  }
+  function saveSessionLanguage(value: SessionLanguage) {
+    const label = SESSION_LANGUAGE_OPTIONS.find(([option]) => option === value)?.[1] ?? value;
+    setting.mutate(
+      { key: SESSION_LANGUAGE_KEY, value },
+      { onSuccess: () => toast.push(`Message language: ${label}`, "success") },
+    );
   }
   function beginOutcome(): boolean {
     if (outcomeFlowRef.current) return false;
@@ -784,7 +873,7 @@ export function Outreach() {
       outcome: verdict,
       expected_version: contact.outreach.version,
     };
-    if (verdict === "sent") body.template_key = messageFor(contact).templateKey;
+    if (verdict === "sent") body.template_key = sentTemplateKey(contact);
     if (verdict === "skip" && closesFollowUp(contact)) body.reason = "nothing sent";
     void recordOutcome(body)
       .then((state) => {
@@ -881,7 +970,8 @@ export function Outreach() {
   }
   // "Sent & next" on a pending row. The next target comes from the current
   // view BEFORE anything opens, so an empty queue opens no tab at all; then
-  // sent is recorded (version-checked), then opened for the target, and only
+  // sent is recorded (version-checked, with the template the chat was opened
+  // in: sentTemplateKey), then opened for the target, and only
   // then is the tab navigated. Any failure closes the tab and never advances;
   // a sent record that already landed stays — that is the outcome that must
   // not be lost — and one toast says both halves.
@@ -897,7 +987,7 @@ export function Outreach() {
       const sent = await recordOutcome({
         phone: contact.phone,
         outcome: "sent",
-        template_key: messageFor(contact).templateKey,
+        template_key: sentTemplateKey(contact),
         expected_version: contact.outreach.version,
       });
       if (sent instanceof Error) {
@@ -951,8 +1041,9 @@ export function Outreach() {
   // and reports them as skipped (2026-09-30): "Mark sent" records only a
   // FIRST message (New, Not on WhatsApp or Invalid, never recorded as sent),
   // and a status action never lifts a stop — the body type has no lift_stop,
-  // so no bulk action can send it. The toast says how many and why.
-  function bulk(body: Omit<OutreachMarkBody, "phones" | "lift_stop">, label: string) {
+  // so no bulk action can send it. Nor a lang: a message language is set one
+  // row at a time. The toast says how many and why.
+  function bulk(body: Omit<OutreachMarkBody, "phones" | "lift_stop" | "lang">, label: string) {
     if (!selectedPhones.length) return;
     const phones = selectedPhones;
     mark.mutate(
@@ -979,14 +1070,38 @@ export function Outreach() {
     settings,
     expanded,
     selected,
-    overrides,
     saving: busy,
     busy,
     excluding: exclude.isPending,
     onToggle: (phone: string) => setExpanded((value) => ({ ...value, [phone]: !value[phone] })),
     onSelect: (phone: string, on: boolean) => setSelected((value) => ({ ...value, [phone]: on })),
-    onOverride: (phone: string, value: LanguageOverride) =>
-      setOverrides((current) => ({ ...current, [phone]: value })),
+    // The per-number language is saved on the server (2026-09-30) through
+    // the mark mutation: it bumps the row's version, so it counts as a write
+    // in flight (busy) like a status or a note, and records no touch. Success
+    // is claimed only when the server's answer carries the language asked
+    // for: a backend from before migration 046 ignores `lang` and answers
+    // without it, the row falls back to the session choice
+    // (applyMarkResponse), and a success toast would say the opposite.
+    onLanguage: (contact: OutreachContact, lang: OutreachLang) =>
+      mark.mutate(
+        { phones: [contact.phone], lang },
+        {
+          onSuccess: ({ updated }) => {
+            if (updated.find((state) => state.phone === contact.phone)?.lang === lang)
+              toast.push(
+                lang
+                  ? `${contact.phone}: messages in ${LANGUAGE_NAMES[lang]}`
+                  : `${contact.phone}: follows the session language`,
+                "success",
+              );
+            else
+              toast.push(
+                "Language not saved — the server is on an older version; reload after the deploy.",
+                "error",
+              );
+          },
+        },
+      ),
     // A stop is lifted only here, one row at a time (2026-09-30): moving a
     // Declined or Do-not-contact row to another status sends lift_stop, which
     // no bulk action can, so a bulk status change leaves every stop alone.
@@ -1041,7 +1156,7 @@ export function Outreach() {
             <SummaryCard
               label="Prospects"
               value={cards.prospects}
-              sub="Customer-only · never messaged · valid · AF"
+              sub="Customer-only · never messaged · valid mobile · AF"
               onClick={() => applyPreset("prospects")}
               icon="list"
             />
@@ -1098,7 +1213,7 @@ export function Outreach() {
               label="Installed after contact"
               value={cards.converted}
               sub="Install seen after a send"
-              onClick={() => applyView(CONVERTED_FILTERS)}
+              onClick={() => applyView(CONVERTED_FILTERS, DEFAULT_OUTREACH_SORT)}
               icon="check"
             />
           </div>
@@ -1137,7 +1252,10 @@ export function Outreach() {
             prospectsRemaining={prospectsRemaining}
             pending={pending}
             busy={busy}
+            sessionLanguage={session}
+            languageSaving={languageSaves > 0}
             messageFor={messageFor}
+            onLanguage={saveSessionLanguage}
             onOpenNext={openNext}
             onSentAndNext={(contact) => void sentAndNext(contact)}
             onVerdict={recordVerdict}
@@ -1169,7 +1287,7 @@ export function Outreach() {
                     key={preset.id}
                     onClick={() => applyPreset(preset.id)}
                     aria-pressed={selectedPreset === preset.id}
-                    title={preset.description}
+                    title={presetDescription(preset.id, presetSort(preset.id))}
                     className={`min-h-11 min-w-0 border-b-2 px-2 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#171717] sm:px-3 ${selectedPreset === preset.id ? "border-[#171717] text-[#171717]" : "border-transparent text-[#737373] hover:text-[#404040]"}`}
                   >
                     {preset.label}
@@ -1214,9 +1332,11 @@ export function Outreach() {
                   />
                 </button>
               </div>
+              {/* The order sentence ("Newest tally first.") only while the
+                  preset's own order is on screen (2026-09-30). */}
               {selectedPreset && selectedPreset !== "all" ? (
                 <p className="text-xs leading-5 text-[#737373]">
-                  {OUTREACH_PRESETS.find((preset) => preset.id === selectedPreset)?.description}
+                  {presetDescription(selectedPreset, { sortKey, sortDesc })}
                 </p>
               ) : null}
               {showFilters ? (
@@ -1276,7 +1396,7 @@ export function Outreach() {
                       />
                     ))}
                     <NumberFilter
-                      label="Min mentions (books)"
+                      label="Min books listing it"
                       value={filters.minMentions}
                       onChange={(minMentions) => updateFilters({ minMentions })}
                     />
@@ -1591,16 +1711,17 @@ export function Outreach() {
             Customer numbers exist only for kaatas synced while signed in. Follow-up due = sent 48 h
             ago with no reply. Last seen is a device check-in, not a ledger edit. Validity comes
             from the numbering plan (libphonenumber); it says nothing about whether the number uses
-            WhatsApp. Prospects = customer-only numbers, status New, never messaged (no send
-            recorded and every opened chat closed as nothing sent), valid, not awaiting an outcome,
-            not skipped today; Afghanistan by default (change the country filter). Open next and
-            Prospects are first contact only.
+            WhatsApp. Prospects = customer-only mobile numbers (the plan's mobile or
+            fixed-or-mobile), status New, never messaged (no send recorded and every opened chat
+            closed as nothing sent), valid, not awaiting an outcome, not skipped today; Afghanistan
+            by default (change the country filter). Open next and Prospects are first contact only.
+            Prospects, Customers and Wholesalers open on the newest tally; a tie goes to the number
+            more books list. A sort you pick holds until you open another view.
           </p>
           <div className="mt-6">
             <TemplatesCard
               settings={settings}
               preview={sorted[0]}
-              previewOverride={sorted[0] ? (overrides[sorted[0].phone] ?? "auto") : "auto"}
               saving={setting.isPending}
               onSave={(key, value, message) =>
                 setting.mutate({ key, value }, { onSuccess: () => toast.push(message, "success") })
@@ -1610,11 +1731,14 @@ export function Outreach() {
           <div className="mt-6">
             <ExclusionsCard
               exclusions={data.exclusions}
+              books={data.books}
+              contacts={contacts}
               busy={exclude.isPending}
+              onExclude={onExclude}
               onUndo={(exclusion) =>
                 onExclude(
                   { kind: exclusion.kind, id: exclusion.id, excluded: false },
-                  `${exclusion.label || exclusion.id} included again`,
+                  `Included again: ${exclusion.label || exclusion.id}`,
                 )
               }
             />
@@ -1653,7 +1777,11 @@ function queueVerdicts(contact: OutreachContact): VerdictButton[] {
 // first, so nothing opened in another tab or before a reload is forgotten.
 // Every button sends the row's version and is disabled while any write is in
 // flight; "Open chat again" is a button like every other open (2026-09-30):
-// it records another "opened" before the tab is pointed at wa.me.
+// it records another "opened" before the tab is pointed at wa.me. The
+// session-wide message language sits in the card's header (2026-09-30): a
+// server setting, so every tab and device writes the same message. A strip
+// row names the language its chat was opened in, which Sent records, and
+// the one a reopen would use when that has changed since.
 function QueueCard(props: {
   next: OutreachContact | undefined;
   openable: number;
@@ -1661,7 +1789,10 @@ function QueueCard(props: {
   prospectsRemaining: number;
   pending: OutreachContact[];
   busy: boolean;
+  sessionLanguage: SessionLanguage;
+  languageSaving: boolean;
   messageFor: (contact: OutreachContact) => ReturnType<typeof buildMessage>;
+  onLanguage: (value: SessionLanguage) => void;
   onOpenNext: () => void;
   onSentAndNext: (contact: OutreachContact) => void;
   onVerdict: (contact: OutreachContact, verdict: Verdict) => void;
@@ -1674,6 +1805,40 @@ function QueueCard(props: {
       title="Queue"
       sub="Open next takes the first openable row of the current directory view — first contact only, never a number messaged before. A chat you opened waits below until you record what happened."
       className="mb-5"
+      action={
+        <div className="flex min-w-0 max-w-full flex-col gap-1">
+          <label
+            className="flex min-w-0 max-w-full flex-wrap items-center gap-2 text-xs font-medium text-[#525252]"
+            htmlFor="outreach-session-language"
+          >
+            Message language
+            <select
+              id="outreach-session-language"
+              className={SMALL_SELECT}
+              value={props.sessionLanguage}
+              disabled={props.languageSaving}
+              aria-busy={props.languageSaving}
+              onChange={(event) => {
+                const value = SESSION_LANGUAGE_OPTIONS.find(
+                  ([option]) => option === event.target.value,
+                )?.[0];
+                if (value && value !== props.sessionLanguage) props.onLanguage(value);
+              }}
+            >
+              {SESSION_LANGUAGE_OPTIONS.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="text-[11px] leading-4 text-[#737373]">
+            {props.languageSaving
+              ? "Saving…"
+              : "For every number without its own language (set in its details)."}
+          </p>
+        </div>
+      }
     >
       <div className="flex min-w-0 flex-wrap items-center gap-3">
         <button
@@ -1704,7 +1869,7 @@ function QueueCard(props: {
                 {props.next.phone}
               </span>
               {" · "}
-              {nextMessage.language === "fa" ? "Dari" : "English"}
+              {LANGUAGE_NAMES[nextMessage.language]}
             </>
           ) : (
             "Nothing to open in this view."
@@ -1736,6 +1901,15 @@ function QueueCard(props: {
             {props.pending.map((contact) => {
               const message = props.messageFor(contact);
               const o = contact.outreach;
+              // The language the open chat went out in, which Sent records
+              // (2026-09-30), and the one "Open chat again" would use now,
+              // named only when they differ. An open with no readable
+              // template falls back to today's resolution, as Sent does.
+              const openedKey = openedTemplateKey(contact);
+              const openedIn = openedKey ? templateLanguage(openedKey) : undefined;
+              const language = openedIn
+                ? `opened in ${LANGUAGE_NAMES[openedIn]}${openedIn === message.language ? "" : ` · reopens in ${LANGUAGE_NAMES[message.language]}`}`
+                : LANGUAGE_NAMES[message.language];
               return (
                 <li
                   key={contact.phone}
@@ -1758,8 +1932,7 @@ function QueueCard(props: {
                     </button>
                     <span className="text-xs text-[#737373]">
                       waiting since {fmtDateTime(o.pending_since)}
-                      {o.open_count > 1 ? ` · opened ${o.open_count}×` : ""} ·{" "}
-                      {message.language === "fa" ? "Dari" : "English"}
+                      {o.open_count > 1 ? ` · opened ${o.open_count}×` : ""} · {language}
                     </span>
                   </div>
                   <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
@@ -1813,23 +1986,364 @@ function QueueCard(props: {
   );
 }
 
-// Verified test sources, with the way back. Excluding drops only that
-// source's own contribution; the card says so because the row a shopkeeper
-// also keeps in a real book stays in the directory on purpose.
+const BOOKS_PAGE_SIZE = 25;
+// What excluding an owner does (2026-09-30), on every button that excludes
+// an account: the server drops the account's own number and every book it
+// owns, like OPERATOR_ACCOUNT_IDS.
+const OWNER_EXCLUDE_TITLE = "Removes the owner's own number and every book they own.";
+// The Books list (2026-09-30): every book whose people feed the directory, in
+// one place, so test data is found and excluded without hunting through
+// rows — the book, or its owner (the owner's own number and every book they
+// own). Search, order and paging are client-side over the GET's `books`, whose
+// own order is the Numbers sort (sortBooks); an exclusion moves the book to
+// the list below at once (applyExclusionsLocally) and refetches.
+function BooksSection(props: {
+  books: OutreachBook[];
+  contacts: OutreachContact[];
+  busy: boolean;
+  onExclude: (body: OutreachExclusionBody, message: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<BookSortKey>("numbers");
+  const [page, setPage] = useState(0);
+  const shown = useMemo(
+    () =>
+      sortBooks(
+        props.books.filter((book) => matchesBookSearch(book, search)),
+        sortKey,
+      ),
+    [props.books, search, sortKey],
+  );
+  // Each number once, however many of the shown books list it.
+  const numbers = useMemo(() => numbersInBooks(props.contacts, shown), [props.contacts, shown]);
+  const pageCount = Math.max(1, Math.ceil(shown.length / BOOKS_PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount - 1);
+  const rows = shown.slice(currentPage * BOOKS_PAGE_SIZE, (currentPage + 1) * BOOKS_PAGE_SIZE);
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount - 1));
+  }, [pageCount]);
+  const actions = (book: OutreachBook, stacked = false) => (
+    <BookActions book={book} busy={props.busy} stacked={stacked} onExclude={props.onExclude} />
+  );
+  return (
+    <section className="min-w-0" aria-labelledby="outreach-books-heading">
+      <h3 id="outreach-books-heading" className="text-sm font-semibold text-[#171717]">
+        Books
+      </h3>
+      <p className="mt-1 text-xs leading-5 text-[#737373]">
+        Every book whose people feed this list. Exclude a book, or its owner, if it is test data.
+      </p>
+      <div className="mt-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-3">
+        <div className="relative min-w-0">
+          <span className="pointer-events-none absolute left-3 top-3 text-[#a3a3a3]">
+            <Icon name="search" />
+          </span>
+          <input
+            aria-label="Search books by name, owner, email or phone"
+            type="search"
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(0);
+            }}
+            placeholder="Search books…"
+            className={`${FIELD} pl-10`}
+          />
+        </div>
+        {/* Its own name (2026-09-30), apart from the directory's "Sort by". */}
+        <label className="flex min-w-0 items-center gap-2 text-xs text-[#737373]">
+          Sort books by
+          <select
+            value={sortKey}
+            onChange={(event) => {
+              const key = BOOK_SORT_OPTIONS.find(([option]) => option === event.target.value)?.[0];
+              if (key) setSortKey(key);
+              setPage(0);
+            }}
+            className={SMALL_SELECT}
+          >
+            {BOOK_SORT_OPTIONS.map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <p className="mt-3 text-xs tabular-nums text-[#737373]" role="status">
+        {fmtInt(shown.length)} {shown.length === 1 ? "book" : "books"} · {fmtInt(numbers)}{" "}
+        {numbers === 1 ? "number" : "numbers"}
+      </p>
+      {rows.length === 0 ? (
+        <p className="mt-3 text-sm text-[#737373]">
+          {props.books.length ? "No books match this search." : "No books."}
+        </p>
+      ) : (
+        <>
+          <ul className="mt-3 grid min-w-0 grid-cols-1 gap-2 md:hidden" aria-label="Books">
+            {rows.map((book) => (
+              <li
+                key={book.vault_id}
+                className="min-w-0 max-w-full rounded-lg border border-[#e5e5e5] bg-[#fafafa] p-3"
+              >
+                <BookName book={book} />
+                <div className="mt-1">
+                  <BookOwner book={book} />
+                </div>
+                <dl className="mt-3 grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3">
+                  <DetailItem label="Created" value={fmtDate(book.created_at)} />
+                  <DetailItem label="Numbers" value={fmtInt(book.numbers)} />
+                  <DetailItem label="People" value={fmtInt(book.people)} />
+                  <DetailItem label="Tallies" value={fmtInt(book.tallies)} />
+                  <DetailItem label="Last activity" value={fmtDate(book.last_tally_at)} />
+                </dl>
+                <div className="mt-3">{actions(book)}</div>
+              </li>
+            ))}
+          </ul>
+          <div
+            className="relative mt-3 hidden min-w-0 w-full max-w-full overflow-x-auto overscroll-x-contain rounded-lg border border-[#e5e5e5] focus-visible:outline-2 focus-visible:outline-[#171717] md:block"
+            role="region"
+            aria-label="Scrollable books table"
+            tabIndex={0}
+          >
+            <table className="w-full min-w-[860px] border-collapse text-left" aria-label="Books">
+              <thead>
+                <tr className="border-b border-[#f5f5f5] bg-[#fafafa]">
+                  <th scope="col" className="px-3 py-3 text-xs font-medium text-[#737373]">
+                    Book
+                  </th>
+                  <th scope="col" className="px-3 py-3 text-xs font-medium text-[#737373]">
+                    Owner
+                  </th>
+                  <th scope="col" className="px-3 py-3 text-xs font-medium text-[#737373]">
+                    Created
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-3 py-3 text-right text-xs font-medium text-[#737373]"
+                  >
+                    Numbers
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-3 py-3 text-right text-xs font-medium text-[#737373]"
+                  >
+                    People
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-3 py-3 text-right text-xs font-medium text-[#737373]"
+                  >
+                    Tallies
+                  </th>
+                  <th scope="col" className="px-3 py-3 text-xs font-medium text-[#737373]">
+                    Last activity
+                  </th>
+                  <th scope="col" className="px-3 py-3 text-xs font-medium text-[#737373]">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((book) => (
+                  <tr key={book.vault_id} className="border-b border-[#f5f5f5] last:border-b-0">
+                    <td className="px-3 py-3 align-top">
+                      <BookName book={book} />
+                    </td>
+                    <td className="px-3 py-3 align-top">
+                      <BookOwner book={book} />
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3 align-top text-xs text-[#525252]">
+                      {fmtDate(book.created_at)}
+                    </td>
+                    <td className="px-3 py-3 text-right align-top text-xs tabular-nums text-[#404040]">
+                      {fmtInt(book.numbers)}
+                    </td>
+                    <td className="px-3 py-3 text-right align-top text-xs tabular-nums text-[#404040]">
+                      {fmtInt(book.people)}
+                    </td>
+                    <td className="px-3 py-3 text-right align-top text-xs tabular-nums text-[#404040]">
+                      {fmtInt(book.tallies)}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3 align-top text-xs text-[#525252]">
+                      {fmtDate(book.last_tally_at)}
+                    </td>
+                    <td className="px-3 py-3 align-top">{actions(book, true)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      {pageCount > 1 ? (
+        <nav
+          aria-label="Books pages"
+          className="mt-3 flex max-w-full flex-wrap items-center justify-end gap-2 sm:gap-3"
+        >
+          <button
+            className={BUTTON}
+            disabled={currentPage === 0}
+            onClick={() => setPage(currentPage - 1)}
+          >
+            <Icon name="chevron" className="rotate-90" />
+            <span className="hidden sm:inline">Previous</span>
+            <span className="sr-only sm:hidden">Previous page</span>
+          </button>
+          <span className="text-xs tabular-nums text-[#737373]">
+            Page {currentPage + 1} of {pageCount}
+          </span>
+          <button
+            className={BUTTON}
+            disabled={currentPage >= pageCount - 1}
+            onClick={() => setPage(currentPage + 1)}
+          >
+            <span className="hidden sm:inline">Next</span>
+            <span className="sr-only sm:hidden">Next page</span>
+            <Icon name="chevron" className="-rotate-90" />
+          </button>
+        </nav>
+      ) : null}
+    </section>
+  );
+}
+// Book and owner text wraps between words only (break-words, not anywhere):
+// in the table's auto layout, "anywhere" lets a column shrink until an email
+// breaks mid-word; a whole-word minimum keeps it readable, and the table
+// scrolls sideways instead when it must.
+function BookName(props: { book: OutreachBook }) {
+  const b = props.book;
+  return (
+    <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
+      <span
+        className="min-w-0 max-w-full break-words text-sm font-medium text-[#404040]"
+        dir="auto"
+      >
+        {b.name || "Unnamed book"}
+      </span>
+      {b.currency ? (
+        <span className="rounded bg-[#f5f5f5] px-1.5 py-0.5 text-[10px] font-medium text-[#525252]">
+          {b.currency}
+        </span>
+      ) : null}
+      {b.archived ? <Pill tone="amber">Archived</Pill> : null}
+    </div>
+  );
+}
+function BookOwner(props: { book: OutreachBook }) {
+  const b = props.book;
+  // A long address may wrap after its @ first, so it never widens the table.
+  const at = b.owner_email.indexOf("@");
+  if (!b.owner_name && !b.owner_email && !b.owner_phone)
+    return <p className="text-xs text-[#737373]">No owner details</p>;
+  return (
+    <div className="min-w-0 max-w-full text-xs leading-5 text-[#525252]">
+      {b.owner_name ? (
+        <p className="break-words font-medium text-[#404040]" dir="auto">
+          {b.owner_name}
+        </p>
+      ) : null}
+      {b.owner_email ? (
+        <p className="break-words font-mono" dir="ltr">
+          {at > 0 ? (
+            <>
+              {b.owner_email.slice(0, at + 1)}
+              <wbr />
+              {b.owner_email.slice(at + 1)}
+            </>
+          ) : (
+            b.owner_email
+          )}
+        </p>
+      ) : null}
+      {b.owner_phone ? (
+        <p className="font-mono tabular-nums" dir="ltr">
+          {b.owner_phone}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+// Exclude book / Exclude owner, with the inline reason form (ExcludeButton).
+// A book without an owner account offers only the first. Stacked in the
+// table, so the actions column stays one button wide and the owner column
+// keeps an address on one line.
+function BookActions(props: {
+  book: OutreachBook;
+  busy: boolean;
+  stacked?: boolean;
+  onExclude: (body: OutreachExclusionBody, message: string) => void;
+}) {
+  const b = props.book;
+  const owner = bookOwnerLabel(b);
+  return (
+    <div
+      className={
+        props.stacked
+          ? "flex min-w-0 max-w-full flex-col items-start gap-2"
+          : "flex min-w-0 max-w-full flex-wrap items-center gap-2"
+      }
+    >
+      <ExcludeButton
+        label="Exclude book"
+        ariaLabel={`Exclude book: ${b.name || b.vault_id}`}
+        compact
+        kind="vault"
+        id={b.vault_id}
+        busy={props.busy}
+        onExclude={(body) => props.onExclude(body, `${b.name || "Book"} excluded`)}
+      />
+      {b.owner_account_id ? (
+        <ExcludeButton
+          label="Exclude owner"
+          ariaLabel={`Exclude owner: ${owner}`}
+          title={OWNER_EXCLUDE_TITLE}
+          compact
+          kind="account"
+          id={b.owner_account_id}
+          busy={props.busy}
+          onExclude={(body) => props.onExclude(body, `${owner} excluded, with every book they own`)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+// Verified test sources, with the way back, under the Books list that feeds
+// them. Excluding drops only that source's own contribution — an account's
+// being its own number and every book it owns (2026-09-30) — and the card
+// says so because a number that a real book also lists stays in the
+// directory on purpose.
 function ExclusionsCard(props: {
   exclusions: OutreachExclusion[];
+  books: OutreachBook[];
+  contacts: OutreachContact[];
   busy: boolean;
+  onExclude: (body: OutreachExclusionBody, message: string) => void;
   onUndo: (exclusion: OutreachExclusion) => void;
 }) {
   return (
     <Card
       title="Excluded sources"
-      sub="Books, accounts and installs you verified as test data. Only their own contribution is dropped; a number that also appears in a real book stays listed. Undo puts a source back."
+      sub="Books, accounts and installs you verified as test data. A book drops its own listings; an account drops its own number and every book it owns; an install drops what it reported. A number that also appears in a real book stays listed. Undo puts a source back."
     >
+      <BooksSection
+        books={props.books}
+        contacts={props.contacts}
+        busy={props.busy}
+        onExclude={props.onExclude}
+      />
+      <h3 className="mt-6 border-t border-[#f5f5f5] pt-5 text-sm font-semibold text-[#171717]">
+        Excluded
+        <span className="ml-1 font-normal tabular-nums text-[#737373]">
+          {fmtInt(props.exclusions.length)}
+        </span>
+      </h3>
       {props.exclusions.length === 0 ? (
-        <p className="text-sm text-[#737373]">Nothing excluded.</p>
+        <p className="mt-2 text-sm text-[#737373]">Nothing excluded.</p>
       ) : (
-        <ul className="grid min-w-0 grid-cols-1 gap-2" aria-label="Excluded sources">
+        <ul className="mt-2 grid min-w-0 grid-cols-1 gap-2" aria-label="Excluded sources">
           {props.exclusions.map((exclusion) => (
             <li
               key={`${exclusion.kind}:${exclusion.id}`}
@@ -1874,6 +2388,12 @@ function ExcludeButton(props: {
   // this book: Sabz Grocery"; the visible label alone is the same on every
   // row. The form's "Exclude" button shares it.
   ariaLabel: string;
+  // What the exclusion takes with it, on both buttons (an account's books),
+  // and as one line above the reason while the form is open (2026-09-30), so
+  // the consequence is read before Exclude is pressed, not only on hover.
+  title?: string;
+  // A narrower reason field, for the Books table's actions column.
+  compact?: boolean;
   kind: OutreachExclusionKind;
   id: string;
   busy: boolean;
@@ -1881,13 +2401,16 @@ function ExcludeButton(props: {
 }) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("test data");
-  const inputId = `exclude-${props.kind}-${props.id.replace(/[^A-Za-z0-9_-]/g, "")}`;
+  // useId (2026-09-30): the same book can be open in the Books list and in a
+  // row's details at once, and an id built from the source would repeat.
+  const inputId = useId();
   if (!open)
     return (
       <button
         className={SMALL_BUTTON}
         disabled={props.busy}
         aria-label={props.ariaLabel}
+        title={props.title}
         onClick={() => setOpen(true)}
       >
         {props.label}
@@ -1907,13 +2430,22 @@ function ExcludeButton(props: {
         setOpen(false);
       }}
     >
+      {/* w-0 + min-w-full: the line takes the form's width without adding
+          its own, so a sentence never widens the Books table's narrow
+          actions column. */}
+      {props.title ? (
+        <p id={`${inputId}-effect`} className="w-0 min-w-full text-[11px] leading-4 text-[#737373]">
+          {props.title}
+        </p>
+      ) : null}
       <label className="sr-only" htmlFor={inputId}>
         Reason for excluding
       </label>
       <input
         id={inputId}
+        aria-describedby={props.title ? `${inputId}-effect` : undefined}
         autoFocus
-        className={`${FIELD} sm:w-56 sm:flex-none`}
+        className={`${FIELD} ${props.compact ? "sm:w-40" : "sm:w-56"} sm:flex-none`}
         value={reason}
         maxLength={200}
         dir="auto"
@@ -1925,6 +2457,7 @@ function ExcludeButton(props: {
         className={SMALL_BUTTON}
         disabled={props.busy}
         aria-label={props.ariaLabel}
+        title={props.title}
       >
         Exclude
       </button>
@@ -1969,8 +2502,9 @@ function filterChips(
     if (changed(key))
       chips.push({ key, label: `${label}: ${filters[key] ? humanValue(filters[key]) : "All"}` });
   }
+  // mention_count counts distinct books (2026-09-30), so the chip says books.
   if (changed("minMentions"))
-    chips.push({ key: "minMentions", label: `Mentions ≥ ${filters.minMentions}` });
+    chips.push({ key: "minMentions", label: `Books ≥ ${filters.minMentions}` });
   if (changed("minTallies"))
     chips.push({ key: "minTallies", label: `Tallies ≥ ${filters.minTallies}` });
   if (changed("minReceivable"))
@@ -2078,13 +2612,12 @@ type RowProps = {
   settings: Record<string, string>;
   expanded: Record<string, boolean>;
   selected: Record<string, boolean>;
-  overrides: Record<string, LanguageOverride>;
   saving: boolean;
   busy: boolean;
   excluding: boolean;
   onToggle: (phone: string) => void;
   onSelect: (phone: string, on: boolean) => void;
-  onOverride: (phone: string, value: LanguageOverride) => void;
+  onLanguage: (contact: OutreachContact, lang: OutreachLang) => void;
   onStatus: (contact: OutreachContact, status: OutreachStatus) => void;
   onSent: (contact: OutreachContact) => void;
   onReplied: (contact: OutreachContact) => void;
@@ -2224,9 +2757,14 @@ function RepliedControl(props: {
 // "opened" too (see copyMessage); only Retry for Not on WhatsApp / Invalid;
 // a muted "Stopped" for Declined / Do not contact, which the server refuses
 // until the status changes. An invalid-per-plan number keeps the button as a
-// manual override (Open next still skips it).
+// manual override (Open next still skips it). The language both buttons would
+// write in (messageLanguage) sits right before them (2026-09-30), so a
+// collapsed row says which message a click sends; each button's accessible
+// name keeps its visible text first and ends with that language. The small
+// label itself is hidden from assistive tech, which hears it in both names.
 function RowActions(props: {
   contact: OutreachContact;
+  language: MessageLanguage;
   busy: boolean;
   onOpenChat: () => void;
   onCopy: () => void;
@@ -2234,6 +2772,7 @@ function RowActions(props: {
 }) {
   const { contact } = props;
   const status = contact.outreach.status;
+  const language = LANGUAGE_NAMES[props.language];
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2">
       {isStoppedStatus(status) ? (
@@ -2260,11 +2799,18 @@ function RowActions(props: {
         </button>
       ) : (
         <>
+          <span
+            aria-hidden="true"
+            className="text-[11px] font-medium text-[#737373]"
+            title="The language WhatsApp and Copy message use for this number"
+          >
+            {language}
+          </span>
           <button
             type="button"
             className={WA_BUTTON}
             disabled={props.busy}
-            aria-label={`WhatsApp: open a chat with ${contact.phone}`}
+            aria-label={`WhatsApp: open a chat with ${contact.phone} in ${language}`}
             title={
               !contact.number.valid
                 ? "The numbering plan says this number is invalid"
@@ -2281,7 +2827,7 @@ function RowActions(props: {
             type="button"
             className={SMALL_BUTTON}
             disabled={props.busy}
-            aria-label={`Copy message: ${contact.phone}`}
+            aria-label={`Copy message: ${contact.phone} in ${language}`}
             title="Copies the message and records 'opened'; record the outcome once it is sent"
             onClick={props.onCopy}
           >
@@ -2426,6 +2972,7 @@ function ContactCards(props: RowProps) {
             <div className="mt-3">
               <RowActions
                 contact={contact}
+                language={messageLanguage(contact, props.settings)}
                 busy={props.busy}
                 onOpenChat={() => props.onOpenChat(contact)}
                 onCopy={() => props.onCopyMessage(contact)}
@@ -2609,6 +3156,7 @@ function ContactsTable(
                   <td className="px-3 py-4 align-top">
                     <RowActions
                       contact={contact}
+                      language={messageLanguage(contact, props.settings)}
                       busy={props.busy}
                       onOpenChat={() => props.onOpenChat(contact)}
                       onCopy={() => props.onCopyMessage(contact)}
@@ -2650,9 +3198,10 @@ function ContactDetails(props: RowProps & { contact: OutreachContact; id: string
   const { contact } = props;
   const [noteDraft, setNoteDraft] = useState<string | null>(null);
   const note = noteDraft ?? contact.outreach.note;
-  const override = props.overrides[contact.phone] ?? "auto";
   const message = props.messageFor(contact);
   const o = contact.outreach;
+  const openedKey = openedTemplateKey(contact);
+  const openedIn = openedKey ? templateLanguage(openedKey) : undefined;
   return (
     <div id={props.id} className="min-w-0 max-w-full space-y-5">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
@@ -2767,26 +3316,53 @@ function ContactDetails(props: RowProps & { contact: OutreachContact; id: string
                 </button>
               ) : null}
             </div>
+            {/* Saved on the server for this number (2026-09-30), through the
+                mark mutation: a write like any other, so it waits while
+                anything is in flight. Its name carries the phone, since
+                several rows can be open at once. On a pending row the chat
+                is already open in the language it was opened in, which Sent
+                records (openedTemplateKey), so a change here only reaches
+                the next message; the hint says so. */}
             <label className="mt-4 flex min-w-0 flex-col text-[11px] font-medium text-[#737373]">
               Message language
               <select
+                aria-label={`Message language for ${contact.phone}`}
+                aria-describedby={openedIn ? `${props.id}-lang-opened` : undefined}
                 className={`${SMALL_SELECT} mt-1 w-full`}
-                value={override}
-                onChange={(event) =>
-                  props.onOverride(contact.phone, event.target.value as LanguageOverride)
-                }
+                value={o.lang}
+                disabled={props.busy}
+                onChange={(event) => {
+                  const lang = event.target.value;
+                  if (isOutreachLang(lang) && lang !== o.lang) props.onLanguage(contact, lang);
+                }}
               >
-                <option value="auto">
-                  Auto ({message.language === "fa" ? "Dari" : "English"})
+                <option value="">
+                  {`Use session choice (${sessionChoiceLabel(sessionLanguage(props.settings), contact.locale)})`}
                 </option>
-                <option value="en">English</option>
                 <option value="fa">Dari</option>
+                <option value="en">English</option>
               </select>
             </label>
+            {openedIn ? (
+              <p
+                id={`${props.id}-lang-opened`}
+                className="mt-1 text-[11px] leading-4 text-[#8c621a]"
+              >
+                This chat was opened in {LANGUAGE_NAMES[openedIn]}; a change applies to the next
+                message.
+              </p>
+            ) : null}
+            <p className="mt-1 text-[11px] leading-4 text-[#a3a3a3]">
+              Dari or English here wins over the session choice in the Queue card.
+            </p>
           </div>
           <div className="min-w-0">
-            <p className="text-[11px] font-medium text-[#737373]">
-              Message preview · {message.templateKey}
+            <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] font-medium text-[#737373]">
+              Message preview
+              <Pill tone="blue">{LANGUAGE_NAMES[message.language]}</Pill>
+              <span dir="ltr" className="font-normal [overflow-wrap:anywhere]">
+                {message.templateKey}
+              </span>
             </p>
             <pre
               dir="auto"
@@ -2797,6 +3373,7 @@ function ContactDetails(props: RowProps & { contact: OutreachContact; id: string
             <div className="mt-2">
               <RowActions
                 contact={contact}
+                language={message.language}
                 busy={props.busy}
                 onOpenChat={() => props.onOpenChat(contact)}
                 onCopy={() => props.onCopyMessage(contact)}
@@ -2893,8 +3470,8 @@ function ShopkeeperBlock(props: {
           <div className="mt-4">
             <h5 className="text-xs font-semibold text-[#525252]">Sources</h5>
             <p className="mt-1 text-[11px] leading-4 text-[#737373]">
-              Excluding a source drops only what it contributed; the number stays listed if a real
-              book has it.
+              Excluding a source drops only what it contributed — for an account, its own number and
+              every book it owns; the number stays listed if a real book has it.
             </p>
             <div className="mt-2 grid min-w-0 grid-cols-1 gap-2">
               {hasAccount ? (
@@ -2908,6 +3485,7 @@ function ShopkeeperBlock(props: {
                   <ExcludeButton
                     label="Exclude this account"
                     ariaLabel={`Exclude this account: ${s.email || s.account_id}`}
+                    title={OWNER_EXCLUDE_TITLE}
                     kind="account"
                     id={s.account_id}
                     busy={props.excluding}
@@ -3043,11 +3621,13 @@ function CustomerBlock(props: {
               </span>
             </h5>
             <div className="mt-2 grid min-w-0 grid-cols-1 gap-2">
-              {c.listings.map((listing) => {
+              {/* Keyed by position too (2026-09-30): one book can list a
+                  number twice, even under the same name. */}
+              {c.listings.map((listing, index) => {
                 const balance = parseMoney(listing.balance);
                 return (
                   <div
-                    key={`${listing.vault_id}-${listing.person_name}`}
+                    key={`${listing.vault_id}-${index}`}
                     className="min-w-0 max-w-full rounded-lg border border-[#e5e5e5] bg-[#fafafa] p-3"
                   >
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -3158,13 +3738,14 @@ function DetailItem(props: { label: string; value: string; mono?: boolean }) {
 function TemplatesCard(props: {
   settings: Record<string, string>;
   preview: OutreachContact | undefined;
-  previewOverride: LanguageOverride;
   saving: boolean;
   onSave: (key: string, value: string, message: string) => void;
 }) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const merged = { ...props.settings, ...drafts };
-  const preview = props.preview ? buildMessage(props.preview, merged, props.previewOverride) : null;
+  // The preview row's own language resolution: its per-number choice, else
+  // the session's (the drafts never hold pref.message_lang), else its locale.
+  const preview = props.preview ? buildMessage(props.preview, merged) : null;
   const audiences: [Audience, string][] = [
     ["shopkeeper", "Shopkeeper"],
     ["customer", "Customer"],
@@ -3269,7 +3850,7 @@ function TemplatesCard(props: {
           Live preview
           {preview && props.preview ? (
             <span className="ml-2 font-normal text-[#737373]" dir="ltr">
-              {props.preview.phone} · {preview.templateKey}
+              {props.preview.phone} · {LANGUAGE_NAMES[preview.language]} · {preview.templateKey}
             </span>
           ) : null}
         </h3>

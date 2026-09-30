@@ -373,7 +373,7 @@ Admin activity charts and DAU both count distinct check-in installs, including r
 
 Admin live updates reuse Go's existing `coder/websocket` dependency and a separate admin invalidation stream. Connect with a single-use 30-second ticket obtained through the existing Bearer-protected HTTP endpoint; never put the long-lived admin key in a WebSocket URL. Keep authenticated HTTP queries, 60-second polling, and the Kabul-midnight refresh authoritative. The in-process broker/ticket store assumes one backend replica; no Redis or new realtime service is required. See `docs/admin-analytics.md` for protocol and limits.
 
-The `web_visits` (kind `'visit'` / `'download'`, with `source` + IP) and `installs` (`has_onboarded`, `usage_*`, `attribution_method`) tables hold the full funnel. Query via `docker exec -it kaata-database-<suffix> psql -U kaata -d kaata`. The `web_visits.ip` + 60-min window is how the backend stamps `installs.source` on first check-in (QR attribution); see `apps/backend/internal/checkin/service.go`.
+The `web_visits` (kind `'visit'` / `'download'`, with `source` + IP) and `installs` (`has_onboarded`, `usage_*`, `attribution_method`) tables hold the full funnel. Query via `docker exec -it $(docker ps -q -f name=kaata-database-nz3gqb | head -n1) psql -U kaata -d kaata` — the database runs as a Dokploy Swarm service whose container name ends in a task ID that changes on every restart, so a saved full name stops working ("No such container"). The `web_visits.ip` + 60-min window is how the backend stamps `installs.source` on first check-in (QR attribution); see `apps/backend/internal/checkin/service.go`.
 
 ### Notification inbox and customer actions (2026-09-25)
 
@@ -479,6 +479,24 @@ when the number is valid, so the trunk-zero spelling "+93 0700…" (common in pr
 app data) merges with "+93 700…" instead of queueing one person twice; keys therefore
 depend on the pinned metadata, and outreach rows stored under a non-canonical key before
 this change are not re-keyed.
+
+**Batch 3 (2026-09-30):** excluding an ACCOUNT now also drops every book it OWNS, the
+same as `OPERATOR_ACCOUNT_IDS` (books it is merely a member of stay), and the GET carries
+`books`, every book whose people feed the list with its owner's name, email and phone, so
+test data is excluded from one Books list instead of by first finding a number inside the
+book. Message language resolves: the person's `lang` (migration 046, written by mark, no
+touch) → the session setting `pref.message_lang` (default Dari) → Auto (the shop's app
+language); the old in-memory per-row override is gone, so a reload no longer changes the
+language. An OPEN chat keeps the language it was opened in: `sent` records the template
+key of the newest `opened` touch (`openedTemplateKey`), because the prefilled text in the
+WhatsApp tab is what went out, whatever the settings say by the time Sent is pressed.
+`mention_count` counts distinct BOOKS, not listings (one book can hold a number twice), so
+"wholesaler" means two or more books or a supplier anywhere. Prospects, Customers and
+Wholesalers default to latest ledger activity first (ties: how many books list the
+number), because Open next follows the view's order and "Last seen" is empty for
+customers; Prospects is mobile numbers only. An exclusion keeps every write control
+disabled until the refreshed list has arrived, so a just-excluded number cannot be opened
+in the gap.
 
 ### First-kaata uploads and pre-sign-in history
 
