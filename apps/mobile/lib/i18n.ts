@@ -1450,6 +1450,13 @@ const en = {
   "tab.dispute.notFound": "This tally is no longer on the shared account.",
   "tab.disputed": "Rejected — removed from the balance",
   "tab.closed": "This shared account was closed.",
+  "tab.settle.confirm":
+    "The reviewed balance with {name} is zero. Move these tallies into shared history for both of you and start a fresh page? The records stay saved, and you can keep using this shared account.",
+  "tab.settle.pending": "Review and sync all pending tallies before clearing this account.",
+  "tab.settle.changed": "The shared history changed. Review it, then try clearing again.",
+  "tab.settle.failed":
+    "Could not clear this shared account. Connect to the internet and try again.",
+  "tab.settle.history": "Cleared by {name} · {date}",
   "tab.reviewedBy": "Reviewed by {name}",
   "tab.cancelledBy": "Cancelled by {name}",
   "tab.needsConnection": "Go online to add to a shared account.",
@@ -2761,6 +2768,12 @@ const fa: Partial<Record<Key, string>> = {
   "tab.dispute.notFound": "این ثبت دیگر در حساب مشترک نیست.",
   "tab.disputed": "رد شد — از ماندهٔ حساب حذف شد",
   "tab.closed": "این حساب مشترک بسته شده است.",
+  "tab.settle.confirm":
+    "بیلانس بررسی‌شده با {name} صفر است. این ثبت‌ها به سابقهٔ مشترک هر دوی شما منتقل و صفحهٔ تازه باز شود؟ ثبت‌ها محفوظ می‌مانند و می‌توانید از همین حساب مشترک استفاده کنید.",
+  "tab.settle.pending": "پیش از صاف‌کردن حساب، همهٔ ثبت‌های در انتظار را بررسی و همگام کنید.",
+  "tab.settle.changed": "سابقهٔ مشترک تغییر کرده است. آن را بررسی کنید و دوباره کوشش کنید.",
+  "tab.settle.failed": "حساب مشترک صاف نشد. به اینترنت وصل شوید و دوباره کوشش کنید.",
+  "tab.settle.history": "صاف‌شده توسط {name} · {date}",
   "tab.reviewedBy": "بررسی‌کننده: {name}",
   "tab.cancelledBy": "لغوکننده: {name}",
   "tab.needsConnection": "برای ثبت در حساب مشترک آنلاین شوید.",

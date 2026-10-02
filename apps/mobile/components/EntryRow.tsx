@@ -68,7 +68,8 @@ export const EntryRow = memo(function EntryRow(props: {
 }) {
   const isRTL = useIsRTL();
   useCalendar(); // This memoized row must also refresh when its calendar changes.
-  const { entry, tab } = props;
+  const { entry } = props;
+  const tab = props.tab ?? entry.tab;
   const voided = tab?.voided === true;
   const excluded = voided || tab?.status === "disputed";
   const isGave = entry.type === "debt";
@@ -106,6 +107,9 @@ export const EntryRow = memo(function EntryRow(props: {
     }
   };
   const [open, setOpen] = useState(false);
+  // Keep cancellations in storage and exports, but never in the visible list.
+  // This follows every hook so a live cancellation does not change hook order.
+  if (voided) return null;
   const expanded = open && clipped;
   const when = open
     ? formatTimestamp(entry.created_at)
@@ -144,20 +148,25 @@ export const EntryRow = memo(function EntryRow(props: {
   ) : null;
 
   // Review state is separate from money direction. Every synced tally has a status.
-  const rejected = voided || tab?.status === "disputed";
-  const accepted = !voided && !tab?.local_pending && tab?.status === "accepted";
-  const pending = !voided && tab?.status === "pending";
-  const pill = tab
+  const rejected = !tab?.local_pending && tab?.status === "disputed";
+  const accepted = !tab?.local_pending && tab?.status === "accepted";
+  const pending = tab?.status === "pending";
+  const statusLabel = tab
     ? tab.local_pending
       ? t("tab.status.sending")
-      : voided
-        ? t("tab.status.voided")
-        : tab.status === "disputed"
-          ? t("tab.status.disputed")
-          : tab.status === "accepted"
-            ? t("tab.status.accepted")
-            : t(tab.by === "them" ? "tab.status.new" : "tab.status.pending")
+      : tab.status === "disputed"
+        ? t("tab.status.disputed")
+        : tab.status === "accepted"
+          ? t("tab.status.accepted")
+          : t("tab.status.pending")
     : null;
+  const stateBackground = !tab
+    ? undefined
+    : accepted
+      ? styles.acceptedRow
+      : rejected
+        ? styles.rejectedRow
+        : styles.pendingRow;
   // Side A/B is not authorship: a store can have several writers.
   const byLine = tab
     ? namedByLine(
@@ -182,7 +191,7 @@ export const EntryRow = memo(function EntryRow(props: {
   const note = entry.note ?? (tab?.kind === "opening" ? t("tab.opening.note") : null);
 
   return (
-    <View>
+    <View style={[styles.container, stateBackground]}>
       <Pressable
         // A row tap toggles the row open/closed (exact time + note). The
         // edit/delete sheet stays on TAP-AND-HOLD — like contact rows.
@@ -194,6 +203,7 @@ export const EntryRow = memo(function EntryRow(props: {
         delayLongPress={250}
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
+        accessibilityValue={statusLabel ? { text: statusLabel } : undefined}
         accessibilityHint={toggleLabel}
         accessibilityActions={[
           { name: "activate", label: toggleLabel },
@@ -206,7 +216,7 @@ export const EntryRow = memo(function EntryRow(props: {
         style={({ pressed }) => [
           styles.row,
           rowDir(isRTL),
-          pressed && { backgroundColor: colors.bgMuted },
+          pressed && { backgroundColor: "#17171708" },
         ]}
       >
         <View
@@ -214,8 +224,7 @@ export const EntryRow = memo(function EntryRow(props: {
             styles.iconWrap,
             { backgroundColor: tint.bg },
             isRTL ? styles.iconWrapRTL : styles.iconWrapLTR,
-            // A voided tally keeps its arrow (the audit trail says what it WAS,
-            // D5) at half strength, so the eye reads "cancelled" before "gave".
+            // A rejected tally remains readable without competing with live amounts.
             excluded && styles.voidedTile,
           ]}
           // Direction is shown by the arrow's shape AND its color (red = I gave /
@@ -234,8 +243,7 @@ export const EntryRow = memo(function EntryRow(props: {
             carries direction, so the verb label is gone. */}
           <View style={[styles.topRow, rowDir(isRTL)]}>
             <View style={[styles.amountRow, rowDir(isRTL)]}>
-              {/* Struck, not hidden: the number stays legible under the line so
-                both parties can still see what was cancelled. */}
+              {/* Rejected amounts stay visible with zero balance contribution. */}
               <Text style={[styles.amount, excluded && styles.voidedAmount]}>
                 {formatAmount(entry.amount_afn)}
               </Text>
@@ -247,35 +255,6 @@ export const EntryRow = memo(function EntryRow(props: {
               a long exact timestamp ellipsizes the DATE rather than crushing
               the one element that is a fixed-size graphic. */}
             <View style={[styles.meta, rowDir(isRTL)]}>
-              {/* Status pill: a fixed AUTHOR_CHIP_SIZE tall, so like the author
-                chip it costs the row no height. Text never scales — a scaled
-                word would overflow the fixed box, and this is a one-word
-                status the opened row spells out in full anyway. */}
-              {pill ? (
-                <View
-                  style={[
-                    styles.statusPill,
-                    pending && styles.pendingPill,
-                    accepted && styles.acceptedPill,
-                    rejected && styles.rejectedPill,
-                  ]}
-                  accessible
-                  accessibilityLabel={pill}
-                >
-                  <Text
-                    style={[
-                      styles.statusPillText,
-                      pending && styles.pendingPillText,
-                      accepted && styles.acceptedPillText,
-                      rejected && styles.rejectedPillText,
-                    ]}
-                    allowFontScaling={false}
-                    numberOfLines={1}
-                  >
-                    {pill}
-                  </Text>
-                </View>
-              ) : null}
               {chipActor && chipTint ? (
                 <View
                   accessible
@@ -356,6 +335,21 @@ export const EntryRow = memo(function EntryRow(props: {
               </View>
             )
           ) : null}
+          {open && statusLabel ? (
+            <Text
+              style={[
+                styles.statusLabel,
+                textDir(isRTL),
+                accepted
+                  ? styles.acceptedText
+                  : rejected
+                    ? styles.rejectedText
+                    : styles.pendingText,
+              ]}
+            >
+              {statusLabel}
+            </Text>
+          ) : null}
           {/* The full story, only once the row is open. Rendered even when the
             chip is absent — a tally you wrote that nobody else has touched
             still answers "who wrote this" when you ask it directly, and on a
@@ -380,12 +374,6 @@ export const EntryRow = memo(function EntryRow(props: {
               {tab.status_at != null ? ` · ${formatTimestamp(tab.status_at)}` : ""}
             </Text>
           ) : null}
-          {open && tab?.voided && !tab.local_pending ? (
-            <Text style={[styles.byLine, textDir(isRTL)]}>
-              {namedByLine("tab.cancelledBy", tab.cancelled_by_name || t("export.record.unknown"))}
-              {tab.cancelled_at != null ? ` · ${formatTimestamp(tab.cancelled_at)}` : ""}
-            </Text>
-          ) : null}
           {open && tab?.status === "disputed" && !voided ? (
             <Text style={[styles.byLine, textDir(isRTL)]}>{t("tab.rejectedHint")}</Text>
           ) : null}
@@ -401,11 +389,12 @@ export const EntryRow = memo(function EntryRow(props: {
             onPress={() => void review(props.onCancel!)}
             style={({ pressed }) => [
               styles.reviewButton,
+              styles.cancelButton,
               rowDir(isRTL),
               (pressed || reviewing) && { opacity: 0.5 },
             ]}
           >
-            <Ionicons name="close-outline" size={18} color={colors.textSubtle} />
+            <Ionicons name="close-outline" size={18} color={colors.textDefault} />
             <Text style={styles.reviewLabel}>{t("tab.cancel")}</Text>
           </Pressable>
         </View>
@@ -426,15 +415,15 @@ export const EntryRow = memo(function EntryRow(props: {
               onPress={() => void review(props.onAccept!)}
               style={({ pressed }) => [
                 styles.reviewButton,
+                styles.acceptButton,
                 rowDir(isRTL),
                 (pressed || reviewing) && { opacity: 0.5 },
               ]}
             >
-              <Ionicons name="checkmark-outline" size={18} color={colors.textEmphasis} />
-              <Text style={styles.reviewLabel}>{t("tab.accept")}</Text>
+              <Ionicons name="checkmark-outline" size={18} color={colors.textInverted} />
+              <Text style={[styles.reviewLabel, styles.acceptLabel]}>{t("tab.accept")}</Text>
             </Pressable>
           ) : null}
-          <View style={styles.reviewDivider} />
           {props.onReject ? (
             <Pressable
               accessibilityRole="button"
@@ -444,12 +433,13 @@ export const EntryRow = memo(function EntryRow(props: {
               onPress={() => void review(props.onReject!)}
               style={({ pressed }) => [
                 styles.reviewButton,
+                styles.rejectButton,
                 rowDir(isRTL),
                 (pressed || reviewing) && { opacity: 0.5 },
               ]}
             >
-              <Ionicons name="close-outline" size={18} color={colors.textEmphasis} />
-              <Text style={styles.reviewLabel}>{t("tab.reject")}</Text>
+              <Ionicons name="close-outline" size={18} color={colors.rejectedText} />
+              <Text style={[styles.reviewLabel, styles.rejectedText]}>{t("tab.reject")}</Text>
             </Pressable>
           ) : null}
         </View>
@@ -459,30 +449,44 @@ export const EntryRow = memo(function EntryRow(props: {
 });
 
 const styles = StyleSheet.create({
+  container: { backgroundColor: colors.bgDefault },
+  pendingRow: { backgroundColor: `${colors.pendingBg}80` },
+  acceptedRow: { backgroundColor: `${colors.acceptedBg}80` },
+  rejectedRow: { backgroundColor: `${colors.rejectedBg}80` },
   reviewRow: {
-    marginHorizontal: 14,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.borderDefault,
+    paddingHorizontal: 14,
+    paddingBottom: 12,
     alignItems: "center",
+    gap: 8,
   },
-  reviewButton: { flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center", gap: 6 },
-  reviewDivider: {
-    width: StyleSheet.hairlineWidth,
-    height: 16,
-    backgroundColor: colors.borderDefault,
+  reviewButton: {
+    flex: 1,
+    minWidth: 44,
+    minHeight: 48,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: radius.sm,
+    borderWidth: 1,
   },
+  acceptButton: { backgroundColor: colors.acceptedText, borderColor: colors.acceptedText },
+  rejectButton: { backgroundColor: colors.bgDefault, borderColor: colors.rejectedText },
+  cancelButton: { backgroundColor: colors.bgDefault, borderColor: colors.borderEmphasis },
+  acceptLabel: { color: colors.textInverted },
   reviewLabel: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 12,
-    lineHeight: sansLineHeight(12, 17),
-    color: colors.textSubtle,
+    fontFamily: fonts.sansSemi,
+    fontSize: 13,
+    lineHeight: sansLineHeight(13, 18),
+    color: colors.textDefault,
+    flexShrink: 1,
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 14,
     paddingVertical: 12,
-    backgroundColor: colors.bgDefault,
   },
   iconWrap: {
     width: 32,
@@ -498,31 +502,16 @@ const styles = StyleSheet.create({
   // textMuted, not textSubtle: the strike already says "gone"; the colour
   // only has to stop the number competing with the live ones around it.
   voidedAmount: { textDecorationLine: "line-through", color: colors.textMuted },
-  // Compact semantic micro-pill (the person header's readOnlyChip idiom), with
-  // a FIXED height instead of vertical padding: it must fit the 20px line box
-  // of the amount beside it, and Vazirmatn's natural line height at 11px
-  // already exceeds that on iOS with any padding at all.
-  statusPill: {
-    height: AUTHOR_CHIP_SIZE,
-    paddingHorizontal: 7,
-    borderRadius: radius.pill,
-    backgroundColor: colors.bgMuted,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-  pendingPill: { backgroundColor: colors.pendingBg },
-  pendingPillText: { color: colors.pendingText },
-  acceptedPill: { backgroundColor: colors.acceptedBg },
-  acceptedPillText: { color: colors.acceptedText },
-  rejectedPill: { backgroundColor: colors.rejectedBg },
-  rejectedPillText: { color: colors.rejectedText },
+  pendingText: { color: colors.pendingText },
+  acceptedText: { color: colors.acceptedText },
+  rejectedText: { color: colors.rejectedText },
   byName: { fontFamily: fonts.sansBold },
-  statusPillText: {
-    fontSize: 11,
-    fontFamily: fonts.sansMedium,
+  statusLabel: {
+    marginTop: 6,
+    fontSize: 12,
+    fontFamily: fonts.sansSemi,
     color: colors.textSubtle,
-    lineHeight: sansLineHeight(11, 14),
+    lineHeight: sansLineHeight(12, 17),
   },
   middle: { flex: 1, minWidth: 0 },
   topRow: {

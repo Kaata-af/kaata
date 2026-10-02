@@ -47,7 +47,7 @@ var roleRank = map[string]int{"viewer": 1, "clerk": 2, "editor": 3, "manager": 4
 const (
 	// rankClerk gates append: a clerk writes new tallies into the book.
 	rankClerk = 2
-	// rankEditor gates accept / dispute / void / close / label / regenerate:
+	// rankEditor gates accept / dispute / void / settle / close / label / regenerate:
 	// anything that changes the standing of what is already there.
 	rankEditor = 3
 )

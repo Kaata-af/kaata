@@ -1,3 +1,12 @@
+## October 2 refinement
+
+The current mobile list uses pale full-row state colours and shows the status text
+only after expansion. Accept, Reject and Cancel have full button surfaces. Cancelled
+tallies stay out of the list, including expanded history; the server journal and
+statement exports preserve their evidence. These rules replace the earlier pill
+and visible-void designs below. Shared zero-balance chapters are specified at the
+end of this document.
+
 ## September 25 follow-up
 
 WhatsApp invitations remain the only invitation delivery flow. In-app invitations
@@ -505,11 +514,11 @@ Errors: `TabCurrencyMismatchError`, `TabSameKaataError`, `TabAlreadyLinkedError`
 
 ### 4.3 Read-site integration (`lib/db.ts`)
 
-- `selectAllPeopleRaw`: join the contact's tab **open or closed** — `LEFT JOIN tab_links tl ON tl.tab_id = (SELECT t2.tab_id FROM tab_links t2 WHERE t2.relationship_id = r.id ORDER BY (t2.closed_at IS NULL) DESC, t2.linked_at DESC LIMIT 1)` (the open one wins; else the newest closed one). `balance` = `CASE WHEN tl.tab_id IS NOT NULL THEN (SELECT tabBalanceSql('tl.role','te') FROM tab_entries te WHERE te.tab_id = tl.tab_id) + signedEntryMinorSumSql('e', 'e.created_at > tl.linked_at') ELSE <existing local sum> END / 100.0` — the tab's rows plus only the local tallies written AFTER the link (D8); `last_entry_at` = `MAX(local, tab)`; `last_entry_type` = type of the newest by `occurred_at` across both (derive with `entryTypeFor` in JS after the query if simpler); `is_settled` stays local-only (linked contacts are never "settled chapters"). New columns on `PersonWithBalance`: `tab_id: string | null` (set once the contact has EVER been linked), `tab_closed_at: number | null` (the only thing distinguishing a live shared account from frozen shared history — the link glyph and the chip key off it), `tab_pending: number` (entries by the other party, status pending, not voided; always 0 once closed), `tab_other_joined: 0|1`.
+- `selectAllPeopleRaw`: join the contact's tab **open or closed** — `LEFT JOIN tab_links tl ON tl.tab_id = (SELECT t2.tab_id FROM tab_links t2 WHERE t2.relationship_id = r.id ORDER BY (t2.closed_at IS NULL) DESC, t2.linked_at DESC LIMIT 1)` (the open one wins; else the newest closed one). `balance` = `CASE WHEN tl.tab_id IS NOT NULL THEN (SELECT tabBalanceSql('tl.role','te') FROM tab_entries te WHERE te.tab_id = tl.tab_id) + signedEntryMinorSumSql('e', 'e.created_at > tl.linked_at') ELSE <existing local sum> END / 100.0` — the tab's rows plus only the local tallies written AFTER the link (D8); `last_entry_at` = `MAX(local, tab)`; `last_entry_type` = type of the newest by `occurred_at` across both (derive with `entryTypeFor` in JS after the query if simpler); `is_settled` uses the shared sequence marker for linked contacts, and only stays true at zero with no later or unsynced activity (see Shared zero-balance chapters below). New columns on `PersonWithBalance`: `tab_id: string | null` (set once the contact has EVER been linked), `tab_closed_at: number | null` (the only thing distinguishing a live shared account from frozen shared history — the link glyph and the chip key off it), `tab_pending: number` (entries by the other party, status pending, not voided; always 0 once closed), `tab_other_joined: 0|1`.
 - `getPerson`: same shape.
 - `listEntries(personId)`: if linked → `listTabEntriesAsEntries(link)` (only tab rows; the person screen shows pre-link rows via `listPreLinkEntries`). Exports (`lib/export/*`), bills (`lib/share.ts`) and the PDF builders consume `Entry[]` and must **skip** `e.tab?.voided` rows; `listEntriesForExport` (whole-kaata) UNIONs tab rows for linked contacts (non-voided) and skips pre-link local rows of linked contacts.
 - `createEntry(personId, …)` → if linked, delegate to `lib/tabs/link.addTabEntry` (so `entry/new.tsx` needs no branching beyond the duplicate-hint toast).
-- `getSettlementSummary` / settle-up: a contact that has EVER been linked cannot settle — `canSettle` gates on the tab history, not the open link, and `appendEntrySettled` refuses any relationship with a `tab_links` row (`TabLinkedEntryError`). Offering it on a frozen tab would mean two definitions of the balance at once: the header's (tab-aware) and the preflight's in-transaction zero check (local rows only), so a visibly-zero account would refuse every time. Chapter filtering and the settled-history toggle gate on the same condition.
+- `getSettlementSummary` / `appendEntrySettled` remain private-ledger operations. Open shared tabs clear through `settleSharedTab`; closed shared history remains read-only. Shared chapter boundaries come from server sequence, not business dates.
 - `Entry` type gains `tab?: TabEntryMeta`.
 - `changeVaultCurrency` (`lib/vault-router.ts`) refuses when `vaultHasOpenTab(vaultId)` → `VaultHasOpenTabError`; settings shows `t('tab.currencyLocked')`.
 - `archivePerson` on a linked contact: allowed; the tab stays open server-side and the link row stays (relationship archived). Person screen for archived people is unreachable anyway. Unlink is explicit.
@@ -519,11 +528,11 @@ Errors: `TabCurrencyMismatchError`, `TabSameKaataError`, `TabAlreadyLinkedError`
 - **person/[id].tsx**
   - Header: third icon button `link-outline` (gated `canAmend`, hidden while the contact is linked). Tapping opens a BottomSheet: `Link with their kaata` → runs `linkContact` with `myLabel = self.shop_name ?? self.name`; on success opens the **share sheet**: WhatsApp (via `shareTabLinkOnWhatsApp`, respecting `getShareLangPref`/OptionSheet ask), Copy link (`expo-clipboard` if present — otherwise skip copy), and shows the link.
   - Linked state: a monochrome chip beside the direction chip: `Linked · Ahmad` (other joined) or `Link sent · waiting` (not joined). Tapping it opens a BottomSheet: `Share link again`, `Regenerate link` (party a only), `Unlink` (destructive, ConfirmDialog with description).
-  - Entries card: tab rows via `EntryRow` with `tab` meta; **pre-link rows** under a collapsed fold titled `Before linking · {count}` (reuse the settled-chapter fold visual). Hide the settle row for linked contacts.
+  - Entries card: tab rows via `EntryRow` with `tab` meta; **pre-link rows** under a collapsed fold titled `Before linking · {count}` (reuse the settled-chapter fold visual). Offer clear-page on open shared tabs at zero once every tally is reviewed and synced.
   - Shared rows have no long-press sheet. Own pending rows expose `Cancel tally` only when expanded; incoming pending rows expose inline Accept/Reject. All actions require `canAmend` and an open tab. Accepted/rejected/voided rows have no cancellation or review controls.
   - Ping bar unchanged (bills still work — they snapshot the tab rows).
   - `useLedgerRefresh` + `onTabApplied` both trigger `load`; a `useFocusEffect` also calls `requestTabSync(link.tab_id)`.
-- **EntryRow**: new prop `tab?: TabEntryMeta`. Meta slot (≤ 20 px): pill `New` (theirs+pending), `Disputed`, `Voided`, `Sending…` (local_pending); accepted rows show nothing (calm by default). Opened row: byLine `Added by {other_label}` / `by you`; `Disputed: {reason}`; `Voided`. Voided rows: amount struck (`textDecorationLine: 'line-through'`, `textMuted`), tile at 50 % opacity. Colours stay monochrome (`bgMuted`/`textSubtle`); never emerald/garnet/danger for status.
+- **EntryRow**: pale full-row pending/accepted/rejected background; status text appears after expanding. Accept, Reject and Cancel are distinct touch buttons. Cancelled originals and void events are hidden from the list, while their server evidence remains in history exports.
 - **PersonRow / home**: subtitle prefix `{n} to review · ` when `tab_pending > 0`; a small `link-outline` glyph (12 px, textMuted) after the name when `tab_id` is set.
 - **entry/new.tsx**: unchanged flow; on success with a `duplicateHint`, `queuePendingToast(t('tab.duplicateHint', {name}), 'info')`. Errors: `TabAuthUnavailableError` → inline `t('tab.needsConnection')`.
 - **entry/[id]/edit.tsx**: catches `TabLinkedEntryError` → inline `t('tab.editLocked')`.
@@ -678,4 +687,37 @@ Errors: `TabCurrencyMismatchError`, `TabSameKaataError`, `TabAlreadyLinkedError`
 2. **App Links / Universal Links** — `android.intentFilters` (autoVerify, `https://kaata.af/t/`) + `/.well-known/assetlinks.json` (needs the **Play App Signing** SHA-256 from Play Console → App integrity), `ios.associatedDomains: ["applinks:kaata.af"]` + `/.well-known/apple-app-site-association` (Team ID `2JPK69B8Z2`; Caddy needs `header @aasa Content-Type application/json` inside the SPA handle). Native rebuild.
 3. **Privacy/Terms + `docs/play-data-safety.md`**: disclose that a mutual tab (both parties' labels, amounts, notes) is server-held plaintext for both parties and survives either party's account deletion (`ON DELETE SET NULL`). It is NOT deleted on close — closing freezes it and both sides keep it as a read-only record (D8) — so the pages must not promise deletion. If a purge is ever wanted it needs its own decision (both parties' copies die together) and a housekeeping sweep.
 4. Admin dashboard: tab counts (later).
-5. Settlement handshake (D17 v2), tab-level "mark settled" ritual.
+5. Two-party payment acknowledgement (D17 v2), separate from the clear-page marker below.
+
+
+### Shared zero-balance chapters
+
+`POST /v1/tabs/{tab_id}/settlements` accepts an idempotency `id` and
+`expected_rev`. Under the tab lock, the server requires current editor authority,
+an open tab, an unchanged revision, exactly zero cents and no pending originals.
+There must be new original history since the previous marker. The response carries
+`settlement` and `tab`; normal full/incremental pulls also carry `settlements`.
+
+Migration 051 stores each marker's `through_seq`, actor snapshot and server time.
+It increments tab revision without altering entries, acceptance, money or tab
+closure. A marker records one participant clearing the page; it is not a payment,
+signature or joint declaration. Marker attribution survives account deletion with
+the existing shared evidence. Same-ID retries return the original marker, subject
+to current authority and the original actor/party.
+
+Mobile migration 032 caches markers and resets tab pull cursors for a full reload.
+`settleSharedTab` syncs first, refuses an unseen revision or remaining outbox work,
+and only caches a marker after the server acknowledgement. New, backdated and
+unsynced entries remain outside the old chapter because shared boundaries compare
+server sequence. A balance mismatch opens the full history instead of hiding it.
+The home settled indicator requires zero with no new or unsynced activity.
+
+Full history and PDF/CSV statements include clearing actor and time, including
+archived tab periods. Cancelling hides the row in the tally screen but preserves
+its evidence in statements and the server journal.
+
+Validation: real PostgreSQL settlement tests cover cents, pending/stale guards,
+authority changes, retries, concurrent writes and account deletion. Mobile tests
+cover cache pulls, chapter filtering, home indicators, exports and online clearing.
+Device QA still needs two phones clearing a shared ledger, recording a backdated
+entry, and confirming the peer refresh and exported history.

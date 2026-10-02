@@ -8,9 +8,8 @@ import { tIn } from "../i18n";
 import { noteFor } from "./note";
 import { formatSettlementDate } from "../jalali";
 import { isoDate, shamsiDate, type PersonStatement, type VaultReport } from "./data";
-import { EVIDENCE_KEYS, evidenceCells } from "./evidence";
+import { EVIDENCE_KEYS, evidenceCells, evidenceTime } from "./evidence";
 import { addRecordTotal, balanceContribution, type RecordTotals } from "./shared-record";
-import { addAmounts } from "../money";
 
 // Excel needs the BOM to detect UTF-8 (otherwise Dari text opens as mojibake)
 // and CRLF is the least-surprising row separator across spreadsheet apps.
@@ -43,7 +42,8 @@ function csvLine(cells: Array<string | number | null | undefined>): string {
 export function buildPersonCsv(st: PersonStatement): string {
   const { locale, calendar, currencyCode: code } = st;
   const shared =
-    st.rows.some((r) => r.kind === "entry" && r.entry.tab) || !!st.archivedSharedPeriods?.length;
+    st.rows.some((r) => (r.kind === "entry" ? r.entry.tab : r.shared)) ||
+    !!st.archivedSharedPeriods?.length;
   let totals: RecordTotals = { acknowledged: 0, pending: 0, private: 0 };
   const lines: string[] = [
     csvLine([
@@ -79,9 +79,16 @@ export function buildPersonCsv(st: PersonStatement): string {
           "",
           "",
           row.balanceAfter,
-          tIn(locale, "person.history.settledOn", {
-            date: formatSettlementDate(row.ms, locale, calendar),
-          }),
+          guardText(
+            row.shared
+              ? tIn(locale, "tab.settle.history", {
+                  name: row.shared.settlement.actor_name || tIn(locale, "export.record.unknown"),
+                  date: evidenceTime(row.ms),
+                })
+              : tIn(locale, "person.history.settledOn", {
+                  date: formatSettlementDate(row.ms, locale, calendar),
+                }),
+          ),
           ...(shared
             ? [
                 tIn(locale, "export.record.current"),
@@ -91,10 +98,12 @@ export function buildPersonCsv(st: PersonStatement): string {
                 totals.acknowledged,
                 totals.pending,
                 totals.private,
-                ...EVIDENCE_KEYS.map(() => ""),
+                ...EVIDENCE_KEYS.map((key) =>
+                  key === "export.record.tabId" ? (row.shared?.tabId ?? "") : "",
+                ),
               ]
             : []),
-          "",
+          row.shared?.settlement.id ?? "",
         ]),
       );
       continue;
@@ -126,9 +135,37 @@ export function buildPersonCsv(st: PersonStatement): string {
     );
   }
   for (const period of st.archivedSharedPeriods ?? []) {
-    let balance = 0;
-    for (const entry of period.entries) {
-      balance = addAmounts(balance, balanceContribution(entry));
+    for (const row of period.rows) {
+      if (row.kind === "settled") {
+        lines.push(
+          csvLine([
+            isoDate(row.ms),
+            shamsiDate(row.ms),
+            "",
+            "",
+            "",
+            guardText(
+              tIn(locale, "tab.settle.history", {
+                name: row.shared?.settlement.actor_name || tIn(locale, "export.record.unknown"),
+                date: evidenceTime(row.ms),
+              }),
+            ),
+            tIn(locale, "export.record.archived"),
+            period.link.currency,
+            row.balanceAfter,
+            0,
+            "",
+            "",
+            "",
+            ...EVIDENCE_KEYS.map((key) =>
+              key === "export.record.tabId" ? period.link.tab_id : "",
+            ),
+            row.shared?.settlement.id ?? "",
+          ]),
+        );
+        continue;
+      }
+      const entry = row.entry;
       lines.push(
         csvLine([
           isoDate(entry.created_at),
@@ -139,7 +176,7 @@ export function buildPersonCsv(st: PersonStatement): string {
           guardText(noteFor(entry.note, entry.tab?.kind, locale)),
           tIn(locale, "export.record.archived"),
           period.link.currency,
-          balance,
+          row.balanceAfter,
           0,
           "",
           "",

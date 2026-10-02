@@ -214,12 +214,13 @@ type Tab struct {
 	PendingForYou int                  `json:"pending_for_you"`
 }
 
-// TabResponse is the pull shape: entries with rev > after_rev in rev order;
+// TabResponse carries entries and chapter markers with rev > after_rev.
 // Full says the client may replace its cache (after_rev was 0/absent).
 type TabResponse struct {
-	Tab     Tab     `json:"tab"`
-	Entries []Entry `json:"entries"`
-	Full    bool    `json:"full"`
+	Tab         Tab          `json:"tab"`
+	Entries     []Entry      `json:"entries"`
+	Settlements []Settlement `json:"settlements"`
+	Full        bool         `json:"full"`
 }
 
 // DuplicateHint (D17) points at the other party's tally that looks like the
@@ -707,7 +708,11 @@ func fullResponse(ctx context.Context, q querier, tabID, you string) (TabRespons
 	if err != nil {
 		return TabResponse{}, err
 	}
-	return TabResponse{Tab: tab, Entries: entries, Full: true}, nil
+	settlements, err := loadSettlements(ctx, q, tabID, 0)
+	if err != nil {
+		return TabResponse{}, err
+	}
+	return TabResponse{Tab: tab, Entries: entries, Settlements: settlements, Full: true}, nil
 }
 
 // isActiveMember reports whether accountID holds an accepted, unrevoked
@@ -1085,10 +1090,14 @@ func (s *Service) Get(ctx context.Context, p Party, afterRev int64) (TabResponse
 	if err != nil {
 		return TabResponse{}, err
 	}
+	settlements, err := loadSettlements(ctx, tx, p.TabID, afterRev)
+	if err != nil {
+		return TabResponse{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return TabResponse{}, err
 	}
-	return TabResponse{Tab: tab, Entries: entries, Full: afterRev == 0}, nil
+	return TabResponse{Tab: tab, Entries: entries, Settlements: settlements, Full: afterRev == 0}, nil
 }
 
 // Join sets the caller's label and joined_at (idempotent for a party that

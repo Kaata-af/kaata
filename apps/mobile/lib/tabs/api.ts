@@ -23,6 +23,7 @@ import type {
   VoidResponse,
   WireEntry,
   WireTab,
+  SettlementResponse,
 } from "./types";
 
 export { TabApiError, TabAuthUnavailableError } from "./errors";
@@ -259,6 +260,18 @@ export async function voidTabEntry(
 /** POST /v1/tabs/{id}/close — either party; every later write is 409 tab_closed. */
 export async function closeTab(auth: TabAuth, tabId: string): Promise<TabResponse> {
   return request<TabResponse>("POST", `/v1/tabs/${encodeURIComponent(tabId)}/close`, auth, {});
+}
+
+export async function settleTab(
+  auth: TabAuth,
+  tabId: string,
+  id: string,
+  expectedRev: number,
+): Promise<SettlementResponse> {
+  return request("POST", `/v1/tabs/${encodeURIComponent(tabId)}/settlements`, auth, {
+    id,
+    expected_rev: expectedRev,
+  });
 }
 
 /** POST /v1/tabs/{id}/regenerate-link — party a only; B's old link dies. */

@@ -141,10 +141,26 @@ export type EntryResponse = {
 
 export type VoidResponse = { voided: WireEntry; void: WireEntry };
 
+/** One participant ruled off a reviewed zero-balance chapter; not a payment. */
+export type TabSettlement = {
+  id: string;
+  rev: number;
+  through_seq: number;
+  settled_at_ms: number;
+  created_by: TabRole;
+  actor_account_id: string | null;
+  actor_name: string;
+  actor_member_role: string | null;
+  semantics_version: string;
+};
+
+export type SettlementResponse = { settlement: TabSettlement; tab: WireTab };
+
 export type TabResponse = {
   tab: WireTab;
   /** Entries with rev > after_rev, ordered by rev ASC. */
   entries: WireEntry[];
+  settlements?: TabSettlement[];
   /** True when after_rev was 0/absent: the client may replace its cache. */
   full: boolean;
 };

@@ -28,7 +28,14 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import type { SQLiteTx } from "../db-tx";
 import type { Entry } from "../types";
-import type { TabLink, TabResponse, TabRole, WireEntry, WireTab } from "../tabs/types";
+import type {
+  TabLink,
+  TabResponse,
+  TabRole,
+  TabSettlement,
+  WireEntry,
+  WireTab,
+} from "../tabs/types";
 
 // App code guards dev logging with the bundler-provided __DEV__; Node has none.
 (globalThis as { __DEV__?: boolean }).__DEV__ = false;
@@ -83,7 +90,23 @@ stub("react-native", {
   Platform: { OS: "android" },
 });
 stub("expo-network", { getNetworkStateAsync: async () => ({ isConnected: net.connected }) });
-stub("../auth", { getSessionJWT: async () => session.jwt });
+class SessionChangedError extends Error {
+  constructor() {
+    super("session_changed");
+    this.name = "SessionChangedError";
+  }
+}
+stub("../auth", {
+  SessionChangedError,
+  getSessionJWT: async () => session.jwt,
+  captureCurrentSession: async () => {
+    return { jwt: session.jwt };
+  },
+  applyForCurrentSession: async <T>(snapshot: { jwt: string | null }, work: () => Promise<T>) => {
+    if (!session.jwt || snapshot.jwt !== session.jwt) throw new SessionChangedError();
+    return work();
+  },
+});
 stub("../api", { getBackendUrl: async () => "http://tabs.fixture" });
 stub("../ledger-events", {
   emitLedgerApplied: (vaultId: string, origin: string) => {
@@ -119,6 +142,7 @@ const wire = require("../tabs/wire") as typeof import("../tabs/wire");
 const errors = require("../tabs/errors") as typeof import("../tabs/errors");
 const events = require("../tabs/events") as typeof import("../tabs/events");
 const tabsDb = require("../tabs/db") as typeof import("../tabs/db");
+const chapters = require("../tabs/chapters") as typeof import("../tabs/chapters");
 const sync = require("../tabs/sync") as typeof import("../tabs/sync");
 const db = require("../db") as typeof import("../db");
 const eventLog = require("../event-log") as typeof import("../event-log");
@@ -145,6 +169,9 @@ const MIGRATION_031_DDL =
     dbSource,
   )?.[1];
 assert.ok(MIGRATION_031_DDL, "migration 031 preserves recorded review evidence");
+const MIGRATION_032_DDL =
+  /execAsync\(`([^`]*CREATE TABLE IF NOT EXISTS tab_settlements[^`]*)`\)/.exec(dbSource)?.[1];
+assert.ok(MIGRATION_032_DDL, "migration 032 preserves server-sequence chapter boundaries");
 
 const VAULT = "fixture-vault";
 const SELF = "fixture-self";
@@ -203,6 +230,7 @@ function openFixture(): void {
     ${MIGRATION_029_DDL}
     ${MIGRATION_030_DDL}
     ${MIGRATION_031_DDL}
+    ${MIGRATION_032_DDL}
     INSERT INTO vaults VALUES ('${VAULT}', 'AFN');
     INSERT INTO users VALUES ('${SELF}', '+93700111222', 'Synthetic Owner', 1, NULL, NULL, 1, 1, NULL, NULL);
     INSERT INTO users VALUES ('${CONTACT}', '+93700333444', 'Synthetic Contact', 0, NULL, NULL, 1, 1, NULL, NULL);
@@ -494,6 +522,56 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** The server has already produced its response; only delivery to the phone
+ * is delayed. Session changes here exercise the real sync response guards. */
+function holdResponse(method: string, pathname: string) {
+  const previous = globalThis.fetch;
+  let release!: () => void;
+  let arrived!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const ready = new Promise<void>((resolve) => {
+    arrived = resolve;
+  });
+  globalThis.fetch = async (...args: Parameters<typeof fetch>) => {
+    const response = await previous(...args);
+    if ((args[1]?.method ?? "GET") === method && new URL(String(args[0])).pathname === pathname) {
+      arrived();
+      await gate;
+    }
+    return response;
+  };
+  return {
+    release,
+    restore: () => {
+      globalThis.fetch = previous;
+    },
+    wait: async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          ready,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error(`No delayed response: ${method} ${pathname}`)),
+              2000,
+            );
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  };
+}
+
+function tabCacheSnapshot() {
+  return ["tab_links", "tab_entries", "tab_outbox", "tab_failed_ops", "tab_settlements"].map(
+    (table) => [table, fixture.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()],
+  );
+}
+
 let passed = 0;
 let failed = 0;
 async function test(name: string, run: () => Promise<void> | void): Promise<void> {
@@ -742,7 +820,7 @@ async function main(): Promise<void> {
     assert.equal(count("tab_entries"), 0, "ON DELETE CASCADE");
     // resetAllLocalData must take the new tables AND the long-missing settlements.
     const drop = dbSource.slice(dbSource.indexOf("export async function resetAllLocalData"));
-    for (const t of ["tab_entries", "tab_outbox", "tab_links", "settlements"]) {
+    for (const t of ["tab_entries", "tab_settlements", "tab_outbox", "tab_links", "settlements"]) {
       assert.match(drop, new RegExp(`DROP TABLE IF EXISTS ${t};`), `reset drops ${t}`);
     }
   });
@@ -872,6 +950,260 @@ async function main(): Promise<void> {
       "deleted-reviewer",
     );
     assert.equal(exported.find((e) => e.id === cancelled.id)!.tab!.voided, true);
+  });
+
+  await test("shared settlement cache: full, incremental, omitted-field compatibility and stale responses", async () => {
+    await tabsDb.upsertTabLink(link());
+    const marker: TabSettlement = {
+      id: "settlement-one",
+      rev: 3,
+      through_seq: 2,
+      settled_at_ms: 20_000,
+      created_by: "b",
+      actor_account_id: "actor-b",
+      actor_name: "Reviewer B",
+      actor_member_role: "manager",
+      semantics_version: "tally-settlement-v1",
+    };
+    server.rev = 3;
+    await tabsDb.upsertTabFromWire(link(), {
+      tab: server.view("a"),
+      entries: [],
+      full: true,
+      settlements: [marker],
+    });
+    assert.deepEqual(await tabsDb.listTabSettlements(TAB), [marker]);
+    server.rev = 4;
+    await tabsDb.upsertTabFromWire(link(), { tab: server.view("a"), entries: [], full: true });
+    assert.deepEqual(
+      await tabsDb.listTabSettlements(TAB),
+      [marker],
+      "old servers omit the field without erasing markers",
+    );
+    await tabsDb.upsertTabFromWire(link(), {
+      tab: server.view("a"),
+      entries: [],
+      full: false,
+      settlements: [],
+    });
+    assert.deepEqual(
+      await tabsDb.listTabSettlements(TAB),
+      [marker],
+      "an empty incremental response preserves earlier chapters",
+    );
+    const second = {
+      ...marker,
+      id: "settlement-two",
+      rev: 6,
+      through_seq: 4,
+      settled_at_ms: 30_000,
+    };
+    server.rev = 6;
+    await tabsDb.upsertTabFromWire(link(), {
+      tab: server.view("a"),
+      entries: [],
+      full: false,
+      settlements: [second],
+    });
+    assert.deepEqual(await tabsDb.listTabSettlements(TAB), [marker, second]);
+    await tabsDb.upsertTabFromWire(link(), {
+      tab: { ...server.view("a"), rev: 3 },
+      entries: [],
+      full: true,
+      settlements: [],
+    });
+    assert.deepEqual(
+      await tabsDb.listTabSettlements(TAB),
+      [marker, second],
+      "late full pull cannot erase newer evidence",
+    );
+    await tabsDb.upsertTabFromWire(link(), {
+      tab: server.view("a"),
+      entries: [],
+      full: true,
+      settlements: [second],
+    });
+    assert.deepEqual(
+      await tabsDb.listTabSettlements(TAB),
+      [second],
+      "supporting full response is authoritative",
+    );
+    fixture.prepare("DELETE FROM tab_links WHERE tab_id = ?").run(TAB);
+    assert.equal(count("tab_settlements"), 0, "local reset/link removal cascades marker cache");
+  });
+
+  await test("shared home tick and chapters use sequence, not backdated dates or merely zero balance", async () => {
+    await tabsDb.upsertTabLink(link());
+    server.seed({
+      id: "settled-gave",
+      created_by: "a",
+      direction: "a_to_b",
+      amount: "12.34",
+      status: "accepted",
+      occurred_at_ms: 50_000,
+    });
+    server.seed({
+      id: "settled-received",
+      created_by: "b",
+      direction: "b_to_a",
+      amount: "12.34",
+      status: "accepted",
+      occurred_at_ms: 60_000,
+    });
+    await tabsDb.upsertTabFromWire(link(), {
+      tab: server.view("a"),
+      entries: server.entries,
+      full: true,
+    });
+    assert.equal(
+      (await db.listAllPeople())[0].is_settled,
+      0,
+      "zero alone is not a deliberate clear",
+    );
+    const marker: TabSettlement = {
+      id: "cleared",
+      rev: ++server.rev,
+      through_seq: 2,
+      settled_at_ms: 70_000,
+      created_by: "a",
+      actor_account_id: "actor-a",
+      actor_name: "Author A",
+      actor_member_role: "owner",
+      semantics_version: "tally-settlement-v1",
+    };
+    await tabsDb.upsertTabFromWire(link(), {
+      tab: server.view("a"),
+      entries: [],
+      full: false,
+      settlements: [marker],
+    });
+    assert.equal((await db.listAllPeople())[0].is_settled, 1);
+    fixture
+      .prepare("UPDATE tab_entries SET local_action_pending = 1 WHERE id = 'settled-gave'")
+      .run();
+    assert.equal(
+      (await db.listAllPeople())[0].is_settled,
+      0,
+      "an unsynced review/cancellation reopens the page",
+    );
+    fixture.prepare("UPDATE tab_entries SET local_action_pending = 0").run();
+    await tabsDb.enqueueTabOp({
+      id: "queued",
+      tab_id: TAB,
+      op: "void",
+      payload: "{}",
+      created_at: 80_000,
+      attempts: 0,
+      next_at: null,
+      last_error: null,
+    });
+    assert.equal(
+      (await db.listAllPeople())[0].is_settled,
+      0,
+      "queued changes are not a completed chapter",
+    );
+    fixture.prepare("DELETE FROM tab_outbox").run();
+    assert.equal((await db.listAllPeople())[0].is_settled, 1);
+    const backdated = server.seed({
+      id: "backdated-gave",
+      created_by: "a",
+      direction: "a_to_b",
+      amount: "1",
+      status: "accepted",
+      occurred_at_ms: 1,
+    });
+    server.seed({
+      id: "backdated-received",
+      created_by: "b",
+      direction: "b_to_a",
+      amount: "1",
+      status: "accepted",
+      occurred_at_ms: 2,
+    });
+    await tabsDb.upsertTabFromWire(link(), {
+      tab: server.view("a"),
+      entries: server.entries,
+      full: true,
+    });
+    const home = (await db.listAllPeople())[0];
+    assert.equal(home.balance, 0);
+    assert.equal(
+      home.is_settled,
+      0,
+      "new server sequences reopen even when backdated and net zero",
+    );
+    const entries = await db.listEntries(CONTACT);
+    const fresh = entries.find((e) => e.id === backdated.id)!;
+    assert.equal(chapters.afterSharedSettlement(fresh, marker.through_seq), true);
+    const old = entries.find((e) => e.id === "settled-gave")!;
+    assert.equal(chapters.afterSharedSettlement(old, marker.through_seq), false);
+    assert.equal(
+      chapters.afterSharedSettlement({ ...old, tab: { ...old.tab!, local_pending: true } }, 2),
+      true,
+    );
+    assert.equal(
+      chapters.afterSharedSettlement(
+        { ...old, tab: { ...old.tab!, seq: 0, local_pending: true } },
+        2,
+      ),
+      true,
+    );
+    const history = chapters.sharedHistory(
+      [
+        ...entries,
+        { ...old, id: "cancelled", tab: { ...old.tab!, voided: true } },
+        { ...old, id: "cancellation-action", tab: { ...old.tab!, kind: "void" } },
+      ],
+      [marker],
+    );
+    assert.deepEqual(
+      history.map((r) => (r.kind === "entry" ? r.entry.id : r.settlement.id)),
+      ["backdated-received", "backdated-gave", "cleared", "settled-received", "settled-gave"],
+    );
+    const queuedReview = { ...old, tab: { ...old.tab!, local_pending: true } };
+    assert.deepEqual(
+      chapters
+        .sharedHistory([queuedReview, entries.find((e) => e.id === "settled-received")!], [marker])
+        .map((r) => (r.kind === "entry" ? r.entry.id : r.settlement.id)),
+      ["settled-gave", "cleared", "settled-received"],
+      "queued review remains on the current side of the marker",
+    );
+    assert.deepEqual(
+      chapters
+        .sharedHistory([{ ...old, tab: { ...old.tab!, voided: true } }], [marker])
+        .map((r) => (r.kind === "entry" ? r.entry.id : r.settlement.id)),
+      ["cleared"],
+      "a cleared chapter's marker survives when every original is cancelled",
+    );
+    const newest = { ...marker, id: "clear-again", rev: ++server.rev, through_seq: 4 };
+    await tabsDb.upsertTabFromWire(link(), {
+      tab: server.view("a"),
+      entries: [],
+      full: false,
+      settlements: [newest],
+    });
+    assert.equal((await db.listAllPeople())[0].is_settled, 1);
+    await tabsDb.insertOptimisticEntry(storedLink(), {
+      id: "unsent",
+      type: "debt",
+      amount: 3,
+      note: null,
+      occurred_at: 1,
+    });
+    assert.equal((await db.listAllPeople())[0].is_settled, 0);
+    fixture.prepare("DELETE FROM tab_entries WHERE id = 'unsent'").run();
+    fixture
+      .prepare(
+        `INSERT INTO entries(id,vault_id,relationship_id,type,amount_afn,created_at,updated_at)
+      VALUES ('local-after',?,?, 'debt',1,80000,80000), ('local-repaid',?,?, 'payment',1,80001,80001)`,
+      )
+      .run(VAULT, REL, VAULT, REL);
+    assert.equal((await db.listAllPeople())[0].balance, 0);
+    assert.equal(
+      (await db.listAllPeople())[0].is_settled,
+      0,
+      "server chapter does not clear later private records",
+    );
   });
 
   await test("upsertTabFromWire: full replace, optimistic survival, counts, cursor monotonic, notifiers", async () => {
@@ -1365,12 +1697,16 @@ async function main(): Promise<void> {
     await tabsDb.upsertTabLink(link({ party_token: null }));
     assert.equal((await sync.syncTab(TAB)).ok, true);
     assert.equal(server.calls.length, 1);
-    // Signed out with no token: recorded, skipped, nothing dialled.
+    // Signed out with no token: returned to the caller, nothing dialled.
     session.jwt = null;
     server.calls.length = 0;
     const r2 = await sync.syncTab(TAB);
     assert.deepEqual({ ok: r2.ok, error: r2.error }, { ok: false, error: "auth_unavailable" });
-    assert.equal(storedLink().last_error, "auth_unavailable");
+    assert.equal(
+      storedLink().last_error,
+      null,
+      "signed-out guards refuse even error metadata writes",
+    );
     assert.equal(server.calls.length, 0);
     // Offline is normal, not an error to record.
     await tabsDb.upsertTabLink(link());
@@ -1386,6 +1722,134 @@ async function main(): Promise<void> {
       },
       { ok: false, error: "no_link" },
     );
+  });
+
+  await test("late GET after session change cannot update or recreate the tab cache", async () => {
+    await tabsDb.upsertTabLink(link({ party_token: null }));
+    server.seed({ id: "late-pull-entry", created_by: "b", direction: "b_to_a", amount: "19" });
+    for (const nextJWT of ["different-account", null]) {
+      session.jwt = "jwt-1";
+      const held = holdResponse("GET", `/v1/tabs/${TAB}`);
+      const running = sync.syncTab(TAB);
+      try {
+        await held.wait();
+        session.jwt = nextJWT;
+        if (!nextJWT) fixture.prepare("DELETE FROM tab_links WHERE tab_id = ?").run(TAB);
+        const before = tabCacheSnapshot();
+        const emittedBefore = ledgerEmits.length;
+        held.release();
+        const result = await running;
+        assert.deepEqual(
+          { ok: result.ok, error: result.error },
+          { ok: false, error: "session_changed" },
+        );
+        assert.deepEqual(
+          tabCacheSnapshot(),
+          before,
+          "late full pull must not change another session's cache or undo deletion",
+        );
+        assert.equal(ledgerEmits.length, emittedBefore);
+        assert.equal(count("tab_entries"), 0);
+      } finally {
+        held.release();
+        await running;
+        held.restore();
+      }
+    }
+  });
+
+  await test("late append ACK after session change leaves optimistic entry and outbox untouched", async () => {
+    const tl = link({ party_token: null });
+    await tabsDb.upsertTabLink(tl);
+    await tabsDb.insertOptimisticEntry(tl, {
+      id: "late-append",
+      type: "debt",
+      amount: 12.34,
+      note: "unsent",
+      occurred_at: 41000,
+    });
+    await tabsDb.enqueueTabOp({
+      id: "late-append",
+      tab_id: TAB,
+      op: "append",
+      created_at: 1,
+      attempts: 0,
+      next_at: null,
+      last_error: null,
+      payload: JSON.stringify({
+        id: "late-append",
+        direction: "a_to_b",
+        amount: "12.34",
+        note: "unsent",
+        occurred_at_ms: 41000,
+      }),
+    });
+    for (const nextJWT of ["different-account", null]) {
+      session.jwt = "jwt-1";
+      const before = tabCacheSnapshot();
+      const emittedBefore = ledgerEmits.length;
+      const callsBefore = server.calls.length;
+      const held = holdResponse("POST", `/v1/tabs/${TAB}/entries`);
+      const running = sync.syncTab(TAB);
+      try {
+        await held.wait();
+        assert.ok(
+          server.entries.some((e) => e.id === "late-append"),
+          "append was accepted remotely before session changed",
+        );
+        session.jwt = nextJWT;
+        held.release();
+        const result = await running;
+        assert.deepEqual(
+          { ok: result.ok, error: result.error, flushed: result.flushed },
+          { ok: false, error: "session_changed", flushed: 0 },
+        );
+        assert.deepEqual(
+          tabCacheSnapshot(),
+          before,
+          "late ACK must not cache, delete, fail or retry an old session's outbox row",
+        );
+        assert.equal(ledgerEmits.length, emittedBefore);
+        assert.equal(sync.takeAppendOutcome("late-append"), null);
+        assert.deepEqual(
+          server.calls.slice(callsBefore),
+          [`POST /v1/tabs/${TAB}/entries`],
+          "no follow-up pull after session refusal",
+        );
+      } finally {
+        held.release();
+        await running;
+        held.restore();
+      }
+    }
+  });
+
+  await test("late /mine response after session change cannot restore shared links", async () => {
+    server.mine = [{ tab: server.view("a"), role: "a", vault_id: VAULT, relationship_id: REL }];
+    for (const nextJWT of ["different-account", null]) {
+      session.jwt = "jwt-1";
+      const before = tabCacheSnapshot();
+      const emittedBefore = ledgerEmits.length;
+      const held = holdResponse("GET", "/v1/tabs/mine");
+      const running = sync.reconcileTabsFromServer();
+      try {
+        await held.wait();
+        session.jwt = nextJWT;
+        held.release();
+        await running;
+        assert.deepEqual(
+          tabCacheSnapshot(),
+          before,
+          "recovery must not restore old account links into a changed or deleted session",
+        );
+        assert.equal(count("tab_links"), 0);
+        assert.equal(ledgerEmits.length, emittedBefore);
+      } finally {
+        held.release();
+        await running;
+        held.restore();
+      }
+    }
   });
 
   await test("syncTab coalesces per tab and requestTabSync debounces", async () => {

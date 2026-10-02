@@ -46,9 +46,9 @@ here, change the design doc first.
    target.
 4. **Settlement handshake** (D17 v2). v1 only warns when both parties record the same
    amount in the same direction within 24 h ("Ahmad already recorded this"). A real
-   two-tap settlement ritual — and a tab-level "we are square" marker, since a linked
-   contact deliberately cannot use the local settle-up chapter — is the next honest
-   step.
+   two-party payment acknowledgement remains a separate possible feature. Shared
+   zero-balance chapters now support an attributed clear-page marker; that marker
+   records who cleared the page, without claiming payment or mutual agreement.
 5. **Admin dashboard: tab counts** (§6.4). How many tabs exist, how many have a joined
    party b, how many tallies flow through them. Today the only way to know if anyone
    uses the feature is a manual `psql` count.
@@ -63,14 +63,9 @@ here, change the design doc first.
 - The join screen's "New contact" form normalizes the phone against the install's
   default country (an explicit `+`/`00` prefix still wins). person/new's country picker
   is not reachable there; add it if a foreign counterparty ever shows up in feedback.
-- A contact linked before it was ever settled can still show the "NOT SETTLED" chip at
-  balance zero. Cosmetic, worth a look with real data.
-- **Settle-up is permanently unavailable on a contact that has ever been linked**, even
-  after the tab is closed. Chapters are a local-book ritual and a tab's rows are not
-  partitionable by a line drawn before the tab existed; offering it would also mean two
-  definitions of "the balance" (the header's, which is tab-aware, and
-  `appendEntrySettled`'s preflight, which can only see local rows). Revisit only with a
-  tab-aware preflight.
+- Shared clear-page requires an open tab, a zero balance and no pending reviews.
+  Closed shared history remains read-only. Existing shared markers remain available
+  after closing and in exports; new activity removes the settled indicator.
 - **Re-linking a contact hides the PREVIOUS tab's rows.** Each new tab's opening entry
   carries the displayed balance forward, so the old tab's tallies are already inside it
   and counting them again would double the account — the read sites therefore resolve

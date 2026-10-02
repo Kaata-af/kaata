@@ -1,16 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { CountryPickerSheet } from "../../components/CountryPickerSheet";
@@ -27,6 +18,7 @@ import {
   normalizePhone,
 } from "../../lib/phone";
 import { icon, radius, TOUCH_MIN, typography } from "../../lib/tokens";
+import { useOnboardingKeyboardScroll } from "../../lib/use-onboarding-keyboard-scroll";
 
 // Onboarding identity step — name + phone. The name IS prefilled from the
 // Google profile name stashed at sign-in (onboarding_pending_name) so a
@@ -74,6 +66,7 @@ export default function OnboardingProfileScreen() {
   const nameRef = useRef<TextInput>(null);
   const lastNameRef = useRef<TextInput>(null);
   const phoneRef = useRef<TextInput>(null);
+  const { scrollProps, focusInput, blurInput } = useOnboardingKeyboardScroll();
   // Synchronous re-entry guard — `busy` state can't stop a same-frame
   // double-tap (setState is async); see entry/new.tsx.
   const savingRef = useRef(false);
@@ -185,6 +178,7 @@ export default function OnboardingProfileScreen() {
       await setAppMeta("onboarding_self_name", fullName);
       await setAppMeta("onboarding_self_phone", normalizedPhone);
       await setAppMeta("onboarding_step", "kaata");
+      Keyboard.dismiss();
       router.replace("/onboarding/kaata");
     } catch (err) {
       // setAppMeta failing is the only realistic case here (storage error);
@@ -202,6 +196,7 @@ export default function OnboardingProfileScreen() {
   }
 
   async function onBack() {
+    Keyboard.dismiss();
     // Step back to auth picker. Clear the pending Google name/email so
     // if they then choose offline, no stale subtitle persists.
     await setAppMeta("onboarding_pending_name", "");
@@ -231,119 +226,124 @@ export default function OnboardingProfileScreen() {
         </Pressable>
       </View>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      <ScrollView
+        {...scrollProps}
+        style={styles.form}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
       >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
-            {t("onboardingProfile.title")}
-          </Text>
-          {/* Why-we-ask subtitle — offline users got NO context here before
+        <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
+          {t("onboardingProfile.title")}
+        </Text>
+        {/* Why-we-ask subtitle — offline users got NO context here before
               (the only subtitle was the signed-in-as hint). */}
-          <Text style={[styles.subtitle, textDir(isRTL)]}>{t("onboardingProfile.subtitle")}</Text>
-          {signedInEmail ? (
-            <Text style={[styles.subtitle, textDir(isRTL)]}>
-              {t("onboardingProfile.signedInHint", { email: signedInEmail })}
-            </Text>
-          ) : null}
+        <Text style={[styles.subtitle, textDir(isRTL)]}>{t("onboardingProfile.subtitle")}</Text>
+        {signedInEmail ? (
+          <Text style={[styles.subtitle, textDir(isRTL)]}>
+            {t("onboardingProfile.signedInHint", { email: signedInEmail })}
+          </Text>
+        ) : null}
 
-          <View style={styles.spacer} />
+        <View style={styles.spacer} />
 
-          <FormField
-            ref={nameRef}
-            label={t("onboarding.name.label")}
-            required
-            value={name}
-            onChangeText={(s) => {
-              setName(s);
-              if (nameError) setNameError(null);
-            }}
-            placeholder={t("onboarding.name.placeholder")}
-            autoCapitalize="words"
-            returnKeyType="next"
-            onSubmitEditing={() => lastNameRef.current?.focus()}
-            submitBehavior="submit"
-            error={nameError}
-          />
+        <FormField
+          ref={nameRef}
+          onFocus={() => focusInput(nameRef.current)}
+          onBlur={() => blurInput(nameRef.current)}
+          label={t("onboarding.name.label")}
+          required
+          value={name}
+          onChangeText={(s) => {
+            setName(s);
+            if (nameError) setNameError(null);
+          }}
+          placeholder={t("onboarding.name.placeholder")}
+          autoCapitalize="words"
+          returnKeyType="next"
+          onSubmitEditing={() => lastNameRef.current?.focus()}
+          submitBehavior="submit"
+          error={nameError}
+        />
 
-          <FormField
-            ref={lastNameRef}
-            label={t("onboarding.lastName.label")}
-            value={lastName}
-            onChangeText={setLastName}
-            placeholder={t("onboarding.lastName.placeholder")}
-            autoCapitalize="words"
-            returnKeyType="next"
-            onSubmitEditing={() => phoneRef.current?.focus()}
-            submitBehavior="submit"
-          />
+        <FormField
+          ref={lastNameRef}
+          onFocus={() => focusInput(lastNameRef.current)}
+          onBlur={() => blurInput(lastNameRef.current)}
+          label={t("onboarding.lastName.label")}
+          value={lastName}
+          onChangeText={setLastName}
+          placeholder={t("onboarding.lastName.placeholder")}
+          autoCapitalize="words"
+          returnKeyType="next"
+          onSubmitEditing={() => phoneRef.current?.focus()}
+          submitBehavior="submit"
+        />
 
-          {/* Phone with country picker — same compound field as person/new and
+        {/* Phone with country picker — same compound field as person/new and
               person/[id]/edit. The row stays physical-LTR (Western digits
               render LTR via Unicode bidi regardless of locale); the label and
               hint flip via textDir to follow reading order. */}
-          <View>
-            <Text style={[styles.fieldLabel, textDir(isRTL)]}>
-              {t("onboarding.phone.label")}
-              <Text style={styles.required}> *</Text>
-            </Text>
-            <View style={styles.phoneRow}>
-              <Pressable
-                onPress={() => setPickerVisible(true)}
-                style={({ pressed }) => [
-                  styles.countryBtn,
-                  pressed && { backgroundColor: colors.bgMuted },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel={t("onboarding.phone.label")}
-              >
-                <Text style={styles.countryFlag}>{country.flag}</Text>
-                <Text style={styles.countryDial}>{ltrIsolate(country.dialCode)}</Text>
-                <Ionicons name="chevron-down" size={icon.trailing} color={colors.textMuted} />
-              </Pressable>
-              <TextInput
-                ref={phoneRef}
-                style={[styles.phoneInput, phoneError ? styles.inputError : null]}
-                value={phone}
-                onChangeText={(v) => {
-                  setPhoneError(null);
-                  setPhone(v);
-                }}
-                placeholder={
-                  country.code === "AF" ? "70 123 4567" : t("personAdd.phone.placeholderGeneric")
-                }
-                placeholderTextColor={colors.textMuted}
-                accessibilityLabel={t("onboarding.phone.label")}
-                keyboardType="phone-pad"
-                autoCorrect={false}
-                returnKeyType="done"
-                onSubmitEditing={onSubmit}
-                submitBehavior="submit"
-              />
-            </View>
-            {phoneError ? (
-              <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
-                {phoneError}
-              </Text>
-            ) : null}
+        <View>
+          <Text style={[styles.fieldLabel, textDir(isRTL)]}>
+            {t("onboarding.phone.label")}
+            <Text style={styles.required}> *</Text>
+          </Text>
+          <View style={styles.phoneRow}>
+            <Pressable
+              onPress={() => {
+                Keyboard.dismiss();
+                setPickerVisible(true);
+              }}
+              style={({ pressed }) => [
+                styles.countryBtn,
+                pressed && { backgroundColor: colors.bgMuted },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={t("onboarding.phone.label")}
+            >
+              <Text style={styles.countryFlag}>{country.flag}</Text>
+              <Text style={styles.countryDial}>{ltrIsolate(country.dialCode)}</Text>
+              <Ionicons name="chevron-down" size={icon.trailing} color={colors.textMuted} />
+            </Pressable>
+            <TextInput
+              ref={phoneRef}
+              onFocus={() => focusInput(phoneRef.current)}
+              onBlur={() => blurInput(phoneRef.current)}
+              style={[styles.phoneInput, phoneError ? styles.inputError : null]}
+              value={phone}
+              onChangeText={(v) => {
+                setPhoneError(null);
+                setPhone(v);
+              }}
+              placeholder={
+                country.code === "AF" ? "70 123 4567" : t("personAdd.phone.placeholderGeneric")
+              }
+              placeholderTextColor={colors.textMuted}
+              accessibilityLabel={t("onboarding.phone.label")}
+              keyboardType="phone-pad"
+              autoCorrect={false}
+              returnKeyType="done"
+              onSubmitEditing={onSubmit}
+              submitBehavior="submit"
+            />
           </View>
-          <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("onboarding.phone.hint")}</Text>
-
-          {submitError ? (
-            <Text style={[styles.submitError, textDir(isRTL)]} accessibilityLiveRegion="polite">
-              {submitError}
+          {phoneError ? (
+            <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
+              {phoneError}
             </Text>
           ) : null}
+        </View>
+        <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("onboarding.phone.hint")}</Text>
 
-          <View style={{ height: 12 }} />
-          <Button label={t("onboardingProfile.continue")} onPress={onSubmit} loading={busy} />
-        </ScrollView>
-      </KeyboardAvoidingView>
+        {submitError ? (
+          <Text style={[styles.submitError, textDir(isRTL)]} accessibilityLiveRegion="polite">
+            {submitError}
+          </Text>
+        ) : null}
+
+        <View style={{ height: 12 }} />
+        <Button label={t("onboardingProfile.continue")} onPress={onSubmit} loading={busy} />
+      </ScrollView>
 
       <CountryPickerSheet
         visible={pickerVisible}
@@ -357,6 +357,7 @@ export default function OnboardingProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
+  form: { flex: 1 },
   header: {
     paddingHorizontal: 8,
     paddingTop: 8,

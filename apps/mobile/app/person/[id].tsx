@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as Crypto from "expo-crypto";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -70,6 +71,7 @@ import {
   getLatestTabLinkForPerson,
   listPreLinkEntries,
   listFailedTabEntries,
+  listTabSettlements,
 } from "../../lib/tabs/db";
 import { markTabNoticesSeen } from "../../lib/tabs/inbox-reads";
 import {
@@ -81,10 +83,13 @@ import {
   TabPermissionError,
   unlinkContact,
   voidEntry,
+  settleSharedTab,
 } from "../../lib/tabs/link";
 import { onTabApplied, requestTabSync } from "../../lib/tabs/sync";
-import { TabReviewFinalError } from "../../lib/tabs/errors";
-import type { TabLink } from "../../lib/tabs/types";
+import { TabApiError, TabInputError, TabReviewFinalError } from "../../lib/tabs/errors";
+import { applyEventMutex } from "../../lib/projection";
+import type { TabLink, TabSettlement } from "../../lib/tabs/types";
+import { afterSharedSettlement, sharedHistory, visibleTally } from "../../lib/tabs/chapters";
 import { icon, radius, TOUCH_MIN, typography } from "../../lib/tokens";
 import { useActiveVaultWriteCaps } from "../../lib/use-vault-role";
 import { useMembersCount } from "../../lib/use-vault-summary";
@@ -158,6 +163,8 @@ export default function PersonDetailScreen() {
   // Every boundary (oldest→newest) — the full-history view draws each
   // ruled-off line with its settlement date, like a paper khata.
   const [boundaries, setBoundaries] = useState<number[]>([]);
+  const [sharedSettlements, setSharedSettlements] = useState<TabSettlement[]>([]);
+  const settlementRequest = useRef<{ id: string; throughSeq: number } | null>(null);
   const [showFullHistory, setShowFullHistory] = useState(false);
   useEffect(() => {
     if (entryId) setShowFullHistory(true);
@@ -313,16 +320,19 @@ export default function PersonDetailScreen() {
   // chapter it belongs to; the balance (always all-time) is unaffected, and
   // "view all" reveals everything.
   //
-  // A contact that has EVER been linked has no chapters: its `entries` are the
-  // tab's rows, and the local settlement boundaries belong to the pre-link
-  // history behind the fold. `tabHistory`, not `link` — a closed tab's rows
-  // are still not partitionable by a line drawn before the tab existed.
+  // Shared chapters use server sequence, so backdating a new tally can never
+  // tuck it behind an old settlement. Local boundaries only apply locally.
+  const displayedEntries = useMemo(() => entries.filter(visibleTally), [entries]);
+  const sharedThroughSeq = sharedSettlements.at(-1)?.through_seq ?? 0;
+  const settledCount = tabHistory ? sharedSettlements.length : settlement.count;
   const chapterEntries = useMemo(
     () =>
-      tabHistory || settlement.lastSettledAtMs == null
-        ? entries
-        : entries.filter((e) => e.created_at > settlement.lastSettledAtMs!),
-    [entries, settlement.lastSettledAtMs, tabHistory],
+      tabHistory
+        ? displayedEntries.filter((e) => afterSharedSettlement(e, sharedThroughSeq))
+        : settlement.lastSettledAtMs == null
+          ? displayedEntries
+          : displayedEntries.filter((e) => e.created_at > settlement.lastSettledAtMs!),
+    [displayedEntries, settlement.lastSettledAtMs, tabHistory, sharedThroughSeq],
   );
   // COHERENCE RULE (review fix — the load-bearing safety property): the
   // collapse only engages while the current chapter's sum EXACTLY explains
@@ -331,8 +341,7 @@ export default function PersonDetailScreen() {
   // history from another device, clock skew — makes the view fall OPEN
   // instead of hiding money. Nothing behind the fold can ever account for
   // the number in the header.
-  // Voided tab rows are listed (struck — D5) but count for nothing, so they
-  // must be zero here too or a linked account could never be coherent.
+  // Rejected tallies remain visible but contribute nothing to the balance.
   const chapterSum = useMemo(
     () =>
       sumAmounts(
@@ -348,25 +357,25 @@ export default function PersonDetailScreen() {
   );
   const chapterCoherent = person == null || chapterSum === person.balance;
   const effectiveShowFull = showFullHistory || !chapterCoherent;
-  const visibleEntries = effectiveShowFull ? entries : chapterEntries;
+  const visibleEntries = effectiveShowFull ? displayedEntries : chapterEntries;
 
   // Full-history render list: entries interleaved with the ruled-off lines,
   // each marker at its chronological position with the settlement date —
   // like the visible lines in a paper khata. Adjacent markers (a concurrent
   // double-settle artifact) collapse to one; markers below the oldest entry
   // have nothing to rule off and are dropped.
-  type HistoryItem = { kind: "entry"; entry: Entry } | { kind: "marker"; ms: number };
+  type HistoryItem =
+    | { kind: "entry"; entry: Entry }
+    | { kind: "marker"; ms: number; settlement?: TabSettlement };
   const historyItems = useMemo<HistoryItem[]>(() => {
-    // No markers on a linked account, open or frozen: the boundaries predate
-    // the link and rule off pre-link rows, which live behind the fold, not in
-    // this list.
-    if (tabHistory || !effectiveShowFull || boundaries.length === 0) {
+    if (tabHistory && effectiveShowFull) return sharedHistory(displayedEntries, sharedSettlements);
+    if (!effectiveShowFull || tabHistory || boundaries.length === 0) {
       return visibleEntries.map((e) => ({ kind: "entry", entry: e }));
     }
     const items: HistoryItem[] = [];
     const desc = [...boundaries].sort((a, b) => b - a);
     let bi = 0;
-    for (const e of entries) {
+    for (const e of displayedEntries) {
       while (bi < desc.length && desc[bi] >= e.created_at) {
         if (items.length === 0 || items[items.length - 1].kind !== "marker") {
           items.push({ kind: "marker", ms: desc[bi] });
@@ -376,39 +385,75 @@ export default function PersonDetailScreen() {
       items.push({ kind: "entry", entry: e });
     }
     return items;
-  }, [visibleEntries, effectiveShowFull, boundaries, entries, tabHistory]);
-  // Never on a contact that has ever been linked (appendEntrySettled refuses
-  // the same set): the tab is shared state, one side cannot rule a line the
-  // other never drew — and once frozen, the displayed balance is the tab's
-  // while the settle preflight can only see LOCAL rows, so offering it on a
-  // visibly-zero account would always refuse with "balance must be zero".
+  }, [
+    visibleEntries,
+    effectiveShowFull,
+    boundaries,
+    displayedEntries,
+    tabHistory,
+    sharedSettlements,
+  ]);
+  const sharedReviewPending = entries.some(
+    (e) =>
+      e.tab &&
+      (e.tab.local_pending ||
+        (!e.tab.voided && e.tab.kind !== "void" && e.tab.status === "pending")),
+  );
+  const unsettledOriginalCount = tabHistory
+    ? entries.filter((e) => e.tab?.kind !== "void" && afterSharedSettlement(e, sharedThroughSeq))
+        .length
+    : chapterEntries.length;
   const canSettle =
     canAmend &&
-    !tabHistory &&
+    (!tabHistory || (!!link && !sharedReviewPending)) &&
     chapterCoherent &&
     person != null &&
     person.balance === 0 &&
-    chapterEntries.length > 0;
+    unsettledOriginalCount > 0;
 
   async function onSettle() {
     setConfirmSettle(false);
-    if (!person || settlingRef.current || chapterEntries.length === 0) return;
+    if (!person || settlingRef.current || !canSettle) return;
     settlingRef.current = true;
     try {
-      // Boundary = max(now, newest chapter entry + 1): a lagging device
-      // clock can never rule a line that excludes entries already visible.
-      // The REAL zero check happens inside the append transaction
-      // (appendEntrySettled's preflight) — this screen's state can be stale.
-      const settledAtMs = Math.max(Date.now(), ...chapterEntries.map((e) => e.created_at + 1));
-      await appendEntrySettled({
-        relationshipId: chapterEntries[0].relationship_id,
-        settledAtMs,
-      });
+      // Both paths recheck the balance under their authoritative transaction.
+      // Shared boundaries use sequence; local boundaries use the business date.
+      if (tabHistory) {
+        if (!link) throw new TabClosedError();
+        const throughSeq = Math.max(0, ...entries.map((e) => e.tab?.seq ?? 0));
+        if (!settlementRequest.current || settlementRequest.current.throughSeq !== throughSeq) {
+          settlementRequest.current = { id: Crypto.randomUUID(), throughSeq };
+        }
+        await settleSharedTab(link, settlementRequest.current.id);
+        settlementRequest.current = null;
+      } else {
+        const settledAtMs = Math.max(Date.now(), ...chapterEntries.map((e) => e.created_at + 1));
+        await appendEntrySettled({
+          relationshipId: chapterEntries[0].relationship_id,
+          settledAtMs,
+        });
+      }
       setShowFullHistory(false);
       toast.push(t("person.settle.done"), "success");
       await load();
     } catch (err) {
-      if (err instanceof SettleNotZeroError) {
+      if (err instanceof TabApiError || err instanceof TabInputError) {
+        const code = err.code;
+        toast.push(
+          t(
+            code === "settlement_not_zero"
+              ? "person.settle.notZero"
+              : code === "settlement_pending"
+                ? "tab.settle.pending"
+                : code === "stale_settlement" || code === "settlement_empty"
+                  ? "tab.settle.changed"
+                  : "tab.settle.failed",
+          ),
+          "error",
+        );
+        if (tabHistory) requestTabSync(tabHistory.tab_id);
+        await load();
+      } else if (err instanceof SettleNotZeroError) {
         toast.push(t("person.settle.notZero"), "error");
         await load(); // refresh — the balance the user saw was stale
       } else if (err instanceof RoleGateRejectionError) {
@@ -475,22 +520,30 @@ export default function PersonDetailScreen() {
     // Guarded — an unhandled rejection here previously left the screen on
     // a permanent blank state with setLoaded never flipping.
     try {
-      const [p, list, s, settle, bounds, tl] = await Promise.all([
-        getPerson(id),
-        listEntries(id),
-        getLocalSelf(),
-        getSettlementSummary(id),
-        listSettlementBoundaries(id),
-        getLatestTabLinkForPerson(id),
-      ]);
-      // Sequential on purpose: the pre-link rows are defined by the link.
-      const before = tl ? await listPreLinkEntries(tl) : [];
-      const refused = tl ? await listFailedTabEntries(tl.relationship_id) : [];
+      // Bind the displayed entries and settlement markers to one revision.
+      // Tab pulls and local writers use this same lock; otherwise a newer
+      // link revision could silently authorize clearing entries never shown.
+      const { p, list, s, settle, bounds, tl, before, refused, sharedMarkers } =
+        await applyEventMutex.runExclusive(async () => {
+          const [p, list, s, settle, bounds, tl] = await Promise.all([
+            getPerson(id),
+            listEntries(id),
+            getLocalSelf(),
+            getSettlementSummary(id),
+            listSettlementBoundaries(id),
+            getLatestTabLinkForPerson(id),
+          ]);
+          const before = tl ? await listPreLinkEntries(tl) : [];
+          const refused = tl ? await listFailedTabEntries(tl.relationship_id) : [];
+          const sharedMarkers = tl ? await listTabSettlements(tl.tab_id) : [];
+          return { p, list, s, settle, bounds, tl, before, refused, sharedMarkers };
+        });
       setPerson(p);
       setEntries(list);
       setSelf(s);
       setSettlement(settle);
       setBoundaries(bounds);
+      setSharedSettlements(sharedMarkers);
       setTabHistory(tl);
       latestLink.current = tl;
       setPreLink(before);
@@ -832,7 +885,13 @@ export default function PersonDetailScreen() {
           <View style={styles.info}>
             <View style={[styles.nameRow, rowDir(isRTL)]}>
               <Text style={[styles.name, { flexShrink: 1 }, textDir(isRTL)]}>{person.name}</Text>
-              {link ? <SharedAccountBadge size={20} /> : null}
+              {link ? (
+                <SharedAccountBadge
+                  size={20}
+                  name={person.name}
+                  fontSize={typography.heading.fontSize}
+                />
+              ) : null}
             </View>
             {person.phone ? (
               <Text
@@ -848,14 +907,14 @@ export default function PersonDetailScreen() {
             <View style={[styles.chipRow, rowDir(isRTL)]}>
               {chipLabel && chipVariant ? (
                 <Chip label={chipLabel} variant={chipVariant} />
-              ) : entries.length > 0 &&
-                settlement.count > 0 &&
+              ) : settledCount > 0 &&
                 chapterCoherent &&
-                chapterEntries.length === 0 ? (
+                !sharedReviewPending &&
+                unsettledOriginalCount === 0 ? (
                 // "SETTLED" only when the user actually drew the line and it
                 // covers everything.
                 <Chip label={t("person.balance.settled")} variant="neutral" />
-              ) : entries.length > 0 ? (
+              ) : displayedEntries.length > 0 ? (
                 // A tally that merely SUMS to zero (or whose chapter no longer
                 // adds up after a sync) is not a settled account — say so
                 // rather than leaving the chip slot blank while every other
@@ -915,8 +974,8 @@ export default function PersonDetailScreen() {
           </Pressable>
         ) : null}
 
-        {visibleEntries.length === 0 ? (
-          settlement.count > 0 ? (
+        {historyItems.length === 0 ? (
+          settledCount > 0 ? (
             // Fresh page after a settlement: not "empty", just a new chapter.
             <EmptyState
               title={t("person.freshChapter.title")}
@@ -945,8 +1004,9 @@ export default function PersonDetailScreen() {
                   <View key={`m-${item.ms}-${index}`} style={[styles.chapterLine, rowDir(isRTL)]}>
                     <View style={styles.settleRule} />
                     <Text style={styles.chapterLineText} allowFontScaling={false}>
-                      {t("person.history.settledOn", {
+                      {t(item.settlement ? "tab.settle.history" : "person.history.settledOn", {
                         date: formatSettlementDate(item.ms, getLocale(), calendar),
+                        name: item.settlement?.actor_name || t("entry.by.someone"),
                       })}
                     </Text>
                     <View style={styles.settleRule} />
@@ -1080,7 +1140,7 @@ export default function PersonDetailScreen() {
             explain the balance, the view is forced open and the toggle
             hides rather than pretend). Nothing was deleted; the book just
             has pages now. */}
-        {!tabHistory && settlement.count > 0 && chapterCoherent ? (
+        {settledCount > 0 && chapterCoherent ? (
           <Pressable
             onPress={() => setShowFullHistory((v) => !v)}
             accessibilityRole="button"
@@ -1089,7 +1149,7 @@ export default function PersonDetailScreen() {
             <Text style={styles.historyRowText} allowFontScaling={false}>
               {showFullHistory
                 ? t("person.history.hide")
-                : t("person.history.show", { count: settlement.count })}
+                : t("person.history.show", { count: settledCount })}
             </Text>
           </Pressable>
         ) : null}
@@ -1289,7 +1349,9 @@ export default function PersonDetailScreen() {
       <ConfirmDialog
         visible={confirmSettle}
         title={t("person.settle.confirm.title")}
-        description={t("person.settle.confirm.body", { name: person.name })}
+        description={t(tabHistory ? "tab.settle.confirm" : "person.settle.confirm.body", {
+          name: person.name,
+        })}
         confirmLabel={t("person.settle.confirm.cta")}
         onConfirm={onSettle}
         onCancel={() => setConfirmSettle(false)}

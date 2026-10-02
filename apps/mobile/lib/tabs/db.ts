@@ -35,6 +35,7 @@ import type {
   TabOutboxRow,
   TabResponse,
   WireEntry,
+  TabSettlement,
 } from "./types";
 import { wireToMinor } from "./wire";
 
@@ -362,6 +363,34 @@ export async function upsertTabFromWire(
       if (del.changes > 0) changed = true;
     }
 
+    // Older servers/entry-only acknowledgements omit settlements. Only a
+    // complete, supporting server response can replace this durable cache.
+    if (resp.full && resp.settlements !== undefined) {
+      const removed = await db.runAsync(
+        `DELETE FROM tab_settlements WHERE tab_id = ?`,
+        link.tab_id,
+      );
+      if (removed.changes > 0) changed = true;
+    }
+    for (const marker of resp.settlements ?? []) {
+      await db.runAsync(
+        `INSERT OR REPLACE INTO tab_settlements
+        (id, tab_id, rev, through_seq, settled_at_ms, created_by, actor_account_id,
+         actor_name, actor_member_role, semantics_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        marker.id,
+        link.tab_id,
+        marker.rev,
+        marker.through_seq,
+        marker.settled_at_ms,
+        marker.created_by,
+        marker.actor_account_id,
+        marker.actor_name,
+        marker.actor_member_role,
+        marker.semantics_version,
+      );
+      changed = true;
+    }
+
     for (const e of resp.entries) {
       const before = prev.get(e.id);
       await db.runAsync(
@@ -476,6 +505,16 @@ export async function upsertTabFromWire(
 /** A single wire entry into the cache (append / accept / dispute acks). */
 export function entriesResponse(tab: TabResponse["tab"], entries: WireEntry[]): TabResponse {
   return { tab, entries, full: false };
+}
+
+export async function listTabSettlements(tabId: string): Promise<TabSettlement[]> {
+  const db = await getDb();
+  return db.getAllAsync<TabSettlement>(
+    `SELECT id, rev, through_seq, settled_at_ms, created_by,
+    actor_account_id, actor_name, actor_member_role, semantics_version FROM tab_settlements
+    WHERE tab_id = ? ORDER BY through_seq ASC`,
+    tabId,
+  );
 }
 
 function rowToEntry(link: TabLink, r: TabEntryRow, cancellation?: TabEntryRow): Entry {

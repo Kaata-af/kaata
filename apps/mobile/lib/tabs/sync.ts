@@ -33,7 +33,13 @@
 import { AppState } from "react-native";
 import * as Network from "expo-network";
 
-import { getSessionJWT } from "../auth";
+import {
+  applyForCurrentSession,
+  captureCurrentSession,
+  getSessionJWT,
+  SessionChangedError,
+  type SessionSnapshot,
+} from "../auth";
 import { getDb } from "../db-tx";
 import {
   acceptTabEntry,
@@ -223,7 +229,9 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
     statusChangedOnMine: 0,
     error: null,
   };
+  let session: SessionSnapshot | null = null;
   try {
+    session = await captureCurrentSession();
     const link = await getTabLink(tabId);
     if (!link) return { ...result, ok: false, error: "no_link" };
     // Offline is not an error worth recording — it is the normal state of a
@@ -233,9 +241,12 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
     let auth: TabAuth;
     try {
       auth = await resolveTabAuth(link);
+      await applyForCurrentSession(session, async () => {});
     } catch (err) {
       if (!(err instanceof TabAuthUnavailableError)) throw err;
-      await setTabLinkError(tabId, "auth_unavailable");
+      await applyForCurrentSession(session, () => setTabLinkError(tabId, "auth_unavailable")).catch(
+        () => {},
+      );
       return { ...result, ok: false, error: "auth_unavailable" };
     }
 
@@ -243,27 +254,31 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
     let flushError: string | null = null;
     for (const op of await listDueTabOps(tabId)) {
       try {
+        await applyForCurrentSession(session, async () => {});
         const r = await withAuthFallback(link, auth, (a) => performOp(a, link, op));
         auth = r.auth;
-        if (r.value.apply) {
-          // The ack is one row, not the range up to its rev — never let it
-          // move the cursor, or the pull below skips whatever the other party
-          // wrote in between (see upsertTabFromWire).
-          const c = await upsertTabFromWire(link, r.value.apply, { advanceCursor: false });
-          result.newFromThem += c.newFromThem;
-          result.statusChangedOnMine += c.statusChangedOnMine;
-        }
-        // Keep the operation durable until its acknowledged state is cached.
-        await completeTabOp(op.id);
-        if (op.op === "append") appendOutcomes.set(op.id, { hint: r.value.hint, rejected: null });
-        result.flushed++;
+        await applyForCurrentSession(session, async () => {
+          if (r.value.apply) {
+            // The ack is one row, not the range up to its rev — never let it
+            // move the cursor, or the pull below skips whatever the other party
+            // wrote in between (see upsertTabFromWire).
+            const c = await upsertTabFromWire(link, r.value.apply, { advanceCursor: false });
+            result.newFromThem += c.newFromThem;
+            result.statusChangedOnMine += c.statusChangedOnMine;
+          }
+          // Keep the operation durable until its acknowledged state is cached.
+          await completeTabOp(op.id);
+          if (op.op === "append") appendOutcomes.set(op.id, { hint: r.value.hint, rejected: null });
+          result.flushed++;
+        });
       } catch (err) {
+        if (err instanceof SessionChangedError) throw err;
         result.failed++;
         if (err instanceof TabApiError && !isRetryableTabError(err)) {
           // A verdict: the server will say the same thing forever. Drop the
           // op, undo what it promised locally, and let a full pull restate
           // the truth.
-          await rejectTabOp(op, err.code);
+          await applyForCurrentSession(session, () => rejectTabOp(op, err.code));
           if (op.op === "append") {
             appendOutcomes.set(op.id, { hint: null, rejected: err.code });
           }
@@ -274,7 +289,9 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
         }
         // Transient (or unexpected — a malformed payload is logged the same
         // way and retried on the ladder rather than crashing the loop).
-        await failTabOp(op.id, describe(err), tabOpBackoffMs(op.attempts + 1));
+        await applyForCurrentSession(session, () =>
+          failTabOp(op.id, describe(err), tabOpBackoffMs(op.attempts + 1)),
+        );
         flushError = `${op.op}: ${describe(err)}`;
         if (__DEV__) console.warn("[tabs.sync] op deferred", op.op, describe(err));
         break;
@@ -286,8 +303,9 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
     // switched the credential; both must feed the pull.
     const fresh = (await getTabLink(tabId)) ?? link;
     const afterRev = needFullPull.has(tabId) ? 0 : fresh.rev;
+    await applyForCurrentSession(session, async () => {});
     const pulled = await withAuthFallback(fresh, auth, (a) => fetchTab(a, tabId, afterRev));
-    const c = await upsertTabFromWire(fresh, pulled.value);
+    const c = await applyForCurrentSession(session, () => upsertTabFromWire(fresh, pulled.value));
     needFullPull.delete(tabId);
     result.pulled = pulled.value.entries.length;
     result.newFromThem += c.newFromThem;
@@ -297,7 +315,7 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
     // is still worth a line in App health until the next clean run.
     if (flushError) {
       result.error = flushError;
-      await setTabLinkError(tabId, flushError);
+      await applyForCurrentSession(session, () => setTabLinkError(tabId, flushError!));
     }
     // The link is up: notices handled offline (lib/tabs/inbox-reads.ts) go
     // out now rather than waiting for the bell to be looked at, so the
@@ -308,7 +326,9 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
   } catch (err) {
     const msg = describe(err);
     if (__DEV__) console.warn("[tabs.sync] syncTab failed", tabId.slice(0, 8), msg);
-    await setTabLinkError(tabId, msg).catch(() => {});
+    if (session && !(err instanceof SessionChangedError)) {
+      await applyForCurrentSession(session, () => setTabLinkError(tabId, msg)).catch(() => {});
+    }
     return { ...result, ok: false, error: msg };
   }
 }
@@ -374,74 +394,85 @@ export function requestTabSync(tabId: string): void {
 const boundSessions = new Map<string, string>();
 export async function reconcileTabsFromServer(): Promise<void> {
   try {
+    const session = await captureCurrentSession();
     const jwt = await getSessionJWT().catch(() => null);
     if (!jwt) return;
     // Retry recovery binding for token-held tabs created while signed out.
     for (const link of await listTabLinks()) {
       if (!link.party_token || boundSessions.get(link.tab_id) === jwt) continue;
       try {
+        await applyForCurrentSession(session, async () => {});
         await bindTab(link.party_token, link.tab_id, {
           vault_id: link.vault_id,
           relationship_id: link.relationship_id,
           linked_at_ms: link.linked_at,
         });
-        boundSessions.set(link.tab_id, jwt);
-      } catch {
+        await applyForCurrentSession(session, async () => {
+          boundSessions.set(link.tab_id, jwt);
+        });
+      } catch (err) {
+        if (err instanceof SessionChangedError) throw err;
         /* vault not registered yet / offline; next sweep retries */
       }
     }
+    await applyForCurrentSession(session, async () => {});
     const mine = await fetchMine();
-    const db = await getDb();
     for (const t of mine.tabs) {
-      const existing = await getTabLink(t.tab.id);
-      if (existing) {
-        if (
-          t.tab.closed_at_ms != null &&
-          (existing.closed_at == null || t.tab.rev > existing.rev)
-        ) {
-          // Pull through the closing revision before freezing the cache. A
-          // peer can append and close while this phone is away; marking it
-          // closed here would exclude it from the sweep and lose those rows.
-          // An already-closed period may gain a deletion closure reason and
-          // detached profile metadata later; refresh those newer revisions too.
-          await syncTab(t.tab.id);
+      const needsSync = await applyForCurrentSession(session, async () => {
+        const existing = await getTabLink(t.tab.id);
+        if (existing) {
+          if (
+            t.tab.closed_at_ms != null &&
+            (existing.closed_at == null || t.tab.rev > existing.rev)
+          ) {
+            // Pull through the closing revision before freezing the cache. A
+            // peer can append and close while this phone is away; marking it
+            // closed here would exclude it from the sweep and lose those rows.
+            // An already-closed period may gain a deletion closure reason and
+            // detached profile metadata later; refresh those newer revisions too.
+            return true;
+          }
+          return false;
         }
-        continue;
-      }
-      // A party bound to the account but to no contact (joined from the web,
-      // or bound before the kaata was restored) has nothing to hang off yet.
-      if (!t.vault_id || !t.relationship_id) continue;
-      const rel = await db.getFirstAsync<{ one: number }>(
-        `SELECT 1 AS one FROM relationships WHERE id = ? AND vault_id = ? LIMIT 1`,
-        t.relationship_id,
-        t.vault_id,
-      );
-      if (!rel) continue; // that kaata is not restored yet; the next reconcile picks it up
-      const me = t.role;
-      const them = otherRole(me);
-      try {
-        await upsertTabLink({
-          tab_id: t.tab.id,
-          vault_id: t.vault_id,
-          relationship_id: t.relationship_id,
-          role: me,
-          currency: t.tab.currency,
-          party_token: null,
-          my_label: t.tab.parties[me].label,
-          other_label: t.tab.parties[them].label,
-          other_joined_at: t.tab.parties[them].joined_at_ms,
-          invite_url: null,
-          rev: 0,
-          closed_at: t.tab.closed_at_ms,
-          linked_at: t.linked_at_ms ?? t.tab.parties[me].joined_at_ms ?? t.tab.created_at_ms,
-          last_synced_at: null,
-          last_error: null,
-        });
-      } catch (err) {
-        // idx_tab_links_open_rel: the contact already has another open tab
-        // locally. Leave the local truth alone; the user unlinks explicitly.
-        console.warn("[tabs.sync] reconcile could not insert link", t.tab.id.slice(0, 8), err);
-      }
+        // A party bound to the account but to no contact (joined from the web,
+        // or bound before the kaata was restored) has nothing to hang off yet.
+        if (!t.vault_id || !t.relationship_id) return false;
+        const db = await getDb();
+        const rel = await db.getFirstAsync<{ one: number }>(
+          `SELECT 1 AS one FROM relationships WHERE id = ? AND vault_id = ? LIMIT 1`,
+          t.relationship_id,
+          t.vault_id,
+        );
+        if (!rel) return false; // that kaata is not restored yet; the next reconcile picks it up
+        const me = t.role;
+        const them = otherRole(me);
+        try {
+          await upsertTabLink({
+            tab_id: t.tab.id,
+            vault_id: t.vault_id,
+            relationship_id: t.relationship_id,
+            role: me,
+            currency: t.tab.currency,
+            party_token: null,
+            my_label: t.tab.parties[me].label,
+            other_label: t.tab.parties[them].label,
+            other_joined_at: t.tab.parties[them].joined_at_ms,
+            invite_url: null,
+            rev: 0,
+            closed_at: t.tab.closed_at_ms,
+            linked_at: t.linked_at_ms ?? t.tab.parties[me].joined_at_ms ?? t.tab.created_at_ms,
+            last_synced_at: null,
+            last_error: null,
+          });
+        } catch (err) {
+          // idx_tab_links_open_rel: the contact already has another open tab
+          // locally. Leave the local truth alone; the user unlinks explicitly.
+          console.warn("[tabs.sync] reconcile could not insert link", t.tab.id.slice(0, 8), err);
+        }
+        return false;
+      });
+      // Network work must happen after releasing the session mutation lock.
+      if (needsSync) await syncTab(t.tab.id);
     }
   } catch (err) {
     if (__DEV__) console.warn("[tabs.sync] reconcile failed", describe(err));

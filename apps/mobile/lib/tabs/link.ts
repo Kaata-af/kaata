@@ -20,7 +20,12 @@ import * as Crypto from "expo-crypto";
 import * as Network from "expo-network";
 import { Linking } from "react-native";
 
-import { getSessionJWT, updateAccountPhone } from "../auth";
+import {
+  applyForCurrentSession,
+  captureCurrentSession,
+  getSessionJWT,
+  updateAccountPhone,
+} from "../auth";
 import { applyVaultCurrency } from "../currency";
 import {
   archivePerson,
@@ -39,7 +44,14 @@ import { ENTRY_NOTE_MAX_LENGTH, type EntryType } from "../types";
 import { readVaultRole } from "../use-vault-role";
 import { changeVaultCurrency, VaultHasOpenTabError } from "../vault-router";
 import { canPerformAction, type VaultAction } from "../vault-roles";
-import { createTab, fetchTabByToken, joinTab, regenerateTabLink, resolveTabAuth } from "./api";
+import {
+  createTab,
+  fetchTabByToken,
+  joinTab,
+  regenerateTabLink,
+  resolveTabAuth,
+  settleTab,
+} from "./api";
 import {
   queueTabMutation,
   getTabLink,
@@ -750,6 +762,41 @@ export async function voidEntry(link: TabLink, entryId: string): Promise<void> {
   // here — the server's void path marks nothing for the same reason, and the
   // counterparty's entry_voided notice is theirs to handle.
   void syncTab(link.tab_id);
+}
+
+/** Settlement is server-confirmed only: no offline optimistic fold can hide money. */
+export async function settleSharedTab(link: TabLink, requestId: string): Promise<void> {
+  requireOpen(link);
+  const session = await captureCurrentSession();
+  await assertVaultAction(link.vault_id, "entry.amend");
+  const synced = await syncTab(link.tab_id);
+  if (!synced.ok || synced.error) throw new TabAuthUnavailableError();
+  const fresh = await getTabLink(link.tab_id);
+  if (!fresh) throw new TabClosedError();
+  requireOpen(fresh);
+  if (fresh.rev !== link.rev)
+    throw new TabApiError(
+      409,
+      "stale_settlement",
+      "Shared history changed; review before clearing",
+    );
+  const db = await getDb();
+  const pending = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM tab_outbox WHERE tab_id = ?`,
+    link.tab_id,
+  );
+  if (pending?.n)
+    throw new TabApiError(409, "settlement_pending", "Pending changes must sync before clearing");
+  const auth = await applyForCurrentSession(session, () => resolveTabAuth(fresh));
+  const response = await settleTab(auth, fresh.tab_id, requestId, fresh.rev);
+  await applyForCurrentSession(session, () =>
+    upsertTabFromWire(
+      fresh,
+      { tab: response.tab, entries: [], settlements: [response.settlement], full: false },
+      { advanceCursor: false },
+    ),
+  );
+  void syncTab(fresh.tab_id);
 }
 
 /** Rename how I appear to the other party. */

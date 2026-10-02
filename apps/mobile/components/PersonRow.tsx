@@ -84,7 +84,9 @@ export const PersonRow = memo(function PersonRow(props: {
           <Text style={[styles.name, styles.nameText, textDir(isRTL)]} numberOfLines={1}>
             {person.name}
           </Text>
-          {person.tab_id && person.tab_closed_at == null ? <SharedAccountBadge /> : null}
+          {person.tab_id && person.tab_closed_at == null ? (
+            <SharedAccountBadge name={person.name} fontSize={styles.name.fontSize} />
+          ) : null}
         </View>
         <Text style={[styles.sub, textDir(isRTL)]} numberOfLines={1}>
           {subtitle}

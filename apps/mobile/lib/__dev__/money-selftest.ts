@@ -417,6 +417,10 @@ async function main(): Promise<void> {
 
   await test("actual statements, reports, CSV and PDF HTML keep cents and settlement markers", async () => {
     let archives: Array<{ link: import("../tabs/types").TabLink; entries: Entry[] }> = [];
+    let personTabId: string | null = null;
+    const sharedMarkers = new Map<string, import("../tabs/types").TabSettlement[]>();
+    const { Mutex } = require("../util/mutex") as typeof import("../util/mutex");
+    const exportMutex = new Mutex();
     const fixture = [
       created("a", 0.1, "debt", 1000),
       created("b", 0.2, "debt", 2000),
@@ -443,8 +447,17 @@ async function main(): Promise<void> {
         },
         "../calendar": { getEffectiveCalendar: () => "gregorian" },
         "../currency": { getCurrencySymbol: () => "$" },
+        "../projection": { applyEventMutex: exportMutex },
+        "../tabs/db": {
+          listTabSettlements: async (tabId: string) => sharedMarkers.get(tabId) ?? [],
+        },
         "../db": {
-          getPerson: async () => ({ id: "person", name: "Fixture", balance: 0 }),
+          getPerson: async () => ({
+            id: "person",
+            name: "Fixture",
+            balance: 0,
+            tab_id: personTabId,
+          }),
           listEntries: async () => [...fixture].reverse(),
           listSettlementBoundaries: async () => [3000],
           getLocalSelf: async () => null,
@@ -705,6 +718,129 @@ async function main(): Promise<void> {
     assert.ok(html[3].includes("Earlier shared period"));
     assert.ok(html[3].includes("old-period-evidence"));
     assert.ok(html[3].includes("60 $</div>"));
+
+    // Shared chapter membership follows the recorded sequence. Dates entered
+    // by the shopkeeper (including a later backdated tally) cannot move a row
+    // across a server-confirmed clearance, and cancelled evidence stays saved.
+    personTabId = "new-period";
+    const sharedEntry = (
+      id: string,
+      seq: number,
+      amount: number,
+      type: "debt" | "payment",
+      date: number,
+    ): Entry => ({
+      ...oldRecord,
+      id,
+      amount_afn: amount,
+      type,
+      created_at: date,
+      tab: {
+        ...oldRecord.tab!,
+        tab_id: "new-period",
+        seq,
+        status: "accepted",
+        local_pending: false,
+      },
+    });
+    const cancelled = sharedEntry("chapter-cancelled", 3, 99, "debt", 2000);
+    cancelled.tab!.voided = true;
+    const rejected = sharedEntry("chapter-rejected", 4, 88, "debt", 1000);
+    rejected.tab!.status = "disputed";
+    const unsent = sharedEntry("chapter-unsent", 0, 0.3, "debt", 0);
+    unsent.tab!.local_pending = true;
+    fixture.splice(
+      0,
+      fixture.length,
+      sharedEntry("chapter-gave", 1, 0.1, "debt", 4000),
+      sharedEntry("chapter-received", 2, 0.1, "payment", 3000),
+      cancelled,
+      rejected,
+      sharedEntry("new-backdated", 5, 0.2, "debt", 1),
+      unsent,
+    );
+    const marker: import("../tabs/types").TabSettlement = {
+      id: "current-clearance",
+      rev: 7,
+      through_seq: 4,
+      settled_at_ms: 10_000,
+      created_by: "a",
+      actor_account_id: "actor-id",
+      actor_name: "<Clearer>",
+      actor_member_role: "manager",
+      semantics_version: "tally-settlement-v1",
+    };
+    sharedMarkers.set("new-period", [marker]);
+    sharedMarkers.set("old-period", [
+      {
+        ...marker,
+        id: "archived-clearance",
+        through_seq: 2,
+        actor_name: "Archived clearer",
+        settled_at_ms: 20_000,
+      },
+    ]);
+    archives[0].entries.push({
+      ...oldRecord,
+      id: "old-period-repayment",
+      type: "payment",
+      tab: { ...oldRecord.tab!, seq: 2 },
+    });
+    const chapterStatement = (await buildPersonStatement("person", "en", "USD", "$", 30_000))!;
+    assert.deepEqual(
+      chapterStatement.rows.map((row) =>
+        row.kind === "entry" ? row.entry.id : row.shared?.settlement.id,
+      ),
+      [
+        "chapter-gave",
+        "chapter-received",
+        "chapter-cancelled",
+        "chapter-rejected",
+        "current-clearance",
+        "new-backdated",
+        "chapter-unsent",
+      ],
+    );
+    assert.equal(
+      chapterStatement.balance,
+      0.5,
+      "boundaries never change the pending-inclusive amount",
+    );
+    assert.deepEqual(chapterStatement.sharedTotals, {
+      acknowledged: 0.2,
+      pending: 0.3,
+      private: 0,
+    });
+    assert.equal(chapterStatement.rows[4].balanceAfter, 0);
+    assert.equal(chapterStatement.archivedSharedPeriods?.[0].rows.at(-1)?.kind, "settled");
+    const chapterCsv = csv.buildPersonCsv(chapterStatement);
+    const currentMarkerLine = chapterCsv
+      .split("\r\n")
+      .find((line) => line.endsWith(",current-clearance"))!;
+    assert.ok(currentMarkerLine.includes("Cleared by <Clearer>"));
+    assert.ok(currentMarkerLine.includes("1970-01-01T00:00:10.000Z"));
+    assert.ok(
+      chapterCsv.indexOf(",chapter-cancelled\r\n") < chapterCsv.indexOf(",current-clearance\r\n"),
+    );
+    assert.ok(
+      chapterCsv.indexOf(",current-clearance\r\n") < chapterCsv.indexOf(",new-backdated\r\n"),
+    );
+    const archivedMarkerLine = chapterCsv
+      .split("\r\n")
+      .find((line) => line.endsWith(",archived-clearance"))!;
+    assert.ok(archivedMarkerLine.includes("Archived clearer"));
+    assert.ok(archivedMarkerLine.includes("1970-01-01T00:00:20.000Z"));
+    assert.equal(
+      archivedMarkerLine.split(",")[4],
+      "",
+      "earlier clearance never enters today's balance",
+    );
+    await pdf.renderPersonStatementPdf(chapterStatement, "fixture-shared-chapters.pdf");
+    assert.ok(html[4].includes("Cleared by &lt;Clearer&gt;"));
+    assert.ok(html[4].includes("1970-01-01T00:00:10.000Z"));
+    assert.ok(html[4].includes("Archived clearer"));
+    assert.ok(html[4].includes("chapter-cancelled"));
+    assert.ok(html[4].indexOf("Cleared by &lt;Clearer&gt;") < html[4].indexOf("new-backdated"));
   });
 
   console.log(`\n${passed} money regression groups passed.`);

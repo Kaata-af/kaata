@@ -43,9 +43,14 @@ import { formatAmount } from "../format";
 import { tIn } from "../i18n";
 import { noteFor } from "./note";
 import { faDigits, formatSettlementDate } from "../jalali";
-import { addAmounts, sumAmounts } from "../money";
-import { exportFileTarget, type PersonStatement, type VaultReport } from "./data";
-import { EVIDENCE_KEYS, evidenceCells, recordStatus } from "./evidence";
+import { sumAmounts } from "../money";
+import {
+  exportFileTarget,
+  type PersonStatement,
+  type StatementRow,
+  type VaultReport,
+} from "./data";
+import { EVIDENCE_KEYS, evidenceCells, evidenceTime, recordStatus } from "./evidence";
 import { balanceContribution, recordTotals } from "./shared-record";
 import type { Entry } from "../types";
 
@@ -268,22 +273,41 @@ function recordDetailHtml(entry: Entry, locale: "en" | "fa"): string {
   return `<tr class="evidence"><td colspan="6"><div class="evidenceGrid">${details.join("")}</div></td></tr>`;
 }
 
+function settlementRowHtml(
+  row: Extract<StatementRow, { kind: "settled" }>,
+  st: Pick<PersonStatement, "locale" | "calendar">,
+): string {
+  const { locale, calendar } = st;
+  const label = row.shared
+    ? tIn(locale, "tab.settle.history", {
+        name: row.shared.settlement.actor_name || tIn(locale, "export.record.unknown"),
+        date: evidenceTime(row.ms),
+      })
+    : tIn(locale, "export.doc.settledOn", { date: formatSettlementDate(row.ms, locale, calendar) });
+  // Preserve the balance column (fifth) and the six-column table grid.
+  return (
+    `<tr class="settled"><td colspan="4" dir="auto">${esc(label)}</td>` +
+    `<td class="n">${num(fmtSigned(row.balanceAfter))}</td><td></td></tr>`
+  );
+}
+
 function archivedPeriodHtml(
   period: NonNullable<PersonStatement["archivedSharedPeriods"]>[number],
   st: PersonStatement,
 ): string {
   const { locale, calendar } = st;
-  let balance = 0;
-  const rows = period.entries
-    .map((entry, index) => {
-      balance = addAmounts(balance, balanceContribution(entry));
+  let index = 0;
+  const rows = period.rows
+    .map((row) => {
+      if (row.kind === "settled") return settlementRowHtml(row, st);
+      const entry = row.entry;
       const gave = entry.type === "debt";
       return `<tr>
-<td class="idx n">${num(String(index + 1))}</td>
+<td class="idx n">${num(String(++index))}</td>
 <td class="muted" dir="auto">${esc(formatSettlementDate(entry.created_at, locale, calendar))}</td>
 <td class="c"><span dir="auto">${esc(tIn(locale, gave ? "export.col.gave" : "export.col.received"))}</span><span class="recordStatus" dir="auto">${esc(recordStatus(entry.tab, locale))}</span></td>
 <td class="n amount${balanceContribution(entry) === 0 ? " excluded" : ""}">${num(`${formatAmount(entry.amount_afn)} ${esc(period.link.currency)}`)}</td>
-<td class="n bal">${num(fmtSigned(balance))}</td>
+<td class="n bal">${num(fmtSigned(row.balanceAfter))}</td>
 <td class="note" dir="auto">${esc(noteFor(entry.note, entry.tab?.kind, locale) ?? "")}</td>
 </tr>${recordDetailHtml(entry, locale)}`;
     })
@@ -307,7 +331,9 @@ export async function renderPersonStatementPdf(
   const { locale, calendar, currencySymbol: sym } = st;
   const shopName = st.self?.shop_name ?? st.self?.name ?? "";
   const entries = st.rows.filter((r) => r.kind === "entry");
-  const shared = entries.some((r) => r.entry.tab) || !!st.archivedSharedPeriods?.length;
+  const shared =
+    st.rows.some((r) => (r.kind === "entry" ? r.entry.tab : r.shared)) ||
+    !!st.archivedSharedPeriods?.length;
   const totals = st.sharedTotals ?? recordTotals(entries.map((r) => r.entry));
 
   // Totals for the summary cards. Computed here rather than in data.ts so the
@@ -376,20 +402,7 @@ ${card({ tone: "flat", label: tIn(locale, "export.doc.balance"), value: `${fmtSi
     const rows = st.rows
       .map((row) => {
         if (row.kind === "settled") {
-          const label = tIn(locale, "export.doc.settledOn", {
-            date: formatSettlementDate(row.ms, locale, calendar),
-          });
-          // The rule-off keeps the GRID: the label spans the first five cells
-          // and the balance at that moment sits in the balance column, lined
-          // up with every other balance. That makes a closed chapter
-          // verifiable at a glance, and it sidesteps the bidi hazard of
-          // putting a number next to Dari prose inside one spanned cell.
-          return (
-            `<tr class="settled">` +
-            `<td colspan="5" dir="auto">${esc(label)}</td>` +
-            `<td class="n">${num(fmtSigned(row.balanceAfter))}</td>` +
-            `</tr>`
-          );
+          return settlementRowHtml(row, st);
         }
         const e = row.entry;
         const gave = e.type === "debt";

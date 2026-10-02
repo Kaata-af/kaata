@@ -4,6 +4,7 @@ import { Platform } from "react-native";
 import { GOOGLE_IOS_CLIENT_ID, GOOGLE_WEB_CLIENT_ID } from "../constants/env";
 import { getBackendUrl } from "./api";
 import {
+  getAccountIdSync,
   getActiveVaultId,
   getAppMetaInTx,
   getDb,
@@ -80,6 +81,48 @@ async function mutateLocalSession<T>(work: () => Promise<T>): Promise<T> {
   } finally {
     release();
   }
+}
+
+/** Opaque to callers: capture before network work; never log or persist it. */
+export type SessionSnapshot = Readonly<{
+  bindingVersion: number;
+  jwt: string | null;
+  accountId: string | null;
+}>;
+
+export class SessionChangedError extends Error {
+  constructor() {
+    super("session_changed");
+    this.name = "SessionChangedError";
+  }
+}
+
+export function captureCurrentSession(): Promise<SessionSnapshot> {
+  return mutateLocalSession(async () => ({
+    bindingVersion: sessionBindingVersion,
+    jwt: await SecureStore.getItemAsync(SESSION_KEY),
+    accountId: getAccountIdSync(),
+  }));
+}
+
+/** Serialize only short local cache work with sign-in/sign-out/deletion.
+ * Never put a request or another session helper inside this callback. */
+export function applyForCurrentSession<T>(
+  snapshot: SessionSnapshot,
+  work: () => Promise<T>,
+): Promise<T> {
+  return mutateLocalSession(async () => {
+    const jwt = await SecureStore.getItemAsync(SESSION_KEY);
+    if (
+      !snapshot.jwt ||
+      snapshot.bindingVersion !== sessionBindingVersion ||
+      snapshot.jwt !== jwt ||
+      snapshot.accountId !== getAccountIdSync()
+    ) {
+      throw new SessionChangedError();
+    }
+    return work();
+  });
 }
 
 export type SessionUser = {
@@ -1110,6 +1153,7 @@ async function reconcileAccountPhone(serverPhone: string | null): Promise<void> 
 // expired, we still wipe local state because the user has clearly
 // expressed intent to be signed out.
 export async function signOut(): Promise<void> {
+  const bindingVersion = sessionBindingVersion;
   const jwt = await SecureStore.getItemAsync(SESSION_KEY);
   if (jwt) {
     try {
@@ -1122,32 +1166,41 @@ export async function signOut(): Promise<void> {
       // network failure — don't block the local wipe
     }
   }
-  // Revoke locally too so the next signInWithGoogle prompts the picker.
-  // Skipped in Expo Go (native module not available — signed-in state is
-  // impossible to enter there anyway).
-  const lib = loadGoogleSignin();
-  if (lib) {
-    try {
-      await lib.GoogleSignin.signOut();
-    } catch {
-      // already signed out / never signed in — fine
+  await mutateLocalSession(async () => {
+    // A newer sign-in may have finished while sign-out was on the network.
+    if (
+      bindingVersion !== sessionBindingVersion ||
+      (await SecureStore.getItemAsync(SESSION_KEY)) !== jwt
+    )
+      return;
+    sessionBindingVersion++;
+    // Revoke locally too so the next signInWithGoogle prompts the picker.
+    // Skipped in Expo Go (native module not available — signed-in state is
+    // impossible to enter there anyway).
+    const lib = loadGoogleSignin();
+    if (lib) {
+      try {
+        await lib.GoogleSignin.signOut();
+      } catch {
+        // already signed out / never signed in — fine
+      }
     }
-  }
-  await SecureStore.deleteItemAsync(SESSION_KEY);
-  await SecureStore.deleteItemAsync(USER_KEY);
-  // Drop the cached account_id so any further event appends in this session
-  // stamp actor_account_id=null (matching the post-sign-out reality).
-  setAccountIdCache(null);
-  // Phase 5: drop the in-memory mesh device privkey cache so a subsequent
-  // sign-in (or app-state hand-off) doesn't accidentally hold the previous
-  // session's loaded copy. Dynamic import avoids pulling the mesh module
-  // into the bundle when auth is touched on a local-only install.
-  try {
-    const mesh = await import("./mesh/device-key");
-    mesh.clearDeviceKey();
-  } catch {
-    /* mesh module not available in this build — fine */
-  }
+    await SecureStore.deleteItemAsync(SESSION_KEY);
+    await SecureStore.deleteItemAsync(USER_KEY);
+    // Drop the cached account_id so any further event appends in this session
+    // stamp actor_account_id=null (matching the post-sign-out reality).
+    setAccountIdCache(null);
+    // Phase 5: drop the in-memory mesh device privkey cache so a subsequent
+    // sign-in (or app-state hand-off) doesn't accidentally hold the previous
+    // session's loaded copy. Dynamic import avoids pulling the mesh module
+    // into the bundle when auth is touched on a local-only install.
+    try {
+      const mesh = await import("./mesh/device-key");
+      mesh.clearDeviceKey();
+    } catch {
+      /* mesh module not available in this build — fine */
+    }
+  });
 }
 
 // Permanently deletes the signed-in account server-side (DELETE /v1/account),
@@ -1215,6 +1268,9 @@ export async function resumeConfirmedAccountDeletion(): Promise<void> {
 }
 
 async function clearDeletedAccountLocally(): Promise<void> {
+  // Invalidate every response captured before cleanup, even if cleanup is
+  // interrupted while SecureStore still contains the previous JWT.
+  sessionBindingVersion++;
   // Server confirmed deletion — drop the Google session, the
   // mesh key cache, the stored JWT, and every local table.
   const lib = loadGoogleSignin();
@@ -1245,15 +1301,18 @@ async function clearDeletedAccountLocally(): Promise<void> {
 // backend signout endpoint. Used by the local-reset flow in Settings —
 // the backend session will expire on its own, no need to round-trip.
 export async function clearLocalSession(): Promise<void> {
-  await SecureStore.deleteItemAsync(SESSION_KEY);
-  await SecureStore.deleteItemAsync(USER_KEY);
-  setAccountIdCache(null);
-  try {
-    const mesh = await import("./mesh/device-key");
-    mesh.clearDeviceKey();
-  } catch {
-    /* */
-  }
+  await mutateLocalSession(async () => {
+    sessionBindingVersion++;
+    await SecureStore.deleteItemAsync(SESSION_KEY);
+    await SecureStore.deleteItemAsync(USER_KEY);
+    setAccountIdCache(null);
+    try {
+      const mesh = await import("./mesh/device-key");
+      mesh.clearDeviceKey();
+    } catch {
+      /* */
+    }
+  });
 }
 
 // Returns the cached session JWT, or null if signed out. Cheap; reads

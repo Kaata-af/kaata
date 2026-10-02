@@ -379,6 +379,8 @@ func main() {
 		pr.With(httpx.RateLimitPerIP(httpx.TabWriteLimit, httpx.TabWriteWindow)).
 			Post("/v1/tabs/{tab_id}/entries", tabsH.Append)
 		pr.With(httpx.RateLimitPerIP(httpx.TabWriteLimit, httpx.TabWriteWindow)).
+			Post("/v1/tabs/{tab_id}/settlements", tabsH.Settle)
+		pr.With(httpx.RateLimitPerIP(httpx.TabWriteLimit, httpx.TabWriteWindow)).
 			Post("/v1/tabs/{tab_id}/entries/{id}/accept", tabsH.Accept)
 		pr.With(httpx.RateLimitPerIP(httpx.TabWriteLimit, httpx.TabWriteWindow)).
 			Post("/v1/tabs/{tab_id}/entries/{id}/dispute", tabsH.Dispute)

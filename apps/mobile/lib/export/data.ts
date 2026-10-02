@@ -31,6 +31,10 @@ import { toJalali } from "../jalali";
 import type { Entry, PersonWithBalance, Self } from "../types";
 import { addAmounts } from "../money";
 import { balanceContribution, recordTotals, type RecordTotals } from "./shared-record";
+import { listTabSettlements } from "../tabs/db";
+import { afterSharedSettlement } from "../tabs/chapters";
+import type { TabSettlement } from "../tabs/types";
+import { applyEventMutex } from "../projection";
 
 export type StatementRow =
   | { kind: "entry"; entry: Entry; balanceAfter: number }
@@ -38,7 +42,12 @@ export type StatementRow =
   // guaranteed: a synced device can lawfully perturb a closed chapter
   // (assertNotInSettledChapter is local-only), so the marker carries the real
   // running balance instead of asserting a zero that may be false.
-  | { kind: "settled"; ms: number; balanceAfter: number };
+  | {
+      kind: "settled";
+      ms: number;
+      balanceAfter: number;
+      shared?: { tabId: string; settlement: TabSettlement };
+    };
 
 export type PersonStatement = {
   person: PersonWithBalance;
@@ -58,8 +67,49 @@ export type PersonStatement = {
   /** Present only when the statement contains shared records. Pending is
    *  still included in the ledger balance; acknowledgement is shown separately. */
   sharedTotals?: RecordTotals;
-  archivedSharedPeriods?: Awaited<ReturnType<typeof listArchivedSharedPeriodsForExport>>;
+  archivedSharedPeriods?: Array<
+    Awaited<ReturnType<typeof listArchivedSharedPeriodsForExport>>[number] & {
+      rows: StatementRow[];
+    }
+  >;
 };
+
+// Keep the server's chapter boundaries even when a later tally is backdated.
+// Unlike the everyday history, exports retain cancelled/rejected originals.
+function sharedStatementRows(
+  entries: Entry[],
+  settlements: TabSettlement[],
+  tabId: string,
+): StatementRow[] {
+  const sequence = (entry: Entry) =>
+    !entry.tab?.seq || entry.tab.local_pending ? Number.MAX_SAFE_INTEGER : entry.tab.seq;
+  const ordered = [...entries].sort(
+    (a, b) => sequence(a) - sequence(b) || a.created_at - b.created_at || a.id.localeCompare(b.id),
+  );
+  const rows: StatementRow[] = [];
+  let running = 0;
+  let index = 0;
+  const appendEntry = (entry: Entry) => {
+    running = addAmounts(running, balanceContribution(entry));
+    rows.push({ kind: "entry", entry, balanceAfter: running });
+  };
+  for (const settlement of [...settlements].sort((a, b) => a.through_seq - b.through_seq)) {
+    while (
+      index < ordered.length &&
+      !afterSharedSettlement(ordered[index], settlement.through_seq)
+    ) {
+      appendEntry(ordered[index++]);
+    }
+    rows.push({
+      kind: "settled",
+      ms: settlement.settled_at_ms,
+      balanceAfter: running,
+      shared: { tabId, settlement },
+    });
+  }
+  while (index < ordered.length) appendEntry(ordered[index++]);
+  return rows;
+}
 
 export type JournalRow = ExportEntryRow & { balanceAfter: number };
 
@@ -95,6 +145,20 @@ export async function buildPersonStatement(
   currencySymbol: string,
   generatedAtMs: number,
 ): Promise<PersonStatement | null> {
+  // Entries, link identity and clearance markers must describe one cache
+  // state. A concurrent pull must not put a newer boundary over older rows.
+  return applyEventMutex.runExclusive(() =>
+    buildPersonStatementSnapshot(personId, locale, currencyCode, currencySymbol, generatedAtMs),
+  );
+}
+
+async function buildPersonStatementSnapshot(
+  personId: string,
+  locale: LocaleCode,
+  currencyCode: string,
+  currencySymbol: string,
+  generatedAtMs: number,
+): Promise<PersonStatement | null> {
   const [person, entries, boundaries, self, archivedSharedPeriods] = await Promise.all([
     getPerson(personId),
     listEntries(personId),
@@ -116,7 +180,9 @@ export async function buildPersonStatement(
   // lines — a backdated tab tally would otherwise fall "into" a closed chapter.
   const chapters = person.tab_id ? [] : boundaries;
 
-  const rows: StatementRow[] = [];
+  const rows: StatementRow[] = person.tab_id
+    ? sharedStatementRows(entries, await listTabSettlements(person.tab_id), person.tab_id)
+    : [];
   let running = 0;
   let i = 0;
   for (const boundary of chapters) {
@@ -141,19 +207,33 @@ export async function buildPersonStatement(
     }
     rows.push({ kind: "settled", ms: boundary, balanceAfter: running });
   }
-  while (i < asc.length) {
+  while (!person.tab_id && i < asc.length) {
     const entry = asc[i++];
     running = addAmounts(running, balanceContribution(entry));
     rows.push({ kind: "entry", entry, balanceAfter: running });
   }
+  if (person.tab_id) running = rows.at(-1)?.balanceAfter ?? 0;
+
+  const archivedPeriods = await Promise.all(
+    archivedSharedPeriods.map(async (period) => {
+      const rows = sharedStatementRows(
+        period.entries,
+        await listTabSettlements(period.link.tab_id),
+        period.link.tab_id,
+      );
+      return {
+        ...period,
+        rows,
+        entries: rows.flatMap((row) => (row.kind === "entry" ? [row.entry] : [])),
+      };
+    }),
+  );
 
   return {
     person,
     self,
     rows,
-    // The headline must equal the table's last running value BY CONSTRUCTION —
-    // getPerson's aggregate is a second, non-atomic read that a concurrent
-    // sync-applier write could shift between the two queries.
+    // Derive the headline from exactly the rows printed in this statement.
     balance: running,
     currencyCode,
     currencySymbol,
@@ -165,16 +245,7 @@ export async function buildPersonStatement(
     calendar: getEffectiveCalendar(),
     generatedAtMs,
     ...(asc.some((e) => e.tab) ? { sharedTotals: recordTotals(asc) } : {}),
-    ...(archivedSharedPeriods.length
-      ? {
-          archivedSharedPeriods: archivedSharedPeriods.map((p) => ({
-            ...p,
-            entries: p.entries.sort(
-              (a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id),
-            ),
-          })),
-        }
-      : {}),
+    ...(archivedPeriods.length ? { archivedSharedPeriods: archivedPeriods } : {}),
   };
 }
 

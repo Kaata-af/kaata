@@ -145,12 +145,7 @@ for (const isRTL of [false, true]) {
     ).length,
     0,
   );
-  for (const meta of [
-    { status: "accepted" },
-    { status: "disputed" },
-    { voided: true },
-    { by: "them" },
-  ]) {
+  for (const meta of [{ status: "accepted" }, { status: "disputed" }, { by: "them" }]) {
     assert.equal(
       nodes(opened({ ...selfProps, tab: { ...selfProps.tab, ...meta } })).some(
         (n) => n.props.accessibilityLabel === "tab.cancel",
@@ -179,10 +174,24 @@ for (const isRTL of [false, true]) {
   const selfMember = opened({ ...base, attribution: { author: { name: "Matee", isSelf: true } } });
   assert.ok(words(selfMember).includes(rtl ? "Matee (شما)" : "Matee (you)"));
   for (const status of ["pending", "accepted", "disputed"]) {
-    const tree = opened({
+    const props = {
       ...base,
       tab: { by: "them", status, other_label: "Shop", author_name: "احمد" },
-    });
+    };
+    slots = [];
+    const collapsed = render(props);
+    assert.equal(
+      words(collapsed).includes("tab.status."),
+      false,
+      "state text appears only after a tap",
+    );
+    const expectedFill = `${status === "pending" ? colors.pendingBg : status === "accepted" ? colors.acceptedBg : colors.rejectedBg}80`;
+    assert.equal(
+      style(collapsed.props.style).backgroundColor,
+      expectedFill,
+      "state tint covers the entire tally",
+    );
+    const tree = opened(props);
     const buttons = nodes(tree).filter(
       (n) =>
         n.type === "Pressable" && ["tab.accept", "tab.reject"].includes(n.props.accessibilityLabel),
@@ -192,49 +201,39 @@ for (const isRTL of [false, true]) {
       status === "pending" ? 2 : 0,
       "opening reviewed rows must not resurrect actions",
     );
+    for (const button of buttons) {
+      const appearance = style(button.props.style({ pressed: false }));
+      assert.ok(appearance.minHeight >= 44, "review buttons retain touch targets");
+      assert.ok(
+        appearance.borderWidth > 0 && appearance.borderRadius > 0,
+        "actions are visibly buttons",
+      );
+    }
     const author = nodes(tree).find((n) => n.type === "Text" && n.props.numberOfLines === 2)!;
     assert.equal(style(author.props.style).textAlign, rtl ? "left" : "right", "same edge as date");
     const name = nodes(author).find((n) => n.type === "Text" && n.props.children === "احمد")!;
     assert.equal(style(name.props.style).fontFamily, "Bold");
     assert.equal(words(author), rtl ? "ثبت‌شده توسط احمد" : "Added by احمد");
     const statusKey =
-      status === "pending" ? "new" : status === "accepted" ? "accepted" : "disputed";
-    const statusPill = nodes(tree).find(
-      (n) => n.type === "View" && n.props.accessibilityLabel === "tab.status." + statusKey,
-    )!;
+      status === "pending" ? "pending" : status === "accepted" ? "accepted" : "disputed";
     assert.equal(
-      style(statusPill.props.style).backgroundColor,
-      status === "pending"
-        ? colors.pendingBg
-        : status === "accepted"
-          ? colors.acceptedBg
-          : colors.rejectedBg,
+      nodes(tree).filter((n) => n.type === "Text" && n.props.children === "tab.status." + statusKey)
+        .length,
+      1,
     );
     if (status === "disputed") {
-      const pill = nodes(tree).find(
-        (n) => n.type === "View" && n.props.accessibilityLabel === "tab.status.disputed",
-      )!;
-      assert.equal(style(pill.props.style).backgroundColor, colors.rejectedBg);
       const amount = nodes(tree).find((n) => n.type === "Text" && n.props.children === "10")!;
       assert.equal(style(amount.props.style).textDecorationLine, "line-through");
     }
   }
-  const voided = opened({ ...base, tab: { by: "me", status: "accepted", voided: true } });
+  slots = [];
   assert.equal(
-    nodes(voided).filter((n) => n.type === "Text" && n.props.children === "tab.status.voided")
-      .length,
-    1,
-    "Voided appears only in the date pill",
+    render({ ...base, tab: { by: "me", status: "pending", voided: true } }),
+    null,
+    "cancelled rows are absent from the everyday list",
   );
-  const voidPill = nodes(voided).find(
-    (n) => n.type === "View" && n.props.accessibilityLabel === "tab.status.voided",
-  )!;
-  assert.equal(style(voidPill.props.style).backgroundColor, colors.rejectedBg);
   const sent = opened({ ...base, tab: { by: "me", status: "pending", author_name: "Matee" } });
-  const pendingPill = nodes(sent).find(
-    (n) => n.type === "View" && n.props.accessibilityLabel === "tab.status.pending",
-  )!;
-  assert.equal(style(pendingPill.props.style).backgroundColor, colors.pendingBg);
+  assert.equal(style(sent.props.style).backgroundColor, `${colors.pendingBg}80`);
   const member = opened({
     ...base,
     attribution: {
@@ -268,12 +267,12 @@ assert.ok(
     person.indexOf('label: t("person.sheet.edit"', person.indexOf("<OverflowMenu")),
 );
 console.log(
-  "PASS: final review controls, bold/date-side names in EN/FA, one void label, muted rejection, floating full-size button styles",
+  "PASS: tinted rows and expanded-only states in EN/FA, visible review buttons, cancelled rows hidden, floating full-size controls",
 );
 
 // Render the real bell/header against different safe viewports. In particular,
 // the preview must not retain an x-coordinate from the bell or a 380px width cap.
-let viewport = { width: 390, height: 844 };
+let viewport = { width: 390, height: 844, fontScale: 1 };
 let insets = { top: 47, bottom: 34, left: 0, right: 0 };
 mocks.react.useEffect = () => {};
 Object.assign(mocks["react-native"], {
@@ -304,7 +303,7 @@ const { NotificationBell, FullNotificationInbox } = compile(
   readFileSync(require.resolve("../../components/NotificationInbox"), "utf8"),
 );
 for (const width of [320, 390, 430, 844]) {
-  viewport = { width, height: width === 844 ? 390 : 844 };
+  viewport = { width, height: width === 844 ? 390 : 844, fontScale: 1 };
   insets = { top: 47, bottom: 34, left: width === 844 ? 47 : 0, right: 0 };
   for (const r of [false, true]) {
     rtl = r;
@@ -360,7 +359,7 @@ console.log(
 
 // The identity badge stays a fixed centered scalloped glyph, not a menu icon.
 mocks["@expo/vector-icons"].MaterialIcons = "MaterialIcon";
-const { SharedAccountBadge } = compile(
+const { SharedAccountBadge, sharedAccountBadgeOffset } = compile(
   readFileSync(require.resolve("../../components/SharedAccountBadge"), "utf8"),
 );
 const badge = SharedAccountBadge({ size: 20 });
@@ -368,6 +367,22 @@ assert.equal(style(badge.props.style).alignItems, "center");
 assert.equal(style(badge.props.style).justifyContent, "center");
 assert.equal(style(badge.props.style).flexShrink, 0);
 assert.equal(nodes(badge).find((n) => n.type === "MaterialIcon")?.props.name, "verified");
+for (const name of ["احمد", "Matee احمد", "۱۲۳", ""]) {
+  assert.equal(
+    sharedAccountBadgeOffset(name, 24, 1.5),
+    0,
+    "Persian and mixed script alignment stays unchanged",
+  );
+}
+assert.ok(
+  sharedAccountBadgeOffset("Matee", 15, 1) < 0,
+  "Latin badge aligns with visible capitals above line-box centre",
+);
+assert.equal(
+  sharedAccountBadgeOffset("Matee", 15, 1.5),
+  sharedAccountBadgeOffset("Matee", 15, 1) * 1.5,
+  "alignment follows accessibility text scale",
+);
 assert.match(person, /icon: "link-outline" as const/);
 assert.equal(person.includes('t("tab.chip.linked"'), false);
 assert.equal(person.includes("confirmVoidFor"), false, "no cancellation sheet/dialog");

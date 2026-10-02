@@ -269,7 +269,9 @@ export default function PersonAddOrFindScreen() {
               <Text style={[styles.rowName, textDir(isRTL), { flexShrink: 1 }]} numberOfLines={1}>
                 {p.name}
               </Text>
-              {p.tab_id && p.tab_closed_at == null ? <SharedAccountBadge /> : null}
+              {p.tab_id && p.tab_closed_at == null ? (
+                <SharedAccountBadge name={p.name} fontSize={styles.rowName.fontSize} />
+              ) : null}
             </View>
             <Text style={[styles.rowSub, textDir(isRTL)]} numberOfLines={1}>
               {p.phone ? ltrIsolate(p.phone) : t("contacts.noPhone")}

@@ -1,9 +1,148 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import ts from "typescript";
 import {
   completeAccountDeletion,
   requestAccountDeletion,
   resumeConfirmedDeletion,
 } from "../account-deletion";
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+async function testCurrentSessionResponseGuard() {
+  const store = new Map<string, string>([["kaata.session.jwt", "session-a"]]);
+  let account: string | null = "account-a";
+  const resetStarted = deferred();
+  const finishReset = deferred();
+  const cache: string[] = [];
+  const compiled = ts.transpileModule(readFileSync(require.resolve("../auth"), "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const mocks: Record<string, unknown> = {
+    "expo-constants": { __esModule: true, default: { executionEnvironment: "storeClient" } },
+    "expo-secure-store": {
+      getItemAsync: async (key: string) => store.get(key) ?? null,
+      setItemAsync: async (key: string, value: string) => {
+        store.set(key, value);
+      },
+      deleteItemAsync: async (key: string) => {
+        store.delete(key);
+      },
+    },
+    "react-native": { Platform: { OS: "android" } },
+    "../constants/env": {},
+    "./api": { getBackendUrl: async () => "https://example.test" },
+    "./db-tx": {
+      getAccountIdSync: () => account,
+      setAccountIdCache: (id: string | null) => {
+        account = id;
+      },
+      setLocalSelfUserIdCache: () => {},
+      setInstallIdCache: () => {},
+    },
+    "./db": {
+      resetAllLocalData: async () => {
+        resetStarted.resolve();
+        await finishReset.promise;
+        cache.length = 0;
+      },
+      initDb: async () => {},
+    },
+    "./effective-account": {},
+    "./event-log": {},
+    "./phone": {},
+    "./install-id": { ensureInstallId: async () => "new-install" },
+    "./mesh/device-key": { clearDeviceKey: () => {} },
+    "./account-deletion": {
+      completeAccountDeletion,
+      requestAccountDeletion,
+      resumeConfirmedDeletion,
+    },
+  };
+  const exports: Record<string, unknown> = {};
+  new Function("require", "exports", compiled)((name: string) => {
+    assert.ok(name in mocks, "unexpected auth dependency: " + name);
+    return mocks[name];
+  }, exports);
+  const auth = exports as unknown as typeof import("../auth");
+  const beforeDeletion = await auth.captureCurrentSession();
+  assert.equal(await auth.applyForCurrentSession(beforeDeletion, async () => 42), 42);
+
+  // Exercise the actual confirmed-deletion flow while a response arrives.
+  // Cache work queues behind cleanup, then rejects before recreating data.
+  store.set("kaata.account.deletion-confirmation", "session-a");
+  const deleting = auth.resumeConfirmedAccountDeletion();
+  await resetStarted.promise;
+  let appliedAfterDelete = false;
+  const late = assert.rejects(
+    auth.applyForCurrentSession(beforeDeletion, async () => {
+      appliedAfterDelete = true;
+      cache.push("old shared tally");
+    }),
+    auth.SessionChangedError,
+  );
+  await Promise.resolve();
+  assert.equal(appliedAfterDelete, false);
+  finishReset.resolve();
+  await deleting;
+  await late;
+  assert.equal(cache.length, 0);
+
+  const signedOut = await auth.captureCurrentSession();
+  await assert.rejects(
+    auth.applyForCurrentSession(signedOut, async () => cache.push("anonymous")),
+    auth.SessionChangedError,
+  );
+
+  store.set("kaata.session.jwt", "session-b");
+  account = "account-b";
+  const beforeSwitch = await auth.captureCurrentSession();
+  account = "account-c";
+  await assert.rejects(
+    auth.applyForCurrentSession(beforeSwitch, async () => cache.push("wrong account")),
+    auth.SessionChangedError,
+  );
+  account = "account-b";
+  await auth.rotateSessionJWT("session-b-refreshed");
+  await assert.rejects(
+    auth.applyForCurrentSession(beforeSwitch, async () => cache.push("old token")),
+    auth.SessionChangedError,
+  );
+
+  // Generation prevents an ABA reuse even when account and JWT are identical.
+  const beforeClear = await auth.captureCurrentSession();
+  await auth.clearLocalSession();
+  store.set("kaata.session.jwt", "session-b-refreshed");
+  account = "account-b";
+  await assert.rejects(
+    auth.applyForCurrentSession(beforeClear, async () => cache.push("old generation")),
+    auth.SessionChangedError,
+  );
+
+  // In the other ordering, an accepted local apply finishes before cleanup.
+  const current = await auth.captureCurrentSession();
+  const entered = deferred();
+  const finishApply = deferred();
+  const applying = auth.applyForCurrentSession(current, async () => {
+    entered.resolve();
+    await finishApply.promise;
+    assert.equal(store.get("kaata.session.jwt"), "session-b-refreshed");
+  });
+  await entered.promise;
+  const clearing = auth.clearLocalSession();
+  await Promise.resolve();
+  assert.equal(account, "account-b", "cleanup cannot interleave inside guarded cache work");
+  finishApply.resolve();
+  await applying;
+  await clearing;
+  assert.equal(account, null);
+}
 
 async function main() {
   let requests = 0;
@@ -115,9 +254,8 @@ async function main() {
   await resumeConfirmedDeletion(recovery);
   assert.equal(cleanupCalls, 4, "confirmed partial cleanup resumes locally without a session");
   assert.equal(confirmation, null);
-  console.log(
-    "account-deletion: confirmed success only; missing/expired/error responses preserve local data",
-  );
+  await testCurrentSessionResponseGuard();
+  console.log("account-deletion: confirmed cleanup and session-serialized response guards passed");
 }
 
 void main();

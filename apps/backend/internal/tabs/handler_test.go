@@ -52,6 +52,7 @@ func newHTTPFixture(t *testing.T) *httpFixture {
 		pr.Post("/v1/tabs/{tab_id}/bind", h.Bind)
 		pr.Post("/v1/tabs/{tab_id}/label", h.Label)
 		pr.Post("/v1/tabs/{tab_id}/entries", h.Append)
+		pr.Post("/v1/tabs/{tab_id}/settlements", h.Settle)
 		pr.Post("/v1/tabs/{tab_id}/entries/{id}/accept", h.Accept)
 		pr.Post("/v1/tabs/{tab_id}/entries/{id}/dispute", h.Dispute)
 		pr.Post("/v1/tabs/{tab_id}/entries/{id}/void", h.Void)

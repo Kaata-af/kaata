@@ -100,6 +100,7 @@ const MIGRATION_028 = "028_tabs";
 const MIGRATION_029 = "029_tab_failed_ops";
 const MIGRATION_030 = "030_tab_actor_identity";
 const MIGRATION_031 = "031_shared_record_evidence";
+const MIGRATION_032 = "032_shared_settlements";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -479,6 +480,9 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   }
   if (!(await hasRunMigration(db, MIGRATION_031))) {
     await runMigration031(db);
+  }
+  if (!(await hasRunMigration(db, MIGRATION_032))) {
+    await runMigration032(db);
   }
 }
 
@@ -3295,6 +3299,32 @@ async function runMigration031(db: SQLite.SQLiteDatabase): Promise<void> {
   });
 }
 
+async function runMigration032(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS tab_settlements (
+        id TEXT PRIMARY KEY,
+        tab_id TEXT NOT NULL REFERENCES tab_links(tab_id) ON DELETE CASCADE,
+        rev INTEGER NOT NULL,
+        through_seq INTEGER NOT NULL,
+        settled_at_ms INTEGER NOT NULL,
+        created_by TEXT NOT NULL,
+        actor_account_id TEXT,
+        actor_name TEXT NOT NULL,
+        actor_member_role TEXT,
+        semantics_version TEXT NOT NULL,
+        UNIQUE(tab_id, through_seq)
+      );
+      UPDATE tab_links SET rev = 0;
+    `);
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_032,
+      Date.now(),
+    );
+  });
+}
+
 // --- v0 row shapes (used only during migration) ---
 type V0Shopkeeper = {
   id: number;
@@ -3406,6 +3436,7 @@ export async function resetAllLocalData(opts: { keepLocalBackups?: boolean } = {
     -- this device after "erase everything" — the L27 hole again, with money in
     -- it. tab_entries would otherwise cascade only if its parent row went.
     DROP TABLE IF EXISTS tab_entries;
+    DROP TABLE IF EXISTS tab_settlements;
     DROP TABLE IF EXISTS tab_outbox;
     DROP TABLE IF EXISTS tab_failed_ops;
     DROP TABLE IF EXISTS tab_links;
@@ -4041,10 +4072,22 @@ async function selectAllPeopleRaw(db: SQLite.SQLiteDatabase): Promise<PersonWith
             -- Deliberately settled (2026-07-27): balance zero AND the latest
             -- ruled-off line covers every live entry. A merely-zero balance
             -- is NOT settled — only the user's own settle act is. NULL
-            -- comparison (no settlements) falls to ELSE 0. A LINKED contact
-            -- is never a settled chapter: the tab is the account (D8) and
-            -- its local rows are frozen history.
+            -- comparison (no settlements) falls to ELSE 0. Shared chapters
+            -- are server-sequence boundaries: even backdated new records or
+            -- queued changes reopen the account's current page.
             CASE
+              WHEN tl.tab_id IS NOT NULL
+               AND ((SELECT ${tabBalanceSql("tl.role", "te")} FROM tab_entries te WHERE te.tab_id = tl.tab_id)
+                    + ${signedEntryMinorSumSql("e", "e.created_at > tl.linked_at")}) = 0
+               AND EXISTS (SELECT 1 FROM tab_settlements s WHERE s.tab_id = tl.tab_id
+                    AND s.through_seq >= COALESCE((SELECT MAX(te.seq) FROM tab_entries te WHERE te.tab_id = tl.tab_id), 0))
+               AND NOT EXISTS (SELECT 1 FROM tab_entries te WHERE te.tab_id = tl.tab_id
+                    AND (te.seq IS NULL OR te.seq <= 0 OR te.local_pending <> 0 OR te.local_action_pending <> 0
+                         OR (te.kind <> 'void' AND te.voided_by_entry_id IS NULL AND te.status = 'pending')))
+               AND NOT EXISTS (SELECT 1 FROM tab_outbox o WHERE o.tab_id = tl.tab_id)
+               AND NOT EXISTS (SELECT 1 FROM entries le WHERE le.relationship_id = r.id
+                    AND le.vault_id = r.vault_id AND le.deleted_at IS NULL AND le.created_at > tl.linked_at)
+              THEN 1
               WHEN tl.tab_id IS NULL
                AND ${signedEntryMinorSumSql("e")} = 0
                AND (SELECT MAX(s.settled_at_ms) FROM settlements s
