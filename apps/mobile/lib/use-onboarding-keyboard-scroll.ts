@@ -70,8 +70,10 @@ export function useOnboardingKeyboardScroll() {
 
   const scrollProps = {
     ref: scrollRef,
-    // iOS grows native scroll insets; Android already uses Expo's adjustResize.
-    // Do not add a KeyboardAvoidingView on top of either compensation.
+    // iOS grows native scroll insets. Android draws edge-to-edge, where
+    // adjustResize no longer shrinks the window, so the onboarding screens
+    // wrap this ScrollView in a KeyboardAvoidingView ("height") enabled on
+    // Android only. Never enable it on iOS: it would compensate twice.
     automaticallyAdjustKeyboardInsets: Platform.OS === "ios",
     contentInsetAdjustmentBehavior: "never",
     keyboardShouldPersistTaps: "handled",
@@ -80,8 +82,9 @@ export function useOnboardingKeyboardScroll() {
     onScroll: (event) => {
       scrollY.current = event.nativeEvent.contentOffset.y;
     },
-    // Android 10 and below may omit keyboard events with adjustResize. The
-    // resized viewport still lays out, so focus stays visible on those phones.
+    // On Android keyboardDidShow can land before the KeyboardAvoidingView has
+    // shrunk this viewport, when the scroll is still clamped; this re-reveal
+    // on the new layout finishes it.
     onLayout: revealFocusedInput,
     onContentSizeChange: revealFocusedInput,
   } satisfies ScrollViewProps & { ref: typeof scrollRef };

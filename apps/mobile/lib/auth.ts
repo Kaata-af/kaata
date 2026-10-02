@@ -1259,6 +1259,12 @@ export async function hasPendingAccountDeletion(): Promise<boolean> {
 // Called before startup sync: only a server-confirmed deletion resumes
 // automatically. Unconfirmed attempts remain available for an explicit retry.
 export async function resumeConfirmedAccountDeletion(): Promise<void> {
+  // Boot runs this on EVERY launch as a fatal step before the ledger opens.
+  // Look for the receipt first: an absent SecureStore entry is answered
+  // without a Keystore/keychain decrypt, so a session blob that cannot be
+  // read (DecryptException) no longer locks a signed-in user out of the
+  // whole app. Only a phone holding a confirmed deletion reads the session.
+  if (!(await SecureStore.getItemAsync(DELETION_CONFIRMATION_KEY))) return;
   const { resumeConfirmedDeletion } = await import("./account-deletion");
   await resumeConfirmedDeletion(
     await accountDeletionRecovery(async () => {

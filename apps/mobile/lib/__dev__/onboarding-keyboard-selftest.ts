@@ -28,6 +28,7 @@ function fixture(os: "ios" | "android") {
   let viewportHeight = 700;
   let offset = 0;
   const viewportTop = 80; // Includes the safe area and the fixed Back header.
+  const formHeight = 700; // Natural form height: fits the unshrunk viewport.
   const scrolls: number[] = [];
   const exports: any = {};
   new Function("require", "exports", source)((name: string) => {
@@ -59,9 +60,15 @@ function fixture(os: "ios" | "android") {
         callback(0, viewportTop, 360, viewportHeight),
     }),
     scrollTo: ({ y }: { y: number }) => {
-      offset = y;
-      scrolls.push(y);
-      hook.scrollProps.onScroll({ nativeEvent: { contentOffset: { y } } });
+      // Native scrolling clamps to the content's overflow. The form fits the
+      // unshrunk viewport (flexGrow keeps it at least that tall), so only
+      // iOS's automatic keyboard inset or a shrunken viewport gives range.
+      const inset =
+        os === "ios" && keyboard ? Math.max(0, viewportTop + viewportHeight - keyboard.screenY) : 0;
+      const clamped = Math.min(y, Math.max(formHeight, viewportHeight) - viewportHeight + inset);
+      offset = clamped;
+      scrolls.push(clamped);
+      hook.scrollProps.onScroll({ nativeEvent: { contentOffset: { y: clamped } } });
     },
   };
   const input = (contentTop: number) => ({
@@ -141,8 +148,12 @@ try {
   assert.equal(android.hook.scrollProps.automaticallyAdjustKeyboardInsets, false);
   android.hook.focusInput(android.input(600));
   android.flush();
-  android.resize(320); // Older Android adjustResize can omit keyboard events.
-  assert.equal(android.scrolls.at(-1), 348, "resized viewport alone reveals the phone field");
+  // Edge-to-edge: the keyboard covers the form but the window keeps its size,
+  // so the reveal is clamped and the phone field stays under the keyboard.
+  android.showKeyboard(400);
+  assert.equal(android.scrolls.at(-1), 0, "without a shrink nothing can scroll on Android");
+  android.resize(320); // The Android KeyboardAvoidingView shrinks the viewport.
+  assert.equal(android.scrolls.at(-1), 348, "the shrunken viewport reveals the phone field");
   const visibleCount = android.scrolls.length;
   android.resize(320);
   assert.equal(
@@ -151,8 +162,28 @@ try {
     "repeated layout cannot accumulate keyboard spacing",
   );
   android.dispose();
+
+  // Edge-to-edge Android never shrinks the window for the keyboard, so the
+  // resize modelled above only exists because each onboarding screen wraps
+  // its form in an Android-only KeyboardAvoidingView. Without it the phone
+  // field and Continue sit under the keyboard with nothing to scroll.
+  for (const screen of ["profile", "kaata"]) {
+    const src = readFileSync(require.resolve(`../../app/onboarding/${screen}`), "utf8");
+    const avoid = src.indexOf("<KeyboardAvoidingView");
+    assert.ok(
+      avoid >= 0 &&
+        avoid < src.indexOf("<ScrollView") &&
+        src.indexOf("</ScrollView>") < src.indexOf("</KeyboardAvoidingView>"),
+      `onboarding/${screen}: the form must sit inside a KeyboardAvoidingView`,
+    );
+    const props = /<KeyboardAvoidingView\b([\s\S]*?)\n\s*>/.exec(src)?.[1] ?? "";
+    assert.ok(
+      props.includes('behavior="height"') && props.includes('enabled={Platform.OS === "android"}'),
+      `onboarding/${screen}: keyboard avoidance must be "height", enabled on Android only (iOS uses scroll insets)`,
+    );
+  }
   console.log(
-    "onboarding-keyboard: focus changes, safe-area offsets, native insets, old Android resize, and cleanup passed",
+    "onboarding-keyboard: focus changes, safe-area offsets, native insets, Android keyboard avoidance, and cleanup passed",
   );
 } finally {
   globalThis.requestAnimationFrame = originalRequestFrame;

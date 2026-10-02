@@ -6,20 +6,87 @@ durable offline queue, and push delivery infrastructure. Existing private ledger
 events are not rewritten.
 Automated checks and store submissions do not replace native two-phone testing.
 
-Current release candidate: **2.0.0 / Android 45 / iOS 25**. Adds pending-only
-cancellation (server and offline queue), inline expanded-row cancellation,
-badge-only linked names, self-authorship suffixes, contacts-permission recovery,
-and brief gray notification highlights that leave already-visible tallies in place.
-Backend migration 043 repairs first-kaata pre-sign-in uploads without rewriting
-ledger history. The fix is compatible with existing 1.2.0 clients.
+Current release candidate: **2.1.0 / Android 46 / iOS 26**, built from the
+commit that carries this paragraph: `84c3af4` plus the version bump and the two
+pre-build fixes below. Everything since 2.0.0's `a7df93c` reaches devices for
+the first time: clearing a shared account at zero (backend 051, mobile 032),
+evidence kept through account deletion (backend 047/049/050, mobile 031), the
+join rework (currency switch, sender-phone match, full contact list), the
+"handled means read" notification model, restyled tally rows (cancelled
+tallies leave the list but stay in exports) and onboarding keyboard handling.
+Mobile migrations 031 and 032 reset every tab cursor, so the first online launch
+re-pulls each shared account once. The backend for all of it was live before
+the build (verified 2 October 2026: `/v1/tabs/{id}/settlements` is routed and
+the web privacy page carries the 2 October 2026 date). Testing tracks only: no
+production promotion or App Store review submission is authorized for 46/26.
+
+Production baseline: 2.0.0, Play production versionCode 45 at 100%; App Store
+2.0.0 released 26 September 2026.
+
+Pre-build review fixes (2 October 2026), each pinned by a selftest that fails
+without it:
+
+- Boot no longer decrypts the stored session on every launch. The fatal
+  `account_deletion_cleanup` step returns unless a deletion receipt exists, so a
+  Keystore read failure can no longer lock a signed-in user out of the ledger
+  unless a deletion receipt is present (`selftest:account-deletion`).
+- Android onboarding (profile, kaata) is wrapped in a `KeyboardAvoidingView`
+  again, as in 2.0.0, now enabled on Android only. Edge-to-edge means adjustResize no
+  longer shrinks the window, so without it the phone field, the currency row and
+  the Continue/Create buttons sat under the keyboard with nothing to scroll
+  (`selftest:onboarding-keyboard`).
+
+### Phone checks for 46/26
+
+- Install over 2.0.0 on both phones; never uninstall. Before updating, note each
+  shared contact's home balance, person-screen balance and "to review" count.
+  After the first online launch has re-pulled every shared account, they must
+  match, and the two phones must agree (sign-flipped).
+- Update both phones before testing clearing or read syncing. A 2.0.0 phone keeps
+  identical balances but never shows the cleared line.
+- Clearing needs a connection, an exact zero balance, nothing pending and nothing
+  unsent. The first tap may answer "changed" if a sync just landed; tap again.
+  Both phones must then show the cleared line and a fresh page.
+- Cancel your own pending tally: it leaves both lists and appears in PDF/CSV
+  exports struck through, counting zero. Rejected tallies stay in the list.
+- Android onboarding on the smallest phone available, in Dari and English: Next
+  from Last name to Phone keeps the field visible, Continue is reachable with the
+  keyboard open, and an invalid-number error is visible. Repeat on the kaata
+  step. Check iPhone too.
+- Cold-start several times signed in, signed out and after signing back in. A
+  "Couldn't start" screen naming `account_deletion_cleanup` is a regression.
+- Notifications: tapping one, reviewing the tally, or opening the contact must
+  drop the bell badge and clear the tray item, including from airplane mode
+  after reconnecting.
+- Test account deletion ONLY with a throwaway account that has never been signed
+  in on the other phone (see the known issues).
+
+### Known issues carried by 46/26 (fix before production)
+
+- A phone that was ever signed in to a deleted account cannot sign in or check
+  in again (server 410, shown as a generic error) and has no in-app reset. The
+  server half is live, so 2.0.0 phones are affected too. Recover with Android
+  Clear storage (a reinstall can restore the old install id from Google backup)
+  or an iOS reinstall.
+- The PDF "Cleared by" line prints a raw UTC timestamp and reuses the UI chip's
+  `·`, so it scrambles next to Dari-script names (a Latin name stays legible).
+- The website privacy policy still promises deletion of all server data, but
+  shared history is now kept after account deletion.
+- Shared-account CSVs changed shape: evidence columns are inserted before Entry
+  ID and rejected/cancelled amounts stay in Gave/Received.
+- `npm run preview:pdf` crashes, so PDF checks must be done on the phones.
+- After the one-time full re-pull, an offline accept/reject/cancel that is still
+  in retry backoff can show as pending again until it sends (self-heals).
+- Dismissing the join screen by swipe or Back after "Create a … kaata" leaves
+  the currency preset armed for the next new kaata.
+
+### Previous delivery — 26 September 2026 Kabul (45/25)
 
 On 25 September 2026, Matee explicitly authorized commit/push, testing delivery,
 then production submission once this new build is available in TestFlight.
 This overrides the usual wait-for-another-approval step for this delivery only;
 it does not claim that the new native builds have already been phone-tested.
 Store review/availability is separate from successful upload.
-
-### Current delivery — 26 September 2026 Kabul (45/25)
 
 - Source commit: `a7df93c124aa6d2b32f93c1573737caff5f651b0`, pushed to main.
   Full isolated-Postgres Go tests, Go build/vet, mobile typecheck and all 18

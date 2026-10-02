@@ -1,7 +1,17 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { FormField } from "../../components/FormField";
@@ -229,86 +239,97 @@ export default function OnboardingKaataScreen() {
         </Pressable>
       </View>
 
-      <ScrollView
-        {...scrollProps}
+      <KeyboardAvoidingView
         style={styles.form}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
+        // Android draws edge-to-edge, so adjustResize no longer shrinks the
+        // window: without this the currency row and Create sit under the
+        // keyboard with nothing to scroll (2.0.0 had it). Inert on iOS, whose
+        // ScrollView insets already compensate (see the hook); enabled there it
+        // would also arm a stray LayoutAnimation on every keyboard show.
+        behavior="height"
+        enabled={Platform.OS === "android"}
       >
-        <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
-          {t("onboardingKaata.title")}
-        </Text>
-        <Text style={[styles.subtitle, textDir(isRTL)]}>{t("onboardingKaata.subtitle")}</Text>
+        <ScrollView
+          {...scrollProps}
+          style={styles.form}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
+            {t("onboardingKaata.title")}
+          </Text>
+          <Text style={[styles.subtitle, textDir(isRTL)]}>{t("onboardingKaata.subtitle")}</Text>
 
-        <View style={styles.spacer} />
+          <View style={styles.spacer} />
 
-        <FormField
-          ref={shopRef}
-          onFocus={() => focusInput(shopRef.current)}
-          onBlur={() => blurInput(shopRef.current)}
-          label={t("onboardingKaata.name.label")}
-          required
-          value={shopName}
-          editable={!busy}
-          maxLength={NAME_MAX}
-          autoCapitalize="words"
-          placeholder={t("onboardingKaata.name.placeholder")}
-          onChangeText={(s) => {
-            setShopName(s);
-            if (nameError) setNameError(null);
-          }}
-          error={nameError}
-        />
+          <FormField
+            ref={shopRef}
+            onFocus={() => focusInput(shopRef.current)}
+            onBlur={() => blurInput(shopRef.current)}
+            label={t("onboardingKaata.name.label")}
+            required
+            value={shopName}
+            editable={!busy}
+            maxLength={NAME_MAX}
+            autoCapitalize="words"
+            placeholder={t("onboardingKaata.name.placeholder")}
+            onChangeText={(s) => {
+              setShopName(s);
+              if (nameError) setNameError(null);
+            }}
+            error={nameError}
+          />
 
-        {/* Currency: row→sheet, IDENTICAL to the edit path (vault/settings.tsx)
+          {/* Currency: row→sheet, IDENTICAL to the edit path (vault/settings.tsx)
               and to /vault/new. The old control was a 9-chip wrapping grid at
               ~36px tall — under the 44pt floor, and a mistap here silently
               mislabels every future amount in this kaata (lib/currency.ts
               relabels, it never converts), which is the worst possible place for
               a fat-finger: the shopkeeper's very first screen. NavRow clears the
               floor at 52px and the sheet gives each currency a full row. */}
-        <View style={styles.currencyRowBleed}>
-          <NavRow
-            icon="cash-outline"
-            label={t("onboardingKaata.currency.label")}
-            trailing={currencyValue}
-            // NavRow puts accessibilityLabel on the Pressable, which SUPPRESSES the
-            // child text — so without this TalkBack announced only "Currency" and
-            // never the selected value sitting in `trailing`. A blind user could not
-            // hear which currency their ledger was about to be created in.
-            accessibilityLabel={`${t("onboardingKaata.currency.label")}: ${currencyValue}`}
-            onPress={() => {
-              Keyboard.dismiss();
-              setCurrencySheetVisible(true);
-            }}
-            disabled={busy}
-            isRTL={isRTL}
-            isLast
-          />
-        </View>
-        {/* ONE hint under the row: the shared-account line replaces the
+          <View style={styles.currencyRowBleed}>
+            <NavRow
+              icon="cash-outline"
+              label={t("onboardingKaata.currency.label")}
+              trailing={currencyValue}
+              // NavRow puts accessibilityLabel on the Pressable, which SUPPRESSES the
+              // child text — so without this TalkBack announced only "Currency" and
+              // never the selected value sitting in `trailing`. A blind user could not
+              // hear which currency their ledger was about to be created in.
+              accessibilityLabel={`${t("onboardingKaata.currency.label")}: ${currencyValue}`}
+              onPress={() => {
+                Keyboard.dismiss();
+                setCurrencySheetVisible(true);
+              }}
+              disabled={busy}
+              isRTL={isRTL}
+              isLast
+            />
+          </View>
+          {/* ONE hint under the row: the shared-account line replaces the
               generic one while the row still shows the preset currency (the
               ISO code is a Latin token in Dari prose — isolate it). */}
-        <Text style={[styles.fieldHint, textDir(isRTL)]}>
-          {presetCurrency && currency === presetCurrency
-            ? t("tab.join.currencyPreset", { currency: bidiIsolate(presetCurrency) })
-            : t("onboardingKaata.currency.hint")}
-        </Text>
-
-        {submitError ? (
-          <Text style={[styles.submitError, textDir(isRTL)]} accessibilityLiveRegion="polite">
-            {submitError}
+          <Text style={[styles.fieldHint, textDir(isRTL)]}>
+            {presetCurrency && currency === presetCurrency
+              ? t("tab.join.currencyPreset", { currency: bidiIsolate(presetCurrency) })
+              : t("onboardingKaata.currency.hint")}
           </Text>
-        ) : null}
 
-        <View style={{ height: 20 }} />
-        <Button
-          label={t("onboardingKaata.submit")}
-          onPress={onCreate}
-          disabled={busy || shopName.trim().length === 0}
-          loading={busy}
-        />
-      </ScrollView>
+          {submitError ? (
+            <Text style={[styles.submitError, textDir(isRTL)]} accessibilityLiveRegion="polite">
+              {submitError}
+            </Text>
+          ) : null}
+
+          <View style={{ height: 20 }} />
+          <Button
+            label={t("onboardingKaata.submit")}
+            onPress={onCreate}
+            disabled={busy || shopName.trim().length === 0}
+            loading={busy}
+          />
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* Currency picker — same sheet, same option list and same selection tick
           as /vault/new and vault/settings. */}

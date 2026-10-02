@@ -74,6 +74,29 @@ async function testCurrentSessionResponseGuard() {
   const beforeDeletion = await auth.captureCurrentSession();
   assert.equal(await auth.applyForCurrentSession(beforeDeletion, async () => 42), 42);
 
+  // Boot runs resumeConfirmedAccountDeletion on EVERY launch, and a throw there
+  // fails boot. Without a receipt it must read nothing else: a signed-in
+  // Android user whose session blob no longer decrypts would otherwise be
+  // locked out of the whole ledger on every launch.
+  const secureStore = mocks["expo-secure-store"] as {
+    getItemAsync: (key: string) => Promise<string | null>;
+  };
+  const storedRead = secureStore.getItemAsync;
+  const keysRead: string[] = [];
+  secureStore.getItemAsync = async (key: string) => {
+    keysRead.push(key);
+    if (key === "kaata.session.jwt") throw new Error("DecryptException");
+    return storedRead(key);
+  };
+  await auth.resumeConfirmedAccountDeletion();
+  assert.deepEqual(
+    keysRead,
+    ["kaata.account.deletion-confirmation"],
+    "a launch without a deletion receipt must not read the session",
+  );
+  assert.equal(store.get("kaata.session.jwt"), "session-a", "no receipt, nothing cleared");
+  secureStore.getItemAsync = storedRead;
+
   // Exercise the actual confirmed-deletion flow while a response arrives.
   // Cache work queues behind cleanup, then rejects before recreating data.
   store.set("kaata.account.deletion-confirmation", "session-a");
