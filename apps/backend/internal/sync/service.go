@@ -248,11 +248,33 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	lockedAccounts, err := lockPushAccounts(ctx, tx, in)
+	if err != nil {
+		return nil, err
+	}
+
 	// Lock the vault row for the duration of the tx.
 	if _, err := tx.Exec(ctx, `
 		SELECT 1 FROM vaults WHERE vault_id = $1::uuid FOR UPDATE
 	`, in.VaultID); err != nil {
 		return nil, fmt.Errorf("lock vault row: %w", err)
+	}
+	// The cached preflight can outlive a deletion/revocation. Recheck current
+	// membership after acquiring the locks before accepting any new writes.
+	var archived bool
+	err = tx.QueryRow(ctx, `SELECT m.role, v.archived_at IS NOT NULL
+		FROM vault_members m JOIN vaults v ON v.vault_id=m.vault_id
+		WHERE m.vault_id=$1::uuid AND m.account_id=$2::uuid
+		  AND m.accepted_at IS NOT NULL AND m.revoked_at IS NULL
+		LIMIT 1`, in.VaultID, in.AccountID).Scan(&role, &archived)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotMember
+	}
+	if err != nil {
+		return nil, fmt.Errorf("recheck push membership: %w", err)
+	}
+	if archived && role != "owner" {
+		return nil, ErrVaultArchived
 	}
 
 	var curSeq int64
@@ -361,6 +383,22 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 				return nil, fmt.Errorf("bad actor_account_id on %s: %w", ev.EventID, parseErr)
 			}
 			storedActor = &parsed
+		}
+		if storedActor != nil && !lockedAccounts[*storedActor] {
+			// A relay may retry existing history after its author deleted an
+			// account. Acknowledge that existing record without refolding it;
+			// never insert a new FK or rewrite the signed actor to NULL.
+			var exists bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM events
+				WHERE vault_id=$1::uuid AND event_id=$2::uuid)`, in.VaultID, ev.EventID).Scan(&exists); err != nil {
+				return nil, fmt.Errorf("deleted-author duplicate check: %w", err)
+			}
+			if exists {
+				duplicates = append(duplicates, ev.EventID)
+			} else {
+				rejected = append(rejected, RejectedEvent{EventID: ev.EventID, Reason: "insufficient_role", RequiredRole: RequiredRoleFor(ev.EventType)})
+			}
+			continue
 		}
 
 		// M2 (membership.go): a SIGNED membership event on an ANCHORED
@@ -593,6 +631,8 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 		// and 007's CHECK (device_id = hlc_device_id) would 500 the whole
 		// batch — permanently wedging the relayer's outbox — if we stamped
 		// the pusher here.
+		// Migration 050's insert trigger also snapshots the signed actor before
+		// the live account FK can be detached by account deletion.
 		tag, err := tx.Exec(ctx, `
 			INSERT INTO events (
 				event_id, vault_id, server_seq,
@@ -1029,7 +1069,8 @@ func (s *Service) PullEvents(ctx context.Context, in PullInput) (*PullResult, er
 			hlc_logical,
 			hlc_device_id::text,
 			device_id::text,
-			account_id::text,
+			CASE WHEN NULLIF(event_sig_b64, '') IS NOT NULL
+			     THEN signed_actor_account_id ELSE account_id END::text,
 			COALESCE(local_target_id, target_id::text),
 			relationship_id::text,
 			event_type,

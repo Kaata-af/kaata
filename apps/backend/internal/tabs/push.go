@@ -265,7 +265,7 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
 			body := pushBody(kind, locale)
 			var actor, direction, currency string
 			var minor int64
-			err = tx.QueryRow(ctx, `SELECT CASE WHEN n.actor_account_id IS NULL THEN '' ELSE n.actor_label END,COALESCE(e.amount_minor,0),COALESCE(e.direction,''),t.currency
+			err = tx.QueryRow(ctx, `SELECT n.actor_label,COALESCE(e.amount_minor,0),COALESCE(e.direction,''),t.currency
  FROM tab_notifications n JOIN tabs t ON t.id=n.tab_id
  LEFT JOIN tab_entries e ON e.id=n.entry_id AND e.tab_id=n.tab_id
  WHERE n.tab_id=$1::uuid AND n.rev=$2`, tabID, rev).Scan(&actor, &minor, &direction, &currency)

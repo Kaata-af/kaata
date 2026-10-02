@@ -47,7 +47,13 @@ import type {
 import { KAATA_UUID_NAMESPACE, uuidv5 } from "./uuid-v5";
 import { serializeHLC } from "./hlc";
 import { signedEntryMinorSumSql } from "./money-sql";
-import { getLatestTabLinkForPerson, getTabLinkForPerson, listTabEntriesAsEntries } from "./tabs/db";
+import {
+  getLatestTabLinkForPerson,
+  getTabLink,
+  getTabLinkForPerson,
+  listTabEntriesAsEntries,
+} from "./tabs/db";
+import type { TabLink } from "./tabs/types";
 import { entryTypeFor, tabBalanceSql } from "./tabs/direction";
 import type { DuplicateHint, TabDirection } from "./tabs/types";
 import { TabLinkedEntryError } from "./tabs/errors";
@@ -93,6 +99,7 @@ const MIGRATION_027 = "027_relationships_field_hlcs";
 const MIGRATION_028 = "028_tabs";
 const MIGRATION_029 = "029_tab_failed_ops";
 const MIGRATION_030 = "030_tab_actor_identity";
+const MIGRATION_031 = "031_shared_record_evidence";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -469,6 +476,9 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   }
   if (!(await hasRunMigration(db, MIGRATION_030))) {
     await runMigration030(db);
+  }
+  if (!(await hasRunMigration(db, MIGRATION_031))) {
+    await runMigration031(db);
   }
 }
 
@@ -3257,6 +3267,34 @@ async function runMigration030(db: SQLite.SQLiteDatabase): Promise<void> {
   });
 }
 
+async function runMigration031(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`
+      ALTER TABLE tab_entries ADD COLUMN author_member_role TEXT;
+      ALTER TABLE tab_entries ADD COLUMN reviewer_account_id TEXT;
+      ALTER TABLE tab_entries ADD COLUMN reviewer_name TEXT NOT NULL DEFAULT '';
+      ALTER TABLE tab_entries ADD COLUMN reviewer_party TEXT;
+      ALTER TABLE tab_entries ADD COLUMN reviewer_member_role TEXT;
+      ALTER TABLE tab_entries ADD COLUMN review_semantics_version TEXT;
+      ALTER TABLE tab_entries ADD COLUMN local_action_pending INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE tab_links ADD COLUMN closed_reason TEXT;
+      UPDATE tab_entries SET local_action_pending = 1 WHERE EXISTS (
+        SELECT 1 FROM tab_outbox o WHERE o.tab_id = tab_entries.tab_id
+          AND o.op IN ('accept', 'dispute', 'void')
+          AND CASE WHEN json_valid(o.payload) THEN json_extract(o.payload, '$.entry_id') END = tab_entries.id
+      );
+      UPDATE tab_links SET rev = 0;
+    `);
+    // A full pull obtains evidence added to historical rows server-side. It
+    // must not invent a reviewer from whichever account owns the party today.
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_031,
+      Date.now(),
+    );
+  });
+}
+
 // --- v0 row shapes (used only during migration) ---
 type V0Shopkeeper = {
   id: number;
@@ -4378,6 +4416,26 @@ export async function listEntries(personId: string): Promise<Entry[]> {
   );
 }
 
+/** Earlier shared periods retain their evidence independently of the latest
+ *  opening balance. Their amounts must never be added to that balance again. */
+export async function listArchivedSharedPeriodsForExport(
+  personId: string,
+): Promise<Array<{ link: TabLink; entries: Entry[] }>> {
+  const current = await getLatestTabLinkForPerson(personId);
+  if (!current) return [];
+  const db = await getDb();
+  const links = await db.getAllAsync<TabLink>(
+    `SELECT * FROM tab_links WHERE relationship_id = ? AND vault_id = ? AND tab_id <> ?
+      ORDER BY linked_at ASC, tab_id ASC`,
+    current.relationship_id,
+    current.vault_id,
+    current.tab_id,
+  );
+  const result: Array<{ link: TabLink; entries: Entry[] }> = [];
+  for (const link of links) result.push({ link, entries: await listTabEntriesAsEntries(link) });
+  return result;
+}
+
 /** One row of the whole-kaata export journal: an entry plus its person. */
 export type ExportEntryRow = {
   id: string;
@@ -4391,6 +4449,7 @@ export type ExportEntryRow = {
   /** 'entry' for a local tally, or the tab row's kind ('entry' | 'opening').
    *  The CSV journal uses it to label an opening row, which stores no note. */
   kind: string;
+  tab?: Entry["tab"];
 };
 
 /**
@@ -4403,9 +4462,10 @@ export type ExportEntryRow = {
  */
 export async function listEntriesForExport(vaultId: string): Promise<ExportEntryRow[]> {
   const db = await getDb();
-  // Linked contacts contribute their TAB rows (non-voided, never the void
-  // rows) and NOT their pre-link local rows — the opening entry carries that
-  // sum, and the journal's per-person running balance must end where the
+  // Linked contacts contribute their TAB rows (including rejected/cancelled
+  // originals, never the separate void rows) and NOT their pre-link local rows
+  // — the opening entry carries that sum. Exporters give excluded originals
+  // zero contribution so the per-person running balance must end where the
   // person's balance is (D8). Direction → type from the link's role, in SQL,
   // so the UNION shares one ORDER BY. Neither arm filters on closed_at: a
   // closed tab's rows are still the account's history and still counted by
@@ -4420,7 +4480,7 @@ export async function listEntriesForExport(vaultId: string): Promise<ExportEntry
   // only name result columns, and SQLite resolves an unaliased `e.id` in the
   // first arm as "e.id", not "id" — the second ORDER BY term then matches
   // nothing and the statement fails to prepare.
-  return db.getAllAsync<ExportEntryRow>(
+  const rows = await db.getAllAsync<ExportEntryRow & { tab_id: string | null }>(
     `SELECT e.id           AS id,
             e.type         AS type,
             e.amount_afn   AS amount_afn,
@@ -4429,7 +4489,8 @@ export async function listEntriesForExport(vaultId: string): Promise<ExportEntry
             'entry'        AS kind,
             u.id           AS person_id,
             u.display_name AS person_name,
-            u.phone_e164   AS person_phone
+            u.phone_e164   AS person_phone,
+            NULL           AS tab_id
      FROM entries e
      INNER JOIN relationships r ON r.id = e.relationship_id
      INNER JOIN users u ON u.id = r.user_b_id
@@ -4449,7 +4510,8 @@ export async function listEntriesForExport(vaultId: string): Promise<ExportEntry
             te.kind        AS kind,
             u.id           AS person_id,
             u.display_name AS person_name,
-            u.phone_e164   AS person_phone
+            u.phone_e164   AS person_phone,
+            te.tab_id      AS tab_id
      FROM tab_entries te
      INNER JOIN tab_links tl ON tl.tab_id = te.tab_id
        AND tl.tab_id = (SELECT t2.tab_id FROM tab_links t2
@@ -4462,13 +4524,36 @@ export async function listEntriesForExport(vaultId: string): Promise<ExportEntry
        AND r.vault_id   = ?
        AND r.archived_at IS NULL
        AND te.kind <> 'void'
-       AND te.voided_by_entry_id IS NULL AND te.status <> 'disputed'
      ORDER BY created_at ASC, id ASC`,
     vaultId,
     vaultId,
     vaultId,
     vaultId,
   );
+  // Reuse the same attribution mapping as the person statement, including
+  // the linked cancellation action. Only shared rows gain evidence metadata;
+  // private CSV/PDF columns remain unchanged.
+  const sharedEntries = new Map<string, Entry>();
+  for (const tabId of new Set(rows.flatMap((r) => (r.tab_id ? [r.tab_id] : [])))) {
+    const link = await getTabLink(tabId);
+    if (link) for (const e of await listTabEntriesAsEntries(link)) sharedEntries.set(e.id, e);
+  }
+  return rows.map(({ tab_id, ...row }) => {
+    if (!tab_id) return row;
+    const entry = sharedEntries.get(row.id);
+    if (!entry?.tab) throw new Error("Shared records changed during export. Please try again.");
+    // Read amount and evidence from the same cache row. A concurrent pull may
+    // have replaced it since the person-join query above.
+    return {
+      ...row,
+      type: entry.type,
+      amount_afn: entry.amount_afn,
+      note: entry.note,
+      created_at: entry.created_at,
+      kind: entry.tab.kind,
+      tab: entry.tab,
+    };
+  });
 }
 
 // Public API preserved — same signature, same return type, same usage-counter

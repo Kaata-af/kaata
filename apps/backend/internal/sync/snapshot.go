@@ -387,7 +387,8 @@ const pulledEventColumns = `
 		hlc_logical,
 		hlc_device_id::text,
 		device_id::text,
-		account_id::text,
+		CASE WHEN NULLIF(event_sig_b64, '') IS NOT NULL
+		     THEN signed_actor_account_id ELSE account_id END::text,
 		COALESCE(local_target_id, target_id::text),
 		relationship_id::text,
 		event_type,
@@ -847,7 +848,8 @@ func loadVaultEvents(ctx context.Context, q EventQuerier, vaultID string) ([]Led
 			hlc_logical,
 			hlc_device_id::text,
 			device_id::text,
-			account_id::text,
+			CASE WHEN NULLIF(event_sig_b64, '') IS NOT NULL
+			     THEN signed_actor_account_id ELSE account_id END::text,
 			COALESCE(local_target_id, target_id::text),
 			relationship_id::text,
 			payload,

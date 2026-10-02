@@ -7,6 +7,7 @@
 // recovery is a process restart.
 
 export type BootErrorStage =
+  | "account_deletion_cleanup"
   | "install_id"
   | "init_db"
   | "prime_caches"

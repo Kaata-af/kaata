@@ -416,6 +416,7 @@ async function main(): Promise<void> {
   });
 
   await test("actual statements, reports, CSV and PDF HTML keep cents and settlement markers", async () => {
+    let archives: Array<{ link: import("../tabs/types").TabLink; entries: Entry[] }> = [];
     const fixture = [
       created("a", 0.1, "debt", 1000),
       created("b", 0.2, "debt", 2000),
@@ -447,6 +448,7 @@ async function main(): Promise<void> {
           listEntries: async () => [...fixture].reverse(),
           listSettlementBoundaries: async () => [3000],
           getLocalSelf: async () => null,
+          listArchivedSharedPeriodsForExport: async () => archives,
           listEntriesForExport: async () =>
             fixture.map((e) => ({
               ...e,
@@ -543,21 +545,166 @@ async function main(): Promise<void> {
     assert.ok(html[1].includes("0.30"));
     assert.ok(html.every((page) => !page.includes("0.30000000000000004")));
 
-    // A linked contact keeps rejected/voided rows on screen, but a statement
-    // must omit them and calculate its running balance from counted rows only.
+    // A shared statement retains rejected/cancelled records but gives them
+    // zero contribution. The account's pending-inclusive total is unchanged.
     const reviewed: Entry = {
-      ...fixture[0], id: "reviewed", amount_afn: 100, created_at: 5000,
-      tab: { by: "them", status: "disputed", kind: "entry", dispute_reason: null,
-        voided: false, local_pending: false, other_label: "Other shop" },
+      ...fixture[0],
+      id: "reviewed",
+      amount_afn: 100,
+      created_at: 5000,
+      tab: {
+        by: "them",
+        status: "disputed",
+        kind: "entry",
+        dispute_reason: null,
+        voided: false,
+        local_pending: false,
+        other_label: "Other shop",
+      },
     };
-    fixture.push(reviewed, { ...reviewed, id: "voided", tab: { ...reviewed.tab!, status: "accepted", voided: true } });
+    fixture.push(reviewed, {
+      ...reviewed,
+      id: "voided",
+      tab: { ...reviewed.tab!, status: "accepted", voided: true },
+    });
     const rejectedStatement = await buildPersonStatement("person", "en", "USD", "$", 6000);
     assert.ok(rejectedStatement);
     assert.equal(rejectedStatement.balance, 0);
-    assert.ok(rejectedStatement.rows.every((r) => r.kind !== "entry" || !["reviewed", "voided"].includes(r.entry.id)));
+    assert.equal(
+      rejectedStatement.rows.filter(
+        (r) => r.kind === "entry" && ["reviewed", "voided"].includes(r.entry.id),
+      ).length,
+      2,
+    );
+    assert.deepEqual(rejectedStatement.sharedTotals, { acknowledged: 0, pending: 0, private: 0 });
     reviewed.tab!.status = "accepted";
     const acceptedStatement = await buildPersonStatement("person", "en", "USD", "$", 6000);
     assert.equal(acceptedStatement?.balance, 100, "re-accepting restores exactly one amount");
+    assert.deepEqual(acceptedStatement?.sharedTotals, {
+      acknowledged: 100,
+      pending: 0,
+      private: 0,
+    });
+    Object.assign(reviewed.tab!, {
+      author_name: "<Original writer>",
+      author_account_id: "deleted-author",
+      author_member_role: "clerk",
+      reviewer_name: "=Reviewer",
+      reviewer_account_id: "deleted-reviewer",
+      reviewer_party: "a",
+      reviewer_member_role: "manager",
+      review_semantics_version: "tally-review-v1",
+      recorded_at: 5000,
+      status_at: 6000,
+      seq: 1,
+      rev: 2,
+      tab_id: "shared-record",
+    });
+    fixture.push({
+      ...reviewed,
+      id: "pending-payment",
+      type: "payment",
+      amount_afn: 25,
+      tab: { ...reviewed.tab!, status: "pending", reviewer_name: "", reviewer_account_id: null },
+    });
+    fixture.push({
+      ...reviewed,
+      id: "unsynced-accept",
+      amount_afn: 7,
+      tab: { ...reviewed.tab!, local_pending: true },
+    });
+    fixture.push({
+      ...reviewed,
+      id: "rejected-history",
+      amount_afn: 2000,
+      tab: { ...reviewed.tab!, status: "disputed", dispute_reason: "Wrong amount" },
+    });
+    const sharedStatement = (await buildPersonStatement("person", "en", "USD", "$", 7000))!;
+    assert.equal(sharedStatement.balance, 82);
+    assert.deepEqual(sharedStatement.sharedTotals, { acknowledged: 100, pending: -18, private: 0 });
+    const sharedCsv = csv.buildPersonCsv(sharedStatement);
+    assert.ok(sharedCsv.includes("Acknowledged net balance"));
+    assert.ok(sharedCsv.includes("Pending net balance"));
+    assert.ok(sharedCsv.includes("\t=Reviewer"), "new reviewer free text is formula-guarded");
+    assert.ok(sharedCsv.includes("deleted-reviewer"));
+    assert.ok(sharedCsv.includes("1970-01-01T00:00:06.000Z"));
+    assert.ok(sharedCsv.includes("Cancelled"));
+    assert.ok(sharedCsv.includes("Rejected"));
+    const unsyncedCsvRow = sharedCsv
+      .split("\r\n")
+      .find((line) => line.endsWith(",unsynced-accept"))!;
+    assert.ok(unsyncedCsvRow.includes("Awaiting sync"));
+    assert.ok(unsyncedCsvRow.includes("Acceptance awaiting sync"));
+    assert.ok(
+      !unsyncedCsvRow.includes(",Accepted,"),
+      "queued acceptance is not a recorded verdict",
+    );
+    assert.ok(
+      !unsyncedCsvRow.includes("deleted-reviewer"),
+      "unsynced intent is never recorded review evidence",
+    );
+    await pdf.renderPersonStatementPdf(sharedStatement, "fixture-shared.pdf");
+    assert.ok(html[2].includes("&lt;Original writer&gt;"));
+    assert.ok(!html[2].includes("<Original writer>"));
+    assert.ok(html[2].includes("tally-review-v1"));
+    assert.ok(html[2].includes("Wrong amount"));
+    assert.ok(html[2].includes("Cancelled"));
+    assert.ok(html[2].includes("100 $</div>"), "acknowledged net remains separate");
+    assert.ok(html[2].includes("-18 $</div>"), "pending net includes unsynced reviews");
+    const sharedReport = await buildVaultReport("vault", "Fixture", "USD", "en", 7000);
+    assert.equal(sharedReport.totals.net, 82);
+    assert.ok(csv.buildVaultCsv(sharedReport).includes("deleted-reviewer"));
+    // Re-linking carries the old amount into a new opening. Full history must
+    // retain the old accepted evidence without counting that money twice.
+    const oldRecord: Entry = {
+      ...reviewed,
+      id: "old-period-evidence",
+      amount_afn: 50,
+      tab: { ...reviewed.tab!, tab_id: "old-period", local_pending: false, status: "accepted" },
+    };
+    archives = [
+      {
+        link: {
+          tab_id: "old-period",
+          currency: "AFN",
+          linked_at: 1000,
+          closed_at: 3000,
+          my_label: "Shop",
+          other_label: "Customer",
+        } as import("../tabs/types").TabLink,
+        entries: [oldRecord],
+      },
+    ];
+    fixture.splice(
+      0,
+      fixture.length,
+      {
+        ...oldRecord,
+        id: "new-opening",
+        tab: { ...oldRecord.tab!, tab_id: "new-period", kind: "opening" },
+      },
+      {
+        ...oldRecord,
+        id: "new-pending",
+        amount_afn: 10,
+        tab: { ...oldRecord.tab!, tab_id: "new-period", status: "pending" },
+      },
+    );
+    const relinked = (await buildPersonStatement("person", "en", "USD", "$", 9000))!;
+    assert.equal(relinked.balance, 60, "old 50 is counted only via the new opening");
+    assert.deepEqual(relinked.sharedTotals, { acknowledged: 50, pending: 10, private: 0 });
+    assert.equal(relinked.archivedSharedPeriods?.[0].entries[0].id, "old-period-evidence");
+    const archivedCsv = csv.buildPersonCsv(relinked);
+    const archivedLine = archivedCsv.split("\r\n").find((l) => l.endsWith(",old-period-evidence"))!;
+    assert.ok(
+      archivedLine.includes("Earlier shared period — excluded from current balance,AFN,50,0,,,"),
+    );
+    assert.equal(archivedLine.split(",")[4], "", "no archived value in current running balance");
+    assert.ok(archivedLine.includes("deleted-reviewer"));
+    await pdf.renderPersonStatementPdf(relinked, "fixture-archive.pdf");
+    assert.ok(html[3].includes("Earlier shared period"));
+    assert.ok(html[3].includes("old-period-evidence"));
+    assert.ok(html[3].includes("60 $</div>"));
   });
 
   console.log(`\n${passed} money regression groups passed.`);

@@ -7,7 +7,7 @@ import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 // single legal document; a Dari translation is tracked separately. Linked from
 // the Play/App Store listings and the site footer. Keep it accurate to what the
 // app actually does — when you change how the service works, change this page.
-const UPDATED = "7 August 2026";
+const UPDATED = "2 October 2026";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -43,13 +43,23 @@ export function Terms() {
             device. Signing in with Google or Apple is optional and adds cloud backup and sync
             across your devices.
           </p>
+          <p>
+            Shared tallies record what participants entered and acknowledged. Acceptance records an
+            action by the signed-in account, which may be acting for a shop; it is not a guarantee
+            of legal identity, a verified payment, or an enforceable loan agreement. Pending and
+            rejected tallies must not be described as accepted by both sides. Deleting an account
+            does not settle a balance or erase another authorized participant’s retained shared
+            history. See the privacy policy for the records kept.
+          </p>
         </Section>
 
         <Section title="Your account">
           <p>
             You may use Kaata without an account. If you create one by signing in, you are
             responsible for keeping access to your Google or Apple sign-in secure. You can delete
-            your account and its cloud data at any time from Settings → Delete account in the app.
+            your account and the cloud copies of kaatas you own at any time from Account → Delete
+            account in the app. Shared history retained for other participants is described above
+            and in the privacy policy.
           </p>
         </Section>
 

@@ -75,6 +75,10 @@ func (h *Handler) GoogleSignIn(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.svc.SignInWithGoogle(r.Context(), req.InstallID, req.IDToken, req.PendingVaultRegistration)
 	if err != nil {
+		if errors.Is(err, ErrInstallRetired) {
+			httpx.Error(w, http.StatusGone, "This installation belongs to a deleted account. Export any local records, then reset the app before signing in.")
+			return
+		}
 		msg := err.Error()
 		// Log the REAL cause of EVERY non-200 server-side (response bodies stay
 		// generic — nothing leaks to the client). Without this, a misconfigured
@@ -155,6 +159,10 @@ func (h *Handler) AppleSignIn(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.svc.SignInWithApple(r.Context(), req.InstallID, req.IDToken, req.DisplayName)
 	if err != nil {
+		if errors.Is(err, ErrInstallRetired) {
+			httpx.Error(w, http.StatusGone, "This installation belongs to a deleted account. Export any local records, then reset the app before signing in.")
+			return
+		}
 		log.Printf("auth/apple failed for install %s: %v", req.InstallID, err)
 		// Same split as the Google path: a server-side failure is retryable and
 		// must not masquerade as a rejected credential.
@@ -237,9 +245,9 @@ func (h *Handler) SignOut(w http.ResponseWriter, r *http.Request) {
 // DeleteAccount — DELETE /v1/account (PROTECTED).
 //
 // Permanently erases the authenticated account and the data it solely owns
-// (see Service.DeleteAccount). Idempotent-ish: a second call after the account
-// is gone 401s at the middleware (credential row deleted). The mobile app must
-// also wipe its local ledger + stored JWT after a 200.
+// (see Service.DeleteAccount). DeletionMiddleware confirms completed retries
+// using a signed, unexpired session and its matching server deletion receipt.
+// The mobile app must also wipe its local ledger + stored JWT after a 200.
 func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
@@ -251,10 +259,10 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusInternalServerError, "account deletion failed")
 		return
 	}
-	// Kill the cached "not revoked" entry so the now-orphaned JWT stops
-	// authorizing immediately rather than for up to revokedCacheTTL.
+	// Drop every installation/provider verdict for this account, including
+	// other phones, so their JWTs stop authorizing immediately.
 	if h.authenticator != nil {
-		h.authenticator.Invalidate(claims.InstallID, claims.Provider)
+		h.authenticator.InvalidateAccount(claims.AccountID)
 	}
 	httpx.JSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

@@ -58,13 +58,19 @@ func (h *Handler) Report(w http.ResponseWriter, r *http.Request) {
 		it.Message = truncateUTF8(it.Message, 4000)
 	}
 	if err := h.svc.Handle(r.Context(), req, httpx.ClientIP(r)); err != nil {
+		if errors.Is(err, ErrInstallRetired) {
+			// A successful discard lets an old device clear its diagnostic
+			// outbox instead of retrying deleted-account data indefinitely.
+			httpx.JSON(w, http.StatusOK, map[string]any{"status": "ok", "accepted": 0})
+			return
+		}
 		// install_id has an FK to installs; a flush that races ahead of the
 		// install's first check-in (mobile flushes before the check-in POST on
 		// the same launch) is a client-ordering problem, not a server fault.
 		// Surface it as 400 — the client keeps the rows queued and retries
 		// after the check-in has minted the installs row.
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+		if errors.Is(err, ErrUnknownInstall) || (errors.As(err, &pgErr) && pgErr.Code == "23503") {
 			httpx.Error(w, http.StatusBadRequest, "unknown install_id")
 			return
 		}

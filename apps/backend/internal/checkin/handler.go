@@ -2,6 +2,7 @@ package checkin
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -56,6 +57,10 @@ func (h *Handler) CheckIn(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.svc.Handle(ctx, req, httpx.ClientIP(r))
 	if err != nil {
+		if errors.Is(err, ErrInstallDeleted) {
+			httpx.Error(w, http.StatusGone, "install was retired after account deletion; reset this device before continuing")
+			return
+		}
 		httpx.Error(w, http.StatusInternalServerError, "check-in failed")
 		return
 	}
@@ -65,10 +70,14 @@ func (h *Handler) CheckIn(w http.ResponseWriter, r *http.Request) {
 	// RefreshIfOlderThan, mint a fresh one — that gives any regularly-active
 	// install an infinite rolling window.
 	if h.authSvc != nil {
-		if claims, ok := auth.ClaimsFromContext(r.Context()); ok {
+		if claims, ok := auth.ClaimsFromContext(r.Context()); ok && claims != nil {
 			if claims.InstallID == req.InstallID && claims.IssuedAtAge() > auth.RefreshIfOlderThan {
-				if newJWT, err := h.authSvc.IssueRefreshJWT(claims); err == nil {
-					resp.SessionJWTRefresh = &newJWT
+				// Optional auth can carry a cached verdict from before account
+				// deletion/sign-out. Recheck the credential before renewal.
+				if revoked, err := h.authSvc.CheckCredentialRevoked(ctx, claims.InstallID, claims.Provider, claims.AccountID); err == nil && !revoked {
+					if newJWT, err := h.authSvc.IssueRefreshJWT(claims); err == nil {
+						resp.SessionJWTRefresh = &newJWT
+					}
 				}
 			}
 		}

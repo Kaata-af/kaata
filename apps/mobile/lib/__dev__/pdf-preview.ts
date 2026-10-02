@@ -215,7 +215,75 @@ async function main() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await pdf.renderVaultReportPdf(buildReport() as any, "report.pdf");
 
-  const names = ["statement", "report"];
+  // Recorded names and reviewer details are synthetic. Exercise long IDs,
+  // absolute UTC timestamps, all outcomes, offline intent, and an old period.
+  const sharedEntries = ["accepted", "pending", "disputed", "cancelled"].map((status, i) => ({
+    id: `evidence-${i}-baaa-4ccc-8ddd-eeeeeeeeeeee`,
+    relationship_id: "rel-1",
+    type: "debt" as const,
+    amount_afn: 100 + i * 25,
+    note: i === 2 ? "مبلغ اشتباه است — disputed amount" : "سابقهٔ مشترک — shared record",
+    created_at: BASE + i * DAY,
+    tab: {
+      by: "me" as const,
+      status: (status === "cancelled" ? "pending" : status) as "accepted" | "pending" | "disputed",
+      kind: "entry" as const,
+      voided: status === "cancelled",
+      local_pending: false,
+      other_label: "احمد",
+      author_name: "عبدالله احمدزی",
+      author_account_id: "11111111-2222-3333-4444-555555555555",
+      author_member_role: "editor",
+      recorded_at: BASE + i * DAY + 15_000,
+      status_at: BASE + i * DAY + 30_000,
+      reviewer_name: status === "accepted" || status === "disputed" ? "احمد محمدی" : "",
+      reviewer_account_id:
+        status === "accepted" || status === "disputed"
+          ? "66666666-7777-8888-9999-000000000000"
+          : null,
+      reviewer_party: "b" as const,
+      reviewer_member_role: "owner",
+      review_semantics_version: "tally-review-v1",
+      dispute_reason: status === "disputed" ? "مبلغ اشتباه است" : null,
+      cancelled_by_name: status === "cancelled" ? "عبدالله احمدزی" : "",
+      cancelled_at: status === "cancelled" ? BASE + i * DAY + 40_000 : null,
+      cancellation_entry_id:
+        status === "cancelled" ? "cancel-11111111-2222-3333-4444-555555555555" : null,
+      tab_id: "shared-11111111-2222-3333-4444-555555555555",
+      seq: i + 1,
+      rev: i + 2,
+      closed_reason: "account_deleted" as const,
+    },
+  }));
+  const shared = {
+    ...buildStatement(),
+    balance: 225,
+    rows: sharedEntries.map((entry, i) => ({
+      kind: "entry",
+      entry,
+      balanceAfter: i === 0 ? 100 : 225,
+    })),
+    archivedSharedPeriods: [
+      {
+        link: {
+          tab_id: "old-period",
+          currency: "USD",
+          linked_at: BASE - DAY,
+          my_label: "عبدالله",
+          other_label: "احمد",
+          closed_at: BASE,
+        },
+        entries: [sharedEntries[0]],
+      },
+    ],
+  };
+  await pdf.renderPersonStatementPdf(
+    { ...shared, locale: "en", calendar: "gregorian" } as any,
+    "shared-en.pdf",
+  );
+  await pdf.renderPersonStatementPdf(shared as any, "shared-fa.pdf");
+
+  const names = ["statement", "report", "shared-en", "shared-fa"];
   captured.forEach((doc, i) => {
     const file = join(outDir, `${names[i] ?? doc.name}.html`);
     writeFileSync(file, doc.html, "utf8");

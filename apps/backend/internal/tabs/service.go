@@ -151,23 +151,29 @@ type querier interface {
 
 // Entry is one tally as the client sees it.
 type Entry struct {
-	AuthorAccountID *string `json:"author_account_id"`
-	AuthorName      string  `json:"author_name"`
-	ID              string  `json:"id"`
-	Seq             int64   `json:"seq"`
-	Rev             int64   `json:"rev"`
-	CreatedBy       string  `json:"created_by"`
-	Direction       string  `json:"direction"`
-	Amount          string  `json:"amount"`
-	Kind            string  `json:"kind"`
-	Note            *string `json:"note"`
-	OccurredAtMS    int64   `json:"occurred_at_ms"`
-	CreatedAtMS     int64   `json:"created_at_ms"`
-	Status          string  `json:"status"`
-	StatusAtMS      *int64  `json:"status_at_ms"`
-	DisputeReason   *string `json:"dispute_reason"`
-	VoidsEntryID    *string `json:"voids_entry_id"`
-	VoidedByEntryID *string `json:"voided_by_entry_id"`
+	AuthorAccountID        *string `json:"author_account_id"`
+	AuthorName             string  `json:"author_name"`
+	AuthorMemberRole       *string `json:"author_member_role"`
+	ReviewerAccountID      *string `json:"reviewer_account_id"`
+	ReviewerName           string  `json:"reviewer_name"`
+	ReviewerParty          *string `json:"reviewer_party"`
+	ReviewerMemberRole     *string `json:"reviewer_member_role"`
+	ReviewSemanticsVersion *string `json:"review_semantics_version"`
+	ID                     string  `json:"id"`
+	Seq                    int64   `json:"seq"`
+	Rev                    int64   `json:"rev"`
+	CreatedBy              string  `json:"created_by"`
+	Direction              string  `json:"direction"`
+	Amount                 string  `json:"amount"`
+	Kind                   string  `json:"kind"`
+	Note                   *string `json:"note"`
+	OccurredAtMS           int64   `json:"occurred_at_ms"`
+	CreatedAtMS            int64   `json:"created_at_ms"`
+	Status                 string  `json:"status"`
+	StatusAtMS             *int64  `json:"status_at_ms"`
+	DisputeReason          *string `json:"dispute_reason"`
+	VoidsEntryID           *string `json:"voids_entry_id"`
+	VoidedByEntryID        *string `json:"voided_by_entry_id"`
 
 	// amountMinor is the stored integer the wire string was rendered from;
 	// kept so a void can copy the original's amount without re-parsing.
@@ -201,6 +207,7 @@ type Tab struct {
 	CreatedAtMS   int64                `json:"created_at_ms"`
 	ClosedAtMS    *int64               `json:"closed_at_ms"`
 	ClosedBy      *string              `json:"closed_by"`
+	ClosedReason  *string              `json:"closed_reason"`
 	You           string               `json:"you"`
 	Parties       map[string]PartyMeta `json:"parties"`
 	Balance       map[string]string    `json:"balance"`
@@ -573,14 +580,17 @@ func nextSeq(ctx context.Context, tx pgx.Tx, tabID string) (int64, error) {
 // consumes it in the same order.
 const entryCols = `id::text, seq, rev, created_by, direction, amount_minor, kind, note,
 	occurred_at_ms, created_at, status, status_at_ms, dispute_reason,
-	voids_entry_id::text, voided_by_entry_id::text, author_account_id::text, author_name`
+	voids_entry_id::text, voided_by_entry_id::text,
+	COALESCE(author_evidence_account_id, author_account_id)::text, author_name, author_member_role,
+	reviewer_account_id::text, reviewer_name, reviewer_party, reviewer_member_role, review_semantics_version`
 
 func scanEntry(row pgx.Row) (Entry, error) {
 	var e Entry
 	var createdAt time.Time
 	if err := row.Scan(&e.ID, &e.Seq, &e.Rev, &e.CreatedBy, &e.Direction, &e.amountMinor, &e.Kind, &e.Note,
 		&e.OccurredAtMS, &createdAt, &e.Status, &e.StatusAtMS, &e.DisputeReason,
-		&e.VoidsEntryID, &e.VoidedByEntryID, &e.AuthorAccountID, &e.AuthorName); err != nil {
+		&e.VoidsEntryID, &e.VoidedByEntryID, &e.AuthorAccountID, &e.AuthorName, &e.AuthorMemberRole,
+		&e.ReviewerAccountID, &e.ReviewerName, &e.ReviewerParty, &e.ReviewerMemberRole, &e.ReviewSemanticsVersion); err != nil {
 		return Entry{}, err
 	}
 	e.Amount = formatMinor(e.amountMinor)
@@ -646,7 +656,7 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 		closedBy         *string
 	)
 	err := q.QueryRow(ctx, `
-		SELECT t.currency, t.rev, t.created_at, t.closed_at, t.closed_by,
+		SELECT t.currency, t.rev, t.created_at, t.closed_at, t.closed_by, t.closed_reason,
 		       pa.label, pa.joined_at, pa.account_id IS NOT NULL, COALESCE(aa.name, ''), COALESCE(aa.phone_e164, ''),
 		       pb.label, pb.joined_at, pb.account_id IS NOT NULL, COALESCE(ab.name, ''), COALESCE(ab.phone_e164, ''),
 		       COALESCE((SELECT SUM(CASE WHEN e.direction = 'a_to_b' THEN e.amount_minor ELSE -e.amount_minor END)
@@ -661,7 +671,7 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 		  LEFT JOIN accounts aa ON aa.id=pa.account_id
 		  LEFT JOIN accounts ab ON ab.id=pb.account_id
 		 WHERE t.id = $1::uuid
-	`, tabID, you).Scan(&t.Currency, &t.Rev, &createdAt, &closedAt, &closedBy,
+	`, tabID, you).Scan(&t.Currency, &t.Rev, &createdAt, &closedAt, &closedBy, &t.ClosedReason,
 		&aLabel, &aJoined, &aBound, &aName, &aPhone, &bLabel, &bJoined, &bBound, &bName, &bPhone, &balanceA, &pending)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -824,16 +834,17 @@ func checkContactBinding(ctx context.Context, tx pgx.Tx, tabID, role, currency s
 // as the wire Entry. voidsEntryID is set on kind='void' rows only.
 func insertEntry(ctx context.Context, tx pgx.Tx, tabID string, id string, seq, rev int64,
 	createdBy, direction string, amountMinor int64, kind string, note *string,
-	occurredAtMS int64, status string, statusAtMS *int64, voidsEntryID *string, authorAccountID *string) (Entry, error) {
+	occurredAtMS int64, status string, statusAtMS *int64, voidsEntryID *string, authorAccountID *string, authorMemberRole *string) (Entry, error) {
 	e, err := scanEntry(tx.QueryRow(ctx, `
 		INSERT INTO tab_entries (
 			id, tab_id, seq, rev, created_by, direction, amount_minor, kind, note,
-			occurred_at_ms, status, status_at_ms, voids_entry_id, author_account_id, author_name
-		) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::uuid, $14::uuid, COALESCE((SELECT name FROM accounts WHERE id=$14::uuid), ''))
+			occurred_at_ms, status, status_at_ms, voids_entry_id, author_account_id, author_name,
+			author_evidence_account_id, author_member_role
+		) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::uuid, $14::uuid, COALESCE((SELECT name FROM accounts WHERE id=$14::uuid), ''), $14::uuid, $15)
 		ON CONFLICT (id) DO NOTHING
 		RETURNING `+entryCols,
 		id, tabID, seq, rev, createdBy, direction, amountMinor, kind, note,
-		occurredAtMS, status, statusAtMS, voidsEntryID, authorAccountID))
+		occurredAtMS, status, statusAtMS, voidsEntryID, authorAccountID, authorMemberRole))
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		// ON CONFLICT DO NOTHING returned no row: the id landed in ANOTHER
@@ -945,7 +956,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 		return CreateResult{}, err
 	}
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	tx, err := s.beginMutation(ctx, in.AccountID)
 	if err != nil {
 		return CreateResult{}, fmt.Errorf("begin tx: %w", err)
 	}
@@ -981,7 +992,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 			return CreateResult{}, err
 		}
 		e, err := insertEntry(ctx, tx, tabID, uuid.NewString(), 1, rev, "a", in.Opening.Direction,
-			openingMinor, "opening", openingNote, in.Opening.OccurredAtMS, "pending", nil, nil, in.AccountID)
+			openingMinor, "opening", openingNote, in.Opening.OccurredAtMS, "pending", nil, nil, in.AccountID, (Party{AccountID: in.AccountID}).evidenceRole())
 		if err != nil {
 			return CreateResult{}, err
 		}
@@ -1098,13 +1109,17 @@ func (s *Service) Join(ctx context.Context, p Party, in JoinInput) (TabResponse,
 		return TabResponse{}, err
 	}
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	tx, err := s.beginMutation(ctx, in.AccountID)
 	if err != nil {
 		return TabResponse{}, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	locked, err := lockOpenTab(ctx, tx, p.TabID)
+	if err != nil {
+		return TabResponse{}, err
+	}
+	p, err = recheckParty(ctx, tx, p, rankEditor, true)
 	if err != nil {
 		return TabResponse{}, err
 	}
@@ -1159,13 +1174,17 @@ func (s *Service) Bind(ctx context.Context, p Party, in BindInput) (TabResponse,
 		return TabResponse{}, err
 	}
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	tx, err := s.beginMutation(ctx, &in.AccountID)
 	if err != nil {
 		return TabResponse{}, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	locked, err := lockOpenTab(ctx, tx, p.TabID)
+	if err != nil {
+		return TabResponse{}, err
+	}
+	p, err = recheckParty(ctx, tx, p, rankEditor, true)
 	if err != nil {
 		return TabResponse{}, err
 	}
@@ -1228,13 +1247,17 @@ func (s *Service) SetLabel(ctx context.Context, p Party, label string) (TabRespo
 		return TabResponse{}, ErrRoleInsufficient
 	}
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	tx, err := s.beginMutation(ctx, p.actorAccount())
 	if err != nil {
 		return TabResponse{}, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if _, err := lockOpenTab(ctx, tx, p.TabID); err != nil {
+		return TabResponse{}, err
+	}
+	p, err = recheckParty(ctx, tx, p, rankEditor, false)
+	if err != nil {
 		return TabResponse{}, err
 	}
 	if _, err := tx.Exec(ctx, `
@@ -1282,13 +1305,17 @@ func (s *Service) Append(ctx context.Context, p Party, in AppendInput) (AppendRe
 		return AppendResult{}, ErrRoleInsufficient
 	}
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	tx, err := s.beginMutation(ctx, p.actorAccount())
 	if err != nil {
 		return AppendResult{}, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	locked, err := lockTab(ctx, tx, p.TabID)
+	if err != nil {
+		return AppendResult{}, err
+	}
+	p, err = recheckParty(ctx, tx, p, rankClerk, false)
 	if err != nil {
 		return AppendResult{}, err
 	}
@@ -1337,7 +1364,7 @@ func (s *Service) Append(ctx context.Context, p Party, in AppendInput) (AppendRe
 		return AppendResult{}, err
 	}
 	e, err := insertEntry(ctx, tx, p.TabID, in.ID, seq, rev, p.Role, in.Direction, minor, "entry", note,
-		in.OccurredAtMS, "pending", nil, nil, p.actorAccount())
+		in.OccurredAtMS, "pending", nil, nil, p.actorAccount(), p.evidenceRole())
 	if err != nil {
 		return AppendResult{}, err
 	}
@@ -1401,13 +1428,17 @@ func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string
 		return EntryResponse{}, ErrEntryNotFound
 	}
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	tx, err := s.beginMutation(ctx, p.actorAccount())
 	if err != nil {
 		return EntryResponse{}, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if _, err := lockOpenTab(ctx, tx, p.TabID); err != nil {
+		return EntryResponse{}, err
+	}
+	p, err = recheckParty(ctx, tx, p, rankEditor, false)
+	if err != nil {
 		return EntryResponse{}, err
 	}
 	e, err := loadEntryForUpdate(ctx, tx, p.TabID, entryID)
@@ -1446,10 +1477,13 @@ func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string
 	now := nowMS()
 	updated, err := scanEntry(tx.QueryRow(ctx, `
 		UPDATE tab_entries
-		   SET status = $3, status_at_ms = $4, dispute_reason = $5, rev = $6
+		   SET status = $3, status_at_ms = $4, dispute_reason = $5, rev = $6,
+		       reviewer_account_id = $7::uuid,
+		       reviewer_name = COALESCE((SELECT name FROM accounts WHERE id=$7::uuid), ''),
+		       reviewer_party = $8, reviewer_member_role = $9, review_semantics_version = $10
 		 WHERE tab_id = $1::uuid AND id = $2::uuid
 		 RETURNING `+entryCols,
-		p.TabID, entryID, status, now, reason, rev))
+		p.TabID, entryID, status, now, reason, rev, p.actorAccount(), p.Role, p.evidenceRole(), reviewSemanticsVersion))
 	if err != nil {
 		return EntryResponse{}, fmt.Errorf("update status: %w", err)
 	}
@@ -1496,13 +1530,17 @@ func (s *Service) Void(ctx context.Context, p Party, entryID string) (VoidRespon
 		return VoidResponse{}, ErrEntryNotFound
 	}
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	tx, err := s.beginMutation(ctx, p.actorAccount())
 	if err != nil {
 		return VoidResponse{}, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if _, err := lockOpenTab(ctx, tx, p.TabID); err != nil {
+		return VoidResponse{}, err
+	}
+	p, err = recheckParty(ctx, tx, p, rankEditor, false)
+	if err != nil {
 		return VoidResponse{}, err
 	}
 	orig, err := loadEntryForUpdate(ctx, tx, p.TabID, entryID)
@@ -1528,7 +1566,7 @@ func (s *Service) Void(ctx context.Context, p Party, entryID string) (VoidRespon
 	}
 	now := nowMS()
 	void, err := insertEntry(ctx, tx, p.TabID, uuid.NewString(), seq, rev, p.Role, opposite(orig.Direction),
-		orig.amountMinor, "void", nil, now, "accepted", &now, &orig.ID, p.actorAccount())
+		orig.amountMinor, "void", nil, now, "accepted", &now, &orig.ID, p.actorAccount(), p.evidenceRole())
 	if err != nil {
 		return VoidResponse{}, err
 	}
@@ -1558,13 +1596,17 @@ func (s *Service) Close(ctx context.Context, p Party) (TabResponse, error) {
 		return TabResponse{}, ErrRoleInsufficient
 	}
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	tx, err := s.beginMutation(ctx, p.actorAccount())
 	if err != nil {
 		return TabResponse{}, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	t, err := lockTab(ctx, tx, p.TabID)
+	if err != nil {
+		return TabResponse{}, err
+	}
+	p, err = recheckParty(ctx, tx, p, rankEditor, false)
 	if err != nil {
 		return TabResponse{}, err
 	}
@@ -1606,13 +1648,17 @@ func (s *Service) RegenerateLink(ctx context.Context, p Party) (string, error) {
 		return "", err
 	}
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	tx, err := s.beginMutation(ctx, p.actorAccount())
 	if err != nil {
 		return "", fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if _, err := lockOpenTab(ctx, tx, p.TabID); err != nil {
+		return "", err
+	}
+	p, err = recheckParty(ctx, tx, p, rankEditor, false)
+	if err != nil {
 		return "", err
 	}
 	if _, err := tx.Exec(ctx, `

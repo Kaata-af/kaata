@@ -23,13 +23,22 @@ export type TabEntryStatus = "pending" | "accepted" | "disputed";
 /** `opening` is the carried-over balance at link time (D7); `void` is the
  *  visible cancellation row that references the original (D5). */
 export type TabEntryKind = "entry" | "opening" | "void";
+/** Server-recorded attribution. Missing values on old records remain unknown. */
+export type TabReviewEvidence = {
+  author_member_role?: string | null;
+  reviewer_account_id?: string | null;
+  reviewer_name?: string;
+  reviewer_party?: TabRole | null;
+  reviewer_member_role?: string | null;
+  review_semantics_version?: string | null;
+};
 /** Outbox operations, in the order the server exposes them as routes. */
 export type TabOutboxOp = "append" | "accept" | "dispute" | "void" | "label" | "close";
 
 // ---------------------------------------------------------------------------
 // Wire (§3.4). All timestamps are epoch ms; all amounts are decimal strings.
 
-export type WireEntry = {
+export type WireEntry = TabReviewEvidence & {
   author_account_id?: string | null;
   author_name?: string;
   id: string;
@@ -72,6 +81,7 @@ export type WireTab = {
   created_at_ms: number;
   closed_at_ms: number | null;
   closed_by: TabRole | null;
+  closed_reason?: "account_deleted" | null;
   /** The caller's role, as the server resolved it from the token / JWT. */
   you: TabRole;
   parties: Record<TabRole, WireParty>;
@@ -169,12 +179,13 @@ export type TabLink = {
   /** Pull cursor = highest rev applied. */
   rev: number;
   closed_at: number | null;
+  closed_reason?: "account_deleted" | null;
   linked_at: number;
   last_synced_at: number | null;
   last_error: string | null;
 };
 
-export type TabEntryRow = {
+export type TabEntryRow = TabReviewEvidence & {
   author_account_id?: string | null;
   author_name?: string;
   id: string;
@@ -196,6 +207,7 @@ export type TabEntryRow = {
   voided_by_entry_id: string | null;
   /** 1 = optimistic row not yet acked by the server. */
   local_pending: number;
+  local_action_pending?: number;
 };
 
 export type TabOutboxRow = {
@@ -215,7 +227,7 @@ export type TabOutboxRow = {
  * What EntryRow and the exporters need about a tab row, attached to the
  * mapped `Entry` as `entry.tab`. Absent on ordinary local entries.
  */
-export type TabEntryMeta = {
+export type TabEntryMeta = TabReviewEvidence & {
   author_name?: string;
   author_account_id?: string | null;
   by: "me" | "them";
@@ -227,6 +239,19 @@ export type TabEntryMeta = {
   /** Optimistic row the server has not acked yet ("Sending…"). */
   local_pending: boolean;
   other_label: string;
+  tab_id?: string;
+  created_by?: TabRole;
+  /** Server receipt/review timestamps, separate from the user-entered date. */
+  recorded_at?: number;
+  status_at?: number | null;
+  seq?: number;
+  rev?: number;
+  cancelled_by_name?: string;
+  cancelled_by_account_id?: string | null;
+  cancelled_by_member_role?: string | null;
+  cancelled_at?: number | null;
+  cancellation_entry_id?: string | null;
+  closed_reason?: "account_deleted" | null;
 };
 
 /** Payload of the onTabApplied notifier (lib/tabs/events.ts). */

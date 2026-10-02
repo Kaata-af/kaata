@@ -620,6 +620,54 @@ Errors: `TabCurrencyMismatchError`, `TabSameKaataError`, `TabAlreadyLinkedError`
 
 ## 6. Ops / follow-ups
 
+### Account deletion and shared evidence (2 October 2026)
+
+- Deletion removes login credentials, memberships, owned vaults and installation
+  self-profile/crash records. It leaves other participants' shared entries, original
+  statuses, recorded names, author/reviewer account references, roles and timestamps
+  intact. Durable evidence IDs have no live-account foreign key. They are personal
+  data, not anonymised records. Old missing attribution remains unknown; migration
+  backfill does not invent a reviewer or acceptance text.
+- If a party has no remaining directly bound account or authorized surviving
+  vault representative, deletion closes the tab with `closed_reason=account_deleted`
+  and revokes its invitation tokens. Remaining participants can read/export it.
+  Deleting one staff member does not close a represented shop's tab. Pending stays
+  pending; no balance is settled by deleting an account.
+- Tab mutations lock the actor account before the tab and recheck current authority
+  inside the transaction. Deleted installations cannot upload profiles or diagnostics.
+  Sync pushes lock the caller and referenced accounts before the vault, preserving
+  signed actor bytes while serializing concurrent deletion and upload.
+  Account-wide local auth-cache eviction removes other-device cached sessions;
+  deployments with multiple server processes still have their normal cache TTL on
+  other processes. Database mutation guards remain authoritative.
+- Migrations 047/049/050 add installation retirement/receipts, tally evidence and
+  immutable signed event actors. Deploy the backend before the new mobile app.
+  Mobile migration 031 forces a full tab refresh to populate its new evidence cache.
+  Older deleted actor identities cannot be reconstructed from missing records.
+- Person PDF/CSV exports distinguish accepted and pending balances, retain rejected
+  and cancelled original entries without counting them, and include earlier closed
+  periods as archives excluded from the current balance. Whole-kaata CSV remains
+  the current journal. Offline decisions are marked as waiting to sync until the
+  server records them. These actions are bookkeeping acknowledgements, not a claim
+  of verified identity, payment, or a legally enforceable signature.
+- The phone erases local records only after an explicit server deletion response.
+  A matching signed-session retry can confirm an already committed deletion; a
+  separate SecureStore attempt survives automatic sign-out, and a confirmed receipt
+  makes interrupted local cleanup resumable at startup without a server request.
+  New sign-in bindings supersede old attempts/receipts; local cleanup and binding
+  cannot interleave. Arbitrary 401s never authorize erasure. Other offline devices and already exported files
+  are not remotely wiped.
+- Real-Postgres auth/tabs/sync/check-in/crash tests cover retained history, revoked
+  access, concurrency and retired-device uploads. Mobile selftests cover evidence
+  persistence, export balances and deletion acknowledgement failures. Device testing
+  must include deletion from one of two signed-in phones and restore/export on the
+  surviving participant's fresh installation.
+- Retention periods and case-by-case erasure grounds remain a legal/product release
+  decision. This implementation does not impose an arbitrary purge timer or make
+  existing permanent public bill snapshots legally cleared.
+
+### Other follow-ups
+
 1. **Push activation** — delivery code ships in this implementation, but credentials
    are deployment configuration, not source code. Supply Firebase client config
    through `GOOGLE_SERVICES_JSON` (EAS file variable) or ignored

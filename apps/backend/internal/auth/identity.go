@@ -72,11 +72,14 @@ func resolveOrCreateAccount(
 		return "", false, errors.New("provider and provider_sub are required")
 	}
 
-	// (1) Canonical lookup.
+	// (1) Canonical lookup. Lock the account before touching any identity or
+	// profile row, matching account deletion's account-first lock order. This
+	// applies even when the provider omits email and the adoption path is skipped.
 	err = tx.QueryRow(ctx, `
-		SELECT account_id::text
-		FROM account_identities
-		WHERE provider = $1 AND provider_sub = $2
+		SELECT a.id::text
+		FROM accounts a JOIN account_identities ai ON ai.account_id = a.id
+		WHERE ai.provider = $1 AND ai.provider_sub = $2
+		FOR UPDATE OF a
 	`, provider, providerSub).Scan(&accountID)
 	switch {
 	case err == nil:
@@ -116,7 +119,7 @@ func resolveOrCreateAccount(
 	// (2) Legacy fallback — google only.
 	if provider == ProviderGoogle {
 		err = tx.QueryRow(ctx, `
-			SELECT id::text FROM accounts WHERE google_sub = $1
+			SELECT id::text FROM accounts WHERE google_sub = $1 FOR UPDATE
 		`, providerSub).Scan(&accountID)
 		switch {
 		case err == nil:
@@ -169,6 +172,9 @@ func resolveOrCreateAccount(
 					WHERE provider = $1 AND provider_sub = $2
 				`, provider, providerSub).Scan(&linkID); err != nil {
 					return "", false, fmt.Errorf("re-read raced email link: %w", err)
+				}
+				if err := lockIdentityAccount(ctx, tx, linkID); err != nil {
+					return "", false, err
 				}
 			}
 			// DUAL-WRITE parity with step (1): a google identity linked into
@@ -320,6 +326,7 @@ func linkableAccountByVerifiedEmail(
 		   ) DESC,
 		   a.created_at ASC
 		 LIMIT 1
+		 FOR UPDATE OF a
 	`, provider, emailNormalized, excludeAccountID, requireContent).Scan(&linkID)
 	switch {
 	case err == nil:
@@ -470,6 +477,11 @@ func touchIdentityAndProfile(
 	accountID, provider, providerSub string,
 	profile AccountProfile,
 ) error {
+	// Includes the winner of a concurrent first-sign-in race. FOR UPDATE
+	// avoids a key-share lock upgrade deadlock between two profile refreshes.
+	if err := lockIdentityAccount(ctx, tx, accountID); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE account_identities SET verified_at = NOW()
 		WHERE provider = $1 AND provider_sub = $2
@@ -488,6 +500,14 @@ func touchIdentityAndProfile(
 	`, accountID, profile.Email, profile.EmailNormalized, profile.EmailVerified,
 		profile.Name, profile.PictureURL); err != nil {
 		return fmt.Errorf("refresh account profile: %w", err)
+	}
+	return nil
+}
+
+func lockIdentityAccount(ctx context.Context, tx pgx.Tx, accountID string) error {
+	var id string
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM accounts WHERE id = $1::uuid FOR UPDATE`, accountID).Scan(&id); err != nil {
+		return fmt.Errorf("lock resolved account: %w", err)
 	}
 	return nil
 }

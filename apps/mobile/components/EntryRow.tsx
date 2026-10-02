@@ -22,7 +22,13 @@ const AUTHOR_CHIP_SIZE = 20;
 
 // Keep each language's word order while giving only the name bold weight.
 function namedByLine(
-  key: "entry.addedBy" | "entry.editedBy" | "entry.editedByOnly" | "tab.addedBy",
+  key:
+    | "entry.addedBy"
+    | "entry.editedBy"
+    | "entry.editedByOnly"
+    | "tab.addedBy"
+    | "tab.reviewedBy"
+    | "tab.cancelledBy",
   name: string,
 ) {
   const [before, after] = t(key, { name: "\uFFFC" }).split("\uFFFC");
@@ -139,13 +145,13 @@ export const EntryRow = memo(function EntryRow(props: {
 
   // Review state is separate from money direction. Every synced tally has a status.
   const rejected = voided || tab?.status === "disputed";
-  const accepted = !voided && tab?.status === "accepted";
+  const accepted = !voided && !tab?.local_pending && tab?.status === "accepted";
   const pending = !voided && tab?.status === "pending";
   const pill = tab
-    ? voided
-      ? t("tab.status.voided")
-      : tab.local_pending
-        ? t("tab.status.sending")
+    ? tab.local_pending
+      ? t("tab.status.sending")
+      : voided
+        ? t("tab.status.voided")
         : tab.status === "disputed"
           ? t("tab.status.disputed")
           : tab.status === "accepted"
@@ -367,6 +373,18 @@ export const EntryRow = memo(function EntryRow(props: {
             dispute needs the whole sentence, not its first line. */}
           {open && disputeLine ? (
             <Text style={[styles.byLine, textDir(isRTL)]}>{disputeLine}</Text>
+          ) : null}
+          {open && tab && !tab.local_pending && tab.status !== "pending" ? (
+            <Text style={[styles.byLine, textDir(isRTL)]}>
+              {namedByLine("tab.reviewedBy", tab.reviewer_name || t("export.record.unknown"))}
+              {tab.status_at != null ? ` · ${formatTimestamp(tab.status_at)}` : ""}
+            </Text>
+          ) : null}
+          {open && tab?.voided && !tab.local_pending ? (
+            <Text style={[styles.byLine, textDir(isRTL)]}>
+              {namedByLine("tab.cancelledBy", tab.cancelled_by_name || t("export.record.unknown"))}
+              {tab.cancelled_at != null ? ` · ${formatTimestamp(tab.cancelled_at)}` : ""}
+            </Text>
           ) : null}
           {open && tab?.status === "disputed" && !voided ? (
             <Text style={[styles.byLine, textDir(isRTL)]}>{t("tab.rejectedHint")}</Text>

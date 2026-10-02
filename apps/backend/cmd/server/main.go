@@ -220,6 +220,7 @@ func main() {
 	// kaata.af/t/<token> is an invitation landing, never a web ledger.
 	// The live poke is wired after syncSvc exists.
 	tabsSvc := tabs.NewService(pool)
+	authSvc.SetSharedRecordNotifier(tabsSvc)
 	tabsSvc.StartPush(ctx, cfg.TabPushEnabled, cfg.ExpoAccessToken)
 	tabsH := tabs.NewHandler(tabsSvc, cfg.WebBaseURL, cfg.ShareLinkBaseURL, cfg.PublicAPIBaseURL)
 
@@ -421,12 +422,12 @@ func main() {
 
 	// PROTECTED routes. RequireSession middleware checks signature, expiry,
 	// auth_credentials.revoked_at (60s LRU cache).
+	// Deletion additionally permits read-only confirmation of a prior completed
+	// delete with its matching signed session, even after credentials are gone.
+	r.With(authenticator.DeletionMiddleware()).Delete("/v1/account", authH.DeleteAccount)
 	r.Group(func(pr chi.Router) {
 		pr.Use(authenticator.Middleware())
 		pr.Post("/v1/auth/signout", authH.SignOut)
-		// In-app account deletion (Play + Apple requirement). Erases the account
-		// and the data it solely owns; see auth.Service.DeleteAccount.
-		pr.Delete("/v1/account", authH.DeleteAccount)
 		// Account-level phone: persists the shopkeeper's own number server-side so
 		// it survives a reinstall (the device-local users.phone_e164 never syncs).
 		pr.Put("/v1/account/phone", authH.UpdatePhone)

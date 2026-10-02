@@ -1028,6 +1028,18 @@ export default function PersonDetailScreen() {
           </>
         ) : null}
 
+        {tabHistory?.closed_reason === "account_deleted" ? (
+          <Text
+            style={[
+              styles.historyRowText,
+              { paddingHorizontal: 14, paddingVertical: 10 },
+              textDir(isRTL),
+            ]}
+          >
+            {t("export.record.closedDeleted")}
+          </Text>
+        ) : null}
+
         {/* Pre-link history (D8). Visible but folded, in the settled-history
             row's visual language: these rows are the book as it was before
             the account became shared, their sum is already the opening tally

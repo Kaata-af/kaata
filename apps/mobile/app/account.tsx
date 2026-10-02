@@ -23,7 +23,12 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { deleteAccount, getSessionJWT, updateAccountPhone } from "../lib/auth";
+import {
+  deleteAccount,
+  getSessionJWT,
+  hasPendingAccountDeletion,
+  updateAccountPhone,
+} from "../lib/auth";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CountryPickerSheet } from "../components/CountryPickerSheet";
@@ -33,8 +38,7 @@ import { NavRow, ScreenHeader, SectionGap, SectionHeader } from "../components/S
 import { useToast } from "../components/Toast";
 import { colors } from "../lib/colors";
 import { joinName, splitName } from "../lib/contacts-sync";
-import { getAppMeta, getLocalSelf, initDb, setAppMeta, updateSelfProfile } from "../lib/db";
-import { ensureInstallId } from "../lib/install-id";
+import { getAppMeta, getLocalSelf, setAppMeta, updateSelfProfile } from "../lib/db";
 import { ltrIsolate, rowDir, textDir, useIsRTL } from "../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../lib/event-log";
 import { fonts } from "../lib/fonts";
@@ -153,7 +157,7 @@ export default function AccountScreen() {
       // 'auto' rather than poisoning every date on the screen.
       setCalendarPrefState(parseCalendarPref(await getAppMeta(CALENDAR_PREF_KEY)));
       setPrefCountry(getCurrentDefaultCountryCode());
-      setSignedIn(!!(await getSessionJWT()));
+      setSignedIn(!!(await getSessionJWT()) || (await hasPendingAccountDeletion()));
       setLoaded(true);
     })();
   }, []);
@@ -168,14 +172,18 @@ export default function AccountScreen() {
     setDeleteConfirmVisible(false);
     try {
       await deleteAccount();
-      // resetAllLocalData (inside deleteAccount) dropped every table + closed
-      // the handle — rebuild the schema before any screen touches the DB.
-      const id = await ensureInstallId();
-      await initDb({ installId: id });
+      // The confirmed cleanup also rebuilt a fresh local schema.
       router.replace("/onboarding");
     } catch (err) {
       console.warn("[account] deleteAccount failed", err);
-      toast.push(t("account.deleteAccount.failed"), "error");
+      toast.push(
+        t(
+          err instanceof Error && err.message === "account_delete_auth_required"
+            ? "account.deleteAccount.authRequired"
+            : "account.deleteAccount.failed",
+        ),
+        "error",
+      );
     } finally {
       deletingRef.current = false;
     }

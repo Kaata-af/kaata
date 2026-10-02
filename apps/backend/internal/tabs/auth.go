@@ -103,6 +103,10 @@ func (s *Service) PartyByAccount(ctx context.Context, tabID, accountID string) (
 // A person can be a member of both parties' kaatas. The app supplies the
 // side of its local contact; this is a selector, NEVER an authorization grant.
 func (s *Service) partyByAccountRole(ctx context.Context, tabID, accountID, role string) (Party, error) {
+	return partyByAccountRoleQuery(ctx, s.pool, tabID, accountID, role)
+}
+
+func partyByAccountRoleQuery(ctx context.Context, q querier, tabID, accountID, role string) (Party, error) {
 	if role != "" && role != "a" && role != "b" {
 		return Party{}, ErrNotFound
 	}
@@ -117,7 +121,7 @@ func (s *Service) partyByAccountRole(ctx context.Context, tabID, accountID, role
 	// COALESCE on the boolean: `p.account_id = $2` is NULL for an unbound
 	// party and DESC ordering puts NULLs FIRST in Postgres, which would rank
 	// an unbound party above the caller's own.
-	err := s.pool.QueryRow(ctx, `
+	err := q.QueryRow(ctx, `
 		SELECT `+partyCols+`,
 		       COALESCE(p.account_id = $2::uuid, FALSE),
 		       COALESCE(vm.role, '')
@@ -148,11 +152,31 @@ func (s *Service) partyByAccountRole(ctx context.Context, tabID, accountID, role
 // any) on every successful resolution. Best-effort and a separate statement
 // on purpose: it must never fail a request or join a mutation's transaction.
 func (s *Service) touchParty(ctx context.Context, p Party, installID *string) {
-	if _, err := s.pool.Exec(ctx, `
-		UPDATE tab_parties
+	if p.ActorAccountID == "" {
+		return
+	}
+	tx, err := s.beginMutation(ctx, &p.ActorAccountID)
+	if err != nil {
+		if !errors.Is(err, ErrAuthRequired) {
+			log.Printf("tabs: touch party %s/%s: %v", p.TabID, p.Role, err)
+		}
+		return
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	// Account deletion takes the same account lock before clearing this
+	// metadata. A request resolved before erasure must not put it back.
+	if _, err := tx.Exec(ctx, `
+		UPDATE tab_parties p
 		   SET last_seen_at = NOW(), install_id = COALESCE($3::uuid, install_id)
-		 WHERE tab_id = $1::uuid AND role = $2
-	`, p.TabID, p.Role, installID); err != nil {
+		 WHERE p.tab_id = $1::uuid AND p.role = $2
+		   AND (p.account_id = $4::uuid OR EXISTS (
+		     SELECT 1 FROM vault_members vm WHERE vm.vault_id=p.vault_id
+		       AND vm.account_id=$4::uuid AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL))
+	`, p.TabID, p.Role, installID, p.ActorAccountID); err != nil {
+		log.Printf("tabs: touch party %s/%s: %v", p.TabID, p.Role, err)
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
 		log.Printf("tabs: touch party %s/%s: %v", p.TabID, p.Role, err)
 	}
 }

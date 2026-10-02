@@ -4,8 +4,10 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	lru "github.com/hashicorp/golang-lru/v2"
 
 	"github.com/matee/kaata-backend/internal/httpx"
@@ -31,15 +33,79 @@ type revokedEntry struct {
 // SessionAuthenticator owns the LRU cache of revoked_at lookups. Construct
 // once at startup; the cache is shared across all incoming requests.
 type SessionAuthenticator struct {
-	secret string
-	svc    *Service
-	cache  *lru.Cache[string, revokedEntry]
+	secret   string
+	svc      credentialRevocationChecker
+	receipts accountDeletionReceiptChecker
+	cache    *lru.Cache[string, revokedEntry]
+	// Keep invalidation ordered after any DB lookup already in progress, so
+	// an old result cannot repopulate the cache after deletion/sign-out.
+	cacheMu sync.RWMutex
+}
+
+type credentialRevocationChecker interface {
+	CheckCredentialRevoked(context.Context, string, string, string) (bool, error)
+}
+
+type accountDeletionReceiptChecker interface {
+	AccountDeletionCompleted(context.Context, string, string) (bool, error)
 }
 
 // NewSessionAuthenticator wires up the LRU cache.
 func NewSessionAuthenticator(svc *Service, secret string) *SessionAuthenticator {
 	cache, _ := lru.New[string, revokedEntry](4096)
-	return &SessionAuthenticator{secret: secret, svc: svc, cache: cache}
+	return &SessionAuthenticator{secret: secret, svc: svc, receipts: svc, cache: cache}
+}
+
+// DeletionMiddleware belongs only on DELETE /v1/account. A live session may
+// perform deletion; a signed, unexpired session whose matching deletion
+// receipt exists may only receive confirmation of that completed deletion.
+// The latter never reaches a handler or gains authenticated context, so a
+// lost HTTP response can be retried without restoring any account access.
+func (a *SessionAuthenticator) DeletionMiddleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			tok := extractBearer(r.Header.Get("Authorization"))
+			if tok == "" {
+				httpx.Error(w, http.StatusUnauthorized, "missing or empty bearer token")
+				return
+			}
+			claims, err := ParseSession(a.secret, tok)
+			if err != nil || claims.ExpiresAt == nil || claims.Provider == "" {
+				httpx.Error(w, http.StatusUnauthorized, "invalid session token")
+				return
+			}
+			if _, err := uuid.Parse(claims.AccountID); err != nil {
+				httpx.Error(w, http.StatusUnauthorized, "invalid session token")
+				return
+			}
+			if _, err := uuid.Parse(claims.InstallID); err != nil {
+				httpx.Error(w, http.StatusUnauthorized, "invalid session token")
+				return
+			}
+			// Destructive account actions always use a fresh credential verdict;
+			// a recently signed-out session must not pass via the shared LRU.
+			revoked, err := a.svc.CheckCredentialRevoked(r.Context(), claims.InstallID, claims.Provider, claims.AccountID)
+			if err != nil {
+				httpx.Error(w, http.StatusServiceUnavailable, "session check unavailable")
+				return
+			}
+			if !revoked {
+				ctx := context.WithValue(r.Context(), claimsContextKey, claims)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+			completed, err := a.receipts.AccountDeletionCompleted(r.Context(), claims.InstallID, claims.AccountID)
+			if err != nil {
+				httpx.Error(w, http.StatusServiceUnavailable, "deletion status unavailable")
+				return
+			}
+			if !completed {
+				httpx.Error(w, http.StatusUnauthorized, "session has been revoked")
+				return
+			}
+			httpx.JSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+		})
+	}
 }
 
 // Middleware returns chi-compatible middleware that requires a valid
@@ -110,6 +176,8 @@ func (a *SessionAuthenticator) authorize(w http.ResponseWriter, r *http.Request)
 }
 
 func (a *SessionAuthenticator) isRevoked(ctx context.Context, claims *SessionClaims) (bool, error) {
+	a.cacheMu.RLock()
+	defer a.cacheMu.RUnlock()
 	// Key on account_id too: a revocation check is now account-bound (see
 	// CheckCredentialRevoked), so a cache entry for the old account must not
 	// answer for the new one after an account switch.
@@ -134,11 +202,27 @@ func (a *SessionAuthenticator) isRevoked(ctx context.Context, claims *SessionCla
 // LRU entry to expire. Cache keys now carry the account_id suffix, so clear
 // every entry sharing the (installID, provider) prefix.
 func (a *SessionAuthenticator) Invalidate(installID, provider string) {
+	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
 	prefix := installID + "|" + provider + "|"
 	legacy := installID + "|" + provider
 	for _, k := range a.cache.Keys() {
 		if k == legacy || strings.HasPrefix(k, prefix) {
 			a.cache.Remove(k)
+		}
+	}
+}
+
+// InvalidateAccount drops every cached session for an account, across all
+// installs and providers. Call after the deletion transaction commits.
+// Like Invalidate, it waits for pending lookups before removing their results.
+func (a *SessionAuthenticator) InvalidateAccount(accountID string) {
+	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
+	suffix := "|" + accountID
+	for _, key := range a.cache.Keys() {
+		if strings.HasSuffix(key, suffix) {
+			a.cache.Remove(key)
 		}
 	}
 }

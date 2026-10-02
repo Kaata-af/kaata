@@ -8,7 +8,7 @@ import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 // require a reachable, truthful privacy policy URL once any personal data is
 // collected — this page is that URL (kaata.af/privacy) and must stay accurate to
 // what the app actually does. When you change a data flow, change this page.
-const UPDATED = "22 September 2026";
+const UPDATED = "2 October 2026";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -54,13 +54,13 @@ export function Privacy() {
         <Section title="What the app sends on every launch">
           <p>
             When the app starts, it makes a short check-in to our server. This is used to record an
-            anonymous install, tell you about updates, and understand overall usage. The check-in
+            installation, tell you about updates, and understand overall usage. The check-in
             includes:
           </p>
           <ul className="list-disc ps-5 space-y-1.5">
             <li>
-              An <strong>anonymous install ID</strong> — a random identifier generated on your phone
-              the first time you open the app. It is not tied to your name unless you provide one
+              An <strong>installation ID</strong> — a random identifier generated on your phone the
+              first time you open the app. It is not tied to your name unless you provide one
               (below).
             </li>
             <li>
@@ -135,6 +135,19 @@ export function Privacy() {
             “Unlink” in the app — it stops accepting new tallies for both of you, and both of you
             keep the closed account as a read-only record of what was owed.
           </p>
+          <p>
+            Deleting a login does not accept a pending tally, settle a balance, or erase the other
+            participant’s shared history. We retain the shared entries and their recorded status,
+            author and reviewer names, account references, roles where recorded, and action times so
+            authorized participants can read and export that history. These records contain personal
+            data; they are not anonymous. Older entries may have incomplete attribution, and a name
+            or account sign-in is not proof of legal identity.
+          </p>
+          <p>
+            If account deletion leaves one side with nobody authorized to review its tallies, the
+            shared account closes and unused invitations stop working. Deleting a staff member’s
+            login does not close a shared account that still has authorized participants.
+          </p>
         </Section>
 
         <Section title="Shared-account notifications">
@@ -165,10 +178,10 @@ export function Privacy() {
 
         <Section title="Crash and diagnostic reports">
           <p>
-            To fix bugs, the app may send diagnostic reports containing the anonymous install ID, a
-            short error message, app version, and basic device memory figures, alongside the IP
-            address of the request. Error messages are length-limited; we do not intentionally
-            collect your ledger content in them.
+            To fix bugs, the app may send diagnostic reports containing the installation ID, a short
+            error message, app version, and basic device memory figures, alongside the IP address of
+            the request. Error messages are length-limited; we do not intentionally collect your
+            ledger content in them.
           </p>
         </Section>
 
@@ -182,10 +195,18 @@ export function Privacy() {
 
         <Section title="How long we keep data">
           <p>
-            Anonymous install and usage records are kept for as long as the install is active.
-            Diagnostic reports and unclaimed website-visit records are deleted on a rolling basis.
-            When you delete your account (below), we remove your account profile, sign-in
-            credentials, self-identity fields, and the ledger data you alone own.
+            Installation and usage records are retained separately from account profiles for
+            operational reporting. They are not necessarily anonymous. Diagnostic reports and
+            unclaimed website-visit records are deleted on a rolling basis. When you delete your
+            account (below), we remove your account profile, sign-in credentials, install
+            self-identity fields, and cloud copies of kaatas you own. Old installations are retired
+            so they cannot upload the deleted profile again.
+          </p>
+          <p>
+            Shared tally history remains available to authorized participants after account
+            deletion. Retaining it does not give us permission to use it for marketing. Contact us
+            to request review of personal information in a retained shared record; we assess the
+            request alongside the other participant’s recordkeeping needs and applicable law.
           </p>
         </Section>
 
@@ -206,10 +227,12 @@ export function Privacy() {
             </a>
           </p>
           <p>
-            Deleting the app from your phone removes the on-device ledger. If you never signed in,
-            unshared records have no cloud copy. Bills and shared accounts already sent to another
-            person remain available as described above; save your shared-account link before
-            uninstalling if it is not connected to a signed-in account.
+            Account deletion clears the ledger on the phone where you complete it. Other devices
+            lose access to the deleted account, but may still hold local copies or files you
+            exported. If you never signed in, unshared records have no cloud copy. Bills and shared
+            accounts already sent to another person remain available as described above. Export
+            important records before deleting your account; an invitation link does not restore a
+            deleted account's access.
           </p>
         </Section>
 

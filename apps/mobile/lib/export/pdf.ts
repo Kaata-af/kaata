@@ -43,8 +43,11 @@ import { formatAmount } from "../format";
 import { tIn } from "../i18n";
 import { noteFor } from "./note";
 import { faDigits, formatSettlementDate } from "../jalali";
-import { sumAmounts } from "../money";
+import { addAmounts, sumAmounts } from "../money";
 import { exportFileTarget, type PersonStatement, type VaultReport } from "./data";
+import { EVIDENCE_KEYS, evidenceCells, recordStatus } from "./evidence";
+import { balanceContribution, recordTotals } from "./shared-record";
+import type { Entry } from "../types";
 
 let cachedFontCss: string | null = null;
 
@@ -174,6 +177,13 @@ td.received{color:${colors.collectStrong}}
 .type.gave{color:${colors.payStrong}}
 .type.received{color:${colors.collectStrong}}
 td.note{color:${colors.textDefault}}
+.recordNotes{font-size:10px;color:${colors.textSubtle};margin-top:10px;line-height:1.6}
+.evidenceGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px 12px;font-size:9px;overflow-wrap:anywhere}
+.evidenceGrid span{unicode-bidi:isolate}
+.evidenceLabel{font-weight:700}
+tr.evidence td{background:${colors.bgMuted};padding:8px 10px 12px}
+.excluded{text-decoration:line-through;color:${colors.textSubtle}}
+.recordStatus{display:block;font-size:9px;margin-top:3px;white-space:normal}
 td.muted{color:${colors.textSubtle}}
 /* Running balance: same weight as the amount so the two numeric columns read
    as a pair, but no hue — the colour in the amount column means direction,
@@ -235,6 +245,61 @@ async function printToTarget(html: string, fileName: string): Promise<File> {
   return printed;
 }
 
+function recordDetailHtml(entry: Entry, locale: "en" | "fa"): string {
+  if (!entry.tab) return "";
+  const tab = entry.tab;
+  const values = evidenceCells(tab, locale);
+  // Names on historical records may be absent; do not substitute the current
+  // party owner. That would claim a review by somebody who may never have acted.
+  if (!values[3]) values[3] = tIn(locale, "export.record.unknown");
+  if (!tab.local_pending && tab.status !== "pending" && !values[7]) {
+    values[7] = tIn(locale, "export.record.unknown");
+  }
+  const details = EVIDENCE_KEYS.flatMap((key, i) =>
+    values[i]
+      ? [
+          `<div><span class="evidenceLabel" dir="auto">${esc(tIn(locale, key))}: </span><span dir="auto">${esc(values[i])}</span></div>`,
+        ]
+      : [],
+  );
+  details.push(
+    `<div><span class="evidenceLabel" dir="auto">${esc(tIn(locale, "export.col.id"))}: </span><span dir="ltr">${esc(entry.id)}</span></div>`,
+  );
+  return `<tr class="evidence"><td colspan="6"><div class="evidenceGrid">${details.join("")}</div></td></tr>`;
+}
+
+function archivedPeriodHtml(
+  period: NonNullable<PersonStatement["archivedSharedPeriods"]>[number],
+  st: PersonStatement,
+): string {
+  const { locale, calendar } = st;
+  let balance = 0;
+  const rows = period.entries
+    .map((entry, index) => {
+      balance = addAmounts(balance, balanceContribution(entry));
+      const gave = entry.type === "debt";
+      return `<tr>
+<td class="idx n">${num(String(index + 1))}</td>
+<td class="muted" dir="auto">${esc(formatSettlementDate(entry.created_at, locale, calendar))}</td>
+<td class="c"><span dir="auto">${esc(tIn(locale, gave ? "export.col.gave" : "export.col.received"))}</span><span class="recordStatus" dir="auto">${esc(recordStatus(entry.tab, locale))}</span></td>
+<td class="n amount${balanceContribution(entry) === 0 ? " excluded" : ""}">${num(`${formatAmount(entry.amount_afn)} ${esc(period.link.currency)}`)}</td>
+<td class="n bal">${num(fmtSigned(balance))}</td>
+<td class="note" dir="auto">${esc(noteFor(entry.note, entry.tab?.kind, locale) ?? "")}</td>
+</tr>${recordDetailHtml(entry, locale)}`;
+    })
+    .join("");
+  return `<section class="section">
+<h2 class="sectionTitle" dir="auto">${esc(tIn(locale, "export.record.archiveTitle"))} — ${esc(formatSettlementDate(period.link.linked_at, locale, calendar))}</h2>
+<p class="recordNotes" dir="auto">${esc(period.link.my_label)} · ${esc(period.link.other_label)} · ${esc(period.link.currency)}</p>
+<p class="recordNotes" dir="auto">${esc(tIn(locale, "export.record.archiveExplanation"))}</p>
+${period.link.closed_reason === "account_deleted" ? `<p class="recordNotes" dir="auto">${esc(tIn(locale, "export.record.closedDeleted"))}</p>` : ""}
+<table><thead><tr>
+<th class="n">${esc(tIn(locale, "export.col.num"))}</th><th>${esc(tIn(locale, "export.col.date"))}</th>
+<th>${esc(tIn(locale, "export.col.type"))}</th><th class="n">${esc(tIn(locale, "export.col.amount"))}</th>
+<th class="n">${esc(tIn(locale, "export.record.periodBalance"))}</th><th>${esc(tIn(locale, "export.col.note"))}</th>
+</tr></thead><tbody>${rows}</tbody></table></section>`;
+}
+
 export async function renderPersonStatementPdf(
   st: PersonStatement,
   fileName: string,
@@ -242,15 +307,21 @@ export async function renderPersonStatementPdf(
   const { locale, calendar, currencySymbol: sym } = st;
   const shopName = st.self?.shop_name ?? st.self?.name ?? "";
   const entries = st.rows.filter((r) => r.kind === "entry");
+  const shared = entries.some((r) => r.entry.tab) || !!st.archivedSharedPeriods?.length;
+  const totals = st.sharedTotals ?? recordTotals(entries.map((r) => r.entry));
 
   // Totals for the summary cards. Computed here rather than in data.ts so the
   // CSV — a machine format whose columns are a stable contract — is untouched
   // by a presentation change.
   const totalGave = sumAmounts(
-    entries.filter((r) => r.entry.type === "debt").map((r) => r.entry.amount_afn),
+    entries
+      .filter((r) => r.entry.type === "debt" && balanceContribution(r.entry) !== 0)
+      .map((r) => r.entry.amount_afn),
   );
   const totalReceived = sumAmounts(
-    entries.filter((r) => r.entry.type === "payment").map((r) => r.entry.amount_afn),
+    entries
+      .filter((r) => r.entry.type === "payment" && balanceContribution(r.entry) !== 0)
+      .map((r) => r.entry.amount_afn),
   );
 
   const meta = [
@@ -282,7 +353,16 @@ export async function renderPersonStatementPdf(
   const balanceColor =
     st.balance > 0 ? colors.collectStrong : st.balance < 0 ? colors.payStrong : colors.textDefault;
 
-  const summaryHtml = `<div class="cards">
+  const summaryHtml = shared
+    ? `<div class="cards">
+${card({ tone: "flat", label: tIn(locale, "export.record.acknowledgedBalance"), value: `${fmtSigned(totals.acknowledged)} ${sym}` })}
+${card({ tone: "flat", label: tIn(locale, "export.record.pendingBalance"), value: `${fmtSigned(totals.pending)} ${sym}` })}
+${card({ tone: "flat", label: tIn(locale, "export.doc.balance"), value: `${fmtSigned(st.balance)} ${sym}`, color: balanceColor, note: balanceNote })}
+</div>
+${entries.some((r) => !r.entry.tab) ? `<p class="recordNotes" dir="auto">${esc(tIn(locale, "export.record.privateBalance"))}: ${num(fmtSigned(totals.private))} ${esc(sym)}</p>` : ""}
+<p class="recordNotes" dir="auto">${esc(tIn(locale, "export.record.explanation"))}</p>
+${entries.some((r) => r.entry.tab?.closed_reason === "account_deleted") ? `<p class="recordNotes" dir="auto">${esc(tIn(locale, "export.record.closedDeleted"))}</p>` : ""}`
+    : `<div class="cards">
 ${card({ tone: "pay", label: tIn(locale, "export.doc.totalGave"), value: `${formatAmount(totalGave)} ${sym}`, color: colors.payStrong })}
 ${card({ tone: "collect", label: tIn(locale, "export.doc.totalReceived"), value: `${formatAmount(totalReceived)} ${sym}`, color: colors.collectStrong })}
 ${card({ tone: "flat", label: tIn(locale, "export.doc.balance"), value: `${fmtSigned(st.balance)} ${sym}`, color: balanceColor, note: balanceNote })}
@@ -325,8 +405,8 @@ ${card({ tone: "flat", label: tIn(locale, "export.doc.balance"), value: `${fmtSi
           `<tr>` +
           `<td class="idx n">${num(String(++n))}</td>` +
           `<td class="muted" dir="auto">${esc(formatSettlementDate(e.created_at, locale, calendar))}</td>` +
-          `<td class="c"><span class="type ${cls}" dir="auto">${esc(typeLabel)}</span></td>` +
-          `<td class="n amount ${cls}">${num(`${formatAmount(e.amount_afn)} ${esc(sym)}`)}</td>` +
+          `<td class="c"><span class="type ${cls}" dir="auto">${esc(typeLabel)}</span>${shared ? `<span class="recordStatus" dir="auto">${esc(recordStatus(e.tab, locale))}</span>` : ""}</td>` +
+          `<td class="n amount ${cls}${e.tab && balanceContribution(e) === 0 ? " excluded" : ""}">${num(`${formatAmount(e.amount_afn)} ${esc(sym)}`)}</td>` +
           // The running balance is back, and deliberately NEUTRAL. A statement
           // exists to be checked, and without it the reader has to add
           // twenty-five numbers to see how the total was reached. It is not
@@ -335,7 +415,8 @@ ${card({ tone: "flat", label: tIn(locale, "export.doc.balance"), value: `${fmtSi
           // the old document unreadable.
           `<td class="n bal">${num(fmtSigned(row.balanceAfter))}</td>` +
           `<td class="note" dir="auto">${esc(noteFor(e.note, e.tab?.kind, locale) ?? "")}</td>` +
-          `</tr>`
+          `</tr>` +
+          (e.tab ? recordDetailHtml(e, locale) : "")
         );
       })
       .join("");
@@ -354,7 +435,7 @@ ${card({ tone: "flat", label: tIn(locale, "export.doc.balance"), value: `${fmtSi
 
   const body = `${masthead({
     brand: shopName,
-    docTitle: tIn(locale, "export.doc.statementTitle"),
+    docTitle: tIn(locale, shared ? "export.record.title" : "export.doc.statementTitle"),
     meta,
   })}
 <div class="content">
@@ -367,6 +448,7 @@ ${summaryHtml}
 <h2 class="sectionTitle" dir="auto">${esc(tIn(locale, "export.doc.transactionsSection"))}</h2>
 ${tableHtml}
 </section>
+${(st.archivedSharedPeriods ?? []).map((period) => archivedPeriodHtml(period, st)).join("")}
 </div>`;
 
   const html = htmlShell({

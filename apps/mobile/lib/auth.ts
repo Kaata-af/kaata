@@ -10,6 +10,8 @@ import {
   refreshAccountIdCache,
   setAccountIdCache,
   setAppMetaInTx,
+  setInstallIdCache,
+  setLocalSelfUserIdCache,
 } from "./db-tx";
 import { initDb, resetAllLocalData } from "./db";
 import { resolveAccountIdCandidates } from "./effective-account";
@@ -59,6 +61,26 @@ function loadGoogleSignin(): GoogleSigninModule | null {
 // the JWT belongs.
 const SESSION_KEY = "kaata.session.jwt";
 const USER_KEY = "kaata.session.user";
+const DELETION_CONFIRMATION_KEY = "kaata.account.deletion-confirmation";
+const DELETION_ATTEMPT_KEY = "kaata.account.deletion-attempt";
+let sessionBindingVersion = 0;
+let sessionMutationTail: Promise<void> = Promise.resolve();
+
+// Installing a new account and clearing a deleted account must not interleave
+// across native SecureStore/SQLite awaits. A sign-in can finish after navigation.
+async function mutateLocalSession<T>(work: () => Promise<T>): Promise<T> {
+  const previous = sessionMutationTail;
+  let release!: () => void;
+  sessionMutationTail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    return await work();
+  } finally {
+    release();
+  }
+}
 
 export type SessionUser = {
   email?: string;
@@ -192,6 +214,8 @@ async function guardDifferentAccount(
     // account.tsx after deleteAccount: fresh install id first (migration 006
     // requires it), then rebuild the schema.
     const freshInstallId = await ensureInstallId();
+    setInstallIdCache(freshInstallId);
+    setLocalSelfUserIdCache(null);
     await initDb({ installId: freshInstallId });
   }
   // "keep" falls through. postSignInHousekeeping's setAppMetaInTx calls
@@ -443,7 +467,16 @@ type AuthResponse = {
 // device key. Extracted so both providers land the user in an identical
 // signed-in state. All housekeeping is best-effort — a transient failure must
 // not deny the already-authenticated user their session.
-async function applyAuthResponse(body: AuthResponse): Promise<SessionUser> {
+function applyAuthResponse(body: AuthResponse): Promise<SessionUser> {
+  return mutateLocalSession(() => installAuthResponse(body));
+}
+
+async function installAuthResponse(body: AuthResponse): Promise<SessionUser> {
+  sessionBindingVersion++;
+  // A receipt from an earlier identity must never erase this new account's
+  // records later, even after this session signs out.
+  await SecureStore.deleteItemAsync(DELETION_CONFIRMATION_KEY);
+  await SecureStore.deleteItemAsync(DELETION_ATTEMPT_KEY);
   await SecureStore.setItemAsync(SESSION_KEY, body.session_jwt);
   await SecureStore.setItemAsync(USER_KEY, JSON.stringify(body.user ?? {}));
 
@@ -1123,21 +1156,66 @@ export async function signOut(): Promise<void> {
 //
 // The server delete must succeed FIRST: if it fails (network down, 5xx) we
 // throw and leave local data intact so the user can retry, rather than wiping
-// their only ledger copy while the server copy survives. A 401 means the
-// credential is already gone (a prior delete landed) — treat as success.
+// their only ledger copy while the server copy survives. A missing/expired
+// session is not deletion confirmation and must never trigger the local wipe.
 export async function deleteAccount(): Promise<void> {
+  const { requestAccountDeletion, completeAccountDeletion } = await import("./account-deletion");
+  await completeAccountDeletion(await accountDeletionRecovery(requestAccountDeletion));
+}
+
+async function accountDeletionRecovery(
+  confirm: (jwt: string | null, baseUrl: string) => Promise<void>,
+) {
+  const bindingVersion = sessionBindingVersion;
   const jwt = await SecureStore.getItemAsync(SESSION_KEY);
-  if (jwt) {
-    const baseUrl = await getBackendUrl();
-    const res = await fetch(`${baseUrl}/v1/account`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${jwt}` },
-    });
-    if (!res.ok && res.status !== 401) {
-      throw new Error(`account_delete_failed:${res.status}`);
-    }
-  }
-  // Server-side gone (or was never signed in) — drop the Google session, the
+  return {
+    jwt,
+    readAttempt: () => SecureStore.getItemAsync(DELETION_ATTEMPT_KEY),
+    saveAttempt: (attemptJwt: string) => SecureStore.setItemAsync(DELETION_ATTEMPT_KEY, attemptJwt),
+    clearAttempt: () => SecureStore.deleteItemAsync(DELETION_ATTEMPT_KEY),
+    readConfirmation: () => SecureStore.getItemAsync(DELETION_CONFIRMATION_KEY),
+    saveConfirmation: (confirmedJwt: string) =>
+      mutateLocalSession(async () => {
+        if (bindingVersion !== sessionBindingVersion)
+          throw new Error("account_delete_session_changed");
+        await SecureStore.setItemAsync(DELETION_CONFIRMATION_KEY, confirmedJwt);
+      }),
+    clearConfirmation: () => SecureStore.deleteItemAsync(DELETION_CONFIRMATION_KEY),
+    confirmServer: async (session: string | null) => confirm(session, await getBackendUrl()),
+    clearLocalData: () =>
+      mutateLocalSession(async () => {
+        const current = await SecureStore.getItemAsync(SESSION_KEY);
+        if (bindingVersion !== sessionBindingVersion || (current !== null && current !== jwt)) {
+          // A new sign-in superseded the old deletion flow while it was waiting.
+          await SecureStore.deleteItemAsync(DELETION_CONFIRMATION_KEY);
+          throw new Error("account_delete_session_changed");
+        }
+        await clearDeletedAccountLocally();
+      }),
+  };
+}
+
+// Keep a retry available even if an interrupted cleanup already removed the JWT.
+export async function hasPendingAccountDeletion(): Promise<boolean> {
+  return (
+    !!(await SecureStore.getItemAsync(DELETION_CONFIRMATION_KEY)) ||
+    !!(await SecureStore.getItemAsync(DELETION_ATTEMPT_KEY))
+  );
+}
+
+// Called before startup sync: only a server-confirmed deletion resumes
+// automatically. Unconfirmed attempts remain available for an explicit retry.
+export async function resumeConfirmedAccountDeletion(): Promise<void> {
+  const { resumeConfirmedDeletion } = await import("./account-deletion");
+  await resumeConfirmedDeletion(
+    await accountDeletionRecovery(async () => {
+      throw new Error("startup_must_not_request_deletion");
+    }),
+  );
+}
+
+async function clearDeletedAccountLocally(): Promise<void> {
+  // Server confirmed deletion — drop the Google session, the
   // mesh key cache, the stored JWT, and every local table.
   const lib = loadGoogleSignin();
   if (lib) {
@@ -1153,10 +1231,14 @@ export async function deleteAccount(): Promise<void> {
   } catch {
     /* mesh module not available — fine */
   }
-  await SecureStore.deleteItemAsync(SESSION_KEY);
-  await SecureStore.deleteItemAsync(USER_KEY);
   setAccountIdCache(null);
   await resetAllLocalData();
+  setLocalSelfUserIdCache(null);
+  const id = await ensureInstallId();
+  setInstallIdCache(id);
+  await initDb({ installId: id });
+  await SecureStore.deleteItemAsync(USER_KEY);
+  await SecureStore.deleteItemAsync(SESSION_KEY);
 }
 
 // Dev-only: wipes the SecureStore session entries WITHOUT calling the

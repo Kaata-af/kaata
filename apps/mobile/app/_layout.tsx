@@ -394,6 +394,15 @@ export default function RootLayout() {
         console.warn("[init] interrupted-restore check failed", err);
       }
 
+      // Finish only a server-confirmed deletion before sync or onboarding can
+      // use a partly cleared ledger. An unconfirmed network attempt stays local
+      // and requires an explicit retry from Account; it never triggers erasure.
+      await step("account_deletion_cleanup", async () => {
+        const { resumeConfirmedAccountDeletion } = await import("../lib/auth");
+        await resumeConfirmedAccountDeletion();
+      });
+      if (aborted) return;
+
       // 1. Mint / fetch install_id and prime its cache BEFORE migrations
       //    run so migration 006 (synthetic backfill) can stamp it as the
       //    hlc.did on every backfilled event.

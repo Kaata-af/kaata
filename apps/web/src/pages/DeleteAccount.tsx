@@ -9,13 +9,13 @@ import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 //     settings" -> app/account.tsx "Privacy & data" -> "Delete account" -> confirm.
 //   - server erasure: DELETE /v1/account -> auth/service.go DeleteAccount (hard-
 //     deletes account + owned vaults + their events; nulls install self-identity;
-//     anonymizes authored events in others' vaults).
+//     detaches the login from contributions in others' vaults).
 //   - retention: kaata.af/v/<token> bill snapshots are PERMANENT (paper rule
 //     2026-08-07 — no TTL, no revocation; internal/shared/service.go) and are
-//     NOT erased by account deletion: the table is anonymous (no account
-//     linkage), and a sent bill belongs to the person it was sent to.
+//     NOT erased by account deletion: there is no account linkage. The
+//     snapshot still contains personal data; lack of a FK is not anonymisation.
 // If any of those change, change this page.
-const UPDATED = "7 August 2026";
+const UPDATED = "2 October 2026";
 const EMAIL = "hello@kaata.af";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -52,8 +52,8 @@ export function DeleteAccount() {
 
         <Section title="Delete your account from the app">
           <p>
-            The quickest way to delete your account and everything backed up to Kaata’s servers is
-            from inside the app:
+            The quickest way to delete your account and the cloud copies of kaatas you own is from
+            inside the app:
           </p>
           <ol className="list-decimal ps-5 space-y-1.5">
             <li>Open Kaata.</li>
@@ -77,7 +77,7 @@ export function DeleteAccount() {
             </li>
           </ol>
           <p>
-            This permanently deletes your account and cloud data and{" "}
+            This permanently deletes your account and the cloud copies of kaatas you own and{" "}
             <strong>cannot be undone</strong>. It also removes the ledger from that phone. The
             “Delete account” option appears only when you are signed in with Google or Apple.
           </p>
@@ -120,12 +120,24 @@ export function DeleteAccount() {
             </li>
           </ul>
           <p>
-            On your phone, the app also wipes the on-device ledger and resets to a fresh install.
+            On the phone where you complete deletion, the app wipes the on-device ledger and resets
+            to a fresh install. Other devices lose account access but may still hold local copies.
+            Files you exported or sent to someone else are not remotely erased. Export any private
+            records you need before deleting your account.
           </p>
         </Section>
 
         <Section title="What is kept, and for how long">
           <ul className="list-disc ps-5 space-y-1.5">
+            <li>
+              <strong>Shared tally history.</strong> Other authorized participants keep the entries,
+              amounts, notes, recorded names, author and reviewer references, action times and
+              acceptance, rejection or cancellation status. Deletion does not settle a balance or
+              turn pending tallies into accepted ones. If one side no longer has an authorized
+              reviewer, the shared account closes and unused invitations stop working. Existing
+              records remain readable and exportable; deleting an individual staff member does not
+              close an otherwise represented shared account.
+            </li>
             <li>
               <strong>Sent bills.</strong> If you ever sent a customer their balance through a Kaata
               bill link (kaata.af/v/…), that link holds a dated snapshot of that one customer’s name
@@ -136,14 +148,26 @@ export function DeleteAccount() {
             <li>
               <strong>Shared ledgers owned by someone else.</strong> If you took part in a ledger
               another person owns, the entries you added stay in that person’s ledger (it is their
-              record), but they are no longer linked to your account.
+              record). Your login is removed, while recorded attribution and signed author
+              references remain part of that history.
             </li>
             <li>
-              <strong>Anonymous usage data.</strong> We keep non-identifying records — such as
-              install and feature-usage counts and website-visit analytics — to understand overall
-              usage. These do not contain your ledger. (Crash reports are deleted within 90 days.)
+              <strong>Usage and operational records.</strong> Installation identifiers, usage
+              history and website-visit records are retained separately from your login. Your
+              self-profile fields are cleared and old installations are retired so they cannot
+              upload that profile again. These records are not necessarily anonymous. Diagnostics
+              linked to the retired installations are removed during deletion; other crash reports
+              expire within 90 days.
             </li>
           </ul>
+          <p>
+            Retained shared records contain personal data and remain available after account
+            deletion. Their preservation is for the participants’ shared history, not marketing. For
+            an erasure or correction request about a retained record, contact us; we review it
+            alongside the other participant’s recordkeeping needs and applicable law. Older entries
+            may have incomplete attribution. Recorded names and account sign-in do not establish
+            verified legal identity.
+          </p>
         </Section>
 
         <Section title="Deleting only some of your data">

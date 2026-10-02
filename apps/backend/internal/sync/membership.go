@@ -708,7 +708,15 @@ func (s *Service) foldMembershipEvent(
 		var invitedBy any
 		if p.Witness != nil && p.Witness.InviterAccountID != "" {
 			if _, err := uuid.Parse(p.Witness.InviterAccountID); err == nil {
-				invitedBy = p.Witness.InviterAccountID
+				// The signed witness remains unchanged in the event. Its live
+				// invited_by FK may be absent after the inviter deletes account.
+				var inviterExists bool
+				if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM accounts WHERE id=$1::uuid)`, p.Witness.InviterAccountID).Scan(&inviterExists); err != nil {
+					return nil, fmt.Errorf("fold member_added: inviter lookup: %w", err)
+				}
+				if inviterExists {
+					invitedBy = p.Witness.InviterAccountID
+				}
 			}
 		}
 		// The active-uniqueness partial index rules out ON CONFLICT; an

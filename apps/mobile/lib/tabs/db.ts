@@ -268,7 +268,9 @@ export async function vaultHasOpenTab(vaultId: string): Promise<boolean> {
 
 const ENTRY_COLUMNS = `id, tab_id, seq, rev, created_by, direction, amount_minor, kind, note,
    occurred_at, created_at, status, status_at, dispute_reason, voids_entry_id,
-   voided_by_entry_id, local_pending, author_account_id, author_name`;
+   voided_by_entry_id, local_pending, author_account_id, author_name,
+   author_member_role, reviewer_account_id, reviewer_name, reviewer_party,
+   reviewer_member_role, review_semantics_version, local_action_pending`;
 
 type PrevRow = Pick<TabEntryRow, "id" | "created_by" | "status" | "voided_by_entry_id">;
 
@@ -364,7 +366,7 @@ export async function upsertTabFromWire(
       const before = prev.get(e.id);
       await db.runAsync(
         `INSERT OR REPLACE INTO tab_entries (${ENTRY_COLUMNS})
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
         e.id,
         link.tab_id,
         e.seq,
@@ -383,6 +385,12 @@ export async function upsertTabFromWire(
         e.voided_by_entry_id,
         e.author_account_id ?? null,
         e.author_name ?? "",
+        e.author_member_role ?? null,
+        e.reviewer_account_id ?? null,
+        e.reviewer_name ?? "",
+        e.reviewer_party ?? null,
+        e.reviewer_member_role ?? null,
+        e.review_semantics_version ?? null,
       );
       changed = true;
       if (!before) {
@@ -419,6 +427,7 @@ export async function upsertTabFromWire(
       other_label: resp.tab.parties[them].label,
       other_joined_at: resp.tab.parties[them].joined_at_ms,
       closed_at: resp.tab.closed_at_ms,
+      closed_reason: resp.tab.closed_reason ?? null,
     };
     if (
       (resp.tab.parties[them].account_name ?? "") !== (stored.other_account_name ?? "") ||
@@ -426,6 +435,7 @@ export async function upsertTabFromWire(
       meta.other_label !== stored.other_label ||
       meta.other_joined_at !== stored.other_joined_at ||
       meta.closed_at !== stored.closed_at ||
+      meta.closed_reason !== (stored.closed_reason ?? null) ||
       (advanceCursor && resp.tab.rev > stored.rev)
     ) {
       changed = true;
@@ -435,7 +445,7 @@ export async function upsertTabFromWire(
     await db.runAsync(
       `UPDATE tab_links
           SET rev = MAX(rev, ?), currency = ?, my_label = ?, other_label = ?,
-              other_joined_at = ?, closed_at = ?, last_synced_at = ?, last_error = NULL
+              other_joined_at = ?, closed_at = ?, closed_reason = ?, last_synced_at = ?, last_error = NULL
         WHERE tab_id = ?`,
       advanceCursor ? resp.tab.rev : stored.rev,
       resp.tab.currency,
@@ -443,6 +453,7 @@ export async function upsertTabFromWire(
       meta.other_label,
       meta.other_joined_at,
       meta.closed_at,
+      meta.closed_reason,
       now,
       link.tab_id,
     );
@@ -467,7 +478,7 @@ export function entriesResponse(tab: TabResponse["tab"], entries: WireEntry[]): 
   return { tab, entries, full: false };
 }
 
-function rowToEntry(link: TabLink, r: TabEntryRow): Entry {
+function rowToEntry(link: TabLink, r: TabEntryRow, cancellation?: TabEntryRow): Entry {
   return {
     id: r.id,
     relationship_id: link.relationship_id,
@@ -487,12 +498,30 @@ function rowToEntry(link: TabLink, r: TabEntryRow): Entry {
     tab: {
       author_name: r.author_name ?? "",
       author_account_id: r.author_account_id ?? null,
+      author_member_role: r.author_member_role ?? null,
+      reviewer_account_id: r.reviewer_account_id ?? null,
+      reviewer_name: r.reviewer_name ?? "",
+      reviewer_party: r.reviewer_party ?? null,
+      reviewer_member_role: r.reviewer_member_role ?? null,
+      review_semantics_version: r.review_semantics_version ?? null,
+      tab_id: link.tab_id,
+      created_by: r.created_by,
+      recorded_at: r.created_at,
+      status_at: r.local_action_pending ? null : r.status_at,
+      seq: r.seq,
+      rev: r.rev,
+      cancelled_by_name: cancellation?.author_name ?? "",
+      cancelled_by_account_id: cancellation?.author_account_id ?? null,
+      cancelled_by_member_role: cancellation?.author_member_role ?? null,
+      cancelled_at: cancellation?.created_at ?? null,
+      cancellation_entry_id: r.voided_by_entry_id,
+      closed_reason: link.closed_reason ?? null,
       by: r.created_by === link.role ? "me" : "them",
       status: r.status,
       dispute_reason: r.dispute_reason,
       kind: r.kind,
       voided: r.voided_by_entry_id != null,
-      local_pending: r.local_pending === 1,
+      local_pending: r.local_pending === 1 || r.local_action_pending === 1,
       other_label: link.other_label,
     },
   };
@@ -509,11 +538,14 @@ export async function listTabEntriesAsEntries(link: TabLink): Promise<Entry[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<TabEntryRow>(
     `SELECT ${ENTRY_COLUMNS} FROM tab_entries
-      WHERE tab_id = ? AND kind <> 'void'
+      WHERE tab_id = ?
       ORDER BY occurred_at DESC, created_at DESC, id DESC`,
     link.tab_id,
   );
-  return rows.map((r) => rowToEntry(link, r));
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return rows
+    .filter((r) => r.kind !== "void")
+    .map((r) => rowToEntry(link, r, byId.get(r.voided_by_entry_id ?? "")));
 }
 
 /** Rows by the other party still awaiting my accept/dispute (the badge count). */
@@ -544,7 +576,7 @@ export async function insertOptimisticEntry(
   const now = Date.now();
   await db.runAsync(
     `INSERT INTO tab_entries (${ENTRY_COLUMNS})
-     VALUES (?, ?, -1, 0, ?, ?, ?, 'entry', ?, ?, ?, 'pending', NULL, NULL, NULL, NULL, 1, ?, ?)`,
+     VALUES (?, ?, -1, 0, ?, ?, ?, 'entry', ?, ?, ?, 'pending', NULL, NULL, NULL, NULL, 1, ?, ?, NULL, NULL, '', NULL, NULL, NULL, 0)`,
     e.id,
     link.tab_id,
     link.role,
@@ -581,7 +613,7 @@ export async function applyOptimisticStatus(
 ): Promise<void> {
   const db = await getDb();
   const result = await db.runAsync(
-    `UPDATE tab_entries SET status = ?, status_at = ?, dispute_reason = ?
+    `UPDATE tab_entries SET status = ?, status_at = ?, dispute_reason = ?, local_action_pending = 1
       WHERE id = ? AND tab_id = ? AND status = 'pending'
         AND kind <> 'void' AND voided_by_entry_id IS NULL AND created_by <> ?`,
     status,
@@ -616,7 +648,7 @@ export async function applyOptimisticVoid(
 ): Promise<void> {
   const db = await getDb();
   const result = await db.runAsync(
-    `UPDATE tab_entries SET voided_by_entry_id = ?
+    `UPDATE tab_entries SET voided_by_entry_id = ?, local_action_pending = 1
       WHERE id = ? AND tab_id = ? AND status = 'pending'
         AND kind <> 'void' AND voided_by_entry_id IS NULL AND created_by = ?`,
     marker,

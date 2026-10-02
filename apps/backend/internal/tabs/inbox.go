@@ -80,7 +80,7 @@ func (s *Service) listInbox(ctx context.Context, accountID, locale string, befor
 		return page, err
 	}
 	rows, err := tx.Query(ctx, `SELECT n.id::text,n.tab_id::text,n.recipient_role,n.rev,n.event_kind,
- COALESCE(n.entry_id::text,''),CASE WHEN n.actor_account_id IS NULL THEN '' ELSE n.actor_label END,n.created_at,nr.notification_id IS NOT NULL,
+ COALESCE(n.entry_id::text,''),n.actor_label,n.created_at,nr.notification_id IS NOT NULL,
  COALESCE(e.amount_minor,0),COALESCE(e.direction,''),t.currency
  FROM tab_notifications n JOIN tab_parties p ON p.tab_id=n.tab_id AND p.role=n.recipient_role
  JOIN tabs t ON t.id=n.tab_id LEFT JOIN tab_entries e ON e.id=n.entry_id AND e.tab_id=n.tab_id

@@ -8,6 +8,9 @@ import { tIn } from "../i18n";
 import { noteFor } from "./note";
 import { formatSettlementDate } from "../jalali";
 import { isoDate, shamsiDate, type PersonStatement, type VaultReport } from "./data";
+import { EVIDENCE_KEYS, evidenceCells } from "./evidence";
+import { addRecordTotal, balanceContribution, type RecordTotals } from "./shared-record";
+import { addAmounts } from "../money";
 
 // Excel needs the BOM to detect UTF-8 (otherwise Dari text opens as mojibake)
 // and CRLF is the least-surprising row separator across spreadsheet apps.
@@ -39,14 +42,31 @@ function csvLine(cells: Array<string | number | null | undefined>): string {
 
 export function buildPersonCsv(st: PersonStatement): string {
   const { locale, calendar, currencyCode: code } = st;
+  const shared =
+    st.rows.some((r) => r.kind === "entry" && r.entry.tab) || !!st.archivedSharedPeriods?.length;
+  let totals: RecordTotals = { acknowledged: 0, pending: 0, private: 0 };
   const lines: string[] = [
     csvLine([
       tIn(locale, "export.col.date"),
       tIn(locale, "export.col.dateShamsi"),
-      `${tIn(locale, "export.col.gave")} (${code})`,
-      `${tIn(locale, "export.col.received")} (${code})`,
+      shared ? tIn(locale, "export.col.gave") : `${tIn(locale, "export.col.gave")} (${code})`,
+      shared
+        ? tIn(locale, "export.col.received")
+        : `${tIn(locale, "export.col.received")} (${code})`,
       `${tIn(locale, "export.col.balance")} (${code})`,
       tIn(locale, "export.col.note"),
+      ...(shared
+        ? [
+            tIn(locale, "export.record.scope"),
+            tIn(locale, "export.record.currency"),
+            tIn(locale, "export.record.periodBalance"),
+            tIn(locale, "export.record.contribution"),
+            tIn(locale, "export.record.acknowledgedBalance"),
+            tIn(locale, "export.record.pendingBalance"),
+            tIn(locale, "export.record.privateBalance"),
+            ...EVIDENCE_KEYS.map((k) => tIn(locale, k)),
+          ]
+        : []),
       tIn(locale, "export.col.id"),
     ]),
   ];
@@ -62,12 +82,25 @@ export function buildPersonCsv(st: PersonStatement): string {
           tIn(locale, "person.history.settledOn", {
             date: formatSettlementDate(row.ms, locale, calendar),
           }),
+          ...(shared
+            ? [
+                tIn(locale, "export.record.current"),
+                code,
+                "",
+                "",
+                totals.acknowledged,
+                totals.pending,
+                totals.private,
+                ...EVIDENCE_KEYS.map(() => ""),
+              ]
+            : []),
           "",
         ]),
       );
       continue;
     }
     const e = row.entry;
+    totals = addRecordTotal(totals, e);
     lines.push(
       csvLine([
         isoDate(e.created_at),
@@ -76,15 +109,54 @@ export function buildPersonCsv(st: PersonStatement): string {
         e.type === "payment" ? e.amount_afn : "",
         row.balanceAfter,
         guardText(noteFor(e.note, e.tab?.kind, locale)),
+        ...(shared
+          ? [
+              tIn(locale, "export.record.current"),
+              code,
+              "",
+              balanceContribution(e),
+              totals.acknowledged,
+              totals.pending,
+              totals.private,
+              ...evidenceCells(e.tab, locale).map(guardText),
+            ]
+          : []),
         e.id,
       ]),
     );
+  }
+  for (const period of st.archivedSharedPeriods ?? []) {
+    let balance = 0;
+    for (const entry of period.entries) {
+      balance = addAmounts(balance, balanceContribution(entry));
+      lines.push(
+        csvLine([
+          isoDate(entry.created_at),
+          shamsiDate(entry.created_at),
+          entry.type === "debt" ? entry.amount_afn : "",
+          entry.type === "payment" ? entry.amount_afn : "",
+          "",
+          guardText(noteFor(entry.note, entry.tab?.kind, locale)),
+          tIn(locale, "export.record.archived"),
+          period.link.currency,
+          balance,
+          0,
+          "",
+          "",
+          "",
+          ...evidenceCells(entry.tab, locale).map(guardText),
+          entry.id,
+        ]),
+      );
+    }
   }
   return BOM + lines.join(CRLF) + CRLF;
 }
 
 export function buildVaultCsv(report: VaultReport): string {
   const { locale, currencyCode: code } = report;
+  const shared = report.journal.some((r) => r.tab);
+  const totalsByPerson = new Map<string, RecordTotals>();
   const lines: string[] = [
     csvLine([
       tIn(locale, "export.col.date"),
@@ -95,10 +167,24 @@ export function buildVaultCsv(report: VaultReport): string {
       `${tIn(locale, "export.col.received")} (${code})`,
       `${tIn(locale, "export.col.balance")} (${code})`,
       tIn(locale, "export.col.note"),
+      ...(shared
+        ? [
+            tIn(locale, "export.record.contribution"),
+            tIn(locale, "export.record.acknowledgedBalance"),
+            tIn(locale, "export.record.pendingBalance"),
+            tIn(locale, "export.record.privateBalance"),
+            ...EVIDENCE_KEYS.map((k) => tIn(locale, k)),
+          ]
+        : []),
       tIn(locale, "export.col.id"),
     ]),
   ];
   for (const row of report.journal) {
+    const totals = addRecordTotal(
+      totalsByPerson.get(row.person_id) ?? { acknowledged: 0, pending: 0, private: 0 },
+      row,
+    );
+    totalsByPerson.set(row.person_id, totals);
     lines.push(
       csvLine([
         isoDate(row.created_at),
@@ -109,6 +195,15 @@ export function buildVaultCsv(report: VaultReport): string {
         row.type === "payment" ? row.amount_afn : "",
         row.balanceAfter,
         guardText(noteFor(row.note, row.kind, locale)),
+        ...(shared
+          ? [
+              balanceContribution(row),
+              totals.acknowledged,
+              totals.pending,
+              totals.private,
+              ...evidenceCells(row.tab, locale).map(guardText),
+            ]
+          : []),
         row.id,
       ]),
     );

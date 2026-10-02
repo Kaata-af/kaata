@@ -2,9 +2,16 @@ package crashreport
 
 import (
 	"context"
+	"errors"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+var (
+	ErrUnknownInstall = errors.New("unknown install_id")
+	ErrInstallRetired = errors.New("installation was retired after account deletion")
 )
 
 // Service ingests batches of client-reported crash/diagnostic items.
@@ -47,6 +54,32 @@ var knownKinds = map[string]bool{
 }
 
 func (s *Service) Handle(ctx context.Context, req Request, clientIP string) error {
+	if len(req.Reports) == 0 {
+		return nil
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Account deletion marks the installation before removing diagnostics.
+	// FOR SHARE conflicts with that marker UPDATE (FOR KEY SHARE would not),
+	// so a queued flush either commits before deletion and is erased, or
+	// observes the marker and stores nothing. Hold this lock for the batch.
+	var retired bool
+	err = tx.QueryRow(ctx, `SELECT account_deleted_at IS NOT NULL FROM installs
+		WHERE install_id = $1::uuid FOR SHARE`, req.InstallID).Scan(&retired)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrUnknownInstall
+	}
+	if err != nil {
+		return err
+	}
+	if retired {
+		return ErrInstallRetired
+	}
+
 	for _, it := range req.Reports {
 		kind := it.Kind
 		if !knownKinds[kind] {
@@ -69,7 +102,7 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) erro
 		if platform == "" {
 			platform = "unknown"
 		}
-		if _, err := s.pool.Exec(ctx, `
+		if _, err := tx.Exec(ctx, `
 			INSERT INTO crash_reports
 			  (install_id, kind, stage, name, message, app_version, platform,
 			   rss_kb, aux_kb, client_created_at, ip)
@@ -90,7 +123,7 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) erro
 			return err
 		}
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func nullIfEmpty(s string) any {

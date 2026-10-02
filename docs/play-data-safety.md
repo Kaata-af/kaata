@@ -1,7 +1,7 @@
 # Google Play — Data Safety answers (Kaata)
 
 Original audit: app **0.8.6 / versionCode 19**, with shared-account and notification
-implementation updates on **22 September 2026**. Original audit ran against
+implementation updates on **2 October 2026**. Original audit ran against
 `apps/mobile` + `apps/backend`, multi-agent code audit). If a data flow changes,
 update this and the Play form together. Source of truth is the code, not this file.
 
@@ -20,7 +20,8 @@ NOT anonymous, and there is a third, offline path; the fourth arrived with mutua
    works offline too**. Uploads **one customer's** name + balance + up to 100
    transactions to a public **permanent** link (`kaata.af/v/<token>`). PAPER RULE
    (2026-08-07): a sent bill is the recipient's asset — no TTL, no revocation,
-   not erased by account deletion (the snapshot table is anonymous).
+   not erased by account deletion. The snapshot lacks a live account reference but
+   contains personal data; it is not anonymous.
 
 4. **Shared account (mutual tab)** — `POST /v1/tabs*`, **user-initiated, requires sign-in
    in the app** (links are invitations, not ongoing browser access). A shared account is one
@@ -32,11 +33,13 @@ NOT anonymous, and there is a third, offline path; the fourth arrived with mutua
    onboarding) on every shared-account payload, including the pre-join preview a
    signed-in holder of the invitation link sees — display/matching only (the join screen
    suggests which contact the invitation came from), never verified identity. It **survives either party's account
-   deletion** — `tab_parties.account_id` is `ON DELETE SET NULL`, because erasing one
-   side would erase the other person's record of the same debt. **Closing freezes it;
-   it does not delete it.** Same "both parties' asset" logic as the paper rule,
-   applied to a live account instead of a frozen bill. Disclosed on the Privacy page
-   under "Shared accounts with another person".
+   deletion**. Live party/account links are detached; minimal durable author/reviewer
+   IDs, recorded names, representative roles, decision times and action semantics
+   remain for shared history. These are personal data, not anonymised statistics.
+   **Closing freezes it; it does not delete it.** Account deletion closes a tally if
+   a side has no remaining authorized representative and retires invitations; it
+   never accepts, rejects, cancels or settles entries. This is a product retention
+   design, not a legal conclusion that all such data may be kept indefinitely.
 
 So a user who never signs in **still transmits** their own name/phone/shop (check-in),
 crash+IP telemetry, and — if they use the share — a customer's ledger. **We collect
@@ -64,15 +67,23 @@ the old assertion that no messaging provider exists no longer describes 2.0.
 
 ### Deletion caveat
 
-- In-app **Delete account** (`DELETE /v1/account`) + server `redacted_at` erasure cover
-  **signed-in** users.
+- In-app **Delete account** (`DELETE /v1/account`) removes the signed-in account,
+  credentials, owned vaults, memberships and bound installation self-profile/crash
+  records. Shared history belonging to others survives. Installation tombstones
+  prevent stale devices from reuploading the deleted profile; a minimal matching
+  account/install receipt lets a signed session confirm deletion after a lost reply.
 - **Gap:** a never-signed-in user's own `self_name`/`self_phone`/`shop_name` on the
   `installs` row has **no in-app delete**; `/v1/shared` bill links are **permanent and
   unrevocable by design** (paper rule 2026-08-07 — disclosed on the Privacy +
   Delete-account pages); and an open **shared account** is deliberately NOT erased by
-  one party's account deletion (it is the other party's record too — the user closes it
-  instead, from the contact's Unlink action). Provide an **email/web deletion request** URL
-  (hello@kaata.af / kaata.af/delete-account) as the catch-all so "Yes" is honest.
+  one party's account deletion. Deletion automatically closes an unrepresented
+  tally; other authorized participants can still read/export its history. The
+  email/web deletion request path (hello@kaata.af / kaata.af/delete-account) must
+  handle retained personal records and local-only users too. Disclosure alone is
+  not a lawful basis or an exception to platform deletion requirements.
+- Before release, confirm applicable retention grounds, periods/review criteria,
+  erasure exceptions and store disclosures. No universal legal retention period
+  or automatic purge of shared evidence is established by this implementation.
 
 ---
 
@@ -110,7 +121,7 @@ form — so **declaring Contacts avoids review friction**. Keep it checked. (Ver
 
 ### App activity
 
-- [ ] App interactions — **✅ Yes** (anonymous usage counters: entries created, customers added, shares sent, has-onboarded)
+- [ ] App interactions — **✅ Yes** (installation-linked usage counters: entries created, customers added, shares sent, has-onboarded)
 - [ ] Other user-generated content — **✅ Yes** (transaction **notes**, shop/vault name)
 - In-app search history — No · Installed apps — No · Other actions — No (folds into App interactions)
 

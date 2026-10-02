@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/matee/kaata-backend/internal/mesh"
@@ -21,6 +22,10 @@ import (
 // common; without clamping, "installed_at = year 2099" would poison the
 // admin dashboard's "N days ago" math.
 const maxInstalledAtFutureSkew = 5 * time.Minute
+
+// ErrInstallDeleted prevents an old device from uploading its local identity
+// again after account deletion. Reset devices use a new install UUID.
+var ErrInstallDeleted = errors.New("install was retired after account deletion")
 
 type Service struct {
 	pool                *pgxpool.Pool
@@ -39,7 +44,15 @@ func NewService(pool *pgxpool.Pool, migrateToBackendURL string, meshSvc *mesh.Se
 // particular 19:30 UTC starts a NEW Kabul day even though the UTC day is the
 // same. Repeated check-ins must not increase the distinct-device count.
 func (s *Service) recordActivity(ctx context.Context, installID string, hadUsage bool, at time.Time) error {
-	_, err := s.pool.Exec(ctx, `
+	return recordActivityWith(ctx, s.pool, installID, hadUsage, at)
+}
+
+type statementExecutor interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}
+
+func recordActivityWith(ctx context.Context, db statementExecutor, installID string, hadUsage bool, at time.Time) error {
+	_, err := db.Exec(ctx, `
 		WITH legacy AS (
 		  INSERT INTO install_active_days (install_id, active_date, had_usage)
 		  VALUES ($1, ($3::timestamptz AT TIME ZONE 'UTC')::date, $2)
@@ -210,7 +223,27 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 	// install_id matches this request, so this can't mislink installs.
 	actorAccountID := ActorAccountIDFromContext(ctx)
 
-	if _, err := s.pool.Exec(ctx, `
+	// Account deletion locks the account before its installs. Use the same
+	// order, then hold the install upsert lock through all check-in writes.
+	// A request authenticated just before deletion must not recreate an
+	// account link or repopulate redacted identity/attribution afterwards.
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return Response{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if actorAccountID != "" {
+		var accountID string
+		err := tx.QueryRow(ctx, `SELECT id::text FROM accounts WHERE id = $1::uuid FOR KEY SHARE`, actorAccountID).Scan(&accountID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Response{}, ErrInstallDeleted
+		}
+		if err != nil {
+			return Response{}, err
+		}
+	}
+
+	tag, err := tx.Exec(ctx, `
 		INSERT INTO installs (
 			install_id, app_version, platform, device_locale, check_in_count,
 			migration_001_phones_invalid, migration_001_phones_conflict,
@@ -273,13 +306,18 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 		    self_name  = COALESCE(NULLIF(EXCLUDED.self_name,  ''), installs.self_name),
 		    self_phone = COALESCE(NULLIF(EXCLUDED.self_phone, ''), installs.self_phone),
 		    shop_name  = COALESCE(NULLIF(EXCLUDED.shop_name,  ''), installs.shop_name)
+		WHERE installs.account_deleted_at IS NULL
 	`, req.InstallID, req.AppVersion, req.Platform, req.DeviceLocale,
 		req.PhonesInvalidCount, req.PhonesConflictCount,
 		req.UsageEntriesCreated, req.UsageCustomersAdded, req.UsageSharesSent,
 		installedAt, req.HasOnboarded, hadUsage, req.AppLocale,
 		req.SelfName, req.SelfPhone, req.ShopName, actorAccountID,
-	); err != nil {
+	)
+	if err != nil {
 		return Response{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return Response{}, ErrInstallDeleted
 	}
 
 	// Record check-in activity, including read-only and signed-out sessions.
@@ -287,7 +325,9 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 	// daily record for historical compatibility. The install FK now exists.
 	// Best-effort: an analytics write must never fail a check-in, so we log and
 	// continue (the response still carries update/announcement metadata).
-	if err := s.recordActivity(ctx, req.InstallID, hadUsage, time.Now()); err != nil {
+	if err := withSavepoint(ctx, tx, func(writeTx pgx.Tx) error {
+		return recordActivityWith(ctx, writeTx, req.InstallID, hadUsage, time.Now())
+	}); err != nil {
 		log.Printf("[checkin] active-day record failed for install %s: %v", req.InstallID, err)
 	}
 
@@ -300,7 +340,8 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 	// Failure here is non-fatal: a check-in must still succeed even if
 	// attribution glitches, so we log and move on.
 	if clientIP != "" {
-		if _, err := s.pool.Exec(ctx, `
+		if err := withSavepoint(ctx, tx, func(writeTx pgx.Tx) error {
+			_, err := writeTx.Exec(ctx, `
 			WITH already AS (
 				SELECT source FROM installs WHERE install_id = $1
 			), matched AS (
@@ -322,9 +363,14 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 			SET source = c.source, attribution_method = 'ip_match'
 			FROM claim c
 			WHERE install_id = $1
-		`, req.InstallID, clientIP); err != nil {
+		`, req.InstallID, clientIP)
+			return err
+		}); err != nil {
 			log.Printf("attribution match failed for install %s: %v", req.InstallID, err)
 		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Response{}, err
 	}
 
 	resp := Response{
@@ -340,7 +386,7 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 		version, minSupported       string
 		apkURL, playStoreURL, notes sql.NullString
 	)
-	err := s.pool.QueryRow(ctx, `
+	err = s.pool.QueryRow(ctx, `
 		SELECT version, min_supported_version, apk_url, play_store_url, release_notes
 		FROM app_releases
 		WHERE platform = $1 AND is_active = TRUE
@@ -454,6 +500,20 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 	}
 
 	return resp, nil
+}
+
+// A failed optional analytics write must not abort the identity transaction.
+// pgx nested transactions are savepoints; the parent retains its row locks.
+func withSavepoint(ctx context.Context, tx pgx.Tx, write func(pgx.Tx) error) error {
+	nested, err := tx.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = nested.Rollback(ctx) }()
+	if err := write(nested); err != nil {
+		return err
+	}
+	return nested.Commit(ctx)
 }
 
 // actorAccountIDKey is the context key the HTTP handler uses to pass the

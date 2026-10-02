@@ -23,12 +23,14 @@ import {
   listEntries,
   listEntriesForExport,
   listSettlementBoundaries,
+  listArchivedSharedPeriodsForExport,
   type ExportEntryRow,
 } from "../db";
 import type { LocaleCode } from "../i18n";
 import { toJalali } from "../jalali";
 import type { Entry, PersonWithBalance, Self } from "../types";
 import { addAmounts } from "../money";
+import { balanceContribution, recordTotals, type RecordTotals } from "./shared-record";
 
 export type StatementRow =
   | { kind: "entry"; entry: Entry; balanceAfter: number }
@@ -53,6 +55,10 @@ export type PersonStatement = {
    *  it is a machine column that is always Solar Hijri (see shamsiDate). */
   calendar: Calendar;
   generatedAtMs: number;
+  /** Present only when the statement contains shared records. Pending is
+   *  still included in the ledger balance; acknowledgement is shown separately. */
+  sharedTotals?: RecordTotals;
+  archivedSharedPeriods?: Awaited<ReturnType<typeof listArchivedSharedPeriodsForExport>>;
 };
 
 export type JournalRow = ExportEntryRow & { balanceAfter: number };
@@ -82,10 +88,6 @@ export type VaultReport = {
   generatedAtMs: number;
 };
 
-function signedAmount(e: { type: "debt" | "payment"; amount_afn: number }): number {
-  return e.type === "debt" ? e.amount_afn : -e.amount_afn;
-}
-
 export async function buildPersonStatement(
   personId: string,
   locale: LocaleCode,
@@ -93,22 +95,22 @@ export async function buildPersonStatement(
   currencySymbol: string,
   generatedAtMs: number,
 ): Promise<PersonStatement | null> {
-  const [person, entries, boundaries, self] = await Promise.all([
+  const [person, entries, boundaries, self, archivedSharedPeriods] = await Promise.all([
     getPerson(personId),
     listEntries(personId),
     listSettlementBoundaries(personId),
     getLocalSelf(),
+    listArchivedSharedPeriodsForExport(personId),
   ]);
   if (!person) return null;
 
   // listEntries is newest-first with no tie-break; re-sort ascending with an
   // id tie-break so re-exporting the same book orders identically. A linked
-  // contact's list is its mutual tab and carries voided originals (struck on
-  // screen); a statement is the account, not the audit trail, so they are
-  // dropped here and never reach the running balance.
-  const asc = entries
-    .filter((e) => !e.tab?.voided && e.tab?.status !== "disputed")
-    .sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  // contact's list includes rejected/cancelled originals. Keep their recorded
+  // history while assigning them zero contribution to the running balance.
+  const asc = entries.sort(
+    (a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
   // Settle-up boundaries belong to the LOCAL book. Once linked, the tab is the
   // account (D8) and its rows are not partitioned by the pre-link ruled-off
   // lines — a backdated tab tally would otherwise fall "into" a closed chapter.
@@ -121,7 +123,7 @@ export async function buildPersonStatement(
     let consumed = 0;
     while (i < asc.length && asc[i].created_at <= boundary) {
       const entry = asc[i++];
-      running = addAmounts(running, signedAmount(entry));
+      running = addAmounts(running, balanceContribution(entry));
       rows.push({ kind: "entry", entry, balanceAfter: running });
       consumed++;
     }
@@ -141,7 +143,7 @@ export async function buildPersonStatement(
   }
   while (i < asc.length) {
     const entry = asc[i++];
-    running = addAmounts(running, signedAmount(entry));
+    running = addAmounts(running, balanceContribution(entry));
     rows.push({ kind: "entry", entry, balanceAfter: running });
   }
 
@@ -162,6 +164,17 @@ export async function buildPersonStatement(
     // truth here could only ever disagree with the app.
     calendar: getEffectiveCalendar(),
     generatedAtMs,
+    ...(asc.some((e) => e.tab) ? { sharedTotals: recordTotals(asc) } : {}),
+    ...(archivedSharedPeriods.length
+      ? {
+          archivedSharedPeriods: archivedSharedPeriods.map((p) => ({
+            ...p,
+            entries: p.entries.sort(
+              (a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id),
+            ),
+          })),
+        }
+      : {}),
   };
 }
 
@@ -178,7 +191,7 @@ export async function buildVaultReport(
   const peopleById = new Map<string, ReportPerson>();
   const journal: JournalRow[] = entries.map((row) => {
     const prev = runningByPerson.get(row.person_id) ?? 0;
-    const next = addAmounts(prev, signedAmount(row));
+    const next = addAmounts(prev, balanceContribution(row));
     runningByPerson.set(row.person_id, next);
     const p = peopleById.get(row.person_id);
     if (p) {

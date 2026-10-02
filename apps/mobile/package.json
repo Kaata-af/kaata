@@ -20,6 +20,7 @@
     "selftest:contacts-access": "tsx lib/__dev__/contacts-access-selftest.ts",
     "selftest:device-key": "tsx lib/__dev__/device-key-selftest.ts",
     "selftest:attribution": "tsx lib/__dev__/attribution-selftest.ts",
+    "selftest:account-deletion": "tsx lib/__dev__/account-deletion-selftest.ts",
     "selftest:tabs": "tsx lib/__dev__/tabs-selftest.ts",
     "selftest:notifications": "tsx lib/__dev__/notifications-selftest.ts",
     "selftest:inbox": "tsx lib/__dev__/inbox-selftest.ts",

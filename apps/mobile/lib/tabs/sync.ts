@@ -395,10 +395,15 @@ export async function reconcileTabsFromServer(): Promise<void> {
     for (const t of mine.tabs) {
       const existing = await getTabLink(t.tab.id);
       if (existing) {
-        if (t.tab.closed_at_ms != null && existing.closed_at == null) {
+        if (
+          t.tab.closed_at_ms != null &&
+          (existing.closed_at == null || t.tab.rev > existing.rev)
+        ) {
           // Pull through the closing revision before freezing the cache. A
           // peer can append and close while this phone is away; marking it
           // closed here would exclude it from the sweep and lose those rows.
+          // An already-closed period may gain a deletion closure reason and
+          // detached profile metadata later; refresh those newer revisions too.
           await syncTab(t.tab.id);
         }
         continue;
@@ -460,7 +465,8 @@ async function runSyncAll(): Promise<void> {
     // link back with an empty cache, and a frozen tab's rows still count
     // toward the contact's balance (D8), so without this one pull the
     // contact would read 0 forever. Closing always bumps the server rev, so
-    // a populated closed tab is never re-pulled.
+    // a populated closed tab is re-pulled by /mine reconciliation only when
+    // its revision changes (for example, after an account is deleted).
     if (l.closed_at == null || l.rev === 0) ids.add(l.tab_id);
   }
   // Closed links with an unsent close op still need one flush.

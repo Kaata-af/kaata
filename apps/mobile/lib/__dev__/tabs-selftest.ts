@@ -140,6 +140,11 @@ const MIGRATION_030_DDL =
     dbSource,
   )?.[1];
 assert.ok(MIGRATION_030_DDL, "migration 030 is additive identity metadata");
+const MIGRATION_031_DDL =
+  /execAsync\(`([^`]*ALTER TABLE tab_entries ADD COLUMN author_member_role[^`]*)`\)/.exec(
+    dbSource,
+  )?.[1];
+assert.ok(MIGRATION_031_DDL, "migration 031 preserves recorded review evidence");
 
 const VAULT = "fixture-vault";
 const SELF = "fixture-self";
@@ -197,6 +202,7 @@ function openFixture(): void {
     ${MIGRATION_028_DDL}
     ${MIGRATION_029_DDL}
     ${MIGRATION_030_DDL}
+    ${MIGRATION_031_DDL}
     INSERT INTO vaults VALUES ('${VAULT}', 'AFN');
     INSERT INTO users VALUES ('${SELF}', '+93700111222', 'Synthetic Owner', 1, NULL, NULL, 1, 1, NULL, NULL);
     INSERT INTO users VALUES ('${CONTACT}', '+93700333444', 'Synthetic Contact', 0, NULL, NULL, 1, 1, NULL, NULL);
@@ -226,6 +232,7 @@ type FailNext = { status: number; code: string } | { network: true } | null;
 const server = {
   rev: 0,
   closedAt: null as number | null,
+  closedReason: null as WireTab["closed_reason"],
   entries: [] as ServerEntry[],
   parties: {
     a: { label: "Synthetic Shop", joined_at_ms: 1_000, bound: false },
@@ -245,6 +252,7 @@ const server = {
   reset() {
     this.rev = 0;
     this.closedAt = null;
+    this.closedReason = null;
     this.entries = [];
     this.parties = {
       a: { label: "Synthetic Shop", joined_at_ms: 1_000, bound: false },
@@ -291,6 +299,7 @@ const server = {
       rev: this.rev,
       created_at_ms: 1_000,
       closed_at_ms: this.closedAt,
+      closed_reason: this.closedReason,
       closed_by: this.closedAt ? "a" : null,
       you,
       parties: { a: { ...this.parties.a }, b: { ...this.parties.b } },
@@ -658,6 +667,7 @@ async function main(): Promise<void> {
       "last_synced_at",
       "last_error",
       "other_account_name",
+      "closed_reason",
     ]);
     assert.deepEqual(cols("tab_entries"), [
       "id",
@@ -679,6 +689,13 @@ async function main(): Promise<void> {
       "local_pending",
       "author_account_id",
       "author_name",
+      "author_member_role",
+      "reviewer_account_id",
+      "reviewer_name",
+      "reviewer_party",
+      "reviewer_member_role",
+      "review_semantics_version",
+      "local_action_pending",
     ]);
     assert.deepEqual(cols("tab_outbox"), [
       "id",
@@ -749,9 +766,112 @@ async function main(): Promise<void> {
       assert.equal(author_name, "");
       assert.deepEqual(old.prepare("SELECT * FROM tab_outbox").get(), outbox);
       assert.equal(old.prepare("SELECT rev FROM tab_links").pluck().get(), 9);
+      old.exec(
+        `INSERT INTO tab_outbox VALUES('review-op','t','accept','{"entry_id":"e"}',2,0,NULL,NULL)`,
+      );
+      old.exec(MIGRATION_031_DDL!);
+      const migrated = old.prepare("SELECT * FROM tab_entries").get() as any;
+      assert.equal(migrated.status, "disputed");
+      assert.equal(migrated.reviewer_account_id, null, "never infer an old reviewer");
+      assert.equal(migrated.reviewer_name, "");
+      assert.equal(migrated.review_semantics_version, null);
+      assert.equal(
+        migrated.local_action_pending,
+        1,
+        "an existing offline review stays unconfirmed after upgrading",
+      );
+      assert.equal(
+        old.prepare("SELECT rev FROM tab_links").pluck().get(),
+        0,
+        "force an evidence refresh",
+      );
+      assert.deepEqual(old.prepare("SELECT * FROM tab_outbox").get(), outbox);
     } finally {
       old.close();
     }
+  });
+
+  await test("recorded reviewer and cancellation evidence survives cache replacement", async () => {
+    const tl = link();
+    await tabsDb.upsertTabLink(tl);
+    const accepted = server.seed({
+      id: "evidence-accepted",
+      created_by: "b",
+      direction: "b_to_a",
+      amount: "20",
+      status: "accepted",
+      status_at_ms: 5000,
+      author_account_id: "deleted-author",
+      author_name: "Original writer",
+      author_member_role: "clerk",
+      reviewer_account_id: "deleted-reviewer",
+      reviewer_name: "Actual reviewer",
+      reviewer_party: "a",
+      reviewer_member_role: "manager",
+      review_semantics_version: "tally-review-v1",
+    });
+    const cancelled = server.seed({
+      id: "evidence-cancelled",
+      created_by: "a",
+      direction: "a_to_b",
+      amount: "10",
+      voided_by_entry_id: "cancel-action",
+    });
+    const cancellation = server.seed({
+      id: "cancel-action",
+      kind: "void",
+      created_by: "a",
+      direction: "b_to_a",
+      amount: "10",
+      voids_entry_id: cancelled.id,
+      author_name: "Cancelling writer",
+      author_account_id: "cancel-writer",
+      created_at_ms: 6000,
+    });
+    const old = server.seed({
+      id: "old-accepted",
+      created_by: "b",
+      direction: "b_to_a",
+      amount: "5",
+      status: "accepted",
+      status_at_ms: 4000,
+    });
+    const tab = {
+      ...server.view("a"),
+      closed_at_ms: 9000,
+      closed_reason: "account_deleted" as const,
+    };
+    await tabsDb.upsertTabFromWire(tl, {
+      tab,
+      entries: [accepted, cancelled, cancellation, old],
+      full: true,
+    });
+    const stored = (await tabsDb.getTabLink(TAB))!;
+    assert.equal(stored.closed_reason, "account_deleted");
+    const rows = await tabsDb.listTabEntriesAsEntries(stored);
+    const evidence = rows.find((e) => e.id === accepted.id)!.tab!;
+    assert.equal(evidence.author_account_id, "deleted-author");
+    assert.equal(evidence.reviewer_account_id, "deleted-reviewer");
+    assert.equal(evidence.reviewer_name, "Actual reviewer");
+    assert.equal(evidence.reviewer_member_role, "manager");
+    assert.equal(evidence.status_at, 5000);
+    assert.equal(evidence.review_semantics_version, "tally-review-v1");
+    const voided = rows.find((e) => e.id === cancelled.id)!.tab!;
+    assert.equal(voided.cancelled_by_name, "Cancelling writer");
+    assert.equal(voided.cancelled_at, 6000);
+    assert.equal(voided.cancellation_entry_id, cancellation.id);
+    assert.equal(rows.find((e) => e.id === old.id)!.tab!.reviewer_name, "");
+    assert.equal(
+      rows.some((e) => e.id === cancellation.id),
+      false,
+      "cancellation is evidence, not a second transfer",
+    );
+    const exported = await db.listEntriesForExport(VAULT);
+    assert.equal(
+      exported.find((e) => e.id === accepted.id)!.tab!.reviewer_account_id,
+      "deleted-reviewer",
+    );
+    assert.equal(exported.find((e) => e.id === cancelled.id)!.tab!.voided, true);
   });
 
   await test("upsertTabFromWire: full replace, optimistic survival, counts, cursor monotonic, notifiers", async () => {
@@ -1311,6 +1431,7 @@ async function main(): Promise<void> {
     assert.equal(stored.rev, 0, "next syncTab pulls it whole");
     assert.equal(stored.my_label, "Synthetic Shop");
     // Local link kept even when /mine stops listing it; a server close lands.
+    server.parties.b.account_name = "Live profile";
     server.seed({ id: "just-before-close", created_by: "b", direction: "b_to_a", amount: "17" });
     server.closedAt = 77;
     server.rev++;
@@ -1328,6 +1449,22 @@ async function main(): Promise<void> {
       count("tab_entries", "WHERE id = 'just-before-close'"),
       1,
       "closing must pull the last peer tally before freezing the cache",
+    );
+    assert.equal(storedLink().other_account_name, "Live profile");
+    // Deleting an account can update an already-closed shared period. Its
+    // cache must refresh even though the ordinary open-tab sweep skips it.
+    server.closedReason = "account_deleted";
+    server.parties.b.account_name = "";
+    server.rev++;
+    server.mine[0].tab = server.view("a");
+    await sync.reconcileTabsFromServer();
+    assert.equal(storedLink().closed_reason, "account_deleted");
+    assert.equal(storedLink().other_account_name, "");
+    assert.equal(storedLink().rev, server.rev);
+    assert.equal(
+      count("tab_entries", "WHERE id = 'just-before-close'"),
+      1,
+      "retained evidence survives metadata detachment",
     );
     server.mine = [];
     await sync.reconcileTabsFromServer();
@@ -1592,6 +1729,16 @@ async function main(): Promise<void> {
     );
     const sum = journal.reduce((n, r) => n + (r.type === "debt" ? r.amount_afn : -r.amount_afn), 0);
     assert.equal(sum, 470, "the journal ends where the balance is");
+    const archived = await db.listArchivedSharedPeriodsForExport(CONTACT);
+    assert.deepEqual(
+      archived.map((p) => p.link.tab_id),
+      ["tab-1"],
+    );
+    assert.deepEqual(
+      archived[0].entries.map((e) => e.id).sort(),
+      ["t1", "t2"],
+      "earlier evidence remains exportable separately",
+    );
 
     // A local tally written after BOTH links must appear exactly once — an
     // unscoped join would emit it once per link row.
@@ -1764,7 +1911,8 @@ async function main(): Promise<void> {
     assert.equal(rows[0].tab?.status, "disputed");
     assert.equal(
       (await db.listEntriesForExport(VAULT)).filter((e: any) => e.id === "goods").length,
-      0,
+      1,
+      "rejected evidence remains in the full export",
     );
     await assert.rejects(
       tabsDb.applyOptimisticStatus(tl, "goods", "accepted", null),
