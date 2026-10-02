@@ -6,9 +6,9 @@ durable offline queue, and push delivery infrastructure. Existing private ledger
 events are not rewritten.
 Automated checks and store submissions do not replace native two-phone testing.
 
-Current release candidate: **2.1.0 / Android 46 / iOS 26**, built from the
-commit that carries this paragraph: `84c3af4` plus the version bump and the two
-pre-build fixes below. Everything since 2.0.0's `a7df93c` reaches devices for
+Current release candidate: **2.1.0 / Android 46 / iOS 26**, built from release
+commit `6ac3989`: `84c3af4` plus the version bump and the two pre-build fixes
+below. Everything since 2.0.0's `a7df93c` reaches devices for
 the first time: clearing a shared account at zero (backend 051, mobile 032),
 evidence kept through account deletion (backend 047/049/050, mobile 031), the
 join rework (currency switch, sender-phone match, full contact list), the
@@ -35,6 +35,40 @@ without it:
   longer shrinks the window, so without it the phone field, the currency row and
   the Continue/Create buttons sat under the keyboard with nothing to scroll
   (`selftest:onboarding-keyboard`).
+
+### Current testing delivery — 2 October 2026 (46/26)
+
+- Source commit: `6ac39898627b9a6e2483cd915b399e4d30d6b1da`. Checks run before
+  the build:
+  - isolated-Postgres Go tests: 378 passed, 0 failed; the only skip is the
+    opt-in bill preview;
+  - Go build and vet;
+  - web typecheck, build and 75 node tests;
+  - mobile typecheck, all 24 selftests, both native bundle exports, and the
+    notification-mask and release-note checks.
+
+  A five-dimension review of `a7df93c..HEAD` with adversarial verification
+  found no blockers. Its two confirmed regressions were fixed in this commit,
+  then re-checked by two independent reviewers and by mutation tests.
+
+- Android build: `dfe4e6cc-a80e-4902-b74d-e4ef42b65a38`; closed-testing submission
+  `867d421b-0593-4cae-80ae-545f9c4beeee`. Both FINISHED. Play alpha holds release
+  "2.1.0" (versionCode 46) and production is still 45, checked with a discarded
+  dry-run edit. The build used the existing keystore ("Using Keystore from
+  configuration") and the secret EAS file variable `GOOGLE_SERVICES_JSON`. Its
+  "googleServicesFile not checked in" warning refers only to the ignored local copy.
+- iOS build: `1fee276f-391a-4517-8442-14a596e4b0d0`; TestFlight submission
+  `3ad25502-5d84-48d1-87a7-9d9dfa379357`. Both FINISHED; build 26 is VALID in
+  App Store Connect. App Store production is still 2.0.0 (READY_FOR_SALE).
+- Until 2 October 2026, App Store Connect refused every API call with
+  `FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED`. Matee's login is not the
+  Account Holder. The Account Holder had to accept the pending agreements, on
+  developer.apple.com and then in App Store Connect → Business.
+- Store notes for the later production step are in
+  `apps/mobile/scripts/release-notes/2.1.0-{ios,play}.txt`. None were attached to
+  the testing releases.
+- No production promotion and no App Store review submission were made. No
+  direct-install Android build was created.
 
 ### Phone checks for 46/26
 
