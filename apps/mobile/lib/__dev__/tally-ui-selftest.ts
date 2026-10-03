@@ -160,6 +160,7 @@ function paint(tree: any, pill?: any) {
     [labelled(tree, "person.action.iGave")[0], "tile"],
   ]);
   if (pill) names.set(pill, "pill").set(kids(pill)[0], "dot");
+  for (const n of nodes(tree)) if (n.props?.testID === "status-dot") names.set(n, "status dot");
   return nodes(tree)
     .flatMap((n) =>
       Object.entries(ownStyle(n))
@@ -325,10 +326,39 @@ for (const isRTL of [false, true]) {
     const collapsed = render(props);
     assert.deepEqual(
       paint(collapsed),
-      [`row backgroundColor ${colors.bgDefault}`, `tile backgroundColor ${tile}`].sort(),
-      `${what}: a collapsed tally is plain white; review state tints nothing in the row`,
+      [
+        `row backgroundColor ${colors.bgDefault}`,
+        `tile backgroundColor ${tile}`,
+        `status dot backgroundColor ${DOT[c.key]}`,
+      ].sort(),
+      `${what}: a collapsed tally is plain white; its state is one dot, nothing tinted`,
     );
-    assert.equal(words(collapsed).includes("tab.status."), false, "state appears only after a tap");
+    // Matee (2026-10-03): with no sign at all the state was "completely unknown
+    // unless I tap". The dot sits right before the time, and is silent to
+    // screen readers (the row announces its state through accessibilityValue).
+    const closedDot = nodes(collapsed).find((n) => n.props?.testID === "status-dot");
+    const dotRow = nodes(collapsed).find((n) => kids(n).includes(closedDot));
+    const afterDot = kids(dotRow)[kids(dotRow).indexOf(closedDot) + 1];
+    assert.deepEqual(
+      {
+        shape: pick(style(closedDot?.props.style), ["width", "height", "borderRadius"]),
+        next: words(afterDot),
+        silent: closedDot?.props.accessibilityElementsHidden === true,
+        announced: body(collapsed)?.props.accessibilityValue?.text,
+      },
+      {
+        shape: { width: 6, height: 6, borderRadius: 3 },
+        next: "yesterday",
+        silent: true,
+        announced: statusKey,
+      },
+      `${what}: a 6px dot right before the time, announced by the row, not the dot`,
+    );
+    assert.equal(
+      words(collapsed).includes("tab.status."),
+      false,
+      "state WORDS appear only after a tap",
+    );
     const collapsedFirst = style(lines(collapsed)[0]?.props.style);
     assert.equal(
       collapsedFirst?.paddingTop ?? collapsedFirst?.paddingVertical,
@@ -608,8 +638,14 @@ for (const isRTL of [false, true]) {
     null,
     "cancelled rows are absent from the everyday list",
   );
-  // A solo tally has no review state: it opens onto the same quiet ground,
-  // with no pill above it.
+  // A solo tally has no review state: no dot while closed, and it opens onto
+  // the same quiet ground with no pill above it.
+  slots = [];
+  assert.deepEqual(
+    paint(render(base)),
+    [`row backgroundColor ${colors.bgDefault}`, `tile backgroundColor ${colors.payBg}`],
+    "a private tally carries no status dot",
+  );
   const solo = opened(base);
   const soloFirst = style(lines(solo)[0]?.props.style);
   assert.deepEqual(

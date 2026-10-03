@@ -3,7 +3,7 @@ Kaata 2.1 makes shared accounts easier to join, review and keep tidy.
 - Clear a shared account at zero: once every tally is reviewed and the balance is zero, start a fresh page for both of you. Earlier tallies stay saved in shared history.
 - Join a shared account more easily: Kaata suggests the matching contact from the invitation, lists your phone book, and can switch an empty kaata to the account's currency.
 - Notifications are marked read as soon as you handle them, and tallies that were already reviewed no longer send late alerts.
-- Cleaner tally rows: tap a tally to see its status and who reviewed it, and use the compact Accept, Reject and Cancel buttons on the row. Cancelled tallies leave the list but stay in exports, with who cancelled them.
+- Cleaner tally rows: a small colored dot shows each shared tally's status, tap a tally for who added and reviewed it, and use the compact Accept, Reject and Cancel buttons on the row. Cancelled tallies leave the list but stay in exports, with who cancelled them.
 - Statement exports now include the shared record: each tally's status, author and reviewer, plus earlier shared periods.
 - Deleting your account leaves the other person's shared history in place and never settles a balance.
 - Onboarding fields stay visible above the keyboard, and the notification badge is centered.

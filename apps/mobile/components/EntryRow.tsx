@@ -162,9 +162,10 @@ export const EntryRow = memo(function EntryRow(props: {
 
   // Review state is separate from money direction. Every synced tally has a
   // status, and it is QUIET (design "A · Quiet", 2026-10-03): no row tint and
-  // no coloured button. It appears only once the row is opened, as a neutral
-  // pill whose small dot is the one place the state gets a colour. The label
-  // and its dot come from ONE lookup so they can never disagree.
+  // no coloured button. A closed row carries it as ONE 6px dot before the time
+  // (Matee: without it the state was "completely unknown unless I tap"); an
+  // opened row spells it out in a neutral pill whose dot is the same colour.
+  // The label and the dot come from ONE lookup so they can never disagree.
   const pending = tab?.status === "pending";
   const status = !tab
     ? null
@@ -304,6 +305,18 @@ export const EntryRow = memo(function EntryRow(props: {
                       color={chipTint.fg}
                     />
                   </View>
+                ) : null}
+                {/* Closed, the review state is this one dot before the time;
+                  opened, the pill above says it in words, so the dot steps
+                  aside. Screen readers get the state from the row's
+                  accessibilityValue, so the dot itself stays silent. */}
+                {!open && status ? (
+                  <View
+                    testID="status-dot"
+                    style={[styles.closedStatusDot, { backgroundColor: status.dot }]}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no"
+                  />
                 ) : null}
                 {/* One line, always. Before the chip existed this could wrap, and
                   a wrapped date would now grow the row on every tap — the one
@@ -468,6 +481,12 @@ const styles = StyleSheet.create({
   // The Dari mockup gives the Persian label two more pixels of pill.
   statusPillRTL: { minHeight: 24 },
   statusDot: {
+    width: STATUS_DOT_SIZE,
+    height: STATUS_DOT_SIZE,
+    borderRadius: STATUS_DOT_SIZE / 2,
+  },
+  // The same dot on a closed row, in the time slot. The meta row's gap spaces it.
+  closedStatusDot: {
     width: STATUS_DOT_SIZE,
     height: STATUS_DOT_SIZE,
     borderRadius: STATUS_DOT_SIZE / 2,

@@ -3,6 +3,6 @@ Kaata 2.1: shared accounts are easier to join and keep tidy.
 - Clear a shared account at zero and start a fresh page; history stays saved.
 - Joining suggests the matching contact and can switch an empty kaata's currency.
 - Notifications are marked read once handled; no late alerts for reviewed tallies.
-- Cleaner tally rows: tap one for its status; compact review buttons.
+- Cleaner tally rows: a status dot on each, compact review buttons.
 - Exports show each tally's status, author and reviewer.
 - Deleting your account keeps shared history for the other person.
