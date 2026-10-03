@@ -64,7 +64,8 @@ export type Entry = {
   // docs/mutual-tab-design.md): who authored it, its accept/dispute status,
   // whether it was voided. lib/tabs/db.ts listTabEntriesAsEntries maps the
   // tab_entries cache into this shape so every screen, bill and export keeps
-  // reading Entry[]; exporters and bills skip `tab?.voided` rows.
+  // reading Entry[]. Bills skip voided and rejected rows; exports keep them as
+  // zero-contribution evidence (lib/export/shared-record.ts isExcludedRecord).
   tab?: TabEntryMeta;
 };
 

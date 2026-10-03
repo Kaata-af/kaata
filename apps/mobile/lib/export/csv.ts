@@ -4,12 +4,30 @@
 // stable entry id as the last column (the future import contract — dedupe key
 // once bulk import exists). Human-facing labels (headers, the settled ruled
 // line) render via tIn in the export's locale.
+//
+// The 2.0.0 leading columns are a contract, shared or not: Gave (CODE) and
+// Received (CODE) carry only amounts that COUNT toward the Balance column, so
+// SUM(Gave) − SUM(Received) is the balance. A shared contact or kaata appends
+// its record columns between Note and the entry id, which stays last. Rows that
+// do not count — a rejected or cancelled shared tally, and every row of an
+// earlier shared period (a later opening tally carries its total) — leave Gave
+// and Received EMPTY. Their amount lives in "Recorded amount", which every
+// tally row of a shared-shape file fills, signed like Balance contribution
+// (gave +, received −) so the direction survives. Unshared contacts and
+// kaatas export byte-for-byte what 2.0.0 did.
 import { tIn } from "../i18n";
-import { noteFor } from "./note";
+import { clearanceNote, noteFor } from "./note";
 import { formatSettlementDate } from "../jalali";
 import { isoDate, shamsiDate, type PersonStatement, type VaultReport } from "./data";
 import { EVIDENCE_KEYS, evidenceCells, evidenceTime } from "./evidence";
-import { addRecordTotal, balanceContribution, type RecordTotals } from "./shared-record";
+import {
+  addRecordTotal,
+  balanceContribution,
+  isExcludedRecord,
+  recordedAmount,
+  type AmountRow,
+  type RecordTotals,
+} from "./shared-record";
 
 // Excel needs the BOM to detect UTF-8 (otherwise Dari text opens as mojibake)
 // and CRLF is the least-surprising row separator across spreadsheet apps.
@@ -39,6 +57,25 @@ function csvLine(cells: Array<string | number | null | undefined>): string {
   return cells.map(csvField).join(",");
 }
 
+/** Gave and Received: only an amount that counts toward the Balance column.
+ *  A private row is never excluded, so its cells are exactly 2.0.0's. */
+function countedCells(e: AmountRow): [number | "", number | ""] {
+  if (isExcludedRecord(e)) return ["", ""];
+  return [e.type === "debt" ? e.amount_afn : "", e.type === "payment" ? e.amount_afn : ""];
+}
+
+/** A clearance marker's evidence: its shared account and the server's
+ *  clearance time in UTC, which the note no longer carries. */
+function clearanceEvidence(tabId: string, ms: number): string[] {
+  return EVIDENCE_KEYS.map((key) =>
+    key === "export.record.tabId"
+      ? tabId
+      : key === "export.record.recordedAt"
+        ? evidenceTime(ms)
+        : "",
+  );
+}
+
 export function buildPersonCsv(st: PersonStatement): string {
   const { locale, calendar, currencyCode: code } = st;
   const shared =
@@ -49,16 +86,18 @@ export function buildPersonCsv(st: PersonStatement): string {
     csvLine([
       tIn(locale, "export.col.date"),
       tIn(locale, "export.col.dateShamsi"),
-      shared ? tIn(locale, "export.col.gave") : `${tIn(locale, "export.col.gave")} (${code})`,
-      shared
-        ? tIn(locale, "export.col.received")
-        : `${tIn(locale, "export.col.received")} (${code})`,
+      `${tIn(locale, "export.col.gave")} (${code})`,
+      `${tIn(locale, "export.col.received")} (${code})`,
       `${tIn(locale, "export.col.balance")} (${code})`,
       tIn(locale, "export.col.note"),
       ...(shared
         ? [
             tIn(locale, "export.record.scope"),
             tIn(locale, "export.record.currency"),
+            // No (CODE) here, unlike the vault CSV: an earlier shared period
+            // keeps its own currency (it can differ after a re-link), and the
+            // Currency column beside this one says which.
+            tIn(locale, "export.record.recordedAmount"),
             tIn(locale, "export.record.periodBalance"),
             tIn(locale, "export.record.contribution"),
             tIn(locale, "export.record.acknowledgedBalance"),
@@ -72,6 +111,7 @@ export function buildPersonCsv(st: PersonStatement): string {
   ];
   for (const row of st.rows) {
     if (row.kind === "settled") {
+      const date = formatSettlementDate(row.ms, locale, calendar);
       lines.push(
         csvLine([
           isoDate(row.ms),
@@ -81,13 +121,8 @@ export function buildPersonCsv(st: PersonStatement): string {
           row.balanceAfter,
           guardText(
             row.shared
-              ? tIn(locale, "tab.settle.history", {
-                  name: row.shared.settlement.actor_name || tIn(locale, "export.record.unknown"),
-                  date: evidenceTime(row.ms),
-                })
-              : tIn(locale, "person.history.settledOn", {
-                  date: formatSettlementDate(row.ms, locale, calendar),
-                }),
+              ? clearanceNote(row.shared.settlement.actor_name, date, locale)
+              : tIn(locale, "person.history.settledOn", { date }),
           ),
           ...(shared
             ? [
@@ -95,12 +130,13 @@ export function buildPersonCsv(st: PersonStatement): string {
                 code,
                 "",
                 "",
+                "",
                 totals.acknowledged,
                 totals.pending,
                 totals.private,
-                ...EVIDENCE_KEYS.map((key) =>
-                  key === "export.record.tabId" ? (row.shared?.tabId ?? "") : "",
-                ),
+                ...(row.shared
+                  ? clearanceEvidence(row.shared.tabId, row.ms)
+                  : EVIDENCE_KEYS.map(() => "")),
               ]
             : []),
           row.shared?.settlement.id ?? "",
@@ -114,14 +150,14 @@ export function buildPersonCsv(st: PersonStatement): string {
       csvLine([
         isoDate(e.created_at),
         shamsiDate(e.created_at),
-        e.type === "debt" ? e.amount_afn : "",
-        e.type === "payment" ? e.amount_afn : "",
+        ...countedCells(e),
         row.balanceAfter,
         guardText(noteFor(e.note, e.tab?.kind, locale)),
         ...(shared
           ? [
               tIn(locale, "export.record.current"),
               code,
+              recordedAmount(e),
               "",
               balanceContribution(e),
               totals.acknowledged,
@@ -145,37 +181,41 @@ export function buildPersonCsv(st: PersonStatement): string {
             "",
             "",
             guardText(
-              tIn(locale, "tab.settle.history", {
-                name: row.shared?.settlement.actor_name || tIn(locale, "export.record.unknown"),
-                date: evidenceTime(row.ms),
-              }),
+              clearanceNote(
+                row.shared?.settlement.actor_name,
+                formatSettlementDate(row.ms, locale, calendar),
+                locale,
+              ),
             ),
             tIn(locale, "export.record.archived"),
             period.link.currency,
+            "",
             row.balanceAfter,
             0,
             "",
             "",
             "",
-            ...EVIDENCE_KEYS.map((key) =>
-              key === "export.record.tabId" ? period.link.tab_id : "",
-            ),
+            ...clearanceEvidence(period.link.tab_id, row.ms),
             row.shared?.settlement.id ?? "",
           ]),
         );
         continue;
       }
+      // An earlier period never counts toward today's Balance: its total is
+      // inside the later opening tally. So Gave/Received stay empty and the
+      // amount is recorded in the period's own currency.
       const entry = row.entry;
       lines.push(
         csvLine([
           isoDate(entry.created_at),
           shamsiDate(entry.created_at),
-          entry.type === "debt" ? entry.amount_afn : "",
-          entry.type === "payment" ? entry.amount_afn : "",
+          "",
+          "",
           "",
           guardText(noteFor(entry.note, entry.tab?.kind, locale)),
           tIn(locale, "export.record.archived"),
           period.link.currency,
+          recordedAmount(entry),
           row.balanceAfter,
           0,
           "",
@@ -206,6 +246,9 @@ export function buildVaultCsv(report: VaultReport): string {
       tIn(locale, "export.col.note"),
       ...(shared
         ? [
+            // One currency per kaata journal (no Currency column), so the
+            // code is stated here like the leading amount columns.
+            `${tIn(locale, "export.record.recordedAmount")} (${code})`,
             tIn(locale, "export.record.contribution"),
             tIn(locale, "export.record.acknowledgedBalance"),
             tIn(locale, "export.record.pendingBalance"),
@@ -228,12 +271,12 @@ export function buildVaultCsv(report: VaultReport): string {
         shamsiDate(row.created_at),
         guardText(row.person_name),
         guardText(row.person_phone),
-        row.type === "debt" ? row.amount_afn : "",
-        row.type === "payment" ? row.amount_afn : "",
+        ...countedCells(row),
         row.balanceAfter,
         guardText(noteFor(row.note, row.kind, locale)),
         ...(shared
           ? [
+              recordedAmount(row),
               balanceContribution(row),
               totals.acknowledged,
               totals.pending,

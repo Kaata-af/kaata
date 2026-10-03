@@ -8,7 +8,7 @@ import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 // require a reachable, truthful privacy policy URL once any personal data is
 // collected — this page is that URL (kaata.af/privacy) and must stay accurate to
 // what the app actually does. When you change a data flow, change this page.
-const UPDATED = "2 October 2026";
+const UPDATED = "3 October 2026";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -47,7 +47,9 @@ export function Privacy() {
             data is not uploaded unless you choose to share a bill. A WhatsApp reminder uploads a
             snapshot of that one customer’s balance and entries to create the shareable link (see
             below). Shared accounts require sign-in in the app and are stored on our server as
-            described below. Deleting the app removes the on-device ledger from the phone.
+            described below. Deleting the app removes the on-device ledger from the phone. If your
+            phone backs up app data to Google or iCloud, that backup can include a copy of the
+            ledger.
           </p>
         </Section>
 
@@ -74,8 +76,8 @@ export function Privacy() {
               customers or suppliers.
             </li>
             <li>
-              Your <strong>IP address</strong>, taken from the network request, used for approximate
-              region and to match a marketing/QR link you may have scanned to your install.
+              Your <strong>IP address</strong>, taken from the network request, used to match a
+              marketing/QR link you may have scanned to your install.
             </li>
           </ul>
         </Section>
@@ -120,13 +122,14 @@ export function Privacy() {
             the same running account with you. Because both of you must see the same figures, a
             shared account is
             <strong> stored on our server</strong>, not only on your phone: the name each of you
-            chooses to show the other, every tally’s amount, date and note, and who added, accepted,
-            rejected or cancelled it. The <strong>phone number on your account</strong> is also
-            shown to the other party, and to the members of their kaata, so they can match the
-            invitation to a contact on their phone; it is a display detail, not verified identity.
-            The browser only opens the app; it does not display your ledger. Send the invitation
-            only to its intended recipient. Once claimed, the link alone cannot access the account.
-            Access requires a signed-in party or an authorized member of their kaata.
+            chooses to show the other, every tally’s amount, date and note, who added, accepted,
+            rejected or cancelled it, and who cleared a settled balance and when. The{" "}
+            <strong>phone number on your account</strong> is also shown to the other party, and to
+            the members of their kaata, so they can match the invitation to a contact on their
+            phone; it is a display detail, not verified identity. The browser only opens the app; it
+            does not display your ledger. Send the invitation only to its intended recipient. Once
+            claimed, the link alone cannot access the account. Access requires a signed-in party or
+            an authorized member of their kaata.
           </p>
           <p>
             A shared account belongs to <strong>both</strong> of you, so it outlives either side
@@ -138,10 +141,11 @@ export function Privacy() {
           <p>
             Deleting a login does not accept a pending tally, settle a balance, or erase the other
             participant’s shared history. We retain the shared entries and their recorded status,
-            author and reviewer names, account references, roles where recorded, and action times so
-            authorized participants can read and export that history. These records contain personal
-            data; they are not anonymous. Older entries may have incomplete attribution, and a name
-            or account sign-in is not proof of legal identity.
+            author and reviewer names, who cleared a settled balance, account references, roles
+            where recorded, and action times so authorized participants can read and export that
+            history. These records contain personal data; they are not anonymous. Older entries may
+            have incomplete attribution, and a name or account sign-in is not proof of legal
+            identity.
           </p>
           <p>
             If account deletion leaves one side with nobody authorized to review its tallies, the
@@ -198,9 +202,9 @@ export function Privacy() {
             Installation and usage records are retained separately from account profiles for
             operational reporting. They are not necessarily anonymous. Diagnostic reports and
             unclaimed website-visit records are deleted on a rolling basis. When you delete your
-            account (below), we remove your account profile, sign-in credentials, install
-            self-identity fields, and cloud copies of kaatas you own. Old installations are retired
-            so they cannot upload the deleted profile again.
+            account (below), we remove your account profile, sign-in credentials, the self-identity
+            fields of installations still linked to your account, and cloud copies of kaatas you
+            own. Those installations are retired so they cannot upload the deleted profile again.
           </p>
           <p>
             Shared tally history remains available to authorized participants after account
@@ -208,13 +212,39 @@ export function Privacy() {
             to request review of personal information in a retained shared record; we assess the
             request alongside the other participant’s recordkeeping needs and applicable law.
           </p>
+          {/* The admin outreach log (outreach_contacts/outreach_touches,
+              migration 044) is keyed by phone with no FK; account deletion
+              never touches it. Keep in step with the delete-account page. */}
+          <p>
+            If we have contacted you about Kaata, for example on WhatsApp, or tried to, we keep your
+            phone number with the dates and outcome of those messages and our notes, so we don’t
+            message you twice. We keep this record apart from accounts, so deleting your account
+            does not remove it, and we don’t delete it automatically; contact us if you want it
+            removed.
+          </p>
         </Section>
 
+        {/* What deletion removes and keeps mirrors auth/delete_account.go and
+            docs/mutual-tab-design.md "Account deletion and shared evidence";
+            the path mirrors app/index.tsx -> ProfileSettingsSheet ->
+            app/account.tsx, as on the delete-account page. */}
         <Section title="Deleting your data">
           <p>
-            You can delete your account and its server-stored data at any time from{" "}
-            <strong>Settings → Delete account</strong> inside the app. You can also request deletion
-            here from the web:
+            If you are signed in, you can delete your account at any time inside the app: tap your
+            profile picture or initials on the home screen, then{" "}
+            <strong>Account settings → Privacy &amp; data → Delete account</strong>. This
+            permanently removes your account profile and sign-in credentials, your memberships in
+            kaatas other people own, the cloud copies of kaatas you own, and the name, phone number,
+            shop name and crash reports recorded from each installation still linked to your
+            account.
+          </p>
+          <p>
+            Other participants keep shared tally history and recorded acknowledgements, including
+            the names recorded with them. A kaata someone else owns keeps the entries you added to
+            it and its record of any invitation sent to your email. Deleting your account does not
+            settle any balance. Installation and usage records, and any record of our messages to
+            you, are kept as described above. You can also request deletion here from the web, for
+            example if you never signed in or cannot open the app:
           </p>
           <p>
             <a
@@ -227,12 +257,13 @@ export function Privacy() {
             </a>
           </p>
           <p>
-            Account deletion clears the ledger on the phone where you complete it. Other devices
-            lose access to the deleted account, but may still hold local copies or files you
-            exported. If you never signed in, unshared records have no cloud copy. Bills and shared
-            accounts already sent to another person remain available as described above. Export
-            important records before deleting your account; an invitation link does not restore a
-            deleted account's access.
+            The app clears the ledger on the phone where you delete your account once our server
+            confirms the deletion. Other devices lose access to the deleted account, but may still
+            hold local copies or files you exported, and your phone’s own Google or iCloud backup
+            may still include the ledger. If you never signed in, unshared records have no copy on
+            our servers. Bills and shared accounts already sent to another person remain available
+            as described above. Export important records before deleting your account; an invitation
+            link does not restore a deleted account's access.
           </p>
         </Section>
 

@@ -31,6 +31,7 @@ import {
   toMinorUnits,
 } from "../money";
 import { signedEntryMinorSumSql } from "../money-sql";
+import { formatSettlementDate } from "../jalali";
 
 // App code (and expo-modules-core's logger side effect, which lib/i18n.ts
 // pulls in through expo-localization) reads the bundler-provided __DEV__;
@@ -58,6 +59,61 @@ function withModuleStubs<T>(stubs: Record<string, unknown>, load: () => T): T {
       else delete require.cache[filename];
     }
   }
+}
+
+// Reads what the export CSV builders emit: a BOM, CRLF rows, and quoted
+// fields with doubled quotes. Cells are addressed by their header text, and
+// a row by its entry id, which the contract keeps in the last column.
+function csvTable(text: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+  const s = text.replace(/^\uFEFF/, "");
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (quoted) {
+      if (c === '"' && s[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else if (c === '"') quoted = false;
+      else field += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ",") {
+      row.push(field);
+      field = "";
+    } else if (c === "\r" && s[i + 1] === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+      i++;
+    } else field += c;
+  }
+  if (field || row.length) rows.push([...row, field]);
+  const [header, ...body] = rows;
+  return {
+    header,
+    rows: body,
+    row(id: string): string[] {
+      const found = body.find((r) => r.at(-1) === id);
+      assert.ok(found, `the CSV has a row whose last column is ${id}`);
+      return found;
+    },
+    cell(r: string[], column: string): string | undefined {
+      const i = header.indexOf(column);
+      return i < 0 ? undefined : r[i];
+    },
+    /** SUM(Gave) − SUM(Received), exact in cents. */
+    net(code: string): number {
+      const gave = header.indexOf(`Gave (${code})`);
+      const received = header.indexOf(`Received (${code})`);
+      assert.ok(gave >= 0 && received >= 0, `the CSV has Gave (${code}) and Received (${code})`);
+      return sumAmounts(
+        body.map((r) => addAmounts(Number(r[gave] || 0), -Number(r[received] || 0))),
+      );
+    },
+  };
 }
 
 const entries = withModuleStubs(
@@ -433,7 +489,7 @@ async function main(): Promise<void> {
       created_at: e.payload.occurred_at_ms,
       updated_at: e.payload.occurred_at_ms,
     })) as Entry[];
-    const { buildPersonStatement, buildVaultReport } = withModuleStubs(
+    const { buildPersonStatement, buildVaultReport, isoDate, shamsiDate } = withModuleStubs(
       {
         "expo-file-system": {},
         "expo-sharing": {},
@@ -537,6 +593,36 @@ async function main(): Promise<void> {
       assert.ok(output.includes(",,0.3,0,"), "CSV payment settles to zero");
       assert.ok(!output.includes("0.30000000000000004"));
     }
+    // Unshared contacts and kaatas export byte-for-byte what 2.0.0 did. The
+    // shared-record work may only change a SHARED file's shape, never this.
+    const day = (ms: number) => formatSettlementDate(ms, "en", "gregorian");
+    const dated = (ms: number, rest: string) => `${isoDate(ms)},${shamsiDate(ms)},${rest}\r\n`;
+    assert.equal(
+      csv.buildPersonCsv(statement),
+      "\uFEFFDate,Date (Shamsi),Gave (USD),Received (USD),Balance (USD),Note,Entry ID\r\n" +
+        dated(1000, "0.1,,0.1,,a") +
+        dated(2000, "0.2,,0.3,,b") +
+        dated(3000, ",0.3,0,,c") +
+        dated(3000, `,,0,Settled · ${day(3000)},`),
+      "an unshared statement CSV is exactly the 2.0.0 file",
+    );
+    assert.equal(
+      csv.buildVaultCsv(report),
+      "\uFEFFDate,Date (Shamsi),Name,Phone,Gave (USD),Received (USD),Balance (USD),Note,Entry ID\r\n" +
+        dated(1000, "Fixture,,0.1,,0.1,,a") +
+        dated(2000, "Fixture,,0.2,,0.3,,b") +
+        dated(3000, "Fixture,,,0.3,0,,c"),
+      "an unshared kaata CSV is exactly the 2.0.0 file",
+    );
+    // Only a shared record's status can empty Gave/Received, never its
+    // amount: a private tally of 0 still prints its counted 0.
+    const zeroRow = { kind: "entry" as const, entry: { ...fixture[0], id: "zero", amount_afn: 0 } };
+    assert.ok(
+      csv
+        .buildPersonCsv({ ...statement, rows: [{ ...zeroRow, balanceAfter: 0 }] })
+        .endsWith(",0,,0,,zero\r\n"),
+      "a private 0 is still a counted Gave cell",
+    );
     await pdf.renderPersonStatementPdf(statement, "fixture-person.pdf");
     await pdf.renderVaultReportPdf(
       {
@@ -567,6 +653,8 @@ async function main(): Promise<void> {
       created_at: 5000,
       tab: {
         by: "them",
+        // They wrote it as party b, so the exporter is party a.
+        created_by: "b",
         status: "disputed",
         kind: "entry",
         dispute_reason: null,
@@ -656,6 +744,62 @@ async function main(): Promise<void> {
       !unsyncedCsvRow.includes("deleted-reviewer"),
       "unsynced intent is never recorded review evidence",
     );
+    // A shared file keeps the 2.0.0 leading columns and their meaning: Gave and
+    // Received in the kaata currency, holding only what counts, so their
+    // difference is the balance. A rejected or cancelled tally keeps its amount
+    // in Recorded amount, signed like Balance contribution.
+    const sharedTable = csvTable(sharedCsv);
+    assert.deepEqual(
+      sharedTable.header.slice(0, 10),
+      [
+        "Date",
+        "Date (Shamsi)",
+        "Gave (USD)",
+        "Received (USD)",
+        "Balance (USD)",
+        "Note",
+        "Balance scope",
+        "Currency",
+        "Recorded amount",
+        "Earlier period balance",
+      ],
+      "a shared statement keeps the 2.0.0 leading columns, currency suffix included",
+    );
+    assert.equal(sharedTable.header.at(-1), "Entry ID", "the entry id stays the last column");
+    assert.ok(
+      sharedTable.rows.every((r) => r.length === sharedTable.header.length),
+      "every shared row fills every column",
+    );
+    assert.equal(sharedTable.net("USD"), 82, "SUM(Gave) - SUM(Received) is the statement balance");
+    for (const [id, recorded] of [
+      ["rejected-history", "2000"],
+      ["voided", "100"],
+    ] as const) {
+      const r = sharedTable.row(id);
+      assert.deepEqual(
+        [r[2], r[3], sharedTable.cell(r, "Recorded amount")],
+        ["", "", recorded],
+        `${id} counts in neither Gave nor Received but keeps its recorded amount`,
+      );
+      assert.equal(sharedTable.cell(r, "Balance contribution"), "0", `${id} contributes zero`);
+    }
+    const pendingPayment = sharedTable.row("pending-payment");
+    assert.deepEqual(
+      [pendingPayment[3], sharedTable.cell(pendingPayment, "Recorded amount")],
+      ["25", "-25"],
+      "a counted payment stays in Received; its recorded amount is signed like the balance",
+    );
+    const reviewedRow = sharedTable.row("reviewed");
+    assert.deepEqual(
+      [
+        "Author role at the time",
+        "Reviewer side",
+        "Reviewer role at the time",
+        "Review action version",
+      ].map((column) => sharedTable.cell(reviewedRow, column)),
+      ["clerk", "a", "manager", "tally-review-v1"],
+      "the CSV keeps the machine values the PDF localizes",
+    );
     await pdf.renderPersonStatementPdf(sharedStatement, "fixture-shared.pdf");
     assert.ok(html[2].includes("&lt;Original writer&gt;"));
     assert.ok(!html[2].includes("<Original writer>"));
@@ -664,9 +808,43 @@ async function main(): Promise<void> {
     assert.ok(html[2].includes("Cancelled"));
     assert.ok(html[2].includes("100 $</div>"), "acknowledged net remains separate");
     assert.ok(html[2].includes("-18 $</div>"), "pending net includes unsynced reviews");
+    // On paper a machine value is either localized or printed as an
+    // LTR-isolated code, never as bare prose.
+    const codeSpan = (value: string) => `<span class="code" dir="ltr">${value}</span>`;
+    for (const value of [
+      "tally-review-v1",
+      "deleted-reviewer",
+      "shared-record",
+      "1970-01-01T00:00:06.000Z",
+      "reviewed",
+    ]) {
+      assert.ok(html[2].includes(codeSpan(value)), `${value} prints as an LTR-isolated code`);
+    }
+    for (const [raw, shown] of [
+      ["clerk", "Clerk"],
+      ["manager", "Manager"],
+      ["a", "This side"],
+    ] as const) {
+      assert.ok(html[2].includes(`<span dir="auto">${shown}</span>`), `${raw} prints as ${shown}`);
+      assert.ok(!html[2].includes(`<span dir="auto">${raw}</span>`), `the raw ${raw} never prints`);
+    }
     const sharedReport = await buildVaultReport("vault", "Fixture", "USD", "en", 7000);
     assert.equal(sharedReport.totals.net, 82);
     assert.ok(csv.buildVaultCsv(sharedReport).includes("deleted-reviewer"));
+    const vaultTable = csvTable(csv.buildVaultCsv(sharedReport));
+    assert.deepEqual(
+      vaultTable.header.slice(4, 9),
+      ["Gave (USD)", "Received (USD)", "Balance (USD)", "Note", "Recorded amount (USD)"],
+      "a shared kaata CSV keeps its leading columns; the recorded amount comes first after them",
+    );
+    assert.equal(vaultTable.header.at(-1), "Entry ID", "the entry id stays the last column");
+    assert.equal(vaultTable.net("USD"), 82, "SUM(Gave) - SUM(Received) is the kaata's net");
+    const vaultRejected = vaultTable.row("rejected-history");
+    assert.deepEqual(
+      [vaultRejected[4], vaultRejected[5], vaultTable.cell(vaultRejected, "Recorded amount (USD)")],
+      ["", "", "2000"],
+      "a rejected tally counts in neither Gave nor Received but keeps its recorded amount",
+    );
     // Re-linking carries the old amount into a new opening. Full history must
     // retain the old accepted evidence without counting that money twice.
     const oldRecord: Entry = {
@@ -707,17 +885,53 @@ async function main(): Promise<void> {
     assert.equal(relinked.balance, 60, "old 50 is counted only via the new opening");
     assert.deepEqual(relinked.sharedTotals, { acknowledged: 50, pending: 10, private: 0 });
     assert.equal(relinked.archivedSharedPeriods?.[0].entries[0].id, "old-period-evidence");
-    const archivedCsv = csv.buildPersonCsv(relinked);
-    const archivedLine = archivedCsv.split("\r\n").find((l) => l.endsWith(",old-period-evidence"))!;
-    assert.ok(
-      archivedLine.includes("Earlier shared period — excluded from current balance,AFN,50,0,,,"),
+    const archivedTable = csvTable(csv.buildPersonCsv(relinked));
+    const archivedRow = archivedTable.row("old-period-evidence");
+    assert.deepEqual(
+      [
+        "Balance scope",
+        "Currency",
+        "Recorded amount",
+        "Earlier period balance",
+        "Balance contribution",
+      ].map((column) => archivedTable.cell(archivedRow, column)),
+      ["Earlier shared period — excluded from current balance", "AFN", "50", "50", "0"],
+      "an earlier period is recorded in its own currency and contributes nothing today",
     );
-    assert.equal(archivedLine.split(",")[4], "", "no archived value in current running balance");
-    assert.ok(archivedLine.includes("deleted-reviewer"));
+    assert.deepEqual(
+      [archivedRow[2], archivedRow[3], archivedRow[4]],
+      ["", "", ""],
+      "an earlier period never enters today's Gave, Received or Balance",
+    );
+    assert.equal(
+      archivedTable.net("USD"),
+      60,
+      "the carried-over 50 is counted once, via the opening",
+    );
+    assert.ok(archivedRow.includes("deleted-reviewer"));
     await pdf.renderPersonStatementPdf(relinked, "fixture-archive.pdf");
     assert.ok(html[3].includes("Earlier shared period"));
     assert.ok(html[3].includes("old-period-evidence"));
     assert.ok(html[3].includes("60 $</div>"));
+    // The earlier period's table reads like the main one: direction colours,
+    // a centred Type column, and a meta line whose items are each isolated.
+    const archivedSection = html[3].slice(html[3].indexOf(">Earlier shared period — "));
+    assert.ok(
+      archivedSection.includes('<th class="c">Type</th>'),
+      "archived Type header is centred",
+    );
+    assert.ok(
+      archivedSection.includes('<span class="type gave" dir="auto">Gave</span>') &&
+        archivedSection.includes('<td class="n amount gave">'),
+      "archived rows are coloured by direction like the main table",
+    );
+    assert.ok(
+      archivedSection.includes(
+        '<p class="recordNotes metaLine"><span dir="auto">Shop</span><span class="sep">·</span>' +
+          '<span dir="auto">Customer</span><span class="sep">·</span><span dir="ltr">AFN</span></p>',
+      ),
+      "each item of the archived meta line is isolated, separators apart",
+    );
 
     // Shared chapter membership follows the recorded sequence. Dates entered
     // by the shopkeeper (including a later backdated tally) cannot move a row
@@ -814,33 +1028,131 @@ async function main(): Promise<void> {
     assert.equal(chapterStatement.rows[4].balanceAfter, 0);
     assert.equal(chapterStatement.archivedSharedPeriods?.[0].rows.at(-1)?.kind, "settled");
     const chapterCsv = csv.buildPersonCsv(chapterStatement);
-    const currentMarkerLine = chapterCsv
-      .split("\r\n")
-      .find((line) => line.endsWith(",current-clearance"))!;
-    assert.ok(currentMarkerLine.includes("Cleared by <Clearer>"));
-    assert.ok(currentMarkerLine.includes("1970-01-01T00:00:10.000Z"));
+    const chapterTable = csvTable(chapterCsv);
+    // The note is the document's sentence with the statement's own date; the
+    // exact UTC time is evidence and sits in its own column.
+    const currentMarker = chapterTable.row("current-clearance");
+    assert.deepEqual(
+      ["Note", "Recorded at (UTC)", "Shared account ID"].map((column) =>
+        chapterTable.cell(currentMarker, column),
+      ),
+      [`Cleared by <Clearer> on ${day(10_000)}`, "1970-01-01T00:00:10.000Z", "new-period"],
+      "a CSV clearance uses the document wording, its time in the evidence columns",
+    );
     assert.ok(
       chapterCsv.indexOf(",chapter-cancelled\r\n") < chapterCsv.indexOf(",current-clearance\r\n"),
     );
     assert.ok(
       chapterCsv.indexOf(",current-clearance\r\n") < chapterCsv.indexOf(",new-backdated\r\n"),
     );
-    const archivedMarkerLine = chapterCsv
-      .split("\r\n")
-      .find((line) => line.endsWith(",archived-clearance"))!;
-    assert.ok(archivedMarkerLine.includes("Archived clearer"));
-    assert.ok(archivedMarkerLine.includes("1970-01-01T00:00:20.000Z"));
-    assert.equal(
-      archivedMarkerLine.split(",")[4],
-      "",
-      "earlier clearance never enters today's balance",
+    const archivedMarker = chapterTable.row("archived-clearance");
+    assert.deepEqual(
+      ["Note", "Recorded at (UTC)", "Balance (USD)"].map((column) =>
+        chapterTable.cell(archivedMarker, column),
+      ),
+      [`Cleared by Archived clearer on ${day(20_000)}`, "1970-01-01T00:00:20.000Z", ""],
+      "an earlier clearance reads the same and never enters today's balance",
     );
+    assert.equal(chapterTable.net("USD"), 0.5, "SUM(Gave) - SUM(Received) is the balance");
     await pdf.renderPersonStatementPdf(chapterStatement, "fixture-shared-chapters.pdf");
-    assert.ok(html[4].includes("Cleared by &lt;Clearer&gt;"));
-    assert.ok(html[4].includes("1970-01-01T00:00:10.000Z"));
-    assert.ok(html[4].includes("Archived clearer"));
+    // Each value in the sentence is its own isolate; the UTC time is a
+    // separate LTR number; no rule-off row carries the UI chip's dot.
+    const isolate = (text: string) =>
+      `<span style="unicode-bidi:isolate" dir="auto">${text}</span>`;
+    const settledRows = (page: string) => page.match(/<tr class="settled">.*?<\/tr>/g) ?? [];
+    const clearedLine = `Cleared by ${isolate("&lt;Clearer&gt;")} on ${isolate(day(10_000))}`;
+    assert.ok(html[4].includes(clearedLine), "the clearer and the date are each isolated");
+    assert.ok(
+      html[4].includes('<span class="num">1970-01-01T00:00:10.000Z</span>'),
+      "the exact UTC time is its own LTR-isolated number",
+    );
+    assert.ok(
+      html[4].includes(`Cleared by ${isolate("Archived clearer")} on ${isolate(day(20_000))}`),
+      "an earlier period's clearance reads the same",
+    );
+    assert.equal(
+      settledRows(html[4]).length,
+      2,
+      "one rule-off row per clearance, current and earlier",
+    );
+    assert.ok(
+      settledRows(html[4]).every((row) => !row.includes("·")),
+      "no clearance row reuses the dotted UI chip",
+    );
     assert.ok(html[4].includes("chapter-cancelled"));
-    assert.ok(html[4].indexOf("Cleared by &lt;Clearer&gt;") < html[4].indexOf("new-backdated"));
+    assert.ok(html[4].indexOf(clearedLine) < html[4].indexOf("new-backdated"));
+    const archivedChapters = html[4].slice(html[4].indexOf(">Earlier shared period — "));
+    assert.ok(
+      archivedChapters.includes('<td class="n amount received">'),
+      "an earlier period's payment is coloured as received",
+    );
+
+    // The clearer's name is a Google/Apple display name, so Dari script and an
+    // EMPTY name are both normal. Both read as a sentence in both languages.
+    marker.actor_name = "عبدالله احمدزی";
+    sharedMarkers.get("old-period")![0].actor_name = "";
+    const namedStatement = (await buildPersonStatement("person", "en", "USD", "$", 30_000))!;
+    const faStatement = { ...namedStatement, locale: "fa" as const, calendar: "jalali" as const };
+    const faDay = (ms: number) => formatSettlementDate(ms, "fa", "jalali");
+    await pdf.renderPersonStatementPdf(namedStatement, "fixture-clearance-en.pdf");
+    const enPage = html.at(-1)!;
+    await pdf.renderPersonStatementPdf(faStatement, "fixture-clearance-fa.pdf");
+    const faPage = html.at(-1)!;
+    for (const [page, expected, why] of [
+      [
+        enPage,
+        `Cleared by ${isolate("عبدالله احمدزی")} on ${isolate(day(10_000))}`,
+        "en, Dari name",
+      ],
+      [enPage, `Cleared on ${isolate(day(20_000))} (name not recorded)`, "en, empty name"],
+      [
+        faPage,
+        `صاف‌شده توسط ${isolate("عبدالله احمدزی")} در ${isolate(faDay(10_000))}`,
+        "fa, Dari name",
+      ],
+      [faPage, `صاف‌شده در ${isolate(faDay(20_000))} (نام ثبت نشده)`, "fa, empty name"],
+    ] as const) {
+      assert.ok(page.includes(expected), `clearance sentence (${why})`);
+    }
+    for (const row of [...settledRows(enPage), ...settledRows(faPage)]) {
+      assert.ok(!row.includes("·"), "no dotted chip in either language");
+      assert.ok(!row.includes(isolate("")), "an empty name never leaves an empty slot");
+      assert.equal(
+        row.split("1970-01-01T").length - 1,
+        row.split('<span class="num">1970-01-01T').length - 1,
+        "the UTC time appears only as its own LTR number, never inside the sentence",
+      );
+    }
+    const enClearCsv = csvTable(csv.buildPersonCsv(namedStatement));
+    const faClearCsv = csvTable(csv.buildPersonCsv(faStatement));
+    assert.deepEqual(
+      [
+        enClearCsv.row("current-clearance")[5],
+        enClearCsv.row("archived-clearance")[5],
+        faClearCsv.row("current-clearance")[5],
+        faClearCsv.row("archived-clearance")[5],
+      ],
+      [
+        `Cleared by عبدالله احمدزی on ${day(10_000)}`,
+        `Cleared on ${day(20_000)} (name not recorded)`,
+        `صاف‌شده توسط عبدالله احمدزی در ${faDay(10_000)}`,
+        `صاف‌شده در ${faDay(20_000)} (نام ثبت نشده)`,
+      ],
+      "the CSV note uses the same document sentences",
+    );
+
+    // Dari evidence: localized roles and side, and the Afghan register (نمبر,
+    // as the Entry ID column) for every reference label, never شناسه.
+    await pdf.renderPersonStatementPdf(
+      { ...sharedStatement, locale: "fa", calendar: "jalali" },
+      "fixture-shared-fa.pdf",
+    );
+    const faEvidence = html.at(-1)!;
+    for (const shown of ["ثبت‌کننده", "مدیر", "این طرف"]) {
+      assert.ok(faEvidence.includes(`<span dir="auto">${shown}</span>`), `Dari value ${shown}`);
+    }
+    assert.ok(faEvidence.includes("نمبر حساب بررسی‌کننده: "), "reference labels use نمبر");
+    assert.ok(!faEvidence.includes("شناسه"), "no Iranian-register شناسه in a Dari document");
   });
 
   console.log(`\n${passed} money regression groups passed.`);

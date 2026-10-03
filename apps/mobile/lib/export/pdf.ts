@@ -40,8 +40,8 @@ import * as Print from "expo-print";
 import { Vazirmatn_400Regular, Vazirmatn_700Bold } from "@expo-google-fonts/vazirmatn";
 import { colors } from "../colors";
 import { formatAmount } from "../format";
-import { tIn } from "../i18n";
-import { noteFor } from "./note";
+import { tIn, type LocaleCode } from "../i18n";
+import { clearanceNote, noteFor } from "./note";
 import { faDigits, formatSettlementDate } from "../jalali";
 import { sumAmounts } from "../money";
 import {
@@ -53,6 +53,7 @@ import {
 import { EVIDENCE_KEYS, evidenceCells, evidenceTime, recordStatus } from "./evidence";
 import { balanceContribution, recordTotals } from "./shared-record";
 import type { Entry } from "../types";
+import type { TabEntryMeta } from "../tabs/types";
 
 let cachedFontCss: string | null = null;
 
@@ -106,6 +107,19 @@ function countIn(locale: "en" | "fa", n: number): string {
 /** A number cell that survives RTL: LTR-isolated, tabular, never wrapped. */
 function num(inner: string): string {
   return `<span class="num">${inner}</span>`;
+}
+
+/** Prose that may be in either script, such as a person's name or a date, as
+ *  its own isolate: it takes its direction from its own letters and can never
+ *  reorder the words around it. */
+function isolated(text: string): string {
+  return `<span style="unicode-bidi:isolate" dir="auto">${esc(text)}</span>`;
+}
+
+/** A machine identifier or UTC stamp: printed as recorded, LTR-isolated, and
+ *  free to wrap (a UUID would otherwise overrun its half of the grid). */
+function code(text: string): string {
+  return `<span class="code" dir="ltr">${esc(text)}</span>`;
 }
 
 function htmlShell(opts: {
@@ -183,11 +197,19 @@ td.received{color:${colors.collectStrong}}
 .type.received{color:${colors.collectStrong}}
 td.note{color:${colors.textDefault}}
 .recordNotes{font-size:10px;color:${colors.textSubtle};margin-top:10px;line-height:1.6}
+/* A dot-separated line of labels (an earlier period's parties and currency):
+   the same per-item isolation as .mastMeta, for the same reason. */
+.metaLine > span{unicode-bidi:isolate}
+.metaLine .sep{margin:0 6px;color:${colors.textMuted}}
 .evidenceGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px 12px;font-size:9px;overflow-wrap:anywhere}
 .evidenceGrid span{unicode-bidi:isolate}
+.code{direction:ltr;unicode-bidi:isolate}
 .evidenceLabel{font-weight:700}
 tr.evidence td{background:${colors.bgMuted};padding:8px 10px 12px}
 .excluded{text-decoration:line-through;color:${colors.textSubtle}}
+/* An excluded amount cell also carries its direction class; without this the
+   more specific td.gave/td.received colour wins over the grey. */
+td.amount.excluded{color:${colors.textSubtle}}
 .recordStatus{display:block;font-size:9px;margin-top:3px;white-space:normal}
 td.muted{color:${colors.textSubtle}}
 /* Running balance: same weight as the amount so the two numeric columns read
@@ -197,6 +219,8 @@ td.bal{font-weight:700;color:${colors.textEmphasis};white-space:nowrap}
 /* Settlement line — the paper-khata rule-off. Kept loud on purpose: it is a
    real event in the account's history, not a row of data. */
 tbody tr.settled td{text-align:center;font-size:10px;font-weight:700;color:${colors.textSubtle};background:${colors.bgSubtle};border-top:2px solid ${colors.borderEmphasis};border-bottom:2px solid ${colors.borderEmphasis}}
+/* A shared clearance's exact server time, under its sentence as evidence. */
+.settledMeta{display:block;font-size:9px;font-weight:400;margin-top:2px}
 
 .num{direction:ltr;unicode-bidi:isolate;font-variant-numeric:tabular-nums;white-space:nowrap}
 .empty{font-size:12px;color:${colors.textSubtle};padding:18px 0}
@@ -250,6 +274,65 @@ async function printToTarget(html: string, fileName: string): Promise<File> {
   return printed;
 }
 
+type EvidenceKey = (typeof EVIDENCE_KEYS)[number];
+
+// Evidence values that are machine identifiers, UTC stamps or record numbers.
+// The CSV keeps every value as recorded; on paper these print as LTR codes so
+// a Dari line can never reorder them. Everything else is prose (dir=auto).
+const CODE_KEYS: ReadonlySet<EvidenceKey> = new Set<EvidenceKey>([
+  "export.record.tabId",
+  "export.record.authorId",
+  "export.record.recordedAt",
+  "export.record.reviewerId",
+  "export.record.reviewedAt",
+  "export.record.reviewVersion",
+  "export.record.cancelledById",
+  "export.record.cancelledAt",
+  "export.record.cancellationId",
+  "export.record.seq",
+  "export.record.rev",
+]);
+
+// The member role the server snapshotted with an action, in the document's
+// language. "account" is the party's own account acting directly rather than
+// as a member of its kaata. A role this table does not know prints as its
+// code rather than as a guess.
+const ROLE_KEYS = {
+  owner: "vaultSettings.role.owner",
+  manager: "vaultSettings.role.manager",
+  editor: "vaultSettings.role.editor",
+  clerk: "vaultSettings.role.clerk",
+  viewer: "vaultSettings.role.viewer",
+  account: "export.record.role.account",
+} as const;
+
+/** The reviewer's party relative to the exporter: the wire's a/b letters mean
+ *  nothing on paper. The exporter's own letter follows from the row's author
+ *  (`by: "me"` means created_by is mine). Null when either side is unknown. */
+function reviewerSide(party: string, tab: TabEntryMeta, locale: LocaleCode): string | null {
+  if ((party !== "a" && party !== "b") || !tab.created_by) return null;
+  const mine = tab.by === "me" ? tab.created_by : tab.created_by === "a" ? "b" : "a";
+  return tIn(locale, party === mine ? "export.record.side.this" : "export.record.side.other");
+}
+
+function evidenceValueHtml(
+  key: EvidenceKey,
+  value: string,
+  tab: TabEntryMeta,
+  locale: LocaleCode,
+): string {
+  let shown: string | null = value;
+  if (key === "export.record.authorRole" || key === "export.record.reviewerRole") {
+    const roleKey = ROLE_KEYS[value as keyof typeof ROLE_KEYS];
+    shown = roleKey ? tIn(locale, roleKey) : null;
+  } else if (key === "export.record.reviewerParty") {
+    shown = reviewerSide(value, tab, locale);
+  } else if (CODE_KEYS.has(key)) {
+    shown = null;
+  }
+  return shown === null ? code(value) : `<span dir="auto">${esc(shown)}</span>`;
+}
+
 function recordDetailHtml(entry: Entry, locale: "en" | "fa"): string {
   if (!entry.tab) return "";
   const tab = entry.tab;
@@ -263,12 +346,12 @@ function recordDetailHtml(entry: Entry, locale: "en" | "fa"): string {
   const details = EVIDENCE_KEYS.flatMap((key, i) =>
     values[i]
       ? [
-          `<div><span class="evidenceLabel" dir="auto">${esc(tIn(locale, key))}: </span><span dir="auto">${esc(values[i])}</span></div>`,
+          `<div><span class="evidenceLabel" dir="auto">${esc(tIn(locale, key))}: </span>${evidenceValueHtml(key, values[i], tab, locale)}</div>`,
         ]
       : [],
   );
   details.push(
-    `<div><span class="evidenceLabel" dir="auto">${esc(tIn(locale, "export.col.id"))}: </span><span dir="ltr">${esc(entry.id)}</span></div>`,
+    `<div><span class="evidenceLabel" dir="auto">${esc(tIn(locale, "export.col.id"))}: </span>${code(entry.id)}</div>`,
   );
   return `<tr class="evidence"><td colspan="6"><div class="evidenceGrid">${details.join("")}</div></td></tr>`;
 }
@@ -278,15 +361,22 @@ function settlementRowHtml(
   st: Pick<PersonStatement, "locale" | "calendar">,
 ): string {
   const { locale, calendar } = st;
+  const date = formatSettlementDate(row.ms, locale, calendar);
+  // A shared clearance is a sentence with two values from outside the
+  // document's script: the clearer's Google/Apple display name (often Dari,
+  // sometimes empty) and the date. Each value is its own isolate; one plain
+  // run of text let the bidi algorithm interleave a Dari name with the date.
+  // The server's exact UTC time follows on its own LTR line, as evidence.
   const label = row.shared
-    ? tIn(locale, "tab.settle.history", {
-        name: row.shared.settlement.actor_name || tIn(locale, "export.record.unknown"),
-        date: evidenceTime(row.ms),
-      })
-    : tIn(locale, "export.doc.settledOn", { date: formatSettlementDate(row.ms, locale, calendar) });
+    ? clearanceNote(row.shared.settlement.actor_name, date, locale, {
+        text: esc,
+        value: isolated,
+      }) +
+      `<span class="settledMeta" dir="auto">${esc(tIn(locale, "export.record.recordedAt"))}: ${num(esc(evidenceTime(row.ms)))}</span>`
+    : esc(tIn(locale, "export.doc.settledOn", { date }));
   // Preserve the balance column (fifth) and the six-column table grid.
   return (
-    `<tr class="settled"><td colspan="4" dir="auto">${esc(label)}</td>` +
+    `<tr class="settled"><td colspan="4" dir="auto">${label}</td>` +
     `<td class="n">${num(fmtSigned(row.balanceAfter))}</td><td></td></tr>`
   );
 }
@@ -302,11 +392,14 @@ function archivedPeriodHtml(
       if (row.kind === "settled") return settlementRowHtml(row, st);
       const entry = row.entry;
       const gave = entry.type === "debt";
+      // Coloured by direction exactly like the main table (see the comment
+      // there): the type word and the amount, never a sign.
+      const cls = gave ? "gave" : "received";
       return `<tr>
 <td class="idx n">${num(String(++index))}</td>
 <td class="muted" dir="auto">${esc(formatSettlementDate(entry.created_at, locale, calendar))}</td>
-<td class="c"><span dir="auto">${esc(tIn(locale, gave ? "export.col.gave" : "export.col.received"))}</span><span class="recordStatus" dir="auto">${esc(recordStatus(entry.tab, locale))}</span></td>
-<td class="n amount${balanceContribution(entry) === 0 ? " excluded" : ""}">${num(`${formatAmount(entry.amount_afn)} ${esc(period.link.currency)}`)}</td>
+<td class="c"><span class="type ${cls}" dir="auto">${esc(tIn(locale, gave ? "export.col.gave" : "export.col.received"))}</span><span class="recordStatus" dir="auto">${esc(recordStatus(entry.tab, locale))}</span></td>
+<td class="n amount ${cls}${balanceContribution(entry) === 0 ? " excluded" : ""}">${num(`${formatAmount(entry.amount_afn)} ${esc(period.link.currency)}`)}</td>
 <td class="n bal">${num(fmtSigned(row.balanceAfter))}</td>
 <td class="note" dir="auto">${esc(noteFor(entry.note, entry.tab?.kind, locale) ?? "")}</td>
 </tr>${recordDetailHtml(entry, locale)}`;
@@ -314,12 +407,12 @@ function archivedPeriodHtml(
     .join("");
   return `<section class="section">
 <h2 class="sectionTitle" dir="auto">${esc(tIn(locale, "export.record.archiveTitle"))} — ${esc(formatSettlementDate(period.link.linked_at, locale, calendar))}</h2>
-<p class="recordNotes" dir="auto">${esc(period.link.my_label)} · ${esc(period.link.other_label)} · ${esc(period.link.currency)}</p>
+<p class="recordNotes metaLine"><span dir="auto">${esc(period.link.my_label)}</span><span class="sep">·</span><span dir="auto">${esc(period.link.other_label)}</span><span class="sep">·</span><span dir="ltr">${esc(period.link.currency)}</span></p>
 <p class="recordNotes" dir="auto">${esc(tIn(locale, "export.record.archiveExplanation"))}</p>
 ${period.link.closed_reason === "account_deleted" ? `<p class="recordNotes" dir="auto">${esc(tIn(locale, "export.record.closedDeleted"))}</p>` : ""}
 <table><thead><tr>
 <th class="n">${esc(tIn(locale, "export.col.num"))}</th><th>${esc(tIn(locale, "export.col.date"))}</th>
-<th>${esc(tIn(locale, "export.col.type"))}</th><th class="n">${esc(tIn(locale, "export.col.amount"))}</th>
+<th class="c">${esc(tIn(locale, "export.col.type"))}</th><th class="n">${esc(tIn(locale, "export.col.amount"))}</th>
 <th class="n">${esc(tIn(locale, "export.record.periodBalance"))}</th><th>${esc(tIn(locale, "export.col.note"))}</th>
 </tr></thead><tbody>${rows}</tbody></table></section>`;
 }

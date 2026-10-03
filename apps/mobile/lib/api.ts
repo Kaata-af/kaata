@@ -1,6 +1,7 @@
 import { BACKEND_URL_FALLBACK } from "../constants/env";
-import { getSessionJWT } from "./auth";
+import { getSessionJWT, InstallRetiredError } from "./auth";
 import { getAppMeta } from "./db";
+import { clearInstallRetired, markInstallRetired } from "./install-id";
 import type { CheckInResponse } from "./types";
 
 const TIMEOUT_MS = 5000;
@@ -69,10 +70,40 @@ export async function checkIn(payload: {
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
+    if (res.status === 410) {
+      // Not a failure to retry: this install_id was retired when an account it
+      // had been signed in to was deleted (see InstallRetiredError). Record it
+      // for Account's reset notice — only while it is still this phone's id —
+      // and hand callers the typed error. Nothing is queued as a crash report.
+      let detail = "";
+      try {
+        detail = (await res.json())?.error ?? "";
+      } catch {
+        // The status is the signal; the body only adds the server's wording.
+      }
+      try {
+        await markInstallRetired(payload.install_id);
+      } catch (err) {
+        console.warn("[api] could not record the retired install", err);
+      }
+      throw new InstallRetiredError(detail || undefined);
+    }
     if (!res.ok) {
       throw new Error(`check-in failed: ${res.status}`);
     }
-    return (await res.json()) as CheckInResponse;
+    const body = (await res.json()) as CheckInResponse;
+    // The server accepted this install_id, so a 410 recorded for it earlier
+    // must not keep Account's reset notice up (clearInstallRetired). Every
+    // check-in reply carries server_time; a stray 2xx JSON body from anything
+    // else clears nothing. Best-effort, like the mark above.
+    if (typeof body?.server_time === "string") {
+      try {
+        await clearInstallRetired(payload.install_id);
+      } catch (err) {
+        console.warn("[api] could not clear the retired-install flag", err);
+      }
+    }
+    return body;
   } finally {
     clearTimeout(timer);
   }

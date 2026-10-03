@@ -21,6 +21,7 @@
     "selftest:device-key": "tsx lib/__dev__/device-key-selftest.ts",
     "selftest:attribution": "tsx lib/__dev__/attribution-selftest.ts",
     "selftest:account-deletion": "tsx lib/__dev__/account-deletion-selftest.ts",
+    "selftest:install-retired": "tsx lib/__dev__/install-retired-selftest.ts",
     "selftest:onboarding-keyboard": "tsx lib/__dev__/onboarding-keyboard-selftest.ts",
     "selftest:tabs": "tsx lib/__dev__/tabs-selftest.ts",
     "selftest:tab-settlement": "tsx lib/__dev__/tab-settlement-selftest.ts",

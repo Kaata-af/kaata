@@ -13,6 +13,15 @@ import { radius, TOUCH_MIN, typography } from "../lib/tokens";
 // variant paints the Confirm button red on a white card; the rest of the chrome
 // stays calm.
 
+// How long a destructive button (Confirm when `destructive`, the third action
+// when `tertiaryDestructive`) ignores presses after each open. The card takes
+// taps while it is still fading in, because opacity does not stop hit-testing,
+// so the second tap of a double tap on whatever opened the dialog could erase
+// or delete before anyone has read it. 350 ms covers the 180 ms fade and a
+// double-tap interval (300 ms on Android). Cancel, the backdrop and every
+// non-destructive button answer at once.
+export const DESTRUCTIVE_ARM_MS = 350;
+
 export function ConfirmDialog(props: {
   visible: boolean;
   title: string;
@@ -34,9 +43,18 @@ export function ConfirmDialog(props: {
   const isRTL = useIsRTL();
   const opacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.96)).current;
+  // When the dialog last opened, for DESTRUCTIVE_ARM_MS.
+  const openedAt = useRef(0);
+  // When the current press on a destructive button STARTED. A slow second tap
+  // can start inside the window and lift after it, so the start decides; a
+  // screen reader's activation has no press-in and falls back to "now".
+  const pressStartedAt = useRef<number | null>(null);
 
   useEffect(() => {
     if (props.visible) {
+      // Every open re-arms the guard, including one that interrupts a close.
+      openedAt.current = Date.now();
+      pressStartedAt.current = null;
       setRendered(true);
       requestAnimationFrame(() => {
         Animated.parallel([
@@ -61,6 +79,19 @@ export function ConfirmDialog(props: {
   }, [props.visible]);
 
   if (!rendered) return null;
+
+  // A destructive press inside the window is dropped, not queued. A clock that
+  // jumped backwards (negative elapsed time) arms at once rather than leaving
+  // the button dead until the clock catches up.
+  const tooEarly = () => {
+    const startedAt = pressStartedAt.current ?? Date.now();
+    pressStartedAt.current = null;
+    const elapsed = startedAt - openedAt.current;
+    return elapsed >= 0 && elapsed < DESTRUCTIVE_ARM_MS;
+  };
+  const notePressStart = () => {
+    pressStartedAt.current = Date.now();
+  };
 
   const confirmStyle = props.destructive ? styles.confirmDestructive : styles.confirmPrimary;
   const confirmTextStyle = props.destructive
@@ -117,7 +148,9 @@ export function ConfirmDialog(props: {
             </Pressable>
             {props.onTertiary && props.tertiaryLabel ? (
               <Pressable
+                onPressIn={props.tertiaryDestructive ? notePressStart : undefined}
                 onPress={() => {
+                  if (props.tertiaryDestructive && tooEarly()) return;
                   props.onTertiary?.();
                 }}
                 accessibilityRole="button"
@@ -139,7 +172,9 @@ export function ConfirmDialog(props: {
               </Pressable>
             ) : null}
             <Pressable
+              onPressIn={props.destructive ? notePressStart : undefined}
               onPress={() => {
+                if (props.destructive && tooEarly()) return;
                 props.onConfirm();
               }}
               accessibilityRole="button"

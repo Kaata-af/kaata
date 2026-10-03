@@ -83,8 +83,10 @@ Re-sharing uses this surface too; rotation/unlink retain their destructive confi
   A rejected tally cannot be accepted or cancelled later. The wire/database value `disputed`
   is retained for compatibility; user-facing text is “Rejected”. A reason is
   optional so notification actions can reject in one tap. This replaces D6.
-  Existing immutable bills remain unchanged; newly generated bills/exports
-  exclude rejected tallies along with voided tallies.
+  Existing immutable bills remain unchanged; newly generated bills exclude
+  rejected tallies along with voided tallies. PDF/CSV statement exports keep both
+  as evidence that contributes zero: the CSV's Gave/Received hold only what
+  counts, and the original amount is in its Recorded amount column.
 - A single header overflow menu contains edit, link/manage and export.
   Counterparty tallies expose inline check / cross review controls; no review
   action sheet is required. Pending own tallies show an inline Cancel tally button
@@ -516,7 +518,7 @@ Errors: `TabCurrencyMismatchError`, `TabSameKaataError`, `TabAlreadyLinkedError`
 
 - `selectAllPeopleRaw`: join the contact's tab **open or closed** — `LEFT JOIN tab_links tl ON tl.tab_id = (SELECT t2.tab_id FROM tab_links t2 WHERE t2.relationship_id = r.id ORDER BY (t2.closed_at IS NULL) DESC, t2.linked_at DESC LIMIT 1)` (the open one wins; else the newest closed one). `balance` = `CASE WHEN tl.tab_id IS NOT NULL THEN (SELECT tabBalanceSql('tl.role','te') FROM tab_entries te WHERE te.tab_id = tl.tab_id) + signedEntryMinorSumSql('e', 'e.created_at > tl.linked_at') ELSE <existing local sum> END / 100.0` — the tab's rows plus only the local tallies written AFTER the link (D8); `last_entry_at` = `MAX(local, tab)`; `last_entry_type` = type of the newest by `occurred_at` across both (derive with `entryTypeFor` in JS after the query if simpler); `is_settled` uses the shared sequence marker for linked contacts, and only stays true at zero with no later or unsynced activity (see Shared zero-balance chapters below). New columns on `PersonWithBalance`: `tab_id: string | null` (set once the contact has EVER been linked), `tab_closed_at: number | null` (the only thing distinguishing a live shared account from frozen shared history — the link glyph and the chip key off it), `tab_pending: number` (entries by the other party, status pending, not voided; always 0 once closed), `tab_other_joined: 0|1`.
 - `getPerson`: same shape.
-- `listEntries(personId)`: if linked → `listTabEntriesAsEntries(link)` (only tab rows; the person screen shows pre-link rows via `listPreLinkEntries`). Exports (`lib/export/*`), bills (`lib/share.ts`) and the PDF builders consume `Entry[]` and must **skip** `e.tab?.voided` rows; `listEntriesForExport` (whole-kaata) UNIONs tab rows for linked contacts (non-voided) and skips pre-link local rows of linked contacts.
+- `listEntries(personId)`: if linked → `listTabEntriesAsEntries(link)` (only tab rows; the person screen shows pre-link rows via `listPreLinkEntries`). Bills (`lib/share.ts`) consume `Entry[]` and must **skip** `e.tab?.voided` and rejected rows; exports (`lib/export/*`) keep them as zero-contribution evidence (see the 2026-09-24 decisions above); `listEntriesForExport` (whole-kaata) UNIONs tab rows for linked contacts (voided/rejected originals included, never the void rows themselves) and skips pre-link local rows of linked contacts.
 - `createEntry(personId, …)` → if linked, delegate to `lib/tabs/link.addTabEntry` (so `entry/new.tsx` needs no branching beyond the duplicate-hint toast).
 - `getSettlementSummary` / `appendEntrySettled` remain private-ledger operations. Open shared tabs clear through `settleSharedTab`; closed shared history remains read-only. Shared chapter boundaries come from server sequence, not business dates.
 - `Entry` type gains `tab?: TabEntryMeta`.
@@ -666,6 +668,12 @@ Errors: `TabCurrencyMismatchError`, `TabSameKaataError`, `TabAlreadyLinkedError`
   New sign-in bindings supersede old attempts/receipts; local cleanup and binding
   cannot interleave. Arbitrary 401s never authorize erasure. Other offline devices and already exported files
   are not remotely wiped.
+- Other phones whose last signed-in account (`installs.account_id`) was the deleted
+  one are retired, including phones that signed out afterwards; a phone that later
+  signed in to another account is not. Their check-in and every sign-in answer 410. They keep their local ledger and explain
+  why, and they erase it only through an explicit, confirmed "Reset this phone",
+  which mints a fresh install id without a server request (`resetRetiredInstall`).
+  A 410 alone never wipes anything.
 - Real-Postgres auth/tabs/sync/check-in/crash tests cover retained history, revoked
   access, concurrency and retired-device uploads. Mobile selftests cover evidence
   persistence, export balances and deletion acknowledgement failures. Device testing
@@ -688,7 +696,6 @@ Errors: `TabCurrencyMismatchError`, `TabSameKaataError`, `TabAlreadyLinkedError`
 3. **Privacy/Terms + `docs/play-data-safety.md`**: disclose that a mutual tab (both parties' labels, amounts, notes) is server-held plaintext for both parties and survives either party's account deletion (`ON DELETE SET NULL`). It is NOT deleted on close — closing freezes it and both sides keep it as a read-only record (D8) — so the pages must not promise deletion. If a purge is ever wanted it needs its own decision (both parties' copies die together) and a housekeeping sweep.
 4. Admin dashboard: tab counts (later).
 5. Two-party payment acknowledgement (D17 v2), separate from the clear-page marker below.
-
 
 ### Shared zero-balance chapters
 

@@ -41,6 +41,7 @@ import {
   type DifferentAccountChoice,
   type DifferentAccountPromptArgs,
   getSessionUser,
+  InstallRetiredError,
   isCancellation,
   type SessionUser,
   SignInCancelledByUserError,
@@ -317,6 +318,11 @@ export default function HomeScreen() {
   // NavRow opens this dialog; only on confirmation do we actually wipe the
   // local session.
   const [signOutConfirm, setSignOutConfirm] = useState(false);
+  // Retired install (InstallRetiredError, HTTP 410 on sign-in): a dialog that
+  // explains and opens Account, whose notice card holds the export guidance and
+  // the only destructive confirmation. Home never erases: a second dialog here
+  // put "Erase and reset" under the user's previous tap.
+  const [retiredNotice, setRetiredNotice] = useState(false);
 
   // Rail position: 0 = collect tab visible, -screenWidth = pay tab visible.
   //
@@ -754,7 +760,13 @@ export default function HomeScreen() {
       if (err instanceof SignInCancelledByUserError) return;
       if (isCancellation(err)) return;
       console.warn("[home] sign-in failed", err);
-      setTimeout(() => toast.push(t("menu.account.signIn.failed"), "error"), 240);
+      if (err instanceof InstallRetiredError) {
+        // Not "try again": the server refuses this install for good. Explain
+        // and offer the confirmed reset instead of the generic toast.
+        setTimeout(() => setRetiredNotice(true), 240);
+      } else {
+        setTimeout(() => toast.push(t("menu.account.signIn.failed"), "error"), 240);
+      }
     } finally {
       setAuthBusy(false);
       setAuthPhase(null);
@@ -1522,6 +1534,23 @@ export default function HomeScreen() {
           }
         }}
         onCancel={() => setSignOutConfirm(false)}
+      />
+
+      {/* Retired install: say what happened and open Account, which shows the
+          export guidance and the reset behind its own destructive confirmation
+          (the sign-in 410 already set app_meta install_retired). Navigate after
+          this dialog's Modal has unmounted, the same 220 ms the sheets wait. */}
+      <ConfirmDialog
+        visible={retiredNotice}
+        title={t("account.retired.title")}
+        description={t("account.retired.body")}
+        confirmLabel={t("menu.account.settings")}
+        cancelLabel={t("common.notNow")}
+        onConfirm={() => {
+          setRetiredNotice(false);
+          setTimeout(() => router.push("/account"), 220);
+        }}
+        onCancel={() => setRetiredNotice(false)}
       />
 
       {/* Sign-in / restore loading overlay. Plain absolute-fill View (no Modal —

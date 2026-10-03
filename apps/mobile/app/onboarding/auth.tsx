@@ -12,8 +12,10 @@ import { NinjaIcon } from "../../components/NinjaIcon";
 import {
   type DifferentAccountChoice,
   type DifferentAccountPromptArgs,
+  InstallRetiredError,
   isCancellation,
   isGoogleSignInAvailable,
+  resetRetiredInstall,
   signInWithApple,
   signInWithGoogle,
   SignInFailedError,
@@ -26,7 +28,7 @@ import { applyVaultCurrency } from "../../lib/currency";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
-import { icon, radius, typography } from "../../lib/tokens";
+import { icon, radius, TOUCH_MIN, typography } from "../../lib/tokens";
 
 // Onboarding step 2 — auth choice. Sits BEFORE the name/shop form so the
 // Google handshake (and the email it returns) can inform the next screen's
@@ -52,18 +54,27 @@ const IS_EXPO_GO = Constants.executionEnvironment === "storeClient";
  * the operator nothing: no stage, no status, nothing to read out. Now the
  * message names the leg that broke, and carries a short code in parentheses
  * (e.g. "server 503", "timeout") that can be relayed verbatim.
+ *
+ * A retired install (InstallRetiredError, HTTP 410) is the exception: it gets
+ * its own explanation and no code, because nothing about it is transient and
+ * "try again" would be a lie. `retired` tells the screen to offer the reset.
  */
-function describeSignInFailure(err: unknown): string {
+function describeSignInFailure(err: unknown): { text: string; retired: boolean } {
   if (err instanceof SignInFailedError) {
+    // InstallRetiredError is a SignInFailedError ("server 410"), so it is told
+    // apart inside this branch, before the generic server copy.
+    if (err instanceof InstallRetiredError) {
+      return { text: t("account.retired.body"), retired: true };
+    }
     const hint =
       err.stage === "play_services"
         ? t("onboardingMode.signInFailed.playServices")
         : err.stage === "timeout" || err.stage === "network"
           ? t("onboardingMode.signInFailed.network")
           : t("onboardingMode.signInFailed");
-    return `${hint} (${err.code})`;
+    return { text: `${hint} (${err.code})`, retired: false };
   }
-  return t("onboardingMode.signInFailed");
+  return { text: t("onboardingMode.signInFailed"), retired: false };
 }
 
 /**
@@ -93,13 +104,17 @@ export function AuthScreen({ redirected = false }: { redirected?: boolean }) {
   const isRTL = useIsRTL();
   // WHICH provider is mid-handshake (null = idle). Both cards disable while
   // either runs, but only the tapped card shows the spinner — a shared
-  // boolean used to put a spinner on BOTH cards at once.
-  const [busy, setBusy] = useState<null | "google" | "apple">(null);
+  // boolean used to put a spinner on BOTH cards at once. "reset" = the
+  // retired-install reset below is erasing; everything disables.
+  const [busy, setBusy] = useState<null | "google" | "apple" | "reset">(null);
   const [error, setError] = useState<string | null>(null);
+  // The last failure was a retired install: offer "Reset this phone".
+  const [retired, setRetired] = useState(false);
 
   const busyRef = useRef(false);
   const decisionRef = useRef<((choice: DifferentAccountChoice) => void) | null>(null);
   const [decision, setDecision] = useState<DifferentAccountPromptArgs | null>(null);
+  const [resetConfirm, setResetConfirm] = useState(false);
   useEffect(() => () => decisionRef.current?.("cancel"), []);
   const decide = (choice: DifferentAccountChoice) => {
     decisionRef.current?.(choice);
@@ -238,10 +253,20 @@ export function AuthScreen({ redirected = false }: { redirected?: boolean }) {
 
   const googleAvailable = isGoogleSignInAvailable();
 
+  function showSignInFailure(provider: "google" | "apple", err: unknown) {
+    const failure = describeSignInFailure(err);
+    setError(failure.text);
+    setRetired(failure.retired);
+    // A retired install is a known state with its own way out, not a failure
+    // to diagnose — and the server discards a retired install's reports anyway.
+    if (!failure.retired) reportSignInFailure(provider, err);
+  }
+
   async function onSignIn() {
     if (busyRef.current) return;
     busyRef.current = true;
     setError(null);
+    setRetired(false);
     setBusy("google");
     try {
       const user = await signInWithGoogle(promptDifferentAccount);
@@ -251,8 +276,7 @@ export function AuthScreen({ redirected = false }: { redirected?: boolean }) {
       if (IS_EXPO_GO) {
         setError(t("onboardingMode.expoGoHint"));
       } else {
-        setError(describeSignInFailure(err));
-        reportSignInFailure("google", err);
+        showSignInFailure("google", err);
       }
     } finally {
       busyRef.current = false;
@@ -264,14 +288,35 @@ export function AuthScreen({ redirected = false }: { redirected?: boolean }) {
     if (busyRef.current) return;
     busyRef.current = true;
     setError(null);
+    setRetired(false);
     setBusy("apple");
     try {
       const user = await signInWithApple(promptDifferentAccount);
       await completeSignIn(user, "apple");
     } catch (err) {
       if (isCancellation(err)) return; // user-cancelled → silent
-      setError(describeSignInFailure(err));
-      reportSignInFailure("apple", err);
+      showSignInFailure("apple", err);
+    } finally {
+      busyRef.current = false;
+      setBusy(null);
+    }
+  }
+
+  // Retired install only: the erase runs from the destructive confirmation,
+  // never from the error itself. Then land exactly where a completed account
+  // deletion lands (app/account.tsx) — the wipe rebuilt an empty schema under
+  // a fresh install id, so this phone is a new install now.
+  async function onConfirmReset() {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setResetConfirm(false);
+    setBusy("reset");
+    try {
+      await resetRetiredInstall();
+      router.replace("/onboarding");
+    } catch (err) {
+      console.warn("[onboarding/auth] resetRetiredInstall failed", err);
+      setError(t("account.retired.failed"));
     } finally {
       busyRef.current = false;
       setBusy(null);
@@ -389,6 +434,25 @@ export function AuthScreen({ redirected = false }: { redirected?: boolean }) {
             {error}
           </Text>
         ) : null}
+        {retired ? (
+          <Pressable
+            onPress={() => setResetConfirm(true)}
+            disabled={busy !== null}
+            accessibilityRole="button"
+            accessibilityLabel={t("account.retired.reset")}
+            style={({ pressed }) => [
+              styles.resetButton,
+              pressed && { backgroundColor: colors.bgMuted },
+              busy !== null && busy !== "reset" && { opacity: 0.5 },
+            ]}
+          >
+            {busy === "reset" ? (
+              <ActivityIndicator color={colors.danger} />
+            ) : (
+              <Text style={styles.resetButtonText}>{t("account.retired.reset")}</Text>
+            )}
+          </Pressable>
+        ) : null}
 
         {/* Hard break between the two offers — the offline choice is not a
             third sign-in provider, and stacking it flush under the provider
@@ -450,6 +514,16 @@ export function AuthScreen({ redirected = false }: { redirected?: boolean }) {
         onConfirm={() => decide("keep")}
         onTertiary={() => decide("wipe")}
         onCancel={() => decide("cancel")}
+      />
+      <ConfirmDialog
+        visible={resetConfirm}
+        title={t("account.retired.confirm.title")}
+        description={t("account.retired.confirm.body")}
+        confirmLabel={t("account.retired.confirm.cta")}
+        cancelLabel={t("common.cancel")}
+        destructive
+        onConfirm={onConfirmReset}
+        onCancel={() => setResetConfirm(false)}
       />
     </SafeAreaView>
   );
@@ -570,5 +644,24 @@ const styles = StyleSheet.create({
     color: colors.danger,
     marginTop: 8,
     textAlign: "center",
+  },
+  // Retired-install way out under the explanation. Red label like Account's
+  // "Delete account" row; it only opens the destructive confirmation.
+  resetButton: {
+    alignSelf: "center",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: TOUCH_MIN,
+    marginTop: 12,
+    paddingHorizontal: 18,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+  },
+  resetButtonText: {
+    fontSize: 14,
+    fontFamily: fonts.sansSemi,
+    color: colors.danger,
+    lineHeight: sansLineHeight(14, 20),
   },
 });

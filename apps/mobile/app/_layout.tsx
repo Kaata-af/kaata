@@ -113,7 +113,7 @@ import {
   setInstallIdCache,
   setLocalSelfUserIdCache,
 } from "../lib/db-tx";
-import { configureGoogleSignIn } from "../lib/auth";
+import { configureGoogleSignIn, InstallRetiredError } from "../lib/auth";
 import { initCalendarFromPref } from "../lib/calendar";
 import { initCurrencyFromPref } from "../lib/currency";
 import { initDefaultCountryFromPref } from "../lib/phone";
@@ -1860,6 +1860,11 @@ function BackgroundCheckIn() {
         await decrementPendingUsage(usage);
         if (!cancelled && (await getAppMeta("install_id")) === installId) await applyCheckIn(resp);
       } catch (err) {
+        // 410: this install was retired after an account deletion. checkIn has
+        // already recorded it (app_meta install_retired) for Account's reset
+        // notice; there is nothing to retry or report, and nothing is wiped
+        // without the user's confirmation there.
+        if (err instanceof InstallRetiredError) return;
         // Backend unreachable or slow — ignore, the app must work offline.
         // Engineering critique: in production we genuinely don't care
         // (the check-in is best-effort telemetry), but in development a

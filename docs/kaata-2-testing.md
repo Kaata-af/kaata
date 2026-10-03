@@ -6,9 +6,35 @@ durable offline queue, and push delivery infrastructure. Existing private ledger
 events are not rewritten.
 Automated checks and store submissions do not replace native two-phone testing.
 
-Current release candidate: **2.1.0 / Android 46 / iOS 26**, built from release
-commit `6ac3989`: `84c3af4` plus the version bump and the two pre-build fixes
-below. Everything since 2.0.0's `a7df93c` reaches devices for
+Current release candidate: **2.1.0 / Android 47 / iOS 27**: build 46/26
+(below) plus the fixes for its known issues, all mobile-only (the backend is
+unchanged):
+
+- **Retired installs recover.** HTTP 410 from check-in or Google/Apple sign-in
+  now means "this phone's last account was deleted". The app explains it and
+  sets `app_meta.install_retired`, which a later successful check-in or sign-in
+  for the same install clears. Account offers "Reset this phone" behind a
+  destructive confirmation, as does the sign-in screen. Home's dialog only
+  opens Account. The reset is a local wipe plus a fresh install id, with no
+  server request, and keeps Apple's one-time name for the next sign-in.
+  Destructive confirmations ignore taps for their first 350 ms
+  (`selftest:install-retired`).
+- **Dari-safe exports.** The PDF "Cleared by {name} on {date}" line uses the
+  statement's calendar and isolates the name and date. The earlier-period table
+  is coloured by direction, with an isolated meta line. Rejected and cancelled
+  amounts print grey and struck through. Evidence roles and sides are in words,
+  and `npm run preview:pdf` works again.
+- **Summable shared CSVs.** Gave/Received are empty on rejected and cancelled
+  rows, a signed "Recorded amount" column carries every tally, Gave/Received
+  keep their currency suffix, and Entry ID stays last. Unshared exports are
+  byte-identical to 46.
+- **Accurate legal copy (web, deployed by pushing main).** The privacy, terms,
+  delete-account and cookie notice pages now give the real deletion path and
+  state what is retained. `docs/play-data-safety.md` no longer calls the
+  install id anonymous.
+
+Build 46/26 was built from release commit `6ac3989`: `84c3af4` plus the version
+bump and the two pre-build fixes below. Everything since 2.0.0's `a7df93c` reaches devices for
 the first time: clearing a shared account at zero (backend 051, mobile 032),
 evidence kept through account deletion (backend 047/049/050, mobile 031), the
 join rework (currency switch, sender-phone match, full contact list), the
@@ -70,7 +96,7 @@ without it:
 - No production promotion and no App Store review submission were made. No
   direct-install Android build was created.
 
-### Phone checks for 46/26
+### Phone checks for 46/26 and 47/27
 
 - Install over 2.0.0 on both phones; never uninstall. Before updating, note each
   shared contact's home balance, person-screen balance and "to review" count.
@@ -92,27 +118,61 @@ without it:
 - Notifications: tapping one, reviewing the tally, or opening the contact must
   drop the bell badge and clear the tray item, including from airplane mode
   after reconnecting.
-- Test account deletion ONLY with a throwaway account that has never been signed
-  in on the other phone (see the known issues).
+- Test account deletion ONLY with a throwaway account (see the retired-install
+  check below).
 
-### Known issues carried by 46/26 (fix before production)
+Added for 47/27:
 
-- A phone that was ever signed in to a deleted account cannot sign in or check
-  in again (server 410, shown as a generic error) and has no in-app reset. The
-  server half is live, so 2.0.0 phones are affected too. Recover with Android
-  Clear storage (a reinstall can restore the old install id from Google backup)
-  or an iOS reinstall.
-- The PDF "Cleared by" line prints a raw UTC timestamp and reuses the UI chip's
-  `·`, so it scrambles next to Dari-script names (a Latin name stays legible).
-- The website privacy policy still promises deletion of all server data, but
-  shared history is now kept after account deletion.
-- Shared-account CSVs changed shape: evidence columns are inserted before Entry
-  ID and rejected/cancelled amounts stay in Gave/Received.
-- `npm run preview:pdf` crashes, so PDF checks must be done on the phones.
+- Retired install, with a throwaway account signed in on BOTH phones: delete it
+  on phone A. On phone B, signing in (with any account) must show the "This
+  phone's account was deleted" explanation, not "(server 410)", and B's ledger
+  keeps working. Home's dialog opens Account settings, which shows the notice
+  card. A quick double tap on "Reset this phone" must open the confirmation
+  without erasing anything. Export first, then "Reset this phone": B returns to
+  onboarding with an empty ledger and can sign in again. Cancelling any of these
+  dialogs must leave the ledger untouched.
+- Dari PDF of a cleared shared account: the "صاف‌شده توسط … در …" line is legible
+  with Afghan month names, and rejected/cancelled amounts are grey and struck
+  through. Open the shared CSV in a spreadsheet: SUM(Gave) − SUM(Received) equals
+  the balance.
+- After pushing main, kaata.af/privacy, /delete-account and /terms show the new
+  deletion wording, and the cookie card no longer says "anonymous" and has a
+  single "Okay" button.
+
+### Known issues
+
+Fixed in 47/27 (see the candidate summary above):
+
+- the retired-install lock-out (no in-app recovery after a 410);
+- the PDF "Cleared by" line;
+- the privacy policy's deletion claim;
+- the shared CSV shape;
+- the `npm run preview:pdf` crash.
+
+Still open, minor and deferred:
+
 - After the one-time full re-pull, an offline accept/reject/cancel that is still
   in retry backoff can show as pending again until it sends (self-heals).
 - Dismissing the join screen by swipe or Back after "Create a … kaata" leaves
   the currency preset armed for the next new kaata.
+- Rarely, a deletion can report "Couldn't delete" after the server already
+  deleted the account. This happens when a sync 401 or a token refresh lands
+  mid-request. Retrying Delete from Account finishes it; if the attempt token
+  has expired, the phone ends up retired and uses the reset.
+
+### Before production: store and legal decisions (Matee)
+
+- The WhatsApp outreach (admin Outreach page) contacts shopkeepers and people
+  recorded in ledgers. The privacy policy does not say so yet. If it continues,
+  disclose it there first. Then add Developer communications or marketing to the
+  Play Data Safety purposes for Name, Phone number and Contacts, and to the App
+  Store labels.
+- Play wants retention periods on the deletion page; none is stated for retained
+  shared tally history.
+- Re-check the remaining Play Data Safety and App Store privacy answers listed in
+  `docs/play-data-safety.md`: Device IDs (install_id is pseudonymous, plus the
+  Expo push token), third-party sharing (Expo, FCM and APNs as service providers
+  for notification text), and Contacts.
 
 ### Previous delivery — 26 September 2026 Kabul (45/25)
 

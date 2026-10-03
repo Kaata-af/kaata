@@ -27,6 +27,7 @@ import {
   deleteAccount,
   getSessionJWT,
   hasPendingAccountDeletion,
+  resetRetiredInstall,
   updateAccountPhone,
 } from "../lib/auth";
 import { Button } from "../components/Button";
@@ -57,6 +58,7 @@ import {
   type Calendar,
   type CalendarPref,
 } from "../lib/calendar";
+import { isInstallRetired } from "../lib/install-id";
 import { formatCalendarDate } from "../lib/jalali";
 import {
   getCountry,
@@ -65,7 +67,7 @@ import {
   normalizePhone,
   setCurrentDefaultCountryCode,
 } from "../lib/phone";
-import { icon, radius, TOUCH_MIN } from "../lib/tokens";
+import { icon, radius, TOUCH_MIN, typography } from "../lib/tokens";
 
 const LANGUAGE_OPTIONS: ReadonlyArray<{ value: LocalePref; labelKey: string }> = [
   { value: "system", labelKey: "settings.language.option.system" },
@@ -133,7 +135,15 @@ export default function AccountScreen() {
   // server account to delete; they reset via the app uninstall).
   const [signedIn, setSignedIn] = useState(false);
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+  // Guards BOTH erasing flows (deletion and the retired-install reset), so one
+  // can never start while the other is still running.
   const deletingRef = useRef(false);
+  // Retired installation (InstallRetiredError in lib/auth.ts): an account this
+  // phone was signed in to was deleted, so the server refuses it. Shown signed
+  // in or not, from the flag check-in and sign-in set on a 410 (and clear
+  // again on a later success for the same install id).
+  const [retired, setRetired] = useState(false);
+  const [resetConfirmVisible, setResetConfirmVisible] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -158,6 +168,7 @@ export default function AccountScreen() {
       setCalendarPrefState(parseCalendarPref(await getAppMeta(CALENDAR_PREF_KEY)));
       setPrefCountry(getCurrentDefaultCountryCode());
       setSignedIn(!!(await getSessionJWT()) || (await hasPendingAccountDeletion()));
+      setRetired(await isInstallRetired().catch(() => false));
       setLoaded(true);
     })();
   }, []);
@@ -184,6 +195,25 @@ export default function AccountScreen() {
         ),
         "error",
       );
+    } finally {
+      deletingRef.current = false;
+    }
+  }
+
+  // Retired installation: erase this phone and start over under a fresh
+  // install id. Local only (the server already refuses this install), reached
+  // only through the destructive confirmation, and landing exactly where a
+  // completed deletion lands.
+  async function onConfirmReset() {
+    if (deletingRef.current) return;
+    deletingRef.current = true;
+    setResetConfirmVisible(false);
+    try {
+      await resetRetiredInstall();
+      router.replace("/onboarding");
+    } catch (err) {
+      console.warn("[account] resetRetiredInstall failed", err);
+      toast.push(t("account.retired.failed"), "error");
     } finally {
       deletingRef.current = false;
     }
@@ -334,6 +364,29 @@ export default function AccountScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ flexGrow: 1, paddingBottom: 24 + insets.bottom * 0.25 }}
         >
+          {/* ============ RETIRED INSTALL NOTICE ============
+              First on the page: until this phone is reset it cannot sign in
+              or check in. The action only opens the destructive confirmation. */}
+          {retired ? (
+            <View style={styles.retiredCard}>
+              <Text style={[styles.retiredTitle, textDir(isRTL)]}>
+                {t("account.retired.title")}
+              </Text>
+              <Text style={[styles.retiredBody, textDir(isRTL)]}>{t("account.retired.body")}</Text>
+              <Pressable
+                onPress={() => setResetConfirmVisible(true)}
+                accessibilityRole="button"
+                accessibilityLabel={t("account.retired.reset")}
+                style={({ pressed }) => [
+                  styles.retiredAction,
+                  pressed && { backgroundColor: colors.bgMuted },
+                ]}
+              >
+                <Text style={styles.retiredActionText}>{t("account.retired.reset")}</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
           {/* ============ PROFILE ============ */}
           <SectionHeader label={t("account.profile.section")} isRTL={isRTL} />
           <View style={styles.formInset}>
@@ -575,6 +628,16 @@ export default function AccountScreen() {
         onConfirm={onConfirmDelete}
         onCancel={() => setDeleteConfirmVisible(false)}
       />
+      <ConfirmDialog
+        visible={resetConfirmVisible}
+        title={t("account.retired.confirm.title")}
+        description={t("account.retired.confirm.body")}
+        confirmLabel={t("account.retired.confirm.cta")}
+        cancelLabel={t("common.cancel")}
+        destructive
+        onConfirm={onConfirmReset}
+        onCancel={() => setResetConfirmVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -639,4 +702,29 @@ const styles = StyleSheet.create({
   // Pushes the App-health section to the bottom; minHeight keeps a little air
   // between it and Preferences when the page is short enough not to scroll.
   healthSpacer: { flex: 1, minHeight: 24 },
+  // Retired-install notice. A calm card on the settings gutter; the red label
+  // marks its one action the way "Delete account" is marked.
+  retiredCard: {
+    marginHorizontal: 20,
+    marginTop: 12,
+    padding: 16,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    backgroundColor: colors.bgMuted,
+  },
+  retiredTitle: { ...typography.labelBold, color: colors.textEmphasis },
+  retiredBody: { ...typography.bodySm, color: colors.textDefault, marginTop: 6 },
+  retiredAction: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: TOUCH_MIN,
+    marginTop: 12,
+    paddingHorizontal: 16,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    backgroundColor: colors.bgDefault,
+  },
+  retiredActionText: { ...typography.labelBold, color: colors.danger },
 });

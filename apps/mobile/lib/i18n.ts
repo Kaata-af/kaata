@@ -740,6 +740,21 @@ const en = {
     "Couldn't delete your account. Check your connection and try again.",
   "account.deleteAccount.authRequired":
     "Sign in again before deleting your account. Your local ledger has not been removed.",
+  // Retired installation (HTTP 410, InstallRetiredError in lib/auth.ts): an
+  // account this phone was signed in to has been deleted, so the server refuses
+  // this install for sign-in and check-in. Shown by both sign-in error paths
+  // and as a notice on Account; only the destructive confirmation erases.
+  // Don't overstate it: the ledger keeps working offline and store updates
+  // still arrive. Only signing in and backing up need the reset.
+  "account.retired.title": "This phone's account was deleted",
+  "account.retired.body":
+    "The account this phone last signed in to has been deleted. Your kaatas still work on this phone. To sign in or back up again, export anything you need first, then reset this phone, which erases everything Kaata keeps on it.",
+  "account.retired.reset": "Reset this phone",
+  "account.retired.confirm.title": "Reset this phone?",
+  "account.retired.confirm.body":
+    "This erases everything Kaata keeps on this phone, including every kaata, person and tally. Export anything you need first. This cannot be undone.",
+  "account.retired.confirm.cta": "Erase and reset",
+  "account.retired.failed": "Couldn't reset this phone. Try again.",
 
   // Vault create (Phase 5.2 — Add a Kaata)
   // Copy fix: real users typed a CUSTOMER's name here (treating a "Kaata"
@@ -1252,6 +1267,12 @@ const en = {
   // lands against the leading digit of the date and reads as a Persian zero,
   // turning "۱۳ سنبله" into "۱۳۰ سنبله". A document spells the word out.
   "export.doc.settledOn": "Settled on {date}",
+  // Its shared counterpart, a clearance marker on a mutual tab: same rule,
+  // never the UI chip (tab.settle.history). lib/export/note.ts builds both
+  // sentences; the PDF isolates the name and the date. An empty name is normal
+  // (Apple can withhold it) and takes the second sentence.
+  "export.doc.clearedBy": "Cleared by {name} on {date}",
+  "export.doc.clearedUnnamed": "Cleared on {date} (name not recorded)",
   "export.col.date": "Date",
   "export.col.dateShamsi": "Date (Shamsi)",
   "export.col.person": "Name",
@@ -1315,6 +1336,17 @@ const en = {
   "export.record.archived": "Earlier shared period — excluded from current balance",
   "export.record.currency": "Currency",
   "export.record.periodBalance": "Earlier period balance",
+  // CSV: a shared-shape row's amount as recorded, signed like Balance
+  // contribution. Gave/Received carry only what counts (lib/export/csv.ts).
+  "export.record.recordedAmount": "Recorded amount",
+  // PDF evidence values; the CSV keeps the machine values. Roles otherwise
+  // reuse vaultSettings.role.*; "account" is the server's word for the party's
+  // own account acting directly rather than as a kaata member.
+  "export.record.role.account": "Account holder",
+  // The reviewer's party relative to whoever exported the statement: the
+  // wire's a/b letters mean nothing on paper.
+  "export.record.side.this": "This side",
+  "export.record.side.other": "Other side",
 
   // Removed people — the surface that makes the remove dialog's "entries
   // are kept" promise real. Section/row in vault settings (rendered only
@@ -2144,6 +2176,15 @@ const fa: Partial<Record<Key, string>> = {
     "حذف حساب ناموفق بود. اتصال‌تان را بررسی کنید و دوباره تلاش کنید.",
   "account.deleteAccount.authRequired":
     "پیش از حذف حساب دوباره وارد شوید. دفتر این تلفن حذف نشده است.",
+  "account.retired.title": "حساب این تلفون حذف شده است",
+  "account.retired.body":
+    "حسابی که این تلفون آخرین بار با آن وارد شده بود، حذف شده است. کاتاهای شما در این تلفون هنوز کار می‌کنند. برای ورود یا پشتیبان‌گیری دوباره، نخست از معلومات مورد نیازتان خروجی بگیرید، سپس این تلفون را از نو تنظیم کنید. این کار همه چیزهایی را که کاتا روی این تلفون نگه می‌دارد پاک می‌کند.",
+  "account.retired.reset": "از نو تنظیم کردن این تلفون",
+  "account.retired.confirm.title": "این تلفون از نو تنظیم شود؟",
+  "account.retired.confirm.body":
+    "این کار همه چیزهایی را که کاتا روی این تلفون نگه می‌دارد، از جمله همهٔ کاتاها، افراد و ثبت‌ها، پاک می‌کند. نخست از معلومات مورد نیازتان خروجی بگیرید. این کار قابل بازگشت نیست.",
+  "account.retired.confirm.cta": "پاک کردن و از نو تنظیم",
+  "account.retired.failed": "از نو تنظیم کردن این تلفون ناکام شد. دوباره کوشش کنید.",
 
   // Vault create (Phase 5.2). Shop-framed to stop users naming the kaata
   // after a customer — see the English block's note.
@@ -2591,6 +2632,8 @@ const fa: Partial<Record<Key, string>> = {
   "export.doc.totalGave": "مجموع دادم",
   "export.doc.totalReceived": "مجموع گرفتم",
   "export.doc.settledOn": "تصفیه شد در {date}",
+  "export.doc.clearedBy": "صاف‌شده توسط {name} در {date}",
+  "export.doc.clearedUnnamed": "صاف‌شده در {date} (نام ثبت نشده)",
   "export.col.date": "تاریخ",
   "export.col.dateShamsi": "تاریخ شمسی",
   "export.col.person": "نام",
@@ -2626,22 +2669,23 @@ const fa: Partial<Record<Key, string>> = {
   "export.record.rejectionAwaitingSync": "رد در انتظار همگام‌سازی",
   "export.record.cancellationAwaitingSync": "لغو در انتظار همگام‌سازی",
   "export.record.saved": "در سرور ثبت شده",
-  "export.record.tabId": "شناسهٔ حساب مشترک",
+  // نمبر, as export.col.id above: شناسه is Iranian register.
+  "export.record.tabId": "نمبر حساب مشترک",
   "export.record.author": "ثبت‌کننده",
-  "export.record.authorId": "شناسهٔ حساب ثبت‌کننده",
+  "export.record.authorId": "نمبر حساب ثبت‌کننده",
   "export.record.authorRole": "نقش ثبت‌کننده در آن زمان",
   "export.record.recordedAt": "زمان ثبت (UTC)",
   "export.record.reviewer": "بررسی‌کننده",
-  "export.record.reviewerId": "شناسهٔ حساب بررسی‌کننده",
+  "export.record.reviewerId": "نمبر حساب بررسی‌کننده",
   "export.record.reviewerParty": "طرف بررسی‌کننده",
   "export.record.reviewerRole": "نقش بررسی‌کننده در آن زمان",
   "export.record.reviewedAt": "زمان بررسی (UTC)",
   "export.record.reviewVersion": "نسخهٔ عمل بررسی",
   "export.record.reason": "دلیل رد",
   "export.record.cancelledBy": "لغوکننده",
-  "export.record.cancelledById": "شناسهٔ حساب لغوکننده",
+  "export.record.cancelledById": "نمبر حساب لغوکننده",
   "export.record.cancelledAt": "زمان لغو (UTC)",
-  "export.record.cancellationId": "شناسهٔ ثبت لغو",
+  "export.record.cancellationId": "نمبر ثبت لغو",
   "export.record.seq": "ترتیب ثبت",
   "export.record.rev": "نسخهٔ ثبت",
   "export.record.unknown": "ثبت نشده",
@@ -2655,6 +2699,10 @@ const fa: Partial<Record<Key, string>> = {
   "export.record.archived": "دورهٔ مشترک پیشین — بیرون از باقی‌ماندهٔ فعلی",
   "export.record.currency": "واحد پول",
   "export.record.periodBalance": "باقی‌ماندهٔ دورهٔ پیشین",
+  "export.record.recordedAmount": "مبلغ ثبت‌شده",
+  "export.record.role.account": "صاحب حساب",
+  "export.record.side.this": "این طرف",
+  "export.record.side.other": "طرف مقابل",
 
   // Removed people
   "vaultSettings.section.people": "اشخاص",

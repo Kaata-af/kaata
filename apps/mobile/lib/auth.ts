@@ -17,7 +17,7 @@ import {
 import { initDb, resetAllLocalData } from "./db";
 import { resolveAccountIdCandidates } from "./effective-account";
 import { appendAccountBound } from "./event-log";
-import { ensureInstallId } from "./install-id";
+import { clearInstallRetired, ensureInstallId, markInstallRetired } from "./install-id";
 import { normalizePhone } from "./phone";
 
 // `import type` is erased at compile time — it does NOT execute a runtime
@@ -175,6 +175,27 @@ export class SignInFailedError extends Error {
   /** Short, readable tag for the UI + crash report, e.g. "server 503". */
   get code(): string {
     return this.detail ? `${this.stage} ${this.detail}` : this.stage;
+  }
+}
+
+/**
+ * HTTP 410 from /v1/auth/google, /v1/auth/apple or /v1/check-in: this phone's
+ * install_id was RETIRED. Deleting an account retires every installation whose
+ * LAST signed-in account it was (a server sign-out keeps the link; a later
+ * sign-in to another account moves it), and from then on the server refuses
+ * that id for check-in and for sign-in to ANY account. 410
+ * means nothing else on those endpoints. Retrying can never work, so the
+ * screens explain it and offer resetRetiredInstall instead of "try again".
+ *
+ * It stays a SignInFailedError ("server 410") so code that only knows the base
+ * class still treats it as a server answer; check for this subclass first. It
+ * is never permission to erase anything: only the user's explicit confirmation
+ * of the reset is.
+ */
+export class InstallRetiredError extends SignInFailedError {
+  constructor(message = "This installation belongs to a deleted account.") {
+    super("server", message, "410");
+    this.name = "InstallRetiredError";
   }
 }
 
@@ -418,7 +439,7 @@ export async function signInWithGoogle(
     id_token: idToken,
     pending_vault_registration: pendingVaultRegistration,
   });
-  return applyAuthResponse(await readAuthResponse(res));
+  return applyAuthResponse(await readAuthResponse(res, installId));
 }
 
 // Slow-network budget for the ONE call that decides whether sign-in works.
@@ -467,7 +488,9 @@ async function postAuth(url: string, payload: unknown): Promise<Response> {
   throw lastErr instanceof Error ? lastErr : new SignInFailedError("unknown", "Sign-in failed.");
 }
 
-async function readAuthResponse(res: Response): Promise<AuthResponse> {
+// `installId` is the id this request was sent for, so a 410 (or a success that
+// clears an earlier one) is recorded against exactly that installation.
+async function readAuthResponse(res: Response, installId: string): Promise<AuthResponse> {
   if (!res.ok) {
     let detail = "";
     try {
@@ -477,14 +500,26 @@ async function readAuthResponse(res: Response): Promise<AuthResponse> {
       // Non-JSON body (captive portal, proxy error page) — the status alone
       // still tells the operator what happened.
     }
+    if (res.status === 410) {
+      // Retired install (see InstallRetiredError): remember it for Account's
+      // notice, as check-in does. Best-effort — the thrown error is what the
+      // screen acts on, and a failed write must not turn into "try again".
+      try {
+        await markInstallRetired(installId);
+      } catch (err) {
+        console.warn("[auth] could not record the retired install", err);
+      }
+      throw new InstallRetiredError(detail || undefined);
+    }
     throw new SignInFailedError(
       "server",
       detail || "Kaata couldn't complete sign-in. Try again.",
       String(res.status),
     );
   }
+  let body: AuthResponse;
   try {
-    return (await res.json()) as AuthResponse;
+    body = (await res.json()) as AuthResponse;
   } catch {
     // A 200 whose body isn't JSON means something between us rewrote the
     // response — captive portals do this. Previously an unguarded throw.
@@ -494,6 +529,17 @@ async function readAuthResponse(res: Response): Promise<AuthResponse> {
       "200-badbody",
     );
   }
+  // A session issued for this install_id means the server accepts it, so a
+  // 410 recorded for it earlier must not keep Account's reset notice up
+  // (clearInstallRetired). Best-effort: the sign-in itself has succeeded.
+  if (typeof body?.session_jwt === "string" && body.session_jwt !== "") {
+    try {
+      await clearInstallRetired(installId);
+    } catch (err) {
+      console.warn("[auth] could not clear the retired-install flag", err);
+    }
+  }
+  return body;
 }
 
 // Backend response shape shared by /v1/auth/google and /v1/auth/apple.
@@ -579,6 +625,11 @@ export async function signInWithApple(
 // produce. appleSub keys the one-shot name stash so a stale stash from Apple
 // ID A is never attached to Apple ID B.
 type AcquiredAppleToken = { idToken: string; freshName: string; appleSub: string };
+
+// app_meta key of the one-shot Apple name stash: JSON {sub, name}, "" once a
+// sign-in has delivered it. See completeAppleSignIn; resetRetiredInstall
+// carries it across its wipe.
+const APPLE_NAME_STASH_KEY = "apple_pending_display_name";
 
 // iOS: native Sign in with Apple sheet.
 async function acquireAppleTokenNative(): Promise<AcquiredAppleToken> {
@@ -694,7 +745,6 @@ async function completeAppleSignIn(
   // NOTE: getDb() is called fresh at every use site here (never held in a
   // local) because the guard's "wipe" choice runs resetAllLocalData(), which
   // CLOSES the handle — a captured db would throw on every later call.
-  const APPLE_NAME_STASH_KEY = "apple_pending_display_name";
   if (freshName) {
     await setAppMetaInTx(
       await getDb(),
@@ -729,7 +779,7 @@ async function completeAppleSignIn(
     identity_token: idToken,
     display_name: displayName || undefined,
   });
-  const body = await readAuthResponse(res);
+  const body = await readAuthResponse(res, installId);
   // The name reached the backend — drop the one-shot stash. Best-effort: a
   // local SQLite hiccup here must not fail a sign-in the server has already
   // accepted (worst case the sub-keyed stash lingers until the next success).
@@ -1273,12 +1323,55 @@ export async function resumeConfirmedAccountDeletion(): Promise<void> {
   );
 }
 
+// "Reset this phone" for a RETIRED installation (see InstallRetiredError): the
+// local half of account deletion and nothing more. No request is made — the
+// server already refuses this install_id, and it is the fresh install id minted
+// after the wipe that it will accept again. Erases every local table, the Google
+// and mesh key caches and the stored session, then clears both deletion keys: a
+// leftover receipt would make the next launch's resumeConfirmedAccountDeletion
+// erase the NEW ledger, and Account would keep offering a finished deletion.
+// Destructive and unconditional, so its only callers are the explicit "Reset
+// this phone" confirmations; a 401 or 410 on its own must never reach it.
+//
+// One thing survives: the Apple name stash (APPLE_NAME_STASH_KEY, in app_meta).
+// Apple sends the name only on the FIRST authorization, and that is often the
+// very sign-in that got the 410 leading here. Wiped with app_meta, the next
+// Apple sign-in would create an account without a name, and the app has no way
+// to add one later. The stash stays keyed to its Apple sub, so it is only ever
+// sent for that Apple ID. Account deletion's wipe keeps nothing.
+export function resetRetiredInstall(): Promise<void> {
+  return mutateLocalSession(async () => {
+    let appleNameStash: string | null = null;
+    try {
+      appleNameStash = await getAppMetaInTx(await getDb(), APPLE_NAME_STASH_KEY);
+    } catch (err) {
+      // Never blocks the reset the user confirmed; the name is lost as before.
+      console.warn("[auth] could not read the Apple name before the reset", err);
+    }
+    await clearDeletedAccountLocally();
+    if (appleNameStash) {
+      try {
+        // A fresh getDb(): the wipe closed the old handle, and initDb has
+        // rebuilt app_meta for the new install id.
+        await setAppMetaInTx(await getDb(), APPLE_NAME_STASH_KEY, appleNameStash);
+      } catch (err) {
+        // The phone is reset either way; only the name is lost.
+        console.warn("[auth] could not keep the Apple name across the reset", err);
+      }
+    }
+    await SecureStore.deleteItemAsync(DELETION_CONFIRMATION_KEY);
+    await SecureStore.deleteItemAsync(DELETION_ATTEMPT_KEY);
+  });
+}
+
+// Shared local wipe: account deletion (after the server confirmed it) and
+// resetRetiredInstall. Callers hold mutateLocalSession.
 async function clearDeletedAccountLocally(): Promise<void> {
   // Invalidate every response captured before cleanup, even if cleanup is
   // interrupted while SecureStore still contains the previous JWT.
   sessionBindingVersion++;
-  // Server confirmed deletion — drop the Google session, the
-  // mesh key cache, the stored JWT, and every local table.
+  // Drop the Google session, the mesh key cache, the stored JWT, and every
+  // local table.
   const lib = loadGoogleSignin();
   if (lib) {
     try {

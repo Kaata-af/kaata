@@ -1,7 +1,8 @@
 // apps/mobile/lib/export/note.ts
 //
 // One rule, shared by the CSV and PDF statement builders: what a row's
-// description says.
+// description says — an entry's note (noteFor) and a shared clearance
+// marker's rule-off line (clearanceNote).
 //
 // A mutual tab's OPENING entry deliberately carries no note on the wire
 // (docs/mutual-tab-design.md D7/§4.4). Its meaning is structural — "this is
@@ -38,4 +39,44 @@ export function noteFor(
   if (note != null) return note;
   if (kind === "opening") return tIn(locale, "tab.opening.note");
   return null;
+}
+
+type SentenceRender = { text: (s: string) => string; value: (s: string) => string };
+const PLAIN: SentenceRender = { text: (s) => s, value: (s) => s };
+
+/**
+ * The rule-off line for a SHARED clearance marker, in the document's own
+ * wording: "Cleared by {name} on {date}". Never the UI chip
+ * (tab.settle.history, "Cleared by {name} · {date}"): a document does not
+ * reuse a chip carrying "·" (see export.doc.settledOn), and the chip's date
+ * slot once carried a raw ISO time that the bidi algorithm ran into a Dari
+ * name. `date` is the caller's formatSettlementDate in the statement's own
+ * calendar; the exact UTC time belongs to the evidence, not this sentence.
+ *
+ * The name is the clearer's Google/Apple display name, so Dari script and an
+ * EMPTY name are both normal (Apple can withhold it). An empty name takes its
+ * own sentence instead of "Cleared by  on …", or "Not recorded" posing as a
+ * name.
+ *
+ * `render` lets the PDF escape the template's words and isolate each value;
+ * the CSV takes plain text. Values are spliced in by position, never through
+ * a string replace, whose "$&" / "$'" patterns would rewrite such a name.
+ */
+export function clearanceNote(
+  actorName: string | null | undefined,
+  date: string,
+  locale: LocaleCode,
+  render: SentenceRender = PLAIN,
+): string {
+  const name = (actorName ?? "").trim();
+  return tIn(locale, name ? "export.doc.clearedBy" : "export.doc.clearedUnnamed")
+    .split(/(\{name\}|\{date\})/)
+    .map((part) =>
+      part === "{name}"
+        ? render.value(name)
+        : part === "{date}"
+          ? render.value(date)
+          : render.text(part),
+    )
+    .join("");
 }

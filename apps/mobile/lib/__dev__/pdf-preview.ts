@@ -80,6 +80,9 @@ const pdf = withModuleStubs(
   stubs,
   () => require("../export/pdf") as typeof import("../export/pdf"),
 );
+// Pure (money helpers only): the same contribution rule data.ts applies.
+const { balanceContribution } =
+  require("../export/shared-record") as typeof import("../export/shared-record");
 
 type Row = { note: string; type: "debt" | "payment"; amount: number; day: number };
 
@@ -216,71 +219,216 @@ async function main() {
   await pdf.renderVaultReportPdf(buildReport() as any, "report.pdf");
 
   // Recorded names and reviewer details are synthetic. Exercise long IDs,
-  // absolute UTC timestamps, all outcomes, offline intent, and an old period.
-  const sharedEntries = ["accepted", "pending", "disputed", "cancelled"].map((status, i) => ({
-    id: `evidence-${i}-baaa-4ccc-8ddd-eeeeeeeeeeee`,
-    relationship_id: "rel-1",
-    type: "debt" as const,
-    amount_afn: 100 + i * 25,
-    note: i === 2 ? "مبلغ اشتباه است — disputed amount" : "سابقهٔ مشترک — shared record",
-    created_at: BASE + i * DAY,
-    tab: {
-      by: "me" as const,
-      status: (status === "cancelled" ? "pending" : status) as "accepted" | "pending" | "disputed",
-      kind: "entry" as const,
-      voided: status === "cancelled",
-      local_pending: false,
-      other_label: "احمد",
-      author_name: "عبدالله احمدزی",
-      author_account_id: "11111111-2222-3333-4444-555555555555",
-      author_member_role: "editor",
-      recorded_at: BASE + i * DAY + 15_000,
-      status_at: BASE + i * DAY + 30_000,
-      reviewer_name: status === "accepted" || status === "disputed" ? "احمد محمدی" : "",
-      reviewer_account_id:
-        status === "accepted" || status === "disputed"
-          ? "66666666-7777-8888-9999-000000000000"
-          : null,
-      reviewer_party: "b" as const,
-      reviewer_member_role: "owner",
-      review_semantics_version: "tally-review-v1",
-      dispute_reason: status === "disputed" ? "مبلغ اشتباه است" : null,
-      cancelled_by_name: status === "cancelled" ? "عبدالله احمدزی" : "",
-      cancelled_at: status === "cancelled" ? BASE + i * DAY + 40_000 : null,
-      cancellation_entry_id:
-        status === "cancelled" ? "cancel-11111111-2222-3333-4444-555555555555" : null,
-      tab_id: "shared-11111111-2222-3333-4444-555555555555",
-      seq: i + 1,
-      rev: i + 2,
-      closed_reason: "account_deleted" as const,
-    },
-  }));
+  // absolute UTC timestamps, every outcome, both reviewer sides, member roles,
+  // and an earlier period, built as data.ts builds them: `rows` with clearance
+  // markers interleaved by server sequence, `entries` derived from them. The
+  // clearers' names are a Dari-script name and an EMPTY one (Apple can withhold
+  // it), in the current account and in the earlier period, so the rule-off
+  // line shows up in both languages with both kinds of name.
+  const ME = { name: "عبدالله احمدزی", id: "11111111-2222-3333-4444-555555555555" };
+  const THEM = { name: "احمد محمدی", id: "66666666-7777-8888-9999-000000000000" };
+  type Outcome = "accepted" | "pending" | "disputed" | "cancelled";
+  const sharedEntry = (
+    tabId: string,
+    seq: number,
+    day: number,
+    type: "debt" | "payment",
+    amount: number,
+    note: string,
+    outcome: Outcome,
+    byThem = false,
+    closedReason: "account_deleted" | null = null,
+  ) => {
+    // This statement's owner is party a, the customer party b. Only the side
+    // that did NOT write a tally reviews it.
+    const author = byThem ? THEM : ME;
+    const reviewer = byThem ? ME : THEM;
+    const reviewed = outcome === "accepted" || outcome === "disputed";
+    const at = BASE + day * DAY;
+    const id = `${tabId.slice(0, 6)}-${seq}-baaa-4ccc-8ddd-eeeeeeeeeeee`;
+    return {
+      id,
+      relationship_id: "rel-1",
+      type,
+      amount_afn: amount,
+      note,
+      created_at: at,
+      tab: {
+        by: byThem ? ("them" as const) : ("me" as const),
+        created_by: byThem ? ("b" as const) : ("a" as const),
+        status: outcome === "cancelled" ? ("pending" as const) : outcome,
+        kind: "entry" as const,
+        voided: outcome === "cancelled",
+        local_pending: false,
+        other_label: "احمد",
+        author_name: author.name,
+        author_account_id: author.id,
+        author_member_role: byThem ? "account" : "editor",
+        recorded_at: at + 15_000,
+        status_at: reviewed ? at + 30_000 : null,
+        reviewer_name: reviewed ? reviewer.name : "",
+        reviewer_account_id: reviewed ? reviewer.id : null,
+        reviewer_party: reviewed ? (byThem ? ("a" as const) : ("b" as const)) : null,
+        reviewer_member_role: reviewed ? (byThem ? "owner" : "account") : null,
+        review_semantics_version: reviewed ? "tally-review-v1" : null,
+        dispute_reason: outcome === "disputed" ? "مبلغ اشتباه است" : null,
+        cancelled_by_name: outcome === "cancelled" ? author.name : "",
+        cancelled_by_account_id: outcome === "cancelled" ? author.id : null,
+        cancelled_at: outcome === "cancelled" ? at + 40_000 : null,
+        cancellation_entry_id: outcome === "cancelled" ? `cancel-${id}` : null,
+        tab_id: tabId,
+        seq,
+        rev: seq + 1,
+        closed_reason: closedReason,
+      },
+    };
+  };
+  type SharedEntry = ReturnType<typeof sharedEntry>;
+  // Clearances land at 21:45 UTC: the next morning in Kabul, which is exactly
+  // when a raw UTC stamp next to the date used to tell two different days.
+  const clearance = (tabId: string, throughSeq: number, day: number, actorName: string) => ({
+    id: `clear-${tabId.slice(0, 6)}-${throughSeq}`,
+    rev: throughSeq + 10,
+    through_seq: throughSeq,
+    settled_at_ms: BASE + day * DAY + 21 * 3_600_000 + 45 * 60_000,
+    created_by: "a" as const,
+    actor_account_id: actorName ? ME.id : null,
+    actor_name: actorName,
+    actor_member_role: "owner",
+    semantics_version: "tally-zero-settlement-v1",
+  });
+  const chapterRows = (
+    tabId: string,
+    entries: SharedEntry[],
+    clearances: ReturnType<typeof clearance>[],
+  ) => {
+    const rows: unknown[] = [];
+    let running = 0;
+    let next = 0;
+    const append = (entry: SharedEntry) => {
+      running = Math.round((running + balanceContribution(entry)) * 100) / 100;
+      rows.push({ kind: "entry", entry, balanceAfter: running });
+    };
+    for (const settlement of clearances) {
+      while (next < entries.length && entries[next].tab.seq <= settlement.through_seq) {
+        append(entries[next++]);
+      }
+      rows.push({
+        kind: "settled",
+        ms: settlement.settled_at_ms,
+        balanceAfter: running,
+        shared: { tabId, settlement },
+      });
+    }
+    while (next < entries.length) append(entries[next++]);
+    return { rows, balance: running };
+  };
+
+  const CURRENT = "shared-11111111-2222-3333-4444-555555555555";
+  const deleted = "account_deleted" as const;
+  const current = chapterRows(
+    CURRENT,
+    [
+      sharedEntry(
+        CURRENT,
+        1,
+        0,
+        "debt",
+        300,
+        "آرد و روغن — flour and oil",
+        "accepted",
+        false,
+        deleted,
+      ),
+      sharedEntry(CURRENT, 2, 1, "payment", 300, "رسید نقد — cash", "accepted", true, deleted),
+      sharedEntry(CURRENT, 3, 2, "debt", 80, "چای — tea", "accepted", false, deleted),
+      sharedEntry(CURRENT, 4, 2, "payment", 80, "رسید — paid", "accepted", true, deleted),
+      sharedEntry(
+        CURRENT,
+        5,
+        3,
+        "debt",
+        100,
+        "سابقهٔ مشترک — shared record",
+        "accepted",
+        false,
+        deleted,
+      ),
+      sharedEntry(
+        CURRENT,
+        6,
+        4,
+        "debt",
+        125,
+        "سابقهٔ مشترک — shared record",
+        "pending",
+        false,
+        deleted,
+      ),
+      sharedEntry(
+        CURRENT,
+        7,
+        5,
+        "debt",
+        150,
+        "مبلغ اشتباه است — disputed amount",
+        "disputed",
+        false,
+        deleted,
+      ),
+      sharedEntry(
+        CURRENT,
+        8,
+        6,
+        "debt",
+        175,
+        "سابقهٔ مشترک — shared record",
+        "cancelled",
+        false,
+        deleted,
+      ),
+    ],
+    [clearance(CURRENT, 2, 1, ME.name), clearance(CURRENT, 4, 2, "")],
+  );
+  const OLD = "old-period";
+  const earlier = chapterRows(
+    OLD,
+    [
+      sharedEntry(OLD, 1, -20, "debt", 50, "قرض — loan", "accepted"),
+      sharedEntry(OLD, 2, -19, "payment", 50, "رسید — repaid", "accepted", true),
+      sharedEntry(OLD, 3, -10, "debt", 20, "کرایه — fare", "accepted"),
+      sharedEntry(OLD, 4, -9, "debt", 70, "مبلغ اشتباه — wrong amount", "disputed"),
+      sharedEntry(OLD, 5, -8, "payment", 20, "رسید — repaid", "accepted", true),
+    ],
+    [clearance(OLD, 2, -19, ""), clearance(OLD, 5, -8, ME.name)],
+  );
   const shared = {
     ...buildStatement(),
-    balance: 225,
-    rows: sharedEntries.map((entry, i) => ({
-      kind: "entry",
-      entry,
-      balanceAfter: i === 0 ? 100 : 225,
-    })),
+    balance: current.balance,
+    rows: current.rows,
     archivedSharedPeriods: [
       {
         link: {
-          tab_id: "old-period",
+          tab_id: OLD,
           currency: "USD",
-          linked_at: BASE - DAY,
+          linked_at: BASE - 21 * DAY,
           my_label: "عبدالله",
           other_label: "احمد",
-          closed_at: BASE,
+          closed_at: BASE - 7 * DAY,
         },
-        entries: [sharedEntries[0]],
+        rows: earlier.rows,
+        entries: earlier.rows.flatMap((row) =>
+          (row as { kind: string }).kind === "entry" ? [(row as { entry: unknown }).entry] : [],
+        ),
       },
     ],
   };
   await pdf.renderPersonStatementPdf(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     { ...shared, locale: "en", calendar: "gregorian" } as any,
     "shared-en.pdf",
   );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await pdf.renderPersonStatementPdf(shared as any, "shared-fa.pdf");
 
   const names = ["statement", "report", "shared-en", "shared-fa"];

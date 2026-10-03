@@ -7,7 +7,7 @@ import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 // single legal document; a Dari translation is tracked separately. Linked from
 // the Play/App Store listings and the site footer. Keep it accurate to what the
 // app actually does — when you change how the service works, change this page.
-const UPDATED = "2 October 2026";
+const UPDATED = "3 October 2026";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -57,9 +57,10 @@ export function Terms() {
           <p>
             You may use Kaata without an account. If you create one by signing in, you are
             responsible for keeping access to your Google or Apple sign-in secure. You can delete
-            your account and the cloud copies of kaatas you own at any time from Account → Delete
-            account in the app. Shared history retained for other participants is described above
-            and in the privacy policy.
+            your account and the cloud copies of kaatas you own at any time in the app: tap your
+            profile on the home screen, then Account settings → Privacy &amp; data → Delete account.
+            Shared history retained for other participants is described above and in the privacy
+            policy.
           </p>
         </Section>
 

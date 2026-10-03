@@ -35,7 +35,9 @@ NOT anonymous, and there is a third, offline path; the fourth arrived with mutua
    suggests which contact the invitation came from), never verified identity. It **survives either party's account
    deletion**. Live party/account links are detached; minimal durable author/reviewer
    IDs, recorded names, representative roles, decision times and action semantics
-   remain for shared history. These are personal data, not anonymised statistics.
+   remain for shared history — as does, since 2.1.0, who cleared a zero balance and
+   when (`tab_settlements` actor ID/name/role, migration 051). These are personal
+   data, not anonymised statistics.
    **Closing freezes it; it does not delete it.** Account deletion closes a tally if
    a side has no remaining authorized representative and retires invitations; it
    never accepts, rejects, cancels or settles entries. This is a product retention
@@ -72,6 +74,22 @@ the old assertion that no messaging provider exists no longer describes 2.0.
   records. Shared history belonging to others survives. Installation tombstones
   prevent stale devices from reuploading the deleted profile; a minimal matching
   account/install receipt lets a signed session confirm deletion after a lost reply.
+  The phone wipes its local ledger only after the server confirms.
+- **Also kept after `DELETE /v1/account`** (none of it anonymous): the retired
+  `installs` rows (usage counters, active-day/hour history, registered device key,
+  source attribution, deletion receipt); claimed `web_visits` rows with IP/user agent
+  (unclaimed ones are purged after 180 days); the self-profile and crash reports of
+  installs that were not retired (never bound to the account, or since signed in to
+  another account; crash reports are purged after 90 days); events the account wrote
+  in kaatas it did not own, with their signed actor UUID; those kaatas' invitation
+  history (`vault_audit_log` `invite_issued` keeps `target_email`, `invite_accepted`
+  the `install_id`); and the admin outreach log (`outreach_contacts`/`outreach_touches`,
+  keyed by phone with no FK, migration 044), which deletion does not touch — for the
+  account's own number and for numbers from its ledgers that were messaged. The
+  Privacy and Delete-account pages disclose the log and invite removal requests.
+  ⚠️ Open decision: whether a request purges it (today only a hand `DELETE`; dropping
+  a `do_not_contact` row would let that number be messaged again). Messaging numbers
+  taken from synced ledgers is not yet a disclosed purpose (Privacy page, §2 table).
 - **Gap:** a never-signed-in user's own `self_name`/`self_phone`/`shop_name` on the
   `installs` row has **no in-app delete**; `/v1/shared` bill links are **permanent and
   unrevocable by design** (paper rule 2026-08-07 — disclosed on the Privacy +
@@ -132,9 +150,14 @@ form — so **declaring Contacts avoids review friction**. Keep it checked. (Ver
 
 ### Device or other IDs — **✅ Yes**
 
-Anonymous `install_id` (locally-generated UUID) + device Ed25519 public keys + client
-**IP** captured server-side in `crash_reports`/`web_visits`. **Not** an advertising ID /
-hardware ID (none collected).
+`install_id` (locally-generated UUID) + device Ed25519 public keys + client **IP**
+captured server-side in `crash_reports`/`web_visits` (+ the Expo push token when the
+user enables notifications, see the 2.0 note above). **Not** an advertising ID /
+hardware ID (none collected). The `install_id` is **pseudonymous, not anonymous**
+(matches the Privacy page's "not necessarily anonymous"): it keys the usage counters,
+the check-in self-profile and crash reports, and a claimed web visit's IP. Account
+deletion retires the `installs` row (self-profile cleared, crash reports deleted) but
+keeps it, with its usage history and the deleted account's UUID as a deletion receipt.
 
 ### Select **No** for all of these
 
