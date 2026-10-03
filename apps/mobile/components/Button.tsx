@@ -17,7 +17,7 @@
 // want, `pill` is the fully-rounded list CTA. One shadow recipe (tokens `lift`)
 // is shared by every lifted variant.
 
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View, type Insets } from "react-native";
 import type { ComponentProps } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "../lib/colors";
@@ -69,6 +69,14 @@ export function Button(props: {
   fullWidth?: boolean;
   /** Announced instead of `label` when the visible text is terse ("×", "Go"). */
   accessibilityLabel?: string;
+  /**
+   * Replaces the size's default touch extension. Pills placed SIDE BY SIDE
+   * need this: PILL_HIT_SLOP reaches 8 sideways, so two pills 8 apart would
+   * both claim the gap between them, and iOS and Android both hit-test the
+   * LAST sibling first, so every tap in that gap would go to the second pill
+   * (see components/EntryRow.tsx, where the second pill is a final Accept).
+   */
+  hitSlop?: Insets;
 }) {
   const { label, onPress, variant = "primary", size = "md", disabled, loading, fullWidth } = props;
 
@@ -95,7 +103,7 @@ export function Button(props: {
     <Pressable
       onPress={onPress}
       disabled={disabled || loading}
-      hitSlop={size === "pill" ? PILL_HIT_SLOP : undefined}
+      hitSlop={props.hitSlop ?? (size === "pill" ? PILL_HIT_SLOP : undefined)}
       accessibilityRole="button"
       accessibilityState={{ disabled: Boolean(disabled || loading), busy: Boolean(loading) }}
       accessibilityLabel={props.accessibilityLabel ?? label}

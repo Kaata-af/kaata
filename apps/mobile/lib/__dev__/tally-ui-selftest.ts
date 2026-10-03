@@ -1,5 +1,15 @@
 // Render the real row with mocked native primitives. Pins UI behavior; this
 // does NOT replace Yoga/device layout checks on iOS and Android.
+//
+// The tally row's look is design "A · Quiet" (2026-10-03), and it was already
+// regressed once by an agent, so the review-state presentation is pinned here
+// in EN and RTL: rows are white whatever their state and turn bgMuted when
+// opened; the state shows ONLY on an opened row, as a neutral centred pill
+// whose dot is the state's one colour; meta lines start at the start edge with
+// semibold names; review actions are the shared Button's "pill" size, with
+// Accept the black primary at the trailing end. The pills' touch targets are
+// checked through the real Button: 44pt each, and neither reaching past the
+// middle of the gap between Reject and Accept, because both are final.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
@@ -44,6 +54,9 @@ const mocks: Record<string, any> = {
     Platform: { select: (s: any) => s.ios },
   },
   "@expo/vector-icons": { Ionicons: "Icon" },
+  // Opaque on purpose: the row's contract is WHICH button it renders (size,
+  // variant, icon, label, disabled); Button's own geometry is Button's.
+  "./Button": { Button: "Button" },
   "./InitialAvatar": { InitialAvatar: "Avatar" },
   "../lib/attribution": { chipActorFor: () => null },
   "../lib/calendar": { useCalendar() {} },
@@ -53,9 +66,11 @@ const mocks: Record<string, any> = {
     useIsRTL: () => rtl,
     rowDir: (r: boolean) => ({ flexDirection: r ? "row-reverse" : "row" }),
     textDir: (r: boolean) => ({ textAlign: r ? "right" : "left" }),
+    // lib/direction.ts's contract: tracking is cancelled for Persian script.
+    trackingSafe: (r: boolean) => (r ? { letterSpacing: 0 } : null),
   },
   "../lib/fonts": {
-    fonts: { sansRegular: "Regular", sansBold: "Bold", monoSemi: "MonoSemi" },
+    fonts: { sansRegular: "Regular", sansSemi: "Semi", sansBold: "Bold", monoSemi: "MonoSemi" },
     sansLineHeight: (_: number, h: number) => h,
     monoLineHeight: (_: number, h: number) => h,
   },
@@ -72,12 +87,16 @@ const mocks: Record<string, any> = {
         value = rtl ? "ثبت‌شده توسط {name}" : "Added by {name}";
       if (key === "entry.editedBy") value = rtl ? "ویرایش توسط {name}" : "edited by {name}";
       if (key === "entry.by.self") value = rtl ? "{name} (شما)" : "{name} (you)";
+      if (key === "tab.reviewedBy") value = rtl ? "بررسی‌کننده: {name}" : "Reviewed by {name}";
+      if (key === "tab.disputedReason") value = rtl ? "رد شده: {reason}" : "Rejected: {reason}";
+      if (key === "tab.rejectedHint")
+        value = rtl ? "در ماندهٔ حساب حساب نمی‌شود." : "Not included in the balance.";
       for (const [k, v] of Object.entries(vars ?? {})) value = value.replaceAll("{" + k + "}", v);
       return value;
     },
   },
 };
-function compile(source: string) {
+function compile(source: string, overrides: Record<string, any> = {}) {
   const out = {};
   const js = ts.transpileModule(source, {
     compilerOptions: {
@@ -87,6 +106,7 @@ function compile(source: string) {
     },
   }).outputText;
   new Function("require", "exports", js)((name: string) => {
+    if (name in overrides) return overrides[name];
     assert.ok(name in mocks, "unexpected native dependency: " + name);
     return mocks[name];
   }, out);
@@ -104,6 +124,91 @@ function words(n: any): string {
 }
 const style = (s: any): any =>
   Array.isArray(s) ? Object.assign({}, ...s.filter(Boolean).map(style)) : s;
+const kids = (n: any): any[] =>
+  [n?.props?.children].flat(Infinity).filter((k) => k && typeof k === "object");
+const pick = (o: any, keys: string[]) => Object.fromEntries(keys.map((k) => [k, o?.[k]]));
+// Lookups go by what a node announces or where it sits, never by its type and
+// never with a crashing `!`, so a wrong design fails an assertion by name.
+const labelled = (tree: any, label: string) =>
+  nodes(tree).filter((n) => n.props.accessibilityLabel === label);
+const body = (tree: any) => nodes(tree).find((n) => n.type === "Pressable");
+// The tappable body's lines: [status pill (opened tab rows only), amount row].
+const lines = (tree: any) => kids(body(tree));
+const pillOf = (tree: any) => kids(lines(tree)[0])[0];
+const buttonShape = (n: any) => ({
+  type: n?.type,
+  size: n?.props.size,
+  variant: n?.props.variant,
+  icon: String(n?.props.icon).replace(/-(outline|sharp)$/, ""),
+  label: n?.props.label,
+  accessibilityLabel: n?.props.accessibilityLabel,
+  disabled: n?.props.disabled,
+});
+// Every node's own resolved style. The body is read unpressed: its one fill is
+// the press feedback.
+const ownStyle = (n: any) =>
+  style(
+    typeof n?.props.style === "function" ? n.props.style({ pressed: false }) : n?.props.style,
+  ) ?? {};
+// Every fill and every border in a row, named by the node that carries it.
+// The quiet design allows exactly these: the row's ground, the direction tile
+// and, once opened, the white status pill with its hairline and its dot. A
+// state tint one element in, or a coloured edge, is the old row tint again.
+function paint(tree: any, pill?: any) {
+  const names = new Map<any, string>([
+    [tree, "row"],
+    [labelled(tree, "person.action.iGave")[0], "tile"],
+  ]);
+  if (pill) names.set(pill, "pill").set(kids(pill)[0], "dot");
+  return nodes(tree)
+    .flatMap((n) =>
+      Object.entries(ownStyle(n))
+        .filter(([key]) => key === "backgroundColor" || /^border\w*(Width|Color)$/.test(key))
+        .map(([key, value]) => `${names.get(n) ?? "unexpected " + n.type} ${key} ${value}`),
+    )
+    .sort();
+}
+// The REAL Button on the real design tokens, so a pill's touch target is
+// pinned as it ships, not as the row asks for it. (The row's own tree keeps
+// Button opaque, above, so its props stay readable.)
+const tokens = compile(readFileSync(require.resolve("../../lib/tokens"), "utf8"), {
+  "./fonts": mocks["../lib/fonts"],
+});
+const RealButton = compile(readFileSync(require.resolve("../../components/Button"), "utf8"), {
+  "../lib/tokens": tokens,
+}).Button;
+const pressableOf = (button: any) => RealButton(button?.props ?? {});
+function slopOf(button: any) {
+  const slop = pressableOf(button).props.hitSlop ?? 0;
+  const side = (key: string) => (typeof slop === "number" ? slop : (slop[key] ?? 0));
+  return { top: side("top"), bottom: side("bottom"), left: side("left"), right: side("right") };
+}
+// A pill's finger target: its box plus its slop, the vertical slop cut at the
+// actions row's padding (iOS hit-tests a child only inside its parent).
+function touchTarget(button: any, actions: any) {
+  const slop = slopOf(button);
+  const box = style(pressableOf(button).props.style({ pressed: false }));
+  return {
+    width: box.minWidth + slop.left + slop.right,
+    height:
+      Math.min(slop.top, actions?.paddingTop) +
+      box.minHeight +
+      Math.min(slop.bottom, actions?.paddingBottom),
+  };
+}
+const REVIEW = ["tab.reject", "tab.accept"];
+// The approved dot hues; anything else is a design change, not a refactor.
+assert.deepEqual(
+  pick(colors, ["reviewPending", "reviewAccepted", "reviewRejected"]),
+  { reviewPending: "#D29A00", reviewAccepted: "#0A5A46", reviewRejected: "#A34242" },
+  "review dots: amber pending, green accepted, red rejected",
+);
+const DOT: Record<string, string> = {
+  pending: colors.reviewPending,
+  accepted: colors.reviewAccepted,
+  disputed: colors.reviewRejected,
+  sending: colors.textMuted,
+};
 const base = {
   entry: { id: "1", type: "debt", amount_afn: 10, created_at: 1000, note: "Goods" },
   onAccept() {},
@@ -116,13 +221,12 @@ function render(props: any) {
 function opened(props: any) {
   slots = [];
   const closed = render(props);
-  nodes(closed)
-    .find((n) => n.type === "Pressable")!
-    .props.onPress();
+  body(closed)?.props.onPress();
   return render(props);
 }
 for (const isRTL of [false, true]) {
   rtl = isRTL;
+  const start = rtl ? "right" : "left";
   const selfProps = {
     ...base,
     selfAccountId: "self",
@@ -131,33 +235,48 @@ for (const isRTL of [false, true]) {
   };
   slots = [];
   assert.equal(
-    nodes(render(selfProps)).some((n) => n.props.accessibilityLabel === "tab.cancel"),
-    false,
+    labelled(render(selfProps), "tab.cancel").length,
+    0,
     "cancel is hidden until expanded",
   );
   const own = opened(selfProps);
   assert.ok(words(own).includes(rtl ? "Matee (شما)" : "Matee (you)"));
-  assert.equal(nodes(own).filter((n) => n.props.accessibilityLabel === "tab.cancel").length, 1);
-  assert.equal(
-    nodes(own).filter(
-      (n) =>
-        n.props.accessibilityLabel === "tab.accept" || n.props.accessibilityLabel === "tab.reject",
-    ).length,
-    0,
+  assert.equal(labelled(own, "tab.cancel").length, 1);
+  assert.deepEqual(
+    REVIEW.map((label) => labelled(own, label).length),
+    [0, 0],
+    "your own tally is never yours to review",
+  );
+  const cancel = labelled(own, "tab.cancel")[0];
+  assert.deepEqual(
+    buttonShape(cancel),
+    {
+      type: "Button",
+      size: "pill",
+      variant: "secondary",
+      icon: "close",
+      label: "tab.cancel",
+      accessibilityLabel: "tab.cancel",
+      disabled: false,
+    },
+    "Cancel tally is a white secondary pill",
+  );
+  const cancelRow = style(nodes(own).find((n) => kids(n).includes(cancel))?.props.style);
+  assert.equal(cancelRow?.justifyContent, "flex-end", "Cancel sits on the trailing edge");
+  const cancelTarget = touchTarget(cancel, cancelRow);
+  assert.ok(
+    cancelTarget.width >= tokens.TOUCH_MIN && cancelTarget.height >= tokens.TOUCH_MIN,
+    `Cancel tally keeps a 44pt target (${cancelTarget.width}x${cancelTarget.height})`,
   );
   for (const meta of [{ status: "accepted" }, { status: "disputed" }, { by: "them" }]) {
     assert.equal(
-      nodes(opened({ ...selfProps, tab: { ...selfProps.tab, ...meta } })).some(
-        (n) => n.props.accessibilityLabel === "tab.cancel",
-      ),
-      false,
+      labelled(opened({ ...selfProps, tab: { ...selfProps.tab, ...meta } }), "tab.cancel").length,
+      0,
     );
   }
   assert.equal(
-    nodes(opened({ ...selfProps, onCancel: undefined })).some(
-      (n) => n.props.accessibilityLabel === "tab.cancel",
-    ),
-    false,
+    labelled(opened({ ...selfProps, onCancel: undefined }), "tab.cancel").length,
+    0,
     "viewer/closed tab has no cancellation",
   );
   for (const authorId of ["colleague", undefined, null]) {
@@ -173,67 +292,339 @@ for (const isRTL of [false, true]) {
   }
   const selfMember = opened({ ...base, attribution: { author: { name: "Matee", isSelf: true } } });
   assert.ok(words(selfMember).includes(rtl ? "Matee (شما)" : "Matee (you)"));
-  for (const status of ["pending", "accepted", "disputed"]) {
-    const props = {
-      ...base,
-      tab: { by: "them", status, other_label: "Shop", author_name: "احمد" },
+
+  // Every review state, from both sides, plus an unsent ("Sending…") tally.
+  const cases = [
+    { key: "pending", tab: { by: "them", status: "pending" }, review: true },
+    { key: "pending", tab: { by: "me", status: "pending" }, review: false },
+    { key: "accepted", tab: { by: "them", status: "accepted" }, review: false },
+    { key: "accepted", tab: { by: "me", status: "accepted" }, review: false },
+    {
+      key: "disputed",
+      tab: { by: "them", status: "disputed", dispute_reason: "Wrong amount" },
+      review: false,
+    },
+    { key: "sending", tab: { by: "me", status: "pending", local_pending: true }, review: false },
+    { key: "sending", tab: { by: "them", status: "pending", local_pending: true }, review: false },
+  ];
+  for (const c of cases) {
+    const tab: any = {
+      other_label: "Shop",
+      author_name: "احمد",
+      reviewer_name: "Ahmad",
+      status_at: 2000,
+      ...c.tab,
     };
+    const props = { ...base, tab };
+    const what = `${c.tab.by}/${c.key}${rtl ? " (RTL)" : ""}`;
+    const statusKey = "tab.status." + c.key;
+
+    // "I gave" keeps its pay tile; a rejected tally's tile goes grey.
+    const tile = c.key === "disputed" ? colors.bgSubtle : colors.payBg;
     slots = [];
     const collapsed = render(props);
-    assert.equal(
-      words(collapsed).includes("tab.status."),
-      false,
-      "state text appears only after a tap",
+    assert.deepEqual(
+      paint(collapsed),
+      [`row backgroundColor ${colors.bgDefault}`, `tile backgroundColor ${tile}`].sort(),
+      `${what}: a collapsed tally is plain white; review state tints nothing in the row`,
     );
-    const expectedFill = `${status === "pending" ? colors.pendingBg : status === "accepted" ? colors.acceptedBg : colors.rejectedBg}80`;
+    assert.equal(words(collapsed).includes("tab.status."), false, "state appears only after a tap");
+    const collapsedFirst = style(lines(collapsed)[0]?.props.style);
     assert.equal(
-      style(collapsed.props.style).backgroundColor,
-      expectedFill,
-      "state tint covers the entire tally",
+      collapsedFirst?.paddingTop ?? collapsedFirst?.paddingVertical,
+      12,
+      `${what}: collapsed, the amount row is the first line, at full padding`,
     );
+
     const tree = opened(props);
-    const buttons = nodes(tree).filter(
-      (n) =>
-        n.type === "Pressable" && ["tab.accept", "tab.reject"].includes(n.props.accessibilityLabel),
+    const pill = pillOf(tree);
+    assert.deepEqual(
+      paint(tree, pill),
+      [
+        `row backgroundColor ${colors.bgMuted}`,
+        `tile backgroundColor ${tile}`,
+        `pill backgroundColor ${colors.bgDefault}`,
+        `pill borderWidth 1`,
+        `pill borderColor ${colors.borderDefault}`,
+        `dot backgroundColor ${DOT[c.key]}`,
+      ].sort(),
+      `${what}: an opened tally, actions included, sits on bgMuted; only the pill's dot carries the state`,
+    );
+    const first = lines(tree)[0];
+    const firstStyle = style(first?.props.style);
+    assert.deepEqual(
+      {
+        words: words(first),
+        direction: firstStyle?.flexDirection ?? "column",
+        alignItems: firstStyle?.alignItems,
+        paddingTop: firstStyle?.paddingTop,
+      },
+      { words: statusKey, direction: "column", alignItems: "center", paddingTop: 12 },
+      `${what}: the opened tally's first line is its status, centred above the amount`,
     );
     assert.equal(
-      buttons.length,
-      status === "pending" ? 2 : 0,
-      "opening reviewed rows must not resurrect actions",
+      nodes(tree).find((n) => n.type === "Text")?.props.children,
+      statusKey,
+      `${what}: the status is the first text rendered`,
     );
-    for (const button of buttons) {
-      const appearance = style(button.props.style({ pressed: false }));
-      assert.ok(appearance.minHeight >= 44, "review buttons retain touch targets");
-      assert.ok(
-        appearance.borderWidth > 0 && appearance.borderRadius > 0,
-        "actions are visibly buttons",
+    const carriers = (n: any) =>
+      nodes(n).filter((x) => x.type === "Text" && x.props.children === statusKey);
+    assert.deepEqual(
+      carriers(tree),
+      carriers(first),
+      `${what}: the pill is the status's only carrier (no old status text under the note)`,
+    );
+    assert.equal(
+      style(lines(tree)[1]?.props.style)?.paddingTop,
+      10,
+      `${what}: the amount line tucks in under the pill`,
+    );
+    const pillStyle = style(pill?.props.style);
+    assert.deepEqual(
+      {
+        ...pick(pillStyle, [
+          "flexDirection",
+          "alignItems",
+          "alignSelf",
+          "gap",
+          "paddingHorizontal",
+          "borderRadius",
+          "borderWidth",
+          "borderColor",
+          "backgroundColor",
+        ]),
+        height22to24: pillStyle?.minHeight >= 22 && pillStyle?.minHeight <= 24,
+      },
+      {
+        flexDirection: rtl ? "row-reverse" : "row",
+        alignItems: "center",
+        alignSelf: undefined,
+        gap: 6,
+        paddingHorizontal: 10,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: colors.borderDefault,
+        backgroundColor: colors.bgDefault,
+        height22to24: true,
+      },
+      `${what}: a neutral white pill, hairline border, dot before the label`,
+    );
+    const [dot, label] = kids(pill);
+    assert.deepEqual(
+      pick(style(dot?.props.style), ["width", "height", "borderRadius", "backgroundColor"]),
+      { width: 6, height: 6, borderRadius: 3, backgroundColor: DOT[c.key] },
+      `${what}: the dot is the state's one colour`,
+    );
+    const labelStyle = style(label?.props.style);
+    assert.deepEqual(
+      {
+        type: label?.type,
+        text: label?.props.children,
+        numberOfLines: label?.props.numberOfLines,
+        ...pick(labelStyle, ["fontSize", "fontFamily", "color", "letterSpacing"]),
+      },
+      {
+        type: "Text",
+        text: statusKey,
+        numberOfLines: 1,
+        fontSize: 11,
+        fontFamily: "Semi",
+        color: colors.textDefault,
+        // Latin keeps its 0.2 tracking; trackingSafe() zeroes it for Persian.
+        letterSpacing: rtl ? 0 : 0.2,
+      },
+      `${what}: 11px semibold label in body ink`,
+    );
+    if (rtl) {
+      assert.deepEqual(
+        nodes(tree)
+          .filter((n) => n.type === "Text" && style(n.props.style)?.letterSpacing)
+          .map(words),
+        [],
+        `${what}: no Dari text is tracked (it severs Persian joining)`,
       );
     }
-    const author = nodes(tree).find((n) => n.type === "Text" && n.props.numberOfLines === 2)!;
-    assert.equal(style(author.props.style).textAlign, rtl ? "left" : "right", "same edge as date");
-    const name = nodes(author).find((n) => n.type === "Text" && n.props.children === "احمد")!;
-    assert.equal(style(name.props.style).fontFamily, "Bold");
-    assert.equal(words(author), rtl ? "ثبت‌شده توسط احمد" : "Added by احمد");
-    const statusKey =
-      status === "pending" ? "pending" : status === "accepted" ? "accepted" : "disputed";
-    assert.equal(
-      nodes(tree).filter((n) => n.type === "Text" && n.props.children === "tab.status." + statusKey)
-        .length,
-      1,
+
+    // Meta lines keep their content, start at the start edge, and name people
+    // in semibold body ink.
+    const metaPattern = rtl
+      ? /^(ثبت‌شده توسط|رد شده:|بررسی‌کننده:|در ماندهٔ)/
+      : /^(Added by|Rejected:|Reviewed by|Not included)/;
+    const metas = nodes(tree).filter((n) => n.type === "Text" && metaPattern.test(words(n)));
+    const reviewed = !tab.local_pending && tab.status !== "pending";
+    assert.deepEqual(
+      metas.map(words),
+      [
+        rtl ? "ثبت‌شده توسط احمد" : "Added by احمد",
+        ...(tab.status === "disputed"
+          ? [rtl ? "رد شده: Wrong amount" : "Rejected: Wrong amount"]
+          : []),
+        ...(reviewed
+          ? [rtl ? "بررسی‌کننده: Ahmad · 12:15 PM" : "Reviewed by Ahmad · 12:15 PM"]
+          : []),
+        ...(tab.status === "disputed"
+          ? [rtl ? "در ماندهٔ حساب حساب نمی‌شود." : "Not included in the balance."]
+          : []),
+      ],
+      `${what}: author, reason, reviewer and hint lines keep their content`,
     );
-    if (status === "disputed") {
-      const amount = nodes(tree).find((n) => n.type === "Text" && n.props.children === "10")!;
-      assert.equal(style(amount.props.style).textDecorationLine, "line-through");
+    assert.deepEqual(
+      metas.map((n) => pick(style(n.props.style), ["textAlign", "fontSize", "color"])),
+      metas.map(() => ({ textAlign: start, fontSize: 12, color: colors.textSubtle })),
+      `${what}: every meta line is 12px textSubtle at the start edge (the trailing edge is the date's)`,
+    );
+    const name = nodes(metas[0]).find((n) => n.type === "Text" && n.props.children === "احمد");
+    assert.deepEqual(
+      pick(style(name?.props.style), ["fontFamily", "color"]),
+      { fontFamily: "Semi", color: colors.textDefault },
+      `${what}: names are semibold body ink, not bold`,
+    );
+
+    // Review actions: the other party's pending tally only, collapsed too.
+    for (const [state, row] of [
+      ["collapsed", collapsed],
+      ["opened", tree],
+    ] as const) {
+      // `parts` = the row's top-level children: an actions row is a second
+      // part, so a row without actions must not leave an empty padded one.
+      assert.deepEqual(
+        { actions: REVIEW.map((l) => labelled(row, l).length), parts: kids(row).length },
+        { actions: c.review ? [1, 1] : [0, 0], parts: c.review ? 2 : 1 },
+        `${what} ${state}: ${c.review ? "Accept and Reject show" : "no review actions, no actions row"}`,
+      );
+      if (!c.review) continue;
+      assert.deepEqual(
+        buttonShape(labelled(row, "tab.reject")[0]),
+        {
+          type: "Button",
+          size: "pill",
+          variant: "secondary",
+          icon: "close",
+          label: "tab.reject",
+          accessibilityLabel: "tab.reject",
+          disabled: false,
+        },
+        `${what} ${state}: Reject is a white secondary pill`,
+      );
+      assert.deepEqual(
+        buttonShape(labelled(row, "tab.accept")[0]),
+        {
+          type: "Button",
+          size: "pill",
+          variant: "primary",
+          icon: "checkmark",
+          label: "tab.accept",
+          accessibilityLabel: "tab.accept",
+          disabled: false,
+        },
+        `${what} ${state}: Accept is the black primary pill, never the collect green`,
+      );
+      assert.deepEqual(
+        nodes(row)
+          .filter((n) => REVIEW.includes(n.props.accessibilityLabel))
+          .map((n) => n.props.accessibilityLabel),
+        REVIEW,
+        `${what} ${state}: Accept follows Reject, so it is the outermost pill`,
+      );
+      const [reject, accept] = REVIEW.map((l) => labelled(row, l)[0]);
+      const actionsStyle = style(nodes(row).find((n) => kids(n).includes(reject))?.props.style);
+      // Yoga's own rule: columnGap / rowGap override the `gap` shorthand.
+      const actions = {
+        ...actionsStyle,
+        columnGap: actionsStyle?.columnGap ?? actionsStyle?.gap,
+        rowGap: actionsStyle?.rowGap ?? actionsStyle?.gap,
+      };
+      assert.deepEqual(
+        {
+          ...pick(actions, [
+            "flexDirection",
+            "flexWrap",
+            "justifyContent",
+            "columnGap",
+            "paddingHorizontal",
+            "backgroundColor",
+          ]),
+          bottom10to12: actions.paddingBottom >= 10 && actions.paddingBottom <= 12,
+        },
+        {
+          flexDirection: rtl ? "row-reverse" : "row",
+          // Too wide for one line at large text sizes, the pills wrap rather
+          // than spill past the card's clipped edge.
+          flexWrap: "wrap",
+          justifyContent: "flex-end",
+          columnGap: 8,
+          paddingHorizontal: 14,
+          backgroundColor: undefined,
+          bottom10to12: true,
+        },
+        `${what} ${state}: actions hug the trailing edge on the 14px gutter`,
+      );
+      // Touch geometry, through the real Button. Both decisions are final and
+      // unconfirmed, so a tap nearer one pill must never land on the other:
+      // neither pill's slop may reach past the middle of the gap between them
+      // (or of rowGap once they wrap). Overlap is worse still, because iOS and
+      // Android both hit-test the LAST sibling first and give it all to
+      // Accept. And each pill must still be a 44pt target.
+      const [rejectSlop, acceptSlop] = [reject, accept].map(slopOf);
+      const facing = rtl
+        ? [rejectSlop.left, acceptSlop.right]
+        : [rejectSlop.right, acceptSlop.left];
+      assert.deepEqual(
+        {
+          sideBySide: Math.max(...facing) <= actions.columnGap / 2,
+          wrapped: Math.max(rejectSlop.bottom, acceptSlop.top) <= actions.rowGap / 2,
+        },
+        { sideBySide: true, wrapped: true },
+        `${what} ${state}: no tap nearer Reject reaches Accept, or the reverse`,
+      );
+      for (const button of [reject, accept]) {
+        const target = touchTarget(button, actions);
+        assert.ok(
+          target.width >= tokens.TOUCH_MIN && target.height >= tokens.TOUCH_MIN,
+          `${what} ${state}: ${button?.props.label} keeps a 44pt target (${target.width}x${target.height})`,
+        );
+      }
+    }
+    if (tab.status === "disputed") {
+      const amount = nodes(tree).find((n) => n.type === "Text" && n.props.children === "10");
+      assert.equal(style(amount?.props.style)?.textDecorationLine, "line-through");
     }
   }
+  slots = [];
+  const viewer = render({
+    ...base,
+    onAccept: undefined,
+    onReject: undefined,
+    tab: { by: "them", status: "pending" },
+  });
+  assert.deepEqual(
+    { actions: REVIEW.map((l) => labelled(viewer, l).length), parts: kids(viewer).length },
+    { actions: [0, 0], parts: 1 },
+    "no review actions, and no empty actions row, without review rights",
+  );
   slots = [];
   assert.equal(
     render({ ...base, tab: { by: "me", status: "pending", voided: true } }),
     null,
     "cancelled rows are absent from the everyday list",
   );
-  const sent = opened({ ...base, tab: { by: "me", status: "pending", author_name: "Matee" } });
-  assert.equal(style(sent.props.style).backgroundColor, `${colors.pendingBg}80`);
+  // A solo tally has no review state: it opens onto the same quiet ground,
+  // with no pill above it.
+  const solo = opened(base);
+  const soloFirst = style(lines(solo)[0]?.props.style);
+  assert.deepEqual(
+    {
+      paint: paint(solo),
+      status: words(solo).includes("tab.status."),
+      firstPadding: soloFirst?.paddingTop ?? soloFirst?.paddingVertical,
+    },
+    {
+      paint: [`row backgroundColor ${colors.bgMuted}`, `tile backgroundColor ${colors.payBg}`],
+      status: false,
+      firstPadding: 12,
+    },
+    "a solo tally opens onto bgMuted with no status pill",
+  );
   const member = opened({
     ...base,
     attribution: {
@@ -241,10 +632,12 @@ for (const isRTL of [false, true]) {
       editor: { name: "Ahmad", isSelf: false },
     },
   });
-  assert.equal(
-    nodes(member).filter((n) => n.type === "Text" && style(n.props.style)?.fontFamily === "Bold")
-      .length,
-    2,
+  assert.deepEqual(
+    nodes(member)
+      .filter((n) => n.type === "Text" && style(n.props.style)?.fontFamily === "Semi")
+      .map(words),
+    ["Matee", "Ahmad"],
+    "member names are semibold too",
   );
 }
 
@@ -267,7 +660,7 @@ assert.ok(
     person.indexOf('label: t("person.sheet.edit"', person.indexOf("<OverflowMenu")),
 );
 console.log(
-  "PASS: tinted rows and expanded-only states in EN/FA, visible review buttons, cancelled rows hidden, floating full-size controls",
+  "PASS: quiet rows (white, bgMuted when open, no other paint) with a centred status pill and state dot, start-aligned meta, wrapping pill review actions with separate 44pt targets in EN/FA, cancelled rows hidden, floating full-size controls",
 );
 
 // Render the real bell/header against different safe viewports. In particular,
@@ -451,3 +844,38 @@ assert.equal(stopped, true);
 console.log(
   "PASS: centered badge without account suffix, self attribution, inline pending-only cancellation, touch-through gray 1.5s highlight",
 );
+
+// The review guard, end to end. Last, because it is the only check that has
+// to await: the row re-enables its actions in a `finally` after the review.
+void (async () => {
+  rtl = false;
+  slots = [];
+  const calls: string[] = [];
+  let settle = () => {};
+  const props = {
+    ...base,
+    tab: { by: "them", status: "pending", author_name: "احمد" },
+    onAccept: () => {
+      calls.push("accept");
+      return new Promise<void>((resolve) => (settle = resolve));
+    },
+    onReject: () => void calls.push("reject"),
+  };
+  labelled(render(props), "tab.accept")[0]?.props.onPress();
+  const busy = render(props);
+  assert.deepEqual(
+    REVIEW.map((l) => labelled(busy, l)[0]?.props.disabled),
+    [true, true],
+    "both review actions are disabled while one is in flight",
+  );
+  labelled(busy, "tab.reject")[0]?.props.onPress();
+  assert.deepEqual(calls, ["accept"], "a second tap mid-review never sends a second decision");
+  settle();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(
+    REVIEW.map((l) => labelled(render(props), l)[0]?.props.disabled),
+    [false, false],
+    "the actions come back once the review settles",
+  );
+  console.log("PASS: review actions disabled in flight, double tap ignored, re-enabled after");
+})();

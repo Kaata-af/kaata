@@ -44,14 +44,17 @@ export const colors = {
   payText: "#7E1B30",
   payStrong: "#A3203A",
 
-  // Review state, independent of the money-direction colors above.
-  pendingBg: "#FFF4CF",
-  pendingText: "#856000",
-  acceptedBg: "#E8F4EF",
-  acceptedText: "#0A5A46",
+  // Review state of a shared tally, independent of the money-direction colors
+  // above. Shown ONLY as the 6px dot inside the neutral status pill of an
+  // OPENED tally (components/EntryRow.tsx) — never as a row tint and never as
+  // a button colour. Full-surface greens and reds stay reserved for money
+  // direction; Accept is the black primary button. Pinned by selftest:tally-ui.
+  reviewPending: "#D29A00",
+  reviewAccepted: "#0A5A46",
+  reviewRejected: "#A34242",
+
+  // The brief grey cue on a tally a notification opened (TallyHighlight).
   tallyHighlight: "#D4D4D4",
-  rejectedBg: "#FBECEC",
-  rejectedText: "#A34242",
 
   // Reserved for destructive actions only
   danger: "#DC2626",

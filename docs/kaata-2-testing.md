@@ -62,7 +62,29 @@ without it:
   the Continue/Create buttons sat under the keyboard with nothing to scroll
   (`selftest:onboarding-keyboard`).
 
-### Current testing delivery — 2 October 2026 (46/26)
+### Current testing delivery — 3 October 2026 (47/27)
+
+- Source commit: `2f56b61`, pushed to main. Before the build, the full mobile
+  suite passed (typecheck, 25 selftests including `install-retired`), along with
+  both native bundle exports, the web typecheck, build and tests, and Prettier.
+  Three review rounds found no blockers. The web copy was verified live (the
+  cookie card says "We record visits"; the deletion path is on the privacy
+  page).
+- Android build: `33245fb9-2aa0-4e9f-939f-209531c51b31`; closed-testing
+  submission `9aa1f385-11c0-4f2f-b908-cddb27105fb5`. Both FINISHED. Play alpha
+  holds release "2.1.0" (versionCode 47); production is still 45, checked with a
+  discarded dry-run edit.
+- iOS build: `e352785d-e70e-455b-b71f-b211c6d48a96`; TestFlight submission
+  `988353a1-a9b2-4abb-ada8-1cce8d979feb`. Both FINISHED; build 27 is VALID in
+  App Store Connect. App Store production is still 2.0.0.
+- Google rejected 46 for missing login credentials. Play Console → App content →
+  Sign-in details now lists the review account (`kaata.review@gmail.com`;
+  password with Matee) and instructions. Its demo data is a "Demo Shop" kaata
+  plus a shared "Demo Partner" account with pending tallies. The changes are
+  sent for review from Publishing overview. No production promotion and no App
+  Store review submission were made.
+
+### Previous testing delivery — 2 October 2026 (46/26)
 
 - Source commit: `6ac39898627b9a6e2483cd915b399e4d30d6b1da`. Checks run before
   the build:

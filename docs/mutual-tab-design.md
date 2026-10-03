@@ -1,11 +1,24 @@
-## October 2 refinement
+## October 2 refinement (tally rows revised October 3, design "A · Quiet")
 
-The current mobile list uses pale full-row state colours and shows the status text
-only after expansion. Accept, Reject and Cancel have full button surfaces. Cancelled
-tallies stay out of the list, including expanded history; the server journal and
-statement exports preserve their evidence. These rules replace the earlier pill
-and visible-void designs below. Shared zero-balance chapters are specified at the
-end of this document.
+Tally rows carry no review-state colour: every row is white whatever its state, and
+an opened row turns `bgMuted`, its actions included. The state appears only on an
+opened row, as its first line: a neutral centred pill (white, hairline border) whose
+6 px dot is the state's one colour — amber pending, green accepted, red rejected,
+grey while sending. Collapsed rows show no status. Meta lines under the note (added
+by, reviewed by, the rejection reason and hint) align to the script's start edge,
+with semibold names. Accept, Reject and Cancel are compact pill buttons
+(`components/Button.tsx`, size `pill`) on the row's trailing edge: Accept is the black
+primary and the outermost pill, never the collect green; Reject and Cancel are white
+secondary. Their touch targets reach 44 pt vertically only, so the 8 px gap between
+Reject and Accept belongs to neither: both decisions are final, and a tap near Reject
+must never become an Accept. At large text sizes the pills wrap onto a second line
+rather than spill past the card's clipped edge. The other party's pending tallies
+still offer Accept/Reject while collapsed; Cancel still appears only on your own
+expanded pending tally.
+`selftest:tally-ui` pins this in English and Dari. Cancelled tallies stay out of the
+list, including expanded history; the server journal and statement exports preserve
+their evidence. These rules replace the earlier pill and visible-void designs below.
+Shared zero-balance chapters are specified at the end of this document.
 
 ## September 25 follow-up
 
@@ -534,7 +547,7 @@ Errors: `TabCurrencyMismatchError`, `TabSameKaataError`, `TabAlreadyLinkedError`
   - Shared rows have no long-press sheet. Own pending rows expose `Cancel tally` only when expanded; incoming pending rows expose inline Accept/Reject. All actions require `canAmend` and an open tab. Accepted/rejected/voided rows have no cancellation or review controls.
   - Ping bar unchanged (bills still work — they snapshot the tab rows).
   - `useLedgerRefresh` + `onTabApplied` both trigger `load`; a `useFocusEffect` also calls `requestTabSync(link.tab_id)`.
-- **EntryRow**: pale full-row pending/accepted/rejected background; status text appears after expanding. Accept, Reject and Cancel are distinct touch buttons. Cancelled originals and void events are hidden from the list, while their server evidence remains in history exports.
+- **EntryRow**: no review-state background — rows are white and an opened row is `bgMuted`. The status appears only after expanding, as the row's first line: a neutral centred pill whose dot carries the state colour (`colors.reviewPending` / `reviewAccepted` / `reviewRejected`; `textMuted` while sending). Accept (black `primary`), Reject and Cancel (white `secondary`) are `Button size="pill"` on the trailing edge, Accept outermost, with a vertical-only `hitSlop` so no tap in the gap between Reject and Accept reaches either, and a wrapping actions row at large text sizes. Cancelled originals and void events are hidden from the list, while their server evidence remains in history exports.
 - **PersonRow / home**: subtitle prefix `{n} to review · ` when `tab_pending > 0`; a small `link-outline` glyph (12 px, textMuted) after the name when `tab_id` is set.
 - **entry/new.tsx**: unchanged flow; on success with a `duplicateHint`, `queuePendingToast(t('tab.duplicateHint', {name}), 'info')`. Errors: `TabAuthUnavailableError` → inline `t('tab.needsConnection')`.
 - **entry/[id]/edit.tsx**: catches `TabLinkedEntryError` → inline `t('tab.editLocked')`.
