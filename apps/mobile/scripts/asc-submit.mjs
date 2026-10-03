@@ -29,6 +29,14 @@
 //                        version to app.json's version, so this build ships
 //                        instead. ASC allows ONE non-live version per platform,
 //                        so without this a newer train can't even be created.
+//   --review-account <path>
+//                        JSON {"username","password","notes"} for App Review's
+//                        sign-in: sets "Sign-in required", the demo account and
+//                        the review notes on this version. Shared accounts,
+//                        backup and account deletion sit behind sign-in, and a
+//                        reviewer cannot create an account (Google rejected
+//                        2.1.0's closed-testing release for exactly that). Keep
+//                        the file in the gitignored credentials/ folder.
 //
 // PREREQUISITE: the build must already be uploaded and finished processing,
 // i.e. `eas submit --platform ios --profile production` has run and App Store
@@ -56,6 +64,7 @@ function parseArgs(argv) {
     else if (a === "--dry-run") opts.dryRun = true;
     else if (a === "--status") opts.status = true;
     else if (a === "--supersede") opts.supersede = true;
+    else if (a === "--review-account") opts.reviewAccount = argv[++i];
     else if (a === "--help" || a === "-h") opts.help = true;
     else fail(`unknown flag: ${a}\nRun with --help for usage.`);
   }
@@ -313,6 +322,76 @@ async function ensureNotes(asc, cfg, versionId, opts) {
   return loc;
 }
 
+// --review-account: read and check the file before any network call, so a
+// placeholder password or a typo fails before anything is created.
+function readReviewAccount(file) {
+  let acct;
+  try {
+    acct = JSON.parse(readFileSync(path.resolve(file), "utf8"));
+  } catch (err) {
+    fail(`cannot read --review-account ${file}\n  ${err.message}`);
+  }
+  for (const k of ["username", "password", "notes"]) {
+    if (typeof acct?.[k] !== "string" || !acct[k].trim()) {
+      fail(`--review-account ${file} needs a non-empty "${k}"`);
+    }
+  }
+  if (/REPLACE|PASSWORD_HERE/i.test(acct.password)) {
+    fail(`--review-account ${file} still holds the placeholder password`);
+  }
+  if (acct.notes.length > 4000)
+    fail(`review notes are ${acct.notes.length} chars; the limit is 4000`);
+  return acct;
+}
+
+// The demo sign-in on this version's App Review information. A new version
+// normally inherits the previous version's review detail (contact included),
+// which is then updated; when it has none, one is created, borrowing the
+// contact details from the latest version that has them.
+async function ensureReviewDetail(asc, cfg, versionId, acct) {
+  const attributes = {
+    demoAccountRequired: true,
+    demoAccountName: acct.username,
+    demoAccountPassword: acct.password,
+    notes: acct.notes,
+  };
+  const v = await asc("GET", `/appStoreVersions/${versionId}?include=appStoreReviewDetail`);
+  const detailId = v.data?.relationships?.appStoreReviewDetail?.data?.id;
+  if (detailId) {
+    await asc("PATCH", `/appStoreReviewDetails/${detailId}`, {
+      data: { type: "appStoreReviewDetails", id: detailId, attributes },
+    });
+  } else {
+    const prev = await asc(
+      "GET",
+      `/apps/${cfg.appId}/appStoreVersions?filter[platform]=IOS&limit=5&include=appStoreReviewDetail`,
+    );
+    const contact = (prev.included ?? []).find(
+      (i) => i.type === "appStoreReviewDetails" && i.attributes?.contactEmail,
+    )?.attributes;
+    await asc("POST", "/appStoreReviewDetails", {
+      data: {
+        type: "appStoreReviewDetails",
+        attributes: {
+          ...attributes,
+          ...(contact
+            ? {
+                contactFirstName: contact.contactFirstName,
+                contactLastName: contact.contactLastName,
+                contactPhone: contact.contactPhone,
+                contactEmail: contact.contactEmail,
+              }
+            : {}),
+        },
+        relationships: { appStoreVersion: { data: { type: "appStoreVersions", id: versionId } } },
+      },
+    });
+  }
+  console.log(
+    `  review       sign-in ${acct.username} (password set), notes ${acct.notes.length} chars`,
+  );
+}
+
 async function preflight(asc, loc) {
   const a = (await asc("GET", `/appStoreVersionLocalizations/${loc.id}`)).data.attributes;
   if (!a.description) fail("the version has no App Store description");
@@ -338,6 +417,7 @@ if (opts.help) {
 
 const cfg = { ...readConfig(opts.profile), profile: opts.profile };
 const asc = makeClient(cfg);
+const reviewAccount = opts.reviewAccount ? readReviewAccount(opts.reviewAccount) : null;
 
 if (opts.status) {
   await printStatus(asc, cfg);
@@ -363,6 +443,11 @@ if (version && !EDITABLE.has(version.attributes.appStoreState)) {
 if (opts.dryRun) {
   console.log(`  version      ${version ? `exists (${version.id})` : "would be created"}`);
   console.log(`  releaseType  ${opts.releaseType}`);
+  if (reviewAccount) {
+    console.log(
+      `  review       would set sign-in ${reviewAccount.username}, notes ${reviewAccount.notes.length} chars`,
+    );
+  }
   console.log("\nDry run clean. Re-run without --dry-run to submit.");
   process.exit(0);
 }
@@ -399,6 +484,7 @@ console.log(`  attach       build ${cfg.buildNumber}`);
 
 const loc = await ensureNotes(asc, cfg, version.id, opts);
 await preflight(asc, loc);
+if (reviewAccount) await ensureReviewDetail(asc, cfg, version.id, reviewAccount);
 console.log(`  releaseType  ${opts.releaseType}`);
 
 // Three calls: open a submission, put the version in it, flip submitted.

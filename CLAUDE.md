@@ -371,6 +371,15 @@ database writes or repository tags are required.
 
    It reads the package + versionCode from `app.json` and authenticates with the SAME service account EAS Submit uses (`kaata-eas-deploy@…`), expected at `credentials/google-service-account.json` (gitignored; Matee keeps the original under Documents/Security/Kaata) or passed with `--key`. Release notes on the closed-testing release travel with it. Play still runs its own review before the production rollout goes live. The manual equivalent is Play Console → Testing → Closed testing → alpha → the release → Promote release → Production.
 
+   **To ship a build to production while leaving closed testing alone** (2.1.0 build 48, 2026-10-03), build without auto-submit and stage it on the internal track first. Google does not review internal releases.
+
+   ```
+   eas submit --platform android --profile internal --id <build>
+   node scripts/play-promote.mjs --from internal --to production --notes-file scripts/release-notes/<v>-play.txt
+   ```
+
+   The second command attaches the notes in the same single production commit.
+
 4. **iOS — actually submit for review.** ⚠️ **`eas submit` never submits an iOS build for App Store review.** EAS Submit implements binary _upload_ only; every iOS flag it has is TestFlight-only. The `submit.production.ios` and `submit.testing.ios` blocks are byte-identical for this reason, and the CLI's "✔ Submitted your app to App Store Connect!" means TestFlight. **It has already cost two releases — 1.0.7 and 1.0.8 were built, uploaded and committed, and never reached a single user.** The second half is `apps/mobile/scripts/asc-submit.mjs`, run from `apps/mobile/` once `--status` shows the build `VALID`:
 
    ```
@@ -382,7 +391,7 @@ database writes or repository tags are required.
 
    It reads version + buildNumber from `app.json` and the ASC API key from the `eas.json` submit profile. It creates the App Store version (ASC copies description, keywords, screenshots and review contact forward), attaches the matching build, writes "What's New", and submits; `--manual` holds at Pending Developer Release. `--status` lists any train that exists as a build but has no App Store version — the 1.0.7/1.0.8 failure, surfaced. **`--supersede`** is for the case that recurs when a fix lands while the previous version is still `WAITING_FOR_REVIEW`: ASC allows ONE non-live version per platform, so the script cancels that review submission, renames the version to `app.json`'s, waits for it to read editable (`DEVELOPER_REJECTED`; ASC is eventually consistent, so a plain re-run may be needed), then continues. Never rename a version Apple has already approved.
 
-   Write "What's New" against the last version that **actually shipped** on that platform, not the last one built; `--status` shows which. Needs `credentials/AuthKey_*.p8`, which is **gitignored** — re-download it from App Store Connect → Users and Access → Integrations on a fresh clone.
+   Pass `--review-account credentials/review-account.json` (gitignored; `{"username","password","notes"}` for the `kaata.review@gmail.com` review account). It sets "Sign-in required", the demo account and the review notes before submitting, because reviewers cannot create accounts. Write "What's New" against the last version that **actually shipped** on that platform, not the last one built; `--status` shows which. Needs `credentials/AuthKey_*.p8`, which is **gitignored** — re-download it from App Store Connect → Users and Access → Integrations on a fresh clone.
 
 5. **Verify delivery** in TestFlight and the Play testing track. Record build identifiers and submission status; upload completion is not production approval.
 
