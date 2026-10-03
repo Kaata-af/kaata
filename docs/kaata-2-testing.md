@@ -46,8 +46,15 @@ the build (verified 2 October 2026: `/v1/tabs/{id}/settlements` is routed and
 the web privacy page carries the 2 October 2026 date). Testing tracks only: no
 production promotion or App Store review submission is authorized for 46/26.
 
-Production baseline: 2.0.0, Play production versionCode 45 at 100%; App Store
-2.0.0 released 26 September 2026.
+Production baseline:
+
+- App Store: 2.0.0, released 26 September 2026.
+- Google Play: 1.2.0 (versionCode 40). Play Console, 3 October 2026, lists it as
+  the version available on Google Play. 2.0.0 (45) was committed to the
+  production track at 100% but never published there. The API reads a track's
+  committed releases, not Google's approval, so "production: 45 (completed)" in
+  `play-promote.mjs` output only ever meant committed. Android users therefore
+  go straight from 1.2.0 to 2.1.0.
 
 Pre-build review fixes (2 October 2026), each pinned by a selftest that fails
 without it:
@@ -62,7 +69,35 @@ without it:
   the Continue/Create buttons sat under the keyboard with nothing to scroll
   (`selftest:onboarding-keyboard`).
 
-### Current testing delivery — 3 October 2026 (47/27)
+### Production submission — 3 October 2026 (49/29)
+
+On 3 October 2026 Matee asked for 2.1.0 to go straight to production on both
+stores, with closed testing left as it was. The quiet tally rows and the
+closed-row status dot reached production review WITHOUT a two-phone check;
+they were verified by selftests and rendered previews only.
+
+- Source commit: `72f2fec`. That is the quiet tally rows (`5783e6a`) plus the
+  closed-row status dot, with build tooling from `b5272f6`. All 25 selftests,
+  the typecheck and both native bundle exports passed.
+- Build 48/28 (`b5272f6`) was withdrawn because Matee wanted the dot first.
+  Its App Store review was cancelled (version back to DEVELOPER_REJECTED), and
+  its internal Play upload failed when a concurrent track listing expired
+  EAS's edit (see the release flow in CLAUDE.md).
+- iOS build: `5b3bd4ec-0d1b-409c-b8f4-7b78dc1e3299`; upload submission
+  `3ea251a4-1ffd-43a1-8611-3e71abf954f6`; build 29 is VALID. Version 2.1.0
+  (`73b94fba-13a6-4afc-ac2e-4313799adbda`) was reused with build 29 attached
+  and submitted with `--review-account`: WAITING_FOR_REVIEW, AFTER_APPROVAL.
+  The sign-in-required flag, demo account, password and notes were confirmed
+  through the API.
+- Android build: `fc470aca-16aa-4d00-8d3a-50be5f2a8111`; internal-track
+  submission `8e7a3c7b-b844-4adb-813f-ced8b14655d9`. It was promoted with
+  `play-promote.mjs --from internal --to production` and the en-US 2.1.0 notes.
+  Production holds 2.1.0 [49] completed (100%). Play Console shows it "In
+  review" next to the 1.2.0 (40) that users actually have. Closed testing
+  (alpha) still holds 47, also "In review"; the build testers can get there is
+  still 2.0.0 (43). Internal holds 49.
+
+### Previous testing delivery — 3 October 2026 (47/27)
 
 - Source commit: `2f56b61`, pushed to main. Before the build, the full mobile
   suite passed (typecheck, 25 selftests including `install-retired`), along with
