@@ -323,6 +323,8 @@ These are coordination patterns that recur across screens and bit us once each. 
 - Multi-shop / vaults support is planned but not built — see `docs/phase-2-roadmap.md` "Multi-shop / vaults".
 - `docs/refactor-notes.md` documents the v0 → v1 schema move (function signature changes, what stayed, what didn't).
 - `docs/architecture.md` is the backend operations playbook — check-in compatibility, announcements, version comparison and force-update behavior.
+- `docs/emergency-ledger-recovery.md` — how and when to recover a HARD-DELETED vault/account and re-import it (the `apps/backend/scratch-reimport/` kit, built for the 2026-10-07 accidental "Delete account"). Time-critical, forensic, partial; keep it until the deletion grace window ships. Its `out/` holds the customer ledger in plaintext and is gitignored — never commit it.
+- `docs/account-deletion-grace-window.md` — design (not yet built) to make "Delete account" reversible for 30 days by mirroring the vault archive/purge pattern, so the 2026-10-07 incident can't recur. Migration 052; re-sign-in within the window cancels + auto-restores.
 
 ### Release / deploy flow
 
