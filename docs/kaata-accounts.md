@@ -233,8 +233,8 @@ attempts < 5 ... RETURNING`), and the code is consumed with a compare-and-set
   deliveries in flight before it exits.
 - **Templates** (en and fa from the request's `lang`): plain text + minimal HTML. The
   code is never in the subject. The body opens with a sentence, then the code in
-  ASCII digits (LTR-isolated in fa), then "It expires in 15 minutes. Kaata will never
-  ask you for this code. If you didn't ask for it, ignore this email." No
+  ASCII digits (LTR-isolated in fa), then "It expires in 15 minutes. Never share this
+  code with anyone. If you didn't ask for it, ignore this email." No
   user-supplied text in any mail.
 - Kinds: sign-up code; reset code; set-password code; "you already have a Kaata
   account" notice (sign-up for a taken address); "this account signs in with Google
@@ -243,8 +243,8 @@ attempts < 5 ... RETURNING`), and the code is consumed with a compare-and-set
   (sign-up or reset for a Google/Apple account whose password uses a different
   address); security notice after a password is set, changed or reset ("If this
   wasn't you, reset your password"); "password sign-in removed" notice.
-- **Provider**: a transactional provider with SPF, DKIM and DMARC aligned on kaata.af
-  (or a mail subdomain). Recommended: Resend. A personal Gmail is not acceptable as
+- **Provider**: Resend, with SPF, DKIM and DMARC aligned on the sending subdomain
+  `mail.kaata.af`. A personal Gmail is not acceptable as
   the sender (DMARC alignment, sending caps).
 
 ## 6. API
@@ -572,12 +572,24 @@ Codes cannot be sent until this is done; until then the app says email sign-up i
 unavailable and Google and Apple keep working.
 
 1. Create a Resend account (resend.com) with kaata.team@gmail.com.
-2. Domains, Add domain: a sending subdomain such as `mail.kaata.af`. Resend shows the DNS
-   records to add: a DKIM TXT record, and an SPF TXT plus MX record for its bounce
-   subdomain. Add them where kaata.af's DNS is managed, plus a DMARC record for the
-   domain: `_dmarc.kaata.af TXT "v=DMARC1; p=none;"`. Wait until Resend shows the domain
-   as verified.
-3. API Keys, create a key with sending access only.
+2. Domains, Add domain: `mail.kaata.af`, region `us-east-1`. Copy the exact DNS records
+   Resend shows into Cloudflare's `kaata.af` zone, including their generated values.
+   The provider may use CNAME records instead of the older SPF TXT and MX layout;
+   follow the current domain screen. The records configured on 11 October 2026 are:
+
+   | Type  | Name in Cloudflare's `kaata.af` zone | Value                                         |
+   | ----- | ------------------------------------ | --------------------------------------------- |
+   | TXT   | `resend._domainkey.mail`             | The generated DKIM public key shown by Resend |
+   | CNAME | `rsend.mail`                         | `rsend.forge.rmta.net`                        |
+   | CNAME | `send.mail`                          | `send.forge.rmta.net`                         |
+
+   Keep both CNAME records **DNS only** (not proxied). Preserve an existing DMARC
+   policy instead of adding a second record: `_dmarc.kaata.af` already contains
+   `v=DMARC1;p=none;rua=mailto:hello@kaata.af`. If there is no DMARC policy, add
+   `_dmarc.kaata.af TXT "v=DMARC1; p=none;"`. Wait until Resend shows the domain as
+   verified before enabling production mail.
+
+3. API Keys, create a key with sending access only, restricted to `mail.kaata.af`.
 4. In Dokploy, on the backend, set and redeploy:
 
    ```

@@ -174,12 +174,19 @@ Calendar · Web browsing history.
 
 ## 2. Per-type follow-up answers
 
-For **every** selected type: **Collected = Yes · Shared = No · Processed ephemerally =
-No** (all stored server-side). Encrypted in transit (see §3).
+For **every** selected type: **Collected = Yes · Processed ephemerally = No** (all
+stored server-side). **Shared = No** applies only when every transfer of that type
+qualifies for a Play exception described below. Encrypted in transit (see §3).
 
-**Why "Shared = No":** "Shared" = transfer to a third party. Our only third-party touch
-is Sign-in with Google/Apple — the user authenticating _themselves_ with a provider that
-already holds that identity; Google's rules exclude user-initiated auth from "sharing."
+**Provider transfers and "sharing":** Google/Apple handle user-initiated sign-in.
+Resend receives the recipient's email address and the code or security notice for
+delivery. When remote notifications are enabled, Expo/FCM/APNs receive the push
+token and notification payload described above, including the actor's party label,
+tally amount, currency, outcome and shared-account identifiers. These transfers
+must be assessed under [Google's Data safety definitions](https://support.google.com/googleplay/android-developer/answer/10787469?hl=en),
+which exclude qualifying service-provider processing on the developer's behalf
+and qualifying user-initiated transfers from "sharing". Confirm that each
+integration meets the applicable exception before selecting **Shared = No**.
 No data sold; no ad/analytics SDKs.
 
 | Data type                                                      | Purpose(s)                                                                         | Collection is…                                                                                            |
@@ -211,7 +218,9 @@ Required for the type if you'd rather over-declare._
   over TLS — signed but not additionally end-to-end encrypted; the server can read it.)_
 - **Way to request deletion?** → **Yes** (in-app Delete account + email
   hello@kaata.af + kaata.af/delete-account) — mind the deletion caveat above.
-- **Data shared with third parties?** → **None.**
+- **Data shared with third parties?** → **Assess per §2.** Resend processes email
+  delivery, and Expo/FCM/APNs process enabled remote notifications; the Play answer
+  depends on the applicable service-provider and user-initiated-transfer exceptions.
 - **Data collected from children / Families policy?** → No (audience is shopkeepers).
 - **Independent security review badge?** → No.
 
@@ -273,9 +282,10 @@ standard/exempt" (we do use ChaCha20 in the parked mesh) — not "no encryption.
 - **Passwords** are stored only as argon2id hashes (`account_passwords`); Play's form has
   no password data type. The optional username is a User ID (private sign-in handle, never
   shown to other users).
-- **Email delivery provider** (SMTP, `internal/mail`) receives the user's address and the
-  code or security notice to deliver. It processes on Kaata's behalf, so it is a service
-  provider, not "sharing" in Play's sense; name it in the privacy policy once chosen.
+- **Email delivery provider: Resend** (SMTP, `internal/mail`) receives the user's address
+  and the code or security notice to deliver. It processes on Kaata's behalf as a
+  service provider and is named in the privacy policy. Confirm the applicable Play
+  service-provider exception when completing the "sharing" answers.
 - Codes (`email_codes`) are kept at most 7 days; throttle records (`auth_throttle_events`,
   HMAC keys only) and sent-mail rows (`email_outbox`, bodies cleared after sending) at most
   2 days.

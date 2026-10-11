@@ -8,7 +8,7 @@ import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 // require a reachable, truthful privacy policy URL once any personal data is
 // collected — this page is that URL (kaata.af/privacy) and must stay accurate to
 // what the app actually does. When you change a data flow, change this page.
-const UPDATED = "10 October 2026";
+const UPDATED = "11 October 2026";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -96,12 +96,12 @@ export function Privacy() {
             </li>
             <li>
               With a Kaata account, we keep your <strong>email address</strong> and your password
-              only as a <strong>one-way hash</strong> (argon2id): we never store or see the password
-              itself. To prove the address is yours, and when you reset or change your password, we
-              email you a 6-digit code or a short security notice through our email delivery
-              provider, which receives your address and the message to send it. You can add an
-              optional <strong>username</strong> to sign in with; it is never shown to other people.
-              The name you enter in the app is used as your account name.
+              only as a <strong>one-way hash</strong> (argon2id): we never store your password in
+              plaintext. To prove the address is yours, and when you reset or change your password,
+              we email you a 6-digit code or a short security notice through Resend, our email
+              delivery provider, which receives your address and the message to send it. You can add
+              an optional <strong>username</strong> to sign in with; it is never shown to other
+              people. The name you enter in the app is used as your account name.
             </li>
             <li>
               Your <strong>ledger is backed up to our server</strong> so you can restore it on a new
