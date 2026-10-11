@@ -393,7 +393,7 @@ export function ProfileSettingsSheet(props: {
                         <NavRow
                           key={v.id}
                           icon={isActive ? "checkmark-circle" : "ellipse-outline"}
-                          iconColor={isActive ? colors.brandPrimary : colors.textMuted}
+                          iconColor={isActive ? colors.actionPrimary : colors.textMuted}
                           label={v.name}
                           trailing={v.currency ? getCurrencySymbol(v.currency) : undefined}
                           bold={isActive}

@@ -97,6 +97,7 @@ import { icon, radius, TOUCH_MIN, typography } from "../../lib/tokens";
 import { useActiveVaultWriteCaps } from "../../lib/use-vault-role";
 import { useMembersCount } from "../../lib/use-vault-summary";
 import { tallyScrollTarget } from "../../lib/tally-viewport";
+import { compareTallyReviews, type ReviewSnapshot } from "../../lib/tally-review-feedback";
 import type { Entry, PersonWithBalance, Self } from "../../lib/types";
 
 // Wording for a failed tab operation (accept / void / unlink / regenerate).
@@ -141,6 +142,18 @@ export default function PersonDetailScreen() {
   }, [toastOffset]);
   const highlightedRequest = useRef("");
   const [highlight, setHighlight] = useState<{ id: string; key: string } | null>(null);
+  const [reviewHighlights, setReviewHighlights] = useState<Map<string, string>>(new Map());
+  const reviewSnapshot = useRef<ReviewSnapshot | null>(null);
+  const reviewEpoch = useRef(0);
+  const reviewSequence = useRef(0);
+  const visibleReviewIds = useRef(new Set<string>());
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
+  useEffect(() => {
+    if (reviewHighlights.size === 0) return;
+    const timer = setTimeout(() => setReviewHighlights(new Map()), 1800);
+    return () => clearTimeout(timer);
+  }, [reviewHighlights]);
   // Subscribes to locale changes — flipping language in Settings re-renders
   // this screen and all its descendants, so strings via t() refresh too.
   const isRTL = useIsRTL();
@@ -436,6 +449,9 @@ export default function PersonDetailScreen() {
     searching,
     matchedEntries,
   ]);
+  visibleReviewIds.current = new Set(
+    historyItems.flatMap((item) => (item.kind === "entry" ? [item.entry.id] : [])),
+  );
   const sharedReviewPending = entries.some(
     (e) =>
       e.tab &&
@@ -585,6 +601,7 @@ export default function PersonDetailScreen() {
       setLoaded(true);
       return null;
     }
+    const epoch = reviewEpoch.current;
     // Guarded — an unhandled rejection here previously left the screen on
     // a permanent blank state with setLoaded never flipping.
     try {
@@ -608,6 +625,32 @@ export default function PersonDetailScreen() {
         });
       setPerson(p);
       setEntries(list);
+      if (epoch === reviewEpoch.current && focused.current && AppState.currentState === "active") {
+        const { snapshot, changes } = compareTallyReviews(reviewSnapshot.current, list);
+        reviewSnapshot.current = snapshot;
+        // A hidden search result or folded chapter must not produce feedback
+        // for a tally the user wasn't looking at. Consuming the new snapshot
+        // also prevents replay when that row is revealed later.
+        const visible = changes.filter((change) => visibleReviewIds.current.has(change.entry.id));
+        if (visible.length > 0) {
+          const sequence = ++reviewSequence.current;
+          setReviewHighlights(new Map(visible.map(({ entry }) => [entry.id, `${id}:${sequence}`])));
+          setHighlight((current) =>
+            current && visible.some(({ entry }) => entry.id === current.id) ? null : current,
+          );
+          const first = visible[0];
+          toastRef.current.push(
+            visible.length === 1
+              ? t(first.status === "accepted" ? "tab.feedback.accepted" : "tab.feedback.rejected", {
+                  amount: bidiIsolate(
+                    `${formatAmount(first.entry.amount_afn)} ${getCurrentCurrencySymbol()}`,
+                  ),
+                })
+              : t("tab.feedback.reviewed", { count: visible.length }),
+            "info",
+          );
+        }
+      }
       setSelf(s);
       setSettlement(settle);
       setBoundaries(bounds);
@@ -654,6 +697,9 @@ export default function PersonDetailScreen() {
   useFocusEffect(
     useCallback(() => {
       focused.current = true;
+      reviewEpoch.current++;
+      reviewSnapshot.current = null;
+      setReviewHighlights(new Map());
       void load().then((tl) => {
         if (!tl) return;
         // Only an OPEN tab is worth syncing; a closed one never changes again.
@@ -668,10 +714,18 @@ export default function PersonDetailScreen() {
       // the sync loop kicks at the same moment re-marks through its newer
       // rev via the listener below, once its rows are on screen.
       const app = AppState.addEventListener("change", (state) => {
+        // Returning from the background starts a baseline, not a replay of
+        // decisions made while the screen was hidden.
+        reviewEpoch.current++;
+        reviewSnapshot.current = null;
+        setReviewHighlights(new Map());
         if (state === "active") seen(latestLink.current);
       });
       return () => {
         focused.current = false;
+        reviewEpoch.current++;
+        reviewSnapshot.current = null;
+        setReviewHighlights(new Map());
         cancelPing();
         app.remove();
       };
@@ -756,7 +810,8 @@ export default function PersonDetailScreen() {
     if (!link) return;
     try {
       await acceptEntry(link, entry.id);
-      toast.push(t("tab.accepted"), "success");
+      // This queues an optimistic review. The live comparison announces it
+      // only once the server confirms the decision.
       await load();
     } catch (err) {
       console.warn("[person] acceptEntry failed", err);
@@ -768,7 +823,6 @@ export default function PersonDetailScreen() {
     if (!link) return;
     try {
       await disputeEntry(link, entry.id, "");
-      toast.push(t("tab.disputed"), "success");
       await load();
     } catch (err) {
       toast.push(tabErrorMessage(err), "error");
@@ -888,42 +942,63 @@ export default function PersonDetailScreen() {
             color={colors.textEmphasis}
           />
         </Pressable>
-        <OverflowMenu
-          actions={[
-            ...(entries.length > 0
-              ? [
-                  {
-                    label: t("person.ping", { name: person.name }),
-                    icon: "logo-whatsapp" as const,
-                    disabled: pinging,
-                    onPress: () => void sendPing(),
-                  },
-                ]
-              : []),
-            ...(canAmend
-              ? [
-                  {
-                    label: t("person.sheet.edit"),
-                    icon: "create-outline" as const,
-                    onPress: () =>
-                      router.push({ pathname: "/person/[id]/edit", params: { id: person.id } }),
-                  },
-                  {
-                    label: link ? t("tab.join.title") : t("tab.link.title"),
-                    icon: "link-outline" as const,
-                    onPress: () => (link ? setLinkedSheetVisible(true) : setInviteVisible(true)),
-                  },
-                ]
-              : []),
-            {
-              label: t("personEdit.export"),
-              icon: "document-text-outline",
-              disabled: exporting,
-              onPress: () => setExportSheetVisible(true),
-            },
-          ]}
-        />
+        <View style={[styles.headerActions, rowDir(isRTL)]}>
+          {entries.length > 0 ? (
+            <Pressable
+              testID="whatsapp-reminder"
+              onPress={() => void sendPing()}
+              disabled={pinging}
+              accessibilityRole="button"
+              accessibilityLabel={t(
+                pingStage === "preparing"
+                  ? "person.ping.preparing"
+                  : pingStage === "opening"
+                    ? "person.ping.opening"
+                    : "person.ping.button",
+              )}
+              accessibilityHint={t("person.ping.hint", { name: person.name })}
+              accessibilityState={{ disabled: pinging, busy: pinging }}
+              style={({ pressed }) => [styles.headerShare, pressed && { opacity: 0.5 }]}
+            >
+              {pinging ? (
+                <ActivityIndicator size="small" color={colors.actionPrimary} />
+              ) : (
+                <Ionicons name="logo-whatsapp" size={icon.header} color={colors.actionPrimary} />
+              )}
+            </Pressable>
+          ) : null}
+          <OverflowMenu
+            actions={[
+              ...(canAmend
+                ? [
+                    {
+                      label: t("person.sheet.edit"),
+                      icon: "create-outline" as const,
+                      onPress: () =>
+                        router.push({ pathname: "/person/[id]/edit", params: { id: person.id } }),
+                    },
+                    {
+                      label: link ? t("tab.join.title") : t("tab.link.title"),
+                      icon: "link-outline" as const,
+                      onPress: () => (link ? setLinkedSheetVisible(true) : setInviteVisible(true)),
+                    },
+                  ]
+                : []),
+              {
+                label: t("personEdit.export"),
+                icon: "document-text-outline",
+                disabled: exporting,
+                onPress: () => setExportSheetVisible(true),
+              },
+            ]}
+          />
+        </View>
       </View>
+      {pinging && !askLangVisible ? (
+        <Text style={[styles.shareProgress, textDir(isRTL)]} accessibilityLiveRegion="polite">
+          {t(pingStage === "opening" ? "person.ping.opening" : "person.ping.preparing")}
+        </Text>
+      ) : null}
 
       {/* One person's tallies are bounded, so render them as ONE bordered card
           (ScrollView + map), exactly like the home people list. The old
@@ -1031,46 +1106,6 @@ export default function PersonDetailScreen() {
                 </Text>
                 <Text style={styles.balanceAfn}>{getCurrentCurrencySymbol()}</Text>
               </View>
-              {entries.length > 0 ? (
-                <View style={styles.pingArea}>
-                  <Pressable
-                    onPress={() => void sendPing()}
-                    disabled={pinging}
-                    accessibilityRole="button"
-                    accessibilityState={{ disabled: pinging, busy: pinging }}
-                    style={({ pressed }) => [
-                      styles.pingButton,
-                      rowDir(isRTL),
-                      pressed && { opacity: 0.65 },
-                    ]}
-                  >
-                    {pinging ? (
-                      <ActivityIndicator size="small" color={colors.brandPrimary} />
-                    ) : (
-                      <Ionicons
-                        name="logo-whatsapp"
-                        size={icon.trailing}
-                        color={colors.brandPrimary}
-                      />
-                    )}
-                    <Text
-                      style={[styles.pingLabel, textDir(isRTL)]}
-                      accessibilityLiveRegion="polite"
-                    >
-                      {t(
-                        pingStage === "preparing"
-                          ? "person.ping.preparing"
-                          : pingStage === "opening"
-                            ? "person.ping.opening"
-                            : "person.ping.button",
-                      )}
-                    </Text>
-                  </Pressable>
-                  <Text style={[styles.pingHint, textDir(isRTL)]}>
-                    {t("person.ping.hint", { name: person.name })}
-                  </Text>
-                </View>
-              ) : null}
             </View>
           </View>
 
@@ -1219,6 +1254,8 @@ export default function PersonDetailScreen() {
                     />
                     {highlight?.id === entry.id ? (
                       <TallyHighlight requestKey={highlight.key} />
+                    ) : reviewHighlights.has(entry.id) ? (
+                      <TallyHighlight requestKey={reviewHighlights.get(entry.id)!} />
                     ) : null}
                   </View>
                 );
@@ -1594,9 +1631,22 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
   fillCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
   notFoundText: { fontSize: 14, fontFamily: fonts.sansRegular, color: colors.textSubtle },
-  // gap 2, not more: the two icon buttons are already 40px boxes with their own
-  // internal padding, so a wider gap reads as two unrelated controls.
+  // One compact action group with separate 44pt targets, mirrored in Dari.
   headerActions: { flexDirection: "row", alignItems: "center", gap: 2 },
+  headerShare: {
+    minWidth: TOUCH_MIN,
+    minHeight: TOUCH_MIN,
+    marginEnd: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.sm,
+  },
+  shareProgress: {
+    ...typography.bodySm,
+    color: colors.textSubtle,
+    paddingHorizontal: 16,
+    paddingBottom: 6,
+  },
   headerNav: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1666,20 +1716,6 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
   balanceAfn: { fontSize: 15, fontFamily: fonts.sansMedium, color: colors.textMuted },
-  pingArea: { marginTop: 14, gap: 6 },
-  pingButton: {
-    minHeight: TOUCH_MIN,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderWidth: 1,
-    borderColor: colors.brandPrimary,
-    borderRadius: radius.sm,
-  },
-  pingLabel: { ...typography.labelBold, flexShrink: 1, color: colors.brandPrimary },
-  pingHint: { ...typography.bodySm, color: colors.textSubtle },
   searchArea: { marginHorizontal: 16, marginBottom: 8, gap: 8 },
   searchBox: {
     flexDirection: "row",
@@ -1718,8 +1754,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
-  // Wrap View just exists to hang a ref for the tour spotlight. flex:1
-  // so it behaves identically to the bare Pressable did before.
+  // flex:1 keeps both action wrappers equal in width.
   actionBtnWrap: { flex: 1, minWidth: 0 },
   actionBtn: {
     // No vertical flex:1 inside the auto-height wrapper: it collapses in Yoga.
@@ -1731,14 +1766,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 13,
     borderRadius: radius.md,
-    // Solid primary-button fill — same high-affordance language as the FAB and
-    // the share button, deliberately NOT the red/green direction color. These
-    // are the two most-used actions, so they must read as obvious, tappable
-    // buttons; direction is carried by the arrow, the label, and the
-    // left/right position (I received LEFT, I gave RIGHT). The arrow rides in a
-    // soft inner "coin" and the lift is a soft, diffuse shadow — refined and
-    // premium rather than a flat black slab. Height (~52) matches the share bar.
-    backgroundColor: colors.brandPrimary,
+    // Everyday actions share the home's neutral black fill. Direction stays
+    // in the arrow, label and physical position (received LEFT, gave RIGHT).
+    backgroundColor: colors.actionPrimary,
     ...Platform.select({
       ios: {
         shadowColor: "#000",

@@ -43,7 +43,7 @@ const SHEET_OFFSCREEN = 600;
 // sheet's modal host unmounts (see BottomSheet's deferred-callback note).
 export const SHEET_EXIT_MS = 220;
 
-export type OptionSheetItem = { key: string; label: string; leading?: string };
+export type OptionSheetItem = { key: string; label: string; leading?: string; hint?: string };
 
 export function OptionSheet(props: {
   visible: boolean;
@@ -127,6 +127,7 @@ export function OptionSheet(props: {
                     onPress={() => onSelect(o.key)}
                     accessibilityRole="button"
                     accessibilityLabel={o.label}
+                    accessibilityHint={o.hint}
                     accessibilityState={{ selected: isSelected }}
                     style={({ pressed }) => [
                       styles.sheetRow,
@@ -137,13 +138,18 @@ export function OptionSheet(props: {
                   >
                     <View style={[styles.sheetRowLeft, rowDir(isRTL)]}>
                       {o.leading ? <Text style={styles.sheetRowLeading}>{o.leading}</Text> : null}
-                      <Text style={[styles.sheetRowLabel, textDir(isRTL)]}>{o.label}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.sheetRowLabel, textDir(isRTL)]}>{o.label}</Text>
+                        {o.hint ? (
+                          <Text style={[styles.sheetRowHint, textDir(isRTL)]}>{o.hint}</Text>
+                        ) : null}
+                      </View>
                     </View>
                     {isSelected ? (
                       // icon.row (22) — the selection tick reads as a row-level
                       // mark, not a trailing chevron, so it takes the row size.
                       // Matches the identical tick in CountryPickerSheet.
-                      <Ionicons name="checkmark" size={icon.row} color={colors.brandPrimary} />
+                      <Ionicons name="checkmark" size={icon.row} color={colors.actionPrimary} />
                     ) : null}
                   </Pressable>
                 );
@@ -220,5 +226,10 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansMedium,
     color: colors.textEmphasis,
     flexShrink: 1,
+  },
+  sheetRowHint: {
+    ...typography.caption,
+    color: colors.textSubtle,
+    marginTop: 4,
   },
 });

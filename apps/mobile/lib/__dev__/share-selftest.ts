@@ -25,7 +25,8 @@ stub("react-native", {
   },
 });
 stub("../api", { getBackendUrl: async () => "https://example.invalid" });
-stub("../calendar", { getEffectiveCalendar: () => "jalali" });
+let selectedCalendar = "jalali";
+stub("../calendar", { getEffectiveCalendar: () => selectedCalendar });
 stub("../currency", { getCurrentCurrencySymbol: () => "AFN" });
 stub("../db", {
   bumpUsageCounter: async () => {
@@ -120,6 +121,25 @@ async function main() {
   assert.match(first.searchParams.get("text")!, /share.theyOwe.header/);
   assert.match(first.searchParams.get("text")!, /https:\/\/example.invalid\/v\/bill/);
   assert.equal(counters, 1);
+
+  // Freeze the explicit third calendar even when the message language is
+  // English. Later local preference changes cannot mutate an issued bill.
+  selectedCalendar = "qamari";
+  globalThis.fetch = (async (_url: unknown, init: RequestInit) => {
+    snapshot = JSON.parse(String(init.body));
+    return new Response(JSON.stringify({ url: "https://example.invalid/v/qamari" }), {
+      status: 201,
+    });
+  }) as typeof fetch;
+  assert.equal(await shareKaataViaWhatsApp(person, 10, null, entries, "en"), true);
+  assert.equal(snapshot!.calendar, "qamari");
+  assert.equal(snapshot!.locale, "en");
+  assert.equal(snapshot!.entries[0].date, entries[0].created_at, "timestamps remain unchanged");
+  selectedCalendar = "gregorian";
+  assert.equal(snapshot!.calendar, "qamari", "bill calendar stays frozen");
+  // Restore the prior fixture's counters for its routing/failure assertions.
+  opens.pop();
+  counters--;
 
   // Network failure still opens an ordinary text reminder; metadata writes
   // must not turn a successful open into a reported failure.

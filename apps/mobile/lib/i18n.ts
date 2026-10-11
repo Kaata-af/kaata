@@ -347,7 +347,6 @@ const en = {
     "This entry is under a settled line and can't be changed. Add a correcting entry instead.",
   "person.freshChapter.title": "All settled",
   "person.freshChapter.subtitle": "A fresh page. Your history together is kept below.",
-  "person.ping": "Ping {name} on WhatsApp",
   "person.ping.button": "Send WhatsApp reminder",
   "person.ping.hint": "Share the balance and recent tallies with {name}.",
   "person.ping.preparing": "Preparing your reminder…",
@@ -486,6 +485,9 @@ const en = {
   "settings.calendar.option.auto": "Automatic",
   "settings.calendar.option.gregorian": "Gregorian",
   "settings.calendar.option.jalali": "Solar Hijri",
+  "settings.calendar.option.qamari": "Lunar Hijri (Qamari)",
+  "settings.calendar.hint.qamari":
+    "Calculated calendar. Local moon sighting may give a different date.",
   // Subtitles carry a live example, which is the only thing that actually
   // tells a shopkeeper what they are picking.
   "settings.calendar.hint.auto": "Follows your language",
@@ -1607,6 +1609,9 @@ const en = {
   "auth.redirect.subtitle":
     "Use your Kaata account. Your existing kaatas will be restored automatically.",
   "tab.status.accepted": "Accepted",
+  "tab.feedback.accepted": "Tally ({amount}) accepted.",
+  "tab.feedback.rejected": "Tally ({amount}) rejected. Excluded from the balance.",
+  "tab.feedback.reviewed": "{count} tallies reviewed. Their statuses are updated.",
   "tab.status.pending": "Pending",
   "tab.status.disputed": "Rejected",
   "tab.status.voided": "Voided",
@@ -2038,7 +2043,6 @@ const fa: Partial<Record<Key, string>> = {
     "این ثبت زیر خط تصفیه است و قابل تغییر نیست. به جای آن یک ثبت اصلاحی اضافه کنید.",
   "person.freshChapter.title": "همه تصفیه شد",
   "person.freshChapter.subtitle": "صفحهٔ تازه. سابقهٔ شما با هم در پایین نگه داشته شده است.",
-  "person.ping": "یادآوری به {name} در واتساپ",
   "person.ping.button": "فرستادن یادآوری در واتساپ",
   "person.ping.hint": "بیلانس و ثبت‌های اخیر را با {name} شریک سازید.",
   "person.ping.preparing": "در حال آماده‌کردن یادآوری…",
@@ -2182,6 +2186,9 @@ const fa: Partial<Record<Key, string>> = {
   "settings.calendar.option.auto": "خودکار",
   "settings.calendar.option.gregorian": "میلادی",
   "settings.calendar.option.jalali": "هجری شمسی",
+  "settings.calendar.option.qamari": "هجری قمری",
+  "settings.calendar.hint.qamari":
+    "تقویم محاسبه‌شده؛ تاریخ بر اساس دیدن ماه در محل ممکن است فرق کند.",
   "settings.calendar.hint.auto": "از زبان شما پیروی می‌کند",
   "settings.calendar.changed": "تقویم تغییر کرد.",
   "settings.messageLang.label": "زبان پیام",
@@ -3099,6 +3106,9 @@ const fa: Partial<Record<Key, string>> = {
   "auth.redirect.title": "برای ادامه وارد شوید",
   "auth.redirect.subtitle": "با حساب کاتای خود وارد شوید. کاتاهای قبلی شما خودکار بازیابی می‌شوند.",
   "tab.status.accepted": "پذیرفته شده",
+  "tab.feedback.accepted": "ثبت ({amount}) پذیرفته شد.",
+  "tab.feedback.rejected": "ثبت ({amount}) رد شد و در بیلانس حساب نمی‌شود.",
+  "tab.feedback.reviewed": "{count} ثبت بررسی شد. وضعیت آن‌ها به‌روز شده است.",
   "tab.status.pending": "در انتظار",
   "tab.status.disputed": "رد شده",
   "tab.status.voided": "باطل",

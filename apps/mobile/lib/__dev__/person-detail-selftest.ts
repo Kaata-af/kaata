@@ -8,6 +8,7 @@ import { filterTalliesByNote, noteSearchTerms } from "../tally-search";
 import { afterSharedSettlement, sharedHistory, visibleTally } from "../tabs/chapters";
 import { sumAmounts } from "../money";
 import { tallyScrollTarget } from "../tally-viewport";
+import { compareTallyReviews } from "../tally-review-feedback";
 
 type Node = { type: string; props: Record<string, any> };
 type Effect = { deps?: unknown[]; cleanup?: () => void };
@@ -72,10 +73,7 @@ const find = (type: string) => nodes(tree).find((n) => n.type === type);
 const tallies = () => nodes(tree).filter((n) => n.type === "EntryRow");
 const rowIds = () => tallies().map((n) => n.props.entry.id);
 const query = (value: string) => find("TextInput")!.props.onChangeText(value);
-const pingButton = () =>
-  nodes(tree).find(
-    (n) => n.type === "Pressable" && /person\.ping\.(button|preparing|opening)/.test(words(n)),
-  )!;
+const pingButton = () => nodes(tree).find((n) => n.props.testID === "whatsapp-reminder")!;
 
 let params: Record<string, string> = { id: "person" };
 let platform = "android",
@@ -317,6 +315,7 @@ const mocks: Record<string, any> = {
   },
   "../../lib/use-vault-summary": { useMembersCount: () => 1 },
   "../../lib/tally-viewport": { tallyScrollTarget },
+  "../../lib/tally-review-feedback": { compareTallyReviews },
 };
 const out: any = {};
 new Function(
@@ -486,6 +485,15 @@ async function main() {
         "export still reads the entire person statement",
       );
       const firstPing = pingButton();
+      assert.equal(firstPing.props.accessibilityLabel, "person.ping.button");
+      const menu = find("OverflowMenu")!;
+      const group = nodes(tree).find((n) => kids(n).includes(firstPing) && kids(n).includes(menu));
+      assert.ok(group, "WhatsApp sits beside the menu in one header action group");
+      assert.equal(
+        menu.props.actions.some((a: any) => a.icon === "logo-whatsapp"),
+        false,
+      );
+      assert.equal(nodes(tree).filter((n) => n.props.testID === "whatsapp-reminder").length, 1);
       firstPing.props.onPress();
       firstPing.props.onPress();
       await flush();
@@ -497,14 +505,16 @@ async function main() {
         "reminder is not narrowed by search",
       );
       assert.equal(shares[0].args[1], 3);
-      assert.ok(words(pingButton()).includes("person.ping.preparing"));
+      assert.equal(pingButton().props.accessibilityLabel, "person.ping.preparing");
+      assert.ok(words(tree).includes("person.ping.preparing"), "preparation remains visible");
       shares[0].args[6]("opening");
       await flush();
-      assert.ok(words(pingButton()).includes("person.ping.opening"));
+      assert.equal(pingButton().props.accessibilityLabel, "person.ping.opening");
+      assert.ok(words(tree).includes("person.ping.opening"), "opening remains visible");
       assert.equal(pingButton().props.accessibilityState.busy, true);
       shares[0].resolve(true);
       await flush();
-      assert.ok(words(pingButton()).includes("person.ping.button"));
+      assert.equal(pingButton().props.accessibilityLabel, "person.ping.button");
       nodes(tree)
         .find((n) => n.props.accessibilityLabel === "person.search.clear")!
         .props.onPress();
@@ -584,6 +594,82 @@ async function main() {
     "PASS: shared search includes rejected, settled, pre-link and Not sent records; filtered pulls stay unread; clearing and notification targets restore visibility",
   );
 
+  fixture(true);
+  await flush();
+  assert.equal(toasts.length, 0, "cold load of reviewed history is quiet");
+  const review = (status: string, local_pending = false, origin = "pull") => {
+    entries = entries.map((e) =>
+      e.id === "new-tea" ? { ...e, tab: { ...e.tab, status, local_pending } } : e,
+    );
+    tabListeners.forEach((fn) => fn({ relationshipId: "relationship", origin }));
+  };
+  review("accepted", true, "local");
+  await flush();
+  assert.equal(toasts.length, 0, "queued review is not a confirmed decision");
+  review("accepted");
+  await flush();
+  assert.equal(toasts.at(-1)?.[0], "tab.feedback.accepted");
+  assert.ok(nodes(tree).some((n) => n.type === "TallyHighlight"));
+  review("accepted");
+  await flush();
+  assert.equal(toasts.length, 1, "repeated pull never repeats feedback");
+  advance(1800);
+  await flush();
+  assert.equal(
+    nodes(tree).some((n) => n.type === "TallyHighlight"),
+    false,
+  );
+
+  fixture(true);
+  await flush();
+  query("rice");
+  await flush();
+  review("disputed");
+  await flush();
+  assert.equal(toasts.length, 0, "a filtered-out tally is not announced");
+  query("");
+  await flush();
+  assert.equal(toasts.length, 0, "revealing search results does not replay a decision");
+
+  fixture(true);
+  await flush();
+  review("disputed");
+  await flush();
+  assert.equal(toasts.at(-1)?.[0], "tab.feedback.rejected");
+  blur();
+  await flush();
+  assert.equal(
+    nodes(tree).some((n) => n.type === "TallyHighlight"),
+    false,
+  );
+  const beforeBlur = toasts.length;
+  review("pending");
+  await flush();
+  review("accepted");
+  await flush();
+  refocus();
+  await flush();
+  assert.equal(
+    toasts.length,
+    beforeBlur,
+    "returning to the contact does not replay background reviews",
+  );
+
+  fixture(true);
+  await flush();
+  appState = "background";
+  appListeners.forEach((fn) => fn(appState));
+  review("accepted");
+  await flush();
+  appState = "active";
+  appListeners.forEach((fn) => fn(appState));
+  review("accepted");
+  await flush();
+  assert.equal(toasts.length, 0, "foreground resumption starts a fresh baseline");
+  console.log(
+    "PASS: confirmed live reviews pulse once; optimistic, hidden, cold and background decisions stay quiet",
+  );
+
   fixture();
   preference = "ask";
   await flush();
@@ -650,7 +736,7 @@ async function main() {
   blur();
   await flush();
   assert.equal(oldPing.args[7].aborted, true, "leaving focus aborts the in-flight reminder");
-  assert.ok(words(pingButton()).includes("person.ping.button"));
+  assert.equal(pingButton().props.accessibilityLabel, "person.ping.button");
   refocus();
   await flush();
   pingButton().props.onPress();
@@ -662,14 +748,14 @@ async function main() {
   oldPing.resolve(false);
   await flush();
   assert.equal(toasts.length, 0, "an aborted reminder cannot show a late error toast");
-  assert.ok(words(pingButton()).includes("person.ping.preparing"));
+  assert.equal(pingButton().props.accessibilityLabel, "person.ping.preparing");
   assert.equal(pingButton().props.accessibilityState.busy, true);
   pingButton().props.onPress();
   await flush();
   assert.equal(shares.length, 2, "old completion must not unlock the new reminder's guard");
   newPing.resolve(true);
   await flush();
-  assert.ok(words(pingButton()).includes("person.ping.button"));
+  assert.equal(pingButton().props.accessibilityLabel, "person.ping.button");
 
   fixture();
   await flush();

@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { BACKEND_URL } from "../env";
 import { useI18n } from "../lib/i18n";
 import { brand, ledger } from "../theme";
+import { formatQamariDate, resolveBillCalendar, type BillCalendar } from "../lib/customer-dates";
 
 // /v/:token — the customer-facing shared ledger ("see the full ledger on
 // kaata.af"). The shopkeeper's app POSTs a small snapshot to the backend and
@@ -30,7 +31,7 @@ type SharedLedger = {
   currency: string;
   balance: number;
   locale: string;
-  /** Calendar frozen at issue time: "gregorian" | "jalali". Optional — bills
+  /** Calendar frozen at issue time: "gregorian" | "jalali" | "qamari". Optional — bills
    *  cut before the calendar setting shipped lack it, and fall back to being
    *  derived from `locale`, which is what they were rendered with originally.
    *  Widened to string because this is untrusted JSON off the wire. */
@@ -175,7 +176,7 @@ function Row({
   e,
   currency,
   rtl,
-  jalali,
+  calendar,
   L,
 }: {
   e: SharedEntry;
@@ -183,7 +184,7 @@ function Row({
   rtl: boolean;
   /** Calendar frozen into the bill; threaded alongside rtl because the two
    *  are independent axes (calendar = which months, rtl = which script). */
-  jalali: boolean;
+  calendar: BillCalendar;
   L: ReturnType<typeof pickLabels>;
 }) {
   const gave = e.type !== "payment"; // debt → "I gave" (up); payment → "I received" (down)
@@ -251,7 +252,7 @@ function Row({
           </p>
           {/* Date only — the arrow carries direction. */}
           <p className="shrink-0 whitespace-nowrap text-[12px]" style={{ color: C.mut }}>
-            {fmtDate(e.date, rtl, jalali)}
+            {fmtDate(e.date, rtl, calendar)}
           </p>
         </div>
         {e.note ? (
@@ -378,15 +379,19 @@ const GREGORIAN_MONTHS_FA = [
 ];
 
 /**
- * `jalali` picks the CALENDAR, `rtl` picks the SCRIPT. Both come from the
+ * `calendar` picks the months, `rtl` picks the SCRIPT. Both come from the
  * snapshot: the shopkeeper's calendar is frozen into the bill at issue time
  * (paper rule), so this never resolves against the viewer's preferences.
- * Day-first in all four combinations.
+ * Day-first in all six combinations.
  */
-function fmtDate(ms: number, rtl: boolean, jalali: boolean): string {
+function fmtDate(ms: number, rtl: boolean, calendar: BillCalendar): string {
   const num = (v: string | number): string => (rtl ? faDigits(v) : String(v));
+  if (calendar === "qamari") {
+    const qamari = formatQamariDate(ms, rtl);
+    if (qamari !== null) return qamari;
+  }
   try {
-    if (!jalali) {
+    if (calendar !== "jalali") {
       const dt = new Date(ms);
       const m = dt.getMonth();
       if (Number.isNaN(m)) return "";
@@ -476,7 +481,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
   const rtl = isRTL(d.locale);
   // Explicit snapshot value wins; absent (a bill cut before the calendar
   // setting shipped) falls back to the old language-derived rule.
-  const jalali = d.calendar === "jalali" ? true : d.calendar === "gregorian" ? false : rtl;
+  const calendar = resolveBillCalendar(d.calendar, rtl);
   const L = pickLabels(d.locale);
   const dir = d.balance > 0 ? "owe" : d.balance < 0 ? "credit" : "settled";
   const accent = dir === "owe" ? C.owe : dir === "credit" ? C.credit : C.ink;
@@ -559,7 +564,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
               className="rounded-full border px-3 py-1 text-[12px] font-semibold"
               style={{ borderColor: C.line, background: C.bg, color: C.sub }}
             >
-              {L.billDated.replace("{date}", fmtDate(d.generated_at, rtl, jalali))}
+              {L.billDated.replace("{date}", fmtDate(d.generated_at, rtl, calendar))}
             </span>
           </div>
         ) : null}
@@ -662,12 +667,12 @@ function Ledger({ data: d }: { data: SharedLedger }) {
               >
                 <div className="h-px flex-1" style={{ background: C.mut, opacity: 0.4 }} />
                 <span className="text-[11px] font-medium" style={{ color: C.sub }}>
-                  {L.settledOn.replace("{date}", fmtDate(item.ms, rtl, jalali))}
+                  {L.settledOn.replace("{date}", fmtDate(item.ms, rtl, calendar))}
                 </span>
                 <div className="h-px flex-1" style={{ background: C.mut, opacity: 0.4 }} />
               </div>
             ) : (
-              <Row key={i} e={item.e} currency={d.currency} rtl={rtl} jalali={jalali} L={L} />
+              <Row key={i} e={item.e} currency={d.currency} rtl={rtl} calendar={calendar} L={L} />
             ),
           )
         )}

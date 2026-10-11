@@ -60,17 +60,16 @@ func TestBillDateGoldenVectors(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			// billDate(ms, rtl, jalali): rtl picks the SCRIPT, jalali the CALENDAR.
-			if got := billDate(c.ms, false, true); got != c.jalaliEn {
+			if got := billDate(c.ms, false, "jalali"); got != c.jalaliEn {
 				t.Errorf("jalali+en: got %q, want %q", got, c.jalaliEn)
 			}
-			if got := billDate(c.ms, true, true); got != c.jalaliFa {
+			if got := billDate(c.ms, true, "jalali"); got != c.jalaliFa {
 				t.Errorf("jalali+fa: got %q, want %q", got, c.jalaliFa)
 			}
-			if got := billDate(c.ms, false, false); got != c.gregEn {
+			if got := billDate(c.ms, false, "gregorian"); got != c.gregEn {
 				t.Errorf("gregorian+en: got %q, want %q", got, c.gregEn)
 			}
-			if got := billDate(c.ms, true, false); got != c.gregFa {
+			if got := billDate(c.ms, true, "gregorian"); got != c.gregFa {
 				t.Errorf("gregorian+fa: got %q, want %q", got, c.gregFa)
 			}
 		})
@@ -79,7 +78,7 @@ func TestBillDateGoldenVectors(t *testing.T) {
 
 func TestBillDateRejectsUnusableTimestamp(t *testing.T) {
 	for _, ms := range []int64{0, -1} {
-		if got := billDate(ms, true, true); got != "" {
+		if got := billDate(ms, true, "jalali"); got != "" {
 			t.Errorf("billDate(%d) = %q, want empty", ms, got)
 		}
 	}
@@ -93,19 +92,21 @@ func TestResolveCalendarFallsBackToLanguage(t *testing.T) {
 	cases := []struct {
 		calendar string
 		rtl      bool
-		want     bool
+		want     string
 		why      string
 	}{
-		{"jalali", false, true, "explicit choice wins over an English bill"},
-		{"gregorian", true, false, "explicit choice wins over a Dari bill"},
-		{"", true, true, "absent + Dari → the pre-setting behaviour"},
-		{"", false, false, "absent + English → the pre-setting behaviour"},
-		{"nonsense", true, true, "unknown value is treated as absent, not trusted"},
-		{"nonsense", false, false, "unknown value is treated as absent, not trusted"},
+		{"jalali", false, "jalali", "explicit choice wins over an English bill"},
+		{"gregorian", true, "gregorian", "explicit choice wins over a Dari bill"},
+		{"qamari", false, "qamari", "Qamari survives an English bill"},
+		{"qamari", true, "qamari", "Qamari survives a Dari bill"},
+		{"", true, "jalali", "absent + Dari → the pre-setting behaviour"},
+		{"", false, "gregorian", "absent + English → the pre-setting behaviour"},
+		{"nonsense", true, "jalali", "unknown value is treated as absent, not trusted"},
+		{"nonsense", false, "gregorian", "unknown value is treated as absent, not trusted"},
 	}
 	for _, c := range cases {
 		if got := resolveCalendar(c.calendar, c.rtl); got != c.want {
-			t.Errorf("resolveCalendar(%q, %v) = %v, want %v — %s",
+			t.Errorf("resolveCalendar(%q, %v) = %q, want %q — %s",
 				c.calendar, c.rtl, got, c.want, c.why)
 		}
 	}

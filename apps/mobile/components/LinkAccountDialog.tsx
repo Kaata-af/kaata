@@ -284,7 +284,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.borderDefault,
   },
-  selected: { backgroundColor: colors.bgWarm, borderColor: colors.brandPrimary },
+  selected: { backgroundColor: colors.bgMuted, borderColor: colors.actionPrimary },
   optionText: { ...typography.body, color: colors.textEmphasis, textAlign: "center" },
   error: { ...typography.bodySm, color: colors.danger, marginTop: 16 },
   actions: { marginTop: 20, gap: 8 },

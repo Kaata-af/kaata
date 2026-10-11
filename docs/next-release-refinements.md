@@ -1,6 +1,6 @@
 # Next release: user-feedback refinements
 
-Work on `codex/next-release-refinements`, following the 2.1.1 submission.
+Initial work began on `codex/next-release-refinements`, following the 2.1.1 submission.
 The development batches below initially stayed local, with signed builds and
 store distribution deferred until the user requested release preparation.
 
@@ -23,9 +23,11 @@ tracks as they are. The working checkout returns to `main` after the merge.
 
 ## Implemented
 
-- **WhatsApp reminders:** a visible action below the balance, with a short
-  explanation of what gets shared. Preparation and WhatsApp opening have separate
-  loading labels. Repeated taps share one attempt, including language selection;
+- **WhatsApp reminders:** one icon beside the three-dot menu in the ledger header.
+  The balance-area button and menu duplicate were removed in the follow-up batch.
+  Preparation and WhatsApp opening have separate visible loading labels and an
+  accessible spinner/action state. The action's accessibility hint explains what
+  gets shared. Repeated taps share one attempt, including language selection;
   the native language sheet exits before sharing. Leaving the screen cancels a
   pending reminder so a late upload cannot launch WhatsApp elsewhere. Upload failure still opens a
   plain-text reminder. Opening WhatsApp does not prove the message was sent.
@@ -52,7 +54,10 @@ tracks as they are. The working checkout returns to `main` after the merge.
   regardless of browser timezone. Relative recency remains visible; records
   with only a calendar date do not acquire a fictional time.
 - **Brand color language:** the approved Aubergine/Saffron/Ivory/Charcoal/White
-  palette now drives mobile and web controls, onboarding and marketing surfaces.
+  palette drives branding, web controls, onboarding and marketing surfaces.
+  Following the user's visual feedback, everyday mobile controls use black and
+  neutral grays, including the home add/find button, selected tabs and give/receive.
+  Brand colors remain for identity, onboarding and occasional highlights.
   Detailed ledger rows stay white; money direction, destructive actions,
   attribution and pending-only amber retain their meanings. Web/admin/SSR
   pages, transactional email styles, PDF headers and future flyer/social/store
@@ -74,6 +79,56 @@ tracks as they are. The working checkout returns to `main` after the merge.
   Backend changes are read-only and additive, with no migration or new telemetry.
   Older backend responses retain accounting charts but do not invent a rate.
   The benchmark links to [Paul Graham's essay](https://paulgraham.com/growth.html).
+
+## October 11 follow-up batch
+
+The user requested these refinements after the main deployment. Development
+continues on `main`; this batch is local work for the next testing build. It does
+not change the already distributed TestFlight build 31/internal Android code 51,
+the pending 2.1.1 store reviews, or the deployed backend/web until pushed later.
+
+- **Header sharing:** the single WhatsApp icon sits immediately beside the
+  three-dot menu, with a separate 44pt target in English and Dari. No persistent
+  share button or explanation breaks up the balance. A spinner and short
+  preparation/opening line appear while working; existing statement scope,
+  offline fallback, language selection and duplicate/cancellation guards remain.
+- **Neutral app chrome:** everyday backgrounds, text, borders, primary actions
+  and selected controls return to white/black/grays. Home add/find and ledger
+  give/receive actions use black. Branding/onboarding/occasional highlights retain
+  the palette; money direction, authorship, linked-account blue, pending amber
+  and destructive red keep their established meanings. Marketing/web colors stay
+  as recorded in [brand-language.md](brand-language.md).
+- **Live review feedback:** an already displayed pending shared tally briefly
+  highlights when its accepted/rejected decision is server-confirmed, with one
+  localized in-app message per batch. Reduced Motion uses a static brief cue.
+  Optimistic offline decisions do not announce confirmation; fresh history,
+  background/refocus changes, hidden search results and folded chapters do not
+  replay feedback. Rejected tallies still exclude their amount from the balance.
+  The previous optimistic accept/reject success toasts were removed so queueing
+  cannot masquerade as server confirmation.
+- **Email Back:** email auth now opens on a native child route above provider
+  choices, so first-step iOS swipe returns to email/Google/Apple selection. Header
+  and Android Back still retrace reset/code steps. Deeper/busy steps guard native
+  gestures; pending-code resume, different-account decisions, restore and invite
+  destinations retain their context.
+- **Qamari:** Settings offers lunar Hijri alongside Gregorian and Afghan Solar
+  Hijri. Conversion uses the calculated Islamic civil calendar (Friday epoch),
+  independent of platform `Intl`. The selector explains that local moon sighting
+  can give a different date. Existing Auto behavior and stored timestamps stay
+  unchanged. English/Dari absolute dates, settlement lines, PDF/prose exports,
+  newly frozen WhatsApp bill snapshots, React bill pages and server SSR/preview
+  render the choice consistently. CSV retains its existing Gregorian/Shamsi columns.
+  Backend/web support must deploy before testing Qamari share links in production.
+
+Final combined checks passed on October 11: mobile and web TypeScript, ten
+focused mobile selftest suites (including all 69 email-auth regressions and 36
+calendar groups), two web frozen-calendar tests, and Android/iOS Metro exports
+with Hermes bytecode. The calendar suite compared all 10,631 days in a 30-year
+cycle with ICU. The local web production build passed. Relevant pure Go calendar,
+SSR-inline JavaScript and existing money/coherence checks passed; two database
+service tests skipped because no test PostgreSQL was available, and the optional
+preview-writing test skipped without its output flag. This batch does not claim
+new database validation, phone/gesture/visual QA, signed native builds or uploads.
 
 ## Deferred by the user
 
@@ -124,7 +179,13 @@ use, but existing screenshots were not regenerated.
   recipient routing, cancellation and unavailable WhatsApp/counter failure paths.
 - `selftest:person-detail`: real screen hooks/handlers for history search,
   whole balance/export/reminder scope, notification visibility, keyboard gates,
-  repeated taps, language selection and blur/unmount cancellation.
+  repeated taps, language selection, blur/unmount cancellation, header placement
+  and confirmed-review feedback versus cold/optimistic/hidden/background changes.
+- `selftest:tally-highlight`: motion-preference races, reduced-motion fallback,
+  touch-through rendering, expiry, request replacement and unmount cleanup.
+- Calendar tests: civil-calendar goldens and a full 30-year ICU comparison,
+  epoch/leap/invalid boundaries, explicit preference persistence and legacy Auto,
+  frozen share metadata, PDF/CSV behavior and web/Go date rendering parity.
 - `selftest:tabs`: restored pre-link balance replaced by current shared rows,
   badges, unknown pokes, closed/relinked periods, concurrent pulls, missing-contact
   wakeups and slow-loop completion.
@@ -161,3 +222,17 @@ These remain pending; fixture tests do not replace phone testing.
    historical UTC/Kabul transition. Verify missing/older backend, loading and
    retry states. Use synthetic fixtures or isolated test data before any real
    dashboard comparison; do not mutate production analytics.
+8. Header WhatsApp: verify icon placement beside the menu, separate touch targets,
+   mirrored Dari layout, no duplicate menu/balance action and short progress line.
+   Inspect the restored black home add/find control and neutral everyday surfaces.
+9. Live decisions: with two signed-in phones, accept/reject a visible pending tally
+   remotely; confirm its brief cue, accessible message and balance. Retry/no-op
+   pulls must stay quiet. Check reduced motion, offline review acknowledgement,
+   search-hidden/folded tallies, background/resume and leave/return behavior.
+10. Email route: swipe Back from first-step email sign-in to provider choices;
+    test Android/header Back, signup/reset/code steps, busy requests, cold pending
+    code resume and successful settings/onboarding/invite/restore navigation.
+11. Calendar: select all three calendars independently of language, restart and
+    switch kaatas. Inspect exact tally/settlement dates, PDFs, CSVs and a newly
+    created share link including its SSR/preview. Compare familiar Qamari dates;
+    the calculated convention can differ from the user's local moon-sighting date.

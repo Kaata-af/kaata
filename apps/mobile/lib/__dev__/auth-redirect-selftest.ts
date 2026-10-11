@@ -1,6 +1,7 @@
 // Run the real auth screen with synthetic provider/recovery adapters.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import ts from "typescript";
 
 let slots: any[] = [],
@@ -32,6 +33,7 @@ const mocks: Record<string, any> = {
       return (slots[i] ??= { current: v });
     },
     useEffect: () => {},
+    useCallback: (fn: any) => fn,
   },
   "react-native": {
     View: "View",
@@ -49,6 +51,9 @@ const mocks: Record<string, any> = {
   "@expo/vector-icons": { Ionicons: "Icon" },
   "expo-constants": { default: { executionEnvironment: "standalone" } },
   "expo-router": {
+    Stack: { Screen: "StackScreen" },
+    useIsFocused: () => true,
+    useFocusEffect: () => {},
     useRouter: () => ({
       replace: (r: any) => routes.push(r),
       push: (r: any) => routes.push(r),
@@ -126,14 +131,20 @@ new Function(
   }).outputText,
 )((k: string) => {
   assert.ok(k in mocks, k);
+  if (k === "react") return { ...mocks.react, useEffect: (run: () => void) => run() };
   return mocks[k];
 }, out);
 function nodes(n: any): any[] {
   return Array.isArray(n) ? n.flatMap(nodes) : n?.props ? [n, ...nodes(n.props.children)] : [];
 }
-function render(redirected = true) {
+function render(redirected = true, emailRoute = false) {
   cursor = 0;
-  return out.AuthScreen({ redirected });
+  return out.AuthScreen({ redirected, emailRoute });
+}
+async function renderEmail(redirected: boolean) {
+  render(redirected, true);
+  await Promise.resolve();
+  return render(redirected, true);
 }
 function reset() {
   slots = [];
@@ -266,6 +277,157 @@ async function signIn() {
 }
 async function main() {
   settingsSignIn();
+  // Apply actions to the installed SDK's actual stack router, including the
+  // native GO_BACK action fired by an iOS edge swipe. The selector must remain
+  // beneath the email form instead of returning all the way to Home.
+  const { StackRouter } = require(
+    join(
+      dirname(require.resolve("expo-router/package.json")),
+      "build/react-navigation/routers/StackRouter.js",
+    ),
+  );
+  const stackRouter = StackRouter({ initialRouteName: "index" });
+  const stackOptions = {
+    routeNames: ["index", "sign-in", "onboarding/auth", "auth/email", "person/[id]"],
+    routeParamList: {},
+    routeGetIdList: {},
+  };
+  for (const redirected of [true, false]) {
+    reset();
+    let state = stackRouter.getInitialState(stackOptions);
+    const provider = redirected ? "sign-in" : "onboarding/auth";
+    state = stackRouter.getStateForAction(
+      state,
+      {
+        type: "PUSH",
+        payload: { name: provider },
+      },
+      stackOptions,
+    );
+    nodes(render(redirected))
+      .find((n) => n.props.accessibilityLabel === "onboardingMode.email.title")
+      .props.onPress();
+    assert.deepEqual(routes, [
+      {
+        pathname: "/auth/email",
+        params: { redirected: redirected ? "1" : "0" },
+      },
+    ]);
+    state = stackRouter.getStateForAction(
+      state,
+      {
+        type: "PUSH",
+        payload: { name: "auth/email", params: routes[0].params },
+      },
+      stackOptions,
+    );
+    state = stackRouter.getStateForAction(state, { type: "GO_BACK" }, stackOptions);
+    assert.equal(
+      state.routes[state.index].name,
+      provider,
+      "a native swipe lands on the auth-method selector in either context",
+    );
+  }
+  let wrapperState: any;
+  let wrapperRedirected = "1";
+  const emailRouteModule: any = {};
+  new Function(
+    "require",
+    "exports",
+    ts.transpileModule(readFileSync(require.resolve("../../app/auth/email"), "utf8"), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
+    }).outputText,
+  )((name: string) => {
+    if (name === "../onboarding/auth") return { AuthScreen: "AuthScreen" };
+    if (name === "react") return { ...mocks.react, useEffect: (run: () => void) => run() };
+    if (name === "expo-router")
+      return {
+        ...mocks[name],
+        useLocalSearchParams: () => ({ redirected: wrapperRedirected }),
+        useRootNavigationState: () => wrapperState,
+      };
+    assert.ok(name in mocks, name);
+    return mocks[name];
+  }, emailRouteModule);
+  for (const redirected of [true, false]) {
+    wrapperRedirected = redirected ? "1" : "0";
+    const provider = redirected ? "sign-in" : "onboarding/auth";
+    for (const entry of ["direct", "normal", "already-left"]) {
+      reset();
+      wrapperState = stackRouter.getInitialState(stackOptions);
+      if (entry !== "direct")
+        wrapperState = stackRouter.getStateForAction(
+          wrapperState,
+          {
+            type: "PUSH",
+            payload: { name: provider },
+          },
+          stackOptions,
+        );
+      if (entry !== "already-left")
+        wrapperState = stackRouter.getStateForAction(
+          wrapperState,
+          {
+            type: "PUSH",
+            payload: { name: "auth/email" },
+          },
+          stackOptions,
+        );
+      const tree = emailRouteModule.default();
+      assert.equal(tree.props.redirected, redirected);
+      assert.equal(tree.props.providerReady, entry === "normal");
+      if (entry !== "direct") {
+        assert.deepEqual(routes, [], "existing history and a departed route are left alone");
+        continue;
+      }
+      assert.deepEqual(
+        routes,
+        [`/${provider}`, { pathname: "/auth/email", params: { redirected: wrapperRedirected } }],
+        "direct/cold entry rebuilds its provider underneath before enabling gestures",
+      );
+      wrapperState = stackRouter.getStateForAction(
+        wrapperState,
+        {
+          type: "REPLACE",
+          payload: { name: provider },
+        },
+        stackOptions,
+      );
+      wrapperState = stackRouter.getStateForAction(
+        wrapperState,
+        {
+          type: "PUSH",
+          payload: { name: "auth/email" },
+        },
+        stackOptions,
+      );
+      wrapperState = stackRouter.getStateForAction(wrapperState, { type: "GO_BACK" }, stackOptions);
+      assert.equal(wrapperState.routes[wrapperState.index].name, provider);
+    }
+  }
+  // A successful email sign-in removes both auth pages before handing off an
+  // existing action, exactly as the single provider route previously did.
+  for (const [key, destination] of [
+    ["pending_tab_person", { pathname: "/person/[id]", params: { id: "person" } }],
+    ["pending_tab_token", { pathname: "/t/[token]", params: { token: "person" } }],
+    ["pending_invite_token", { pathname: "/invite/[token]", params: { token: "person" } }],
+  ] as const) {
+    reset();
+    meta.set(key, "person");
+    await nodes(await renderEmail(true))
+      .find((n) => n.type === "EmailAuthFlow")
+      .props.onSignedIn({ email: "test@example.com" });
+    assert.deepEqual(routes, [{ dismissTo: "/sign-in" }, destination]);
+    assert.equal(meta.get("onboarding_step"), "done");
+  }
+  reset();
+  await nodes(await renderEmail(false))
+    .find((n) => n.type === "EmailAuthFlow")
+    .props.onSignedIn({ email: "test@example.com" });
+  assert.deepEqual(routes, [{ dismissTo: "/onboarding/auth" }, "/onboarding/restore"]);
+  console.log(
+    "PASS: native email Back preserves selector, including direct/cold entry; email success replaces both auth routes",
+  );
   for (const platform of ["android", "ios"]) {
     mocks["react-native"].Platform.OS = platform;
     for (const available of [true, false]) {

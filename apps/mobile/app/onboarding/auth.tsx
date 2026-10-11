@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
-import { useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { type Href, Stack, useFocusEffect, useIsFocused, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   BackHandler,
@@ -61,12 +61,12 @@ import { useOnboardingKeyboardScroll } from "../../lib/use-onboarding-keyboard-s
 //
 // Under the two provider cards, on both platforms, a quieter outlined option:
 // "Continue with email", Kaata's own accounts (docs/kaata-accounts.md). It
-// turns the screen into its second mode (mode === "email"), the
-// components/EmailAuthFlow steps, rendered inside this screen's
-// KeyboardAvoidingView + ScrollView. Back, hardware or on-screen, walks back
-// through those steps and then out to the cards. /sign-in?mode=email opens
-// straight on it, and so does a code step the app was killed on (the code is
-// in the user's inbox; Android often kills the app while they read it).
+// pushes a separate native email screen over the choices. Its first-step iOS
+// swipe returns to these cards instead of popping sign-in all the way home.
+// components/EmailAuthFlow stays inside the KeyboardAvoidingView + ScrollView;
+// hardware/on-screen Back retraces its steps before leaving. /sign-in?mode=email
+// retains the choices beneath it, as does a code step the app was killed on.
+// The code is in the inbox; Android often kills the app while they read it.
 // Play's review instructions name "Continue with email": keep it visible.
 
 const IS_EXPO_GO = Constants.executionEnvironment === "storeClient";
@@ -138,12 +138,19 @@ export default function OnboardingAuthScreen() {
 export function AuthScreen({
   redirected = false,
   initialMode = "providers",
+  emailRoute = false,
+  providerReady = true,
 }: {
   redirected?: boolean;
   /** "email": open straight on the email flow (/sign-in?mode=email). */
   initialMode?: "providers" | "email";
+  /** A native screen pushed over the provider selector, preserving its context. */
+  emailRoute?: boolean;
+  /** Direct/cold entry rebuilds the selector beneath the email route first. */
+  providerReady?: boolean;
 }) {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const isRTL = useIsRTL();
   // WHICH sign-in is mid-handshake (null = idle). Every control disables
   // while one runs, but only the tapped one shows the spinner — a shared
@@ -153,8 +160,12 @@ export function AuthScreen({
   const [error, setError] = useState<string | null>(null);
   // The last failure was a retired install: offer "Reset this phone".
   const [retired, setRetired] = useState(false);
-  // "email": the email flow replaces the provider choices.
-  const [mode, setMode] = useState<"providers" | "email">(initialMode);
+  const providerRoute = redirected ? "/sign-in" : "/onboarding/auth";
+  const inEmailMode = emailRoute;
+  // Native swipe is available at the first form. Deeper steps use the flow's
+  // Back handler, which also cancels a pending code when leaving its step.
+  const [emailCanGoBack, setEmailCanGoBack] = useState(false);
+  const [resumeChecked, setResumeChecked] = useState(!emailRoute);
   // A code step to reopen (see the effect below), or null.
   const [resume, setResume] = useState<EmailFlowPending | null>(null);
   // The email flow's own one-step Back; false at its first step.
@@ -162,6 +173,9 @@ export function AuthScreen({
   const { scrollProps, focusInput, blurInput } = useOnboardingKeyboardScroll();
 
   const busyRef = useRef(false);
+  const emailOpenedRef = useRef(false);
+  const focusedRef = useRef(isFocused);
+  focusedRef.current = isFocused;
   const decisionRef = useRef<((choice: DifferentAccountChoice) => void) | null>(null);
   const [decision, setDecision] = useState<DifferentAccountPromptArgs | null>(null);
   const [resetConfirm, setResetConfirm] = useState(false);
@@ -183,20 +197,39 @@ export function AuthScreen({
   // belongs to that screen, not this one.
   useEffect(() => {
     let cancelled = false;
-    void readEmailFlowPending().then((pending) => {
-      if (cancelled || busyRef.current || !pending || pending.purpose === "setup") return;
-      setResume(pending);
-      setMode("email");
-    });
+    if (!emailRoute && initialMode === "email") {
+      openEmailMode();
+      return;
+    }
+    void readEmailFlowPending()
+      .then((pending) => {
+        if (cancelled || !focusedRef.current || busyRef.current) return;
+        if (pending && pending.purpose !== "setup") {
+          if (emailRoute) {
+            setEmailCanGoBack(true);
+            setResume(pending);
+          } else {
+            openEmailMode();
+          }
+        }
+        if (emailRoute) setResumeChecked(true);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        console.warn("[auth] could not read the pending email step", err);
+        if (emailRoute) setResumeChecked(true);
+      });
     return () => {
       cancelled = true;
     };
   }, []);
 
   function openEmailMode() {
+    if (busyRef.current || emailOpenedRef.current) return;
+    emailOpenedRef.current = true;
     setError(null);
     setRetired(false);
-    setMode("email");
+    router.push({ pathname: "/auth/email", params: { redirected: redirected ? "1" : "0" } });
   }
 
   // Back to the provider choices. Only ever from a first step: Back leaves a
@@ -204,10 +237,7 @@ export function AuthScreen({
   // never touches a pending code, not even Account settings' own.
   function leaveEmailMode() {
     Keyboard.dismiss();
-    setResume(null);
-    setMode("providers");
-    setError(null);
-    setRetired(false);
+    router.dismissTo(providerRoute);
   }
 
   // One step back through the email flow, then out of it.
@@ -217,16 +247,34 @@ export function AuthScreen({
   }
 
   // Android's back button walks the email flow instead of leaving the screen.
-  useEffect(() => {
-    if (mode !== "email") return;
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-      if (!busyRef.current) emailBack();
-      return true;
-    });
-    return () => sub.remove();
-    // emailBack reads a ref and calls state setters, which are stable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
+  useFocusEffect(
+    useCallback(() => {
+      focusedRef.current = true;
+      if (!emailRoute) {
+        emailOpenedRef.current = false;
+        return () => {
+          focusedRef.current = false;
+        };
+      }
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (!busyRef.current && resumeChecked) emailBack();
+        return true;
+      });
+      return () => {
+        focusedRef.current = false;
+        sub.remove();
+      };
+      // emailBack reads a ref and the screen's stable context.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [emailRoute, redirected, resumeChecked]),
+  );
+
+  function replaceAuthRoute(destination: Href) {
+    // Replace the selector too, as the original single auth route did. Leaving
+    // it below a successful invite/restore would make Back reopen sign-in.
+    if (emailRoute) router.dismissTo(providerRoute);
+    router.replace(destination);
+  }
 
   // Post-sign-in navigation shared by every sign-in: stash the returned
   // profile for the "Signed in as X" subtitle, then honor any pending pair /
@@ -264,12 +312,12 @@ export function AuthScreen({
         const pendingInvite = await getAppMeta("pending_invite_token");
         if (pendingPerson) {
           await setAppMeta("pending_tab_person", "");
-          router.replace({ pathname: "/person/[id]", params: { id: pendingPerson } });
+          replaceAuthRoute({ pathname: "/person/[id]", params: { id: pendingPerson } });
         } else if (pendingTab) {
-          router.replace({ pathname: "/t/[token]", params: { token: pendingTab } });
+          replaceAuthRoute({ pathname: "/t/[token]", params: { token: pendingTab } });
         } else if (pendingInvite) {
           await setAppMeta("pending_invite_token", "");
-          router.replace({ pathname: "/invite/[token]", params: { token: pendingInvite } });
+          replaceAuthRoute({ pathname: "/invite/[token]", params: { token: pendingInvite } });
         } else {
           // Back DOWN to the home screen this sign-in was opened from (the
           // profile sheet pushes /sign-in over it); replace would stack a
@@ -280,7 +328,7 @@ export function AuthScreen({
       }
       // Only a genuinely new account without a local ledger needs setup.
       await setAppMeta("onboarding_step", "profile");
-      router.replace("/onboarding/profile");
+      replaceAuthRoute("/onboarding/profile");
       return;
     }
     // Phase 5.1: if the user signed in BECAUSE a kaata://pair/<token>
@@ -300,12 +348,12 @@ export function AuthScreen({
     const pendingPerson = await getAppMeta("pending_tab_person");
     if (pendingPerson && (await getLocalSelf())) {
       await setAppMeta("pending_tab_person", "");
-      router.replace({ pathname: "/person/[id]", params: { id: pendingPerson } });
+      replaceAuthRoute({ pathname: "/person/[id]", params: { id: pendingPerson } });
       return;
     }
     const pendingTab = await getAppMeta("pending_tab_token");
     if (pendingTab && (await getLocalSelf())) {
-      router.replace({ pathname: "/t/[token]", params: { token: pendingTab } });
+      replaceAuthRoute({ pathname: "/t/[token]", params: { token: pendingTab } });
       return;
     }
     const pendingPair = await getAppMeta("pending_pair_deeplink");
@@ -319,14 +367,14 @@ export function AuthScreen({
         const url = new URL(pendingPair);
         const token = url.pathname.replace(/^\//, "") || "x";
         const p = url.searchParams.get("p") ?? "";
-        router.replace({
+        replaceAuthRoute({
           pathname: "/pair/[token]",
           params: { token, p },
         });
       } catch {
         // Malformed stash — clear, fall through to restore probe so the
         // user isn't stranded.
-        router.replace("/onboarding/restore");
+        replaceAuthRoute("/onboarding/restore");
       }
       return;
     }
@@ -339,7 +387,7 @@ export function AuthScreen({
     if (pendingInvite) {
       await setAppMeta("pending_invite_token", "");
       await setAppMeta("onboarding_step", "profile");
-      router.replace({ pathname: "/invite/[token]", params: { token: pendingInvite } });
+      replaceAuthRoute({ pathname: "/invite/[token]", params: { token: pendingInvite } });
       return;
     }
     // Phase 3: route through the restore probe instead of jumping
@@ -349,11 +397,10 @@ export function AuthScreen({
     // stays at 'profile' so a force-quit during the probe still
     // resumes the flow correctly.
     await setAppMeta("onboarding_step", "profile");
-    router.replace("/onboarding/restore");
+    replaceAuthRoute("/onboarding/restore");
   }
 
   const googleAvailable = isGoogleSignInAvailable();
-  const inEmailMode = mode === "email";
 
   function showSignInFailure(provider: "google" | "apple" | "email", err: unknown) {
     const failure = describeSignInFailure(err);
@@ -434,7 +481,7 @@ export function AuthScreen({
     setBusy("reset");
     try {
       await resetRetiredInstall();
-      router.replace("/onboarding");
+      replaceAuthRoute("/onboarding");
     } catch (err) {
       console.warn("[onboarding/auth] resetRetiredInstall failed", err);
       setError(t("account.retired.failed"));
@@ -453,7 +500,7 @@ export function AuthScreen({
     await setAppMeta("onboarding_pending_email", "");
     await setAppMeta("onboarding_pending_phone", "");
     await setAppMeta("onboarding_step", "profile");
-    router.replace("/onboarding/profile");
+    replaceAuthRoute("/onboarding/profile");
   }
 
   // The last failure, under whichever sign-in produced it, plus the retired
@@ -577,7 +624,7 @@ export function AuthScreen({
         ]}
       >
         <View style={[styles.cardIcon, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}>
-          <Ionicons name="mail-outline" size={24} color={colors.brandPrimary} />
+          <Ionicons name="mail-outline" size={24} color={colors.actionPrimary} />
         </View>
         <Text style={[styles.cardTitle, styles.cardTitleKaata, textDir(isRTL)]}>
           {t("onboardingMode.email.title")}
@@ -630,11 +677,18 @@ export function AuthScreen({
 
   return (
     <SafeAreaView style={styles.container}>
+      {emailRoute ? (
+        <Stack.Screen
+          options={{
+            gestureEnabled: providerReady && resumeChecked && busy === null && !emailCanGoBack,
+          }}
+        />
+      ) : null}
       {redirected || inEmailMode ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t("common.back")}
-          disabled={busy !== null}
+          disabled={busy !== null || !resumeChecked}
           onPress={() =>
             inEmailMode ? emailBack() : router.canGoBack() ? router.back() : router.replace("/")
           }
@@ -668,24 +722,29 @@ export function AuthScreen({
           showsVerticalScrollIndicator={false}
         >
           {inEmailMode ? (
-            <EmailAuthFlow
-              key={resume ? `resume-${resume.sentAt}` : "fresh"}
-              entry={redirected ? "signin" : "signup"}
-              resume={resume}
-              isRTL={isRTL}
-              busy={busy !== null}
-              googleAvailable={googleAvailable && !IS_EXPO_GO}
-              focusInput={focusInput}
-              blurInput={blurInput}
-              run={runEmail}
-              onSignedIn={(user) => completeSignIn(user, "email")}
-              onFailure={(err) => showSignInFailure("email", err)}
-              onGoogle={onSignIn}
-              onExit={leaveEmailMode}
-              promptDifferentAccount={promptDifferentAccount}
-              notice={failureNotice}
-              backRef={emailBackRef}
-            />
+            resumeChecked ? (
+              <EmailAuthFlow
+                key={resume ? `resume-${resume.sentAt}` : "fresh"}
+                entry={redirected ? "signin" : "signup"}
+                resume={resume}
+                isRTL={isRTL}
+                busy={busy !== null}
+                googleAvailable={googleAvailable && !IS_EXPO_GO}
+                focusInput={focusInput}
+                blurInput={blurInput}
+                run={runEmail}
+                onSignedIn={(user) => completeSignIn(user, "email")}
+                onFailure={(err) => showSignInFailure("email", err)}
+                onGoogle={onSignIn}
+                onExit={leaveEmailMode}
+                promptDifferentAccount={promptDifferentAccount}
+                notice={failureNotice}
+                backRef={emailBackRef}
+                onCanStepBackChange={setEmailCanGoBack}
+              />
+            ) : (
+              <ActivityIndicator color={colors.actionPrimary} />
+            )
           ) : (
             providerChoices
           )}
@@ -809,7 +868,7 @@ const styles = StyleSheet.create({
   // shadow), a step quieter than the two branded cards above it.
   cardOutlined: {
     backgroundColor: colors.bgDefault,
-    borderColor: colors.brandPrimary,
+    borderColor: colors.actionPrimary,
   },
   // Google's brand guidance puts the multicolor G on a LIGHT surface — and
   // the white card is also what visually separates it from the black Apple
@@ -844,7 +903,7 @@ const styles = StyleSheet.create({
     color: colors.textEmphasis,
   },
   cardTitlePrimary: { color: colors.textInverted },
-  cardTitleKaata: { color: colors.brandPrimary },
+  cardTitleKaata: { color: colors.actionPrimary },
   errorText: {
     fontSize: 12,
     fontFamily: fonts.sansMedium,

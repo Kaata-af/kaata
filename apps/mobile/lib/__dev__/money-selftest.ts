@@ -1153,6 +1153,38 @@ async function main(): Promise<void> {
     }
     assert.ok(faEvidence.includes("نمبر حساب بررسی‌کننده: "), "reference labels use نمبر");
     assert.ok(!faEvidence.includes("شناسه"), "no Iranian-register شناسه in a Dari document");
+
+    const qamariStatement = {
+      ...namedStatement,
+      calendar: "qamari" as const,
+      generatedAtMs: new Date(2026, 7, 5, 12).getTime(),
+    };
+    await pdf.renderPersonStatementPdf(qamariStatement, "fixture-qamari-en.pdf");
+    assert.ok(html.at(-1)!.includes("20 Safar 1448"), "PDF issue date uses Qamari in English");
+    assert.ok(
+      html
+        .at(-1)!
+        .includes(
+          `Cleared by ${isolate("عبدالله احمدزی")} on ${isolate(formatSettlementDate(10_000, "en", "qamari"))}`,
+        ),
+      "PDF settlement dates use the same selected calendar",
+    );
+    await pdf.renderPersonStatementPdf(
+      { ...qamariStatement, locale: "fa" },
+      "fixture-qamari-fa.pdf",
+    );
+    assert.ok(html.at(-1)!.includes("۲۰ صفر ۱۴۴۸"), "Qamari PDF follows the document language");
+    const qamariCsv = csvTable(csv.buildPersonCsv(qamariStatement));
+    assert.deepEqual(
+      qamariCsv.row("current-clearance").slice(0, 2),
+      enClearCsv.row("current-clearance").slice(0, 2),
+      "CSV's existing Gregorian and Shamsi machine columns do not change",
+    );
+    assert.equal(
+      qamariCsv.row("current-clearance")[5],
+      `Cleared by عبدالله احمدزی on ${formatSettlementDate(10_000, "en", "qamari")}`,
+      "CSV prose dates respect Qamari",
+    );
   });
 
   console.log(`\n${passed} money regression groups passed.`);

@@ -102,6 +102,8 @@ export type EmailAuthFlowProps = {
   notice?: ReactNode;
   /** Set to this flow's one-step back; it answers false at the first step. */
   backRef: { current: (() => boolean) | null };
+  /** Native Back can leave the email route only at its first step. */
+  onCanStepBackChange?: (canGoBack: boolean) => void;
 };
 
 function initialHistory(
@@ -189,6 +191,10 @@ export function EmailAuthFlow(props: EmailAuthFlowProps) {
   useEffect(() => {
     props.backRef.current = stepBack;
   });
+
+  useEffect(() => {
+    props.onCanStepBackChange?.(history.length > 1);
+  }, [history.length, props.onCanStepBackChange]);
 
   function clearMessages() {
     setErrors({});

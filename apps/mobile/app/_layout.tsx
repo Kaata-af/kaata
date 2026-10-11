@@ -886,6 +886,10 @@ export default function RootLayout() {
                   on the profile screen. */}
               <Stack.Screen name="onboarding/language" options={{ gestureEnabled: false }} />
               <Stack.Screen name="sign-in" />
+              {/* Email sits above its provider selector, making native Back
+                  return to the choices. The form controls gestures while busy
+                  or on a deeper code/reset step that must be cancelled first. */}
+              <Stack.Screen name="auth/email" />
               <Stack.Screen name="onboarding/auth" options={{ gestureEnabled: false }} />
               {/* Phase 3 restore probe. Sits between auth and profile —
                   the screen fetches the snapshot/v0.4-backup endpoints

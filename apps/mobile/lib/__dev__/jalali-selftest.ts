@@ -27,7 +27,13 @@
 // 21 March 2025 for 1404, and shifts to 20 March 2028 for 1407 because 1406
 // is a leap year. If a refactor moves those, it broke the calendar.
 
-import { AFGHAN_MONTHS, AFGHAN_MONTHS_LATIN, formatCalendarDate, toJalali } from "../jalali";
+import {
+  AFGHAN_MONTHS,
+  AFGHAN_MONTHS_LATIN,
+  formatCalendarDate,
+  toJalali,
+  toQamari,
+} from "../jalali";
 
 type TestResult = { name: string; ok: boolean; err?: string };
 const results: TestResult[] = [];
@@ -153,6 +159,50 @@ test("a year outside the algorithm's range falls back to Gregorian, not a throw"
   const out = formatCalendarDate(far, "en", "jalali");
   if (out.length === 0) throw new Error("expected a Gregorian fallback, got empty");
   eq(out, "1 Jun 9999", "fallback shape");
+});
+
+// Islamic civil anchors, checked against Unicode ICU's named islamic-civil
+// calendar rather than the differing observational/Umm al-Qura conventions.
+const QAMARI_GOLDEN = [
+  { ms: at(2026, 8, 5), en: "20 Safar 1448", fa: "۲۰ صفر ۱۴۴۸" },
+  { ms: at(2026, 3, 21), en: "2 Shawwal 1447", fa: "۲ شوال ۱۴۴۷" },
+  { ms: at(2026, 12, 31), en: "21 Rajab 1448", fa: "۲۱ رجب ۱۴۴۸" },
+  { ms: at(2026, 6, 16), en: "30 Dhu al-Hijjah 1447", fa: "۳۰ ذوالحجه ۱۴۴۷" },
+  { ms: at(2026, 6, 17), en: "1 Muharram 1448", fa: "۱ محرم ۱۴۴۸" },
+  { ms: at(2024, 7, 7), en: "30 Dhu al-Hijjah 1445", fa: "۳۰ ذوالحجه ۱۴۴۵" },
+  { ms: at(2024, 7, 8), en: "1 Muharram 1446", fa: "۱ محرم ۱۴۴۶" },
+];
+for (const g of QAMARI_GOLDEN) {
+  test(`${new Date(g.ms).toDateString()} · qamari + en`, () =>
+    eq(formatCalendarDate(g.ms, "en", "qamari"), g.en, "out"));
+  test(`${new Date(g.ms).toDateString()} · qamari + fa`, () =>
+    eq(formatCalendarDate(g.ms, "fa", "qamari"), g.fa, "out"));
+}
+
+test("Qamari Friday epoch and invalid/pre-epoch fallback", () => {
+  eq(JSON.stringify(toQamari(at(622, 7, 19))), JSON.stringify({ hy: 1, hm: 1, hd: 1 }), "epoch");
+  eq(formatCalendarDate(at(622, 7, 18), "en", "qamari"), "18 Jul 622", "pre-epoch");
+  eq(formatCalendarDate(Number.NaN, "en", "qamari"), "", "invalid timestamp");
+  eq(formatCalendarDate(Number.POSITIVE_INFINITY, "fa", "qamari"), "", "infinite timestamp");
+});
+
+test("Qamari arithmetic agrees with ICU across a full 30-year cycle", () => {
+  // Intl is only an independent TEST oracle. Production never depends on it.
+  const oracle = new Intl.DateTimeFormat("en-US-u-ca-islamic-civil", {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  });
+  const d = new Date(at(2023, 7, 19)); // 1 Muharram 1445
+  for (let n = 0; n < 10631; n++) {
+    const parts = oracle.formatToParts(d);
+    const get = (name: string) => Number(parts.find((p) => p.type === name)?.value);
+    const q = toQamari(d.getTime());
+    eq(`${q.hy}/${q.hm}/${q.hd}`, `${get("year")}/${get("month")}/${get("day")}`, d.toDateString());
+    // Civil date increments also cover daylight-saving transitions on hosts
+    // with DST. Adding fixed milliseconds would silently skip/duplicate days.
+    d.setDate(d.getDate() + 1);
+  }
 });
 
 // ---- report ---------------------------------------------------------------

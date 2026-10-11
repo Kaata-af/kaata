@@ -1654,7 +1654,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingVertical: 12,
     borderRadius: 8,
-    backgroundColor: colors.brandPrimary,
+    backgroundColor: colors.actionPrimary,
   },
   loadErrorRetryText: {
     fontSize: 14,
@@ -1728,7 +1728,7 @@ const styles = StyleSheet.create({
     // The BUTTON stays a circle — only the mark inside it changed. Circle =
     // own size / 2, not a literal 26 (tokens.ts rule 3). Same pixels.
     borderRadius: FAB_SIZE / 2,
-    backgroundColor: colors.brandPrimary,
+    backgroundColor: colors.actionPrimary,
     alignItems: "center",
     justifyContent: "center",
   },

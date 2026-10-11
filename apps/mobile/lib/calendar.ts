@@ -1,4 +1,4 @@
-// Calendar system preference — Gregorian vs Afghan Solar Hijri (Jalali).
+// Calendar preference — Gregorian, Afghan Solar Hijri, or lunar Hijri (Qamari).
 //
 // WHY THIS EXISTS. Before this module the calendar was a side effect of
 // LANGUAGE: `formatSettlementDate(ms, locale)` and the bill renderers all
@@ -19,10 +19,11 @@
 //                    ENGLISH UI        PERSIAN UI
 //     Gregorian      5 Aug 2026        ۵ اگست ۲۰۲۶
 //     Solar Hijri    5 Asad 1405       ۵ اسد ۱۴۰۵
+//     Lunar Hijri    20 Safar 1448     ۲۰ صفر ۱۴۴۸
 //
 // So picking Solar Hijri in an English UI gives transliterated Afghan month
 // names in Latin digits — readable, not a wall of Arabic script. See
-// lib/jalali.ts for the four name tables this implies.
+// lib/jalali.ts for the calendar month tables in both scripts.
 //
 // THE DEFAULT IS 'auto', WHICH IS NOT A COP-OUT. It resolves to jalali when
 // the app language is Persian and gregorian otherwise — exactly the behaviour
@@ -39,7 +40,7 @@ import { getLocale, subscribeLocale } from "./i18n";
 import { useEffect, useState } from "react";
 
 /** The resolved calendar actually used for rendering. */
-export type Calendar = "gregorian" | "jalali";
+export type Calendar = "gregorian" | "jalali" | "qamari";
 
 /** What the user picked. 'auto' follows the app language. */
 export type CalendarPref = "auto" | Calendar;
@@ -56,7 +57,9 @@ let currentPref: CalendarPref = DEFAULT_CALENDAR_PREF;
 
 /** Narrow an untrusted string (app_meta row, old build, manual edit). */
 export function parseCalendarPref(raw: string | null | undefined): CalendarPref {
-  return raw === "gregorian" || raw === "jalali" || raw === "auto" ? raw : DEFAULT_CALENDAR_PREF;
+  return raw === "gregorian" || raw === "jalali" || raw === "qamari" || raw === "auto"
+    ? raw
+    : DEFAULT_CALENDAR_PREF;
 }
 
 export function getCalendarPref(): CalendarPref {

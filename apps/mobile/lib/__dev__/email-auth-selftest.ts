@@ -102,7 +102,8 @@ const sqlite = {
 
 function metaGet(key: string): string | null {
   const row = fixture.prepare("SELECT value FROM app_meta WHERE key = ?").get(key) as
-    { value: string } | undefined;
+    | { value: string }
+    | undefined;
   return row?.value ?? null;
 }
 
@@ -2999,7 +3000,12 @@ let screenPending: unknown = null;
 let screenRoutes: unknown[] = [];
 let platform = "android";
 const screen = load<{
-  AuthScreen: (props: { redirected?: boolean; initialMode?: "providers" | "email" }) => unknown;
+  AuthScreen: (props: {
+    redirected?: boolean;
+    initialMode?: "providers" | "email";
+    emailRoute?: boolean;
+    providerReady?: boolean;
+  }) => unknown;
 }>("../../app/onboarding/auth", {
   "react/jsx-runtime": jsxRuntime,
   react: screenHooks.react,
@@ -3026,7 +3032,11 @@ const screen = load<{
   "@expo/vector-icons": { Ionicons: "Icon" },
   "expo-constants": { __esModule: true, default: { executionEnvironment: "standalone" } },
   "expo-router": {
+    Stack: { Screen: "StackScreen" },
+    useIsFocused: () => true,
+    useFocusEffect: (effect: () => void) => screenHooks.react.useEffect(effect, [effect]),
     useRouter: () => ({
+      push: (r: unknown) => screenRoutes.push({ push: r }),
       replace: (r: unknown) => screenRoutes.push(r),
       dismissTo: (r: unknown) => screenRoutes.push({ dismissTo: r }),
       back: () => screenRoutes.push("back"),
@@ -3082,7 +3092,12 @@ const screen = load<{
   "../../lib/tokens": { icon: {}, radius: {}, TOUCH_MIN: 44, typography: {} },
 });
 
-let screenProps: { redirected?: boolean; initialMode?: "providers" | "email" } = {};
+let screenProps: {
+  redirected?: boolean;
+  initialMode?: "providers" | "email";
+  emailRoute?: boolean;
+  providerReady?: boolean;
+} = {};
 const renderScreen = () => screenHooks.render(() => screen.AuthScreen(screenProps));
 
 function mountScreen(props: typeof screenProps = {}, pending: unknown = null): Node[] {
@@ -3095,6 +3110,11 @@ function mountScreen(props: typeof screenProps = {}, pending: unknown = null): N
 }
 
 const flowIn = (tree: Node[]) => tree.find((n) => n.type === "EmailAuthFlow");
+const mountEmailScreen = async (props: typeof screenProps = {}, pending: unknown = null) => {
+  mountScreen({ ...props, emailRoute: true }, pending);
+  await settle();
+  return renderScreen();
+};
 
 componentTest("screen: Continue with email under the two cards, on both platforms", async () => {
   for (const os of ["android", "ios"]) {
@@ -3108,6 +3128,12 @@ componentTest("screen: Continue with email under the two cards, on both platform
     assert.ok(email > pressables.indexOf("onboardingMode.google.title"), `${os}: under Google`);
     assert.ok(email > pressables.indexOf("onboardingMode.apple.title"), `${os}: under Apple`);
     await control(tree, "onboardingMode.email.title")?.props.onPress();
+    assert.deepEqual(
+      screenRoutes,
+      [{ push: { pathname: "/auth/email", params: { redirected: "0" } } }],
+      "the provider choices stay beneath a native email screen",
+    );
+    tree = await mountEmailScreen();
     tree = renderScreen();
     const flow = flowIn(tree);
     assert.ok(flow, `${os}: the email flow`);
@@ -3120,25 +3146,44 @@ componentTest("screen: Continue with email under the two cards, on both platform
     assert.equal(control(tree, "onboardingMode.google.title"), undefined, "the cards make way");
   }
   platform = "android";
-  // /sign-in?mode=email opens straight on it, on the sign-in step.
-  const tree = mountScreen({ redirected: true, initialMode: "email" });
+  // Legacy /sign-in?mode=email preserves the selector before opening the form.
+  mountScreen({ redirected: true, initialMode: "email" });
+  assert.deepEqual(screenRoutes, [
+    { push: { pathname: "/auth/email", params: { redirected: "1" } } },
+  ]);
+  const tree = await mountEmailScreen({ redirected: true });
   assert.equal(flowIn(tree)?.props.entry, "signin");
+  assert.equal(tree.find((n) => n.type === "StackScreen")?.props.options.gestureEnabled, true);
 });
 
 componentTest("screen: Back, hardware or on-screen, walks the flow, then out of it", async () => {
-  let tree = mountScreen({ redirected: true, initialMode: "email" });
+  let tree = await mountEmailScreen({ redirected: true });
   let steps = 1;
   flowIn(tree)!.props.backRef.current = () => steps-- > 0;
+  flowIn(tree)!.props.onCanStepBackChange(true);
+  tree = renderScreen();
+  assert.equal(
+    tree.find((n) => n.type === "StackScreen")?.props.options.gestureEnabled,
+    false,
+    "a native swipe cannot bypass code cancellation or the form's intermediate steps",
+  );
   assert.equal(backHandlers.length, 1, "hardware back is taken in email mode");
   assert.equal(backHandlers[0](), true);
+  flowIn(tree)!.props.onCanStepBackChange(false);
   tree = renderScreen();
   assert.ok(flowIn(tree), "one step back inside the flow");
+  assert.equal(
+    tree.find((n) => n.type === "StackScreen")?.props.options.gestureEnabled,
+    true,
+    "the first form can swipe back to its selector again",
+  );
   await control(tree, "common.back")?.props.onPress();
-  tree = renderScreen();
-  assert.equal(flowIn(tree), undefined, "out of it, to the cards");
+  assert.deepEqual(screenRoutes, [{ dismissTo: "/sign-in" }], "return to the selector route");
+  tree = mountScreen({ redirected: true });
+  assert.equal(flowIn(tree), undefined, "the selector shows its cards");
   assert.ok(control(tree, "onboardingMode.google.title"));
   assert.equal(backHandlers.length, 0, "and Back belongs to the router again");
-  assert.deepEqual(screenRoutes, [], "the screen itself stayed");
+  assert.deepEqual(screenRoutes, []);
 });
 
 componentTest(
@@ -3146,6 +3191,19 @@ componentTest(
   async () => {
     const pending = { purpose: "signup", email: "a@example.com", sentAt: Date.now() };
     mountScreen({}, pending);
+    await settle();
+    assert.deepEqual(
+      screenRoutes,
+      [{ push: { pathname: "/auth/email", params: { redirected: "0" } } }],
+      "cold resume keeps the selector beneath the code form",
+    );
+    let loading = mountScreen({ emailRoute: true }, pending);
+    assert.equal(flowIn(loading), undefined, "read the pending step before mounting fresh fields");
+    assert.equal(
+      loading.find((n) => n.type === "StackScreen")?.props.options.gestureEnabled,
+      false,
+      "a cold code resume never permits a first-frame native pop",
+    );
     await settle();
     let tree = renderScreen();
     assert.deepEqual(flowIn(tree)?.props.resume, pending);
@@ -3157,14 +3215,17 @@ componentTest(
 );
 
 componentTest("screen: the flow runs through the screen's gate and outcome", async () => {
-  let tree = mountScreen({}, null);
-  await control(tree, "onboardingMode.email.title")?.props.onPress();
-  tree = renderScreen();
+  let tree = await mountEmailScreen();
   let flow = flowIn(tree)!;
   let release!: () => void;
   const running = flow.props.run(() => new Promise<void>((done) => (release = done)));
   tree = renderScreen();
   assert.equal(flowIn(tree)?.props.busy, true, "one sign-in at a time");
+  assert.equal(
+    tree.find((n) => n.type === "StackScreen")?.props.options.gestureEnabled,
+    false,
+    "native swipe cannot leave during authentication",
+  );
   release();
   await running;
   tree = renderScreen();
@@ -3192,7 +3253,11 @@ componentTest("screen: the flow runs through the screen's gate and outcome", asy
   );
   // Success goes where every sign-in goes.
   await flowIn(tree)?.props.onSignedIn({ email: "a@example.com" });
-  assert.deepEqual(screenRoutes, ["/onboarding/restore"]);
+  assert.deepEqual(
+    screenRoutes,
+    [{ dismissTo: "/onboarding/auth" }, "/onboarding/restore"],
+    "success replaces the provider selector too, preserving the original history",
+  );
 });
 
 componentTest("screen: the different-account question names both accounts, isolated", async () => {
@@ -3213,7 +3278,7 @@ componentTest("screen: the different-account question names both accounts, isola
   tree = renderScreen();
   assert.equal(screenRoutes.length, 0, "cancelled: nowhere");
   await control(tree, "onboardingMode.email.title")?.props.onPress();
-  tree = renderScreen();
+  tree = await mountEmailScreen();
   assert.equal(
     typeof flowIn(tree)?.props.promptDifferentAccount,
     "function",

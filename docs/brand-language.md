@@ -7,19 +7,27 @@ mirror its values explicitly, so update those styles when changing the palette.
 
 | Color     | Value     | Role                                                                              |
 | --------- | --------- | --------------------------------------------------------------------------------- |
-| Aubergine | `#4A2A50` | Signature: primary buttons, selected tabs, logo treatments, occasional headlines. |
+| Aubergine | `#4A2A50` | Signature: logo, onboarding, occasional app accents, marketing actions/headlines. |
 | Saffron   | `#ECB84A` | Small app highlights; larger social-post and flyer backgrounds.                   |
 | Ivory     | `#F9F2E7` | Warm marketing, onboarding and selected app surfaces.                             |
-| Charcoal  | `#29222B` | Everyday text and numbers.                                                        |
+| Charcoal  | `#29222B` | Brand copy and numbers; everyday mobile text uses neutral black/gray.             |
 | White     | `#FFFFFF` | Ledger rows and detailed reading surfaces.                                        |
 
 ## Product use
 
-Use Aubergine with white text for primary actions and selections. Use Charcoal
-on Saffron or Ivory. Keep detailed ledger rows white and avoid decorating
-individual amounts with brand colors. Secondary text and borders use restrained
-plum/warm neutrals derived from this palette; do not give low-contrast Saffron
-the job of small text on white.
+Matee refined the mobile direction on October 11 after trying the first palette
+pass: the everyday app should mainly use black, white and neutral grays, with
+brand colors appearing sparingly. The add/find home button is black again.
+Primary buttons, selected tabs, confirmation actions and routine selection
+markers use `colors.actionPrimary` (black) with white text where filled. App
+surfaces, text and separators use neutral grays; detailed ledger rows stay white.
+
+`colors.brandPrimary` remains Aubergine. Keep it for identity, the first-run
+journey, occasional attention cues and exported material. Ivory stays available
+for onboarding and an occasional warm highlight; Saffron stays a small accent.
+Use dark ink on Saffron or Ivory and avoid giving low-contrast Saffron the job of
+small text on white. This mobile refinement does not change the canonical brand
+palette or the web, social and flyer source treatments.
 
 The money-direction colors remain emerald for collect/received and garnet for
 pay/gave. They carry a financial meaning. Pending retains its darker amber dot

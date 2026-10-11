@@ -1,9 +1,10 @@
 import brand from "../../_shared/brand-palette.json";
 
-// Kaata's shared brand palette. Brand chrome never replaces the colors that
-// carry ledger meaning: emerald/garnet direction, pending amber and danger.
-// Reading surfaces remain white; Ivory is reserved for warm selected surfaces.
-// Saffron is a highlight/background with Charcoal ink, never small light text.
+// Everyday app chrome is neutral: white reading surfaces, gray separators and
+// black actions. Brand colors stay available for the first-run journey, logo,
+// occasional highlights and exported/marketing materials. They never replace
+// emerald/garnet direction, pending amber or danger. Saffron is a background
+// highlight with dark ink, never small light text.
 //
 // Khatabook flow-direction convention: collect = money TOWARD you (the
 // to-collect balance + "I received" entries); pay = money AWAY from you (the
@@ -14,28 +15,30 @@ export const colors = {
   brandPrimary: brand.aubergine,
   brandAccent: brand.saffron,
   bgWarm: brand.ivory,
-  // True black is a provider/camera requirement, not Kaata's primary color.
+  // Keep action intent separate from brand identity so ordinary controls do
+  // not become purple whenever the brand palette is used elsewhere.
+  actionPrimary: "#000000",
   providerApple: "#000000",
-  pressedOverlay: `${brand.charcoal}08`,
+  pressedOverlay: "#00000008",
   // Linked two-party account marker; never used for money direction.
   sharedAccount: "#2563EB",
   // Backgrounds
   bgDefault: brand.white,
-  bgMuted: "#FAF7F2",
-  bgSubtle: "#F3EEE8",
-  bgInverted: brand.charcoal,
+  bgMuted: "#F7F7F7",
+  bgSubtle: "#EFEFEF",
+  bgInverted: "#000000",
 
   // Text
-  textEmphasis: brand.charcoal,
-  textDefault: brand.charcoal,
-  textSubtle: "#706573",
-  textMuted: "#756B78",
+  textEmphasis: "#171717",
+  textDefault: "#292929",
+  textSubtle: "#616161",
+  textMuted: "#6B6B6B",
   textInverted: brand.white,
 
   // Borders — hairline everywhere
-  borderSubtle: "#F3EEE8",
-  borderDefault: "#E4DCE3",
-  borderEmphasis: "#D2C6D0",
+  borderSubtle: "#EFEFEF",
+  borderDefault: "#E2E2E2",
+  borderEmphasis: "#CFCFCF",
 
   // Direction / semantic. collect = money TOWARD you (emerald), pay = money
   // AWAY from you (garnet). *Bg is the soft tint behind chips + arrow chips;
@@ -51,7 +54,7 @@ export const colors = {
   // Review state of a shared tally, independent of the money-direction colors
   // above. Only pending gets a 6px dot (closed or opened); all opened states
   // retain a neutral status pill. Never a row tint or a button colour.
-  // Accept uses the Aubergine primary, independent of money direction.
+  // Accept uses the neutral primary action, independent of money direction.
   // The darker pending amber retains contrast at this small size; brand
   // Saffron is too light on white for a status cue. Pinned by selftest:tally-ui.
   reviewPending: "#D29A00",

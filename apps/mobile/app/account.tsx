@@ -100,7 +100,7 @@ const MESSAGE_LANGUAGE_OPTIONS: ReadonlyArray<{ value: ShareLangPref; labelKey: 
 ];
 
 // Calendar system. 'auto' first because it is the default and reproduces the
-// pre-setting behaviour (Solar Hijri when the app language is Dari); the two
+// pre-setting behaviour (Solar Hijri when the app language is Dari); the three
 // explicit picks follow in the order a shopkeeper is likeliest to want them.
 // Independent of language on purpose — Dari + Gregorian is a real combination
 // that could not be expressed before. See lib/calendar.ts.
@@ -108,6 +108,7 @@ const CALENDAR_OPTIONS: ReadonlyArray<{ value: CalendarPref; labelKey: string }>
   { value: "auto", labelKey: "settings.calendar.option.auto" },
   { value: "gregorian", labelKey: "settings.calendar.option.gregorian" },
   { value: "jalali", labelKey: "settings.calendar.option.jalali" },
+  { value: "qamari", labelKey: "settings.calendar.option.qamari" },
 ];
 
 // Public privacy policy — the same page linked from the web footer. Both stores
@@ -792,6 +793,7 @@ export default function AccountScreen() {
           // "Solar Hijri · ۵ اسد ۱۴۰۵" — the name alone doesn't tell a
           // shopkeeper what they're choosing; the worked example does.
           label: `${t(o.labelKey as Parameters<typeof t>[0])} · ${calendarExample(o.value)}`,
+          hint: o.value === "qamari" ? t("settings.calendar.hint.qamari") : undefined,
         }))}
         selected={calendarPref}
         onSelect={(k) => pickCalendar(k as CalendarPref)}

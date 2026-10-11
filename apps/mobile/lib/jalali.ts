@@ -1,4 +1,4 @@
-// Date rendering for both calendar systems the app supports.
+// Date rendering for the three calendar systems the app supports.
 //
 // Solar Hijri uses AFGHAN month names — the zodiac set (حمل … حوت), not the
 // Iranian names (فروردین …) that ICU ships for `fa`. That distinction is the
@@ -13,19 +13,21 @@
 // The core is the standard jalaali-js algorithm (MIT, Behrang Noruzi Niya).
 //
 // ---------------------------------------------------------------------------
-// THE FOUR COMBINATIONS. Calendar picks which months exist; language picks how
+// THE SIX COMBINATIONS. Calendar picks which months exist; language picks how
 // they are written (see lib/calendar.ts for the rationale):
 //
 //                    ENGLISH UI        PERSIAN UI
 //     Gregorian      5 Aug 2026        ۵ اگست ۲۰۲۶
 //     Solar Hijri    5 Asad 1405       ۵ اسد ۱۴۰۵
+//     Lunar Hijri    20 Safar 1448     ۲۰ صفر ۱۴۴۸
 //
-// All four are DAY-FIRST and structurally identical, which is why the English
+// All six are DAY-FIRST and structurally identical, which is why the English
 // Gregorian form is "5 Aug 2026" and not the US "Aug 5, 2026" this file used
 // to emit from toLocaleDateString. Two English date shapes existed before
 // (that one, plus format.ts's own hand-rolled "5 Aug 2026"); they are now one.
 //
-// The web/SSR bill pages render the same four combinations via ICU
+// The web/SSR bill pages render Solar Hijri via ICU and Qamari with the same
+// deterministic arithmetic as this file
 // (CustomerView.tsx fmtDate, templates.go fmtDate) — keep the three in visual
 // lockstep, and see __dev__/jalali-selftest.ts for the golden vectors that
 // catch a drift between them.
@@ -67,7 +69,7 @@ export const AFGHAN_MONTHS_LATIN = [
 ] as const;
 
 // Gregorian month abbreviations. The English set moved here from format.ts so
-// all four month tables live together and can't drift apart.
+// all month tables live together and can't drift apart.
 export const GREGORIAN_MONTHS_EN = [
   "Jan",
   "Feb",
@@ -102,6 +104,36 @@ export const GREGORIAN_MONTHS_FA = [
   "اکتوبر",
   "نومبر",
   "دسمبر",
+] as const;
+
+export const QAMARI_MONTHS_FA = [
+  "محرم",
+  "صفر",
+  "ربیع‌الاول",
+  "ربیع‌الثانی",
+  "جمادی‌الاول",
+  "جمادی‌الثانی",
+  "رجب",
+  "شعبان",
+  "رمضان",
+  "شوال",
+  "ذوالقعده",
+  "ذوالحجه",
+] as const;
+
+export const QAMARI_MONTHS_EN = [
+  "Muharram",
+  "Safar",
+  "Rabi al-Awwal",
+  "Rabi al-Thani",
+  "Jumada al-Awwal",
+  "Jumada al-Thani",
+  "Rajab",
+  "Sha'ban",
+  "Ramadan",
+  "Shawwal",
+  "Dhu al-Qadah",
+  "Dhu al-Hijjah",
 ] as const;
 
 const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
@@ -218,9 +250,30 @@ export function toJalali(ms: number): { jy: number; jm: number; jd: number } {
   return d2j(g2d(gy, dt.getMonth() + 1, dt.getDate()));
 }
 
+/** Lunar Hijri using the deterministic Islamic civil (tabular) calendar.
+ * Friday epoch = JDN 1948440 (Gregorian 19 July 622). Alternating 30/29-day
+ * months, with a leap day in Dhu al-Hijjah in 11 years of each 30-year cycle.
+ * This matches ICU's islamic-civil, not its observational or Umm al-Qura
+ * calendars: dates from local moon sighting can differ. Like the other choices,
+ * the date follows the phone's local civil day rather than sunset.
+ * Reference: https://github.com/unicode-org/icu/blob/main/icu4c/source/i18n/islamcal.cpp
+ * No platform Intl dependency, so a frozen bill stays consistent across OSes.
+ */
+export function toQamari(ms: number): { hy: number; hm: number; hd: number } {
+  const dt = new Date(ms);
+  if (!Number.isFinite(dt.getFullYear())) throw new Error(`unusable timestamp ${ms}`);
+  const days = g2d(dt.getFullYear(), dt.getMonth() + 1, dt.getDate()) - 1948440;
+  if (days < 0) throw new Error("date precedes the Qamari epoch");
+  const hy = Math.floor((30 * days + 10646) / 10631);
+  const yearStart = 354 * (hy - 1) + Math.floor((3 + 11 * hy) / 30);
+  const monthIndex = Math.min(11, Math.ceil((days - 29 - yearStart) / 29.5));
+  const monthStart = yearStart + Math.ceil(29.5 * monthIndex);
+  return { hy, hm: monthIndex + 1, hd: days - monthStart + 1 };
+}
+
 /**
  * THE absolute-date formatter. Calendar chooses the month set, locale chooses
- * the script and digits; the result is day-first in all four combinations.
+ * the script and digits; the result is day-first in all six combinations.
  *
  * Deliberately PURE — it reads no module state, so the Go port and the golden
  * vectors can exercise it directly. Callers that want the user's current
@@ -229,6 +282,16 @@ export function toJalali(ms: number): { jy: number; jm: number; jd: number } {
 export function formatCalendarDate(ms: number, locale: "en" | "fa", calendar: Calendar): string {
   const fa = locale === "fa";
   const num = (v: number): string => (fa ? faDigits(v) : String(v));
+
+  if (calendar === "qamari") {
+    try {
+      const { hy, hm, hd } = toQamari(ms);
+      return `${num(hd)} ${(fa ? QAMARI_MONTHS_FA : QAMARI_MONTHS_EN)[hm - 1]} ${num(hy)}`;
+    } catch {
+      // Invalid dates and dates before the Hijri epoch use the same safe
+      // Gregorian fallback as the Solar Hijri path below.
+    }
+  }
 
   if (calendar === "jalali") {
     try {

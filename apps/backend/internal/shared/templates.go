@@ -241,7 +241,7 @@ a{color:inherit;text-decoration:none;}
 (function(){
   var dir = {{.Direction}};
   var rtl = {{.RTL}};
-  var jalali = {{.Jalali}};
+  var calendar = {{.Calendar}};
   var apiBase = {{.APIBase}};
   // iOS Safari only fires :active when an ancestor has a touch listener; this
   // empty one lets every row show its tap-darken on iOS. Harmless elsewhere.
@@ -270,7 +270,7 @@ a{color:inherit;text-decoration:none;}
   document.getElementById('foottag').textContent = L.tag;
   function esc(s){var d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
   // Two INDEPENDENT axes, matching the app (lib/jalali.ts) and billDate:
-  //   jalali -> which calendar (which months exist)
+  //   calendar -> which months exist
   //   rtl    -> which script (Arabic-script names + Persian digits, or Latin)
   // One boolean used to drive both, so a Dari bill could not carry Gregorian
   // dates. Calendar conversion stays ICU's; only the vocabulary is ours —
@@ -279,19 +279,34 @@ a{color:inherit;text-decoration:none;}
   var AFML=['Hamal','Sawr','Jawza','Saratan','Asad','Sunbula','Mizan','Aqrab','Qaws','Jadi','Dalw','Hut'];
   var GME=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var GMF=['جنوری','فبروری','مارچ','اپریل','می','جون','جولای','اگست','سپتمبر','اکتوبر','نومبر','دسمبر'];
+  var QME=['Muharram','Safar','Rabi al-Awwal','Rabi al-Thani','Jumada al-Awwal','Jumada al-Thani','Rajab',"Sha'ban",'Ramadan','Shawwal','Dhu al-Qadah','Dhu al-Hijjah'];
+  var QMF=['محرم','صفر','ربیع‌الاول','ربیع‌الثانی','جمادی‌الاول','جمادی‌الثانی','رجب','شعبان','رمضان','شوال','ذوالقعده','ذوالحجه'];
+  // Friday-epoch Islamic civil, matching mobile and the server OG formatter.
+  function qamariDate(dt){
+    var civil=new Date(0);civil.setUTCFullYear(dt.getFullYear(),dt.getMonth(),dt.getDate());civil.setUTCHours(0,0,0,0);
+    var days=Math.floor(civil.getTime()/86400000)+2440588-1948440;
+    if(!Number.isFinite(days)||days<0) throw 0;
+    var y=Math.floor((30*days+10646)/10631),ys=354*(y-1)+Math.floor((3+11*y)/30);
+    var m=Math.min(11,Math.ceil((days-29-ys)/29.5)),ds=ys+Math.ceil(29.5*m);
+    return {y:y,m:m+1,d:days-ds+1};
+  }
   function faNum(s){return String(s).replace(/\d/g,function(d){return '۰۱۲۳۴۵۶۷۸۹'[+d];});}
   function dnum(v){return rtl?faNum(v):String(v);}
   function fmtDate(ms){
     try{
       var dt=new Date(ms);
-      if(jalali){
+      if(!Number.isFinite(dt.getTime())) return '';
+      if(calendar==='qamari'){
+        try{var q=qamariDate(dt);return dnum(q.d)+' '+(rtl?QMF:QME)[q.m-1]+' '+dnum(q.y);}catch(qerr){/* Pre-epoch dates fall back to Gregorian. */}
+      }
+      if(calendar==='jalali'){
         var parts=new Intl.DateTimeFormat('en-US-u-ca-persian',{year:'numeric',month:'numeric',day:'numeric'}).formatToParts(dt);
         var y='',m=0,d='';
         for(var i=0;i<parts.length;i++){var p=parts[i];if(p.type==='year')y=p.value;else if(p.type==='month')m=+p.value;else if(p.type==='day')d=p.value;}
         if(!y||!d||m<1||m>12) throw 0;
         return dnum(d)+' '+(rtl?AFM:AFML)[m-1]+' '+dnum(y);
       }
-      // Day-first in every combination, so all four read the same shape.
+      // Day-first in every combination, so all six read the same shape.
       return dnum(dt.getDate())+' '+(rtl?GMF:GME)[dt.getMonth()]+' '+dnum(dt.getFullYear());
     }catch(e){
       try{return new Date(ms).toLocaleDateString(rtl?'fa-AF':undefined,{year:'numeric',month:'short',day:'numeric'});}catch(e2){return '';}

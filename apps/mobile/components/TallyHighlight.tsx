@@ -1,20 +1,62 @@
 import { useEffect, useRef } from "react";
-import { Animated, StyleSheet } from "react-native";
+import { AccessibilityInfo, Animated, StyleSheet } from "react-native";
 import { colors } from "../lib/colors";
 
-/** A brief, touch-through cue after a notification opens a particular tally. */
+/** A brief, touch-through cue for a notification or a live review decision. */
 export function TallyHighlight({ requestKey }: { requestKey: string }) {
   const opacity = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    opacity.setValue(0.4);
-    const animation = Animated.timing(opacity, {
-      toValue: 0,
-      duration: 1200,
-      delay: 300,
-      useNativeDriver: true,
+    let cancelled = false;
+    let finished = false;
+    let preferenceChanged = false;
+    let endsAt = 0;
+    let animation: Animated.CompositeAnimation | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const show = (reduced: boolean) => {
+      if (cancelled || finished) return;
+      animation?.stop();
+      // A preference change may stop the fade, but must neither replay an old
+      // notification highlight nor extend this request's brief lifetime.
+      if (timer == null) {
+        endsAt = Date.now() + 1500;
+        timer = setTimeout(() => {
+          if (cancelled) return;
+          finished = true;
+          animation?.stop();
+          opacity.setValue(0);
+        }, 1500);
+      }
+      opacity.setValue(0.4);
+      if (!reduced) {
+        const remaining = Math.max(0, endsAt - Date.now());
+        const delay = Math.min(300, remaining);
+        animation = Animated.timing(opacity, {
+          toValue: 0,
+          duration: remaining - delay,
+          delay,
+          useNativeDriver: true,
+        });
+        animation.start();
+      }
+    };
+    opacity.setValue(0);
+    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", (reduced) => {
+      preferenceChanged = true;
+      show(reduced);
     });
-    animation.start();
-    return () => animation.stop();
+    const initialPreference = (reduced: boolean) => {
+      // The bridge query describes an earlier moment than a delivered event.
+      if (!preferenceChanged) show(reduced);
+    };
+    void AccessibilityInfo.isReduceMotionEnabled().then(initialPreference, () =>
+      initialPreference(true),
+    );
+    return () => {
+      cancelled = true;
+      subscription.remove();
+      animation?.stop();
+      if (timer) clearTimeout(timer);
+    };
   }, [opacity, requestKey]);
   return (
     <Animated.View

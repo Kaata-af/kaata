@@ -8,7 +8,7 @@ export type TabItem<K extends string = string> = {
   label: string;
 };
 
-// Pill segmented control. Active tab is Aubergine with white text; inactive
+// Pill segmented control. Active tab is black with white text; inactive
 // is transparent text on a hairline-bordered container background.
 export function Tabs<K extends string>(props: {
   tabs: ReadonlyArray<TabItem<K>>;
@@ -68,7 +68,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   tabActive: {
-    backgroundColor: colors.brandPrimary,
+    backgroundColor: colors.actionPrimary,
   },
   label: {
     fontSize: 13,

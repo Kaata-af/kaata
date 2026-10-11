@@ -7,7 +7,7 @@
 // opened; only pending tallies show an amber dot. Opened rows spell out every
 // state in a neutral centred pill; meta lines start at the start edge with
 // semibold names; review actions are the shared Button's "pill" size, with
-// Accept the Aubergine primary at the trailing end. The pills' touch targets are
+// Accept the neutral primary at the trailing end. The pills' touch targets are
 // checked through the real Button: 44pt each, and neither reaching past the
 // middle of the gap between Reject and Accept, because both are final.
 import assert from "node:assert/strict";
@@ -823,58 +823,10 @@ for (const source of [
   );
 }
 
-// A highlight never intercepts a row tap; its cue fades rather than staying on.
-let timing: any,
-  started = false,
-  stopped = false,
-  cleanup: any;
-mocks.react.useEffect = (fn: any) => {
-  cleanup = fn();
-};
-mocks["react-native"].StyleSheet.absoluteFill = {
-  position: "absolute",
-  top: 0,
-  bottom: 0,
-  left: 0,
-  right: 0,
-};
-mocks["react-native"].Animated = {
-  View: "AnimatedView",
-  Value: class {
-    constructor(public value: number) {}
-    setValue(n: number) {
-      this.value = n;
-    }
-  },
-  timing: (_: any, opts: any) => {
-    timing = opts;
-    return {
-      start() {
-        started = true;
-      },
-      stop() {
-        stopped = true;
-      },
-    };
-  },
-};
-const { TallyHighlight } = compile(
-  readFileSync(require.resolve("../../components/TallyHighlight"), "utf8"),
-);
-slots = [];
-cursor = 0;
-const glow = TallyHighlight({ requestKey: "tap" });
-assert.equal(glow.props.pointerEvents, "none");
-assert.equal(glow.props.accessible, false);
-assert.equal(timing.toValue, 0);
-assert.equal(timing.duration + timing.delay, 1500);
-assert.equal(style(glow.props.style).backgroundColor, "#D4D4D4");
-assert.equal(timing.useNativeDriver, true);
-assert.equal(started, true);
-cleanup();
-assert.equal(stopped, true);
+// TallyHighlight's native effect lifecycle, preference races and touch-through
+// behavior are checked separately in tally-highlight-selftest.ts.
 console.log(
-  "PASS: centered badge without account suffix, self attribution, inline pending-only cancellation, touch-through gray 1.5s highlight",
+  "PASS: centered badge without account suffix, self attribution, inline pending-only cancellation",
 );
 
 // The review guard, end to end. Last, because it is the only check that has

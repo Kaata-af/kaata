@@ -65,7 +65,7 @@ type Palette = {
 const PALETTES: Record<RestoreProgressTone, Palette> = {
   dark: {
     track: colors.bgSubtle,
-    fill: colors.brandPrimary,
+    fill: colors.actionPrimary,
     label: colors.textSubtle,
     percent: colors.textEmphasis,
   },

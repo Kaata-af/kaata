@@ -40,6 +40,35 @@ var gregorianMonthsFa = [12]string{
 	"جولای", "اگست", "سپتمبر", "اکتوبر", "نومبر", "دسمبر",
 }
 
+var qamariMonthsEn = [12]string{
+	"Muharram", "Safar", "Rabi al-Awwal", "Rabi al-Thani", "Jumada al-Awwal", "Jumada al-Thani",
+	"Rajab", "Sha'ban", "Ramadan", "Shawwal", "Dhu al-Qadah", "Dhu al-Hijjah",
+}
+
+var qamariMonthsFa = [12]string{
+	"محرم", "صفر", "ربیع‌الاول", "ربیع‌الثانی", "جمادی‌الاول", "جمادی‌الثانی",
+	"رجب", "شعبان", "رمضان", "شوال", "ذوالقعده", "ذوالحجه",
+}
+
+// Same Islamic civil (tabular, Friday epoch) convention as mobile toQamari.
+// ICU reference: icu4c/source/i18n/islamcal.cpp, IslamicCivilCalendar.
+// Local moon sighting can differ; this is a civil date, not a sunset boundary.
+func toQamari(y, m, d int) (hy, hm, hd int, ok bool) {
+	days := jalG2D(y, m, d) - 1948440
+	if days < 0 {
+		return 0, 0, 0, false
+	}
+	hy = (30*days + 10646) / 10631
+	yearStart := 354*(hy-1) + (3+11*hy)/30
+	// ceil((days - 29 - yearStart) / 29.5), including its negative Jan value.
+	monthIndex := (2*(days-29-yearStart) + 58) / 59
+	if monthIndex > 11 {
+		monthIndex = 11
+	}
+	monthStart := yearStart + (59*monthIndex+1)/2
+	return hy, monthIndex + 1, days - monthStart + 1, true
+}
+
 var faDigitRunes = []rune("۰۱۲۳۴۵۶۷۸۹")
 
 func faDigits(s string) string {
@@ -149,12 +178,16 @@ var kabulTZ = time.FixedZone("AFT", 4*3600+30*60)
 // billDate renders a bill's issue date for the preview line.
 //
 // The two axes are now independent, matching the mobile app (lib/jalali.ts):
-// `jalali` picks the CALENDAR (which months exist), `rtl` picks the SCRIPT
+// `calendar` picks the months, `rtl` picks the SCRIPT
 // (Persian digits + Arabic-script month names, or Latin). Previously one
 // boolean drove both, so "Dari language, Gregorian dates" was inexpressible.
 // Empty string when ms is unusable.
-func billDate(ms int64, rtl bool, jalali bool) string {
-	if ms <= 0 {
+func billDate(ms int64, rtl bool, calendar string) string {
+	// Zero is the missing generated_at sentinel. Legacy calendars also treated
+	// every pre-1970 timestamp as missing; preserve that rule for old bills.
+	// Qamari accepts negative timestamps so its pre-Hijri Gregorian fallback
+	// agrees with the new mobile/web renderers for valid historical dates.
+	if ms == 0 || (ms < 0 && calendar != "qamari") {
 		return ""
 	}
 	t := time.UnixMilli(ms).In(kabulTZ)
@@ -164,7 +197,16 @@ func billDate(ms int64, rtl bool, jalali bool) string {
 		}
 		return strconv.Itoa(n)
 	}
-	if jalali {
+	if calendar == "qamari" {
+		if hy, hm, hd, ok := toQamari(t.Year(), int(t.Month()), t.Day()); ok {
+			month := qamariMonthsEn[hm-1]
+			if rtl {
+				month = qamariMonthsFa[hm-1]
+			}
+			return num(hd) + " " + month + " " + num(hy)
+		}
+	}
+	if calendar == "jalali" {
 		if jy, jm, jd, ok := jalD2J(jalG2D(t.Year(), int(t.Month()), t.Day())); ok {
 			month := afghanMonthsLatin[jm-1]
 			if rtl {

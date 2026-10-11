@@ -632,7 +632,7 @@ const styles = StyleSheet.create({
     color: colors.textDefault,
     marginBottom: 4,
   },
-  roleChipLabelSelected: { color: colors.brandPrimary },
+  roleChipLabelSelected: { color: colors.actionPrimary },
   roleChipBody: {
     fontSize: 12,
     fontFamily: fonts.sansRegular,
