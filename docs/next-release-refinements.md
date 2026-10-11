@@ -83,9 +83,13 @@ tracks as they are. The working checkout returns to `main` after the merge.
 ## October 11 follow-up batch
 
 The user requested these refinements after the main deployment. Development
-continues on `main`; this batch is local work for the next testing build. It does
-not change the already distributed TestFlight build 31/internal Android code 51,
-the pending 2.1.1 store reviews, or the deployed backend/web until pushed later.
+completed on `main` in `e03a454`. The user then requested new testing-store
+builds; the refinement binaries retain 2.2.0 with TestFlight build32 and Play
+internal code52. Current delivery status is tracked in
+[2.2.0-testing-distribution.md](2.2.0-testing-distribution.md). The pending 2.1.1
+production reviews and deployed backend/web stay separate from this upload.
+Both new testing builds are now available to the existing testers; the final
+store snapshots confirmed production reviews and Play closed testing unchanged.
 
 - **Header sharing:** the single WhatsApp icon sits immediately beside the
   three-dot menu, with a separate 44pt target in English and Dari. No persistent
@@ -127,8 +131,13 @@ with Hermes bytecode. The calendar suite compared all 10,631 days in a 30-year
 cycle with ICU. The local web production build passed. Relevant pure Go calendar,
 SSR-inline JavaScript and existing money/coherence checks passed; two database
 service tests skipped because no test PostgreSQL was available, and the optional
-preview-writing test skipped without its output flag. This batch does not claim
-new database validation, phone/gesture/visual QA, signed native builds or uploads.
+preview-writing test skipped without its output flag. Those development checks
+did not establish database or phone/gesture/visual QA. The later native-upload
+preflight passed all 32 mobile selftest suites and typecheck; an outdated
+retired-install router mock was repaired with a focus lifecycle regression.
+Signed build and testing-store delivery evidence is in the distribution log.
+Qamari web share/preview testing needs the matching backend/web deployment;
+this native upload leaves those server changes local, as stated in beta notes.
 
 ## Deferred by the user
 
