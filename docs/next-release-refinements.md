@@ -1,8 +1,19 @@
 # Next release: user-feedback refinements
 
-Local work on `codex/next-release-refinements`, following the 2.1.1 submission.
-No deployment, store submission or release build is authorized for this batch.
-Keep the submitted version/build identifiers unchanged until release preparation.
+Work on `codex/next-release-refinements`, following the 2.1.1 submission.
+The development batches below initially stayed local, with signed builds and
+store distribution deferred until the user requested release preparation.
+
+On October 11, 2026, the user authorized **2.2.0 for testing only**: iOS
+**TestFlight/build 31** and Android **internal testing/code 51**. The initial
+closed-testing request was corrected to internal testing. Preserve the pending
+2.1.1 production reviews: do not cancel, replace or resubmit them, submit 2.2.0
+to production, or deploy the backend/web changes. Native build/distribution
+authorization does not authorize pushing `main` or publishing marketing assets.
+
+Build identifiers, delivery status and the store-review safeguards are recorded
+in [2.2.0-testing-distribution.md](2.2.0-testing-distribution.md). The development
+history and consolidated phone/visual checklist below remain applicable.
 
 ## Implemented
 

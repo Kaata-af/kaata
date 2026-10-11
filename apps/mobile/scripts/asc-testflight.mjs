@@ -5,11 +5,13 @@
 //   node scripts/asc-testflight.mjs
 //   node scripts/asc-testflight.mjs enable --build-id <ASC-build-id> --group-id <group-id>
 //   node scripts/asc-testflight.mjs enable --build-id <ASC-build-id> --group-id <group-id> --set-exempt-encryption
+//   node scripts/asc-testflight.mjs notes --build-id <ASC-build-id> --notes-file scripts/release-notes/2.2.0-testflight.txt
 //
 // --build-id is Apple's build resource ID, not the EAS build ID. The optional
 // encryption flag applies app.json's existing false exemption ONLY when Apple's
 // value is unset. It never overrides a declaration of non-exempt encryption.
 // Credentials come from submit.testing in eas.json and are never printed.
+// notes changes only English TestFlight beta-build metadata, never App Store text.
 
 import { createPrivateKey, createSign } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -28,8 +30,8 @@ export function parseArgs(argv) {
   let commandSeen = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (["status", "--status", "enable"].includes(arg)) {
-      if (commandSeen) throw new Error("Choose one command: status or enable.");
+    if (["status", "--status", "enable", "notes"].includes(arg)) {
+      if (commandSeen) throw new Error("Choose one command: status, enable or notes.");
       opts.command = arg === "--status" ? "status" : arg;
       commandSeen = true;
     } else if (arg === "--build-id" || arg === "--group-id") {
@@ -38,6 +40,11 @@ export function parseArgs(argv) {
       const field = arg === "--build-id" ? "buildId" : "groupId";
       if (opts[field]) throw new Error(`${arg} was supplied twice.`);
       opts[field] = value;
+    } else if (arg === "--notes-file") {
+      const value = argv[++i];
+      if (!value || value.startsWith("--")) throw new Error("--notes-file needs a path.");
+      if (opts.notesFile) throw new Error("--notes-file was supplied twice.");
+      opts.notesFile = value;
     } else if (arg === "--set-exempt-encryption") opts.setExemptEncryption = true;
     else if (arg === "--help" || arg === "-h") opts.help = true;
     else throw new Error(`Unknown argument: ${arg}`);
@@ -46,10 +53,45 @@ export function parseArgs(argv) {
   if (opts.command === "enable" && (!opts.buildId || !opts.groupId)) {
     throw new Error("enable requires --build-id and --group-id.");
   }
-  if (opts.command === "status" && (opts.buildId || opts.groupId || opts.setExemptEncryption)) {
+  if (
+    opts.command === "status" &&
+    (opts.buildId || opts.groupId || opts.setExemptEncryption || opts.notesFile)
+  ) {
     throw new Error("Build/group/encryption options require the explicit enable command.");
   }
+  if (opts.command === "enable" && opts.notesFile)
+    throw new Error("--notes-file requires the notes command.");
+  if (
+    opts.command === "notes" &&
+    (!opts.buildId || !opts.notesFile || opts.groupId || opts.setExemptEncryption)
+  ) {
+    throw new Error(
+      "notes requires only --build-id and --notes-file; group/encryption options are not allowed.",
+    );
+  }
   return opts;
+}
+
+function assertTestBuild(cfg, buildId, result) {
+  if (cfg.version !== TEST_VERSION || !/^\d+$/.test(cfg.buildNumber))
+    throw new Error("Local configuration must be 2.2.0 with a numeric iOS build number.");
+  const build = result.data;
+  if (
+    build?.type !== "builds" ||
+    build.id !== buildId ||
+    build.relationships?.app?.data?.id !== cfg.appId
+  )
+    throw new Error("Build does not belong to Kaata's ASC app.");
+  if (build.attributes?.version !== cfg.buildNumber || trainFor(result, build) !== TEST_VERSION)
+    throw new Error("Build number or 2.2.0 version train does not match app.json.");
+  if (build.attributes.processingState !== "VALID" || build.attributes.expired !== false)
+    throw new Error("Build must be VALID and unexpired before changing TestFlight.");
+  return build;
+}
+
+function assertNoteText(text) {
+  if (typeof text !== "string" || !text.trim() || text.length > 4000)
+    throw new Error("TestFlight notes must contain 1–4000 characters.");
 }
 
 function readConfig() {
@@ -100,9 +142,18 @@ function makeToken(cfg) {
 // pin both target IDs and the entire payload; no generic ASC writer is exposed.
 export function makeClient(
   cfg,
-  { fetchImpl = fetch, token = () => makeToken(cfg), enable = null } = {},
+  { fetchImpl = fetch, token = () => makeToken(cfg), enable = null, notes = null } = {},
 ) {
   if (cfg.appId !== KAATA_APP_ID) throw new Error("Unexpected ASC app ID.");
+  if (enable && notes) throw new Error("Choose one TestFlight mutation capability.");
+  if (notes) {
+    if (!ID.test(notes.buildId) || cfg.version !== TEST_VERSION || !/^\d+$/.test(cfg.buildNumber))
+      throw new Error("Notes require an exact 2.2.0 test build.");
+    assertNoteText(notes.text);
+  }
+  let notesBuildVerified = false;
+  let notesListRead = false;
+  const englishLocalizationIds = new Set();
   return async function asc(method, endpoint, body) {
     const url = new URL(endpoint.startsWith("/") ? API + endpoint : endpoint);
     if (url.origin !== new URL(API).origin || url.username || url.password || url.hash) {
@@ -113,7 +164,7 @@ export function makeClient(
       `^/apps/${KAATA_APP_ID}(?:/(?:appStoreVersions|reviewSubmissions|betaGroups))?$`,
     );
     const readRoute =
-      /^(?:\/builds(?:\/[A-Za-z0-9-]+(?:\/buildBetaDetail)?)?|\/betaGroups\/[A-Za-z0-9-]+(?:\/(?:builds|relationships\/builds))?)$/;
+      /^(?:\/builds(?:\/[A-Za-z0-9-]+(?:\/(?:buildBetaDetail|betaBuildLocalizations))?)?|\/betaGroups\/[A-Za-z0-9-]+(?:\/(?:builds|relationships\/builds))?)$/;
     const betaBody = { data: [{ type: "builds", id: enable?.buildId }] };
     const encryptionBody = {
       data: { type: "builds", id: enable?.buildId, attributes: { usesNonExemptEncryption: false } },
@@ -135,7 +186,37 @@ export function makeClient(
       !url.search &&
       route === `/builds/${enable.buildId}` &&
       JSON.stringify(body) === JSON.stringify(encryptionBody);
-    if (!url.pathname.startsWith("/v1/") || !(readAllowed || addAllowed || exemptionAllowed)) {
+    const createNotesBody = {
+      data: {
+        type: "betaBuildLocalizations",
+        attributes: { locale: "en-US", whatsNew: notes?.text },
+        relationships: { build: { data: { type: "builds", id: notes?.buildId } } },
+      },
+    };
+    const localizationId = route.match(/^\/betaBuildLocalizations\/([A-Za-z0-9-]+)$/)?.[1];
+    const updateNotesBody = {
+      data: {
+        type: "betaBuildLocalizations",
+        id: localizationId,
+        attributes: { whatsNew: notes?.text },
+      },
+    };
+    const notesAllowed =
+      notes &&
+      notesBuildVerified &&
+      notesListRead &&
+      !url.search &&
+      ((method === "POST" &&
+        route === "/betaBuildLocalizations" &&
+        englishLocalizationIds.size === 0 &&
+        JSON.stringify(body) === JSON.stringify(createNotesBody)) ||
+        (method === "PATCH" &&
+          englishLocalizationIds.has(localizationId) &&
+          JSON.stringify(body) === JSON.stringify(updateNotesBody)));
+    if (
+      !url.pathname.startsWith("/v1/") ||
+      !(readAllowed || addAllowed || exemptionAllowed || notesAllowed)
+    ) {
       throw new Error(`Refusing non-allowlisted ASC operation: ${method} ${url.pathname}`);
     }
     const res = await fetchImpl(url, {
@@ -151,11 +232,34 @@ export function makeClient(
     // Never print a server body: it can contain account metadata or secrets.
     if (!res.ok) throw new Error(`ASC ${method} ${url.pathname} failed (HTTP ${res.status}).`);
     if (res.status === 204) return null;
+    let json;
     try {
-      return await res.json();
+      json = await res.json();
     } catch {
       throw new Error(`ASC ${method} ${url.pathname} returned invalid JSON.`);
     }
+    if (notes && method === "GET" && route === `/builds/${notes.buildId}`) {
+      assertTestBuild(cfg, notes.buildId, json);
+      notesBuildVerified = true;
+    }
+    if (
+      notes &&
+      notesBuildVerified &&
+      method === "GET" &&
+      route === `/builds/${notes.buildId}/betaBuildLocalizations`
+    ) {
+      if (!Array.isArray(json?.data)) throw new Error("ASC beta-localization list is invalid.");
+      notesListRead = true;
+      for (const item of json.data) {
+        if (
+          item.type === "betaBuildLocalizations" &&
+          item.attributes?.locale === "en-US" &&
+          ID.test(item.id)
+        )
+          englishLocalizationIds.add(item.id);
+      }
+    }
+    return json;
   };
 }
 
@@ -348,6 +452,65 @@ export async function enableBuild(asc, cfg, opts) {
   };
 }
 
+export async function setNotes(asc, cfg, opts) {
+  if (
+    cfg.version !== TEST_VERSION ||
+    !/^\d+$/.test(cfg.buildNumber) ||
+    !opts.buildId ||
+    !ID.test(opts.buildId)
+  )
+    throw new Error("Notes are restricted to the exact app.json 2.2.0 test build.");
+  assertNoteText(opts.text);
+  const [app, result] = await Promise.all([
+    asc("GET", `/apps/${cfg.appId}?fields[apps]=bundleId`),
+    asc("GET", `/builds/${opts.buildId}?include=app,preReleaseVersion`),
+  ]);
+  if (app.data?.id !== cfg.appId || app.data?.attributes?.bundleId !== KAATA_BUNDLE_ID)
+    throw new Error("ASC app identity does not match Kaata.");
+  const build = assertTestBuild(cfg, opts.buildId, result);
+  const localizations = await listAll(asc, `/builds/${build.id}/betaBuildLocalizations?limit=200`);
+  const english = localizations.filter(
+    (l) => l.type === "betaBuildLocalizations" && l.attributes?.locale === "en-US",
+  );
+  if (english.length > 1) throw new Error("Refusing ambiguous English beta localizations.");
+  const existing = english[0];
+  const changed = existing?.attributes?.whatsNew !== opts.text;
+  if (changed) {
+    if (existing)
+      await asc("PATCH", `/betaBuildLocalizations/${existing.id}`, {
+        data: {
+          type: "betaBuildLocalizations",
+          id: existing.id,
+          attributes: { whatsNew: opts.text },
+        },
+      });
+    else
+      await asc("POST", "/betaBuildLocalizations", {
+        data: {
+          type: "betaBuildLocalizations",
+          attributes: { locale: "en-US", whatsNew: opts.text },
+          relationships: { build: { data: { type: "builds", id: build.id } } },
+        },
+      });
+  }
+  const confirmed = (
+    await listAll(asc, `/builds/${build.id}/betaBuildLocalizations?limit=200`)
+  ).find((l) => l.attributes?.locale === "en-US");
+  if (confirmed?.attributes?.whatsNew !== opts.text)
+    throw new Error("ASC has not confirmed the exact English beta notes yet.");
+  return {
+    testFlightUrl: `https://appstoreconnect.apple.com/apps/${cfg.appId}/testflight`,
+    buildId: build.id,
+    version: TEST_VERSION,
+    buildNumber: cfg.buildNumber,
+    localizationId: confirmed.id,
+    locale: "en-US",
+    characters: opts.text.length,
+    changed,
+    production: await productionSnapshot(asc, cfg),
+  };
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.help) {
@@ -355,9 +518,18 @@ async function main() {
     return;
   }
   const cfg = readConfig();
-  const asc = makeClient(cfg, { enable: opts.command === "enable" ? opts : null });
+  if (opts.command === "notes")
+    opts.text = readFileSync(path.resolve(opts.notesFile), "utf8").trim();
+  const asc = makeClient(cfg, {
+    enable: opts.command === "enable" ? opts : null,
+    notes: opts.command === "notes" ? opts : null,
+  });
   const result =
-    opts.command === "enable" ? await enableBuild(asc, cfg, opts) : await status(asc, cfg);
+    opts.command === "enable"
+      ? await enableBuild(asc, cfg, opts)
+      : opts.command === "notes"
+        ? await setNotes(asc, cfg, opts)
+        : await status(asc, cfg);
   console.log(JSON.stringify(result, null, 2));
 }
 

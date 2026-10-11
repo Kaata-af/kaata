@@ -2,7 +2,8 @@
 //   node --test scripts/asc-testflight.test.mjs
 import assert from "node:assert/strict";
 import test from "node:test";
-import { enableBuild, makeClient, parseArgs, status } from "./asc-testflight.mjs";
+import { readFileSync } from "node:fs";
+import { enableBuild, makeClient, parseArgs, setNotes, status } from "./asc-testflight.mjs";
 
 const APP_ID = "6789651127";
 const BUILD_ID = "test-build-31";
@@ -20,11 +21,19 @@ const opts = {
   groupId: GROUP_ID,
   setExemptEncryption: false,
 };
+const notes = {
+  buildId: BUILD_ID,
+  text: readFileSync(
+    new URL("./release-notes/2.2.0-testflight.txt", import.meta.url),
+    "utf8",
+  ).trim(),
+};
 
-function fixture(overrides = {}, options = opts) {
+function fixture(overrides = {}, options = opts, notesGrant = null) {
   const calls = [];
   const assigned = new Set(overrides.assigned ? [BUILD_ID] : []);
   let state = overrides.state ?? "READY_FOR_BETA_TESTING";
+  const localizations = structuredClone(overrides.localizations ?? []);
   const build = {
     type: "builds",
     id: BUILD_ID,
@@ -62,6 +71,17 @@ function fixture(overrides = {}, options = opts) {
     calls.push({ method: init.method, route, body });
     assert.equal(url.origin, "https://api.appstoreconnect.apple.com");
     assert.equal(init.redirect, "error");
+    if (init.method === "POST" && route === "/betaBuildLocalizations") {
+      const localization = { ...body.data, id: "english-notes-31" };
+      localizations.push(localization);
+      return Response.json({ data: localization }, { status: 201 });
+    }
+    if (init.method === "PATCH" && route.startsWith("/betaBuildLocalizations/")) {
+      const localization = localizations.find((item) => item.id === body.data.id);
+      assert(localization);
+      Object.assign(localization.attributes, body.data.attributes);
+      return Response.json({ data: localization });
+    }
     if (init.method === "POST" && route === `/betaGroups/${GROUP_ID}/relationships/builds`) {
       assigned.add(body.data[0].id);
       state = "IN_BETA_TESTING";
@@ -111,6 +131,8 @@ function fixture(overrides = {}, options = opts) {
     if (route === `/apps/${APP_ID}/betaGroups`) return Response.json({ data: [group] });
     if (route === `/builds`) return Response.json({ data: [build], included: [train] });
     if (route === `/builds/${BUILD_ID}`) return Response.json({ data: build, included: [train] });
+    if (route === `/builds/${BUILD_ID}/betaBuildLocalizations`)
+      return Response.json({ data: localizations });
     if (route === `/betaGroups/${GROUP_ID}`) return Response.json({ data: group });
     if (route === `/builds/${BUILD_ID}/buildBetaDetail`)
       return Response.json({
@@ -128,7 +150,15 @@ function fixture(overrides = {}, options = opts) {
       return Response.json({ data: [...assigned].map((id) => ({ type: "builds", id })) });
     throw new Error(`Unexpected test request: ${init.method} ${route}`);
   };
-  return { asc: makeClient(cfg, { fetchImpl, token: () => "test-token", enable: options }), calls };
+  return {
+    asc: makeClient(cfg, {
+      fetchImpl,
+      token: () => "test-token",
+      enable: options,
+      notes: notesGrant,
+    }),
+    calls,
+  };
 }
 
 test("the default command is read-only; enable needs both exact resource IDs", () => {
@@ -142,6 +172,37 @@ test("the default command is read-only; enable needs both exact resource IDs", (
     /resource ID/,
   );
   assert.throws(() => parseArgs(["--supersede"]), /Unknown/);
+  assert.equal(
+    parseArgs(["notes", "--build-id", BUILD_ID, "--notes-file", "notes.txt"]).command,
+    "notes",
+  );
+  assert.throws(() => parseArgs(["notes", "--build-id", BUILD_ID]), /requires only/);
+  assert.throws(
+    () =>
+      parseArgs([
+        "notes",
+        "--build-id",
+        BUILD_ID,
+        "--notes-file",
+        "notes.txt",
+        "--group-id",
+        GROUP_ID,
+      ]),
+    /requires only/,
+  );
+  assert.throws(
+    () =>
+      parseArgs([
+        "enable",
+        "--build-id",
+        BUILD_ID,
+        "--group-id",
+        GROUP_ID,
+        "--notes-file",
+        "notes.txt",
+      ]),
+    /requires the notes/,
+  );
 });
 
 test("status reports pending production review and current TestFlight readiness without writes", async () => {
@@ -300,4 +361,143 @@ test("read-only client has no mutation grant and server failures never print a r
     assert(!err.message.includes("SENSITIVE"));
     return true;
   });
+});
+
+test("notes creates only English beta metadata for the verified test build, preserving production review", async () => {
+  const { asc, calls } = fixture({}, null, notes);
+  const result = await setNotes(asc, cfg, notes);
+  assert.deepEqual(
+    calls.filter((call) => call.method !== "GET"),
+    [
+      {
+        method: "POST",
+        route: "/betaBuildLocalizations",
+        body: {
+          data: {
+            type: "betaBuildLocalizations",
+            attributes: { locale: "en-US", whatsNew: notes.text },
+            relationships: { build: { data: { type: "builds", id: BUILD_ID } } },
+          },
+        },
+      },
+    ],
+  );
+  assert.equal(result.locale, "en-US");
+  assert.equal(result.localizationId, "english-notes-31");
+  assert.equal(result.characters, notes.text.length);
+  assert.equal(result.changed, true);
+  assert.equal(result.production.versions[0].buildId, "production-build-30");
+  assert.equal(result.production.reviews[0].state, "WAITING_FOR_REVIEW");
+});
+
+test("notes updates only the exact build's existing English localization and is idempotent", async () => {
+  const english = {
+    type: "betaBuildLocalizations",
+    id: "english-notes-31",
+    attributes: { locale: "en-US", whatsNew: "Old test notes" },
+  };
+  const otherLocale = {
+    type: "betaBuildLocalizations",
+    id: "other-language",
+    attributes: { locale: "fr-FR", whatsNew: "Keep this" },
+  };
+  const { asc, calls } = fixture({ localizations: [english, otherLocale] }, null, notes);
+  await setNotes(asc, cfg, notes);
+  assert.deepEqual(
+    calls.filter((call) => call.method !== "GET"),
+    [
+      {
+        method: "PATCH",
+        route: "/betaBuildLocalizations/english-notes-31",
+        body: {
+          data: {
+            type: "betaBuildLocalizations",
+            id: "english-notes-31",
+            attributes: { whatsNew: notes.text },
+          },
+        },
+      },
+    ],
+  );
+  const second = await setNotes(asc, cfg, notes);
+  assert.equal(second.changed, false);
+  assert.equal(calls.filter((call) => call.method !== "GET").length, 1);
+});
+
+test("notes rejects unrelated builds, invalid readiness, ambiguous locales and invalid text before writes", async () => {
+  for (const overrides of [
+    { train: "2.1.1" },
+    { build: { version: "30" } },
+    { buildAppId: "another-app" },
+    { bundleId: "other.bundle" },
+    { build: { processingState: "PROCESSING" } },
+    { build: { expired: true } },
+    {
+      localizations: [1, 2].map((n) => ({
+        type: "betaBuildLocalizations",
+        id: `duplicate-${n}`,
+        attributes: { locale: "en-US" },
+      })),
+    },
+  ]) {
+    const { asc, calls } = fixture(overrides, null, notes);
+    await assert.rejects(setNotes(asc, cfg, notes));
+    assert(calls.every((call) => call.method === "GET"));
+  }
+  for (const invalid of [
+    { ...cfg, version: "2.1.1" },
+    { ...cfg, buildNumber: "30" },
+  ]) {
+    const { asc, calls } = fixture({}, null, notes);
+    await assert.rejects(setNotes(asc, invalid, notes));
+    assert(calls.every((call) => call.method === "GET"));
+  }
+  const { asc, calls } = fixture({}, null, notes);
+  for (const text of ["", " ", "x".repeat(4001)])
+    await assert.rejects(setNotes(asc, cfg, { ...notes, text }));
+  assert.equal(calls.length, 0);
+});
+
+test("notes capability requires preflight and blocks unrelated IDs, changed payloads and App Store metadata", async () => {
+  const english = {
+    type: "betaBuildLocalizations",
+    id: "english-notes-31",
+    attributes: { locale: "en-US", whatsNew: "Old" },
+  };
+  const { asc, calls } = fixture({ localizations: [english] }, null, notes);
+  const expected = {
+    data: { type: "betaBuildLocalizations", id: english.id, attributes: { whatsNew: notes.text } },
+  };
+  await assert.rejects(asc("PATCH", `/betaBuildLocalizations/${english.id}`, expected), /Refusing/);
+  assert.equal(calls.length, 0);
+  await asc("GET", `/builds/${BUILD_ID}?include=app,preReleaseVersion`);
+  await asc("GET", `/builds/${BUILD_ID}/betaBuildLocalizations?limit=200`);
+  const before = calls.length;
+  for (const [method, route, body] of [
+    [
+      "PATCH",
+      "/betaBuildLocalizations/production-localization",
+      { data: { ...expected.data, id: "production-localization" } },
+    ],
+    [
+      "PATCH",
+      `/betaBuildLocalizations/${english.id}`,
+      { data: { ...expected.data, attributes: { whatsNew: "Unapproved replacement" } } },
+    ],
+    ["PATCH", "/appStoreVersionLocalizations/pending-version", expected],
+    [
+      "POST",
+      "/betaBuildLocalizations",
+      {
+        data: {
+          type: "betaBuildLocalizations",
+          attributes: { locale: "en-US", whatsNew: notes.text },
+          relationships: { build: { data: { type: "builds", id: "production-build-30" } } },
+        },
+      },
+    ],
+    ["PATCH", "/reviewSubmissions/pending-review", { data: { attributes: { canceled: true } } }],
+  ])
+    await assert.rejects(asc(method, route, body), /Refusing/);
+  assert.equal(calls.length, before);
 });
