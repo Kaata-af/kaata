@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/matee/kaata-backend/internal/credit"
 
 	lru "github.com/hashicorp/golang-lru/v2"
 )
@@ -241,6 +242,7 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 	accepted := make([]AcceptedEvent, 0, len(in.Events))
 	duplicates := make([]string, 0)
 	rejected := make([]RejectedEvent, 0)
+	creditState := &creditProjection{}
 
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
@@ -252,7 +254,13 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 	if err != nil {
 		return nil, err
 	}
+	if err := lockCreditEntryIDs(ctx, tx, in.Events); err != nil {
+		return nil, err
+	}
 
+	if err := credit.Lock(ctx, tx, in.VaultID); err != nil {
+		return nil, err
+	}
 	// Lock the vault row for the duration of the tx.
 	if _, err := tx.Exec(ctx, `
 		SELECT 1 FROM vaults WHERE vault_id = $1::uuid FOR UPDATE
@@ -394,6 +402,16 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 				return nil, fmt.Errorf("deleted-author duplicate check: %w", err)
 			}
 			if exists {
+				if ev.EventType == EventEntryCreated {
+					matches, err := creditDuplicateMatches(ctx, tx, in.VaultID, ev)
+					if err != nil {
+						return nil, err
+					}
+					if !matches {
+						rejected = append(rejected, RejectedEvent{EventID: ev.EventID, Reason: "credit_limit_exceeded"})
+						continue
+					}
+				}
 				duplicates = append(duplicates, ev.EventID)
 			} else {
 				rejected = append(rejected, RejectedEvent{EventID: ev.EventID, Reason: "insufficient_role", RequiredRole: RequiredRoleFor(ev.EventType)})
@@ -502,6 +520,7 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 			}
 		}
 
+		eventRole := role
 		if !m2Verified && !legacySelfLeave && !legacySelfAdmission {
 			allowed, atRole, requiredRole, err := CheckEventPermission(
 				ctx, tx, s.binding,
@@ -546,6 +565,17 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 				})
 				continue
 			}
+			eventRole = atRole
+		}
+		if err := creditAdmit(ctx, tx, in.VaultID, ev, eventRole, creditState); err != nil {
+			if errors.Is(err, credit.ErrLimit) {
+				if err := recordCreditRefusal(ctx, tx, in.VaultID, ev.EventID); err != nil {
+					return nil, fmt.Errorf("record credit refusal: %w", err)
+				}
+				rejected = append(rejected, RejectedEvent{EventID: ev.EventID, Reason: "credit_limit_exceeded"})
+				continue
+			}
+			return nil, fmt.Errorf("credit admission: %w", err)
 		}
 
 		// M1 (sync v2 §5): author_seq slot check. Slots are keyed by the
@@ -581,6 +611,16 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 					return nil, fmt.Errorf("duplicate check for %s: %w", ev.EventID, derr)
 				}
 				if exists {
+					if ev.EventType == EventEntryCreated {
+						matches, err := creditDuplicateMatches(ctx, tx, in.VaultID, ev)
+						if err != nil {
+							return nil, err
+						}
+						if !matches {
+							rejected = append(rejected, RejectedEvent{EventID: ev.EventID, Reason: "credit_limit_exceeded"})
+							continue
+						}
+					}
 					duplicates = append(duplicates, ev.EventID)
 					continue
 				}
@@ -669,6 +709,16 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 		}
 
 		if tag.RowsAffected() == 0 {
+			if ev.EventType == EventEntryCreated {
+				matches, err := creditDuplicateMatches(ctx, tx, in.VaultID, ev)
+				if err != nil {
+					return nil, err
+				}
+				if !matches {
+					rejected = append(rejected, RejectedEvent{EventID: ev.EventID, Reason: "credit_limit_exceeded"})
+					continue
+				}
+			}
 			// Duplicate by event_id. M1 re-announce: when the wire carries
 			// an author_seq and the stored row predates M1 (author_seq IS
 			// NULL), adopt the announced seq — this is how pre-M1 history
@@ -814,6 +864,7 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 			EventID:   ev.EventID,
 			ServerSeq: nextSeq,
 		})
+		creditState.accepted(in.VaultID, ev)
 		curSeq = nextSeq
 	}
 

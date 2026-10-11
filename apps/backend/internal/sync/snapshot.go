@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/matee/kaata-backend/internal/credit"
 )
 
 // SnapshotSchemaVersion is the JSON shape version emitted by BuildSnapshot.
@@ -52,18 +53,20 @@ const (
 // (Events is cursor-bound, MembershipEvents is not); mobile ingests by
 // event_id idempotently, so the overlap is harmless.
 type SnapshotResponse struct {
-	VaultID           string                 `json:"vault_id"`
-	SnapshotServerSeq int64                  `json:"snapshot_server_seq"`
-	GeneratedAtMS     int64                  `json:"generated_at_ms"`
-	SchemaVersion     int                    `json:"schema_version"`
-	Vault             SnapshotVault          `json:"vault"`
-	ShopProfile       *SnapshotShopProfile   `json:"shop_profile"`
-	Users             []SnapshotUser         `json:"users"`
-	Relationships     []SnapshotRelationship `json:"relationships"`
-	Entries           []SnapshotEntry        `json:"entries"`
-	HLCLast           HLC                    `json:"hlc_last"`
-	Events            []PulledEvent          `json:"events"`
-	MembershipEvents  []PulledEvent          `json:"membership_events"`
+	CreditLimits      []credit.Policy           `json:"credit_limits"`
+	CustomerGroups    []CustomerGroupProjection `json:"customer_groups"`
+	VaultID           string                    `json:"vault_id"`
+	SnapshotServerSeq int64                     `json:"snapshot_server_seq"`
+	GeneratedAtMS     int64                     `json:"generated_at_ms"`
+	SchemaVersion     int                       `json:"schema_version"`
+	Vault             SnapshotVault             `json:"vault"`
+	ShopProfile       *SnapshotShopProfile      `json:"shop_profile"`
+	Users             []SnapshotUser            `json:"users"`
+	Relationships     []SnapshotRelationship    `json:"relationships"`
+	Entries           []SnapshotEntry           `json:"entries"`
+	HLCLast           HLC                       `json:"hlc_last"`
+	Events            []PulledEvent             `json:"events"`
+	MembershipEvents  []PulledEvent             `json:"membership_events"`
 	// SettlementEvents (2026-07-27): every entry_settled chapter marker for
 	// the vault, cursor-independent like MembershipEvents — the settlements
 	// projection is mobile-only, so a snapshot restore would otherwise lose
@@ -110,14 +113,16 @@ type SnapshotUser struct {
 }
 
 type SnapshotRelationship struct {
-	ID         string `json:"id"`
-	VaultID    string `json:"vault_id"`
-	UserAID    string `json:"user_a_id"`
-	UserBID    string `json:"user_b_id"`
-	Context    string `json:"context"`
-	CreatedAt  int64  `json:"created_at"`
-	UpdatedAt  int64  `json:"updated_at"`
-	ArchivedAt *int64 `json:"archived_at"`
+	ID             string         `json:"id"`
+	VaultID        string         `json:"vault_id"`
+	UserAID        string         `json:"user_a_id"`
+	UserBID        string         `json:"user_b_id"`
+	Context        string         `json:"context"`
+	CreatedAt      int64          `json:"created_at"`
+	UpdatedAt      int64          `json:"updated_at"`
+	ArchivedAt     *int64         `json:"archived_at"`
+	GroupID        *string        `json:"group_id,omitempty"`
+	GroupFieldHLCs map[string]HLC `json:"group_field_hlcs,omitempty"`
 }
 
 type SnapshotEntry struct {
@@ -230,7 +235,25 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 	// any membership event also present in the tail is already counted.
 	hlcLast := snapshotMaxHLC(&projection, tail)
 
+	creditLimits := []credit.Policy{}
+	creditRows, err := s.pool.Query(ctx, `SELECT relationship_id::text,max_collect_minor,max_pay_minor,mode,updated_at_ms FROM customer_credit_limits WHERE vault_id=$1::uuid ORDER BY relationship_id`, vaultID)
+	if err != nil {
+		return nil, err
+	}
+	for creditRows.Next() {
+		var p credit.Policy
+		if err := creditRows.Scan(&p.RelationshipID, &p.MaxCollectMinor, &p.MaxPayMinor, &p.Mode, &p.UpdatedAtMS); err != nil {
+			creditRows.Close()
+			return nil, err
+		}
+		creditLimits = append(creditLimits, p)
+	}
+	creditRows.Close()
+	if err := creditRows.Err(); err != nil {
+		return nil, err
+	}
 	resp := &SnapshotResponse{
+		CreditLimits:      creditLimits,
 		VaultID:           vaultID,
 		SnapshotServerSeq: upTo,
 		GeneratedAtMS:     createdAt.UnixMilli(),
@@ -248,6 +271,7 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 		ShopProfile:      projectShopProfile(vaultID, projection.ShopProfile),
 		Users:            projectUsers(projection.Users),
 		Relationships:    projectRelationships(projection.Relationships),
+		CustomerGroups:   projectCustomerGroups(projection.CustomerGroups),
 		Entries:          projectEntries(projection.Entries),
 		HLCLast:          hlcLast,
 		Events:           tail,
@@ -296,14 +320,16 @@ func projectRelationships(in map[string]*RelationshipProjection) []SnapshotRelat
 	out := make([]SnapshotRelationship, 0, len(in))
 	for _, r := range in {
 		out = append(out, SnapshotRelationship{
-			ID:         r.ID,
-			VaultID:    r.VaultID,
-			UserAID:    r.UserAID,
-			UserBID:    r.UserBID,
-			Context:    r.Context,
-			CreatedAt:  r.CreatedAt,
-			UpdatedAt:  r.UpdatedAt,
-			ArchivedAt: r.ArchivedAt,
+			ID:             r.ID,
+			VaultID:        r.VaultID,
+			UserAID:        r.UserAID,
+			UserBID:        r.UserBID,
+			Context:        r.Context,
+			CreatedAt:      r.CreatedAt,
+			UpdatedAt:      r.UpdatedAt,
+			ArchivedAt:     r.ArchivedAt,
+			GroupID:        r.GroupID,
+			GroupFieldHLCs: r.GroupFieldHLCs,
 		})
 	}
 	return out
@@ -367,6 +393,16 @@ func snapshotMaxHLC(p *Projection, tail []PulledEvent) HLC {
 	for _, r := range p.Relationships {
 		if r.UpdatedAt > max.PMS {
 			max = HLC{PMS: r.UpdatedAt}
+		}
+		for _, h := range r.GroupFieldHLCs {
+			if CompareHLC(h, max) > 0 { max = h }
+		}
+	}
+	for _, g := range p.CustomerGroups {
+		for _, h := range g.FieldHLCs {
+			if CompareHLC(h, max) > 0 {
+				max = h
+			}
 		}
 	}
 	for _, e := range p.Entries {

@@ -273,7 +273,45 @@ All four are day-first. Before this, one boolean drove both, so "Dari language, 
 
 ### Routing
 
-Mobile uses `expo-router` (file-based). `apps/mobile/app/_layout.tsx` is the root: it wraps the Stack in `GestureHandlerRootView` → `SafeAreaProvider` → `ToastProvider` → `AppMetaProvider`, runs `initDb()` → `ensureInstallId()` → checks for `getLocalSelf()` to decide between `/onboarding` and `/`. Stack-modal screens are `person/new`, `person/[id]/edit`, `entry/new`, `entry/[id]/edit`; a regular push screen is `settings` (reachable by tapping the identity row in the home header). Any screen can read toast state via `useToast()` / `useToastOffset()`, app-meta via `useAppMeta()`.
+Mobile uses `expo-router` (file-based). `apps/mobile/app/_layout.tsx` is the root: it wraps the Stack in `GestureHandlerRootView` → `SafeAreaProvider` → `ToastProvider` → `AppMetaProvider`, runs `ensureInstallId()` → `initDb()` → checks for `getLocalSelf()` to decide between `/onboarding` and `/`. Stack-modal screens are `person/new`, `person/[id]/edit`, `entry/new`, `entry/[id]/edit`; a regular push screen is `settings` (reachable by tapping the identity row in the home header). Any screen can read toast state via `useToast()` / `useToastOffset()`, app-meta via `useAppMeta()`.
+
+Fresh onboarding chooses language → calendar → sign-in. Persian devices skip
+the language choice but still choose Gregorian/Shamsi/Qamari. `lib/onboarding-route.ts`
+owns the resumable route and retains authentication/restore precedence.
+
+### Customer tools
+
+Home sorting/filtering is presentation only. Its compact sheet selects a sort
+and one optional per-kaata customer group. Whole-side totals stay whole even
+when the list is filtered. Group events use existing signed role gates and HLC
+sync; removing a group retains its tombstone and financial history. See
+`docs/customer-groups.md`.
+
+The person header shows known Given/Received totals and counts opposite the
+balance. Opening net balances do not count as new handovers. Rejected, voided,
+deleted and deferred admission rows contribute nothing to these statistics.
+
+Credit limits are directional exact cents, configured by owner/manager. Warning
+mode leaves writing possible; hard mode checks clerk writes against serialized
+server truth. Every cloud-connected clerk append waits for HTTPS admission,
+including warning/no-cap customers; stale cached policy is not authorization.
+Fully local paired notebooks retain offline clerk appends. Hard activation
+requires cloud enrollment and an online save. Repayments that reduce exposure
+remain allowed. Deferred clerk
+intents are durable evidence outside the recorded ledger, balance, statistics
+and exports until HTTPS admission; mesh receipt cannot admit them. Never turn a
+waiting/refused intent into an ordinary pending monetary row. See
+`docs/customer-credit-limits.md` for authority, enrollment and rollout boundaries.
+
+Customer reminders are personal state, never shared ledger events. They use a
+private SecureStore device key, excluding reminders from activation on a phone
+that receives a copied SQLite/OS backup. Schedules use civil local clock times,
+not fixed 24-hour durations. Mark done advances a recurrence or disables a
+one-off. Opening a customer or WhatsApp never proves a message was sent.
+Only prefixed customer-reminder notifications may be cancelled/dismissed;
+account changes and revoked access invalidate stale scheduling and tap work.
+See `docs/customer-reminders.md` for task completion, private-device ownership
+and native-delivery boundaries.
 
 ### Mobile UI patterns (non-obvious from a file scan)
 
@@ -282,6 +320,7 @@ These are coordination patterns that recur across screens and bit us once each. 
 - **Home is a 2×screen-width swipe rail, not a single list.** `apps/mobile/app/index.tsx` loads all people via `listAllPeople()`, memoizes into `collectPeople` and `payPeople`, renders both lists side-by-side inside an `Animated.View` with `transform: translateX`. A pan gesture follows the finger via `.onUpdate((e) => translateX.setValue(...))`, commits on release based on **velocity OR drag distance** (500 px/s flick OR 30% screen-width drag), springs back below threshold. Tab taps animate through the same spring path via `useEffect([direction])`. Soft haptic on commit via `expo-haptics`. Don't reintroduce per-direction fetching — both lists derive from one query.
 
 - **Bottom-anchored UI lifts for toasts via `useToastOffset()`** (`apps/mobile/components/Toast.tsx`). The ping bar on `person/[id]` and the home FAB both subscribe to this hook, which returns an `Animated.Value` that springs to `-(VIEWPORT_BOTTOM_MARGIN + TOAST_HEIGHT_SINGLE - BUTTON_OFFSET_ABOVE_SAFE_AREA + LIFT_GAP)` when any toast is visible and back to 0 when the queue empties. **Two math constraints:**
+
   - The insets cancel between the toast viewport (`bottom: 24 + insets.bottom`) and the lifted UI (whose visible bottom should also sit `X + insets.bottom` above the screen). The lift constant therefore has **no `insets.bottom` term**; adding one stacks 24-34px of phantom gap on real devices.
   - Any new bottom-anchored UI must have its visible bottom at `BUTTON_OFFSET_ABOVE_SAFE_AREA` (currently 20px) above the safe area; otherwise the lift is wrong. See the long comment block on `useToastOffset`.
 

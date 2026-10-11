@@ -230,6 +230,7 @@ export function useVaultPermission(
 export function useActiveVaultWriteCaps(vaultId: string | null): {
   canCreate: boolean;
   canAmend: boolean;
+  canConfigureCredit: boolean;
   /** True only after the role for this exact vault was read successfully.
    * Consumers offering optional write/phone-book flows can wait for it. */
   resolved: boolean;
@@ -237,9 +238,10 @@ export function useActiveVaultWriteCaps(vaultId: string | null): {
   const [caps, setCaps] = useState<{
     canCreate: boolean;
     canAmend: boolean;
+    canConfigureCredit: boolean;
     resolvedVaultId: string | null | undefined;
     resolvedAccountId?: string | null;
-  }>({ canCreate: true, canAmend: true, resolvedVaultId: undefined });
+  }>({ canCreate: true, canAmend: true, canConfigureCredit: false, resolvedVaultId: undefined });
   const generation = useRef(0);
   const reread = useCallback(
     (invalidate = true) => {
@@ -259,6 +261,7 @@ export function useActiveVaultWriteCaps(vaultId: string | null): {
         setCaps({
           canCreate: true,
           canAmend: true,
+          canConfigureCredit: false,
           resolvedVaultId: null,
           resolvedAccountId: accountId,
         });
@@ -273,6 +276,7 @@ export function useActiveVaultWriteCaps(vaultId: string | null): {
             setCaps({
               canCreate: canPerformAction(role, "entry.create"),
               canAmend: canPerformAction(role, "entry.amend"),
+              canConfigureCredit: canPerformAction(role, "credit.configure"),
               resolvedVaultId: vaultId,
               resolvedAccountId: accountId,
             });
@@ -280,7 +284,13 @@ export function useActiveVaultWriteCaps(vaultId: string | null): {
         })
         .catch(() => {
           // Never lock the user out on a transient DB error (local-only invariant).
-          if (current()) setCaps({ canCreate: true, canAmend: true, resolvedVaultId: undefined });
+          if (current())
+            setCaps({
+              canCreate: true,
+              canAmend: true,
+              canConfigureCredit: false,
+              resolvedVaultId: undefined,
+            });
         });
       return cancel;
     },
@@ -290,6 +300,7 @@ export function useActiveVaultWriteCaps(vaultId: string | null): {
   return {
     canCreate: caps.canCreate,
     canAmend: caps.canAmend,
+    canConfigureCredit: caps.canConfigureCredit,
     resolved: caps.resolvedVaultId === vaultId && caps.resolvedAccountId === getAccountIdSync(),
   };
 }

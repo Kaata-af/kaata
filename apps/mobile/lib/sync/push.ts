@@ -25,6 +25,7 @@ import { getDb, getInstallIdSync } from "../db-tx";
 import { isUserLedgerEventType } from "../events";
 import { applyEventMutex } from "../projection";
 import { notifyProjectionConflictsChanged } from "../projection-conflicts";
+import { emitLedgerApplied } from "../ledger-events";
 import { markPushDone } from "./cursor";
 import { pushFailureMessage } from "./push-error";
 import { markSelfMembershipRevoked, markVaultArchivedFromServer } from "./pull";
@@ -346,6 +347,28 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
         );
       }
       for (const r of rejectedList) {
+        if (r.reason === "credit_limit_exceeded") {
+          // Only a deferred, unapplied intent may become permanently refused.
+          // Already-visible historical evidence retains the existing retry rule.
+          const intent = await db.getFirstAsync<{ event_id: string }>(
+            "SELECT i.event_id FROM credit_admission_intents i JOIN event_log e ON e.event_id=i.event_id WHERE i.event_id=? AND e.applied_at IS NULL",
+            r.event_id,
+          );
+          if (intent) {
+            await db.runAsync(
+              "UPDATE credit_admission_intents SET status='refused',reason=? WHERE event_id=?",
+              r.reason,
+              r.event_id,
+            );
+            await db.runAsync(
+              "UPDATE event_log SET rejected_at=?,last_reject_reason=? WHERE event_id=? AND applied_at IS NULL",
+              now,
+              r.reason,
+              r.event_id,
+            );
+            continue;
+          }
+        }
         // seq_conflict is NOT a verdict on the event — only on its seq claim
         // (a different event_id already holds that (vault, device, seq) slot
         // on the server; pathological — install-id clone or local reset).
@@ -518,6 +541,18 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
     notifyProjectionConflictsChanged();
   }
 
+  if (acceptedSet.size > 0 || duplicatesSet.size > 0) {
+    const { scheduleSweep } = await import("../projection/sweep");
+    scheduleSweep(vaultId);
+  }
+  // A deferred intent changes status without applying financial evidence.
+  // Refresh its separate surface after the transaction, including terminal refusals.
+  if (
+    acceptedSet.size > 0 ||
+    duplicatesSet.size > 0 ||
+    rejectedList.some((r) => r.reason === "credit_limit_exceeded")
+  )
+    emitLedgerApplied(vaultId, "remote");
   if (hadPermissionRejection) {
     throw new PermissionRejectedError("one or more events rejected with insufficient_role");
   }

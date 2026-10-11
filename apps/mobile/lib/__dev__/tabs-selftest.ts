@@ -134,6 +134,13 @@ stub("../auth", {
     if (!session.jwt || snapshot.jwt !== session.jwt) throw new SessionChangedError();
     return work();
   },
+  applyForUnchangedLocalSession: async <T>(
+    snapshot: { jwt: string | null },
+    work: () => Promise<T>,
+  ) => {
+    if (snapshot.jwt !== session.jwt) throw new SessionChangedError();
+    return work();
+  },
 });
 stub("../api", { getBackendUrl: async () => "http://tabs.fixture" });
 stub("../ledger-events", {
@@ -167,7 +174,10 @@ stub("../db-health", { assertLedgerReadable: () => {} });
 stub("../db-backup", { deleteLocalBackups: async () => {} });
 stub("../checkin-trigger", { requestImmediateCheckIn: () => {} });
 stub("../projection-conflicts", { notifyProjectionConflictsChanged: () => {} });
-stub("../use-vault-role", { invalidateVaultRoleCache: () => {} });
+stub("../use-vault-role", {
+  invalidateVaultRoleCache: () => {},
+  readVaultRole: async () => "owner",
+});
 stub("../projection/sweep", { scheduleSweep: () => {} });
 
 const direction = require("../tabs/direction") as typeof import("../tabs/direction");
@@ -205,6 +215,11 @@ assert.ok(MIGRATION_031_DDL, "migration 031 preserves recorded review evidence")
 const MIGRATION_032_DDL =
   /execAsync\(`([^`]*CREATE TABLE IF NOT EXISTS tab_settlements[^`]*)`\)/.exec(dbSource)?.[1];
 assert.ok(MIGRATION_032_DDL, "migration 032 preserves server-sequence chapter boundaries");
+const MIGRATION_034_DDL =
+  /execAsync\(`([^`]*CREATE TABLE IF NOT EXISTS customer_credit_limits[^`]*)`\)/.exec(
+    dbSource,
+  )?.[1];
+assert.ok(MIGRATION_034_DDL, "migration034 preserves credit policy and deferred intent");
 
 const VAULT = "fixture-vault";
 const SELF = "fixture-self";
@@ -264,6 +279,7 @@ function openFixture(): void {
     ${MIGRATION_030_DDL}
     ${MIGRATION_031_DDL}
     ${MIGRATION_032_DDL}
+    ${MIGRATION_034_DDL}
     INSERT INTO vaults VALUES ('${VAULT}', 'AFN');
     INSERT INTO users VALUES ('${SELF}', '+93700111222', 'Synthetic Owner', 1, NULL, NULL, 1, 1, NULL, NULL);
     INSERT INTO users VALUES ('${CONTACT}', '+93700333444', 'Synthetic Contact', 0, NULL, NULL, 1, 1, NULL, NULL);

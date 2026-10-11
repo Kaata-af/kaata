@@ -105,6 +105,10 @@ export async function syncOnce(
     pullErr = err;
   }
   const pushRes = await pushEvents(vaultId);
+  // Configuration is separate from signed ledger evidence. Local policies
+  // publish after cloud registration/contact push and then refresh peers.
+  const { refreshCreditPolicies } = await import("../credit-limits");
+  await refreshCreditPolicies(vaultId).catch(() => undefined);
 
   // Sync v2 M1: advisory convergence check (docs/sync-v2-architecture.md
   // §9-M1). Compares our author-seq vector with the server's AFTER the

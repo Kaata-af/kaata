@@ -1114,10 +1114,24 @@ test("sign-in screen: a retired install gets its own copy and the reset", async 
   }
 });
 
-test("sign-in screen: Android Back belongs only to the focused email screen", async () => {
+test("sign-in screen: focused onboarding Back returns to calendar; settings delegates Back, email owns its flow", async () => {
   freshScreen();
   render();
-  assert.equal(hardwareBackListeners.size, 0, "the provider selector never intercepts Back");
+  assert.equal(
+    hardwareBackListeners.size,
+    1,
+    "first-run provider selector owns Back to the calendar step",
+  );
+  assert.equal([...hardwareBackListeners][0](), true);
+  for (let i = 0; i < 8; i++) await Promise.resolve();
+  assert.deepEqual(routes, ["/onboarding/calendar"]);
+  freshScreen();
+  render({ redirected: true });
+  assert.equal(
+    hardwareBackListeners.size,
+    0,
+    "the settings sign-in selector delegates native Back",
+  );
   freshScreen();
   render({ emailRoute: true });
   assert.equal(hardwareBackListeners.size, 1, "the focused email screen owns Back");

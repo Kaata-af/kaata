@@ -2,6 +2,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRef, useState, useEffect } from "react";
 import {
   ActivityIndicator,
+  AccessibilityInfo,
+  Animated,
   Modal,
   Pressable,
   ScrollView,
@@ -22,6 +24,7 @@ import { useInbox } from "../lib/tabs/use-inbox";
 import { openTabNotification } from "../lib/tabs/open-notification";
 import type { InboxItem } from "../lib/tabs/api";
 import { useToast } from "./Toast";
+import { useCustomerReminders } from "../lib/use-customer-reminders";
 
 type Inbox = ReturnType<typeof useInbox>;
 
@@ -61,10 +64,14 @@ function InboxContent({
   inbox,
   compact,
   open,
+  openReminders,
+  remindersActive = true,
 }: {
   inbox: Inbox;
   compact?: boolean;
   open: (item: InboxItem) => void;
+  openReminders?: () => void;
+  remindersActive?: boolean;
 }) {
   const rtl = useIsRTL();
   const toast = useToast();
@@ -72,6 +79,10 @@ function InboxContent({
   const { page, loading, failed, signedIn } = inbox;
   return (
     <>
+      <DueRemindersShortcut
+        active={remindersActive}
+        onPress={openReminders ?? (() => router.push("/reminders"))}
+      />
       {compact || page.unread > 0 ? (
         <View style={[styles.heading, rowDir(rtl), !compact && { justifyContent: "flex-end" }]}>
           {compact ? <Text style={[styles.title, textDir(rtl)]}>{t("inbox.title")}</Text> : null}
@@ -142,26 +153,137 @@ function InboxContent({
   );
 }
 
+export function DueRemindersShortcut({
+  active,
+  onPress,
+}: {
+  active: boolean;
+  onPress: () => void;
+}) {
+  const { due } = useCustomerReminders(undefined, undefined, active);
+  const rtl = useIsRTL();
+  if (!due.length) return null;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={t("reminders.dueShortcut", { count: due.length })}
+      onPress={onPress}
+      style={[styles.reminders, rowDir(rtl)]}
+    >
+      <Ionicons name="alarm-outline" size={icon.row} color={colors.textSubtle} />
+      <Text style={[styles.body, textDir(rtl), { flex: 1 }]}>
+        {t("reminders.dueShortcut", { count: due.length })}
+      </Text>
+      <Ionicons
+        name={rtl ? "chevron-back" : "chevron-forward"}
+        size={16}
+        color={colors.textMuted}
+      />
+    </Pressable>
+  );
+}
+
 export function NotificationBell() {
   const inbox = useInbox();
   const toast = useToast();
   const anchor = useRef<View>(null);
   const [position, setPosition] = useState<{ y: number } | null>(null);
+  const [visible, setVisible] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const opacity = useRef(new Animated.Value(0)).current;
+  const animation = useRef<Animated.CompositeAnimation | null>(null);
+  const phase = useRef<"closed" | "measuring" | "open" | "closing">("closed");
+  const generation = useRef(0);
+  const mounted = useRef(true);
+  // Until the bridge answers, prefer an instant transition. A newer native
+  // event always wins over that earlier asynchronous preference query.
+  const reducedMotion = useRef(true);
   const { height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   // Fill the safe viewport, not the bell\'s horizontal position (especially iPhone).
   const sideInset = Math.max(12, insets.left + 12, insets.right + 12);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(
-    () => () => {
+  const finishClose = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    mounted.current = true;
+    let cancelled = false;
+    let preferenceChanged = false;
+    const applyPreference = (reduced: boolean) => {
+      if (cancelled || !mounted.current) return;
+      reducedMotion.current = reduced;
+      if (reduced) {
+        animation.current?.stop();
+        opacity.setValue(phase.current === "open" ? 1 : 0);
+        if (phase.current === "closing") finishClose.current?.();
+      }
+    };
+    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", (reduced) => {
+      preferenceChanged = true;
+      applyPreference(reduced);
+    });
+    const initialPreference = (reduced: boolean) => {
+      if (!preferenceChanged) applyPreference(reduced);
+    };
+    void AccessibilityInfo.isReduceMotionEnabled().then(initialPreference, () =>
+      initialPreference(true),
+    );
+    return () => {
+      cancelled = true;
+      mounted.current = false;
+      generation.current++;
+      animation.current?.stop();
+      subscription.remove();
       if (timer.current) clearTimeout(timer.current);
-    },
-    [],
-  );
+    };
+  }, [opacity]);
   const close = (after?: () => void) => {
-    setPosition(null);
+    // Keep the measured placement even after visible=false: the native Modal
+    // can paint its last content frame while dismissing. Clearing it used to
+    // teleport the panel to insets.top and flash there before disappearing.
+    if (phase.current === "closing") return;
+    if (after && phase.current !== "open") return;
+    const request = ++generation.current;
     if (timer.current) clearTimeout(timer.current);
-    if (after) timer.current = setTimeout(after, 250);
+    timer.current = null;
+    animation.current?.stop();
+    if (phase.current !== "open") {
+      phase.current = "closed";
+      opacity.setValue(0);
+      setVisible(false);
+      setClosing(false);
+      return;
+    }
+    phase.current = "closing";
+    setClosing(true);
+    const finish = () => {
+      if (!mounted.current || request !== generation.current || phase.current !== "closing") return;
+      phase.current = "closed";
+      opacity.setValue(0);
+      setVisible(false);
+      setClosing(false);
+      finishClose.current = null;
+      if (after) {
+        // Let the native portal disappear before opening another route. A
+        // reopened bell or unmount cancels this deferred navigation.
+        timer.current = setTimeout(() => {
+          timer.current = null;
+          if (mounted.current && request === generation.current && phase.current === "closed")
+            after();
+        }, 250);
+      }
+    };
+    finishClose.current = finish;
+    if (reducedMotion.current) finish();
+    else {
+      animation.current = Animated.timing(opacity, {
+        toValue: 0,
+        duration: 120,
+        useNativeDriver: true,
+      });
+      animation.current.start(({ finished }) => {
+        if (finished) finish();
+      });
+    }
   };
   // Navigation first, then the read. openTabNotification marks the notice
   // handled by its inbox id (with the tally and rev as tray hints) the moment
@@ -183,15 +305,39 @@ export function NotificationBell() {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t("inbox.bell", { count: inbox.page.unread })}
-          accessibilityState={{ expanded: !!position }}
+          accessibilityState={{ expanded: visible && !closing }}
           style={styles.bell}
           onPress={() => {
+            const request = ++generation.current;
+            phase.current = "measuring";
+            finishClose.current = null;
+            animation.current?.stop();
+            if (timer.current) clearTimeout(timer.current);
+            timer.current = null;
             void inbox.reload();
-            anchor.current?.measureInWindow((_x, y, _w, h) =>
+            anchor.current?.measureInWindow((_x, y, _w, h) => {
+              if (
+                !mounted.current ||
+                request !== generation.current ||
+                phase.current !== "measuring"
+              )
+                return;
               setPosition({
                 y: Math.max(insets.top, Math.min(y + h + 6, height - insets.bottom - 180)),
-              }),
-            );
+              });
+              phase.current = "open";
+              setClosing(false);
+              setVisible(true);
+              opacity.setValue(reducedMotion.current ? 1 : 0);
+              if (!reducedMotion.current) {
+                animation.current = Animated.timing(opacity, {
+                  toValue: 1,
+                  duration: 140,
+                  useNativeDriver: true,
+                });
+                animation.current.start();
+              }
+            });
           }}
         >
           <Ionicons name="notifications-outline" size={icon.row} color={colors.textEmphasis} />
@@ -206,12 +352,15 @@ export function NotificationBell() {
       </View>
       <Modal
         transparent
-        visible={position != null}
+        visible={visible}
         animationType="none"
         statusBarTranslucent
         onRequestClose={() => close()}
       >
-        <View style={styles.overlay}>
+        <Animated.View
+          style={[styles.overlay, { opacity }]}
+          pointerEvents={closing ? "none" : "auto"}
+        >
           <Pressable
             style={StyleSheet.absoluteFill}
             onPress={() => close()}
@@ -233,7 +382,13 @@ export function NotificationBell() {
               },
             ]}
           >
-            <InboxContent inbox={inbox} compact open={open} />
+            <InboxContent
+              inbox={inbox}
+              compact
+              open={open}
+              remindersActive={visible && !closing}
+              openReminders={() => close(() => router.push("/reminders"))}
+            />
             <Pressable
               accessibilityRole="button"
               style={styles.more}
@@ -242,7 +397,7 @@ export function NotificationBell() {
               <Text style={styles.controlText}>{t("inbox.seeAll")}</Text>
             </Pressable>
           </View>
-        </View>
+        </Animated.View>
       </Modal>
     </>
   );
@@ -287,6 +442,15 @@ const BADGE_BORDER = 1;
 const BADGE_INNER = BADGE_SIZE - 2 * BADGE_BORDER;
 
 const styles = StyleSheet.create({
+  reminders: {
+    minHeight: TOUCH_MIN,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 10,
+    alignItems: "center",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.borderSubtle,
+  },
   bell: {
     minWidth: TOUCH_MIN,
     minHeight: TOUCH_MIN,

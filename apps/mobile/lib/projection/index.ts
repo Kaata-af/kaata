@@ -23,6 +23,7 @@ import { DeviceKeyUnavailableError, getDeviceSigner, type DeviceSigner } from ".
 import { deserializeHLC, serializeHLC, tickLocal, tickReceive, type HLC } from "../hlc";
 
 import { applyAccountBound } from "./account";
+import { applyCustomerGroup, applyPersonGroupSet } from "./customer_groups";
 import {
   applyEntryAmended,
   applyEntryCreated,
@@ -47,6 +48,7 @@ import {
 import { applyVaultSettingSet } from "./vault_settings";
 import { notifyProjectionConflictsChanged } from "../projection-conflicts";
 import { Mutex } from "../util/mutex";
+import { deferCreditAdmission, requiresCreditAdmission } from "../credit-admission";
 
 // Serializes every applyEvent transaction (and pull's post-batch patch tx —
 // see lib/sync/pull.ts). expo-sqlite's withTransactionAsync is documented
@@ -98,6 +100,10 @@ export type Applier = (tx: SQLiteTx, event: LedgerEvent) => Promise<void>;
 // registry without losing its own narrow event-type signature at call sites.
 // Phase 2 wires entry_* + person_* + shop_profile_updated + account_bound.
 export const APPLIERS: Partial<Record<EventType, Applier>> = {
+  group_created: applyCustomerGroup as unknown as Applier,
+  group_renamed: applyCustomerGroup as unknown as Applier,
+  group_archived: applyCustomerGroup as unknown as Applier,
+  person_group_set: applyPersonGroupSet as unknown as Applier,
   entry_created: applyEntryCreated as unknown as Applier,
   entry_amended: applyEntryAmended as unknown as Applier,
   entry_deleted: applyEntryDeleted as unknown as Applier,
@@ -169,7 +175,11 @@ export const APPLIERS: Partial<Record<EventType, Applier>> = {
 //                       a typed RoleGateRejectionError so synchronous
 //                       callers (entry/new save handler) can surface a
 //                       specific "you don't have permission" toast.
-export type ApplyEventNotAppliedReason = "duplicate" | "preflight" | "role_gate";
+export type ApplyEventNotAppliedReason =
+  | "duplicate"
+  | "preflight"
+  | "role_gate"
+  | "credit_admission";
 
 export type ApplyEventResult =
   | { applied: true }
@@ -494,6 +504,17 @@ export async function applyEvent(
         return;
       }
 
+      if (
+        (await requiresCreditAdmission(db, stamped, gate.current_role)) &&
+        stamped.event_type === "entry_created"
+      ) {
+        await deferCreditAdmission(db, stamped);
+        await setAppMetaInTx(db, HLC_LAST_KEY, serializeHLC(newHlc));
+        applied = false;
+        notApplied.reason = "credit_admission";
+        return;
+      }
+
       // 4. Dispatch to projection applier. Throws roll the entire tx back.
       await applier(db, stamped);
 
@@ -519,7 +540,7 @@ export async function applyEvent(
   // (sweep is a no-op when nothing's quarantined), so it's safe to
   // call on every successful apply. Lazy-import to avoid circular
   // deps between projection/index.ts and projection/sweep.ts.
-  if (applied && event.vault_id != null) {
+  if ((applied || notApplied.reason === "credit_admission") && event.vault_id != null) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { scheduleSweep } = require("./sweep") as {

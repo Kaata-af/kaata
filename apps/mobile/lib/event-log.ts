@@ -149,7 +149,7 @@ export async function appendEntryCreated(args: {
   amountAfn: number;
   note: string | null;
   occurredAtMs?: number;
-}): Promise<{ event_id: string; entry_id: string }> {
+}): Promise<{ event_id: string; entry_id: string; pending_admission?: boolean }> {
   if (
     typeof args.amountAfn !== "number" ||
     parseAmountInput(String(args.amountAfn)) !== args.amountAfn
@@ -197,6 +197,8 @@ export async function appendEntryCreated(args: {
 
   const result = await applyEvent(event, { origin: "local" });
   if (!result.applied) {
+    if (result.reason === "credit_admission")
+      return { event_id: eventId, entry_id: entryId, pending_admission: true };
     // Discriminated by reason:
     //   role_gate  — caller (entry/new) catches RoleGateRejectionError and
     //                surfaces "view only" copy.

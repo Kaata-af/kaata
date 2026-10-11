@@ -1,3 +1,4 @@
+import { cacheCreditPolicies } from "./credit-policy-cache";
 // Snapshot restore (download + tail-of-events + M5 membership chain).
 //
 // fetchSnapshot() + restoreFromSnapshot() — the device had a previous install
@@ -32,6 +33,10 @@ import type { LedgerEvent } from "./events";
 import { compareHLC, deserializeHLC, serializeHLC, type HLC } from "./hlc";
 import { serializeFieldHLCs, type FieldHLCMap } from "./projection/field-hlc";
 import {
+  seedSnapshotCustomerGroups,
+  restoredRelationshipFieldHLCs,
+} from "./customer-group-restore";
+import {
   ingestPulledEvents,
   mapPulledWireToEvent,
   type PulledWireEvent,
@@ -49,6 +54,7 @@ const PAYLOAD_SCHEMA = 1;
 // the server returns them so the client lands on the up-to-date projection
 // without a follow-up pull round-trip.
 export type Snapshot = {
+  credit_limits?: import("./credit-policy").CreditPolicy[];
   vault_id: string;
   // Per-vault server_seq of the LAST event included in the snapshot. The
   // client primes sync_state.last_pulled_server_seq to this value after
@@ -63,6 +69,15 @@ export type Snapshot = {
   shop_profile: SnapshotShopProfile | null;
   users: SnapshotUser[];
   relationships: SnapshotRelationship[];
+  customer_groups?: Array<{
+    id: string;
+    vault_id: string;
+    name: string;
+    created_at: number;
+    updated_at: number;
+    archived_at: number | null;
+    field_hlcs: FieldHLCMap;
+  }>;
   entries: SnapshotEntry[];
   // HLC frontier as of snapshot_server_seq. Used to seed app_meta.hlc_last
   // so the first locally-authored event on this device cannot sort before
@@ -127,6 +142,8 @@ export type SnapshotRelationship = {
   created_at: number;
   updated_at: number;
   archived_at: number | null;
+  group_id?: string | null;
+  group_field_hlcs?: FieldHLCMap;
 };
 
 export type SnapshotEntry = {
@@ -426,12 +443,15 @@ export async function restoreFromSnapshot(
       //    stores it empty (the self id never round-trips), so remap "" → the local
       //    self id to satisfy the NOT NULL REFERENCES users(id) FK. Without this the
       //    insert throws under foreign_keys=ON and the contact is dropped.
+      // Exact group registers survive recovery, including archived groups and
+      // their dormant assignments. Older snapshots omit these additive fields.
+      await seedSnapshotCustomerGroups(db, snapshot.vault.id, snapshot.customer_groups);
       for (const r of snapshot.relationships) {
         await db.runAsync(
           `INSERT OR REPLACE INTO relationships (
            id, user_a_id, user_b_id, context, vault_id,
-           created_at, updated_at, archived_at, field_hlcs
-         ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?, ?)`,
+           created_at, updated_at, archived_at, field_hlcs, group_id
+         ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?, ?, ?)`,
           r.id,
           r.user_a_id || localSelfId,
           r.user_b_id,
@@ -447,7 +467,11 @@ export async function restoreFromSnapshot(
           // sidecar) ignores it. Same conservative updated_at floor as the
           // users/entries seeds — the Go projection sets the relationship's
           // updated_at from the winning archive/unarchive event's hlc.pms.
-          floorFieldHLCs(["archived_at"], r.updated_at),
+          restoredRelationshipFieldHLCs(
+            floorFieldHLCs(["archived_at"], r.updated_at),
+            r.group_field_hlcs,
+          ),
+          r.group_id ?? null,
         );
       }
 
@@ -484,6 +508,17 @@ export async function restoreFromSnapshot(
         );
       }
     } // end else — snapshot projection seed (fresh recovery only; see B9 guard)
+
+    // Policies are read live by the snapshot endpoint, independent of snapshot
+    // age. Refresh existing-device restores too, preserving unpublished local
+    // intent and newer cached saves. Older servers omit this additive field.
+    if (snapshot.credit_limits != null)
+      await cacheCreditPolicies(
+        db,
+        snapshot.vault.id,
+        snapshot.credit_limits,
+        snapshot.generated_at_ms,
+      );
 
     // 6. Re-arm this vault's locally-authored, not-yet-server-acked events.
     //    Local events are stamped applied_at at append time, and the snapshot

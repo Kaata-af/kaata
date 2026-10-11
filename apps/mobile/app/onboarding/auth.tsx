@@ -156,7 +156,7 @@ export function AuthScreen({
   // while one runs, but only the tapped one shows the spinner — a shared
   // boolean used to put a spinner on BOTH cards at once. "reset" = the
   // retired-install reset below is erasing; everything disables.
-  const [busy, setBusy] = useState<null | "google" | "apple" | "email" | "reset">(null);
+  const [busy, setBusy] = useState<null | "google" | "apple" | "email" | "reset" | "back">(null);
   const [error, setError] = useState<string | null>(null);
   // The last failure was a retired install: offer "Reset this phone".
   const [retired, setRetired] = useState(false);
@@ -246,14 +246,36 @@ export function AuthScreen({
     leaveEmailMode();
   }
 
+  async function backToCalendar() {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy("back");
+    try {
+      await setAppMeta("onboarding_step", "calendar");
+      if (focusedRef.current) router.replace("/onboarding/calendar");
+    } catch {
+      if (focusedRef.current) setError(t("entry.saveFailed"));
+    } finally {
+      busyRef.current = false;
+      if (focusedRef.current) setBusy(null);
+    }
+  }
+
   // Android's back button walks the email flow instead of leaving the screen.
   useFocusEffect(
     useCallback(() => {
       focusedRef.current = true;
       if (!emailRoute) {
         emailOpenedRef.current = false;
+        const sub = !redirected
+          ? BackHandler.addEventListener("hardwareBackPress", () => {
+              void backToCalendar();
+              return true;
+            })
+          : null;
         return () => {
           focusedRef.current = false;
+          sub?.remove();
         };
       }
       const sub = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -492,6 +514,7 @@ export function AuthScreen({
   }
 
   async function onStayOffline() {
+    if (busyRef.current) return;
     await setAppMeta("onboarding_auth_method", "offline");
     // Clear any pending Google name/email that lingered from a prior
     // sign-in attempt this session — otherwise the profile screen would
@@ -684,13 +707,19 @@ export function AuthScreen({
           }}
         />
       ) : null}
-      {redirected || inEmailMode ? (
+      {redirected || inEmailMode || !emailRoute ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t("common.back")}
           disabled={busy !== null || !resumeChecked}
           onPress={() =>
-            inEmailMode ? emailBack() : router.canGoBack() ? router.back() : router.replace("/")
+            inEmailMode
+              ? emailBack()
+              : !redirected
+                ? void backToCalendar()
+                : router.canGoBack()
+                  ? router.back()
+                  : router.replace("/")
           }
           style={{
             minHeight: 44,

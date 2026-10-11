@@ -30,6 +30,9 @@ export type VaultAction =
   | "person.rename"
   | "person.change_phone"
   | "person.archive"
+  | "person.set_group"
+  | "group.manage"
+  | "credit.configure"
   // Vault settings
   | "vault.rename"
   | "vault.archive"
@@ -62,6 +65,9 @@ export const PERMISSIONS: Readonly<Record<VaultAction, Readonly<Record<VaultRole
       viewer: false,
     },
     "person.archive": { owner: true, manager: true, editor: true, clerk: false, viewer: false },
+    "person.set_group": { owner: true, manager: true, editor: true, clerk: false, viewer: false },
+    "group.manage": { owner: true, manager: true, editor: true, clerk: false, viewer: false },
+    "credit.configure": { owner: true, manager: true, editor: false, clerk: false, viewer: false },
 
     "vault.rename": { owner: true, manager: true, editor: false, clerk: false, viewer: false },
     "vault.archive": { owner: true, manager: false, editor: false, clerk: false, viewer: false },

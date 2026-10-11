@@ -144,6 +144,18 @@ export type PersonUnarchivedEvent = EventEnvelope & {
   payload: Record<string, never>;
 };
 
+// Groups belong to the kaata; assignment belongs to a relationship, not the
+// account-global person row. Sorting/filter preferences are device-local.
+export type CustomerGroupEvent = EventEnvelope &
+  (
+    | { event_type: "group_created" | "group_renamed"; payload: { name: string } }
+    | { event_type: "group_archived"; payload: Record<string, never> }
+  );
+export type PersonGroupSetEvent = EventEnvelope & {
+  event_type: "person_group_set";
+  payload: { group_id: string | null };
+};
+
 // ---------- Shop profile events (Phase 2/3) ----------
 
 export type ShopProfileUpdatedEvent = EventEnvelope & {
@@ -254,6 +266,8 @@ export type LedgerEvent =
   | PersonPhoneChangedEvent
   | PersonArchivedEvent
   | PersonUnarchivedEvent
+  | CustomerGroupEvent
+  | PersonGroupSetEvent
   | ShopProfileUpdatedEvent
   | VaultSettingSetEvent
   | VaultMemberAddedEvent
@@ -279,6 +293,10 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<EventType> = new Set([
   "person_phone_changed",
   "person_archived",
   "person_unarchived",
+  "group_created",
+  "group_renamed",
+  "group_archived",
+  "person_group_set",
   "shop_profile_updated",
   "vault_setting_set",
   "vault_member_added",
@@ -302,6 +320,10 @@ export function isKnownEventType(t: string): t is EventType {
 // holds their canonical copy and a genuinely-bad one of those must not loop or
 // resurface forever.
 const USER_LEDGER_EVENT_TYPES: ReadonlySet<string> = new Set<string>([
+  "group_created",
+  "group_renamed",
+  "group_archived",
+  "person_group_set",
   "entry_created",
   "entry_amended",
   "entry_deleted",

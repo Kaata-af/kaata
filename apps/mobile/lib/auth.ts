@@ -125,6 +125,24 @@ export function applyForCurrentSession<T>(
   });
 }
 
+// Local-only operations need the same binding guard before any account exists.
+// Never use this helper as authorization for a server request.
+export function applyForUnchangedLocalSession<T>(
+  snapshot: SessionSnapshot,
+  work: () => Promise<T>,
+): Promise<T> {
+  return mutateLocalSession(async () => {
+    const jwt = await SecureStore.getItemAsync(SESSION_KEY);
+    if (
+      snapshot.bindingVersion !== sessionBindingVersion ||
+      snapshot.jwt !== jwt ||
+      snapshot.accountId !== getAccountIdSync()
+    )
+      throw new SessionChangedError();
+    return work();
+  });
+}
+
 export type SessionUser = {
   email?: string;
   name?: string;

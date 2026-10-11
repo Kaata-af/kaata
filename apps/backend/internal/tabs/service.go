@@ -39,6 +39,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/matee/kaata-backend/internal/credit"
 )
 
 // Typed errors. handler.go maps each to (status, error_code, message); the
@@ -119,9 +120,10 @@ type Poker interface {
 // Service owns every tab read and write. One *pgxpool.Pool, no caches: a
 // tab is small and every request is one short transaction.
 type Service struct {
-	pool  *pgxpool.Pool
-	poker Poker
-	push  *pushClient
+	pool          *pgxpool.Pool
+	poker         Poker
+	push          *pushClient
+	creditBalance credit.BalanceReader
 }
 
 // NewService constructs the service over the shared pool.
@@ -134,6 +136,8 @@ func NewService(pool *pgxpool.Pool) *Service {
 func (s *Service) SetPoker(p Poker) {
 	s.poker = p
 }
+
+func (s *Service) SetCreditBalanceReader(read credit.BalanceReader) { s.creditBalance = read }
 
 // querier is the subset of pgx shared by *pgxpool.Pool and pgx.Tx, so the
 // read helpers below serve both the request path and the inside of a
@@ -1319,6 +1323,12 @@ func (s *Service) Append(ctx context.Context, p Party, in AppendInput) (AppendRe
 		return AppendResult{}, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	lockedVaultID := p.VaultID
+	if p.VaultID != nil {
+		if err := credit.Lock(ctx, tx, *p.VaultID); err != nil {
+			return AppendResult{}, err
+		}
+	}
 
 	locked, err := lockTab(ctx, tx, p.TabID)
 	if err != nil {
@@ -1327,6 +1337,11 @@ func (s *Service) Append(ctx context.Context, p Party, in AppendInput) (AppendRe
 	p, err = recheckParty(ctx, tx, p, rankClerk, false)
 	if err != nil {
 		return AppendResult{}, err
+	}
+	// A party binding may have moved while we waited for the row lock. Do not
+	// evaluate its new exposure while holding the old kaata admission lock.
+	if (lockedVaultID == nil) != (p.VaultID == nil) || (lockedVaultID != nil && p.VaultID != nil && *lockedVaultID != *p.VaultID) {
+		return AppendResult{}, ErrNotFound
 	}
 
 	// Idempotency: the id already exists → it is either OUR earlier append
@@ -1357,11 +1372,46 @@ func (s *Service) Append(ctx context.Context, p Party, in AppendInput) (AppendRe
 	case !errors.Is(err, pgx.ErrNoRows):
 		return AppendResult{}, fmt.Errorf("idempotency lookup: %w", err)
 	}
+	var refused bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM customer_credit_tab_refusals WHERE tab_id=$1::uuid AND entry_id=$2::uuid)`, p.TabID, in.ID).Scan(&refused); err != nil {
+		return AppendResult{}, err
+	}
+	if refused {
+		return AppendResult{}, credit.ErrLimit
+	}
 	// A lost success response may be retried AFTER the peer closed the tab.
 	// Acknowledging the existing row is a read; only a genuinely new append
 	// is refused. Otherwise the phone would falsely label a saved tally unsent.
 	if locked.ClosedAt != nil {
 		return AppendResult{}, ErrTabClosed
+	}
+	if p.MemberRole == "clerk" && p.VaultID != nil && p.RelationshipID != nil {
+		policy, err := credit.Read(ctx, tx, *p.VaultID, *p.RelationshipID)
+		if err != nil {
+			return AppendResult{}, err
+		}
+		if policy != nil && policy.Mode == "clerk_block" {
+			if s.creditBalance == nil {
+				return AppendResult{}, fmt.Errorf("credit admission unavailable")
+			}
+			before, err := s.creditBalance(ctx, tx, *p.VaultID, *p.RelationshipID)
+			if err != nil {
+				return AppendResult{}, err
+			}
+			delta := minor
+			if (p.Role == "a" && in.Direction == "b_to_a") || (p.Role == "b" && in.Direction == "a_to_b") {
+				delta = -delta
+			}
+			if (delta > 0 && before > 9223372036854775807-delta) || (delta < 0 && before < (-9223372036854775807-1)-delta) || policy.Exceeded(before, before+delta) {
+				if _, err := tx.Exec(ctx, `INSERT INTO customer_credit_tab_refusals(tab_id,entry_id) VALUES($1::uuid,$2::uuid) ON CONFLICT DO NOTHING`, p.TabID, in.ID); err != nil {
+					return AppendResult{}, err
+				}
+				if err := tx.Commit(ctx); err != nil {
+					return AppendResult{}, fmt.Errorf("commit credit refusal: %w", err)
+				}
+				return AppendResult{}, credit.ErrLimit
+			}
+		}
 	}
 
 	rev, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("entry_created", in.ID))

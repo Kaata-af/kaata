@@ -179,18 +179,23 @@ async function newOp(
   op: TabOutboxRow["op"],
   payload: Record<string, unknown>,
   id = Crypto.randomUUID(),
+  opts: { deferAppend?: boolean } = {},
 ): Promise<string> {
   if (!(await getSessionJWT())) throw new TabAuthUnavailableError();
-  await queueTabMutation(link, {
-    id,
-    tab_id: link.tab_id,
-    op,
-    payload: JSON.stringify(payload),
-    created_at: Date.now(),
-    attempts: 0,
-    next_at: null,
-    last_error: null,
-  });
+  await queueTabMutation(
+    link,
+    {
+      id,
+      tab_id: link.tab_id,
+      op,
+      payload: JSON.stringify(payload),
+      created_at: Date.now(),
+      attempts: 0,
+      next_at: null,
+      last_error: null,
+    },
+    opts,
+  );
   return id;
 }
 
@@ -650,30 +655,45 @@ export async function addTabEntry(
   type: EntryType,
   amount: number,
   note: string | null,
-): Promise<{ entryId: string; duplicateHint: DuplicateHint | null }> {
+  expected?: { session: import("../auth").SessionSnapshot; vaultId: string },
+): Promise<{ entryId: string; duplicateHint: DuplicateHint | null; pendingAdmission?: boolean }> {
   const link = await getTabLinkForPerson(personId);
   if (!link) throw new TabInputError("not_linked");
   requireOpen(link);
+  const session = expected?.session ?? (await captureCurrentSession());
+  if (expected && link.vault_id !== expected.vaultId) throw new TabAuthUnavailableError();
   if (typeof amount !== "number" || parseAmountInput(String(amount)) !== amount) {
     throw new TabInputError("amount_invalid");
   }
   await assertVaultAction(link.vault_id, "entry.create");
+  const clerk = (await readVaultRole(link.vault_id, getAccountIdSync())) === "clerk";
   const cleanNote = note?.trim().slice(0, ENTRY_NOTE_MAX_LENGTH) || null;
   const id = Crypto.randomUUID();
   const occurredAt = Date.now();
 
-  await newOp(
-    link,
-    "append",
-    {
-      id,
-      direction: directionFor(link.role, type),
-      amount: minorToWire(toMinorUnits(amount)),
-      note: cleanNote,
-      occurred_at_ms: occurredAt,
-    },
-    id, // the op id IS the entry id: the server's idempotency key
-  );
+  await applyForCurrentSession(session, async () => {
+    if (getActiveVaultIdSyncMaybe() !== link.vault_id) throw new TabAuthUnavailableError();
+    await queueTabMutation(
+      link,
+      {
+        id,
+        tab_id: link.tab_id,
+        op: "append",
+        payload: JSON.stringify({
+          id,
+          direction: directionFor(link.role, type),
+          amount: minorToWire(toMinorUnits(amount)),
+          note: cleanNote,
+          occurred_at_ms: occurredAt,
+        }),
+        created_at: occurredAt,
+        attempts: 0,
+        next_at: null,
+        last_error: null,
+      },
+      { deferAppend: clerk },
+    );
+  });
 
   let online = true;
   try {
@@ -683,18 +703,22 @@ export async function addTabEntry(
   }
   if (!online) {
     void syncTab(link.tab_id);
-    return { entryId: id, duplicateHint: null };
+    return { entryId: id, duplicateHint: null, pendingAdmission: clerk };
   }
   const flushed = await Promise.race([
     syncTab(link.tab_id).then(() => true),
     new Promise<false>((resolve) => setTimeout(() => resolve(false), FIRST_FLUSH_WAIT_MS)),
   ]);
-  if (!flushed) return { entryId: id, duplicateHint: null };
+  if (!flushed) return { entryId: id, duplicateHint: null, pendingAdmission: clerk };
   const outcome = takeAppendOutcome(id);
   if (outcome?.rejected === "tab_closed") throw new TabClosedError();
   if (outcome?.rejected)
     throw new TabApiError(409, outcome.rejected, `append refused: ${outcome.rejected}`);
-  return { entryId: id, duplicateHint: outcome?.hint ?? null };
+  return {
+    entryId: id,
+    duplicateHint: outcome?.hint ?? null,
+    pendingAdmission: clerk && outcome == null,
+  };
 }
 
 /**

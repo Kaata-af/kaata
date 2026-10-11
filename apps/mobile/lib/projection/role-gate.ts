@@ -76,6 +76,10 @@ const REQUIRED_ROLE: Record<EventType, RoleRequirement> = {
   person_phone_changed: "editor",
   person_archived: "editor",
   person_unarchived: "editor",
+  group_created: "editor",
+  group_renamed: "editor",
+  group_archived: "editor",
+  person_group_set: "editor",
 
   // Vault config — manager or above (roles v2: reconciled with the backend,
   // which had shop_profile_updated at 'editor' while mobile had 'owner';
@@ -303,7 +307,7 @@ async function resolveRoleAt(
 //                                                lands in event_log for audit
 //                                                + replay)
 export type RoleGateResult =
-  | { ok: true }
+  | { ok: true; current_role?: VaultRole }
   | {
       ok: false;
       reason: "insufficient_role" | "unknown_actor" | "unsigned_event" | "bad_signature";
@@ -1092,6 +1096,17 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
         required_role: requirement,
       };
     }
+    if (event.event_type === "entry_created" && event.origin === "local") {
+      const role = await resolveLocalEntryRoleAt(tx, event);
+      if (role != null && !meetsRequirement(role, requirement))
+        return {
+          ok: false,
+          reason: "insufficient_role",
+          current_role: role,
+          required_role: requirement,
+        };
+      return { ok: true, current_role: role ?? undefined };
+    }
     return { ok: true };
   }
 
@@ -1318,7 +1333,23 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
     }
   }
 
-  return { ok: true };
+  return { ok: true, current_role: role ?? undefined };
+}
+
+// Signing out clears the live actor stamp, but never grants owner authority.
+// Resolve the local author's persisted/key identities at the same historical
+// HLC as a mesh copy. Founder bootstrap with no role history stays compatible.
+export async function resolveLocalEntryRoleAt(
+  tx: SQLiteTx,
+  event: LedgerEvent,
+): Promise<VaultRole | null> {
+  if (!event.vault_id) return null;
+  const candidates = await resolveAccountIdCandidates(getAccountIdSync());
+  for (const candidate of candidates) {
+    const found = await resolveRoleAt(tx, event.vault_id, candidate, event.hlc, event.event_id);
+    if (found != null) return found;
+  }
+  return null;
 }
 
 // Last-owner check. Returns true if applying this event would leave the

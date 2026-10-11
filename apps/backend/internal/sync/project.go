@@ -76,6 +76,10 @@ const (
 	EventPersonPhoneChanged  = "person_phone_changed"
 	EventPersonArchived      = "person_archived"
 	EventPersonUnarchived    = "person_unarchived"
+	EventGroupCreated       = "group_created"
+	EventGroupRenamed       = "group_renamed"
+	EventGroupArchived      = "group_archived"
+	EventPersonGroupSet     = "person_group_set"
 	EventShopProfileUpdated  = "shop_profile_updated"
 	EventVaultSettingSet     = "vault_setting_set"
 	EventVaultMemberAdded    = "vault_member_added"
@@ -202,6 +206,8 @@ type RelationshipProjection struct {
 	CreatedAt  int64  `json:"created_at"`
 	UpdatedAt  int64  `json:"updated_at"`
 	ArchivedAt *int64 `json:"archived_at"`
+	GroupID    *string `json:"group_id,omitempty"`
+	GroupFieldHLCs map[string]HLC `json:"group_field_hlcs,omitempty"`
 }
 
 type EntryProjection struct {
@@ -257,6 +263,7 @@ type MemberProjection struct {
 // Projection is the merged state. Maps are keyed by string ids; encoding/json
 // sorts string map keys alphabetically for deterministic output.
 type Projection struct {
+	CustomerGroups map[string]*CustomerGroupProjection `json:"customer_groups,omitempty"`
 	Users         map[string]*UserProjection         `json:"users"`
 	Relationships map[string]*RelationshipProjection `json:"relationships"`
 	Entries       map[string]*EntryProjection        `json:"entries"`
@@ -345,6 +352,10 @@ func applyOne(p *Projection, e *LedgerEvent) error {
 		return applyPersonArchived(p, e)
 	case EventPersonUnarchived:
 		return applyPersonUnarchived(p, e)
+	case EventGroupCreated, EventGroupRenamed, EventGroupArchived:
+		return applyCustomerGroup(p, e)
+	case EventPersonGroupSet:
+		return applyPersonGroupSet(p, e)
 	case EventShopProfileUpdated:
 		return applyShopProfileUpdated(p, e)
 	case EventVaultSettingSet:

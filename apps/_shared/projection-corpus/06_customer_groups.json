@@ -1,0 +1,136 @@
+{
+  "name": "customer_groups",
+  "description": "Optional per-kaata groups survive rename, concurrent stale edits, archive and ungrouping. Archived groups retain dormant assignments; exact per-field HLC registers survive snapshot JSON.",
+  "events": [
+    {
+      "event_id": "person",
+      "event_type": "person_added",
+      "vault_id": "v",
+      "target_id": "u",
+      "relationship_id": "r",
+      "hlc": { "pms": 1, "l": 0, "did": "test" },
+      "device_id": "test",
+      "author_user_id_local_only": "self",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {
+        "user_id": "u",
+        "name": "Amir",
+        "phone_e164": null,
+        "relationship_context": "peer"
+      }
+    },
+    {
+      "event_id": "group",
+      "event_type": "group_created",
+      "vault_id": "v",
+      "target_id": "g",
+      "relationship_id": null,
+      "hlc": { "pms": 10, "l": 0, "did": "test" },
+      "device_id": "test",
+      "author_user_id_local_only": "self",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": { "name": "Family" }
+    },
+    {
+      "event_id": "rename-new",
+      "event_type": "group_renamed",
+      "vault_id": "v",
+      "target_id": "g",
+      "relationship_id": null,
+      "hlc": { "pms": 30, "l": 0, "did": "test" },
+      "device_id": "test",
+      "author_user_id_local_only": "self",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": { "name": "Neighborhood" }
+    },
+    {
+      "event_id": "rename-old",
+      "event_type": "group_renamed",
+      "vault_id": "v",
+      "target_id": "g",
+      "relationship_id": null,
+      "hlc": { "pms": 20, "l": 0, "did": "test" },
+      "device_id": "test",
+      "author_user_id_local_only": "self",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": { "name": "Old" }
+    },
+    {
+      "event_id": "assign",
+      "event_type": "person_group_set",
+      "vault_id": "v",
+      "target_id": "r",
+      "relationship_id": "r",
+      "hlc": { "pms": 40, "l": 0, "did": "test" },
+      "device_id": "test",
+      "author_user_id_local_only": "self",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": { "group_id": "g" }
+    },
+    {
+      "event_id": "archive",
+      "event_type": "group_archived",
+      "vault_id": "v",
+      "target_id": "g",
+      "relationship_id": null,
+      "hlc": { "pms": 50, "l": 0, "did": "test" },
+      "device_id": "test",
+      "author_user_id_local_only": "self",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {}
+    }
+  ],
+  "expected_projection": {
+    "users": {
+      "u": {
+        "id": "u",
+        "phone_e164": null,
+        "display_name": "Amir",
+        "is_local_self": false,
+        "google_sub": null,
+        "account_id": null,
+        "created_at": 1,
+        "updated_at": 1,
+        "archived_at": null
+      }
+    },
+    "relationships": {
+      "r": {
+        "id": "r",
+        "user_a_id": "self",
+        "user_b_id": "u",
+        "context": "peer",
+        "vault_id": "v",
+        "created_at": 1,
+        "updated_at": 1,
+        "archived_at": null,
+        "group_id": "g",
+        "group_field_hlcs": { "group_id": { "pms": 40, "l": 0, "did": "test" } }
+      }
+    },
+    "entries": {},
+    "shop_profile": null,
+    "members": {},
+    "vault_settings": {},
+    "customer_groups": {
+      "g": {
+        "id": "g",
+        "vault_id": "v",
+        "name": "Neighborhood",
+        "created_at": 10,
+        "updated_at": 50,
+        "archived_at": 50,
+        "field_hlcs": {
+          "name": { "pms": 30, "l": 0, "did": "test" },
+          "archived_at": { "pms": 50, "l": 0, "did": "test" }
+        }
+      }
+    }
+  }
+}

@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/matee/kaata-backend/internal/auth"
+	"github.com/matee/kaata-backend/internal/credit"
 	"github.com/matee/kaata-backend/internal/httpx"
 )
 
@@ -69,6 +70,8 @@ func noStore(w http.ResponseWriter) {
 // identical for every not-yours / unknown case).
 func mapServiceError(err error) (int, string, string) {
 	switch {
+	case errors.Is(err, credit.ErrLimit):
+		return http.StatusConflict, "credit_limit_exceeded", "credit limit exceeded"
 	case errors.Is(err, ErrAuthRequired):
 		return http.StatusUnauthorized, "authentication_required", "authentication required"
 	case errors.Is(err, ErrNotFound):

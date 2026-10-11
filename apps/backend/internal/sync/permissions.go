@@ -158,7 +158,8 @@ func requiredRoleFor(eventType string) (string, bool) {
 		"person_renamed",
 		"person_phone_changed",
 		"person_archived",
-		"person_unarchived":
+		"person_unarchived",
+		"group_created", "group_renamed", "group_archived", "person_group_set":
 		return "editor", true
 
 	// Shop identity + vault settings — manager or above (roles v2: was

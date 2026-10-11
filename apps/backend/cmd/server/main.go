@@ -259,6 +259,7 @@ func main() {
 	// slow snapshot replay can't starve user-facing request connections.
 	syncSvc := syncapi.NewService(pool)
 	syncH := syncapi.NewHandler(syncSvc)
+	tabsSvc.SetCreditBalanceReader(syncapi.CreditBalance)
 
 	// Membership-cache invalidation: when a vault management call changes a
 	// member's standing (revoke, role change, leave, unarchive, …) the sync
@@ -547,6 +548,8 @@ func main() {
 			Post("/v1/sync/push", syncH.Push)
 		pr.Get("/v1/sync/pull", syncH.Pull)
 		pr.Get("/v1/sync/snapshot", syncH.Snapshot)
+		pr.Get("/v1/sync/credit-limits", syncH.CreditLimits)
+		pr.Put("/v1/sync/credit-limits", syncH.CreditLimits)
 		// M1 (sync v2 §5): advisory per-device author_seq summary so a
 		// relay can ask "what is the server missing?" in one round trip.
 		pr.Get("/v1/sync/vector", syncH.Vector)

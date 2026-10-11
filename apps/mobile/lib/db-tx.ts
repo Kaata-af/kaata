@@ -284,7 +284,26 @@ export function _resetActiveVaultIdCacheForReset(): void {
 let cachedAccountId: string | null = null;
 
 export function setAccountIdCache(id: string | null): void {
+  const changed = cachedAccountId !== id;
   cachedAccountId = id;
+  if (changed) {
+    for (const listener of [...accountIdentityListeners]) {
+      try {
+        listener();
+      } catch {
+        /* A consumer cannot interrupt sign-in. */
+      }
+    }
+  }
+}
+
+const accountIdentityListeners = new Set<() => void>();
+/** Personal device services must immediately discard the old account's work. */
+export function onAccountIdentityChanged(fn: () => void): () => void {
+  accountIdentityListeners.add(fn);
+  return () => {
+    accountIdentityListeners.delete(fn);
+  };
 }
 
 // Returns null when the user has not signed in yet — every event append
@@ -300,11 +319,11 @@ export function getAccountIdSync(): string | null {
 export async function refreshAccountIdCache(): Promise<string | null> {
   const db = await getDb();
   const v = await getAppMetaInTx(db, "account_id");
-  cachedAccountId = v;
+  setAccountIdCache(v);
   return v;
 }
 
 // Used by resetAllLocalData().
 export function _resetAccountIdCacheForReset(): void {
-  cachedAccountId = null;
+  setAccountIdCache(null);
 }

@@ -814,12 +814,17 @@ export async function listVaultContactsForJoin(vaultId: string): Promise<TabJoin
 // tab_outbox
 
 /** Commit the visible change and its durable operation as one unit. */
-export async function queueTabMutation(link: TabLink, op: TabOutboxRow): Promise<void> {
+export async function queueTabMutation(
+  link: TabLink,
+  op: TabOutboxRow,
+  opts: { deferAppend?: boolean } = {},
+): Promise<void> {
   const db = await getDb();
   const p = JSON.parse(op.payload);
   await transaction(async () => {
     switch (op.op) {
       case "append":
+        if (opts.deferAppend) break;
         await insertOptimisticEntry(
           link,
           {
@@ -893,7 +898,10 @@ export async function rejectTabOp(op: TabOutboxRow, reason = "refused"): Promise
 }
 
 /** Refused tallies stay readable, but never contribute to balances/exports. */
-export async function listFailedTabEntries(relationshipId: string): Promise<Entry[]> {
+export async function listFailedTabEntries(
+  relationshipId: string,
+  opts?: { excludeCreditRefused?: boolean },
+): Promise<Entry[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<{
     id: string;
@@ -903,8 +911,9 @@ export async function listFailedTabEntries(relationshipId: string): Promise<Entr
   }>(
     `SELECT f.id, f.payload, f.created_at, l.role FROM tab_failed_ops f
      JOIN tab_links l ON l.tab_id=f.tab_id
-     WHERE l.relationship_id=? AND f.op='append' ORDER BY f.created_at DESC`,
+     WHERE l.relationship_id=? AND f.op='append' AND (?=0 OR f.reason<>'credit_limit_exceeded') ORDER BY f.created_at DESC`,
     relationshipId,
+    opts?.excludeCreditRefused ? 1 : 0,
   );
   return rows.map((r) => {
     const p = JSON.parse(r.payload);

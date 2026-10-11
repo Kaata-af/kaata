@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { SharedAccountBadge } from "./SharedAccountBadge";
+import { CreditStatusBadge, type CreditStatus } from "./CreditStatusBadge";
 import { memo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
@@ -25,6 +26,7 @@ export const PersonRow = memo(function PersonRow(props: {
   person: PersonWithBalance;
   onPress: (person: PersonWithBalance) => void;
   onLongPress?: (person: PersonWithBalance) => void;
+  creditStatus?: CreditStatus;
 }) {
   const isRTL = useIsRTL();
   const { person } = props;
@@ -92,38 +94,41 @@ export const PersonRow = memo(function PersonRow(props: {
           {subtitle}
         </Text>
       </View>
-      <View style={[styles.right, rowDir(isRTL), settled && { alignItems: "center" }]}>
-        {settled ? (
-          // Cleared account: the mark, not a meaningless zero. Grey, not
-          // emerald — emerald/garnet are strictly directional (money toward
-          // you / away from you) and a settled account has no direction. Grey
-          // rather than the ink black used for live amounts, too: a settled
-          // row is finished business and shouldn't pull the eye harder than
-          // the balances that still need attention.
-          //
-          // Bare "checkmark", not "checkmark-circle": the tick alone is the
-          // tally mark a shopkeeper draws when an account is cleared, and the
-          // circle read as a status badge. Sized icon.row (22) rather than the
-          // 20 the circled version used — dropping the disc removes most of the
-          // glyph's ink, so at the same nominal size it reads visibly lighter
-          // than the 15px amount it replaces in this column.
-          <Ionicons name="checkmark" size={icon.row} color={colors.textSubtle} />
-        ) : (
-          <>
-            {/* L41: cap the amount's font scaling so it can't grow so wide at
+      <View style={{ alignItems: isRTL ? "flex-start" : "flex-end" }}>
+        <View style={[styles.right, rowDir(isRTL), settled && { alignItems: "center" }]}>
+          {settled ? (
+            // Cleared account: the mark, not a meaningless zero. Grey, not
+            // emerald — emerald/garnet are strictly directional (money toward
+            // you / away from you) and a settled account has no direction. Grey
+            // rather than the ink black used for live amounts, too: a settled
+            // row is finished business and shouldn't pull the eye harder than
+            // the balances that still need attention.
+            //
+            // Bare "checkmark", not "checkmark-circle": the tick alone is the
+            // tally mark a shopkeeper draws when an account is cleared, and the
+            // circle read as a status badge. Sized icon.row (22) rather than the
+            // 20 the circled version used — dropping the disc removes most of the
+            // glyph's ink, so at the same nominal size it reads visibly lighter
+            // than the 15px amount it replaces in this column.
+            <Ionicons name="checkmark" size={icon.row} color={colors.textSubtle} />
+          ) : (
+            <>
+              {/* L41: cap the amount's font scaling so it can't grow so wide at
                 large OS font that it crushes the flex:1 name column. */}
-            <Text
-              style={[styles.amount, abs === 0 && { color: colors.textMuted }]}
-              numberOfLines={1}
-              maxFontSizeMultiplier={1.5}
-            >
-              {formatAmount(abs)}
-            </Text>
-            <Text style={styles.afn} maxFontSizeMultiplier={1.5}>
-              {getCurrentCurrencySymbol()}
-            </Text>
-          </>
-        )}
+              <Text
+                style={[styles.amount, abs === 0 && { color: colors.textMuted }]}
+                numberOfLines={1}
+                maxFontSizeMultiplier={1.5}
+              >
+                {formatAmount(abs)}
+              </Text>
+              <Text style={styles.afn} maxFontSizeMultiplier={1.5}>
+                {getCurrentCurrencySymbol()}
+              </Text>
+            </>
+          )}
+        </View>
+        <CreditStatusBadge status={props.creditStatus ?? "none"} />
       </View>
     </Pressable>
   );

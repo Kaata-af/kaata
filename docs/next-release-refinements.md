@@ -183,6 +183,62 @@ found no remaining material issues. The isolated database was stopped afterward.
 These checks do not establish phone or visual QA, and no new native binary was
 built or distributed for this batch.
 
+## October 11–12 customer tools — implemented locally
+
+Requested after the member/search batch; no new native distribution or deployment
+is requested. The seven requested features are implemented:
+
+- Notification dropdown: keep its measured position throughout dismissal and
+  reject late measure/animation callbacks after closing or reopening.
+- Customer sorting: recent activity, name, amount and last-tally date from one
+  Sort & filter sheet, retaining whole-ledger totals.
+- Onboarding calendar: choose Gregorian, Shamsi or Qamari immediately after
+  language; resume/back/invite/email-code/restore paths preserve their context.
+- Balance-side detail: two compact Given/Received rows show exact totals and
+  counts across the available history. Exclude rejected/cancelled/deleted tallies
+  and opening balances; actual available pre-link handovers count once. Search
+  and chapter folding do not change these figures. Settlement timing is omitted
+  because sparse or restored history would make an average misleading.
+- Customer credit limits: owner/manager sets a maximum in each balance direction,
+  with warning-only and clerk-block modes. Cloud-connected clerk entries wait for
+  HTTPS admission even with warnings or no cap, because a stale phone cannot
+  prove that a hard limit was not enabled elsewhere. Waiting/refused attempts
+  stay outside balances, exports and header statistics. Fully local paired
+  notebooks retain offline clerk writes; hard restrictions require cloud
+  enrollment and an online save. Repayment/reduced exposure remains legal, and
+  owners/managers/editors retain overrides. The existing manager role fits limit
+  configuration, so no new admin role is added. Authority, enrollment and rollout
+  details are in [customer-credit-limits.md](customer-credit-limits.md).
+- Personal reminders: manually schedule once, daily or on a chosen weekly day
+  and clock time. Keep one outstanding due task until explicitly marked done.
+  Stored for this account on this phone, separate from the shared ledger; native
+  notification taps resolve opaque IDs against current access. No automatic
+  customer messages or assumption that opening WhatsApp means a message was sent.
+  The reminder contract and native-delivery checks are in
+  [customer-reminders.md](customer-reminders.md).
+- Groups: one optional custom group per customer in each kaata, synchronized with
+  its members. Sorting/group filtering lives in one sheet; management and customer
+  assignment stay on dedicated screens. Groups organize the list and do not grant
+  access, change balances or create new ledger parties.
+  The grouping decision, primary research sources and sync/restore contract are
+  in [customer-groups.md](customer-groups.md).
+
+Final mobile checks passed on October 12: all **45 selftest suites** and the
+TypeScript check, including real SQLite migrations, actual screen hooks,
+account/kaata/role changes, delayed-result cancellation and exact financial
+boundaries. The final Android and iOS Metro exports with Hermes bytecode also
+passed. These are local bundle checks, not signed APK/AAB/IPA builds or phone QA.
+
+The backend full package suite passed against an isolated PostgreSQL database
+with migration 056. All database-backed tests ran; the optional bill-preview and
+private historical scratch-replay fixtures were skipped. Focused financial
+regressions passed after the final credit changes. The final combined sync,
+shared-tab and credit package run also passed with **zero skipped tests**.
+
+The existing local build numbers are unchanged. No push, deployment, store
+submission or new native distribution is part of this batch. Consolidated phone
+and visual checks 15–21 below remain pending.
+
 ## Deferred by the user
 
 The household/shopkeeper ledger needs two parties: the user and Dad on one
@@ -301,3 +357,30 @@ These remain pending; fixture tests do not replace phone testing.
     Edit your own name/phone with a viewer or clerk kaata active, retry a rename
     after going offline, and sign in with Google/Apple again; the chosen account
     name must persist without granting ledger-edit permission.
+15. Notification dropdown: repeatedly open, dismiss and immediately reopen while
+    data loads. Check its position throughout dismissal, backdrop/Android Back,
+    screen changes and Reduced Motion on Android/iOS, English/Dari.
+16. Sort & filter: try both name, amount and last-tally directions, open/settled
+    customers, empty groups and Ungrouped. Confirm full-side totals stay whole,
+    preferences stay scoped to their kaata, and removing the selected group
+    resets the filter. A view-only member can sort/filter without write controls.
+17. Fresh onboarding: language → calendar → sign-in, including Persian device
+    defaults. Restart at each step, go Back, and resume email codes, invitations
+    and cloud restore. Check Gregorian/Shamsi/Qamari examples and persistence.
+18. Balance header: compare Given/Received amounts and counts against known local,
+    shared, pre-link and earlier closed/re-linked history. Search/folding does not
+    narrow them; openings, rejected, canceled and deleted tallies do not count.
+    Check compact symmetry, long numbers and large text in English/Dari.
+19. Credit limits: configure each direction as owner/manager, including zero and
+    blank/unlimited. Try warning and clerk restrictions, exact-cent boundaries,
+    repayments while over the cap, two concurrent clerk phones, offline/slow
+    requests, sign-out and role changes. Waiting/refused attempts stay outside
+    balances, statistics and exported statements. Higher roles retain overrides.
+20. Reminders: schedule once, daily and every Thursday, edit/remove/Mark done,
+    deny permission and test background delivery and native taps. Opening a
+    customer or WhatsApp does not complete the task. Change account/timezone,
+    remove access, and restore onto another phone; private tasks must stay scoped.
+21. Groups across phones: create/rename/remove and assign as an editor, sync over
+    separate networks and mesh, then restore on a clean install. Test simultaneous
+    offline group names, Dari joining characters, revoked roles and account/kaata
+    changes while saving. Groups never change balances or shared-ledger parties.

@@ -103,6 +103,9 @@ const MIGRATION_030 = "030_tab_actor_identity";
 const MIGRATION_031 = "031_shared_record_evidence";
 const MIGRATION_032 = "032_shared_settlements";
 const MIGRATION_033 = "033_vault_member_profiles";
+const MIGRATION_034 = "034_customer_credit_limits";
+const MIGRATION_035 = "035_customer_groups";
+const MIGRATION_036 = "036_customer_reminders";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -488,6 +491,36 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   }
   if (!(await hasRunMigration(db, MIGRATION_033))) {
     await runMigration033(db);
+  }
+  if (!(await hasRunMigration(db, MIGRATION_034))) {
+    await db.withTransactionAsync(async () => {
+      await db.execAsync(`CREATE TABLE IF NOT EXISTS customer_credit_limits (
+        vault_id TEXT NOT NULL REFERENCES vaults(id) ON DELETE CASCADE,
+        relationship_id TEXT NOT NULL REFERENCES relationships(id) ON DELETE CASCADE,
+        max_collect_minor INTEGER, max_pay_minor INTEGER,
+        mode TEXT NOT NULL CHECK (mode IN ('warn','clerk_block')),
+        sync_pending INTEGER NOT NULL DEFAULT 0,
+        updated_at_ms INTEGER NOT NULL,
+        PRIMARY KEY(vault_id,relationship_id)
+      );
+      CREATE TABLE IF NOT EXISTS credit_admission_intents (
+        event_id TEXT PRIMARY KEY, vault_id TEXT NOT NULL, relationship_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('pending','refused')),
+        reason TEXT
+      );`);
+      await db.runAsync(
+        "INSERT INTO schema_migrations(name,applied_at) VALUES (?,?)",
+        MIGRATION_034,
+        Date.now(),
+      );
+    });
+  }
+  if (!(await hasRunMigration(db, MIGRATION_035))) {
+    await runMigration035(db);
+  }
+  if (!(await hasRunMigration(db, MIGRATION_036))) {
+    const { migrateCustomerReminders } = await import("./customer-reminders");
+    await migrateCustomerReminders(db);
   }
 }
 
@@ -3355,6 +3388,34 @@ async function runMigration033(db: SQLite.SQLiteDatabase): Promise<void> {
   });
 }
 
+// One optional group per relationship, local to its kaata. No FK on group_id:
+// sync can receive the assignment before its group's create event; the applier
+// quarantines/retries that prerequisite, and archived groups retain history.
+async function runMigration035(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS customer_groups (
+      vault_id TEXT NOT NULL REFERENCES vaults(id) ON DELETE CASCADE,
+      id TEXT NOT NULL, name TEXT NOT NULL,
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+      archived_at INTEGER,
+      field_hlcs TEXT CHECK (field_hlcs IS NULL OR json_valid(field_hlcs)),
+      PRIMARY KEY (vault_id,id)
+    );`);
+    const columns = await db.getAllAsync<{ name: string }>("PRAGMA table_info(relationships)");
+    if (!columns.some((c) => c.name === "group_id")) {
+      await db.execAsync("ALTER TABLE relationships ADD COLUMN group_id TEXT");
+    }
+    await db.execAsync(
+      "CREATE INDEX IF NOT EXISTS idx_relationships_group ON relationships(vault_id,group_id)",
+    );
+    await db.runAsync(
+      "INSERT INTO schema_migrations (name,applied_at) VALUES (?,?)",
+      MIGRATION_035,
+      Date.now(),
+    );
+  });
+}
+
 // --- v0 row shapes (used only during migration) ---
 type V0Shopkeeper = {
   id: number;
@@ -3445,6 +3506,10 @@ export async function resetAllLocalData(opts: { keepLocalBackups?: boolean } = {
     DROP TABLE IF EXISTS _old_shop_profile;
     DROP TABLE IF EXISTS vault_members_mirror;
     DROP TABLE IF EXISTS vault_member_profiles;
+    DROP TABLE IF EXISTS customer_credit_limits;
+    DROP TABLE IF EXISTS credit_admission_intents;
+    DROP TABLE IF EXISTS customer_reminders;
+    DROP TABLE IF EXISTS customer_groups;
     DROP TABLE IF EXISTS vaults;
     DROP TABLE IF EXISTS users;
     DROP TABLE IF EXISTS users_new;
@@ -4175,9 +4240,11 @@ async function selectAllPeopleRaw(
 // Used by the search-or-create flow where direction doesn't matter — the user
 // just wants to find or add a contact. Sorted most-recently-active first so
 // the quick-switcher pre-populates with familiar names.
-export async function listAllPeople(): Promise<PersonWithBalance[]> {
+export async function listAllPeople(
+  vaultId = getActiveVaultIdSyncMaybe(),
+): Promise<PersonWithBalance[]> {
   const db = await getDb();
-  const rows = await selectAllPeopleRaw(db);
+  const rows = await selectAllPeopleRaw(db, vaultId);
   // HOME list: only people with TALLIES (≥1 entry) — phone-book contacts and
   // freshly-added people with no transactions don't clutter the main page; they
   // stay findable via the search/add flow (listAllPeopleForSearch). Sorted by
@@ -4689,25 +4756,53 @@ export async function createEntryDetailed(
   type: EntryType,
   amountAfn: number,
   note: string | null,
-): Promise<{ entry_id: string; duplicate_hint: DuplicateHint | null }> {
+  expected?: { session: import("./auth").SessionSnapshot; vaultId: string },
+): Promise<{
+  entry_id: string;
+  duplicate_hint: DuplicateHint | null;
+  admission_status?: "pending" | "refused";
+  credit_warning?: boolean;
+}> {
+  const { captureCurrentSession, applyForUnchangedLocalSession, SessionChangedError } =
+    await import("./auth");
+  const session = expected?.session ?? (await captureCurrentSession());
+  const vaultId = expected?.vaultId ?? getActiveVaultIdSync();
+  const credit = await import("./credit-limits");
+  const warning = await credit.creditWarning(personId, type, amountAfn, vaultId);
   const link = await getTabLinkForPerson(personId);
   if (link) {
     const { addTabEntry } = await import("./tabs/link");
-    const r = await addTabEntry(personId, type, amountAfn, note);
+    const r = await addTabEntry(personId, type, amountAfn, note, { session, vaultId });
     await bumpUsageCounter("entries_created");
-    return { entry_id: r.entryId, duplicate_hint: r.duplicateHint };
+    return {
+      entry_id: r.entryId,
+      duplicate_hint: r.duplicateHint,
+      admission_status: r.pendingAdmission ? "pending" : undefined,
+      credit_warning: warning,
+    };
   }
   const db = await getDb();
-  const relId = await findRelationshipIdForPerson(db, personId);
+  const relId = await credit.relationshipForCredit(personId, vaultId);
   if (!relId) throw new Error(`no active relationship for person ${personId}`);
-  const { entry_id } = await appendEntryCreated({
-    relationshipId: relId,
-    type,
-    amountAfn,
-    note,
+  const saved = await applyForUnchangedLocalSession(session, async () => {
+    if (getActiveVaultIdSync() !== vaultId) throw new SessionChangedError();
+    return appendEntryCreated({
+      relationshipId: relId,
+      type,
+      amountAfn,
+      note,
+    });
   });
   await bumpUsageCounter("entries_created");
-  return { entry_id, duplicate_hint: null };
+  const status = saved.pending_admission
+    ? await credit.finishCreditAdmission(saved.event_id, vaultId)
+    : "recorded";
+  return {
+    entry_id: saved.entry_id,
+    duplicate_hint: null,
+    admission_status: status === "recorded" ? undefined : status,
+    credit_warning: warning,
+  };
 }
 
 // Same public API. Internally we compute a minimal delta against the current

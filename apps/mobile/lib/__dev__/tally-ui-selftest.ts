@@ -58,6 +58,7 @@ const mocks: Record<string, any> = {
   // variant, icon, label, disabled); Button's own geometry is Button's.
   "./Button": { Button: "Button" },
   "./InitialAvatar": { InitialAvatar: "Avatar" },
+  "./CreditStatusBadge": { CreditStatusBadge: "CreditStatusBadge" },
   "../lib/attribution": { chipActorFor: () => null },
   "../lib/calendar": { useCalendar() {} },
   "../lib/colors": { colors },
@@ -309,9 +310,14 @@ for (const isRTL of [false, true]) {
     const what = `${c.tab.by}/${c.key}${rtl ? " (RTL)" : ""}`;
     const statusKey = "tab.status." + c.key;
     const pending = tab.status === "pending";
-    const statusColor = c.key === "sending" ? colors.textMuted
-      : c.key === "accepted" ? colors.reviewAccepted
-      : c.key === "disputed" ? colors.reviewRejected : colors.reviewPending;
+    const statusColor =
+      c.key === "sending"
+        ? colors.textMuted
+        : c.key === "accepted"
+          ? colors.reviewAccepted
+          : c.key === "disputed"
+            ? colors.reviewRejected
+            : colors.reviewPending;
 
     // "I gave" keeps its pay tile; a rejected tally's tile goes grey.
     const tile = c.key === "disputed" ? colors.bgSubtle : colors.payBg;
@@ -434,7 +440,10 @@ for (const isRTL of [false, true]) {
     const label = pillChildren.at(-1);
     assert.deepEqual(
       pick(style(pillChildren[0]?.props.style), [
-        "width", "height", "borderRadius", "backgroundColor",
+        "width",
+        "height",
+        "borderRadius",
+        "backgroundColor",
       ]),
       { width: 6, height: 6, borderRadius: 3, backgroundColor: statusColor },
       `${what}: the status dot matches pending/accepted/rejected/sending`,
@@ -700,6 +709,13 @@ let viewport = { width: 390, height: 844, fontScale: 1 };
 let insets = { top: 47, bottom: 34, left: 0, right: 0 };
 mocks.react.useEffect = () => {};
 Object.assign(mocks["react-native"], {
+  Animated: {
+    View: "AnimatedView",
+    Value: class {
+      constructor(_: number) {}
+      setValue(_: number) {}
+    },
+  },
   Modal: "Modal",
   ScrollView: "ScrollView",
   ActivityIndicator: "ActivityIndicator",
@@ -723,6 +739,7 @@ mocks["../lib/tabs/use-inbox"] = {
   }),
 };
 mocks["../lib/tabs/open-notification"] = { openTabNotification: async () => {} };
+mocks["../lib/use-customer-reminders"] = { useCustomerReminders: () => ({ due: [] }) };
 const { NotificationBell, FullNotificationInbox } = compile(
   readFileSync(require.resolve("../../components/NotificationInbox"), "utf8"),
 );

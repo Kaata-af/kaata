@@ -25,6 +25,8 @@ let delayedGuard: Promise<{ state: string }> | null = null;
 let delayedRole: Promise<void> | null = null;
 let delayedPeople: Promise<void> | null = null;
 let peopleByVault: Map<string | null, typeof people>;
+let activeVaultsOverride: { id: string; name: string; currency: string }[] | null = null;
+const homeReadScopes: (string | null)[] = [];
 let appState = "active";
 let roleReadFails = false,
   focusEpoch = 0;
@@ -285,10 +287,21 @@ const libMocks: Record<string, any> = {
   },
   fonts: { fonts, sansLineHeight: (_: number, height: number) => height },
   format: { formatAmount: String },
-  i18n: { t: (key: string) => key },
+  i18n: { t: (key: string) => key, getLocale: () => (rtl ? "fa" : "en") },
+  "customer-list": require("../customer-list"),
+  "customer-groups": { readCustomerGroups: async () => ({ groups: [], groupByPerson: {} }) },
+  "credit-limits": {
+    readCreditPoliciesForPeople: async () => ({}),
+    creditStatusForBalance: () => "none",
+    refreshCreditPolicies: async () => {},
+  },
+  "credit-policy-events": { onCreditPoliciesChanged: () => () => {} },
   tokens,
   "use-vault-role": roleHooks,
   "db-tx": {
+    clearActiveVaultId: async () => {
+      vaultId = null;
+    },
     getAccountIdSync: () => null,
     getActiveVaultIdSyncMaybe: () => vaultId,
     getActiveVaultId: async () => vaultId,
@@ -298,7 +311,10 @@ const libMocks: Record<string, any> = {
   },
   db: {
     getLocalSelf: async () => ({ name: "Owner", shop_name: "Shop", phone: null }),
-    listAllPeople: async () => people,
+    listAllPeople: async (scope: string | null = vaultId) => {
+      homeReadScopes.push(scope);
+      return peopleByVault.get(scope) ?? [];
+    },
     listAllPeopleForSearch: async (scope: string | null = vaultId) => {
       const rows = peopleByVault.get(scope) ?? [];
       if (delayedPeople) await delayedPeople;
@@ -308,7 +324,8 @@ const libMocks: Record<string, any> = {
     getActiveVaultArchivedState: async () => delayedGuard ?? { state: archivedState },
     getAppMeta: async () => null,
     setAppMeta: async () => {},
-    listActiveVaults: async () => (vaultId ? [{ id: vaultId, name: "Shop", currency: "AFN" }] : []),
+    listActiveVaults: async () =>
+      activeVaultsOverride ?? (vaultId ? [{ id: vaultId, name: "Shop", currency: "AFN" }] : []),
     listAllVaultsIncludingArchived: async () =>
       vaultId ? [{ id: vaultId, name: "Shop", currency: "AFN", archived: false }] : [],
     archivePerson: async () => {
@@ -348,6 +365,7 @@ const libMocks: Record<string, any> = {
   "use-device-contacts": contactsHook,
 };
 const componentMocks: Record<string, any> = {
+  CustomerListSheet: { CustomerListSheet: "CustomerListSheet" },
   BottomSheet: { BottomSheet: "BottomSheet" },
   ConfirmDialog: { ConfirmDialog: "ConfirmDialog" },
   Button: { Button: "Button" },
@@ -419,6 +437,8 @@ function fixture(
   writes.length = 0;
   contactsReads = 0;
   permissionRequests = 0;
+  activeVaultsOverride = null;
+  homeReadScopes.length = 0;
   dirty = true;
 }
 async function flush() {
@@ -493,6 +513,36 @@ async function main() {
     assert.equal(routes.length, 1, "an archived kaata still cannot open add/find");
     assert.equal(toasts.at(-1)?.[0], "home.fab.blockedArchived");
   }
+  fixture(home, "viewer");
+  vaultId = "archived-kaata";
+  const replacementPerson = { ...people[0], id: "replacement", name: "Replacement" };
+  peopleByVault.set("archived-kaata", people);
+  peopleByVault.set("surviving-kaata", [replacementPerson]);
+  activeVaultsOverride = [{ id: "surviving-kaata", name: "Second", currency: "AFN" }];
+  await flush();
+  assert.equal(vaultId, "surviving-kaata");
+  assert.equal(
+    homeReadScopes.at(-1),
+    "surviving-kaata",
+    "archive fallback reloads the replacement kaata's complete list",
+  );
+  const renderedPeople = nodes(tree).flatMap((node) =>
+    Array.isArray(node.props.people) ? node.props.people : [],
+  );
+  assert.ok(renderedPeople.some((person) => person.id === "replacement"));
+  assert.ok(
+    renderedPeople.every((person) => person.id === "replacement"),
+    "old kaata customers cannot remain beneath the replacement header",
+  );
+  assert.equal(find("ActivityIndicator"), undefined, "fallback load reaches a stable, usable home");
+
+  fixture(home, "viewer");
+  activeVaultsOverride = [];
+  await flush();
+  assert.equal(vaultId, null, "archiving the final kaata clears the active cache");
+  assert.equal(byLabel("personFind.title"), undefined);
+  assert.equal(find("ActivityIndicator"), undefined);
+
   fixture(home, "viewer");
   vaultId = null;
   await flush();

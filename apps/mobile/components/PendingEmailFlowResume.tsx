@@ -11,6 +11,7 @@ const DEFAULT_START_ROUTES = new Set([
   "/",
   "/onboarding",
   "/onboarding/language",
+  "/onboarding/calendar",
   "/onboarding/auth",
 ]);
 

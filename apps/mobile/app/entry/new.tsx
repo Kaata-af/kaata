@@ -1,5 +1,5 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
@@ -7,6 +7,13 @@ import { ScreenLoading } from "../../components/ScreenLoading";
 import { ScreenHeader } from "../../components/SettingsScreen";
 import { queuePendingToast, useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
+import {
+  applyForUnchangedLocalSession,
+  captureCurrentSession,
+  SessionChangedError,
+  type SessionSnapshot,
+} from "../../lib/auth";
+import { getAccountIdSync, getActiveVaultIdSyncMaybe, getInstallIdSync } from "../../lib/db-tx";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
 import { createEntryDetailed, getActiveVaultArchivedState, getPerson } from "../../lib/db";
 import { textDir, trackingSafe, useIsRTL } from "../../lib/direction";
@@ -17,6 +24,7 @@ import { normalizeAmountInput, parseAmountInput } from "../../lib/money";
 import { getTabLinkForPerson } from "../../lib/tabs/db";
 import {
   TabAuthUnavailableError,
+  TabApiError,
   TabClosedError,
   TabInputError,
   TabPermissionError,
@@ -29,6 +37,14 @@ import { ENTRY_NOTE_MAX_LENGTH, type EntryType, type PersonWithBalance } from ".
 // screen case), so the pre-content branches have to spell this out or the
 // header shifts the moment the read resolves.
 const MODAL_EDGES = ["top", "bottom", "left", "right"] as const;
+type ScreenScope = {
+  personId: string;
+  type: EntryType;
+  vaultId: string | null;
+  accountId: string | null;
+  installId: string;
+};
+type UIAttempt = ScreenScope & { focus: number };
 
 export default function NewEntryScreen() {
   const router = useRouter();
@@ -55,6 +71,34 @@ export default function NewEntryScreen() {
   // note-field "done" + button tap) both observe busy === false and each
   // write an entry. The ref flips synchronously before any await.
   const savingRef = useRef(false);
+  const mounted = useRef(true);
+  const focused = useRef(false);
+  const focusGeneration = useRef(0);
+  const [focusVersion, setFocusVersion] = useState(0);
+  const scope: ScreenScope = {
+    personId,
+    type,
+    vaultId: getActiveVaultIdSyncMaybe(),
+    accountId: getAccountIdSync(),
+    installId: getInstallIdSync(),
+  };
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
+  const isCurrent = (attempt: UIAttempt) =>
+    mounted.current &&
+    focused.current &&
+    attempt.focus === focusGeneration.current &&
+    scopeRef.current.personId === attempt.personId &&
+    scopeRef.current.type === attempt.type &&
+    getActiveVaultIdSyncMaybe() === attempt.vaultId &&
+    getAccountIdSync() === attempt.accountId &&
+    getInstallIdSync() === attempt.installId;
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   // D-DEFENSIVE-ARCHIVED-GUARD: D-POST-ARCHIVE-SWITCH should already
   // have moved the user off any archived vault before they can land here,
@@ -63,101 +107,152 @@ export default function NewEntryScreen() {
   // archived state. Bail to the right place instead of silently writing
   // entries into a tombstone vault (which would be discarded the moment
   // the user sync'd, and is incoherent meanwhile).
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const guard = await getActiveVaultArchivedState();
-        if (cancelled) return;
-        if (guard.state === "none") {
-          toast.push(t("entry.noActiveVault"), "error");
-          router.replace("/");
-          return;
-        }
-        if (guard.state === "archived") {
-          toast.push(t("entry.vaultArchived"), "error");
-          router.replace("/vault/archived");
-          return;
-        }
-        if (!personId) {
+  useFocusEffect(
+    useCallback(() => {
+      focused.current = true;
+      const focus = ++focusGeneration.current;
+      const attempt = { ...scopeRef.current, focus };
+      setFocusVersion(focus);
+      setBusy(savingRef.current);
+      setLoading(true);
+      setPerson(null);
+      setSaveError(null);
+      void (async () => {
+        try {
+          const guard = await getActiveVaultArchivedState();
+          if (!isCurrent(attempt)) return;
+          if (guard.state === "none") {
+            toast.push(t("entry.noActiveVault"), "error");
+            router.replace("/");
+            return;
+          }
+          if (guard.state === "archived") {
+            toast.push(t("entry.vaultArchived"), "error");
+            router.replace("/vault/archived");
+            return;
+          }
+          if (!attempt.personId) {
+            setLoading(false);
+            return;
+          }
+          const p = await getPerson(attempt.personId);
+          if (!isCurrent(attempt)) return;
+          setPerson(p);
           setLoading(false);
-          return;
+        } catch (err) {
+          // A rejected SQLite read must not leave a permanent spinner with no
+          // back affordance on this modal — clear loading so the screen renders.
+          if (!isCurrent(attempt)) return;
+          console.warn("[entry/new] load failed", err);
+          setLoading(false);
         }
-        const p = await getPerson(personId);
-        if (cancelled) return;
-        setPerson(p);
-        setLoading(false);
-      } catch (err) {
-        // A rejected SQLite read must not leave a permanent spinner with no
-        // back affordance on this modal — clear loading so the screen renders.
-        if (cancelled) return;
-        console.warn("[entry/new] load failed", err);
-        setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // toast/router/t are stable; only personId can meaningfully change here.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [personId]);
+      })();
+      return () => {
+        focused.current = false;
+        focusGeneration.current++;
+      };
+      // A changed route or local identity needs a new scoped read; a completed
+      // read from a previous focus must never redirect the newly visible screen.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [personId, type, scope.vaultId, scope.accountId, scope.installId]),
+  );
 
   // Reliable keyboard pop-up on Android — autoFocus on a modally-presented
   // screen fires before the slide-in finishes and the soft keyboard never
   // opens. Defer past the animation; see entry/[id]/edit for the pattern.
   useEffect(() => {
     if (loading || !person) return;
-    const focusTimer = setTimeout(() => amountRef.current?.focus(), 280);
+    const attempt = { ...scopeRef.current, focus: focusGeneration.current };
+    const focusTimer = setTimeout(() => {
+      if (isCurrent(attempt)) amountRef.current?.focus();
+    }, 280);
     return () => clearTimeout(focusTimer);
-  }, [loading, person]);
+  }, [loading, person, focusVersion]);
 
   async function onSave() {
-    if (savingRef.current || !personId) return;
+    const attempt = { ...scope, focus: focusGeneration.current };
+    if (savingRef.current || !attempt.personId || !isCurrent(attempt)) return;
     const parsedAmount = parseAmountInput(amount);
     if (parsedAmount === null) {
       setAmountError(t("entry.invalidAmount"));
       return;
     }
+    const savedNote = note.trim().slice(0, ENTRY_NOTE_MAX_LENGTH) || null;
     savingRef.current = true;
     setBusy(true);
     setSaveError(null);
+    let session: SessionSnapshot | null = null;
+    const present = async (work: () => void) => {
+      if (!isCurrent(attempt)) return;
+      if (session) {
+        await applyForUnchangedLocalSession(session, async () => {
+          if (isCurrent(attempt)) work();
+        });
+      } else work();
+    };
     try {
+      session = await captureCurrentSession();
+      const vaultId = attempt.vaultId;
+      if (!vaultId || !isCurrent(attempt) || session.accountId !== attempt.accountId) return;
       // Re-check at save time: the user may have sat on this screen long
       // enough for a mesh-sourced archive event to land. Cheaper than
       // hand-rolling a subscription and good enough for a defensive guard.
       const guard = await getActiveVaultArchivedState();
+      if (!isCurrent(attempt)) return;
       if (guard.state === "none") {
-        toast.push(t("entry.noActiveVault"), "error");
-        router.replace("/");
+        await present(() => {
+          toast.push(t("entry.noActiveVault"), "error");
+          router.replace("/");
+        });
         return;
       }
       if (guard.state === "archived") {
-        toast.push(t("entry.vaultArchived"), "error");
-        router.replace("/vault/archived");
+        await present(() => {
+          toast.push(t("entry.vaultArchived"), "error");
+          router.replace("/vault/archived");
+        });
         return;
       }
       // createEntryDetailed routes a LINKED contact's tally to the mutual tab
       // (docs/mutual-tab-design.md §4.3) with no branching here; the only
       // extra it hands back is the D17 duplicate hint.
       const saved = await createEntryDetailed(
-        personId,
-        type,
+        attempt.personId,
+        attempt.type,
         parsedAmount,
-        note.trim().slice(0, ENTRY_NOTE_MAX_LENGTH) || null,
+        savedNote,
+        { session, vaultId },
       );
-      toast.push(t("entry.saved"), "success");
-      if (saved.duplicate_hint) {
+      let duplicateName: string | null = null;
+      if (saved.duplicate_hint && isCurrent(attempt)) {
         // The other party recorded the same transfer within a day. Queued,
         // not pushed: this modal is about to close, and a toast pushed from
         // under it would never be seen (Toast.tsx). It surfaces on the person
         // screen right after the save toast.
-        const link = await getTabLinkForPerson(personId).catch(() => null);
-        queuePendingToast(
-          t("tab.duplicateHint", { name: link?.other_label || t("tab.them") }),
-          "info",
-        );
+        const link = await getTabLinkForPerson(attempt.personId).catch(() => null);
+        duplicateName = link?.other_label || t("tab.them");
       }
-      router.back();
+      await present(() => {
+        toast.push(
+          t(
+            saved.admission_status === "refused"
+              ? "credit.blocked"
+              : saved.admission_status === "pending"
+                ? "credit.pending"
+                : "entry.saved",
+          ),
+          saved.admission_status === "refused"
+            ? "error"
+            : saved.admission_status === "pending"
+              ? "info"
+              : "success",
+        );
+        if (saved.credit_warning && !saved.admission_status)
+          queuePendingToast(t("credit.warning"), "info");
+        if (duplicateName)
+          queuePendingToast(t("tab.duplicateHint", { name: duplicateName }), "info");
+        router.back();
+      });
     } catch (err) {
       // Distinguish "you don't have permission to edit this Kaata"
       // (role-gate refusal — caused by a demotion that landed via
@@ -165,28 +260,42 @@ export default function NewEntryScreen() {
       // generic storage error. Without this branch the user sees the
       // same generic "couldn't save" copy in both cases and assumes the
       // app is broken, when the real story is "you're now a viewer".
+      if (err instanceof SessionChangedError || !isCurrent(attempt)) return;
+      let errorKey: Parameters<typeof t>[0];
       if (err instanceof RoleGateRejectionError) {
-        setSaveError(t("entry.roleDenied"));
+        errorKey = "entry.roleDenied";
       } else if (err instanceof EventSigningUnavailableError) {
         // Mythos Fix Set C: signing-unavailable gets an actionable message.
-        setSaveError(t("entry.signingUnavailable"));
+        errorKey = "entry.signingUnavailable";
       } else if (err instanceof TabAuthUnavailableError) {
         // Linked contact, signed out, and the party token is gone (reinstall
         // without an account — D10): the phone cannot reach the tab at all.
-        setSaveError(t("tab.needsConnection"));
+        errorKey = "tab.needsConnection";
       } else if (err instanceof TabClosedError) {
         // The other side closed the shared account since this screen loaded.
-        setSaveError(t("tab.closed"));
+        errorKey = "tab.closed";
       } else if (err instanceof TabPermissionError) {
-        setSaveError(t("entry.roleDenied"));
+        errorKey = "entry.roleDenied";
+      } else if (err instanceof TabApiError && err.code === "credit_limit_exceeded") {
+        errorKey = "credit.blocked";
       } else if (err instanceof TabInputError) {
-        setSaveError(t("entry.saveFailed"));
+        errorKey = "entry.saveFailed";
       } else {
-        setSaveError(t("entry.saveFailed"));
+        errorKey = "entry.saveFailed";
+      }
+      // A failed admission can finish after a same-account sign-in replaced
+      // the session, too. Only the original session may paint its error.
+      try {
+        await present(() => setSaveError(t(errorKey)));
+      } catch {
+        /* stale session */
       }
     } finally {
       savingRef.current = false;
-      setBusy(false);
+      // Returning while a durable save is still running keeps double-taps
+      // blocked. Its completion releases that busy flag without reviving any
+      // expired feedback; a later focus also reads the synchronous flag.
+      if (mounted.current && focused.current) setBusy(false);
     }
   }
 

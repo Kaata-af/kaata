@@ -35,11 +35,17 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { initialWindowMetrics, SafeAreaProvider } from "react-native-safe-area-context";
 import { AutoSync } from "../components/AutoSync";
 import { TabSync } from "../components/TabSync";
+import { ReminderCoordinator } from "../components/ReminderCoordinator";
 import { MeshController } from "../components/MeshController";
 import { ProjectionConflictsListener } from "../components/ProjectionConflictsListener";
 import { PendingEmailFlowResume } from "../components/PendingEmailFlowResume";
 import { ToastProvider } from "../components/Toast";
 import { stopShopModeForegroundService } from "../lib/mesh/foreground";
+import {
+  parseOnboardingStep,
+  pickInitialRoute,
+  type OnboardingStep,
+} from "../lib/onboarding-route";
 
 // ============================================================================
 // I18nManager neutralization + one-shot migration. The architecture:
@@ -143,54 +149,6 @@ const DB_BOOT_STAGES = new Set<BootErrorStage>([
   "self_lookup",
 ]);
 
-// Decide where the Stack mounts first. Precedence:
-//   1. If the user has a local_self user, they're already onboarded — home.
-//      hasOnboarded is the AUTHORITATIVE source; an onboarding_step='done'
-//      claim without a backing local_self row is treated as stale (the
-//      user wiped their self row out-of-band, e.g. via a partial reset).
-//   2. Phase 3 restore gate: if the user signed in via Google
-//      (account_id present in app_meta) and they DIDN'T explicitly
-//      skip-restore for this account on a prior launch AND they don't
-//      already have a local self, mount onboarding/restore FIRST. The
-//      restore screen does its own snapshot/backup probing; if neither
-//      endpoint has data it auto-forwards to onboarding/profile.
-//   3. Otherwise, if onboarding_step records they were partway through,
-//      resume there.
-//   4. Fresh install: language step UNLESS the device is already Persian/
-//      Dari (their locale is correct, skip the gratuitous "pick your
-//      language" tap), in which case start at the auth step.
-function pickInitialRoute(args: {
-  hasOnboarded: boolean;
-  onboardingStep: "language" | "auth" | "profile" | "kaata" | "done" | null;
-  deviceIsPersian: boolean;
-  accountId: string | null;
-  restoreSkipped: boolean;
-}): string {
-  if (args.hasOnboarded) return "index";
-  // Phase 3 restore gate. Sits BETWEEN auth and profile in the flow: if
-  // the user already signed in (we have an account_id) AND they didn't
-  // tap "Start fresh" on a previous attempt, send them to the restore
-  // probe screen. The probe screen handles "no data on server" by
-  // forwarding to onboarding/profile, so this gate doesn't strand fresh
-  // accounts on a spinner.
-  if (
-    args.accountId &&
-    !args.restoreSkipped &&
-    (args.onboardingStep === "profile" || args.onboardingStep === "auth")
-  ) {
-    return "onboarding/restore";
-  }
-  // No self exists — ignore step='done' (treat as stale).
-  if (args.onboardingStep === "auth") return "onboarding/auth";
-  if (args.onboardingStep === "profile") return "onboarding/profile";
-  // The kaata step mints self + first vault, so hasOnboarded is still false
-  // here (the early-return above never fires) and we land on it correctly.
-  if (args.onboardingStep === "kaata") return "onboarding/kaata";
-  if (args.onboardingStep === "language") return "onboarding/language";
-  // Fresh install — skip language for Persian-locale devices.
-  return args.deviceIsPersian ? "onboarding/auth" : "onboarding/language";
-}
-
 // Deep-link prefix carried by a mutual-tab notification (lib/tabs/notify.ts).
 const NOTIFICATION_PERSON_PREFIX = "kaata://person/";
 // getLastNotificationResponseAsync returns the launch tap forever; this latch
@@ -206,6 +164,17 @@ let launchResponseHandled = false;
  * the user a back button to whatever they were on.
  */
 function routeFromNotificationData(data: unknown): void {
+  const reminder = data as { kind?: unknown; reminder_id?: unknown; owner_scope?: unknown } | null;
+  if (reminder?.kind === "customer_reminder") {
+    if (typeof reminder.reminder_id === "string" && typeof reminder.owner_scope === "string") {
+      void import("../lib/open-customer-reminder")
+        .then(({ openCustomerReminder }) =>
+          openCustomerReminder(reminder.reminder_id as string, reminder.owner_scope as string),
+        )
+        .catch(() => undefined);
+    }
+    return;
+  }
   const tabId = (data as { tab_id?: unknown } | null)?.tab_id;
   if (typeof tabId === "string" && /^[0-9a-f-]{36}$/i.test(tabId)) {
     void (async () => {
@@ -277,12 +246,10 @@ export default function RootLayout() {
   const [dbCorrupt, setDbCorrupt] = useState<string | null>(null);
   const [installId, setInstallId] = useState<string | null>(null);
   const [hasOnboarded, setHasOnboarded] = useState(false);
-  // Resumable onboarding step: 'language' | 'auth' | 'profile' | 'kaata' |
+  // Resumable onboarding step: 'language' | 'calendar' | 'auth' | 'profile' | 'kaata' |
   // 'done' | null. Read from app_meta on launch so a force-quit mid-flow
   // returns the user to the screen they were last on, not back to step 1.
-  const [onboardingStep, setOnboardingStep] = useState<
-    "language" | "auth" | "profile" | "kaata" | "done" | null
-  >(null);
+  const [onboardingStep, setOnboardingStep] = useState<OnboardingStep | null>(null);
   // Device-locale-driven flag: if the device is already Persian/Dari, we
   // SKIP the language picker (their language is already correct; asking
   // them feels like the app doesn't trust their device locale).
@@ -532,17 +499,7 @@ export default function RootLayout() {
           const skipped = await getAppMeta(`restore_skipped_for_account_${accountIdRaw}`);
           setRestoreSkipped(skipped === "1");
         }
-        // Validate the step value — only the four known states pass
-        // through.
-        if (
-          oStep === "language" ||
-          oStep === "auth" ||
-          oStep === "profile" ||
-          oStep === "kaata" ||
-          oStep === "done"
-        ) {
-          setOnboardingStep(oStep);
-        }
+        setOnboardingStep(parseOnboardingStep(oStep));
       });
       if (aborted) return;
 
@@ -849,6 +806,7 @@ export default function RootLayout() {
             {installId ? <BackgroundCheckIn /> : null}
             <AutoSync />
             <TabSync />
+            <ReminderCoordinator />
             {/* Phase 6: reactively starts mesh sync (BLE primary +
                 opportunistic wifi upgrade) when account_id and
                 shop_mode_enabled are both set. Also renders the BLE
@@ -885,6 +843,7 @@ export default function RootLayout() {
                   navigate forward only, except via explicit on-screen Back
                   on the profile screen. */}
               <Stack.Screen name="onboarding/language" options={{ gestureEnabled: false }} />
+              <Stack.Screen name="onboarding/calendar" options={{ gestureEnabled: false }} />
               <Stack.Screen name="sign-in" />
               {/* Email sits above its provider selector, making native Back
                   return to the choices. The form controls gestures while busy

@@ -1,4 +1,5 @@
 import { useRouter } from "expo-router";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../../lib/colors";
@@ -10,7 +11,7 @@ import { radius, typography } from "../../lib/tokens";
 
 // Onboarding step 1 — only mounted by _layout's routing logic when the
 // device locale is NOT already fa/prs. Persian-locale users skip directly
-// to /onboarding/auth (their language is already correct; asking them to
+// to /onboarding/calendar (their language is already correct; asking them to
 // pick "Persian or English" reads like a "we don't trust your device"
 // signal).
 //
@@ -23,12 +24,34 @@ import { radius, typography } from "../../lib/tokens";
 export default function OnboardingLanguageScreen() {
   const router = useRouter();
   const isRTL = useIsRTL();
+  const picking = useRef(false);
+  const mounted = useRef(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   async function pick(code: "en" | "fa") {
-    setLocale(code);
-    await setAppMeta("locale_pref", code);
-    await setAppMeta("onboarding_step", "auth");
-    router.replace("/onboarding/auth");
+    if (picking.current) return;
+    picking.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      await setAppMeta("locale_pref", code);
+      setLocale(code);
+      if (!mounted.current) return;
+      await setAppMeta("onboarding_step", "calendar");
+      if (mounted.current) router.replace("/onboarding/calendar");
+    } catch {
+      if (mounted.current) setError(t("entry.saveFailed"));
+    } finally {
+      picking.current = false;
+      if (mounted.current) setBusy(false);
+    }
   }
 
   return (
@@ -43,6 +66,9 @@ export default function OnboardingLanguageScreen() {
 
         <Pressable
           onPress={() => pick("en")}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel="English"
           style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}
         >
           <Text style={styles.cardLabel}>English</Text>
@@ -52,18 +78,27 @@ export default function OnboardingLanguageScreen() {
 
         <Pressable
           onPress={() => pick("fa")}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel="دری"
           style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}
         >
           {/* Always render in Vazirmatn so the Dari card renders in its
               own script regardless of current locale. */}
           <Text style={[styles.cardLabel, styles.cardLabelFa]}>دری</Text>
         </Pressable>
+        {error ? (
+          <Text style={[styles.error, textDir(isRTL)]} accessibilityLiveRegion="polite">
+            {error}
+          </Text>
+        ) : null}
       </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  error: { ...typography.bodySm, color: colors.danger, marginTop: 16, textAlign: "center" },
   container: { flex: 1, backgroundColor: colors.bgWarm },
   content: { flex: 1, padding: 24, justifyContent: "center" },
   brand: {

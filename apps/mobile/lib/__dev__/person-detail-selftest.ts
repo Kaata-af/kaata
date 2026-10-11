@@ -5,12 +5,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { filterTallies, noteSearchTerms } from "../tally-search";
+import { summarizeTallyFlows } from "../tally-summary";
 import type { Calendar } from "../calendar";
 import { toJalali, toQamari } from "../jalali";
 import { afterSharedSettlement, sharedHistory, visibleTally } from "../tabs/chapters";
 import { sumAmounts } from "../money";
 import { tallyScrollTarget } from "../tally-viewport";
 import { compareTallyReviews } from "../tally-review-feedback";
+import { entryTypeFor } from "../tabs/direction";
 
 type Node = { type: string; props: Record<string, any> };
 type Effect = { deps?: unknown[]; cleanup?: () => void };
@@ -83,6 +85,10 @@ let platform = "android",
   appState = "active";
 let calendar: Calendar = "gregorian";
 let person: any, entries: any[], preLink: any[], failed: any[], link: any;
+let priorPeriods: any[] = [],
+  historyReadGate: Promise<any[]> | null = null;
+let accountId = "account",
+  vaultId = "vault";
 let settlement: any, markers: any[], boundaries: number[];
 let preference = "en",
   preferenceReads = 0;
@@ -169,6 +175,9 @@ const components = Object.fromEntries(
     "ConfirmDialog",
     "EmptyState",
     "TallyHighlight",
+    "TallyFlowSummary",
+    "CreditIntentList",
+    "CreditStatusBadge",
     "EntryRow",
     "SharedAccountBadge",
     "LinkAccountDialog",
@@ -210,6 +219,7 @@ const mocks: Record<string, any> = {
   "../../lib/db": {
     getPerson: async () => person,
     listEntries: async () => [...entries],
+    listArchivedSharedPeriodsForExport: async () => historyReadGate ?? priorPeriods,
     getLocalSelf: async () => ({ name: "Synthetic owner", shop_name: "Synthetic shop" }),
     getSettlementSummary: async () => settlement,
     listSettlementBoundaries: async () => boundaries,
@@ -218,8 +228,8 @@ const mocks: Record<string, any> = {
     SettledChapterError: dummyError,
   },
   "../../lib/db-tx": {
-    getAccountIdSync: () => "account",
-    getActiveVaultIdSyncMaybe: () => "vault",
+    getAccountIdSync: () => accountId,
+    getActiveVaultIdSyncMaybe: () => vaultId,
   },
   "../../lib/effective-account": { resolveAccountIdCandidates: async () => ["account"] },
   "../../lib/event-log": {
@@ -269,6 +279,7 @@ const mocks: Record<string, any> = {
     },
   },
   "../../lib/tally-search": { filterTallies, noteSearchTerms },
+  "../../lib/tally-summary": { summarizeTallyFlows },
   "../../lib/tabs/db": {
     getLatestTabLinkForPerson: async () => (link ? { ...link } : null),
     listPreLinkEntries: async () => [...preLink],
@@ -314,7 +325,13 @@ const mocks: Record<string, any> = {
     typography: { heading: { fontSize: 20 } },
   },
   "../../lib/use-vault-role": {
-    useActiveVaultWriteCaps: () => ({ canCreate: true, canAmend: true }),
+    useVaultPermission: () => true,
+    useActiveVaultWriteCaps: () => ({
+      canCreate: true,
+      canAmend: true,
+      canConfigureCredit: true,
+      resolved: true,
+    }),
   },
   "../../lib/use-vault-summary": { useMembersCount: () => 1 },
   "../../lib/tally-viewport": { tallyScrollTarget },
@@ -414,6 +431,10 @@ function fixture(shared = false) {
   settlement = { count: 1, lastSettledAtMs: 200 };
   boundaries = [200];
   preLink = [];
+  priorPeriods = [];
+  historyReadGate = null;
+  accountId = "account";
+  vaultId = "vault";
   failed = [];
   markers = [];
   link = null;
@@ -478,6 +499,14 @@ async function main() {
       );
       assert.ok(tallies().find((n) => n.props.entry.id === "new-rice")?.props.onLongPress);
       assert.ok(words(tree).includes("amount:3"), "search does not narrow the hero balance");
+      assert.deepEqual(
+        find("TallyFlowSummary")?.props.summary,
+        {
+          gave: { count: 2, amount: 15 },
+          received: { count: 2, amount: 12 },
+        },
+        "flow totals include settled history and do not narrow with search",
+      );
       const exportSheet = nodes(tree).find(
         (n) => n.type === "BottomSheet" && n.props.title === "personEdit.export",
       )!;
@@ -510,12 +539,23 @@ async function main() {
       );
       assert.equal(shares[0].args[1], 3);
       assert.equal(pingButton().props.accessibilityLabel, "person.ping.preparing");
-      assert.equal(words(tree).includes("person.ping.preparing"), false, "no loading text above the page");
-      assert.ok(nodes(pingButton()).some((n) => n.type === "Spinner"), "the reminder button shows its spinner");
+      assert.equal(
+        words(tree).includes("person.ping.preparing"),
+        false,
+        "no loading text above the page",
+      );
+      assert.ok(
+        nodes(pingButton()).some((n) => n.type === "Spinner"),
+        "the reminder button shows its spinner",
+      );
       shares[0].args[6]("opening");
       await flush();
       assert.equal(pingButton().props.accessibilityLabel, "person.ping.opening");
-      assert.equal(words(tree).includes("person.ping.opening"), false, "opening uses only the spinner visually");
+      assert.equal(
+        words(tree).includes("person.ping.opening"),
+        false,
+        "opening uses only the spinner visually",
+      );
       assert.ok(nodes(pingButton()).some((n) => n.type === "Spinner"));
       assert.equal(pingButton().props.accessibilityState.busy, true);
       shares[0].resolve(true);
@@ -544,7 +584,11 @@ async function main() {
   assert.deepEqual(rowIds(), ["rejected-rice"], "note and amount terms combine on the real screen");
   query("۵۰۰");
   await flush();
-  assert.deepEqual(rowIds(), ["pre-rice"], "numeric search includes pre-link tallies and Persian digits");
+  assert.deepEqual(
+    rowIds(),
+    ["pre-rice"],
+    "numeric search includes pre-link tallies and Persian digits",
+  );
   query("7");
   await flush();
   assert.deepEqual(rowIds(), ["failed-rice"], "numeric search includes not-sent tallies");
@@ -569,7 +613,17 @@ async function main() {
   await flush();
   assert.deepEqual(rowIds(), ["rejected-rice"], "the selected Qamari date works in Dari digits");
   assert.ok(words(tree).includes("amount:5"), "date filters keep the whole shared balance");
-  console.log("PASS: amount/date search spans shared, pre-link and failed tallies and refreshes with calendar preferences");
+  assert.deepEqual(
+    find("TallyFlowSummary")?.props.summary,
+    {
+      gave: { count: 4, amount: 516 },
+      received: { count: 1, amount: 10 },
+    },
+    "known pre-link handovers count once; rejected/cancelled and failed intents do not count",
+  );
+  console.log(
+    "PASS: amount/date search spans shared, pre-link and failed tallies and refreshes with calendar preferences",
+  );
 
   fixture(true);
   await flush();
@@ -817,6 +871,105 @@ async function main() {
   assert.equal(toasts.length, 0);
   console.log(
     "PASS: blur/unmount abort reminders; late stages, failures and completion cannot overwrite a newer reminder or notify a departed screen",
+  );
+
+  fixture(true);
+  markers = [];
+  boundaries = [];
+  settlement = { count: 0, lastSettledAtMs: null };
+  const shared = (
+    id: string,
+    amount: number,
+    role: "a" | "b",
+    direction: "a_to_b" | "b_to_a",
+    overrides: any = {},
+  ) =>
+    tally(
+      id,
+      id,
+      amount,
+      300,
+      { seq: 1, status: "accepted", kind: "entry", by: "them", voided: false, ...overrides },
+      entryTypeFor(role, direction),
+    );
+  link = { ...link, tab_id: "relinked", role: "b", rev: 2 };
+  entries = [
+    shared("current-opening", 500, "b", "b_to_a", { kind: "opening" }),
+    shared("current-received", 7, "b", "a_to_b", { seq: 2 }),
+  ];
+  preLink = [tally("local-before-first-link", "old local", 10, 1)];
+  priorPeriods = [
+    {
+      link: { tab_id: "closed-a", role: "a" },
+      entries: [
+        shared("a-gave", 2, "a", "a_to_b"),
+        shared("a-received", 3, "a", "b_to_a"),
+        shared("old-opening", 100, "a", "a_to_b", { kind: "opening" }),
+        shared("old-rejected", 800, "a", "a_to_b", { status: "disputed" }),
+      ],
+    },
+    {
+      link: { tab_id: "closed-b", role: "b" },
+      entries: [
+        shared("b-received", 4, "b", "a_to_b"),
+        shared("b-gave", 5, "b", "b_to_a"),
+        shared("old-voided", 300, "b", "b_to_a", { voided: true }),
+      ],
+    },
+  ];
+  person.balance = 493;
+  await flush();
+  assert.deepEqual(
+    find("TallyFlowSummary")?.props.summary,
+    { gave: { count: 3, amount: 17 }, received: { count: 3, amount: 14 } },
+    "re-link preserves known handovers from every earlier shared period with each party's perspective",
+  );
+  assert.deepEqual(
+    rowIds(),
+    ["current-opening", "current-received"],
+    "earlier periods are summary-only, never injected into current money/list",
+  );
+  assert.ok(words(tree).includes("amount:493"), "flow history cannot change the hero balance");
+  let release!: (value: any[]) => void;
+  historyReadGate = new Promise((resolve) => {
+    release = resolve;
+  });
+  tabListeners.forEach((fn) => fn({ relationshipId: "relationship", origin: "pull" }));
+  await flush();
+  historyReadGate = null;
+  priorPeriods = [];
+  tabListeners.forEach((fn) => fn({ relationshipId: "relationship", origin: "pull" }));
+  await flush();
+  assert.deepEqual(find("TallyFlowSummary")?.props.summary, {
+    gave: { count: 1, amount: 10 },
+    received: { count: 1, amount: 7 },
+  });
+  release([{ entries: [shared("stale-gave", 9999, "a", "a_to_b")] }]);
+  await flush();
+  assert.deepEqual(
+    find("TallyFlowSummary")?.props.summary,
+    { gave: { count: 1, amount: 10 }, received: { count: 1, amount: 7 } },
+    "older deferred history cannot overwrite a newer load",
+  );
+  accountId = "another-account";
+  dirty = true;
+  await flush();
+  assert.deepEqual(
+    find("TallyFlowSummary")?.props.summary,
+    { gave: { count: 0, amount: 0 }, received: { count: 0, amount: 0 } },
+    "account switch immediately gates old summary",
+  );
+  accountId = "account";
+  vaultId = "another-vault";
+  dirty = true;
+  await flush();
+  assert.deepEqual(
+    find("TallyFlowSummary")?.props.summary,
+    { gave: { count: 0, amount: 0 }, received: { count: 0, amount: 0 } },
+    "kaata switch immediately gates old summary",
+  );
+  console.log(
+    "PASS: closed/relinked known flow history keeps role perspective, excludes openings/rejected/cancelled, stays outside current money and resists stale/account/kaata paints",
   );
 }
 main().catch((error) => {

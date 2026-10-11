@@ -9,6 +9,7 @@
 // native-contact-permission test. No migrations are run or duplicated here.
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import * as ed from "@noble/ed25519";
 import type { SQLiteTx } from "../db-tx";
@@ -131,7 +132,23 @@ stub("../db-health", { assertLedgerReadable: () => {} });
 stub("../db-backup", { deleteLocalBackups: async () => {} });
 stub("../checkin-trigger", { requestImmediateCheckIn: () => {} });
 stub("../projection-conflicts", { notifyProjectionConflictsChanged: () => {} });
-stub("../use-vault-role", { invalidateVaultRoleCache: () => {} });
+stub("../use-vault-role", {
+  invalidateVaultRoleCache: () => {},
+  readVaultRole: async () => "owner",
+});
+stub("../auth", {
+  captureCurrentSession: async () => ({ jwt: null, accountId: null, bindingVersion: 0 }),
+  applyForUnchangedLocalSession: async <T>(_snapshot: unknown, work: () => Promise<T>) => work(),
+  applyForCurrentSession: async () => {
+    throw Error("unexpected cloud credit request");
+  },
+  SessionChangedError: class extends Error {},
+});
+stub("../api", {
+  getBackendUrl: async () => {
+    throw Error("unexpected network");
+  },
+});
 stub("../projection/sweep", { scheduleSweep: () => {} });
 stub("../ledger-events", { emitLedgerApplied: () => {} });
 
@@ -197,6 +214,12 @@ function openFixture(): void {
     INSERT INTO users VALUES ('fixture-self', '+93700111222', 'Synthetic Owner', 1,
       NULL, NULL, 1, 1, NULL, NULL);
   `);
+  const creditDDL =
+    /execAsync\(`([^`]*CREATE TABLE IF NOT EXISTS customer_credit_limits[^`]*)`\)/.exec(
+      readFileSync(require.resolve("../db"), "utf8"),
+    )?.[1];
+  assert.ok(creditDDL, "shipped migration034 credit tables");
+  fixture.exec(creditDDL);
   failUsageKey = null;
   failedUsageWrites = 0;
   failEventType = null;

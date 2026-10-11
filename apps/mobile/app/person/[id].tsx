@@ -21,6 +21,9 @@ import { Chip } from "../../components/Chip";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { EmptyState } from "../../components/EmptyState";
 import { TallyHighlight } from "../../components/TallyHighlight";
+import { TallyFlowSummary } from "../../components/TallyFlowSummary";
+import { CreditIntentList } from "../../components/CreditIntentList";
+import { CreditStatusBadge } from "../../components/CreditStatusBadge";
 import { EntryRow } from "../../components/EntryRow";
 import { SharedAccountBadge } from "../../components/SharedAccountBadge";
 import { LinkAccountDialog } from "../../components/LinkAccountDialog";
@@ -36,6 +39,7 @@ import {
   getPerson,
   getSettlementSummary,
   listEntries,
+  listArchivedSharedPeriodsForExport,
   listSettlementBoundaries,
   SettledChapterError,
   softDeleteEntry,
@@ -70,6 +74,7 @@ import { formatSettlementDate } from "../../lib/jalali";
 import { useCalendar } from "../../lib/calendar";
 import { shareKaataViaWhatsApp, type WhatsAppShareStage } from "../../lib/share";
 import { filterTallies, noteSearchTerms } from "../../lib/tally-search";
+import { summarizeTallyFlows } from "../../lib/tally-summary";
 import {
   getLatestTabLinkForPerson,
   listPreLinkEntries,
@@ -124,11 +129,18 @@ export default function PersonDetailScreen() {
   const [actionsHeight, setActionsHeight] = useState(100);
   const insets = useSafeAreaInsets();
   // Clerks can add; only editors and above can amend/review/cancel.
-  const { canCreate, canAmend } = useActiveVaultWriteCaps(getActiveVaultIdSyncMaybe());
-  const { id, entryId, notificationKey } = useLocalSearchParams<{
+  const {
+    canCreate,
+    canAmend,
+    canConfigureCredit,
+    resolved: roleResolved,
+  } = useActiveVaultWriteCaps(getActiveVaultIdSyncMaybe());
+  const canManageCredit = roleResolved && canConfigureCredit;
+  const { id, entryId, notificationKey, reminderId } = useLocalSearchParams<{
     id: string;
     entryId?: string;
     notificationKey?: string;
+    reminderId?: string;
   }>();
   const scrollRef = useRef<ScrollView>(null);
   const entriesCardY = useRef<number | null>(null);
@@ -272,6 +284,17 @@ export default function PersonDetailScreen() {
   const [preLinkOpen, setPreLinkOpen] = useState(false);
   const [failedTallies, setFailedTallies] = useState<Entry[]>([]);
   const [failedTalliesOpen, setFailedTalliesOpen] = useState(false);
+  const flowScope = `${getAccountIdSync() ?? "local"}:${getActiveVaultIdSyncMaybe() ?? "none"}:${id}`;
+  const [flowHistory, setFlowHistory] = useState<{ scope: string; entries: Entry[] } | null>(null);
+  const loadGeneration = useRef(0),
+    loadMounted = useRef(true);
+  useEffect(() => {
+    loadMounted.current = true;
+    return () => {
+      loadMounted.current = false;
+      loadGeneration.current++;
+    };
+  }, []);
   // The menu opens ONE invitation dialog: explanation, creation, and (only
   // without a saved number) delivery choices all stay on the same surface.
   const [inviteVisible, setInviteVisible] = useState(false);
@@ -357,6 +380,10 @@ export default function PersonDetailScreen() {
   // Shared chapters use server sequence, so backdating a new tally can never
   // tuck it behind an old settlement. Local boundaries only apply locally.
   const displayedEntries = useMemo(() => entries.filter(visibleTally), [entries]);
+  const flowSummary = useMemo(
+    () => summarizeTallyFlows(flowHistory?.scope === flowScope ? flowHistory.entries : []),
+    [flowHistory, flowScope],
+  );
   const searchTerms = useMemo(() => noteSearchTerms(searchQuery), [searchQuery]);
   const searching = searchTerms.length > 0;
   const searchingRef = useRef(searching);
@@ -598,8 +625,20 @@ export default function PersonDetailScreen() {
   // effect and the pull listener can ask for a sync and mark the tab's
   // notices seen without waiting on state; every other caller ignores it.
   const load = useCallback(async (): Promise<TabLink | null> => {
+    const generation = ++loadGeneration.current;
+    const account = getAccountIdSync(),
+      vault = getActiveVaultIdSyncMaybe();
+    const scope = `${account ?? "local"}:${vault ?? "none"}:${id}`;
+    const current = () =>
+      loadMounted.current &&
+      generation === loadGeneration.current &&
+      getAccountIdSync() === account &&
+      getActiveVaultIdSyncMaybe() === vault;
     if (!id) {
-      setLoaded(true);
+      if (current()) {
+        setFlowHistory(null);
+        setLoaded(true);
+      }
       return null;
     }
     const epoch = reviewEpoch.current;
@@ -609,7 +648,7 @@ export default function PersonDetailScreen() {
       // Bind the displayed entries and settlement markers to one revision.
       // Tab pulls and local writers use this same lock; otherwise a newer
       // link revision could silently authorize clearing entries never shown.
-      const { p, list, s, settle, bounds, tl, before, refused, sharedMarkers } =
+      const { p, list, s, settle, bounds, tl, before, refused, sharedMarkers, priorPeriods } =
         await applyEventMutex.runExclusive(async () => {
           const [p, list, s, settle, bounds, tl] = await Promise.all([
             getPerson(id),
@@ -620,10 +659,22 @@ export default function PersonDetailScreen() {
             getLatestTabLinkForPerson(id),
           ]);
           const before = tl ? await listPreLinkEntries(tl) : [];
-          const refused = tl ? await listFailedTabEntries(tl.relationship_id) : [];
+          const refused = tl
+            ? await listFailedTabEntries(tl.relationship_id, {
+                excludeCreditRefused: true,
+              })
+            : [];
           const sharedMarkers = tl ? await listTabSettlements(tl.tab_id) : [];
-          return { p, list, s, settle, bounds, tl, before, refused, sharedMarkers };
+          const priorPeriods = tl ? await listArchivedSharedPeriodsForExport(id) : [];
+          return { p, list, s, settle, bounds, tl, before, refused, sharedMarkers, priorPeriods };
         });
+      if (!current()) return null;
+      // Earlier closed tabs remain known handovers, even after a new opening
+      // carries their net balance. Keep them out of current money and rows.
+      setFlowHistory({
+        scope,
+        entries: [...list, ...before, ...priorPeriods.flatMap((period) => period.entries)],
+      });
       setPerson(p);
       setEntries(list);
       if (epoch === reviewEpoch.current && focused.current && AppState.currentState === "active") {
@@ -663,11 +714,12 @@ export default function PersonDetailScreen() {
       setLoadFailed(false);
       return tl;
     } catch (err) {
+      if (!current()) return null;
       console.warn("[person] load failed", err);
       setLoadFailed(true);
       return null;
     } finally {
-      setLoaded(true);
+      if (current()) setLoaded(true);
     }
   }, [id]);
 
@@ -983,8 +1035,39 @@ export default function PersonDetailScreen() {
                       icon: "link-outline" as const,
                       onPress: () => (link ? setLinkedSheetVisible(true) : setInviteVisible(true)),
                     },
+                    {
+                      label: t("groups.personAction"),
+                      icon: "pricetags-outline" as const,
+                      onPress: () =>
+                        router.push({
+                          pathname: "/person/[id]/group",
+                          params: { id: person.id, vaultId: activeVaultId ?? "" },
+                        }),
+                    },
                   ]
                 : []),
+              ...(canManageCredit
+                ? [
+                    {
+                      label: t("credit.title"),
+                      icon: "speedometer-outline" as const,
+                      onPress: () =>
+                        router.push({
+                          pathname: "/person/[id]/credit-limit",
+                          params: { id: person.id, vaultId: activeVaultId ?? "" },
+                        }),
+                    },
+                  ]
+                : []),
+              {
+                label: t("reminders.title"),
+                icon: "alarm-outline" as const,
+                onPress: () =>
+                  router.push({
+                    pathname: "/person/[id]/reminders",
+                    params: { id: person.id, vaultId: activeVaultId ?? "" },
+                  }),
+              },
               {
                 label: t("personEdit.export"),
                 icon: "document-text-outline",
@@ -1050,57 +1133,86 @@ export default function PersonDetailScreen() {
                 </Text>
               ) : null}
               <View style={{ height: 16 }} />
-              <View style={[styles.chipRow, rowDir(isRTL)]}>
-                {chipLabel && chipVariant ? (
-                  <Chip label={chipLabel} variant={chipVariant} />
-                ) : settledCount > 0 &&
-                  chapterCoherent &&
-                  !sharedReviewPending &&
-                  unsettledOriginalCount === 0 ? (
-                  // "SETTLED" only when the user actually drew the line and it
-                  // covers everything.
-                  <Chip label={t("person.balance.settled")} variant="neutral" />
-                ) : displayedEntries.length > 0 ? (
-                  // A tally that merely SUMS to zero (or whose chapter no longer
-                  // adds up after a sync) is not a settled account — say so
-                  // rather than leaving the chip slot blank while every other
-                  // state labels itself. Hollow pill: true, but not an
-                  // achievement. The settle-row invitation sits below.
-                  // Contacts with no entries at all keep an empty slot — there
-                  // is no tally yet to have a state.
-                  <Chip label={t("person.balance.notSettled")} variant="outline" />
-                ) : null}
-                {link && link.other_joined_at == null ? (
-                  // Keep the invitation-waiting cue until the other side joins.
-                  // Once linked, the name badge is enough; no duplicate chip.
-                  <Pressable
-                    onPress={canAmend ? () => setLinkedSheetVisible(true) : undefined}
-                    disabled={!canAmend}
-                    accessibilityRole={canAmend ? "button" : "text"}
-                    style={({ pressed }) => [styles.readOnlyChip, pressed && { opacity: 0.5 }]}
-                  >
-                    <Ionicons name="link-outline" size={14} color={colors.textSubtle} />
+              <View style={[styles.balanceOverview, rowDir(isRTL)]}>
+                <View style={styles.balanceSide}>
+                  <View style={[styles.chipRow, rowDir(isRTL)]}>
+                    {chipLabel && chipVariant ? (
+                      <Chip label={chipLabel} variant={chipVariant} />
+                    ) : settledCount > 0 &&
+                      chapterCoherent &&
+                      !sharedReviewPending &&
+                      unsettledOriginalCount === 0 ? (
+                      // "SETTLED" only when the user actually drew the line and it
+                      // covers everything.
+                      <Chip label={t("person.balance.settled")} variant="neutral" />
+                    ) : displayedEntries.length > 0 ? (
+                      // A tally that merely SUMS to zero (or whose chapter no longer
+                      // adds up after a sync) is not a settled account — say so
+                      // rather than leaving the chip slot blank while every other
+                      // state labels itself. Hollow pill: true, but not an
+                      // achievement. The settle-row invitation sits below.
+                      // Contacts with no entries at all keep an empty slot — there
+                      // is no tally yet to have a state.
+                      <Chip label={t("person.balance.notSettled")} variant="outline" />
+                    ) : null}
+                    {link && link.other_joined_at == null ? (
+                      // Keep the invitation-waiting cue until the other side joins.
+                      // Once linked, the name badge is enough; no duplicate chip.
+                      <Pressable
+                        onPress={canAmend ? () => setLinkedSheetVisible(true) : undefined}
+                        disabled={!canAmend}
+                        accessibilityRole={canAmend ? "button" : "text"}
+                        style={({ pressed }) => [styles.readOnlyChip, pressed && { opacity: 0.5 }]}
+                      >
+                        <Ionicons name="link-outline" size={14} color={colors.textSubtle} />
+                        <Text
+                          style={styles.readOnlyChipText}
+                          allowFontScaling={false}
+                          numberOfLines={1}
+                        >
+                          {t("tab.chip.waiting")}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                  <View style={[styles.balanceRow, rowDir(isRTL)]}>
                     <Text
-                      style={styles.readOnlyChipText}
-                      allowFontScaling={false}
+                      style={[styles.balance, { color: balanceColor, flexShrink: 1 }]}
                       numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.5}
                     >
-                      {t("tab.chip.waiting")}
+                      {formatAmount(abs)}
                     </Text>
-                  </Pressable>
-                ) : null}
+                    <Text style={styles.balanceAfn}>{getCurrentCurrencySymbol()}</Text>
+                  </View>
+                  <CreditStatusBadge personId={person.id} vaultId={activeVaultId} />
+                </View>
+                <TallyFlowSummary summary={flowSummary} isRTL={isRTL} />
               </View>
-              <View style={[styles.balanceRow, rowDir(isRTL)]}>
-                <Text
-                  style={[styles.balance, { color: balanceColor, flexShrink: 1 }]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.5}
+              {reminderId ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t("reminders.title")}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/person/[id]/reminders",
+                      params: { id: person.id, vaultId: activeVaultId ?? "" },
+                    })
+                  }
+                  style={[rowDir(isRTL), { alignItems: "center", gap: 8, paddingVertical: 12 }]}
                 >
-                  {formatAmount(abs)}
-                </Text>
-                <Text style={styles.balanceAfn}>{getCurrentCurrencySymbol()}</Text>
-              </View>
+                  <Ionicons name="alarm-outline" size={18} color={colors.textMuted} />
+                  <Text
+                    style={[
+                      textDir(isRTL),
+                      { fontFamily: fonts.sansMedium, color: colors.textDefault },
+                    ]}
+                  >
+                    {t("reminders.title")}
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
           </View>
 
@@ -1257,6 +1369,8 @@ export default function PersonDetailScreen() {
               })}
             </View>
           )}
+
+          <CreditIntentList personId={person.id} vaultId={activeVaultId} />
 
           {matchedFailedTallies.length > 0 ? (
             <>
@@ -1668,6 +1782,8 @@ const styles = StyleSheet.create({
     color: colors.textSubtle,
   },
   info: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 20 },
+  balanceOverview: { alignItems: "center", gap: 18 },
+  balanceSide: { flex: 1, minWidth: 0 },
   // Direction chip + linked chip on one line. Chip's own alignSelf handles
   // the script edge; this row just puts the two side by side. flexWrap so
   // a long counterparty label drops the linked chip to a second line rather

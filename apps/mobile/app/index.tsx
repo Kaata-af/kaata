@@ -4,6 +4,7 @@ import { Redirect, useFocusEffect, useLocalSearchParams, useRouter } from "expo-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   Animated,
   BackHandler,
   Image,
@@ -20,6 +21,7 @@ import {
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomSheet } from "../components/BottomSheet";
+import { CustomerListSheet } from "../components/CustomerListSheet";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
@@ -46,13 +48,35 @@ import {
   listAllVaultsIncludingArchived,
   setAppMeta,
 } from "../lib/db";
-import { getAccountIdSync, getActiveVaultId, setActiveVaultId } from "../lib/db-tx";
+import {
+  clearActiveVaultId,
+  getAccountIdSync,
+  getActiveVaultId,
+  getActiveVaultIdSyncMaybe,
+  setActiveVaultId,
+} from "../lib/db-tx";
+import { readCustomerGroups, type CustomerGroup } from "../lib/customer-groups";
+import {
+  customerSide,
+  DEFAULT_CUSTOMER_LIST,
+  parseCustomerListPreference,
+  selectCustomers,
+  type CustomerListPreference,
+} from "../lib/customer-list";
+import {
+  creditStatusForBalance,
+  readCreditPoliciesForPeople,
+  refreshCreditPolicies,
+  type CreditPolicy,
+} from "../lib/credit-limits";
+import { onCreditPoliciesChanged } from "../lib/credit-policy-events";
+import type { CreditStatus } from "../components/CreditStatusBadge";
 import { useLedgerRefresh } from "../lib/ledger-events";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { formatAmount } from "../lib/format";
 import { sumAmounts } from "../lib/money";
-import { t } from "../lib/i18n";
+import { getLocale, t } from "../lib/i18n";
 import { icon, typography } from "../lib/tokens";
 import { useActiveVaultWriteCaps } from "../lib/use-vault-role";
 import {
@@ -134,51 +158,6 @@ const DRAG_COMMIT_FRACTION = 0.3;
 // Mid-stiffness: fast settle without overshoot.
 const RAIL_SPRING = { friction: 14, tension: 110 } as const;
 
-// Home list ordering, in priority order:
-//   1. OPEN tallies above SETTLED ones (Matee),
-//   2. within each group, most-recently-modified (last entry) first,
-//   3. name as tie-break.
-//
-// Why settled sinks: the home list is a worklist. An open tally is something
-// the shopkeeper still has to act on; a settled one is finished business kept
-// for the record. Ordering purely by recency put a JUST-settled account at the
-// very top — the row needing attention least sitting exactly where the eye
-// lands first, pushing live debts below the fold on a long list.
-//
-// is_settled is OPTIONAL on PersonWithBalance (getPerson's query doesn't
-// compute it), so undefined must read as "not settled". Settling is the user's
-// deliberate act, not arithmetic — a balance that merely sums to zero is not
-// settled and correctly stays in the open group, which is the same distinction
-// PersonRow draws when it shows the check mark instead of "0".
-//
-// Module-level pure comparator (stable identity, safe outside memo deps).
-const sortByModified = (a: PersonWithBalance, b: PersonWithBalance): number =>
-  (a.is_settled === 1 ? 1 : 0) - (b.is_settled === 1 ? 1 : 0) ||
-  (b.last_entry_at ?? 0) - (a.last_entry_at ?? 0) ||
-  a.name.localeCompare(b.name);
-
-// Which tab a person belongs to. Direction is DERIVED from the ledger, never
-// stored (CLAUDE.md "direction-free" model).
-//   balance > 0 → they owe me → collect
-//   balance < 0 → I owe them  → pay
-//   balance === 0 (SETTLED) → STAY on the side they were on before being
-//     settled, instead of always falling into collect. With the balance exactly
-//     0 the most-recent entry is necessarily the one that zeroed it, so the
-//     prior side is the OPPOSITE of that entry's effect: a 'payment' (I
-//     received) cleared a debt they owed me → collect; a 'debt' (I gave) cleared
-//     what I owed them → pay. Adding a new tally makes the balance non-zero
-//     again and re-files them by sign on the next load. Fallback when the entry
-//     type is unknown (e.g. a person with no entries) is collect, the prior
-//     default — those rows are filtered off the home list anyway.
-const personSide = (p: PersonWithBalance): Direction =>
-  p.balance > 0
-    ? "collect"
-    : p.balance < 0
-      ? "pay"
-      : p.last_entry_type === "debt"
-        ? "pay"
-        : "collect";
-
 /**
  * ONE sync toggle: enabling Nearby sync also turns on the native background
  * engine (there is no foreground-only sync — sync IS background sync). Sets the
@@ -226,6 +205,15 @@ export default function HomeScreen() {
   const [self, setSelf] = useState<Self | null>(null);
   const [direction, setDirection] = useState<Direction>("collect");
   const [allPeople, setAllPeople] = useState<PersonWithBalance[]>([]);
+  const [customerGroups, setCustomerGroups] = useState<CustomerGroup[]>([]);
+  const [groupByPerson, setGroupByPerson] = useState<Record<string, string | null>>({});
+  const [listPreference, setListPreference] =
+    useState<CustomerListPreference>(DEFAULT_CUSTOMER_LIST);
+  const [listOptionsVisible, setListOptionsVisible] = useState(false);
+  const [creditByPerson, setCreditByPerson] = useState<Record<string, CreditStatus>>({});
+  const preferenceVersion = useRef(0),
+    loadGeneration = useRef(0);
+  const locale = getLocale();
   const [sheetFor, setSheetFor] = useState<PersonWithBalance | null>(null);
   const [confirmDeleteFor, setConfirmDeleteFor] = useState<PersonWithBalance | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -315,6 +303,14 @@ export default function HomeScreen() {
   const lastBackPressRef = useRef(0);
 
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
+    const prefVersion = preferenceVersion.current;
+    const requestedVault = getActiveVaultIdSyncMaybe();
+    const requestedAccount = getAccountIdSync();
+    const current = () =>
+      generation === loadGeneration.current &&
+      getActiveVaultIdSyncMaybe() === requestedVault &&
+      getAccountIdSync() === requestedAccount;
     // The whole body is guarded: any rejection here (SQLite error,
     // SecureStore decrypt failure after a backup-restore to a new phone)
     // previously meant setLoaded(true) never ran — an infinite spinner on
@@ -322,20 +318,49 @@ export default function HomeScreen() {
     try {
       const [s, list, user, vaultId, accId, shopRaw] = await Promise.all([
         getLocalSelf(),
-        listAllPeople(),
+        listAllPeople(requestedVault),
         getSessionUser(),
         getActiveVaultId(),
         getAppMeta("account_id"),
         getAppMeta("shop_mode_enabled"),
       ]);
+      const [groupState, prefRaw, creditPolicies] = await Promise.all([
+        vaultId ? readCustomerGroups(vaultId) : Promise.resolve({ groups: [], groupByPerson: {} }),
+        vaultId ? getAppMeta(`customer_list:${vaultId}`) : Promise.resolve(null),
+        vaultId
+          ? readCreditPoliciesForPeople(vaultId)
+          : Promise.resolve<Record<string, CreditPolicy>>({}),
+      ]);
+      if (!current() || requestedVault !== vaultId) return;
       // Make the display currency follow the active vault before amounts paint
       // (currency is per-vault; the global symbol otherwise lags behind a
       // switch/restore). Awaited so getCurrentCurrencySymbol() is correct on
       // this render.
       await applyVaultCurrency(vaultId);
+      if (!current()) return;
 
       setSelf(s);
       setAllPeople(list);
+      setCustomerGroups(groupState.groups);
+      setGroupByPerson(groupState.groupByPerson);
+      setCreditByPerson(
+        Object.fromEntries(
+          list.map((person) => [
+            person.id,
+            creditStatusForBalance(creditPolicies[person.id] ?? null, person.balance),
+          ]),
+        ),
+      );
+      if (prefVersion === preferenceVersion.current) {
+        const preference = parseCustomerListPreference(prefRaw);
+        if (
+          preference.group !== "all" &&
+          preference.group !== "ungrouped" &&
+          !groupState.groups.some((g) => g.id === preference.group)
+        )
+          preference.group = "all";
+        setListPreference(preference);
+      }
       setSessionUser(user);
       setActiveVaultIdState(vaultId);
       setActiveAccountId(accId);
@@ -348,6 +373,7 @@ export default function HomeScreen() {
           listActiveVaults(),
           listAllVaultsIncludingArchived(),
         ]);
+        if (!current()) return;
         setVaults(
           active.map((r) => ({ id: r.id, name: r.name, currency: r.currency, archived: false })),
         );
@@ -365,10 +391,27 @@ export default function HomeScreen() {
           const fallback = active[0]?.id ?? null;
           if (fallback) {
             await setActiveVaultId(fallback);
-            await applyVaultCurrency(fallback);
+            if (generation !== loadGeneration.current || getAccountIdSync() !== requestedAccount)
+              return;
             setActiveVaultIdState(fallback);
+            // This load belongs to the archived kaata. Read every slice for
+            // the replacement instead of leaving old customers/groups under
+            // its new header or waiting indefinitely on current().
+            void load();
+            return;
           } else {
+            await clearActiveVaultId();
+            if (generation !== loadGeneration.current || getAccountIdSync() !== requestedAccount)
+              return;
             setActiveVaultIdState(null);
+            setAllPeople([]);
+            setCustomerGroups([]);
+            setGroupByPerson({});
+            setCreditByPerson({});
+            setSelf(s ? { ...s, shop_name: null } : s);
+            setLoadError(false);
+            setLoaded(true);
+            return;
           }
         }
       } catch (err) {
@@ -402,16 +445,41 @@ export default function HomeScreen() {
 
       setLoadError(false);
     } catch (err) {
+      if (!current()) return;
       console.warn("[home] load failed", err);
       setLoadError(true);
     } finally {
-      setLoaded(true);
+      if (current()) setLoaded(true);
     }
   }, []);
+  useEffect(
+    () => () => {
+      loadGeneration.current++;
+    },
+    [],
+  );
 
   useFocusEffect(
     useCallback(() => {
-      load();
+      void load();
+      const refresh = () => {
+        const vaultId = getActiveVaultIdSyncMaybe();
+        if (vaultId) void refreshCreditPolicies(vaultId).catch(() => undefined);
+      };
+      refresh();
+      const policies = onCreditPoliciesChanged((vaultId) => {
+        if (getActiveVaultIdSyncMaybe() === vaultId) void load();
+      });
+      const app = AppState.addEventListener("change", (state) => {
+        if (state === "active") {
+          void load();
+          refresh();
+        }
+      });
+      return () => {
+        policies();
+        app.remove();
+      };
     }, [load]),
   );
 
@@ -434,6 +502,8 @@ export default function HomeScreen() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
+      const vaultId = getActiveVaultIdSyncMaybe();
+      if (vaultId) await refreshCreditPolicies(vaultId).catch(() => undefined);
       await load();
     } finally {
       setRefreshing(false);
@@ -549,25 +619,31 @@ export default function HomeScreen() {
     }, [toast]),
   );
 
-  // Split by direction, then sort: OPEN tallies first, then most-recent entry,
-  // then name. (Matee: "the contacts should be listed and sorted by modified
-  // date", later "remaining tallies should stay on top and settled ones should
-  // go below them" — settled-last is the outer key, modified-date the inner.)
-  // allPeople is already tallied-only (listAllPeople), so every row has a
-  // last_entry_at. See sortByModified for why settled sinks.
-  //
-  // NOTE the split runs BEFORE the sort and is unaffected by it: a settled
-  // person stays on whichever side they were on when they were settled (see
-  // personSide), so settling someone sinks them within their own tab rather
-  // than moving them across tabs.
+  // Filtering changes the list, while each tab's hero totals keep every customer.
+  // The default ordering still puts open tallies before settled ones.
   const collectPeople = useMemo(
-    () => allPeople.filter((p) => personSide(p) === "collect").sort(sortByModified),
-    [allPeople],
+    () => selectCustomers(allPeople, "collect", listPreference, groupByPerson, locale),
+    [allPeople, listPreference, groupByPerson, locale],
   );
   const payPeople = useMemo(
-    () => allPeople.filter((p) => personSide(p) === "pay").sort(sortByModified),
+    () => selectCustomers(allPeople, "pay", listPreference, groupByPerson, locale),
+    [allPeople, listPreference, groupByPerson, locale],
+  );
+  const collectAll = useMemo(
+    () => allPeople.filter((p) => customerSide(p) === "collect"),
     [allPeople],
   );
+  const payAll = useMemo(() => allPeople.filter((p) => customerSide(p) === "pay"), [allPeople]);
+  const effectiveGroup =
+    listPreference.group === "all" ||
+    listPreference.group === "ungrouped" ||
+    customerGroups.some((g) => g.id === listPreference.group)
+      ? listPreference.group
+      : "all";
+  useEffect(() => {
+    if (listPreference.group !== effectiveGroup)
+      setListPreference((p) => ({ ...p, group: effectiveGroup }));
+  }, [effectiveGroup, listPreference.group]);
 
   // Animate the rail to the resting position for the current direction.
   // Fires on both tab taps (direction changes via Tabs) and post-commit
@@ -848,8 +924,18 @@ export default function HomeScreen() {
       {/* Tabs only when there's an active kaata; the no-kaatas empty state
           below stands in for the whole ledger area otherwise. */}
       {activeVaultId ? (
-        <View style={styles.tabsWrap}>
-          <Tabs<Direction> tabs={buildTabs()} value={direction} onChange={setDirection} />
+        <View style={[styles.tabsWrap, rowDir(isRTL)]}>
+          <View style={{ flex: 1 }}>
+            <Tabs<Direction> tabs={buildTabs()} value={direction} onChange={setDirection} />
+          </View>
+          <Pressable
+            style={styles.listOptions}
+            accessibilityRole="button"
+            accessibilityLabel={t("customers.listOptions")}
+            onPress={() => setListOptionsVisible(true)}
+          >
+            <Ionicons name="options-outline" size={icon.row} color={colors.textDefault} />
+          </Pressable>
         </View>
       ) : null}
 
@@ -936,6 +1022,10 @@ export default function HomeScreen() {
             <TabPage
               direction="collect"
               people={collectPeople}
+              allPeople={collectAll}
+              filtered={effectiveGroup !== "all"}
+              creditByPerson={creditByPerson}
+              vaultId={activeVaultId}
               width={screenWidth}
               paddingBottom={96 + insets.bottom}
               refreshing={refreshing}
@@ -946,6 +1036,10 @@ export default function HomeScreen() {
             <TabPage
               direction="pay"
               people={payPeople}
+              allPeople={payAll}
+              filtered={effectiveGroup !== "all"}
+              creditByPerson={creditByPerson}
+              vaultId={activeVaultId}
               width={screenWidth}
               paddingBottom={96 + insets.bottom}
               refreshing={refreshing}
@@ -1064,6 +1158,7 @@ export default function HomeScreen() {
           try {
             await setActiveVaultId(vaultId);
             await load();
+            void refreshCreditPolicies(vaultId).catch(() => undefined);
             toast.push(t("menu.allKaatas.switched"), "success");
           } catch (err) {
             console.warn("[home] setActiveVaultId failed", err);
@@ -1169,6 +1264,28 @@ export default function HomeScreen() {
         }}
       />
 
+      <CustomerListSheet
+        visible={listOptionsVisible}
+        preference={listPreference}
+        groups={customerGroups}
+        contextKey={`${getAccountIdSync() ?? "local"}:${activeVaultId ?? "none"}`}
+        canManage={canAmend}
+        isRTL={isRTL}
+        onDismiss={() => setListOptionsVisible(false)}
+        onManage={() => {
+          if (canAmend && activeVaultId && getActiveVaultIdSyncMaybe() === activeVaultId)
+            router.push({ pathname: "/groups", params: { vaultId: activeVaultId } });
+        }}
+        onChange={(preference) => {
+          if (!activeVaultId || getActiveVaultIdSyncMaybe() !== activeVaultId) return;
+          preferenceVersion.current++;
+          setListPreference(preference);
+          void setAppMeta(`customer_list:${activeVaultId}`, JSON.stringify(preference)).catch(() =>
+            toast.push(t("entry.saveFailed"), "error"),
+          );
+        }}
+      />
+
       <BottomSheet
         visible={sheetFor !== null}
         title={sheetFor?.name}
@@ -1234,6 +1351,7 @@ export default function HomeScreen() {
           try {
             await setActiveVaultId(vaultId);
             await load();
+            void refreshCreditPolicies(vaultId).catch(() => undefined);
             toast.push(t("menu.allKaatas.switched"), "success");
           } catch (err) {
             console.warn("[home] setActiveVaultId failed", err);
@@ -1388,6 +1506,10 @@ export default function HomeScreen() {
 function TabPage(props: {
   direction: Direction;
   people: PersonWithBalance[];
+  allPeople: PersonWithBalance[];
+  filtered: boolean;
+  creditByPerson: Record<string, CreditStatus>;
+  vaultId: string | null;
   width: number;
   paddingBottom: number;
   refreshing: boolean;
@@ -1397,8 +1519,8 @@ function TabPage(props: {
   onPersonLongPress?: (person: PersonWithBalance) => void;
 }) {
   const isRTL = useIsRTL();
-  const total = sumAmounts(props.people.map((p) => Math.abs(p.balance)));
-  const active = props.people.filter((p) => p.balance !== 0).length;
+  const total = sumAmounts(props.allPeople.map((p) => Math.abs(p.balance)));
+  const active = props.allPeople.filter((p) => p.balance !== 0).length;
   const totalLabel =
     props.direction === "collect" ? t("home.total.label.collect") : t("home.total.label.pay");
   // The hero total is the main page's direction cue: the collect color when
@@ -1459,17 +1581,26 @@ function TabPage(props: {
           ) : null}
         </View>
 
+        {props.filtered ? (
+          <Text style={[styles.filterHint, textDir(isRTL)]}>
+            {t("customers.filtered", { shown: people.length, total: props.allPeople.length })}
+          </Text>
+        ) : null}
         {people.length === 0 ? (
           <EmptyState
             title={
-              props.direction === "collect"
-                ? t("home.empty.collect.title")
-                : t("home.empty.pay.title")
+              props.filtered
+                ? t("customers.noGroupResults")
+                : props.direction === "collect"
+                  ? t("home.empty.collect.title")
+                  : t("home.empty.pay.title")
             }
             subtitle={
-              props.direction === "collect"
-                ? t("home.empty.collect.subtitle")
-                : t("home.empty.pay.subtitle")
+              props.filtered
+                ? undefined
+                : props.direction === "collect"
+                  ? t("home.empty.collect.subtitle")
+                  : t("home.empty.pay.subtitle")
             }
             isRTL={isRTL}
           />
@@ -1478,7 +1609,12 @@ function TabPage(props: {
             {people.map((item, index) => (
               <View key={item.id}>
                 {index > 0 ? <View style={styles.divider} /> : null}
-                <PersonRow person={item} onPress={onPersonPress} onLongPress={onPersonLongPress} />
+                <PersonRow
+                  person={item}
+                  creditStatus={props.creditByPerson[item.id] ?? "none"}
+                  onPress={onPersonPress}
+                  onLongPress={onPersonLongPress}
+                />
               </View>
             ))}
           </View>
@@ -1624,7 +1760,15 @@ const styles = StyleSheet.create({
   // tabsWrap — gap above the swipe rail. marginTop:2 closes the gap a
   // hair after the header's paddingBottom shrunk to 14 (was 16);
   // marginBottom:16 keeps the rail from feeling glued to the tab strip.
-  tabsWrap: { paddingHorizontal: 16, marginTop: 2, marginBottom: 16 },
+  tabsWrap: { paddingHorizontal: 16, marginTop: 2, marginBottom: 16, alignItems: "center", gap: 8 },
+  listOptions: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  filterHint: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 12,
+    color: colors.textSubtle,
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
   loadingFill: { flex: 1, alignItems: "center", justifyContent: "center" },
   // No-kaatas empty state (fresh account / after leaving the last kaata).
   noKaataWrap: {

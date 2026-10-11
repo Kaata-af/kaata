@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import { pushFailureMessage } from "../sync/push-error";
+(globalThis as { __DEV__?: boolean }).__DEV__ = false;
 
 const fixture = new Database(":memory:");
 fixture.exec(`
@@ -14,8 +15,9 @@ fixture.exec(`
     appended_at INTEGER, author_seq INTEGER, event_sig_b64 TEXT,
     signer_device_pubkey TEXT, push_attempts INTEGER DEFAULT 0,
     server_acked_at INTEGER, rejected_at INTEGER, tombstone_reason TEXT,
-    next_push_at INTEGER, last_reject_reason TEXT
+    next_push_at INTEGER, last_reject_reason TEXT, applied_at INTEGER
   );
+  CREATE TABLE credit_admission_intents(event_id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,status TEXT,reason TEXT);
   CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT);
 `);
 const sqlite = {
@@ -39,7 +41,12 @@ const vaultId = randomUUID();
 let markedBackedUp = 0;
 function stub(name: string, exports: object) {
   const filename = require.resolve(name);
-  require.cache[filename] = { id: filename, filename, loaded: true, exports } as NodeJS.Module;
+  require.cache[filename] = {
+    id: filename,
+    filename,
+    loaded: true,
+    exports: { __esModule: true, ...exports },
+  } as NodeJS.Module;
 }
 stub("../api", { getBackendUrl: async () => "https://synthetic.invalid" });
 stub("../auth", { getSessionJWT: async () => "synthetic-session" });
@@ -47,7 +54,8 @@ stub("../db", {
   getAppMeta: async (key: string) =>
     (
       fixture.prepare("SELECT value FROM app_meta WHERE key=?").get(key) as
-        { value: string } | undefined
+        | { value: string }
+        | undefined
     )?.value ?? null,
   setAppMeta: async (key: string, value: string) =>
     fixture.prepare("INSERT OR REPLACE INTO app_meta VALUES (?,?)").run(key, value),
@@ -57,6 +65,18 @@ stub("../projection", {
   applyEventMutex: { runExclusive: async (fn: () => Promise<unknown>) => fn() },
 });
 stub("../projection-conflicts", { notifyProjectionConflictsChanged: () => {} });
+let creditRepaints = 0,
+  sweeps = 0;
+stub("../ledger-events", {
+  emitLedgerApplied: () => {
+    creditRepaints++;
+  },
+});
+stub("../projection/sweep", {
+  scheduleSweep: () => {
+    sweeps++;
+  },
+});
 stub("../sync/cursor", {
   markPushDone: async () => {
     markedBackedUp++;
@@ -161,6 +181,67 @@ async function run() {
       "successful retry only acknowledges records; signed contents survive",
     );
     assert.deepEqual(await pushEvents(vaultId), { pushed: 0, duplicates: 0, rejected: 0 });
+    assert.equal(sweeps, 1, "HTTPS acknowledgement wakes deferred projection replay");
+    assert.equal(creditRepaints, 1, "acknowledgement repaints the separate intent surface");
+    const deferred = randomUUID(),
+      historical = randomUUID();
+    for (const id of [deferred, historical])
+      insert.run(
+        id,
+        "entry_created",
+        vaultId,
+        randomUUID(),
+        200,
+        installId,
+        installId,
+        "self",
+        JSON.stringify({ amount_afn: 12.34 }),
+        200,
+        null,
+        "signature",
+        "public-key",
+      );
+    fixture.prepare("UPDATE event_log SET applied_at=1 WHERE event_id=?").run(historical);
+    for (const id of [deferred, historical])
+      fixture
+        .prepare("INSERT INTO credit_admission_intents VALUES(?,?,?,'pending',NULL)")
+        .run(id, vaultId, "rel");
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          accepted: [],
+          duplicates: [],
+          rejected: [deferred, historical].map((event_id) => ({
+            event_id,
+            reason: "credit_limit_exceeded",
+          })),
+        }),
+      );
+    await pushEvents(vaultId);
+    const verdict = (id: string) =>
+      fixture
+        .prepare("SELECT rejected_at,applied_at,last_reject_reason FROM event_log WHERE event_id=?")
+        .get(id) as {
+        rejected_at: number | null;
+        applied_at: number | null;
+        last_reject_reason: string | null;
+      };
+    assert.ok(verdict(deferred).rejected_at, "unapplied clerk attempt is terminally refused");
+    assert.equal(
+      verdict(historical).rejected_at,
+      null,
+      "already-visible history never silently disappears",
+    );
+    assert.equal(verdict(historical).applied_at, 1);
+    assert.equal(
+      (
+        fixture
+          .prepare("SELECT status FROM credit_admission_intents WHERE event_id=?")
+          .get(deferred) as { status: string }
+      ).status,
+      "refused",
+    );
+    assert.equal(creditRepaints, 2, "background refusal immediately repaints intent status");
   } finally {
     globalThis.fetch = realFetch;
     fixture.close();

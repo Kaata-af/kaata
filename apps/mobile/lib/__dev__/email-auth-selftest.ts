@@ -1981,8 +1981,13 @@ test("cold start: onboarded offline reset navigates from / once, after launch ro
   assert.equal(people.n, 1);
 });
 
-test("cold start: fresh signup/reset survives Home's default onboarding redirect", async () => {
-  for (const purpose of ["signup", "reset"] as const) {
+test("cold start: fresh signup/reset survives language or calendar onboarding redirect", async () => {
+  for (const [purpose, entryPath] of [
+    ["signup", "/onboarding/language"],
+    ["reset", "/onboarding/language"],
+    ["signup", "/onboarding/calendar"],
+    ["reset", "/onboarding/calendar"],
+  ] as const) {
     freshPhone();
     resetStartup();
     pendingStartup(purpose);
@@ -1991,7 +1996,7 @@ test("cold start: fresh signup/reset survives Home's default onboarding redirect
       release = resolve;
     });
     renderStartup({ hasOnboarded: false });
-    startupPath = "/onboarding/language";
+    startupPath = entryPath;
     renderStartup({ hasOnboarded: false });
     release(null);
     await settle();
@@ -3290,6 +3295,8 @@ const screenHooks = hookStore();
 let backHandlers: Array<() => boolean> = [];
 let screenPending: unknown = null;
 let screenRoutes: unknown[] = [];
+const screenMeta = new Map<string, string>();
+let screenWrites: [string, string][] = [];
 let platform = "android";
 const screen = load<{
   AuthScreen: (props: {
@@ -3366,8 +3373,11 @@ const screen = load<{
   "../../lib/crash-report": { queueCrashReport: async () => {} },
   "../../lib/colors": { colors: {} },
   "../../lib/db": {
-    getAppMeta: async () => null,
-    setAppMeta: async () => {},
+    getAppMeta: async (key: string) => screenMeta.get(key) ?? null,
+    setAppMeta: async (key: string, value: string) => {
+      screenWrites.push([key, value]);
+      screenMeta.set(key, value);
+    },
     getLocalSelf: async () => null,
   },
   "../../lib/db-tx": { getActiveVaultIdSyncMaybe: () => null, setActiveVaultId: async () => {} },
@@ -3396,6 +3406,8 @@ function mountScreen(props: typeof screenProps = {}, pending: unknown = null): N
   screenHooks.reset();
   backHandlers = [];
   screenRoutes = [];
+  screenMeta.clear();
+  screenWrites = [];
   screenPending = pending;
   screenProps = props;
   return renderScreen();
@@ -3477,6 +3489,58 @@ componentTest("screen: Back, hardware or on-screen, walks the flow, then out of 
   assert.equal(backHandlers.length, 0, "and Back belongs to the router again");
   assert.deepEqual(screenRoutes, []);
 });
+
+componentTest(
+  "screen: onboarding provider Back returns to calendar without losing account or invitation context",
+  async () => {
+    for (const hardware of [false, true]) {
+      const tree = mountScreen();
+      for (const [key, value] of [
+        ["account_id", "existing-account"],
+        ["pending_tab_token", "tab-intent"],
+        ["pending_invite_token", "invite-intent"],
+        ["onboarding_pending_name", "Kept Name"],
+      ])
+        screenMeta.set(key, value);
+      const before = new Map(screenMeta);
+      assert.equal(backHandlers.length, 1);
+      if (hardware) {
+        assert.equal(backHandlers[0](), true);
+        assert.equal(backHandlers[0](), true);
+      } else {
+        control(tree, "common.back")!.props.onPress();
+        control(tree, "common.back")!.props.onPress();
+      }
+      await settle();
+      assert.deepEqual(
+        screenRoutes,
+        ["/onboarding/calendar"],
+        "a repeated Back cannot queue a second navigation",
+      );
+      assert.deepEqual(screenWrites, [["onboarding_step", "calendar"]]);
+      for (const [key, value] of before) assert.equal(screenMeta.get(key), value);
+    }
+    const settings = mountScreen({ redirected: true });
+    control(settings, "common.back")!.props.onPress();
+    assert.deepEqual(
+      screenRoutes,
+      ["back"],
+      "settings sign-in Back keeps its original destination",
+    );
+    assert.deepEqual(screenWrites, []);
+
+    const busy = mountScreen();
+    const request = control(busy, "onboardingMode.google.title")!.props.onPress();
+    assert.equal(backHandlers[0](), true);
+    await settle();
+    assert.deepEqual(screenWrites, [], "provider handshake blocks calendar Back");
+    assert.deepEqual(screenRoutes, []);
+    renderScreen()
+      .find((node) => node.type === "Dialog" && node.props.visible)!
+      .props.onCancel();
+    await request;
+  },
+);
 
 componentTest(
   "screen: a pending sign-up or reset code reopens the flow; a setup code does not",

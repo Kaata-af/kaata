@@ -235,6 +235,9 @@ export async function createVaultInvite(
   vaultId: string,
   body: { email: string; role: VaultRole },
 ): Promise<CreateInviteResult> {
+  // Publish any local-only limits before granting a clerk cloud admission.
+  const { uploadPendingCreditPolicies } = await import("./credit-limits");
+  await uploadPendingCreditPolicies(vaultId);
   const raw = (await httpThrowing(
     "POST",
     `/v1/vaults/${encodeURIComponent(vaultId)}/invites`,

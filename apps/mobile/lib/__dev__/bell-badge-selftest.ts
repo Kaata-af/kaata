@@ -94,6 +94,13 @@ for (const os of ["ios", "android"] as const) {
       useEffect: () => {},
     },
     "react-native": {
+      Animated: {
+        View: "AnimatedView",
+        Value: class {
+          constructor(_: number) {}
+          setValue(_: number) {}
+        },
+      },
       ActivityIndicator: "ActivityIndicator",
       Modal: "Modal",
       Pressable: "Pressable",
@@ -132,6 +139,7 @@ for (const os of ["ios", "android"] as const) {
       }),
     },
     "../lib/tabs/open-notification": { openTabNotification: async () => {} },
+    "../lib/use-customer-reminders": { useCustomerReminders: () => ({ due: [] }) },
     "./Toast": { useToast: () => ({ push() {} }) },
   };
   const { NotificationBell } = compile("../../components/NotificationInbox", mocks);

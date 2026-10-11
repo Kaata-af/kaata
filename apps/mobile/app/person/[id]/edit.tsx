@@ -16,7 +16,7 @@ import { Button } from "../../../components/Button";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
 import { CountryPickerSheet } from "../../../components/CountryPickerSheet";
 import { ScreenLoading } from "../../../components/ScreenLoading";
-import { ScreenHeader } from "../../../components/SettingsScreen";
+import { NavRow, ScreenHeader } from "../../../components/SettingsScreen";
 import { queuePendingToast, useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
 import { splitName } from "../../../lib/contacts-sync";
@@ -27,6 +27,9 @@ import { fonts } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
 import { getCountry, getCurrentDefaultCountryCode, inferCountryFromE164 } from "../../../lib/phone";
 import { icon, radius, TOUCH_MIN } from "../../../lib/tokens";
+import { getActiveVaultIdSyncMaybe } from "../../../lib/db-tx";
+import { useCustomerGroups } from "../../../lib/use-customer-groups";
+import { useActiveVaultWriteCaps } from "../../../lib/use-vault-role";
 
 // presentation:"modal" screen: the loaded branch is a bare <SafeAreaView>,
 // which insets all four edges. ScreenLoading defaults to ["top"] (the pushed-
@@ -39,6 +42,10 @@ export default function EditPersonScreen() {
   const isRTL = useIsRTL();
   const toast = useToast();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const vaultId = getActiveVaultIdSyncMaybe();
+  const groupState = useCustomerGroups(vaultId);
+  const caps = useActiveVaultWriteCaps(vaultId);
+  const groupName = groupState.groups.find((g) => g.id === groupState.groupByPerson[id])?.name;
   const [loaded, setLoaded] = useState(false);
   // A null getPerson (stale id, archived remotely via mesh) used to fall
   // through to a blank editable form that saved into nothing. Mirrors
@@ -314,6 +321,16 @@ label so TalkBack still announces "Cancel", not "Back". */}
             </Text>
           ) : null}
         </View>
+        {caps.resolved && caps.canAmend && vaultId ? (
+          <NavRow
+            icon="pricetags-outline"
+            label={t("groups.personAction")}
+            trailing={groupName ?? t("groups.none")}
+            isRTL={isRTL}
+            disabled={busy}
+            onPress={() => router.push({ pathname: "/person/[id]/group", params: { id, vaultId } })}
+          />
+        ) : null}
         {saveError ? (
           <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
             {saveError}
