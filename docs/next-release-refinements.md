@@ -138,14 +138,16 @@ did not establish database or phone/gesture/visual QA. The later native-upload
 preflight passed all 32 mobile selftest suites and typecheck; an outdated
 retired-install router mock was repaired with a focus lifecycle regression.
 Signed build and testing-store delivery evidence is in the distribution log.
-Qamari web share/preview testing needs the matching backend/web deployment;
-this native upload leaves those server changes local, as stated in beta notes.
+At that point, Qamari web share/preview testing needed the matching backend/web
+deployment, and the 32/52 native upload left those server changes local. The later
+33/53 rollout deployed that support; see the distribution log.
 
 ## October 11 additional feedback — local development
 
-These changes follow TestFlight build 32 / Play internal code 52 and are not
-included in those binaries. No new store upload or backend deployment is requested
-for this development batch.
+These changes followed TestFlight build 32 / Play internal code 52 and were not
+included in those binaries. At the end of this development batch, no new store
+upload or backend deployment had been requested. The subsequent 33/53 delivery
+is recorded in [the distribution log](2.2.0-testing-distribution.md).
 
 - **Viewer search:** the black home control is available in every active kaata.
   For viewers it opens Find person with one name/number field, existing kaata
@@ -185,8 +187,10 @@ built or distributed for this batch.
 
 ## October 11–12 customer tools — implemented locally
 
-Requested after the member/search batch; no new native distribution or deployment
-is requested. The seven requested features are implemented:
+Requested after the member/search batch. At the end of development, no new native
+distribution or deployment had been requested; the subsequent 33/53 rollout is
+recorded in [the distribution log](2.2.0-testing-distribution.md). The seven
+requested features are implemented:
 
 - Notification dropdown: keep its measured position throughout dismissal and
   reject late measure/animation callbacks after closing or reopening.
@@ -235,9 +239,10 @@ private historical scratch-replay fixtures were skipped. Focused financial
 regressions passed after the final credit changes. The final combined sync,
 shared-tab and credit package run also passed with **zero skipped tests**.
 
-The existing local build numbers are unchanged. No push, deployment, store
-submission or new native distribution is part of this batch. Consolidated phone
-and visual checks 15–21 below remain pending.
+At the end of this development batch, the local build numbers were unchanged and
+no push, deployment or new native distribution had occurred. The subsequent
+33/53 delivery is recorded in [the distribution log](2.2.0-testing-distribution.md).
+Consolidated phone and visual checks 15–21 below remain pending.
 
 ## Deferred by the user
 
@@ -306,6 +311,11 @@ use, but existing screenshots were not regenerated.
 ## Consolidated checks after feature additions
 
 These remain pending; fixture tests do not replace phone testing.
+
+The current signed testing profiles support cloud owner/clerk/viewer flows.
+Nearby mesh remains parked in the app. The mesh/pairing portions below require a
+development build with `MESH_PARKED` disabled and the pairing entry points
+restored; changing solo-mode configuration alone is insufficient.
 
 1. Android/iOS, English/Dari: search with the keyboard open, clear it, and search
    settled/pre-link/Not sent notes. Confirm the balance and WhatsApp statement
