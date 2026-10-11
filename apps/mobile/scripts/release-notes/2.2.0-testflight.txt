@@ -1,15 +1,15 @@
-2.2.0 testing build 32
+2.2.0 testing build 33
 
-Please test in English and Dari:
+Update over the previous testing build while keeping your existing ledgers. These are checks to perform, not claims that phone testing is complete. Please test in English and Dari, including mirrored layouts, large text and reduced motion.
 
-- WhatsApp sharing beside the three-dot menu, visible preparation, repeated taps and cancellation. There should be one share action.
-- Neutral everyday surfaces and the black home add/find button. Check large text, disabled/loading controls and mirrored Dari layouts.
-- A brief highlight and message when a visible shared tally is accepted or rejected on another phone. Check reduced motion, offline acknowledgement, repeated pulls and background/resume.
-- Swiping Back from the first email form returns to the sign-in choices. Also check signup/reset/code steps, cold pending-code resume and successful restore/invite navigation.
-- Gregorian, Solar Hijri and Qamari calendar choices across languages, restart, kaata changes, tally dates and PDF exports. Qamari uses a calculated civil calendar and may differ from local moon sighting.
+- Close and quickly reopen the notification dropdown. Check for flicker, stale rows and safe navigation after account or kaata changes.
+- Use Sort & filter for customer name, balance, latest tally and custom groups. Create, rename and archive a group; move customers; confirm full kaata totals do not change when filtering. Clerks and viewers may filter but cannot change groups.
+- Check the compact Given/Received amounts and counts beside a customer's balance, including older settled periods. Rejected, voided and opening balances should not inflate those totals. Search should not change the summary.
+- As owner or manager, set each direction's credit limit to a warning or clerk restriction. Test exact amounts, zero/unlimited caps, pending shared tallies, repayments and denied entries. Cloud-connected clerks need internet for each new tally; fully local paired kaatas still work offline. Hard restrictions require sign-in, an online save and cloud enrollment for every clerk. Higher roles may override limits.
+- Set personal reminders once, daily or weekly, including Thursday. Allow and deny notification permission; test native date/time pickers, app restart, background delivery, tapping a reminder, Mark done, account changes and timezone changes. Reminders belong to this phone/account and never send WhatsApp automatically.
+- On a fresh install, choose language, then Gregorian, Solar Hijri or Qamari dates. Check Back, interrupted onboarding, email signup/reset, restore and invitation paths. Swiping Back from the first email form should return to sign-in choices.
+- Test the black search button in view-only kaatas and tally searches by notes, numbers and dates across current and settled history. Verify accepted/rejected status dots, live acceptance/rejection feedback and the neutral app colors.
+- Check member names and email addresses, including a name change on another phone. Test WhatsApp sharing beside the three-dot menu and reminder loading: one share action, spinner without a page-top loading message, repeated taps and cancellation.
+- Restore linked ledgers on another phone and compare current/settled tallies, checkmarks and balances after reconnecting across separate networks. Also update an existing populated app to exercise local migrations and cloud restore of groups and limits; private reminders should stay on their original phone.
 
-Also check tally note search across current and settled history, pending-only dots, cloud restore of linked ledgers and synchronization across separate networks after reconnecting.
-
-Check that search does not change the full balance, exports or WhatsApp statements. Keep your existing app and ledgers intact when updating.
-
-This build is for testing only. Family ledger permissions remain deferred. The weekly growth dashboard is already live and is separate from this native build. Qamari dates on shared web links and their previews need the matching backend/web update, which has not been deployed for this testing upload; use the app and PDF export for Qamari checks meanwhile.
+Qamari uses a calculated civil calendar and may differ from local moon sighting. Test app dates and PDF exports; shared web links require the matching server/web update. Cloud credit limits require backend migration 056 before testing them. Family-ledger permissions remain deferred. Weekly growth belongs to the admin dashboard, separately from this native build. This build is for testing only and must not be promoted to production.
