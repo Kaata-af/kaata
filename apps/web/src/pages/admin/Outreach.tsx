@@ -156,7 +156,7 @@ import {
   type PillTone,
   type SessionLanguage,
 } from "./outreach-model";
-import { Card, ErrorCard, PageHeader, SkeletonCard, fmtDate, fmtInt, lastSeenInfo } from "./ui";
+import { Card, ErrorCard, PageHeader, SkeletonCard, fmtDateTime, fmtInt, lastSeenInfo } from "./ui";
 
 // v2 (2026-09-30): "Messaged before" now follows never_messaged, so a v1
 // value is ignored and a tab that held one opens on Prospects like a fresh one.
@@ -412,19 +412,6 @@ function fmtDay(day: string): string {
     month: "short",
     day: "numeric",
     year: "numeric",
-  });
-}
-function fmtDateTime(iso: string): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "—";
-  return d.toLocaleString(undefined, {
-    timeZone: "Asia/Kabul",
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
   });
 }
 function humanValue(value: string): string {
@@ -2091,11 +2078,11 @@ function BooksSection(props: {
                   <BookOwner book={book} />
                 </div>
                 <dl className="mt-3 grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3">
-                  <DetailItem label="Created" value={fmtDate(book.created_at)} />
+                  <DetailItem label="Created" value={fmtDateTime(book.created_at)} />
                   <DetailItem label="Numbers" value={fmtInt(book.numbers)} />
                   <DetailItem label="People" value={fmtInt(book.people)} />
                   <DetailItem label="Tallies" value={fmtInt(book.tallies)} />
-                  <DetailItem label="Last activity" value={fmtDate(book.last_tally_at)} />
+                  <DetailItem label="Last activity" value={fmtDateTime(book.last_tally_at)} />
                 </dl>
                 <div className="mt-3">{actions(book)}</div>
               </li>
@@ -2155,7 +2142,7 @@ function BooksSection(props: {
                       <BookOwner book={book} />
                     </td>
                     <td className="whitespace-nowrap px-3 py-3 align-top text-xs text-[#525252]">
-                      {fmtDate(book.created_at)}
+                      {fmtDateTime(book.created_at)}
                     </td>
                     <td className="px-3 py-3 text-right align-top text-xs tabular-nums text-[#404040]">
                       {fmtInt(book.numbers)}
@@ -2167,7 +2154,7 @@ function BooksSection(props: {
                       {fmtInt(book.tallies)}
                     </td>
                     <td className="whitespace-nowrap px-3 py-3 align-top text-xs text-[#525252]">
-                      {fmtDate(book.last_tally_at)}
+                      {fmtDateTime(book.last_tally_at)}
                     </td>
                     <td className="px-3 py-3 align-top">{actions(book, true)}</td>
                   </tr>
@@ -2721,8 +2708,8 @@ function SentControl(props: { contact: OutreachContact; disabled: boolean; onSen
           if (event.target.checked) props.onSent();
         }}
       />
-      <span className="min-w-0 whitespace-nowrap tabular-nums">
-        {o.contact_count > 0 ? `×${o.contact_count} · ${fmtDate(o.contacted_at)}` : "Sent"}
+      <span className="min-w-0 tabular-nums [overflow-wrap:anywhere]">
+        {o.contact_count > 0 ? `×${o.contact_count} · ${fmtDateTime(o.contacted_at)}` : "Sent"}
       </span>
     </label>
   );
@@ -2746,8 +2733,8 @@ function RepliedControl(props: {
         disabled={props.disabled || replied}
         onChange={() => props.onChange()}
       />
-      <span className="min-w-0 whitespace-nowrap tabular-nums">
-        {replied ? fmtDate(o.replied_at) : "Replied"}
+      <span className="min-w-0 tabular-nums [overflow-wrap:anywhere]">
+        {replied ? fmtDateTime(o.replied_at) : "Replied"}
       </span>
     </label>
   );
@@ -2857,6 +2844,12 @@ function Signal(props: { contact: OutreachContact; now: number }) {
         {fmtInt(contact.shopkeeper.tallies)} tallies · {fmtInt(contact.shopkeeper.people)} people
       </span>,
     );
+    if (seenValid)
+      lines.push(
+        <span key="seen-at" className="tabular-nums text-[#a3a3a3] [overflow-wrap:anywhere]">
+          {fmtDateTime(contact.shopkeeper.last_seen)}
+        </span>,
+      );
   }
   if (contact.customer) {
     for (const b of balanceSummary(contact.customer)) {
@@ -2880,8 +2873,8 @@ function Signal(props: { contact: OutreachContact; now: number }) {
   const lastTally = lastTallyAt(contact);
   if (lastTally)
     lines.push(
-      <span key="last-tally" className="whitespace-nowrap text-[#a3a3a3]">
-        Last tally {fmtDate(lastTally)}
+      <span key="last-tally" className="text-[#a3a3a3] [overflow-wrap:anywhere]">
+        Last tally {fmtDateTime(lastTally)}
       </span>,
     );
   return <div className="flex min-w-0 flex-col gap-0.5 text-xs text-[#525252]">{lines}</div>;
@@ -3445,8 +3438,8 @@ function ShopkeeperBlock(props: {
             <DetailItem label="Language" value={languageLabel(s.locale)} />
             <DetailItem label="Source" value={s.source} />
             <DetailItem label="Attribution" value={s.attribution} />
-            <DetailItem label="Installed" value={fmtDate(s.installed_at)} />
-            <DetailItem label="First seen" value={fmtDate(s.first_seen)} />
+            <DetailItem label="Installed" value={fmtDateTime(s.installed_at)} />
+            <DetailItem label="First seen" value={fmtDateTime(s.first_seen)} />
             <DetailItem label="Last seen" value={fmtDateTime(s.last_seen)} />
             <DetailItem label="Last activity" value={fmtDateTime(s.last_activity_at)} />
             <DetailItem label="Onboarded" value={s.has_onboarded ? "Completed" : "Not completed"} />
@@ -3563,7 +3556,7 @@ function ShopkeeperBlock(props: {
                     <p className="text-xs leading-5 tabular-nums text-[#737373]">
                       Receivable {formatMoney(parseMoney(kaata.receivable), true)} · Payable{" "}
                       {formatMoney(parseMoney(kaata.payable), true)} · Last tally{" "}
-                      {fmtDate(kaata.last_tally_at)}
+                      {fmtDateTime(kaata.last_tally_at)}
                     </p>
                   </div>
                 ))}
@@ -3591,7 +3584,7 @@ function CustomerBlock(props: {
           <dl className="mt-3 grid min-w-0 grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
             <DetailItem label="Books" value={fmtInt(c.mention_count)} />
             <DetailItem label="Tallies" value={fmtInt(c.tallies_total)} />
-            <DetailItem label="First added" value={fmtDate(c.first_added_at)} />
+            <DetailItem label="First added" value={fmtDateTime(c.first_added_at)} />
             <DetailItem label="Last tally" value={fmtDateTime(c.last_tally_at)} />
             <DetailItem
               label="Side"
@@ -3684,8 +3677,9 @@ function CustomerBlock(props: {
                       >
                         {formatMoney(balance, true)} {listing.currency}
                       </span>{" "}
-                      · {fmtInt(listing.tallies)} tallies · added {fmtDate(listing.first_added_at)}{" "}
-                      · last tally {fmtDate(listing.last_tally_at)}
+                      · {fmtInt(listing.tallies)} tallies · added{" "}
+                      {fmtDateTime(listing.first_added_at)} · last tally{" "}
+                      {fmtDateTime(listing.last_tally_at)}
                     </p>
                     <div className="mt-2">
                       <ExcludeButton

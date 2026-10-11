@@ -15,6 +15,34 @@ const clockFormatter = new Intl.DateTimeFormat("en", {
   minute: "2-digit",
   second: "2-digit",
 });
+const displayDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: REPORTING_TIME_ZONE,
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+});
+const timestampFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: REPORTING_TIME_ZONE,
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hourCycle: "h23",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+// Operational timestamps use the same Kabul clock as dashboard reporting,
+// including in a browser abroad. Date-only history has no recorded time.
+export function fmtDateTime(value: string | number): string {
+  if (value === "") return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    if (date.toISOString().slice(0, 10) !== value) return "—";
+    return displayDateFormatter.format(date);
+  }
+  return timestampFormatter.format(date);
+}
 
 export function reportingDay(value: string | number): string {
   if (value === "") return "";

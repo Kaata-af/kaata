@@ -1,5 +1,5 @@
-﻿import type { InstallRow, UserRow } from "./api";
-import { fmtDate, fmtInt } from "./ui";
+import type { InstallRow, UserRow } from "./api";
+import { fmtDateTime, fmtInt } from "./ui";
 
 function DetailItem(props: { label: string; value: string }) {
   return (
@@ -18,9 +18,10 @@ export function AccountDetail(props: { u: UserRow }) {
     <div className="min-w-0 max-w-full">
       <dl className="grid min-w-0 grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
         <DetailItem label="Account name" value={u.name} />
-        <DetailItem label="Account created" value={fmtDate(u.created_at)} />
-        <DetailItem label="Last sign-in" value={fmtDate(u.last_login_at)} />
-        <DetailItem label="Last reported activity" value={fmtDate(u.last_activity_at)} />
+        <DetailItem label="Account created" value={fmtDateTime(u.created_at)} />
+        <DetailItem label="Installed" value={fmtDateTime(u.installed_at || u.first_seen || "")} />
+        <DetailItem label="Last sign-in" value={fmtDateTime(u.last_login_at)} />
+        <DetailItem label="Last reported activity" value={fmtDateTime(u.last_activity_at)} />
         <DetailItem
           label="Latest device"
           value={`${u.platform || "Unknown"}${u.app_version ? ` · v${u.app_version}` : ""}`}
@@ -92,8 +93,10 @@ export function InstallDetail(props: { d: InstallRow }) {
         label="Device"
         value={`${d.platform || "Unknown"}${d.app_version ? ` · v${d.app_version}` : ""}`}
       />
-      <DetailItem label="First seen" value={fmtDate(d.first_seen)} />
-      <DetailItem label="Last reported activity" value={fmtDate(d.last_activity_at)} />
+      <DetailItem label="Installed" value={fmtDateTime(d.installed_at || d.first_seen)} />
+      <DetailItem label="First seen" value={fmtDateTime(d.first_seen)} />
+      <DetailItem label="Last seen" value={fmtDateTime(d.last_seen)} />
+      <DetailItem label="Last reported activity" value={fmtDateTime(d.last_activity_at)} />
       <DetailItem label="Attribution method" value={d.attribution_method} />
       <DetailItem label="Check-ins" value={fmtInt(d.check_in_count)} />
       <DetailItem label="Onboarding" value={d.has_onboarded ? "Completed" : "Not completed"} />

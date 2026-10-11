@@ -1,6 +1,28 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { msUntilReportingMidnight, reportingDay, reportingInstallDay } from "./dates.ts";
+import {
+  fmtDateTime,
+  msUntilReportingMidnight,
+  reportingDay,
+  reportingInstallDay,
+} from "./dates.ts";
+
+test("operational timestamps include a 24-hour Kabul clock across midnight and year boundaries", () => {
+  assert.equal(fmtDateTime("2026-09-13T19:29:59.999Z"), "Sep 13, 2026, 23:59");
+  assert.equal(fmtDateTime("2026-09-13T19:30:00.000Z"), "Sep 14, 2026, 00:00");
+  assert.equal(fmtDateTime("2026-12-31T19:30:00.000Z"), "Jan 1, 2027, 00:00");
+  assert.equal(fmtDateTime("2026-09-13T12:30:00-07:00"), "Sep 14, 2026, 00:00");
+  assert.equal(fmtDateTime(Date.parse("2026-10-11T08:05:00Z")), "Oct 11, 2026, 12:35");
+});
+
+test("missing timestamps stay unknown and date-only history does not invent a time", () => {
+  assert.equal(fmtDateTime(""), "—");
+  assert.equal(fmtDateTime("not a timestamp"), "—");
+  assert.equal(fmtDateTime(Number.NaN), "—");
+  assert.equal(fmtDateTime("2026-09-13"), "Sep 13, 2026");
+  assert.equal(fmtDateTime("2028-02-29"), "Feb 29, 2028");
+  assert.equal(fmtDateTime("2026-02-30"), "—");
+});
 
 test("reporting dates change at Kabul midnight, including across month and year boundaries", () => {
   assert.equal(reportingDay("2026-09-13T19:29:59.999Z"), "2026-09-13");

@@ -27,7 +27,7 @@ import { useEffect, useRef, useState } from "react";
 import { Acquisition } from "./Acquisition";
 import { AdminTokenContext, AuthError, TOKEN_KEY, useStats } from "./api";
 import { Campaigns } from "./Campaigns";
-import { msUntilReportingMidnight, reportingDay } from "./dates";
+import { fmtDateTime, msUntilReportingMidnight, reportingDay } from "./dates";
 import { AdminIcon } from "./icons";
 import { Outreach } from "./Outreach";
 import { Overview } from "./Overview";
@@ -380,7 +380,7 @@ function Freshness() {
         title="Refreshes on live updates, every 60s, and at Kabul midnight"
       >
         {stats.isError ? "Connection issue · " : ""}
-        {label}
+        {label} · {fmtDateTime(stats.data.generated_at)}
       </span>
       <span className="ml-2 text-xs text-neutral-400">· Kabul time (UTC+04:30)</span>
       {stats.data.activity_timezone_since ? (

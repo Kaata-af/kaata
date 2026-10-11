@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useStats, useUsers } from "./api";
 import { reportingDay } from "./dates";
-import { ErrorCard, PageHeader, SkeletonCard, fmtDate, fmtInt, lastSeenInfo } from "./ui";
+import { ErrorCard, PageHeader, SkeletonCard, fmtDateTime, fmtInt, lastSeenInfo } from "./ui";
 import { AccountDetail, InstallDetail } from "./UsersDetails";
 import {
   DEFAULT_FILTERS,
@@ -882,7 +882,7 @@ function UserCards(props: UserResultsProps) {
                   </span>
                   {seenValid ? (
                     <span className="mt-0.5 block text-[11px] font-normal leading-5 text-[#737373] [overflow-wrap:anywhere]">
-                      {fmtDate(row.last_seen)}
+                      {fmtDateTime(row.last_seen)}
                     </span>
                   ) : null}
                 </dd>
@@ -1081,7 +1081,7 @@ function UsersTable(props: UserResultsProps) {
                     </div>
                     {seenValid ? (
                       <p className="mt-1 whitespace-nowrap text-[11px] text-[#a3a3a3]">
-                        {fmtDate(row.last_seen)}
+                        {fmtDateTime(row.last_seen)}
                       </p>
                     ) : null}
                   </td>

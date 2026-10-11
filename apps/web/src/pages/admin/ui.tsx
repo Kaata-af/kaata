@@ -5,7 +5,7 @@
 // for data.
 
 import type { ReactNode } from "react";
-import { REPORTING_TIME_ZONE } from "./dates";
+export { fmtDateTime } from "./dates";
 
 // Palette. Chart series colors were validated with the dataviz six-checks
 // script (CVD ΔE ≥ 15, all ≥ 3:1 on white) — don't swap hues casually.
@@ -45,18 +45,6 @@ export function fmtPct(n: number, d: number): string {
   if (!d) return "—";
   const v = (n / d) * 100;
   return `${v >= 99.95 || Number.isInteger(v) ? Math.round(v) : v.toFixed(1)}%`;
-}
-
-export function fmtDate(iso: string): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString(undefined, {
-    timeZone: REPORTING_TIME_ZONE,
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
 }
 
 // "last seen" relative label + whether the device is effectively online now
