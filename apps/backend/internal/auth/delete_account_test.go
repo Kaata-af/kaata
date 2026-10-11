@@ -72,6 +72,9 @@ func TestDeleteAccount_OwnerWithDeviceBindings(t *testing.T) {
 	svc := NewService(pool, "test-client-id", "0123456789abcdef0123456789abcdef")
 
 	owner := seedAccount(t, pool, "owner@gmail.com")
+	if _, err := svc.SetAccountDisplayName(ctx, owner, "Chosen Display Name"); err != nil {
+		t.Fatalf("seed display override: %v", err)
+	}
 	member := seedAccount(t, pool, "member@gmail.com")
 	vault := seedVault(t, pool, owner)
 	if _, err := pool.Exec(ctx, `

@@ -132,6 +132,7 @@ const LEDGER = `
 const secure = new Map<string, string>();
 const trace: string[] = [];
 let accountCache: string | null = null;
+let accountCacheReadHook: (() => string | null) | null = null;
 
 type Call = {
   url: string;
@@ -198,6 +199,7 @@ function freshPhone(): string {
   script = [];
   trace.length = 0;
   accountCache = null;
+  accountCacheReadHook = null;
   googleSignIns = 0;
   googleSignOuts = 0;
   googleResult = { type: "success", data: { idToken: "google.id.token" } };
@@ -259,7 +261,7 @@ const auth = load<Auth>("../auth", {
   "../constants/env": { GOOGLE_IOS_CLIENT_ID: "", GOOGLE_WEB_CLIENT_ID: "web-client" },
   "./api": { getBackendUrl: async () => BASE },
   "./db-tx": {
-    getAccountIdSync: () => accountCache,
+    getAccountIdSync: () => (accountCacheReadHook ? accountCacheReadHook() : accountCache),
     getActiveVaultId: async () => null,
     getAppMetaInTx: async (_db: unknown, key: string) => metaGet(key),
     getDb: async () => sqlite,
@@ -1496,6 +1498,156 @@ test("names: an explicit edit reports a refusal; one that cannot be sent stays o
   script = [lost];
   assert.equal(await auth.syncAccountName("Ahmad", { force: true }), false);
   assert.equal(metaGet("account_name_pending"), "1", "a forced send that never arrived stays owed");
+});
+
+test("display names: explicit provider edit updates the cached name and settles old name state", async () => {
+  boundPhone("account-a");
+  accountCache = "account-a";
+  signedIn("jwt.a");
+  secure.set(USER_KEY, JSON.stringify({ name: "Provider Name", sub: "provider-sub" }));
+  metaSet("account_name_pending", "invalid");
+  script = [reply(200, { name: "احمد‌ ولی" })];
+  assert.equal(await auth.saveAccountDisplayName("  احمد‌ ولی  "), null);
+  assert.equal(calls[0].url, BASE + "/v1/account/display-name");
+  assert.deepEqual(calls[0].body, { name: "احمد‌ ولی" });
+  assert.equal(calls[0].auth, "Bearer jwt.a");
+  assert.deepEqual(JSON.parse(secure.get(USER_KEY)!), { name: "احمد‌ ولی", sub: "provider-sub" });
+  assert.equal(await auth.accountNameState(), "settled");
+});
+
+test("display names: offline/5xx queue the exact edit for the same account; unsupported servers refuse", async () => {
+  boundPhone("account-a");
+  accountCache = "account-a";
+  signedIn("jwt.a");
+  for (const unavailable of [lost, reply(503, { error_code: "unavailable" })]) {
+    script = [unavailable];
+    assert.equal(await auth.saveAccountDisplayName("Chosen Name"), null);
+    assert.deepEqual(JSON.parse(metaGet("account_display_name_pending")!), {
+      account_id: "account-a",
+      name: "Chosen Name",
+    });
+  }
+  assert.equal(await auth.accountNameState(), "owed");
+  fixture.prepare("UPDATE users SET display_name = 'Other phone name'").run();
+  accountCache = "account-b";
+  secure.set(SESSION_KEY, "jwt.b");
+  const before = calls.length;
+  await auth.syncPendingAccountNameFromSelf();
+  assert.equal(calls.length, before, "another account never receives a queued rename");
+  accountCache = "account-a";
+  secure.set(SESSION_KEY, "jwt.renewed-a");
+  script = [reply(200, { name: "Chosen Name" })];
+  await auth.syncPendingAccountNameFromSelf();
+  assert.deepEqual(calls.at(-1)?.body, { name: "Chosen Name" }, "retry keeps the explicit edit");
+  assert.equal(calls.at(-1)?.auth, "Bearer jwt.renewed-a");
+  assert.equal(metaGet("account_display_name_pending"), "");
+  for (const oldServer of [reply(404, {}), reply(405, { error_code: "unavailable" })]) {
+    script = [oldServer];
+    const refusal = await auth.saveAccountDisplayName("Another Name");
+    assert.ok(refusal && [404, 405].includes(refusal.status), "unsupported is a visible failure");
+    assert.equal(metaGet("account_display_name_pending"), "");
+  }
+  script = [reply(400, { error_code: "invalid_name" })];
+  assert.equal((await auth.saveAccountDisplayName("A"))?.reason, "invalid_name");
+  assert.equal(await auth.accountNameState(), "invalid");
+});
+
+test("display names: session changes reject late cosmetics and stale retries cannot replace newer saves", async () => {
+  boundPhone("account-a");
+  accountCache = "account-a";
+  signedIn("jwt.a");
+  secure.set(USER_KEY, JSON.stringify({ name: "Old" }));
+  let finish!: (response: Response) => void;
+  let entered!: () => void;
+  const inFlight = new Promise<void>((done) => {
+    entered = done;
+  });
+  script = [
+    () => {
+      entered();
+      return new Promise<Response>((done) => {
+        finish = done;
+      });
+    },
+  ];
+  const old = auth.saveAccountDisplayName("Old Intent");
+  await inFlight;
+  // A check-in captures the old intent while the new save waits for this send.
+  const newer = auth.saveAccountDisplayName("New Intent");
+  const retry = auth.syncPendingAccountNameFromSelf();
+  script = [reply(200, { name: "Canonical New Intent" })];
+  finish(new Response(JSON.stringify({ name: "Old Intent" }), { status: 200 }));
+  await Promise.all([old, newer, retry]);
+  assert.equal(calls.length, 2, "the queued old retry is superseded");
+  assert.deepEqual(calls[1].body, { name: "New Intent" });
+  assert.equal(JSON.parse(secure.get(USER_KEY)!).name, "Canonical New Intent");
+
+  const waiting = new Promise<void>((done) => {
+    entered = done;
+  });
+  script = [
+    () => {
+      entered();
+      return new Promise<Response>((done) => {
+        finish = done;
+      });
+    },
+  ];
+  const stale = auth.saveAccountDisplayName("For A");
+  await waiting;
+  accountCache = "account-b";
+  secure.set(SESSION_KEY, "jwt.b");
+  secure.set(USER_KEY, JSON.stringify({ name: "B Name" }));
+  finish(new Response(JSON.stringify({ name: "For A" }), { status: 200 }));
+  assert.equal((await stale)?.reason, "session_expired");
+  assert.equal(JSON.parse(secure.get(USER_KEY)!).name, "B Name");
+
+  for (const failure of ["network", "503"] as const) {
+    accountCache = "account-a";
+    signedIn("jwt.a");
+    let refuse!: (err: Error) => void;
+    const started = new Promise<void>((done) => {
+      entered = done;
+    });
+    script = [
+      () => {
+        entered();
+        return new Promise<Response>((done, reject) => {
+          finish = done;
+          refuse = reject;
+        });
+      },
+    ];
+    const offlineStale = auth.saveAccountDisplayName("Still Only For A");
+    await started;
+    accountCache = "account-b";
+    signedIn("jwt.b");
+    if (failure === "network") refuse(new TypeError("Network request failed"));
+    else finish(new Response(JSON.stringify({ error_code: "unavailable" }), { status: 503 }));
+    assert.equal(
+      (await offlineStale)?.reason,
+      "session_expired",
+      `late ${failure} cannot claim a current save`,
+    );
+  }
+
+  // Pin the gap between reading A's pending intent and capturing the retry's
+  // session: a raw queue match must not let that intent become a B rename.
+  accountCache = "account-a";
+  signedIn("jwt.a");
+  metaSet(
+    "account_display_name_pending",
+    JSON.stringify({ account_id: "account-a", name: "Only For A" }),
+  );
+  accountCacheReadHook = () => {
+    accountCacheReadHook = null;
+    accountCache = "account-b";
+    secure.set(SESSION_KEY, "jwt.b");
+    return "account-a";
+  };
+  const before = calls.length;
+  await auth.syncPendingAccountNameFromSelf();
+  assert.equal(calls.length, before, "the queued account remains authoritative across capture gap");
 });
 
 test("rules: a handle's @, and account names", async () => {
@@ -2740,6 +2892,17 @@ let accountCalls: string[] = [];
 let accountToasts: Array<[string, unknown]> = [];
 let accountRoutes: unknown[] = [];
 let saveNameAnswer: unknown = null;
+let accountBinding: import("../auth").SessionSnapshot = {
+  bindingVersion: 0,
+  accountId: "account-a",
+  jwt: "jwt.a",
+};
+let accountWriteHook: (() => void) | null = null;
+let accountReadHook: (() => Promise<Record<string, unknown>>) | null = null;
+let accountFocus: (() => void) | null = null;
+let accountGuardCompletionHook: (() => void) | null = null;
+let accountSuccessBindings: import("../auth").SessionSnapshot[] = [];
+let savedNameBinding: import("../auth").SessionSnapshot | undefined;
 const accountModule = load<{ default: () => unknown }>("../../app/account", {
   "react/jsx-runtime": jsxRuntime,
   react: accountHooks.react,
@@ -2750,7 +2913,10 @@ const accountModule = load<{ default: () => unknown }>("../../app/account", {
       push: (r: unknown) => accountRoutes.push(r),
       replace: (r: unknown) => accountRoutes.push(r),
     }),
-    useFocusEffect: (effect: () => void) => accountHooks.react.useEffect(effect, [effect]),
+    useFocusEffect: (effect: () => void) => {
+      accountFocus = effect;
+      accountHooks.react.useEffect(effect, [effect]);
+    },
   },
   "react-native": {
     KeyboardAvoidingView: "KeyboardAvoidingView",
@@ -2770,10 +2936,23 @@ const accountModule = load<{ default: () => unknown }>("../../app/account", {
   // The REAL rules, worded by key.
   "../lib/account-rules": keyRules,
   "../lib/auth": {
+    SessionChangedError: auth.SessionChangedError,
+    captureCurrentSession: async () => ({ ...accountBinding }),
+    applyForCurrentSession: async (
+      before: import("../auth").SessionSnapshot,
+      work: () => Promise<unknown>,
+    ) => {
+      if (JSON.stringify(before) !== JSON.stringify(accountBinding))
+        throw new auth.SessionChangedError();
+      const value = await work();
+      accountGuardCompletionHook?.();
+      return value;
+    },
     accountNameState: async () => accountNameStateNow,
     currentSessionKind: async () => accountSession,
     deleteAccount: async () => {},
     fetchAccountMe: async () => {
+      if (accountReadHook) return accountReadHook();
       if (!accountMe) throw new auth.SignInFailedError("network", "offline");
       return accountMe;
     },
@@ -2781,13 +2960,12 @@ const accountModule = load<{ default: () => unknown }>("../../app/account", {
     hasPendingAccountDeletion: async () => false,
     removePassword: async () => {},
     resetRetiredInstall: async () => {},
-    saveAccountName: async (name: string) => {
-      accountCalls.push(`saveAccountName:${name}`);
+    saveAccountDisplayName: async (name: string, before?: import("../auth").SessionSnapshot) => {
+      savedNameBinding = before;
+      if (before && JSON.stringify(before) !== JSON.stringify(accountBinding))
+        return new auth.EmailAuthError("session_expired", 401);
+      accountCalls.push(`saveAccountDisplayName:${name}`);
       return saveNameAnswer;
-    },
-    syncAccountName: async (name: string) => {
-      accountCalls.push(`syncAccountName:${name}`);
-      return false;
     },
     updateAccountPhone: async (phone: string | null) => {
       accountCalls.push(`updateAccountPhone:${phone}`);
@@ -2805,7 +2983,12 @@ const accountModule = load<{ default: () => unknown }>("../../app/account", {
     SectionHeader: "SectionHeader",
   },
   "../components/Toast": {
-    useToast: () => ({ push: (m: string, kind: unknown) => accountToasts.push([m, kind]) }),
+    useToast: () => ({
+      push: (m: string, kind: unknown) => {
+        accountToasts.push([m, kind]);
+        if (kind === "success") accountSuccessBindings.push({ ...accountBinding });
+      },
+    }),
   },
   "../lib/colors": { colors: {} },
   "../lib/contacts-sync": {
@@ -2823,6 +3006,7 @@ const accountModule = load<{ default: () => unknown }>("../../app/account", {
     setAppMeta: async () => {},
     updateSelfProfile: async (name: string, _shop: unknown, phone: string | null) => {
       accountCalls.push(`updateSelfProfile:${name}:${phone}`);
+      accountWriteHook?.();
     },
   },
   "../lib/direction": {
@@ -2881,6 +3065,12 @@ async function openAccount(over: {
   accountToasts = [];
   accountRoutes = [];
   saveNameAnswer = null;
+  accountBinding = { bindingVersion: 0, accountId: "account-a", jwt: "jwt.a" };
+  accountWriteHook = null;
+  accountReadHook = null;
+  accountGuardCompletionHook = null;
+  accountSuccessBindings = [];
+  savedNameBinding = undefined;
   renderAccount();
   for (let i = 0; i < 6; i++) {
     await settle();
@@ -2928,13 +3118,12 @@ componentTest("account: an email session on a Google account saves a phone chang
   ]);
   assert.deepEqual(accountToasts, [["settings.saved", "success"]]);
   assert.deepEqual(accountRoutes, ["back"], "and back");
-  // A name change there is Google's to name: its local rule, nothing forced.
+  // The Kaata name can change independently of the linked Google identity.
   tree = await openAccount({ me: accountMeOf(["google", "email"]), session: "email" });
   accountInput(tree, "personEdit.firstName.label").props.onChangeText("A");
   tree = await saveAccount();
   assert.equal(nameErrorShown(tree), false);
-  assert.ok(accountCalls.includes("syncAccountName:A Karimi"), "owed-only send");
-  assert.ok(!accountCalls.some((c) => c.startsWith("saveAccountName")));
+  assert.ok(accountCalls.includes("saveAccountDisplayName:A Karimi"), "explicit provider rename");
   assert.deepEqual(accountRoutes, ["back"]);
 });
 
@@ -2945,7 +3134,7 @@ componentTest(
     let tree = await openAccount({ me: accountMeOf(["email"]) });
     accountInput(tree, "personEdit.phone.label").props.onChangeText("700000003");
     await saveAccount();
-    assert.ok(!accountCalls.some((c) => c.includes("AccountName")), "the name did not change");
+    assert.ok(!accountCalls.some((c) => c.includes("DisplayName")), "the name did not change");
     // Too short: the rule, nothing saved.
     tree = await openAccount({ me: accountMeOf(["email"]) });
     accountInput(tree, "personEdit.firstName.label").props.onChangeText("A");
@@ -2958,7 +3147,7 @@ componentTest(
     accountInput(tree, "personEdit.firstName.label").props.onChangeText("Mahmood");
     saveNameAnswer = new auth.EmailAuthError("invalid_name", 400);
     tree = await saveAccount();
-    assert.ok(accountCalls.includes("saveAccountName:Mahmood Karimi"));
+    assert.ok(accountCalls.includes("saveAccountDisplayName:Mahmood Karimi"));
     assert.ok(nameErrorShown(tree));
     assert.equal(accountToasts.length, 0, 'no "Saved"');
     assert.equal(accountRoutes.length, 0, "stays");
@@ -2984,13 +3173,116 @@ componentTest("account: opens with the name error when the phone's name was unus
   tree = renderAccount();
   assert.equal(nameErrorShown(tree), false, "typing clears it");
   await saveAccount();
-  assert.ok(accountCalls.includes("saveAccountName:Mo Karimi"), "the fix is sent");
+  assert.ok(accountCalls.includes("saveAccountDisplayName:Mo Karimi"), "the fix is sent");
   assert.deepEqual(accountRoutes, ["back"]);
   // Still owed and unchanged: sent anyway, to settle it.
   tree = await openAccount({ me: accountMeOf(["email"]), nameState: "owed" });
   await saveAccount();
-  assert.ok(accountCalls.includes("saveAccountName:Ahmad Karimi"));
+  assert.ok(accountCalls.includes("saveAccountDisplayName:Ahmad Karimi"));
 });
+
+componentTest(
+  "account: fresh cloud names prefill, provider rename rules apply, unchanged long names permit phone edits",
+  async () => {
+    let tree = await openAccount({
+      me: { ...accountMeOf(["google"]), name: "Current Cloud Name" },
+      session: "provider",
+    });
+    assert.equal(accountInput(tree, "personEdit.firstName.label").props.value, "Current");
+    assert.equal(accountInput(tree, "personEdit.lastName.label").props.value, "Cloud Name");
+    accountInput(tree, "personEdit.firstName.label").props.onChangeText("A");
+    accountInput(renderAccount(), "personEdit.lastName.label").props.onChangeText("");
+    tree = await saveAccount();
+    assert.ok(nameErrorShown(tree));
+    assert.equal(accountCalls.length, 0, "invalid provider rename never writes locally");
+    const longName = "Provider " + "Surname".repeat(9);
+    tree = await openAccount({
+      me: { ...accountMeOf(["google"]), name: longName },
+      session: "provider",
+    });
+    accountInput(tree, "personEdit.phone.label").props.onChangeText("700000004");
+    await saveAccount();
+    assert.ok(!accountCalls.some((call) => call.startsWith("saveAccountDisplayName")));
+    assert.deepEqual(accountToasts, [["settings.saved", "success"]]);
+    tree = await openAccount({
+      me: { ...accountMeOf(["google"]), name: "Old Cloud" },
+      session: "provider",
+      nameState: "owed",
+    });
+    assert.equal(
+      accountInput(tree, "personEdit.firstName.label").props.value,
+      "Ahmad",
+      "queued local edit survives fresh cloud read",
+    );
+  },
+);
+
+componentTest(
+  "account: save retains its starting account and late cloud reads cannot repaint a different session",
+  async () => {
+    let tree = await openAccount({ me: accountMeOf(["google"]), session: "provider" });
+    const intended = { ...accountBinding };
+    accountInput(tree, "personEdit.firstName.label").props.onChangeText("Chosen");
+    accountWriteHook = () => {
+      accountBinding = { bindingVersion: 1, accountId: "account-b", jwt: "jwt.b" };
+    };
+    await saveAccount();
+    assert.deepEqual(savedNameBinding, intended, "capture precedes the async local save");
+    assert.equal(accountToasts.length, 0, "a session change does not claim Saved");
+    assert.equal(accountRoutes.length, 0);
+
+    tree = await openAccount({ me: accountMeOf(["google"]), session: "provider" });
+    const starting = { ...accountBinding };
+    let guardCompletions = 0;
+    accountGuardCompletionHook = () => {
+      if (++guardCompletions === 2)
+        accountBinding = { bindingVersion: 1, accountId: "account-b", jwt: "jwt.b" };
+    };
+    accountInput(tree, "personEdit.phone.label").props.onChangeText("700000008");
+    await saveAccount();
+    assert.deepEqual(
+      accountSuccessBindings,
+      [starting],
+      "success executes while the starting session is guarded",
+    );
+
+    tree = await openAccount({ me: accountMeOf(["google"]), session: "provider" });
+    accountInput(tree, "personEdit.phone.label").props.onChangeText("700000009");
+    accountWriteHook = () => {
+      accountBinding = { bindingVersion: 1, accountId: "account-b", jwt: "jwt.b" };
+    };
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+      await saveAccount();
+    } finally {
+      console.warn = warn;
+    }
+    assert.equal(accountToasts.length, 0, "phone-only save also checks before claiming Saved");
+    assert.equal(accountRoutes.length, 0);
+
+    // Re-focus begins a fresh server read, and an account switch happens while
+    // that read waits. The old name must never be applied to the current form.
+    await openAccount({ me: accountMeOf(["google"]), session: "provider" });
+    let resolve!: (account: Record<string, unknown>) => void;
+    accountReadHook = () =>
+      new Promise((done) => {
+        resolve = done;
+      });
+    accountFocus!();
+    await settle();
+    accountBinding = { bindingVersion: 2, accountId: "account-b", jwt: "jwt.b" };
+    resolve({ ...accountMeOf(["google"]), name: "Wrong Account Name" });
+    await settle();
+    tree = renderAccount();
+    assert.equal(
+      accountInput(tree, "personEdit.firstName.label").props.value,
+      "Ahmad",
+      "late read cannot overwrite the current form",
+    );
+    accountReadHook = null;
+  },
+);
 
 // --- the sign-in screen (app/onboarding/auth.tsx) ------------------------------------
 

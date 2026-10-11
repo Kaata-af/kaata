@@ -1096,8 +1096,25 @@ func (s *Service) SetAccountName(ctx context.Context, accountID, raw string) (st
 	if providerNamed {
 		return "", ErrProviderName
 	}
-	if _, err := s.pool.Exec(ctx, `UPDATE accounts SET name = $2 WHERE id = $1::uuid`, accountID, name); err != nil {
+	if _, err := s.pool.Exec(ctx, `UPDATE accounts SET name = $2, display_name = $2 WHERE id = $1::uuid`, accountID, name); err != nil {
 		return "", fmt.Errorf("set name: %w", err)
+	}
+	return name, nil
+}
+
+// SetAccountDisplayName is the explicit Kaata profile edit for every provider.
+// It never changes the provider identity, proven email, credential or password.
+func (s *Service) SetAccountDisplayName(ctx context.Context, accountID, raw string) (string, error) {
+	name := sanitizeDisplayName(raw)
+	if n := utf8.RuneCountInString(name); n < 2 || n > 60 {
+		return "", &InvalidNameError{}
+	}
+	result, err := s.pool.Exec(ctx, `UPDATE accounts SET display_name = $2 WHERE id = $1::uuid AND disabled_at IS NULL`, accountID, name)
+	if err != nil {
+		return "", fmt.Errorf("set display name: %w", err)
+	}
+	if result.RowsAffected() != 1 {
+		return "", ErrSessionRevoked
 	}
 	return name, nil
 }
@@ -1135,7 +1152,7 @@ func (s *Service) AccountMe(ctx context.Context, accountID string) (AccountMe, e
 	var me AccountMe
 	var login *string
 	err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE(a.email, ''), COALESCE(a.username, ''), COALESCE(a.name, ''), p.login_email,
+		SELECT COALESCE(a.email, ''), COALESCE(a.username, ''), COALESCE(a.display_name, a.name, ''), p.login_email,
 		       ARRAY(SELECT DISTINCT provider FROM account_identities WHERE account_id = a.id ORDER BY provider)
 		FROM accounts a LEFT JOIN account_passwords p ON p.account_id = a.id
 		WHERE a.id = $1::uuid

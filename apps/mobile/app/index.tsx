@@ -248,9 +248,9 @@ export default function HomeScreen() {
   const [activeVaultId, setActiveVaultIdState] = useState<string | null>(null);
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
   // Viewer read-only gate: false only when I'm a viewer on the active (shared)
-  // vault. Hides write affordances (FAB, long-press edit/delete). Defaults true
+  // vault. Hides write affordances (long-press edit/delete). Defaults true
   // for local-only / owner / editor.
-  // Roles v2 split: canCreate gates the add/find FAB (clerks CAN append); canAmend
+  // Roles v2 split: canCreate chooses add/find versus find-only; canAmend
   // gates the long-press edit/delete sheet (clerks cannot touch history).
   const { canCreate, canAmend } = useActiveVaultWriteCaps(activeVaultId);
   // D-ARCHIVED-VAULT-FILTER: the picker and settings sheet consume only
@@ -974,9 +974,9 @@ export default function HomeScreen() {
        * prompt. If the Activity were RTL, RN would silently reinterpret
        * `right` as `left` (the v0.2.4 bug).
        */}
-      {/* FAB only when there's an active kaata AND I can write to it (hidden for
-          a viewer on a shared kaata — their writes are refused anyway). */}
-      {activeVaultId && canCreate ? (
+      {/* Finding an existing person is a read: every active kaata keeps this
+          control. The destination offers creation only to writable roles. */}
+      {activeVaultId ? (
         <Animated.View
           style={[
             styles.fab,
@@ -986,7 +986,7 @@ export default function HomeScreen() {
         >
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={t("personAdd.title")}
+            accessibilityLabel={t(canCreate ? "personAdd.title" : "personFind.title")}
             // D-DEFENSIVE-ARCHIVED-GUARD: D-POST-ARCHIVE-SWITCH should
             // normally keep the active vault writable, but a mesh-sourced
             // archive event can race the FAB tap; refuse here and tell the

@@ -493,6 +493,8 @@ func main() {
 			Put("/v1/account/username", authH.SetUsername)
 		pr.With(httpx.RateLimitPerAccount(accountSecurityLimit, emailWindow)).
 			Put("/v1/account/name", authH.SetAccountName)
+		pr.With(httpx.RateLimitPerAccount(accountSecurityLimit, emailWindow)).
+			Put("/v1/account/display-name", authH.SetAccountDisplayName)
 		// Vault management (Phase 4). All routes share the same protected
 		// group; the lawful-at-HLC ACL gates the sync push path separately.
 		pr.Get("/v1/vaults", vaultsH.List)

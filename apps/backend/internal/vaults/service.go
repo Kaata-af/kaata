@@ -292,12 +292,12 @@ type VaultListing struct {
 	// Members — active members with display names, so clients can render
 	// real names instead of role labels. The membership chain deliberately
 	// carries no names (events are signed + immutable; a name is mutable
-	// profile data), so the listing is the name channel: accounts.name is
-	// refreshed on every sign-in, with the check-in-reported install
-	// self_name as fallback for accounts whose provider asserted no name.
-	// Names only — member emails are intentionally NOT exposed to peers
-	// (today only an invite's addressee sees the inviter's email).
-	Members []VaultMember `json:"members,omitempty"`
+	// profile data), so the listing is the name channel: the explicit Kaata
+	// display name takes precedence over the provider name, with the latest
+	// check-in self_name as fallback when neither account name is available.
+	// Verified account emails are visible only to active, accepted members of
+	// the same vault. Pending invites and revoked members are not profiles.
+	Members []VaultMember `json:"members"`
 }
 
 // VaultMember is one active member row on a VaultListing.
@@ -305,6 +305,7 @@ type VaultMember struct {
 	AccountID string `json:"account_id"`
 	Role      string `json:"role"`
 	Name      string `json:"name,omitempty"`
+	Email     string `json:"email,omitempty"`
 }
 
 func (s *Service) List(ctx context.Context, accountID string) ([]VaultListing, error) {
@@ -368,16 +369,16 @@ func (s *Service) List(ctx context.Context, accountID string) ([]VaultListing, e
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate vault rows: %w", err)
 	}
-	if err := s.attachMembers(ctx, out); err != nil {
+	if err := s.attachMembers(ctx, accountID, out); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
 // attachMembers fills VaultListing.Members for every listed vault in one
-// batch query. Caller is already verified as an active member of each vault
-// by List's WHERE clause, so no further auth check is needed here.
-func (s *Service) attachMembers(ctx context.Context, listings []VaultListing) error {
+// batch query. Recheck the caller's membership in this query too: a concurrent
+// revocation between the vault listing and profile query must not reveal emails.
+func (s *Service) attachMembers(ctx context.Context, accountID string, listings []VaultListing) error {
 	if len(listings) == 0 {
 		return nil
 	}
@@ -389,7 +390,8 @@ func (s *Service) attachMembers(ctx context.Context, listings []VaultListing) er
 		SELECT vm.vault_id::text,
 		       vm.account_id::text,
 		       vm.role,
-		       COALESCE(NULLIF(a.name, ''), i.self_name, '') AS name
+		       COALESCE(a.display_name, NULLIF(a.name, ''), i.self_name, '') AS name,
+		       CASE WHEN a.email_verified THEN COALESCE(a.email, '') ELSE '' END AS email
 		  FROM vault_members vm
 		  JOIN accounts a ON a.id = vm.account_id
 		  LEFT JOIN LATERAL (
@@ -402,8 +404,16 @@ func (s *Service) attachMembers(ctx context.Context, listings []VaultListing) er
 		 WHERE vm.vault_id = ANY($1::uuid[])
 		   AND vm.revoked_at IS NULL
 		   AND vm.accepted_at IS NOT NULL
+		   AND a.disabled_at IS NULL
+		   AND EXISTS (
+		       SELECT 1 FROM vault_members caller
+		        WHERE caller.vault_id = vm.vault_id
+		          AND caller.account_id = $2::uuid
+		          AND caller.revoked_at IS NULL
+		          AND caller.accepted_at IS NOT NULL
+		   )
 		 ORDER BY vm.vault_id, vm.accepted_at
-	`, ids)
+	`, ids, accountID)
 	if err != nil {
 		return fmt.Errorf("list vault members: %w", err)
 	}
@@ -413,7 +423,7 @@ func (s *Service) attachMembers(ctx context.Context, listings []VaultListing) er
 	for rows.Next() {
 		var vaultID string
 		var m VaultMember
-		if err := rows.Scan(&vaultID, &m.AccountID, &m.Role, &m.Name); err != nil {
+		if err := rows.Scan(&vaultID, &m.AccountID, &m.Role, &m.Name, &m.Email); err != nil {
 			return fmt.Errorf("scan vault member row: %w", err)
 		}
 		byVault[vaultID] = append(byVault[vaultID], m)
@@ -423,6 +433,9 @@ func (s *Service) attachMembers(ctx context.Context, listings []VaultListing) er
 	}
 	for i := range listings {
 		listings[i].Members = byVault[listings[i].VaultID]
+		if listings[i].Members == nil {
+			listings[i].Members = []VaultMember{}
+		}
 	}
 	return nil
 }

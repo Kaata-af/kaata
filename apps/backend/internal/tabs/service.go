@@ -658,8 +658,8 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 	)
 	err := q.QueryRow(ctx, `
 		SELECT t.currency, t.rev, t.created_at, t.closed_at, t.closed_by, t.closed_reason,
-		       pa.label, pa.joined_at, pa.account_id IS NOT NULL, COALESCE(aa.name, ''), COALESCE(aa.phone_e164, ''),
-		       pb.label, pb.joined_at, pb.account_id IS NOT NULL, COALESCE(ab.name, ''), COALESCE(ab.phone_e164, ''),
+		       pa.label, pa.joined_at, pa.account_id IS NOT NULL, COALESCE(aa.display_name, aa.name, ''), COALESCE(aa.phone_e164, ''),
+		       pb.label, pb.joined_at, pb.account_id IS NOT NULL, COALESCE(ab.display_name, ab.name, ''), COALESCE(ab.phone_e164, ''),
 		       COALESCE((SELECT SUM(CASE WHEN e.direction = 'a_to_b' THEN e.amount_minor ELSE -e.amount_minor END)
 		                   FROM tab_entries e
 		                  WHERE e.tab_id = t.id AND e.kind <> 'void' AND e.voided_by_entry_id IS NULL AND e.status <> 'disputed'), 0)::BIGINT,
@@ -845,7 +845,7 @@ func insertEntry(ctx context.Context, tx pgx.Tx, tabID string, id string, seq, r
 			id, tab_id, seq, rev, created_by, direction, amount_minor, kind, note,
 			occurred_at_ms, status, status_at_ms, voids_entry_id, author_account_id, author_name,
 			author_evidence_account_id, author_member_role
-		) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::uuid, $14::uuid, COALESCE((SELECT name FROM accounts WHERE id=$14::uuid), ''), $14::uuid, $15)
+		) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::uuid, $14::uuid, COALESCE((SELECT COALESCE(display_name, name) FROM accounts WHERE id=$14::uuid), ''), $14::uuid, $15)
 		ON CONFLICT (id) DO NOTHING
 		RETURNING `+entryCols,
 		id, tabID, seq, rev, createdBy, direction, amountMinor, kind, note,
@@ -1488,7 +1488,7 @@ func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string
 		UPDATE tab_entries
 		   SET status = $3, status_at_ms = $4, dispute_reason = $5, rev = $6,
 		       reviewer_account_id = $7::uuid,
-		       reviewer_name = COALESCE((SELECT name FROM accounts WHERE id=$7::uuid), ''),
+		       reviewer_name = COALESCE((SELECT COALESCE(display_name, name) FROM accounts WHERE id=$7::uuid), ''),
 		       reviewer_party = $8, reviewer_member_role = $9, review_semantics_version = $10
 		 WHERE tab_id = $1::uuid AND id = $2::uuid
 		 RETURNING `+entryCols,

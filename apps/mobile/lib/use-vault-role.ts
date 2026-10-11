@@ -12,17 +12,18 @@
 // guard inside event-log.ts is plain TS). Hooks here, pure logic there.
 
 import { useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AppState } from "react-native";
 import { getAccountIdSync, getDb } from "./db-tx";
 import { resolveAccountIdCandidates } from "./effective-account";
+import { useLedgerRefresh } from "./ledger-events";
 import { invalidateRoleGateCache } from "./projection/role-gate";
 import { canPerformAction, type VaultAction, type VaultRole } from "./vault-roles";
 
-// Process-local cache. Cleared on sign-out and on every applied
-// vault_member_* event (Phase 4). For now the only invalidation source is
-// the sign-in path that seeds the row via auth.ts (which writes to
-// vault_members_mirror inside its post-sign-in housekeeping transaction).
+// Process-local cache. Account resets and applied membership/device events
+// clear it and refresh any mounted role consumers.
 const roleCache = new Map<string, VaultRole>();
+const roleInvalidationListeners = new Set<(vaultId?: string) => void>();
 
 export function invalidateVaultRoleCache(vaultId?: string): void {
   if (vaultId) roleCache.delete(vaultId);
@@ -31,6 +32,55 @@ export function invalidateVaultRoleCache(vaultId?: string): void {
   // role-gate cache so an in-flight delta-sync batch can't observe a
   // stale role across the mirror update boundary.
   invalidateRoleGateCache(vaultId);
+  // Clearing a Map alone does not update a screen that stays focused while a
+  // remote role change applies. Notify its role reads before accepting writes.
+  for (const listener of roleInvalidationListeners) {
+    try {
+      listener(vaultId);
+    } catch (err) {
+      if (__DEV__) console.warn("[vault-role] invalidation listener failed", err);
+    }
+  }
+}
+
+function useLiveRoleRefresh(
+  vaultId: string | null,
+  reread: (invalidate?: boolean) => () => void,
+): void {
+  const latestCancel = useRef<(() => void) | null>(null);
+  const refresh = useCallback(
+    (invalidate = true) => {
+      latestCancel.current?.();
+      const cancel = reread(invalidate);
+      latestCancel.current = cancel;
+      return cancel;
+    },
+    [reread],
+  );
+  useEffect(() => {
+    refresh();
+    const invalidated = (changedVaultId?: string) => {
+      if (!changedVaultId || changedVaultId === vaultId) refresh();
+    };
+    roleInvalidationListeners.add(invalidated);
+    let previous = AppState.currentState;
+    const sub = AppState.addEventListener("change", (next) => {
+      const resumed = previous !== "active" && next === "active";
+      previous = next;
+      if (resumed) refresh();
+    });
+    return () => {
+      latestCancel.current?.();
+      roleInvalidationListeners.delete(invalidated);
+      sub.remove();
+    };
+  }, [vaultId, refresh]);
+  useFocusEffect(refresh);
+  // The projection invalidates inside its transaction; re-read after the
+  // committed notification as well. Burst applies share one coalesced read.
+  useLedgerRefresh(vaultId, () => {
+    refresh(false);
+  });
 }
 
 // Empty-mirror fallback. Returns 'owner' so single-user installs (every
@@ -119,6 +169,7 @@ export function primeVaultRoleCache(vaultId: string, role: VaultRole): void {
 export function useVaultRole(vaultId: string, accountId: string | null): VaultRole {
   const initial = roleCache.get(vaultId) ?? LOCAL_OWNER_DEFAULT;
   const [role, setRole] = useState<VaultRole>(initial);
+  const generation = useRef(0);
 
   // Re-read on focus, not only when args change: an ownership transfer
   // completed on the members screen changes THIS user's role without
@@ -126,9 +177,10 @@ export function useVaultRole(vaultId: string, accountId: string | null): VaultRo
   // screens showing stale owner-only affordances until remount.
   const reread = useCallback(() => {
     let cancelled = false;
+    const run = ++generation.current;
     readRoleFromDb(vaultId, accountId)
       .then((r) => {
-        if (cancelled) return;
+        if (cancelled || run !== generation.current) return;
         roleCache.set(vaultId, r);
         setRole(r);
       })
@@ -139,11 +191,11 @@ export function useVaultRole(vaultId: string, accountId: string | null): VaultRo
       });
     return () => {
       cancelled = true;
+      if (run === generation.current) generation.current++;
     };
   }, [vaultId, accountId]);
 
-  useEffect(() => reread(), [reread]);
-  useFocusEffect(reread);
+  useLiveRoleRefresh(vaultId, reread);
 
   return role;
 }
@@ -178,39 +230,71 @@ export function useVaultPermission(
 export function useActiveVaultWriteCaps(vaultId: string | null): {
   canCreate: boolean;
   canAmend: boolean;
+  /** True only after the role for this exact vault was read successfully.
+   * Consumers offering optional write/phone-book flows can wait for it. */
+  resolved: boolean;
 } {
-  const [caps, setCaps] = useState({ canCreate: true, canAmend: true });
-  const reread = useCallback(() => {
-    let cancelled = false;
-    if (!vaultId) {
-      setCaps({ canCreate: true, canAmend: true });
-      return () => {
+  const [caps, setCaps] = useState<{
+    canCreate: boolean;
+    canAmend: boolean;
+    resolvedVaultId: string | null | undefined;
+    resolvedAccountId?: string | null;
+  }>({ canCreate: true, canAmend: true, resolvedVaultId: undefined });
+  const generation = useRef(0);
+  const reread = useCallback(
+    (invalidate = true) => {
+      let cancelled = false;
+      const run = ++generation.current;
+      const accountId = getAccountIdSync();
+      // Fail closed for optional write/phone-book flows throughout the new read,
+      // including an in-place downgrade while this screen is continuously open.
+      if (invalidate) setCaps((previous) => ({ ...previous, resolvedVaultId: undefined }));
+      const current = () =>
+        !cancelled && run === generation.current && getAccountIdSync() === accountId;
+      const cancel = () => {
         cancelled = true;
+        if (run === generation.current) generation.current++;
       };
-    }
-    readRoleFromDb(vaultId, getAccountIdSync())
-      .then((role) => {
-        if (!cancelled) {
-          setCaps({
-            canCreate: canPerformAction(role, "entry.create"),
-            canAmend: canPerformAction(role, "entry.amend"),
-          });
-        }
-      })
-      .catch(() => {
-        // Never lock the user out on a transient DB error (local-only invariant).
-        if (!cancelled) setCaps({ canCreate: true, canAmend: true });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [vaultId]);
-  useEffect(() => reread(), [reread]);
-  useFocusEffect(reread);
-  return caps;
+      if (!vaultId) {
+        setCaps({
+          canCreate: true,
+          canAmend: true,
+          resolvedVaultId: null,
+          resolvedAccountId: accountId,
+        });
+        return cancel;
+      }
+      // A background role event still invalidates permission immediately. The
+      // resume listener pays the database read before restoring those controls.
+      if (AppState.currentState !== "active") return cancel;
+      readRoleFromDb(vaultId, accountId)
+        .then((role) => {
+          if (current()) {
+            setCaps({
+              canCreate: canPerformAction(role, "entry.create"),
+              canAmend: canPerformAction(role, "entry.amend"),
+              resolvedVaultId: vaultId,
+              resolvedAccountId: accountId,
+            });
+          }
+        })
+        .catch(() => {
+          // Never lock the user out on a transient DB error (local-only invariant).
+          if (current()) setCaps({ canCreate: true, canAmend: true, resolvedVaultId: undefined });
+        });
+      return cancel;
+    },
+    [vaultId],
+  );
+  useLiveRoleRefresh(vaultId, reread);
+  return {
+    canCreate: caps.canCreate,
+    canAmend: caps.canAmend,
+    resolved: caps.resolvedVaultId === vaultId && caps.resolvedAccountId === getAccountIdSync(),
+  };
 }
 
-/** Back-compat sugar: the append capability (hides the add/find FAB for viewers). */
+/** Back-compat sugar: the append capability (hides creation for viewers). */
 export function useActiveVaultCanWrite(vaultId: string | null): boolean {
   return useActiveVaultWriteCaps(vaultId).canCreate;
 }

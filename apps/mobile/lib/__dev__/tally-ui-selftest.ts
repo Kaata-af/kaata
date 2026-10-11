@@ -4,8 +4,8 @@
 // The tally row's look is design "A · Quiet" (refined 2026-10-11), and it was already
 // regressed once by an agent, so the review-state presentation is pinned here
 // in EN and RTL: rows are white whatever their state and turn bgMuted when
-// opened; only pending tallies show an amber dot. Opened rows spell out every
-// state in a neutral centred pill; meta lines start at the start edge with
+// opened; closed rows show only a pending amber dot. Opened rows spell out every
+// state beside its colored dot in a neutral centred pill; meta lines start at the start edge with
 // semibold names; review actions are the shared Button's "pill" size, with
 // Accept the neutral primary at the trailing end. The pills' touch targets are
 // checked through the real Button: 44pt each, and neither reaching past the
@@ -309,6 +309,9 @@ for (const isRTL of [false, true]) {
     const what = `${c.tab.by}/${c.key}${rtl ? " (RTL)" : ""}`;
     const statusKey = "tab.status." + c.key;
     const pending = tab.status === "pending";
+    const statusColor = c.key === "sending" ? colors.textMuted
+      : c.key === "accepted" ? colors.reviewAccepted
+      : c.key === "disputed" ? colors.reviewRejected : colors.reviewPending;
 
     // "I gave" keeps its pay tile; a rejected tally's tile goes grey.
     const tile = c.key === "disputed" ? colors.bgSubtle : colors.payBg;
@@ -323,8 +326,8 @@ for (const isRTL of [false, true]) {
       ].sort(),
       `${what}: a collapsed tally is white with only a pending amber dot`,
     );
-    // Every state stays announced, including the final states whose visual
-    // dots were removed. Pending's dot itself stays silent to screen readers.
+    // Every state stays announced, including final states without a closed-row
+    // dot. Pending's dot itself stays silent to screen readers.
     const closedDot = nodes(collapsed).find((n) => n.props?.testID === "status-dot");
     assert.equal(body(collapsed)?.props.accessibilityValue?.text, statusKey);
     assert.equal(!!closedDot, pending, `${what}: final states have no dot`);
@@ -363,9 +366,9 @@ for (const isRTL of [false, true]) {
         `pill backgroundColor ${colors.bgDefault}`,
         `pill borderWidth 1`,
         `pill borderColor ${colors.borderDefault}`,
-        ...(pending ? [`dot backgroundColor ${colors.reviewPending}`] : []),
+        `dot backgroundColor ${statusColor}`,
       ].sort(),
-      `${what}: an opened tally sits on bgMuted with a neutral pill and only a pending dot`,
+      `${what}: an opened tally sits on bgMuted with a neutral pill and its state dot`,
     );
     const first = lines(tree)[0];
     const firstStyle = style(first?.props.style);
@@ -427,20 +430,16 @@ for (const isRTL of [false, true]) {
       `${what}: a neutral white pill with a hairline border`,
     );
     const pillChildren = kids(pill);
-    assert.equal(pillChildren.length, pending ? 2 : 1, `${what}: final-state pills have no dot`);
+    assert.equal(pillChildren.length, 2, `${what}: every opened status label has a dot`);
     const label = pillChildren.at(-1);
-    if (pending) {
-      assert.deepEqual(
-        pick(style(pillChildren[0]?.props.style), [
-          "width",
-          "height",
-          "borderRadius",
-          "backgroundColor",
-        ]),
-        { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.reviewPending },
-        `${what}: a pending dot is amber, including a queued tally labelled Sending`,
-      );
-    }
+    assert.deepEqual(
+      pick(style(pillChildren[0]?.props.style), [
+        "width", "height", "borderRadius", "backgroundColor",
+      ]),
+      { width: 6, height: 6, borderRadius: 3, backgroundColor: statusColor },
+      `${what}: the status dot matches pending/accepted/rejected/sending`,
+    );
+    assert.equal(pillChildren[0]?.props.accessibilityElementsHidden, true);
     const labelStyle = style(label?.props.style);
     assert.deepEqual(
       {
@@ -692,7 +691,7 @@ assert.ok(
     person.indexOf('label: t("person.sheet.edit"', person.indexOf("<OverflowMenu")),
 );
 console.log(
-  "PASS: quiet rows with only pending amber dots, accessible final states, centred status pills, start-aligned meta, separate 44pt review targets in EN/FA, cancelled rows hidden, floating full-size controls",
+  "PASS: quiet closed rows with pending amber dots, colored opened status labels, accessible final states, start-aligned meta, separate 44pt review targets in EN/FA, cancelled rows hidden, floating full-size controls",
 );
 
 // Render the real bell/header against different safe viewports. In particular,

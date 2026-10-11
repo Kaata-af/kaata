@@ -25,14 +25,15 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   accountFailureText,
-  accountNameIsOurs,
   accountNameProblem,
   accountRefusal,
   normalizeAccountName,
 } from "../lib/account-rules";
 import {
   type AccountMe,
+  applyForCurrentSession,
   accountNameState,
+  captureCurrentSession,
   currentSessionKind,
   deleteAccount,
   fetchAccountMe,
@@ -40,8 +41,8 @@ import {
   hasPendingAccountDeletion,
   removePassword,
   resetRetiredInstall,
-  saveAccountName,
-  syncAccountName,
+  saveAccountDisplayName,
+  SessionChangedError,
   updateAccountPhone,
 } from "../lib/auth";
 import { Button } from "../components/Button";
@@ -164,8 +165,7 @@ export default function AccountScreen() {
   // change it. Shown only with a live session.
   const [hasSession, setHasSession] = useState(false);
   // How this session signed in: Google/Apple ("provider") or a Kaata password
-  // ("email"). Names follow the server's rule only for "email"; only
-  // "provider" may remove the password.
+  // ("email"). Only "provider" may remove the password.
   const [sessionKind, setSessionKind] = useState<"provider" | "email" | null>(null);
   const [me, setMe] = useState<AccountMe | null>(null);
   const [meFailed, setMeFailed] = useState(false);
@@ -176,12 +176,27 @@ export default function AccountScreen() {
   // invalid one (then it is sent even unchanged, to settle it).
   const initialNameRef = useRef("");
   const nameUnsettledRef = useRef(false);
+  const nameEditedRef = useRef(false);
 
   const loadMe = useCallback(async () => {
     setMeFailed(false);
     try {
-      setMe(await fetchAccountMe());
+      const session = await captureCurrentSession();
+      if (!session.jwt || !session.accountId) return;
+      const account = await fetchAccountMe(session);
+      await applyForCurrentSession(session, async () => {
+        setMe(account);
+        // Another phone may have renamed the account. Prefill its current name
+        // without replacing an in-progress edit or this phone's queued save.
+        if (account.name && !nameEditedRef.current && !nameUnsettledRef.current) {
+          initialNameRef.current = account.name;
+          const split = splitName(account.name);
+          setFirstName(split.firstName);
+          setLastName(split.lastName ?? "");
+        }
+      });
     } catch (err) {
+      if (err instanceof SessionChangedError) return;
       console.warn("[account] fetchAccountMe failed", err);
       setMeFailed(true);
     }
@@ -217,13 +232,13 @@ export default function AccountScreen() {
       setCalendarPrefState(parseCalendarPref(await getAppMeta(CALENDAR_PREF_KEY)));
       setPrefCountry(getCurrentDefaultCountryCode());
       const session = !!(await getSessionJWT());
-      setHasSession(session);
       setSessionKind(await currentSessionKind().catch(() => null));
       // An automatic send found the phone's name unusable for the account
       // (lib/auth syncPendingAccountNameFromSelf): ask for a better one here.
       const nameState = session ? await accountNameState() : "settled";
       nameUnsettledRef.current = nameState !== "settled";
       if (nameState === "invalid") setNameError(t("auth.error.name.invalid"));
+      setHasSession(session);
       setSignedIn(session || (await hasPendingAccountDeletion()));
       setRetired(await isInstallRetired().catch(() => false));
       setLoaded(true);
@@ -296,13 +311,10 @@ export default function AccountScreen() {
 
   async function onSave() {
     if (savingRef.current) return;
-    // When the account's name is ours to set (no Google or Apple identity:
-    // decided from the account, and from the session only until the account
-    // has loaded), the name typed here is also the account's on the server
-    // (shared tallies, reviews and pushes show it, §6.11), so it follows the
-    // server's rule: whitespace collapsed, 2 to 60 characters. A Google or
-    // Apple account keeps its own local rule; its provider names the account.
-    const ours = hasSession && accountNameIsOurs(me ? me.providers : null, sessionKind);
+    // Every signed-in account can choose its Kaata display name. The server
+    // stores it separately from Google/Apple identity and applies the same
+    // whitespace and 2–60 character rule for every sign-in provider.
+    const ours = hasSession;
     const fn = ours ? normalizeAccountName(firstName) : firstName.trim();
     const ln = ours ? normalizeAccountName(lastName) : lastName.trim();
     if (!fn) {
@@ -310,12 +322,14 @@ export default function AccountScreen() {
       return;
     }
     const fullName = joinName(fn, ln || null);
-    if (ours && accountNameProblem(fullName)) {
+    const nameChanged =
+      normalizeAccountName(fullName) !== normalizeAccountName(initialNameRef.current);
+    // Imported provider names may predate this validation rule. A phone-only
+    // save keeps one usable; an explicit rename follows the current rule.
+    if (ours && (nameChanged || nameUnsettledRef.current) && accountNameProblem(fullName)) {
       setNameError(t("auth.error.name.invalid"));
       return;
     }
-    const nameChanged =
-      normalizeAccountName(fullName) !== normalizeAccountName(initialNameRef.current);
     setNameError(null);
     let normalizedPhone: string | null = null;
     const trimmedPhone = phone.trim();
@@ -331,30 +345,42 @@ export default function AccountScreen() {
     setSaving(true);
     setSaveError(null);
     try {
-      await updateSelfProfile(fullName, null, normalizedPhone);
+      // Capture the intended account before any async local write. A switch
+      // during the save cannot carry this name/phone into the next account.
+      const session = hasSession ? await captureCurrentSession() : null;
+      if (session) {
+        await applyForCurrentSession(session, () =>
+          updateSelfProfile(fullName, null, normalizedPhone),
+        );
+      } else {
+        await updateSelfProfile(fullName, null, normalizedPhone);
+      }
       // BUG-1: mirror the phone to the account server-side so it survives a
       // reinstall (the local users.phone_e164 is device-local). Best-effort.
-      void updateAccountPhone(normalizedPhone);
+      void updateAccountPhone(normalizedPhone, session ?? undefined);
       if (ours && (nameChanged || nameUnsettledRef.current)) {
         // Only a name that changed (or one the account still owes): sent now,
         // and a refusal shown instead of "Saved" (the phone keeps the name
-        // either way). provider_name is no refusal, and an unreachable server
-        // queues it for check-in: both end in "Saved".
-        const refusal = await saveAccountName(fullName);
+        // either way). An unreachable server queues this exact name for the
+        // same account's check-in; an unsupported endpoint remains an error.
+        const refusal = await saveAccountDisplayName(fullName, session ?? undefined);
         if (refusal) {
           const shown = accountRefusal(refusal);
           if (shown?.field === "name") setNameError(shown.text);
           else setSaveError(shown?.text ?? accountFailureText(refusal));
           return;
         }
-        nameUnsettledRef.current = false;
-      } else if (hasSession && nameChanged) {
-        // Owed only after an email sign-in; a provider's name is never sent.
-        void syncAccountName(fullName);
       }
-      initialNameRef.current = fullName;
-      toast.push(t("settings.saved"), "success");
-      router.back();
+      // Local saves and failed/offline network replies can also span a
+      // sign-in switch. Check again before claiming success or navigating.
+      const finishSave = async () => {
+        nameUnsettledRef.current = false;
+        initialNameRef.current = fullName;
+        toast.push(t("settings.saved"), "success");
+        router.back();
+      };
+      if (session) await applyForCurrentSession(session, finishSave);
+      else await finishSave();
     } catch (err) {
       console.warn("[account] updateSelfProfile failed", err);
       if (err instanceof EventSigningUnavailableError) {
@@ -506,6 +532,7 @@ export default function AccountScreen() {
                 style={[styles.nameInput, textDir(isRTL), nameError ? styles.inputError : null]}
                 value={firstName}
                 onChangeText={(v) => {
+                  nameEditedRef.current = true;
                   setNameError(null);
                   setSaveError(null);
                   setFirstName(v);
@@ -524,7 +551,12 @@ export default function AccountScreen() {
                 ref={lastNameRef}
                 style={[styles.nameInput, textDir(isRTL)]}
                 value={lastName}
-                onChangeText={setLastName}
+                onChangeText={(v) => {
+                  nameEditedRef.current = true;
+                  setNameError(null);
+                  setSaveError(null);
+                  setLastName(v);
+                }}
                 placeholder={t("personAdd.lastName.placeholder")}
                 placeholderTextColor={colors.textMuted}
                 accessibilityLabel={t("personEdit.lastName.label")}

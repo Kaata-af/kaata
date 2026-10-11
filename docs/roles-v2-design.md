@@ -123,6 +123,27 @@ Resolve BEFORE the granting UI ships — all are inert while no manager exists:
    if manager mutations go through REST (server state is then the
    arbiter); revisit if offline manager authoring ships instead.
 
+## Current member profiles
+
+`GET /v1/vaults` provides current member names and verified account emails to an
+accepted, unrevoked member of that same kaata, including viewers. The profile
+query rechecks the caller's current membership and excludes pending, revoked and
+disabled members. A caller revoked between the vault query and profile query gets
+an authoritative `members: []`, so clients remove previously cached profiles.
+
+Mobile migration 033 stores these profiles separately in
+`vault_member_profiles`, keyed by viewer account, vault and member account. This
+cache never grants membership, changes roles or rewrites signed admission names.
+Cloud event exports omit it; a full local SQLite backup includes it. Display
+queries recheck accepted, unrevoked caller and member rows before showing cached
+emails. A session switch discards stale screen reads and network results.
+
+The members screen refreshes profiles on focus, foreground resume, pull-to-refresh
+and every 30 seconds while open. Offline reads keep the last authorized cache;
+refused access or a vault absent from the current listing clears it. New names,
+including an explicit empty name, replace older cosmetic data. Unknown names show
+“Name unavailable”; role labels remain separate, and emails appear below names.
+
 ## Explicitly rejected
 
 - Per-permission ACLs / custom roles: three shops out of ~80 installs use

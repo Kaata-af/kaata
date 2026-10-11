@@ -97,6 +97,8 @@ export type VaultListingMember = {
   role: string;
   /** accounts.name (login-refreshed) with install self_name fallback; may be "". */
   name?: string;
+  /** Verified account email; only disclosed to active co-members of this vault. */
+  email?: string;
 };
 
 /** One vault the signed-in account is a member of (GET /v1/vaults). */

@@ -21,6 +21,8 @@
     "selftest:contacts-access": "tsx lib/__dev__/contacts-access-selftest.ts",
     "selftest:device-key": "tsx lib/__dev__/device-key-selftest.ts",
     "selftest:attribution": "tsx lib/__dev__/attribution-selftest.ts",
+    "selftest:member-profiles": "tsx lib/__dev__/member-profiles-selftest.ts",
+    "selftest:self-profile": "tsx lib/__dev__/self-profile-selftest.ts",
     "selftest:account-deletion": "tsx lib/__dev__/account-deletion-selftest.ts",
     "selftest:install-retired": "tsx lib/__dev__/install-retired-selftest.ts",
     "selftest:email-auth": "tsx lib/__dev__/email-auth-selftest.ts",
@@ -42,7 +44,8 @@
     "selftest:tally-search": "tsx lib/__dev__/tally-search-selftest.ts",
     "selftest:share": "tsx lib/__dev__/share-selftest.ts",
     "selftest:sync-reconcile": "tsx lib/__dev__/sync-reconcile-selftest.ts",
-    "selftest:person-detail": "tsx lib/__dev__/person-detail-selftest.ts"
+    "selftest:person-detail": "tsx lib/__dev__/person-detail-selftest.ts",
+    "selftest:person-find": "tsx lib/__dev__/person-find-selftest.ts"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",

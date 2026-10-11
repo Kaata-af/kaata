@@ -1,0 +1,799 @@
+// Real home + add/find screens and the real device-contacts hook. Storage,
+// native controls and navigation are synthetic; no real ledger or phone book.
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import ts from "typescript";
+import { toAsciiDigits } from "../digits";
+import * as search from "../search";
+import { colors } from "../colors";
+import { canPerformAction } from "../vault-roles";
+
+type Node = { type: string; props: Record<string, any> };
+type Effect = { deps?: unknown[]; cleanup?: () => void };
+let slots: any[] = [],
+  cursor = 0,
+  dirty = false,
+  tree: Node;
+let effects: (() => void)[] = [];
+let screen: () => Node;
+let role: "owner" | "clerk" | "viewer" = "viewer";
+let rtl = false,
+  platform = "android",
+  vaultId: string | null = "kaata";
+let archivedState: "active" | "archived" | "none" = "active";
+let delayedGuard: Promise<{ state: string }> | null = null;
+let delayedRole: Promise<void> | null = null;
+let delayedPeople: Promise<void> | null = null;
+let peopleByVault: Map<string | null, typeof people>;
+let appState = "active";
+let roleReadFails = false,
+  focusEpoch = 0;
+const routes: any[] = [],
+  toasts: any[] = [],
+  writes: any[] = [];
+let contactsReads = 0,
+  permissionRequests = 0;
+let nextTimer = 0;
+const timers = new Map<number, () => void>();
+const appListeners = new Set<(state: string) => void>();
+const same = (a?: unknown[], b?: unknown[]) =>
+  !!a && !!b && a.length === b.length && a.every((value, index) => Object.is(value, b[index]));
+const react = {
+  useState(initial: any) {
+    const i = cursor++;
+    if (!(i in slots)) slots[i] = typeof initial === "function" ? initial() : initial;
+    return [
+      slots[i],
+      (value: any) => {
+        const next = typeof value === "function" ? value(slots[i]) : value;
+        if (!Object.is(next, slots[i])) {
+          slots[i] = next;
+          dirty = true;
+        }
+      },
+    ];
+  },
+  useRef(initial: any) {
+    const i = cursor++;
+    return (slots[i] ??= { current: initial });
+  },
+  useMemo(fn: () => any, deps: unknown[]) {
+    const i = cursor++;
+    if (!(i in slots) || !same(slots[i].deps, deps)) slots[i] = { deps, value: fn() };
+    return slots[i].value;
+  },
+  useCallback(fn: (...args: any[]) => any, deps: unknown[]) {
+    return react.useMemo(() => fn, deps);
+  },
+  useDeferredValue(value: any) {
+    return react.useMemo(() => value, [value]);
+  },
+  useEffect(fn: () => void | (() => void), deps?: unknown[]) {
+    const i = cursor++;
+    const before: Effect | undefined = slots[i];
+    if (before && same(before.deps, deps)) return;
+    slots[i] = { deps };
+    effects.push(() => {
+      before?.cleanup?.();
+      slots[i].cleanup = fn();
+    });
+  },
+};
+const jsx = (type: string, props: any): Node => ({ type, props });
+const nodes = (node: any): Node[] =>
+  Array.isArray(node)
+    ? node.flatMap(nodes)
+    : !node || typeof node !== "object"
+      ? []
+      : [node, ...nodes(node.props?.children)];
+const text = (node: any): string =>
+  Array.isArray(node)
+    ? node.map(text).join("")
+    : typeof node === "string"
+      ? node
+      : node?.props
+        ? text(node.props.children)
+        : "";
+const find = (type: string) => nodes(tree).find((node) => node.type === type);
+const byLabel = (label: string) =>
+  nodes(tree).find((node) => node.props.accessibilityLabel === label);
+const flattenStyle = (value: any): any =>
+  Array.isArray(value) ? Object.assign({}, ...value.filter(Boolean).map(flattenStyle)) : value;
+const router = {
+  push: (route: any) => routes.push(route),
+  replace: (route: any) => routes.push(route),
+  back() {},
+};
+const toast = { push: (...args: any[]) => toasts.push(args) };
+const people = [
+  {
+    id: "ahmad",
+    name: "Ahmad Karimi",
+    phone: "+93700123456",
+    balance: 500,
+    last_entry_at: 100,
+    direction: "collect",
+  },
+  {
+    id: "fatima",
+    name: "فاطمه احمدی",
+    phone: "+93700987654",
+    balance: 0,
+    last_entry_at: null,
+    direction: "collect",
+  },
+];
+const deviceContacts = [
+  {
+    id: "phone-contact",
+    name: "Zarif Rahimi",
+    firstName: "Zarif",
+    lastName: "Rahimi",
+    phone: "+93788111111",
+  },
+];
+const native: Record<string, any> = {
+  View: "View",
+  Text: "Text",
+  TextInput: "TextInput",
+  Pressable: "Pressable",
+  ScrollView: "ScrollView",
+  Image: "Image",
+  ActivityIndicator: "Spinner",
+  RefreshControl: "RefreshControl",
+  KeyboardAvoidingView: "Keyboard",
+  Platform: {
+    get OS() {
+      return platform;
+    },
+    select: (values: any) => values[platform],
+  },
+  StyleSheet: { create: (styles: any) => styles, hairlineWidth: 1 },
+  useWindowDimensions: () => ({ width: 390, height: 844 }),
+  BackHandler: { addEventListener: () => ({ remove() {} }), exitApp() {} },
+  Linking: {
+    openSettings: async () => {
+      permissionRequests++;
+    },
+  },
+  AppState: {
+    get currentState() {
+      return appState;
+    },
+    addEventListener: (_: string, listener: any) => {
+      appListeners.add(listener);
+      return { remove: () => appListeners.delete(listener) };
+    },
+  },
+  Animated: {
+    View: "AnimatedView",
+    Value: class {
+      constructor(public value: number) {}
+      setValue(value: number) {
+        this.value = value;
+      }
+    },
+    spring: () => ({ start() {}, stop() {} }),
+  },
+};
+const fonts = {
+  sansRegular: "Regular",
+  sansMedium: "Medium",
+  sansSemi: "Semi",
+  sansBold: "Bold",
+  monoMedium: "Mono",
+  monoSemi: "MonoSemi",
+  monoBold: "MonoBold",
+};
+const tokens = {
+  TOUCH_MIN: 44,
+  radius: { sm: 8, md: 12, pill: 999 },
+  icon: { header: 24, row: 20, trailing: 16 },
+  typography: {},
+};
+function compile(file: string, mocks: Record<string, any>) {
+  const exports: any = {};
+  const js = ts.transpileModule(readFileSync(require.resolve(file), "utf8"), {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      jsx: ts.JsxEmit.ReactJSX,
+      target: ts.ScriptTarget.ES2022,
+    },
+  }).outputText;
+  new Function("require", "exports", "setTimeout", "clearTimeout", "__DEV__", js)(
+    (name: string) => {
+      assert.ok(name in mocks, `${file}: unexpected dependency ${name}`);
+      return mocks[name];
+    },
+    exports,
+    (fn: () => void) => {
+      const id = ++nextTimer;
+      timers.set(id, fn);
+      return id;
+    },
+    (id: number) => timers.delete(id),
+    false,
+  );
+  return exports;
+}
+const contactsHook = compile("../use-device-contacts", {
+  react,
+  "react-native": native,
+  "./contacts-sync": {
+    readDeviceContacts: async ({ requestPermission = false } = {}) => {
+      contactsReads++;
+      if (requestPermission) permissionRequests++;
+      return { contacts: deviceContacts, granted: false, canAskAgain: true, limited: false };
+    },
+  },
+});
+const merge = compile("../contacts-merge", {
+  "./contacts-sync": {
+    phoneKey: (phone: string | null) =>
+      phone ? toAsciiDigits(phone).replace(/\D/g, "").slice(-8) : null,
+  },
+  "./digits": { toAsciiDigits },
+  "./search": search,
+});
+const ledgerEvents = compile("../ledger-events", { react, "react-native": native });
+const roleHooks = compile("../use-vault-role", {
+  react,
+  "react-native": native,
+  "./ledger-events": ledgerEvents,
+  "expo-router": { useFocusEffect: (fn: any) => react.useEffect(fn, [fn, focusEpoch]) },
+  "./db-tx": {
+    getAccountIdSync: () => "account",
+    getDb: async () => ({
+      getAllAsync: async () => {
+        const capturedRole = role;
+        if (delayedRole) await delayedRole;
+        if (roleReadFails) throw new Error("fixture role read failed");
+        return [{ account_id: "account", role: capturedRole, revoked_at: null }];
+      },
+    }),
+  },
+  "./effective-account": { resolveAccountIdCandidates: async () => ["account"] },
+  "./projection/role-gate": { invalidateRoleGateCache() {} },
+  "./vault-roles": { canPerformAction },
+});
+const sharedMocks: Record<string, any> = {
+  react,
+  "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+  "react-native": native,
+  "expo-router": {
+    useRouter: () => router,
+    useLocalSearchParams: () => ({}),
+    Redirect: "Redirect",
+    useFocusEffect: (fn: any) => react.useEffect(fn, [fn, focusEpoch]),
+  },
+  "@expo/vector-icons": { Ionicons: "Icon" },
+  "react-native-safe-area-context": {
+    SafeAreaView: "SafeArea",
+    useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+  },
+};
+const libMocks: Record<string, any> = {
+  colors: { colors },
+  currency: { applyVaultCurrency: async () => {}, getCurrentCurrencySymbol: () => "AFN" },
+  direction: {
+    useIsRTL: () => rtl,
+    rowDir: (value: boolean) => ({ flexDirection: value ? "row-reverse" : "row" }),
+    textDir: (value: boolean) => ({ textAlign: value ? "right" : "left" }),
+    trackingSafe: () => ({}),
+    bidiIsolate: (value: string) => value,
+    ltrIsolate: (value: string) => value,
+  },
+  fonts: { fonts, sansLineHeight: (_: number, height: number) => height },
+  format: { formatAmount: String },
+  i18n: { t: (key: string) => key },
+  tokens,
+  "use-vault-role": roleHooks,
+  "db-tx": {
+    getAccountIdSync: () => null,
+    getActiveVaultIdSyncMaybe: () => vaultId,
+    getActiveVaultId: async () => vaultId,
+    setActiveVaultId: async (id: string | null) => {
+      vaultId = id;
+    },
+  },
+  db: {
+    getLocalSelf: async () => ({ name: "Owner", shop_name: "Shop", phone: null }),
+    listAllPeople: async () => people,
+    listAllPeopleForSearch: async (scope: string | null = vaultId) => {
+      const rows = peopleByVault.get(scope) ?? [];
+      if (delayedPeople) await delayedPeople;
+      return rows;
+    },
+    getActiveVaultArchivedAt: async () => null,
+    getActiveVaultArchivedState: async () => delayedGuard ?? { state: archivedState },
+    getAppMeta: async () => null,
+    setAppMeta: async () => {},
+    listActiveVaults: async () => (vaultId ? [{ id: vaultId, name: "Shop", currency: "AFN" }] : []),
+    listAllVaultsIncludingArchived: async () =>
+      vaultId ? [{ id: vaultId, name: "Shop", currency: "AFN", archived: false }] : [],
+    archivePerson: async () => {
+      throw new Error("unexpected archive");
+    },
+    createPerson: async (...args: any[]) => {
+      writes.push(args);
+      return { ok: true, id: "created" };
+    },
+  },
+  auth: { getSessionUser: async () => null, signOut: async () => {} },
+  "ledger-events": ledgerEvents,
+  "app-meta-context": { useAppMeta: () => ({ forceUpdate: false }) },
+  money: { sumAmounts: (values: number[]) => values.reduce((a, b) => a + b, 0) },
+  "battery-exemption": new Proxy({}, { get: () => async () => false }),
+  "trust/backfill": { ensureChainBackfill: async () => {} },
+  "vault-api": { retryPendingVaultMaterialize: async () => {} },
+  "contacts-merge": merge,
+  "contacts-sync": {
+    joinName: (first: string, last: string) => [first, last].filter(Boolean).join(" ").trim(),
+  },
+  digits: { toAsciiDigits },
+  "event-log": {
+    EventSigningUnavailableError: class extends Error {},
+    RoleGateRejectionError: class extends Error {},
+  },
+  phone: {
+    getCountry: () => ({ code: "AF", flag: "AF", dialCode: "+93" }),
+    getCurrentDefaultCountryCode: () => "AF",
+    inferCountryFromE164: () => "AF",
+  },
+  "person-save-error": {
+    classifyPersonSaveError: () => "unknown",
+    recordPersonSaveError: async () => {},
+  },
+  search,
+  "use-device-contacts": contactsHook,
+};
+const componentMocks: Record<string, any> = {
+  BottomSheet: { BottomSheet: "BottomSheet" },
+  ConfirmDialog: { ConfirmDialog: "ConfirmDialog" },
+  Button: { Button: "Button" },
+  EmptyState: { EmptyState: "EmptyState" },
+  InitialAvatar: { InitialAvatar: "Avatar" },
+  NotificationInbox: { NotificationBell: "Bell" },
+  PersonRow: { PersonRow: "PersonRow" },
+  ProfileSettingsSheet: { ProfileSettingsSheet: "Settings" },
+  Tabs: { Tabs: "Tabs" },
+  Toast: { useToast: () => toast, useToastOffset: () => 0 },
+  UpdateBanner: { UpdateBanner: "UpdateBanner" },
+  VaultPickerSheet: { VaultPickerSheet: "VaultPicker" },
+  CountryPickerSheet: { CountryPickerSheet: "CountryPicker" },
+  SettingsScreen: { ScreenHeader: "Header" },
+  SharedAccountBadge: { SharedAccountBadge: "SharedBadge" },
+};
+function screenMocks(prefix: string) {
+  return {
+    ...sharedMocks,
+    ...Object.fromEntries(
+      Object.entries(libMocks).map(([name, value]) => [`${prefix}lib/${name}`, value]),
+    ),
+    ...Object.fromEntries(
+      Object.entries(componentMocks).map(([name, value]) => [`${prefix}components/${name}`, value]),
+    ),
+  };
+}
+const gesture: any = {};
+for (const name of ["activeOffsetX", "failOffsetY", "runOnJS", "onUpdate", "onEnd"])
+  gesture[name] = () => gesture;
+const home = compile("../../app/index", {
+  ...screenMocks("../"),
+  "expo-haptics": {
+    impactAsync: async () => {},
+    ImpactFeedbackStyle: { Light: "light", Soft: "soft" },
+  },
+  "react-native-gesture-handler": { Gesture: { Pan: () => gesture }, GestureDetector: "Gesture" },
+}).default;
+const addOrFind = compile("../../app/person/new", screenMocks("../../")).default;
+function unmount() {
+  for (const slot of slots) slot?.cleanup?.();
+  slots = [];
+  effects = [];
+  timers.clear();
+  appListeners.clear();
+}
+function fixture(
+  component: () => Node,
+  nextRole: typeof role,
+  nextRtl = false,
+  nextPlatform = "android",
+) {
+  unmount();
+  screen = component;
+  role = nextRole;
+  rtl = nextRtl;
+  platform = nextPlatform;
+  vaultId = "kaata";
+  archivedState = "active";
+  delayedGuard = null;
+  delayedRole = null;
+  delayedPeople = null;
+  peopleByVault = new Map([["kaata", people]]);
+  appState = "active";
+  roleReadFails = false;
+  focusEpoch = 0;
+  routes.length = 0;
+  toasts.length = 0;
+  writes.length = 0;
+  contactsReads = 0;
+  permissionRequests = 0;
+  dirty = true;
+}
+async function flush() {
+  for (let turn = 0; turn < 30; turn++) {
+    if (dirty) {
+      dirty = false;
+      cursor = 0;
+      tree = screen();
+    }
+    const batch = effects.splice(0);
+    batch.forEach((effect) => effect());
+    await Promise.resolve();
+  }
+  assert.equal(dirty, false, "fixture reached a stable render");
+}
+async function runTimers() {
+  const scheduled = [...timers.values()];
+  timers.clear();
+  scheduled.forEach((fn) => fn());
+  await flush();
+}
+function changeAppState(next: string) {
+  appState = next;
+  for (const listener of [...appListeners]) listener(next);
+}
+function applyRole(next: typeof role) {
+  role = next;
+  roleHooks.invalidateVaultRoleCache(vaultId!);
+  ledgerEvents.emitLedgerApplied(vaultId, "remote");
+}
+const personRows = () =>
+  nodes(tree).filter(
+    (node) =>
+      node.type === "Pressable" &&
+      node.props.accessibilityRole === "button" &&
+      nodes(node).some(
+        (child) =>
+          child.type === "Text" &&
+          [...peopleByVault.values()].flat().some((person) => child.props.children === person.name),
+      ),
+  );
+
+async function main() {
+  fixture(addOrFind, "viewer");
+  let resolveInitialRole!: () => void;
+  delayedRole = new Promise((resolve) => {
+    resolveInitialRole = resolve;
+  });
+  await flush();
+  assert.equal(
+    find("Header")?.props.title,
+    "personFind.title",
+    "role lookup starts in find-only mode",
+  );
+  assert.equal(find("Button"), undefined);
+  assert.equal(contactsReads, 0, "unresolved role never starts a phone-book read");
+  resolveInitialRole();
+  await flush();
+  assert.equal(contactsReads, 0, "resolved viewer never starts a phone-book read");
+
+  for (const nextRole of ["viewer", "owner", "clerk"] as const) {
+    fixture(home, nextRole);
+    await flush();
+    const button = byLabel(nextRole === "viewer" ? "personFind.title" : "personAdd.title")!;
+    assert.ok(button, `${nextRole} has the home's add/find entry point`);
+    assert.equal(flattenStyle(button.props.style({ pressed: false })).backgroundColor, "#000000");
+    await button.props.onPress();
+    assert.equal(routes.at(-1), "/person/new");
+    assert.equal(writes.length, 0, "opening search performs no write");
+    archivedState = "archived";
+    await button.props.onPress();
+    assert.equal(routes.length, 1, "an archived kaata still cannot open add/find");
+    assert.equal(toasts.at(-1)?.[0], "home.fab.blockedArchived");
+  }
+  fixture(home, "viewer");
+  vaultId = null;
+  await flush();
+  assert.equal(
+    byLabel("personFind.title"),
+    undefined,
+    "no search destination without an active kaata",
+  );
+
+  for (const nextPlatform of ["android", "ios"])
+    for (const nextRtl of [false, true]) {
+      fixture(addOrFind, "viewer", nextRtl, nextPlatform);
+      await flush();
+      assert.equal(find("Header")?.props.title, "personFind.title");
+      const input = byLabel("personFind.placeholder")!;
+      assert.ok(input);
+      assert.equal(
+        nodes(tree).filter((node) => node.type === "TextInput").length,
+        1,
+        "viewers get one search field",
+      );
+      assert.equal(find("Button"), undefined, "viewers have no Add action");
+      assert.equal(find("CountryPicker"), undefined);
+      assert.equal(contactsReads, 0, "read-only lookup does not read the phone book");
+      assert.equal(permissionRequests, 0);
+      assert.equal(personRows().length, 2, "zero-tally people remain findable");
+      assert.equal(
+        find("Keyboard")?.props.behavior,
+        nextPlatform === "android" ? "height" : "padding",
+      );
+      assert.equal(flattenStyle(input.props.style).textAlign, nextRtl ? "right" : "left");
+      input.props.onChangeText("احمدی");
+      await flush();
+      assert.equal(personRows().length, 1);
+      assert.ok(text(personRows()[0]).includes("فاطمه احمدی"));
+      byLabel("personFind.placeholder")!.props.onChangeText("۷۰۰۱۲۳۴۵۶");
+      await flush();
+      assert.equal(personRows().length, 1, "Persian-digit phone search finds an existing person");
+      personRows()[0].props.onPress();
+      assert.deepEqual(routes.at(-1), { pathname: "/person/[id]", params: { id: "ahmad" } });
+      assert.equal(writes.length, 0);
+      byLabel("personFind.placeholder")!.props.onSubmitEditing();
+      assert.equal(writes.length, 0, "keyboard Search never submits a create");
+    }
+
+  fixture(addOrFind, "clerk");
+  await flush();
+  assert.equal(find("Header")?.props.title, "personAdd.title");
+  assert.ok(find("Button"), "append-only clerks retain creation");
+  assert.equal(contactsReads, 1, "writable flow still loads phone contacts silently");
+  byLabel("personEdit.firstName.label")!.props.onChangeText("Nadia");
+  await flush();
+  const staleAdd = find("Button")!.props.onPress;
+  const staleAccess = byLabel("personAdd.contacts.allow")!.props.onPress;
+  const listenersWithContacts = appListeners.size;
+  applyRole("viewer");
+  await flush();
+  staleAdd();
+  staleAccess();
+  await flush();
+  assert.equal(writes.length, 0, "stale writable controls cannot create after a role downgrade");
+  assert.equal(permissionRequests, 0, "stale contacts button cannot prompt after a downgrade");
+  assert.equal(
+    appListeners.size,
+    listenersWithContacts - 1,
+    "disabled contacts hook removes its resume listener",
+  );
+  assert.equal(find("Button"), undefined);
+  assert.equal(focusEpoch, 0, "the synced downgrade does not depend on navigation focus");
+  await runTimers();
+  assert.equal(find("Button"), undefined, "committed role re-read preserves viewer gates");
+
+  fixture(addOrFind, "owner");
+  await flush();
+  byLabel("personEdit.firstName.label")!.props.onChangeText("Nadia");
+  await flush();
+  let finishGuard!: (value: { state: string }) => void;
+  delayedGuard = new Promise((resolve) => {
+    finishGuard = resolve;
+  });
+  find("Button")!.props.onPress();
+  await flush();
+  applyRole("viewer");
+  await flush();
+  finishGuard({ state: "active" });
+  await flush();
+  assert.equal(writes.length, 0, "downgrade during an awaited archive check prevents creation");
+  assert.equal(find("Header")?.props.title, "personFind.title");
+
+  fixture(addOrFind, "owner");
+  await flush();
+  const staleOwnerAdd = find("Button")!.props.onPress;
+  const ownerReads = contactsReads;
+  let resolveNextVault!: () => void;
+  delayedRole = new Promise((resolve) => {
+    resolveNextVault = resolve;
+  });
+  vaultId = "view-only-kaata";
+  role = "viewer";
+  ledgerEvents.emitLedgerApplied(vaultId, "remote");
+  await runTimers();
+  await flush();
+  assert.equal(
+    find("Header")?.props.title,
+    "personFind.title",
+    "previous vault's owner role cannot authorize the next vault while its role is loading",
+  );
+  assert.equal(find("Button"), undefined);
+  staleOwnerAdd();
+  await flush();
+  assert.equal(writes.length, 0);
+  assert.equal(
+    contactsReads,
+    ownerReads,
+    "vault switch does not fetch phone contacts with stale owner caps",
+  );
+  resolveNextVault();
+  await flush();
+  assert.equal(find("Button"), undefined);
+
+  fixture(addOrFind, "owner");
+  let finishOldOwner!: () => void;
+  delayedRole = new Promise((resolve) => {
+    finishOldOwner = resolve;
+  });
+  await flush();
+  assert.equal(find("Button"), undefined);
+  delayedRole = null;
+  applyRole("viewer");
+  await flush();
+  assert.equal(find("Header")?.props.title, "personFind.title");
+  finishOldOwner();
+  await flush();
+  assert.equal(find("Button"), undefined, "late owner query cannot overwrite a newer downgrade");
+  assert.equal(contactsReads, 0);
+
+  fixture(addOrFind, "owner");
+  await flush();
+  const readsBeforeBackground = contactsReads;
+  const backgroundAdd = find("Button")!.props.onPress;
+  const backgroundAccess = byLabel("personAdd.contacts.allow")!.props.onPress;
+  changeAppState("background");
+  applyRole("viewer");
+  await flush();
+  assert.equal(
+    find("Button"),
+    undefined,
+    "background invalidation immediately clears resolved write caps",
+  );
+  changeAppState("active");
+  await flush();
+  await runTimers();
+  backgroundAdd();
+  backgroundAccess();
+  await flush();
+  assert.equal(find("Header")?.props.title, "personFind.title");
+  assert.equal(
+    contactsReads,
+    readsBeforeBackground,
+    "resuming a downgraded kaata never reads the phone book",
+  );
+  assert.equal(permissionRequests, 0);
+  assert.equal(writes.length, 0);
+  assert.equal(focusEpoch, 0);
+
+  fixture(addOrFind, "owner");
+  await flush();
+  const readsBeforeTally = contactsReads;
+  byLabel("personEdit.firstName.label")!.props.onChangeText("Nadia");
+  await flush();
+  let finishTallyRoleRead!: () => void;
+  delayedRole = new Promise((resolve) => {
+    finishTallyRoleRead = resolve;
+  });
+  ledgerEvents.emitLedgerApplied(vaultId, "remote");
+  await runTimers();
+  assert.equal(
+    find("Header")?.props.title,
+    "personAdd.title",
+    "ordinary tally refresh does not switch Add to Find",
+  );
+  assert.equal(byLabel("personEdit.firstName.label")?.props.value, "Nadia");
+  assert.ok(find("Button"));
+  assert.equal(
+    contactsReads,
+    readsBeforeTally,
+    "ordinary tally refresh leaves the contacts hook enabled",
+  );
+  finishTallyRoleRead();
+  await flush();
+  assert.equal(find("Header")?.props.title, "personAdd.title");
+
+  fixture(addOrFind, "viewer");
+  await flush();
+  const nadia = { ...people[0], id: "nadia", name: "Nadia", last_entry_at: null };
+  peopleByVault.set("kaata", [...people, nadia]);
+  ledgerEvents.emitLedgerApplied("kaata", "remote");
+  await runTimers();
+  assert.equal(
+    personRows().length,
+    3,
+    "a person added by another member appears without navigation",
+  );
+  const zarif = { ...people[0], id: "zarif", name: "Zarif" };
+  changeAppState("background");
+  peopleByVault.set("kaata", [...people, nadia, zarif]);
+  ledgerEvents.emitLedgerApplied("kaata", "remote");
+  await flush();
+  assert.equal(personRows().length, 3, "background applies wait for the visible list to resume");
+  changeAppState("active");
+  await flush();
+  await runTimers();
+  assert.equal(
+    personRows().length,
+    4,
+    "foreground catches up while navigation focus stays unchanged",
+  );
+  assert.equal(focusEpoch, 0);
+
+  fixture(addOrFind, "viewer");
+  await flush();
+  const oldPersonTap = personRows()[0].props.onPress;
+  let finishOldPeople!: () => void;
+  delayedPeople = new Promise((resolve) => {
+    finishOldPeople = resolve;
+  });
+  ledgerEvents.emitLedgerApplied("kaata", "remote");
+  await runTimers();
+  vaultId = "second-kaata";
+  peopleByVault.set(vaultId, [nadia]);
+  ledgerEvents.emitLedgerApplied(vaultId, "remote");
+  await runTimers();
+  assert.equal(
+    personRows().length,
+    0,
+    "the old kaata's rows disappear while the next scoped read waits",
+  );
+  oldPersonTap();
+  assert.equal(routes.length, 0, "a stale person tap cannot open another kaata's person");
+  delayedPeople = null;
+  ledgerEvents.emitLedgerApplied(vaultId, "remote");
+  await runTimers();
+  assert.equal(personRows().length, 1);
+  assert.ok(text(personRows()[0]).includes("Nadia"));
+  finishOldPeople();
+  await flush();
+  assert.equal(
+    personRows().length,
+    1,
+    "old-vault and superseded list reads cannot replace current rows",
+  );
+  assert.ok(text(personRows()[0]).includes("Nadia"));
+  assert.equal(contactsReads, 0);
+
+  fixture(addOrFind, "viewer");
+  let finishUnmountedRole!: () => void;
+  let finishUnmountedPeople!: () => void;
+  delayedRole = new Promise((resolve) => {
+    finishUnmountedRole = resolve;
+  });
+  delayedPeople = new Promise((resolve) => {
+    finishUnmountedPeople = resolve;
+  });
+  await flush();
+  ledgerEvents.emitLedgerApplied(vaultId, "remote");
+  await runTimers();
+  unmount();
+  dirty = false;
+  finishUnmountedRole();
+  finishUnmountedPeople();
+  for (let tick = 0; tick < 30; tick++) await Promise.resolve();
+  assert.equal(dirty, false, "pending role/list reads do not set state after unmount");
+  assert.equal(appListeners.size, 0);
+  assert.equal(timers.size, 0);
+
+  fixture(addOrFind, "owner");
+  roleReadFails = true;
+  await flush();
+  assert.equal(find("Button"), undefined, "failed role lookup remains search-only");
+  assert.equal(contactsReads, 0);
+  roleReadFails = false;
+  focusEpoch++;
+  dirty = true;
+  await flush();
+  assert.ok(find("Button"), "a successful focus refresh recovers the writable role");
+  assert.equal(contactsReads, 1);
+
+  fixture(addOrFind, "owner");
+  await flush();
+  byLabel("personEdit.firstName.label")!.props.onChangeText("Nadia");
+  await flush();
+  find("Button")!.props.onPress();
+  await flush();
+  assert.equal(writes.length, 1, "authorized writable flow still creates");
+  assert.deepEqual(routes.at(-1), { pathname: "/person/[id]", params: { id: "created" } });
+  unmount();
+  console.log(
+    "PASS: black home find control, EN/FA search, scoped live/resume reloads, in-place role downgrades, late-read and unmount guards, no viewer phone-book reads/prompts or writes, stable writable tally refresh and authorized creation",
+  );
+}
+void main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

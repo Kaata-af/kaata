@@ -2,6 +2,7 @@ package vaults
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -12,27 +13,32 @@ import (
 
 // GET /v1/vaults now carries a members array (the display-name channel for
 // mobile members screens — the signed membership chain deliberately carries
-// no names). Covers: accounts.name primary, install self_name fallback for
-// nameless accounts, and revoked members excluded.
+// no mutable profiles). Covers: explicit display name, provider name, install
+// fallback, verified emails and active co-member privacy.
 func TestListAttachesMemberNames(t *testing.T) {
 	pool := testutil.ConnectTestDB(t)
 	ctx := context.Background()
 	svc := NewService(pool)
 
+	emails := map[string]string{}
 	seedAccount := func(name string) string {
 		var id string
+		email := uuid.NewString() + "@gmail.com"
 		if err := pool.QueryRow(ctx, `
 			INSERT INTO accounts (google_sub, email, email_verified, name)
 			VALUES ($1, $2, TRUE, $3)
 			RETURNING id::text
-		`, "sub-"+uuid.NewString(), uuid.NewString()+"@gmail.com", name).Scan(&id); err != nil {
+		`, "sub-"+uuid.NewString(), email, name).Scan(&id); err != nil {
 			t.Fatalf("seed account: %v", err)
 		}
+		emails[id] = email
 		return id
 	}
 	owner := seedAccount("Matee Saafi")
 	editor := seedAccount("") // no provider name — must fall back to install self_name
 	revoked := seedAccount("Gone Person")
+	pending := seedAccount("Pending Person")
+	disabled := seedAccount("Disabled Person")
 
 	vaultID := uuid.NewString()
 	if _, err := pool.Exec(ctx, `
@@ -55,6 +61,17 @@ func TestListAttachesMemberNames(t *testing.T) {
 		`, vaultID, m.account, m.role, owner); err != nil {
 			t.Fatalf("seed membership: %v", err)
 		}
+	}
+	for _, account := range []string{pending, disabled} {
+		if _, err := pool.Exec(ctx, `INSERT INTO vault_members
+			(vault_id, account_id, role, invited_at, accepted_at, invited_by)
+			VALUES ($1::uuid, $2::uuid, 'viewer', NOW(), CASE WHEN $2::uuid = $4::uuid THEN NULL ELSE NOW() END, $3::uuid)`,
+			vaultID, account, owner, pending); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `UPDATE accounts SET disabled_at = NOW() WHERE id = $1::uuid`, disabled); err != nil {
+		t.Fatal(err)
 	}
 	// Check-in-reported self identity for the nameless account.
 	if _, err := pool.Exec(ctx, `
@@ -86,6 +103,66 @@ func TestListAttachesMemberNames(t *testing.T) {
 	}
 	if _, ok := got[revoked]; ok {
 		t.Fatalf("revoked member leaked into members array")
+	}
+	for _, id := range []string{owner, editor} {
+		if got[id].Email != emails[id] {
+			t.Fatalf("member email = %q, want verified profile email %q", got[id].Email, emails[id])
+		}
+	}
+	// Profile changes are live data, independent of signed admission history.
+	if _, err := pool.Exec(ctx, `UPDATE accounts SET display_name = 'Ahmad Renamed', email_verified = FALSE WHERE id = $1::uuid`, editor); err != nil {
+		t.Fatal(err)
+	}
+	listings, err = svc.List(ctx, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, member := range listings[0].Members {
+		if member.AccountID == editor && (member.Name != "Ahmad Renamed" || member.Email != "") {
+			t.Fatalf("changed member = %+v, want fresh name and no unverified email", member)
+		}
+	}
+	// Read-only members may see profiles of their own co-members too.
+	if _, err := pool.Exec(ctx, `UPDATE vault_members SET role = 'viewer' WHERE account_id = $1::uuid`, editor); err != nil {
+		t.Fatal(err)
+	}
+	listings, err = svc.List(ctx, editor)
+	if err != nil || len(listings) != 1 || len(listings[0].Members) != 2 {
+		t.Fatalf("member listing = %+v, err=%v", listings, err)
+	}
+	stranger := seedAccount("Stranger")
+	listings, err = svc.List(ctx, stranger)
+	if err != nil || len(listings) != 0 {
+		t.Fatalf("stranger listing = %+v, err=%v", listings, err)
+	}
+	// Directly pin the second-query gate, including a revocation after the
+	// first query had already selected this vault.
+	for _, denied := range []string{stranger, revoked} {
+		selected := []VaultListing{{VaultID: vaultID}}
+		if err := svc.attachMembers(ctx, denied, selected); err != nil {
+			t.Fatal(err)
+		}
+		if len(selected[0].Members) != 0 {
+			t.Fatalf("unauthorized profiles leaked: %+v", selected[0].Members)
+		}
+	}
+	if _, err := pool.Exec(ctx, `UPDATE vault_members SET revoked_at = NOW() WHERE account_id = $1::uuid`, editor); err != nil {
+		t.Fatal(err)
+	}
+	selected := []VaultListing{{VaultID: vaultID}}
+	if err := svc.attachMembers(ctx, editor, selected); err != nil {
+		t.Fatal(err)
+	}
+	if len(selected[0].Members) != 0 {
+		t.Fatalf("post-selection revocation leaked profiles: %+v", selected[0].Members)
+	}
+	wire, err := json.Marshal(selected[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(wire, &fields); err != nil || string(fields["members"]) != "[]" {
+		t.Fatalf("revoked caller must get authoritative members:[], got %s, err=%v", wire, err)
 	}
 }
 

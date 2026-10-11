@@ -4,7 +4,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
-import { filterTalliesByNote, noteSearchTerms } from "../tally-search";
+import { filterTallies, noteSearchTerms } from "../tally-search";
+import type { Calendar } from "../calendar";
+import { toJalali, toQamari } from "../jalali";
 import { afterSharedSettlement, sharedHistory, visibleTally } from "../tabs/chapters";
 import { sumAmounts } from "../money";
 import { tallyScrollTarget } from "../tally-viewport";
@@ -79,6 +81,7 @@ let params: Record<string, string> = { id: "person" };
 let platform = "android",
   rtl = false,
   appState = "active";
+let calendar: Calendar = "gregorian";
 let person: any, entries: any[], preLink: any[], failed: any[], link: any;
 let settlement: any, markers: any[], boundaries: number[];
 let preference = "en",
@@ -254,7 +257,7 @@ const mocks: Record<string, any> = {
       key + (values?.count == null ? "" : `:${values.count}`),
   },
   "../../lib/jalali": { formatSettlementDate: () => "fixture date" },
-  "../../lib/calendar": { useCalendar: () => "gregorian" },
+  "../../lib/calendar": { useCalendar: () => calendar },
   "../../lib/share": {
     shareKaataViaWhatsApp: (...args: any[]) => {
       const call: any = { args };
@@ -265,7 +268,7 @@ const mocks: Record<string, any> = {
       });
     },
   },
-  "../../lib/tally-search": { filterTalliesByNote, noteSearchTerms },
+  "../../lib/tally-search": { filterTallies, noteSearchTerms },
   "../../lib/tabs/db": {
     getLatestTabLinkForPerson: async () => (link ? { ...link } : null),
     listPreLinkEntries: async () => [...preLink],
@@ -391,6 +394,7 @@ function fixture(shared = false) {
   params = { id: "person" };
   appState = "active";
   preference = "en";
+  calendar = "gregorian";
   preferenceReads = 0;
   shares.length = 0;
   seen.length = 0;
@@ -506,11 +510,13 @@ async function main() {
       );
       assert.equal(shares[0].args[1], 3);
       assert.equal(pingButton().props.accessibilityLabel, "person.ping.preparing");
-      assert.ok(words(tree).includes("person.ping.preparing"), "preparation remains visible");
+      assert.equal(words(tree).includes("person.ping.preparing"), false, "no loading text above the page");
+      assert.ok(nodes(pingButton()).some((n) => n.type === "Spinner"), "the reminder button shows its spinner");
       shares[0].args[6]("opening");
       await flush();
       assert.equal(pingButton().props.accessibilityLabel, "person.ping.opening");
-      assert.ok(words(tree).includes("person.ping.opening"), "opening remains visible");
+      assert.equal(words(tree).includes("person.ping.opening"), false, "opening uses only the spinner visually");
+      assert.ok(nodes(pingButton()).some((n) => n.type === "Spinner"));
       assert.equal(pingButton().props.accessibilityState.busy, true);
       shares[0].resolve(true);
       await flush();
@@ -526,8 +532,44 @@ async function main() {
       );
     }
   console.log(
-    "PASS: real person screen search spans settled history without narrowing balances/export/reminders; Android/iOS EN/FA keyboard gates and reminder progress/duplicate guard",
+    "PASS: real person screen search spans settled history without narrowing balances/export/reminders; Android/iOS EN/FA keyboard gates and spinner-only reminder/duplicate guard",
   );
+
+  fixture(true);
+  const datedAt = new Date(2026, 9, 11, 12).getTime();
+  entries[0].created_at = datedAt;
+  await flush();
+  query("rice 99");
+  await flush();
+  assert.deepEqual(rowIds(), ["rejected-rice"], "note and amount terms combine on the real screen");
+  query("۵۰۰");
+  await flush();
+  assert.deepEqual(rowIds(), ["pre-rice"], "numeric search includes pre-link tallies and Persian digits");
+  query("7");
+  await flush();
+  assert.deepEqual(rowIds(), ["failed-rice"], "numeric search includes not-sent tallies");
+  query("2026");
+  await flush();
+  assert.deepEqual(rowIds(), ["rejected-rice"], "Gregorian year matches the tally date");
+  calendar = "jalali";
+  dirty = true;
+  await flush();
+  assert.deepEqual(rowIds(), [], "changing calendar re-evaluates the existing date filter");
+  const j = toJalali(datedAt);
+  query(`${j.jy}/${j.jm}/${j.jd}`);
+  await flush();
+  assert.deepEqual(rowIds(), ["rejected-rice"], "the selected Shamsi date is searchable");
+  calendar = "qamari";
+  rtl = true;
+  dirty = true;
+  await flush();
+  assert.deepEqual(rowIds(), [], "a Shamsi numeric date does not silently match Qamari");
+  const q = toQamari(datedAt);
+  query(`${q.hy}/${q.hm}/${q.hd}`.replace(/\d/g, (digit) => "۰۱۲۳۴۵۶۷۸۹"[Number(digit)]));
+  await flush();
+  assert.deepEqual(rowIds(), ["rejected-rice"], "the selected Qamari date works in Dari digits");
+  assert.ok(words(tree).includes("amount:5"), "date filters keep the whole shared balance");
+  console.log("PASS: amount/date search spans shared, pre-link and failed tallies and refreshes with calendar preferences");
 
   fixture(true);
   await flush();

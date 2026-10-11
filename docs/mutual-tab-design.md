@@ -1,14 +1,16 @@
 ## October 2 refinement (tally rows revised October 11, design "A · Quiet")
 
 Tally rows carry no review-state colour: every row is white whatever its state, and
-an opened row turns `bgMuted`, its actions included. Only a pending shared tally has
+an opened row turns `bgMuted`, its actions included. Only a closed pending shared tally has
 a 6 px amber dot right before the time. Accepted tallies need no dot; a rejected
 amount's strike already conveys its exclusion. A queued unsent tally is pending too,
 but its accessible state and opened label say “Sending”. Private rows have no dot.
 An opened row drops the time-side dot and spells every state out as its first line:
-a neutral centred pill (white, hairline border), with an amber dot only if pending.
+a neutral centred pill (white, hairline border), with an amber pending, green accepted,
+red rejected or gray sending dot beside its label.
 Screen readers still receive every state through the row's `accessibilityValue`.
-This October 11 feedback supersedes the green/red/grey review dots. Meta lines under the note (added
+The latest October 11 feedback restores colored dots beside opened status labels;
+collapsed rows keep the pending-only cue. Meta lines under the note (added
 by, reviewed by, the rejection reason and hint) align to the script's start edge,
 with semibold names. Accept, Reject and Cancel are compact pill buttons
 (`components/Button.tsx`, size `pill`) on the row's trailing edge: Accept is the black
@@ -551,7 +553,7 @@ Errors: `TabCurrencyMismatchError`, `TabSameKaataError`, `TabAlreadyLinkedError`
   - Shared rows have no long-press sheet. Own pending rows expose `Cancel tally` only when expanded; incoming pending rows expose inline Accept/Reject. All actions require `canAmend` and an open tab. Accepted/rejected/voided rows have no cancellation or review controls.
   - Ping bar unchanged (bills still work — they snapshot the tab rows).
   - `useLedgerRefresh` + `onTabApplied` both trigger `load`; a `useFocusEffect` also calls `requestTabSync(link.tab_id)`.
-- **EntryRow**: no review-state background — rows are white and an opened row is `bgMuted`. A closed shared row shows its status as one 6px dot before the time, in the same colours as the pill's dot; private rows have none. The full status appears after expanding, as the row's first line: a neutral centred pill whose dot carries the state colour (`colors.reviewPending` / `reviewAccepted` / `reviewRejected`; `textMuted` while sending). Accept (black `primary`), Reject and Cancel (white `secondary`) are `Button size="pill"` on the trailing edge, Accept outermost, with a vertical-only `hitSlop` so no tap in the gap between Reject and Accept reaches either, and a wrapping actions row at large text sizes. Cancelled originals and void events are hidden from the list, while their server evidence remains in history exports.
+- **EntryRow**: no review-state background — rows are white and an opened row is `bgMuted`. A closed pending shared row shows one amber 6px dot before the time; accepted/rejected closed rows and private rows have none. The full status appears after expanding, as the row's first line: a neutral centred pill whose dot carries the state colour (`colors.reviewPending` / `reviewAccepted` / `reviewRejected`; `textMuted` while sending). Accept (black `primary`), Reject and Cancel (white `secondary`) are `Button size="pill"` on the trailing edge, Accept outermost, with a vertical-only `hitSlop` so no tap in the gap between Reject and Accept reaches either, and a wrapping actions row at large text sizes. Cancelled originals and void events are hidden from the list, while their server evidence remains in history exports.
 - **PersonRow / home**: subtitle prefix `{n} to review · ` when `tab_pending > 0`; a small `link-outline` glyph (12 px, textMuted) after the name when `tab_id` is set.
 - **entry/new.tsx**: unchanged flow; on success with a `duplicateHint`, `queuePendingToast(t('tab.duplicateHint', {name}), 'info')`. Errors: `TabAuthUnavailableError` → inline `t('tab.needsConnection')`.
 - **entry/[id]/edit.tsx**: catches `TabLinkedEntryError` → inline `t('tab.editLocked')`.

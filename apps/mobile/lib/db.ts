@@ -28,6 +28,7 @@ import {
   appendShopProfileUpdated,
   appendVaultMemberAdded,
   findPhoneConflictInVault,
+  RoleGateRejectionError,
 } from "./event-log";
 import { requestImmediateCheckIn } from "./checkin-trigger";
 import { assertLedgerReadable } from "./db-health";
@@ -101,6 +102,7 @@ const MIGRATION_029 = "029_tab_failed_ops";
 const MIGRATION_030 = "030_tab_actor_identity";
 const MIGRATION_031 = "031_shared_record_evidence";
 const MIGRATION_032 = "032_shared_settlements";
+const MIGRATION_033 = "033_vault_member_profiles";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -483,6 +485,9 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   }
   if (!(await hasRunMigration(db, MIGRATION_032))) {
     await runMigration032(db);
+  }
+  if (!(await hasRunMigration(db, MIGRATION_033))) {
+    await runMigration033(db);
   }
 }
 
@@ -3325,6 +3330,31 @@ async function runMigration032(db: SQLite.SQLiteDatabase): Promise<void> {
   });
 }
 
+// Mutable profiles stay outside signed membership history and cloud event
+// exports. A full local SQLite backup still includes this viewer-scoped cache.
+// Viewer scoping prevents another account on this phone from reading a previous
+// account's cached co-member email addresses.
+async function runMigration033(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS vault_member_profiles (
+        viewer_account_id TEXT NOT NULL,
+        vault_id TEXT NOT NULL REFERENCES vaults(id) ON DELETE CASCADE,
+        account_id TEXT NOT NULL,
+        display_name TEXT,
+        email TEXT,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (viewer_account_id, vault_id, account_id)
+      );
+    `);
+    await db.runAsync(
+      `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+      MIGRATION_033,
+      Date.now(),
+    );
+  });
+}
+
 // --- v0 row shapes (used only during migration) ---
 type V0Shopkeeper = {
   id: number;
@@ -3414,6 +3444,7 @@ export async function resetAllLocalData(opts: { keepLocalBackups?: boolean } = {
     DROP TABLE IF EXISTS shop_profile;
     DROP TABLE IF EXISTS _old_shop_profile;
     DROP TABLE IF EXISTS vault_members_mirror;
+    DROP TABLE IF EXISTS vault_member_profiles;
     DROP TABLE IF EXISTS vaults;
     DROP TABLE IF EXISTS users;
     DROP TABLE IF EXISTS users_new;
@@ -3810,11 +3841,14 @@ export async function updateSelfProfile(
   const db = await getDb();
   const self = await getLocalSelfUserId(db);
   if (!self) throw new Error("local user not yet created");
-  // Tolerate no active vault (a fresh account with no kaata yet can still edit
-  // its own name/phone). With a vault, the name change is event-sourced so
-  // shared members see it + it replays; without one we update the local-self
-  // row directly (device-local identity).
+  // Personal identity remains editable even while viewing a read-only kaata.
+  // Authorized ledger renames still use the event log; restricted roles keep
+  // this device's own self name locally, while Account saves its cloud profile.
   const vaultId = getActiveVaultIdSyncMaybe();
+  const previousSelf = await db.getFirstAsync<{ display_name: string | null }>(
+    "SELECT display_name FROM users WHERE id = ? AND is_local_self = 1",
+    self,
+  );
 
   // Phone is device-local self identity (users.phone_e164, set directly at
   // onboarding, not event-sourced). `undefined` = leave unchanged; null/"" =
@@ -3830,17 +3864,40 @@ export async function updateSelfProfile(
     );
   }
 
-  if (vaultId) {
-    // Self display_name change goes through the event log (person_renamed
-    // applier handles it — no special case for is_local_self).
-    await appendPersonRenamed({ userId: self, vaultId, name });
-  } else {
-    await db.runAsync(
-      "UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?",
-      name,
-      Date.now(),
-      self,
-    );
+  if (previousSelf?.display_name !== name) {
+    let deviceLocal = !vaultId;
+    if (vaultId) {
+      const { readVaultRole, canPerformAction } = await import("./use-vault-role");
+      deviceLocal = !canPerformAction(
+        await readVaultRole(vaultId, getAccountIdSync()),
+        "person.rename",
+      );
+      if (!deviceLocal) {
+        try {
+          await appendPersonRenamed({ userId: self, vaultId, name });
+        } catch (err) {
+          // A demotion may commit after the preflight. The gate still refuses
+          // the ledger event; only this phone's own identity may be updated.
+          if (
+            err instanceof RoleGateRejectionError &&
+            err.reason === "insufficient_role" &&
+            err.required_role === "editor"
+          ) {
+            deviceLocal = true;
+          } else {
+            throw err;
+          }
+        }
+      }
+    }
+    if (deviceLocal) {
+      await db.runAsync(
+        "UPDATE users SET display_name = ?, updated_at = ? WHERE id = ? AND is_local_self = 1",
+        name,
+        Date.now(),
+        self,
+      );
+    }
   }
 
   // Shop name update — only emit when there's a vault + a non-empty value
@@ -4043,12 +4100,14 @@ function finishTabColumns(row: RawPersonRow): PersonWithBalance {
   return person;
 }
 
-async function selectAllPeopleRaw(db: SQLite.SQLiteDatabase): Promise<PersonWithBalance[]> {
+async function selectAllPeopleRaw(
+  db: SQLite.SQLiteDatabase,
+  vaultId = getActiveVaultIdSyncMaybe(),
+): Promise<PersonWithBalance[]> {
   // Vault filter on BOTH relationships and the LEFT-JOINed entries. The
   // entries filter goes in the ON clause (not WHERE) because this is a
   // LEFT JOIN; a person with zero entries must still appear.
   // Pre-onboarding (no vault yet) returns [] cleanly.
-  const vaultId = getActiveVaultIdSyncMaybe();
   if (!vaultId) return [];
   const rows = await db.getAllAsync<RawPersonRow>(
     `SELECT u.id            AS id,
@@ -4137,9 +4196,11 @@ export async function listAllPeople(): Promise<PersonWithBalance[]> {
 // Every active person INCLUDING zero-tally (no entries yet) — for the search/add
 // flow so a freshly-added or phone-imported contact is findable before they have
 // any ledger activity. The home list (listAllPeople) excludes zero-tally people.
-export async function listAllPeopleForSearch(): Promise<PersonWithBalance[]> {
+export async function listAllPeopleForSearch(
+  vaultId = getActiveVaultIdSyncMaybe(),
+): Promise<PersonWithBalance[]> {
   const db = await getDb();
-  const rows = await selectAllPeopleRaw(db);
+  const rows = await selectAllPeopleRaw(db, vaultId);
   rows.sort((a, b) => {
     const at = a.last_entry_at ?? 0;
     const bt = b.last_entry_at ?? 0;

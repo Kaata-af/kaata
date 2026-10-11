@@ -1411,6 +1411,133 @@ async function installEmailSession(body: AuthResponse): Promise<SessionUser> {
 // Account shows the name error until a valid save settles it. Any new sign-in
 // clears the flag first (postSignInHousekeeping).
 const ACCOUNT_NAME_PENDING_KEY = "account_name_pending";
+const ACCOUNT_DISPLAY_NAME_PENDING_KEY = "account_display_name_pending";
+let displayNameTail: Promise<void> = Promise.resolve();
+
+async function pendingDisplayName(): Promise<{
+  account_id: string;
+  name: string;
+  raw: string;
+} | null> {
+  const raw = await getAppMetaInTx(await getDb(), ACCOUNT_DISPLAY_NAME_PENDING_KEY);
+  if (!raw) return null;
+  try {
+    const queued = JSON.parse(raw) as { account_id?: unknown; name?: unknown };
+    if (queued.account_id === getAccountIdSync() && typeof queued.name === "string") {
+      return { account_id: queued.account_id as string, name: queued.name, raw };
+    }
+  } catch {
+    /* invalid or another account's intent is never sent */
+  }
+  return null;
+}
+
+/** Explicit Kaata display-name edit, independent of Google/Apple identity. */
+export async function saveAccountDisplayName(
+  name: string,
+  expectedSession?: SessionSnapshot,
+): Promise<EmailAuthError | null> {
+  return sendAccountDisplayName(name, undefined, expectedSession);
+}
+
+async function sendAccountDisplayName(
+  name: string,
+  retryOf?: string,
+  expectedSession?: SessionSnapshot,
+): Promise<EmailAuthError | null> {
+  const session = expectedSession ?? (await captureCurrentSession());
+  if (!session.accountId || !session.jwt) return new EmailAuthError("session_expired", 401);
+  const previous = displayNameTail;
+  let release!: () => void;
+  displayNameTail = new Promise<void>((done) => {
+    release = done;
+  });
+  await previous;
+  const queued = { account_id: session.accountId, name: name.trim() };
+  const raw = JSON.stringify(queued);
+  const settlePending = async () =>
+    applyForCurrentSession(session, async () => {
+      const db = await getDb();
+      if ((await getAppMetaInTx(db, ACCOUNT_DISPLAY_NAME_PENDING_KEY)) === raw) {
+        await setAppMetaInTx(db, ACCOUNT_DISPLAY_NAME_PENDING_KEY, "");
+      }
+    });
+  try {
+    await applyForCurrentSession(session, async () => {
+      const db = await getDb();
+      // A check-in may have read an older queued edit while a newer save was
+      // in flight. Once it reaches this serialized tail, retry only that intent.
+      if (
+        retryOf !== undefined &&
+        (await getAppMetaInTx(db, ACCOUNT_DISPLAY_NAME_PENDING_KEY)) !== retryOf
+      ) {
+        throw new DisplayNameRetrySupersededError();
+      }
+      await setAppMetaInTx(db, ACCOUNT_DISPLAY_NAME_PENDING_KEY, raw);
+    });
+    try {
+      const body = await accountRequest(
+        "PUT",
+        "/v1/account/display-name",
+        { name: queued.name },
+        session.jwt,
+      );
+      await settlePending();
+      await applyForCurrentSession(session, async () => {
+        await setAccountNameState("");
+        const cached = await SecureStore.getItemAsync(USER_KEY);
+        if (!cached) return;
+        try {
+          const user = JSON.parse(cached) as SessionUser;
+          await SecureStore.setItemAsync(
+            USER_KEY,
+            JSON.stringify({ ...user, name: stringOrNull(body.name) ?? queued.name }),
+          );
+        } catch {
+          /* cosmetics only; the server remains authoritative */
+        }
+      });
+      return null;
+    } catch (err) {
+      if (err instanceof SessionChangedError) return new EmailAuthError("session_expired", 401);
+      if (err instanceof EmailAuthError) {
+        if (err.status >= 500) {
+          await applyForCurrentSession(session, async () => {});
+          return null;
+        }
+        if (err.status === 401 || err.status === 429) return err;
+        await settlePending();
+        if (err.reason === "invalid_name") {
+          await applyForCurrentSession(session, () => setAccountNameState("invalid"));
+        }
+        return err;
+      }
+      // An older server cannot perform this edit. Show a failure, never Saved
+      // or a queued success that would silently disappear on the old endpoint.
+      if (
+        err instanceof SignInFailedError &&
+        err.stage === "server" &&
+        Number(err.detail) >= 400 &&
+        Number(err.detail) < 500
+      ) {
+        await settlePending();
+        return new EmailAuthError("unavailable", Number(err.detail));
+      }
+      // Offline/5xx: retain the exact chosen name and account, not whichever
+      // local self name happens to exist when check-in next retries.
+      await applyForCurrentSession(session, async () => {});
+      return null;
+    }
+  } catch (err) {
+    if (err instanceof DisplayNameRetrySupersededError) return null;
+    if (err instanceof SessionChangedError) return new EmailAuthError("session_expired", 401);
+    return new EmailAuthError("unavailable", 503);
+  } finally {
+    release();
+  }
+}
+
+class DisplayNameRetrySupersededError extends Error {}
 
 async function noteAccountName(user: SessionUser): Promise<void> {
   const named = !!user.name?.trim();
@@ -1471,6 +1598,7 @@ async function accountNameOwed(): Promise<boolean> {
  */
 export async function accountNameState(): Promise<"settled" | "owed" | "invalid"> {
   try {
+    if (await pendingDisplayName()) return "owed";
     const raw = await getAppMetaInTx(await getDb(), ACCOUNT_NAME_PENDING_KEY);
     return raw === "1" ? "owed" : raw === "invalid" ? "invalid" : "settled";
   } catch {
@@ -1544,6 +1672,13 @@ export async function saveAccountName(name: string): Promise<EmailAuthError | nu
  */
 export async function syncPendingAccountNameFromSelf(): Promise<void> {
   try {
+    const display = await pendingDisplayName();
+    if (display) {
+      const session = await captureCurrentSession();
+      if (session.accountId !== display.account_id) return;
+      await sendAccountDisplayName(display.name, display.raw, session);
+      return;
+    }
     if (!(await accountNameOwed())) return;
     const name = await localSelfName();
     if (!name) return;
@@ -1572,8 +1707,9 @@ async function accountRequest(
   method: "GET" | "POST" | "PUT" | "DELETE",
   path: string,
   payload?: unknown,
+  pinnedJwt?: string,
 ): Promise<Record<string, unknown>> {
-  const jwt = await SecureStore.getItemAsync(SESSION_KEY);
+  const jwt = pinnedJwt ?? (await SecureStore.getItemAsync(SESSION_KEY));
   if (!jwt) throw new EmailAuthError("session_expired", 401);
   const baseUrl = await getBackendUrl();
   const controller = new AbortController();
@@ -1626,8 +1762,14 @@ export type AccountMe = {
   setupEmail: string | null;
 };
 
-export async function fetchAccountMe(): Promise<AccountMe> {
-  const body = await accountRequest("GET", "/v1/account/me");
+export async function fetchAccountMe(expectedSession?: SessionSnapshot): Promise<AccountMe> {
+  if (expectedSession) await applyForCurrentSession(expectedSession, async () => {});
+  const body = await accountRequest(
+    "GET",
+    "/v1/account/me",
+    undefined,
+    expectedSession?.jwt ?? undefined,
+  );
   return {
     email: stringOrNull(body.email) ?? "",
     loginEmail: stringOrNull(body.login_email),
@@ -2093,8 +2235,11 @@ async function postSignInHousekeeping(args: {
 // user keeps the phone on-device and this no-ops; a network failure is swallowed
 // (the value is already saved locally; a later edit / sign-in re-pushes it).
 // Pass null/"" to clear the stored phone.
-export async function updateAccountPhone(phone: string | null): Promise<void> {
-  const jwt = await SecureStore.getItemAsync(SESSION_KEY);
+export async function updateAccountPhone(
+  phone: string | null,
+  expectedSession?: SessionSnapshot,
+): Promise<void> {
+  const jwt = expectedSession ? expectedSession.jwt : await SecureStore.getItemAsync(SESSION_KEY);
   if (!jwt) return;
   try {
     const baseUrl = await getBackendUrl();

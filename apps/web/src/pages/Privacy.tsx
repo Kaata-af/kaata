@@ -116,6 +116,12 @@ export function Privacy() {
             came from, for up to 2 days, keyed so that the record holds neither what you typed nor
             your IP address.
           </p>
+          <p>
+            If you share a kaata with members, other active, accepted members of that same kaata
+            can see your <strong>current profile name and verified sign-in email address</strong>
+            in its members list, so they can identify who has access. Your sign-in username stays
+            private. The members list is not published through public bill links.
+          </p>
         </Section>
 
         <Section title="Sharing a bill over WhatsApp">

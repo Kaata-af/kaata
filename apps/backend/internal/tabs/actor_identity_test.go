@@ -82,6 +82,34 @@ func TestActualWriterReviewerAndNoSelfNotification(t *testing.T) {
 	if err = f.pool.QueryRow(ctx, "SELECT author_name FROM tab_entries WHERE id=$1::uuid", id).Scan(&name); err != nil || name != "Writer Name" {
 		t.Fatalf("author changed: %s %v", name, err)
 	}
+	// A profile rename changes future evidence and notifications, preserving
+	// the names recorded for the already accepted entry.
+	for account, renamed := range map[string]string{writer: "Current Writer", reviewer: "Current Reviewer"} {
+		if _, err := f.pool.Exec(ctx, `UPDATE accounts SET display_name=$2 WHERE id=$1::uuid`, account, renamed); err != nil {
+			t.Fatal(err)
+		}
+	}
+	newID := uuid.NewString()
+	r = f.do(t, "POST", "/v1/tabs/"+c.Tab.ID+"/entries", "Bearer "+f.jwtFor(t, writer), map[string]any{
+		"id": newID, "direction": "a_to_b", "amount": "50", "occurred_at_ms": time.Now().UnixMilli(),
+	}, "a")
+	if r.status != 200 && r.status != 201 {
+		t.Fatalf("renamed append: %d %s", r.status, r.body)
+	}
+	if err := json.Unmarshal(r.body, &added); err != nil || added.Entry.AuthorName != "Current Writer" {
+		t.Fatalf("new author snapshot = %+v, %v", added.Entry, err)
+	}
+	r = f.do(t, "POST", "/v1/tabs/"+c.Tab.ID+"/entries/"+newID+"/accept", "Bearer "+f.jwtFor(t, reviewer), map[string]any{}, "b")
+	if r.status != 200 {
+		t.Fatalf("renamed review: %d %s", r.status, r.body)
+	}
+	var authorName, reviewerName string
+	if err := f.pool.QueryRow(ctx, `SELECT author_name, reviewer_name FROM tab_entries WHERE id=$1::uuid`, id).Scan(&authorName, &reviewerName); err != nil || authorName != "Writer Name" || reviewerName != "Reviewer Name" {
+		t.Fatalf("old evidence changed: author=%q reviewer=%q err=%v", authorName, reviewerName, err)
+	}
+	if err := f.pool.QueryRow(ctx, `SELECT reviewer_name FROM tab_entries WHERE id=$1::uuid`, newID).Scan(&reviewerName); err != nil || reviewerName != "Current Reviewer" {
+		t.Fatalf("new reviewer snapshot=%q err=%v", reviewerName, err)
+	}
 }
 
 func TestPushTokenMovesToCurrentInstallation(t *testing.T) {

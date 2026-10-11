@@ -125,7 +125,7 @@ func (s *Service) completeSignIn(ctx context.Context, tx pgx.Tx, t signInTail) (
 	var acct tailAccount
 	var disabled bool
 	if err := tx.QueryRow(ctx, `
-		SELECT a.disabled_at IS NOT NULL, COALESCE(a.email, ''), COALESCE(a.name, ''),
+		SELECT a.disabled_at IS NOT NULL, COALESCE(a.email, ''), COALESCE(a.display_name, a.name, ''),
 		       COALESCE(a.phone_e164, ''), COALESCE(a.username, ''),
 		       EXISTS (SELECT 1 FROM account_passwords p WHERE p.account_id = a.id)
 		FROM accounts a WHERE a.id = $1::uuid FOR UPDATE

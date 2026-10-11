@@ -21,7 +21,7 @@ import type { Entry } from "../lib/types";
 // tally list's vertical rhythm is untouched by turning attribution on.
 const AUTHOR_CHIP_SIZE = 20;
 
-// Only a pending tally carries a review-state dot, in the row or its opened pill.
+// Closed rows mark only pending; opened status labels mark every review state.
 const STATUS_DOT_SIZE = 6;
 
 // The action pills reach up and down only. Button's default pill slop also
@@ -164,18 +164,18 @@ export const EntryRow = memo(function EntryRow(props: {
   // status, and it is QUIET (design "A · Quiet", 2026-10-03): no row tint and
   // no coloured button. Pending tallies have ONE amber 6px dot before the time;
   // accepted tallies need none, and rejected amounts already carry a strike.
-  // An opened row spells every state out in a neutral pill, with a dot only
-  // while pending. An unsent tally is still pending, but its label says Sending.
+  // An opened row spells every state out in a neutral pill beside its colored
+  // dot. An unsent tally uses a quiet gray dot and the label Sending.
   const pending = tab?.status === "pending";
   const status = !tab
     ? null
     : tab.local_pending
-      ? { label: t("tab.status.sending") }
+      ? { label: t("tab.status.sending"), color: colors.textMuted }
       : tab.status === "disputed"
-        ? { label: t("tab.status.disputed") }
+        ? { label: t("tab.status.disputed"), color: colors.reviewRejected }
         : tab.status === "accepted"
-          ? { label: t("tab.status.accepted") }
-          : { label: t("tab.status.pending") };
+          ? { label: t("tab.status.accepted"), color: colors.reviewAccepted }
+          : { label: t("tab.status.pending"), color: colors.reviewPending };
   const statusLabel = status?.label ?? null;
   // Visibility rules for the inline actions (docs/mutual-tab-design.md):
   // the other party's pending tally offers Accept/Reject even while collapsed;
@@ -244,7 +244,11 @@ export const EntryRow = memo(function EntryRow(props: {
         {open && status ? (
           <View style={styles.statusRow}>
             <View style={[styles.statusPill, rowDir(isRTL), isRTL && styles.statusPillRTL]}>
-              {pending ? <View style={styles.statusDot} /> : null}
+              <View
+                style={[styles.statusDot, { backgroundColor: status.color }]}
+                accessibilityElementsHidden
+                importantForAccessibility="no"
+              />
               {/* Tracking severs Persian joining: trackingSafe drops it in Dari. */}
               <Text style={[styles.statusText, trackingSafe(isRTL)]} numberOfLines={1}>
                 {status.label}

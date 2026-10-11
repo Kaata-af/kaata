@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -19,10 +20,11 @@ import { EmptyState } from "../../components/EmptyState";
 import { ScreenHeader } from "../../components/SettingsScreen";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
-import { mergeContactSections, type MergedRow } from "../../lib/contacts-merge";
+import { mergeContactSections, splitSearchQuery, type MergedRow } from "../../lib/contacts-merge";
 import { joinName, type DeviceContact } from "../../lib/contacts-sync";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
 import { createPerson, getActiveVaultArchivedState, listAllPeopleForSearch } from "../../lib/db";
+import { getActiveVaultIdSyncMaybe } from "../../lib/db-tx";
 import { toAsciiDigits } from "../../lib/digits";
 import {
   bidiIsolate,
@@ -36,6 +38,7 @@ import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/
 import { fonts } from "../../lib/fonts";
 import { formatAmount } from "../../lib/format";
 import { t } from "../../lib/i18n";
+import { useLedgerRefresh } from "../../lib/ledger-events";
 import { getCountry, getCurrentDefaultCountryCode, inferCountryFromE164 } from "../../lib/phone";
 import {
   classifyPersonSaveError,
@@ -47,6 +50,7 @@ import { icon, radius, TOUCH_MIN } from "../../lib/tokens";
 import type { PersonWithBalance } from "../../lib/types";
 import { SharedAccountBadge } from "../../components/SharedAccountBadge";
 import { useDeviceContacts } from "../../lib/use-device-contacts";
+import { useActiveVaultWriteCaps } from "../../lib/use-vault-role";
 
 // One row in the merged contacts list. App people open on tap; device contacts
 // are created (and added to the ledger) on tap. The merge itself (dedup by
@@ -68,26 +72,43 @@ export default function PersonAddOrFindScreen() {
   // Subscribes to locale changes — flipping language in Settings live-updates
   // this screen if it happens to be focused.
   const isRTL = useIsRTL();
+  const activeVaultId = getActiveVaultIdSyncMaybe();
+  const caps = useActiveVaultWriteCaps(activeVaultId);
+  // Search works during role lookup; creation and phone-book access wait for
+  // the current vault's role so a viewer never briefly sees the add flow.
+  const canCreate = caps.resolved && caps.canCreate;
+  const canCreateRef = useRef(canCreate);
+  canCreateRef.current = canCreate;
+  const [findQuery, setFindQuery] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   // Initial country defaults to the user's preference (set in Preferences).
   const [countryCode, setCountryCode] = useState(getCurrentDefaultCountryCode);
   const [pickerVisible, setPickerVisible] = useState(false);
-  const [people, setPeople] = useState<PersonWithBalance[] | null>(null);
+  const [loadedPeople, setLoadedPeople] = useState<{
+    vaultId: string | null;
+    rows: PersonWithBalance[];
+  } | null>(null);
+  // Never display the previous kaata's people while the next scoped read is
+  // pending, even if a role refresh caused this render before the list reload.
+  const people = loadedPeople?.vaultId === activeVaultId ? loadedPeople.rows : null;
+  const mounted = useRef(false);
+  const loadGeneration = useRef(0);
   // Device phone book + its permission state (null = still loading).
   const {
     access: contactsAccess,
     busy: contactsBusy,
     failed: contactsFailed,
     requestAccess,
-  } = useDeviceContacts();
-  const deviceContacts = contactsAccess?.contacts ?? [];
+  } = useDeviceContacts(canCreate);
+  const deviceContacts = canCreate ? (contactsAccess?.contacts ?? []) : [];
   const [busy, setBusy] = useState(false);
   // Inline errors — modal screen, toasts can't render above it (Toast.tsx).
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const firstNameRef = useRef<TextInput>(null);
+  const findRef = useRef<TextInput>(null);
   const lastNameRef = useRef<TextInput>(null);
   const phoneRef = useRef<TextInput>(null);
   // Synchronous re-entry guard — `busy` state can't stop a same-frame
@@ -97,11 +118,15 @@ export default function PersonAddOrFindScreen() {
 
   // D-DEFENSIVE-ARCHIVED-GUARD: see entry/new.tsx. A mesh-sourced archive can
   // land between home's load() and this screen's mount; bail before any write.
-  useEffect(() => {
-    let cancelled = false;
+  const reload = useCallback(() => {
+    const vaultId = getActiveVaultIdSyncMaybe();
+    const run = ++loadGeneration.current;
+    setLoadedPeople((previous) => (previous?.vaultId === vaultId ? previous : null));
+    const current = () =>
+      mounted.current && run === loadGeneration.current && getActiveVaultIdSyncMaybe() === vaultId;
     void (async () => {
       const guard = await getActiveVaultArchivedState();
-      if (cancelled) return;
+      if (!current()) return;
       if (guard.state === "none") {
         toast.push(t("entry.noActiveVault"), "error");
         router.replace("/");
@@ -113,36 +138,61 @@ export default function PersonAddOrFindScreen() {
         return;
       }
       // Search/add must find people with ZERO tallies too (home hides them).
-      const list = await listAllPeopleForSearch();
-      if (cancelled) return;
-      setPeople(list);
-    })();
+      const list = await listAllPeopleForSearch(vaultId);
+      if (!current()) return;
+      setLoadedPeople({ vaultId, rows: list });
+    })().catch((err) => {
+      if (__DEV__) console.warn("[person/find] reload failed", err);
+    });
     return () => {
-      cancelled = true;
+      if (run === loadGeneration.current) loadGeneration.current++;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [router, toast]);
+  useEffect(() => {
+    mounted.current = true;
+    let previous = AppState.currentState;
+    const sub = AppState.addEventListener("change", (next) => {
+      const resumed = previous !== "active" && next === "active";
+      previous = next;
+      if (resumed) reload();
+    });
+    return () => {
+      mounted.current = false;
+      canCreateRef.current = false;
+      loadGeneration.current++;
+      sub.remove();
+    };
+  }, [reload]);
+  useFocusEffect(reload);
+  // Any applied event may also accompany a change of active kaata. The helper
+  // coalesces bursts and catches up events applied while the phone was locked.
+  useLedgerRefresh(null, reload);
 
   // Focus the first-name field via ref + delay, NOT autoFocus: on a stack-modal
   // screen autoFocus fires before the slide-in finishes, so focus succeeds but
   // the soft keyboard never opens on Android. 280ms clears the animation.
   useEffect(() => {
-    const tmr = setTimeout(() => firstNameRef.current?.focus(), 280);
+    const tmr = setTimeout(() => (canCreate ? firstNameRef : findRef).current?.focus(), 280);
     return () => clearTimeout(tmr);
-  }, []);
+  }, [canCreate]);
 
   const nameQuery = joinName(firstName, lastName);
   const phoneDigits = toAsciiDigits(phone).replace(/\D/g, "");
   const phoneFilter = phoneDigits.length >= PHONE_SEARCH_MIN_DIGITS ? phoneDigits : "";
-  const querying = nameQuery.length > 0 || phoneFilter.length > 0;
+  const fields = canCreate
+    ? { first: firstName, last: lastName, phoneDigits: phoneFilter }
+    : splitSearchQuery(findQuery);
+  const querying = canCreate
+    ? nameQuery.length > 0 || phoneFilter.length > 0
+    : findQuery.trim().length > 0;
 
   // Defer the values the (potentially large) phone-book filter runs on, so each
   // keystroke stays responsive while the list catches up (React concurrent).
   // First + last are deferred SEPARATELY so the search can rank by field (a
   // last-name query ranks last-name matches above first-name ones).
-  const dFirst = useDeferredValue(firstName.trim());
-  const dLast = useDeferredValue(lastName.trim());
-  const dPhone = useDeferredValue(phoneFilter);
+  const dFirst = useDeferredValue(fields.first.trim());
+  const dLast = useDeferredValue(fields.last.trim());
+  const dPhone = useDeferredValue(fields.phoneDigits);
 
   // Each section renders as ONE bordered card (no virtualization), so the
   // helper caps the device list when not searching — a full phone book
@@ -161,13 +211,20 @@ export default function PersonAddOrFindScreen() {
   );
 
   function openPerson(id: string) {
+    if (!mounted.current || getActiveVaultIdSyncMaybe() !== activeVaultId) return;
     router.replace({ pathname: "/person/[id]", params: { id } });
   }
 
   // Shared create path for both the form's Add button and a tapped device
   // contact. Best-effort phone-book write happens inside createPerson.
   async function runCreate(first: string, last: string | null, phoneInput: string, cc: string) {
-    if (savingRef.current || people === null) return;
+    if (
+      !canCreateRef.current ||
+      savingRef.current ||
+      people === null ||
+      getActiveVaultIdSyncMaybe() !== activeVaultId
+    )
+      return;
     const fn = first.trim();
     if (!fn) return; // first name is required to create
     savingRef.current = true;
@@ -188,6 +245,14 @@ export default function PersonAddOrFindScreen() {
         router.replace("/vault/archived");
         return;
       }
+      // A role downgrade can arrive while the archive check is in flight.
+      // The event-log role gate remains the final authority for the write.
+      if (
+        !canCreateRef.current ||
+        !mounted.current ||
+        getActiveVaultIdSyncMaybe() !== activeVaultId
+      )
+        return;
       saveStage = "create_person";
       const result = await createPerson(fn, last?.trim() || null, phoneInput.trim() || null, cc);
       if (!result.ok) {
@@ -262,6 +327,7 @@ export default function PersonAddOrFindScreen() {
       return (
         <Pressable
           onPress={() => openPerson(p.id)}
+          accessibilityRole="button"
           style={({ pressed }) => [styles.row, rowDir(isRTL), pressed && styles.rowPressed]}
         >
           <View style={[styles.rowLeft, isRTL && styles.rowLeftRTL]}>
@@ -314,7 +380,7 @@ export default function PersonAddOrFindScreen() {
       return (
         <View style={styles.noMatchSection}>
           <Text style={[styles.noMatchText, textDir(isRTL)]}>
-            {t("personAdd.noMatch", { query: nameQuery || phone })}
+            {t("personAdd.noMatch", { query: canCreate ? nameQuery || phone : findQuery })}
           </Text>
         </View>
       );
@@ -324,7 +390,7 @@ export default function PersonAddOrFindScreen() {
     return (
       <EmptyState
         title={t("personAdd.empty.title")}
-        subtitle={t("personAdd.empty.subtitle")}
+        subtitle={t(canCreate ? "personAdd.empty.subtitle" : "personFind.empty.subtitle")}
         size="inline"
         isRTL={isRTL}
       />
@@ -333,7 +399,8 @@ export default function PersonAddOrFindScreen() {
 
   // Before the list, never buried below the user's existing kaata contacts.
   function renderContactsAccess() {
-    if (!contactsAccess || (contactsAccess.granted && !contactsAccess.limited)) return null;
+    if (!canCreate || !contactsAccess || (contactsAccess.granted && !contactsAccess.limited))
+      return null;
     const label = contactsAccess.limited
       ? t("personAdd.contacts.manage")
       : contactsAccess.canAskAgain
@@ -373,7 +440,7 @@ export default function PersonAddOrFindScreen() {
       {/* The "Cancel" word becomes the shared chevron; it survives as the a11y
           label so TalkBack still announces "Cancel", not "Back". */}
       <ScreenHeader
-        title={t("personAdd.title")}
+        title={t(canCreate ? "personAdd.title" : "personFind.title")}
         onBack={() => router.back()}
         isRTL={isRTL}
         backLabel={t("common.cancel")}
@@ -381,94 +448,111 @@ export default function PersonAddOrFindScreen() {
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        {/* Fixed form — name (first + last), number, Add. Kept OUT of the list
-            so the inputs never remount on a list re-render (Android focus loss). */}
-        <View style={styles.form}>
-          {/* In Dari the two name fields mirror: first name sits at the start
+        {!canCreate ? (
+          <View style={styles.form}>
+            <TextInput
+              ref={findRef}
+              style={[styles.findInput, textDir(isRTL)]}
+              value={findQuery}
+              onChangeText={setFindQuery}
+              placeholder={t("personFind.placeholder")}
+              placeholderTextColor={colors.textMuted}
+              accessibilityLabel={t("personFind.placeholder")}
+              autoCorrect={false}
+              returnKeyType="search"
+              onSubmitEditing={() => findRef.current?.blur()}
+            />
+          </View>
+        ) : (
+          <View style={styles.form}>
+            {/* Fixed form stays outside the list so its fields never remount
+              during search (Android focus loss). */}
+            {/* In Dari the two name fields mirror: first name sits at the start
               (right) edge, last name to its left. rowDir flips the pair; each
               input's own textDir right-aligns what's typed. */}
-          <View style={[styles.nameRow, rowDir(isRTL)]}>
-            <TextInput
-              ref={firstNameRef}
-              style={[styles.nameInput, textDir(isRTL)]}
-              value={firstName}
-              onChangeText={setFirstName}
-              placeholder={t("personAdd.firstName.placeholder")}
-              placeholderTextColor={colors.textMuted}
-              accessibilityLabel={t("personEdit.firstName.label")}
-              autoCorrect={false}
-              autoCapitalize="words"
-              maxLength={40}
-              returnKeyType="next"
-              onSubmitEditing={() => lastNameRef.current?.focus()}
-              submitBehavior="submit"
-            />
-            <TextInput
-              ref={lastNameRef}
-              style={[styles.nameInput, textDir(isRTL)]}
-              value={lastName}
-              onChangeText={setLastName}
-              placeholder={t("personAdd.lastName.placeholder")}
-              placeholderTextColor={colors.textMuted}
-              accessibilityLabel={t("personEdit.lastName.label")}
-              autoCorrect={false}
-              autoCapitalize="words"
-              maxLength={40}
-              returnKeyType="next"
-              onSubmitEditing={() => phoneRef.current?.focus()}
-              submitBehavior="submit"
-            />
-          </View>
+            <View style={[styles.nameRow, rowDir(isRTL)]}>
+              <TextInput
+                ref={firstNameRef}
+                style={[styles.nameInput, textDir(isRTL)]}
+                value={firstName}
+                onChangeText={setFirstName}
+                placeholder={t("personAdd.firstName.placeholder")}
+                placeholderTextColor={colors.textMuted}
+                accessibilityLabel={t("personEdit.firstName.label")}
+                autoCorrect={false}
+                autoCapitalize="words"
+                maxLength={40}
+                returnKeyType="next"
+                onSubmitEditing={() => lastNameRef.current?.focus()}
+                submitBehavior="submit"
+              />
+              <TextInput
+                ref={lastNameRef}
+                style={[styles.nameInput, textDir(isRTL)]}
+                value={lastName}
+                onChangeText={setLastName}
+                placeholder={t("personAdd.lastName.placeholder")}
+                placeholderTextColor={colors.textMuted}
+                accessibilityLabel={t("personEdit.lastName.label")}
+                autoCorrect={false}
+                autoCapitalize="words"
+                maxLength={40}
+                returnKeyType="next"
+                onSubmitEditing={() => phoneRef.current?.focus()}
+                submitBehavior="submit"
+              />
+            </View>
 
-          {/* Phone row stays physical-LTR even in Persian: Western digits render
+            {/* Phone row stays physical-LTR even in Persian: Western digits render
               LTR via Unicode bidi and are entered left-to-right. */}
-          <View style={styles.phoneRow}>
-            <Pressable
-              onPress={() => setPickerVisible(true)}
-              style={({ pressed }) => [
-                styles.countryBtn,
-                pressed && { backgroundColor: colors.bgMuted },
-              ]}
-            >
-              <Text style={styles.countryFlag}>{country.flag}</Text>
-              <Text style={styles.countryDial}>{ltrIsolate(country.dialCode)}</Text>
-              <Ionicons name="chevron-down" size={icon.trailing} color={colors.textMuted} />
-            </Pressable>
-            <TextInput
-              ref={phoneRef}
-              style={[styles.phoneInput, phoneError ? styles.inputError : null]}
-              value={phone}
-              onChangeText={(v) => {
-                setPhoneError(null);
-                setPhone(v);
-              }}
-              placeholder={
-                country.code === "AF" ? "70 123 4567" : t("personAdd.phone.placeholderGeneric")
-              }
-              placeholderTextColor={colors.textMuted}
-              accessibilityLabel={t("personEdit.phone.label")}
-              keyboardType="phone-pad"
-              returnKeyType="done"
-              onSubmitEditing={onAddPressed}
-            />
+            <View style={styles.phoneRow}>
+              <Pressable
+                onPress={() => setPickerVisible(true)}
+                style={({ pressed }) => [
+                  styles.countryBtn,
+                  pressed && { backgroundColor: colors.bgMuted },
+                ]}
+              >
+                <Text style={styles.countryFlag}>{country.flag}</Text>
+                <Text style={styles.countryDial}>{ltrIsolate(country.dialCode)}</Text>
+                <Ionicons name="chevron-down" size={icon.trailing} color={colors.textMuted} />
+              </Pressable>
+              <TextInput
+                ref={phoneRef}
+                style={[styles.phoneInput, phoneError ? styles.inputError : null]}
+                value={phone}
+                onChangeText={(v) => {
+                  setPhoneError(null);
+                  setPhone(v);
+                }}
+                placeholder={
+                  country.code === "AF" ? "70 123 4567" : t("personAdd.phone.placeholderGeneric")
+                }
+                placeholderTextColor={colors.textMuted}
+                accessibilityLabel={t("personEdit.phone.label")}
+                keyboardType="phone-pad"
+                returnKeyType="done"
+                onSubmitEditing={onAddPressed}
+              />
+            </View>
+
+            {phoneError ? (
+              <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
+                {phoneError}
+              </Text>
+            ) : null}
+            {saveError ? (
+              <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
+                {saveError}
+              </Text>
+            ) : null}
+
+            <View style={{ height: 10 }} />
+            <Button label={addLabel} onPress={onAddPressed} loading={busy} disabled={!canAdd} />
           </View>
-
-          {phoneError ? (
-            <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
-              {phoneError}
-            </Text>
-          ) : null}
-          {saveError ? (
-            <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
-              {saveError}
-            </Text>
-          ) : null}
-
-          <View style={{ height: 10 }} />
-          <Button label={addLabel} onPress={onAddPressed} loading={busy} disabled={!canAdd} />
-        </View>
+        )}
 
         {/* Each section is its OWN bordered card (Recent / All contacts), like
             the home people list (Matee). A single card container per section
@@ -508,12 +592,14 @@ export default function PersonAddOrFindScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <CountryPickerSheet
-        visible={pickerVisible}
-        selectedCode={countryCode}
-        onSelect={(c) => setCountryCode(c)}
-        onDismiss={() => setPickerVisible(false)}
-      />
+      {canCreate ? (
+        <CountryPickerSheet
+          visible={pickerVisible}
+          selectedCode={countryCode}
+          onSelect={(c) => setCountryCode(c)}
+          onDismiss={() => setPickerVisible(false)}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -548,6 +634,17 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.borderDefault,
   },
   nameRow: { flexDirection: "row", gap: 10, marginBottom: 10 },
+  findInput: {
+    minHeight: TOUCH_MIN,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: radius.sm,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    fontFamily: fonts.sansRegular,
+    color: colors.textEmphasis,
+    backgroundColor: colors.bgDefault,
+  },
   nameInput: {
     flex: 1,
     minHeight: TOUCH_MIN,

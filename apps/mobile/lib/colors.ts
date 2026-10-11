@@ -52,8 +52,8 @@ export const colors = {
   payStrong: "#A3203A",
 
   // Review state of a shared tally, independent of the money-direction colors
-  // above. Only pending gets a 6px dot (closed or opened); all opened states
-  // retain a neutral status pill. Never a row tint or a button colour.
+  // above. Closed rows show only the pending amber dot; opened labels show
+  // each state's 6px dot in a neutral pill. Never a row tint or a button colour.
   // Accept uses the neutral primary action, independent of money direction.
   // The darker pending amber retains contrast at this small size; brand
   // Saffron is too light on white for a status cue. Pinned by selftest:tally-ui.

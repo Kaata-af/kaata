@@ -25,21 +25,23 @@ tracks as they are. The working checkout returns to `main` after the merge.
 
 - **WhatsApp reminders:** one icon beside the three-dot menu in the ledger header.
   The balance-area button and menu duplicate were removed in the follow-up batch.
-  Preparation and WhatsApp opening have separate visible loading labels and an
-  accessible spinner/action state. The action's accessibility hint explains what
+  Preparation and WhatsApp opening use a spinner in the button, with phase-specific
+  accessible labels and busy state. The action's accessibility hint explains what
   gets shared. Repeated taps share one attempt, including language selection;
   the native language sheet exits before sharing. Leaving the screen cancels a
   pending reminder so a late upload cannot launch WhatsApp elsewhere. Upload failure still opens a
   plain-text reminder. Opening WhatsApp does not prove the message was sent.
 - **Sign-in:** Settings has one Sign in row. The existing sign-in page offers
   email, Google and Apple, retaining account-change and restore safeguards.
-- **Note search:** filters tallies within a contact, including settled chapters,
-  pre-link history and Not sent entries. All query words must appear in a note;
+- **Tally search:** one box filters notes, amounts and dates within a contact,
+  including settled chapters, pre-link history and Not sent entries. Query terms
+  may combine fields; amounts match exact values and dates use the selected calendar.
   English case/accents, Dari/Arabic letter variants, digits and ZWNJs normalize
   only for matching. Stored notes, balance, exports and shared statements remain
   whole. Hidden incoming tallies retain their notifications during a search.
-- **Quiet status:** pending tallies have the only yellow dot. Accepted tallies
-  have no dot; rejected tallies keep their struck number and accessible status.
+- **Quiet status:** collapsed rows show only the pending yellow dot. Opened
+  status labels have yellow pending, green accepted, red rejected and gray sending
+  dots. Rejected tallies keep their struck number and accessible status.
 - **Shared restore:** missing bindings discovered through `/v1/tabs/mine` pull
   their server rows immediately and refresh contact/balance/shared indicators.
   An unknown live poke starts discovery; contact events arriving after discovery
@@ -139,6 +141,48 @@ Signed build and testing-store delivery evidence is in the distribution log.
 Qamari web share/preview testing needs the matching backend/web deployment;
 this native upload leaves those server changes local, as stated in beta notes.
 
+## October 11 additional feedback — local development
+
+These changes follow TestFlight build 32 / Play internal code 52 and are not
+included in those binaries. No new store upload or backend deployment is requested
+for this development batch.
+
+- **Viewer search:** the black home control is available in every active kaata.
+  For viewers it opens Find person with one name/number field, existing kaata
+  contacts only, and no creation controls or phone-book permission prompt.
+  Unresolved or downgraded roles cannot start a write.
+- **Amounts and dates:** the existing tally search field accepts mixed note,
+  exact amount and selected-calendar date queries, including Persian digits,
+  grouped amounts, English/Dari month names and numeric dates. It searches settled,
+  pre-link and failed tallies without changing balances, exports or reminders.
+  Calendar changes immediately re-evaluate an active search; no extra filter panel
+  is added.
+- **Status labels:** opened pending/accepted/rejected/sending pills regain their
+  small colored dots. Closed rows retain their pending-only cue and rejected strike.
+- **WhatsApp loading:** the icon's spinner is the only visible progress cue.
+  Screen-reader phase labels, single-attempt guard and leaving-screen cancellation
+  remain in place.
+- **Member identity:** names and verified emails come from a current, authorized
+  profile overlay, separate from signed membership history. Role labels stay in
+  their own place, and email appears below the name. Focus/resume/visible refresh
+  updates renamed profiles; session changes and membership removal gate cached
+  contact details. An explicit account display name survives Google/Apple sign-ins;
+  offline edits retry for the same account, and future shared actions record the
+  chosen name without rewriting historical attribution. Backend migration 055
+  stores this override; local migration 033 adds the separate profile cache.
+  These identity/email changes need the matching backend deployment.
+
+Final checks for this local batch passed on October 11: all **35 mobile selftest
+suites** and mobile TypeScript, including 74 email-auth cases, the actual viewer
+search and members screens, profile-cache migrations, role changes, account
+switches and deferred-result races. Amount/date tests also passed with Kabul and
+New York timezones. Backend auth, vault and shared-tab packages passed against an
+isolated PostgreSQL database with migration 055 and no skips; server compilation
+passed. Web TypeScript and the local production build passed. Independent review
+found no remaining material issues. The isolated database was stopped afterward.
+These checks do not establish phone or visual QA, and no new native binary was
+built or distributed for this batch.
+
 ## Deferred by the user
 
 The household/shopkeeper ledger needs two parties: the user and Dad on one
@@ -232,7 +276,7 @@ These remain pending; fixture tests do not replace phone testing.
    retry states. Use synthetic fixtures or isolated test data before any real
    dashboard comparison; do not mutate production analytics.
 8. Header WhatsApp: verify icon placement beside the menu, separate touch targets,
-   mirrored Dari layout, no duplicate menu/balance action and short progress line.
+   mirrored Dari layout, no duplicate menu/balance action and spinner-only loading.
    Inspect the restored black home add/find control and neutral everyday surfaces.
 9. Live decisions: with two signed-in phones, accept/reject a visible pending tally
    remotely; confirm its brief cue, accessible message and balance. Retry/no-op
@@ -245,3 +289,15 @@ These remain pending; fixture tests do not replace phone testing.
     switch kaatas. Inspect exact tally/settlement dates, PDFs, CSVs and a newly
     created share link including its SSR/preview. Compare familiar Qamari dates;
     the calculated convention can differ from the user's local moon-sighting date.
+12. View-only kaata: tap the black home Find person control, search name/number,
+    open an existing zero-tally contact, and confirm no Add or phone-book prompt.
+    Change/downgrade roles while the screen is open.
+13. Tally search: combine notes with amounts/dates, Persian digits and grouped
+    decimals; change calendars with an active filter and search shared/pre-link/
+    Not sent history. Check accepted/rejected/sending label dots in English/Dari.
+14. Members: change a co-member's name on another phone, revisit/resume the list
+    and verify name/email refresh. Remove a member, revoke the viewer or switch
+    accounts; cached contact details must not leak into an unauthorized list.
+    Edit your own name/phone with a viewer or clerk kaata active, retry a rename
+    after going offline, and sign in with Google/Apple again; the chosen account
+    name must persist without granting ledger-edit permission.

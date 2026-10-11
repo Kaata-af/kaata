@@ -69,7 +69,7 @@ import { getLocale, getShareLangPref, resolveShareLang, t, type LocaleCode } fro
 import { formatSettlementDate } from "../../lib/jalali";
 import { useCalendar } from "../../lib/calendar";
 import { shareKaataViaWhatsApp, type WhatsAppShareStage } from "../../lib/share";
-import { filterTalliesByNote, noteSearchTerms } from "../../lib/tally-search";
+import { filterTallies, noteSearchTerms } from "../../lib/tally-search";
 import {
   getLatestTabLinkForPerson,
   listPreLinkEntries,
@@ -157,6 +157,7 @@ export default function PersonDetailScreen() {
   // Subscribes to locale changes — flipping language in Settings re-renders
   // this screen and all its descendants, so strings via t() refresh too.
   const isRTL = useIsRTL();
+  const locale = getLocale();
   // Repaints the settled-chapter lines when the calendar OR the language
   // changes — the latter matters even at a fixed calendar, because language
   // picks the script ("5 Aug 2026" vs "۵ اگست ۲۰۲۶").
@@ -182,8 +183,8 @@ export default function PersonDetailScreen() {
   const [sharedSettlements, setSharedSettlements] = useState<TabSettlement[]>([]);
   const settlementRequest = useRef<{ id: string; throughSeq: number } | null>(null);
   const [showFullHistory, setShowFullHistory] = useState(false);
-  const [noteQuery, setNoteQuery] = useState("");
-  useEffect(() => setNoteQuery(""), [id, entryId, notificationKey]);
+  const [searchQuery, setSearchQuery] = useState("");
+  useEffect(() => setSearchQuery(""), [id, entryId, notificationKey]);
   useEffect(() => {
     if (entryId) setShowFullHistory(true);
   }, [entryId, notificationKey]);
@@ -356,21 +357,21 @@ export default function PersonDetailScreen() {
   // Shared chapters use server sequence, so backdating a new tally can never
   // tuck it behind an old settlement. Local boundaries only apply locally.
   const displayedEntries = useMemo(() => entries.filter(visibleTally), [entries]);
-  const searchTerms = useMemo(() => noteSearchTerms(noteQuery), [noteQuery]);
+  const searchTerms = useMemo(() => noteSearchTerms(searchQuery), [searchQuery]);
   const searching = searchTerms.length > 0;
   const searchingRef = useRef(searching);
   searchingRef.current = searching;
   const matchedEntries = useMemo(
-    () => filterTalliesByNote(displayedEntries, searchTerms),
-    [displayedEntries, searchTerms],
+    () => filterTallies(displayedEntries, searchTerms, { locale, calendar }),
+    [displayedEntries, searchTerms, locale, calendar],
   );
   const matchedPreLink = useMemo(
-    () => filterTalliesByNote(preLink, searchTerms),
-    [preLink, searchTerms],
+    () => filterTallies(preLink, searchTerms, { locale, calendar }),
+    [preLink, searchTerms, locale, calendar],
   );
   const matchedFailedTallies = useMemo(
-    () => filterTalliesByNote(failedTallies, searchTerms),
-    [failedTallies, searchTerms],
+    () => filterTallies(failedTallies, searchTerms, { locale, calendar }),
+    [failedTallies, searchTerms, locale, calendar],
   );
   const searchResultCount =
     matchedEntries.length + matchedPreLink.length + matchedFailedTallies.length;
@@ -994,12 +995,6 @@ export default function PersonDetailScreen() {
           />
         </View>
       </View>
-      {pinging && !askLangVisible ? (
-        <Text style={[styles.shareProgress, textDir(isRTL)]} accessibilityLiveRegion="polite">
-          {t(pingStage === "opening" ? "person.ping.opening" : "person.ping.preparing")}
-        </Text>
-      ) : null}
-
       {/* One person's tallies are bounded, so render them as ONE bordered card
           (ScrollView + map), exactly like the home people list. The old
           FlatList + per-row cardRowFirst/cardRowLast emulation caused the
@@ -1114,8 +1109,8 @@ export default function PersonDetailScreen() {
               <View style={[styles.searchBox, rowDir(isRTL)]}>
                 <Ionicons name="search-outline" size={icon.trailing} color={colors.textSubtle} />
                 <TextInput
-                  value={noteQuery}
-                  onChangeText={setNoteQuery}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
                   placeholder={t("person.search.placeholder")}
                   accessibilityLabel={t("person.search.placeholder")}
                   placeholderTextColor={colors.textSubtle}
@@ -1123,9 +1118,9 @@ export default function PersonDetailScreen() {
                   returnKeyType="search"
                   maxLength={500}
                 />
-                {noteQuery.length > 0 ? (
+                {searchQuery.length > 0 ? (
                   <Pressable
-                    onPress={() => setNoteQuery("")}
+                    onPress={() => setSearchQuery("")}
                     accessibilityRole="button"
                     accessibilityLabel={t("person.search.clear")}
                     style={styles.clearSearch}
@@ -1640,12 +1635,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radius.sm,
-  },
-  shareProgress: {
-    ...typography.bodySm,
-    color: colors.textSubtle,
-    paddingHorizontal: 16,
-    paddingBottom: 6,
   },
   headerNav: {
     flexDirection: "row",

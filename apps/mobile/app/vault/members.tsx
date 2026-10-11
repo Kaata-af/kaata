@@ -2,9 +2,9 @@
 //
 // Reads from vault_members_mirror (the local cache that sync keeps fresh via
 // vault_member_added / role_changed / removed events). Pending invites
-// come from pending_invitations (migration 009), refreshed on pull-to-
-// refresh against GET /v1/vaults/invites/pending — pull-to-refresh is the
-// ONLY network-dependent operation on this screen.
+// come from pending_invitations (migration 009). Current names and emails
+// refresh from the authorized vault listing on focus, resume and while visible;
+// their separate, viewer-scoped cache leaves membership history unchanged.
 //
 // Owner-only mutations (ALL offline-capable as of Phase 8):
 //   - Add member         → routes to vault/invite (online invite link). The
@@ -20,8 +20,16 @@
 // Self-row is non-interactive; last-owner protection enforced at sheet build.
 
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  AppState,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BottomSheet, type SheetAction } from "../../components/BottomSheet";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -34,12 +42,15 @@ import {
   SectionHeader,
 } from "../../components/SettingsScreen";
 import { queuePendingToast, useToast } from "../../components/Toast";
+import { applyForCurrentSession, captureCurrentSession } from "../../lib/auth";
 import { colors } from "../../lib/colors";
-import { getActiveVaultId, getDb } from "../../lib/db-tx";
+import { getActiveVaultId, getActiveVaultIdSyncMaybe, getDb } from "../../lib/db-tx";
 import { getAppMeta, getLocalSelf } from "../../lib/db";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
-import { isPlaceholderSelfName, t } from "../../lib/i18n";
+import { t } from "../../lib/i18n";
+import { memberIdentityName, refreshMemberProfiles } from "../../lib/member-profiles";
+import { onLedgerApplied, useLedgerRefresh } from "../../lib/ledger-events";
 import { radius } from "../../lib/tokens";
 import { useVaultRole } from "../../lib/use-vault-role";
 import { VAULT_ROLE_RANK } from "../../lib/vault-roles";
@@ -55,6 +66,8 @@ type MemberRow = {
   accepted_at: number | null;
   revoked_at: number | null;
   display_name: string | null;
+  profile_name: string | null;
+  has_profile: number;
   email: string | null;
 };
 
@@ -102,6 +115,9 @@ export default function VaultMembersScreen() {
   const [sheetTarget, setSheetTarget] = useState<MemberRow | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<MemberRow | null>(null);
   const [transferTarget, setTransferTarget] = useState<MemberRow | null>(null);
+  const focusedRef = useRef(false);
+  const loadRequestRef = useRef(0);
+  const authorizationRequestRef = useRef(0);
 
   const role: VaultRole = useVaultRole(vaultId, accountId);
   const isOwner = role === "owner";
@@ -114,16 +130,17 @@ export default function VaultMembersScreen() {
   const isManager = role === "manager";
 
   const loadAll = useCallback(async () => {
+    const request = ++loadRequestRef.current;
     const activeVaultId = await getActiveVaultId();
     if (!activeVaultId) {
+      if (!focusedRef.current || request !== loadRequestRef.current) return;
       toast.push(t("members.toast.noActive"), "error");
       router.back();
       return;
     }
-    setVaultId(activeVaultId);
-
     const accId = await getAppMeta("account_id");
-    setAccountId(accId);
+    let ownName: string | null = null;
+    let ownLocalIds: string[] = [];
 
     // Lookup self's display name + local-CA self account id (see state
     // comments above for why both are needed).
@@ -143,7 +160,7 @@ export default function VaultMembersScreen() {
         getLocalSelf(),
         import("../../lib/trust/account-id"),
       ]);
-      setSelfName(self?.name ?? null);
+      ownName = self?.name ?? null;
       const { current, retired } = await deviceKeyMod.readOwnDevicePubkeys();
       const ids: string[] = [];
       for (const pub of [current, ...retired]) {
@@ -154,33 +171,36 @@ export default function VaultMembersScreen() {
           /* skip an unusable entry */
         }
       }
-      setLocalSelfAccountIds(ids);
+      ownLocalIds = ids;
     } catch {
-      setSelfName(null);
+      ownName = null;
     }
 
     const db = await getDb();
-    const rows = await db.getAllAsync<{
-      account_id: string;
-      role: VaultRole;
-      accepted_at: number | null;
-      revoked_at: number | null;
-      display_name: string | null;
-      email: string | null;
-    }>(
-      // Mythos Issue 1 Fix 2: prefer the mirror's own display_name
-      // (persisted from the QR's issuer_display_name at pair time, and
-      // from getLocalSelf at vault-create time) over the users LEFT JOIN,
-      // which only resolves for the Google-signed-in local-self. This is
-      // what lets a paired peer's real name show instead of "Owner".
+    const rows = await db.getAllAsync<MemberRow>(
+      // Current authorized profiles override admission-time identity, including
+      // an explicit empty name. Local-only peers keep their signed fallback.
+      // Recheck both memberships before exposing any cached profile email.
       `SELECT vmm.account_id   AS account_id,
               vmm.role         AS role,
               vmm.accepted_at  AS accepted_at,
               vmm.revoked_at   AS revoked_at,
-              COALESCE(vmm.display_name, u.display_name) AS display_name,
-              NULL             AS email
+              CASE WHEN p.account_id IS NOT NULL THEN p.display_name
+                   ELSE COALESCE(vmm.display_name, u.display_name) END AS display_name,
+              p.display_name   AS profile_name,
+              CASE WHEN p.account_id IS NULL THEN 0 ELSE 1 END AS has_profile,
+              p.email          AS email
          FROM vault_members_mirror vmm
          LEFT JOIN users u ON u.account_id = vmm.account_id
+         LEFT JOIN vault_member_profiles p
+           ON p.vault_id = vmm.vault_id AND p.account_id = vmm.account_id
+          AND p.viewer_account_id = ?
+          AND vmm.accepted_at IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM vault_members_mirror caller
+             WHERE caller.vault_id = vmm.vault_id AND caller.account_id = ?
+               AND caller.accepted_at IS NOT NULL AND caller.revoked_at IS NULL
+          )
         WHERE vmm.vault_id = ?
           AND vmm.revoked_at IS NULL
         ORDER BY
@@ -188,9 +208,10 @@ export default function VaultMembersScreen() {
             WHEN 'owner' THEN 0 WHEN 'manager' THEN 1 WHEN 'editor' THEN 2
             WHEN 'clerk' THEN 3 ELSE 4 END,
           vmm.accepted_at ASC`,
+      accId,
+      accId,
       activeVaultId,
     );
-    setMembers(rows);
 
     const inv = await db.getAllAsync<PendingInviteRow>(
       `SELECT token            AS invite_token,
@@ -202,8 +223,113 @@ export default function VaultMembersScreen() {
         ORDER BY invited_at DESC`,
       activeVaultId,
     );
+    // An old load must not repaint a new account/vault, or a covered screen.
+    const [currentVault, currentAccount] = await Promise.all([
+      getActiveVaultId(),
+      getAppMeta("account_id"),
+    ]);
+    if (
+      !focusedRef.current ||
+      request !== loadRequestRef.current ||
+      currentVault !== activeVaultId ||
+      currentAccount !== accId
+    )
+      return;
+    setVaultId(activeVaultId);
+    setAccountId(accId);
+    setSelfName(ownName);
+    setLocalSelfAccountIds(ownLocalIds);
+    setMembers(rows);
     setPending(inv);
   }, [router, toast]);
+
+  // Invalidate pending reads synchronously at commit, before an older query can
+  // repaint cached emails after membership changed. A small membership-only
+  // read removes unauthorized overlays promptly; ordinary tallies leave current
+  // names/emails in place while the coalesced full reload catches up.
+  useEffect(() => {
+    let cancelled = false;
+    let running = false;
+    let queued = false;
+    const checkAuthorization = async () => {
+      if (running) {
+        queued = true;
+        return;
+      }
+      running = true;
+      const request = authorizationRequestRef.current;
+      const scope = vaultId;
+      try {
+        const session = await captureCurrentSession();
+        if (!scope || !session.jwt || session.accountId !== accountId) return;
+        await applyForCurrentSession(session, async () => {
+          const current = () =>
+            !cancelled &&
+            focusedRef.current &&
+            request === authorizationRequestRef.current &&
+            getActiveVaultIdSyncMaybe() === scope;
+          if (!current()) return;
+          const db = await getDb();
+          const authority = await db.getAllAsync<{
+            account_id: string;
+            accepted_at: number | null;
+            revoked_at: number | null;
+          }>(
+            `SELECT account_id, accepted_at, revoked_at FROM vault_members_mirror WHERE vault_id = ?`,
+            scope,
+          );
+          if (!current()) return;
+          const accepted = new Set(
+            authority
+              .filter((member) => member.accepted_at != null && member.revoked_at == null)
+              .map((member) => member.account_id),
+          );
+          const callerAccepted = accepted.has(session.accountId!);
+          const sanitize = (member: MemberRow | null): MemberRow | null => {
+            if (
+              !member ||
+              (callerAccepted && accepted.has(member.account_id)) ||
+              (!member.email && !member.has_profile)
+            )
+              return member;
+            return { ...member, email: null, has_profile: 0, profile_name: null };
+          };
+          setMembers((members) => {
+            const next = members.map((member) => sanitize(member)!);
+            return next.some((member, index) => member !== members[index]) ? next : members;
+          });
+          setSheetTarget(sanitize);
+          setRevokeTarget(sanitize);
+          setTransferTarget(sanitize);
+        });
+      } catch (err) {
+        if (__DEV__) console.warn("[vault/members] authorization refresh failed", err);
+      } finally {
+        running = false;
+        if (queued && !cancelled && focusedRef.current) {
+          queued = false;
+          void checkAuthorization();
+        }
+      }
+    };
+    const unsub = onLedgerApplied((changedVault) => {
+      if (!focusedRef.current || (vaultId && changedVault !== vaultId)) return;
+      loadRequestRef.current++;
+      authorizationRequestRef.current++;
+      void checkAuthorization();
+    });
+    return () => {
+      cancelled = true;
+      authorizationRequestRef.current++;
+      unsub();
+    };
+  }, [vaultId, accountId]);
+
+  // Identity queries recheck both current memberships on every load.
+  useLedgerRefresh(vaultId || null, () => {
+    if (!focusedRef.current) return;
+    void loadAll().catch((err) => console.warn("[vault/members] member reload failed", err));
+  });
 
   // Presence: map online device_ids → account_ids via the device registry so the
   // members list can show a "reachable now" dot. Recomputed on every mesh sync
@@ -249,16 +375,58 @@ export default function VaultMembersScreen() {
   // screen sits beneath them on the stack — popping back must re-query.
   useFocusEffect(
     useCallback(() => {
-      void (async () => {
+      focusedRef.current = true;
+      setMembers([]);
+      setLoaded(false);
+      let running = false;
+      let queued = false;
+      let cancelled = false;
+      const refresh = async () => {
+        if (cancelled || !focusedRef.current || AppState.currentState !== "active") return;
+        if (running) {
+          queued = true;
+          return;
+        }
+        running = true;
         try {
           await loadAll();
+          if (!cancelled && focusedRef.current) setLoaded(true);
+          const activeVaultId = await getActiveVaultId();
+          if (!activeVaultId || cancelled || !focusedRef.current) return;
+          try {
+            await refreshMemberProfiles(activeVaultId);
+          } catch (err) {
+            if (__DEV__) console.warn("[vault/members] profile refresh failed", err);
+          }
+          // Also reload after a refusal: that clears cached profile email.
+          if (!cancelled && focusedRef.current) await loadAll();
         } catch (err) {
+          if (cancelled || !focusedRef.current) return;
           console.warn("[vault/members] load failed", err);
           toast.push(t("members.toast.loadFailed"), "error");
         } finally {
-          setLoaded(true);
+          if (!cancelled && focusedRef.current) setLoaded(true);
+          running = false;
+          if (queued) {
+            queued = false;
+            void refresh();
+          }
         }
-      })();
+      };
+      void refresh();
+      const app = AppState.addEventListener("change", (state) => {
+        if (state === "active") void refresh();
+      });
+      const timer = setInterval(() => void refresh(), 30_000);
+      return () => {
+        cancelled = true;
+        focusedRef.current = false;
+        ++loadRequestRef.current;
+        ++authorizationRequestRef.current;
+        app.remove();
+        clearInterval(timer);
+        setMembers([]);
+      };
     }, [loadAll, toast]),
   );
 
@@ -278,17 +446,14 @@ export default function VaultMembersScreen() {
         failed = true;
         console.warn("[vault/members] invite fetch failed", err);
       }
-      // Member display names ride the vaults listing (server accounts.name);
-      // fold them into the mirror so rows show people, not role labels.
-      // Same offline/local-CA guard rationale as above; a name-heal failure
-      // is cosmetic, so it doesn't flip `failed`.
+      // Mutable profiles ride the vault listing into a separate cache; signed
+      // membership names and role history remain unchanged. A network failure
+      // keeps the last authorized data; refused access clears it.
       try {
-        const { listVaults } = await import("../../lib/vault-api");
-        const { healMemberNamesFromListing } = await import("../../lib/recovery");
-        const listing = (await listVaults()).find((v) => v.vault_id === vaultId);
-        if (listing) await healMemberNamesFromListing(listing);
+        const activeVaultId = await getActiveVaultId();
+        if (activeVaultId) await refreshMemberProfiles(activeVaultId);
       } catch (err) {
-        console.warn("[vault/members] member-name heal failed", err);
+        console.warn("[vault/members] profile refresh failed", err);
       }
       await loadAll();
     } catch (err) {
@@ -520,32 +685,14 @@ export default function VaultMembersScreen() {
             // Self detection: match the signed-in account_id (server-anchored
             // path) OR the local-CA self id derived from the device pubkey
             // (local-only path). Without the second branch, local-only
-            // users' own row gets the generic role label instead of their
+            // users' own row loses its self identity instead of showing their
             // name.
             const isSelf = m.account_id === accountId || localSelfAccountIds.includes(m.account_id);
             const last = i === members.length - 1;
-            // Display name fallback (local-CA aware). The `users` LEFT
-            // JOIN can't resolve synthesized `local:R%abc…` account ids,
-            // so display_name comes back NULL for paired peers. Order:
-            //   1. users.display_name (server-anchored path)
-            //   2. users.email
-            //   3. selfName from getLocalSelf — only for the self row
-            //   4. role label ("Owner" / "Editor" / "Viewer") — better
-            //      than raw "local:R%…" for unknown peers
-            // Nameless-peer fallback label — humanizeRole covers all five
-            // roles (review fix: the old three-way ternary showed a nameless
-            // manager/clerk as "Viewer").
-            const roleLabel = humanizeRole(m.role);
-            // Self row: a restore-minted placeholder ("You") must not render
-            // as "You (You)" — when no REAL name resolves, show the localized
-            // "You" once, without the suffix. Real names get the suffix.
-            const resolved = m.display_name ?? m.email ?? (isSelf ? selfName : null);
-            const realName = resolved && !isPlaceholderSelfName(resolved) ? resolved : null;
-            const displayName = isSelf
-              ? realName
-                ? realName + t("members.youSuffix")
-                : t("recovery.selfPlaceholderName")
-              : (realName ?? roleLabel);
+            // Names and roles remain separate. Prefer the current profile;
+            // without one, use the local self or admission name. Unknown peers
+            // show "Name unavailable" and an unknown self shows "You" once.
+            const displayName = memberIdentityName(m, isSelf, selfName);
             return (
               <MemberIdentityRow
                 key={m.account_id}
@@ -721,7 +868,18 @@ function MemberIdentityRow(props: {
           {props.name}
         </Text>
         {props.sub ? (
-          <Text style={[styles.identitySub, textDir(props.isRTL)]} numberOfLines={1}>
+          <Text
+            style={[
+              styles.identitySub,
+              props.pending
+                ? textDir(props.isRTL)
+                : {
+                    writingDirection: "ltr",
+                    textAlign: props.isRTL ? "right" : "left",
+                  },
+            ]}
+            numberOfLines={1}
+          >
             {props.sub}
           </Text>
         ) : null}

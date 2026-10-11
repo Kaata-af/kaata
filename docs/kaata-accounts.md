@@ -369,9 +369,19 @@ providers: ["google","apple","email"...], name, setup_email}`. `setup_email` is 
     invisible characters (zero-width space, word joiner, BOM) stripped, ZWNJ and ZWJ
     kept because Dari spelling needs them, 2-60 characters; 400 `invalid_name`, 409
     `provider_name`.
-    Shared tallies, reviews, settlements and pushes show `accounts.name`, so an email
-    account must have one. The app sends the onboarding name right after the first
-    email sign-in and whenever the user edits their name in Account settings.
+    The onboarding name still uses this endpoint after a nameless email sign-in.
+    It updates both `accounts.name` and the explicit display override, preserving
+    an older email client's save after a newer client has set an override.
+    `PUT /v1/account/display-name {name}` → `200 {name}` is the explicit Kaata
+    profile edit for every sign-in provider, with the same sanitization and length
+    rule. Migration `055_account_display_name.sql` adds nullable
+    `accounts.display_name`; migration 054 remains reserved for deferred deletion.
+    Google/Apple sign-in may refresh `accounts.name` and credential profile data,
+    but never replaces the explicit override or changes the proven identity/email.
+    Account-me, sign-in replies, current member profiles and party names use
+    `COALESCE(display_name, name)`. Future shared-tally evidence and notification
+    snapshots use that current name; previously recorded actor names stay unchanged.
+    Account deletion removes the entire account row, including the override.
 12. `DELETE /v1/account/password` → `200 {has_password:false}`, also when there is
     none. Only from a Google or Apple session (403 `provider_session_required` from an
     email session), so whoever removes it controls the account's Google or Apple
@@ -386,7 +396,8 @@ providers: ["google","apple","email"...], name, setup_email}`. `setup_email` is 
 
 - New functions: `emailSignUpStart`, `emailSignUpVerify`, `emailSignIn`,
   `emailResetStart`, `emailResetVerify`, `fetchAccountMe`, `passwordSetupStart`,
-  `passwordSetupVerify`, `changePassword`, `setUsername`, `setAccountName`. Typed
+  `passwordSetupVerify`, `changePassword`, `setUsername`, `setAccountName`,
+  `saveAccountDisplayName`. Typed
   `EmailAuthError(reason, status, extra)`; its message is the reason only, so crash
   reports never carry what the user typed.
 - No new static imports (selftests mock lib/auth's imports exhaustively).
@@ -410,6 +421,21 @@ providers: ["google","apple","email"...], name, setup_email}`. `setup_email` is 
   onboarding name step of an email session sends the CURRENT name (so a name fixed
   after Back is not lost), and names are checked against the server's rule (2-60
   characters after trimming) where they are typed.
+- Account settings explicitly saves a Kaata display name for Google, Apple and
+  email accounts. A changed or unsettled name must meet the server rule; an
+  unchanged provider-imported name does not block a phone-only save. Fresh account
+  names prefill untouched fields, without overwriting a current edit or queued name.
+  Offline/5xx saves retain the exact name and account id in
+  `account_display_name_pending`; check-in retries only for that account. A stale
+  queued retry cannot replace a newer edit. Unsupported endpoints and named
+  refusals remain visible failures. Saves and cloud-profile reads carry the
+  starting session binding so switching accounts cannot apply their results to
+  the next account.
+- A viewer or clerk may edit their personal account profile while a read-only
+  kaata is active. Their own device-local self name changes without authoring a
+  ledger rename; the explicit account endpoint provides the current cloud name.
+  Authorized ledger renames continue through the signed event log. Unchanged-name
+  phone-only saves emit no rename, and ledger permissions remain unchanged.
 - Final-review rules: `emailResetVerify`, `passwordSetupVerify` and `changePassword`
   send `lang`; `changePassword` stores the returned `session_jwt`; a leading "@" is
   dropped from a sign-in identifier, as on the server;

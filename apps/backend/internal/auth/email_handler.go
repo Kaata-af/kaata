@@ -404,3 +404,23 @@ func (h *Handler) SetAccountName(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.JSON(w, http.StatusOK, map[string]string{"name": name})
 }
+
+// SetAccountDisplayName — PUT /v1/account/display-name (PROTECTED), any account.
+func (h *Handler) SetAccountDisplayName(w http.ResponseWriter, r *http.Request) {
+	claims, ok := sessionClaims(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	name, err := h.svc.SetAccountDisplayName(r.Context(), claims.AccountID, req.Name)
+	if err != nil {
+		writeAccountError(w, "account/display-name", claims.InstallID, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]string{"name": name})
+}

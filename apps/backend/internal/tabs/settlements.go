@@ -151,7 +151,7 @@ func (s *Service) Settle(ctx context.Context, p Party, in SettleInput) (Settleme
 	marker, err := scanSettlement(tx.QueryRow(ctx, `INSERT INTO tab_settlements
 		(id,tab_id,rev,through_seq,settled_at_ms,created_by,actor_account_id,actor_name,actor_member_role,semantics_version)
 		VALUES($1::uuid,$2::uuid,$3,$4,(EXTRACT(EPOCH FROM clock_timestamp())*1000)::bigint,$5,$6::uuid,
-		  COALESCE((SELECT name FROM accounts WHERE id=$6::uuid),''),$7,$8)
+		  COALESCE((SELECT COALESCE(display_name, name) FROM accounts WHERE id=$6::uuid),''),$7,$8)
 		ON CONFLICT(id) DO NOTHING RETURNING `+settlementCols,
 		in.ID, p.TabID, rev, throughSeq, p.Role, p.ActorAccountID, p.evidenceRole(), settlementSemanticsVersion))
 	if errors.Is(err, pgx.ErrNoRows) {

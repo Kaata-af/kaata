@@ -300,7 +300,7 @@ func (s *Service) SignInWithGoogle(
 	result.User = User{
 		Sub:         providerSub,
 		Email:       email,
-		Name:        name,
+		Name:        acct.name,
 		PictureURL:  picture,
 		Phone:       acct.phone,
 		Username:    acct.username,
@@ -359,7 +359,7 @@ func (s *Service) SignInWithApple(
 	result.User = User{
 		Sub:         providerSub,
 		Email:       email,
-		Name:        name,
+		Name:        acct.name,
 		Phone:       acct.phone,
 		Username:    acct.username,
 		HasPassword: acct.hasPassword,

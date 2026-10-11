@@ -1,0 +1,543 @@
+// Execute the real members screen and ledger notifier against controlled native,
+// session and query boundaries. No production database, account or network IO.
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import ts from "typescript";
+import { colors } from "../colors";
+import { VAULT_ROLE_RANK } from "../vault-roles";
+
+type Node = { type: string; props: Record<string, any> };
+type Deferred = { promise: Promise<void>; resolve: () => void };
+const deferred = (): Deferred => {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+};
+let slots: any[] = [],
+  cursor = 0,
+  dirty = false,
+  tree: Node;
+let effects: (() => void)[] = [];
+let focused = true,
+  focusEpoch = 0,
+  appState = "active";
+let activeVault = "v",
+  account = "caller",
+  binding = 1;
+let callerAccepted = true,
+  peerAccepted = true,
+  peerRevoked = false;
+let inviteGate: Deferred | null = null;
+let authorityGate: Deferred | null = null;
+let profileGate: Deferred | null = null;
+let memberQueries = 0,
+  authorityQueries = 0,
+  profileRequests = 0;
+let nextTimer = 0;
+const timeouts = new Map<number, { fn: () => void; ms: number }>();
+const intervals = new Map<number, { fn: () => void; ms: number }>();
+const appListeners = new Set<(state: string) => void>();
+const same = (a?: unknown[], b?: unknown[]) =>
+  !!a && !!b && a.length === b.length && a.every((value, index) => Object.is(value, b[index]));
+const react = {
+  useState(initial: any) {
+    const index = cursor++;
+    if (!(index in slots)) slots[index] = typeof initial === "function" ? initial() : initial;
+    return [
+      slots[index],
+      (value: any) => {
+        const next = typeof value === "function" ? value(slots[index]) : value;
+        if (!Object.is(next, slots[index])) {
+          slots[index] = next;
+          dirty = true;
+        }
+      },
+    ];
+  },
+  useRef(initial: any) {
+    return (slots[cursor++] ??= { current: initial });
+  },
+  useMemo(fn: () => any, deps: unknown[]) {
+    const index = cursor++;
+    if (!(index in slots) || !same(slots[index].deps, deps)) slots[index] = { deps, value: fn() };
+    return slots[index].value;
+  },
+  useCallback(fn: (...args: any[]) => any, deps: unknown[]) {
+    return react.useMemo(() => fn, deps);
+  },
+  useEffect(fn: () => void | (() => void), deps?: unknown[]) {
+    const index = cursor++;
+    const before = slots[index];
+    if (before && same(before.deps, deps)) return;
+    slots[index] = { deps };
+    effects.push(() => {
+      before?.cleanup?.();
+      slots[index].cleanup = fn();
+    });
+  },
+};
+const jsx = (type: any, props: any): Node => ({
+  type: typeof type === "function" ? type.name : type,
+  props,
+});
+const nodes = (node: any): Node[] =>
+  Array.isArray(node)
+    ? node.flatMap(nodes)
+    : !node || typeof node !== "object"
+      ? []
+      : [node, ...nodes(node.props?.children)];
+const memberRow = () =>
+  nodes(tree).find(
+    (node) => node.type === "MemberIdentityRow" && node.props.name === "Current Peer",
+  );
+const native = {
+  AppState: {
+    get currentState() {
+      return appState;
+    },
+    addEventListener: (_: string, fn: (state: string) => void) => {
+      appListeners.add(fn);
+      return { remove: () => appListeners.delete(fn) };
+    },
+  },
+  Pressable: "Pressable",
+  RefreshControl: "RefreshControl",
+  ScrollView: "ScrollView",
+  Text: "Text",
+  View: "View",
+  StyleSheet: { create: (styles: any) => styles },
+};
+function compile(file: string, mocks: Record<string, any>) {
+  const exports: any = {};
+  const code = ts.transpileModule(readFileSync(require.resolve(file), "utf8"), {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      jsx: ts.JsxEmit.ReactJSX,
+      target: ts.ScriptTarget.ES2022,
+    },
+  }).outputText;
+  new Function(
+    "require",
+    "exports",
+    "setTimeout",
+    "clearTimeout",
+    "setInterval",
+    "clearInterval",
+    "__DEV__",
+    code,
+  )(
+    (name: string) => {
+      assert.ok(name in mocks, `${file}: unexpected dependency ${name}`);
+      return mocks[name];
+    },
+    exports,
+    (fn: () => void, ms: number) => {
+      const id = ++nextTimer;
+      timeouts.set(id, { fn, ms });
+      return id;
+    },
+    (id: number) => timeouts.delete(id),
+    (fn: () => void, ms: number) => {
+      const id = ++nextTimer;
+      intervals.set(id, { fn, ms });
+      return id;
+    },
+    (id: number) => intervals.delete(id),
+    false,
+  );
+  return exports;
+}
+const ledger = compile("../ledger-events", { react, "react-native": native });
+const router = { push() {}, replace() {}, back() {} };
+const toast = { push() {} };
+const membership = () => [
+  { account_id: "caller", accepted_at: callerAccepted ? 1 : null, revoked_at: null },
+  { account_id: "next-caller", accepted_at: 1, revoked_at: null },
+  { account_id: "peer", accepted_at: peerAccepted ? 1 : null, revoked_at: peerRevoked ? 2 : null },
+];
+const db = {
+  getAllAsync: async (sql: string, ...args: any[]) => {
+    if (sql.includes("SELECT vmm.account_id")) {
+      memberQueries++;
+      const authorized =
+        (args[0] === "next-caller" || callerAccepted) && peerAccepted && !peerRevoked;
+      return peerRevoked
+        ? []
+        : [
+            {
+              account_id: "peer",
+              role: "viewer",
+              accepted_at: peerAccepted ? 1 : null,
+              revoked_at: null,
+              display_name: "Current Peer",
+              profile_name: authorized ? "Current Peer" : null,
+              has_profile: authorized ? 1 : 0,
+              email: authorized ? `${args[0]}-${args[2]}@example.test` : null,
+            },
+          ];
+    }
+    if (sql.includes("FROM pending_invitations")) {
+      const gate = inviteGate;
+      inviteGate = null;
+      if (gate) await gate.promise;
+      return [];
+    }
+    if (sql.includes("SELECT account_id, accepted_at, revoked_at")) {
+      authorityQueries++;
+      const rows = membership();
+      const gate = authorityGate;
+      authorityGate = null;
+      if (gate) await gate.promise;
+      return rows;
+    }
+    if (sql.includes("FROM vault_device_registry")) return [];
+    throw new Error(`unexpected members query ${sql}`);
+  },
+};
+const screen = compile("../../app/vault/members", {
+  react,
+  "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+  "react-native": native,
+  "react-native-safe-area-context": { SafeAreaView: "SafeArea" },
+  "expo-router": {
+    useRouter: () => router,
+    useLocalSearchParams: () => ({}),
+    useFocusEffect: (fn: any) =>
+      react.useEffect(() => (focused ? fn() : undefined), [fn, focusEpoch]),
+  },
+  "../../components/BottomSheet": { BottomSheet: "BottomSheet" },
+  "../../components/ConfirmDialog": { ConfirmDialog: "ConfirmDialog" },
+  "../../components/ScreenLoading": { ScreenLoading: "Loading" },
+  "../../components/SettingsScreen": Object.fromEntries(
+    ["EmptyHint", "NavRow", "ScreenHeader", "SectionGap", "SectionHeader"].map((name) => [
+      name,
+      name,
+    ]),
+  ),
+  "../../components/Toast": { useToast: () => toast, queuePendingToast() {} },
+  "../../lib/auth": {
+    captureCurrentSession: async () => ({
+      accountId: account,
+      jwt: `token-${binding}`,
+      bindingVersion: binding,
+    }),
+    applyForCurrentSession: async (before: any, work: () => Promise<void>) => {
+      if (before.accountId !== account || before.bindingVersion !== binding)
+        throw new Error("session changed");
+      await work();
+    },
+  },
+  "../../lib/colors": { colors },
+  "../../lib/db-tx": {
+    getActiveVaultId: async () => activeVault,
+    getActiveVaultIdSyncMaybe: () => activeVault,
+    getDb: async () => db,
+  },
+  "../../lib/db": {
+    getAppMeta: async () => account,
+    getLocalSelf: async () => ({ name: "Caller" }),
+  },
+  "../../lib/direction": {
+    useIsRTL: () => false,
+    rowDir: () => ({}),
+    textDir: () => ({}),
+    trackingSafe: () => ({}),
+  },
+  "../../lib/fonts": { fonts: {} },
+  "../../lib/i18n": { t: (key: string) => key },
+  "../../lib/member-profiles": {
+    memberIdentityName: (member: any) => member.display_name,
+    refreshMemberProfiles: async () => {
+      profileRequests++;
+      if (profileGate) await profileGate.promise;
+      return true;
+    },
+  },
+  "../../lib/ledger-events": ledger,
+  "../../lib/tokens": { radius: {} },
+  "../../lib/use-vault-role": { useVaultRole: () => "owner" },
+  "../../lib/vault-roles": { VAULT_ROLE_RANK },
+  "../../lib/mesh/presence": { subscribePresence: () => () => {}, isPeerOnline: () => false },
+  "../../lib/vault-api": { fetchPendingInvitations: async () => {} },
+  "../../lib/event-log": { appendVaultMemberRemoved() {}, appendVaultMemberRoleChanged() {} },
+  "../../lib/vault-router": { transferVaultOwnership() {} },
+  "../../lib/mesh/device-key": {
+    ensureDeviceKey: async () => {},
+    readOwnDevicePubkeys: async () => ({ current: null, retired: [] }),
+  },
+  "../../lib/trust/account-id": { buildLocalAccountId: () => "local" },
+}).default;
+function unmount() {
+  for (const slot of slots) slot?.cleanup?.();
+  slots = [];
+  effects = [];
+}
+function fixture() {
+  unmount();
+  assert.equal(appListeners.size, 0);
+  assert.equal(timeouts.size, 0);
+  assert.equal(intervals.size, 0);
+  focused = true;
+  focusEpoch = 0;
+  appState = "active";
+  activeVault = "v";
+  account = "caller";
+  binding = 1;
+  callerAccepted = true;
+  peerAccepted = true;
+  peerRevoked = false;
+  inviteGate = null;
+  authorityGate = null;
+  profileGate = null;
+  memberQueries = 0;
+  authorityQueries = 0;
+  profileRequests = 0;
+  dirty = true;
+}
+async function flush() {
+  for (let tick = 0; tick < 60; tick++) {
+    if (dirty) {
+      dirty = false;
+      cursor = 0;
+      tree = screen();
+    }
+    effects.splice(0).forEach((fn) => fn());
+    await Promise.resolve();
+  }
+  assert.equal(dirty, false, "member screen settled");
+}
+async function coalescedReload() {
+  const pending = [...timeouts.values()];
+  timeouts.clear();
+  pending.forEach(({ fn }) => fn());
+  await flush();
+}
+async function poll() {
+  for (const timer of intervals.values()) if (timer.ms === 30_000) timer.fn();
+  await flush();
+}
+function appChange(next: string) {
+  appState = next;
+  for (const fn of [...appListeners]) fn(next);
+}
+async function refocus() {
+  focused = false;
+  focusEpoch++;
+  dirty = true;
+  await flush();
+  focused = true;
+  focusEpoch++;
+  dirty = true;
+  await flush();
+}
+
+export async function runMembersScreenSelftest() {
+  fixture();
+  await flush();
+  assert.equal(memberRow()?.props.sub, "caller-v@example.test");
+  const ordinary = memberRow();
+  const queriesBeforeOtherVault = memberQueries;
+  ledger.emitLedgerApplied("other", "remote");
+  await flush();
+  assert.equal(timeouts.size, 0, "another vault does not schedule the visible member query");
+  assert.equal(memberQueries, queriesBeforeOtherVault);
+  ledger.emitLedgerApplied("v", "remote");
+  await flush();
+  assert.equal(
+    memberRow()?.props.sub,
+    ordinary?.props.sub,
+    "ordinary tallies preserve current emails before full reload",
+  );
+  assert.equal(memberRow()?.props.name, ordinary?.props.name);
+  assert.equal(authorityQueries, 1);
+  await coalescedReload();
+  assert.equal(memberRow()?.props.sub, "caller-v@example.test");
+
+  const oldLoad = deferred();
+  inviteGate = oldLoad;
+  const network = deferred();
+  profileGate = network;
+  await poll();
+  peerRevoked = true;
+  ledger.emitLedgerApplied("v", "remote");
+  await flush();
+  assert.equal(
+    memberRow()?.props.sub,
+    null,
+    "a revoked peer's displayed email is removed before the coalesced reload",
+  );
+  oldLoad.resolve();
+  await flush();
+  assert.equal(
+    memberRow()?.props.sub,
+    null,
+    "an older deferred member load cannot repaint the revoked email",
+  );
+  assert.equal(focusEpoch, 0, "the removal does not require navigation focus");
+  await coalescedReload();
+  assert.equal(memberRow(), undefined, "the complete reload removes the revoked member row");
+  network.resolve();
+  await flush();
+
+  fixture();
+  await flush();
+  callerAccepted = false;
+  ledger.emitLedgerApplied("v", "remote");
+  await flush();
+  assert.equal(
+    memberRow()?.props.sub,
+    null,
+    "a pending caller loses the cached peer email promptly",
+  );
+  assert.equal(
+    memberRow()?.props.name,
+    "Current Peer",
+    "authorization cleanup leaves the name stable",
+  );
+  await coalescedReload();
+  assert.equal(memberRow()?.props.sub, null);
+
+  fixture();
+  const initialLoad = deferred();
+  inviteGate = initialLoad;
+  const initialNetwork = deferred();
+  profileGate = initialNetwork;
+  await flush();
+  peerRevoked = true;
+  ledger.emitLedgerApplied("v", "remote");
+  initialLoad.resolve();
+  await flush();
+  assert.equal(
+    memberRow(),
+    undefined,
+    "commit invalidates the initial load before vault state was populated",
+  );
+  await coalescedReload();
+  assert.equal(memberRow(), undefined);
+  initialNetwork.resolve();
+  await flush();
+
+  fixture();
+  await flush();
+  callerAccepted = false;
+  const oldAuthorization = deferred();
+  authorityGate = oldAuthorization;
+  ledger.emitLedgerApplied("v", "remote");
+  await flush();
+  callerAccepted = true;
+  ledger.emitLedgerApplied("v", "remote");
+  await flush();
+  oldAuthorization.resolve();
+  await flush();
+  assert.equal(
+    memberRow()?.props.sub,
+    "caller-v@example.test",
+    "a superseded denial cannot clear restored current authorization",
+  );
+  await coalescedReload();
+
+  fixture();
+  await flush();
+  callerAccepted = false;
+  const beforeBlur = deferred();
+  authorityGate = beforeBlur;
+  ledger.emitLedgerApplied("v", "remote");
+  await flush();
+  focused = false;
+  focusEpoch++;
+  dirty = true;
+  await flush();
+  callerAccepted = true;
+  ledger.emitLedgerApplied("v", "remote");
+  await flush();
+  focused = true;
+  focusEpoch++;
+  dirty = true;
+  await flush();
+  beforeBlur.resolve();
+  await flush();
+  assert.equal(
+    memberRow()?.props.sub,
+    "caller-v@example.test",
+    "a pre-blur denial cannot wipe a freshly refocused view of the same account/vault",
+  );
+
+  fixture();
+  await flush();
+  callerAccepted = false;
+  const oldSession = deferred();
+  authorityGate = oldSession;
+  ledger.emitLedgerApplied("v", "remote");
+  await flush();
+  account = "next-caller";
+  binding++;
+  callerAccepted = true;
+  await refocus();
+  assert.equal(memberRow()?.props.sub, "next-caller-v@example.test");
+  oldSession.resolve();
+  await flush();
+  assert.equal(
+    memberRow()?.props.sub,
+    "next-caller-v@example.test",
+    "the previous session's denial cannot wipe the new session's email",
+  );
+
+  fixture();
+  await flush();
+  callerAccepted = false;
+  const oldVault = deferred();
+  authorityGate = oldVault;
+  ledger.emitLedgerApplied("v", "remote");
+  await flush();
+  activeVault = "next-vault";
+  callerAccepted = true;
+  await refocus();
+  oldVault.resolve();
+  await flush();
+  assert.equal(
+    memberRow()?.props.sub,
+    "caller-next-vault@example.test",
+    "the previous vault's check cannot wipe a new vault overlay",
+  );
+
+  fixture();
+  await flush();
+  const beforeBackground = profileRequests;
+  appChange("background");
+  await poll();
+  assert.equal(profileRequests, beforeBackground, "background polling does not request profiles");
+  peerAccepted = false;
+  ledger.emitLedgerApplied("v", "remote");
+  await flush();
+  assert.equal(
+    memberRow()?.props.sub,
+    null,
+    "background membership application clears the unauthorized overlay",
+  );
+  appChange("active");
+  await flush();
+  await coalescedReload();
+  assert.equal(memberRow()?.props.sub, null);
+  assert.equal(focusEpoch, 0);
+
+  fixture();
+  await flush();
+  callerAccepted = false;
+  const afterUnmount = deferred();
+  authorityGate = afterUnmount;
+  ledger.emitLedgerApplied("v", "remote");
+  await flush();
+  unmount();
+  dirty = false;
+  afterUnmount.resolve();
+  for (let tick = 0; tick < 60; tick++) await Promise.resolve();
+  assert.equal(dirty, false, "authorization work cannot set state after unmount");
+  assert.equal(appListeners.size, 0);
+  assert.equal(timeouts.size, 0);
+  assert.equal(intervals.size, 0);
+  console.log(
+    "PASS members screen: deferred/initial loads, immediate scoped email authorization, stable ordinary tallies, superseded/session/vault guards, background/resume and subscription cleanup",
+  );
+}

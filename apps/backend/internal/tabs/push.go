@@ -161,7 +161,7 @@ func queuePush(ctx context.Context, tx pgx.Tx, tabID, actor string, rev int64, e
 	// Also persist when no device has granted push permission. A delivery job
 	// can expire or be deleted without erasing the user's notification history.
 	_, err := tx.Exec(ctx, `INSERT INTO tab_notifications(tab_id,rev,recipient_role,event_kind,entry_id,actor_label,actor_account_id,actor_install_id)
- SELECT $1::uuid,$2,CASE WHEN $3='a' THEN 'b' ELSE 'a' END,$4,NULLIF($5,'')::uuid,COALESCE((SELECT name FROM accounts WHERE id=$6::uuid),''),$6::uuid,$7::uuid
+ SELECT $1::uuid,$2,CASE WHEN $3='a' THEN 'b' ELSE 'a' END,$4,NULLIF($5,'')::uuid,COALESCE((SELECT COALESCE(display_name, name) FROM accounts WHERE id=$6::uuid),''),$6::uuid,$7::uuid
  FROM tab_parties WHERE tab_id=$1::uuid AND role=$3 ON CONFLICT DO NOTHING`,
 		tabID, rev, actor, event.Kind, event.EntryID, event.ActorAccountID, event.ActorInstallID)
 	if err != nil {
