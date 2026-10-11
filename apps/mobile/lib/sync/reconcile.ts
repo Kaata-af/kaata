@@ -30,6 +30,7 @@
 import * as Network from "expo-network";
 
 import { getSessionJWT } from "../auth";
+import { resolveAccountIdCandidates } from "../effective-account";
 import {
   getAccountIdSync,
   getActiveVaultIdSyncMaybe,
@@ -264,7 +265,7 @@ export async function ensureVaultRegistered(vaultId: string): Promise<void> {
   await reconcileVaultRegistrations();
 }
 
-// Reconcile registrations, then pull+push every registered vault that still
+// Reconcile registrations, then pull+push every registered or joined vault that still
 // needs it — EXCLUDING the active vault (the scheduler's per-tick syncOnce
 // already covers it, so syncing it here would just double request volume). A
 // vault is swept if it's non-archived OR still has unacked outbox rows (so an
@@ -285,6 +286,12 @@ export async function fullBackupSweep(): Promise<void> {
   await healMissingServerAnchors();
 
   const db = await getDb();
+  let accountId = getAccountIdSync();
+  if (!accountId) accountId = await refreshAccountIdCache();
+  // Paired memberships may still use this device's current/retired local-key
+  // identity after sign-in. Match the same identities as role/visibility reads.
+  const memberIds = await resolveAccountIdCandidates(accountId);
+  const memberPlaceholders = memberIds.map(() => "?").join(",") || "NULL";
   // The server_archived_probe clause sits OUTSIDE the registered filter:
   // joined vaults (member via invite/pair) keep registered_with_server_at
   // NULL by design, and they are exactly the vaults a server-driven archive
@@ -298,7 +305,14 @@ export async function fullBackupSweep(): Promise<void> {
     `SELECT v.id
        FROM vaults v
       WHERE (
-          v.registered_with_server_at IS NOT NULL
+          (
+            v.registered_with_server_at IS NOT NULL
+            OR EXISTS (
+              SELECT 1 FROM vault_members_mirror m
+               WHERE m.vault_id = v.id AND m.account_id IN (${memberPlaceholders})
+                 AND m.accepted_at IS NOT NULL AND m.revoked_at IS NULL
+            )
+          )
           AND (
             v.archived_at IS NULL
             OR EXISTS (
@@ -314,6 +328,7 @@ export async function fullBackupSweep(): Promise<void> {
           SELECT 1 FROM app_meta a
            WHERE a.key = 'server_archived_probe:' || v.id AND a.value = '1'
         )`,
+    ...memberIds,
   );
 
   const activeId = getActiveVaultIdSyncMaybe();

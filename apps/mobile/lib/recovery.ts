@@ -298,9 +298,9 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
   // found nothing to accept. syncAllTabs reconciles first, never rejects,
   // and skips when offline.
   //
-  // BOUNDED. The sweep is one sequential pull per shared account (15 s timeout
-  // each), and it is the tab loop's shared promise, which runs again whenever
-  // a 60 s tick lands mid-sweep: awaited bare, a slow link or a kaata with many
+  // BOUNDED. The sweep has bounded concurrent pulls (15 s timeout each), and
+  // it is the tab loop's shared promise, which can run again if a foreground
+  // tick lands mid-sweep: awaited bare, a slow link or a kaata with many
   // shared accounts kept the restore at "Finishing up" indefinitely. Past the
   // budget the sweep carries on in the background and its rows appear as they
   // land.

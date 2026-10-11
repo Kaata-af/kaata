@@ -44,14 +44,26 @@ import type {
 // Fixture database + Expo SQLite adapter (person-save-selftest shape)
 
 let fixture: Database.Database;
+let afterMissingRelationshipRead: (() => void) | null = null;
 
 const sqlite = {
   execAsync: async (sql: string) => {
     fixture.exec(sql);
   },
   runAsync: async (sql: string, ...args: unknown[]) => fixture.prepare(sql).run(...args),
-  getFirstAsync: async (sql: string, ...args: unknown[]) =>
-    fixture.prepare(sql).get(...args) ?? null,
+  getFirstAsync: async (sql: string, ...args: unknown[]) => {
+    const row = fixture.prepare(sql).get(...args) ?? null;
+    if (
+      row == null &&
+      sql.includes("SELECT 1 AS one FROM relationships") &&
+      afterMissingRelationshipRead
+    ) {
+      const hook = afterMissingRelationshipRead;
+      afterMissingRelationshipRead = null;
+      hook();
+    }
+    return row;
+  },
   getAllAsync: async (sql: string, ...args: unknown[]) => fixture.prepare(sql).all(...args),
   withTransactionAsync: async (callback: () => Promise<void>) => {
     fixture.exec("BEGIN");
@@ -81,15 +93,31 @@ function stub(name: string, exports: unknown): void {
 const session = { jwt: null as string | null };
 const net = { connected: true };
 const ledgerEmits: Array<{ vaultId: string; origin: string }> = [];
+const appState = {
+  currentState: "active",
+  addEventListener: (_: string, listener: (state: string) => void) => {
+    appStateListeners.add(listener);
+    return { remove: () => appStateListeners.delete(listener) };
+  },
+};
+const appStateListeners = new Set<(state: string) => void>();
+const networkListeners = new Set<(state: { isConnected: boolean }) => void>();
+const ledgerListeners = new Set<(vaultId: string, origin: string) => void>();
 
 stub("expo-crypto", { randomUUID, getRandomBytes: (n: number) => randomBytes(n) });
 stub("expo-sqlite", { openDatabaseAsync: async () => sqlite });
 stub("react-native", {
-  AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
+  AppState: appState,
   Linking: { openURL: async () => {} },
   Platform: { OS: "android" },
 });
-stub("expo-network", { getNetworkStateAsync: async () => ({ isConnected: net.connected }) });
+stub("expo-network", {
+  getNetworkStateAsync: async () => ({ isConnected: net.connected }),
+  addNetworkStateListener: (listener: (state: { isConnected: boolean }) => void) => {
+    networkListeners.add(listener);
+    return { remove: () => networkListeners.delete(listener) };
+  },
+});
 class SessionChangedError extends Error {
   constructor() {
     super("session_changed");
@@ -111,6 +139,11 @@ stub("../api", { getBackendUrl: async () => "http://tabs.fixture" });
 stub("../ledger-events", {
   emitLedgerApplied: (vaultId: string, origin: string) => {
     ledgerEmits.push({ vaultId, origin });
+    for (const listener of ledgerListeners) listener(vaultId, origin);
+  },
+  onLedgerApplied: (listener: (vaultId: string, origin: string) => void) => {
+    ledgerListeners.add(listener);
+    return () => ledgerListeners.delete(listener);
   },
 });
 // The rest is what loading the real lib/db.ts + lib/event-log.ts needs.
@@ -243,8 +276,10 @@ function openFixture(): void {
   dbTx.setAccountIdCache(null);
   session.jwt = "jwt-1";
   net.connected = true;
+  appState.currentState = "active";
   ledgerEmits.length = 0;
   server.reset();
+  afterMissingRelationshipRead = null;
 }
 
 function count(table: string, where = ""): number {
@@ -276,6 +311,7 @@ const server = {
     role: TabRole;
     vault_id: string | null;
     relationship_id: string | null;
+    linked_at_ms?: number;
   }>,
   reset() {
     this.rev = 0;
@@ -1892,7 +1928,8 @@ async function main(): Promise<void> {
     assert.equal(count("tab_links"), 1, "only the tab whose contact exists locally");
     const stored = storedLink();
     assert.equal(stored.party_token, null, "JWT is the credential");
-    assert.equal(stored.rev, 0, "next syncTab pulls it whole");
+    assert.equal(stored.rev, 0, "only a pull advances the cursor; this empty tab remains rev 0");
+    assert.notEqual(stored.last_synced_at, null, "discovery pulls the new binding immediately");
     assert.equal(stored.my_label, "Synthetic Shop");
     // Local link kept even when /mine stops listing it; a server close lands.
     server.parties.b.account_name = "Live profile";
@@ -1941,6 +1978,284 @@ async function main(): Promise<void> {
     session.jwt = "jwt-1";
     server.failNext = { status: 500, code: "http_500" };
     await sync.reconcileTabsFromServer();
+  });
+
+  await test("restore discovers and pulls the shared book instead of leaving the pre-link 500", async () => {
+    fixture
+      .prepare(
+        `INSERT INTO entries (id, vault_id, relationship_id, type, amount_afn, created_at, updated_at)
+       VALUES ('before-link', ?, ?, 'debt', 500, 2, 2)`,
+      )
+      .run(VAULT, REL);
+    assert.equal((await db.getPerson(CONTACT))?.balance, 500);
+    server.seed({
+      id: "opening",
+      kind: "opening",
+      created_by: "a",
+      direction: "a_to_b",
+      amount: "500",
+      status: "accepted",
+      status_at_ms: 6_000,
+    });
+    server.seed({
+      id: "new-tally",
+      created_by: "b",
+      direction: "b_to_a",
+      amount: "125",
+      status: "accepted",
+      status_at_ms: 7_000,
+    });
+    server.mine = [{ tab: server.view("a"), role: "a", vault_id: VAULT, relationship_id: REL }];
+    await sync.reconcileTabsFromServer();
+    const restored = await db.getPerson(CONTACT);
+    assert.equal(
+      restored?.balance,
+      375,
+      "the opening absorbs the local 500; it is never added twice",
+    );
+    assert.equal(restored?.tab_id, TAB, "the restored contact is linked");
+    const rows = await db.listEntries(CONTACT);
+    assert.deepEqual(rows.map((row) => row.id).sort(), ["new-tally", "opening"]);
+    assert.equal(rows.find((row) => row.id === "new-tally")?.accepted_at, 7_000);
+    assert.equal(count("event_log"), 0, "shared server rows never become signed vault events");
+    assert.equal(storedLink().rev, server.rev, "the completed pull owns the cursor");
+  });
+
+  await test("an empty recovered shared book refreshes the existing screen and linked badge", async () => {
+    server.mine = [{ tab: server.view("a"), role: "a", vault_id: VAULT, relationship_id: REL }];
+    const applied: string[] = [];
+    const stop = events.onTabApplied((event) => applied.push(event.tabId));
+    try {
+      await sync.reconcileTabsFromServer();
+      assert.deepEqual(applied, [TAB], "first pull announces a new rev-zero binding");
+      assert.equal(ledgerEmits.length, 1, "home and contact refresh without navigation");
+      await sync.syncTab(TAB);
+      assert.equal(applied.length, 1, "unchanged subsequent pulls are silent");
+    } finally {
+      stop();
+    }
+  });
+
+  await test("another phone's re-link pulls the old period's close before inserting the new binding", async () => {
+    await tabsDb.upsertTabLink(link({ tab_id: "old-period", linked_at: 1, rev: 2 }));
+    server.seed({
+      id: "new-opening",
+      kind: "opening",
+      created_by: "a",
+      direction: "a_to_b",
+      amount: "375",
+    });
+    const oldTab = { ...server.view("a"), id: "old-period", rev: 3, closed_at_ms: 50 };
+    // /mine is newest-first: inserting this open link before applying the old
+    // period's close violates idx_tab_links_open_rel on a second phone.
+    server.mine = [
+      { tab: server.view("a"), role: "a", vault_id: VAULT, relationship_id: REL, linked_at_ms: 99 },
+      { tab: oldTab, role: "a", vault_id: VAULT, relationship_id: REL, linked_at_ms: 1 },
+    ];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init: Parameters<typeof fakeFetch>[1]) => {
+      if (new URL(url).pathname === "/v1/tabs/old-period") {
+        server.calls.push("GET /v1/tabs/old-period");
+        return reply(200, { tab: oldTab, entries: [], full: false });
+      }
+      return fakeFetch(url, init);
+    }) as typeof fetch;
+    try {
+      await sync.reconcileTabsFromServer();
+      assert.equal((await tabsDb.getTabLink("old-period"))?.closed_at, 50);
+      assert.equal((await tabsDb.getTabLink(TAB))?.closed_at, null);
+      assert.equal((await db.getPerson(CONTACT))?.tab_id, TAB);
+      assert.equal((await db.getPerson(CONTACT))?.balance, 375);
+      assert.equal(count("tab_links"), 2, "the old frozen history remains available");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  await test("a live poke discovers a tab linked on another phone and pulls its accepted tallies", async () => {
+    server.seed({
+      id: "remote-accepted",
+      created_by: "b",
+      direction: "a_to_b",
+      amount: "18",
+      status: "accepted",
+      status_at_ms: 22_000,
+    });
+    server.mine = [{ tab: server.view("a"), role: "a", vault_id: VAULT, relationship_id: REL }];
+    sync.requestTabSync(TAB);
+    sync.requestTabSync(TAB);
+    await sleep(450);
+    assert.equal(count("tab_links"), 1);
+    assert.equal(count("tab_entries"), 1);
+    assert.equal((await db.listEntries(CONTACT))[0].accepted_at, 22_000);
+    assert.equal(server.calls.filter((call) => call === "GET /v1/tabs/mine").length, 1);
+    assert.equal(count("event_log"), 0);
+  });
+
+  await test("concurrent account-wide discoveries coalesce and retain the newest missing-contact wait", async () => {
+    const held = holdResponse("GET", "/v1/tabs/mine");
+    const running = sync.reconcileTabsFromServer();
+    try {
+      await held.wait();
+      // The first response was formed before another phone linked a contact.
+      server.seed({ id: "new-binding", created_by: "b", direction: "a_to_b", amount: "13" });
+      server.mine = [{ tab: server.view("a"), role: "a", vault_id: VAULT, relationship_id: REL }];
+      assert.equal(sync.reconcileTabsFromServer(), running);
+      assert.equal(sync.reconcileTabsFromServer(), running);
+      assert.equal(
+        server.calls.filter((call) => call === "GET /v1/tabs/mine").length,
+        1,
+        "no overlapping discovery request",
+      );
+      held.release();
+      await running;
+      assert.equal(
+        server.calls.filter((call) => call === "GET /v1/tabs/mine").length,
+        2,
+        "one trailing discovery fetches the new binding",
+      );
+      assert.equal(count("tab_entries", "WHERE id = 'new-binding'"), 1);
+    } finally {
+      held.release();
+      await running;
+      held.restore();
+    }
+  });
+
+  await test("a slow first shared contact does not block a later contact's pull", async () => {
+    await tabsDb.upsertTabLink(
+      link({ tab_id: "slow-tab", relationship_id: "slow-rel", linked_at: 1 }),
+    );
+    await tabsDb.upsertTabLink(link({ linked_at: 2 }));
+    server.seed({ id: "fast-tally", created_by: "b", direction: "a_to_b", amount: "29" });
+    const held = holdResponse("GET", "/v1/tabs/slow-tab");
+    const running = sync.syncAllTabs();
+    try {
+      await held.wait();
+      for (let i = 0; i < 50 && count("tab_entries") === 0; i++) await sleep(10);
+      assert.equal(
+        count("tab_entries", "WHERE id = 'fast-tally'"),
+        1,
+        "later contact finishes while the first reply is still held",
+      );
+    } finally {
+      held.release();
+      await running;
+      held.restore();
+    }
+  });
+
+  await test("network return and a newly restored contact retry tab discovery; background and stop do not", async () => {
+    fixture.prepare("DELETE FROM relationships WHERE id = ?").run(REL);
+    server.seed({ id: "after-contact", created_by: "b", direction: "a_to_b", amount: "9" });
+    server.mine = [{ tab: server.view("a"), role: "a", vault_id: VAULT, relationship_id: REL }];
+    net.connected = false;
+    const stop = sync.startTabSyncLoop();
+    try {
+      await sleep(20);
+      assert.equal(server.calls.length, 0);
+      net.connected = true;
+      for (const listener of networkListeners) listener({ isConnected: true });
+      await sleep(20);
+      assert.equal(count("tab_links"), 0, "binding waits for its ordinary vault relationship");
+      fixture
+        .prepare(`INSERT INTO relationships VALUES (?, ?, ?, 'peer', ?, 1, 1, NULL, NULL)`)
+        .run(REL, SELF, CONTACT, VAULT);
+      for (const listener of ledgerListeners) listener(VAULT, "remote");
+      await sleep(30);
+      assert.equal(count("tab_entries"), 1, "vault apply wakes the pending binding immediately");
+      appState.currentState = "background";
+      for (const listener of appStateListeners) listener("background");
+      const calls = server.calls.length;
+      for (const listener of networkListeners) listener({ isConnected: true });
+      await sleep(20);
+      assert.equal(server.calls.length, calls);
+    } finally {
+      stop();
+    }
+    assert.equal(appStateListeners.size, 0);
+    assert.equal(networkListeners.size, 0);
+    assert.equal(ledgerListeners.size, 0);
+  });
+
+  await test("foreground fallback pulls cached tabs every 5s without fetching /mine on every tick", async () => {
+    await tabsDb.upsertTabLink(link());
+    const realInterval = globalThis.setInterval;
+    let tick: (() => void) | null = null;
+    let intervalMs = 0;
+    globalThis.setInterval = ((callback: () => void, delay: number) => {
+      tick = callback;
+      intervalMs = delay;
+      return realInterval(callback, delay);
+    }) as typeof setInterval;
+    const stop = sync.startTabSyncLoop();
+    try {
+      await sleep(30);
+      assert.equal(intervalMs, 5_000);
+      assert.equal(server.calls.filter((call) => call === "GET /v1/tabs/mine").length, 1);
+      const runTick = tick as (() => void) | null;
+      assert.ok(runTick);
+      runTick();
+      await sleep(30);
+      runTick();
+      await sleep(30);
+      assert.equal(
+        server.calls.filter((call) => call === "GET /v1/tabs/mine").length,
+        1,
+        "binding discovery keeps its own minute cadence",
+      );
+      assert.equal(
+        server.calls.filter((call) => call.startsWith(`GET /v1/tabs/${TAB}?`)).length,
+        3,
+      );
+    } finally {
+      stop();
+      globalThis.setInterval = realInterval;
+    }
+  });
+
+  await test("a vault apply between a missing relationship read and reply cannot lose the discovery wakeup", async () => {
+    fixture.prepare("DELETE FROM relationships WHERE id = ?").run(REL);
+    server.seed({ id: "racing-contact", created_by: "b", direction: "a_to_b", amount: "11" });
+    server.mine = [{ tab: server.view("a"), role: "a", vault_id: VAULT, relationship_id: REL }];
+    afterMissingRelationshipRead = () => {
+      fixture
+        .prepare(`INSERT INTO relationships VALUES (?, ?, ?, 'peer', ?, 1, 1, NULL, NULL)`)
+        .run(REL, SELF, CONTACT, VAULT);
+      for (const listener of ledgerListeners) listener(VAULT, "remote");
+    };
+    const stop = sync.startTabSyncLoop();
+    try {
+      await sleep(50);
+      assert.equal(count("tab_links"), 1, "the racing apply queues a trailing discovery");
+      assert.equal(count("tab_entries", "WHERE id = 'racing-contact'"), 1);
+    } finally {
+      stop();
+      afterMissingRelationshipRead = null;
+    }
+  });
+
+  await test("foreground timer ticks join a slow sweep without making it run forever", async () => {
+    await tabsDb.upsertTabLink(link());
+    const held = holdResponse("GET", `/v1/tabs/${TAB}`);
+    const running = sync.syncAllTabs();
+    try {
+      await held.wait();
+      for (let i = 0; i < 10; i++) {
+        assert.equal(sync.syncAllTabs({ discover: false }), running);
+      }
+      held.release();
+      await running;
+      assert.equal(
+        server.calls.filter((call) => call.startsWith(`GET /v1/tabs/${TAB}?`)).length,
+        1,
+        "periodic ticks do not queue another slow pull",
+      );
+    } finally {
+      held.release();
+      await running;
+      held.restore();
+    }
   });
 
   await test("syncAllTabs sweeps open links and still flushes a closed link's close op", async () => {

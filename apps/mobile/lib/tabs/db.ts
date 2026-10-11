@@ -341,6 +341,11 @@ export async function upsertTabFromWire(
     // An older response must not erase rows from a newer full pull while
     // retaining its higher cursor (which would prevent fetching them again).
     if (resp.tab.rev < stored.rev) return;
+    // A newly recovered binding changes the contact's source of truth even
+    // when its server book is empty at rev 0. Announce its first successful
+    // pull so an already-visible contact stops showing its pre-link rows and
+    // the home screen gains the linked badge.
+    if (stored.last_synced_at == null) changed = true;
     vaultId = stored.vault_id;
     relationshipId = stored.relationship_id;
     // The stored role is the one this device linked as; the server's `you`
