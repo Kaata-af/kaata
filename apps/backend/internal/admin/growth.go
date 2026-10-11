@@ -2,7 +2,10 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // Growth analytics — GET /v1/admin/growth. Weekly cohort retention, weekly
@@ -22,6 +25,11 @@ import (
 // it. Also the cap on cohort retained[] length (a cohort is tracked at most 12
 // weeks out, W0..W11).
 const growthWeeks = 12
+
+// The benchmark applies to weekly active devices, not sign-ups, cumulative
+// installs, revenue, or unique people. Signed-out use has no durable person
+// identity, and an install's current account cannot label historical activity.
+const growthTargetPercent int64 = 7
 
 type CohortRow struct {
 	// Week is the cohort's ISO week start (Monday), date only.
@@ -44,6 +52,17 @@ type GrowthWeek struct {
 	Retained    int64  `json:"retained"`    // active this week AND previous week
 	Resurrected int64  `json:"resurrected"` // active this week, not previous, active some earlier week
 	Churned     int64  `json:"churned"`     // active previous week, NOT this week (positive number)
+
+	Active                   int64    `json:"active"`
+	PreviousActive           int64    `json:"previous_active"`
+	Change                   int64    `json:"change"`
+	Complete                 bool     `json:"complete"`          // Monday–Sunday has ended in Kabul
+	TrackingComplete         bool     `json:"tracking_complete"` // tracking existed before this week started
+	PreviousTrackingComplete bool     `json:"previous_tracking_complete"`
+	CalendarComparable       bool     `json:"calendar_comparable"` // excludes UTC/Kabul transition week and its following comparison
+	GrowthRatePercent        *float64 `json:"growth_rate_percent"` // null for provisional/incomplete tracking/zero baseline
+	TargetActive             *int64   `json:"target_active"`       // also available for this unfinished week's goal
+	TargetMet                *bool    `json:"target_met"`          // null until a comparable week has ended
 }
 
 type Adoption struct {
@@ -68,6 +87,8 @@ type Growth struct {
 	Adoption              Adoption     `json:"adoption"`
 	GeneratedAt           string       `json:"generated_at"`
 	ActivityTimezoneSince string       `json:"activity_timezone_since"`
+	ActivityTrackingSince string       `json:"activity_tracking_since"`
+	GrowthTargetPercent   int64        `json:"growth_target_percent"`
 }
 
 // GetGrowth computes the growth dashboard aggregates. Read-only; a handful of
@@ -79,6 +100,17 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 	if err := s.pool.QueryRow(ctx, `SELECT to_char(kabul_since, 'YYYY-MM-DD') FROM analytics_calendar`).Scan(&g.ActivityTimezoneSince); err != nil {
 		return g, err
 	}
+	var trackingSince time.Time
+	if err := s.pool.QueryRow(ctx, `SELECT applied_at FROM schema_migrations WHERE name = '022_analytics_tracking.sql'`).Scan(&trackingSince); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return g, err
+	}
+	// Migration timestamps are recorded by db.Migrate on every real deploy.
+	// If an old/manual schema has lost this record, activity can still be
+	// reported, but its coverage is unknown and no weekly verdict is claimed.
+	if !trackingSince.IsZero() {
+		g.ActivityTrackingSince = trackingSince.UTC().Format(time.RFC3339)
+	}
+	g.GrowthTargetPercent = growthTargetPercent
 
 	// 1. Cohort sizes — dense 12-week series (generate_series) LEFT JOINed with
 	//    install weeks, so empty cohort weeks still emit a row. Same keep
@@ -224,6 +256,7 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 	if err := grows.Err(); err != nil {
 		return g, err
 	}
+	fillWeeklyGrowth(g.GrowthAccounting, now, trackingSince, g.ActivityTimezoneSince)
 
 	// 4. Adoption. signed_in / with_shares reuse the GetStats keep subquery
 	//    verbatim; multi_member counts non-operator accounts sharing a vault
@@ -273,4 +306,62 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 	}
 	g.GeneratedAt = now.UTC().Format(time.RFC3339)
 	return g, nil
+}
+
+// fillWeeklyGrowth derives the baseline from accounting, so even the oldest
+// displayed week compares against its real previous week outside the window.
+// Only completed and fully observed weeks receive a growth rate or verdict.
+// Historical DATE-only rows retain the reporting calendar they were written
+// in; the migration-036 cutover is disclosed separately by the API.
+func fillWeeklyGrowth(weeks []GrowthWeek, now, trackingSince time.Time, kabulSince string) {
+	kabul := time.FixedZone("Asia/Kabul", 4*60*60+30*60)
+	local := now.In(kabul)
+	today := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, kabul)
+	currentMonday := today.AddDate(0, 0, -((int(today.Weekday()) + 6) % 7)).Format("2006-01-02")
+	cutoverDate, cutoverErr := time.Parse("2006-01-02", kabulSince)
+	cutoverMonday := cutoverDate.AddDate(0, 0, -((int(cutoverDate.Weekday()) + 6) % 7))
+	transitionWeek := cutoverMonday.Format("2006-01-02")
+	followingWeek := cutoverMonday.AddDate(0, 0, 7).Format("2006-01-02")
+	weekStart := func(label string) time.Time {
+		zone := kabul
+		if label < kabulSince {
+			zone = time.UTC
+		}
+		// Week labels are generated by PostgreSQL to_char, never user input.
+		start, _ := time.ParseInLocation("2006-01-02", label, zone)
+		return start
+	}
+	for i := range weeks {
+		w := &weeks[i]
+		w.GrowthRatePercent, w.TargetActive, w.TargetMet = nil, nil, nil
+		w.Active = w.New + w.Retained + w.Resurrected
+		w.PreviousActive = w.Retained + w.Churned
+		w.Change = w.Active - w.PreviousActive
+		w.Complete = w.Week < currentMonday
+		start := weekStart(w.Week)
+		w.TrackingComplete = !trackingSince.IsZero() && !start.Before(trackingSince)
+		previousLabel := start.AddDate(0, 0, -7).Format("2006-01-02")
+		w.PreviousTrackingComplete = !trackingSince.IsZero() && !weekStart(previousLabel).Before(trackingSince)
+		// Migration 036's week combines legacy UTC dates with Kabul-hour
+		// activity and can only seed the rollout day's latest known check-in.
+		// Keep its observed counts, but do not claim a comparable growth rate
+		// in that week or use it as the next week's benchmark baseline. Even a
+		// Monday cutover can be a mid-day deploy with partial hourly history.
+		w.CalendarComparable = cutoverErr == nil && w.Week != transitionWeek && w.Week != followingWeek
+		if !w.TrackingComplete || !w.PreviousTrackingComplete || !w.CalendarComparable || w.PreviousActive == 0 {
+			continue
+		}
+		// Integer arithmetic avoids ceil(100*1.07) accidentally becoming 108
+		// because of binary floating-point rounding. Split quotient/remainder
+		// also avoids multiplying the entire install count by the percentage.
+		extra := w.PreviousActive/100*growthTargetPercent + (w.PreviousActive%100*growthTargetPercent+99)/100
+		target := w.PreviousActive + extra
+		w.TargetActive = &target
+		if w.Complete {
+			rate := float64(w.Change) / float64(w.PreviousActive) * 100
+			met := w.Active >= target
+			w.GrowthRatePercent = &rate
+			w.TargetMet = &met
+		}
+	}
 }

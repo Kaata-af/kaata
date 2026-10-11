@@ -3,6 +3,7 @@ import { format, parseISO } from "date-fns";
 import { useState } from "react";
 import { useGrowth, useStats, type Growth, type Stats } from "./api";
 import { C, Card, ErrorCard, PageHeader, SkeletonCard, fmtInt, fmtPct } from "./ui";
+import { WeeklyGrowthCard } from "./WeeklyGrowthCard";
 
 export function Overview() {
   const [days, setDays] = useState(30);
@@ -29,18 +30,30 @@ export function Overview() {
         <KpiStrip stats={stats.data} />
       )}
       <div className="mt-4 min-w-0 sm:mt-5">
+        {growth.isPending ? (
+          <SkeletonCard lines={5} />
+        ) : growth.isError ? (
+          <ErrorCard
+            message="Weekly growth couldn't be loaded."
+            onRetry={() => void growth.refetch()}
+          />
+        ) : (
+          <WeeklyGrowthCard growth={growth.data} />
+        )}
+      </div>
+      <div className="mt-4 min-w-0 sm:mt-5">
         <Card
           title="Daily activity"
           sub={`Active devices and new installs · last ${stats.data?.points ?? days} days, including today`}
           action={
             <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:gap-3">
               {stats.isFetching && !stats.isPending ? (
-                <span role="status" className="text-xs text-[#737373]">
+                <span role="status" className="text-xs text-brand-sub">
                   Updating…
                 </span>
               ) : null}
               <div
-                className="inline-flex max-w-full rounded-lg border border-[#e5e5e5] bg-[#fafafa] p-1"
+                className="inline-flex max-w-full rounded-lg border border-brand-border bg-brand-ivory p-1"
                 role="group"
                 aria-label="Activity date range"
               >
@@ -50,7 +63,7 @@ export function Overview() {
                     type="button"
                     aria-pressed={days === range}
                     onClick={() => setDays(range)}
-                    className={`min-h-10 rounded-md px-3 py-2 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#171717] ${days === range ? "bg-white text-[#171717] shadow-sm" : "text-[#737373] hover:text-[#171717]"}`}
+                    className={`min-h-10 rounded-md px-3 py-2 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand-primary ${days === range ? "bg-brand-primary text-white shadow-sm" : "text-brand-sub hover:text-brand-ink"}`}
                   >
                     {range} days
                   </button>
@@ -60,7 +73,7 @@ export function Overview() {
           }
         >
           {stats.isPending ? (
-            <div className="h-56 min-w-0 animate-pulse rounded-lg bg-[#f5f5f5] sm:h-64" />
+            <div className="h-56 min-w-0 animate-pulse rounded-lg bg-brand-faint sm:h-64" />
           ) : stats.isError ? (
             <ErrorCard
               message="The activity chart couldn't be loaded."
@@ -114,7 +127,7 @@ function KpiStrip({ stats: s }: { stats: Stats }) {
         />
         <Kpi label="Total entries" value={fmtInt(s.entries_sum)} sub="All-time reported entries" />
       </div>
-      <p className="mt-3 text-xs leading-relaxed text-[#737373]">
+      <p className="mt-3 text-xs leading-relaxed text-brand-sub">
         Activity counts distinct app installs that checked in, including people who only opened the
         app. Each install counts once per period.
       </p>
@@ -125,11 +138,11 @@ function KpiStrip({ stats: s }: { stats: Stats }) {
 function Kpi(props: { label: string; value: string; sub: string; headline?: boolean }) {
   return (
     <Card className={`min-w-0 ${props.headline ? "col-span-2 lg:col-span-1" : ""}`}>
-      <Text className="text-xs font-medium text-[#737373]">{props.label}</Text>
-      <Metric className="mt-1.5 break-words text-2xl tabular-nums text-[#171717] [overflow-wrap:anywhere] sm:mt-2 sm:text-3xl">
+      <Text className="text-xs font-medium text-brand-sub">{props.label}</Text>
+      <Metric className="mt-1.5 break-words text-2xl tabular-nums text-brand-ink [overflow-wrap:anywhere] sm:mt-2 sm:text-3xl">
         {props.value}
       </Metric>
-      <p className="mt-1.5 text-xs leading-5 text-[#737373] sm:mt-2">{props.sub}</p>
+      <p className="mt-1.5 text-xs leading-5 text-brand-sub sm:mt-2">{props.sub}</p>
     </Card>
   );
 }
@@ -153,8 +166,8 @@ function ActivityChart({ stats: s }: { stats: Stats }) {
     <div className="min-w-0 max-w-full">
       {!hasData ? (
         <div className="flex min-h-44 flex-col items-center justify-center gap-2 py-5 text-center sm:min-h-64">
-          <p className="text-sm font-medium text-[#404040]">No activity in these {s.points} days</p>
-          <p className="text-xs text-[#737373]">
+          <p className="text-sm font-medium text-brand-sub">No activity in these {s.points} days</p>
+          <p className="text-xs text-brand-sub">
             {s.points < 90
               ? "Choose a longer range to look for earlier activity."
               : "Activity appears here when an install checks in."}
@@ -174,7 +187,7 @@ function ActivityChart({ stats: s }: { stats: Stats }) {
           showAnimation={false}
         />
       )}
-      <p className="mt-3 text-xs leading-relaxed text-[#737373]">
+      <p className="mt-3 text-xs leading-relaxed text-brand-sub">
         Today is still in progress. Its active-device count matches Active today above; daily counts
         do not add up to unique weekly or monthly devices.
       </p>
@@ -199,7 +212,7 @@ function GrowthAccountingCard({ growth }: { growth: Growth | null }) {
       sub={`New, returning, and inactive installs · ${weeks.length || 11} completed weeks`}
     >
       {!hasData ? (
-        <div className="flex min-h-40 items-center justify-center px-2 py-5 text-center text-sm text-[#737373] sm:min-h-56 sm:px-5">
+        <div className="flex min-h-40 items-center justify-center px-2 py-5 text-center text-sm text-brand-sub sm:min-h-56 sm:px-5">
           {growth === null
             ? "Weekly activity is currently unavailable."
             : "Completed weekly activity will appear here as devices check in."}
@@ -219,7 +232,7 @@ function GrowthAccountingCard({ growth }: { growth: Growth | null }) {
           showAnimation={false}
         />
       )}
-      <p className="mt-3 text-xs leading-relaxed text-[#737373]">
+      <p className="mt-3 text-xs leading-relaxed text-brand-sub">
         Retained: active in consecutive weeks. Reactivated: returned after a gap. Churned: active
         the week before, then absent. The current week is excluded.
       </p>
@@ -232,7 +245,7 @@ function AdoptionCard({ growth, stats }: { growth: Growth | null; stats: Stats }
   return (
     <Card title="Feature usage" sub={`Reported across ${fmtInt(stats.installs_total)} installs`}>
       {!a ? (
-        <p className="py-8 text-center text-sm text-[#737373] sm:py-12">
+        <p className="py-8 text-center text-sm text-brand-sub sm:py-12">
           Feature usage is currently unavailable.
         </p>
       ) : (
@@ -249,23 +262,23 @@ function AdoptionCard({ growth, stats }: { growth: Growth | null; stats: Stats }
             total={stats.installs_total}
             color={C.green}
           />
-          <div className="grid min-w-0 grid-cols-2 gap-3 border-t border-[#e5e5e5] pt-4 sm:gap-5">
+          <div className="grid min-w-0 grid-cols-2 gap-3 border-t border-brand-border pt-4 sm:gap-5">
             <div className="min-w-0">
-              <p className="break-words text-2xl font-semibold tabular-nums text-[#171717] [overflow-wrap:anywhere]">
+              <p className="break-words text-2xl font-semibold tabular-nums text-brand-ink [overflow-wrap:anywhere]">
                 {fmtInt(a.multi_member)}
               </p>
-              <p className="mt-1 text-xs leading-5 text-[#737373]">Accounts in shared kaatas</p>
+              <p className="mt-1 text-xs leading-5 text-brand-sub">Accounts in shared kaatas</p>
             </div>
             <div className="min-w-0">
-              <p className="break-words text-2xl font-semibold tabular-nums text-[#171717] [overflow-wrap:anywhere]">
+              <p className="break-words text-2xl font-semibold tabular-nums text-brand-ink [overflow-wrap:anywhere]">
                 {fmtInt(a.with_settlements)}
               </p>
-              <p className="mt-1 text-xs leading-5 text-[#737373]">Kaatas using settle-up</p>
+              <p className="mt-1 text-xs leading-5 text-brand-sub">Kaatas using settle-up</p>
             </div>
           </div>
           <a
             href="#users?view=onboarding"
-            className="inline-flex min-h-11 max-w-full items-center gap-2 text-xs font-medium text-[#171717] hover:underline"
+            className="inline-flex min-h-11 max-w-full items-center gap-2 text-xs font-medium text-brand-ink hover:underline"
           >
             Review unfinished onboarding <span aria-hidden="true">→</span>
           </a>
@@ -289,10 +302,10 @@ function AdoptionRow({
   return (
     <div className="min-w-0">
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
-        <span className="min-w-0 text-[#404040]">{label}</span>
-        <span className="min-w-0 break-words font-medium tabular-nums text-[#171717] [overflow-wrap:anywhere]">
+        <span className="min-w-0 text-brand-sub">{label}</span>
+        <span className="min-w-0 break-words font-medium tabular-nums text-brand-ink [overflow-wrap:anywhere]">
           {fmtInt(n)}{" "}
-          <span className="ml-1 text-xs font-normal text-[#737373]">
+          <span className="ml-1 text-xs font-normal text-brand-sub">
             installs · {fmtPct(n, total)}
           </span>
         </span>

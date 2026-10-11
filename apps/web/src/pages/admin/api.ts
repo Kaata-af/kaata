@@ -169,6 +169,18 @@ export type GrowthWeek = {
   retained: number;
   resurrected: number;
   churned: number; // positive number; chart negates it below the axis
+  // Optional during the frontend/backend rollout. Never infer tracking coverage
+  // or a completed-week verdict from the older accounting-only response.
+  active?: number;
+  previous_active?: number;
+  change?: number;
+  complete?: boolean;
+  tracking_complete?: boolean;
+  previous_tracking_complete?: boolean;
+  calendar_comparable?: boolean;
+  growth_rate_percent?: number | null;
+  target_active?: number | null;
+  target_met?: boolean | null;
 };
 export type Adoption = {
   signed_in: number;
@@ -181,6 +193,9 @@ export type Growth = {
   growth_accounting: GrowthWeek[];
   adoption: Adoption | null;
   generated_at: string;
+  activity_timezone_since?: string;
+  activity_tracking_since?: string;
+  growth_target_percent?: number;
 };
 
 // ---- fetch + hooks ----
@@ -242,6 +257,9 @@ export function useGrowth() {
         growth_accounting: Array.isArray(g.growth_accounting) ? g.growth_accounting : [],
         adoption: g.adoption ?? null,
         generated_at: g.generated_at ?? "",
+        activity_timezone_since: g.activity_timezone_since ?? "",
+        activity_tracking_since: g.activity_tracking_since ?? "",
+        growth_target_percent: g.growth_target_percent,
       };
     },
     enabled: !!token,
