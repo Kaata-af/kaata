@@ -1079,8 +1079,8 @@ func (s *Service) SetUsername(ctx context.Context, accountID, raw string) (strin
 	return u, nil
 }
 
-// SetAccountName sets the account name of an account no provider names. Shared
-// tallies, reviews and pushes show accounts.name, so an email account needs one.
+// SetAccountName supplies a name for accounts no provider names, retaining the
+// legacy email endpoint. Shared actions use display_name before accounts.name.
 func (s *Service) SetAccountName(ctx context.Context, accountID, raw string) (string, error) {
 	name := sanitizeDisplayName(raw)
 	if n := utf8.RuneCountInString(name); n < 2 || n > 60 {

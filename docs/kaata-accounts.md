@@ -1,7 +1,9 @@
 # Kaata accounts: email + password
 
-Status: approved design, being built for Android build 50 (2.1.0) and the next iOS
-build. Owner decisions (Matee, 2026-10-10):
+Status: accounts were submitted in 2.1.1 (Android build 50 / iOS build 30).
+The display-name and current-member-profile extensions below are local development
+after 2.2.0 TestFlight build 32 / Play internal code 52; those binaries do not
+contain the extensions. Owner decisions (Matee, 2026-10-10):
 
 - Kaata has its own accounts for everyone, next to Google and Apple: sign up with
   email + password; the email is verified with an emailed 6-digit code.
@@ -376,8 +378,9 @@ providers: ["google","apple","email"...], name, setup_email}`. `setup_email` is 
     profile edit for every sign-in provider, with the same sanitization and length
     rule. Migration `055_account_display_name.sql` adds nullable
     `accounts.display_name`; migration 054 remains reserved for deferred deletion.
-    Google/Apple sign-in may refresh `accounts.name` and credential profile data,
-    but never replaces the explicit override or changes the proven identity/email.
+    Google/Apple sign-in may refresh `accounts.name`, credential profile data and
+    the provider-verified account email, but never replaces the explicit override.
+    The display-name edit endpoint changes neither proven identity nor email.
     Account-me, sign-in replies, current member profiles and party names use
     `COALESCE(display_name, name)`. Future shared-tally evidence and notification
     snapshots use that current name; previously recorded actor names stay unchanged.

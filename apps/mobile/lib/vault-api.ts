@@ -95,7 +95,7 @@ async function httpThrowing(method: string, path: string, body?: unknown): Promi
 export type VaultListingMember = {
   account_id: string;
   role: string;
-  /** accounts.name (login-refreshed) with install self_name fallback; may be "". */
+  /** Explicit account display name, provider name, then install self_name; may be "". */
   name?: string;
   /** Verified account email; only disclosed to active co-members of this vault. */
   email?: string;
@@ -114,11 +114,10 @@ export type VaultListing = {
   /** base64 32-byte owner anchor pubkey; absent for server-anchored vaults. */
   vault_trust_anchor_pubkey?: string;
   /**
-   * Active members with display names. The signed membership chain
-   * deliberately carries no names (immutable events vs mutable profile
-   * data), so this listing is how devices learn what to CALL each other —
-   * folded into vault_members_mirror.display_name by lib/recovery.ts.
-   * Absent on pre-names backends.
+   * Active members with current display names and verified account emails.
+   * lib/member-profiles.ts stores mutable identity in a viewer-scoped cache,
+   * separate from signed membership history. Recovery only fills missing
+   * legacy admission-name fallbacks. Absent on pre-names backends.
    */
   members?: VaultListingMember[];
 };

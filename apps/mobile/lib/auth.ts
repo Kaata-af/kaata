@@ -1401,8 +1401,8 @@ async function installEmailSession(body: AuthResponse): Promise<SessionUser> {
 
 // ---- the account's own name (§6.11) ----
 //
-// Shared tallies, reviews, settlements and pushes show accounts.name, and an
-// email account starts without one (no provider asserts it). After an email
+// Shared tallies, reviews, settlements and pushes use the explicit display
+// name before accounts.name; an email account starts without either. After an email
 // sign-in whose account has no name, this app_meta flag is "1" until the server
 // has one: the local self name goes at once when the phone has it, the
 // onboarding name when it arrives (onboarding/profile), and check-in retries a
