@@ -22,6 +22,7 @@ import (
 	"github.com/matee/kaata-backend/internal/crashreport"
 	"github.com/matee/kaata-backend/internal/db"
 	"github.com/matee/kaata-backend/internal/httpx"
+	"github.com/matee/kaata-backend/internal/mail"
 	"github.com/matee/kaata-backend/internal/mesh"
 	"github.com/matee/kaata-backend/internal/shared"
 	syncapi "github.com/matee/kaata-backend/internal/sync"
@@ -59,6 +60,13 @@ const (
 	// attacker hammer token validation for free.
 	googleSignInLimit  = 60
 	googleSignInWindow = time.Hour
+	// Kaata email accounts: start endpoints send mail (the per-address limits
+	// in the service are the real brake); sign-in and verify cost a hash.
+	emailStartLimit      = 30
+	emailVerifyLimit     = 60
+	emailWindow          = time.Hour
+	accountSecurityLimit = 20
+	usernameLimit        = 10
 	// Check-in fires once per app launch; 120/hr/IP is huge headroom for a
 	// shared IP while capping installs-row minting.
 	checkInLimit  = 120
@@ -165,6 +173,28 @@ func main() {
 	authSvc := auth.NewService(pool, cfg.GoogleWebClientID, cfg.SessionJWTSecret)
 	authSvc.SetAppleClientID(cfg.AppleClientID)
 	authSvc.SetAppleServicesID(cfg.AppleServicesID)
+	// Mail for Kaata email accounts. The log driver prints codes, so it runs
+	// only with KAATA_ENV=development: anywhere else refuse to boot rather than
+	// leak them.
+	mailSel, err := mail.Select(mail.Config{
+		Driver:       cfg.MailDriver,
+		SMTPHost:     cfg.SMTPHost,
+		SMTPPort:     cfg.SMTPPort,
+		SMTPUsername: cfg.SMTPUsername,
+		SMTPPassword: cfg.SMTPPassword,
+		From:         cfg.MailFrom,
+		Development:  mail.IsDevelopment(cfg.KaataEnv),
+		Production:   mail.IsProduction(cfg.KaataEnv, cfg.PublicAPIBaseURL),
+	})
+	if err != nil {
+		log.Fatalf("mail: %v", err)
+	}
+	log.Println(mailSel.Describe)
+	// The outbox checks the SMTP login off the boot path and turns email codes
+	// off (503) while it fails, re-checking every minute.
+	mailOutbox := mail.NewOutbox(pool, mailSel.Sender, cfg.MailMaxPerHour, cfg.MailMaxPerDay)
+	mailOutbox.Start(ctx, 2)
+	authSvc.SetMailOutbox(mailOutbox)
 	authH := auth.NewHandler(authSvc)
 	authH.SetPublicAPIBaseURL(cfg.PublicAPIBaseURL)
 
@@ -274,9 +304,10 @@ func main() {
 	// per-IP key function depends on this; without it every request looks
 	// like it came from the reverse-proxy's loopback IP and the cap becomes
 	// global instead of per-client.
-	// httpx.RealIP (not chi's middleware.RealIP): derive the client IP from
-	// X-Forwarded-For only, ignoring the spoofable True-Client-IP / X-Real-IP
-	// headers chi trusts at higher precedence. See httpx/clientip.go.
+	// httpx.RealIP (not chi's middleware.RealIP): the client is the rightmost
+	// X-Forwarded-For address that is not Cloudflare or internal (else
+	// CF-Connecting-IP when the hop was Cloudflare), never an address the
+	// client wrote. See httpx/clientip.go.
 	r.Use(httpx.RealIP)
 	r.Use(httpx.Logger)
 	r.Use(httpx.Recoverer)
@@ -318,6 +349,19 @@ func main() {
 	// it is likewise an account-creation + token-validation surface.
 	r.With(httpx.RateLimitPerIP(googleSignInLimit, googleSignInWindow)).
 		Post("/v1/auth/apple", authH.AppleSignIn)
+	// Kaata email accounts (docs/kaata-accounts.md §6). Per-IP caps are noise
+	// filters sized like Google's; the real limits are per address and per
+	// identifier inside the service, and count requests, not outcomes.
+	r.With(httpx.RateLimitPerIP(emailStartLimit, emailWindow)).
+		Post("/v1/auth/email/signup/start", authH.EmailSignUpStart)
+	r.With(httpx.RateLimitPerIP(emailVerifyLimit, emailWindow)).
+		Post("/v1/auth/email/signup/verify", authH.EmailSignUpVerify)
+	r.With(httpx.RateLimitPerIP(emailVerifyLimit, emailWindow)).
+		Post("/v1/auth/email/signin", authH.EmailSignIn)
+	r.With(httpx.RateLimitPerIP(emailStartLimit, emailWindow)).
+		Post("/v1/auth/email/reset/start", authH.EmailResetStart)
+	r.With(httpx.RateLimitPerIP(emailVerifyLimit, emailWindow)).
+		Post("/v1/auth/email/reset/verify", authH.EmailResetVerify)
 	// Android/web Sign in with Apple trampoline (auth/apple_web.go): start
 	// redirects to appleid.apple.com, callback relays the identity token back
 	// into the app's deep link — session minting stays in POST /v1/auth/apple.
@@ -433,6 +477,22 @@ func main() {
 		// Account-level phone: persists the shopkeeper's own number server-side so
 		// it survives a reinstall (the device-local users.phone_e164 never syncs).
 		pr.Put("/v1/account/phone", authH.UpdatePhone)
+		// Kaata email accounts, signed in: what the account can sign in with,
+		// a first password, a password change, the private username and, for
+		// email-only accounts, the account name.
+		pr.Get("/v1/account/me", authH.AccountMe)
+		pr.With(httpx.RateLimitPerAccount(accountSecurityLimit, emailWindow)).
+			Post("/v1/account/password/setup/start", authH.PasswordSetupStart)
+		pr.With(httpx.RateLimitPerAccount(accountSecurityLimit, emailWindow)).
+			Post("/v1/account/password/setup/verify", authH.PasswordSetupVerify)
+		pr.With(httpx.RateLimitPerAccount(accountSecurityLimit, emailWindow)).
+			Put("/v1/account/password", authH.ChangePassword)
+		pr.With(httpx.RateLimitPerAccount(accountSecurityLimit, emailWindow)).
+			Delete("/v1/account/password", authH.RemovePassword)
+		pr.With(httpx.RateLimitPerAccount(usernameLimit, emailWindow)).
+			Put("/v1/account/username", authH.SetUsername)
+		pr.With(httpx.RateLimitPerAccount(accountSecurityLimit, emailWindow)).
+			Put("/v1/account/name", authH.SetAccountName)
 		// Vault management (Phase 4). All routes share the same protected
 		// group; the lawful-at-HLC ACL gates the sync push path separately.
 		pr.Get("/v1/vaults", vaultsH.List)
@@ -553,6 +613,9 @@ func main() {
 		if err := srv.Shutdown(drainCtx); err != nil {
 			log.Printf("shutdown: drain incomplete: %v", err)
 		}
+		// A mail the provider accepted during shutdown must be marked sent, or
+		// the next container sends it again.
+		mailOutbox.Wait(5 * time.Second)
 	}
 }
 
@@ -597,6 +660,19 @@ func startHousekeepingCron(ctx context.Context, pool *pgxpool.Pool, vaultsSvc *v
 			log.Printf("housekeeping: web_visits retention: %v", err)
 		} else if tag.RowsAffected() > 0 {
 			log.Printf("housekeeping: deleted %d unclaimed web_visits older than %s", tag.RowsAffected(), unclaimedVisitRetention)
+		}
+		// Kaata email accounts: codes are kept 7 days, the throttle ledger and
+		// sent-mail rows 2 days (docs/kaata-accounts.md §2, privacy policy).
+		for _, purge := range []struct{ what, sql string }{
+			{"email_codes", `DELETE FROM email_codes WHERE created_at < NOW() - INTERVAL '7 days'`},
+			{"auth_throttle_events", `DELETE FROM auth_throttle_events WHERE created_at < NOW() - INTERVAL '2 days'`},
+			{"email_outbox", `DELETE FROM email_outbox WHERE created_at < NOW() - INTERVAL '2 days'`},
+		} {
+			if tag, err := pool.Exec(ctx, purge.sql); err != nil {
+				log.Printf("housekeeping: %s retention: %v", purge.what, err)
+			} else if tag.RowsAffected() > 0 {
+				log.Printf("housekeeping: deleted %d old %s rows", tag.RowsAffected(), purge.what)
+			}
 		}
 	}
 

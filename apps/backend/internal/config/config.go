@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -79,6 +80,24 @@ type Config struct {
 	// because it survives reinstalls once you've signed in on a test device.
 	OperatorAccountIDs []string
 	OperatorIPs        []string
+	// Mail for Kaata email accounts (docs/kaata-accounts.md §5, internal/mail).
+	// MAIL_DRIVER=smtp with SMTP_* and MAIL_FROM sends real mail;
+	// MAIL_DRIVER=log prints messages, codes included, and needs
+	// KAATA_ENV=development; anything else disables mail (code endpoints
+	// answer 503, password sign-in keeps working). MAIL_MAX_PER_HOUR /
+	// MAIL_MAX_PER_DAY cap the mail sent across everyone (admitted code
+	// requests and security notices), so abuse cannot spend the provider's
+	// quota.
+	MailDriver     string
+	SMTPHost       string
+	SMTPPort       string
+	SMTPUsername   string
+	SMTPPassword   string
+	MailFrom       string
+	MailMaxPerHour int
+	MailMaxPerDay  int
+	// KaataEnv is KAATA_ENV ("production" on the live server).
+	KaataEnv string
 }
 
 func Load() Config {
@@ -102,7 +121,26 @@ func Load() Config {
 		AdminAPIKey:        os.Getenv("ADMIN_API_KEY"),
 		OperatorAccountIDs: splitCSV(os.Getenv("OPERATOR_ACCOUNT_IDS")),
 		OperatorIPs:        splitCSV(os.Getenv("OPERATOR_IPS")),
+
+		MailDriver:     os.Getenv("MAIL_DRIVER"),
+		SMTPHost:       os.Getenv("SMTP_HOST"),
+		SMTPPort:       os.Getenv("SMTP_PORT"),
+		SMTPUsername:   os.Getenv("SMTP_USERNAME"),
+		SMTPPassword:   os.Getenv("SMTP_PASSWORD"),
+		MailFrom:       os.Getenv("MAIL_FROM"),
+		MailMaxPerHour: atoiDefault(os.Getenv("MAIL_MAX_PER_HOUR"), 200),
+		MailMaxPerDay:  atoiDefault(os.Getenv("MAIL_MAX_PER_DAY"), 1000),
+		KaataEnv:       os.Getenv("KAATA_ENV"),
 	}
+}
+
+// atoiDefault parses a non-negative integer setting, falling back to def.
+func atoiDefault(v string, def int) int {
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || n < 0 {
+		return def
+	}
+	return n
 }
 
 // splitCSV parses a comma-separated env value into a trimmed, non-empty slice.

@@ -471,7 +471,9 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
         // instead: syncOnce no-ops while the JWT is absent (one cheap
         // SecureStore read per tick) and resumes automatically once sign-in
         // stores a fresh JWT.
-        await clearLocalSession().catch(() => {});
+        // Only the token that was refused: a newer session stored meanwhile
+        // (another sign-in) is not the one that ended.
+        await clearLocalSession({ onlyIfJwt: err.refusedJwt }).catch(() => {});
         backoffAttempt = 0;
         scheduleNext(currentInterval());
         return;

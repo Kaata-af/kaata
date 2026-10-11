@@ -1,5 +1,5 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from "react";
-import { rotateSessionJWT } from "./auth";
+import { rotateSessionJWT, syncPendingAccountNameFromSelf } from "./auth";
 import { getAppMeta, setAppMeta } from "./db";
 import type { CheckInResponse } from "./types";
 
@@ -167,15 +167,24 @@ export function AppMetaProvider(props: { currentVersion: string; children: React
           console.warn("[app-meta] rotateSessionJWT failed", err);
         }
       }
-      // Phase 4.1: heartbeat for the "different account on this phone?"
-      // prompt. Only refresh when there's a binding to time-window;
-      // otherwise the value stays absent and the prompt never fires on
-      // a fresh install.
-      const boundSub = await getAppMeta("account_google_sub");
-      if (boundSub) {
+      // Heartbeat for "different account on this phone?" (docs/kaata-accounts.md
+      // §7): a sign-in names app_meta account_id as the binding to protect only
+      // while it was active within 30 days. Keyed on the account id, which
+      // every provider writes; account_google_sub is empty for an email
+      // session, so keying on it let an email-only phone's binding lapse and
+      // a different account take its ledger without the question. Sign-out
+      // keeps account_id, so the heartbeat (and the question) outlive it, as
+      // before. No binding: the value stays absent and nothing is asked.
+      const boundAccount = await getAppMeta("account_id");
+      if (boundAccount) {
         await setAppMeta("account_last_seen_at", String(Date.now()));
       }
       await setAppMeta("last_checkin_at", String(Date.now()));
+
+      // An email account starts without a name, and shared tallies show the
+      // account's name: retry sending the phone's own one while that is still
+      // owed (a no-op otherwise). Fire and forget; it never throws.
+      void syncPendingAccountNameFromSelf();
 
       // A device-key rotation (lib/mesh/device-key.ts — the restored-phone
       // heal) leaves this flag set until the backend has the NEW pubkey.

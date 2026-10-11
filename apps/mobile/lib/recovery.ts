@@ -41,7 +41,7 @@ import { parseVaultRole } from "./vault-roles";
 import { pullEvents } from "./sync/pull";
 import { ensureDeviceKey, registerDeviceKey } from "./mesh/device-key";
 import { scheduleSweep } from "./projection/sweep";
-import { reconcileTabsFromServer } from "./tabs/sync";
+import { syncAllTabs } from "./tabs/sync";
 import { emitWitnessedSelfAdmission, witnessEmitPendingKey } from "./trust/backfill";
 import { persistPinnedServerPubkeys } from "./trust/proof";
 import { listVaults, type VaultListing } from "./vault-api";
@@ -80,6 +80,10 @@ export type RecoverOptions = {
 // the per-vault loop owns the long middle; finalize closes it out.
 const PROGRESS_LOOP_START = 0.16;
 const PROGRESS_LOOP_END = 0.92;
+
+// Longest a restore waits for shared accounts to pull (see the end of
+// recoverAllVaults). A few accounts on a working link take a second or two.
+const TAB_PULL_BUDGET_MS = 20_000;
 
 /**
  * Recover every vault the signed-in account is a member of. Idempotent: safe to
@@ -252,12 +256,21 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
   emit("finalizing", PROGRESS_LOOP_END);
 
   // Pick ONE active/default after the loop: the original default if it was
-  // recovered, else the first recovered vault.
+  // recovered, else the account's canonical kaata from sign-in (its oldest
+  // owned one), else the first recovered vault. The listing is newest first, so
+  // without the middle step a fresh install opened whichever kaata was created
+  // last: in the shared store-review account, an empty one a previous reviewer
+  // made, instead of the demo kaata the review instructions describe.
   let activeVaultId: string | null = null;
   if (recovered.length > 0) {
     const originalDefault = await getAppMeta("default_vault_id");
+    const accountDefault = await getAppMeta("signin_default_vault_id");
     activeVaultId =
-      originalDefault && recovered.includes(originalDefault) ? originalDefault : recovered[0];
+      originalDefault && recovered.includes(originalDefault)
+        ? originalDefault
+        : accountDefault && recovered.includes(accountDefault)
+          ? accountDefault
+          : recovered[0];
     await setAppMeta(ACTIVE_VAULT_META_KEY, activeVaultId);
     await setAppMeta("default_vault_id", activeVaultId);
     setActiveVaultIdCache(activeVaultId);
@@ -278,12 +291,31 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
   // Mutual tabs (docs/mutual-tab-design.md D10/§4.6): tab_links is a
   // device-only table the snapshot never carried, so a reinstalled phone
   // has none. The server knows which tabs this account's parties are bound
-  // to; re-fetch them now that the relationships they hang off exist again.
-  // Best effort — the tab loop reconciles on every sweep as well.
+  // to; re-fetch them now that the relationships they hang off exist again,
+  // and PULL them too. Reconcile alone inserts each link empty (rev 0), so a
+  // shared contact restored with no tallies until the tab loop's next sweep,
+  // up to a minute later: the review instructions' first step would have
+  // found nothing to accept. syncAllTabs reconciles first, never rejects,
+  // and skips when offline.
+  //
+  // BOUNDED. The sweep is one sequential pull per shared account (15 s timeout
+  // each), and it is the tab loop's shared promise, which runs again whenever
+  // a 60 s tick lands mid-sweep: awaited bare, a slow link or a kaata with many
+  // shared accounts kept the restore at "Finishing up" indefinitely. Past the
+  // budget the sweep carries on in the background and its rows appear as they
+  // land.
+  let budget: ReturnType<typeof setTimeout> | undefined;
   try {
-    await reconcileTabsFromServer();
+    await Promise.race([
+      syncAllTabs(),
+      new Promise<void>((resolve) => {
+        budget = setTimeout(resolve, TAB_PULL_BUDGET_MS);
+      }),
+    ]);
   } catch (err) {
-    console.warn("[recovery] tab reconcile failed (tab loop retries)", err);
+    console.warn("[recovery] tab sync failed (tab loop retries)", err);
+  } finally {
+    clearTimeout(budget);
   }
 
   emit("done", 1);

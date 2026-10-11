@@ -164,24 +164,45 @@ try {
   android.dispose();
 
   // Edge-to-edge Android never shrinks the window for the keyboard, so the
-  // resize modelled above only exists because each onboarding screen wraps
-  // its form in an Android-only KeyboardAvoidingView. Without it the phone
-  // field and Continue sit under the keyboard with nothing to scroll.
-  for (const screen of ["profile", "kaata"]) {
-    const src = readFileSync(require.resolve(`../../app/onboarding/${screen}`), "utf8");
+  // resize modelled above only exists because each screen using this hook
+  // wraps its form in an Android-only KeyboardAvoidingView. Without it the
+  // lower fields and the button sit under the keyboard with nothing to scroll.
+  //   - onboarding/auth: the email flow (components/EmailAuthFlow.tsx renders
+  //     inside the sign-in screen's KeyboardAvoidingView + ScrollView);
+  //   - account-password / account-username: Account → Sign-in.
+  for (const screen of [
+    "onboarding/profile",
+    "onboarding/kaata",
+    "onboarding/auth",
+    "account-password",
+    "account-username",
+  ]) {
+    const src = readFileSync(require.resolve(`../../app/${screen}`), "utf8");
     const avoid = src.indexOf("<KeyboardAvoidingView");
     assert.ok(
       avoid >= 0 &&
         avoid < src.indexOf("<ScrollView") &&
         src.indexOf("</ScrollView>") < src.indexOf("</KeyboardAvoidingView>"),
-      `onboarding/${screen}: the form must sit inside a KeyboardAvoidingView`,
+      `${screen}: the form must sit inside a KeyboardAvoidingView`,
     );
     const props = /<KeyboardAvoidingView\b([\s\S]*?)\n\s*>/.exec(src)?.[1] ?? "";
     assert.ok(
       props.includes('behavior="height"') && props.includes('enabled={Platform.OS === "android"}'),
-      `onboarding/${screen}: keyboard avoidance must be "height", enabled on Android only (iOS uses scroll insets)`,
+      `${screen}: keyboard avoidance must be "height", enabled on Android only (iOS uses scroll insets)`,
+    );
+    assert.ok(
+      src.includes("useOnboardingKeyboardScroll()") && src.includes("{...scrollProps}"),
+      `${screen}: the ScrollView must take the hook's scroll props`,
     );
   }
+  // The email flow renders inside the sign-in screen's ScrollView: one of its
+  // own would nest a second scroller the keyboard hook cannot see.
+  const emailFlow = readFileSync(require.resolve("../../components/EmailAuthFlow"), "utf8");
+  assert.ok(!emailFlow.includes("<ScrollView"), "EmailAuthFlow renders no ScrollView of its own");
+  assert.ok(
+    emailFlow.includes("props.focusInput(") && emailFlow.includes("props.blurInput("),
+    "EmailAuthFlow reports focus through AuthScreen's keyboard hook",
+  );
   console.log(
     "onboarding-keyboard: focus changes, safe-area offsets, native insets, Android keyboard avoidance, and cleanup passed",
   );

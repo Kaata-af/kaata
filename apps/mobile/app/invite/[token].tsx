@@ -306,7 +306,8 @@ export default function InviteAcceptScreen() {
             <Text style={[styles.heading, textDir(isRTL)]}>{t("common.signInToContinue")}</Text>
             <Text style={[styles.body2, textDir(isRTL)]}>{t("inviteAccept.signin.body")}</Text>
             <View style={{ height: 20 }} />
-            <Button label={t("menu.account.signIn")} onPress={onSignIn} />
+            {/* /sign-in offers every way in (Google, Apple, email). */}
+            <Button label={t("inviteAccept.signin.cta")} onPress={onSignIn} />
             <View style={{ height: 12 }} />
             <Button
               label={t("common.notNow")}

@@ -8,7 +8,7 @@ import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 // require a reachable, truthful privacy policy URL once any personal data is
 // collected — this page is that URL (kaata.af/privacy) and must stay accurate to
 // what the app actually does. When you change a data flow, change this page.
-const UPDATED = "3 October 2026";
+const UPDATED = "10 October 2026";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -82,16 +82,26 @@ export function Privacy() {
           </ul>
         </Section>
 
-        <Section title="When you sign in with Google or Apple">
+        <Section title="When you sign in">
           <p>
-            Signing in is optional and enables cloud backup and sync across your devices. If you
-            sign in:
+            Signing in is optional and enables cloud backup and sync across your devices. You can
+            sign in with Google, with Apple, or with a Kaata account made from your email address
+            and a password. If you sign in:
           </p>
           <ul className="list-disc ps-5 space-y-1.5">
             <li>
-              We receive your <strong>email address, name, and profile picture</strong> from Google
-              or Apple to create your account. Sign in with Apple’s private-relay email is
-              supported.
+              With Google or Apple, we receive your{" "}
+              <strong>email address, name, and profile picture</strong> from them to create your
+              account. Sign in with Apple’s private-relay email is supported.
+            </li>
+            <li>
+              With a Kaata account, we keep your <strong>email address</strong> and your password
+              only as a <strong>one-way hash</strong> (argon2id): we never store or see the password
+              itself. To prove the address is yours, and when you reset or change your password, we
+              email you a 6-digit code or a short security notice through our email delivery
+              provider, which receives your address and the message to send it. You can add an
+              optional <strong>username</strong> to sign in with; it is never shown to other people.
+              The name you enter in the app is used as your account name.
             </li>
             <li>
               Your <strong>ledger is backed up to our server</strong> so you can restore it on a new
@@ -101,6 +111,11 @@ export function Privacy() {
               you hold.
             </li>
           </ul>
+          <p>
+            To protect accounts, we record sign-in attempts and code requests, and the network they
+            came from, for up to 2 days, keyed so that the record holds neither what you typed nor
+            your IP address.
+          </p>
         </Section>
 
         <Section title="Sharing a bill over WhatsApp">
@@ -205,6 +220,7 @@ export function Privacy() {
             account (below), we remove your account profile, sign-in credentials, the self-identity
             fields of installations still linked to your account, and cloud copies of kaatas you
             own. Those installations are retired so they cannot upload the deleted profile again.
+            Email codes are deleted within 7 days of being sent, used or not.
           </p>
           <p>
             Shared tally history remains available to authorized participants after account

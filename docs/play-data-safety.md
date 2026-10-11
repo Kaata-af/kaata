@@ -12,7 +12,8 @@ NOT anonymous, and there is a third, offline path; the fourth arrived with mutua
    Carries install/usage/diagnostics **AND the shopkeeper's own `self_name` /
    `self_phone` / `shop_name`** (migration 028). So own-identity leaves the device
    with **no sign-in required**.
-2. **Sign-in + cloud sync** — Google/Apple, **only if the user signs in → "optional"**.
+2. **Sign-in + cloud sync** — Google, Apple, or a Kaata email + password account (2.1.0
+   build 50, `docs/kaata-accounts.md`), **only if the user signs in → "optional"**.
    Account identity + the **full customer ledger** (names, phones, amounts, notes),
    uploaded server-readable (`/v1/sync/push`, plaintext JSON over TLS — signed, not
    encrypted).
@@ -115,8 +116,8 @@ the old assertion that no messaging provider exists no longer describes 2.0.
 ### Personal info
 
 - [ ] Name — **✅ Yes** (own name via **check-in**, + customer/supplier names via sync)
-- [ ] Email address — **✅ Yes** (own Google/Apple email)
-- [ ] User IDs — **✅ Yes** (account_id, Google/Apple `sub`)
+- [ ] Email address — **✅ Yes** (own Google/Apple email, or the address of a Kaata email account)
+- [ ] User IDs — **✅ Yes** (account_id, Google/Apple `sub`, the optional Kaata username)
 - [ ] Phone number — **✅ Yes** (own phone via **check-in** + account, + customer/supplier phones via sync)
 - Address — No · Race/ethnicity — No · Political/religious beliefs — No · Sexual orientation — No · Other info — No
 
@@ -263,3 +264,18 @@ standard/exempt" (we do use ChaCha20 in the parked mesh) — not "no encryption.
    (deliberate — AI-training angle). Legal once disclosed, but **don't market Kaata as
    "private/local"** until `/v1/sync` is E2E-encrypted. The mesh already has the
    ChaCha20-Poly1305 primitives to reuse. Near-term priority.
+
+## Kaata email accounts (2.1.0 build 50)
+
+- **Account creation methods** (App content → Data safety → account creation): tick
+  **Username and password** as well as **OAuth** (Google, Apple). The in-app deletion path
+  and the web deletion page cover every method.
+- **Passwords** are stored only as argon2id hashes (`account_passwords`); Play's form has
+  no password data type. The optional username is a User ID (private sign-in handle, never
+  shown to other users).
+- **Email delivery provider** (SMTP, `internal/mail`) receives the user's address and the
+  code or security notice to deliver. It processes on Kaata's behalf, so it is a service
+  provider, not "sharing" in Play's sense; name it in the privacy policy once chosen.
+- Codes (`email_codes`) are kept at most 7 days; throttle records (`auth_throttle_events`,
+  HMAC keys only) and sent-mail rows (`email_outbox`, bodies cleared after sending) at most
+  2 days.

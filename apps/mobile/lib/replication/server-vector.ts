@@ -42,7 +42,7 @@ export async function fetchServerVector(vaultId: string): Promise<ServerVectorRe
       signal: controller.signal,
     });
 
-    if (res.status === 401) throw new SessionExpiredError();
+    if (res.status === 401) throw new SessionExpiredError(undefined, jwt);
     if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
       throw new SyncTransientError(res.status, null);
     }

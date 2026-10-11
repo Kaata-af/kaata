@@ -36,6 +36,10 @@ const mocks: Record<string, any> = {
     Text: "Text",
     Pressable: "Pressable",
     ActivityIndicator: "Spinner",
+    BackHandler: { addEventListener: () => ({ remove: () => {} }) },
+    Keyboard: { dismiss: () => {} },
+    KeyboardAvoidingView: "KeyboardAvoidingView",
+    ScrollView: "ScrollView",
     Platform: { OS: "android", select: (x: any) => x.android },
     StyleSheet: { create: (x: any) => x },
   },
@@ -43,7 +47,19 @@ const mocks: Record<string, any> = {
   "@expo/vector-icons": { Ionicons: "Icon" },
   "expo-constants": { default: { executionEnvironment: "standalone" } },
   "expo-router": {
-    useRouter: () => ({ replace: (r: any) => routes.push(r), canGoBack: () => false }),
+    useRouter: () => ({
+      replace: (r: any) => routes.push(r),
+      dismissTo: (r: any) => routes.push({ dismissTo: r }),
+      canGoBack: () => false,
+    }),
+  },
+  "../../components/EmailAuthFlow": { EmailAuthFlow: "EmailAuthFlow" },
+  "../../lib/use-onboarding-keyboard-scroll": {
+    useOnboardingKeyboardScroll: () => ({
+      scrollProps: {},
+      focusInput: () => {},
+      blurInput: () => {},
+    }),
   },
   "../../components/GoogleGIcon": { GoogleGIcon: "Google" },
   "../../components/NinjaIcon": { NinjaIcon: "Ninja" },
@@ -54,6 +70,8 @@ const mocks: Record<string, any> = {
     isGoogleSignInAvailable: () => true,
     isCancellation: () => false,
     SignInFailedError: class extends Error {},
+    InstallRetiredError: class extends Error {},
+    readEmailFlowPending: async () => null,
     signInWithGoogle: async (guard: any) => {
       assert.equal(typeof guard, "function");
       authCalls++;
@@ -82,6 +100,7 @@ const mocks: Record<string, any> = {
   },
   "../../lib/currency": { applyVaultCurrency: async () => {} },
   "../../lib/direction": {
+    ltrIsolate: (value: string) => value,
     rowDir: () => ({}),
     textDir: () => ({}),
     trackingSafe: () => ({}),
@@ -161,7 +180,9 @@ async function main() {
   assert.deepEqual(routes, [{ pathname: "/invite/[token]", params: { token: "member" } }]);
   reset();
   await signIn();
-  assert.deepEqual(routes, ["/"]);
+  // Back DOWN to the home screen the sign-in was opened from, never a second
+  // home on top of it.
+  assert.deepEqual(routes, [{ dismissTo: "/" }]);
   reset();
   self = null;
   await signIn();

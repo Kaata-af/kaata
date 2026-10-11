@@ -136,9 +136,9 @@ type rateLimitMisconfigError struct{ msg string }
 
 func (e *rateLimitMisconfigError) Error() string { return e.msg }
 
-// keyByRealIP buckets by the client IP as resolved by chi's RealIP middleware
-// (which honors X-Forwarded-For / X-Real-IP from the Dokploy/Traefik front).
-// Use this for unauthenticated routes only.
+// keyByRealIP buckets by the client IP as resolved by httpx.RealIP (the
+// rightmost X-Forwarded-For address that is not Cloudflare or internal, see
+// clientip.go). Use this for unauthenticated routes only.
 func keyByRealIP(r *http.Request) (string, error) {
 	return httprate.KeyByIP(r)
 }
@@ -155,6 +155,11 @@ func rateLimitResponder(w http.ResponseWriter, r *http.Request) {
 	if v := w.Header().Get("X-RateLimit-Reset"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			resetSec = n
+			// httprate stamps the window's reset as a Unix time, not a
+			// duration; Retry-After must be seconds from now.
+			if n > 1_000_000_000 {
+				resetSec = n - int(time.Now().Unix())
+			}
 		}
 	}
 	if resetSec <= 0 {
@@ -203,7 +208,7 @@ func rateLimitErrorResponder(w http.ResponseWriter, _ *http.Request, err error) 
 
 // RateLimitPerIP returns middleware that caps requests at `limit` per `window`
 // keyed by the request's real IP. Use for public/unauthenticated routes.
-// Install AFTER middleware.RealIP so X-Forwarded-For is honored.
+// Install AFTER httpx.RealIP so the client, not a proxy, is the key.
 func RateLimitPerIP(limit int, window time.Duration) func(http.Handler) http.Handler {
 	return httprate.Limit(
 		limit,

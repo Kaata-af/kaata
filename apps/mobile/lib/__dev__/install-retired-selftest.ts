@@ -342,6 +342,10 @@ const screen = load<{ AuthScreen: (props: { redirected?: boolean }) => unknown }
       Text: "Text",
       Pressable: "Pressable",
       ActivityIndicator: "Spinner",
+      BackHandler: { addEventListener: () => ({ remove: () => {} }) },
+      Keyboard: { dismiss: () => {} },
+      KeyboardAvoidingView: "KeyboardAvoidingView",
+      ScrollView: "ScrollView",
       Platform: { OS: "android", select: (x: { android: unknown }) => x.android },
       StyleSheet: { create: (x: unknown) => x },
     },
@@ -349,7 +353,20 @@ const screen = load<{ AuthScreen: (props: { redirected?: boolean }) => unknown }
     "@expo/vector-icons": { Ionicons: "Icon" },
     "expo-constants": { __esModule: true, default: { executionEnvironment: "standalone" } },
     "expo-router": {
-      useRouter: () => ({ replace: (r: unknown) => routes.push(r), canGoBack: () => false }),
+      useRouter: () => ({
+        replace: (r: unknown) => routes.push(r),
+        dismissTo: (r: unknown) => routes.push({ dismissTo: r }),
+        canGoBack: () => false,
+      }),
+    },
+    // The email flow is its own component (selftest:email-auth renders it).
+    "../../components/EmailAuthFlow": { EmailAuthFlow: "EmailAuthFlow" },
+    "../../lib/use-onboarding-keyboard-scroll": {
+      useOnboardingKeyboardScroll: () => ({
+        scrollProps: {},
+        focusInput: () => {},
+        blurInput: () => {},
+      }),
     },
     "../../components/GoogleGIcon": { GoogleGIcon: "Google" },
     "../../components/NinjaIcon": { NinjaIcon: "Ninja" },
@@ -368,6 +385,8 @@ const screen = load<{ AuthScreen: (props: { redirected?: boolean }) => unknown }
       signInWithApple: async () => {
         throw nextSignInError;
       },
+      // No emailed code is pending on these phones.
+      readEmailFlowPending: async () => null,
       resetRetiredInstall: async () => {
         resets++;
         if (resetFails) throw new Error("synthetic reset failure");
@@ -387,6 +406,7 @@ const screen = load<{ AuthScreen: (props: { redirected?: boolean }) => unknown }
     "../../lib/db-tx": { getActiveVaultIdSyncMaybe: () => null, setActiveVaultId: async () => {} },
     "../../lib/currency": { applyVaultCurrency: async () => {} },
     "../../lib/direction": {
+      ltrIsolate: (value: string) => value,
       rowDir: () => ({}),
       textDir: () => ({}),
       trackingSafe: () => ({}),

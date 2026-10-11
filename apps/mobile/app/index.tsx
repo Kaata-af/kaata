@@ -45,6 +45,7 @@ import {
   isCancellation,
   type SessionUser,
   SignInCancelledByUserError,
+  SignInFailedError,
   signInWithApple,
   signInWithGoogle,
   signOut,
@@ -62,7 +63,7 @@ import {
 } from "../lib/db";
 import { getAccountIdSync, getActiveVaultId, setActiveVaultId } from "../lib/db-tx";
 import { useLedgerRefresh } from "../lib/ledger-events";
-import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
+import { ltrIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { formatAmount } from "../lib/format";
 import { sumAmounts } from "../lib/money";
@@ -690,20 +691,26 @@ export default function HomeScreen() {
   // onboarding/auth.tsx: Sign in with Apple on iOS (there is no iOS Google
   // OAuth client — configureGoogleSignIn() deliberately no-ops there), Google
   // everywhere else. BOTH providers get the same different-account
-  // keep/wipe/cancel prompt — the guard compares the token's sub against the
-  // cached binding and is picker-independent, so an iOS device whose Apple ID
-  // changed hands can't silently rebind the local ledger. Everything after
-  // the provider handshake — vault registration reconcile, restore, toasts —
-  // is provider-agnostic.
+  // keep/wipe/cancel prompt — the server answers 409 different_account when
+  // the sign-in resolves to another account than the one this phone's ledger
+  // is bound to, so an iOS device whose Apple ID changed hands can't silently
+  // rebind the local ledger. Everything after the provider handshake — vault
+  // registration reconcile, restore, toasts — is provider-agnostic. (Email
+  // sign-in has fields to type, so the sheet opens /sign-in?mode=email.)
   async function runSignIn(provider: "google" | "apple") {
     if (authBusy) return;
     setAuthBusy(true);
     setAuthPhase("signingIn");
+    // "Start fresh" erases this phone's ledger before the sign-in resends. If
+    // the sign-in then fails, the screen must still stop showing what is gone.
+    let wiped = false;
     try {
       const promptDifferentAccount = async (args: DifferentAccountPromptArgs) => {
-        return new Promise<DifferentAccountChoice>((resolve) => {
+        const choice = await new Promise<DifferentAccountChoice>((resolve) => {
           setPendingAccountDecision({ args, resolve });
         });
+        if (choice === "wipe") wiped = true;
+        return choice;
       };
       // Both providers work on both platforms (Apple via the web OAuth flow
       // on Android; Google on iOS when the iOS client id is baked in — the
@@ -757,6 +764,7 @@ export default function HomeScreen() {
         }
       }, 240);
     } catch (err) {
+      if (wiped) void load();
       if (err instanceof SignInCancelledByUserError) return;
       if (isCancellation(err)) return;
       console.warn("[home] sign-in failed", err);
@@ -764,6 +772,9 @@ export default function HomeScreen() {
         // Not "try again": the server refuses this install for good. Explain
         // and offer the confirmed reset instead of the generic toast.
         setTimeout(() => setRetiredNotice(true), 240);
+      } else if (err instanceof SignInFailedError && err.stage === "token_expired") {
+        // The question stayed up past the token's life; nothing was changed.
+        setTimeout(() => toast.push(t("auth.error.tokenExpired"), "error"), 240);
       } else {
         setTimeout(() => toast.push(t("menu.account.signIn.failed"), "error"), 240);
       }
@@ -944,10 +955,12 @@ export default function HomeScreen() {
             // Apple) — metric-corrected initial-letter chip. Array.from takes
             // the first GRAPHEME so a surrogate-pair/emoji name never renders
             // half a codepoint (same rule as the settings sheet's initialFor).
+            // `||`: an email account's name starts EMPTY, and falls through to
+            // the address.
             <InitialAvatar
               size={PROFILE_SLOT_SIZE}
               label={(
-                Array.from((sessionUser.name ?? sessionUser.email ?? "?").trim())[0] ?? "?"
+                Array.from((sessionUser.name?.trim() || sessionUser.email || "?").trim())[0] ?? "?"
               ).toUpperCase()}
             />
           ) : (
@@ -1458,23 +1471,26 @@ export default function HomeScreen() {
         onCancel={() => setBleSettingsDialogOpen(false)}
       />
 
-      {/* Phase 7 D-ACCOUNT-PAGE-ROLE: "different Google account on this
-          phone?" prompt — fires when the user picks a Google account
-          whose sub differs from the cached one AND the install was
-          active within the last 30 days. Three outcomes;
-          signInWithGoogle is awaiting our resolve() and proceeds (or
-          throws SignInCancelledByUserError) based on which button gets
-          tapped. Previously this dialog lived on the deleted /account
-          screen; folded in here so the sign-in flow can run inline from
-          ProfileSettingsSheet. */}
+      {/* "Different account on this phone?" — the SERVER asks (409
+          different_account, docs/kaata-accounts.md §7) when this phone
+          holds a ledger bound within the last 30 days and the sign-in
+          resolves to another account. Three outcomes; the sign-in is
+          awaiting our resolve() and resends (keep / wipe) or throws
+          SignInCancelledByUserError based on which button gets tapped.
+          It runs inline from ProfileSettingsSheet, so it lives here. */}
       <ConfirmDialog
         visible={pendingAccountDecision !== null}
         title={t("account.differentAccount.title")}
         description={
           pendingAccountDecision
             ? t("account.differentAccount.body", {
-                oldEmail: pendingAccountDecision.args.cachedEmail ?? "—",
-                newEmail: pendingAccountDecision.args.newEmail ?? "—",
+                // Latin addresses, isolated so a Dari sentence cannot reorder them.
+                oldEmail: pendingAccountDecision.args.cachedEmail
+                  ? ltrIsolate(pendingAccountDecision.args.cachedEmail)
+                  : "—",
+                newEmail: pendingAccountDecision.args.newEmail
+                  ? ltrIsolate(pendingAccountDecision.args.newEmail)
+                  : "—",
               })
             : ""
         }

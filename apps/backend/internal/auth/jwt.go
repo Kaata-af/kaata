@@ -41,12 +41,24 @@ type SessionClaims struct {
 	InstallID   string `json:"install_id"`
 	Provider    string `json:"provider"`
 	ProviderSub string `json:"provider_sub"`
+	// Epoch is the credential's session epoch (auth_credentials.session_epoch,
+	// docs/kaata-accounts.md §6). Each sign-in on an install gives its
+	// credential a fresh one, so older JWTs of that install stop authorizing.
+	// Absent (0) in legacy tokens, which match legacy rows until the next
+	// sign-in. Kept below 2^53 so a JavaScript reader never rounds it.
+	Epoch int64 `json:"ep,omitempty"`
 	jwt.RegisteredClaims
 }
 
 // SignSession produces a session JWT signed with HS256. The secret must
 // be a long random byte string (>= 32 bytes) set via JWT_SECRET in env.
+// It carries epoch 0 (legacy); sign-in paths use SignSessionEpoch.
 func SignSession(secret, accountID, installID, provider, providerSub string) (string, error) {
+	return SignSessionEpoch(secret, accountID, installID, provider, providerSub, 0)
+}
+
+// SignSessionEpoch is SignSession for a credential with the given epoch.
+func SignSessionEpoch(secret, accountID, installID, provider, providerSub string, epoch int64) (string, error) {
 	if secret == "" {
 		return "", errors.New("session jwt secret is not configured")
 	}
@@ -59,6 +71,7 @@ func SignSession(secret, accountID, installID, provider, providerSub string) (st
 		InstallID:   installID,
 		Provider:    provider,
 		ProviderSub: providerSub,
+		Epoch:       epoch,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    SessionIssuer,
 			Subject:   accountID,

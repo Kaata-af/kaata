@@ -235,7 +235,7 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
   o.receipt_id,o.attempts,o.event_kind,COALESCE(o.entry_id::text,''),
   COALESCE(s.account_id=p.account_id OR EXISTS(SELECT 1 FROM vault_members vm WHERE vm.vault_id=p.vault_id AND vm.account_id=s.account_id AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL AND vm.role IN ('owner','manager','editor')),FALSE),
 	  s.renewed_at>NOW()-INTERVAL '30 days' AND o.created_at>NOW()-INTERVAL '24 hours'
-	  AND EXISTS(SELECT 1 FROM auth_credentials ac WHERE ac.install_id=s.install_id AND ac.account_id=s.account_id)
+	  AND EXISTS(SELECT 1 FROM auth_credentials ac WHERE ac.install_id=s.install_id AND ac.account_id=s.account_id AND ac.revoked_at IS NULL)
  AND NOT EXISTS(SELECT 1 FROM tab_notifications n WHERE n.tab_id=s.tab_id AND n.rev=o.rev
    AND (n.actor_account_id=s.account_id OR n.actor_install_id=s.install_id))
  AND NOT EXISTS(SELECT 1 FROM tab_notifications n JOIN tab_notification_reads nr ON nr.notification_id=n.id

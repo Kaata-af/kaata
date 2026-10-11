@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useRef } from "react";
+import { forwardRef, type ReactNode, useEffect, useRef } from "react";
 import { Animated, StyleSheet, Text, TextInput, type TextInputProps, View } from "react-native";
 import { colors } from "../lib/colors";
 import { textDir, useIsRTL } from "../lib/direction";
@@ -19,10 +19,24 @@ export type FormFieldProps = TextInputProps & {
   label?: string;
   required?: boolean;
   error?: string | null;
+  /**
+   * A control inside the input's RIGHT edge (a password's show/hide), with room
+   * kept for it. Physical right on purpose: the only fields that carry one are
+   * LTR in both languages (see LTR_INPUT).
+   */
+  accessory?: ReactNode;
 };
 
+/**
+ * Style for a field whose content is Latin by nature in either language: an
+ * email address, a username, a password, an emailed code. Pass it as `style`
+ * (FormField applies the caller's style last), so a Dari UI does not mirror
+ * what was typed or right-align the caret.
+ */
+export const LTR_INPUT = { writingDirection: "ltr", textAlign: "left" } as const;
+
 export const FormField = forwardRef<TextInput, FormFieldProps>(function FormField(
-  { label, required, error, style, onChangeText, value, ...inputProps },
+  { label, required, error, style, onChangeText, value, accessory, ...inputProps },
   ref,
 ) {
   const isRTL = useIsRTL();
@@ -68,8 +82,15 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
           // inputProps.
           accessibilityLabel={label}
           {...inputProps}
-          style={[styles.input, textDir(isRTL), hasError && styles.inputError, style]}
+          style={[
+            styles.input,
+            textDir(isRTL),
+            hasError && styles.inputError,
+            accessory ? styles.inputWithAccessory : null,
+            style,
+          ]}
         />
+        {accessory ? <View style={styles.accessory}>{accessory}</View> : null}
       </Animated.View>
       {hasError ? (
         <Text style={[styles.errorText, textDir(isRTL)]} accessibilityLiveRegion="polite">
@@ -99,6 +120,15 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     color: colors.textEmphasis,
     backgroundColor: colors.bgDefault,
+  },
+  // Room for the accessory's 44px target at the right edge.
+  inputWithAccessory: { paddingRight: 48 },
+  accessory: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    right: 0,
+    justifyContent: "center",
   },
   inputError: {
     borderColor: colors.danger,

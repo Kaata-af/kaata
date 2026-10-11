@@ -55,6 +55,12 @@
       "android": {
         "track": "internal"
       }
+    },
+    "internal-hold": {
+      "android": {
+        "track": "internal",
+        "changesNotSentForReview": true
+      }
     }
   }
 }

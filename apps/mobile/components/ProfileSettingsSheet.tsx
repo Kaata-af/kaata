@@ -354,6 +354,18 @@ export function ProfileSettingsSheet(props: {
                       isRTL={isRTL}
                     />
                   ) : null}
+                  {/* Kaata's own accounts (docs/kaata-accounts.md), both
+                      platforms. Unlike the provider rows above, which sign in
+                      inline, it opens /sign-in straight on the email flow:
+                      there are fields to type. */}
+                  <NavRow
+                    icon="mail-outline"
+                    label={t("menu.account.signIn.email")}
+                    onPress={chained(() =>
+                      router.push({ pathname: "/sign-in", params: { mode: "email" } }),
+                    )}
+                    isRTL={isRTL}
+                  />
                   {/* Editable while signed out too — it's the local identity. */}
                   <NavRow
                     icon="person-circle-outline"
@@ -585,7 +597,9 @@ export function ProfileSettingsSheet(props: {
 // --------------------------------------------------------------------------
 
 function initialFor(user: SessionUser): string {
-  const source = user.name ?? user.email ?? "?";
+  // `||`, not `??`: an email account starts with an EMPTY name (no provider
+  // asserts one), and an empty name must fall through to the address.
+  const source = user.name?.trim() || user.email || "?";
   // Take the first non-whitespace grapheme. Array.from copes with emoji /
   // surrogate pairs without slicing them mid-codepoint.
   const first = Array.from(source.trim())[0];

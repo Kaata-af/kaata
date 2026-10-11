@@ -16,6 +16,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { CountryPickerSheet } from "../../components/CountryPickerSheet";
 import { FormField } from "../../components/FormField";
+import {
+  accountNameIsOurs,
+  accountNameProblem,
+  normalizeAccountName,
+} from "../../lib/account-rules";
+import { currentSessionKind, fetchAccountMe, syncAccountName } from "../../lib/auth";
 import { colors } from "../../lib/colors";
 import { getAppMeta, setAppMeta } from "../../lib/db";
 import { ltrIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
@@ -80,7 +86,22 @@ export default function OnboardingProfileScreen() {
   // Synchronous re-entry guard — `busy` state can't stop a same-frame
   // double-tap (setState is async); see entry/new.tsx.
   const savingRef = useRef(false);
+  // The account's name is ours to set (an email account: no Google or Apple
+  // identity names it), so the name typed here is the ACCOUNT's too: it
+  // follows the server's rule and every Continue sends it. Decided from the
+  // account's providers: an email session may be a Google account that added
+  // a password. Only an email session can be ours, so only it asks.
+  const nameOursRef = useRef(false);
   const country = getCountry(countryCode);
+
+  useEffect(() => {
+    void (async () => {
+      const kind = await currentSessionKind().catch(() => null);
+      if (kind !== "email") return;
+      const me = await fetchAccountMe().catch(() => null);
+      nameOursRef.current = accountNameIsOurs(me ? me.providers : null, kind);
+    })();
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -162,7 +183,16 @@ export default function OnboardingProfileScreen() {
 
     // Last name is optional. Stored combined into the single display_name the
     // data model uses everywhere ("First Last"); no schema change.
-    const fullName = trimmedLast ? `${trimmedName} ${trimmedLast}` : trimmedName;
+    const typedName = trimmedLast ? `${trimmedName} ${trimmedLast}` : trimmedName;
+    // A name that is ours to set is the account's, kept to the server's rule
+    // (§6.11): whitespace collapsed, 2 to 60 characters.
+    const nameOurs = nameOursRef.current;
+    const fullName = nameOurs ? normalizeAccountName(typedName) : typedName;
+    if (nameOurs && accountNameProblem(fullName)) {
+      setNameError(t("auth.error.name.invalid"));
+      nameRef.current?.focus();
+      return;
+    }
 
     // Normalize to E.164 like every other phone write path. Without this,
     // the raw string ("0700123456", spaces, typos) landed verbatim in
@@ -188,6 +218,14 @@ export default function OnboardingProfileScreen() {
       await setAppMeta("onboarding_self_name", fullName);
       await setAppMeta("onboarding_self_phone", normalizedPhone);
       await setAppMeta("onboarding_step", "kaata");
+      // An email account has no name until the phone gives it one, and shared
+      // tallies, reviews and pushes show the ACCOUNT's name (§7). When the
+      // name is ours, every Continue sends it as it is NOW, so a name fixed
+      // after Back from the kaata step reaches the server too. Otherwise only
+      // a name still owed is sent (never for Google or Apple, whose provider
+      // names the account). Never throws; check-in retries a send that did not
+      // arrive. Not awaited: the next step must not wait on the network.
+      void syncAccountName(fullName, nameOurs ? { force: true } : {});
       Keyboard.dismiss();
       router.replace("/onboarding/kaata");
     } catch (err) {

@@ -26,6 +26,16 @@
 //   --notes-file <p>   "What's new" text to attach (see below)
 //   --notes-lang <l>   locale for --notes-file, repeatable (default: en-US)
 //   --dry-run          open the edit, show what would move, then discard it
+//   --no-send          commit without sending the change for review
+//                      (changesNotSentForReview=true), then press "Send changes
+//                      for review" in Play Console, Publishing overview
+//
+// --no-send exists for a REJECTED app. Until a fix is sent, Play refuses any
+// API commit that would send changes for review automatically ("Changes cannot
+// be sent for review automatically"), so after the 2.1.0 build 49 rejection the
+// fix had to be staged with it and sent once from the Console. Never make it
+// the default: once the app is back in good standing Play refuses the flag
+// instead, and a commit that is never sent never reaches anyone.
 //
 // RELEASE NOTES. Notes on the source release travel with it — but EAS Submit
 // does not set any when it uploads, so a straight promote ships production
@@ -57,6 +67,7 @@ function parseArgs(argv) {
     notesFile: null,
     notesLangs: [],
     dryRun: false,
+    noSend: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -67,6 +78,7 @@ function parseArgs(argv) {
     else if (a === "--notes-file") opts.notesFile = path.resolve(argv[++i]);
     else if (a === "--notes-lang") opts.notesLangs.push(argv[++i]);
     else if (a === "--dry-run") opts.dryRun = true;
+    else if (a === "--no-send") opts.noSend = true;
     else if (a === "--help" || a === "-h") {
       console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n\n")[0]);
       process.exit(0);
@@ -235,13 +247,24 @@ try {
     track: opts.to,
     releases: [release],
   });
-  await play("POST", `/edits/${editId}:commit`, undefined);
-  console.log(`\n✓ ${app.version} (${versionCode}) is on ${opts.to}.`);
-  console.log(
-    opts.rollout === null
-      ? "  Play publishes it to everyone after its own review, usually within a few hours."
-      : `  Staged at ${Math.round(opts.rollout * 100)}%; raise it later in the Play Console or re-run with a higher --rollout.`,
+  await play(
+    "POST",
+    `/edits/${editId}:commit${opts.noSend ? "?changesNotSentForReview=true" : ""}`,
+    undefined,
   );
+  console.log(`\n✓ ${app.version} (${versionCode}) is on ${opts.to}.`);
+  if (opts.noSend) {
+    console.log(
+      "  NOT sent for review. Play Console → Publishing overview → Send changes for review\n" +
+        "  (once, after every track you are changing has been staged).",
+    );
+  } else {
+    console.log(
+      opts.rollout === null
+        ? "  Play publishes it to everyone after its own review, usually within a few hours."
+        : `  Staged at ${Math.round(opts.rollout * 100)}%; raise it later in the Play Console or re-run with a higher --rollout.`,
+    );
+  }
 } catch (err) {
   // A failed edit must not linger — Play keeps at most one open edit per app.
   await play("DELETE", `/edits/${editId}`).catch(() => {});

@@ -6,10 +6,18 @@
 // device, account deleted, secret rotated, etc.). Scheduler reacts by clearing
 // the SecureStore session and backing off; the loop keeps ticking, so a fresh
 // sign-in mid-session resumes syncing without an app restart.
+//
+// `refusedJwt` is the token the request carried. Every sign-in (a password
+// reset included) gives the install a fresh epoch, so a pull or push still on
+// its way with the previous token comes back 401 although the phone is signed
+// in: the scheduler clears the session only while this token is still the
+// stored one (clearLocalSession's onlyIfJwt).
 export class SessionExpiredError extends Error {
-  constructor(message = "session expired") {
+  readonly refusedJwt: string | null;
+  constructor(message = "session expired", refusedJwt: string | null = null) {
     super(message);
     this.name = "SessionExpiredError";
+    this.refusedJwt = refusedJwt;
   }
 }
 

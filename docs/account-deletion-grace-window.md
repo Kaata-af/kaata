@@ -26,27 +26,31 @@ Goal: make account deletion reversible for a grace window so this cannot recur.
 - The `DeletionMiddleware` revoked-branch confirms a completed deletion for lost-response retries via
   `AccountDeletionCompleted` (`middleware.go:97-106`, keyed on `NOT EXISTS account`).
 - Migrations are filename-sorted, one tx each (`apps/backend/internal/db/db.go:93-128`); next number is
-  **052**. Mobile migrations are append-only `runMigrationNNN` in `apps/mobile/lib/db.ts`, at **032**.
+  **054** (052 and 053 are Kaata email + password accounts: `052_email_accounts.sql`,
+  `053_email_accounts_hardening.sql`). Mobile migrations are append-only `runMigrationNNN` in `apps/mobile/lib/db.ts`, at **032**.
 - Mobile already wipes locally after a confirmed server delete and rotates to a fresh install id
   (`apps/mobile/lib/auth.ts:1369-1397`, `clearDeletedAccountLocally`). Load-bearing below.
 
 ## 1. Backend schema + service
 
-Migration `052_account_pending_delete.sql`:
+Migration `054_account_pending_delete.sql`:
+
 ```sql
 ALTER TABLE accounts ADD COLUMN pending_delete_at TIMESTAMPTZ;
 ALTER TABLE accounts ADD COLUMN delete_requested_from_install UUID;
 CREATE INDEX idx_accounts_pending_delete_queue
   ON accounts(pending_delete_at) WHERE pending_delete_at IS NOT NULL;
 ```
+
 Leave the unused `vaults.pending_delete_by/at` scaffold in place but retired (append-only).
 
 Split `delete_account.go` into request-time vs purge-time:
+
 - `RequestAccountDeletion(accountID, installID)` — new body of `DELETE /v1/account`. Lock the account
   `FOR UPDATE`; if `pending_delete_at` already set, return idempotently. Otherwise: set
   `pending_delete_at=NOW()`, `delete_requested_from_install`; write the receipt + retire THIS account's
   installs (selector from `:146-151`) → blocks check-in/sign-in (410); `UPDATE auth_credentials SET
-  revoked_at=NOW() WHERE account_id=$acct` (live JWTs 401 immediately; sign-in upsert un-revokes on
+revoked_at=NOW() WHERE account_id=$acct` (live JWTs 401 immediately; sign-in upsert un-revokes on
   return); `InvalidateAccount`. Do NOT delete vaults/events/memberships, do NOT close tabs, do NOT clear
   install identity/crash_reports, do NOT delete the accounts row — all destructive work defers to purge.
 - `purgeOneAccount(accountID)` — cron worker containing today's destructive body verbatim, guarded by
@@ -61,16 +65,23 @@ Access blocked while pending falls out of existing machinery (revoked creds → 
 In `SignInWithGoogle`/`SignInWithApple`, capture the discarded `created` bool from
 `resolveOrCreateAccount` and when `!created` call `cancelPendingDeletion(tx, accountID)` BEFORE
 `ensureSignInInstall`:
+
 ```sql
 UPDATE accounts SET pending_delete_at=NULL, delete_requested_from_install=NULL
   WHERE id=$acct AND pending_delete_at IS NOT NULL;   -- RowsAffected>0 ⇒ cancelled
 -- if cancelled:
 UPDATE installs SET account_deleted_at=NULL, deletion_account_id=NULL WHERE deletion_account_id=$acct;
 ```
+
 Runs in the sign-in tx, so it lifts the current install's retirement before `ensureSignInInstall` reads
 it — even the original device cancels in one shot, no reset needed. Covers every resolution path
 (canonical identity, legacy `google_sub`, cross-provider verified-email link `identity.go:151-196`)
 because it keys off the resolved `accountID`.
+
+**Every provider, through the shared tail.** Google, Apple and every Kaata email sign-in (password sign-in,
+sign-up verify, reset verify) end in the shared `completeSignIn` tail (docs/kaata-accounts.md §6), so
+`cancelPendingDeletion` belongs there, once. A shared demo account used for store review must not sit in
+a grace window: reviewers would lock each other out for 30 days. Purge it immediately instead.
 
 Tell the client: add `DeletionCancelled bool` to the sign-in result → `deletion_cancelled` in the auth
 response. The client already runs `recoverAllVaults` on a returning sign-in (`recovery.ts:90`); the flag
@@ -106,6 +117,7 @@ and extend `DeletionMiddleware`: on revoked, return `{"status":"deleted"}` when 
 
 A grace/cooling-off window is permitted by both stores if the user is informed and deletion ultimately
 completes:
+
 - Apple App Review 5.1.1(v): in-app deletion required; a grace period before permanent deletion is allowed
   if disclosed. In-app path already exists (`account.tsx:539`).
 - Google Play Account deletion requirements (Data safety): in-app request for account AND data deletion; a
@@ -144,7 +156,7 @@ Recommend 30 days — matches `archiveGrace`, `DIFFERENT_ACCOUNT_WINDOW_MS` (`au
 
 ## Ordered build + test sequence
 
-1. Migration `052_account_pending_delete.sql` (+ index). Verify chain applies via `testutil`.
+1. Migration `054_account_pending_delete.sql` (+ index). Verify chain applies via `testutil`.
 2. Split `delete_account.go`: `RequestAccountDeletion` (pending + receipt-retire + revoke creds +
    InvalidateAccount) and `purgeOneAccount` (today's destructive body).
 3. `account_purge.go` cron mirroring `archive_purge.go`; wire in `main.go` beside `:516`; share the grace
@@ -164,6 +176,7 @@ Recommend 30 days — matches `archiveGrace`, `DIFFERENT_ACCOUNT_WINDOW_MS` (`au
 9. Update `kaata.af/privacy` + store-listing deletion disclosure; re-verify the reviewer account flow.
 
 ## Critical files
+
 - `apps/backend/internal/auth/delete_account.go`, `identity.go`, `middleware.go` (+ `service.go`,
   `deletion_receipt.go`, `handler.go`)
 - `apps/backend/internal/vaults/archive_purge.go` (purge-cron template → new `account_purge.go` + wiring

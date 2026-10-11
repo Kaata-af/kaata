@@ -269,7 +269,7 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
   }
 
   if (res.status === 401) {
-    throw new SessionExpiredError();
+    throw new SessionExpiredError(undefined, jwt);
   }
   if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
     const retryAfter = parseRetryAfter(res.headers.get("Retry-After"));

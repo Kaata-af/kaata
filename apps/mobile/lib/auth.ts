@@ -132,12 +132,18 @@ export type SessionUser = {
   // Account-level phone (E.164) the shopkeeper saved on a prior device, echoed
   // back by /v1/auth/google so a reinstall can prefill it. Absent when none.
   phone?: string;
+  // Kaata accounts (docs/kaata-accounts.md §6): the optional private sign-in
+  // handle, and whether the account has a Kaata password. Every provider's
+  // sign-in reply carries has_password; username is omitted when none.
+  username?: string;
+  has_password?: boolean;
 };
 
 // Phase 4.1: thrown when the user dismisses the "different account on this
-// phone?" dialog. Callers should swallow it the same way they swallow the
-// Google-picker cancellation — the user explicitly chose to stay on the
-// old account, so we keep the existing session untouched.
+// phone?" dialog, and when they back out of Google's chooser (see
+// signInForIdToken). isCancellation() is true for it, so callers swallow it
+// like any other cancellation: the user chose not to sign in, and the existing
+// session stays untouched.
 export class SignInCancelledByUserError extends Error {
   constructor() {
     super("sign_in_cancelled_by_user");
@@ -161,6 +167,9 @@ export type SignInStage =
   | "timeout" // our backend didn't answer in time
   | "network" // couldn't reach our backend at all
   | "server" // backend answered with an error
+  // The Google/Apple token or the emailed code went stale while the user read
+  // the "different account?" question: sign in again (refused before any wipe).
+  | "token_expired"
   | "unknown";
 
 export class SignInFailedError extends Error {
@@ -199,93 +208,229 @@ export class InstallRetiredError extends SignInFailedError {
   }
 }
 
-// Result of the "different Google account on this phone" prompt. Returned
-// by the UI callback the caller of signInWithGoogle passes in.
-//   - "keep"   — replace the binding, keep local ledger data
-//   - "wipe"   — wipe local ledger first, then bind the new account
+// Result of the "different account on this phone?" prompt. Returned by the
+// UI callback every sign-in function takes.
+//   - "keep"   — sign in anyway and rebind, keeping the local ledger data
+//   - "wipe"   — erase the local ledger first, then sign in on a clean phone
 //   - "cancel" — abort the sign-in entirely, stay on the old account
 export type DifferentAccountChoice = "keep" | "wipe" | "cancel";
 
 export type DifferentAccountPromptArgs = {
   cachedEmail: string | null; // last-known display email for the old binding
-  newEmail: string | null; // email of the account the user just picked
+  newEmail: string | null; // the account being signed in to, as the server names it
 };
+
+export type DifferentAccountPrompt = (
+  args: DifferentAccountPromptArgs,
+) => Promise<DifferentAccountChoice>;
 
 // 30 days in ms. Outside this window we silently swap the binding without
 // prompting — the previous binding is plausibly abandoned.
 const DIFFERENT_ACCOUNT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
-// Phase 4.1 "different account on this phone?" guard, shared by Google AND
-// Apple sign-in (both providers' ID tokens are standard JWTs with a stable
-// per-account `sub`; postSignInHousekeeping caches whichever provider's sub
-// under app_meta.account_google_sub — the key name is historical). If a
-// previous sub is cached AND the new sub differs AND the install was active
-// within the last 30 days, ask the caller's prompt before the backend call:
-//   - "keep"   → return; the sign-in proceeds and rebinds to the new account
-//   - "wipe"   → resetAllLocalData() first (clears app_meta too), then return
-//   - "cancel" → run onCancelCleanup (provider-specific, e.g. revoke the
-//                Google picker selection), then throw
-//                SignInCancelledByUserError for the caller to swallow
-// Decoding the JWT locally is safe because we only read display info to
-// drive UI — the backend still does full signature/aud verification. We DO
-// NOT trust these claims for any state mutation.
-async function guardDifferentAccount(
-  idToken: string,
-  onDifferentAccount?: (args: DifferentAccountPromptArgs) => Promise<DifferentAccountChoice>,
-  onCancelCleanup?: () => Promise<void>,
-): Promise<void> {
-  if (!onDifferentAccount) return;
-  const decoded = decodeIdTokenClaims(idToken);
-  const newSub: string | null = typeof decoded?.sub === "string" ? decoded.sub : null;
-  const newEmail: string | null = typeof decoded?.email === "string" ? decoded.email : null;
-  if (!newSub) return;
+// The old binding's display email for the prompt. Written at every sign-in and
+// deliberately NOT cleared by sign-out: the prompt matters most after someone
+// signed out and a different person signs in on the same phone.
+const ACCOUNT_DISPLAY_EMAIL_KEY = "account_display_email";
 
-  const db = await getDb();
-  const cachedSub = await getAppMetaInTx(db, "account_google_sub");
-  const lastSeenRaw = await getAppMetaInTx(db, "account_last_seen_at");
-  const lastSeen = lastSeenRaw ? Number(lastSeenRaw) : NaN;
-  const withinWindow =
-    Number.isFinite(lastSeen) && Date.now() - lastSeen < DIFFERENT_ACCOUNT_WINDOW_MS;
-  if (!cachedSub || cachedSub === newSub || !withinWindow) return;
-
-  // Best-effort: pull the last-known email from SecureStore so the dialog
-  // can render "old (a@x) vs new (b@y)". Stale is fine — it's for
-  // recognition, not authorization.
-  let cachedEmail: string | null = null;
+// True when this phone holds any kaata or person: the local ledger a sign-in to
+// another account would rebind. A fresh install has neither until onboarding's
+// kaata step (or a restore) creates them. A read that fails counts as "holds
+// data", so the prompt errs on the side of asking.
+async function hasLocalLedgerData(): Promise<boolean> {
   try {
-    const cachedUser = await getSessionUser();
-    cachedEmail = cachedUser?.email ?? null;
+    const db = await getDb();
+    const row = await db.getFirstAsync<{ found: number }>(
+      `SELECT (EXISTS (SELECT 1 FROM vaults) OR EXISTS (SELECT 1 FROM users)) AS found`,
+    );
+    return !!row?.found;
   } catch {
-    // SecureStore can transiently fail; UI just shows "—" for the old
-    // side. Never blocks the prompt.
+    return true;
   }
+}
 
-  const choice = await onDifferentAccount({ cachedEmail, newEmail });
-  if (choice === "cancel") {
-    if (onCancelCleanup) await onCancelCleanup();
-    throw new SignInCancelledByUserError();
+// "Different account on this phone?" (docs/kaata-accounts.md §6, §7). The
+// SERVER decides, for every provider, before it writes anything: a sign-in that
+// names the phone's current binding in current_account_id is refused with 409
+// different_account when it resolves to another account, unless allow_switch is
+// set. This is the binding that sign-in names: app_meta account_id, but only
+// while the phone holds local data and the binding was active within the last
+// 30 days (the check-in heartbeat keeps account_last_seen_at fresh). Null means
+// there is nothing to protect, so the sign-in proceeds without asking.
+//
+// It replaced a client-side comparison of the provider's `sub` claims, which
+// could not see an email account (no third-party token) and could not tell a
+// Google and an Apple identity of the SAME account apart.
+async function bindingToProtect(): Promise<string | null> {
+  const db = await getDb();
+  const accountId = await getAppMetaInTx(db, "account_id");
+  if (!accountId) return null;
+  const lastSeen = Number(await getAppMetaInTx(db, "account_last_seen_at"));
+  if (!Number.isFinite(lastSeen) || Date.now() - lastSeen >= DIFFERENT_ACCOUNT_WINDOW_MS) {
+    return null;
   }
-  if (choice === "wipe") {
-    // Wipe the local ledger BEFORE the backend call so the new sign-in
-    // lands on a clean SQLite. resetAllLocalData clears app_meta too, so
-    // cached account_google_sub / account_id / account_last_seen_at all go
-    // with it — postSignInHousekeeping will repopulate them fresh.
-    await resetAllLocalData();
-    // resetAllLocalData drops EVERY table (schema_migrations included) and
-    // closes the handle; without re-running migrations, every DB access for
-    // the rest of this sign-in (housekeeping, recovery, home load) hits
-    // "no such table" until the next cold launch. Same re-init pattern as
-    // account.tsx after deleteAccount: fresh install id first (migration 006
-    // requires it), then rebuild the schema.
-    const freshInstallId = await ensureInstallId();
-    setInstallIdCache(freshInstallId);
-    setLocalSelfUserIdCache(null);
-    await initDb({ installId: freshInstallId });
+  return (await hasLocalLedgerData()) ? accountId : null;
+}
+
+// Best-effort, for recognition only: "—" in the dialog is fine.
+async function bindingDisplayEmail(): Promise<string | null> {
+  try {
+    const stored = await getAppMetaInTx(await getDb(), ACCOUNT_DISPLAY_EMAIL_KEY);
+    if (stored) return stored;
+  } catch {
+    // fall back to the stored session user below
   }
-  // "keep" falls through. postSignInHousekeeping's setAppMetaInTx calls
-  // will overwrite account_id / account_google_sub with the new account's
-  // values, and appendAccountBound will emit a fresh account_bound event so
-  // the server re-attributes any pre-existing events under the new binding.
+  try {
+    return (await getSessionUser())?.email ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Where one sign-in stands on the different-account question. Carried into a
+// follow-up request of the SAME sign-in (the email flows' password fallback) so
+// the user is never asked twice.
+type SwitchState = {
+  // current_account_id to send, or null (nothing to protect, or wiped).
+  protect: string | null;
+  // The user chose "keep": the server may rebind.
+  allowSwitch: boolean;
+};
+
+async function initialSwitchState(prompt?: DifferentAccountPrompt): Promise<SwitchState> {
+  // Without a prompt there is nobody to ask, so nothing is protected: the same
+  // outcome as before the server decided (no callback, no question).
+  return { protect: prompt ? await bindingToProtect() : null, allowSwitch: false };
+}
+
+type Exchange = {
+  res: Response;
+  body: Record<string, unknown> | null;
+  installId: string;
+  // True when the request was sent twice (the first timed out or broke).
+  retried: boolean;
+  state: SwitchState;
+};
+
+// One sign-in request with the different-account loop around it, for every
+// provider. `payload` is built per attempt because "start fresh" wipes the
+// phone: the next attempt needs the fresh install id and a vault registration
+// computed from the (now empty) ledger.
+//   - 409 different_account → ask. "keep" resends with allow_switch; "wipe"
+//     erases the local ledger (wipeLocalPhone) and resends without
+//     current_account_id under the fresh install id; "cancel" runs
+//     onCancelCleanup and throws SignInCancelledByUserError.
+// Google resends its ID token and Apple its identity token: the server has
+// written nothing, so both are still unused.
+async function signInExchange(args: {
+  url: string;
+  payload: () => Promise<Record<string, unknown>> | Record<string, unknown>;
+  onDifferentAccount?: DifferentAccountPrompt;
+  onCancelCleanup?: () => Promise<void>;
+  /**
+   * Runs after a "keep" or "start fresh" answer, BEFORE anything acts on it
+   * (the wipe, the resend). Throws when the credential the resend would carry
+   * has gone stale while the user read the question (see requireLiveToken).
+   */
+  beforeSwitch?: (choice: "keep" | "wipe") => Promise<void> | void;
+  state?: SwitchState;
+}): Promise<Exchange> {
+  const state = args.state ?? (await initialSwitchState(args.onDifferentAccount));
+  for (;;) {
+    const installId = await ensureInstallId();
+    const { res, retried } = await postAuthTracked(args.url, {
+      install_id: installId,
+      ...(await args.payload()),
+      ...(state.protect ? { current_account_id: state.protect } : {}),
+      ...(state.allowSwitch ? { allow_switch: true } : {}),
+    });
+    const body = await readBody(res);
+    if (
+      res.status === 409 &&
+      body?.error_code === "different_account" &&
+      args.onDifferentAccount &&
+      state.protect &&
+      !state.allowSwitch
+    ) {
+      const newEmail = typeof body.email === "string" && body.email ? body.email : null;
+      const choice = await args.onDifferentAccount({
+        cachedEmail: await bindingDisplayEmail(),
+        newEmail,
+      });
+      if (choice === "cancel") {
+        if (args.onCancelCleanup) await args.onCancelCleanup();
+        throw new SignInCancelledByUserError();
+      }
+      if (args.beforeSwitch) await args.beforeSwitch(choice);
+      if (choice === "wipe") {
+        // The local ledger goes BEFORE the new sign-in, so the new account
+        // lands on a clean phone. The wipe drops app_meta too; the sign-in's
+        // housekeeping repopulates it.
+        await mutateLocalSession(() => wipeLocalPhone({ keepAppleName: true }));
+        state.protect = null;
+      } else {
+        // "keep": postSignInHousekeeping overwrites account_id with the new
+        // account, and appendAccountBound emits a fresh account_bound event so
+        // the server re-attributes the existing events under the new binding.
+        state.allowSwitch = true;
+      }
+      continue;
+    }
+    return { res, body, installId, retried, state };
+  }
+}
+
+// The "different account?" question waits on the user, who may read it for
+// minutes. A Google or Apple ID token lives about an hour, an emailed code 15
+// minutes: one that went stale meanwhile would be refused on the resend, and
+// after "start fresh" that refusal would come AFTER the phone was erased. So
+// the answer is checked first, and a stale credential is a coded failure that
+// leaves everything as it was (the user simply signs in again).
+const MIN_TOKEN_LIFE_MS = 60_000;
+const MAX_CODE_AGE_FOR_SWITCH_MS = 14 * 60_000;
+
+function staleCredential(): SignInFailedError {
+  return new SignInFailedError("token_expired", "Sign-in took too long. Please sign in again.");
+}
+
+// A provider token with less than a minute left. The phone's clock is trusted
+// only for ELAPSED time: many phones in Afghanistan run hours off (a wrong time
+// zone, a hand-set clock), so the token's own life (exp - iat, both the
+// provider's clock) minus the time since it arrived (`receivedAt`, the phone's)
+// is what remains. Only a token without `iat` falls back to exp vs the phone's
+// "now". A token without a readable `exp` is left to the server: it has just
+// accepted it for the 409.
+function requireLiveToken(idToken: string, receivedAt: number): void {
+  const claims = decodeIdTokenClaims(idToken);
+  const exp = claims?.exp;
+  if (typeof exp !== "number" || !Number.isFinite(exp)) return;
+  const iat = claims?.iat;
+  const remainingMs =
+    typeof iat === "number" && Number.isFinite(iat)
+      ? (exp - iat) * 1000 - Math.max(0, Date.now() - receivedAt)
+      : exp * 1000 - Date.now();
+  if (remainingMs < MIN_TOKEN_LIFE_MS) throw staleCredential();
+}
+
+// An emailed code past 14 minutes (its pending step's sent_at). Unknown age:
+// left to the server, which refuses a dead code without spending anything.
+async function requireFreshCode(purpose: "signup" | "reset"): Promise<void> {
+  // The OLDEST code the user might be typing (first_sent_at; an older build
+  // stored only sent_at).
+  let sentAt: number | null = null;
+  try {
+    const raw = await getAppMetaInTx(await getDb(), EMAIL_FLOW_PENDING_KEY);
+    const parsed = raw
+      ? (JSON.parse(raw) as { purpose?: unknown; sent_at?: unknown; first_sent_at?: unknown })
+      : null;
+    if (parsed?.purpose === purpose) {
+      if (typeof parsed.first_sent_at === "number") sentAt = parsed.first_sent_at;
+      else if (typeof parsed.sent_at === "number") sentAt = parsed.sent_at;
+    }
+  } catch {
+    sentAt = null;
+  }
+  if (sentAt !== null && Date.now() - sentAt > MAX_CODE_AGE_FOR_SWITCH_MS) throw staleCredential();
 }
 
 // One-time configuration. Called from _layout.tsx on app start. The
@@ -334,8 +479,17 @@ export function isGoogleSignInAvailable(): boolean {
 // One interactive Google sign-in attempt → its ID token (or null if the result
 // carried none). The library wraps the payload under `data` on newer versions
 // and inline on older ones, so we read defensively.
+//
+// Backing out is NOT an error in google-signin 16: signIn() RESOLVES with
+// { type: "cancelled", data: null }. Read as "no token", that used to send the
+// user straight back into the chooser (the one-retry below) and, on a second
+// back-out, onto "Sign-in didn't work. (no_id_token)" plus a crash report.
+// That is what Google's reviewer saw on build 49 after leaving Android's
+// add-account screen. A cancel is the user's answer; stop here, silently.
 async function signInForIdToken(lib: GoogleSigninModule): Promise<string | null> {
   const result = await lib.GoogleSignin.signIn();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if ((result as any)?.type === "cancelled") throw new SignInCancelledByUserError();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data: any = (result as any).data ?? result;
   const tok: unknown = data?.idToken;
@@ -354,7 +508,7 @@ async function signInForIdToken(lib: GoogleSigninModule): Promise<string | null>
 //   - DEVELOPER_ERROR (SHA-1 / package mismatch)
 //   - backend rejected the token (Error with the backend's message)
 export async function signInWithGoogle(
-  onDifferentAccount?: (args: DifferentAccountPromptArgs) => Promise<DifferentAccountChoice>,
+  onDifferentAccount?: DifferentAccountPrompt,
 ): Promise<SessionUser> {
   const lib = loadGoogleSignin();
   if (!lib) {
@@ -411,35 +565,39 @@ export async function signInWithGoogle(
     );
   }
 
-  // ---- Phase 4.1: "different Google account on this phone" detection ----
-  // Shared with Apple sign-in; see guardDifferentAccount. On cancel, also
-  // revoke the Google selection locally so the next sign-in re-prompts the
-  // picker instead of silently reusing the just-picked account.
-  await guardDifferentAccount(idToken, onDifferentAccount, async () => {
-    try {
-      await lib.GoogleSignin.signOut();
-    } catch {
-      // already signed out / never signed in — fine
-    }
-  });
-  // -----------------------------------------------------------------------
-
-  const installId = await ensureInstallId();
+  const token = idToken;
+  // When the token arrived, on the phone's clock: only elapsed time is read
+  // from it (see requireLiveToken).
+  const receivedAt = Date.now();
   const baseUrl = await getBackendUrl();
-
-  // Phase 2: if the local install already minted its default vault locally
-  // (the common case after migration 007 ran), include the registration block
-  // so /v1/auth/google + POST /v1/vaults collapse into a single round-trip.
-  // Mid-onboarding installs (auth before profile) have no vault yet; we omit
-  // the field and follow up with POST /v1/vaults after onboarding/profile.
-  const pendingVaultRegistration = await loadPendingVaultRegistration();
-
-  const res = await postAuth(`${baseUrl}/v1/auth/google`, {
-    install_id: installId,
-    id_token: idToken,
-    pending_vault_registration: pendingVaultRegistration,
+  // The server asks "different account on this phone?" (signInExchange). On
+  // cancel, also revoke the Google selection locally so the next sign-in
+  // re-prompts the picker instead of silently reusing the just-picked account.
+  const exchange = await signInExchange({
+    url: `${baseUrl}/v1/auth/google`,
+    // Phase 2: if the local install already minted its default vault locally
+    // (the common case after migration 007 ran), include the registration
+    // block so /v1/auth/google + POST /v1/vaults collapse into a single
+    // round-trip. Mid-onboarding installs (auth before profile) have no vault
+    // yet; the field is omitted and POST /v1/vaults follows after
+    // onboarding/profile. Recomputed per attempt: "start fresh" empties the
+    // ledger between attempts.
+    payload: async () => ({
+      id_token: token,
+      pending_vault_registration: await loadPendingVaultRegistration(),
+    }),
+    onDifferentAccount,
+    onCancelCleanup: async () => {
+      try {
+        await lib.GoogleSignin.signOut();
+      } catch {
+        // already signed out / never signed in — fine
+      }
+    },
+    // The same ID token is sent again: it must still have a minute left.
+    beforeSwitch: () => requireLiveToken(token, receivedAt),
   });
-  return applyAuthResponse(await readAuthResponse(res, installId));
+  return applyAuthResponse(await authResponseFrom(exchange));
 }
 
 // Slow-network budget for the ONE call that decides whether sign-in works.
@@ -447,39 +605,39 @@ export async function signInWithGoogle(
 // "Sign-in didn't work" while the server was still happily processing: the
 // server's write timeout is 120s, so it could commit the account AFTER the
 // phone had given up. 45s stays inside that window, and one retry covers a
-// dropped first attempt. Retrying is safe because the endpoint is idempotent
-// on the Google subject — a second call returns the same account.
+// dropped first attempt. Retrying is safe because every sign-in endpoint is
+// idempotent for the same credential: Google/Apple resolve the same subject,
+// a password sign-in is just another attempt, and the email-code verifies
+// replay a code this install already consumed (docs/kaata-accounts.md §6,
+// "Retry safety"); the start endpoints are handled in emailCodeStart.
 const AUTH_TIMEOUT_MS = 45_000;
 const AUTH_ATTEMPTS = 2;
 
-async function postAuth(url: string, payload: unknown): Promise<Response> {
+// POST with the timeout and one retry. `retried` says the request went out
+// twice, so the first may have reached the server after all: the email flows
+// read a refusal of the second attempt in that light.
+async function postAuthTracked(
+  url: string,
+  payload: unknown,
+): Promise<{ res: Response; retried: boolean }> {
   let lastErr: unknown;
   for (let attempt = 1; attempt <= AUTH_ATTEMPTS; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
     try {
-      return await fetch(url, {
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
         signal: controller.signal,
       });
+      return { res, retried: attempt > 1 };
     } catch (err) {
       lastErr = err;
       // Retry once on a timeout or a transport failure; both are the
       // signature of a weak link rather than a rejected credential.
       if (attempt < AUTH_ATTEMPTS) continue;
-      if (err instanceof Error && err.name === "AbortError") {
-        throw new SignInFailedError(
-          "timeout",
-          "Sign-in timed out — check your connection and try again.",
-        );
-      }
-      throw new SignInFailedError(
-        "network",
-        "Couldn't reach Kaata — check your connection and try again.",
-        err instanceof Error ? err.message.slice(0, 60) : "",
-      );
+      throw transportFailure(err);
     } finally {
       clearTimeout(timer);
     }
@@ -488,18 +646,92 @@ async function postAuth(url: string, payload: unknown): Promise<Response> {
   throw lastErr instanceof Error ? lastErr : new SignInFailedError("unknown", "Sign-in failed.");
 }
 
-// `installId` is the id this request was sent for, so a 410 (or a success that
-// clears an earlier one) is recorded against exactly that installation.
-async function readAuthResponse(res: Response, installId: string): Promise<AuthResponse> {
+function transportFailure(err: unknown): SignInFailedError {
+  if (err instanceof Error && err.name === "AbortError") {
+    return new SignInFailedError(
+      "timeout",
+      "Sign-in timed out — check your connection and try again.",
+    );
+  }
+  return new SignInFailedError(
+    "network",
+    "Couldn't reach Kaata — check your connection and try again.",
+    err instanceof Error ? err.message.slice(0, 60) : "",
+  );
+}
+
+// The JSON object a response carries, or null (empty, not JSON, not an object:
+// a captive portal or a proxy error page). Read ONCE: a body cannot be re-read.
+async function readBody(res: Response): Promise<Record<string, unknown> | null> {
+  try {
+    const body: unknown = await res.json();
+    return typeof body === "object" && body !== null ? (body as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+// The longest wait a throttle can name: the per-address windows run up to a
+// day. Anything larger is not a duration at all.
+const MAX_RETRY_AFTER_S = 86_400;
+
+// Seconds until a throttle lets the next request through: the body's
+// retry_after_s (the per-address and sign-in throttles), else the Retry-After
+// header the per-IP limiter (httprate) sets on its bare 429s. The backend sends
+// that header in SECONDS, never as an HTTP date. A value past a day is a Unix
+// timestamp (an older limiter stamped its reset time there) and is ignored
+// rather than read as "try again in 56 years".
+function retryAfterSeconds(
+  body: Record<string, unknown> | null,
+  headers: Headers | undefined,
+): number | undefined {
+  const fromBody = body?.retry_after_s;
+  if (
+    typeof fromBody === "number" &&
+    Number.isFinite(fromBody) &&
+    fromBody >= 0 &&
+    fromBody <= MAX_RETRY_AFTER_S
+  ) {
+    return Math.ceil(fromBody);
+  }
+  const raw = headers?.get?.("Retry-After")?.trim();
+  if (!raw || !/^\d+$/.test(raw)) return undefined;
+  const seconds = Number(raw);
+  return seconds <= MAX_RETRY_AFTER_S ? seconds : undefined;
+}
+
+// The server's named refusal as an EmailAuthError, or null when it named none.
+// A bare 429 (no error_code) is the per-IP limiter: "rate_limited".
+function apiRefusal(
+  status: number,
+  body: Record<string, unknown> | null,
+  headers: Headers | undefined,
+): EmailAuthError | null {
+  const code = typeof body?.error_code === "string" ? body.error_code : "";
+  const extra: EmailAuthErrorExtra = {};
+  if (typeof body?.reason === "string" && body.reason) extra.reason = body.reason;
+  if (typeof body?.email === "string" && body.email) extra.email = body.email;
+  if (typeof body?.limit === "string" && body.limit) extra.limit = body.limit;
+  const retryAfterS = retryAfterSeconds(body, headers);
+  if (retryAfterS !== undefined) extra.retryAfterS = retryAfterS;
+  if (code) return new EmailAuthError(code, status, extra);
+  if (status === 429) return new EmailAuthError("rate_limited", 429, extra);
+  return null;
+}
+
+// A sign-in reply → the session to install, or the typed failure. `installId`
+// is the id the request was sent for, so a 410 (or a success that clears an
+// earlier one) is recorded against exactly that installation.
+async function authResponseFrom(exchange: {
+  res: Response;
+  body: Record<string, unknown> | null;
+  installId: string;
+}): Promise<AuthResponse> {
+  const { res, body, installId } = exchange;
   if (!res.ok) {
-    let detail = "";
-    try {
-      const body = await res.json();
-      detail = body?.error ?? "";
-    } catch {
-      // Non-JSON body (captive portal, proxy error page) — the status alone
-      // still tells the operator what happened.
-    }
+    // Non-JSON body (captive portal, proxy error page): the status alone still
+    // tells the operator what happened.
+    const detail = typeof body?.error === "string" ? body.error : "";
     if (res.status === 410) {
       // Retired install (see InstallRetiredError): remember it for Account's
       // notice, as check-in does. Best-effort — the thrown error is what the
@@ -511,16 +743,15 @@ async function readAuthResponse(res: Response, installId: string): Promise<AuthR
       }
       throw new InstallRetiredError(detail || undefined);
     }
+    const refusal = apiRefusal(res.status, body, res.headers);
+    if (refusal) throw refusal;
     throw new SignInFailedError(
       "server",
       detail || "Kaata couldn't complete sign-in. Try again.",
       String(res.status),
     );
   }
-  let body: AuthResponse;
-  try {
-    body = (await res.json()) as AuthResponse;
-  } catch {
+  if (!body) {
     // A 200 whose body isn't JSON means something between us rewrote the
     // response — captive portals do this. Previously an unguarded throw.
     throw new SignInFailedError(
@@ -532,17 +763,19 @@ async function readAuthResponse(res: Response, installId: string): Promise<AuthR
   // A session issued for this install_id means the server accepts it, so a
   // 410 recorded for it earlier must not keep Account's reset notice up
   // (clearInstallRetired). Best-effort: the sign-in itself has succeeded.
-  if (typeof body?.session_jwt === "string" && body.session_jwt !== "") {
+  if (typeof body.session_jwt === "string" && body.session_jwt !== "") {
     try {
       await clearInstallRetired(installId);
     } catch (err) {
       console.warn("[auth] could not clear the retired-install flag", err);
     }
   }
-  return body;
+  return body as AuthResponse;
 }
 
-// Backend response shape shared by /v1/auth/google and /v1/auth/apple.
+// Backend response shape shared by every sign-in endpoint: /v1/auth/google,
+// /v1/auth/apple and the /v1/auth/email/* flows. user.sub is the provider's
+// subject; an email session omits it (docs/kaata-accounts.md §6).
 type AuthResponse = {
   session_jwt: string;
   account_id?: string;
@@ -550,11 +783,11 @@ type AuthResponse = {
   user: SessionUser & { sub?: string };
 };
 
-// Shared post-/v1/auth-response handling for Google AND Apple sign-in: persist
-// the session + user, run the once-per-install housekeeping (vault mirror seed,
-// account_bound emission), reconcile the account phone, and register the mesh
-// device key. Extracted so both providers land the user in an identical
-// signed-in state. All housekeeping is best-effort — a transient failure must
+// Shared post-/v1/auth-response handling for every sign-in (Google, Apple and
+// email): persist the session + user, run the once-per-install housekeeping
+// (vault mirror seed, account_bound emission), reconcile the account phone, and
+// register the mesh device key. Extracted so every provider lands the user in
+// an identical signed-in state. All housekeeping is best-effort — a transient failure must
 // not deny the already-authenticated user their session.
 function applyAuthResponse(body: AuthResponse): Promise<SessionUser> {
   return mutateLocalSession(() => installAuthResponse(body));
@@ -568,12 +801,16 @@ async function installAuthResponse(body: AuthResponse): Promise<SessionUser> {
   await SecureStore.deleteItemAsync(DELETION_ATTEMPT_KEY);
   await SecureStore.setItemAsync(SESSION_KEY, body.session_jwt);
   await SecureStore.setItemAsync(USER_KEY, JSON.stringify(body.user ?? {}));
+  // Every sign-in, whatever the provider, ends a pending email code step: it
+  // belonged to the flow (or the account) this sign-in replaces.
+  await clearEmailFlowPending();
 
   try {
     await postSignInHousekeeping({
       accountId: body.account_id ?? null,
       defaultVaultId: body.default_vault_id ?? null,
       providerSub: body.user?.sub ?? null,
+      email: body.user?.email ?? null,
     });
   } catch (err) {
     console.warn("[auth] post-sign-in housekeeping failed", err);
@@ -614,7 +851,7 @@ async function installAuthResponse(body: AuthResponse): Promise<SessionUser> {
 // signInWithGoogle. Native/browser modules are imported lazily so this file
 // stays safe to import in Expo Go.
 export async function signInWithApple(
-  onDifferentAccount?: (args: DifferentAccountPromptArgs) => Promise<DifferentAccountChoice>,
+  onDifferentAccount?: DifferentAccountPrompt,
 ): Promise<SessionUser> {
   const acquired =
     Platform.OS === "ios" ? await acquireAppleTokenNative() : await acquireAppleTokenWeb();
@@ -624,7 +861,13 @@ export async function signInWithApple(
 // The (token, first-auth name, apple sub) triple both acquisition paths
 // produce. appleSub keys the one-shot name stash so a stale stash from Apple
 // ID A is never attached to Apple ID B.
-type AcquiredAppleToken = { idToken: string; freshName: string; appleSub: string };
+// receivedAt: when the token arrived, on the phone's clock (requireLiveToken).
+type AcquiredAppleToken = {
+  idToken: string;
+  freshName: string;
+  appleSub: string;
+  receivedAt: number;
+};
 
 // app_meta key of the one-shot Apple name stash: JSON {sub, name}, "" once a
 // sign-in has delivered it. See completeAppleSignIn; resetRetiredInstall
@@ -647,7 +890,7 @@ async function acquireAppleTokenNative(): Promise<AcquiredAppleToken> {
   // Apple returns the name ONLY on the first authorization for this Apple ID.
   const fn = credential.fullName;
   const freshName = [fn?.givenName, fn?.familyName].filter(Boolean).join(" ").trim();
-  return { idToken, freshName, appleSub: credential.user };
+  return { idToken, freshName, appleSub: credential.user, receivedAt: Date.now() };
 }
 
 // Android: Apple's web OAuth via the backend trampoline + a browser auth
@@ -723,18 +966,19 @@ async function acquireAppleTokenWeb(): Promise<AcquiredAppleToken> {
   // is the same value (display-only stash key; the backend re-verifies).
   const claims = decodeIdTokenClaims(idToken);
   const appleSub = typeof claims?.sub === "string" ? claims.sub : "";
-  return { idToken, freshName, appleSub };
+  return { idToken, freshName, appleSub, receivedAt: Date.now() };
 }
 
 // Shared completion for both acquisition paths: one-shot name stash →
-// different-account guard → POST /v1/auth/apple → applyAuthResponse.
+// POST /v1/auth/apple (with the server's different-account question) →
+// applyAuthResponse.
 async function completeAppleSignIn(
   acquired: AcquiredAppleToken,
-  onDifferentAccount?: (args: DifferentAccountPromptArgs) => Promise<DifferentAccountChoice>,
+  onDifferentAccount?: DifferentAccountPrompt,
 ): Promise<SessionUser> {
-  const { idToken, freshName, appleSub } = acquired;
+  const { idToken, freshName, appleSub, receivedAt } = acquired;
 
-  // One-shot-name insurance: if anything below fails (guard cancel, timeout,
+  // One-shot-name insurance: if anything below fails (a cancelled switch, timeout,
   // 5xx, offline), a retry's signInAsync resolves WITHOUT a name — Apple
   // never re-sends it, so an unstashed name is lost forever and the account
   // stays nameless (the backend's non-empty-wins COALESCE can't restore what
@@ -743,8 +987,9 @@ async function completeAppleSignIn(
   // never sent as the name of a different Apple ID B; fall back to a
   // sub-matching stash on retries, clear only after a confirmed 200.
   // NOTE: getDb() is called fresh at every use site here (never held in a
-  // local) because the guard's "wipe" choice runs resetAllLocalData(), which
-  // CLOSES the handle — a captured db would throw on every later call.
+  // local) because a "start fresh" answer to the different-account question
+  // runs wipeLocalPhone, whose resetAllLocalData() CLOSES the handle — a
+  // captured db would throw on every later call.
   if (freshName) {
     await setAppMetaInTx(
       await getDb(),
@@ -752,11 +997,6 @@ async function completeAppleSignIn(
       JSON.stringify({ sub: appleSub, name: freshName }),
     );
   }
-
-  // "Different account on this phone?" guard — same semantics as Google
-  // (keep / wipe / cancel; throws SignInCancelledByUserError on cancel).
-  // Apple has no picker to revoke on cancel, so no cleanup callback.
-  await guardDifferentAccount(idToken, onDifferentAccount);
 
   let displayName = freshName;
   if (!displayName) {
@@ -771,15 +1011,18 @@ async function completeAppleSignIn(
     }
   }
 
-  const installId = await ensureInstallId();
   const baseUrl = await getBackendUrl();
-  // Same slow-network budget + single retry + typed failures as Google.
-  const res = await postAuth(`${baseUrl}/v1/auth/apple`, {
-    install_id: installId,
-    identity_token: idToken,
-    display_name: displayName || undefined,
+  // Same slow-network budget, single retry, typed failures and
+  // different-account question (keep / wipe / cancel) as Google. Apple has no
+  // picker to revoke on cancel, so no cleanup callback. A "start fresh" wipe
+  // keeps the name stash (wipeLocalPhone), and displayName is already in hand.
+  const exchange = await signInExchange({
+    url: `${baseUrl}/v1/auth/apple`,
+    payload: () => ({ identity_token: idToken, display_name: displayName || undefined }),
+    onDifferentAccount,
+    beforeSwitch: () => requireLiveToken(idToken, receivedAt),
   });
-  const body = await readAuthResponse(res, installId);
+  const body = await authResponseFrom(exchange);
   // The name reached the backend — drop the one-shot stash. Best-effort: a
   // local SQLite hiccup here must not fail a sign-in the server has already
   // accepted (worst case the sub-keyed stash lingers until the next success).
@@ -789,6 +1032,731 @@ async function completeAppleSignIn(
     /* best-effort */
   }
   return applyAuthResponse(body);
+}
+
+// ---------- Kaata accounts: email + password (docs/kaata-accounts.md) ----------
+//
+// Kaata's own accounts, next to Google and Apple: an email address proven by an
+// emailed 6-digit code, and a password. Every flow here lands in the same
+// signed-in state as Google and Apple (applyAuthResponse), asks the same
+// server-side "different account on this phone?" question (signInExchange) and
+// maps the same 410 to InstallRetiredError. The server is authoritative for
+// every rule; the screens only mirror the cheap ones (lib/account-rules.ts).
+//
+// Nothing the user typed is ever logged or put into an error: refusals are
+// EmailAuthError, whose message is the server's reason code and nothing else.
+
+/** Details a refusal carries besides its code (see apiRefusal). */
+export type EmailAuthErrorExtra = {
+  /** The response's own sub-reason, e.g. weak_password's "too_short". */
+  reason?: string;
+  /** Seconds until a throttle lets the next request through. */
+  retryAfterS?: number;
+  /**
+   * too_many_requests: the per-address mail window that refused ("minute",
+   * "hour" or "day"). See emailCodeStart for the one case it changes.
+   */
+  limit?: string;
+  /** different_account: the display email of the account being signed in to. */
+  email?: string;
+};
+
+/**
+ * A refusal the Kaata server named with an error_code (invalid_code,
+ * weak_password, invalid_credentials, too_many_attempts, …), or a bare 429 from
+ * the per-IP limiter ("rate_limited"). `reason` is that code and `status` the
+ * HTTP status. The message is the reason ONLY, so a crash report or a console
+ * line can never carry an address, a username or a password.
+ *
+ * It stays a SignInFailedError ("server <status>"), so code that only knows the
+ * base class still renders it as a coded server answer.
+ */
+export class EmailAuthError extends SignInFailedError {
+  readonly reason: string;
+  readonly status: number;
+  readonly extra: EmailAuthErrorExtra;
+  constructor(reason: string, status: number, extra: EmailAuthErrorExtra = {}) {
+    super("server", reason, String(status));
+    this.name = "EmailAuthError";
+    this.reason = reason;
+    this.status = status;
+    this.extra = extra;
+  }
+}
+
+/** A code request's answer: always "sent", whether or not an account exists. */
+export type EmailCodeSent = { resendAfterS: number };
+
+export type EmailFlowPurpose = "signup" | "reset" | "setup";
+
+/** How long an emailed code lives (the server's TTL, §4). */
+export const EMAIL_CODE_TTL_MS = 15 * 60 * 1000;
+const DEFAULT_RESEND_AFTER_S = 60;
+
+// app_meta: the code step to reopen when the phone killed the app while the
+// user read their email. JSON {purpose, email, sent_at}: never a password, never
+// a code. Cleared on success, on cancel ("Change email") and after the TTL.
+const EMAIL_FLOW_PENDING_KEY = "email_flow_pending";
+
+export type EmailFlowPending = {
+  purpose: EmailFlowPurpose;
+  email: string;
+  sentAt: number;
+  /** A set-password step's account (app_meta account_id at the start); null otherwise. */
+  accountId: string | null;
+};
+
+/** The code step still worth reopening, or null (cleared when expired or unreadable). */
+export async function readEmailFlowPending(): Promise<EmailFlowPending | null> {
+  let raw: string | null;
+  try {
+    raw = await getAppMetaInTx(await getDb(), EMAIL_FLOW_PENDING_KEY);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  type Stored = { purpose?: unknown; email?: unknown; sent_at?: unknown; account_id?: unknown };
+  let parsed: Stored | null = null;
+  try {
+    parsed = JSON.parse(raw) as Stored | null;
+  } catch {
+    parsed = null;
+  }
+  const purpose = parsed?.purpose;
+  const sentAt = typeof parsed?.sent_at === "number" ? parsed.sent_at : NaN;
+  // abs(): a clock set back must not keep a step open forever either.
+  const live = Number.isFinite(sentAt) && Math.abs(Date.now() - sentAt) < EMAIL_CODE_TTL_MS;
+  if (
+    live &&
+    (purpose === "signup" || purpose === "reset" || purpose === "setup") &&
+    typeof parsed?.email === "string"
+  ) {
+    const accountId =
+      typeof parsed.account_id === "string" && parsed.account_id ? parsed.account_id : null;
+    return { purpose, email: parsed.email, sentAt, accountId };
+  }
+  await clearEmailFlowPending();
+  return null;
+}
+
+/**
+ * A set-password code step to reopen, for the account signed in NOW only. A
+ * setup step started by another account on this phone (or by an older build,
+ * which stored no account) is forgotten instead: its code was mailed for that
+ * account, and the screen would offer it to the wrong one.
+ */
+export async function readSetupFlowPending(): Promise<EmailFlowPending | null> {
+  const pending = await readEmailFlowPending();
+  if (!pending || pending.purpose !== "setup") return null;
+  let current: string | null = null;
+  try {
+    current = await getAppMetaInTx(await getDb(), "account_id");
+  } catch {
+    current = null;
+  }
+  if (current && pending.accountId === current) return pending;
+  await clearEmailFlowPending();
+  return null;
+}
+
+export async function clearEmailFlowPending(): Promise<void> {
+  try {
+    await setAppMetaInTx(await getDb(), EMAIL_FLOW_PENDING_KEY, "");
+  } catch (err) {
+    console.warn("[auth] could not clear the pending email step", err);
+  }
+}
+
+// Verify accepts any of the newest 3 live codes for an address (§4), so the
+// code the user types may be older than the newest send. `sends` keeps the
+// newest 3 send times still inside the 15-minute TTL for this purpose and
+// address (a new purpose or address starts over), and `first_sent_at`, the
+// oldest of them, is what requireFreshCode judges. `sent_at` stays the newest:
+// the resend countdown and the reopened step read it.
+const CODES_ACCEPTED = 3;
+
+async function rememberEmailFlowPending(
+  purpose: EmailFlowPurpose,
+  email: string,
+  accountId: string | null = null,
+): Promise<void> {
+  try {
+    const db = await getDb();
+    const now = Date.now();
+    let earlier: number[] = [];
+    try {
+      const raw = await getAppMetaInTx(db, EMAIL_FLOW_PENDING_KEY);
+      const prior = raw
+        ? (JSON.parse(raw) as { purpose?: unknown; email?: unknown; sends?: unknown })
+        : null;
+      if (prior?.purpose === purpose && prior.email === email && Array.isArray(prior.sends)) {
+        earlier = prior.sends.filter(
+          (t): t is number =>
+            typeof t === "number" && Number.isFinite(t) && Math.abs(now - t) < EMAIL_CODE_TTL_MS,
+        );
+      }
+    } catch {
+      earlier = [];
+    }
+    const sends = [...earlier, now].sort((a, b) => a - b).slice(-CODES_ACCEPTED);
+    await setAppMetaInTx(
+      db,
+      EMAIL_FLOW_PENDING_KEY,
+      JSON.stringify({
+        purpose,
+        email,
+        sent_at: now,
+        first_sent_at: sends[0],
+        sends,
+        ...(accountId ? { account_id: accountId } : {}),
+      }),
+    );
+  } catch (err) {
+    // Only the reopen-after-a-kill convenience is lost; the code was sent.
+    console.warn("[auth] could not remember the pending email step", err);
+  }
+}
+
+function resendAfter(body: Record<string, unknown> | null): number {
+  const v = body?.resend_after_s;
+  return typeof v === "number" && Number.isFinite(v) && v >= 0
+    ? Math.ceil(v)
+    : DEFAULT_RESEND_AFTER_S;
+}
+
+const stringOrNull = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
+
+// signup/start and reset/start. Both answer "sent" for every valid address
+// (principle 2): a taken or unknown address is told apart only by what lands in
+// its inbox. One refusal reads differently: the per-address throttle's MINUTE
+// window answering a RETRIED request. The throttle counts requests, so the
+// first attempt, whose reply was lost, is what used up the minute: its mail is
+// on the way, and that is a "sent". The hour and day windows, and every refusal
+// of a request sent once, are real refusals for the screen to show.
+async function emailCodeStart(
+  path: string,
+  purpose: "signup" | "reset",
+  email: string,
+  lang: string,
+): Promise<EmailCodeSent> {
+  const address = email.trim();
+  const baseUrl = await getBackendUrl();
+  const { res, retried } = await postAuthTracked(`${baseUrl}${path}`, { email: address, lang });
+  const body = await readBody(res);
+  if (!res.ok) {
+    const refusal = apiRefusal(res.status, body, res.headers);
+    if (retried && refusal?.reason === "too_many_requests" && refusal.extra.limit === "minute") {
+      await rememberEmailFlowPending(purpose, address);
+      return { resendAfterS: refusal.extra.retryAfterS ?? DEFAULT_RESEND_AFTER_S };
+    }
+    if (refusal) throw refusal;
+    throw new SignInFailedError(
+      "server",
+      stringOrNull(body?.error) ?? "Kaata couldn't send the code. Try again.",
+      String(res.status),
+    );
+  }
+  await rememberEmailFlowPending(purpose, address);
+  return { resendAfterS: resendAfter(body) };
+}
+
+/** Send a sign-up code to `email` (or, for a taken address, an "already have an account" notice). */
+export function emailSignUpStart(email: string, lang: string): Promise<EmailCodeSent> {
+  return emailCodeStart("/v1/auth/email/signup/start", "signup", email, lang);
+}
+
+/** Send a reset code to an account that has a password (others get a notice or nothing). */
+export function emailResetStart(email: string, lang: string): Promise<EmailCodeSent> {
+  return emailCodeStart("/v1/auth/email/reset/start", "reset", email, lang);
+}
+
+export type EmailSignInOptions = {
+  onDifferentAccount?: DifferentAccountPrompt;
+  /**
+   * The previous attempt at this same step failed on the network, so it may
+   * have reached the server: a spent code or an existing account can be our
+   * own earlier success (see emailVerify).
+   */
+  afterTimeout?: boolean;
+};
+
+/** Create the account (create-only), then sign in. */
+export function emailSignUpVerify(
+  args: { email: string; code: string; password: string; lang: string },
+  opts: EmailSignInOptions = {},
+): Promise<SessionUser> {
+  const email = args.email.trim();
+  return emailVerify(
+    "/v1/auth/email/signup/verify",
+    "signup",
+    { email, code: args.code, password: args.password, lang: args.lang },
+    { email, password: args.password },
+    opts,
+  );
+}
+
+/** Replace the password (every other session of the account ends), then sign in. */
+export function emailResetVerify(
+  args: { email: string; code: string; newPassword: string; lang: string },
+  opts: EmailSignInOptions = {},
+): Promise<SessionUser> {
+  const email = args.email.trim();
+  return emailVerify(
+    "/v1/auth/email/reset/verify",
+    "reset",
+    // lang: the security notice ("your password was reset") speaks the app's language.
+    { email, code: args.code, new_password: args.newPassword, lang: args.lang },
+    { email, password: args.newPassword },
+    opts,
+  );
+}
+
+/** Email address or username, and the Kaata password. */
+export function emailSignIn(
+  identifier: string,
+  password: string,
+  opts: EmailSignInOptions = {},
+): Promise<SessionUser> {
+  return emailSignInWith(identifier, password, opts.onDifferentAccount);
+}
+
+async function emailSignInWith(
+  identifier: string,
+  password: string,
+  onDifferentAccount?: DifferentAccountPrompt,
+  state?: SwitchState,
+): Promise<SessionUser> {
+  const baseUrl = await getBackendUrl();
+  const exchange = await signInExchange({
+    url: `${baseUrl}/v1/auth/email/signin`,
+    // The server trims the password, so a pasted one with a stray space works.
+    payload: () => ({ identifier: identifier.trim(), password }),
+    onDifferentAccount,
+    state,
+  });
+  return installEmailSession(await authResponseFrom(exchange));
+}
+
+// The verifies' retry fallback (§7 "Retry safety"): when the request may
+// already have gone through (it was sent twice, or the previous attempt at this
+// step timed out), invalid_code (the code is spent) or account_exists (the
+// account was made) can be OUR earlier success whose reply never arrived. A
+// password sign-in with the same email and password settles it before any
+// error is shown, carrying the answer to the different-account question so it
+// is not asked twice. If that is refused as well, the original refusal stands.
+async function emailVerify(
+  path: string,
+  purpose: "signup" | "reset",
+  payload: Record<string, unknown>,
+  fallback: { email: string; password: string },
+  opts: EmailSignInOptions,
+): Promise<SessionUser> {
+  const baseUrl = await getBackendUrl();
+  const exchange = await signInExchange({
+    url: `${baseUrl}${path}`,
+    payload: () => payload,
+    onDifferentAccount: opts.onDifferentAccount,
+    // "Start fresh" resends the same code after erasing the phone: a code that
+    // is about to die would be refused only AFTER the erase. ("Keep" erases
+    // nothing; a dead code there is just the server's invalid_code.)
+    beforeSwitch: async (choice) => {
+      if (choice === "wipe") await requireFreshCode(purpose);
+    },
+  });
+  let body: AuthResponse;
+  try {
+    body = await authResponseFrom(exchange);
+  } catch (err) {
+    const mayHaveLanded = exchange.retried || opts.afterTimeout === true;
+    if (
+      mayHaveLanded &&
+      err instanceof EmailAuthError &&
+      (err.reason === "invalid_code" || err.reason === "account_exists")
+    ) {
+      try {
+        return await emailSignInWith(
+          fallback.email,
+          fallback.password,
+          opts.onDifferentAccount,
+          exchange.state,
+        );
+      } catch (fallbackErr) {
+        if (fallbackErr instanceof EmailAuthError && fallbackErr.reason === "invalid_credentials") {
+          throw err;
+        }
+        throw fallbackErr;
+      }
+    }
+    throw err;
+  }
+  return installEmailSession(body);
+}
+
+// installAuthResponse has already ended any pending code step (every sign-in does).
+async function installEmailSession(body: AuthResponse): Promise<SessionUser> {
+  const user = await applyAuthResponse(body);
+  await noteAccountName(user);
+  return user;
+}
+
+// ---- the account's own name (§6.11) ----
+//
+// Shared tallies, reviews, settlements and pushes show accounts.name, and an
+// email account starts without one (no provider asserts it). After an email
+// sign-in whose account has no name, this app_meta flag is "1" until the server
+// has one: the local self name goes at once when the phone has it, the
+// onboarding name when it arrives (onboarding/profile), and check-in retries a
+// send that failed. "invalid" means the phone's name cannot be the account's
+// (fewer than 2 characters, or refused as invalid_name): nothing is sent, and
+// Account shows the name error until a valid save settles it. Any new sign-in
+// clears the flag first (postSignInHousekeeping).
+const ACCOUNT_NAME_PENDING_KEY = "account_name_pending";
+
+async function noteAccountName(user: SessionUser): Promise<void> {
+  const named = !!user.name?.trim();
+  try {
+    await setAppMetaInTx(await getDb(), ACCOUNT_NAME_PENDING_KEY, named ? "" : "1");
+  } catch (err) {
+    console.warn("[auth] could not record the account name state", err);
+    return;
+  }
+  // Fire and forget: the sign-in has succeeded, and a slow link must not hold
+  // the screen. The flag keeps the name for a retry.
+  if (!named) void syncPendingAccountNameFromSelf();
+}
+
+// The phone's own name for the shopkeeper, or null: none yet (a fresh install
+// before onboarding's profile step) or the restore-time placeholder ("You"),
+// which must never become an account's name.
+async function localSelfName(): Promise<string | null> {
+  try {
+    const db = await getDb();
+    const row = await db.getFirstAsync<{ display_name: string | null }>(
+      "SELECT display_name FROM users WHERE is_local_self = 1 LIMIT 1",
+    );
+    const name = row?.display_name?.trim();
+    if (!name) return null;
+    // Lazy: lib/i18n is not one of this module's static imports.
+    const { isPlaceholderSelfName } = await import("./i18n");
+    return isPlaceholderSelfName(name) ? null : name;
+  } catch {
+    return null;
+  }
+}
+
+// Writes the account-name state: "" settled, "1" owed, "invalid" (the phone's
+// name breaks the server's rule: nothing is sent until the user fixes it in
+// Account, which shows the error when it opens).
+async function setAccountNameState(state: "" | "1" | "invalid"): Promise<void> {
+  try {
+    await setAppMetaInTx(await getDb(), ACCOUNT_NAME_PENDING_KEY, state);
+  } catch {
+    // Lost only the retry or the notice; the phone keeps the name either way.
+  }
+}
+
+async function accountNameOwed(): Promise<boolean> {
+  try {
+    return (await getAppMetaInTx(await getDb(), ACCOUNT_NAME_PENDING_KEY)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Where the account's name stands: "settled"; "owed" (an email account still
+ * without a name on the server, check-in retries it); or "invalid" (the
+ * phone's name cannot be the account's: Account shows the name error when it
+ * opens, and a valid save there settles it).
+ */
+export async function accountNameState(): Promise<"settled" | "owed" | "invalid"> {
+  try {
+    const raw = await getAppMetaInTx(await getDb(), ACCOUNT_NAME_PENDING_KEY);
+    return raw === "1" ? "owed" : raw === "invalid" ? "invalid" : "settled";
+  } catch {
+    return "settled";
+  }
+}
+
+// Sends the account's name and settles its state by the outcome. Sent:
+// settled. provider_name (a Google or Apple identity names this account):
+// settled, there is nothing to send. invalid_name: "invalid", so Account asks
+// for a better name instead of the account staying nameless in silence. An
+// EXPLICIT send that never reached the server (offline, 5xx): owed, so
+// check-in sends the phone's own name, which the explicit edit has just set.
+// Never throws.
+async function sendAccountName(
+  name: string,
+  explicit: boolean,
+): Promise<{ sent: boolean; refusal: EmailAuthError | null }> {
+  try {
+    await setAccountName(name);
+  } catch (err) {
+    if (err instanceof EmailAuthError) {
+      if (err.reason === "provider_name") await setAccountNameState("");
+      else if (err.reason === "invalid_name") await setAccountNameState("invalid");
+      return { sent: false, refusal: err };
+    }
+    if (explicit) await setAccountNameState("1");
+    return { sent: false, refusal: null };
+  }
+  await setAccountNameState("");
+  return { sent: true, refusal: null };
+}
+
+/**
+ * Send `name` as the signed-in account's name. Without `force`, only while an
+ * email sign-in left the account nameless (the owed state); `force` sends it
+ * whatever the state (every Continue on the onboarding name step when the name
+ * is ours to set). Never throws: true when the server has the name.
+ */
+export async function syncAccountName(
+  name: string,
+  opts: { force?: boolean } = {},
+): Promise<boolean> {
+  const trimmed = name.trim();
+  if (!trimmed) return false;
+  if (!opts.force && !(await accountNameOwed())) return false;
+  return (await sendAccountName(trimmed, opts.force === true)).sent;
+}
+
+/**
+ * Account settings' explicit name edit, when the name is ours to set: sent
+ * now, and the server's refusal (invalid_name, session_expired…) returned for
+ * the screen to show instead of "Saved". provider_name is not a failure: the
+ * account's Google or Apple identity names it, the phone's edit stands, and
+ * the state settles. Null: sent, settled, or queued for check-in because the
+ * server could not be reached. Never throws.
+ */
+export async function saveAccountName(name: string): Promise<EmailAuthError | null> {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  const { refusal } = await sendAccountName(trimmed, true);
+  return refusal && refusal.reason !== "provider_name" ? refusal : null;
+}
+
+/**
+ * Check-in's and sign-in's retry: the phone's own name, while the account has
+ * none. AUTOMATIC, so it is first fitted to the server's rule (whitespace
+ * collapsed; over 60 characters, cut at the last word boundary). A name that
+ * cannot fit (fewer than 2 characters) is never sent: the state turns
+ * "invalid" and Account asks the user for a better one.
+ */
+export async function syncPendingAccountNameFromSelf(): Promise<void> {
+  try {
+    if (!(await accountNameOwed())) return;
+    const name = await localSelfName();
+    if (!name) return;
+    // Lazy: lib/account-rules is not one of this module's static imports.
+    const { fitAccountName } = await import("./account-rules");
+    const fitted = fitAccountName(name);
+    if (!fitted) {
+      await setAccountNameState("invalid");
+      return;
+    }
+    await syncAccountName(fitted);
+  } catch (err) {
+    console.warn("[auth] pending account name sync failed", err);
+  }
+}
+
+// ---- signed-in account endpoints (/v1/account/*) ----
+
+const ACCOUNT_REQUEST_TIMEOUT_MS = 30_000;
+
+// One request to a signed-in /v1/account/* endpoint. Sent ONCE, never retried:
+// a password change sent twice is answered wrong_password the second time, and
+// a setup code twice invalid_code. A 401 here always means the session ended
+// (wrong passwords are 403), so it is "session_expired" whatever its body says.
+async function accountRequest(
+  method: "GET" | "POST" | "PUT" | "DELETE",
+  path: string,
+  payload?: unknown,
+): Promise<Record<string, unknown>> {
+  const jwt = await SecureStore.getItemAsync(SESSION_KEY);
+  if (!jwt) throw new EmailAuthError("session_expired", 401);
+  const baseUrl = await getBackendUrl();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ACCOUNT_REQUEST_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${jwt}`,
+        ...(payload === undefined ? {} : { "Content-Type": "application/json" }),
+      },
+      ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    throw transportFailure(err);
+  } finally {
+    clearTimeout(timer);
+  }
+  const body = await readBody(res);
+  if (res.status === 401) throw new EmailAuthError("session_expired", 401);
+  if (!res.ok) {
+    const refusal = apiRefusal(res.status, body, res.headers);
+    if (refusal) throw refusal;
+    throw new SignInFailedError(
+      "server",
+      stringOrNull(body?.error) ?? "Kaata couldn't complete that. Try again.",
+      String(res.status),
+    );
+  }
+  return body ?? {};
+}
+
+/** GET /v1/account/me: how the signed-in account signs in. */
+export type AccountMe = {
+  /** The account's display email. */
+  email: string;
+  /** The proven password sign-in address, null without a password. */
+  loginEmail: string | null;
+  username: string | null;
+  hasPassword: boolean;
+  /** "google", "apple", "email". */
+  providers: string[];
+  name: string | null;
+  /**
+   * Where a first-password code goes: the account's own address, fixed (§6.7).
+   * Null when the user must name one (an Apple relay address nobody can read).
+   */
+  setupEmail: string | null;
+};
+
+export async function fetchAccountMe(): Promise<AccountMe> {
+  const body = await accountRequest("GET", "/v1/account/me");
+  return {
+    email: stringOrNull(body.email) ?? "",
+    loginEmail: stringOrNull(body.login_email),
+    username: stringOrNull(body.username),
+    hasPassword: body.has_password === true,
+    providers: Array.isArray(body.providers)
+      ? body.providers.filter((p): p is string => typeof p === "string")
+      : [],
+    name: stringOrNull(body.name),
+    setupEmail: stringOrNull(body.setup_email),
+  };
+}
+
+/**
+ * First password for a Google/Apple account: a code to `email`, or to the
+ * account's own email when null (refused with email_required for an Apple
+ * relay address). When the account's own address is usable the code always
+ * goes there, and naming another one is 409 email_fixed. The pending step
+ * remembers the account, so another account on this phone never reopens it.
+ */
+export async function passwordSetupStart(
+  email: string | null,
+  lang: string,
+): Promise<EmailCodeSent> {
+  const address = email?.trim() || null;
+  const body = await accountRequest(
+    "POST",
+    "/v1/account/password/setup/start",
+    address ? { email: address, lang } : { lang },
+  );
+  let accountId: string | null = null;
+  try {
+    accountId = await getAppMetaInTx(await getDb(), "account_id");
+  } catch {
+    accountId = null;
+  }
+  await rememberEmailFlowPending("setup", address ?? "", accountId);
+  return { resendAfterS: resendAfter(body) };
+}
+
+/** The code and the first password. No new session: this one stays signed in. */
+export async function passwordSetupVerify(
+  code: string,
+  newPassword: string,
+  lang: string,
+): Promise<{ loginEmail: string | null }> {
+  const body = await accountRequest("POST", "/v1/account/password/setup/verify", {
+    code,
+    new_password: newPassword,
+    lang,
+  });
+  await clearEmailFlowPending();
+  return { loginEmail: stringOrNull(body.login_email) };
+}
+
+/**
+ * Change the password. Every OTHER phone signed in to the account is signed
+ * out; this session stays (so a repeat after a lost reply still
+ * authenticates), and the reply's session_jwt, a re-signed token of the same
+ * session, is stored in place of the current one. A reply without one leaves
+ * the current token alone. Sent once; the server answers a repeat the same way.
+ */
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+  lang: string,
+): Promise<void> {
+  const binding = sessionBindingVersion;
+  const body = await accountRequest("PUT", "/v1/account/password", {
+    current_password: currentPassword,
+    new_password: newPassword,
+    lang,
+  });
+  const fresh = stringOrNull(body.session_jwt);
+  if (fresh) await adoptSessionJWT(binding, fresh);
+}
+
+// Store a session token the server re-signed for THIS session (a password
+// change) exactly where every sign-in keeps it. Only while the session that
+// asked is still the phone's: a sign-out, a wipe or another sign-in since then
+// owns the store, and an old reply must neither resurrect a session nor
+// replace a newer one. The account, its user record and every cache keyed on
+// them stay as they are: the account did not change.
+async function adoptSessionJWT(binding: number, fresh: string): Promise<void> {
+  await mutateLocalSession(async () => {
+    if (binding !== sessionBindingVersion) return;
+    if (!(await SecureStore.getItemAsync(SESSION_KEY))) return;
+    await SecureStore.setItemAsync(SESSION_KEY, fresh);
+  });
+}
+
+/**
+ * Remove the account's Kaata password (DELETE /v1/account/password), which
+ * also drops its email sign-in identity, its username and every email-password
+ * session. Only a Google or Apple session may (403 provider_session_required
+ * from an email session): whoever removes it controls the provider sign-in.
+ */
+export async function removePassword(lang: string): Promise<void> {
+  // lang: the "password sign-in removed" notice speaks the app's language.
+  await accountRequest("DELETE", `/v1/account/password?lang=${encodeURIComponent(lang)}`);
+}
+
+/**
+ * How the CURRENT session signed in: "provider" (Google or Apple, whose sign-in
+ * reply named the provider's subject), "email" (an email session has none), or
+ * null when signed out.
+ */
+export async function currentSessionKind(): Promise<"provider" | "email" | null> {
+  if (!(await SecureStore.getItemAsync(SESSION_KEY))) return null;
+  try {
+    const raw = await SecureStore.getItemAsync(USER_KEY);
+    const user = raw ? (JSON.parse(raw) as { sub?: unknown }) : null;
+    return typeof user?.sub === "string" && user.sub ? "provider" : "email";
+  } catch {
+    return "email";
+  }
+}
+
+/** Set the private sign-in username; "" removes it. Returns the stored (canonical) one. */
+export async function setUsername(username: string): Promise<string | null> {
+  const body = await accountRequest("PUT", "/v1/account/username", { username: username.trim() });
+  return stringOrNull(body.username);
+}
+
+/** PUT /v1/account/name, for accounts with no Google or Apple identity. */
+export async function setAccountName(name: string): Promise<string> {
+  const trimmed = name.trim();
+  const body = await accountRequest("PUT", "/v1/account/name", { name: trimmed });
+  return stringOrNull(body.name) ?? trimmed;
 }
 
 // ---------- Phase 2 helpers ----------
@@ -860,6 +1828,7 @@ async function postSignInHousekeeping(args: {
   accountId: string | null;
   defaultVaultId: string | null;
   providerSub: string | null;
+  email: string | null;
 }): Promise<void> {
   // Local const so TypeScript narrows through the async closure below.
   // Without this, args.accountId regains `string | null` typing inside
@@ -897,9 +1866,22 @@ async function postSignInHousekeeping(args: {
   // no-vault onboarding sign-in never reaches. account_id is valid regardless of
   // whether a local vault exists yet. [bug fix 2026-06-23]
   await setAppMetaInTx(db, "account_id", accountId);
-  if (providerSub) {
-    await setAppMetaInTx(db, "account_google_sub", providerSub);
-  }
+  // The account's canonical kaata as the server sees it (its oldest owned one).
+  // A fresh install restores every kaata in the listing, newest first, and
+  // recoverAllVaults opens this one rather than whichever came back first: a
+  // shared account (the store-review one) can hold kaatas other people made.
+  await setAppMetaInTx(db, "signin_default_vault_id", args.defaultVaultId ?? "");
+  // The provider's subject for THIS session (the key name is historical: Apple
+  // writes it too). An email session has none, so a previous Google/Apple sub
+  // is cleared rather than left to describe another identity. Only the restore
+  // reads it (seeding users.google_sub); "different account on this phone?"
+  // is the server's question now, keyed on account_id.
+  await setAppMetaInTx(db, "account_google_sub", providerSub ?? "");
+  // The old side of that question's dialog. Sign-out keeps it on purpose.
+  await setAppMetaInTx(db, "account_display_email", args.email ?? "");
+  // A new binding owes no name until an email sign-in says so (noteAccountName
+  // runs after this housekeeping).
+  await setAppMetaInTx(db, "account_name_pending", "");
   await setAppMetaInTx(db, "account_last_seen_at", String(now));
 
   // SEC H3 (rescoped): revoke the PREVIOUSLY-bound account's mirror rows —
@@ -1237,6 +2219,9 @@ export async function signOut(): Promise<void> {
     }
     await SecureStore.deleteItemAsync(SESSION_KEY);
     await SecureStore.deleteItemAsync(USER_KEY);
+    // A pending code step (a set-password code above all) belonged to the
+    // session that just ended.
+    await clearEmailFlowPending();
     // Drop the cached account_id so any further event appends in this session
     // stamp actor_account_id=null (matching the post-sign-out reality).
     setAccountIdCache(null);
@@ -1333,43 +2318,49 @@ export async function resumeConfirmedAccountDeletion(): Promise<void> {
 // Destructive and unconditional, so its only callers are the explicit "Reset
 // this phone" confirmations; a 401 or 410 on its own must never reach it.
 //
-// One thing survives: the Apple name stash (APPLE_NAME_STASH_KEY, in app_meta).
+// One thing survives: the Apple name stash (wipeLocalPhone's keepAppleName).
 // Apple sends the name only on the FIRST authorization, and that is often the
-// very sign-in that got the 410 leading here. Wiped with app_meta, the next
-// Apple sign-in would create an account without a name, and the app has no way
-// to add one later. The stash stays keyed to its Apple sub, so it is only ever
-// sent for that Apple ID. Account deletion's wipe keeps nothing.
+// very sign-in that got the 410 leading here. Account deletion's wipe keeps
+// nothing.
 export function resetRetiredInstall(): Promise<void> {
   return mutateLocalSession(async () => {
-    let appleNameStash: string | null = null;
-    try {
-      appleNameStash = await getAppMetaInTx(await getDb(), APPLE_NAME_STASH_KEY);
-    } catch (err) {
-      // Never blocks the reset the user confirmed; the name is lost as before.
-      console.warn("[auth] could not read the Apple name before the reset", err);
-    }
-    await clearDeletedAccountLocally();
-    if (appleNameStash) {
-      try {
-        // A fresh getDb(): the wipe closed the old handle, and initDb has
-        // rebuilt app_meta for the new install id.
-        await setAppMetaInTx(await getDb(), APPLE_NAME_STASH_KEY, appleNameStash);
-      } catch (err) {
-        // The phone is reset either way; only the name is lost.
-        console.warn("[auth] could not keep the Apple name across the reset", err);
-      }
-    }
+    await wipeLocalPhone({ keepAppleName: true });
     await SecureStore.deleteItemAsync(DELETION_CONFIRMATION_KEY);
     await SecureStore.deleteItemAsync(DELETION_ATTEMPT_KEY);
   });
 }
 
-// Shared local wipe: account deletion (after the server confirmed it) and
-// resetRetiredInstall. Callers hold mutateLocalSession.
+// Account deletion's local half, after the server confirmed the deletion.
+// Callers hold mutateLocalSession.
 async function clearDeletedAccountLocally(): Promise<void> {
-  // Invalidate every response captured before cleanup, even if cleanup is
+  await wipeLocalPhone({ keepAppleName: false });
+}
+
+// THE local wipe, shared by account deletion, resetRetiredInstall and "Switch,
+// start fresh" on the different-account question (signInExchange): the Google
+// and mesh key caches, every local table, an empty schema under a FRESH install
+// id, then the stored session. Callers hold mutateLocalSession.
+//
+// keepAppleName carries the one-shot Apple name stash (APPLE_NAME_STASH_KEY, in
+// app_meta) across the wipe. Apple sends the name only on the FIRST
+// authorization, which may be the very sign-in in progress (a "start fresh"
+// switch) or the one that got a 410 (a retired install); wiped with app_meta,
+// the next Apple sign-in would make an account without a name, and the app has
+// no way to add one later. The stash stays keyed to its Apple sub, so it is only
+// ever sent for that Apple ID.
+async function wipeLocalPhone(opts: { keepAppleName: boolean }): Promise<void> {
+  // Invalidate every response captured before the wipe, even if it is
   // interrupted while SecureStore still contains the previous JWT.
   sessionBindingVersion++;
+  let appleNameStash: string | null = null;
+  if (opts.keepAppleName) {
+    try {
+      appleNameStash = await getAppMetaInTx(await getDb(), APPLE_NAME_STASH_KEY);
+    } catch (err) {
+      // Never blocks a wipe the user confirmed; the name is lost as before.
+      console.warn("[auth] could not read the Apple name before the wipe", err);
+    }
+  }
   // Drop the Google session, the mesh key cache, the stored JWT, and every
   // local table.
   const lib = loadGoogleSignin();
@@ -1387,20 +2378,41 @@ async function clearDeletedAccountLocally(): Promise<void> {
     /* mesh module not available — fine */
   }
   setAccountIdCache(null);
+  // resetAllLocalData drops EVERY table (schema_migrations included) and closes
+  // the handle; without re-running migrations every later DB access hits "no
+  // such table" until the next cold launch. Fresh install id first (migration
+  // 006 requires it), then rebuild the schema.
   await resetAllLocalData();
   setLocalSelfUserIdCache(null);
   const id = await ensureInstallId();
   setInstallIdCache(id);
   await initDb({ installId: id });
+  if (appleNameStash) {
+    try {
+      // A fresh getDb(): the wipe closed the old handle, and initDb has
+      // rebuilt app_meta for the new install id.
+      await setAppMetaInTx(await getDb(), APPLE_NAME_STASH_KEY, appleNameStash);
+    } catch (err) {
+      // The phone is wiped either way; only the name is lost.
+      console.warn("[auth] could not keep the Apple name across the wipe", err);
+    }
+  }
   await SecureStore.deleteItemAsync(USER_KEY);
   await SecureStore.deleteItemAsync(SESSION_KEY);
 }
 
-// Dev-only: wipes the SecureStore session entries WITHOUT calling the
-// backend signout endpoint. Used by the local-reset flow in Settings —
-// the backend session will expire on its own, no need to round-trip.
-export async function clearLocalSession(): Promise<void> {
+// Wipes the SecureStore session entries WITHOUT calling the backend signout
+// endpoint: the sync scheduler's answer to a 401 (the session ended), and the
+// local-reset flow in Settings. With `onlyIfJwt`, only while that token is
+// still the stored one. Every sign-in (a password reset included) gives the
+// install a fresh epoch, so a request that was already on its way with the
+// previous token comes back 401; that must not sign out the session which
+// replaced it.
+export async function clearLocalSession(opts: { onlyIfJwt?: string | null } = {}): Promise<void> {
   await mutateLocalSession(async () => {
+    if (opts.onlyIfJwt && (await SecureStore.getItemAsync(SESSION_KEY)) !== opts.onlyIfJwt) {
+      return;
+    }
     sessionBindingVersion++;
     await SecureStore.deleteItemAsync(SESSION_KEY);
     await SecureStore.deleteItemAsync(USER_KEY);
@@ -1423,9 +2435,31 @@ export async function getSessionJWT(): Promise<string | null> {
 // Silently overwrites the stored session JWT. Called from app-meta-context's
 // applyCheckIn() when the backend opts to refresh — keeps actively-used
 // installs on a rolling 30-day window forever without re-sign-in.
+//
+// Only for the session the check-in carried. A refresh keeps its session's
+// claims, epoch included, so a stored token whose claims differ was stored
+// AFTER the check-in left: a new sign-in (a fresh epoch, under which the
+// refreshed token no longer authorizes). Overwriting it would sign the phone
+// out, or worse act as the previous account. And a sign-out while the
+// check-in was out leaves nothing to refresh: never resurrect it.
 export async function rotateSessionJWT(newJwt: string): Promise<void> {
   if (!newJwt) return;
-  await SecureStore.setItemAsync(SESSION_KEY, newJwt);
+  await mutateLocalSession(async () => {
+    const current = await SecureStore.getItemAsync(SESSION_KEY);
+    if (!current || !sameSessionClaims(current, newJwt)) return;
+    await SecureStore.setItemAsync(SESSION_KEY, newJwt);
+  });
+}
+
+// The claims a check-in refresh copies from the token it renews. Tokens whose
+// payload cannot be read are compared as before: not at all.
+const SESSION_CLAIMS = ["account_id", "install_id", "provider", "provider_sub", "ep"] as const;
+
+function sameSessionClaims(a: string, b: string): boolean {
+  const x = decodeIdTokenClaims(a);
+  const y = decodeIdTokenClaims(b);
+  if (!x || !y) return true;
+  return SESSION_CLAIMS.every((claim) => x[claim] === y[claim]);
 }
 
 // Returns the cached display profile from the last successful sign-in.
@@ -1447,11 +2481,11 @@ export async function isSignedIn(): Promise<boolean> {
   return (await getSessionJWT()) !== null;
 }
 
-// Phase 4.1: decode the payload of a Google ID token (a standard JWT)
-// without verifying its signature. Safe ONLY for reading display info to
-// drive pre-backend UI (e.g. the "different account?" prompt). NEVER use
-// these claims for authorization — the backend re-verifies the token
-// against Google's JWKS and the configured `aud`.
+// Decode the payload of a provider ID token (a standard JWT) without verifying
+// its signature. Safe ONLY for local bookkeeping before the backend call (the
+// Apple web flow's name-stash key). NEVER use these claims for authorization —
+// the backend re-verifies the token against the provider's keys and the
+// configured `aud`.
 //
 // Returns null on any parse failure; callers should treat that as "no
 // claims available" and skip whatever feature depends on them.
@@ -1478,6 +2512,9 @@ function decodeIdTokenClaims(idToken: string): Record<string, unknown> | null {
 // Uses the lazy-loaded module's isErrorWithCode + statusCodes when
 // available; falls back to a string check in Expo Go.
 export function isCancellation(err: unknown): boolean {
+  // Backing out of Google's chooser (google-signin 16 resolves a cancel, see
+  // signInForIdToken) or "Cancel" on the different-account prompt.
+  if (err instanceof SignInCancelledByUserError) return true;
   // Sign in with Apple cancellation surfaces as ERR_REQUEST_CANCELED.
   if (
     typeof err === "object" &&

@@ -41,6 +41,10 @@ type googleSignInRequest struct {
 	InstallID                string                    `json:"install_id"`
 	IDToken                  string                    `json:"id_token"`
 	PendingVaultRegistration *PendingVaultRegistration `json:"pending_vault_registration,omitempty"`
+	// The account this phone holds data for, and whether the user already
+	// chose to switch away from it (409 different_account otherwise).
+	CurrentAccountID string `json:"current_account_id,omitempty"`
+	AllowSwitch      bool   `json:"allow_switch,omitempty"`
 }
 
 // GoogleSignIn — POST /v1/auth/google (PUBLIC).
@@ -73,10 +77,10 @@ func (h *Handler) GoogleSignIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.svc.SignInWithGoogle(r.Context(), req.InstallID, req.IDToken, req.PendingVaultRegistration)
+	result, err := h.svc.SignInWithGoogle(r.Context(), req.InstallID, req.IDToken, req.PendingVaultRegistration,
+		SwitchOptions{CurrentAccountID: req.CurrentAccountID, AllowSwitch: req.AllowSwitch})
 	if err != nil {
-		if errors.Is(err, ErrInstallRetired) {
-			httpx.Error(w, http.StatusGone, "This installation belongs to a deleted account. Export any local records, then reset the app before signing in.")
+		if writeSignInRefusal(w, err) {
 			return
 		}
 		msg := err.Error()
@@ -122,19 +126,22 @@ func (h *Handler) GoogleSignIn(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	// Same stale-revoked-cache purge as the Apple path below: a fresh sign-in
-	// must not be 401'd for up to 60s by a verdict cached against a prior
-	// session's JWT.
+	// The sign-in replaced every other credential of this install, so drop
+	// every cached verdict for it: a fresh session must not be 401'd for up to
+	// 60s by a verdict cached against a prior JWT, and a replaced one must not
+	// keep authorizing.
 	if h.authenticator != nil {
-		h.authenticator.Invalidate(req.InstallID, ProviderGoogle)
+		h.authenticator.InvalidateInstall(req.InstallID)
 	}
 	httpx.JSON(w, http.StatusOK, result)
 }
 
 type appleSignInRequest struct {
-	InstallID   string `json:"install_id"`
-	IDToken     string `json:"identity_token"`
-	DisplayName string `json:"display_name,omitempty"`
+	InstallID        string `json:"install_id"`
+	IDToken          string `json:"identity_token"`
+	DisplayName      string `json:"display_name,omitempty"`
+	CurrentAccountID string `json:"current_account_id,omitempty"`
+	AllowSwitch      bool   `json:"allow_switch,omitempty"`
 }
 
 // AppleSignIn — POST /v1/auth/apple (PUBLIC).
@@ -157,10 +164,10 @@ func (h *Handler) AppleSignIn(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "identity_token is required")
 		return
 	}
-	result, err := h.svc.SignInWithApple(r.Context(), req.InstallID, req.IDToken, req.DisplayName)
+	result, err := h.svc.SignInWithApple(r.Context(), req.InstallID, req.IDToken, req.DisplayName,
+		SwitchOptions{CurrentAccountID: req.CurrentAccountID, AllowSwitch: req.AllowSwitch})
 	if err != nil {
-		if errors.Is(err, ErrInstallRetired) {
-			httpx.Error(w, http.StatusGone, "This installation belongs to a deleted account. Export any local records, then reset the app before signing in.")
+		if writeSignInRefusal(w, err) {
 			return
 		}
 		log.Printf("auth/apple failed for install %s: %v", req.InstallID, err)
@@ -178,7 +185,7 @@ func (h *Handler) AppleSignIn(w http.ResponseWriter, r *http.Request) {
 	// after sign-out) poisons the 60s LRU, and without this purge the FRESH
 	// session 401s "session has been revoked" on the immediate restore probe.
 	if h.authenticator != nil {
-		h.authenticator.Invalidate(req.InstallID, ProviderApple)
+		h.authenticator.InvalidateInstall(req.InstallID)
 	}
 	httpx.JSON(w, http.StatusOK, result)
 }
@@ -220,7 +227,8 @@ func (h *Handler) UpdatePhone(w http.ResponseWriter, r *http.Request) {
 
 // SignOut — POST /v1/auth/signout (PROTECTED).
 //
-// Deletes auth_credentials(install_id, provider). The JWT is not blacklisted;
+// Deletes every auth_credentials row of the install (one live credential per
+// install). The JWT is not blacklisted;
 // it'll fail middleware's revoked-cache check on next use because the row
 // is gone. Mobile should also discard its stored session_jwt.
 func (h *Handler) SignOut(w http.ResponseWriter, r *http.Request) {
@@ -233,11 +241,11 @@ func (h *Handler) SignOut(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusInternalServerError, "sign-out failed")
 		return
 	}
-	// Drop the cached "not revoked" entry so the next request hits Postgres
-	// and learns the row is gone. Without this, the JWT keeps authorizing
+	// Drop the install's cached verdicts so the next request hits Postgres
+	// and learns the rows are gone. Without this, the JWT keeps authorizing
 	// for up to revokedCacheTTL (60s) after sign-out.
 	if h.authenticator != nil {
-		h.authenticator.Invalidate(claims.InstallID, claims.Provider)
+		h.authenticator.InvalidateInstall(claims.InstallID)
 	}
 	httpx.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -289,4 +297,24 @@ func isServerSideFailure(err error) bool {
 		}
 	}
 	return false
+}
+
+const retiredInstallMessage = "This installation belongs to a deleted account. Export any local records, then reset the app before signing in."
+
+// writeSignInRefusal answers the refusals every sign-in shares (the tail in
+// signin.go): a retired install, a different account, a disabled account.
+func writeSignInRefusal(w http.ResponseWriter, err error) bool {
+	var diff *DifferentAccountError
+	switch {
+	case errors.Is(err, ErrInstallRetired):
+		httpx.Error(w, http.StatusGone, retiredInstallMessage)
+	case errors.As(err, &diff):
+		httpx.ErrorFields(w, http.StatusConflict, "different_account",
+			"this sign-in belongs to a different account than this phone's", map[string]any{"email": diff.Email})
+	case errors.Is(err, ErrAccountDisabled):
+		httpx.ErrorCode(w, http.StatusForbidden, "account_disabled", "this account is disabled")
+	default:
+		return false
+	}
+	return true
 }

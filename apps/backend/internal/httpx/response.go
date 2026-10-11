@@ -21,3 +21,15 @@ func Error(w http.ResponseWriter, status int, message string) {
 func ErrorCode(w http.ResponseWriter, status int, code, message string) {
 	JSON(w, status, map[string]string{"error": message, "error_code": code})
 }
+
+// ErrorFields is ErrorCode plus extra machine-readable fields (a refusal
+// reason, retry_after_s, ...). The fields cannot override error/error_code.
+func ErrorFields(w http.ResponseWriter, status int, code, message string, fields map[string]any) {
+	body := make(map[string]any, len(fields)+2)
+	for k, v := range fields {
+		body[k] = v
+	}
+	body["error"] = message
+	body["error_code"] = code
+	JSON(w, status, body)
+}

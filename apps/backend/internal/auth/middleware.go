@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -43,7 +44,7 @@ type SessionAuthenticator struct {
 }
 
 type credentialRevocationChecker interface {
-	CheckCredentialRevoked(context.Context, string, string, string) (bool, error)
+	CheckCredentialRevoked(ctx context.Context, installID, provider, accountID string, epoch int64) (bool, error)
 }
 
 type accountDeletionReceiptChecker interface {
@@ -84,7 +85,8 @@ func (a *SessionAuthenticator) DeletionMiddleware() func(http.Handler) http.Hand
 			}
 			// Destructive account actions always use a fresh credential verdict;
 			// a recently signed-out session must not pass via the shared LRU.
-			revoked, err := a.svc.CheckCredentialRevoked(r.Context(), claims.InstallID, claims.Provider, claims.AccountID)
+			revoked, err := a.svc.CheckCredentialRevoked(r.Context(), claims.InstallID, claims.Provider, claims.AccountID,
+				claims.Epoch)
 			if err != nil {
 				httpx.Error(w, http.StatusServiceUnavailable, "session check unavailable")
 				return
@@ -178,17 +180,18 @@ func (a *SessionAuthenticator) authorize(w http.ResponseWriter, r *http.Request)
 func (a *SessionAuthenticator) isRevoked(ctx context.Context, claims *SessionClaims) (bool, error) {
 	a.cacheMu.RLock()
 	defer a.cacheMu.RUnlock()
-	// Key on account_id too: a revocation check is now account-bound (see
-	// CheckCredentialRevoked), so a cache entry for the old account must not
-	// answer for the new one after an account switch.
-	key := claims.InstallID + "|" + claims.Provider + "|" + claims.AccountID
+	// Key on account_id and the epoch too: a revocation check is bound to both
+	// (see CheckCredentialRevoked), so an entry for the old account, or for an
+	// older session of this install, must not answer for the current one. The
+	// install stays the prefix and the account the suffix (Invalidate*).
+	key := claims.InstallID + "|" + claims.Provider + "|" + strconv.FormatInt(claims.Epoch, 10) + "|" + claims.AccountID
 	now := time.Now()
 	if entry, ok := a.cache.Get(key); ok {
 		if now.Sub(entry.checkedAt) < revokedCacheTTL {
 			return entry.revoked, nil
 		}
 	}
-	revoked, err := a.svc.CheckCredentialRevoked(ctx, claims.InstallID, claims.Provider, claims.AccountID)
+	revoked, err := a.svc.CheckCredentialRevoked(ctx, claims.InstallID, claims.Provider, claims.AccountID, claims.Epoch)
 	if err != nil {
 		return false, err
 	}
@@ -196,26 +199,24 @@ func (a *SessionAuthenticator) isRevoked(ctx context.Context, claims *SessionCla
 	return revoked, nil
 }
 
-// Invalidate purges any cached revocation state for (installID, provider) so
-// the next request re-reads from Postgres. Called by SignOut so a deleted
-// credential row is honored immediately instead of waiting up to 60s for the
-// LRU entry to expire. Cache keys now carry the account_id suffix, so clear
-// every entry sharing the (installID, provider) prefix.
-func (a *SessionAuthenticator) Invalidate(installID, provider string) {
+// InvalidateInstall drops every cached verdict of one install, whatever the
+// provider, epoch or account, so a deleted credential row is honored at once
+// instead of after up to 60 s. Sign-in and sign-out replace or remove all of
+// an install's credentials (one live credential per install).
+func (a *SessionAuthenticator) InvalidateInstall(installID string) {
 	a.cacheMu.Lock()
 	defer a.cacheMu.Unlock()
-	prefix := installID + "|" + provider + "|"
-	legacy := installID + "|" + provider
+	prefix := installID + "|"
 	for _, k := range a.cache.Keys() {
-		if k == legacy || strings.HasPrefix(k, prefix) {
+		if strings.HasPrefix(k, prefix) {
 			a.cache.Remove(k)
 		}
 	}
 }
 
 // InvalidateAccount drops every cached session for an account, across all
-// installs and providers. Call after the deletion transaction commits.
-// Like Invalidate, it waits for pending lookups before removing their results.
+// installs and providers. Call after the deletion transaction commits. Like
+// InvalidateInstall, it waits for pending lookups before removing their results.
 func (a *SessionAuthenticator) InvalidateAccount(accountID string) {
 	a.cacheMu.Lock()
 	defer a.cacheMu.Unlock()

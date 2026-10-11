@@ -34,7 +34,7 @@ import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 //     NOT erased by account deletion: there is no account linkage. The
 //     snapshot still contains personal data; lack of a FK is not anonymisation.
 // If any of those change, change this page.
-const UPDATED = "3 October 2026";
+const UPDATED = "10 October 2026";
 const EMAIL = "hello@kaata.af";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -97,7 +97,8 @@ export function DeleteAccount() {
           <p>
             This permanently deletes your account and the cloud copies of kaatas you own and{" "}
             <strong>cannot be undone</strong>. It also removes the ledger from that phone. The
-            “Delete account” option appears only when you are signed in with Google or Apple.
+            “Delete account” option appears only while you are signed in, whichever way you signed
+            in.
           </p>
         </Section>
 
@@ -123,10 +124,10 @@ export function DeleteAccount() {
           <ul className="list-disc ps-5 space-y-1.5">
             <li>
               <strong>Your account and sign-in details</strong> — your email, name and profile photo
-              as provided by Google or Apple, and the phone number on your account. Copies recorded
-              elsewhere stay as described below: your name on shared tallies, your email on any
-              invitation to someone else’s kaata, and your number in any record of our messages to
-              you.
+              as provided by Google or Apple, your Kaata password hash and username if you made a
+              Kaata account, and the phone number on your account. Copies recorded elsewhere stay as
+              described below: your name on shared tallies, your email on any invitation to someone
+              else’s kaata, and your number in any record of our messages to you.
             </li>
             <li>
               <strong>Your backed-up ledger</strong> — the customers and suppliers you added, their

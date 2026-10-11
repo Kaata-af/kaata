@@ -69,6 +69,67 @@ without it:
   the Continue/Create buttons sat under the keyboard with nothing to scroll
   (`selftest:onboarding-keyboard`).
 
+### Google rejected 49 — 9 October 2026; Android build 50 adds Kaata email accounts
+
+Google rejected Android 2.1.0 (49): "Login credentials restricted by device
+authentication". Our Android Google sign-in only uses accounts already on the
+phone, so the review Gmail had to be added to the reviewer's device. iOS 2.1.0
+(29) was approved on 4 October; build 50 is Android first (`android.versionCode`
+50, `version` and `ios.buildNumber` unchanged), and the next iOS build carries the
+same flows.
+
+On 2026-10-10 Matee replaced the first fix (a reviewer-only username login, never
+shipped) with Kaata's own accounts for everyone: email + password next to Google
+and Apple, the email verified by a 6-digit code, an optional username for
+sign-in. Contract, principles and setup: `docs/kaata-accounts.md`.
+
+What 50 changes:
+
+- **Accounts**: sign up, sign in with email or username, forgot password, a first
+  password for Google/Apple accounts (signed in, from Account settings), change
+  password, username and, for email accounts, the account name. Backend migration
+  052 and `internal/mail` (an SMTP outbox). Mail needs the provider setup in
+  `docs/kaata-accounts.md` §12 before codes can arrive.
+- **Every sign-in** now goes through one server tail: a different account on a
+  phone that holds another account's data gets the keep / start fresh / cancel
+  dialog from the SERVER (409 different_account), for Google and Apple too; any
+  sign-in replaces the phone's other sessions, and sign-out removes all of them.
+- Backing out of Google's chooser is a silent cancel (google-signin 16 resolves a
+  cancel; we reopened the chooser and then showed "no_id_token", very likely
+  what the reviewer saw).
+- A restore opens the account's own kaata and pulls shared accounts (up to 20
+  seconds) before landing on home.
+- Web: the privacy policy and deletion page describe email accounts.
+
+Phone checks for 50 (Android, before sending it for review):
+
+1. A fresh install in English: Continue with email. Before typing anything,
+   "Already have an account? Sign in" is visible under the title with no
+   keyboard open. Create an account with a real Gmail; the code arrives (check
+   Spam), the account opens on onboarding.
+2. Sign out, sign in with the email, then with a username set in Account
+   settings. A wrong password shows the error; 11 wrong tries in 15 minutes
+   wait.
+3. Forgot password: the code arrives, the new password works, the old does not,
+   and a second phone signed in to the account is signed out.
+4. A Google account: Account settings → Set a password shows the Gmail address
+   read-only (no field) → code → then sign in with the Gmail address and that
+   password on another phone. Back in the Google session, Remove password: the
+   password stops working, the other phone is signed out, and a "password was
+   removed" email arrives.
+5. On a phone with an offline kaata, sign in to an account that is not this
+   phone's: the keep / start fresh / cancel dialog appears, for email AND Google.
+6. On a phone with no Google account, tap Sign in with Google and back out:
+   no error.
+7. Kill the app on the code screen and reopen: it returns to the code step.
+8. In Dari: the email forms, codes typed with Persian digits, error messages.
+9. Play review account: on a fresh install follow the published instructions
+   word for word (Continue with email, then Already have an account? Sign in),
+   restore, open Demo Partner, accept or reject a pending tally.
+10. Change password on one phone while another is signed in: this phone stays
+    signed in, the other is signed out, and a "password was changed" email
+    arrives in the app's language.
+
 ### Production submission — 3 October 2026 (49/29)
 
 On 3 October 2026 Matee asked for 2.1.0 to go straight to production on both

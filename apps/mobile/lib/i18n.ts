@@ -85,6 +85,103 @@ const en = {
     "This phone needs a newer Google Play Services to sign in. Update it in the Play Store, or continue without an account.",
   "onboardingMode.expoGoHint": "Sign-in works on the real app; for now you can continue offline.",
   "onboardingMode.back": "Back",
+  // Kaata's own accounts: email + password (docs/kaata-accounts.md §7,
+  // components/EmailAuthFlow.tsx). Play's review instructions quote
+  // "Continue with email" word for word: change both together.
+  "onboardingMode.email.title": "Continue with email",
+  "auth.email.signIn.title": "Sign in with email",
+  "auth.email.signIn.subtitle": "Use the email or username and the password of your Kaata account.",
+  "auth.email.identifier": "Email or username",
+  "auth.email.password": "Password",
+  "auth.email.signIn.submit": "Sign in",
+  "auth.email.forgot": "Forgot password?",
+  "auth.email.toSignUp": "Create an account",
+  "auth.email.toSignIn": "Already have an account? Sign in",
+  "auth.email.signUp.title": "Create a Kaata account",
+  "auth.email.signUp.subtitle": "We'll email you a 6-digit code to confirm the address.",
+  "auth.email.email": "Email",
+  "auth.email.newPassword": "Kaata password",
+  "auth.email.newPassword.helper": "Make a new password for Kaata, not your Gmail password",
+  "auth.email.sendCode": "Send code",
+  "auth.email.gmail": "Continue with Google: no password needed",
+  "auth.email.providerHint": "Joined with Google or Apple? Use that button.",
+  "auth.email.code.title": "Check your email",
+  "auth.email.code.sent":
+    "We sent a 6-digit code to {email}. If this address already has a Kaata account, the email says how to sign in instead.",
+  "auth.email.code.label": "6-digit code",
+  "auth.email.code.spam": "Nothing after a minute? Check your Spam folder.",
+  "auth.email.code.resend": "Send a new code",
+  "auth.email.code.resendIn": "Send a new code in {time}",
+  "auth.email.code.resent": "A new code is on its way.",
+  "auth.email.code.changeEmail": "Change email",
+  "auth.email.code.passwordAgain": "Type the Kaata password you chose again.",
+  "auth.email.code.submit": "Create account",
+  "auth.email.forgot.title": "Reset your password",
+  "auth.email.forgot.subtitle":
+    "Enter the email you sign in with. If it has a Kaata password, we'll send a code to reset it.",
+  "auth.email.backToSignIn": "Back to sign in",
+  "auth.email.reset.title": "Choose a new password",
+  "auth.email.reset.sent":
+    "If {email} has a Kaata password, we sent it a 6-digit code. Enter the code and a new password.",
+  "auth.email.reset.newPassword": "New password",
+  "auth.email.reset.submit": "Save and sign in",
+  "auth.email.required": "Enter your email address.",
+  "auth.email.identifierRequired": "Enter your email or username.",
+  "auth.email.passwordRequired": "Enter your password.",
+  "auth.email.codeRequired": "Enter the 6-digit code from the email.",
+  "auth.password.show": "Show password",
+  "auth.password.hide": "Hide password",
+  "auth.password.rule.length": "8 or more characters",
+  "auth.password.rule.digits": "Not only numbers, unless 12 or more",
+  "auth.password.rule.runs": "No easy runs like 123456 or aaaaaa",
+  "auth.password.rule.personal": "Not a common password, and not your email",
+  // Every refusal of docs/kaata-accounts.md §6, as lib/account-rules.ts words it.
+  "auth.error.email.format": "Enter a valid email address, like name@example.com.",
+  "auth.error.email.relay":
+    "Apple's hidden relay address can't be used here. Enter your own email address.",
+  "auth.error.email.disposable":
+    "Temporary email addresses can't be used. Enter an address you'll keep.",
+  "auth.error.email.required": "Enter an email address to sign in with.",
+  "auth.error.email.inUse": "Another Kaata account uses this email. Enter a different address.",
+  "auth.error.password.too_short": "Use at least 8 characters.",
+  "auth.error.password.too_long": "Use 128 characters or fewer.",
+  "auth.error.password.whitespace": "Remove the space at the start or end of the password.",
+  "auth.error.password.common": "That password is too common. Choose one that's harder to guess.",
+  "auth.error.password.personal": "Don't put your email, username or phone number in the password.",
+  "auth.error.password.pattern": "Avoid easy patterns like 123456, aaaaaa or only numbers.",
+  "auth.error.password.weak": "Choose a stronger password.",
+  "auth.error.code.invalid":
+    "That code isn't right or has expired. Use the newest email, or send a new code.",
+  "auth.error.accountExists": "There's already a Kaata account for this email. Sign in instead.",
+  "auth.error.invalidCredentials": "That email, username or password isn't right.",
+  "auth.error.wrongPassword": "Your current password isn't right.",
+  "auth.error.noPassword": "This account doesn't have a Kaata password yet.",
+  "auth.error.passwordExists": "This account already has a Kaata password.",
+  "auth.error.username.format":
+    "Use 3 to 30 lowercase letters, numbers, _ or ., starting with a letter.",
+  "auth.error.username.reserved": "That username isn't available. Choose another.",
+  "auth.error.username.taken": "That username is taken. Choose another.",
+  "auth.error.name.invalid": "Your name must be 2 to 60 characters.",
+  "auth.error.name.provider": "Your name comes from Google or Apple.",
+  "auth.error.tooManyAttempts": "Too many tries. Wait a few minutes, then try again.",
+  "auth.error.tooManyAttempts.wait": "Too many tries. Try again in {time}.",
+  "auth.error.tooManyEmails": "Too many requests for this email. Wait a while, then try again.",
+  "auth.error.tooManyEmails.wait": "Too many requests for this email. Try again in {time}.",
+  "auth.error.rateLimited": "Too many tries. Wait a few minutes, then try again.",
+  "auth.error.rateLimited.wait": "Too many tries. Try again in {time}.",
+  "auth.error.emailUnavailable":
+    "Email codes can't be sent right now. Use Google or Apple, or try again later.",
+  "auth.error.busy": "Kaata is busy. Try again in a moment.",
+  "auth.error.accountDisabled": "This account has been disabled.",
+  "auth.error.sessionExpired": "You've been signed out. Sign in again, then try once more.",
+  "auth.error.emailFixed": "Your password must use your account's email address.",
+  "auth.error.providerSessionRequired": "Sign in with Google or Apple to remove the password.",
+  "auth.error.tokenExpired": "Sign-in took too long. Please sign in again.",
+  "auth.wait.seconds": "{n} seconds",
+  "auth.wait.minute": "1 minute",
+  "auth.wait.minutes": "{n} minutes",
+  "auth.wait.hour": "1 hour",
+  "auth.wait.hours": "{n} hours",
 
   // Onboarding profile (last step before the tour)
   // Was "Almost done" — mistimed once the kaata step landed after this
@@ -163,11 +260,12 @@ const en = {
   // killed /account screen (Phase 7 D-ACCOUNT-PAGE-ROLE) and were dropped.
   // The preferences row was folded into /vault/settings (Manage this Kaata).
 
-  // Phase 4.1: "different Google account on this phone?" prompt.
-  // (Other account.* keys belonged to the killed /account screen.)
-  "account.differentAccount.title": "Different Google account on this phone",
+  // "Different account on this phone?" (docs/kaata-accounts.md §7): the server
+  // asks for every provider, Google, Apple and email alike, so the words name
+  // none. {oldEmail} and {newEmail} arrive LTR-isolated.
+  "account.differentAccount.title": "Different account on this phone",
   "account.differentAccount.body":
-    "This phone is currently linked to {oldEmail}. You just picked {newEmail}. What do you want to do?",
+    "This phone is linked to {oldEmail}. You're signing in to {newEmail}. What do you want to do?",
   "account.differentAccount.keep": "Switch, keep my data",
   "account.differentAccount.wipe": "Switch, start fresh",
   "account.differentAccount.cancel": "Cancel",
@@ -692,6 +790,7 @@ const en = {
   "menu.account": "Account",
   "menu.account.signIn": "Sign in with Google",
   "menu.account.signIn.apple": "Sign in with Apple",
+  "menu.account.signIn.email": "Sign in with email",
   "menu.account.signIn.toast": "Signed in",
   "menu.account.signIn.partialToast":
     "Signed in, but {count} kaata(s) couldn't be restored. Pull down to retry.",
@@ -709,6 +808,53 @@ const en = {
   "account.kaatas.section": "Kaatas",
   "account.archived.row": "Archived kaatas",
   "account.save": "Save changes",
+  // Account → Sign-in (docs/kaata-accounts.md §7): how this account signs in.
+  "account.signin.section": "Sign-in",
+  "account.signin.email": "Email",
+  "account.signin.loginEmail": "Password sign-in: {email}",
+  "account.signin.password.set": "Set a password",
+  "account.signin.password.setHint": "Also sign in with your email and a password",
+  "account.signin.password.change": "Change password",
+  "account.signin.password.remove": "Remove password",
+  "account.signin.password.removeHint": "Sign in with Google or Apple only",
+  "account.signin.username": "Username",
+  "account.signin.username.none": "Not set",
+  "account.signin.username.hint": "Use it instead of your email to sign in",
+  "account.signin.loading": "Loading sign-in details…",
+  "account.signin.failed": "Couldn't load sign-in details. Tap to try again.",
+  "account.signin.network": "Couldn't reach Kaata. Check your connection and try again.",
+  "account.signin.error": "That didn't work. Try again.",
+  "accountPassword.title.set": "Set a password",
+  "accountPassword.title.change": "Change password",
+  "accountPassword.set.body":
+    "Add a Kaata password to sign in with your email on any phone. First we'll send a code to the address.",
+  "accountPassword.set.relayNote":
+    "Your Apple account hides its email address, so enter one you can open.",
+  "accountPassword.set.codeSent":
+    "We sent a 6-digit code to {email}. Enter it with your new password.",
+  "accountPassword.set.submit": "Save password",
+  "accountPassword.set.done": "Password saved. You can now sign in with {email} and this password.",
+  "accountPassword.change.current": "Current password",
+  "accountPassword.change.body": "Other phones signed in to this account will be signed out.",
+  "accountPassword.change.submit": "Change password",
+  "accountPassword.change.done": "Password changed. Other phones were signed out.",
+  "accountPassword.loadFailed": "Couldn't load your account. Check your connection and try again.",
+  "accountPassword.set.fixedEmail": "We'll send a 6-digit code to {email}.",
+  "accountPassword.remove.title": "Remove your password?",
+  "accountPassword.remove.body":
+    "You'll sign in with Google or Apple only. Phones signed in with the password are signed out.",
+  "accountPassword.remove.cta": "Remove password",
+  "accountPassword.remove.done": "Password removed",
+  "accountUsername.title": "Username",
+  "accountUsername.body":
+    "A username works in place of your email when you sign in with your password. Only you see it.",
+  "accountUsername.rules":
+    "3 to 30 characters: lowercase letters, numbers, _ and ., starting with a letter.",
+  "accountUsername.save": "Save username",
+  "accountUsername.remove": "Remove username",
+  "accountUsername.saved": "Username saved",
+  "accountUsername.removed": "Username removed",
+  "accountUsername.needsPassword": "Set a password first: a username only works with a password.",
   // Phase 7 UX critique #6 — sign-out is destructive (kills server sync
   // until next sign-in), so it gets a ConfirmDialog gate per the
   // documented contract in design-tokens.ts. The body interpolates the
@@ -721,7 +867,7 @@ const en = {
   "menu.account.signOut.confirm.bodyGeneric":
     "Your local Kaatas stay on this phone, but cloud sync and restore won't work until you sign in again.",
   "menu.account.signOut.confirm.cta": "Sign out",
-  "menu.account.switch": "Switch Google account",
+  "menu.account.switch": "Switch account",
   "menu.account.localOnlyHint": "Sign in to enable backup + sync across phones.",
   // ABOUT section
   "menu.about": "About",
@@ -819,7 +965,7 @@ const en = {
     "3. Point its camera at the code below.",
   "vaultPair.instructions.server":
     "On the OTHER phone (the one you want to add):\n" +
-    "1. Sign in with the same Google account.\n" +
+    "1. Sign in to the same Kaata account.\n" +
     "2. Tap the profile icon (top-right) → Add a Kaata → Scan a pairing code.\n" +
     "3. Point its camera at the code below.",
   "vaultPair.codeExpired": "Code expired",
@@ -840,7 +986,7 @@ const en = {
   "vaultPair.fineprint.local":
     "The other phone does NOT need to be signed in — pairing is direct between the two phones over Bluetooth.",
   "vaultPair.fineprint.server":
-    'The other phone must be signed in with the same Google account as this one. To invite someone else (a different Google account), use "Invite member" instead.',
+    'The other phone must be signed in to the same Kaata account as this one. To invite someone else (a different account), use "Invite member" instead.',
   // D-PAIR-WITH-ROLE — role picker on pair.tsx
   "vaultPair.role.title": "Choose this phone's role on",
   "vaultPair.role.subtitle":
@@ -900,10 +1046,9 @@ const en = {
   "vaultPairScan.awaiting.hostBody":
     "Make sure the other phone is still showing its code, Bluetooth is on, and the phones are close. Then try again.",
   "vaultPairScan.error.headline": "Couldn't pair",
-  "vaultPairScan.error.signInRequired":
-    "Sign in with the same Google account as the other phone first.",
+  "vaultPairScan.error.signInRequired": "Sign in to the same account as the other phone first.",
   "vaultPairScan.error.accountMismatch":
-    "This code was issued for a different Google account. Ask the owner to send you an email invitation instead.",
+    "This code was issued for a different account. Ask the owner to send you an email invitation instead.",
   "vaultPairScan.error.generic": "Pairing failed",
   "vaultPairScan.error.expired":
     "This pairing code has expired. Ask the owner to generate a new one.",
@@ -931,8 +1076,7 @@ const en = {
   "pairLink.unsupported.title": "Scan the code in person",
   "pairLink.unsupported.body":
     "Pairing by link is no longer supported. Ask the owner to show you the pairing QR code and scan it from this phone while you're near each other.",
-  "pairLink.signin.body":
-    "Sign in with the SAME Google account as the other phone to complete pairing.",
+  "pairLink.signin.body": "Sign in to the SAME account as the other phone to complete pairing.",
   "pairLink.confirm.title": "Join {name}?",
   "pairLink.confirm.body":
     "This phone will become a second device on the kaata. Your entries will sync over the internet, and also peer-to-peer when both phones are on the same wifi.",
@@ -946,7 +1090,7 @@ const en = {
   "pairLink.error.malformed":
     "This pairing link is malformed. Make sure you opened it from the original message.",
   "pairLink.error.accountMismatch":
-    "This link was issued for a different Google account. Ask the owner to send you an email invitation instead.",
+    "This link was issued for a different account. Ask the owner to send you an email invitation instead.",
 
   // Vault settings — Phase 7 UX critique #8 (translated).
   "vaultSettings.title": "Kaata settings",
@@ -1117,7 +1261,7 @@ const en = {
   "invite.email.alreadyInvited": "This email is already invited",
   "invite.email.alreadyMember": "This email is already a member",
   "invite.gmailDotHint":
-    "The invitee must accept using the same Google email. Gmail addresses are matched without dots.",
+    "The invitee must accept with an account that uses this same email. Gmail addresses are matched without dots.",
   "invite.role.editor": "Editor",
   "invite.role.editor.hint": "Add, edit, and delete entries",
   "invite.role.viewer": "Viewer",
@@ -1156,7 +1300,8 @@ const en = {
   "inviteAccept.title": "Vault invitation",
   "inviteAccept.invalidLink": "Invalid invitation link",
   "inviteAccept.signin.body":
-    "You need to sign in with Google to accept this invitation. Use the email address that received the invite.",
+    "Sign in to accept this invitation, with an account that uses the email address that received it.",
+  "inviteAccept.signin.cta": "Sign in",
   "inviteAccept.confirm.title": "Join {name}?",
   // Single sentence with BOTH placeholders — never split for the bold
   // {role}; the screen splits the template on "{role}" at render time so
@@ -1170,7 +1315,7 @@ const en = {
   "inviteAccept.joinedToast": "Joined {name}",
   "inviteAccept.error.title": "Something went wrong",
   "inviteAccept.error.notVisible":
-    "This invitation isn't visible on your account. The invite is anchored to a specific email — try signing in with the Google account that received the invitation.",
+    "This invitation isn't visible on your account. The invite is anchored to a specific email — try signing in with the account that uses the email that received it.",
   "inviteAccept.error.expired": "This invitation has expired. Ask the inviter for a new one.",
   "inviteAccept.error.loadFailed": "Failed to load invitation",
   "inviteAccept.error.rateLimited": "Too many attempts. Please try again later.",
@@ -1649,6 +1794,103 @@ const fa: Partial<Record<Key, string>> = {
   "onboardingMode.expoGoHint":
     "ورود در نسخه واقعی برنامه کار می‌کند؛ فعلاً می‌توانید بدون حساب ادامه دهید.",
   "onboardingMode.back": "برگشت",
+  // Kaata accounts: email + password. Matee: please proofread.
+  "onboardingMode.email.title": "ادامه با ایمیل",
+  "auth.email.signIn.title": "ورود با ایمیل",
+  "auth.email.signIn.subtitle": "ایمیل یا نام کاربری و رمز حساب کاتای خود را بنویسید.",
+  "auth.email.identifier": "ایمیل یا نام کاربری",
+  "auth.email.password": "رمز",
+  "auth.email.signIn.submit": "ورود",
+  "auth.email.forgot": "رمز را فراموش کرده‌اید؟",
+  "auth.email.toSignUp": "ساختن حساب",
+  "auth.email.toSignIn": "حساب دارید؟ وارد شوید",
+  "auth.email.signUp.title": "ساختن حساب کاتا",
+  "auth.email.signUp.subtitle": "یک کود 6 رقمی به ایمیل شما می‌فرستیم تا آدرس تأیید شود.",
+  "auth.email.email": "ایمیل",
+  "auth.email.newPassword": "رمز کاتا",
+  "auth.email.newPassword.helper": "برای کاتا یک رمز نو بسازید، نه رمز جیمیل خود را",
+  "auth.email.sendCode": "فرستادن کود",
+  "auth.email.gmail": "ادامه با گوگل: به رمز نیاز نیست",
+  "auth.email.providerHint": "با گوگل یا اپل حساب ساخته‌اید؟ از همان دکمه استفاده کنید.",
+  "auth.email.code.title": "ایمیل خود را ببینید",
+  "auth.email.code.sent":
+    "یک کود 6 رقمی به {email} فرستادیم. اگر این آدرس از قبل حساب کاتا داشته باشد، در ایمیل نوشته شده که چطور وارد شوید.",
+  "auth.email.code.label": "کود 6 رقمی",
+  "auth.email.code.spam": "پس از یک دقیقه نرسید؟ پوشهٔ Spam (هرزنامه) را ببینید.",
+  "auth.email.code.resend": "فرستادن کود نو",
+  "auth.email.code.resendIn": "فرستادن کود نو پس از {time}",
+  "auth.email.code.resent": "کود نو در راه است.",
+  "auth.email.code.changeEmail": "تغییر ایمیل",
+  "auth.email.code.passwordAgain": "رمز کاتا را که انتخاب کردید، دوباره بنویسید.",
+  "auth.email.code.submit": "ساختن حساب",
+  "auth.email.forgot.title": "بازیابی رمز",
+  "auth.email.forgot.subtitle":
+    "ایمیلی را بنویسید که با آن وارد می‌شوید. اگر رمز کاتا داشته باشد، یک کود برای گذاشتن رمز نو می‌فرستیم.",
+  "auth.email.backToSignIn": "برگشت به ورود",
+  "auth.email.reset.title": "رمز نو بگذارید",
+  "auth.email.reset.sent":
+    "اگر {email} رمز کاتا داشته باشد، یک کود 6 رقمی به آن فرستادیم. کود و یک رمز نو را بنویسید.",
+  "auth.email.reset.newPassword": "رمز نو",
+  "auth.email.reset.submit": "ذخیره و ورود",
+  "auth.email.required": "ایمیل خود را بنویسید.",
+  "auth.email.identifierRequired": "ایمیل یا نام کاربری خود را بنویسید.",
+  "auth.email.passwordRequired": "رمز خود را بنویسید.",
+  "auth.email.codeRequired": "کود 6 رقمی ایمیل را بنویسید.",
+  "auth.password.show": "نشان دادن رمز",
+  "auth.password.hide": "پنهان کردن رمز",
+  "auth.password.rule.length": "8 حرف یا بیشتر",
+  "auth.password.rule.digits": "تنها عدد نباشد، مگر 12 عدد یا بیشتر",
+  "auth.password.rule.runs": "بدون ترتیب‌های ساده مانند 123456 یا aaaaaa",
+  "auth.password.rule.personal": "رمز معمول یا ایمیل شما نباشد",
+  "auth.error.email.format": "یک آدرس ایمیل درست بنویسید، مانند \u2066name@example.com\u2069.",
+  "auth.error.email.relay": "آدرس پنهان اپل این‌جا کار نمی‌کند. آدرس ایمیل خود را بنویسید.",
+  "auth.error.email.disposable":
+    "آدرس‌های ایمیل موقت پذیرفته نمی‌شوند. آدرسی را بنویسید که نگه می‌دارید.",
+  "auth.error.email.required": "یک آدرس ایمیل برای ورود بنویسید.",
+  "auth.error.email.inUse": "یک حساب دیگر کاتا این ایمیل را دارد. آدرس دیگری بنویسید.",
+  "auth.error.password.too_short": "دست‌کم 8 حرف بنویسید.",
+  "auth.error.password.too_long": "بیشتر از 128 حرف ننویسید.",
+  "auth.error.password.whitespace": "فاصلهٔ اول یا آخر رمز را بردارید.",
+  "auth.error.password.common": "این رمز بسیار معمول است. رمزی بگذارید که حدس زدنش سخت‌تر باشد.",
+  "auth.error.password.personal": "ایمیل، نام کاربری یا شمارهٔ تلفون خود را در رمز نگذارید.",
+  "auth.error.password.pattern":
+    "از ترتیب‌های ساده مانند 123456، aaaaaa یا تنها عدد استفاده نکنید.",
+  "auth.error.password.weak": "رمز قوی‌تری بگذارید.",
+  "auth.error.code.invalid":
+    "این کود درست نیست یا وقتش گذشته است. از تازه‌ترین ایمیل استفاده کنید یا کود نو بفرستید.",
+  "auth.error.accountExists": "برای این ایمیل از قبل حساب کاتا هست. به جایش وارد شوید.",
+  "auth.error.invalidCredentials": "ایمیل، نام کاربری یا رمز درست نیست.",
+  "auth.error.wrongPassword": "رمز فعلی شما درست نیست.",
+  "auth.error.noPassword": "این حساب هنوز رمز کاتا ندارد.",
+  "auth.error.passwordExists": "این حساب از قبل رمز کاتا دارد.",
+  "auth.error.username.format":
+    "از 3 تا 30 حرف کوچک انگلیسی، عدد، _ یا . استفاده کنید که با یک حرف شروع شود.",
+  "auth.error.username.reserved": "این نام کاربری در دسترس نیست. نام دیگری انتخاب کنید.",
+  "auth.error.username.taken": "این نام کاربری گرفته شده است. نام دیگری انتخاب کنید.",
+  "auth.error.name.invalid": "نام شما باید 2 تا 60 حرف باشد.",
+  "auth.error.name.provider": "نام شما از گوگل یا اپل می‌آید.",
+  "auth.error.tooManyAttempts": "تلاش‌ها زیاد شد. چند دقیقه صبر کنید و دوباره امتحان کنید.",
+  "auth.error.tooManyAttempts.wait": "تلاش‌ها زیاد شد. پس از {time} دوباره امتحان کنید.",
+  "auth.error.tooManyEmails":
+    "درخواست‌ها برای این ایمیل زیاد شد. کمی صبر کنید و دوباره امتحان کنید.",
+  "auth.error.tooManyEmails.wait":
+    "درخواست‌ها برای این ایمیل زیاد شد. پس از {time} دوباره امتحان کنید.",
+  "auth.error.rateLimited": "تلاش‌ها زیاد شد. چند دقیقه صبر کنید و دوباره امتحان کنید.",
+  "auth.error.rateLimited.wait": "تلاش‌ها زیاد شد. پس از {time} دوباره امتحان کنید.",
+  "auth.error.emailUnavailable":
+    "فعلاً کود ایمیل فرستاده نمی‌شود. با گوگل یا اپل وارد شوید یا بعداً دوباره امتحان کنید.",
+  "auth.error.busy": "کاتا مصروف است. کمی بعد دوباره امتحان کنید.",
+  "auth.error.accountDisabled": "این حساب غیرفعال شده است.",
+  "auth.error.sessionExpired": "از حساب بیرون شده‌اید. دوباره وارد شوید و باز امتحان کنید.",
+  // Final-review strings (2026-10-10). Matee: please proofread.
+  "auth.error.emailFixed": "رمز شما باید با آدرس ایمیل حساب خودتان باشد.",
+  "auth.error.providerSessionRequired": "برای حذف رمز، با گوگل یا اپل وارد شوید.",
+  "auth.error.tokenExpired": "ورود زیاد طول کشید. لطفاً دوباره وارد شوید.",
+  "auth.wait.seconds": "{n} ثانیه",
+  "auth.wait.minute": "1 دقیقه",
+  "auth.wait.minutes": "{n} دقیقه",
+  "auth.wait.hour": "1 ساعت",
+  "auth.wait.hours": "{n} ساعت",
 
   // Onboarding profile
   "onboardingProfile.title": "خودتان را معرفی کنید",
@@ -1715,10 +1957,10 @@ const fa: Partial<Record<Key, string>> = {
   // killed the /account screen and its dependent strings; the preferences row
   // was folded into /vault/settings).
 
-  // Phase 4.1: "different Google account on this phone?" prompt.
-  "account.differentAccount.title": "حساب گوگل متفاوت در این تلفن",
+  // "Different account on this phone?" for every provider (see the en table).
+  "account.differentAccount.title": "حساب دیگری در این تلفون",
   "account.differentAccount.body":
-    "این تلفن در حال حاضر به {oldEmail} متصل است. شما {newEmail} را انتخاب کردید. می‌خواهید چه کار کنید؟",
+    "این تلفون به {oldEmail} وصل است. شما با {newEmail} وارد می‌شوید. می‌خواهید چه کار کنید؟",
   "account.differentAccount.keep": "تعویض، نگه داشتن داده‌ها",
   "account.differentAccount.wipe": "تعویض، شروع از نو",
   "account.differentAccount.cancel": "لغو",
@@ -2135,6 +2377,7 @@ const fa: Partial<Record<Key, string>> = {
   "menu.account": "حساب",
   "menu.account.signIn": "ورود با گوگل",
   "menu.account.signIn.apple": "ورود با اپل",
+  "menu.account.signIn.email": "ورود با ایمیل",
   "menu.account.signIn.toast": "ورود انجام شد",
   "menu.account.signIn.partialToast":
     "وارد شدید، اما {count} کاتا بازیابی نشد. برای تلاش دوباره به پایین بکشید.",
@@ -2152,13 +2395,58 @@ const fa: Partial<Record<Key, string>> = {
   "account.kaatas.section": "کاتاها",
   "account.archived.row": "کاتاهای بایگانی‌شده",
   "account.save": "ذخیره تغییرات",
+  // Account → Sign-in (see the en table).
+  "account.signin.section": "ورود",
+  "account.signin.email": "ایمیل",
+  "account.signin.loginEmail": "ورود با رمز: {email}",
+  "account.signin.password.set": "گذاشتن رمز",
+  "account.signin.password.setHint": "با ایمیل و رمز هم وارد شوید",
+  "account.signin.password.change": "تغییر رمز",
+  "account.signin.password.remove": "حذف رمز",
+  "account.signin.password.removeHint": "تنها با گوگل یا اپل وارد شوید",
+  "account.signin.username": "نام کاربری",
+  "account.signin.username.none": "گذاشته نشده",
+  "account.signin.username.hint": "به جای ایمیل برای ورود به کار ببرید",
+  "account.signin.loading": "در حال بارگیری جزئیات ورود…",
+  "account.signin.failed": "جزئیات ورود بار نشد. برای تلاش دوباره بزنید.",
+  "account.signin.network": "به کاتا وصل نشد. اتصال را بررسی کنید و دوباره امتحان کنید.",
+  "account.signin.error": "نشد. دوباره امتحان کنید.",
+  "accountPassword.title.set": "گذاشتن رمز",
+  "accountPassword.title.change": "تغییر رمز",
+  "accountPassword.set.body":
+    "یک رمز کاتا بگذارید تا با ایمیل خود در هر تلفونی وارد شوید. اول یک کود به این آدرس می‌فرستیم.",
+  "accountPassword.set.relayNote":
+    "حساب اپل شما آدرس ایمیل خود را پنهان می‌کند، پس آدرسی را بنویسید که می‌توانید باز کنید.",
+  "accountPassword.set.codeSent": "یک کود 6 رقمی به {email} فرستادیم. آن را با رمز نو بنویسید.",
+  "accountPassword.set.submit": "ذخیرهٔ رمز",
+  "accountPassword.set.done": "رمز ذخیره شد. حالا می‌توانید با {email} و این رمز وارد شوید.",
+  "accountPassword.change.current": "رمز فعلی",
+  "accountPassword.change.body": "تلفون‌های دیگری که با این حساب وارد شده‌اند، بیرون می‌شوند.",
+  "accountPassword.change.submit": "تغییر رمز",
+  "accountPassword.change.done": "رمز تغییر کرد. تلفون‌های دیگر بیرون شدند.",
+  "accountPassword.loadFailed": "حساب شما بار نشد. اتصال را بررسی کنید و دوباره امتحان کنید.",
+  "accountPassword.set.fixedEmail": "یک کود 6 رقمی به {email} می‌فرستیم.",
+  "accountPassword.remove.title": "رمز خود را حذف می‌کنید؟",
+  "accountPassword.remove.body":
+    "تنها با گوگل یا اپل وارد خواهید شد. تلفون‌هایی که با رمز وارد شده‌اند، بیرون می‌شوند.",
+  "accountPassword.remove.cta": "حذف رمز",
+  "accountPassword.remove.done": "رمز حذف شد",
+  "accountUsername.title": "نام کاربری",
+  "accountUsername.body":
+    "نام کاربری هنگام ورود با رمز به جای ایمیل کار می‌کند. تنها شما آن را می‌بینید.",
+  "accountUsername.rules": "3 تا 30 حرف: حرف‌های کوچک انگلیسی، عدد، _ و . که با یک حرف شروع شود.",
+  "accountUsername.save": "ذخیرهٔ نام کاربری",
+  "accountUsername.remove": "حذف نام کاربری",
+  "accountUsername.saved": "نام کاربری ذخیره شد",
+  "accountUsername.removed": "نام کاربری حذف شد",
+  "accountUsername.needsPassword": "اول یک رمز بگذارید: نام کاربری تنها با رمز کار می‌کند.",
   "menu.account.signOut.confirm.title": "خارج می‌شوید؟",
   "menu.account.signOut.confirm.body":
     "از حساب {email} خارج می‌شوید. کاتاهای محلی روی تلفون می‌مانند، اما تا ورود دوباره همگام‌سازی و بازیابی کلاد کار نمی‌کند.",
   "menu.account.signOut.confirm.bodyGeneric":
     "کاتاهای محلی روی تلفون می‌مانند، اما تا ورود دوباره همگام‌سازی و بازیابی کلاد کار نمی‌کند.",
   "menu.account.signOut.confirm.cta": "خروج",
-  "menu.account.switch": "تعویض حساب گوگل",
+  "menu.account.switch": "تعویض حساب",
   "menu.account.localOnlyHint": "برای پشتیبان‌گیری و همگام‌سازی بین تلفون‌ها وارد شوید.",
   "menu.about": "درباره",
   "account.appHealth.section": "وضعیت برنامه",
@@ -2235,7 +2523,7 @@ const fa: Partial<Record<Key, string>> = {
     "۳. دوربین را روی کود زیر بگیرید.",
   "vaultPair.instructions.server":
     "روی تلفون دیگر (همانی که می‌خواهید اضافه کنید):\n" +
-    "۱. با همان حساب گوگل وارد شوید.\n" +
+    "۱. با همان حساب کاتا وارد شوید.\n" +
     "۲. آیکن پروفایل (بالا-راست) → افزودن کاتا → اسکن کود جفت‌سازی.\n" +
     "۳. دوربین را روی کود زیر بگیرید.",
   "vaultPair.codeExpired": "کود منقضی شد",
@@ -2256,7 +2544,7 @@ const fa: Partial<Record<Key, string>> = {
   "vaultPair.fineprint.local":
     "تلفون دیگر نیاز ندارد وارد شود — جفت‌سازی مستقیم بین دو تلفون از طریق بلوتوث است.",
   "vaultPair.fineprint.server":
-    "تلفون دیگر باید با همان حساب گوگل این یکی وارد شده باشد. برای دعوت دیگری (حساب گوگل دیگر)، از «دعوت عضو» استفاده کنید.",
+    "تلفون دیگر باید با همان حساب کاتای این یکی وارد شده باشد. برای دعوت دیگری (حساب دیگر)، از «دعوت عضو» استفاده کنید.",
   // D-PAIR-WITH-ROLE — role picker (Persian)
   "vaultPair.role.title": "نقش این تلفون را در",
   "vaultPair.role.subtitle":
@@ -2312,9 +2600,9 @@ const fa: Partial<Record<Key, string>> = {
   "vaultPairScan.awaiting.hostBody":
     "مطمئن شوید تلفون دیگر هنوز کود خود را نشان می‌دهد، بلوتوث روشن است و تلفون‌ها نزدیک هستند. سپس دوباره کوشش کنید.",
   "vaultPairScan.error.headline": "جفت‌سازی ناکام شد",
-  "vaultPairScan.error.signInRequired": "ابتدا با همان حساب گوگل تلفون دیگر وارد شوید.",
+  "vaultPairScan.error.signInRequired": "ابتدا با همان حساب تلفون دیگر وارد شوید.",
   "vaultPairScan.error.accountMismatch":
-    "این کود برای حساب گوگل دیگری ساخته شده. از مالک بخواهید دعوت ایمیلی بفرستد.",
+    "این کود برای حساب دیگری ساخته شده. از مالک بخواهید دعوت ایمیلی بفرستد.",
   "vaultPairScan.error.generic": "جفت‌سازی ناکام شد",
   "vaultPairScan.error.expired": "این کود جفت‌سازی منقضی شده. از مالک بخواهید کود جدید بسازد.",
   "vaultPairScan.error.unsupported":
@@ -2341,7 +2629,7 @@ const fa: Partial<Record<Key, string>> = {
   "pairLink.unsupported.title": "کد را حضوری اسکن کنید",
   "pairLink.unsupported.body":
     "جفت‌سازی از طریق لینک دیگر پشتیبانی نمی‌شود. از مالک بخواهید کد QR جفت‌سازی را نشان دهد و وقتی نزدیک هم هستید آن را از این تلفون اسکن کنید.",
-  "pairLink.signin.body": "برای تکمیل جفت‌سازی، با همان حساب گوگل تلفون دیگر وارد شوید.",
+  "pairLink.signin.body": "برای تکمیل جفت‌سازی، با همان حساب تلفون دیگر وارد شوید.",
   "pairLink.confirm.title": "به {name} بپیوندید؟",
   "pairLink.confirm.body":
     "این تلفون به عنوان تلفون دوم این کاتا اضافه می‌شود. ورودی‌ها از طریق انترنت همگام می‌شوند و وقتی هر دو تلفون روی یک وای‌فای باشند، مستقیم هم.",
@@ -2354,7 +2642,7 @@ const fa: Partial<Record<Key, string>> = {
   "pairLink.error.malformed":
     "این لینک جفت‌سازی خراب است. مطمئن شوید آن را از پیام اصلی باز کرده‌اید.",
   "pairLink.error.accountMismatch":
-    "این لینک برای حساب گوگل دیگری ساخته شده. از مالک بخواهید دعوت ایمیلی بفرستد.",
+    "این لینک برای حساب دیگری ساخته شده. از مالک بخواهید دعوت ایمیلی بفرستد.",
 
   "common.done": "تمام",
   "common.loading": "بارگیری…",
@@ -2504,7 +2792,7 @@ const fa: Partial<Record<Key, string>> = {
   "invite.email.alreadyInvited": "این ایمیل قبلاً دعوت شده",
   "invite.email.alreadyMember": "این ایمیل قبلاً عضو است",
   "invite.gmailDotHint":
-    "دعوت‌شده باید با همان ایمیل گوگل بپذیرد. آدرس‌های جیمیل بدون نقطه مطابقت می‌شوند.",
+    "دعوت‌شده باید با حسابی بپذیرد که همین ایمیل را دارد. آدرس‌های جیمیل بدون نقطه مطابقت می‌شوند.",
   "invite.role.editor": "ویرایشگر",
   "invite.role.editor.hint": "افزودن، ویرایش و حذف ثبت‌ها",
   "invite.role.clerk": "ثبت‌کننده",
@@ -2540,7 +2828,8 @@ const fa: Partial<Record<Key, string>> = {
   "inviteAccept.title": "دعوت به کاتا",
   "inviteAccept.invalidLink": "لینک دعوت معتبر نیست",
   "inviteAccept.signin.body":
-    "برای پذیرفتن این دعوت باید با گوگل وارد شوید. از همان ایمیلی وارد شوید که دعوت به آن رسیده است.",
+    "برای پذیرفتن این دعوت وارد شوید، با حسابی که همان ایمیلِ دریافت‌کنندهٔ دعوت را دارد.",
+  "inviteAccept.signin.cta": "ورود",
   "inviteAccept.confirm.title": "به {name} بپیوندید؟",
   "inviteAccept.confirm.body": "{inviter} شما را دعوت کرده است تا به عنوان {role} بپیوندید.",
   "inviteAccept.confirm.someone": "کسی",
@@ -2550,7 +2839,7 @@ const fa: Partial<Record<Key, string>> = {
   "inviteAccept.joinedToast": "به {name} پیوستید",
   "inviteAccept.error.title": "مشکلی پیش آمد",
   "inviteAccept.error.notVisible":
-    "این دعوت در حساب شما دیده نمی‌شود. دعوت به یک ایمیل مشخص گره خورده است — با همان حساب گوگلی وارد شوید که دعوت را دریافت کرده است.",
+    "این دعوت در حساب شما دیده نمی‌شود. دعوت به یک ایمیل مشخص گره خورده است — با حسابی وارد شوید که همان ایمیلِ دریافت‌کنندهٔ دعوت را دارد.",
   "inviteAccept.error.expired": "این دعوت منقضی شده است. از دعوت‌کننده بخواهید دعوت جدید بفرستد.",
   "inviteAccept.error.loadFailed": "بار کردن دعوت ناکام شد",
   "inviteAccept.error.rateLimited": "تلاش‌های زیاد. کمی بعد دوباره امتحان کنید.",

@@ -9,8 +9,8 @@
 // Language + default country auto-commit (no Save) like the old Preferences.
 
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Linking,
@@ -24,10 +24,24 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+  accountFailureText,
+  accountNameIsOurs,
+  accountNameProblem,
+  accountRefusal,
+  normalizeAccountName,
+} from "../lib/account-rules";
+import {
+  type AccountMe,
+  accountNameState,
+  currentSessionKind,
   deleteAccount,
+  fetchAccountMe,
   getSessionJWT,
   hasPendingAccountDeletion,
+  removePassword,
   resetRetiredInstall,
+  saveAccountName,
+  syncAccountName,
   updateAccountPhone,
 } from "../lib/auth";
 import { Button } from "../components/Button";
@@ -67,7 +81,7 @@ import {
   normalizePhone,
   setCurrentDefaultCountryCode,
 } from "../lib/phone";
-import { icon, radius, TOUCH_MIN, typography } from "../lib/tokens";
+import { gutter, icon, radius, ROW_MIN, TOUCH_MIN, typography } from "../lib/tokens";
 
 const LANGUAGE_OPTIONS: ReadonlyArray<{ value: LocalePref; labelKey: string }> = [
   { value: "system", labelKey: "settings.language.option.system" },
@@ -144,11 +158,45 @@ export default function AccountScreen() {
   // again on a later success for the same install id).
   const [retired, setRetired] = useState(false);
   const [resetConfirmVisible, setResetConfirmVisible] = useState(false);
+  // Sign-in section (docs/kaata-accounts.md §7): how this account signs in, read
+  // from the server on every visit, since the password and username screens
+  // change it. Shown only with a live session.
+  const [hasSession, setHasSession] = useState(false);
+  // How this session signed in: Google/Apple ("provider") or a Kaata password
+  // ("email"). Names follow the server's rule only for "email"; only
+  // "provider" may remove the password.
+  const [sessionKind, setSessionKind] = useState<"provider" | "email" | null>(null);
+  const [me, setMe] = useState<AccountMe | null>(null);
+  const [meFailed, setMeFailed] = useState(false);
+  const [removeConfirmVisible, setRemoveConfirmVisible] = useState(false);
+  const removingRef = useRef(false);
+  // The name as it was when the screen opened (a save sends the account's name
+  // only when it changed), and whether the account still owes one or holds an
+  // invalid one (then it is sent even unchanged, to settle it).
+  const initialNameRef = useRef("");
+  const nameUnsettledRef = useRef(false);
+
+  const loadMe = useCallback(async () => {
+    setMeFailed(false);
+    try {
+      setMe(await fetchAccountMe());
+    } catch (err) {
+      console.warn("[account] fetchAccountMe failed", err);
+      setMeFailed(true);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (hasSession) void loadMe();
+    }, [hasSession, loadMe]),
+  );
 
   useEffect(() => {
     void (async () => {
       const self = await getLocalSelf();
       if (self) {
+        initialNameRef.current = self.name;
         const s = splitName(self.name);
         setFirstName(s.firstName);
         setLastName(s.lastName ?? "");
@@ -167,7 +215,15 @@ export default function AccountScreen() {
       // 'auto' rather than poisoning every date on the screen.
       setCalendarPrefState(parseCalendarPref(await getAppMeta(CALENDAR_PREF_KEY)));
       setPrefCountry(getCurrentDefaultCountryCode());
-      setSignedIn(!!(await getSessionJWT()) || (await hasPendingAccountDeletion()));
+      const session = !!(await getSessionJWT());
+      setHasSession(session);
+      setSessionKind(await currentSessionKind().catch(() => null));
+      // An automatic send found the phone's name unusable for the account
+      // (lib/auth syncPendingAccountNameFromSelf): ask for a better one here.
+      const nameState = session ? await accountNameState() : "settled";
+      nameUnsettledRef.current = nameState !== "settled";
+      if (nameState === "invalid") setNameError(t("auth.error.name.invalid"));
+      setSignedIn(session || (await hasPendingAccountDeletion()));
       setRetired(await isInstallRetired().catch(() => false));
       setLoaded(true);
     })();
@@ -219,13 +275,46 @@ export default function AccountScreen() {
     }
   }
 
+  // Remove password: only a Google or Apple session may (§6.12), and the row
+  // only shows for one. A password someone else added is removed this way.
+  async function onConfirmRemovePassword() {
+    if (removingRef.current) return;
+    removingRef.current = true;
+    setRemoveConfirmVisible(false);
+    try {
+      await removePassword(getLocale());
+      toast.push(t("accountPassword.remove.done"), "success");
+    } catch (err) {
+      console.warn("[account] removePassword failed", err);
+      toast.push(accountFailureText(err), "error");
+    } finally {
+      removingRef.current = false;
+      void loadMe();
+    }
+  }
+
   async function onSave() {
     if (savingRef.current) return;
-    const fn = firstName.trim();
+    // When the account's name is ours to set (no Google or Apple identity:
+    // decided from the account, and from the session only until the account
+    // has loaded), the name typed here is also the account's on the server
+    // (shared tallies, reviews and pushes show it, §6.11), so it follows the
+    // server's rule: whitespace collapsed, 2 to 60 characters. A Google or
+    // Apple account keeps its own local rule; its provider names the account.
+    const ours = hasSession && accountNameIsOurs(me ? me.providers : null, sessionKind);
+    const fn = ours ? normalizeAccountName(firstName) : firstName.trim();
+    const ln = ours ? normalizeAccountName(lastName) : lastName.trim();
     if (!fn) {
       setNameError(t("onboarding.nameRequired"));
       return;
     }
+    const fullName = joinName(fn, ln || null);
+    if (ours && accountNameProblem(fullName)) {
+      setNameError(t("auth.error.name.invalid"));
+      return;
+    }
+    const nameChanged =
+      normalizeAccountName(fullName) !== normalizeAccountName(initialNameRef.current);
     setNameError(null);
     let normalizedPhone: string | null = null;
     const trimmedPhone = phone.trim();
@@ -241,10 +330,28 @@ export default function AccountScreen() {
     setSaving(true);
     setSaveError(null);
     try {
-      await updateSelfProfile(joinName(fn, lastName.trim() || null), null, normalizedPhone);
+      await updateSelfProfile(fullName, null, normalizedPhone);
       // BUG-1: mirror the phone to the account server-side so it survives a
       // reinstall (the local users.phone_e164 is device-local). Best-effort.
       void updateAccountPhone(normalizedPhone);
+      if (ours && (nameChanged || nameUnsettledRef.current)) {
+        // Only a name that changed (or one the account still owes): sent now,
+        // and a refusal shown instead of "Saved" (the phone keeps the name
+        // either way). provider_name is no refusal, and an unreachable server
+        // queues it for check-in: both end in "Saved".
+        const refusal = await saveAccountName(fullName);
+        if (refusal) {
+          const shown = accountRefusal(refusal);
+          if (shown?.field === "name") setNameError(shown.text);
+          else setSaveError(shown?.text ?? accountFailureText(refusal));
+          return;
+        }
+        nameUnsettledRef.current = false;
+      } else if (hasSession && nameChanged) {
+        // Owed only after an email sign-in; a provider's name is never sent.
+        void syncAccountName(fullName);
+      }
+      initialNameRef.current = fullName;
       toast.push(t("settings.saved"), "success");
       router.back();
     } catch (err) {
@@ -485,6 +592,97 @@ export default function AccountScreen() {
 
           <SectionGap />
 
+          {/* ============ SIGN-IN (signed in only) ============
+              How this account signs in: its email (read-only), a Kaata
+              password to set or change, and once a password exists the
+              optional username that can stand in for the email. */}
+          {hasSession ? (
+            <>
+              <SectionHeader label={t("account.signin.section")} isRTL={isRTL} />
+              {me ? (
+                <>
+                  <View
+                    style={[styles.infoRow, rowDir(isRTL)]}
+                    accessible
+                    accessibilityLabel={`${t("account.signin.email")}: ${me.email}`}
+                  >
+                    <Ionicons
+                      name="mail-outline"
+                      size={icon.row}
+                      color={colors.textDefault}
+                      style={isRTL ? { marginLeft: 14 } : { marginRight: 14 }}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.infoLabel, textDir(isRTL)]}>
+                        {t("account.signin.email")}
+                      </Text>
+                      <Text style={[styles.infoValue, textDir(isRTL)]} numberOfLines={1}>
+                        {me.email ? ltrIsolate(me.email) : "—"}
+                      </Text>
+                      {me.loginEmail && me.loginEmail.toLowerCase() !== me.email.toLowerCase() ? (
+                        <Text style={[styles.infoHint, textDir(isRTL)]} numberOfLines={1}>
+                          {t("account.signin.loginEmail", { email: ltrIsolate(me.loginEmail) })}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </View>
+                  <NavRow
+                    icon="key-outline"
+                    label={t(
+                      me.hasPassword
+                        ? "account.signin.password.change"
+                        : "account.signin.password.set",
+                    )}
+                    hint={me.hasPassword ? undefined : t("account.signin.password.setHint")}
+                    onPress={() => router.push("/account-password")}
+                    isRTL={isRTL}
+                    isLast={!me.hasPassword}
+                  />
+                  {me.hasPassword ? (
+                    <NavRow
+                      icon="at-outline"
+                      label={t("account.signin.username")}
+                      hint={t("account.signin.username.hint")}
+                      trailing={
+                        me.username ? ltrIsolate(me.username) : t("account.signin.username.none")
+                      }
+                      onPress={() => router.push("/account-username")}
+                      isRTL={isRTL}
+                      isLast={sessionKind !== "provider"}
+                    />
+                  ) : null}
+                  {/* Only from a Google or Apple session (the server refuses an
+                      email session): the way out when someone else added a
+                      password to this account. */}
+                  {me.hasPassword && sessionKind === "provider" ? (
+                    <NavRow
+                      icon="close-circle-outline"
+                      label={t("account.signin.password.remove")}
+                      hint={t("account.signin.password.removeHint")}
+                      onPress={() => setRemoveConfirmVisible(true)}
+                      isRTL={isRTL}
+                      danger
+                      isLast
+                    />
+                  ) : null}
+                </>
+              ) : meFailed ? (
+                <NavRow
+                  icon="refresh-outline"
+                  label={t("account.signin.failed")}
+                  onPress={() => void loadMe()}
+                  isRTL={isRTL}
+                  isLast
+                />
+              ) : (
+                <Text style={[styles.infoLoading, textDir(isRTL)]}>
+                  {t("account.signin.loading")}
+                </Text>
+              )}
+              <SectionGap />
+            </>
+          ) : null}
+
           {/* ============ PREFERENCES (personal) ============ */}
           <SectionHeader label={t("account.preferences.section")} isRTL={isRTL} />
           <NavRow
@@ -629,6 +827,16 @@ export default function AccountScreen() {
         onCancel={() => setDeleteConfirmVisible(false)}
       />
       <ConfirmDialog
+        visible={removeConfirmVisible}
+        title={t("accountPassword.remove.title")}
+        description={t("accountPassword.remove.body")}
+        confirmLabel={t("accountPassword.remove.cta")}
+        cancelLabel={t("common.cancel")}
+        destructive
+        onConfirm={onConfirmRemovePassword}
+        onCancel={() => setRemoveConfirmVisible(false)}
+      />
+      <ConfirmDialog
         visible={resetConfirmVisible}
         title={t("account.retired.confirm.title")}
         description={t("account.retired.confirm.body")}
@@ -727,4 +935,23 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgDefault,
   },
   retiredActionText: { ...typography.labelBold, color: colors.danger },
+  // A read-only row in the settings rhythm (NavRow's gutter and height).
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: ROW_MIN,
+    paddingHorizontal: gutter.settings,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.borderSubtle,
+  },
+  infoLabel: { ...typography.hint, color: colors.textSubtle },
+  infoValue: { ...typography.label, color: colors.textEmphasis },
+  infoHint: { ...typography.hint, color: colors.textSubtle },
+  infoLoading: {
+    ...typography.bodySm,
+    color: colors.textMuted,
+    paddingHorizontal: gutter.settings,
+    paddingVertical: 14,
+  },
 });

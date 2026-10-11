@@ -2,20 +2,35 @@ import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  BackHandler,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { GoogleGIcon } from "../../components/GoogleGIcon";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { EmailAuthFlow } from "../../components/EmailAuthFlow";
 import { recoverAllVaults } from "../../lib/recovery";
 import { reconcileVaultRegistrations } from "../../lib/sync/reconcile";
 import { NinjaIcon } from "../../components/NinjaIcon";
 import {
   type DifferentAccountChoice,
   type DifferentAccountPromptArgs,
+  type EmailFlowPending,
   InstallRetiredError,
   isCancellation,
   isGoogleSignInAvailable,
+  readEmailFlowPending,
   resetRetiredInstall,
+  type SessionUser,
   signInWithApple,
   signInWithGoogle,
   SignInFailedError,
@@ -25,10 +40,11 @@ import { colors } from "../../lib/colors";
 import { getAppMeta, getLocalSelf, setAppMeta } from "../../lib/db";
 import { getActiveVaultIdSyncMaybe, setActiveVaultId } from "../../lib/db-tx";
 import { applyVaultCurrency } from "../../lib/currency";
-import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
+import { ltrIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { icon, radius, TOUCH_MIN, typography } from "../../lib/tokens";
+import { useOnboardingKeyboardScroll } from "../../lib/use-onboarding-keyboard-scroll";
 
 // Onboarding step 2 — auth choice. Sits BEFORE the name/shop form so the
 // Google handshake (and the email it returns) can inform the next screen's
@@ -42,6 +58,16 @@ import { icon, radius, TOUCH_MIN, typography } from "../../lib/tokens";
 //   - Any other Google error or backend rejection → inline error under
 //     the Google card. NEVER a toast — toasts are dismissable and easily
 //     missed when the user is figuring out a new screen.
+//
+// Under the two provider cards, on both platforms, a quieter outlined option:
+// "Continue with email", Kaata's own accounts (docs/kaata-accounts.md). It
+// turns the screen into its second mode (mode === "email"), the
+// components/EmailAuthFlow steps, rendered inside this screen's
+// KeyboardAvoidingView + ScrollView. Back, hardware or on-screen, walks back
+// through those steps and then out to the cards. /sign-in?mode=email opens
+// straight on it, and so does a code step the app was killed on (the code is
+// in the user's inbox; Android often kills the app while they read it).
+// Play's review instructions name "Continue with email": keep it visible.
 
 const IS_EXPO_GO = Constants.executionEnvironment === "storeClient";
 
@@ -59,12 +85,22 @@ const IS_EXPO_GO = Constants.executionEnvironment === "storeClient";
  * its own explanation and no code, because nothing about it is transient and
  * "try again" would be a lie. `retired` tells the screen to offer the reset.
  */
-function describeSignInFailure(err: unknown): { text: string; retired: boolean } {
+function describeSignInFailure(err: unknown): {
+  text: string;
+  retired: boolean;
+  /** A known state, not a fault: nothing to report. */
+  known: boolean;
+} {
   if (err instanceof SignInFailedError) {
     // InstallRetiredError is a SignInFailedError ("server 410"), so it is told
     // apart inside this branch, before the generic server copy.
     if (err instanceof InstallRetiredError) {
-      return { text: t("account.retired.body"), retired: true };
+      return { text: t("account.retired.body"), retired: true, known: true };
+    }
+    // The token or code went stale while the different-account question was
+    // up; nothing was changed. Not a fault, and "try again" is the whole fix.
+    if (err.stage === "token_expired") {
+      return { text: t("auth.error.tokenExpired"), retired: false, known: true };
     }
     const hint =
       err.stage === "play_services"
@@ -72,9 +108,9 @@ function describeSignInFailure(err: unknown): { text: string; retired: boolean }
         : err.stage === "timeout" || err.stage === "network"
           ? t("onboardingMode.signInFailed.network")
           : t("onboardingMode.signInFailed");
-    return { text: `${hint} (${err.code})`, retired: false };
+    return { text: `${hint} (${err.code})`, retired: false, known: false };
   }
-  return { text: t("onboardingMode.signInFailed"), retired: false };
+  return { text: t("onboardingMode.signInFailed"), retired: false, known: false };
 }
 
 /**
@@ -83,7 +119,7 @@ function describeSignInFailure(err: unknown): { text: string; retired: boolean }
  * that failed on someone else's phone left ZERO remote evidence — the exact
  * situation that made this bug un-diagnosable. Best-effort and non-blocking.
  */
-function reportSignInFailure(provider: "google" | "apple", err: unknown): void {
+function reportSignInFailure(provider: "google" | "apple" | "email", err: unknown): void {
   const code = err instanceof SignInFailedError ? err.code : "unknown";
   const message = err instanceof Error ? err.message : String(err);
   console.warn(`[onboarding/auth] ${provider} sign-in failed [${code}]`, err);
@@ -99,17 +135,31 @@ export default function OnboardingAuthScreen() {
   return <AuthScreen />;
 }
 
-export function AuthScreen({ redirected = false }: { redirected?: boolean }) {
+export function AuthScreen({
+  redirected = false,
+  initialMode = "providers",
+}: {
+  redirected?: boolean;
+  /** "email": open straight on the email flow (/sign-in?mode=email). */
+  initialMode?: "providers" | "email";
+}) {
   const router = useRouter();
   const isRTL = useIsRTL();
-  // WHICH provider is mid-handshake (null = idle). Both cards disable while
-  // either runs, but only the tapped card shows the spinner — a shared
+  // WHICH sign-in is mid-handshake (null = idle). Every control disables
+  // while one runs, but only the tapped one shows the spinner — a shared
   // boolean used to put a spinner on BOTH cards at once. "reset" = the
   // retired-install reset below is erasing; everything disables.
-  const [busy, setBusy] = useState<null | "google" | "apple" | "reset">(null);
+  const [busy, setBusy] = useState<null | "google" | "apple" | "email" | "reset">(null);
   const [error, setError] = useState<string | null>(null);
   // The last failure was a retired install: offer "Reset this phone".
   const [retired, setRetired] = useState(false);
+  // "email": the email flow replaces the provider choices.
+  const [mode, setMode] = useState<"providers" | "email">(initialMode);
+  // A code step to reopen (see the effect below), or null.
+  const [resume, setResume] = useState<EmailFlowPending | null>(null);
+  // The email flow's own one-step Back; false at its first step.
+  const emailBackRef = useRef<(() => boolean) | null>(null);
+  const { scrollProps, focusInput, blurInput } = useOnboardingKeyboardScroll();
 
   const busyRef = useRef(false);
   const decisionRef = useRef<((choice: DifferentAccountChoice) => void) | null>(null);
@@ -127,13 +177,61 @@ export function AuthScreen({ redirected = false }: { redirected?: boolean }) {
       setDecision(args);
     });
 
-  // Post-sign-in navigation shared by Google and Apple: stash the returned
+  // An emailed code the user went to fetch: Android often kills the app while
+  // they read their mail, so for the code's 15 minutes the email flow reopens
+  // on its code step. A setup code (a first password from Account settings)
+  // belongs to that screen, not this one.
+  useEffect(() => {
+    let cancelled = false;
+    void readEmailFlowPending().then((pending) => {
+      if (cancelled || busyRef.current || !pending || pending.purpose === "setup") return;
+      setResume(pending);
+      setMode("email");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function openEmailMode() {
+    setError(null);
+    setRetired(false);
+    setMode("email");
+  }
+
+  // Back to the provider choices. Only ever from a first step: Back leaves a
+  // code step through the flow itself, which forgets it (a cancel), so this
+  // never touches a pending code, not even Account settings' own.
+  function leaveEmailMode() {
+    Keyboard.dismiss();
+    setResume(null);
+    setMode("providers");
+    setError(null);
+    setRetired(false);
+  }
+
+  // One step back through the email flow, then out of it.
+  function emailBack() {
+    if (emailBackRef.current?.()) return;
+    leaveEmailMode();
+  }
+
+  // Android's back button walks the email flow instead of leaving the screen.
+  useEffect(() => {
+    if (mode !== "email") return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (!busyRef.current) emailBack();
+      return true;
+    });
+    return () => sub.remove();
+    // emailBack reads a ref and calls state setters, which are stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
+  // Post-sign-in navigation shared by every sign-in: stash the returned
   // profile for the "Signed in as X" subtitle, then honor any pending pair /
   // invite deep link, else route to the restore probe.
-  async function completeSignIn(
-    user: { name?: string; email?: string; phone?: string },
-    method: "google" | "apple",
-  ) {
+  async function completeSignIn(user: SessionUser, method: "google" | "apple" | "email") {
     await setAppMeta("onboarding_auth_method", method);
     // Stash the provider-returned display name + email for the profile
     // screen's "Signed in as X" subtitle. The name is NOT prefilled into
@@ -173,7 +271,10 @@ export function AuthScreen({ redirected = false }: { redirected?: boolean }) {
           await setAppMeta("pending_invite_token", "");
           router.replace({ pathname: "/invite/[token]", params: { token: pendingInvite } });
         } else {
-          router.replace("/");
+          // Back DOWN to the home screen this sign-in was opened from (the
+          // profile sheet pushes /sign-in over it); replace would stack a
+          // second home on top of the first. With no home below, it replaces.
+          router.dismissTo("/");
         }
         return;
       }
@@ -252,14 +353,16 @@ export function AuthScreen({ redirected = false }: { redirected?: boolean }) {
   }
 
   const googleAvailable = isGoogleSignInAvailable();
+  const inEmailMode = mode === "email";
 
-  function showSignInFailure(provider: "google" | "apple", err: unknown) {
+  function showSignInFailure(provider: "google" | "apple" | "email", err: unknown) {
     const failure = describeSignInFailure(err);
     setError(failure.text);
     setRetired(failure.retired);
     // A retired install is a known state with its own way out, not a failure
     // to diagnose — and the server discards a retired install's reports anyway.
-    if (!failure.retired) reportSignInFailure(provider, err);
+    // A stale token is the user's pause, not a fault either.
+    if (!failure.known) reportSignInFailure(provider, err);
   }
 
   async function onSignIn() {
@@ -302,6 +405,24 @@ export function AuthScreen({ redirected = false }: { redirected?: boolean }) {
     }
   }
 
+  // The email flow's requests run through the same gate as the two cards, so
+  // only one sign-in is ever in flight. The flow handles its own outcome:
+  // completeSignIn on success, its own words for the server's refusals, and
+  // showSignInFailure("email", …) for everything else.
+  async function runEmail(task: () => Promise<void>) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setError(null);
+    setRetired(false);
+    setBusy("email");
+    try {
+      await task();
+    } finally {
+      busyRef.current = false;
+      setBusy(null);
+    }
+  }
+
   // Retired install only: the erase runs from the destructive confirmation,
   // never from the error itself. Then land exactly where a completed account
   // deletion lands (app/account.tsx) — the wipe rebuilt an empty schema under
@@ -335,14 +456,186 @@ export function AuthScreen({ redirected = false }: { redirected?: boolean }) {
     router.replace("/onboarding/profile");
   }
 
+  // The last failure, under whichever sign-in produced it, plus the retired
+  // install's way out.
+  const failureNotice = (
+    <>
+      {error ? (
+        <Text style={[styles.errorText, textDir(isRTL)]} accessibilityLiveRegion="polite">
+          {error}
+        </Text>
+      ) : null}
+      {retired ? (
+        <Pressable
+          onPress={() => setResetConfirm(true)}
+          disabled={busy !== null}
+          accessibilityRole="button"
+          accessibilityLabel={t("account.retired.reset")}
+          style={({ pressed }) => [
+            styles.resetButton,
+            pressed && { backgroundColor: colors.bgMuted },
+            busy !== null && busy !== "reset" && { opacity: 0.5 },
+          ]}
+        >
+          {busy === "reset" ? (
+            <ActivityIndicator color={colors.danger} />
+          ) : (
+            <Text style={styles.resetButtonText}>{t("account.retired.reset")}</Text>
+          )}
+        </Pressable>
+      ) : null}
+    </>
+  );
+
+  const providerChoices = (
+    <>
+      <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
+        {t(redirected ? "auth.redirect.title" : "onboardingMode.title")}
+      </Text>
+      <Text style={[styles.subtitle, textDir(isRTL)]}>
+        {t(redirected ? "auth.redirect.subtitle" : "onboardingMode.subtitle")}
+      </Text>
+
+      <View style={styles.spacer} />
+
+      {/* Two clearly separate offers, each explained ONCE. The backup
+          sentence used to be repeated verbatim on the Google and Apple
+          cards, which read as two different deals and buried the actual
+          choice (account vs no account) under three look-alike blocks. */}
+      <Text style={[styles.groupLabel, textDir(isRTL)]}>{t("onboardingMode.account.label")}</Text>
+      <Text style={[styles.groupBody, textDir(isRTL)]}>{t("onboardingMode.account.body")}</Text>
+
+      {/* BOTH providers on BOTH platforms (one account, any device — the
+          email-linking backend makes them land on the same kaatas), each
+          wearing its OWN brand: Apple = black card + white Apple mark
+          (Apple's canonical form), Google = white card + the multicolor G
+          (Google's light-surface guidance). The platform's home-team
+          provider leads. Google hides on iOS builds without the iOS OAuth
+          client baked in (isGoogleSignInAvailable — configure() would
+          crash); Apple on Android runs the web OAuth flow inside lib/auth.
+          Guideline 4.8 stays satisfied on iOS either way. While EITHER
+          handshake runs both cards disable, but only the tapped one shows
+          the spinner. */}
+      {(Platform.OS === "ios" ? (["apple", "google"] as const) : (["google", "apple"] as const))
+        .filter((p) => p !== "google" || googleAvailable)
+        .map((provider, idx) => {
+          const isGoogle = provider === "google";
+          const spinning = busy === provider;
+          return (
+            <View key={provider}>
+              {idx > 0 ? <View style={styles.gap} /> : null}
+              <Pressable
+                onPress={isGoogle ? onSignIn : onAppleSignIn}
+                disabled={busy !== null}
+                accessibilityRole="button"
+                accessibilityLabel={t(
+                  isGoogle ? "onboardingMode.google.title" : "onboardingMode.apple.title",
+                )}
+                style={({ pressed }) => [
+                  styles.card,
+                  rowDir(isRTL),
+                  isGoogle ? styles.cardGoogle : styles.cardPrimary,
+                  pressed && { opacity: 0.85 },
+                  busy !== null && !spinning && { opacity: 0.5 },
+                ]}
+              >
+                <View style={[styles.cardIcon, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}>
+                  {spinning ? (
+                    <ActivityIndicator
+                      color={isGoogle ? colors.textEmphasis : colors.textInverted}
+                    />
+                  ) : isGoogle ? (
+                    <GoogleGIcon size={icon.card} />
+                  ) : (
+                    <Ionicons name="logo-apple" size={icon.card} color={colors.textInverted} />
+                  )}
+                </View>
+                <Text
+                  style={[styles.cardTitle, !isGoogle && styles.cardTitlePrimary, textDir(isRTL)]}
+                >
+                  {t(isGoogle ? "onboardingMode.google.title" : "onboardingMode.apple.title")}
+                </Text>
+              </Pressable>
+            </View>
+          );
+        })}
+
+      {/* Kaata's own accounts, on both platforms: outlined and flat, so it
+          reads as the quieter third way in under the two provider cards. */}
+      <View style={styles.gap} />
+      <Pressable
+        onPress={openEmailMode}
+        disabled={busy !== null}
+        accessibilityRole="button"
+        accessibilityLabel={t("onboardingMode.email.title")}
+        style={({ pressed }) => [
+          styles.card,
+          rowDir(isRTL),
+          styles.cardOutlined,
+          pressed && { opacity: 0.85 },
+          busy !== null && { opacity: 0.5 },
+        ]}
+      >
+        <View style={[styles.cardIcon, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}>
+          <Ionicons name="mail-outline" size={24} color={colors.textEmphasis} />
+        </View>
+        <Text style={[styles.cardTitle, textDir(isRTL)]}>{t("onboardingMode.email.title")}</Text>
+      </Pressable>
+
+      {failureNotice}
+
+      {/* Hard break between the two offers — the offline choice is not a
+          third sign-in provider, and stacking it flush under the provider
+          cards made it read like one. */}
+      {!redirected ? (
+        <>
+          <View style={styles.divider} />
+
+          <Text style={[styles.groupLabel, textDir(isRTL)]}>
+            {t("onboardingMode.offline.label")}
+          </Text>
+          <Text style={[styles.groupBody, textDir(isRTL)]}>{t("onboardingMode.offline.body")}</Text>
+
+          <Pressable
+            onPress={onStayOffline}
+            disabled={busy !== null}
+            accessibilityRole="button"
+            accessibilityLabel={t("onboardingMode.offline.title")}
+            style={({ pressed }) => [
+              styles.card,
+              rowDir(isRTL),
+              styles.cardGhost,
+              pressed && { opacity: 0.85 },
+              busy !== null && { opacity: 0.5 },
+            ]}
+          >
+            <View style={[styles.cardIcon, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}>
+              {/* NOT icon.card (28) like the G / Apple marks above: NinjaIcon's
+                  viewBox is "0 -64 640 640" and the head circle fills only ~77%
+                  of it (the rest is katana headroom), so at 28 the ninja reads
+                  visibly smaller than its two siblings in the shared 32px well.
+                  30 is the optical-size compensation — a composed graphic. */}
+              <NinjaIcon size={30} />
+            </View>
+            <Text style={[styles.cardTitle, textDir(isRTL)]}>
+              {t("onboardingMode.offline.title")}
+            </Text>
+          </Pressable>
+        </>
+      ) : null}
+    </>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
-      {redirected ? (
+      {redirected || inEmailMode ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t("common.back")}
           disabled={busy !== null}
-          onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
+          onPress={() =>
+            inEmailMode ? emailBack() : router.canGoBack() ? router.back() : router.replace("/")
+          }
           style={{
             minHeight: 44,
             minWidth: 44,
@@ -357,153 +650,55 @@ export function AuthScreen({ redirected = false }: { redirected?: boolean }) {
           />
         </Pressable>
       ) : null}
-      <View style={styles.content}>
-        <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
-          {t(redirected ? "auth.redirect.title" : "onboardingMode.title")}
-        </Text>
-        <Text style={[styles.subtitle, textDir(isRTL)]}>
-          {t(redirected ? "auth.redirect.subtitle" : "onboardingMode.subtitle")}
-        </Text>
-
-        <View style={styles.spacer} />
-
-        {/* Two clearly separate offers, each explained ONCE. The backup
-            sentence used to be repeated verbatim on the Google and Apple
-            cards, which read as two different deals and buried the actual
-            choice (account vs no account) under three look-alike blocks. */}
-        <Text style={[styles.groupLabel, textDir(isRTL)]}>{t("onboardingMode.account.label")}</Text>
-        <Text style={[styles.groupBody, textDir(isRTL)]}>{t("onboardingMode.account.body")}</Text>
-
-        {/* BOTH providers on BOTH platforms (one account, any device — the
-            email-linking backend makes them land on the same kaatas), each
-            wearing its OWN brand: Apple = black card + white Apple mark
-            (Apple's canonical form), Google = white card + the multicolor G
-            (Google's light-surface guidance). The platform's home-team
-            provider leads. Google hides on iOS builds without the iOS OAuth
-            client baked in (isGoogleSignInAvailable — configure() would
-            crash); Apple on Android runs the web OAuth flow inside lib/auth.
-            Guideline 4.8 stays satisfied on iOS either way. While EITHER
-            handshake runs both cards disable, but only the tapped one shows
-            the spinner. */}
-        {(Platform.OS === "ios" ? (["apple", "google"] as const) : (["google", "apple"] as const))
-          .filter((p) => p !== "google" || googleAvailable)
-          .map((provider, idx) => {
-            const isGoogle = provider === "google";
-            const spinning = busy === provider;
-            return (
-              <View key={provider}>
-                {idx > 0 ? <View style={styles.gap} /> : null}
-                <Pressable
-                  onPress={isGoogle ? onSignIn : onAppleSignIn}
-                  disabled={busy !== null}
-                  accessibilityRole="button"
-                  accessibilityLabel={t(
-                    isGoogle ? "onboardingMode.google.title" : "onboardingMode.apple.title",
-                  )}
-                  style={({ pressed }) => [
-                    styles.card,
-                    rowDir(isRTL),
-                    isGoogle ? styles.cardGoogle : styles.cardPrimary,
-                    pressed && { opacity: 0.85 },
-                    busy !== null && !spinning && { opacity: 0.5 },
-                  ]}
-                >
-                  <View style={[styles.cardIcon, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}>
-                    {spinning ? (
-                      <ActivityIndicator
-                        color={isGoogle ? colors.textEmphasis : colors.textInverted}
-                      />
-                    ) : isGoogle ? (
-                      <GoogleGIcon size={icon.card} />
-                    ) : (
-                      <Ionicons name="logo-apple" size={icon.card} color={colors.textInverted} />
-                    )}
-                  </View>
-                  <Text
-                    style={[styles.cardTitle, !isGoogle && styles.cardTitlePrimary, textDir(isRTL)]}
-                  >
-                    {t(isGoogle ? "onboardingMode.google.title" : "onboardingMode.apple.title")}
-                  </Text>
-                </Pressable>
-              </View>
-            );
-          })}
-
-        {error ? (
-          <Text style={[styles.errorText, textDir(isRTL)]} accessibilityLiveRegion="polite">
-            {error}
-          </Text>
-        ) : null}
-        {retired ? (
-          <Pressable
-            onPress={() => setResetConfirm(true)}
-            disabled={busy !== null}
-            accessibilityRole="button"
-            accessibilityLabel={t("account.retired.reset")}
-            style={({ pressed }) => [
-              styles.resetButton,
-              pressed && { backgroundColor: colors.bgMuted },
-              busy !== null && busy !== "reset" && { opacity: 0.5 },
-            ]}
-          >
-            {busy === "reset" ? (
-              <ActivityIndicator color={colors.danger} />
-            ) : (
-              <Text style={styles.resetButtonText}>{t("account.retired.reset")}</Text>
-            )}
-          </Pressable>
-        ) : null}
-
-        {/* Hard break between the two offers — the offline choice is not a
-            third sign-in provider, and stacking it flush under the provider
-            cards made it read like one. */}
-        {!redirected ? (
-          <>
-            <View style={styles.divider} />
-
-            <Text style={[styles.groupLabel, textDir(isRTL)]}>
-              {t("onboardingMode.offline.label")}
-            </Text>
-            <Text style={[styles.groupBody, textDir(isRTL)]}>
-              {t("onboardingMode.offline.body")}
-            </Text>
-
-            <Pressable
-              onPress={onStayOffline}
-              disabled={busy !== null}
-              accessibilityRole="button"
-              accessibilityLabel={t("onboardingMode.offline.title")}
-              style={({ pressed }) => [
-                styles.card,
-                rowDir(isRTL),
-                styles.cardGhost,
-                pressed && { opacity: 0.85 },
-                busy !== null && { opacity: 0.5 },
-              ]}
-            >
-              <View style={[styles.cardIcon, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}>
-                {/* NOT icon.card (28) like the G / Apple marks above: NinjaIcon's
-                viewBox is "0 -64 640 640" and the head circle fills only ~77%
-                of it (the rest is katana headroom), so at 28 the ninja reads
-                visibly smaller than its two siblings in the shared 32px well.
-                30 is the optical-size compensation — a composed graphic. */}
-                <NinjaIcon size={30} />
-              </View>
-              <Text style={[styles.cardTitle, textDir(isRTL)]}>
-                {t("onboardingMode.offline.title")}
-              </Text>
-            </Pressable>
-          </>
-        ) : null}
-      </View>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        // Android draws edge-to-edge, so the window never shrinks for the
+        // keyboard: without this the email flow's fields and button sit under
+        // it. Inert on iOS, whose ScrollView insets compensate (see the hook);
+        // enabled there it would compensate twice.
+        behavior="height"
+        enabled={Platform.OS === "android"}
+      >
+        <ScrollView
+          {...scrollProps}
+          style={styles.flex}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
+          {inEmailMode ? (
+            <EmailAuthFlow
+              key={resume ? `resume-${resume.sentAt}` : "fresh"}
+              entry={redirected ? "signin" : "signup"}
+              resume={resume}
+              isRTL={isRTL}
+              busy={busy !== null}
+              googleAvailable={googleAvailable && !IS_EXPO_GO}
+              focusInput={focusInput}
+              blurInput={blurInput}
+              run={runEmail}
+              onSignedIn={(user) => completeSignIn(user, "email")}
+              onFailure={(err) => showSignInFailure("email", err)}
+              onGoogle={onSignIn}
+              onExit={leaveEmailMode}
+              promptDifferentAccount={promptDifferentAccount}
+              notice={failureNotice}
+              backRef={emailBackRef}
+            />
+          ) : (
+            providerChoices
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
       <ConfirmDialog
         visible={decision !== null}
         title={t("account.differentAccount.title")}
         description={
           decision
             ? t("account.differentAccount.body", {
-                oldEmail: decision.cachedEmail ?? "—",
-                newEmail: decision.newEmail ?? "—",
+                // Addresses are Latin: isolated, so a Dari sentence cannot
+                // reorder them.
+                oldEmail: decision.cachedEmail ? ltrIsolate(decision.cachedEmail) : "—",
+                newEmail: decision.newEmail ? ltrIsolate(decision.newEmail) : "—",
               })
             : ""
         }
@@ -531,7 +726,10 @@ export function AuthScreen({ redirected = false }: { redirected?: boolean }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
-  content: { flex: 1, padding: 24, justifyContent: "center" },
+  flex: { flex: 1 },
+  // A scroll container (the email flow needs the keyboard room), so flexGrow,
+  // not flex: the column still centres when it fits.
+  content: { flexGrow: 1, padding: 24, justifyContent: "center" },
   title: {
     // typography.heading (20) — was a one-off 22. sansBold is kept OVER the
     // token's sansSemi: what made this headline the loudest thing on the screen
@@ -604,6 +802,12 @@ const styles = StyleSheet.create({
   cardGhost: {
     backgroundColor: colors.bgDefault,
     borderColor: colors.borderDefault,
+  },
+  // "Continue with email": the provider cards' geometry, outlined and flat (no
+  // shadow), a step quieter than the two branded cards above it.
+  cardOutlined: {
+    backgroundColor: colors.bgDefault,
+    borderColor: colors.borderEmphasis,
   },
   // Google's brand guidance puts the multicolor G on a LIGHT surface — and
   // the white card is also what visually separates it from the black Apple

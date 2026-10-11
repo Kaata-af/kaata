@@ -74,7 +74,8 @@ func (h *Handler) CheckIn(w http.ResponseWriter, r *http.Request) {
 			if claims.InstallID == req.InstallID && claims.IssuedAtAge() > auth.RefreshIfOlderThan {
 				// Optional auth can carry a cached verdict from before account
 				// deletion/sign-out. Recheck the credential before renewal.
-				if revoked, err := h.authSvc.CheckCredentialRevoked(ctx, claims.InstallID, claims.Provider, claims.AccountID); err == nil && !revoked {
+				if revoked, err := h.authSvc.CheckCredentialRevoked(ctx, claims.InstallID, claims.Provider, claims.AccountID,
+					claims.Epoch); err == nil && !revoked {
 					if newJWT, err := h.authSvc.IssueRefreshJWT(claims); err == nil {
 						resp.SessionJWTRefresh = &newJWT
 					}
