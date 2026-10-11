@@ -45,7 +45,11 @@ export default function EditPersonScreen() {
   const vaultId = getActiveVaultIdSyncMaybe();
   const groupState = useCustomerGroups(vaultId);
   const caps = useActiveVaultWriteCaps(vaultId);
-  const groupName = groupState.groups.find((g) => g.id === groupState.groupByPerson[id])?.name;
+  const personGroupIds = groupState.groupsByPerson[id] ?? [];
+  const groupName = groupState.groups
+    .filter((g) => personGroupIds.includes(g.id))
+    .map((g) => g.name)
+    .join(" · ");
   const [loaded, setLoaded] = useState(false);
   // A null getPerson (stale id, archived remotely via mesh) used to fall
   // through to a blank editable form that saved into nothing. Mirrors
@@ -325,7 +329,7 @@ label so TalkBack still announces "Cancel", not "Back". */}
           <NavRow
             icon="pricetags-outline"
             label={t("groups.personAction")}
-            trailing={groupName ?? t("groups.none")}
+            trailing={groupName || t("groups.none")}
             isRTL={isRTL}
             disabled={busy}
             onPress={() => router.push({ pathname: "/person/[id]/group", params: { id, vaultId } })}

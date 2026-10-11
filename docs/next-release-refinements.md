@@ -33,9 +33,10 @@ tracks as they are. The working checkout returns to `main` after the merge.
   plain-text reminder. Opening WhatsApp does not prove the message was sent.
 - **Sign-in:** Settings has one Sign in row. The existing sign-in page offers
   email, Google and Apple, retaining account-change and restore safeguards.
-- **Tally search:** one box filters notes, amounts and dates within a contact,
-  including settled chapters, pre-link history and Not sent entries. Query terms
-  may combine fields; amounts match exact values and dates use the selected calendar.
+- **Tally search:** one box filters notes and exact amounts within a contact,
+  including settled chapters, pre-link history and Not sent entries. The latest
+  follow-up puts it beneath I received/I gave and adds a separate date-range
+  control with presets and a calendar picker; dates are no longer text queries.
   English case/accents, Dari/Arabic letter variants, digits and ZWNJs normalize
   only for matching. Stored notes, balance, exports and shared statements remain
   whole. Hidden incoming tallies retain their notifications during a search.
@@ -244,6 +245,86 @@ no push, deployment or new native distribution had occurred. The subsequent
 33/53 delivery is recorded in [the distribution log](2.2.0-testing-distribution.md).
 Consolidated phone and visual checks 15–21 below remain pending.
 
+## October 12 safety and customization — local development
+
+These five requests are implemented in the working source after the 2.2.0
+TestFlight 33 / Play internal 53 delivery. They are **not in those testing
+binaries**. This batch remains local: no push, backend deployment, signed build,
+store upload or mobile production submission is part of this work.
+
+- **Recoverable account deletion:** a verified authenticated deletion schedules
+  permanent removal after 30 days, revokes older sessions immediately, and retains
+  cloud records during the window. Signing in with the same proven identity
+  cancels deletion and starts cloud recovery, with visible progress and retry.
+  The updated phone first checks backend support and drains financial vault and
+  shared-account outboxes; failed/refused synchronization leaves the phone's data
+  intact. Private reminder configurations and old Not sent drafts are excluded
+  from cloud recovery, with an explicit export warning. An account already
+  permanently purged cannot be restored by this change. Migration 057 and the
+  hourly purge worker require a future backend deployment. See the
+  [deletion/recovery contract](account-deletion-grace-window.md).
+- **Consistent sheet blur:** every menu, country/vault/option picker, sort sheet,
+  link/confirmation dialog, date-filter sheet and notification dropdown uses the
+  same frosted backdrop. Expo SDK 57 Android blur now references one real native
+  `BlurTargetView`; the previous method-only views silently rendered a tint.
+  Android 12+ uses native blur, while Android 7–11 use an inexpensive dim backdrop.
+  iOS Reduce Transparency disables blur; Reduce Motion removes sheet movement.
+  Pending frames, stopped close callbacks and deferred menu navigation are
+  canceled on reopening/unmount. Native stack form routes retain their existing
+  system presentation.
+- **Custom reminders:** any selected weekdays; monthly intervals of one, two,
+  three, six or twelve months, anchored to the selected Gregorian month and local
+  time. Monthly days 1–28 are disclosed and validated to keep short months and
+  native recurrence consistent. Persistent Android/iOS recurrence plans continue
+  without reopening the app; the existing 40-task cap and 56 native-request
+  budget reject over-budget plans visibly. Outstanding tasks still require
+  **Mark done** and never send a customer message. See
+  [customer-reminders.md](customer-reminders.md).
+- **Multiple groups:** customers may have several custom groups in one kaata.
+  Assignment uses checkmarks and one explicit **Done**; the existing sort sheet
+  supports any selected groups with OR matching, without duplicating customers
+  or changing totals. All/Ungrouped are exclusive and clearing the last selection
+  returns to All. Mobile migration 037 expands earlier single assignments; the
+  signed event/snapshot add a canonical set and keep the first-group mirror for
+  older clients. Update the backend and editing phones before cloud multi-group
+  use: an older editor's assignment replaces the set with one group or none.
+  Groups remain organization, never permission or a new ledger party. See
+  [customer-groups.md](customer-groups.md).
+- **Tally search and dates:** the lower dock places search directly beneath the
+  existing I received/I gave buttons; viewers retain a search-only dock. One
+  calendar button opens Today, Last 7 days, Last 30 days, This month and Custom.
+  The custom grid follows Gregorian, Shamsi or Qamari independently of language;
+  ranges include both chosen local business days. Changing calendar changes the
+  labels without silently altering the selected dates. Range/clear details appear
+  only while active. Search combines notes and exact localized amounts with the
+  date range across settled, pre-link and Not sent history, while balances,
+  Given/Received statistics, exports and WhatsApp statements stay whole. Filtered
+  incoming tallies keep their unread notices.
+
+The lower dock and list share an inner flex container inside the keyboard-avoiding
+view. On iOS, keyboard padding shrinks that inner containing block: Yoga's explicit
+`bottom: 0` position would otherwise keep the dock at the full outer height and
+behind the keyboard. Android retains height adjustment. Native keyboard geometry
+remains a device check.
+
+Focused fixtures cover the actual date sheet and screen in English/Dari across
+all three calendars, midnight and DST boundaries, complete/custom ranges,
+whole-ledger scope and viewer controls. The backdrop fixture executes the real
+provider and shared animation hook through target wiring, accessibility changes,
+interrupted/reopened exits and unmount cleanup. Existing notification, invitation,
+auth-redirect, bell and destructive-confirmation regressions pass. All **50 mobile
+selftest suites plus TypeScript passed: 51 successful checks** for this local
+batch. The web's 85 tests and production build passed. All 14 backend application
+packages with tests passed against an isolated UTF-8 PostgreSQL database; only
+the opt-in bill-preview image generator was skipped. After the last safety
+changes, the full auth/vault packages passed again (154 test/subcase results),
+along with the signed-unarchive and shop-profile sync regressions. Android and
+iOS Metro/Hermes exports passed with the production build profile's public
+environment. These are local bundle checks, not signed store builds or uploads.
+Phone blur pixels, keyboard/gesture geometry, actual background notices,
+and two-device recovery/sync remain pending. This batch is local only: no push,
+deployment, version bump or testing distribution.
+
 ## Deferred by the user
 
 The household/shopkeeper ledger needs two parties: the user and Dad on one
@@ -358,9 +439,12 @@ restored; changing solo-mode configuration alone is insufficient.
 12. View-only kaata: tap the black home Find person control, search name/number,
     open an existing zero-tally contact, and confirm no Add or phone-book prompt.
     Change/downgrade roles while the screen is open.
-13. Tally search: combine notes with amounts/dates, Persian digits and grouped
-    decimals; change calendars with an active filter and search shared/pre-link/
-    Not sent history. Check accepted/rejected/sending label dots in English/Dari.
+13. Tally search: inspect search below I received/I gave, including the viewer
+    search-only dock, keyboard avoidance and large text. Combine notes/exact
+    amounts with date presets or a custom range; try all three calendars,
+    reversed/cross-month endpoints, local midnight, clear and calendar changes.
+    Filter settled/shared/pre-link/Not sent history; balances, statistics and
+    statements stay whole. Check label dots and unread hidden notices in EN/Dari.
 14. Members: change a co-member's name on another phone, revisit/resume the list
     and verify name/email refresh. Remove a member, revoke the viewer or switch
     accounts; cached contact details must not leak into an unauthorized list.
@@ -372,8 +456,9 @@ restored; changing solo-mode configuration alone is insufficient.
     screen changes and Reduced Motion on Android/iOS, English/Dari.
 16. Sort & filter: try both name, amount and last-tally directions, open/settled
     customers, empty groups and Ungrouped. Confirm full-side totals stay whole,
-    preferences stay scoped to their kaata, and removing the selected group
-    resets the filter. A view-only member can sort/filter without write controls.
+    preferences stay scoped to their kaata. Select multiple groups (any-selected
+    matching), remove one selected group without losing the others, and clear the
+    final selection back to All. A viewer can sort/filter without write controls.
 17. Fresh onboarding: language → calendar → sign-in, including Persian device
     defaults. Restart at each step, go Back, and resume email codes, invitations
     and cloud restore. Check Gregorian/Shamsi/Qamari examples and persistence.
@@ -386,11 +471,24 @@ restored; changing solo-mode configuration alone is insufficient.
     repayments while over the cap, two concurrent clerk phones, offline/slow
     requests, sign-out and role changes. Waiting/refused attempts stay outside
     balances, statistics and exported statements. Higher roles retain overrides.
-20. Reminders: schedule once, daily and every Thursday, edit/remove/Mark done,
-    deny permission and test background delivery and native taps. Opening a
-    customer or WhatsApp does not complete the task. Change account/timezone,
-    remove access, and restore onto another phone; private tasks must stay scoped.
-21. Groups across phones: create/rename/remove and assign as an editor, sync over
+20. Reminders: schedule once, daily, selected weekdays and monthly (1/2/3/6/12),
+    including a two-month phase across New Year. Check the stated Gregorian
+    calendar and day 1–28 limit, request-budget errors, edit/remove/Mark done,
+    denied permission, background delivery without reopening and native taps.
+    Opening a customer or WhatsApp does not complete a task. Change account/
+    timezone, remove access and restore onto another phone; private tasks stay scoped.
+21. Groups across phones: create/rename/remove and assign several as an editor, sync over
     separate networks and mesh, then restore on a clean install. Test simultaneous
     offline group names, Dari joining characters, revoked roles and account/kaata
-    changes while saving. Groups never change balances or shared-ledger parties.
+    changes while saving. Verify an archive hides only that membership and leaves
+    the others intact. Groups never change balances or shared-ledger parties.
+22. Safe account deletion: use a disposable account against the updated test
+    backend. Try offline/failed/just-refused financial operations, then a verified
+    delete. Confirm the 30-day explanation, same-identity cancellation and complete
+    cloud restore with retry; other identities cannot claim its data. Check private
+    reminder/old Not sent exclusions, old-session denial and deadline behavior
+    with isolated fixtures. Do not delete a real customer's account for QA.
+23. Sheet backdrops: compare all menus/pickers/dialogs and notification dismissal
+    on iOS and Android 12+, plus the dim fallback on older Android. Try opening
+    while another modal closes, rapid close/reopen, native Back, Reduce Motion and
+    Reduce Transparency. Confirm scrolling and tap dismissal still work in EN/Dari.

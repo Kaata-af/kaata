@@ -1,3 +1,4 @@
+import { SheetBackdrop } from "./SheetBackdrop";
 import { useEffect, useRef, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -167,12 +168,7 @@ export function LinkAccountDialog(props: {
   return (
     <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={dismiss}>
       <View style={styles.overlay}>
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          onPress={dismiss}
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-        />
+        <SheetBackdrop onDismiss={dismiss} />
         <SafeAreaView style={styles.center} pointerEvents="box-none">
           <View style={styles.card} accessibilityViewIsModal>
             <ScrollView bounces={false} contentContainerStyle={styles.content}>
@@ -257,7 +253,7 @@ export function LinkAccountDialog(props: {
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.22)" },
+  overlay: { flex: 1 },
   center: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },
   card: {
     width: "100%",

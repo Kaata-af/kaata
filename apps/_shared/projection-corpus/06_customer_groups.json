@@ -111,6 +111,7 @@
         "updated_at": 1,
         "archived_at": null,
         "group_id": "g",
+        "group_ids": ["g"],
         "group_field_hlcs": { "group_id": { "pms": 40, "l": 0, "did": "test" } }
       }
     },

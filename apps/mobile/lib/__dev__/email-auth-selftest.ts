@@ -509,6 +509,22 @@ test("sign-in: request, session installed like any provider, pending step cleare
   assert.equal(accountCache, "acct-email");
 });
 
+test("proved deletion cancellation installs an account-scoped restore marker", async () => {
+  freshPhone();
+  script = [reply(200, { ...session("acct-email", "a@example.com"), deletion_cancelled: true })];
+  await auth.emailSignIn("a@example.com", "secret pass");
+  assert.equal(metaGet("account_deletion_cancelled"), "acct-email");
+  freshPhone();
+  metaSet("account_deletion_cancelled", "other-account");
+  script = [reply(200, session("acct-email", "a@example.com"))];
+  await auth.emailSignIn("a@example.com", "secret pass");
+  assert.equal(
+    metaGet("account_deletion_cancelled"),
+    "other-account",
+    "ordinary sign-in cannot convert a different account's recovery marker",
+  );
+});
+
 test("sign-in, sign-up and reset refusals store no session", async () => {
   freshPhone();
   script = [reply(401, { error: "no", error_code: "invalid_credentials" })];
@@ -2908,11 +2924,24 @@ let accountFocus: (() => void) | null = null;
 let accountGuardCompletionHook: (() => void) | null = null;
 let accountSuccessBindings: import("../auth").SessionSnapshot[] = [];
 let savedNameBinding: import("../auth").SessionSnapshot | undefined;
+let accountDeleteHook: (() => Promise<void>) | null = null;
+const accountNavigationListeners = new Set<(event: { preventDefault: () => void }) => void>();
+const accountBackHandlers = new Set<() => boolean>();
+const accountNavigation = {
+  addListener: (_: string, listener: (event: { preventDefault: () => void }) => void) => {
+    accountNavigationListeners.add(listener);
+    return () => {
+      accountNavigationListeners.delete(listener);
+    };
+  },
+};
 const accountModule = load<{ default: () => unknown }>("../../app/account", {
   "react/jsx-runtime": jsxRuntime,
   react: accountHooks.react,
   "@expo/vector-icons": { Ionicons: "Icon" },
   "expo-router": {
+    Stack: { Screen: "StackScreen" },
+    useNavigation: () => accountNavigation,
     useRouter: () => ({
       back: () => accountRoutes.push("back"),
       push: (r: unknown) => accountRoutes.push(r),
@@ -2924,6 +2953,12 @@ const accountModule = load<{ default: () => unknown }>("../../app/account", {
     },
   },
   "react-native": {
+    BackHandler: {
+      addEventListener: (_: string, handler: () => boolean) => {
+        accountBackHandlers.add(handler);
+        return { remove: () => accountBackHandlers.delete(handler) };
+      },
+    },
     KeyboardAvoidingView: "KeyboardAvoidingView",
     Linking: { openURL: async () => {} },
     Platform: { OS: "android" },
@@ -2955,7 +2990,9 @@ const accountModule = load<{ default: () => unknown }>("../../app/account", {
     },
     accountNameState: async () => accountNameStateNow,
     currentSessionKind: async () => accountSession,
-    deleteAccount: async () => {},
+    deleteAccount: async () => {
+      if (accountDeleteHook) await accountDeleteHook();
+    },
     fetchAccountMe: async () => {
       if (accountReadHook) return accountReadHook();
       if (!accountMe) throw new auth.SignInFailedError("network", "offline");
@@ -3076,6 +3113,9 @@ async function openAccount(over: {
   accountGuardCompletionHook = null;
   accountSuccessBindings = [];
   savedNameBinding = undefined;
+  accountDeleteHook = null;
+  accountNavigationListeners.clear();
+  accountBackHandlers.clear();
   renderAccount();
   for (let i = 0; i < 6; i++) {
     await settle();
@@ -3101,6 +3141,64 @@ async function saveAccount(): Promise<Node[]> {
 }
 
 const nameErrorShown = (tree: Node[]) => texts(tree).includes("auth.error.name.invalid");
+
+test("account deletion: navigation/edit locks release into actionable sign-in for late edits", async () => {
+  await openAccount({ me: accountMeOf(["google"]), session: "provider" });
+  let finish!: () => void;
+  const wait = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  accountDeleteHook = async () => {
+    await wait;
+    throw new Error("account_delete_late_edits");
+  };
+  const confirmation = renderAccount().find(
+    (node) => node.type === "Dialog" && node.props.title === "account.deleteAccount.confirm.title",
+  )!;
+  const warning = console.warn;
+  console.warn = () => {};
+  try {
+    const deleting = confirmation.props.onConfirm();
+    let tree = renderAccount();
+    assert.equal(
+      tree.find((node) => node.type === "KeyboardAvoidingView")?.props.pointerEvents,
+      "none",
+    );
+    assert.equal(
+      tree.find((node) => node.type === "StackScreen")?.props.options.gestureEnabled,
+      false,
+    );
+    tree.find((node) => node.type === "ScreenHeader")?.props.onBack();
+    assert.deepEqual(accountRoutes, []);
+    let blocked = false;
+    accountNavigationListeners.forEach((listener) =>
+      listener({
+        preventDefault: () => {
+          blocked = true;
+        },
+      }),
+    );
+    assert.ok(blocked && [...accountBackHandlers].some((back) => back()));
+    finish();
+    await deleting;
+    tree = renderAccount();
+    assert.equal(
+      tree.find((node) => node.type === "KeyboardAvoidingView")?.props.pointerEvents,
+      "auto",
+    );
+    assert.ok(texts(tree).includes("account.deleteAccount.lateEdits"));
+    tree
+      .find((node) => node.type === "Button" && node.props.label === "menu.account.signIn.choose")!
+      .props.onPress();
+    assert.deepEqual(
+      accountRoutes,
+      ["/sign-in"],
+      "recovery is available even while the revoked JWT remains stored",
+    );
+  } finally {
+    console.warn = warning;
+  }
+});
 
 const accountMeOf = (providers: string[]) => ({
   email: "a@gmail.com",

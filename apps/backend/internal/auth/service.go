@@ -190,10 +190,11 @@ func upsertPendingVault(
 
 // GoogleSignInResult is the response shape for POST /v1/auth/google.
 type GoogleSignInResult struct {
-	SessionJWT     string  `json:"session_jwt"`
-	AccountID      string  `json:"account_id"`
-	DefaultVaultID *string `json:"default_vault_id"`
-	User           User    `json:"user"`
+	SessionJWT        string  `json:"session_jwt"`
+	AccountID         string  `json:"account_id"`
+	DefaultVaultID    *string `json:"default_vault_id"`
+	DeletionCancelled bool    `json:"deletion_cancelled,omitempty"`
+	User              User    `json:"user"`
 }
 
 // SignInWithGoogle is the full Phase 2 sign-in pipeline:
@@ -379,10 +380,14 @@ func (s *Service) UpdateAccountPhone(ctx context.Context, accountID, phone strin
 	} else {
 		val = phone
 	}
-	if _, err := s.pool.Exec(ctx, `
-		UPDATE accounts SET phone_e164 = $2 WHERE id = $1::uuid
-	`, accountID, val); err != nil {
+	result, err := s.pool.Exec(ctx, `
+		UPDATE accounts SET phone_e164 = $2 WHERE id = $1::uuid AND pending_delete_at IS NULL
+	`, accountID, val)
+	if err != nil {
 		return fmt.Errorf("update account phone: %w", err)
+	}
+	if result.RowsAffected() != 1 {
+		return ErrSessionRevoked
 	}
 	return nil
 }
@@ -408,7 +413,8 @@ func (s *Service) SignOut(ctx context.Context, installID, provider string) error
 // (install_id, provider) row is DELETEd and re-inserted for the NEW account, so
 // a leaked or residual JWT carrying the OLD account_id must not keep authorizing
 // (and self-refreshing) against the new binding. A NULL stored account_id
-// (legacy row) is treated as matching, for back-compat.
+// (legacy row) uses the install's explicit owner. Missing both ownership
+// fields fails closed; a JWT cannot supply otherwise unknown attribution.
 //
 // It is bound to the JWT's epoch too: every sign-in on the install, a password
 // reset and a password change give the credential a fresh epoch, so an older
@@ -417,24 +423,26 @@ func (s *Service) CheckCredentialRevoked(ctx context.Context, installID, provide
 	var revokedAt *time.Time
 	var storedAccountID *string
 	var storedEpoch int64
+	var pendingDeletion bool
 	err := s.pool.QueryRow(ctx, `
-		SELECT revoked_at, account_id::text, session_epoch
-		FROM auth_credentials
-		WHERE install_id = $1 AND provider = $2
-	`, installID, provider).Scan(&revokedAt, &storedAccountID, &storedEpoch)
+		SELECT c.revoked_at, COALESCE(c.account_id,i.account_id)::text, c.session_epoch, a.pending_delete_at IS NOT NULL
+		FROM auth_credentials c LEFT JOIN installs i ON i.install_id=c.install_id
+		LEFT JOIN accounts a ON a.id=COALESCE(c.account_id,i.account_id)
+		WHERE c.install_id = $1 AND c.provider = $2
+	`, installID, provider).Scan(&revokedAt, &storedAccountID, &storedEpoch, &pendingDeletion)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return true, nil
 	case err != nil:
 		return false, fmt.Errorf("lookup auth credential: %w", err)
 	}
-	if storedAccountID != nil && accountID != "" && *storedAccountID != accountID {
+	if storedAccountID == nil || (accountID != "" && *storedAccountID != accountID) {
 		return true, nil
 	}
 	if storedEpoch != epoch {
 		return true, nil
 	}
-	return revokedAt != nil, nil
+	return revokedAt != nil || pendingDeletion, nil
 }
 
 // IssueRefreshJWT mints a new session JWT for an existing valid claim. The

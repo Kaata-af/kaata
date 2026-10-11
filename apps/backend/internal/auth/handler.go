@@ -218,6 +218,10 @@ func (h *Handler) UpdatePhone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.svc.UpdateAccountPhone(r.Context(), claims.AccountID, req.Phone); err != nil {
+		if errors.Is(err, ErrSessionRevoked) {
+			httpx.Error(w, http.StatusUnauthorized, "session has ended; sign in again")
+			return
+		}
 		log.Printf("account/phone update failed for account %s: %v", claims.AccountID, err)
 		httpx.Error(w, http.StatusInternalServerError, "update phone failed")
 		return
@@ -262,7 +266,12 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	if err := h.svc.DeleteAccount(r.Context(), claims.AccountID); err != nil {
+	state, err := h.svc.RequestAccountDeletion(r.Context(), claims)
+	if err != nil {
+		if errors.Is(err, ErrDeletionSessionEnded) {
+			httpx.Error(w, http.StatusUnauthorized, "session has ended; sign in again")
+			return
+		}
 		log.Printf("account delete failed for account %s: %v", claims.AccountID, err)
 		httpx.Error(w, http.StatusInternalServerError, "account deletion failed")
 		return
@@ -272,7 +281,20 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 	if h.authenticator != nil {
 		h.authenticator.InvalidateAccount(claims.AccountID)
 	}
-	httpx.JSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	writeDeletionState(w, r, state)
+}
+
+func writeDeletionState(w http.ResponseWriter, r *http.Request, state AccountDeletionState) {
+	// Older apps only recognize "deleted"; retain their acknowledgement shape
+	// while keeping the same server recovery window for every account.
+	if state.Status == "deletion_scheduled" && r.Header.Get("X-Kaata-Deletion-Grace") != "30" {
+		state.Status = "deleted"
+	}
+	httpx.JSON(w, http.StatusOK, state)
+}
+
+func (h *Handler) AccountDeletionPolicy(w http.ResponseWriter, r *http.Request) {
+	httpx.JSON(w, http.StatusOK, map[string]int{"grace_days": 30})
 }
 
 // isServerSideFailure reports whether a sign-in error is OUR problem rather
@@ -313,6 +335,8 @@ func writeSignInRefusal(w http.ResponseWriter, err error) bool {
 			"this sign-in belongs to a different account than this phone's", map[string]any{"email": diff.Email})
 	case errors.Is(err, ErrAccountDisabled):
 		httpx.ErrorCode(w, http.StatusForbidden, "account_disabled", "this account is disabled")
+	case errors.Is(err, ErrAccountDeletionExpired):
+		httpx.ErrorCode(w, http.StatusForbidden, "account_deletion_expired", "the 30-day recovery window has ended; deletion will finish shortly")
 	default:
 		return false
 	}

@@ -7,7 +7,7 @@ import { useLedgerRefresh } from "./ledger-events";
 export function useCustomerGroups(vaultId: string | null) {
   const [state, setState] = useState<
     CustomerGroupsState & { vault: string | null; account: string | null }
-  >({ groups: [], groupByPerson: {}, vault: null, account: null });
+  >({ groups: [], groupByPerson: {}, groupsByPerson: {}, vault: null, account: null });
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const generation = useRef(0),
@@ -23,7 +23,7 @@ export function useCustomerGroups(vaultId: string | null) {
   const refresh = useCallback(async () => {
     const request = ++generation.current;
     if (!vaultId) {
-      setState({ groups: [], groupByPerson: {}, vault: null, account });
+      setState({ groups: [], groupByPerson: {}, groupsByPerson: {}, vault: null, account });
       setLoaded(true);
       return;
     }
@@ -44,7 +44,7 @@ export function useCustomerGroups(vaultId: string | null) {
   useEffect(() => {
     setLoaded(false);
     setFailed(false);
-    setState({ groups: [], groupByPerson: {}, vault: vaultId, account });
+    setState({ groups: [], groupByPerson: {}, groupsByPerson: {}, vault: vaultId, account });
     void refresh();
   }, [refresh]);
   useFocusEffect(
@@ -62,6 +62,7 @@ export function useCustomerGroups(vaultId: string | null) {
   return {
     groups: current ? state.groups : [],
     groupByPerson: current ? state.groupByPerson : {},
+    groupsByPerson: current ? state.groupsByPerson : {},
     loaded: current && loaded,
     failed: current && failed,
     refresh,

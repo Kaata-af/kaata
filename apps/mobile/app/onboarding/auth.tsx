@@ -91,6 +91,9 @@ function describeSignInFailure(err: unknown): {
   /** A known state, not a fault: nothing to report. */
   known: boolean;
 } {
+  if (err instanceof Error && "reason" in err && err.reason === "account_deletion_expired") {
+    return { text: t("auth.error.accountDeletionExpired"), retired: false, known: true };
+  }
   if (err instanceof SignInFailedError) {
     // InstallRetiredError is a SignInFailedError ("server 410"), so it is told
     // apart inside this branch, before the generic server copy.
@@ -313,6 +316,11 @@ export function AuthScreen({
     // /v1/auth/google) — stash it so the profile screen can prefill it like
     // the name. Google itself never provides a phone; this is the only source.
     if (user.phone) await setAppMeta("onboarding_pending_phone", user.phone);
+    const accountId = await getAppMeta("account_id");
+    if (accountId && (await getAppMeta("account_deletion_cancelled")) === accountId) {
+      replaceAuthRoute("/onboarding/restore");
+      return;
+    }
     if (redirected) {
       // A redirect is authentication, not onboarding. Recover existing books
       // before deciding this is a new user; a failed lookup is NOT "no books".

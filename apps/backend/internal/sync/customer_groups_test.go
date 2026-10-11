@@ -2,6 +2,7 @@ package sync
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
 
@@ -13,6 +14,61 @@ func groupTestEvent(kind, target string, payload any, pms int64, vault, relation
 		e.RelationshipID = &relationship
 	}
 	return e
+}
+
+func TestMultipleCustomerGroupsCompatibility(t *testing.T) {
+	events := []LedgerEvent{
+		groupTestEvent(EventPersonAdded, "u", map[string]any{"user_id": "u", "name": "Amir", "relationship_context": "peer"}, 1, "v", "r"),
+		groupTestEvent(EventGroupCreated, "g", map[string]any{"name": "Family"}, 10, "v", ""),
+		groupTestEvent(EventGroupCreated, "h", map[string]any{"name": "Neighborhood"}, 11, "v", ""),
+		groupTestEvent(EventPersonGroupSet, "r", map[string]any{"group_id": "g", "group_ids": []string{"h", "g", "h"}}, 20, "v", "r"),
+	}
+	p, err := ApplyEvents(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := p.Relationships["r"]
+	if !reflect.DeepEqual(r.GroupIDs, []string{"g", "h"}) || r.GroupID == nil || *r.GroupID != "g" {
+		t.Fatalf("canonical complete set and legacy mirror: %+v", r)
+	}
+	raw, _ := ProjectionToJSON(p)
+	var restored Projection
+	if err := json.Unmarshal(raw, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if got := projectRelationships(restored.Relationships)[0].GroupIDs; !reflect.DeepEqual(got, []string{"g", "h"}) {
+		t.Fatalf("snapshot lost multiple memberships: %v", got)
+	}
+	stale := groupTestEvent(EventPersonGroupSet, "r", map[string]any{"group_id": nil}, 19, "v", "r")
+	if err := applyPersonGroupSet(&restored, &stale); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(restored.Relationships["r"].GroupIDs, []string{"g", "h"}) {
+		t.Fatal("stale legacy removal replaced new set")
+	}
+	legacy := groupTestEvent(EventPersonGroupSet, "r", map[string]any{"group_id": "h"}, 21, "v", "r")
+	if err := applyPersonGroupSet(&restored, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(restored.Relationships["r"].GroupIDs, []string{"h"}) {
+		t.Fatal("legacy assignment must replace complete register")
+	}
+	for _, payload := range []map[string]any{
+		{"group_id": "h", "group_ids": []string{"g", "h"}},
+		{"group_id": "g", "group_ids": nil},
+		{"group_id": "g", "group_ids": []string{"g", "missing"}},
+		{"group_id": "g", "group_ids": make([]string, 101)},
+	} {
+		e := groupTestEvent(EventPersonGroupSet, "r", payload, 30, "v", "r")
+		if err := applyPersonGroupSet(&restored, &e); err == nil {
+			t.Fatalf("invalid set accepted: %+v", payload)
+		}
+	}
+	// An old stored snapshot has only the single ID. Expansion preserves it.
+	restored.Relationships["r"].GroupIDs = nil
+	if got := projectRelationships(restored.Relationships)[0].GroupIDs; !reflect.DeepEqual(got, []string{"h"}) {
+		t.Fatal("legacy snapshot lost its assignment")
+	}
 }
 func TestCustomerGroupsProjectionAndSnapshot(t *testing.T) {
 	events := []LedgerEvent{

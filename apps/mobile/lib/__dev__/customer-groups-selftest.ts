@@ -6,7 +6,13 @@ import { resolve, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import ts from "typescript";
-import { selectCustomers, parseCustomerListPreference } from "../customer-list";
+import {
+  selectCustomers,
+  parseCustomerListPreference,
+  toggleCustomerGroupFilter,
+  availableCustomerGroupFilter,
+} from "../customer-list";
+import { groupIdsFromPayload, canonicalGroupIds } from "../group-memberships";
 import { canPerformAction } from "../vault-roles";
 import type { PersonWithBalance } from "../types";
 import type { LedgerEvent, VaultRole } from "../events";
@@ -166,6 +172,10 @@ const runMigration = compile(
   `const MIGRATION_035="035_customer_groups";export ${migrationSource}`,
   () => ({}),
 ).runMigration035;
+const runMembershipMigration = compile(
+  `const MIGRATION_037="037_customer_group_memberships";export ${declaration("../db.ts", "runMigration037")}`,
+  () => ({}),
+).runMigration037;
 function setRole(role: VaultRole) {
   fixture.prepare("DELETE FROM event_log").run();
   fixture
@@ -200,7 +210,9 @@ const group = (id: string) =>
     .prepare("SELECT name,archived_at,field_hlcs FROM customer_groups WHERE vault_id='v1' AND id=?")
     .get(id) as any;
 const assigned = (id = "r1") =>
-  fixture.prepare("SELECT group_id,field_hlcs FROM relationships WHERE id=?").get(id) as any;
+  fixture
+    .prepare("SELECT group_id,group_ids,field_hlcs FROM relationships WHERE id=?")
+    .get(id) as any;
 
 async function main() {
   await runMigration(sqlite);
@@ -212,9 +224,22 @@ async function main() {
     ).n,
     1,
   );
-  assert.equal(assigned().group_id, null, "upgrade preserves existing contacts without a group");
+  assert.equal(
+    (fixture.prepare("SELECT group_id FROM relationships WHERE id='r1'").get() as any).group_id,
+    null,
+    "upgrade preserves existing contacts without a group",
+  );
   fixture.prepare("DELETE FROM schema_migrations").run();
   await runMigration(sqlite);
+  fixture.prepare("UPDATE relationships SET group_id='legacy' WHERE id='r1'").run();
+  await runMembershipMigration(sqlite);
+  assert.equal(assigned().group_ids, '["legacy"]', "single group migration preserves assignment");
+  assert.equal(assigned("r2").group_ids, "[]", "ungrouped remains empty");
+  fixture.prepare("UPDATE relationships SET group_id=NULL,group_ids='[]' WHERE id='r1'").run();
+  fixture
+    .prepare("DELETE FROM schema_migrations WHERE name='037_customer_group_memberships'")
+    .run();
+  await runMembershipMigration(sqlite);
   console.log(
     "PASS actual migration upgrades existing relationships and tolerates pre-existing new column",
   );
@@ -322,6 +347,20 @@ async function main() {
   await commands.assignCustomerGroup("v1", "p1", newId);
   state = await commands.readCustomerGroups("v1");
   assert.equal(state.groupByPerson.p1, newId);
+  await commands.assignCustomerGroups("v1", "p1", [newId, "later", newId]);
+  state = await commands.readCustomerGroups("v1");
+  assert.deepEqual(state.groupsByPerson.p1, [newId, "later"].sort());
+  assert.equal(state.groups.find((g: any) => g.id === "later").member_count, 1);
+  assert.equal(state.groups.find((g: any) => g.id === newId).member_count, 1);
+  const beforeNoop = appendCount;
+  await commands.assignCustomerGroups("v1", "p1", ["later", newId]);
+  assert.equal(appendCount, beforeNoop, "reordered same set does not append");
+  await commands.assignCustomerGroup("v1", "p1", newId);
+  assert.deepEqual(
+    (await commands.readCustomerGroups("v1")).groupsByPerson.p1,
+    [newId],
+    "legacy set replaces the whole register",
+  );
   await assert.rejects(commands.saveCustomerGroup("v1", null, "customers"), /duplicate_group_name/);
   await assert.rejects(
     commands.saveCustomerGroup("v1", null, "A".repeat(41)),
@@ -402,12 +441,12 @@ async function main() {
     { id: "d", name: "Dawood", balance: -200, last_entry_at: 15 },
     { id: "e", name: "Ehsan", balance: -10, last_entry_at: 10 },
   ] as PersonWithBalance[];
-  const ids = (sort: any, direction: any = "collect", filter = "all") =>
+  const ids = (sort: any, direction: any = "collect", filter: string | string[] = "all") =>
     selectCustomers(
       people,
       direction,
       { sort, group: filter },
-      { a: "g", b: null, c: "g" },
+      { a: ["g", "h"], b: [], c: ["g"] },
       "en",
     ).map((p) => p.id);
   assert.deepEqual(ids("recent"), ["b", "a", "c"]);
@@ -421,6 +460,29 @@ async function main() {
   assert.deepEqual(ids("amount_asc", "pay"), ["e", "d"]);
   assert.deepEqual(ids("recent", "collect", "g"), ["a", "c"]);
   assert.deepEqual(ids("recent", "collect", "ungrouped"), ["b"]);
+  assert.deepEqual(
+    ids("recent", "collect", ["g", "h"]),
+    ["a", "c"],
+    "multiple groups are OR without duplicate customers",
+  );
+  assert.deepEqual(ids("recent", "collect", ["h"]), ["a"]);
+  assert.deepEqual(toggleCustomerGroupFilter("all", "g"), ["g"]);
+  assert.deepEqual(toggleCustomerGroupFilter(["g"], "h"), ["g", "h"]);
+  assert.equal(toggleCustomerGroupFilter(["g"], "g"), "all");
+  assert.deepEqual(availableCustomerGroupFilter(["g", "missing"], [{ id: "g" }]), ["g"]);
+  assert.equal(availableCustomerGroupFilter(["missing"], [{ id: "g" }]), "all");
+  assert.deepEqual(
+    parseCustomerListPreference('{"sort":"recent","group":"g"}'),
+    { sort: "recent", group: "g" },
+    "legacy filter preference accepted",
+  );
+  assert.deepEqual(parseCustomerListPreference('{"sort":"recent","group":["h","g","h",7]}'), {
+    sort: "recent",
+    group: ["g", "h"],
+  });
+  assert.deepEqual(groupIdsFromPayload({ group_id: "g", group_ids: ["h", "g", "h"] }), ["g", "h"]);
+  assert.throws(() => groupIdsFromPayload({ group_id: "h", group_ids: ["g", "h"] }), /mirror/);
+  assert.throws(() => canonicalGroupIds(Array(101).fill("g")), /invalid/);
   assert.deepEqual(
     people.map((p) => p.id),
     ["a", "b", "c", "d", "e"],
@@ -475,6 +537,17 @@ async function main() {
     corpus.expected_projection.relationships.r.group_field_hlcs,
   );
   const restore = load("../customer-group-restore");
+  assert.equal(
+    restore.restoredRelationshipGroupIds({ group_id: "g" }),
+    '["g"]',
+    "legacy snapshot membership",
+  );
+  assert.equal(
+    restore.restoredRelationshipGroupIds({ group_id: "g", group_ids: ["g", "h"] }),
+    '["g","h"]',
+    "new snapshot memberships",
+  );
+  assert.equal(restore.restoredRelationshipGroupIds({}), "[]", "old ungrouped snapshot");
   fixture.prepare("DELETE FROM customer_groups WHERE vault_id='v'").run();
   await restore.seedSnapshotCustomerGroups(sqlite, "v", [
     corpus.expected_projection.customer_groups.g,
@@ -483,7 +556,9 @@ async function main() {
     JSON.stringify({ archived_at: { pms: 1, l: 0, did: "" } }),
     corpus.expected_projection.relationships.r.group_field_hlcs,
   );
-  fixture.prepare("UPDATE relationships SET group_id='g',field_hlcs=? WHERE id='r'").run(seed);
+  fixture
+    .prepare("UPDATE relationships SET group_id='g',group_ids='[\"g\"]',field_hlcs=? WHERE id='r'")
+    .run(seed);
   await appliers.applyPersonGroupSet(
     sqlite,
     event("person_group_set", "r", { group_id: null }, 39, "v", "r"),

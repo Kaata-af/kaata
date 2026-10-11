@@ -135,6 +135,10 @@ func (s *Service) completeSignIn(ctx context.Context, tx pgx.Tx, t signInTail) (
 	if disabled {
 		return GoogleSignInResult{}, tailAccount{}, ErrAccountDisabled
 	}
+	cancelledDeletion, err := cancelPendingAccountDeletion(ctx, tx, t.accountID)
+	if err != nil {
+		return GoogleSignInResult{}, tailAccount{}, err
+	}
 	if err := ensureSignInInstall(ctx, tx, t.installID, t.accountID); err != nil {
 		return GoogleSignInResult{}, tailAccount{}, err
 	}
@@ -191,9 +195,10 @@ func (s *Service) completeSignIn(ctx context.Context, tx pgx.Tx, t signInTail) (
 		return GoogleSignInResult{}, tailAccount{}, fmt.Errorf("sign session jwt: %w", err)
 	}
 	return GoogleSignInResult{
-		SessionJWT:     sessionJWT,
-		AccountID:      t.accountID,
-		DefaultVaultID: defaultVaultID,
+		SessionJWT:        sessionJWT,
+		AccountID:         t.accountID,
+		DefaultVaultID:    defaultVaultID,
+		DeletionCancelled: cancelledDeletion,
 		User: User{
 			Phone:       acct.phone,
 			Username:    acct.username,

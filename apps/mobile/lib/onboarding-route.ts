@@ -18,7 +18,10 @@ export function pickInitialRoute(args: {
   deviceIsPersian: boolean;
   accountId: string | null;
   restoreSkipped: boolean;
+  cancelledDeletionAccountId?: string | null;
 }): string {
+  if (args.accountId && args.cancelledDeletionAccountId === args.accountId)
+    return "onboarding/restore";
   if (args.hasOnboarded) return "index";
   // The restore gate remains between authentication and profile. A calendar
   // choice is a device preference, so returning to it never clears identity

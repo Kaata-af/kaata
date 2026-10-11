@@ -1,6 +1,7 @@
+import { SheetBackdrop } from "./SheetBackdrop";
+import { useOverlayAnimation } from "../lib/use-overlay-animation";
 import { Ionicons } from "@expo/vector-icons";
-import { BlurView } from "expo-blur";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Animated,
   Dimensions,
@@ -14,7 +15,6 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
-import { SHEET_BLUR_METHOD } from "../lib/blur";
 import { ltrIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { t } from "../lib/i18n";
@@ -34,36 +34,12 @@ export function CountryPickerSheet(props: {
   onSelect: (countryCode: string) => void;
   onDismiss: () => void;
 }) {
-  const [rendered, setRendered] = useState(false);
   const [query, setQuery] = useState("");
+  const { rendered, opacity, position: translateY } = useOverlayAnimation(props.visible, OFFSCREEN);
   const isRTL = useIsRTL();
-  const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(OFFSCREEN)).current;
 
   useEffect(() => {
-    if (props.visible) {
-      setRendered(true);
-      setQuery("");
-      requestAnimationFrame(() => {
-        Animated.parallel([
-          Animated.timing(opacity, { toValue: 1, duration: 220, useNativeDriver: true }),
-          Animated.spring(translateY, {
-            toValue: 0,
-            useNativeDriver: true,
-            friction: 11,
-            tension: 75,
-          }),
-        ]).start();
-      });
-    } else if (rendered) {
-      Animated.parallel([
-        Animated.timing(opacity, { toValue: 0, duration: 160, useNativeDriver: true }),
-        Animated.timing(translateY, { toValue: OFFSCREEN, duration: 180, useNativeDriver: true }),
-      ]).start(({ finished }) => {
-        if (finished) setRendered(false);
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (props.visible) setQuery("");
   }, [props.visible]);
 
   if (!rendered) return null;
@@ -87,14 +63,7 @@ export function CountryPickerSheet(props: {
       onRequestClose={props.onDismiss}
     >
       <Animated.View style={[StyleSheet.absoluteFill, { opacity }]}>
-        <BlurView
-          intensity={20}
-          tint="light"
-          blurMethod={SHEET_BLUR_METHOD}
-          style={StyleSheet.absoluteFill}
-        />
-        <View style={styles.tint} />
-        <Pressable style={StyleSheet.absoluteFill} onPress={props.onDismiss} />
+        <SheetBackdrop onDismiss={props.onDismiss} />
       </Animated.View>
 
       <Animated.View
@@ -194,7 +163,6 @@ export function CountryPickerSheet(props: {
 }
 
 const styles = StyleSheet.create({
-  tint: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.08)" },
   sheetContainer: {
     position: "absolute",
     left: 0,

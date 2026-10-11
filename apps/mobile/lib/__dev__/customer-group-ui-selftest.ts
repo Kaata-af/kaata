@@ -2,7 +2,12 @@
 // are controlled so stopped callbacks can still be delivered adversarially.
 import assert from "node:assert/strict";
 import { compileUI, deferred, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
-import { DEFAULT_CUSTOMER_LIST, CUSTOMER_SORTS } from "../customer-list";
+import {
+  DEFAULT_CUSTOMER_LIST,
+  CUSTOMER_SORTS,
+  selectedCustomerGroupIds,
+  toggleCustomerGroupFilter,
+} from "../customer-list";
 
 export async function customerGroupUIChecks() {
   const hooks = uiHooks(),
@@ -78,7 +83,12 @@ export async function customerGroupUIChecks() {
       "../lib/fonts": { fonts: {} },
       "../lib/direction": { rowDir: () => ({}), textDir: () => ({}) },
       "../lib/i18n": { t: (key: string) => key },
-      "../lib/customer-list": { CUSTOMER_SORTS },
+      "../lib/customer-list": {
+        CUSTOMER_SORTS,
+        selectedCustomerGroupIds,
+        toggleCustomerGroupFilter,
+      },
+      "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
       "../lib/tokens": { icon: { row: 22 }, radius: { sheet: 18, grabber: 2 } },
     },
     {
@@ -181,6 +191,7 @@ export async function customerGroupUIChecks() {
       : {
           groups: [{ id: id + "-group", name: id, member_count: 1 }],
           groupByPerson: { p: id + "-group" },
+          groupsByPerson: { p: [id + "-group"] },
         };
   };
   const { useCustomerGroups } = compileUI("../use-customer-groups.ts", {
@@ -221,6 +232,7 @@ export async function customerGroupUIChecks() {
   late.resolve({
     groups: [{ id: "stale", name: "stale", member_count: 1 }],
     groupByPerson: { p: "stale" },
+    groupsByPerson: { p: ["stale"] },
   });
   await settleUI();
   dataRender();
@@ -233,11 +245,122 @@ export async function customerGroupUIChecks() {
   pause = lateUnmount.promise;
   for (const fn of [...ledgerListeners]) fn();
   dataHooks.unmount();
-  lateUnmount.resolve({ groups: [], groupByPerson: {} });
+  lateUnmount.resolve({ groups: [], groupByPerson: {}, groupsByPerson: {} });
   await settleUI();
   assert.equal(dataHooks.lateWrites, 0);
   assert.equal(ledgerListeners.size, 0);
   console.log(
     "PASS real group hook scope-bound reads, live ledger refresh, late results and unmount cleanup",
+  );
+
+  const personHooks = uiHooks();
+  let currentAccount = "a",
+    currentVault = "v",
+    personId = "p",
+    backCount = 0;
+  let editable = true;
+  let personState = {
+    groups: [
+      { id: "g", name: "Family", member_count: 1 },
+      { id: "h", name: "Neighbors", member_count: 0 },
+    ],
+    groupByPerson: { p: "g", q: "h" },
+    groupsByPerson: { p: ["g"], q: ["h"] },
+    loaded: true,
+    failed: false,
+  };
+  const written: string[][] = [];
+  const pendingSave = deferred<void>();
+  const { default: PersonGroupScreen } = compileUI("../../app/person/[id]/group.tsx", {
+    react: personHooks.react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "expo-router": {
+      useRouter: () => ({ back: () => backCount++, push() {} }),
+      useLocalSearchParams: () => ({ id: personId, vaultId: "v" }),
+    },
+    "@expo/vector-icons": { Ionicons: "Icon" },
+    "react-native": {
+      ActivityIndicator: "Spinner",
+      Pressable: "Pressable",
+      ScrollView: "ScrollView",
+      Text: "Text",
+      View: "View",
+      StyleSheet: { create: (s: any) => s },
+    },
+    "react-native-safe-area-context": { SafeAreaView: "SafeArea" },
+    "../../../components/SettingsScreen": { ScreenHeader: "Header" },
+    "../../../lib/customer-groups": {
+      assignCustomerGroups: async (_vault: string, _id: string, ids: string[]) => {
+        written.push([...ids]);
+        await pendingSave.promise;
+      },
+    },
+    "../../../lib/db-tx": {
+      getAccountIdSync: () => currentAccount,
+      getActiveVaultIdSyncMaybe: () => currentVault,
+    },
+    "../../../lib/colors": { colors: {} },
+    "../../../lib/direction": { rowDir: () => ({}), textDir: () => ({}), useIsRTL: () => false },
+    "../../../lib/event-log": { RoleGateRejectionError: class extends Error {} },
+    "../../../lib/fonts": { fonts: {} },
+    "../../../lib/i18n": { t: (key: string) => key },
+    "../../../lib/use-customer-groups": { useCustomerGroups: () => personState },
+    "../../../lib/use-vault-role": {
+      useActiveVaultWriteCaps: () => ({ resolved: true, canAmend: editable }),
+    },
+    "../../../lib/tokens": { icon: { row: 22 } },
+  });
+  const personRender = () => personHooks.render(() => PersonGroupScreen());
+  const personRow = (label: string) =>
+    nodes(personHooks.tree).find((n) => n.props.accessibilityLabel === label)!;
+  personRender();
+  assert.equal(personRow("Family").props.accessibilityState.selected, true);
+  personRow("Neighbors").props.onPress();
+  personRender();
+  assert.equal(personRow("Family").props.accessibilityState.selected, true);
+  assert.equal(personRow("Neighbors").props.accessibilityState.selected, true);
+  assert.equal(written.length, 0, "multi-selection edits stay local until Done");
+  personState = { ...personState, groupsByPerson: { p: [], q: ["h"] } };
+  personRender();
+  assert.equal(
+    personRow("Family").props.accessibilityState.selected,
+    true,
+    "live refresh keeps explicit draft",
+  );
+  personId = "q";
+  personRender();
+  assert.equal(
+    personRow("Family").props.accessibilityState.selected,
+    false,
+    "route change never carries another person's draft",
+  );
+  assert.equal(personRow("Neighbors").props.accessibilityState.selected, true);
+  personRow("common.done").props.onPress();
+  personRow("common.done").props.onPress();
+  await settleUI();
+  assert.deepEqual(written, [["h"]], "Done serializes one complete set");
+  pendingSave.resolve();
+  await settleUI();
+  personRender();
+  assert.equal(backCount, 1);
+  editable = false;
+  personRender();
+  assert.equal(personRow("Neighbors").props.disabled, true, "viewer cannot change classification");
+  assert.equal(
+    nodes(personHooks.tree).some((n) => n.props.accessibilityLabel === "common.done"),
+    false,
+  );
+  currentAccount = "b";
+  currentVault = "other";
+  editable = true;
+  personRender();
+  assert.equal(
+    nodes(personHooks.tree).some((n) => n.props.accessibilityLabel === "common.done"),
+    false,
+    "scope change hides write action",
+  );
+  personHooks.unmount();
+  console.log(
+    "PASS real customer group multi-selection, explicit Done, route refresh, viewer and scope guards",
   );
 }

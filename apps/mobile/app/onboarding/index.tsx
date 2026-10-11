@@ -19,10 +19,11 @@ export default function OnboardingIndex() {
     const deviceLang = (getLocales()[0]?.languageCode ?? "en").toLowerCase();
     const deviceIsPersian = deviceLang === "fa" || deviceLang === "prs";
     void (async () => {
-      const [self, rawStep, accountId] = await Promise.all([
+      const [self, rawStep, accountId, cancelledDeletionAccountId] = await Promise.all([
         getLocalSelf(),
         getAppMeta("onboarding_step"),
         getAppMeta("account_id"),
+        getAppMeta("account_deletion_cancelled"),
       ]);
       const skipped = accountId
         ? await getAppMeta(`restore_skipped_for_account_${accountId}`)
@@ -37,6 +38,7 @@ export default function OnboardingIndex() {
               accountId,
               restoreSkipped: skipped === "1",
               deviceIsPersian,
+              cancelledDeletionAccountId,
             })
           ).replace("/index", "/") as Href,
         );

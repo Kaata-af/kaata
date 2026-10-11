@@ -1,17 +1,4 @@
-// Sheet/dialog backdrop blur policy, in ONE place.
-//
-// "dimezisBlurView" is the real Android Gaussian blur (the frosted-glass
-// backdrop behind every sheet/dialog). It was briefly switched to "none" for
-// animation perf, but "none" makes expo-blur paint a flat pale near-white wash
-// instead of a blur, which read as a washed-out overlay over sheets and the
-// onboarding country picker. Restored to the real blur (the look we want); if a
-// specific low-end device janks through the 220ms entrance, revisit per-device
-// rather than globally disabling.
-//
-// iOS ignores the prop entirely (it has native blur), so this only affects
-// Android.
-//
-// Passed as BlurView's `blurMethod`. It was `experimentalBlurMethod` until Expo
-// SDK 55 renamed it; the old name still type-checks but is deprecated and will
-// be removed.
-export const SHEET_BLUR_METHOD: "none" | "dimezisBlurView" = "dimezisBlurView";
+// Expo 57 requires both a BlurTargetView ref and an Android blur method.
+// Android 12+ uses RenderNode; older phones get our dim scrim instead of an
+// expensive RenderScript animation. iOS uses its own native blur.
+export const SHEET_BLUR_METHOD = "dimezisBlurViewSdk31Plus" as const;

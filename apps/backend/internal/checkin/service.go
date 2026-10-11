@@ -234,7 +234,7 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 	defer func() { _ = tx.Rollback(ctx) }()
 	if actorAccountID != "" {
 		var accountID string
-		err := tx.QueryRow(ctx, `SELECT id::text FROM accounts WHERE id = $1::uuid FOR KEY SHARE`, actorAccountID).Scan(&accountID)
+		err := tx.QueryRow(ctx, `SELECT id::text FROM accounts WHERE id = $1::uuid AND pending_delete_at IS NULL FOR KEY SHARE`, actorAccountID).Scan(&accountID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Response{}, ErrInstallDeleted
 		}

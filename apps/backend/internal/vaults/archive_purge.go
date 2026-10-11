@@ -27,8 +27,10 @@ import (
 //         → vaults.archived_at = NULL, vault_epoch++
 //         → no data loss; sync resumes.
 //
-//   t = 30d
-//         This cron's tick catches the vault.
+//   t = 30d (or the account recovery hold's later deadline)
+//         This cron's tick catches the vault once its owner is active and any
+//         archive_purge_not_before hold has expired. Account recovery retains
+//         saved owned archives until the original deletion request's deadline.
 //         → DELETE FROM events WHERE vault_id = $1
 //         → DELETE FROM vault_snapshots WHERE vault_id = $1
 //         → UPDATE vault_members SET revoked_at = NOW(),
@@ -144,12 +146,14 @@ func findPurgeCandidates(ctx context.Context, pool *pgxpool.Pool) ([]string, err
 		}
 	}
 	rows, err := pool.Query(ctx, `
-		SELECT vault_id::text
-		  FROM vaults
-		 WHERE archived_at IS NOT NULL
-		   AND purged_at   IS NULL
-		   AND archived_at < NOW() - INTERVAL '30 days'
-		 ORDER BY archived_at ASC
+		SELECT v.vault_id::text
+		  FROM vaults v JOIN accounts a ON a.id=v.owner_account_id
+		 WHERE v.archived_at IS NOT NULL
+		   AND v.purged_at IS NULL
+		   AND v.archived_at < NOW() - INTERVAL '30 days'
+		   AND a.pending_delete_at IS NULL
+		   AND (v.archive_purge_not_before IS NULL OR v.archive_purge_not_before<=NOW())
+		 ORDER BY v.archived_at ASC
 		 LIMIT $1
 	`, limit)
 	if err != nil {
@@ -187,6 +191,27 @@ func purgeOneVault(ctx context.Context, pool *pgxpool.Pool, vaultID string) (pur
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// Discover the owner without locking the vault, then take its account lock
+	// first, matching deletion, recovery and normal vault writes. The vault
+	// query below rechecks ownership, so a changed owner is retried next tick.
+	var ownerID string
+	err = tx.QueryRow(ctx, `SELECT owner_account_id::text FROM vaults WHERE vault_id=$1::uuid`, vaultID).Scan(&ownerID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return purgeResult{skipped: true}, nil
+	}
+	if err != nil {
+		return purgeResult{}, fmt.Errorf("lookup archived vault owner: %w", err)
+	}
+	var activeOwnerID string
+	err = tx.QueryRow(ctx, `SELECT id::text FROM accounts
+	 WHERE id=$1::uuid AND pending_delete_at IS NULL FOR KEY SHARE SKIP LOCKED`, ownerID).Scan(&activeOwnerID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return purgeResult{skipped: true}, nil
+	}
+	if err != nil {
+		return purgeResult{}, fmt.Errorf("lock archived vault owner: %w", err)
+	}
+
 	// Lock the vault row with SKIP LOCKED. If another replica holds the
 	// lock, we skip this vault on this tick and try again on the next.
 	// Re-check the predicates under lock: an unarchive between scan and
@@ -197,11 +222,13 @@ func purgeOneVault(ctx context.Context, pool *pgxpool.Pool, vaultID string) (pur
 		SELECT archived_at, purged_at
 		  FROM vaults
 		 WHERE vault_id = $1::uuid
+		   AND owner_account_id=$2::uuid
 		   AND archived_at IS NOT NULL
 		   AND purged_at   IS NULL
 		   AND archived_at < NOW() - INTERVAL '30 days'
+		   AND (archive_purge_not_before IS NULL OR archive_purge_not_before<=NOW())
 		 FOR UPDATE SKIP LOCKED
-	`, vaultID).Scan(&archivedAt, &purgedAt)
+	`, vaultID, activeOwnerID).Scan(&archivedAt, &purgedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Locked by another replica, or owner unarchived, or already
 		// purged. All three are "not our work" — quiet skip.

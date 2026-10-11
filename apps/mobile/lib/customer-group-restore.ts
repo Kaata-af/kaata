@@ -1,5 +1,19 @@
 import type { SQLiteTx } from "./db-tx";
 import { parseFieldHLCs, serializeFieldHLCs, type FieldHLCMap } from "./projection/field-hlc";
+import { groupIdsFromPayload } from "./group-memberships";
+
+/** Old snapshots seed one membership; new snapshots keep the complete set. */
+export function restoredRelationshipGroupIds(relationship: {
+  group_id?: string | null;
+  group_ids?: string[];
+}): string {
+  return JSON.stringify(
+    groupIdsFromPayload({
+      group_id: relationship.group_id ?? null,
+      group_ids: relationship.group_ids,
+    }),
+  );
+}
 
 export type SnapshotCustomerGroup = {
   id: string;

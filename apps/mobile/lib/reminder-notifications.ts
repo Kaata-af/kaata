@@ -8,7 +8,11 @@ import {
   reminderOwnerScope,
   reminderTimezone,
 } from "./customer-reminders";
-import { nextReminderOccurrence, reminderNativeTrigger } from "./reminder-schedule";
+import {
+  MAX_REMINDER_NOTIFICATION_REQUESTS,
+  nextReminderOccurrence,
+  reminderNativeRequests,
+} from "./reminder-schedule";
 
 const CHANNEL = "customer-reminders";
 const PREFIX = "kaata-customer-reminder:";
@@ -66,22 +70,51 @@ export function reconcileReminderNotifications(): Promise<void> {
     const zone = reminderTimezone();
     // A delivered one-off stays in the tray while its task is outstanding.
     // Completed/removed tasks and a previous account's notices are dismissed.
-    const activeTasks = new Map(rows.map((row) => [PREFIX + row.id, row]));
+    const activeTasks = new Map(rows.map((row) => [row.id, row]));
     const presented = await n.getPresentedNotificationsAsync();
     if (!current()) return;
     for (const notice of presented) {
       const request = notice.request;
       if (!request.identifier.startsWith(PREFIX)) continue;
-      const row = activeTasks.get(request.identifier);
+      const reminderId = request.content.data?.reminder_id;
+      // Legacy single-request notices did not always include the opaque ID in
+      // fixtures/restored trays. New multi-request notices share one task ID.
+      const row = activeTasks.get(
+        typeof reminderId === "string" ? reminderId : request.identifier.slice(PREFIX.length),
+      );
       const fingerprint = row ? `${row.updated_at}:${row.schedule_json}:${zone}` : null;
       if (
         !row ||
+        (request.identifier !== PREFIX + row.id &&
+          !request.identifier.startsWith(PREFIX + row.id + ":")) ||
         request.content.data?.owner_scope !== owner ||
         request.content.data?.reminder_fingerprint !== fingerprint
       ) {
         await n.dismissNotificationAsync(request.identifier);
         if (!current()) return;
       }
+    }
+    const plans = rows.flatMap((row) => {
+      const schedule = readReminderSchedule(row);
+      if (!schedule || (schedule.kind === "once" && schedule.at <= Date.now())) return [];
+      return reminderNativeRequests(
+        schedule,
+        CHANNEL,
+        Platform.OS === "ios" ? "ios" : "android",
+      ).map((request) => ({
+        row,
+        id: PREFIX + row.id + request.suffix,
+        trigger: request.trigger,
+      }));
+    });
+    if (plans.length > MAX_REMINDER_NOTIFICATION_REQUESTS)
+      throw new Error("reminder_notification_limit");
+    for (const plan of plans) wanted.add(plan.id);
+    // Remove replaced weekday/month fragments before adding their replacements;
+    // edits must not temporarily exceed the OS cap while the old plan is live.
+    for (const old of existing) {
+      if (!current()) return;
+      if (!wanted.has(old.identifier)) await n.cancelScheduledNotificationAsync(old.identifier);
     }
     for (const row of rows) {
       if (!current()) return;
@@ -107,9 +140,9 @@ export function reconcileReminderNotifications(): Promise<void> {
           );
         }
       }
-      if (schedule.kind === "once" && schedule.at <= Date.now()) continue;
-      const id = PREFIX + row.id;
-      wanted.add(id);
+    }
+    for (const { row, id, trigger } of plans) {
+      if (!current()) return;
       const fingerprint = `${row.updated_at}:${row.schedule_json}:${zone}`;
       const old = live.get(id);
       if (
@@ -132,16 +165,12 @@ export function reconcileReminderNotifications(): Promise<void> {
             reminder_fingerprint: fingerprint,
           },
         },
-        trigger: reminderNativeTrigger(schedule, CHANNEL),
+        trigger,
       });
       if (!current()) {
         await n.cancelScheduledNotificationAsync(id);
         return;
       }
-    }
-    for (const old of existing) {
-      if (!current()) return;
-      if (!wanted.has(old.identifier)) await n.cancelScheduledNotificationAsync(old.identifier);
     }
   };
   const work = tail.then(run, run);

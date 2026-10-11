@@ -25,6 +25,12 @@ import Constants from "expo-constants";
 import * as Crypto from "expo-crypto";
 
 import { checkIn } from "./api";
+import {
+  applyForCurrentSession,
+  captureCurrentSession,
+  SessionChangedError,
+  type SessionSnapshot,
+} from "./auth";
 import { getAppMeta, getLocalSelf, setAppMeta } from "./db";
 import { isPlaceholderSelfName, t } from "./i18n";
 import {
@@ -42,6 +48,8 @@ import { pullEvents } from "./sync/pull";
 import { ensureDeviceKey, registerDeviceKey } from "./mesh/device-key";
 import { scheduleSweep } from "./projection/sweep";
 import { syncAllTabs } from "./tabs/sync";
+import { fetchMine } from "./tabs/api";
+import { getTabLink } from "./tabs/db";
 import { emitWitnessedSelfAdmission, witnessEmitPendingKey } from "./trust/backfill";
 import { persistPinnedServerPubkeys } from "./trust/proof";
 import { listVaults, type VaultListing } from "./vault-api";
@@ -74,6 +82,10 @@ export type RecoveryProgress = {
 export type RecoverOptions = {
   /** Optional progress sink. A throwing sink can never break recovery. */
   onProgress?: (p: RecoveryProgress) => void;
+  /** Deletion cancellation must keep its retry marker until every ledger is current. */
+  requireComplete?: boolean;
+  /** Deletion recovery includes retained owner archives and member archive metadata. */
+  includeArchived?: boolean;
 };
 
 // Fraction anchors for the progress model. Prep + listing share the first slice;
@@ -92,6 +104,11 @@ const TAB_PULL_BUDGET_MS = 20_000;
  * for a single vault's failure (only for a total inability to list).
  */
 export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<RecoveryResult> {
+  const session = await captureCurrentSession();
+  function apply<T>(work: () => Promise<T>): Promise<T> {
+    return applyForCurrentSession(session, work);
+  }
+  await apply(async () => {});
   const recovered: string[] = [];
   const failed: RecoveryResult["failed"] = [];
 
@@ -116,12 +133,13 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
   emit("preparing", 0.02);
 
   // Fresh device key, registered with the server, BEFORE any witness call.
-  await ensureDeviceKey();
+  await apply(() => ensureDeviceKey());
   try {
     await registerDeviceKey();
   } catch (err) {
     console.warn("[recovery] registerDeviceKey failed (witnessed bind may 404)", err);
   }
+  await apply(async () => {});
   emit("preparing", 0.05);
 
   // M5 (review fix — HIGH): PIN the server witness keys BEFORE ingesting any
@@ -130,21 +148,23 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
   // therefore its own device-bind) quarantines as unknown_actor and can't heal
   // until an incidental later sweep. The launch BackgroundCheckIn that normally
   // pins them RACES this restore — so we do our own awaited check-in here.
-  await pinServerWitnessKeys();
+  await pinServerWitnessKeys(session);
   emit("listing", 0.1);
 
   let listings: VaultListing[];
   try {
     listings = await listVaults();
   } catch (err) {
+    if (err instanceof SessionChangedError) throw err;
     return {
       recovered,
       failed: [{ vaultId: "*", error: err instanceof Error ? err.message : String(err) }],
       activeVaultId: null,
     };
   }
+  await apply(async () => {});
 
-  const live = listings.filter((v) => v.archived_at_ms == null);
+  const live = opts.includeArchived ? listings : listings.filter((v) => v.archived_at_ms == null);
   vaultTotal = live.length;
   // Per-vault width of the loop's slice of the bar (0 when nothing to restore).
   const slice = live.length > 0 ? (PROGRESS_LOOP_END - PROGRESS_LOOP_START) / live.length : 0;
@@ -161,7 +181,7 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
   // and remap the empty server reference to it (restoreFromSnapshot for the
   // snapshot path; applyPersonAdded resolves the existing self row for the pull
   // path). Returns null when there's nothing to restore.
-  const localSelf = live.length > 0 ? await ensureLocalSelfForRestore() : null;
+  const localSelf = live.length > 0 ? await apply(() => ensureLocalSelfForRestore()) : null;
   const localSelfId = localSelf?.id ?? null;
 
   let vaultIdx = 0;
@@ -170,15 +190,32 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
     const base = PROGRESS_LOOP_START + vaultIdx * slice;
     emit("restoring", base, vaultIdx + 1);
     try {
+      if (v.archived_at_ms != null && v.role !== "owner") {
+        // Archive stops sharing for nonowners. Preserve its visible archived
+        // shell/membership without bypassing the server's historical read ACL.
+        await apply(async () => {
+          await seedVaultFromListing(v);
+          await healSelfMembershipFromListing(v);
+          await preserveListingArchive(v);
+        });
+        recovered.push(v.vault_id);
+        vaultIdx++;
+        emit(
+          "restoring",
+          PROGRESS_LOOP_START + vaultIdx * slice,
+          Math.min(vaultIdx + 1, vaultTotal),
+        );
+        continue;
+      }
       const snapshot = await fetchSnapshot({ defaultVaultId: v.vault_id });
       if (snapshot) {
-        await restoreFromSnapshot(snapshot, { setActiveDefault: false, localSelfId });
+        await restoreFromSnapshot(snapshot, { setActiveDefault: false, localSelfId, session });
       } else {
         // No server snapshot yet (cron lag / brand-new / low-activity vault —
         // the snapshot endpoint 404s until the cron or push-threshold builds
         // one). Seed a minimal vault row from the listing, pinning the original
         // anchor, so it's recognized + mesh-eligible.
-        await seedVaultFromListing(v);
+        await apply(() => seedVaultFromListing(v));
       }
       // Snapshot base is in; the pull below brings the tail. ~half the slice.
       emit("restoring", base + slice * 0.45, vaultIdx + 1);
@@ -194,10 +231,13 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
       // pull failure just defers the rest to the scheduler/sweep — don't fail
       // the whole vault over it.
       try {
-        await pullEvents(v.vault_id);
+        await pullEvents(v.vault_id, session);
       } catch (err) {
+        if (err instanceof SessionChangedError) throw err;
+        if (opts.requireComplete) throw err;
         console.warn(`[recovery] initial pull failed for ${v.vault_id.slice(0, 8)}`, err);
       }
+      if (opts.includeArchived) await apply(() => preserveListingArchive(v));
       // Heal OUR OWN membership mirror row against the authoritative server
       // listing. This vault being IN the listing means the server holds an
       // ACTIVE membership for this account — so a locally-revoked self row is
@@ -208,8 +248,9 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
       // long ago and dedupe. A genuinely-removed member never reaches here —
       // the server excludes revoked memberships from GET /v1/vaults.
       try {
-        await healSelfMembershipFromListing(v);
+        await apply(() => healSelfMembershipFromListing(v));
       } catch (err) {
+        if (err instanceof SessionChangedError) throw err;
         console.warn(`[recovery] membership heal failed for ${v.vault_id.slice(0, 8)}`, err);
       }
       // Ledger pulled; only the (best-effort) membership binds remain.
@@ -224,23 +265,27 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
       // self-admission binds. Strictly gated to server-confirmed-owner → it can
       // never be a self-promotion. Best-effort; runs before emitWitnessedSelfAdmission.
       try {
-        await reestablishOwnerIfConfirmed(v);
+        await apply(() => reestablishOwnerIfConfirmed(v));
       } catch (err) {
+        if (err instanceof SessionChangedError) throw err;
         console.warn(`[recovery] owner re-key failed for ${v.vault_id.slice(0, 8)}`, err);
       }
       // Bind THIS device into the chain so it can author + mesh. Best-effort:
       // server read/write works via account ACL without it.
       try {
-        await emitWitnessedSelfAdmission(v.vault_id);
+        await emitWitnessedSelfAdmission(v.vault_id, { session });
       } catch (err) {
+        if (err instanceof SessionChangedError) throw err;
         // M5 (review fix — MED): leave the pending flag set so ensureChainBackfill
         // (home mount / sync scheduler) retries the bind next session — e.g. if
         // the pin check-in above was offline and the witnessed events quarantined.
-        await setAppMeta(witnessEmitPendingKey(v.vault_id), "1").catch(() => {});
+        await apply(() => setAppMeta(witnessEmitPendingKey(v.vault_id), "1")).catch(() => {});
         console.warn(`[recovery] witnessed device-bind failed for ${v.vault_id.slice(0, 8)}`, err);
       }
+      await apply(async () => {});
       recovered.push(v.vault_id);
     } catch (err) {
+      if (err instanceof SessionChangedError) throw err;
       failed.push({
         vaultId: v.vault_id,
         error: err instanceof Error ? err.message : String(err),
@@ -262,31 +307,36 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
   // last: in the shared store-review account, an empty one a previous reviewer
   // made, instead of the demo kaata the review instructions describe.
   let activeVaultId: string | null = null;
-  if (recovered.length > 0) {
-    const originalDefault = await getAppMeta("default_vault_id");
-    const accountDefault = await getAppMeta("signin_default_vault_id");
-    activeVaultId =
-      originalDefault && recovered.includes(originalDefault)
-        ? originalDefault
-        : accountDefault && recovered.includes(accountDefault)
-          ? accountDefault
-          : recovered[0];
-    await setAppMeta(ACTIVE_VAULT_META_KEY, activeVaultId);
-    await setAppMeta("default_vault_id", activeVaultId);
-    setActiveVaultIdCache(activeVaultId);
-    // Refine the JUST-MINTED self's display name from the restored, event-sourced
-    // shop_profile.owner_name (the self row was minted pre-loop with only the
-    // Google name available). Gated on `minted` so we NEVER clobber the name on an
-    // already-onboarded device (the home sign-in path, where the self pre-existed
-    // and the user may have set a name different from their shop owner_name).
-    if (localSelf?.minted) await refineLocalSelfName(localSelf.id);
-  }
+  await apply(async () => {
+    const activeRecovered = recovered.filter((id) =>
+      live.some((v) => v.vault_id === id && v.archived_at_ms == null),
+    );
+    if (activeRecovered.length > 0) {
+      const originalDefault = await getAppMeta("default_vault_id");
+      const accountDefault = await getAppMeta("signin_default_vault_id");
+      activeVaultId =
+        originalDefault && activeRecovered.includes(originalDefault)
+          ? originalDefault
+          : accountDefault && activeRecovered.includes(accountDefault)
+            ? accountDefault
+            : activeRecovered[0];
+      await setAppMeta(ACTIVE_VAULT_META_KEY, activeVaultId);
+      await setAppMeta("default_vault_id", activeVaultId);
+      setActiveVaultIdCache(activeVaultId);
+      // Refine the JUST-MINTED self's display name from the restored, event-sourced
+      // shop_profile.owner_name (the self row was minted pre-loop with only the
+      // Google name available). Gated on `minted` so we NEVER clobber the name on an
+      // already-onboarded device (the home sign-in path, where the self pre-existed
+      // and the user may have set a name different from their shop owner_name).
+      if (localSelf?.minted) await refineLocalSelfName(localSelf.id);
+    }
 
-  // M5 (review fix — MED): sweep each recovered vault so any witnessed
-  // membership/device events that quarantined during ingest (e.g. the pin
-  // landed mid-flight) re-evaluate against the now-pinned witness keys and
-  // apply immediately, rather than waiting for an incidental later pull.
-  for (const vaultId of recovered) scheduleSweep(vaultId);
+    // M5 (review fix — MED): sweep each recovered vault so any witnessed
+    // membership/device events that quarantined during ingest (e.g. the pin
+    // landed mid-flight) re-evaluate against the now-pinned witness keys and
+    // apply immediately, rather than waiting for an incidental later pull.
+    for (const vaultId of recovered) scheduleSweep(vaultId);
+  });
 
   // Mutual tabs (docs/mutual-tab-design.md D10/§4.6): tab_links is a
   // device-only table the snapshot never carried, so a reinstalled phone
@@ -305,17 +355,68 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
   // budget the sweep carries on in the background and its rows appear as they
   // land.
   let budget: ReturnType<typeof setTimeout> | undefined;
+  let tabSweepTimedOut = false;
   try {
     await Promise.race([
       syncAllTabs(),
       new Promise<void>((resolve) => {
-        budget = setTimeout(resolve, TAB_PULL_BUDGET_MS);
+        budget = setTimeout(() => {
+          tabSweepTimedOut = true;
+          resolve();
+        }, TAB_PULL_BUDGET_MS);
       }),
     ]);
   } catch (err) {
+    if (err instanceof SessionChangedError) throw err;
+    if (opts.requireComplete)
+      failed.push({ vaultId: "*tabs*", error: err instanceof Error ? err.message : String(err) });
     console.warn("[recovery] tab sync failed (tab loop retries)", err);
   } finally {
     clearTimeout(budget);
+  }
+  await apply(async () => {});
+
+  // The ordinary tab sweep is deliberately best-effort. A deletion return is
+  // stronger: a successful empty/shared cache must not clear its restore marker.
+  // Read fresh server revisions after the sweep, then compare local bindings
+  // under the same session as the vault recovery. Unbound tabs have no local
+  // relationship to restore and tabs in archived/other vaults are out of scope.
+  if (opts.requireComplete) {
+    try {
+      if (tabSweepTimedOut) throw new Error("shared-account recovery timed out");
+      const mine = await fetchMine();
+      await apply(async () => {
+        const liveVaultIds = new Set(
+          live.filter((v) => v.archived_at_ms == null || v.role === "owner").map((v) => v.vault_id),
+        );
+        const db = await getDb();
+        for (const t of mine.tabs) {
+          if (!t.vault_id || !t.relationship_id || !liveVaultIds.has(t.vault_id)) continue;
+          const link = await getTabLink(t.tab.id);
+          const relationship = await db.getFirstAsync<{ one: number }>(
+            "SELECT 1 AS one FROM relationships WHERE id = ? AND vault_id = ? LIMIT 1",
+            t.relationship_id,
+            t.vault_id,
+          );
+          if (
+            !relationship ||
+            !link ||
+            link.vault_id !== t.vault_id ||
+            link.relationship_id !== t.relationship_id ||
+            link.role !== t.role ||
+            link.last_synced_at == null ||
+            link.rev < t.tab.rev ||
+            link.closed_at !== t.tab.closed_at_ms ||
+            (link.closed_reason ?? null) !== (t.tab.closed_reason ?? null)
+          ) {
+            throw new Error(`shared-account recovery incomplete: ${t.tab.id}`);
+          }
+        }
+      });
+    } catch (err) {
+      if (err instanceof SessionChangedError) throw err;
+      failed.push({ vaultId: "*tabs*", error: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   emit("done", 1);
@@ -411,18 +512,24 @@ export async function seedJoinedVaultMinimal(
 }
 
 export async function recoverJoinedVault(vaultId: string): Promise<boolean> {
+  const session = await captureCurrentSession();
+  function apply<T>(work: () => Promise<T>): Promise<T> {
+    return applyForCurrentSession(session, work);
+  }
   // The accepting user is already signed-in + onboarded, so a local-self row
   // exists; call defensively (no-op when present) so a pulled relationship/entry
   // can never violate the users FK mid-apply (see ensureLocalSelfForRestore).
-  const { id: localSelfId } = await ensureLocalSelfForRestore();
+  const { id: localSelfId } = await apply(() => ensureLocalSelfForRestore());
 
   let listings: VaultListing[];
   try {
     listings = await listVaults();
   } catch (err) {
+    if (err instanceof SessionChangedError) throw err;
     console.warn("[recovery] joined-vault listing failed", err);
     return false;
   }
+  await apply(async () => {});
 
   const v = listings.find((x) => x.vault_id === vaultId && x.archived_at_ms == null);
   if (!v) {
@@ -436,17 +543,19 @@ export async function recoverJoinedVault(vaultId: string): Promise<boolean> {
   try {
     const snapshot = await fetchSnapshot({ defaultVaultId: v.vault_id });
     if (snapshot) {
-      await restoreFromSnapshot(snapshot, { setActiveDefault: false, localSelfId });
+      await restoreFromSnapshot(snapshot, { setActiveDefault: false, localSelfId, session });
     } else {
-      await seedVaultFromListing(v);
+      await apply(() => seedVaultFromListing(v));
     }
   } catch (err) {
+    if (err instanceof SessionChangedError) throw err;
     // Even if the snapshot restore failed, fall back to a bare seed so the row
     // exists and the vault is at least visible + sync-targeted.
     console.warn("[recovery] joined vault seed failed; falling back to bare seed", err);
     try {
-      await seedVaultFromListing(v);
+      await apply(() => seedVaultFromListing(v));
     } catch (seedErr) {
+      if (seedErr instanceof SessionChangedError) throw seedErr;
       console.warn("[recovery] joined vault bare seed failed", seedErr);
       return false;
     }
@@ -457,8 +566,9 @@ export async function recoverJoinedVault(vaultId: string): Promise<boolean> {
   // internally). Best-effort — the row + cursor exist either way, so a transient
   // pull failure just defers the tail to the scheduler/sweep.
   try {
-    await pullEvents(v.vault_id);
+    await pullEvents(v.vault_id, session);
   } catch (err) {
+    if (err instanceof SessionChangedError) throw err;
     console.warn("[recovery] joined vault initial pull failed", err);
   }
 
@@ -466,10 +576,12 @@ export async function recoverJoinedVault(vaultId: string): Promise<boolean> {
   // join path was skipping it, which left the joiner's Members tab rendering
   // role labels ("Owner") until some later full recovery ran.
   try {
-    await healSelfMembershipFromListing(v);
+    await apply(() => healSelfMembershipFromListing(v));
   } catch (err) {
+    if (err instanceof SessionChangedError) throw err;
     console.warn("[recovery] joined vault membership heal failed", err);
   }
+  await apply(async () => {});
 
   return true;
 }
@@ -549,7 +661,7 @@ export async function healMemberNamesFromListing(v: VaultListing): Promise<void>
  * check-in + sweep (the per-vault retry flag + the end-of-recovery sweep cover
  * that case).
  */
-async function pinServerWitnessKeys(): Promise<void> {
+async function pinServerWitnessKeys(session?: SessionSnapshot): Promise<void> {
   try {
     const installId = await ensureInstallId();
     const resp = await checkIn({
@@ -558,13 +670,14 @@ async function pinServerWitnessKeys(): Promise<void> {
       platform: Platform.OS === "android" ? "android" : Platform.OS === "ios" ? "ios" : "web",
       device_locale: "en",
     });
-    if (resp.mesh_server_pubkeys?.primary) {
-      await persistPinnedServerPubkeys(
-        resp.mesh_server_pubkeys.primary,
-        resp.mesh_server_pubkeys.rotation,
-      );
+    const serverKeys = resp.mesh_server_pubkeys;
+    if (serverKeys?.primary) {
+      const pin = () => persistPinnedServerPubkeys(serverKeys.primary, serverKeys.rotation);
+      if (session) await applyForCurrentSession(session, pin);
+      else await pin();
     }
   } catch (err) {
+    if (err instanceof SessionChangedError) throw err;
     console.warn(
       "[recovery] witness-key pin check-in failed — witnessed events may quarantine until the next check-in",
       err,
@@ -599,16 +712,26 @@ async function seedVaultFromListing(v: VaultListing): Promise<void> {
        (id, name, currency, created_at, updated_at, archived_at,
         is_default, account_id, registered_with_server_at,
         vault_epoch, hlc_logical, hlc_wall_ms, vault_trust_anchor_pubkey)
-     VALUES (?, ?, ?, ?, ?, NULL, 0, ?, ?, ?, 0, 0, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 0, 0, ?)`,
     v.vault_id,
     v.name,
     v.currency ?? "AFN",
     v.created_at_ms,
     v.created_at_ms,
+    v.archived_at_ms ?? null,
     accountId,
     v.created_at_ms,
     v.vault_epoch,
     v.vault_trust_anchor_pubkey ?? null,
+  );
+}
+
+async function preserveListingArchive(v: VaultListing): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    "UPDATE vaults SET archived_at=? WHERE id=?",
+    v.archived_at_ms ?? null,
+    v.vault_id,
   );
 }
 

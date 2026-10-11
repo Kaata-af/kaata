@@ -1,5 +1,6 @@
+import { SheetBackdrop } from "./SheetBackdrop";
+import { useOverlayAnimation } from "../lib/use-overlay-animation";
 import { Ionicons } from "@expo/vector-icons";
-import { BlurView } from "expo-blur";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -17,7 +18,6 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import type { SessionUser } from "../lib/auth";
 import { colors } from "../lib/colors";
-import { SHEET_BLUR_METHOD } from "../lib/blur";
 import { getAccountIdSync } from "../lib/db-tx";
 import {
   SETTINGS_AVATAR_HERO,
@@ -128,13 +128,18 @@ export function ProfileSettingsSheet(props: {
   // Dismiss
   onDismiss: () => void;
 }) {
-  const [rendered, setRendered] = useState(false);
+  const { rendered, opacity, position: translateY } = useOverlayAnimation(props.visible, OFFSCREEN);
   const isRTL = useIsRTL();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(OFFSCREEN)).current;
   const actionQueued = useRef(false);
+  const actionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (actionTimer.current) clearTimeout(actionTimer.current);
+    },
+    [],
+  );
 
   // Reactive account_id — same pattern as the old HamburgerMenuSheet.
   // Reads the synchronous module cache on every `visible` flip so a sign-in
@@ -150,39 +155,9 @@ export function ProfileSettingsSheet(props: {
   useEffect(() => {
     if (props.visible) {
       actionQueued.current = false;
-      setRendered(true);
-      requestAnimationFrame(() => {
-        Animated.parallel([
-          Animated.timing(opacity, {
-            toValue: 1,
-            duration: 220,
-            useNativeDriver: true,
-          }),
-          Animated.spring(translateY, {
-            toValue: 0,
-            friction: 11,
-            tension: 75,
-            useNativeDriver: true,
-          }),
-        ]).start();
-      });
-    } else if (rendered) {
-      Animated.parallel([
-        Animated.timing(opacity, {
-          toValue: 0,
-          duration: 160,
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateY, {
-          toValue: OFFSCREEN,
-          duration: 180,
-          useNativeDriver: true,
-        }),
-      ]).start(({ finished }) => {
-        if (finished) setRendered(false);
-      });
+      if (actionTimer.current) clearTimeout(actionTimer.current);
+      actionTimer.current = null;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.visible]);
 
   // Defer router.push / action callbacks by EXIT_DURATION_MS so the Modal
@@ -195,7 +170,7 @@ export function ProfileSettingsSheet(props: {
       if (actionQueued.current) return;
       actionQueued.current = true;
       props.onDismiss();
-      setTimeout(action, EXIT_DURATION_MS);
+      actionTimer.current = setTimeout(action, EXIT_DURATION_MS);
     };
   }
 
@@ -226,14 +201,7 @@ export function ProfileSettingsSheet(props: {
       onRequestClose={props.onDismiss}
     >
       <Animated.View style={[StyleSheet.absoluteFill, { opacity }]}>
-        <BlurView
-          intensity={20}
-          tint="light"
-          blurMethod={SHEET_BLUR_METHOD}
-          style={StyleSheet.absoluteFill}
-        />
-        <View style={styles.tint} />
-        <Pressable style={StyleSheet.absoluteFill} onPress={props.onDismiss} />
+        <SheetBackdrop onDismiss={props.onDismiss} />
       </Animated.View>
 
       <Animated.View
@@ -591,10 +559,6 @@ function pluralizeMembers(count: number): string {
 // --------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
-  tint: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(0,0,0,0.08)",
-  },
   sheetContainer: {
     position: "absolute",
     left: 0,

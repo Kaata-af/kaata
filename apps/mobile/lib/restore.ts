@@ -21,7 +21,7 @@ import { cacheCreditPolicies } from "./credit-policy-cache";
 // as a synthetic event would be wrong).
 
 import { getBackendUrl } from "./api";
-import { getSessionJWT } from "./auth";
+import { applyForCurrentSession, getSessionJWT, type SessionSnapshot } from "./auth";
 import {
   ACTIVE_VAULT_META_KEY,
   getAppMetaInTx,
@@ -35,6 +35,7 @@ import { serializeFieldHLCs, type FieldHLCMap } from "./projection/field-hlc";
 import {
   seedSnapshotCustomerGroups,
   restoredRelationshipFieldHLCs,
+  restoredRelationshipGroupIds,
 } from "./customer-group-restore";
 import {
   ingestPulledEvents,
@@ -143,6 +144,7 @@ export type SnapshotRelationship = {
   updated_at: number;
   archived_at: number | null;
   group_id?: string | null;
+  group_ids?: string[];
   group_field_hlcs?: FieldHLCMap;
 };
 
@@ -260,12 +262,20 @@ export async function restoreFromSnapshot(
   // false per vault and picks ONE active/default after the loop (the snapshot's
   // is_default is server-hard-coded to 1 for every vault, so a naive loop would
   // make the last-restored vault active + mark them all default).
-  opts: { setActiveDefault?: boolean; localSelfId?: string | null } = {},
+  opts: { setActiveDefault?: boolean; localSelfId?: string | null; session?: SessionSnapshot } = {},
 ): Promise<{
   ok: true;
   applied_events: number;
   snapshot_server_seq: number;
 }> {
+  // Fetch happens outside this function. Serialize the local seed, tail/cursor
+  // ingestion and sweep with account changes so a late A snapshot cannot land
+  // in B's freshly installed local state. There is no network/session helper
+  // in this callback.
+  if (opts.session) {
+    const { session, ...localOpts } = opts;
+    return applyForCurrentSession(session, () => restoreFromSnapshot(snapshot, localOpts));
+  }
   const setActiveDefault = opts.setActiveDefault ?? true;
   const db = await getDb();
   let appliedEvents = 0;
@@ -450,8 +460,8 @@ export async function restoreFromSnapshot(
         await db.runAsync(
           `INSERT OR REPLACE INTO relationships (
            id, user_a_id, user_b_id, context, vault_id,
-           created_at, updated_at, archived_at, field_hlcs, group_id
-         ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?, ?, ?)`,
+           created_at, updated_at, archived_at, field_hlcs, group_id, group_ids
+         ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?, ?, ?, ?)`,
           r.id,
           r.user_a_id || localSelfId,
           r.user_b_id,
@@ -472,6 +482,7 @@ export async function restoreFromSnapshot(
             r.group_field_hlcs,
           ),
           r.group_id ?? null,
+          restoredRelationshipGroupIds(r),
         );
       }
 

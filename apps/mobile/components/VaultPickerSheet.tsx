@@ -1,6 +1,7 @@
+import { SheetBackdrop } from "./SheetBackdrop";
+import { useOverlayAnimation } from "../lib/use-overlay-animation";
 import { Ionicons } from "@expo/vector-icons";
-import { BlurView } from "expo-blur";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { ComponentProps } from "react";
 import {
   Animated,
@@ -15,7 +16,6 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
 import { getCurrencySymbol } from "../lib/currency";
-import { SHEET_BLUR_METHOD } from "../lib/blur";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { t } from "../lib/i18n";
@@ -76,47 +76,23 @@ export function VaultPickerSheet(props: {
   onAddVault: () => void;
   onDismiss: () => void;
 }) {
-  const [rendered, setRendered] = useState(false);
+  const { rendered, opacity, position: translateY } = useOverlayAnimation(props.visible, OFFSCREEN);
   const isRTL = useIsRTL();
   const insets = useSafeAreaInsets();
-  const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(OFFSCREEN)).current;
-
+  const actionQueued = useRef(false);
+  const actionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (actionTimer.current) clearTimeout(actionTimer.current);
+    },
+    [],
+  );
   useEffect(() => {
     if (props.visible) {
-      setRendered(true);
-      requestAnimationFrame(() => {
-        Animated.parallel([
-          Animated.timing(opacity, {
-            toValue: 1,
-            duration: 220,
-            useNativeDriver: true,
-          }),
-          Animated.spring(translateY, {
-            toValue: 0,
-            friction: 11,
-            tension: 75,
-            useNativeDriver: true,
-          }),
-        ]).start();
-      });
-    } else if (rendered) {
-      Animated.parallel([
-        Animated.timing(opacity, {
-          toValue: 0,
-          duration: 160,
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateY, {
-          toValue: OFFSCREEN,
-          duration: 180,
-          useNativeDriver: true,
-        }),
-      ]).start(({ finished }) => {
-        if (finished) setRendered(false);
-      });
+      actionQueued.current = false;
+      if (actionTimer.current) clearTimeout(actionTimer.current);
+      actionTimer.current = null;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.visible]);
 
   // Defer navigation/action by EXIT_DURATION_MS so the Modal unmounts before
@@ -124,8 +100,10 @@ export function VaultPickerSheet(props: {
   // BottomSheet.tsx + HamburgerMenuSheet.tsx.
   function chained(action: () => void) {
     return () => {
+      if (actionQueued.current) return;
+      actionQueued.current = true;
       props.onDismiss();
-      setTimeout(action, EXIT_DURATION_MS);
+      actionTimer.current = setTimeout(action, EXIT_DURATION_MS);
     };
   }
 
@@ -151,14 +129,7 @@ export function VaultPickerSheet(props: {
       onRequestClose={props.onDismiss}
     >
       <Animated.View style={[StyleSheet.absoluteFill, { opacity }]}>
-        <BlurView
-          intensity={20}
-          tint="light"
-          blurMethod={SHEET_BLUR_METHOD}
-          style={StyleSheet.absoluteFill}
-        />
-        <View style={styles.tint} />
-        <Pressable style={StyleSheet.absoluteFill} onPress={props.onDismiss} />
+        <SheetBackdrop onDismiss={props.onDismiss} />
       </Animated.View>
 
       <Animated.View
@@ -332,7 +303,6 @@ function PickerItem(props: {
 // --------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
-  tint: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.08)" },
   sheetContainer: {
     position: "absolute",
     left: 0,

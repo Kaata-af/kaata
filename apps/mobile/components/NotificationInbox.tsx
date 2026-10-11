@@ -1,3 +1,4 @@
+import { SheetBackdrop } from "./SheetBackdrop";
 import { Ionicons } from "@expo/vector-icons";
 import { useRef, useState, useEffect } from "react";
 import {
@@ -361,12 +362,7 @@ export function NotificationBell() {
           style={[styles.overlay, { opacity }]}
           pointerEvents={closing ? "none" : "auto"}
         >
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={() => close()}
-            accessibilityRole="button"
-            accessibilityLabel={t("common.cancel")}
-          />
+          <SheetBackdrop onDismiss={() => close()} />
           <View
             accessibilityViewIsModal
             style={[
@@ -483,7 +479,7 @@ const styles = StyleSheet.create({
     textAlignVertical: "center",
     includeFontPadding: false,
   },
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.08)" },
+  overlay: { flex: 1 },
   popup: {
     position: "absolute",
     borderRadius: radius.lg,

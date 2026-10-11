@@ -58,6 +58,7 @@ import {
 import { readCustomerGroups, type CustomerGroup } from "../lib/customer-groups";
 import {
   customerSide,
+  availableCustomerGroupFilter,
   DEFAULT_CUSTOMER_LIST,
   parseCustomerListPreference,
   selectCustomers,
@@ -206,7 +207,7 @@ export default function HomeScreen() {
   const [direction, setDirection] = useState<Direction>("collect");
   const [allPeople, setAllPeople] = useState<PersonWithBalance[]>([]);
   const [customerGroups, setCustomerGroups] = useState<CustomerGroup[]>([]);
-  const [groupByPerson, setGroupByPerson] = useState<Record<string, string | null>>({});
+  const [groupByPerson, setGroupByPerson] = useState<Record<string, string[]>>({});
   const [listPreference, setListPreference] =
     useState<CustomerListPreference>(DEFAULT_CUSTOMER_LIST);
   const [listOptionsVisible, setListOptionsVisible] = useState(false);
@@ -325,7 +326,9 @@ export default function HomeScreen() {
         getAppMeta("shop_mode_enabled"),
       ]);
       const [groupState, prefRaw, creditPolicies] = await Promise.all([
-        vaultId ? readCustomerGroups(vaultId) : Promise.resolve({ groups: [], groupByPerson: {} }),
+        vaultId
+          ? readCustomerGroups(vaultId)
+          : Promise.resolve({ groups: [], groupByPerson: {}, groupsByPerson: {} }),
         vaultId ? getAppMeta(`customer_list:${vaultId}`) : Promise.resolve(null),
         vaultId
           ? readCreditPoliciesForPeople(vaultId)
@@ -342,7 +345,12 @@ export default function HomeScreen() {
       setSelf(s);
       setAllPeople(list);
       setCustomerGroups(groupState.groups);
-      setGroupByPerson(groupState.groupByPerson);
+      setGroupByPerson(
+        groupState.groupsByPerson ??
+          Object.fromEntries(
+            Object.entries(groupState.groupByPerson).map(([id, group]) => [id, group ? [group] : []]),
+          ),
+      );
       setCreditByPerson(
         Object.fromEntries(
           list.map((person) => [
@@ -353,12 +361,7 @@ export default function HomeScreen() {
       );
       if (prefVersion === preferenceVersion.current) {
         const preference = parseCustomerListPreference(prefRaw);
-        if (
-          preference.group !== "all" &&
-          preference.group !== "ungrouped" &&
-          !groupState.groups.some((g) => g.id === preference.group)
-        )
-          preference.group = "all";
+        preference.group = availableCustomerGroupFilter(preference.group, groupState.groups);
         setListPreference(preference);
       }
       setSessionUser(user);
@@ -634,14 +637,12 @@ export default function HomeScreen() {
     [allPeople],
   );
   const payAll = useMemo(() => allPeople.filter((p) => customerSide(p) === "pay"), [allPeople]);
-  const effectiveGroup =
-    listPreference.group === "all" ||
-    listPreference.group === "ungrouped" ||
-    customerGroups.some((g) => g.id === listPreference.group)
-      ? listPreference.group
-      : "all";
+  const effectiveGroup = useMemo(
+    () => availableCustomerGroupFilter(listPreference.group, customerGroups),
+    [listPreference.group, customerGroups],
+  );
   useEffect(() => {
-    if (listPreference.group !== effectiveGroup)
+    if (JSON.stringify(listPreference.group) !== JSON.stringify(effectiveGroup))
       setListPreference((p) => ({ ...p, group: effectiveGroup }));
   }, [effectiveGroup, listPreference.group]);
 

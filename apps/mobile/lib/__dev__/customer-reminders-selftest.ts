@@ -180,9 +180,48 @@ async function main() {
   );
   await service.dismissCustomerReminder(first, true);
   assert.equal((await service.listCustomerReminders()).length, 0);
+  const monthly = {
+    kind: "monthly",
+    day: 15,
+    intervalMonths: 2,
+    anchorMonth: 0,
+    hour: 9,
+    minute: 30,
+  };
+  const expensive: string[] = [];
+  for (let i = 0; i < 8; i++)
+    expensive.push(await service.saveCustomerReminder("local", "customer", monthly));
+  const selected = await service.saveCustomerReminder("local", "customer", {
+    kind: "weekdays",
+    weekdays: [0, 1, 2, 3, 4, 5, 6],
+    hour: 10,
+    minute: 30,
+  });
+  const lastSlot = await service.saveCustomerReminder("local", "customer", once);
+  await assert.rejects(
+    service.saveCustomerReminder("local", "customer", once),
+    /reminder_notification_limit/,
+    "56 persistent native requests is an enforced budget",
+  );
+  await assert.rejects(
+    service.saveCustomerReminder("local", "customer", monthly, lastSlot),
+    /reminder_notification_limit/,
+    "editing a cheap reminder cannot overrun the native budget",
+  );
+  await service.saveCustomerReminder("local", "customer", once, expensive[0]);
+  const afterReplacement = await service.saveCustomerReminder("local", "customer", once);
+  for (const id of [...expensive, selected, lastSlot, afterReplacement])
+    await service.dismissCustomerReminder(id, true);
+  const disabled = await service.saveCustomerReminder("local", "customer", once);
+  await service.dismissCustomerReminder(disabled, true);
   for (let i = 0; i < service.MAX_ACTIVE_REMINDERS; i++)
     await service.saveCustomerReminder("local", "customer", once);
   await assert.rejects(service.saveCustomerReminder("local", "customer", once), /reminder_limit/);
+  await assert.rejects(
+    service.saveCustomerReminder("local", "customer", once, disabled),
+    /reminder_limit/,
+    "re-enabling a disabled task cannot exceed the 40-task limit",
+  );
   const active = (await service.listCustomerReminders())[0];
   await service.saveCustomerReminder(
     "local",

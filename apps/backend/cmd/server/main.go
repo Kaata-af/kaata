@@ -475,6 +475,7 @@ func main() {
 	r.Group(func(pr chi.Router) {
 		pr.Use(authenticator.Middleware())
 		pr.Post("/v1/auth/signout", authH.SignOut)
+		pr.Get("/v1/account/deletion-policy", authH.AccountDeletionPolicy)
 		// Account-level phone: persists the shopkeeper's own number server-side so
 		// it survives a reinstall (the device-local users.phone_e164 never syncs).
 		pr.Put("/v1/account/phone", authH.UpdatePhone)
@@ -579,6 +580,7 @@ func main() {
 	// Reuses the main pool — the work is I/O-light and runs once per
 	// 6 hours, so a dedicated pool would be over-engineering.
 	go vaults.StartArchivePurgeCron(ctx, pool, 6*time.Hour)
+	go authSvc.StartAccountPurgeCron(ctx, time.Hour)
 
 	// Housekeeping: expired-invite purge (6h), plus a daily retention pass
 	// (crash-report + unclaimed web-visit ageing).

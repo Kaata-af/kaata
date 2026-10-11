@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"golang.org/x/text/unicode/norm"
+	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -98,7 +99,8 @@ func applyPersonGroupSet(p *Projection, e *LedgerEvent) error {
 		return nil
 	}
 	var payload struct {
-		GroupID json.RawMessage `json:"group_id"`
+		GroupID  json.RawMessage `json:"group_id"`
+		GroupIDs json.RawMessage `json:"group_ids"`
 	}
 	if err := json.Unmarshal(e.Payload, &payload); err != nil {
 		return err
@@ -110,15 +112,57 @@ func applyPersonGroupSet(p *Projection, e *LedgerEvent) error {
 	if err := json.Unmarshal(payload.GroupID, &groupID); err != nil {
 		return err
 	}
-	if groupID != nil {
-		group := p.CustomerGroups[*groupID]
+	groupIDs := []string{}
+	if len(payload.GroupIDs) > 0 {
+		if string(payload.GroupIDs) == "null" {
+			return errors.New("invalid group ids")
+		}
+		if err := json.Unmarshal(payload.GroupIDs, &groupIDs); err != nil {
+			return err
+		}
+	} else if groupID != nil {
+		groupIDs = append(groupIDs, *groupID)
+	}
+	if len(groupIDs) > 100 {
+		return errors.New("invalid group ids")
+	}
+	seen := map[string]bool{}
+	unique := make([]string, 0, len(groupIDs))
+	for _, id := range groupIDs {
+		if len(id) == 0 || len(id) > 128 {
+			return errors.New("invalid group id")
+		}
+		if !seen[id] {
+			unique = append(unique, id)
+			seen[id] = true
+		}
+	}
+	sort.Strings(unique)
+	if len(payload.GroupIDs) > 0 && ((len(unique) == 0 && groupID != nil) ||
+		(len(unique) > 0 && (groupID == nil || *groupID != unique[0]))) {
+		return errors.New("group id mirror mismatch")
+	}
+	for _, id := range unique {
+		group := p.CustomerGroups[id]
 		if group == nil || group.VaultID != e.VaultID {
 			return errors.New("group missing in vault")
 		}
 	}
 	rel.GroupID = groupID
+	rel.GroupIDs = unique
 	rel.GroupFieldHLCs = map[string]HLC{"group_id": e.HLC}
 	return nil
+}
+
+// Stored projections from older servers omit the additive membership array.
+func relationshipGroupIDs(rel *RelationshipProjection) []string {
+	if rel.GroupIDs != nil {
+		return rel.GroupIDs
+	}
+	if rel.GroupID != nil {
+		return []string{*rel.GroupID}
+	}
+	return []string{}
 }
 
 func projectCustomerGroups(in map[string]*CustomerGroupProjection) []CustomerGroupProjection {

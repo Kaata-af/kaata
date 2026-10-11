@@ -105,6 +105,21 @@ func (a *SessionAuthenticator) DeletionMiddleware() func(http.Handler) http.Hand
 				httpx.Error(w, http.StatusUnauthorized, "session has been revoked")
 				return
 			}
+			if states, ok := a.receipts.(interface {
+				DeletionState(context.Context, string, string) (AccountDeletionState, error)
+			}); ok {
+				state, err := states.DeletionState(r.Context(), claims.InstallID, claims.AccountID)
+				if err != nil {
+					httpx.Error(w, http.StatusServiceUnavailable, "deletion status unavailable")
+					return
+				}
+				if state.Status == "" {
+					httpx.Error(w, http.StatusUnauthorized, "session has been revoked")
+					return
+				}
+				writeDeletionState(w, r, state)
+				return
+			}
 			httpx.JSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 		})
 	}

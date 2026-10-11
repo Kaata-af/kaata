@@ -133,9 +133,11 @@ export default function PersonRemindersScreen() {
           t(
             err instanceof Error && err.message === "reminder_limit"
               ? "reminders.limit"
-              : err instanceof Error && err.message === "reminder_access_denied"
-                ? "reminders.unavailable"
-                : "entry.saveFailed",
+              : err instanceof Error && err.message === "reminder_notification_limit"
+                ? "reminders.scheduleLimit"
+                : err instanceof Error && err.message === "reminder_access_denied"
+                  ? "reminders.unavailable"
+                  : "entry.saveFailed",
           ),
         );
     } finally {

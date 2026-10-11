@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { filterTallies, noteSearchTerms } from "../tally-search";
+import { filterTalliesByDate, dateRangeBetween, shiftLocalDay } from "../tally-date-filter";
 import { summarizeTallyFlows } from "../tally-summary";
 import type { Calendar } from "../calendar";
 import { toJalali, toQamari } from "../jalali";
@@ -84,6 +85,7 @@ let platform = "android",
   rtl = false,
   appState = "active";
 let calendar: Calendar = "gregorian";
+let canCreate = true;
 let person: any, entries: any[], preLink: any[], failed: any[], link: any;
 let priorPeriods: any[] = [],
   historyReadGate: Promise<any[]> | null = null;
@@ -150,6 +152,7 @@ const native: any = {
   ScrollView: "ScrollView",
   ActivityIndicator: "Spinner",
   KeyboardAvoidingView: "Keyboard",
+  Keyboard: { dismiss() {} },
   Animated: { View: "AnimatedView" },
   Platform: {
     get OS() {
@@ -171,6 +174,7 @@ const native: any = {
 const components = Object.fromEntries(
   [
     "BottomSheet",
+    "TallyDateFilterSheet",
     "Chip",
     "ConfirmDialog",
     "EmptyState",
@@ -279,6 +283,7 @@ const mocks: Record<string, any> = {
     },
   },
   "../../lib/tally-search": { filterTallies, noteSearchTerms },
+  "../../lib/tally-date-filter": { filterTalliesByDate, shiftLocalDay },
   "../../lib/tally-summary": { summarizeTallyFlows },
   "../../lib/tabs/db": {
     getLatestTabLinkForPerson: async () => (link ? { ...link } : null),
@@ -327,7 +332,7 @@ const mocks: Record<string, any> = {
   "../../lib/use-vault-role": {
     useVaultPermission: () => true,
     useActiveVaultWriteCaps: () => ({
-      canCreate: true,
+      canCreate,
       canAmend: true,
       canConfigureCredit: true,
       resolved: true,
@@ -412,6 +417,7 @@ function fixture(shared = false) {
   appState = "active";
   preference = "en";
   calendar = "gregorian";
+  canCreate = true;
   preferenceReads = 0;
   shares.length = 0;
   seen.length = 0;
@@ -486,9 +492,28 @@ async function main() {
       rtl = r;
       fixture();
       await flush();
+      const dock = nodes(tree).find(
+        (node) =>
+          node.type === "AnimatedView" && nodes(node).some((child) => child.type === "TextInput"),
+      )!;
+      assert.ok(dock, "search lives in the bottom action dock");
+      const dockNodes = nodes(dock);
+      assert.ok(
+        dockNodes.findIndex((node) => words(node) === "person.action.iReceived") <
+          dockNodes.findIndex((node) => node.type === "TextInput"),
+        "search appears below I received/I gave",
+      );
       const avoid = find("Keyboard")!;
-      assert.equal(avoid.props.enabled, p === "android", "only Android uses KAV");
-      assert.equal(find("ScrollView")?.props.automaticallyAdjustKeyboardInsets, p === "ios");
+      assert.equal(
+        avoid.props.behavior,
+        p === "android" ? "height" : "padding",
+        "lower search dock stays above keyboard on both platforms",
+      );
+      assert.equal(
+        find("ScrollView")?.props.automaticallyAdjustKeyboardInsets,
+        false,
+        "KAV owns keyboard avoidance; do not add duplicate automatic scroll insets",
+      );
       assert.deepEqual(rowIds(), ["new-rice", "new-tea"], "settled history starts folded");
       query("rice");
       await flush();
@@ -575,6 +600,19 @@ async function main() {
     "PASS: real person screen search spans settled history without narrowing balances/export/reminders; Android/iOS EN/FA keyboard gates and spinner-only reminder/duplicate guard",
   );
 
+  fixture();
+  canCreate = false;
+  await flush();
+  assert.ok(find("TextInput"), "viewers keep tally search");
+  assert.equal(
+    nodes(tree).some((node) => words(node) === "person.action.iReceived"),
+    false,
+    "viewers do not get tally creation buttons",
+  );
+  assert.ok(
+    nodes(tree).some((node) => node.props.accessibilityLabel === "person.date.title"),
+    "viewers keep date filter",
+  );
   fixture(true);
   const datedAt = new Date(2026, 9, 11, 12).getTime();
   entries[0].created_at = datedAt;
@@ -594,24 +632,25 @@ async function main() {
   assert.deepEqual(rowIds(), ["failed-rice"], "numeric search includes not-sent tallies");
   query("2026");
   await flush();
-  assert.deepEqual(rowIds(), ["rejected-rice"], "Gregorian year matches the tally date");
-  calendar = "jalali";
-  dirty = true;
+  assert.deepEqual(rowIds(), [], "date text no longer matches timestamp fields");
+  query("");
+  find("TallyDateFilterSheet")!.props.onChange(dateRangeBetween(datedAt, datedAt));
   await flush();
-  assert.deepEqual(rowIds(), [], "changing calendar re-evaluates the existing date filter");
-  const j = toJalali(datedAt);
-  query(`${j.jy}/${j.jm}/${j.jd}`);
+  assert.deepEqual(rowIds(), ["rejected-rice"], "proper range selects the tally business day");
+  for (const selected of ["jalali", "qamari"] as Calendar[]) {
+    calendar = selected;
+    rtl = true;
+    dirty = true;
+    await flush();
+    assert.deepEqual(
+      rowIds(),
+      ["rejected-rice"],
+      "calendar changes render labels without changing selected business dates",
+    );
+  }
+  find("TallyDateFilterSheet")!.props.onChange(null);
+  query("rice 10");
   await flush();
-  assert.deepEqual(rowIds(), ["rejected-rice"], "the selected Shamsi date is searchable");
-  calendar = "qamari";
-  rtl = true;
-  dirty = true;
-  await flush();
-  assert.deepEqual(rowIds(), [], "a Shamsi numeric date does not silently match Qamari");
-  const q = toQamari(datedAt);
-  query(`${q.hy}/${q.hm}/${q.hd}`.replace(/\d/g, (digit) => "۰۱۲۳۴۵۶۷۸۹"[Number(digit)]));
-  await flush();
-  assert.deepEqual(rowIds(), ["rejected-rice"], "the selected Qamari date works in Dari digits");
   assert.ok(words(tree).includes("amount:5"), "date filters keep the whole shared balance");
   assert.deepEqual(
     find("TallyFlowSummary")?.props.summary,
@@ -622,7 +661,7 @@ async function main() {
     "known pre-link handovers count once; rejected/cancelled and failed intents do not count",
   );
   console.log(
-    "PASS: amount/date search spans shared, pre-link and failed tallies and refreshes with calendar preferences",
+    "PASS: amount search and explicit date ranges span shared, pre-link and failed tallies; selected dates survive calendar preferences",
   );
 
   fixture(true);

@@ -76,10 +76,10 @@ const (
 	EventPersonPhoneChanged  = "person_phone_changed"
 	EventPersonArchived      = "person_archived"
 	EventPersonUnarchived    = "person_unarchived"
-	EventGroupCreated       = "group_created"
-	EventGroupRenamed       = "group_renamed"
-	EventGroupArchived      = "group_archived"
-	EventPersonGroupSet     = "person_group_set"
+	EventGroupCreated        = "group_created"
+	EventGroupRenamed        = "group_renamed"
+	EventGroupArchived       = "group_archived"
+	EventPersonGroupSet      = "person_group_set"
 	EventShopProfileUpdated  = "shop_profile_updated"
 	EventVaultSettingSet     = "vault_setting_set"
 	EventVaultMemberAdded    = "vault_member_added"
@@ -198,15 +198,16 @@ type UserProjection struct {
 }
 
 type RelationshipProjection struct {
-	ID         string `json:"id"`
-	UserAID    string `json:"user_a_id"`
-	UserBID    string `json:"user_b_id"`
-	Context    string `json:"context"`
-	VaultID    string `json:"vault_id"`
-	CreatedAt  int64  `json:"created_at"`
-	UpdatedAt  int64  `json:"updated_at"`
-	ArchivedAt *int64 `json:"archived_at"`
-	GroupID    *string `json:"group_id,omitempty"`
+	ID             string         `json:"id"`
+	UserAID        string         `json:"user_a_id"`
+	UserBID        string         `json:"user_b_id"`
+	Context        string         `json:"context"`
+	VaultID        string         `json:"vault_id"`
+	CreatedAt      int64          `json:"created_at"`
+	UpdatedAt      int64          `json:"updated_at"`
+	ArchivedAt     *int64         `json:"archived_at"`
+	GroupID        *string        `json:"group_id,omitempty"`
+	GroupIDs       []string       `json:"group_ids,omitempty"`
 	GroupFieldHLCs map[string]HLC `json:"group_field_hlcs,omitempty"`
 }
 
@@ -264,12 +265,12 @@ type MemberProjection struct {
 // sorts string map keys alphabetically for deterministic output.
 type Projection struct {
 	CustomerGroups map[string]*CustomerGroupProjection `json:"customer_groups,omitempty"`
-	Users         map[string]*UserProjection         `json:"users"`
-	Relationships map[string]*RelationshipProjection `json:"relationships"`
-	Entries       map[string]*EntryProjection        `json:"entries"`
-	ShopProfile   *ShopProfileProjection             `json:"shop_profile"`
-	Members       map[string]*MemberProjection       `json:"members"`
-	VaultSettings map[string]string                  `json:"vault_settings"`
+	Users          map[string]*UserProjection          `json:"users"`
+	Relationships  map[string]*RelationshipProjection  `json:"relationships"`
+	Entries        map[string]*EntryProjection         `json:"entries"`
+	ShopProfile    *ShopProfileProjection              `json:"shop_profile"`
+	Members        map[string]*MemberProjection        `json:"members"`
+	VaultSettings  map[string]string                   `json:"vault_settings"`
 }
 
 // NewProjection returns an empty projection with non-nil maps so JSON output

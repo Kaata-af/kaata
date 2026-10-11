@@ -28,7 +28,7 @@
 // the cloud copy in favor of a clean slate).
 
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useIsFocused, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -41,7 +41,13 @@ import { getAppMeta, setAppMeta } from "../../lib/db";
 import { textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
-import { adoptAccountPhoneToSelf } from "../../lib/auth";
+import {
+  adoptAccountPhoneToSelf,
+  applyForCurrentSession,
+  captureCurrentSession,
+  SessionChangedError,
+  type SessionSnapshot,
+} from "../../lib/auth";
 import { recoverAllVaults, type RecoveryProgress } from "../../lib/recovery";
 import { RestoreSessionExpiredError, RestoreTimeoutError } from "../../lib/restore";
 import { icon, radius, typography } from "../../lib/tokens";
@@ -56,6 +62,17 @@ type Phase =
 
 export default function OnboardingRestoreScreen() {
   const router = useRouter();
+  const isFocused = useIsFocused();
+  const focused = useRef(isFocused);
+  focused.current = isFocused;
+  const mounted = useRef(true);
+  const probedSession = useRef<SessionSnapshot | null>(null);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const isRTL = useIsRTL();
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   // Bumped by the error screen's "Try again" — the probe effect keys on it.
@@ -70,6 +87,8 @@ export default function OnboardingRestoreScreen() {
   // Confirmation gate for "Start fresh" on the data-found screen — discarding
   // a found backup from this device shouldn't be a one-tap mistake.
   const [confirmFresh, setConfirmFresh] = useState(false);
+  const [cancelledDeletion, setCancelledDeletion] = useState(false);
+  const autoRestoreStarted = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,24 +96,29 @@ export default function OnboardingRestoreScreen() {
       try {
         // Without an account_id the user is mid-onboarding with no server
         // vault yet — skip straight to profile so they can create one.
-        const accountId = await getAppMeta("account_id");
+        const session = await captureCurrentSession();
+        const accountId = session.accountId;
+        probedSession.current = session;
         if (!accountId) {
           if (!cancelled) setPhase({ kind: "ready_none" });
           return;
         }
+        const recoveringDeletion = (await getAppMeta("account_deletion_cancelled")) === accountId;
 
         // M5: list every vault this account is a member of. Any non-archived
         // vault → offer recovery; none → fresh install, skip to profile.
         const vaults = await listVaults();
         if (cancelled) return;
-        const live = vaults.filter((v) => v.archived_at_ms == null);
-        if (live.length === 0) {
-          setPhase({ kind: "ready_none" });
-          return;
-        }
-        setPhase({ kind: "ready", vaultCount: live.length });
+        await applyForCurrentSession(session, async () => {
+          if (cancelled || !mounted.current || !focused.current) return;
+          setCancelledDeletion(recoveringDeletion);
+          const live = recoveringDeletion ? vaults : vaults.filter((v) => v.archived_at_ms == null);
+          setPhase(
+            live.length === 0 ? { kind: "ready_none" } : { kind: "ready", vaultCount: live.length },
+          );
+        });
       } catch (err) {
-        if (cancelled) return;
+        if (cancelled || !focused.current || err instanceof SessionChangedError) return;
         setPhase({
           kind: "error",
           message: classifyError(err),
@@ -115,43 +139,76 @@ export default function OnboardingRestoreScreen() {
   useEffect(() => {
     if (phase.kind !== "ready_none") return;
     const id = setTimeout(() => {
-      router.replace("/onboarding/profile");
+      const session = probedSession.current;
+      if (!session?.accountId) {
+        if (mounted.current && focused.current) router.replace("/onboarding/profile");
+        return;
+      }
+      void applyForCurrentSession(session, async () => {
+        if (mounted.current && focused.current) router.replace("/onboarding/profile");
+      }).catch(() => {});
     }, 50);
     return () => clearTimeout(id);
   }, [phase.kind, router]);
 
+  // A proved return within the grace window already cancelled deletion. Restore
+  // the kept cloud data automatically, with the normal progress/error UI.
+  useEffect(() => {
+    if (cancelledDeletion && phase.kind === "ready" && !autoRestoreStarted.current) {
+      autoRestoreStarted.current = true;
+      void onRestore();
+    }
+  }, [cancelledDeletion, phase.kind]);
+
   async function onRestore() {
     if (restoringRef.current) return;
+    const session = probedSession.current;
+    if (!session?.accountId || !mounted.current || !focused.current) return;
     restoringRef.current = true;
     setProgress(null);
     setPhase({ kind: "restoring" });
     try {
-      const result = await recoverAllVaults({ onProgress: setProgress });
-      if (result.recovered.length > 0) {
+      await applyForCurrentSession(session, async () => {});
+      const result = await recoverAllVaults({
+        requireComplete: cancelledDeletion,
+        includeArchived: cancelledDeletion,
+        onProgress: (next) => {
+          if (mounted.current && focused.current) setProgress(next);
+        },
+      });
+      await applyForCurrentSession(session, async () => {});
+      if (!mounted.current || !focused.current) return;
+      if (result.recovered.length > 0 && (!cancelledDeletion || result.failed.length === 0)) {
         // At least one vault came back. Mark onboarding done — recovery rebuilt
         // the ledger AND minted the local-self identity (the snapshot can't carry
         // it), so getLocalSelf() is non-null and home won't bounce back here; the
         // profile screen is unnecessary. Going straight to home matches the user's
         // mental model: "my data is back, take me to it."
-        await setAppMeta("onboarding_step", "done");
-        await setAppMeta("onboarding_pending_name", "");
-        await setAppMeta("onboarding_pending_email", "");
-        // BUG-1: the restored self user comes back WITHOUT a phone (the self
-        // phone is device-local + never event-sourced) AND this screen skips the
-        // profile form that would prefill it. Adopt the account-level phone
-        // (stashed at sign-in from /v1/auth/google) onto the restored self row so
-        // it survives the reinstall. Best-effort; runs after recovery created the
-        // self row (the sign-in-time reconcile ran before that row existed).
-        const pendingPhone = (await getAppMeta("onboarding_pending_phone"))?.trim() || null;
-        if (pendingPhone) await adoptAccountPhoneToSelf(pendingPhone);
-        await setAppMeta("onboarding_pending_phone", "");
-        // Push the restored identity + onboarded state to the backend now, so
-        // this signed-in user doesn't read as "not onboarded" on the admin
-        // dashboard until their next launch. (recovery only fired a minimal
-        // witness-pin check-in with no identity fields.) Best-effort; offline
-        // no-ops and self-heals on the next online check-in.
-        requestImmediateCheckIn();
-        router.replace("/");
+        await applyForCurrentSession(session, async () => {
+          if (!mounted.current || !focused.current) return;
+          await setAppMeta("onboarding_step", "done");
+          await setAppMeta("onboarding_pending_name", "");
+          await setAppMeta("onboarding_pending_email", "");
+          if ((await getAppMeta("account_deletion_cancelled")) === session.accountId) {
+            await setAppMeta("account_deletion_cancelled", "");
+          }
+          // BUG-1: the restored self user comes back WITHOUT a phone (the self
+          // phone is device-local + never event-sourced) AND this screen skips the
+          // profile form that would prefill it. Adopt the account-level phone
+          // (stashed at sign-in from /v1/auth/google) onto the restored self row so
+          // it survives the reinstall. Best-effort; runs after recovery created the
+          // self row (the sign-in-time reconcile ran before that row existed).
+          const pendingPhone = (await getAppMeta("onboarding_pending_phone"))?.trim() || null;
+          if (pendingPhone) await adoptAccountPhoneToSelf(pendingPhone);
+          await setAppMeta("onboarding_pending_phone", "");
+          // Push the restored identity + onboarded state to the backend now, so
+          // this signed-in user doesn't read as "not onboarded" on the admin
+          // dashboard until their next launch. (recovery only fired a minimal
+          // witness-pin check-in with no identity fields.) Best-effort; offline
+          // no-ops and self-heals on the next online check-in.
+          requestImmediateCheckIn();
+          if (mounted.current && focused.current) router.replace("/");
+        });
         return;
       }
       // Nothing recovered but at least one vault errored → retryable error.
@@ -165,6 +222,7 @@ export default function OnboardingRestoreScreen() {
       });
     } catch (err) {
       restoringRef.current = false;
+      if (!mounted.current || !focused.current || err instanceof SessionChangedError) return;
       setPhase({
         kind: "error",
         message: classifyError(err),
@@ -174,21 +232,26 @@ export default function OnboardingRestoreScreen() {
   }
 
   async function onStartFresh(opts: { persistSkip: boolean }) {
-    // Only persist the per-account skip flag for a DELIBERATE choice on the
-    // "we found your data" screen. From the ERROR screen we must NOT persist
-    // it: the restore failed (often transiently), and a permanent skip would
-    // strand the account's server data — the next launch should re-probe and
-    // offer restore again. (The cloud copy is never deleted here either way;
-    // this flag only controls whether we re-prompt.) The flag is per-account
-    // so signing into a different account still triggers the restore prompt.
-    if (opts.persistSkip) {
-      const accountId = await getAppMeta("account_id");
-      if (accountId) {
-        await setAppMeta(`restore_skipped_for_account_${accountId}`, "1");
+    const session = probedSession.current;
+    if (!session?.accountId) return;
+    await applyForCurrentSession(session, async () => {
+      if (!mounted.current || !focused.current) return;
+      // Only persist the per-account skip flag for a DELIBERATE choice on the
+      // "we found your data" screen. From the ERROR screen we must NOT persist
+      // it: the restore failed (often transiently), and a permanent skip would
+      // strand the account's server data — the next launch should re-probe and
+      // offer restore again. (The cloud copy is never deleted here either way;
+      // this flag only controls whether we re-prompt.) The flag is per-account
+      // so signing into a different account still triggers the restore prompt.
+      if (opts.persistSkip) {
+        const accountId = await getAppMeta("account_id");
+        if (accountId) {
+          await setAppMeta(`restore_skipped_for_account_${accountId}`, "1");
+        }
       }
-    }
-    await setAppMeta("onboarding_step", "profile");
-    router.replace("/onboarding/profile");
+      await setAppMeta("onboarding_step", "profile");
+      router.replace("/onboarding/profile");
+    }).catch(() => {});
   }
 
   // ---------- render ----------
@@ -209,7 +272,13 @@ export default function OnboardingRestoreScreen() {
         <View style={styles.center}>
           <RestoreProgress
             fraction={progress?.fraction ?? 0}
-            label={progress ? restoreProgressLabel(progress) : t("onboardingRestore.restoring")}
+            label={
+              cancelledDeletion
+                ? t("account.deleteAccount.restoring")
+                : progress
+                  ? restoreProgressLabel(progress)
+                  : t("onboardingRestore.restoring")
+            }
             tone="dark"
             isRTL={isRTL}
           />
@@ -231,6 +300,7 @@ export default function OnboardingRestoreScreen() {
             <Button
               label={t("onboardingRestore.tryAgain")}
               onPress={() => {
+                autoRestoreStarted.current = false;
                 setPhase({ kind: "loading" });
                 // Re-run the probe — setting phase alone left an
                 // infinite spinner (the probe effect was mount-only).

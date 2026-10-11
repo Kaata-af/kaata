@@ -1,3 +1,5 @@
+import { SheetBackdrop } from "./SheetBackdrop";
+import { useOverlayAnimation } from "../lib/use-overlay-animation";
 // OptionSheet — a small single-select picker bottom sheet, extracted from
 // preferences.tsx so the kaata-settings screen (which absorbed the old
 // Preferences surface) can reuse it for the Language picker. Same chrome as
@@ -5,8 +7,6 @@
 // hairline dividers, 220ms exit defer, numeric maxHeight cap).
 
 import { Ionicons } from "@expo/vector-icons";
-import { BlurView } from "expo-blur";
-import { useEffect, useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
@@ -18,7 +18,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { SHEET_BLUR_METHOD } from "../lib/blur";
 import { colors } from "../lib/colors";
 import {
   SETTINGS_ROW_LABEL_FONT_SIZE,
@@ -55,52 +54,14 @@ export function OptionSheet(props: {
   isRTL: boolean;
 }) {
   const { visible, title, options, selected, onSelect, onDismiss, isRTL } = props;
-  const [rendered, setRendered] = useState(false);
-  const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(SHEET_OFFSCREEN)).current;
-
-  useEffect(() => {
-    if (visible) {
-      setRendered(true);
-      requestAnimationFrame(() => {
-        Animated.parallel([
-          Animated.timing(opacity, { toValue: 1, duration: 220, useNativeDriver: true }),
-          Animated.spring(translateY, {
-            toValue: 0,
-            useNativeDriver: true,
-            friction: 11,
-            tension: 75,
-          }),
-        ]).start();
-      });
-    } else if (rendered) {
-      Animated.parallel([
-        Animated.timing(opacity, { toValue: 0, duration: 160, useNativeDriver: true }),
-        Animated.timing(translateY, {
-          toValue: SHEET_OFFSCREEN,
-          duration: SHEET_EXIT_MS,
-          useNativeDriver: true,
-        }),
-      ]).start(({ finished }) => {
-        if (finished) setRendered(false);
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible]);
+  const { rendered, opacity, position: translateY } = useOverlayAnimation(visible, SHEET_OFFSCREEN);
 
   if (!rendered) return null;
 
   return (
     <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={onDismiss}>
       <Animated.View style={[StyleSheet.absoluteFill, { opacity }]}>
-        <BlurView
-          intensity={20}
-          tint="light"
-          blurMethod={SHEET_BLUR_METHOD}
-          style={StyleSheet.absoluteFill}
-        />
-        <View style={styles.sheetTint} />
-        <Pressable style={StyleSheet.absoluteFill} onPress={onDismiss} />
+        <SheetBackdrop onDismiss={onDismiss} />
       </Animated.View>
 
       <Animated.View
@@ -163,7 +124,6 @@ export function OptionSheet(props: {
 }
 
 const styles = StyleSheet.create({
-  sheetTint: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.08)" },
   sheetContainer: { position: "absolute", left: 0, right: 0, bottom: 0 },
   sheetWrap: {
     backgroundColor: colors.bgDefault,

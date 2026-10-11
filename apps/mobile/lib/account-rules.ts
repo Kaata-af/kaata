@@ -387,6 +387,8 @@ export function accountRefusal(err: unknown): Refusal | null {
       return at("form", t("auth.error.busy"));
     case "account_disabled":
       return at("form", t("auth.error.accountDisabled"));
+    case "account_deletion_expired":
+      return at("form", t("auth.error.accountDeletionExpired"));
     case "session_expired":
       return at("form", t("auth.error.sessionExpired"));
     default:

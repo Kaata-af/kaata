@@ -44,6 +44,13 @@ func (s *Service) SetSharedRecordNotifier(n SharedRecordNotifier) { s.sharedReco
 // If deletion leaves a side without an authorized representative, close that
 // tally and retire its invitations, without accepting or cancelling any entry.
 func (s *Service) DeleteAccount(ctx context.Context, accountID string) error {
+	return s.hardDeleteAccount(ctx, accountID, false)
+}
+
+// The HTTP endpoint schedules deletion. This irreversible implementation is
+// retained for the purge worker and the existing FK/evidence regression tests.
+// expiredOnly rechecks the deadline under the same lock as sign-in cancellation.
+func (s *Service) hardDeleteAccount(ctx context.Context, accountID string, expiredOnly bool) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return fmt.Errorf("begin deletion: %w", err)
@@ -54,7 +61,12 @@ func (s *Service) DeleteAccount(ctx context.Context, accountID string) error {
 	// other rows. A request authenticated before deletion must finish first or
 	// observe the missing account; it cannot recreate activity after commit.
 	var lockedID string
-	err = tx.QueryRow(ctx, `SELECT id::text FROM accounts WHERE id = $1::uuid FOR UPDATE`, accountID).Scan(&lockedID)
+	lockSQL := `SELECT id::text FROM accounts WHERE id=$1::uuid FOR UPDATE`
+	if expiredOnly {
+		lockSQL = `SELECT id::text FROM accounts WHERE id=$1::uuid
+		 AND pending_delete_at <= NOW()-INTERVAL '720 hours' FOR UPDATE SKIP LOCKED`
+	}
+	err = tx.QueryRow(ctx, lockSQL, accountID).Scan(&lockedID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}

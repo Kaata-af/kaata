@@ -7,8 +7,18 @@ import { colors } from "../lib/colors";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { formatDate } from "../lib/format";
 import { t } from "../lib/i18n";
-import { reminderClock, reminderWeekday } from "../lib/reminder-format";
-import { nextReminderOccurrence, type ReminderSchedule } from "../lib/reminder-schedule";
+import {
+  reminderClock,
+  reminderMonthCount,
+  reminderMonthlyDate,
+  reminderWeekday,
+} from "../lib/reminder-format";
+import {
+  nextReminderOccurrence,
+  REMINDER_MONTH_INTERVALS,
+  validReminderSchedule,
+  type ReminderSchedule,
+} from "../lib/reminder-schedule";
 import { radius, typography } from "../lib/tokens";
 
 export function ReminderEditor({
@@ -23,7 +33,9 @@ export function ReminderEditor({
   onCancel: () => void;
 }) {
   const rtl = useIsRTL();
-  const [kind, setKind] = useState(value.kind);
+  const [kind, setKind] = useState<"once" | "daily" | "weekly" | "monthly">(
+    value.kind === "weekdays" ? "weekly" : value.kind,
+  );
   const [when, setWhen] = useState(
     () =>
       new Date(
@@ -32,7 +44,14 @@ export function ReminderEditor({
           : (nextReminderOccurrence(value, Date.now()) ?? Date.now()),
       ),
   );
-  const [weekday, setWeekday] = useState(value.kind === "weekly" ? value.weekday : when.getDay());
+  const [weekdays, setWeekdays] = useState(
+    value.kind === "weekdays"
+      ? value.weekdays
+      : [value.kind === "weekly" ? value.weekday : when.getDay()],
+  );
+  const [intervalMonths, setIntervalMonths] = useState<1 | 2 | 3 | 6 | 12>(
+    value.kind === "monthly" ? value.intervalMonths : 1,
+  );
   const [picker, setPicker] = useState<"date" | "time" | null>(null);
   const mounted = useRef(true),
     pickerRequest = useRef(0),
@@ -89,7 +108,7 @@ export function ReminderEditor({
         value: when,
         mode,
         onValueChange: change,
-        minimumDate: mode === "date" ? new Date() : undefined,
+        minimumDate: mode === "date" && kind === "once" ? new Date() : undefined,
         onDismiss: () => {
           if (request === pickerRequest.current) androidMode.current = null;
         },
@@ -101,11 +120,29 @@ export function ReminderEditor({
       ? { kind, at: when.getTime() }
       : kind === "daily"
         ? { kind, hour: when.getHours(), minute: when.getMinutes() }
-        : { kind, weekday, hour: when.getHours(), minute: when.getMinutes() };
+        : kind === "monthly"
+          ? {
+              kind,
+              day: when.getDate(),
+              anchorMonth: when.getMonth(),
+              intervalMonths,
+              hour: when.getHours(),
+              minute: when.getMinutes(),
+            }
+          : weekdays.length === 1
+            ? {
+                kind: "weekly",
+                weekday: weekdays[0],
+                hour: when.getHours(),
+                minute: when.getMinutes(),
+              }
+            : { kind: "weekdays", weekdays, hour: when.getHours(), minute: when.getMinutes() };
+  const valid = validReminderSchedule(schedule);
+  const next = nextReminderOccurrence(schedule, Date.now());
   return (
     <View style={styles.editor}>
       <View style={[styles.kinds, rowDir(rtl)]} accessibilityRole="radiogroup">
-        {(["once", "daily", "weekly"] as const).map((choice) => (
+        {(["once", "daily", "weekly", "monthly"] as const).map((choice) => (
           <Pressable
             key={choice}
             accessibilityRole="radio"
@@ -114,6 +151,12 @@ export function ReminderEditor({
             disabled={busy}
             onPress={() => {
               setPicker(null);
+              if (choice === "monthly" && when.getDate() > 28)
+                setWhen((previous) => {
+                  const next = new Date(previous);
+                  next.setDate(28);
+                  return next;
+                });
               setKind(choice);
             }}
             style={[styles.choice, kind === choice && styles.selected]}
@@ -125,16 +168,23 @@ export function ReminderEditor({
       {kind === "weekly" ? (
         <View style={styles.weekdays}>
           <Text style={[styles.caption, textDir(rtl)]}>{t("reminders.weekday")}</Text>
+          <Text style={[styles.caption, textDir(rtl)]}>{t("reminders.chooseWeekdays")}</Text>
           <View style={[styles.kinds, rowDir(rtl)]}>
             {[6, 0, 1, 2, 3, 4, 5].map((day) => (
               <Pressable
                 key={day}
-                accessibilityRole="radio"
+                accessibilityRole="checkbox"
                 accessibilityLabel={reminderWeekday(day)}
-                accessibilityState={{ checked: weekday === day, disabled: busy }}
+                accessibilityState={{ checked: weekdays.includes(day), disabled: busy }}
                 disabled={busy}
-                onPress={() => setWeekday(day)}
-                style={[styles.choice, weekday === day && styles.selected]}
+                onPress={() =>
+                  setWeekdays((days) =>
+                    days.includes(day)
+                      ? days.filter((selected) => selected !== day)
+                      : [...days, day],
+                  )
+                }
+                style={[styles.choice, weekdays.includes(day) && styles.selected]}
               >
                 <Text style={styles.label}>{reminderWeekday(day)}</Text>
               </Pressable>
@@ -142,16 +192,41 @@ export function ReminderEditor({
           </View>
         </View>
       ) : null}
-      {kind === "once" ? (
+      {kind === "monthly" ? (
+        <View style={styles.weekdays}>
+          <Text style={[styles.caption, textDir(rtl)]}>{t("reminders.repeatEvery")}</Text>
+          <View style={[styles.kinds, rowDir(rtl)]} accessibilityRole="radiogroup">
+            {REMINDER_MONTH_INTERVALS.map((months) => (
+              <Pressable
+                key={months}
+                accessibilityRole="radio"
+                accessibilityLabel={reminderMonthCount(months)}
+                accessibilityState={{ checked: intervalMonths === months, disabled: busy }}
+                disabled={busy}
+                onPress={() => setIntervalMonths(months)}
+                style={[styles.choice, intervalMonths === months && styles.selected]}
+              >
+                <Text style={styles.label}>{reminderMonthCount(months)}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={[styles.caption, textDir(rtl)]}>{t("reminders.monthlyCalendar")}</Text>
+        </View>
+      ) : null}
+      {kind === "once" || kind === "monthly" ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={t("reminders.date")}
+          accessibilityLabel={t(kind === "monthly" ? "reminders.monthlyDate" : "reminders.date")}
           disabled={busy}
           onPress={() => pick("date")}
           style={styles.field}
         >
-          <Text style={[styles.caption, textDir(rtl)]}>{t("reminders.date")}</Text>
-          <Text style={[styles.label, textDir(rtl)]}>{formatDate(when.getTime())}</Text>
+          <Text style={[styles.caption, textDir(rtl)]}>
+            {t(kind === "monthly" ? "reminders.monthlyDate" : "reminders.date")}
+          </Text>
+          <Text style={[styles.label, textDir(rtl)]}>
+            {kind === "monthly" ? reminderMonthlyDate(when.getTime()) : formatDate(when.getTime())}
+          </Text>
         </Pressable>
       ) : null}
       <Pressable
@@ -173,7 +248,7 @@ export function ReminderEditor({
             mode={picker}
             display="spinner"
             themeVariant="light"
-            minimumDate={picker === "date" ? new Date() : undefined}
+            minimumDate={picker === "date" && kind === "once" ? new Date() : undefined}
             onValueChange={(_, selected) => {
               if (
                 busyRef.current ||
@@ -199,12 +274,23 @@ export function ReminderEditor({
           />
         </View>
       ) : null}
+      {!valid ? (
+        <Text style={[styles.error, textDir(rtl)]} accessibilityRole="alert">
+          {t(kind === "weekly" ? "reminders.chooseOneDay" : "reminders.monthDayRange")}
+        </Text>
+      ) : kind === "monthly" && next != null ? (
+        <Text style={[styles.next, textDir(rtl)]}>
+          {t("reminders.next", { date: formatDate(next) })}
+        </Text>
+      ) : null}
       <View style={styles.footer}>
         <Button
           label={t("entry.save")}
-          onPress={() => onSave(schedule)}
+          onPress={() => {
+            if (valid) onSave(schedule);
+          }}
           loading={busy}
-          disabled={busy}
+          disabled={busy || !valid}
           fullWidth
         />
         <Button
@@ -233,6 +319,8 @@ const styles = StyleSheet.create({
   selected: { borderColor: colors.actionPrimary, backgroundColor: colors.bgMuted },
   label: { ...typography.bodySm, color: colors.textDefault },
   caption: { ...typography.caption, color: colors.textSubtle },
+  error: { ...typography.bodySm, color: colors.danger, marginTop: 16 },
+  next: { ...typography.caption, color: colors.textSubtle, marginTop: 16 },
   weekdays: { gap: 10, marginTop: 20 },
   field: {
     paddingVertical: 16,

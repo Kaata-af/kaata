@@ -162,6 +162,10 @@ function settingsSignIn() {
   // push the provider page once the existing exit delay has elapsed.
   const sheetMocks: Record<string, any> = {
     ...mocks,
+    "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
+    "../lib/use-overlay-animation": {
+      useOverlayAnimation: (visible: boolean) => ({ rendered: visible, opacity: 1, position: 0 }),
+    },
     react: { ...mocks.react, useMemo: (fn: any) => fn() },
     "react-native": {
       ...mocks["react-native"],
@@ -229,8 +233,8 @@ function settingsSignIn() {
       reset();
       rtl = isRTL;
       // The sheet is already mounted and visible; native animation isn't the
-      // behavior under test. This initializes its first `rendered` state.
-      slots = [true];
+      // behavior under test; the tested shared animation hook is stubbed here.
+      slots = [];
       cursor = 0;
       queued = null;
       dismissed = 0;
@@ -425,6 +429,48 @@ async function main() {
     .find((n) => n.type === "EmailAuthFlow")
     .props.onSignedIn({ email: "test@example.com" });
   assert.deepEqual(routes, [{ dismissTo: "/onboarding/auth" }, "/onboarding/restore"]);
+  for (const redirected of [true, false]) {
+    for (const email of [true, false]) {
+      reset();
+      meta.set("account_id", "account-a");
+      meta.set("account_deletion_cancelled", "account-a");
+      meta.set("pending_tab_token", "kept-intent");
+      if (email) {
+        await nodes(await renderEmail(redirected))
+          .find((n) => n.type === "EmailAuthFlow")
+          .props.onSignedIn({ email: "test@example.com" });
+      } else {
+        nodes(render(redirected))
+          .find((n) => n.props.accessibilityLabel === "onboardingMode.google.title")
+          .props.onPress();
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+      }
+      assert.deepEqual(
+        routes,
+        [
+          ...(email ? [{ dismissTo: redirected ? "/sign-in" : "/onboarding/auth" }] : []),
+          "/onboarding/restore",
+        ],
+        "cancelled deletion uses recovery from existing Settings and onboarding auth",
+      );
+      assert.equal(
+        meta.get("pending_tab_token"),
+        "kept-intent",
+        "recovery does not discard the original action",
+      );
+      assert.equal(meta.get("onboarding_step"), undefined);
+    }
+  }
+  reset();
+  meta.set("account_id", "account-a");
+  meta.set("account_deletion_cancelled", "account-b");
+  await signIn();
+  assert.deepEqual(
+    routes,
+    [{ dismissTo: "/" }],
+    "another account's marker leaves the ordinary existing-account route intact",
+  );
+  assert.equal(meta.get("account_deletion_cancelled"), "account-b");
   console.log(
     "PASS: native email Back preserves selector, including direct/cold entry; email success replaces both auth routes",
   );

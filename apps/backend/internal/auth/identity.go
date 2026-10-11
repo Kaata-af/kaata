@@ -365,26 +365,29 @@ func adoptHollowDuplicate(
 		return "", nil
 	}
 
-	// Serialize adoption on the husk's accounts row: two concurrent sign-ins
-	// with the same identity must not both pass the hollow check and repoint
-	// twice. Residual (accepted): a vault registered under a hollow-account
-	// JWT in the SAME instant on another device isn't serialized by this lock
-	// (POST /v1/vaults doesn't lock the accounts row) and would strand that
-	// vault on the husk — same-user, milliseconds-wide, needs manual repair.
+	// Serialize the hollow check and pointer changes with other sign-ins and
+	// account-first vault registration. A registration committed before this
+	// lock makes the source content-bearing. An already admitted/cached husk
+	// session may still wait for adoption, then register on the surviving husk;
+	// that pre-existing credential-cache/adoption limitation needs manual repair.
 	if _, err := tx.Exec(ctx, `
 		SELECT id FROM accounts WHERE id = $1::uuid FOR UPDATE
 	`, accountID); err != nil {
 		return "", fmt.Errorf("lock hollow account row: %w", err)
 	}
 
+	// A deletion request must resolve to its original identity until the shared
+	// sign-in tail cancels or rejects it. Healing into another account first
+	// would skip the source's recovery deadline and leave its request pending.
 	var hollow bool
 	if err := tx.QueryRow(ctx, `
-		SELECT NOT EXISTS (
+		SELECT a.pending_delete_at IS NULL AND NOT EXISTS (
 		         SELECT 1 FROM vault_members vm
 		          WHERE vm.account_id = $1::uuid
 		            AND vm.revoked_at IS NULL AND vm.accepted_at IS NOT NULL
 		       )
 		   AND NOT EXISTS (SELECT 1 FROM vaults v WHERE v.owner_account_id = $1::uuid)
+		FROM accounts a WHERE a.id=$1::uuid
 	`, accountID).Scan(&hollow); err != nil {
 		return "", fmt.Errorf("hollow-account check: %w", err)
 	}

@@ -16,7 +16,7 @@
 //   - a later successful check-in or sign-in for the same install clears it,
 //     and a success for an id a reset has replaced clears nothing;
 //   - resetRetiredInstall is the local deletion wipe, in order, offline, under
-//     a fresh install id, with both deletion keys gone, serialized with session
+//     a fresh install id, with deletion proof keys gone, serialized with session
 //     work and invalidating every earlier session snapshot; only the one-shot
 //     Apple name survives it, and reaches the next Apple sign-in;
 //   - the copy says what happened without overstating it;
@@ -44,6 +44,7 @@ const SESSION_KEY = "kaata.session.jwt";
 const USER_KEY = "kaata.session.user";
 const CONFIRMATION_KEY = "kaata.account.deletion-confirmation";
 const ATTEMPT_KEY = "kaata.account.deletion-attempt";
+const BASELINE_KEY = "kaata.account.deletion-baseline";
 // app_meta key of lib/auth.ts's one-shot Apple name stash.
 const APPLE_NAME_KEY = "apple_pending_display_name";
 // The live backend's wording (apps/backend/internal/auth/handler.go and
@@ -537,6 +538,10 @@ const dialogModule = load<{
   ConfirmDialog: (props: DialogProps) => unknown;
   DESTRUCTIVE_ARM_MS: number;
 }>("../../components/ConfirmDialog", {
+  "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
+  "../lib/use-overlay-animation": {
+    useOverlayAnimation: (visible: boolean) => ({ rendered: visible, opacity: 1, position: 1 }),
+  },
   "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
   react: {
     useState: (initial: unknown) => {
@@ -876,6 +881,7 @@ test("resetRetiredInstall: the local wipe in order, offline, under a fresh id", 
   secure.set(USER_KEY, '{"email":"x@example.test"}');
   secure.set(CONFIRMATION_KEY, "session-x");
   secure.set(ATTEMPT_KEY, "session-x");
+  secure.set(BASELINE_KEY, "session-x");
   accountCache = "account-x";
   trace.length = 0;
   fetchCalls.length = 0;
@@ -898,9 +904,10 @@ test("resetRetiredInstall: the local wipe in order, offline, under a fresh id", 
     `secure.delete:${SESSION_KEY}`,
     `secure.delete:${CONFIRMATION_KEY}`,
     `secure.delete:${ATTEMPT_KEY}`,
+    `secure.delete:${BASELINE_KEY}`,
   ]);
   assert.equal(fetchCalls.length, 0, "no request: the server already refuses this install");
-  for (const key of [SESSION_KEY, USER_KEY, CONFIRMATION_KEY, ATTEMPT_KEY]) {
+  for (const key of [SESSION_KEY, USER_KEY, CONFIRMATION_KEY, ATTEMPT_KEY, BASELINE_KEY]) {
     assert.equal(secure.has(key), false, `${key} is gone`);
   }
   assert.equal(accountCache, null);

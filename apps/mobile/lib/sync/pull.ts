@@ -12,7 +12,7 @@
 // the projection is unchanged.
 
 import { getBackendUrl } from "../api";
-import { getSessionJWT } from "../auth";
+import { applyForCurrentSession, getSessionJWT, type SessionSnapshot } from "../auth";
 import { healActiveVaultId } from "../db";
 import { getAccountIdSync, getDb } from "../db-tx";
 import { resolveAccountIdCandidates } from "../effective-account";
@@ -67,10 +67,13 @@ type PullResponse = {
 
 export type PullResult = { pulled: number };
 
-export async function pullEvents(vaultId: string): Promise<PullResult> {
-  const jwt = await getSessionJWT();
+export async function pullEvents(vaultId: string, session?: SessionSnapshot): Promise<PullResult> {
+  const jwt = session ? session.jwt : await getSessionJWT();
   if (!jwt) {
     return { pulled: 0 };
+  }
+  function apply<T>(work: () => Promise<T>): Promise<T> {
+    return session ? applyForCurrentSession(session, work) : work();
   }
 
   const baseUrl = await getBackendUrl();
@@ -88,25 +91,28 @@ export async function pullEvents(vaultId: string): Promise<PullResult> {
   // whose person hasn't arrived yet doesn't block the entries that depend on it.
   let ingestedAny = false;
   for (;;) {
-    const batch = await fetchOnePage(baseUrl, jwt, vaultId, cursor, DEFAULT_BATCH_LIMIT);
+    await apply(async () => {});
+    const batch = await fetchOnePage(baseUrl, jwt, vaultId, cursor, DEFAULT_BATCH_LIMIT, session);
 
-    if (batch.events.length > 0) {
-      await ingestBatch(vaultId, batch.events);
-      ingestedAny = true;
-      totalPulled += batch.events.length;
-    }
+    await apply(async () => {
+      if (batch.events.length > 0) {
+        await ingestBatch(vaultId, batch.events);
+        ingestedAny = true;
+        totalPulled += batch.events.length;
+      }
 
-    if (batch.next_after_server_seq > cursor) {
-      cursor = batch.next_after_server_seq;
-      await setLastPulledServerSeq(vaultId, cursor);
-    }
+      if (batch.next_after_server_seq > cursor) {
+        cursor = batch.next_after_server_seq;
+        await setLastPulledServerSeq(vaultId, cursor);
+      }
+    });
 
     if (!batch.has_more) break;
   }
 
   // The drain completed without a vault_archived 403 — if this vault carried
   // a server-driven archive mirror, the owner has unarchived; lift it.
-  await clearServerArchiveMirrorIfProbing(vaultId).catch((err) => {
+  await apply(() => clearServerArchiveMirrorIfProbing(vaultId)).catch((err) => {
     if (__DEV__) console.warn("[sync.pull] archive-probe clear failed", err);
   });
 
@@ -115,7 +121,7 @@ export async function pullEvents(vaultId: string): Promise<PullResult> {
   // cold-launch / foreground sweepAllQuarantinedVaults — never loses data.
   if (ingestedAny) {
     try {
-      await sweepVaultNow(vaultId);
+      await apply(() => sweepVaultNow(vaultId));
     } catch (err) {
       console.warn(`[sync.pull] post-pull sweep failed for ${vaultId.slice(0, 8)}`, err);
     }
@@ -130,6 +136,7 @@ async function fetchOnePage(
   vaultId: string,
   afterServerSeq: number,
   limit: number,
+  session?: SessionSnapshot,
 ): Promise<PullResponse> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PULL_TIMEOUT_MS);
@@ -199,14 +206,19 @@ async function fetchOnePage(
       // Legacy backend / non-JSON body — indistinguishable, keep the
       // registration-pending interpretation.
     }
+    function apply<T>(work: () => Promise<T>): Promise<T> {
+      return session ? applyForCurrentSession(session, work) : work();
+    }
     if (code === "not_member") {
-      await markSelfMembershipRevoked(vaultId).catch((err) => {
-        // Best-effort: a failed mirror write must not mask the 403 flow —
-        // the next pull of this vault retries the revoke.
-        if (__DEV__) console.warn("[sync.pull] self-revoke mirror write failed", err);
+      await apply(async () => {
+        await markSelfMembershipRevoked(vaultId).catch((err) => {
+          // Best-effort: a failed mirror write must not mask the 403 flow —
+          // the next pull of this vault retries the revoke.
+          if (__DEV__) console.warn("[sync.pull] self-revoke mirror write failed", err);
+        });
+        // A revoked membership supersedes any archive probe — stop pinging.
+        await clearServerArchiveProbeFlag(vaultId).catch(() => {});
       });
-      // A revoked membership supersedes any archive probe — stop pinging.
-      await clearServerArchiveProbeFlag(vaultId).catch(() => {});
       throw new VaultNotRegisteredError("membership revoked on server");
     }
     if (code === "vault_archived") {
@@ -215,14 +227,14 @@ async function fetchOnePage(
       // NEVER self-revoke here: that flag is irreversible client-side and
       // turned every owner-side archive into a silent delete on members'
       // phones instead of a move to their archived list.
-      await markVaultArchivedFromServer(vaultId).catch((err) => {
+      await apply(() => markVaultArchivedFromServer(vaultId)).catch((err) => {
         if (__DEV__) console.warn("[sync.pull] local archive mirror write failed", err);
       });
       throw new VaultNotRegisteredError("vault archived on server");
     }
     // vault_unknown / legacy bodyless 403: if we were probing a
     // server-archived vault, it has been purged — nothing left to probe.
-    await clearServerArchiveProbeFlag(vaultId).catch(() => {});
+    await apply(() => clearServerArchiveProbeFlag(vaultId)).catch(() => {});
     throw new VaultNotRegisteredError();
   }
   if (!res.ok) {

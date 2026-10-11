@@ -14,7 +14,7 @@ function fixture(
 ) {
   const hooks = uiHooks();
   let locale = initialLocale,
-    self: any = null,
+    self: any = initialMeta._self ? { name: "Recovered self" } : null,
     deviceLanguage: string = initialLocale;
   let blocked: { key: string; wait: ReturnType<typeof deferred<void>> } | null = null;
   let failingKey: string | null = null;
@@ -182,6 +182,33 @@ async function main() {
     }
   }
   const layout = readFileSync(require.resolve("../../app/_layout"), "utf8");
+  for (const hasOnboarded of [true, false]) {
+    for (const restoreSkipped of [true, false]) {
+      assert.equal(
+        pickInitialRoute({
+          ...initial,
+          accountId: "account-a",
+          hasOnboarded,
+          restoreSkipped,
+          cancelledDeletionAccountId: "account-a",
+        }),
+        "onboarding/restore",
+        "account-scoped cancellation overrides a partially minted self and prior skip",
+      );
+      assert.equal(
+        pickInitialRoute({
+          ...initial,
+          accountId: "account-a",
+          hasOnboarded,
+          restoreSkipped,
+          cancelledDeletionAccountId: "account-b",
+        }),
+        hasOnboarded ? "index" : "onboarding/language",
+      );
+    }
+  }
+  assert.match(layout, /getAppMeta\("account_deletion_cancelled"\)/);
+  assert.match(layout, /setCancelledDeletionAccountId\(cancelledDeletion\)/);
   assert.match(
     layout,
     /setOnboardingStep\(parseOnboardingStep\(oStep\)\)/,
@@ -325,6 +352,23 @@ async function main() {
       "Home's /onboarding redirect resumes the same boot contract",
     );
     assert.deepEqual(index.writes, []);
+    index.hooks.unmount();
+  }
+  for (const marker of ["account-a", "account-b"]) {
+    const index = fixture("en", "auto", "index", {
+      _self: "1",
+      account_id: "account-a",
+      account_deletion_cancelled: marker,
+      onboarding_step: "done",
+      restore_skipped_for_account_account_a: "1",
+    });
+    await settleUI();
+    index.render();
+    assert.equal(
+      nodes(index.tree).find((node) => node.type === "Redirect")?.props.href,
+      marker === "account-a" ? "/onboarding/restore" : "/",
+      "real onboarding index resumes only this account's interrupted cancellation restore",
+    );
     index.hooks.unmount();
   }
   console.log(

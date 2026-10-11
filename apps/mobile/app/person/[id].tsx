@@ -7,6 +7,7 @@ import {
   Animated,
   AppState,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   Pressable,
   ScrollView,
@@ -16,6 +17,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { TallyDateFilterSheet } from "../../components/TallyDateFilterSheet";
 import { BottomSheet } from "../../components/BottomSheet";
 import { Chip } from "../../components/Chip";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -74,6 +76,11 @@ import { formatSettlementDate } from "../../lib/jalali";
 import { useCalendar } from "../../lib/calendar";
 import { shareKaataViaWhatsApp, type WhatsAppShareStage } from "../../lib/share";
 import { filterTallies, noteSearchTerms } from "../../lib/tally-search";
+import {
+  filterTalliesByDate,
+  shiftLocalDay,
+  type TallyDateRange,
+} from "../../lib/tally-date-filter";
 import { summarizeTallyFlows } from "../../lib/tally-summary";
 import {
   getLatestTabLinkForPerson,
@@ -196,7 +203,13 @@ export default function PersonDetailScreen() {
   const settlementRequest = useRef<{ id: string; throughSeq: number } | null>(null);
   const [showFullHistory, setShowFullHistory] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  useEffect(() => setSearchQuery(""), [id, entryId, notificationKey]);
+  const [dateRange, setDateRange] = useState<TallyDateRange | null>(null);
+  const [dateSheetVisible, setDateSheetVisible] = useState(false);
+  useEffect(() => {
+    setSearchQuery("");
+    setDateRange(null);
+    setDateSheetVisible(false);
+  }, [id, entryId, notificationKey]);
   useEffect(() => {
     if (entryId) setShowFullHistory(true);
   }, [entryId, notificationKey]);
@@ -217,7 +230,7 @@ export default function PersonDetailScreen() {
       height: row.height,
       offset: viewport.current.offset,
       viewport: viewport.current.height,
-      bottomInset: canCreate ? actionsHeight + viewport.current.lift : insets.bottom,
+      bottomInset: actionsHeight + viewport.current.lift,
     });
     if (target != null) scrollRef.current?.scrollTo({ y: target, animated: true });
     setHighlight({ id: entryId, key });
@@ -385,21 +398,28 @@ export default function PersonDetailScreen() {
     [flowHistory, flowScope],
   );
   const searchTerms = useMemo(() => noteSearchTerms(searchQuery), [searchQuery]);
-  const searching = searchTerms.length > 0;
+  const searching = searchTerms.length > 0 || dateRange != null;
   const searchingRef = useRef(searching);
   searchingRef.current = searching;
   const matchedEntries = useMemo(
-    () => filterTallies(displayedEntries, searchTerms, { locale, calendar }),
-    [displayedEntries, searchTerms, locale, calendar],
+    () => filterTalliesByDate(filterTallies(displayedEntries, searchTerms), dateRange),
+    [displayedEntries, searchTerms, dateRange],
   );
   const matchedPreLink = useMemo(
-    () => filterTallies(preLink, searchTerms, { locale, calendar }),
-    [preLink, searchTerms, locale, calendar],
+    () => filterTalliesByDate(filterTallies(preLink, searchTerms), dateRange),
+    [preLink, searchTerms, dateRange],
   );
   const matchedFailedTallies = useMemo(
-    () => filterTallies(failedTallies, searchTerms, { locale, calendar }),
-    [failedTallies, searchTerms, locale, calendar],
+    () => filterTalliesByDate(filterTallies(failedTallies, searchTerms), dateRange),
+    [failedTallies, searchTerms, dateRange],
   );
+  const hasTallies = entries.length > 0 || preLink.length > 0 || failedTallies.length > 0;
+  const dateRangeLabel = dateRange
+    ? [
+        formatSettlementDate(dateRange.start, locale, calendar),
+        formatSettlementDate(shiftLocalDay(dateRange.end, -1), locale, calendar),
+      ].join(" – ")
+    : "";
   const searchResultCount =
     matchedEntries.length + matchedPreLink.length + matchedFailedTallies.length;
   const sharedThroughSeq = sharedSettlements.at(-1)?.through_seq ?? 0;
@@ -1088,459 +1108,543 @@ export default function PersonDetailScreen() {
           style flip, so it can't happen. */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        enabled={Platform.OS === "android"}
-        behavior={Platform.OS === "android" ? "height" : undefined}
+        behavior={Platform.OS === "android" ? "height" : "padding"}
       >
-        <ScrollView
-          ref={scrollRef}
-          onLayout={(event) => {
-            viewport.current.height = event.nativeEvent.layout.height;
-            revealNotificationTally();
-          }}
-          onScroll={(event) => {
-            viewport.current.offset = event.nativeEvent.contentOffset.y;
-          }}
-          scrollEventThrottle={16}
-          onContentSizeChange={revealNotificationTally}
-          showsVerticalScrollIndicator={false}
-          keyboardDismissMode="on-drag"
-          keyboardShouldPersistTaps="handled"
-          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
-          contentContainerStyle={{
-            paddingBottom: canCreate ? actionsHeight + 24 : 24 + insets.bottom,
-          }}
-        >
-          <View>
-            <View style={styles.info}>
-              <View style={[styles.nameRow, rowDir(isRTL)]}>
-                <Text style={[styles.name, { flexShrink: 1 }, textDir(isRTL)]}>{person.name}</Text>
-                {link ? (
-                  <SharedAccountBadge
-                    size={20}
-                    name={person.name}
-                    fontSize={typography.heading.fontSize}
-                  />
-                ) : null}
-              </View>
-              {person.phone ? (
-                <Text
-                  style={[
-                    styles.phone,
-                    { writingDirection: "ltr", textAlign: isRTL ? "right" : "left" },
-                  ]}
-                >
-                  {ltrIsolate(person.phone)}
-                </Text>
-              ) : null}
-              <View style={{ height: 16 }} />
-              <View style={[styles.balanceOverview, rowDir(isRTL)]}>
-                <View style={styles.balanceSide}>
-                  <View style={[styles.chipRow, rowDir(isRTL)]}>
-                    {chipLabel && chipVariant ? (
-                      <Chip label={chipLabel} variant={chipVariant} />
-                    ) : settledCount > 0 &&
-                      chapterCoherent &&
-                      !sharedReviewPending &&
-                      unsettledOriginalCount === 0 ? (
-                      // "SETTLED" only when the user actually drew the line and it
-                      // covers everything.
-                      <Chip label={t("person.balance.settled")} variant="neutral" />
-                    ) : displayedEntries.length > 0 ? (
-                      // A tally that merely SUMS to zero (or whose chapter no longer
-                      // adds up after a sync) is not a settled account — say so
-                      // rather than leaving the chip slot blank while every other
-                      // state labels itself. Hollow pill: true, but not an
-                      // achievement. The settle-row invitation sits below.
-                      // Contacts with no entries at all keep an empty slot — there
-                      // is no tally yet to have a state.
-                      <Chip label={t("person.balance.notSettled")} variant="outline" />
-                    ) : null}
-                    {link && link.other_joined_at == null ? (
-                      // Keep the invitation-waiting cue until the other side joins.
-                      // Once linked, the name badge is enough; no duplicate chip.
-                      <Pressable
-                        onPress={canAmend ? () => setLinkedSheetVisible(true) : undefined}
-                        disabled={!canAmend}
-                        accessibilityRole={canAmend ? "button" : "text"}
-                        style={({ pressed }) => [styles.readOnlyChip, pressed && { opacity: 0.5 }]}
-                      >
-                        <Ionicons name="link-outline" size={14} color={colors.textSubtle} />
-                        <Text
-                          style={styles.readOnlyChipText}
-                          allowFontScaling={false}
-                          numberOfLines={1}
-                        >
-                          {t("tab.chip.waiting")}
-                        </Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                  <View style={[styles.balanceRow, rowDir(isRTL)]}>
-                    <Text
-                      style={[styles.balance, { color: balanceColor, flexShrink: 1 }]}
-                      numberOfLines={1}
-                      adjustsFontSizeToFit
-                      minimumFontScale={0.5}
-                    >
-                      {formatAmount(abs)}
-                    </Text>
-                    <Text style={styles.balanceAfn}>{getCurrentCurrencySymbol()}</Text>
-                  </View>
-                  <CreditStatusBadge personId={person.id} vaultId={activeVaultId} />
+        {/* iOS keyboard padding reduces this inner flex box. An absolute dock
+            directly on the KAV would still anchor to its full outer height. */}
+        <View style={{ flex: 1 }}>
+          <ScrollView
+            ref={scrollRef}
+            onLayout={(event) => {
+              viewport.current.height = event.nativeEvent.layout.height;
+              revealNotificationTally();
+            }}
+            onScroll={(event) => {
+              viewport.current.offset = event.nativeEvent.contentOffset.y;
+            }}
+            scrollEventThrottle={16}
+            onContentSizeChange={revealNotificationTally}
+            showsVerticalScrollIndicator={false}
+            keyboardDismissMode="on-drag"
+            keyboardShouldPersistTaps="handled"
+            automaticallyAdjustKeyboardInsets={false}
+            contentContainerStyle={{
+              paddingBottom: actionsHeight + 24,
+            }}
+          >
+            <View>
+              <View style={styles.info}>
+                <View style={[styles.nameRow, rowDir(isRTL)]}>
+                  <Text style={[styles.name, { flexShrink: 1 }, textDir(isRTL)]}>
+                    {person.name}
+                  </Text>
+                  {link ? (
+                    <SharedAccountBadge
+                      size={20}
+                      name={person.name}
+                      fontSize={typography.heading.fontSize}
+                    />
+                  ) : null}
                 </View>
-                <TallyFlowSummary summary={flowSummary} isRTL={isRTL} />
-              </View>
-              {reminderId ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={t("reminders.title")}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/person/[id]/reminders",
-                      params: { id: person.id, vaultId: activeVaultId ?? "" },
-                    })
-                  }
-                  style={[rowDir(isRTL), { alignItems: "center", gap: 8, paddingVertical: 12 }]}
-                >
-                  <Ionicons name="alarm-outline" size={18} color={colors.textMuted} />
+                {person.phone ? (
                   <Text
                     style={[
-                      textDir(isRTL),
-                      { fontFamily: fonts.sansMedium, color: colors.textDefault },
+                      styles.phone,
+                      { writingDirection: "ltr", textAlign: isRTL ? "right" : "left" },
                     ]}
                   >
-                    {t("reminders.title")}
+                    {ltrIsolate(person.phone)}
                   </Text>
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-
-          {entries.length > 0 || preLink.length > 0 || failedTallies.length > 0 ? (
-            <View style={styles.searchArea}>
-              <View style={[styles.searchBox, rowDir(isRTL)]}>
-                <Ionicons name="search-outline" size={icon.trailing} color={colors.textSubtle} />
-                <TextInput
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  placeholder={t("person.search.placeholder")}
-                  accessibilityLabel={t("person.search.placeholder")}
-                  placeholderTextColor={colors.textSubtle}
-                  style={[styles.searchInput, textDir(isRTL)]}
-                  returnKeyType="search"
-                  maxLength={500}
-                />
-                {searchQuery.length > 0 ? (
+                ) : null}
+                <View style={{ height: 16 }} />
+                <View style={[styles.balanceOverview, rowDir(isRTL)]}>
+                  <View style={styles.balanceSide}>
+                    <View style={[styles.chipRow, rowDir(isRTL)]}>
+                      {chipLabel && chipVariant ? (
+                        <Chip label={chipLabel} variant={chipVariant} />
+                      ) : settledCount > 0 &&
+                        chapterCoherent &&
+                        !sharedReviewPending &&
+                        unsettledOriginalCount === 0 ? (
+                        // "SETTLED" only when the user actually drew the line and it
+                        // covers everything.
+                        <Chip label={t("person.balance.settled")} variant="neutral" />
+                      ) : displayedEntries.length > 0 ? (
+                        // A tally that merely SUMS to zero (or whose chapter no longer
+                        // adds up after a sync) is not a settled account — say so
+                        // rather than leaving the chip slot blank while every other
+                        // state labels itself. Hollow pill: true, but not an
+                        // achievement. The settle-row invitation sits below.
+                        // Contacts with no entries at all keep an empty slot — there
+                        // is no tally yet to have a state.
+                        <Chip label={t("person.balance.notSettled")} variant="outline" />
+                      ) : null}
+                      {link && link.other_joined_at == null ? (
+                        // Keep the invitation-waiting cue until the other side joins.
+                        // Once linked, the name badge is enough; no duplicate chip.
+                        <Pressable
+                          onPress={canAmend ? () => setLinkedSheetVisible(true) : undefined}
+                          disabled={!canAmend}
+                          accessibilityRole={canAmend ? "button" : "text"}
+                          style={({ pressed }) => [
+                            styles.readOnlyChip,
+                            pressed && { opacity: 0.5 },
+                          ]}
+                        >
+                          <Ionicons name="link-outline" size={14} color={colors.textSubtle} />
+                          <Text
+                            style={styles.readOnlyChipText}
+                            allowFontScaling={false}
+                            numberOfLines={1}
+                          >
+                            {t("tab.chip.waiting")}
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                    <View style={[styles.balanceRow, rowDir(isRTL)]}>
+                      <Text
+                        style={[styles.balance, { color: balanceColor, flexShrink: 1 }]}
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.5}
+                      >
+                        {formatAmount(abs)}
+                      </Text>
+                      <Text style={styles.balanceAfn}>{getCurrentCurrencySymbol()}</Text>
+                    </View>
+                    <CreditStatusBadge personId={person.id} vaultId={activeVaultId} />
+                  </View>
+                  <TallyFlowSummary summary={flowSummary} isRTL={isRTL} />
+                </View>
+                {reminderId ? (
                   <Pressable
-                    onPress={() => setSearchQuery("")}
                     accessibilityRole="button"
-                    accessibilityLabel={t("person.search.clear")}
-                    style={styles.clearSearch}
+                    accessibilityLabel={t("reminders.title")}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/person/[id]/reminders",
+                        params: { id: person.id, vaultId: activeVaultId ?? "" },
+                      })
+                    }
+                    style={[rowDir(isRTL), { alignItems: "center", gap: 8, paddingVertical: 12 }]}
                   >
-                    <Ionicons name="close-circle" size={icon.trailing} color={colors.textSubtle} />
+                    <Ionicons name="alarm-outline" size={18} color={colors.textMuted} />
+                    <Text
+                      style={[
+                        textDir(isRTL),
+                        { fontFamily: fonts.sansMedium, color: colors.textDefault },
+                      ]}
+                    >
+                      {t("reminders.title")}
+                    </Text>
                   </Pressable>
                 ) : null}
               </View>
-              {searching ? (
-                <Text
-                  style={[styles.searchSummary, textDir(isRTL)]}
-                  accessibilityLiveRegion="polite"
-                >
-                  {t("person.search.results", { count: searchResultCount })}
-                </Text>
-              ) : null}
             </View>
-          ) : null}
 
-          {/* Settle-up affordance — deliberately NOT a button. A ruled line,
+            {/* Settle-up affordance — deliberately NOT a button. A ruled line,
             the same mark a paper khata gets when an account is closed. It
             only exists in the exact moment it means something: balance is
             zero AND the current chapter has entries. Tapping it draws the
             line for real. */}
-          {canSettle && !searching ? (
-            <Pressable
-              onPress={() => setConfirmSettle(true)}
-              accessibilityRole="button"
-              accessibilityLabel={t("person.settle.row")}
-              style={({ pressed }) => [
-                styles.settleRow,
-                rowDir(isRTL),
-                pressed && { opacity: 0.5 },
-              ]}
-            >
-              <View style={styles.settleRule} />
-              <Text style={styles.settleRowText} allowFontScaling={false}>
-                {t("person.settle.row")}
-              </Text>
-              <View style={styles.settleRule} />
-            </Pressable>
-          ) : null}
-
-          {historyItems.length === 0 ? (
-            searching ? (
-              searchResultCount === 0 ? (
-                <EmptyState
-                  title={t("person.search.empty.title")}
-                  subtitle={t("person.search.empty.subtitle")}
-                  isRTL={isRTL}
-                />
-              ) : null
-            ) : settledCount > 0 ? (
-              // Fresh page after a settlement: not "empty", just a new chapter.
-              <EmptyState
-                title={t("person.freshChapter.title")}
-                subtitle={t("person.freshChapter.subtitle")}
-                isRTL={isRTL}
-              />
-            ) : (
-              <EmptyState
-                title={t("person.empty.title")}
-                subtitle={t("person.empty.subtitle")}
-                isRTL={isRTL}
-              />
-            )
-          ) : (
-            <View
-              style={styles.entriesCard}
-              onLayout={(event) => {
-                entriesCardY.current = event.nativeEvent.layout.y;
-                revealNotificationTally();
-              }}
-            >
-              {historyItems.map((item, index) => {
-                if (item.kind === "marker") {
-                  // The ruled-off line, dated — a khata page's visible mark.
-                  return (
-                    <View key={`m-${item.ms}-${index}`} style={[styles.chapterLine, rowDir(isRTL)]}>
-                      <View style={styles.settleRule} />
-                      <Text style={styles.chapterLineText} allowFontScaling={false}>
-                        {t(item.settlement ? "tab.settle.history" : "person.history.settledOn", {
-                          date: formatSettlementDate(item.ms, getLocale(), calendar),
-                          name: item.settlement?.actor_name || t("entry.by.someone"),
-                        })}
-                      </Text>
-                      <View style={styles.settleRule} />
-                    </View>
-                  );
-                }
-                const entry = item.entry;
-                // Settled history is READ-ONLY (review fix): editing or
-                // deleting a ruled-off entry would un-zero a closed chapter.
-                // Remote edits can still arrive — the coherence rule above
-                // handles those by falling open — but this device won't offer
-                // the footgun.
-                const inSettledChapter =
-                  !entry.tab &&
-                  settlement.lastSettledAtMs != null &&
-                  entry.created_at <= settlement.lastSettledAtMs;
-                const canOpenSheet = canAmend && !inSettledChapter && !entry.tab;
-                return (
-                  <View
-                    key={entry.id}
-                    onLayout={(event) => {
-                      const { y, height } = event.nativeEvent.layout;
-                      entryPositions.current.set(entry.id, { y, height });
-                      revealNotificationTally();
-                    }}
-                  >
-                    {index > 0 && historyItems[index - 1].kind !== "marker" ? (
-                      <View style={styles.divider} />
-                    ) : null}
-                    {/* setSheetFor is referentially stable — keeps the memoized
-                      EntryRow from re-rendering on unrelated screen renders.
-                      Opens the edit/delete sheet on TAP-AND-HOLD only. */}
-                    <EntryRow
-                      entry={entry}
-                      onLongPress={canOpenSheet ? setSheetFor : undefined}
-                      attribution={attribution.get(entry.id)}
-                      tab={entry.tab}
-                      selfAccountId={getAccountIdSync()}
-                      onAccept={canAmend && link ? onAccept : undefined}
-                      onReject={canAmend && link ? onReject : undefined}
-                      onCancel={canAmend && link ? onVoid : undefined}
-                    />
-                    {highlight?.id === entry.id ? (
-                      <TallyHighlight requestKey={highlight.key} />
-                    ) : reviewHighlights.has(entry.id) ? (
-                      <TallyHighlight requestKey={reviewHighlights.get(entry.id)!} />
-                    ) : null}
-                  </View>
-                );
-              })}
-            </View>
-          )}
-
-          <CreditIntentList personId={person.id} vaultId={activeVaultId} />
-
-          {matchedFailedTallies.length > 0 ? (
-            <>
+            {canSettle && !searching ? (
               <Pressable
-                onPress={() => setFailedTalliesOpen((v) => !v)}
-                disabled={searching}
+                onPress={() => setConfirmSettle(true)}
                 accessibilityRole="button"
-                accessibilityState={{
-                  expanded: searching || failedTalliesOpen,
-                  disabled: searching,
-                }}
-                style={[styles.foldRow, rowDir(isRTL)]}
-              >
-                <Text style={styles.historyRowText}>
-                  {t("tab.notSent", { count: matchedFailedTallies.length })}
-                </Text>
-                {!searching ? (
-                  <Ionicons
-                    name={failedTalliesOpen ? "chevron-up" : "chevron-down"}
-                    size={14}
-                    color={colors.textSubtle}
-                  />
-                ) : null}
-              </Pressable>
-              {searching || failedTalliesOpen ? (
-                <View style={[styles.entriesCard, styles.preLinkCard]}>
-                  <Text style={[styles.historyRowText, { padding: 14 }, textDir(isRTL)]}>
-                    {t("tab.notSent.body")}
-                  </Text>
-                  {matchedFailedTallies.map((entry) => (
-                    <EntryRow key={entry.id} entry={entry} />
-                  ))}
-                </View>
-              ) : null}
-            </>
-          ) : null}
-
-          {tabHistory?.closed_reason === "account_deleted" ? (
-            <Text
-              style={[
-                styles.historyRowText,
-                { paddingHorizontal: 14, paddingVertical: 10 },
-                textDir(isRTL),
-              ]}
-            >
-              {t("export.record.closedDeleted")}
-            </Text>
-          ) : null}
-
-          {/* Pre-link history (D8). Visible but folded, in the settled-history
-            row's visual language: these rows are the book as it was before
-            the account became shared, their sum is already the opening tally
-            on the tab, and nothing here can be edited (TabLinkedEntryError).
-            No long-press, no attribution: frozen pages. */}
-          {tabHistory && matchedPreLink.length > 0 ? (
-            <>
-              <Pressable
-                onPress={() => setPreLinkOpen((v) => !v)}
-                disabled={searching}
-                accessibilityRole="button"
-                accessibilityState={{ expanded: searching || preLinkOpen, disabled: searching }}
+                accessibilityLabel={t("person.settle.row")}
                 style={({ pressed }) => [
-                  styles.foldRow,
+                  styles.settleRow,
                   rowDir(isRTL),
                   pressed && { opacity: 0.5 },
                 ]}
               >
-                <Text style={styles.historyRowText} allowFontScaling={false}>
-                  {t("tab.beforeLinking", { count: matchedPreLink.length })}
+                <View style={styles.settleRule} />
+                <Text style={styles.settleRowText} allowFontScaling={false}>
+                  {t("person.settle.row")}
                 </Text>
-                {!searching ? (
-                  <Ionicons
-                    name={preLinkOpen ? "chevron-up" : "chevron-down"}
-                    size={14}
-                    color={colors.textSubtle}
-                  />
-                ) : null}
+                <View style={styles.settleRule} />
               </Pressable>
-              {searching || preLinkOpen ? (
-                <View style={[styles.entriesCard, styles.preLinkCard]}>
-                  {matchedPreLink.map((entry, index) => (
-                    <View key={entry.id}>
-                      {index > 0 ? <View style={styles.divider} /> : null}
-                      <EntryRow entry={entry} />
-                    </View>
-                  ))}
-                </View>
-              ) : null}
-            </>
-          ) : null}
+            ) : null}
 
-          {/* Settled history collapse — one quiet row, only when chapters
+            {historyItems.length === 0 ? (
+              searching ? (
+                searchResultCount === 0 ? (
+                  <EmptyState
+                    title={t("person.search.empty.title")}
+                    subtitle={t("person.search.empty.subtitle")}
+                    isRTL={isRTL}
+                  />
+                ) : null
+              ) : settledCount > 0 ? (
+                // Fresh page after a settlement: not "empty", just a new chapter.
+                <EmptyState
+                  title={t("person.freshChapter.title")}
+                  subtitle={t("person.freshChapter.subtitle")}
+                  isRTL={isRTL}
+                />
+              ) : (
+                <EmptyState
+                  title={t("person.empty.title")}
+                  subtitle={t("person.empty.subtitle")}
+                  isRTL={isRTL}
+                />
+              )
+            ) : (
+              <View
+                style={styles.entriesCard}
+                onLayout={(event) => {
+                  entriesCardY.current = event.nativeEvent.layout.y;
+                  revealNotificationTally();
+                }}
+              >
+                {historyItems.map((item, index) => {
+                  if (item.kind === "marker") {
+                    // The ruled-off line, dated — a khata page's visible mark.
+                    return (
+                      <View
+                        key={`m-${item.ms}-${index}`}
+                        style={[styles.chapterLine, rowDir(isRTL)]}
+                      >
+                        <View style={styles.settleRule} />
+                        <Text style={styles.chapterLineText} allowFontScaling={false}>
+                          {t(item.settlement ? "tab.settle.history" : "person.history.settledOn", {
+                            date: formatSettlementDate(item.ms, getLocale(), calendar),
+                            name: item.settlement?.actor_name || t("entry.by.someone"),
+                          })}
+                        </Text>
+                        <View style={styles.settleRule} />
+                      </View>
+                    );
+                  }
+                  const entry = item.entry;
+                  // Settled history is READ-ONLY (review fix): editing or
+                  // deleting a ruled-off entry would un-zero a closed chapter.
+                  // Remote edits can still arrive — the coherence rule above
+                  // handles those by falling open — but this device won't offer
+                  // the footgun.
+                  const inSettledChapter =
+                    !entry.tab &&
+                    settlement.lastSettledAtMs != null &&
+                    entry.created_at <= settlement.lastSettledAtMs;
+                  const canOpenSheet = canAmend && !inSettledChapter && !entry.tab;
+                  return (
+                    <View
+                      key={entry.id}
+                      onLayout={(event) => {
+                        const { y, height } = event.nativeEvent.layout;
+                        entryPositions.current.set(entry.id, { y, height });
+                        revealNotificationTally();
+                      }}
+                    >
+                      {index > 0 && historyItems[index - 1].kind !== "marker" ? (
+                        <View style={styles.divider} />
+                      ) : null}
+                      {/* setSheetFor is referentially stable — keeps the memoized
+                      EntryRow from re-rendering on unrelated screen renders.
+                      Opens the edit/delete sheet on TAP-AND-HOLD only. */}
+                      <EntryRow
+                        entry={entry}
+                        onLongPress={canOpenSheet ? setSheetFor : undefined}
+                        attribution={attribution.get(entry.id)}
+                        tab={entry.tab}
+                        selfAccountId={getAccountIdSync()}
+                        onAccept={canAmend && link ? onAccept : undefined}
+                        onReject={canAmend && link ? onReject : undefined}
+                        onCancel={canAmend && link ? onVoid : undefined}
+                      />
+                      {highlight?.id === entry.id ? (
+                        <TallyHighlight requestKey={highlight.key} />
+                      ) : reviewHighlights.has(entry.id) ? (
+                        <TallyHighlight requestKey={reviewHighlights.get(entry.id)!} />
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
+            <CreditIntentList personId={person.id} vaultId={activeVaultId} />
+
+            {matchedFailedTallies.length > 0 ? (
+              <>
+                <Pressable
+                  onPress={() => setFailedTalliesOpen((v) => !v)}
+                  disabled={searching}
+                  accessibilityRole="button"
+                  accessibilityState={{
+                    expanded: searching || failedTalliesOpen,
+                    disabled: searching,
+                  }}
+                  style={[styles.foldRow, rowDir(isRTL)]}
+                >
+                  <Text style={styles.historyRowText}>
+                    {t("tab.notSent", { count: matchedFailedTallies.length })}
+                  </Text>
+                  {!searching ? (
+                    <Ionicons
+                      name={failedTalliesOpen ? "chevron-up" : "chevron-down"}
+                      size={14}
+                      color={colors.textSubtle}
+                    />
+                  ) : null}
+                </Pressable>
+                {searching || failedTalliesOpen ? (
+                  <View style={[styles.entriesCard, styles.preLinkCard]}>
+                    <Text style={[styles.historyRowText, { padding: 14 }, textDir(isRTL)]}>
+                      {t("tab.notSent.body")}
+                    </Text>
+                    {matchedFailedTallies.map((entry) => (
+                      <EntryRow key={entry.id} entry={entry} />
+                    ))}
+                  </View>
+                ) : null}
+              </>
+            ) : null}
+
+            {tabHistory?.closed_reason === "account_deleted" ? (
+              <Text
+                style={[
+                  styles.historyRowText,
+                  { paddingHorizontal: 14, paddingVertical: 10 },
+                  textDir(isRTL),
+                ]}
+              >
+                {t("export.record.closedDeleted")}
+              </Text>
+            ) : null}
+
+            {/* Pre-link history (D8). Visible but folded, in the settled-history
+            row's visual language: these rows are the book as it was before
+            the account became shared, their sum is already the opening tally
+            on the tab, and nothing here can be edited (TabLinkedEntryError).
+            No long-press, no attribution: frozen pages. */}
+            {tabHistory && matchedPreLink.length > 0 ? (
+              <>
+                <Pressable
+                  onPress={() => setPreLinkOpen((v) => !v)}
+                  disabled={searching}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: searching || preLinkOpen, disabled: searching }}
+                  style={({ pressed }) => [
+                    styles.foldRow,
+                    rowDir(isRTL),
+                    pressed && { opacity: 0.5 },
+                  ]}
+                >
+                  <Text style={styles.historyRowText} allowFontScaling={false}>
+                    {t("tab.beforeLinking", { count: matchedPreLink.length })}
+                  </Text>
+                  {!searching ? (
+                    <Ionicons
+                      name={preLinkOpen ? "chevron-up" : "chevron-down"}
+                      size={14}
+                      color={colors.textSubtle}
+                    />
+                  ) : null}
+                </Pressable>
+                {searching || preLinkOpen ? (
+                  <View style={[styles.entriesCard, styles.preLinkCard]}>
+                    {matchedPreLink.map((entry, index) => (
+                      <View key={entry.id}>
+                        {index > 0 ? <View style={styles.divider} /> : null}
+                        <EntryRow entry={entry} />
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+              </>
+            ) : null}
+
+            {/* Settled history collapse — one quiet row, only when chapters
             exist AND the collapse is coherent (when the chapter can't
             explain the balance, the view is forced open and the toggle
             hides rather than pretend). Nothing was deleted; the book just
             has pages now. */}
-          {settledCount > 0 && chapterCoherent && !searching ? (
-            <Pressable
-              onPress={() => setShowFullHistory((v) => !v)}
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.historyRow, pressed && { opacity: 0.5 }]}
-            >
-              <Text style={styles.historyRowText} allowFontScaling={false}>
-                {showFullHistory
-                  ? t("person.history.hide")
-                  : t("person.history.show", { count: settledCount })}
-              </Text>
-            </Pressable>
-          ) : null}
-        </ScrollView>
-      </KeyboardAvoidingView>
+            {settledCount > 0 && chapterCoherent && !searching ? (
+              <Pressable
+                onPress={() => setShowFullHistory((v) => !v)}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.historyRow, pressed && { opacity: 0.5 }]}
+              >
+                <Text style={styles.historyRowText} allowFontScaling={false}>
+                  {showFullHistory
+                    ? t("person.history.hide")
+                    : t("person.history.show", { count: settledCount })}
+                </Text>
+              </Pressable>
+            ) : null}
+          </ScrollView>
 
-      {/* Same floating geometry as the old ping bar, including its toast lift.
+          {/* Same floating geometry as the old ping bar, including its toast lift.
           Received LEFT, gave RIGHT regardless of language. */}
-      {canCreate ? (
-        <Animated.View
-          pointerEvents="box-none"
-          onLayout={(event) => setActionsHeight(event.nativeEvent.layout.height)}
-          style={[
-            styles.actions,
-            {
-              paddingBottom: 20 + insets.bottom,
-              transform: [{ translateY: toastOffset }],
-            },
-          ]}
-        >
-          <View style={styles.actionBtnWrap}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() =>
-                router.push({
-                  pathname: "/entry/new",
-                  params: { personId: person.id, type: "payment" },
-                })
-              }
-              style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
+          {canCreate || hasTallies ? (
+            <Animated.View
+              pointerEvents="box-none"
+              onLayout={(event) => setActionsHeight(event.nativeEvent.layout.height)}
+              style={[
+                styles.actions,
+                {
+                  paddingBottom: 20 + insets.bottom,
+                  transform: [{ translateY: toastOffset }],
+                },
+              ]}
             >
-              {/* 16 is composed INTO the fixed 26px coin (see
+              {canCreate ? (
+                <View style={styles.actionRow}>
+                  <View style={styles.actionBtnWrap}>
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() =>
+                        router.push({
+                          pathname: "/entry/new",
+                          params: { personId: person.id, type: "payment" },
+                        })
+                      }
+                      style={({ pressed }) => [
+                        styles.actionBtn,
+                        pressed && styles.actionBtnPressed,
+                      ]}
+                    >
+                      {/* 16 is composed INTO the fixed 26px coin (see
                       actionIconCoin), so the icon scale does not apply here —
                       icon.trailing/row would fill or overflow the well. */}
-              <View style={styles.actionIconCoin}>
-                <Ionicons name="arrow-down-outline" size={16} color={colors.textInverted} />
-              </View>
-              <Text style={[styles.actionText, trackingSafe(isRTL)]}>
-                {t("person.action.iReceived")}
-              </Text>
-            </Pressable>
-          </View>
-          <View style={styles.actionBtnWrap}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() =>
-                router.push({
-                  pathname: "/entry/new",
-                  params: { personId: person.id, type: "debt" },
-                })
-              }
-              style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
-            >
-              {/* 16, composed into the coin — same reason as "I received". */}
-              <View style={styles.actionIconCoin}>
-                <Ionicons name="arrow-up-outline" size={16} color={colors.textInverted} />
-              </View>
-              <Text style={[styles.actionText, trackingSafe(isRTL)]}>
-                {t("person.action.iGave")}
-              </Text>
-            </Pressable>
-          </View>
-        </Animated.View>
-      ) : null}
+                      <View style={styles.actionIconCoin}>
+                        <Ionicons name="arrow-down-outline" size={16} color={colors.textInverted} />
+                      </View>
+                      <Text style={[styles.actionText, trackingSafe(isRTL)]}>
+                        {t("person.action.iReceived")}
+                      </Text>
+                    </Pressable>
+                  </View>
+                  <View style={styles.actionBtnWrap}>
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() =>
+                        router.push({
+                          pathname: "/entry/new",
+                          params: { personId: person.id, type: "debt" },
+                        })
+                      }
+                      style={({ pressed }) => [
+                        styles.actionBtn,
+                        pressed && styles.actionBtnPressed,
+                      ]}
+                    >
+                      {/* 16, composed into the coin — same reason as "I received". */}
+                      <View style={styles.actionIconCoin}>
+                        <Ionicons name="arrow-up-outline" size={16} color={colors.textInverted} />
+                      </View>
+                      <Text style={[styles.actionText, trackingSafe(isRTL)]}>
+                        {t("person.action.iGave")}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : null}
+              {hasTallies ? (
+                <View style={styles.searchArea}>
+                  <View style={[styles.searchControls, rowDir(isRTL)]}>
+                    <View style={[styles.searchBox, rowDir(isRTL)]}>
+                      <Ionicons
+                        name="search-outline"
+                        size={icon.trailing}
+                        color={colors.textSubtle}
+                      />
+                      <TextInput
+                        value={searchQuery}
+                        onChangeText={setSearchQuery}
+                        placeholder={t("person.search.placeholder")}
+                        accessibilityLabel={t("person.search.placeholder")}
+                        placeholderTextColor={colors.textSubtle}
+                        style={[styles.searchInput, textDir(isRTL)]}
+                        returnKeyType="search"
+                        autoCorrect={false}
+                        maxLength={500}
+                      />
+                      {searchQuery.length > 0 ? (
+                        <Pressable
+                          onPress={() => setSearchQuery("")}
+                          accessibilityRole="button"
+                          accessibilityLabel={t("person.search.clear")}
+                          style={styles.clearSearch}
+                        >
+                          <Ionicons
+                            name="close-circle"
+                            size={icon.trailing}
+                            color={colors.textSubtle}
+                          />
+                        </Pressable>
+                      ) : null}
+                    </View>
+                    <Pressable
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        setDateSheetVisible(true);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        dateRange
+                          ? t("person.date.active", { range: dateRangeLabel })
+                          : t("person.date.title")
+                      }
+                      accessibilityState={{ selected: dateRange != null }}
+                      style={[styles.dateButton, dateRange && styles.dateButtonActive]}
+                    >
+                      <Ionicons
+                        name="calendar-outline"
+                        size={icon.row}
+                        color={dateRange ? colors.textEmphasis : colors.textSubtle}
+                      />
+                    </Pressable>
+                  </View>
+                  {dateRange ? (
+                    <View style={[styles.dateSummary, rowDir(isRTL)]}>
+                      <Pressable
+                        style={styles.dateSummaryLabel}
+                        onPress={() => {
+                          Keyboard.dismiss();
+                          setDateSheetVisible(true);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={t("person.date.active", { range: dateRangeLabel })}
+                      >
+                        <Text numberOfLines={1} style={[styles.searchSummary, textDir(isRTL)]}>
+                          {dateRangeLabel}
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        style={styles.clearDate}
+                        onPress={() => setDateRange(null)}
+                        accessibilityRole="button"
+                        accessibilityLabel={t("person.date.clear")}
+                      >
+                        <Ionicons name="close" size={16} color={colors.textSubtle} />
+                      </Pressable>
+                    </View>
+                  ) : null}
+                  {searching ? (
+                    <Text
+                      style={[styles.searchSummary, textDir(isRTL)]}
+                      accessibilityLiveRegion="polite"
+                    >
+                      {t("person.search.results", { count: searchResultCount })}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+            </Animated.View>
+          ) : null}
+        </View>
+      </KeyboardAvoidingView>
+      <TallyDateFilterSheet
+        visible={dateSheetVisible}
+        range={dateRange}
+        calendar={calendar}
+        isRTL={isRTL}
+        onChange={setDateRange}
+        onDismiss={() => setDateSheetVisible(false)}
+      />
 
       {/* Statement export chooser. BottomSheet's 220ms action defer doubles as
           clearance for the OS share sheet that follows generation. */}
@@ -1821,8 +1925,28 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
   balanceAfn: { fontSize: 15, fontFamily: fonts.sansMedium, color: colors.textMuted },
-  searchArea: { marginHorizontal: 16, marginBottom: 8, gap: 8 },
+  searchArea: { gap: 4 },
+  searchControls: { alignItems: "center", gap: 8 },
+  dateButton: {
+    minWidth: TOUCH_MIN,
+    minHeight: TOUCH_MIN,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: radius.sm,
+  },
+  dateButtonActive: { backgroundColor: colors.bgMuted, borderColor: colors.borderEmphasis },
+  dateSummary: { alignItems: "center", gap: 4 },
+  dateSummaryLabel: { flex: 1, justifyContent: "center", minHeight: TOUCH_MIN },
+  clearDate: {
+    minWidth: TOUCH_MIN,
+    minHeight: TOUCH_MIN,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   searchBox: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -1850,15 +1974,19 @@ const styles = StyleSheet.create({
     // _layout.tsx's I18nManager neutralization + one-shot migration
     // prompt. Internal direction (lib/direction.ts) does NOT touch this
     // row.
-    flexDirection: "row",
+    flexDirection: "column",
     paddingHorizontal: 16,
     gap: 10,
     paddingTop: 12,
+    backgroundColor: colors.bgDefault,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.borderSubtle,
     position: "absolute",
     left: 0,
     right: 0,
     bottom: 0,
   },
+  actionRow: { flexDirection: "row", gap: 10 },
   // flex:1 keeps both action wrappers equal in width.
   actionBtnWrap: { flex: 1, minWidth: 0 },
   actionBtn: {

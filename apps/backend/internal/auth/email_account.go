@@ -712,8 +712,11 @@ func (s *Service) PasswordSetupStart(ctx context.Context, accountID, rawEmail, l
 	var hasPassword bool
 	if err := s.pool.QueryRow(ctx, `
 		SELECT COALESCE(a.email, ''), EXISTS (SELECT 1 FROM account_passwords p WHERE p.account_id = a.id)
-		FROM accounts a WHERE a.id = $1::uuid
+		FROM accounts a WHERE a.id = $1::uuid AND a.pending_delete_at IS NULL
 	`, accountID).Scan(&stored, &hasPassword); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrSessionRevoked
+		}
 		return fmt.Errorf("read account: %w", err)
 	}
 	if hasPassword {
@@ -747,6 +750,9 @@ func (s *Service) PasswordSetupStart(ctx context.Context, accountID, rawEmail, l
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockActiveAccountMutation(ctx, tx, accountID); err != nil {
+		return err
+	}
 	if conflict, err := setupConflict(ctx, tx, accountID, key, fixed); err != nil {
 		return err
 	} else if conflict {
@@ -810,8 +816,8 @@ func (s *Service) PasswordSetupVerify(ctx context.Context, accountID, installID,
 		return "", fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `SELECT id FROM accounts WHERE id = $1::uuid FOR UPDATE`, accountID); err != nil {
-		return "", fmt.Errorf("lock account: %w", err)
+	if err := lockActiveAccountMutation(ctx, tx, accountID); err != nil {
+		return "", err
 	}
 	hit, err := s.matchCodeLocked(ctx, tx, scope, code)
 	if errors.Is(err, errCodeMismatch) {
@@ -934,6 +940,9 @@ func (s *Service) ChangePassword(ctx context.Context, sess *SessionClaims, curre
 		return "", fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockActiveAccountMutation(ctx, tx, accountID); err != nil {
+		return "", err
+	}
 	if err := lockAccountPassword(ctx, tx, accountID, phc); err != nil {
 		if errors.Is(err, ErrInvalidCredentials) {
 			return "", ErrWrongPassword
@@ -1002,8 +1011,11 @@ func (s *Service) RemovePassword(ctx context.Context, accountID, sessionProvider
 	var hasProvider bool
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS (SELECT 1 FROM account_identities ai WHERE ai.account_id = a.id AND ai.provider = $2)
-		FROM accounts a WHERE a.id = $1::uuid FOR UPDATE
+		FROM accounts a WHERE a.id = $1::uuid AND a.pending_delete_at IS NULL FOR UPDATE
 	`, accountID, sessionProvider).Scan(&hasProvider); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrSessionRevoked
+		}
 		return fmt.Errorf("lock account: %w", err)
 	}
 	if !hasProvider {
@@ -1049,8 +1061,12 @@ var (
 func (s *Service) SetUsername(ctx context.Context, accountID, raw string) (string, error) {
 	u := strings.ToLower(strings.TrimSpace(foldDigits(raw)))
 	if u == "" {
-		if _, err := s.pool.Exec(ctx, `UPDATE accounts SET username = NULL WHERE id = $1::uuid`, accountID); err != nil {
+		result, err := s.pool.Exec(ctx, `UPDATE accounts SET username = NULL WHERE id = $1::uuid AND pending_delete_at IS NULL`, accountID)
+		if err != nil {
 			return "", fmt.Errorf("remove username: %w", err)
+		}
+		if result.RowsAffected() != 1 {
+			return "", ErrSessionRevoked
 		}
 		return "", nil
 	}
@@ -1070,11 +1086,15 @@ func (s *Service) SetUsername(ctx context.Context, accountID, raw string) (strin
 	if !hasPassword {
 		return "", ErrNoPassword
 	}
-	if _, err := s.pool.Exec(ctx, `UPDATE accounts SET username = $2 WHERE id = $1::uuid`, accountID, u); err != nil {
+	result, err := s.pool.Exec(ctx, `UPDATE accounts SET username = $2 WHERE id = $1::uuid AND pending_delete_at IS NULL`, accountID, u)
+	if err != nil {
 		if isUniqueViolation(err) {
 			return "", ErrUsernameTaken
 		}
 		return "", fmt.Errorf("set username: %w", err)
+	}
+	if result.RowsAffected() != 1 {
+		return "", ErrSessionRevoked
 	}
 	return u, nil
 }
@@ -1096,8 +1116,12 @@ func (s *Service) SetAccountName(ctx context.Context, accountID, raw string) (st
 	if providerNamed {
 		return "", ErrProviderName
 	}
-	if _, err := s.pool.Exec(ctx, `UPDATE accounts SET name = $2, display_name = $2 WHERE id = $1::uuid`, accountID, name); err != nil {
+	result, err := s.pool.Exec(ctx, `UPDATE accounts SET name = $2, display_name = $2 WHERE id = $1::uuid AND pending_delete_at IS NULL`, accountID, name)
+	if err != nil {
 		return "", fmt.Errorf("set name: %w", err)
+	}
+	if result.RowsAffected() != 1 {
+		return "", ErrSessionRevoked
 	}
 	return name, nil
 }
@@ -1109,7 +1133,7 @@ func (s *Service) SetAccountDisplayName(ctx context.Context, accountID, raw stri
 	if n := utf8.RuneCountInString(name); n < 2 || n > 60 {
 		return "", &InvalidNameError{}
 	}
-	result, err := s.pool.Exec(ctx, `UPDATE accounts SET display_name = $2 WHERE id = $1::uuid AND disabled_at IS NULL`, accountID, name)
+	result, err := s.pool.Exec(ctx, `UPDATE accounts SET display_name = $2 WHERE id = $1::uuid AND disabled_at IS NULL AND pending_delete_at IS NULL`, accountID, name)
 	if err != nil {
 		return "", fmt.Errorf("set display name: %w", err)
 	}

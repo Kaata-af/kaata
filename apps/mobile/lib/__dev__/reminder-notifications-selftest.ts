@@ -4,6 +4,7 @@ import { compileUI, deferred, settleUI } from "./ui-fixture";
 
 async function main() {
   let expoGo = false,
+    platform = "android",
     owner = "account:a",
     zone = "Asia/Kabul",
     permission: any = { granted: true, canAskAgain: true };
@@ -64,7 +65,13 @@ async function main() {
   };
   const module = compileUI("../reminder-notifications", {
     expo: { isRunningInExpoGo: () => expoGo },
-    "react-native": { Platform: { OS: "android" } },
+    "react-native": {
+      Platform: {
+        get OS() {
+          return platform;
+        },
+      },
+    },
     "./db-tx": {
       getDb: async () => ({
         runAsync: async (...args: any[]) => {
@@ -208,6 +215,127 @@ async function main() {
   scheduleGate = null;
   await module.reconcileReminderNotifications();
   assert.equal(scheduled.size, 1);
+
+  // Several native requests belong to a single private task. Editing its
+  // selected days or month phase removes every obsolete fragment and tray item.
+  owner = "account:a";
+  rows = [
+    make("selected", { kind: "weekdays", weekdays: [0, 2, 4], hour: 9, minute: 15 }),
+    make("monthly", {
+      kind: "monthly",
+      day: 15,
+      anchorMonth: 0,
+      intervalMonths: 1,
+      hour: 10,
+      minute: 0,
+    }),
+    make("alternate", {
+      kind: "monthly",
+      day: 28,
+      anchorMonth: 10,
+      intervalMonths: 2,
+      hour: 11,
+      minute: 30,
+    }),
+  ];
+  await module.reconcileReminderNotifications();
+  const privateRequests = () =>
+    [...scheduled.values()].filter((request) => request.identifier.startsWith(prefix));
+  assert.equal(privateRequests().length, 10);
+  assert.equal(scheduled.get(prefix + "monthly").trigger.type, "monthly");
+  assert.deepEqual(
+    privateRequests()
+      .filter((request) => request.content.data.reminder_id === "alternate")
+      .map((request) => request.trigger.month),
+    [0, 2, 4, 6, 8, 10],
+  );
+  const oldThursday = scheduled.get(prefix + "selected:weekday:4");
+  presented.set(oldThursday.identifier, oldThursday);
+  await module.reconcileReminderNotifications();
+  assert.ok(
+    presented.has(oldThursday.identifier),
+    "fragment notice resolves to its outstanding private task",
+  );
+  rows[0] = {
+    ...rows[0],
+    updated_at: 2,
+    schedule_json: JSON.stringify({ kind: "weekdays", weekdays: [0, 2], hour: 9, minute: 15 }),
+  };
+  rows[2] = {
+    ...rows[2],
+    updated_at: 2,
+    schedule_json: JSON.stringify({
+      kind: "monthly",
+      day: 28,
+      anchorMonth: 11,
+      intervalMonths: 2,
+      hour: 11,
+      minute: 30,
+    }),
+  };
+  await module.reconcileReminderNotifications();
+  assert.ok(!scheduled.has(oldThursday.identifier));
+  assert.ok(!presented.has(oldThursday.identifier));
+  assert.deepEqual(
+    privateRequests()
+      .filter((request) => request.content.data.reminder_id === "alternate")
+      .map((request) => request.trigger.month),
+    [1, 3, 5, 7, 9, 11],
+  );
+  assert.ok(!scheduled.has(prefix + "alternate:month:0"));
+  for (const request of privateRequests()) {
+    assert.equal(request.content.data.owner_scope, owner);
+    assert.ok(!JSON.stringify(request.content).includes("Sensitive customer"));
+  }
+  rows = Array.from({ length: 9 }, (_, i) =>
+    make(`budget-${i}`, { kind: "weekdays", weekdays: [0, 1, 2, 3, 4, 5, 6], hour: 10, minute: 0 }),
+  );
+  const beforeOverflow = scheduledCalls.length;
+  await assert.rejects(module.reconcileReminderNotifications(), /reminder_notification_limit/);
+  assert.equal(
+    scheduledCalls.length,
+    beforeOverflow,
+    "an invalid inherited plan is reported instead of silently scheduling a subset",
+  );
+  rows = [];
+  await module.reconcileReminderNotifications();
+  assert.equal(scheduled.size, 1, "removing complex tasks cancels every weekday/month fragment");
+  platform = "ios";
+  rows = [
+    make("ios-monthly", {
+      kind: "monthly",
+      day: 10,
+      anchorMonth: 0,
+      intervalMonths: 1,
+      hour: 9,
+      minute: 0,
+    }),
+    make("ios-alternate", {
+      kind: "monthly",
+      day: 10,
+      anchorMonth: 0,
+      intervalMonths: 2,
+      hour: 9,
+      minute: 0,
+    }),
+  ];
+  await module.reconcileReminderNotifications();
+  assert.equal(privateRequests().length, 7);
+  assert.ok(
+    privateRequests().every(
+      (request) => request.trigger.type === "calendar" && request.trigger.repeats === true,
+    ),
+    "actual iOS reconcile uses the explicit ISO calendar plans",
+  );
+  assert.deepEqual(
+    privateRequests()
+      .filter((request) => request.content.data.reminder_id === "ios-alternate")
+      .map((request) => request.trigger.month),
+    [1, 3, 5, 7, 9, 11],
+  );
+  owner = "account:b";
+  await module.reconcileReminderNotifications();
+  assert.equal(scheduled.size, 1, "account change clears every iOS calendar fragment");
 
   // The actual physical-device helper is single-flight, excludes transferable
   // keychain backups and retries rather than inventing a transient fallback.

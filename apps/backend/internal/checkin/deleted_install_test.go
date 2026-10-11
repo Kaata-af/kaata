@@ -157,3 +157,43 @@ func seedCheckInAccount(t *testing.T, pool *pgxpool.Pool) string {
 	}
 	return id
 }
+
+func TestAccountDeletionGracePendingCheckInDoesNotMutateRetainedData(t *testing.T) {
+	for _, mode := range []string{"authenticated retained install", "authenticated new install", "anonymous retired install"} {
+		t.Run(mode, func(t *testing.T) {
+			pool := testutil.ConnectTestDB(t)
+			account, install := seedCheckInAccount(t, pool), uuid.NewString()
+			if _, err := pool.Exec(t.Context(), `UPDATE accounts SET pending_delete_at=NOW() WHERE id=$1::uuid`, account); err != nil {
+				t.Fatal(err)
+			}
+			newInstall := mode == "authenticated new install"
+			if !newInstall {
+				if _, err := pool.Exec(t.Context(), `INSERT INTO installs(install_id,account_id,self_name,self_phone,shop_name,check_in_count,usage_entries_created,account_deleted_at)
+				 VALUES($1::uuid,$2::uuid,'Preserved Name','+93700123456','Preserved Shop',7,12,CASE WHEN $3 THEN NOW() ELSE NULL END)`, install, account, mode == "anonymous retired install"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ctx := t.Context()
+			if mode != "anonymous retired install" {
+				ctx = WithActorAccountID(ctx, account)
+			}
+			if _, err := NewService(pool, "", nil).Handle(ctx, staleProfileRequest(install), "192.0.2.1"); !errors.Is(err, ErrInstallDeleted) {
+				t.Fatalf("pending check-in: %v", err)
+			}
+			var intact bool
+			if newInstall {
+				if err := pool.QueryRow(t.Context(), `SELECT NOT EXISTS(SELECT 1 FROM installs WHERE install_id=$1::uuid)`, install).Scan(&intact); err != nil || !intact {
+					t.Fatalf("pending account created new install: intact=%v err=%v", intact, err)
+				}
+			} else {
+				if err := pool.QueryRow(t.Context(), `SELECT account_id=$2::uuid AND self_name='Preserved Name' AND self_phone='+93700123456'
+				 AND shop_name='Preserved Shop' AND check_in_count=7 AND usage_entries_created=12
+				 AND NOT EXISTS(SELECT 1 FROM install_active_days WHERE install_id=$1::uuid)
+				 AND NOT EXISTS(SELECT 1 FROM install_active_hours WHERE install_id=$1::uuid)
+				 FROM installs WHERE install_id=$1::uuid`, install, account).Scan(&intact); err != nil || !intact {
+					t.Fatalf("pending check-in changed retained identity/usage: intact=%v err=%v", intact, err)
+				}
+			}
+		})
+	}
+}

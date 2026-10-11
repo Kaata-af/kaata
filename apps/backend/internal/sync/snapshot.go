@@ -122,6 +122,7 @@ type SnapshotRelationship struct {
 	UpdatedAt      int64          `json:"updated_at"`
 	ArchivedAt     *int64         `json:"archived_at"`
 	GroupID        *string        `json:"group_id,omitempty"`
+	GroupIDs       []string       `json:"group_ids,omitempty"`
 	GroupFieldHLCs map[string]HLC `json:"group_field_hlcs,omitempty"`
 }
 
@@ -329,6 +330,7 @@ func projectRelationships(in map[string]*RelationshipProjection) []SnapshotRelat
 			UpdatedAt:      r.UpdatedAt,
 			ArchivedAt:     r.ArchivedAt,
 			GroupID:        r.GroupID,
+			GroupIDs:       relationshipGroupIDs(r),
 			GroupFieldHLCs: r.GroupFieldHLCs,
 		})
 	}
@@ -395,7 +397,9 @@ func snapshotMaxHLC(p *Projection, tail []PulledEvent) HLC {
 			max = HLC{PMS: r.UpdatedAt}
 		}
 		for _, h := range r.GroupFieldHLCs {
-			if CompareHLC(h, max) > 0 { max = h }
+			if CompareHLC(h, max) > 0 {
+				max = h
+			}
 		}
 	}
 	for _, g := range p.CustomerGroups {

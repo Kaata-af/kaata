@@ -7,8 +7,8 @@ import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 // Every claim here must stay true to what the app + backend actually do:
 //   - in-app path: app/index.tsx (profile chip) -> ProfileSettingsSheet "Account
 //     settings" -> app/account.tsx "Privacy & data" -> "Delete account" -> confirm.
-//   - server erasure: DELETE /v1/account -> auth/delete_account.go DeleteAccount
-//     (hard-deletes account + credentials + memberships + owned vaults and their
+//   - server erasure: DELETE /v1/account schedules a 30-day recovery window;
+//     the account purge worker then hard-deletes account + credentials + memberships + owned vaults and their
 //     events; retires the account's installs, nulling their self-identity and
 //     deleting their crash reports; detaches the login from contributions in
 //     others' vaults). The phone wipes its ledger only after the server confirms.
@@ -95,10 +95,12 @@ export function DeleteAccount() {
             </li>
           </ol>
           <p>
-            This permanently deletes your account and the cloud copies of kaatas you own and{" "}
-            <strong>cannot be undone</strong>. It also removes the ledger from that phone. The
-            “Delete account” option appears only while you are signed in, whichever way you signed
-            in.
+            This signs you out and clears the ledger from that phone after the server confirms your
+            request. Your account and its cloud data are kept for <strong>30 days</strong>, then
+            permanently deleted. <strong>Sign back in within 30 days to cancel deletion</strong> and
+            restore your cloud kaatas. Export private reminders and Not sent drafts first; these are
+            not in your cloud backup. The “Delete account” option appears only while you are signed
+            in, whichever way you signed in.
           </p>
         </Section>
 
@@ -120,7 +122,7 @@ export function DeleteAccount() {
         </Section>
 
         <Section title="What is deleted">
-          <p>When your account is deleted, we permanently remove from our servers:</p>
+          <p>When the 30-day recovery window ends, we permanently remove from our servers:</p>
           <ul className="list-disc ps-5 space-y-1.5">
             <li>
               <strong>Your account and sign-in details</strong> — your email, name and profile photo
@@ -144,7 +146,9 @@ export function DeleteAccount() {
           </ul>
           <p>
             On the phone where you complete deletion, the app wipes the on-device ledger and resets
-            to a fresh install once our server confirms the deletion. Other devices lose account
+            to a fresh install once our server confirms the request. The current app checks its
+            saved tallies have reached the cloud first; if backup fails, it keeps this phone's data
+            intact. Signing back in within 30 days cancels the request. Other devices lose account
             access but may still hold local copies, and your phone’s own Google or iCloud backup may
             keep a copy until that backup is replaced or deleted. Files you exported or sent to
             someone else are not remotely erased. Export any private records you need before

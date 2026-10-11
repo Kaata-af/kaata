@@ -33,6 +33,40 @@ func evidenceParties(t *testing.T, f *tabFixture) (CreateResult, Party, Party) {
 	return c, a, b
 }
 
+func TestAccountDeletionGracePendingPartyCannotAppendOrAccept(t *testing.T) {
+	f := newTabFixture(t)
+	c, a, b := evidenceParties(t, f)
+	entry := f.append(t, a, "a_to_b", "100.25", time.Now().UnixMilli()).Entry
+	var rev, notifications int
+	if err := f.pool.QueryRow(t.Context(), `SELECT rev FROM tabs WHERE id=$1::uuid`, c.Tab.ID).Scan(&rev); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.pool.QueryRow(t.Context(), `SELECT COUNT(*) FROM tab_notifications WHERE tab_id=$1::uuid`, c.Tab.ID).Scan(&notifications); err != nil {
+		t.Fatal(err)
+	}
+	// These Party values were resolved while memberships/accounts were active.
+	// The grace keeps those rows, so writes must check pending inside the tx.
+	if _, err := f.pool.Exec(t.Context(), `UPDATE accounts SET pending_delete_at=NOW()
+	 WHERE id=ANY($1::uuid[])`, []string{f.acctA, f.acctB}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.Append(t.Context(), a, AppendInput{ID: uuid.NewString(), Direction: "a_to_b", Amount: "1", OccurredAtMS: time.Now().UnixMilli()}); !errors.Is(err, ErrAuthRequired) {
+		t.Fatalf("pending writer appended: %v", err)
+	}
+	if _, err := f.svc.Accept(t.Context(), b, entry.ID); !errors.Is(err, ErrAuthRequired) {
+		t.Fatalf("pending reviewer accepted: %v", err)
+	}
+	var intact bool
+	if err := f.pool.QueryRow(t.Context(), `SELECT rev=$2 AND closed_at IS NULL
+	 AND (SELECT COUNT(*) FROM tab_entries WHERE tab_id=$1::uuid)=1
+	 AND EXISTS(SELECT 1 FROM tab_entries WHERE id=$3::uuid AND status='pending' AND amount_minor=10025 AND reviewer_account_id IS NULL)
+	 AND (SELECT COUNT(*) FROM tab_notifications WHERE tab_id=$1::uuid)=$4
+	 AND (SELECT COUNT(*) FROM tab_parties WHERE tab_id=$1::uuid AND account_id IS NOT NULL)=2
+	 FROM tabs WHERE id=$1::uuid`, c.Tab.ID, rev, entry.ID, notifications).Scan(&intact); err != nil || !intact {
+		t.Fatalf("pending parties changed preserved record: intact=%v err=%v", intact, err)
+	}
+}
+
 func TestSharedEvidenceSurvivesDeletedStaffAccounts(t *testing.T) {
 	f := newTabFixture(t)
 	ctx := context.Background()

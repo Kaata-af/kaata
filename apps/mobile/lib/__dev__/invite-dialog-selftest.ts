@@ -50,6 +50,7 @@ function schedule() {
 }
 const jsx = (type: string, props: Record<string, any>) => ({ type, props });
 const mocks: Record<string, any> = {
+  "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
   "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
   react: {
     useState: (initial: any) => {

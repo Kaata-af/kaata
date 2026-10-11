@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ScreenHeader } from "../../../components/SettingsScreen";
-import { assignCustomerGroup } from "../../../lib/customer-groups";
+import { assignCustomerGroups } from "../../../lib/customer-groups";
 import { getAccountIdSync, getActiveVaultIdSyncMaybe } from "../../../lib/db-tx";
 import { colors } from "../../../lib/colors";
 import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
@@ -28,8 +28,16 @@ export default function PersonGroupScreen() {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null),
     writing = useRef(false);
+  const [draft, setDraft] = useState<{ personId: string; ids: string[] } | null>(null);
+  const dirty = useRef<string | null>(null);
+  const selection =
+    draft?.personId === params.id ? draft.ids : (state.groupsByPerson[params.id] ?? []);
   const found = inScope && Object.hasOwn(state.groupByPerson, params.id);
   const mounted = useRef(true);
+  useEffect(() => {
+    if (found && dirty.current !== params.id)
+      setDraft({ personId: params.id, ids: state.groupsByPerson[params.id] ?? [] });
+  }, [found, params.id, state.groupsByPerson]);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -40,14 +48,14 @@ export default function PersonGroupScreen() {
     mounted.current &&
     viewAccount === getAccountIdSync() &&
     vaultId === getActiveVaultIdSyncMaybe();
-  async function select(groupId: string | null) {
+  async function save() {
     if (!vaultId || !found || !canManage || writing.current) return;
     writing.current = true;
     setBusy(true);
     setError(null);
     const account = getAccountIdSync();
     try {
-      await assignCustomerGroup(vaultId, params.id, groupId);
+      await assignCustomerGroups(vaultId, params.id, selection);
       if (current() && getAccountIdSync() === account) router.back();
     } catch (e) {
       if (current())
@@ -82,15 +90,27 @@ export default function PersonGroupScreen() {
               accessibilityRole="button"
               accessibilityLabel={group.name}
               accessibilityState={{
-                selected: state.groupByPerson[params.id] === group.id,
+                selected: group.id === null ? selection.length === 0 : selection.includes(group.id),
                 disabled: !canManage || busy,
               }}
               disabled={!canManage || busy}
-              onPress={() => void select(group.id)}
+              onPress={() => {
+                dirty.current = params.id;
+                const id = group.id;
+                setDraft({
+                  personId: params.id,
+                  ids:
+                    id === null
+                      ? []
+                      : selection.includes(id)
+                        ? selection.filter((selected) => selected !== id)
+                        : [...selection, id],
+                });
+              }}
               style={[styles.row, rowDir(isRTL)]}
             >
               <Text style={[styles.label, textDir(isRTL)]}>{group.name}</Text>
-              {state.groupByPerson[params.id] === group.id ? (
+              {(group.id === null ? selection.length === 0 : selection.includes(group.id)) ? (
                 <Ionicons name="checkmark" size={icon.row} color={colors.actionPrimary} />
               ) : null}
             </Pressable>
@@ -98,6 +118,17 @@ export default function PersonGroupScreen() {
         )}
         {busy ? <ActivityIndicator color={colors.textDefault} /> : null}
         {inScope && error ? <Text style={[styles.error, textDir(isRTL)]}>{error}</Text> : null}
+        {canManage && found ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t("common.done")}
+            disabled={busy || !state.loaded || state.failed}
+            onPress={() => void save()}
+            style={[styles.save, busy && { opacity: 0.6 }]}
+          >
+            <Text style={styles.saveLabel}>{t("common.done")}</Text>
+          </Pressable>
+        ) : null}
         {canManage ? (
           <Pressable
             accessibilityRole="button"
@@ -132,4 +163,13 @@ const styles = StyleSheet.create({
   label: { fontFamily: fonts.sansRegular, fontSize: 15, color: colors.textDefault, flex: 1 },
   manage: { paddingVertical: 20 },
   error: { fontFamily: fonts.sansRegular, fontSize: 13, color: colors.danger },
+  save: {
+    backgroundColor: colors.actionPrimary,
+    borderRadius: 12,
+    minHeight: 48,
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 24,
+  },
+  saveLabel: { fontFamily: fonts.sansSemi, fontSize: 15, color: colors.textInverted },
 });

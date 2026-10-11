@@ -1,6 +1,7 @@
 import type { SQLiteTx } from "../db-tx";
 import type { CustomerGroupEvent, PersonGroupSetEvent } from "../events";
 import { isValidGroupName, normalizeGroupName } from "../group-name";
+import { groupIdsFromPayload } from "../group-memberships";
 import { MissingPrereqError } from "./errors";
 import { compareFieldHLC, parseFieldHLCs, serializeFieldHLCs } from "./field-hlc";
 
@@ -68,9 +69,8 @@ export async function applyPersonGroupSet(tx: SQLiteTx, event: PersonGroupSetEve
   if (!row) throw new MissingPrereqError(`relationship ${event.target_id} missing`);
   const hlcs = parseFieldHLCs(row.field_hlcs);
   if (compareFieldHLC(hlcs, "group_id", event.hlc) === "skip") return;
-  const groupId = event.payload.group_id;
-  if (groupId !== null && typeof groupId !== "string") throw new Error("invalid group id");
-  if (groupId !== null) {
+  const groupIds = groupIdsFromPayload(event.payload);
+  for (const groupId of groupIds) {
     const group = await tx.getFirstAsync<{ id: string }>(
       "SELECT id FROM customer_groups WHERE vault_id=? AND id=?",
       event.vault_id,
@@ -79,9 +79,10 @@ export async function applyPersonGroupSet(tx: SQLiteTx, event: PersonGroupSetEve
     if (!group) throw new MissingPrereqError(`group ${groupId} missing in vault`);
   }
   await tx.runAsync(
-    `UPDATE relationships SET group_id=?,field_hlcs=?
+    `UPDATE relationships SET group_id=?,group_ids=?,field_hlcs=?
     WHERE vault_id=? AND id=?`,
-    groupId,
+    groupIds[0] ?? null,
+    JSON.stringify(groupIds),
     serializeFieldHLCs({ ...hlcs, group_id: event.hlc }),
     event.vault_id,
     event.target_id,

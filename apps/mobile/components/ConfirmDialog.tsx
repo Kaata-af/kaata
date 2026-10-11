@@ -1,8 +1,8 @@
-import { BlurView } from "expo-blur";
-import { useEffect, useRef, useState } from "react";
+import { SheetBackdrop } from "./SheetBackdrop";
+import { useOverlayAnimation } from "../lib/use-overlay-animation";
+import { useEffect, useRef } from "react";
 import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
-import { SHEET_BLUR_METHOD } from "../lib/blur";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { t } from "../lib/i18n";
@@ -39,10 +39,8 @@ export function ConfirmDialog(props: {
   onCancel: () => void;
   onTertiary?: () => void;
 }) {
-  const [rendered, setRendered] = useState(false);
+  const { rendered, opacity, position: scale } = useOverlayAnimation(props.visible, 0.96, true);
   const isRTL = useIsRTL();
-  const opacity = useRef(new Animated.Value(0)).current;
-  const scale = useRef(new Animated.Value(0.96)).current;
   // When the dialog last opened, for DESTRUCTIVE_ARM_MS.
   const openedAt = useRef(0);
   // When the current press on a destructive button STARTED. A slow second tap
@@ -52,30 +50,9 @@ export function ConfirmDialog(props: {
 
   useEffect(() => {
     if (props.visible) {
-      // Every open re-arms the guard, including one that interrupts a close.
       openedAt.current = Date.now();
       pressStartedAt.current = null;
-      setRendered(true);
-      requestAnimationFrame(() => {
-        Animated.parallel([
-          Animated.timing(opacity, { toValue: 1, duration: 180, useNativeDriver: true }),
-          Animated.spring(scale, {
-            toValue: 1,
-            useNativeDriver: true,
-            friction: 10,
-            tension: 90,
-          }),
-        ]).start();
-      });
-    } else if (rendered) {
-      Animated.parallel([
-        Animated.timing(opacity, { toValue: 0, duration: 140, useNativeDriver: true }),
-        Animated.timing(scale, { toValue: 0.96, duration: 140, useNativeDriver: true }),
-      ]).start(({ finished }) => {
-        if (finished) setRendered(false);
-      });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.visible]);
 
   if (!rendered) return null;
@@ -107,19 +84,7 @@ export function ConfirmDialog(props: {
       onRequestClose={props.onCancel}
     >
       <Animated.View style={[StyleSheet.absoluteFill, { opacity }]}>
-        <BlurView
-          intensity={20}
-          tint="light"
-          blurMethod={SHEET_BLUR_METHOD}
-          style={StyleSheet.absoluteFill}
-        />
-        <View style={styles.tint} />
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          onPress={props.onCancel}
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-        />
+        <SheetBackdrop onDismiss={props.onCancel} />
       </Animated.View>
 
       <View style={styles.center} pointerEvents="box-none">
@@ -191,7 +156,6 @@ export function ConfirmDialog(props: {
 }
 
 const styles = StyleSheet.create({
-  tint: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.08)" },
   center: {
     ...StyleSheet.absoluteFill,
     alignItems: "center",

@@ -45,7 +45,7 @@ func lockActor(ctx context.Context, tx pgx.Tx, accountID *string) error {
 		return nil
 	}
 	var id string
-	err := tx.QueryRow(ctx, `SELECT id::text FROM accounts WHERE id=$1::uuid FOR KEY SHARE`, *accountID).Scan(&id)
+	err := tx.QueryRow(ctx, `SELECT id::text FROM accounts WHERE id=$1::uuid AND pending_delete_at IS NULL FOR KEY SHARE`, *accountID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrAuthRequired
 	}

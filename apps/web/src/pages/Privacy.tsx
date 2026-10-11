@@ -117,8 +117,8 @@ export function Privacy() {
             your IP address.
           </p>
           <p>
-            If you share a kaata with members, other active, accepted members of that same kaata
-            can see your <strong>current profile name and verified account email address</strong>
+            If you share a kaata with members, other active, accepted members of that same kaata can
+            see your <strong>current profile name and verified account email address</strong>
             in its members list, so they can identify who has access. Your sign-in username stays
             private. The members list is not published through public bill links.
           </p>
@@ -223,10 +223,13 @@ export function Privacy() {
             Installation and usage records are retained separately from account profiles for
             operational reporting. They are not necessarily anonymous. Diagnostic reports and
             unclaimed website-visit records are deleted on a rolling basis. When you delete your
-            account (below), we remove your account profile, sign-in credentials, the self-identity
-            fields of installations still linked to your account, and cloud copies of kaatas you
-            own. Those installations are retired so they cannot upload the deleted profile again.
-            Email codes are deleted within 7 days of being sent, used or not.
+            account (below), we revoke access immediately and keep the account and its cloud data
+            for a 30-day recovery window. Signing back in within those 30 days cancels deletion. At
+            the end of the window, an automatic purge removes your account profile, sign-in
+            credentials, the self-identity fields of installations still linked to your account, and
+            cloud copies of kaatas you own. Those installations are retired so they cannot upload
+            the deleted profile again. Email codes are deleted within 7 days of being sent, used or
+            not.
           </p>
           <p>
             Shared tally history remains available to authorized participants after account
@@ -254,8 +257,10 @@ export function Privacy() {
           <p>
             If you are signed in, you can delete your account at any time inside the app: tap your
             profile picture or initials on the home screen, then{" "}
-            <strong>Account settings → Privacy &amp; data → Delete account</strong>. This
-            permanently removes your account profile and sign-in credentials, your memberships in
+            <strong>Account settings → Privacy &amp; data → Delete account</strong>. This schedules
+            permanent deletion after 30 days and immediately ends your signed-in sessions. Signing
+            back in within the window cancels deletion and lets you restore your cloud kaatas. The
+            final purge removes your account profile and sign-in credentials, your memberships in
             kaatas other people own, the cloud copies of kaatas you own, and the name, phone number,
             shop name and crash reports recorded from each installation still linked to your
             account.
@@ -280,12 +285,15 @@ export function Privacy() {
           </p>
           <p>
             The app clears the ledger on the phone where you delete your account once our server
-            confirms the deletion. Other devices lose access to the deleted account, but may still
-            hold local copies or files you exported, and your phone’s own Google or iCloud backup
-            may still include the ledger. If you never signed in, unshared records have no copy on
-            our servers. Bills and shared accounts already sent to another person remain available
-            as described above. Export important records before deleting your account; an invitation
-            link does not restore a deleted account's access.
+            confirms the deletion request. The current app first checks that saved tallies have
+            reached the cloud; an unsuccessful backup keeps this phone intact. Private reminders and
+            Not sent drafts are not cloud-backed, so export anything you need before deletion. Other
+            devices lose access to the account, but may still hold local copies or files you
+            exported, and your phone’s own Google or iCloud backup may still include the ledger. If
+            you never signed in, unshared records have no copy on our servers. Bills and shared
+            accounts already sent to another person remain available as described above. After the
+            30-day recovery window, signing in or opening an invitation cannot recover permanently
+            purged account data.
           </p>
         </Section>
 

@@ -153,7 +153,7 @@ export type CustomerGroupEvent = EventEnvelope &
   );
 export type PersonGroupSetEvent = EventEnvelope & {
   event_type: "person_group_set";
-  payload: { group_id: string | null };
+  payload: { group_id: string | null; group_ids?: string[] };
 };
 
 // ---------- Shop profile events (Phase 2/3) ----------

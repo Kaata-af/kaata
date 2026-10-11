@@ -78,6 +78,8 @@ async function editorTests() {
     "../lib/reminder-format": {
       reminderClock: (h: number, m: number) => `${h}:${m}`,
       reminderWeekday: (d: number) => `weekday:${d}`,
+      reminderMonthlyDate: (at: number) => `gregorian-month-day:${at}`,
+      reminderMonthCount: (months: number) => `months:${months}`,
     },
     "../lib/reminder-schedule": schedule,
     "../lib/tokens": tokens,
@@ -133,6 +135,59 @@ async function editorTests() {
     16,
     "late native callback cannot modify a busy editor",
   );
+  busy = false;
+  render();
+  label(hooks.tree, "reminders.weekly").props.onPress();
+  render();
+  label(hooks.tree, "weekday:4").props.onPress();
+  render();
+  assert.equal(label(hooks.tree, "weekday:4").props.accessibilityRole, "checkbox");
+  assert.equal(label(hooks.tree, "weekday:4").props.accessibilityState.checked, true);
+  label(hooks.tree, "entry.save").props.onPress();
+  assert.deepEqual(saves.at(-1).weekdays, [0, 4], "weekly editor supports several selected days");
+  label(hooks.tree, "weekday:0").props.onPress();
+  render();
+  label(hooks.tree, "entry.save").props.onPress();
+  assert.equal(saves.at(-1).kind, "weekly", "single-day saves retain the legacy storage kind");
+  assert.equal(saves.at(-1).weekday, 4);
+  label(hooks.tree, "weekday:4").props.onPress();
+  render();
+  assert.equal(
+    label(hooks.tree, "entry.save").props.disabled,
+    true,
+    "an empty weekday selection cannot be saved",
+  );
+  const beforeInvalid = saves.length;
+  label(hooks.tree, "entry.save").props.onPress();
+  assert.equal(saves.length, beforeInvalid);
+  label(hooks.tree, "reminders.monthly").props.onPress();
+  render();
+  label(hooks.tree, "months:2").props.onPress();
+  render();
+  label(hooks.tree, "reminders.monthlyDate").props.onPress();
+  render();
+  const monthlyPicker = find(hooks.tree, "Picker");
+  assert.equal(
+    monthlyPicker.props.minimumDate,
+    undefined,
+    "monthly date sets a phase, not a start deadline",
+  );
+  monthlyPicker.props.onValueChange({}, new Date(2027, 0, 31, 0));
+  render();
+  assert.equal(label(hooks.tree, "entry.save").props.disabled, true);
+  assert.ok(nodes(hooks.tree).some((node) => node.props.children === "reminders.monthDayRange"));
+  find(hooks.tree, "Picker").props.onValueChange({}, new Date(2027, 10, 28, 0));
+  render();
+  label(hooks.tree, "entry.save").props.onPress();
+  assert.deepEqual(saves.at(-1), {
+    kind: "monthly",
+    day: 28,
+    anchorMonth: 10,
+    intervalMonths: 2,
+    hour: 16,
+    minute: 20,
+  });
+  assert.ok(nodes(hooks.tree).some((node) => node.props.children === "reminders.monthlyCalendar"));
   hooks.unmount();
   picker.props.onValueChange({}, new Date());
   assert.equal(hooks.lateWrites, 0);
@@ -355,6 +410,22 @@ async function screenTests() {
   failing.render();
   assert.equal(failing.permissions, 0);
   assert.ok(nodes(failing.hooks.tree).some((node) => node.props.children === "reminders.limit"));
+  const slots = screenFixture();
+  slots.fail(new Error("reminder_notification_limit"));
+  find(slots.hooks.tree, "Editor").props.onSave({
+    kind: "monthly",
+    day: 15,
+    anchorMonth: 0,
+    intervalMonths: 2,
+    hour: 9,
+    minute: 0,
+  });
+  await settleUI();
+  slots.render();
+  assert.equal(slots.permissions, 0);
+  assert.ok(
+    nodes(slots.hooks.tree).some((node) => node.props.children === "reminders.scheduleLimit"),
+  );
   const unmount = screenFixture(),
     unmountGate = deferred<void>();
   unmount.gate(unmountGate.promise);

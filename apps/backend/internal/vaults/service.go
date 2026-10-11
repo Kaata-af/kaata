@@ -134,6 +134,10 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := lockActiveAccounts(ctx, tx, in.AccountID); err != nil {
+		return CreateResult{}, err
+	}
+
 	// Phase 7: include vault_trust_anchor_pubkey ($6). pgx encodes a nil
 	// []byte as SQL NULL and a non-nil []byte as BYTEA, matching the
 	// CHECK constraint (NULL or exactly 32 bytes) and our two semantic
@@ -205,9 +209,8 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 //
 // Discipline used everywhere below:
 //   1. Read-committed tx
-//   2. SELECT FOR UPDATE the caller's membership row (locks the membership
-//      grid for the duration; serializes against concurrent role/revoke
-//      calls — no last-owner race).
+//   2. Lock referenced accounts before vault/member rows, checking that the
+//      caller has not requested deletion; then lock the vault before members.
 //   3. Mutate vaults / vault_members.
 //   4. Bump vaults.vault_epoch by 1 (every membership / settings / archive
 //      change).
@@ -474,6 +477,10 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (UpdateResult, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := lockActiveAccounts(ctx, tx, in.AccountID); err != nil {
+		return UpdateResult{}, err
+	}
+
 	if err := requireOwner(ctx, tx, in.VaultID, in.AccountID); err != nil {
 		return UpdateResult{}, err
 	}
@@ -551,6 +558,10 @@ func (s *Service) Archive(ctx context.Context, vaultID, accountID string) (Archi
 		return ArchiveResult{}, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := lockActiveAccounts(ctx, tx, accountID); err != nil {
+		return ArchiveResult{}, err
+	}
 
 	if err := requireOwner(ctx, tx, vaultID, accountID); err != nil {
 		return ArchiveResult{}, err
@@ -664,22 +675,27 @@ func (s *Service) Unarchive(ctx context.Context, vaultID, accountID string) (int
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := lockActiveAccounts(ctx, tx, accountID); err != nil {
+		return 0, err
+	}
+
 	if err := requireOwner(ctx, tx, vaultID, accountID); err != nil {
 		return 0, err
 	}
 
-	// Lock the vaults row and read archived_at + purged_at under the lock.
+	// Lock the vaults row and read archive/purge/recovery state under the lock.
 	// Reading both atomically rules out a race against the purge cron:
 	// if the cron's tx commits between our requireOwner and this SELECT,
 	// we will read purged_at != NULL and refuse with ErrVaultPurged.
 	var archivedAt *time.Time
 	var purgedAt *time.Time
+	var purgeHold *time.Time
 	if err := tx.QueryRow(ctx, `
-		SELECT archived_at, purged_at
+		SELECT archived_at, purged_at, archive_purge_not_before
 		  FROM vaults
 		 WHERE vault_id = $1::uuid
 		 FOR UPDATE
-	`, vaultID).Scan(&archivedAt, &purgedAt); err != nil {
+	`, vaultID).Scan(&archivedAt, &purgedAt, &purgeHold); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, ErrNotFound
 		}
@@ -691,11 +707,13 @@ func (s *Service) Unarchive(ctx context.Context, vaultID, accountID string) (int
 	if archivedAt == nil {
 		return 0, ErrNotArchived
 	}
-	// Defence in depth: if archived_at is older than the grace window
-	// but the cron hasn't run yet, refuse the unarchive. Otherwise an
-	// owner could "win the race" against the next cron tick and recover
-	// a vault we have promised users we'd purge by day 30.
-	if time.Since(*archivedAt) >= archiveGrace {
+	// A recovered account can use its retained archive through the original
+	// recovery hold. Unheld archives keep their existing 30-day cutoff.
+	deadline := archivedAt.Add(archiveGrace)
+	if purgeHold != nil && purgeHold.After(deadline) {
+		deadline = *purgeHold
+	}
+	if !time.Now().Before(deadline) {
 		return 0, ErrVaultPurged
 	}
 
@@ -703,6 +721,7 @@ func (s *Service) Unarchive(ctx context.Context, vaultID, accountID string) (int
 	if err := tx.QueryRow(ctx, `
 		UPDATE vaults
 		   SET archived_at = NULL,
+		       archive_purge_not_before = NULL,
 		       vault_epoch = vault_epoch + 1
 		 WHERE vault_id = $1::uuid
 		RETURNING vault_epoch
@@ -744,6 +763,10 @@ func (s *Service) Leave(ctx context.Context, vaultID, accountID string) (int64, 
 		return 0, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := lockActiveAccounts(ctx, tx, accountID); err != nil {
+		return 0, err
+	}
 
 	role, err := lockActiveMembership(ctx, tx, vaultID, accountID)
 	if err != nil {
@@ -821,6 +844,10 @@ func (s *Service) TransferOwnership(ctx context.Context, in TransferInput) (int6
 		return 0, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := lockActiveAccounts(ctx, tx, in.AccountID, in.ToAccountID); err != nil {
+		return 0, err
+	}
 
 	if err := requireOwner(ctx, tx, in.VaultID, in.AccountID); err != nil {
 		return 0, err
@@ -911,6 +938,10 @@ func (s *Service) SetMemberRole(ctx context.Context, vaultID, callerID, targetID
 		return 0, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := lockActiveAccounts(ctx, tx, callerID, targetID); err != nil {
+		return 0, err
+	}
 
 	callerRole, err := requireOwnerOrManager(ctx, tx, vaultID, callerID)
 	if err != nil {
@@ -1015,6 +1046,10 @@ func (s *Service) RevokeMember(ctx context.Context, in RevokeInput) (int64, erro
 		return 0, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := lockActiveAccounts(ctx, tx, in.CallerID, in.TargetID); err != nil {
+		return 0, err
+	}
 
 	// Roles v2 Phase B: managers may revoke members ranked below manager.
 	callerRole, err := requireOwnerOrManager(ctx, tx, in.VaultID, in.CallerID)
@@ -1279,6 +1314,10 @@ func (s *Service) CreateInvite(ctx context.Context, in CreateInviteInput) (Creat
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := lockActiveAccounts(ctx, tx, in.InviterAccID); err != nil {
+		return CreateInviteResult{}, err
+	}
+
 	// Roles v2 Phase B: managers may invite too — the grantable set above is
 	// already capped below manager, so no further per-caller restriction.
 	if _, err := requireOwnerOrManager(ctx, tx, in.VaultID, in.InviterAccID); err != nil {
@@ -1402,6 +1441,29 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := lockActiveAccounts(ctx, tx, in.AccountID); err != nil {
+		return AcceptInviteResult{}, err
+	}
+
+	// Find the vault without locking the invitation, then take the vault lock
+	// before its membership row, matching all owner/member mutations. Recheck
+	// the token below under both locks; a purge can remove it while we wait.
+	var inviteVaultID string
+	if err := tx.QueryRow(ctx, `SELECT vault_id::text FROM vault_members
+	 WHERE invite_token_hash=$1`, tokenHash).Scan(&inviteVaultID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return AcceptInviteResult{}, ErrInviteNotFound
+		}
+		return AcceptInviteResult{}, fmt.Errorf("lookup invite vault: %w", err)
+	}
+	if err := tx.QueryRow(ctx, `SELECT vault_id::text FROM vaults
+	 WHERE vault_id=$1::uuid FOR UPDATE`, inviteVaultID).Scan(&inviteVaultID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return AcceptInviteResult{}, ErrInviteNotFound
+		}
+		return AcceptInviteResult{}, fmt.Errorf("lock invite vault: %w", err)
+	}
+
 	var (
 		memberID    int64
 		vaultID     string
@@ -1417,8 +1479,8 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 		SELECT id, vault_id::text, role, COALESCE(invite_email, ''),
 		       invite_expires_at, invite_attempts, accepted_at, revoked_at,
 		       account_id::text
-		  FROM vault_members WHERE invite_token_hash = $1 FOR UPDATE
-	`, tokenHash).Scan(&memberID, &vaultID, &role, &inviteEmail,
+		  FROM vault_members WHERE invite_token_hash = $1 AND vault_id=$2::uuid FOR UPDATE
+	`, tokenHash, inviteVaultID).Scan(&memberID, &vaultID, &role, &inviteEmail,
 		&expiresAt, &attempts, &acceptedAt, &revokedAt, &acceptedBy)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -1757,6 +1819,38 @@ func redactEmail(email string) string {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+// Deletion and sign-in lock accounts before touching vaults. Hold key-share
+// locks in UUID order for every account FK this write can reference, before
+// acquiring any vault/member/invite lock. Deletion's explicit FOR UPDATE
+// serializes the caller's pending-state check with its writes.
+func lockActiveAccounts(ctx context.Context, tx pgx.Tx, callerID string, referencedIDs ...string) error {
+	ids := append([]string{callerID}, referencedIDs...)
+	rows, err := tx.Query(ctx, `SELECT id::text, pending_delete_at IS NOT NULL
+	 FROM accounts WHERE id=ANY($1::uuid[]) ORDER BY id FOR KEY SHARE`, ids)
+	if err != nil {
+		return fmt.Errorf("lock vault accounts: %w", err)
+	}
+	defer rows.Close()
+	activeCaller := false
+	for rows.Next() {
+		var id string
+		var pending bool
+		if err := rows.Scan(&id, &pending); err != nil {
+			return fmt.Errorf("read locked vault account: %w", err)
+		}
+		if id == callerID && !pending {
+			activeCaller = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("lock vault accounts: %w", err)
+	}
+	if !activeCaller {
+		return ErrNotMember
+	}
+	return nil
+}
+
 func requireOwner(ctx context.Context, tx pgx.Tx, vaultID, accountID string) error {
 	role, err := activeMemberRoleLocked(ctx, tx, vaultID, accountID)
 	if err != nil {
@@ -1793,7 +1887,7 @@ func requireOwnerOrManager(ctx context.Context, tx pgx.Tx, vaultID, accountID st
 func activeMemberRoleLocked(ctx context.Context, tx pgx.Tx, vaultID, accountID string) (string, error) {
 	var dummy string
 	err := tx.QueryRow(ctx,
-		`SELECT vault_id::text FROM vaults WHERE vault_id = $1::uuid`, vaultID).Scan(&dummy)
+		`SELECT vault_id::text FROM vaults WHERE vault_id = $1::uuid FOR UPDATE`, vaultID).Scan(&dummy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound
 	}
@@ -1820,7 +1914,7 @@ func activeMemberRoleLocked(ctx context.Context, tx pgx.Tx, vaultID, accountID s
 func lockActiveMembership(ctx context.Context, tx pgx.Tx, vaultID, accountID string) (string, error) {
 	var dummy string
 	err := tx.QueryRow(ctx,
-		`SELECT vault_id::text FROM vaults WHERE vault_id = $1::uuid`, vaultID).Scan(&dummy)
+		`SELECT vault_id::text FROM vaults WHERE vault_id = $1::uuid FOR UPDATE`, vaultID).Scan(&dummy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound
 	}
@@ -1912,13 +2006,9 @@ func (s *Service) memberRole(ctx context.Context, vaultID, accountID string) (st
 // second tx blocks until the first commits, at which point its read sees
 // the new count and the last-owner gate rejects correctly.
 //
-// Deadlock safety: every caller takes these locks in (id ASC) order
-// after first locking their own membership row via requireOwner /
-// lockActiveMembership. Because requireOwner / lockActiveMembership
-// also take their lock with `account_id = ?` (single-row), and this
-// helper then claims a superset that includes any owner row already
-// locked, the second tx waits on a single row already locked by the
-// first — classic single-resource ordering, no cycle possible.
+// The vault is already locked before any membership row. Two owners cannot
+// each hold their own membership and wait on the other's; vault mutations
+// serialize first, and then acquire the remaining owner rows in id order.
 func countActiveOwners(ctx context.Context, tx pgx.Tx, vaultID string) (int, error) {
 	var n int
 	err := tx.QueryRow(ctx, `

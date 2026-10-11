@@ -796,7 +796,8 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 			switch vss.Key {
 			case "archived_at":
 				if _, uerr := tx.Exec(ctx, `
-					UPDATE vaults v SET archived_at = sub.ts
+					UPDATE vaults v SET archived_at = sub.ts,
+					 archive_purge_not_before = CASE WHEN sub.ts IS NULL THEN NULL ELSE v.archive_purge_not_before END
 					FROM (
 						SELECT CASE
 							-- Anchor archived_at to SERVER time, NOT the client's

@@ -40,6 +40,7 @@ import { MeshController } from "../components/MeshController";
 import { ProjectionConflictsListener } from "../components/ProjectionConflictsListener";
 import { PendingEmailFlowResume } from "../components/PendingEmailFlowResume";
 import { ToastProvider } from "../components/Toast";
+import { SheetBlurProvider } from "../components/SheetBackdrop";
 import { stopShopModeForegroundService } from "../lib/mesh/foreground";
 import {
   parseOnboardingStep,
@@ -261,6 +262,7 @@ export default function RootLayout() {
   // fresh" on the restore screen for the current account.
   const [accountId, setAccountId] = useState<string | null>(null);
   const [restoreSkipped, setRestoreSkipped] = useState(false);
+  const [cancelledDeletionAccountId, setCancelledDeletionAccountId] = useState<string | null>(null);
   const [launchNotificationsReady, setLaunchNotificationsReady] = useState(false);
   const [launchNotificationOpened, setLaunchNotificationOpened] = useState(false);
 
@@ -480,10 +482,11 @@ export default function RootLayout() {
 
       // 6. Self / onboarding / account lookups.
       await step("self_lookup", async () => {
-        const [self, oStep, accountIdRaw] = await Promise.all([
+        const [self, oStep, accountIdRaw, cancelledDeletion] = await Promise.all([
           getLocalSelf(),
           getAppMeta("onboarding_step"),
           getAppMeta("account_id"),
+          getAppMeta("account_deletion_cancelled"),
         ]);
         // Prime the local-self identity cache that lib/event-log.ts
         // reads synchronously on every entry write.
@@ -495,6 +498,7 @@ export default function RootLayout() {
         // into a different Google account on the same device still
         // triggers the restore prompt.
         setAccountId(accountIdRaw ?? null);
+        setCancelledDeletionAccountId(cancelledDeletion);
         if (accountIdRaw) {
           const skipped = await getAppMeta(`restore_skipped_for_account_${accountIdRaw}`);
           setRestoreSkipped(skipped === "1");
@@ -791,29 +795,30 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      {/* initialMetrics is load-bearing, not an optimization: without it
+      <SheetBlurProvider>
+        {/* initialMetrics is load-bearing, not an optimization: without it
           SafeAreaProvider renders NOTHING until it asynchronously measures
           window insets, and on some Android ROMs (Xiaomi/MIUI) that measure
           callback is deferred until the first touch — so the whole app area is
           blank-white until you swipe (the reported bug; the system bars render
           fine, they're just white-on-white). Seeding initialWindowMetrics makes
           insets available synchronously on the first frame. */}
-      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-        <ToastProvider>
-          <AppMetaProvider currentVersion={currentVersion}>
-            <StatusBar style="dark" />
-            <ForceDarkStatusBar />
-            {installId ? <BackgroundCheckIn /> : null}
-            <AutoSync />
-            <TabSync />
-            <ReminderCoordinator />
-            {/* Phase 6: reactively starts mesh sync (BLE primary +
+        <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+          <ToastProvider>
+            <AppMetaProvider currentVersion={currentVersion}>
+              <StatusBar style="dark" />
+              <ForceDarkStatusBar />
+              {installId ? <BackgroundCheckIn /> : null}
+              <AutoSync />
+              <TabSync />
+              <ReminderCoordinator />
+              {/* Phase 6: reactively starts mesh sync (BLE primary +
                 opportunistic wifi upgrade) when account_id and
                 shop_mode_enabled are both set. Also renders the BLE
                 permission rationale + wifi-upgrade prompt dialogs.
                 No-op otherwise, including in local-only mode. */}
-            <MeshController />
-            {/* Phase 8 D-PROJECTION-CONFLICTS-SURFACE: the role-gate writes
+              <MeshController />
+              {/* Phase 8 D-PROJECTION-CONFLICTS-SURFACE: the role-gate writes
                 projection_conflicts rows when an event (local or mesh) is
                 refused for role reasons. Without a visible UI surface,
                 shopkeepers whose role got demoted between launches saw
@@ -821,84 +826,85 @@ export default function RootLayout() {
                 to the projection-conflicts notifier and pushes a toast
                 explaining what happened. Mounted at root so the surface
                 works across every screen. */}
-            <ProjectionConflictsListener />
-            <Stack
-              initialRouteName={pickInitialRoute({
-                hasOnboarded,
-                onboardingStep,
-                deviceIsPersian,
-                accountId,
-                restoreSkipped,
-              })}
-              screenOptions={{
-                headerShown: false,
-                contentStyle: { backgroundColor: colors.bgDefault },
-              }}
-            >
-              <Stack.Screen name="index" />
-              {/* Resumable onboarding stack. Each screen is registered as
+              <ProjectionConflictsListener />
+              <Stack
+                initialRouteName={pickInitialRoute({
+                  hasOnboarded,
+                  onboardingStep,
+                  deviceIsPersian,
+                  accountId,
+                  restoreSkipped,
+                  cancelledDeletionAccountId,
+                })}
+                screenOptions={{
+                  headerShown: false,
+                  contentStyle: { backgroundColor: colors.bgDefault },
+                }}
+              >
+                <Stack.Screen name="index" />
+                {/* Resumable onboarding stack. Each screen is registered as
                   its own Stack screen so the resumed step doesn't push
                   the earlier ones into history (avoiding back-into-language
                   loops). Gestures off across the whole flow — users
                   navigate forward only, except via explicit on-screen Back
                   on the profile screen. */}
-              <Stack.Screen name="onboarding/language" options={{ gestureEnabled: false }} />
-              <Stack.Screen name="onboarding/calendar" options={{ gestureEnabled: false }} />
-              <Stack.Screen name="sign-in" />
-              {/* Email sits above its provider selector, making native Back
+                <Stack.Screen name="onboarding/language" options={{ gestureEnabled: false }} />
+                <Stack.Screen name="onboarding/calendar" options={{ gestureEnabled: false }} />
+                <Stack.Screen name="sign-in" />
+                {/* Email sits above its provider selector, making native Back
                   return to the choices. The form controls gestures while busy
                   or on a deeper code/reset step that must be cancelled first. */}
-              <Stack.Screen name="auth/email" />
-              <Stack.Screen name="onboarding/auth" options={{ gestureEnabled: false }} />
-              {/* Phase 3 restore probe. Sits between auth and profile —
+                <Stack.Screen name="auth/email" />
+                <Stack.Screen name="onboarding/auth" options={{ gestureEnabled: false }} />
+                {/* Phase 3 restore probe. Sits between auth and profile —
                   the screen fetches the snapshot/v0.4-backup endpoints
                   on mount and either restores or forwards to profile.
                   Gestures off so the user can't swipe back into auth and
                   re-trigger sign-in mid-restore. */}
-              <Stack.Screen name="onboarding/restore" options={{ gestureEnabled: false }} />
-              <Stack.Screen name="onboarding/profile" options={{ gestureEnabled: false }} />
-              {/* Kaata step — collects the shop name + currency and mints the
+                <Stack.Screen name="onboarding/restore" options={{ gestureEnabled: false }} />
+                <Stack.Screen name="onboarding/profile" options={{ gestureEnabled: false }} />
+                {/* Kaata step — collects the shop name + currency and mints the
                   shopkeeper's first vault. Gestures off (forward-only flow);
                   it has an explicit on-screen Back to the profile step. */}
-              <Stack.Screen name="onboarding/kaata" options={{ gestureEnabled: false }} />
-              {/* Completion ceremony after the kaata step. Pure celebration —
+                <Stack.Screen name="onboarding/kaata" options={{ gestureEnabled: false }} />
+                {/* Completion ceremony after the kaata step. Pure celebration —
                   onboarding_step is already 'done' when it mounts, so a
                   force-quit here just lands home on relaunch. */}
-              <Stack.Screen name="onboarding/success" options={{ gestureEnabled: false }} />
-              <Stack.Screen name="onboarding/index" />
-              <Stack.Screen
-                name="update-prompt"
-                options={{ presentation: "fullScreenModal", gestureEnabled: false }}
-              />
-              <Stack.Screen name="person/[id]" />
-              <Stack.Screen name="person/[id]/edit" options={{ presentation: "modal" }} />
-              <Stack.Screen name="person/new" options={{ presentation: "modal" }} />
-              <Stack.Screen name="entry/new" options={{ presentation: "modal" }} />
-              <Stack.Screen name="entry/[id]/edit" options={{ presentation: "modal" }} />
-              <Stack.Screen name="tab/dispute" options={{ presentation: "modal" }} />
-              {/* Mutual-tab join deep link, kaata://t/<token> (D15). Modal so
+                <Stack.Screen name="onboarding/success" options={{ gestureEnabled: false }} />
+                <Stack.Screen name="onboarding/index" />
+                <Stack.Screen
+                  name="update-prompt"
+                  options={{ presentation: "fullScreenModal", gestureEnabled: false }}
+                />
+                <Stack.Screen name="person/[id]" />
+                <Stack.Screen name="person/[id]/edit" options={{ presentation: "modal" }} />
+                <Stack.Screen name="person/new" options={{ presentation: "modal" }} />
+                <Stack.Screen name="entry/new" options={{ presentation: "modal" }} />
+                <Stack.Screen name="entry/[id]/edit" options={{ presentation: "modal" }} />
+                <Stack.Screen name="tab/dispute" options={{ presentation: "modal" }} />
+                {/* Mutual-tab join deep link, kaata://t/<token> (D15). Modal so
                   it sits over whatever the user was doing and dismisses back
                   to it; signed-out visitors are allowed (D10). */}
-              <Stack.Screen name="t/[token]" options={{ presentation: "modal" }} />
-              {/* Phase 7 D-ACCOUNT-PAGE-ROLE: the /account screen was
+                <Stack.Screen name="t/[token]" options={{ presentation: "modal" }} />
+                {/* Phase 7 D-ACCOUNT-PAGE-ROLE: the /account screen was
                   killed. Sign-in / sign-out / switch-account all run
                   inline from ProfileSettingsSheet now — the screen had
                   become a redundant extra modal hop on top of the sheet
                   that already exposed every account action. */}
-              {/* Phase 7 settings-adjacent sub-pages — registered as Stack
+                {/* Phase 7 settings-adjacent sub-pages — registered as Stack
                   cards (no presentation override) for a consistent push-pop
                   feel with a single back-arrow header per screen. (The old
                   /preferences card was folded into /vault/settings — language /
                   region / currency / diagnostics now live under "Manage this
                   Kaata".) */}
-              {/* Mythos crash-diagnosis screen — card presentation like
+                {/* Mythos crash-diagnosis screen — card presentation like
                   the other settings sub-pages. */}
-              <Stack.Screen name="account" />
-              {/* "How kaata works" static guide — reachable from the settings
+                <Stack.Screen name="account" />
+                {/* "How kaata works" static guide — reachable from the settings
                   sheet's Help section. */}
-              <Stack.Screen name="guide" />
-              <Stack.Screen name="diagnostics" />
-              {/* D-BACKUP-RESTORE-FLOW: in-app "Restore from cloud"
+                <Stack.Screen name="guide" />
+                <Stack.Screen name="diagnostics" />
+                {/* D-BACKUP-RESTORE-FLOW: in-app "Restore from cloud"
                   confirm. Distinct from onboarding/restore (no Start-
                   fresh path, no v0.4 bridge, lands on / on success).
                   Phase 7 coherence pass: card presentation (the
@@ -906,8 +912,8 @@ export default function RootLayout() {
                   design-tokens.ts). Modal-as-sheet was inconsistent
                   with preferences/vault-* which are all cards reached
                   from the same ProfileSettingsSheet. */}
-              <Stack.Screen name="restore" />
-              {/* Phase 5.2: "Add a Kaata" — creates an additional vault local-
+                <Stack.Screen name="restore" />
+                {/* Phase 5.2: "Add a Kaata" — creates an additional vault local-
                   first. Registered as a regular card push (no presentation
                   override) to match every other vault/* screen (settings,
                   members, invite, pair) which rely on file-based routing
@@ -917,45 +923,46 @@ export default function RootLayout() {
                   area, leaving the form half-cut at the top. The screen
                   still renders its own custom header (Cancel | title | spacer),
                   matching the vault/* convention. */}
-              <Stack.Screen name="vault/new" />
-              {/* Phase 7: vault/* sub-pages explicitly registered as
+                <Stack.Screen name="vault/new" />
+                {/* Phase 7: vault/* sub-pages explicitly registered as
                   Stack cards so their presentation matches /preferences
                   and /vault/new. File-based routing would default to
                   cards anyway, but the explicit registration is the
                   contract for the post-Phase-7 navigation graph and
                   makes it obvious these are NOT modal sheets. */}
-              <Stack.Screen name="vault/settings" />
-              <Stack.Screen name="vault/members" />
-              <Stack.Screen name="vault/invite" />
-              <Stack.Screen name="vault/audit-log" />
-              {/* Phase 7 D-ARCHIVED-SCREEN — dedicated list of archived
+                <Stack.Screen name="vault/settings" />
+                <Stack.Screen name="vault/members" />
+                <Stack.Screen name="vault/invite" />
+                <Stack.Screen name="vault/audit-log" />
+                {/* Phase 7 D-ARCHIVED-SCREEN — dedicated list of archived
                   Kaatas reached from a small "Archived (N) >" row in
                   ProfileSettingsSheet and VaultPickerSheet. Card
                   presentation matches every other vault/* sub-page so
                   it shares the push/pop affordance of vault/settings,
                   vault/members, etc. */}
-              <Stack.Screen name="vault/archived" options={{ presentation: "card" }} />
-              {/* Removed people — archived contacts with their kept entries,
+                <Stack.Screen name="vault/archived" options={{ presentation: "card" }} />
+                {/* Removed people — archived contacts with their kept entries,
                   restorable. Reached from a "Removed people" row in vault
                   settings (rendered only when the active vault has any). */}
-              <Stack.Screen name="vault/removed-people" options={{ presentation: "card" }} />
-              <Stack.Screen name="vault/pair" />
-              <Stack.Screen name="vault/pair-scan" />
-              {/* DEV: Bluetooth Classic (RFCOMM) transport test — M-BTC-1.
+                <Stack.Screen name="vault/removed-people" options={{ presentation: "card" }} />
+                <Stack.Screen name="vault/pair" />
+                <Stack.Screen name="vault/pair-scan" />
+                {/* DEV: Bluetooth Classic (RFCOMM) transport test — M-BTC-1.
                   Temporary; remove once RFCOMM is wired into Shop Mode. */}
-              <Stack.Screen name="dev/btc-test" />
-              {/* Phase 5.1 deep-link handler for kaata://pair/<token>?p=...
+                <Stack.Screen name="dev/btc-test" />
+                {/* Phase 5.1 deep-link handler for kaata://pair/<token>?p=...
                   Reuses the same 5-step issuance as vault/pair-scan.tsx. */}
-              <Stack.Screen name="pair/[token]" options={{ presentation: "modal" }} />
-            </Stack>
-            <PendingEmailFlowResume
-              hasOnboarded={hasOnboarded}
-              launchNotificationsReady={launchNotificationsReady}
-              launchNotificationOpened={launchNotificationOpened}
-            />
-          </AppMetaProvider>
-        </ToastProvider>
-      </SafeAreaProvider>
+                <Stack.Screen name="pair/[token]" options={{ presentation: "modal" }} />
+              </Stack>
+              <PendingEmailFlowResume
+                hasOnboarded={hasOnboarded}
+                launchNotificationsReady={launchNotificationsReady}
+                launchNotificationOpened={launchNotificationOpened}
+              />
+            </AppMetaProvider>
+          </ToastProvider>
+        </SafeAreaProvider>
+      </SheetBlurProvider>
     </GestureHandlerRootView>
   );
 }

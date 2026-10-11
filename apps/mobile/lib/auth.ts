@@ -19,6 +19,7 @@ import { resolveAccountIdCandidates } from "./effective-account";
 import { appendAccountBound } from "./event-log";
 import { clearInstallRetired, ensureInstallId, markInstallRetired } from "./install-id";
 import { normalizePhone } from "./phone";
+import type { DeletionCleanupBaseline } from "./account-deletion-backup";
 
 // `import type` is erased at compile time — it does NOT execute a runtime
 // `require()` of the module — so it's safe to pull types from google-signin
@@ -64,6 +65,7 @@ const SESSION_KEY = "kaata.session.jwt";
 const USER_KEY = "kaata.session.user";
 const DELETION_CONFIRMATION_KEY = "kaata.account.deletion-confirmation";
 const DELETION_ATTEMPT_KEY = "kaata.account.deletion-attempt";
+const DELETION_BASELINE_KEY = "kaata.account.deletion-baseline";
 let sessionBindingVersion = 0;
 let sessionMutationTail: Promise<void> = Promise.resolve();
 
@@ -798,6 +800,7 @@ type AuthResponse = {
   session_jwt: string;
   account_id?: string;
   default_vault_id?: string | null;
+  deletion_cancelled?: boolean;
   user: SessionUser & { sub?: string };
 };
 
@@ -817,8 +820,18 @@ async function installAuthResponse(body: AuthResponse): Promise<SessionUser> {
   // records later, even after this session signs out.
   await SecureStore.deleteItemAsync(DELETION_CONFIRMATION_KEY);
   await SecureStore.deleteItemAsync(DELETION_ATTEMPT_KEY);
+  await SecureStore.deleteItemAsync(DELETION_BASELINE_KEY);
   await SecureStore.setItemAsync(SESSION_KEY, body.session_jwt);
   await SecureStore.setItemAsync(USER_KEY, JSON.stringify(body.user ?? {}));
+  // Account-scoped, non-secret hint for the returning account's restore flow.
+  if (body.deletion_cancelled && body.account_id) {
+    try {
+      await setAppMetaInTx(await getDb(), "account_deletion_cancelled", body.account_id);
+    } catch (err) {
+      console.warn("[auth] could not save the account recovery hint", err);
+    }
+  }
+  await setAppMetaInTx(await getDb(), "account_deletion_cleanup_blocked", "").catch(() => {});
   // Every sign-in, whatever the provider, ends a pending email code step: it
   // belonged to the flow (or the account) this sign-in replaces.
   await clearEmailFlowPending();
@@ -2401,17 +2414,42 @@ export async function signOut(): Promise<void> {
   });
 }
 
-// Permanently deletes the signed-in account server-side (DELETE /v1/account),
-// then wipes ALL local state — the account, session, mesh key cache, and the
-// on-device ledger. Play + Apple require an in-app deletion path.
+// Schedules the signed-in account's 30-day deletion (DELETE /v1/account), revokes
+// sessions immediately, then clears saved local state after confirmation and a
+// final financial-write guard. Returning sign-in cancels and restores cloud data.
+// Play + Apple require an in-app deletion path.
 //
 // The server delete must succeed FIRST: if it fails (network down, 5xx) we
 // throw and leave local data intact so the user can retry, rather than wiping
 // their only ledger copy while the server copy survives. A missing/expired
 // session is not deletion confirmation and must never trigger the local wipe.
 export async function deleteAccount(): Promise<void> {
-  const { requestAccountDeletion, completeAccountDeletion } = await import("./account-deletion");
-  await completeAccountDeletion(await accountDeletionRecovery(requestAccountDeletion));
+  const { requestAccountDeletion, completeAccountDeletion, requireAccountDeletionGrace } =
+    await import("./account-deletion");
+  const recovery = await accountDeletionRecovery(requestAccountDeletion);
+  const deletionBinding = sessionBindingVersion;
+  // Lost-response retries must still reach the receipt-only DELETE endpoint:
+  // their session is already revoked and ordinary backup/policy reads refuse it.
+  const attempt = await recovery.readAttempt(),
+    confirmation = await recovery.readConfirmation();
+  const sameProof =
+    recovery.jwt === null
+      ? !!(attempt || confirmation)
+      : attempt === recovery.jwt || confirmation === recovery.jwt;
+  if (!sameProof) {
+    const { captureDeletionCleanupBaseline, prepareAccountDeletionBackup } =
+      await import("./account-deletion-backup");
+    const baseline = await captureDeletionCleanupBaseline();
+    await requireAccountDeletionGrace(recovery.jwt, await getBackendUrl());
+    await prepareAccountDeletionBackup();
+    if (
+      deletionBinding !== sessionBindingVersion ||
+      (await SecureStore.getItemAsync(SESSION_KEY)) !== recovery.jwt
+    )
+      throw new Error("account_delete_session_changed");
+    await recovery.saveCleanupBaseline(baseline);
+  }
+  await completeAccountDeletion(recovery);
 }
 
 async function accountDeletionRecovery(
@@ -2419,29 +2457,93 @@ async function accountDeletionRecovery(
 ) {
   const bindingVersion = sessionBindingVersion;
   const jwt = await SecureStore.getItemAsync(SESSION_KEY);
+  let capturedAttempt = await SecureStore.getItemAsync(DELETION_ATTEMPT_KEY);
+  let capturedConfirmation = await SecureStore.getItemAsync(DELETION_CONFIRMATION_KEY);
+  let capturedBaseline = await SecureStore.getItemAsync(DELETION_BASELINE_KEY);
+  const clearOwnedKey = (key: string, captured: string | null) =>
+    mutateLocalSession(async () => {
+      const stored = await SecureStore.getItemAsync(key);
+      if (stored && stored === captured) await SecureStore.deleteItemAsync(key);
+    });
   return {
     jwt,
-    readAttempt: () => SecureStore.getItemAsync(DELETION_ATTEMPT_KEY),
-    saveAttempt: (attemptJwt: string) => SecureStore.setItemAsync(DELETION_ATTEMPT_KEY, attemptJwt),
-    clearAttempt: () => SecureStore.deleteItemAsync(DELETION_ATTEMPT_KEY),
-    readConfirmation: () => SecureStore.getItemAsync(DELETION_CONFIRMATION_KEY),
+    readAttempt: async () => {
+      capturedAttempt = await SecureStore.getItemAsync(DELETION_ATTEMPT_KEY);
+      return capturedAttempt;
+    },
+    saveAttempt: (attemptJwt: string) =>
+      mutateLocalSession(async () => {
+        if (
+          bindingVersion !== sessionBindingVersion ||
+          (await SecureStore.getItemAsync(SESSION_KEY)) !== jwt
+        )
+          throw new Error("account_delete_session_changed");
+        await SecureStore.setItemAsync(DELETION_ATTEMPT_KEY, attemptJwt);
+        capturedAttempt = attemptJwt;
+      }),
+    clearAttempt: async () => {
+      await clearOwnedKey(DELETION_ATTEMPT_KEY, capturedAttempt);
+      await clearOwnedKey(DELETION_BASELINE_KEY, capturedBaseline);
+    },
+    saveCleanupBaseline: (baseline: DeletionCleanupBaseline) =>
+      mutateLocalSession(async () => {
+        if (
+          bindingVersion !== sessionBindingVersion ||
+          (await SecureStore.getItemAsync(SESSION_KEY)) !== jwt
+        )
+          throw new Error("account_delete_session_changed");
+        capturedBaseline = JSON.stringify({ jwt, ...baseline });
+        await SecureStore.setItemAsync(DELETION_BASELINE_KEY, capturedBaseline);
+      }),
+    readConfirmation: async () => {
+      capturedConfirmation = await SecureStore.getItemAsync(DELETION_CONFIRMATION_KEY);
+      return capturedConfirmation;
+    },
     saveConfirmation: (confirmedJwt: string) =>
       mutateLocalSession(async () => {
         if (bindingVersion !== sessionBindingVersion)
           throw new Error("account_delete_session_changed");
         await SecureStore.setItemAsync(DELETION_CONFIRMATION_KEY, confirmedJwt);
+        capturedConfirmation = confirmedJwt;
       }),
-    clearConfirmation: () => SecureStore.deleteItemAsync(DELETION_CONFIRMATION_KEY),
+    clearConfirmation: () => clearOwnedKey(DELETION_CONFIRMATION_KEY, capturedConfirmation),
     confirmServer: async (session: string | null) => confirm(session, await getBackendUrl()),
     clearLocalData: () =>
       mutateLocalSession(async () => {
         const current = await SecureStore.getItemAsync(SESSION_KEY);
         if (bindingVersion !== sessionBindingVersion || (current !== null && current !== jwt)) {
           // A new sign-in superseded the old deletion flow while it was waiting.
-          await SecureStore.deleteItemAsync(DELETION_CONFIRMATION_KEY);
+          if (
+            capturedConfirmation &&
+            (await SecureStore.getItemAsync(DELETION_CONFIRMATION_KEY)) === capturedConfirmation
+          )
+            await SecureStore.deleteItemAsync(DELETION_CONFIRMATION_KEY);
           throw new Error("account_delete_session_changed");
         }
-        await clearDeletedAccountLocally();
+        const proof = capturedConfirmation ?? jwt ?? capturedAttempt;
+        let baseline: DeletionCleanupBaseline | null = null;
+        const raw = await SecureStore.getItemAsync(DELETION_BASELINE_KEY);
+        if (raw) {
+          try {
+            const saved = JSON.parse(raw);
+            if (
+              saved.jwt === proof &&
+              typeof saved.events === "string" &&
+              typeof saved.tabs === "string"
+            )
+              baseline = { events: saved.events, tabs: saved.tabs };
+          } catch {
+            /* Unknown legacy proof fails closed for refused drafts. */
+          }
+        }
+        try {
+          await clearDeletedAccountLocally(baseline);
+        } catch (error) {
+          if (error instanceof Error && error.message === "account_delete_late_edits") {
+            await setAppMetaInTx(await getDb(), "account_deletion_cleanup_blocked", "1");
+          }
+          throw error;
+        }
       }),
   };
 }
@@ -2464,11 +2566,18 @@ export async function resumeConfirmedAccountDeletion(): Promise<void> {
   // whole app. Only a phone holding a confirmed deletion reads the session.
   if (!(await SecureStore.getItemAsync(DELETION_CONFIRMATION_KEY))) return;
   const { resumeConfirmedDeletion } = await import("./account-deletion");
-  await resumeConfirmedDeletion(
-    await accountDeletionRecovery(async () => {
-      throw new Error("startup_must_not_request_deletion");
-    }),
-  );
+  try {
+    await resumeConfirmedDeletion(
+      await accountDeletionRecovery(async () => {
+        throw new Error("startup_must_not_request_deletion");
+      }),
+    );
+  } catch (error) {
+    // Newly created intent must remain accessible, not trap boot behind a
+    // fatal retry of an intentionally refused local wipe. Keep the receipt;
+    // signing in with the same identity cancels deletion and enables backup.
+    if (!(error instanceof Error && error.message === "account_delete_late_edits")) throw error;
+  }
 }
 
 // "Reset this phone" for a RETIRED installation (see InstallRetiredError): the
@@ -2490,13 +2599,14 @@ export function resetRetiredInstall(): Promise<void> {
     await wipeLocalPhone({ keepAppleName: true });
     await SecureStore.deleteItemAsync(DELETION_CONFIRMATION_KEY);
     await SecureStore.deleteItemAsync(DELETION_ATTEMPT_KEY);
+    await SecureStore.deleteItemAsync(DELETION_BASELINE_KEY);
   });
 }
 
 // Account deletion's local half, after the server confirmed the deletion.
 // Callers hold mutateLocalSession.
-async function clearDeletedAccountLocally(): Promise<void> {
-  await wipeLocalPhone({ keepAppleName: false });
+async function clearDeletedAccountLocally(baseline: DeletionCleanupBaseline | null): Promise<void> {
+  await wipeLocalPhone({ keepAppleName: false, deletionBaseline: baseline });
 }
 
 // THE local wipe, shared by account deletion, resetRetiredInstall and "Switch,
@@ -2511,10 +2621,29 @@ async function clearDeletedAccountLocally(): Promise<void> {
 // the next Apple sign-in would make an account without a name, and the app has
 // no way to add one later. The stash stays keyed to its Apple sub, so it is only
 // ever sent for that Apple ID.
-async function wipeLocalPhone(opts: { keepAppleName: boolean }): Promise<void> {
+async function wipeLocalPhone(opts: {
+  keepAppleName: boolean;
+  deletionBaseline?: DeletionCleanupBaseline | null;
+}): Promise<void> {
   // Invalidate every response captured before the wipe, even if it is
   // interrupted while SecureStore still contains the previous JWT.
-  sessionBindingVersion++;
+  let databaseReset = false;
+  if ("deletionBaseline" in opts) {
+    const [{ applyEventMutex }, { assertAccountDeletionCleanupSafe }] = await Promise.all([
+      import("./projection"),
+      import("./account-deletion-backup"),
+    ]);
+    await applyEventMutex.runExclusive(async () => {
+      await assertAccountDeletionCleanupSafe(opts.deletionBaseline ?? null);
+      sessionBindingVersion++;
+      setAccountIdCache(null);
+      await resetAllLocalData();
+      setLocalSelfUserIdCache(null);
+      databaseReset = true;
+    });
+    // Migrations can acquire applyEventMutex themselves: rebuild only AFTER
+    // dropping/closing the handle and releasing the financial writer lock.
+  } else sessionBindingVersion++;
   let appleNameStash: string | null = null;
   if (opts.keepAppleName) {
     try {
@@ -2545,7 +2674,7 @@ async function wipeLocalPhone(opts: { keepAppleName: boolean }): Promise<void> {
   // the handle; without re-running migrations every later DB access hits "no
   // such table" until the next cold launch. Fresh install id first (migration
   // 006 requires it), then rebuild the schema.
-  await resetAllLocalData();
+  if (!databaseReset) await resetAllLocalData();
   setLocalSelfUserIdCache(null);
   const id = await ensureInstallId();
   setInstallIdCache(id);

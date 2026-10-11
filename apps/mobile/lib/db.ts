@@ -106,6 +106,7 @@ const MIGRATION_033 = "033_vault_member_profiles";
 const MIGRATION_034 = "034_customer_credit_limits";
 const MIGRATION_035 = "035_customer_groups";
 const MIGRATION_036 = "036_customer_reminders";
+const MIGRATION_037 = "037_customer_group_memberships";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -521,6 +522,9 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   if (!(await hasRunMigration(db, MIGRATION_036))) {
     const { migrateCustomerReminders } = await import("./customer-reminders");
     await migrateCustomerReminders(db);
+  }
+  if (!(await hasRunMigration(db, MIGRATION_037))) {
+    await runMigration037(db);
   }
 }
 
@@ -3411,6 +3415,27 @@ async function runMigration035(db: SQLite.SQLiteDatabase): Promise<void> {
     await db.runAsync(
       "INSERT INTO schema_migrations (name,applied_at) VALUES (?,?)",
       MIGRATION_035,
+      Date.now(),
+    );
+  });
+}
+
+// Multiple groups preserve the single-group projection and its existing HLC.
+// JSON avoids a second independent register that could disagree after restore.
+async function runMigration037(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    const columns = await db.getAllAsync<{ name: string }>("PRAGMA table_info(relationships)");
+    if (!columns.some((c) => c.name === "group_ids")) {
+      await db.execAsync(
+        "ALTER TABLE relationships ADD COLUMN group_ids TEXT CHECK (group_ids IS NULL OR json_valid(group_ids))",
+      );
+    }
+    await db.execAsync(`UPDATE relationships SET group_ids =
+      CASE WHEN group_id IS NULL THEN '[]' ELSE json_array(group_id) END
+      WHERE group_ids IS NULL;`);
+    await db.runAsync(
+      "INSERT INTO schema_migrations (name,applied_at) VALUES (?,?)",
+      MIGRATION_037,
       Date.now(),
     );
   });

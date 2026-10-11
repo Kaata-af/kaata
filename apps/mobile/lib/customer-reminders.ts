@@ -4,6 +4,8 @@ import { resolveAccountIdCandidates } from "./effective-account";
 import { getReminderDeviceId, getReminderDeviceIdSync } from "./reminder-device";
 import {
   nextReminderOccurrence,
+  MAX_REMINDER_NOTIFICATION_REQUESTS,
+  reminderNotificationRequestCount,
   validReminderSchedule,
   type ReminderSchedule,
 } from "./reminder-schedule";
@@ -185,14 +187,24 @@ export async function saveCustomerReminder(
           personId,
         );
         if (!existing) throw new Error("reminder_access_denied");
-      } else {
-        const active = await db.getFirstAsync<{ n: number }>(
-          "SELECT COUNT(*) AS n FROM customer_reminders WHERE owner_scope = ? AND install_id = ? AND enabled = 1",
-          owner,
-          install,
-        );
-        if ((active?.n ?? 0) >= MAX_ACTIVE_REMINDERS) throw new Error("reminder_limit");
       }
+      // A selected-weekday or multi-month reminder uses several persistent
+      // native requests. Reject the save rather than silently dropping notices
+      // when iOS's pending-notification limit would be exceeded. Edits replace
+      // their own budget, including an existing disabled task being re-enabled.
+      const others = await db.getAllAsync<{ schedule_json: string }>(
+        "SELECT schedule_json FROM customer_reminders WHERE owner_scope=? AND install_id=? AND enabled=1 AND id<>?",
+        owner,
+        install,
+        reminderId,
+      );
+      if (others.length >= MAX_ACTIVE_REMINDERS) throw new Error("reminder_limit");
+      const requests = others.reduce((count, row) => {
+        const other = readReminderSchedule(row);
+        return count + (other ? reminderNotificationRequestCount(other) : 0);
+      }, reminderNotificationRequestCount(schedule));
+      if (requests > MAX_REMINDER_NOTIFICATION_REQUESTS)
+        throw new Error("reminder_notification_limit");
       if (
         owner !== reminderOwnerScope() ||
         accountInstall !== getInstallIdSync() ||

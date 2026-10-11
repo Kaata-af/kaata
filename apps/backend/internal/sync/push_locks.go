@@ -46,7 +46,7 @@ func lockPushAccounts(ctx context.Context, tx pgx.Tx, in PushInput) (map[uuid.UU
 	for id := range ids {
 		keys = append(keys, id.String())
 	}
-	rows, err := tx.Query(ctx, `SELECT id::text FROM accounts
+	rows, err := tx.Query(ctx, `SELECT id::text, pending_delete_at IS NOT NULL FROM accounts
 		WHERE id=ANY($1::uuid[]) ORDER BY id FOR KEY SHARE`, keys)
 	if err != nil {
 		return nil, fmt.Errorf("lock push accounts: %w", err)
@@ -55,8 +55,12 @@ func lockPushAccounts(ctx context.Context, tx pgx.Tx, in PushInput) (map[uuid.UU
 	locked := make(map[uuid.UUID]bool, len(ids))
 	for rows.Next() {
 		var id string
-		if err := rows.Scan(&id); err != nil {
+		var pending bool
+		if err := rows.Scan(&id, &pending); err != nil {
 			return nil, fmt.Errorf("scan locked push account: %w", err)
+		}
+		if id == caller.String() && pending {
+			return nil, ErrNotMember
 		}
 		locked[uuid.MustParse(id)] = true
 	}

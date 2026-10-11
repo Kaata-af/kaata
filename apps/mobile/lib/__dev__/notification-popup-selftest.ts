@@ -39,6 +39,7 @@ function fixture() {
   const component = compileUI(
     "../../components/NotificationInbox",
     {
+      "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
       "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
       react: hooks.react,
       "react-native": {

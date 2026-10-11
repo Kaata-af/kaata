@@ -1,184 +1,172 @@
-# Recoverable account deletion with a grace window — design
+# Recoverable account deletion
 
-Status: DESIGN (not yet implemented). Written 2026-10-08 after the 2026-10-07 incident
-where a shopkeeper tapped "Delete account" by accident and lost a year of ledger; recovery
-required hand forensics (see the recovery kit under `apps/backend/scratch-reimport/`).
-Goal: make account deletion reversible for a grace window so this cannot recur.
+Status: implemented in the next local development batch, 2026-10-12. Not deployed
+or included in the currently published 2.2.0 testing builds yet. This replaces
+the October 8 design. Backend migration is **057**, not the proposed 054.
 
-## 0. Findings that shape the design
+## User contract
 
-- Today `DELETE /v1/account` → `Service.DeleteAccount` (`apps/backend/internal/auth/delete_account.go:46`)
-  does everything in one tx: closes abandoned shared tabs (`:97-141`), retires installs + writes the
-  receipt `account_deleted_at`/`deletion_account_id` (`:146-166`), then hard-deletes owned-vault events,
-  owned vaults, memberships, device bindings, nulls `invited_by/revoked_by` and the unused
-  `vaults.pending_delete_*`, and finally `DELETE FROM accounts` (`:168-180`).
-- The vault archive→purge pattern is the template: grace constant `archiveGrace = 30 days`
-  (`apps/backend/internal/vaults/archive_purge.go:66`), a cron scanning
-  `archived_at < NOW()-30d AND purged_at IS NULL` (`:139-154`), per-row `FOR UPDATE SKIP LOCKED`
-  hard-delete (`:183-277`), wired at `apps/backend/cmd/server/main.go:516`, reversible via `Unarchive`
-  with a defense-in-depth grace recheck (`apps/backend/internal/vaults/service.go:685`).
-- Sign-in resolves the account BEFORE the install-retire check, in one tx: `resolveOrCreateAccount`
-  (`service.go:273`, returns a `created` bool currently discarded) then `ensureSignInInstall`
-  (`service.go:295`; Apple `:505`/`:523`). This ordering is what makes in-tx cancellation possible.
-- Access is already gated by two independent mechanisms: `auth_credentials.revoked_at` via
-  `CheckCredentialRevoked` (`service.go:640`) feeding every middleware, and `installs.account_deleted_at`
-  which makes check-in and sign-in return 410 (`apps/backend/internal/checkin/service.go:309,319`).
-- The `DeletionMiddleware` revoked-branch confirms a completed deletion for lost-response retries via
-  `AccountDeletionCompleted` (`middleware.go:97-106`, keyed on `NOT EXISTS account`).
-- Migrations are filename-sorted, one tx each (`apps/backend/internal/db/db.go:93-128`); next number is
-  **054** (052 and 053 are Kaata email + password accounts: `052_email_accounts.sql`,
-  `053_email_accounts_hardening.sql`). Mobile migrations are append-only `runMigrationNNN` in `apps/mobile/lib/db.ts`, at **032**.
-- Mobile already wipes locally after a confirmed server delete and rotates to a fresh install id
-  (`apps/mobile/lib/auth.ts:1369-1397`, `clearDeletedAccountLocally`). Load-bearing below.
+Delete account schedules permanent deletion **30 days after the first request**.
+Sessions are revoked immediately. Saved cloud kaatas, memberships, profiles and
+shared tally history remain during recovery. Repeating the request does not
+extend it.
 
-## 1. Backend schema + service
+Signing in with the same proven Google, Apple or Kaata email identity before
+the deadline cancels deletion. Password reset qualifies after verifying a new
+code. Failed passwords, unfinished codes and rejected different-account choices
+do not cancel it. Other phones' old sessions remain revoked after recovery.
 
-Migration `054_account_pending_delete.sql`:
+The phone clears local data only after an explicit server acknowledgement.
+Returning sign-in opens cloud restoration automatically, with progress and retry
+for incomplete restoration. This protects future requests after backend rollout;
+it cannot recover accounts already permanently purged by the former behavior.
+The store-review/demo account receives the same recovery protection.
 
-```sql
-ALTER TABLE accounts ADD COLUMN pending_delete_at TIMESTAMPTZ;
-ALTER TABLE accounts ADD COLUMN delete_requested_from_install UUID;
-CREATE INDEX idx_accounts_pending_delete_queue
-  ON accounts(pending_delete_at) WHERE pending_delete_at IS NOT NULL;
-```
+An account-matched cancellation marker takes priority at cold launch and the
+onboarding index, even when an interrupted restore already minted a self row or
+ordinary recovery was previously skipped. It clears only after complete
+restoration. Recovery includes still-saved owned archives and preserves their
+archived status without selecting them as the active kaata. Archived member
+metadata returns, while historical reads remain subject to the existing sharing
+cutoff. Already purged archives and shared history the account can no longer
+access cannot be recreated; the confirmation asks for those exports first.
 
-Leave the unused `vaults.pending_delete_by/at` scaffold in place but retired (append-only).
+## Backup before local cleanup
 
-Split `delete_account.go` into request-time vs purge-time:
+New clients first verify authenticated `GET /v1/account/deletion-policy` reports
+`grace_days: 30`. Against an older backend, the app stops before DELETE.
 
-- `RequestAccountDeletion(accountID, installID)` — new body of `DELETE /v1/account`. Lock the account
-  `FOR UPDATE`; if `pending_delete_at` already set, return idempotently. Otherwise: set
-  `pending_delete_at=NOW()`, `delete_requested_from_install`; write the receipt + retire THIS account's
-  installs (selector from `:146-151`) → blocks check-in/sign-in (410); `UPDATE auth_credentials SET
-revoked_at=NOW() WHERE account_id=$acct` (live JWTs 401 immediately; sign-in upsert un-revokes on
-  return); `InvalidateAccount`. Do NOT delete vaults/events/memberships, do NOT close tabs, do NOT clear
-  install identity/crash_reports, do NOT delete the accounts row — all destructive work defers to purge.
-- `purgeOneAccount(accountID)` — cron worker containing today's destructive body verbatim, guarded by
-  `FOR UPDATE SKIP LOCKED` + recheck `pending_delete_at IS NOT NULL AND pending_delete_at < NOW()-grace`
-  (mirror `purgeOneVault`).
+Then the app registers pending kaatas and drains unacknowledged financial vault
+events through normal signed sync, followed by the shared tally outbox. Offline
+no-ops, transport failures, refused uploads, incomplete registration, remaining
+shared intents and unsaved credit policies stop deletion and retain phone data.
+A newly refused shared intent moving into `tab_failed_ops` is still a failure
+even if the normal outbox becomes empty. Work is bounded to 100 batches per vault
+and a two-minute deadline between batches; in-flight calls retain their normal
+transport timeout.
 
-Access blocked while pending falls out of existing machinery (revoked creds → 401; `account_deleted_at`
-→ 410). No new middleware required.
+Confirmation captures bounded SHA-256 fingerprints of previously refused
+financial event/draft content. These fingerprints are stored with the exact
+deletion proof, without financial notes or unbounded ID lists in keychain. Just
+before cleanup, the financial writer mutex guards a fresh all-vault/shared/credit
+outbox check and the database drop/close together. Newly queued intent and newly
+refused or changed drafts block erasure even during DELETE's network wait. Schema
+initialization runs after releasing that mutex. Account navigation/gestures and
+editing are blocked during the request as a supporting measure.
 
-## 2. Cancellation / self-recovery
+If the server has acknowledged deletion but late edits prevent local cleanup,
+the receipt and phone data stay intact. Boot permits access instead of entering
+a fatal cleanup loop. Account shows a direct **Sign in** action even if the
+revoked JWT remains cached: signing in with the same identity cancels deletion
+and enables backup. Legacy proof without a fingerprint fails closed for unknown
+refused drafts; already dropped tables allow interrupted cleanup to finish.
 
-In `SignInWithGoogle`/`SignInWithApple`, capture the discarded `created` bool from
-`resolveOrCreateAccount` and when `!created` call `cancelPendingDeletion(tx, accountID)` BEFORE
-`ensureSignInInstall`:
+**Private reminder settings and previously refused “Not sent” drafts are not
+cloud-backed.** The confirmation asks users to export these first. Recovery
+restores saved cloud data, not every local-only setting or draft. The existing
+confirmed cleanup also clears backup files on this phone.
 
-```sql
-UPDATE accounts SET pending_delete_at=NULL, delete_requested_from_install=NULL
-  WHERE id=$acct AND pending_delete_at IS NOT NULL;   -- RowsAffected>0 ⇒ cancelled
--- if cancelled:
-UPDATE installs SET account_deleted_at=NULL, deletion_account_id=NULL WHERE deletion_account_id=$acct;
-```
+## Backend
 
-Runs in the sign-in tx, so it lifts the current install's retirement before `ensureSignInInstall` reads
-it — even the original device cancels in one shot, no reset needed. Covers every resolution path
-(canonical identity, legacy `google_sub`, cross-provider verified-email link `identity.go:151-196`)
-because it keys off the resolved `accountID`.
+Migration `057_account_deletion_grace.sql` adds `pending_delete_at`,
+`delete_requested_from_install`, an indexed purge queue and
+`vaults.archive_purge_not_before`.
 
-**Every provider, through the shared tail.** Google, Apple and every Kaata email sign-in (password sign-in,
-sign-up verify, reset verify) end in the shared `completeSignIn` tail (docs/kaata-accounts.md §6), so
-`cancelPendingDeletion` belongs there, once. A shared demo account used for store review must not sit in
-a grace window: reviewers would lock each other out for 30 days. Purge it immediately instead.
+Request and recovery take the same account lock. Request-time code rechecks the
+deleting credential's account, provider and epoch after locking, so a stale
+authenticated request cannot delete a newer sign-in. It writes the pending
+timestamp and installation receipts, retires this account's installations,
+revokes credentials/increments epochs, and consumes old account-bound email
+codes. Legacy unbound credentials still owned by this account also revoke.
+Installations explicitly switched to a different account remain unaffected.
+Request time preserves ledgers, shared tallies, memberships and profile data.
+Still-saved owned archives receive a purge hold through the request's original
+30-day deadline. Their archive display timestamp stays unchanged. The archive
+worker locks the active owner before the vault and rechecks this hold; pending
+owners cannot be purged by that separate worker. Cancellation keeps the hold
+until the original deadline, so cloud restoration cannot immediately race a
+previously expired archive. Recovered owners can unarchive through the later
+deadline; both REST and signed unarchive clear the hold. Normal archives keep
+their existing lifecycle, and already-purged archive data cannot be recovered.
+Archived non-owner memberships retain the existing sharing cutoff; recovery
+does not expose their history.
 
-Tell the client: add `DeletionCancelled bool` to the sign-in result → `deletion_cancelled` in the auth
-response. The client already runs `recoverAllVaults` on a returning sign-in (`recovery.ts:90`); the flag
-only drives "your deletion was cancelled, data restored" messaging.
+Cancellation belongs to `completeSignIn`, the transaction tail shared by every
+auth provider. It follows identity proof and precedes retired-install checks,
+rolling back if any later sign-in step fails. The `deletion_cancelled` response
+flag is stored against the recovered account ID, not an unscoped boolean.
+Pending hollow accounts skip the legacy same-email merge, so cancellation or
+expiry is checked against the original account rather than another account.
+Defensive legacy credentials use an explicit installation owner when their
+account field is absent; missing both ownership fields fails closed.
 
-Idempotent DELETE retry: add `AccountDeletionState(installID, accountID) → (purged, scheduled, purgeAt)`
-and extend `DeletionMiddleware`: on revoked, return `{"status":"deleted"}` when purged,
-`{"status":"deletion_scheduled","purge_at":…}` when pending, else 401.
+Authenticated writes lock and recheck the actor's active account before their
+other rows, so a request already authorized before deletion cannot mutate the
+pending account afterward. Credential cache invalidation is immediate in this
+server; other processes retain the existing maximum 60-second cache freshness.
 
-## 3. Mobile
+The worker runs at boot and hourly, scanning up to 50 expired accounts per tick.
+Each destructive transaction uses `FOR UPDATE SKIP LOCKED` and rechecks expiry.
+Recovery and purge serialize on the same lock. Multiple workers cannot purge a
+cancelled or unexpired request. Expired accounts cannot reactivate while waiting
+for the next worker tick.
 
-- Keep the immediate local wipe + install-id rotation (`auth.ts:1369`). The server now holds the
-  restorable copy; the rotation is what lets the same phone sign back in cleanly to cancel. **Consequence
-  to state plainly: the phone looks empty right after the tap; recovery is sign-in-triggered, same as
-  today — the grace window protects an accidental deleter who signs back in within 30 days.**
-- `lib/account-deletion.ts`: accept `status === "deletion_scheduled"` as success alongside `"deleted"`.
-- `lib/auth.ts`: add `deletion_cancelled?` to `AuthResponse`; in `installAuthResponse`, when true surface
-  a welcome-back toast/screen and let the existing restore path run.
-- `app/account.tsx`: confirm dialog copy stops saying permanent-now; same `deleteAccount()` call, only
-  strings change.
-- No mobile migration (033) needed — no new local tables; local DB is wiped+rebuilt on delete and
-  repopulated by recovery. Deliberate.
-- Copy (LTR-locked, Dari + English), replacing `i18n.ts:737`/`:2201`:
-  - en: "Your account and everything in it will be scheduled for deletion. Cloud copies of kaatas you own
-    and this phone's ledger are removed now; your account and its data are kept for 30 days and then
-    permanently deleted. Sign in again within 30 days to cancel and restore everything. Other participants
-    keep shared tally history. Deletion settles no balance."
-  - fa: "حساب شما و همهٔ محتوای آن برای حذف زمان‌بندی می‌شود. نسخه‌های ابری کاتاهایی که مالک آن هستید و دفتر این تلفون همین حالا پاک می‌شوند؛ حساب و معلومات شما ۳۰ روز نگه داشته می‌شود و سپس برای همیشه حذف می‌گردد. برای لغو و بازگرداندن همه چیز، ظرف ۳۰ روز دوباره وارد شوید. طرف‌های دیگر سابقهٔ حساب مشترک را نگه می‌دارند. حذف حساب هیچ بیلانسی را تصفیه نمی‌کند."
-  - Keep cta "Delete account"/"حذف حساب". Add `account.deleteAccount.cancelled.{title,body}`. Retired-install
-    copy stays (applies to secondary devices and post-purge).
+Purge retains permanent-deletion semantics: remove the account, private owned
+vaults/events, memberships/device bindings and private identity; detach
+attribution in surviving participants' records and close abandoned shared
+tallies without accepting entries or settling balances. Other participants keep
+shared financial history.
 
-## 4. Store compliance
+## HTTP and old clients
 
-A grace/cooling-off window is permitted by both stores if the user is informed and deletion ultimately
-completes:
+New clients send `X-Kaata-Deletion-Grace: 30` and get
+`{"status":"deletion_scheduled","purge_at":"…"}`. Older installed clients get
+their recognized `status: "deleted"` plus `purge_at`; server retention remains
+30 days, supporting their existing acknowledgement/local-reset behavior.
 
-- Apple App Review 5.1.1(v): in-app deletion required; a grace period before permanent deletion is allowed
-  if disclosed. In-app path already exists (`account.tsx:539`).
-- Google Play Account deletion requirements (Data safety): in-app request for account AND data deletion; a
-  grace period is acceptable when disclosed. This also tightens the 2026-10-02 "Login credentials are
-  missing" review risk: a reviewer who taps delete can sign back in and recover.
-- Required wording (dialog + `kaata.af/privacy`): "Your account and data will be permanently deleted 30
-  days after you request deletion. You can cancel any time within those 30 days by signing in again."
+Dedicated deletion middleware performs a fresh credential check. A matching
+installation/account receipt can confirm a lost-response retry without granting
+account access. Receipt status is read atomically. An ordinary 401 or another
+account's receipt never authorizes cleanup. SecureStore proof writes and cleanup
+are bound to the captured local session generation and exact proof, preventing
+late responses from overwriting or clearing a newer account's data.
 
-## 5. Vault deletion
+## Disclosure and rollout
 
-No change — vaults already have 30-day archive→purge with unarchive. Account deletion is the only gap.
-Recommendation: share one grace constant between the two crons. Leave (and document) that purging an owner
-account still hard-deletes co-owned/shared owned vaults; transfer-on-delete is out of scope.
+English/Dari confirmation, privacy policy and deletion page describe retention,
+cancellation and local-only exclusions. Apple requires deletion rather than
+temporary deactivation and allows deletion taking time when explained; Google
+requires account/data deletion and clear retention disclosures. **30 days is
+our product choice**, not a specific duration endorsed by either store.
+References: [Apple account deletion](https://developer.apple.com/support/offering-account-deletion-in-your-app/),
+[Google account deletion requirements](https://support.google.com/googleplay/android-developer/answer/13327111).
 
-## 6. Window length
+When asked to ship, deploy backend migration/worker and public web disclosures
+before distributing mobile. Verify the live policy reports 30, worker health
+and any store disclosures needed for that release. This development task changes
+no production server, store review or testing distribution.
 
-Recommend 30 days — matches `archiveGrace`, `DIFFERENT_ACCOUNT_WINDOW_MS` (`auth.ts:216`) and
-`SessionLifetime` (`jwt.go:18`); within both stores' norms; reuses the archive cron's 6-hour cadence.
-14 days is the acceptable floor.
+## Validation and device checks
 
-## Risks / edge cases
+Real PostgreSQL regressions cover retained private/shared evidence, revoked
+sessions, failed proof, email/Google/Apple/reset recovery, expired refusal/purge,
+concurrent locks, lost-response/legacy acknowledgements, stale epochs and legacy
+credentials, pending hollow identity recovery/expiry, unknown attribution and
+late phone/profile/password edits. Archive regressions cover pending-owner
+locking, saved history retention across cancellation, the retained hold and its
+expiry, stale candidates and ordinary/already-purged archives. Mobile tests cover
+policy compatibility, backup refusals/failures/bounds, actual auth generation
+races, receipt cleanup and restore interactions.
 
-- Delete then "new account, same email" within the window: signing in with the same identity or a
-  different provider on the same verified email resolves the pending account and cancels it (cancel placed
-  after resolution, covering the email-link path). A genuinely fresh account on the same email is only
-  possible after purge.
-- Shared vault where the deleter is a member (not owner): nothing in others' vaults is touched until purge;
-  during the window the pending member is blocked by the revoke but still appears a member to others.
-- Second device: install retired (410) and JWT 401s; recovery requires a re-sign-in (after "reset this
-  phone" if it shows the retired notice), which cancels (if still pending) and restores.
-- Cron down / never signs back in: data lingers safely; cron catches up on boot; backdating defended by
-  the `NOW()-grace` recheck under lock.
-- Lost DELETE response: idempotent via the extended `DeletionMiddleware` scheduled/deleted branch.
-- Android Auto Backup resurrecting a retired install id: unchanged — reset then sign-in; within the window
-  it cancels+restores.
+All 14 backend application packages with tests passed against an isolated UTF-8
+PostgreSQL database. The final full auth/vault rerun passed 154 test/subcase
+results, and the signed-unarchive/shop-profile sync rerun passed 10. All 50
+mobile selftest suites, TypeScript, 85 web tests, the web build and both native
+Metro/Hermes exports passed. The only backend skip was the opt-in bill-preview
+image generator. Native end-to-end recovery remains a device check.
 
-## Ordered build + test sequence
-
-1. Migration `054_account_pending_delete.sql` (+ index). Verify chain applies via `testutil`.
-2. Split `delete_account.go`: `RequestAccountDeletion` (pending + receipt-retire + revoke creds +
-   InvalidateAccount) and `purgeOneAccount` (today's destructive body).
-3. `account_purge.go` cron mirroring `archive_purge.go`; wire in `main.go` beside `:516`; share the grace
-   constant.
-4. `AccountDeletionState` + `DeletionMiddleware` scheduled/deleted/401 branch.
-5. Capture `created`; add `cancelPendingDeletion` before `ensureSignInInstall` in both sign-in paths; add
-   `DeletionCancelled` to result/response.
-6. Backend tests (real Postgres): pending→cancel→restore (same-identity + cross-provider email-link);
-   pending→purge after backdated window; purge skips inside window + SKIP LOCKED multi-replica;
-   second-device 410/401 then re-sign-in cancel+recover; retired-install interaction; idempotent DELETE
-   retry (scheduled vs deleted); shared-tally stays open during window, closes only at purge.
-7. Mobile: `account-deletion.ts` accept `deletion_scheduled`; `auth.ts` flag + recovery/toast;
-   `account.tsx` copy; `i18n.ts` en+fa keys.
-8. `npm run selftest:account-deletion` (+ boot-step receipt case): request accepts scheduled;
-   wipe+confirm+resume unchanged; cancelled-flag triggers recovery; copy keys present; manual LTR/Dari
-   render check.
-9. Update `kaata.af/privacy` + store-listing deletion disclosure; re-verify the reviewer account flow.
-
-## Critical files
-
-- `apps/backend/internal/auth/delete_account.go`, `identity.go`, `middleware.go` (+ `service.go`,
-  `deletion_receipt.go`, `handler.go`)
-- `apps/backend/internal/vaults/archive_purge.go` (purge-cron template → new `account_purge.go` + wiring
-  in `cmd/server/main.go`)
-- `apps/mobile/lib/auth.ts` (+ `account-deletion.ts`, `app/account.tsx`, `lib/i18n.ts`)
+Before the next distribution, test Android/iOS end to end with synthetic ledgers:
+accepted shared tallies; a final offline edit that blocks unsafe deletion;
+online scheduling and other-phone revocation; sign-in before deadline and
+complete cloud recovery; interrupted restore/retry; English/Dari disclosure.
+Deadline/purge tests must use synthetic accounts.

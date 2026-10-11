@@ -260,7 +260,14 @@ func (h *Handler) CreditLimits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = tx.Rollback(r.Context()) }()
-	if _, err := tx.Exec(r.Context(), `SELECT 1 FROM accounts WHERE id=$1::uuid FOR UPDATE`, claims.AccountID); err != nil {
+	var activeAccount string
+	err = tx.QueryRow(r.Context(), `SELECT id::text FROM accounts
+	 WHERE id=$1::uuid AND pending_delete_at IS NULL FOR KEY SHARE`, claims.AccountID).Scan(&activeAccount)
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpx.Error(w, 401, "account unavailable")
+		return
+	}
+	if err != nil {
 		httpx.Error(w, 500, "storage unavailable")
 		return
 	}

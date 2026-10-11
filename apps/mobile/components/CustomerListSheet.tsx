@@ -16,9 +16,15 @@ import { colors } from "../lib/colors";
 import { fonts } from "../lib/fonts";
 import { rowDir, textDir } from "../lib/direction";
 import { t } from "../lib/i18n";
-import { CUSTOMER_SORTS, type CustomerListPreference } from "../lib/customer-list";
+import {
+  CUSTOMER_SORTS,
+  selectedCustomerGroupIds,
+  toggleCustomerGroupFilter,
+  type CustomerListPreference,
+} from "../lib/customer-list";
 import type { CustomerGroup } from "../lib/customer-groups";
 import { icon, radius } from "../lib/tokens";
+import { SheetBackdrop } from "./SheetBackdrop";
 
 /** One small entry point, two independent choices; no permanent filter bar. */
 export function CustomerListSheet(props: {
@@ -140,10 +146,7 @@ export function CustomerListSheet(props: {
       statusBarTranslucent
       onRequestClose={props.onDismiss}
     >
-      <Pressable
-        style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.18)" }]}
-        onPress={props.onDismiss}
-      />
+      <SheetBackdrop onDismiss={props.onDismiss} />
       <Animated.View
         style={[
           styles.container,
@@ -161,13 +164,26 @@ export function CustomerListSheet(props: {
               ),
             )}
             <Text style={[styles.section, textDir(props.isRTL)]}>{t("groups.filter")}</Text>
+            <Text style={[styles.help, textDir(props.isRTL)]}>{t("groups.filterHelp")}</Text>
             {[
               { id: "all", name: t("groups.all") },
               { id: "ungrouped", name: t("groups.ungrouped") },
               ...props.groups,
             ].map((group) =>
-              row(group.id, group.name, props.preference.group === group.id, () =>
-                props.onChange({ ...props.preference, group: group.id }),
+              row(
+                group.id,
+                group.name,
+                group.id === "all" || group.id === "ungrouped"
+                  ? props.preference.group === group.id
+                  : selectedCustomerGroupIds(props.preference.group).includes(group.id),
+                () =>
+                  props.onChange({
+                    ...props.preference,
+                    group:
+                      group.id === "all" || group.id === "ungrouped"
+                        ? group.id
+                        : toggleCustomerGroupFilter(props.preference.group, group.id),
+                  }),
               ),
             )}
             {props.canManage
@@ -230,4 +246,11 @@ const styles = StyleSheet.create({
   },
   row: { minHeight: 48, paddingVertical: 12, paddingHorizontal: 20, alignItems: "center", gap: 12 },
   label: { flex: 1, fontFamily: fonts.sansRegular, fontSize: 15, color: colors.textDefault },
+  help: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 12,
+    color: colors.textSubtle,
+    paddingHorizontal: 20,
+    paddingBottom: 8,
+  },
 });

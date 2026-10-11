@@ -115,6 +115,33 @@ flag in `app_meta` (per-vault, e.g. `backup_nag_dismissed:<vaultId>`).
 
 ## 7. Tests
 
+Recovery captures the starting account/session generation. Snapshot projection,
+event ingestion/cursors, local member healing, self identity and active/default
+selection are serialized with sign-in/sign-out; remote requests stay outside
+that mutex. A late old-account reply aborts recovery before writing into a newer
+account's local state. Witness binding checks the same session after its network
+request. Shared-tab sync already guards its own account projections.
+
+Returning during account deletion's grace window uses `requireComplete: true`.
+Vault history pull failures remain failed instead of counting as restored. The
+normal bounded tab sweep is followed by a fresh `/v1/tabs/mine` read: every bound
+tab in a live restored vault must have its matching local relationship/link,
+correct role, an applied revision at least as recent as the server, a completed
+sync and current close state. A timeout, missing cache or API failure keeps the
+account's cancellation marker and exposes retry. Ordinary recovery preserves its
+existing best-effort behavior. Ordinary restores exclude archived vaults.
+Deletion recovery also includes still-saved owned archives, preserves their
+archived status, and checks their readable shared bindings. Archived-member
+metadata restores without historical reads, preserving the existing stop-sharing
+access policy. Unbound tabs and unreadable archived-member history are outside
+the completion check. Cold launch resumes this recovery even when a partial
+restore already created the self row.
+
+`selftest:recovery-session` executes real recovery, snapshot, page pull and
+witness boundaries using synthetic local adapters. It covers late account
+switches, strict completion failures and the unchanged ordinary restore path;
+native delivery and physical-device recovery still require the smoke checks below.
+
 - Mobile: keep the selftests green; the recovery orchestrator is mostly I/O (SQLite + network)
   so it's a device smoke test, but the pure pieces (anchor-pin logic, the membership-event
   ingest idempotence, the active/default selection) get unit coverage where feasible.

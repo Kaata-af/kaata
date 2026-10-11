@@ -1,11 +1,11 @@
+import { SheetBackdrop } from "./SheetBackdrop";
+import { useOverlayAnimation } from "../lib/use-overlay-animation";
 import { Ionicons } from "@expo/vector-icons";
-import { BlurView } from "expo-blur";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Animated, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import type { ComponentProps } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
-import { SHEET_BLUR_METHOD } from "../lib/blur";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { icon, radius } from "../lib/tokens";
@@ -32,10 +32,8 @@ export function BottomSheet(props: {
   actions: SheetAction[];
   onDismiss: () => void;
 }) {
-  const [rendered, setRendered] = useState(false);
+  const { rendered, opacity, position: translateY } = useOverlayAnimation(props.visible, OFFSCREEN);
   const isRTL = useIsRTL();
-  const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(OFFSCREEN)).current;
   const actionPending = useRef(false);
   const actionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -48,27 +46,9 @@ export function BottomSheet(props: {
   useEffect(() => {
     if (props.visible) {
       actionPending.current = false;
-      setRendered(true);
-      requestAnimationFrame(() => {
-        Animated.parallel([
-          Animated.timing(opacity, { toValue: 1, duration: 220, useNativeDriver: true }),
-          Animated.spring(translateY, {
-            toValue: 0,
-            useNativeDriver: true,
-            friction: 11,
-            tension: 75,
-          }),
-        ]).start();
-      });
-    } else if (rendered) {
-      Animated.parallel([
-        Animated.timing(opacity, { toValue: 0, duration: 160, useNativeDriver: true }),
-        Animated.timing(translateY, { toValue: OFFSCREEN, duration: 180, useNativeDriver: true }),
-      ]).start(({ finished }) => {
-        if (finished) setRendered(false);
-      });
+      if (actionTimer.current) clearTimeout(actionTimer.current);
+      actionTimer.current = null;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.visible]);
 
   if (!rendered) return null;
@@ -82,14 +62,7 @@ export function BottomSheet(props: {
       onRequestClose={props.onDismiss}
     >
       <Animated.View style={[StyleSheet.absoluteFill, { opacity }]}>
-        <BlurView
-          intensity={20}
-          tint="light"
-          blurMethod={SHEET_BLUR_METHOD}
-          style={StyleSheet.absoluteFill}
-        />
-        <View style={styles.tint} />
-        <Pressable style={StyleSheet.absoluteFill} onPress={props.onDismiss} />
+        <SheetBackdrop onDismiss={props.onDismiss} />
       </Animated.View>
 
       <Animated.View
@@ -147,7 +120,6 @@ export function BottomSheet(props: {
 }
 
 const styles = StyleSheet.create({
-  tint: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.08)" },
   sheetContainer: {
     position: "absolute",
     left: 0,

@@ -9,10 +9,11 @@
 // Language + default country auto-commit (no Save) like the old Preferences.
 
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
+import { Stack, useFocusEffect, useNavigation, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
+  BackHandler,
   Linking,
   Platform,
   Pressable,
@@ -151,9 +152,28 @@ export default function AccountScreen() {
   // server account to delete; they reset via the app uninstall).
   const [signedIn, setSignedIn] = useState(false);
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deletionRecoveryNeeded, setDeletionRecoveryNeeded] = useState(false);
   // Guards BOTH erasing flows (deletion and the retired-install reset), so one
   // can never start while the other is still running.
   const deletingRef = useRef(false);
+  const navigation = useNavigation();
+  useEffect(
+    () =>
+      navigation.addListener("beforeRemove", (event) => {
+        if (deletingRef.current) event.preventDefault();
+      }),
+    [navigation],
+  );
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener(
+        "hardwareBackPress",
+        () => deletingRef.current,
+      );
+      return () => subscription.remove();
+    }, []),
+  );
   // Retired installation (InstallRetiredError in lib/auth.ts): an account this
   // phone was signed in to was deleted, so the server refuses it. Shown signed
   // in or not, from the flag check-in and sign-in set on a 410 (and clear
@@ -240,6 +260,7 @@ export default function AccountScreen() {
       if (nameState === "invalid") setNameError(t("auth.error.name.invalid"));
       setHasSession(session);
       setSignedIn(session || (await hasPendingAccountDeletion()));
+      setDeletionRecoveryNeeded((await getAppMeta("account_deletion_cleanup_blocked")) === "1");
       setRetired(await isInstallRetired().catch(() => false));
       setLoaded(true);
     })();
@@ -252,23 +273,33 @@ export default function AccountScreen() {
   async function onConfirmDelete() {
     if (deletingRef.current) return;
     deletingRef.current = true;
+    setDeleting(true);
     setDeleteConfirmVisible(false);
     try {
       await deleteAccount();
       // The confirmed cleanup also rebuilt a fresh local schema.
+      deletingRef.current = false;
       router.replace("/onboarding");
     } catch (err) {
       console.warn("[account] deleteAccount failed", err);
+      if (err instanceof Error && err.message === "account_delete_late_edits") {
+        setDeletionRecoveryNeeded(true);
+      }
       toast.push(
         t(
           err instanceof Error && err.message === "account_delete_auth_required"
             ? "account.deleteAccount.authRequired"
-            : "account.deleteAccount.failed",
+            : err instanceof Error && err.message === "account_delete_grace_unavailable"
+              ? "account.deleteAccount.graceUnavailable"
+              : err instanceof Error && err.message === "account_delete_late_edits"
+                ? "account.deleteAccount.lateEdits"
+                : "account.deleteAccount.backupFailed",
         ),
         "error",
       );
     } finally {
       deletingRef.current = false;
+      setDeleting(false);
     }
   }
 
@@ -449,7 +480,9 @@ export default function AccountScreen() {
     return (
       <ScreenLoading
         title={t("account.title")}
-        onBack={() => router.back()}
+        onBack={() => {
+          if (!deletingRef.current) router.back();
+        }}
         isRTL={isRTL}
         edges={["top"]}
       />
@@ -485,11 +518,14 @@ export default function AccountScreen() {
     <SafeAreaView style={styles.container} edges={["top"]}>
       <ScreenHeader
         title={t("account.title")}
-        onBack={() => router.back()}
+        onBack={() => {
+          if (!deletingRef.current) router.back();
+        }}
         isRTL={isRTL}
         backLabel={t("common.back")}
       />
       <KeyboardAvoidingView
+        pointerEvents={deleting ? "none" : "auto"}
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
@@ -757,6 +793,18 @@ export default function AccountScreen() {
           <SectionGap />
 
           {/* ============ PRIVACY & DATA ============ */}
+          <Stack.Screen options={{ gestureEnabled: !deleting }} />
+          {deletionRecoveryNeeded ? (
+            <View style={styles.retiredCard}>
+              <Text style={[styles.retiredBody, textDir(isRTL)]}>
+                {t("account.deleteAccount.lateEdits")}
+              </Text>
+              <Button
+                label={t("menu.account.signIn.choose")}
+                onPress={() => router.push("/sign-in")}
+              />
+            </View>
+          ) : null}
           <SectionHeader label={t("account.privacy.section")} isRTL={isRTL} />
           <NavRow
             icon="shield-checkmark-outline"
@@ -770,9 +818,13 @@ export default function AccountScreen() {
           {signedIn ? (
             <NavRow
               icon="trash-outline"
-              label={t("account.deleteAccount.label")}
+              label={t(
+                deleting ? "account.deleteAccount.preparing" : "account.deleteAccount.label",
+              )}
               hint={t("account.deleteAccount.hint")}
-              onPress={() => setDeleteConfirmVisible(true)}
+              onPress={() => {
+                if (!deletingRef.current) setDeleteConfirmVisible(true);
+              }}
               isRTL={isRTL}
               danger
               isLast

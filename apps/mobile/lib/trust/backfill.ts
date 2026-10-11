@@ -27,6 +27,7 @@
 // app session — deliberate, per §5's "one-shot, next-launch retry" shape.
 
 import { getAccountIdSync, getDb, getInstallIdSync } from "../db-tx";
+import { applyForCurrentSession, type SessionSnapshot } from "../auth";
 import { getAppMeta, getLocalSelf, setAppMeta } from "../db";
 import { isPlaceholderSelfName } from "../i18n";
 import {
@@ -382,8 +383,11 @@ export async function emitWitnessedSelfAdmission(
      * kaata instead of the "Owner" role label. Mirror-only, never an event.
      */
     inviterName?: string | null;
+    /** Recovery's original session; the witness response must not cross accounts. */
+    session?: SessionSnapshot;
   },
 ): Promise<void> {
+  if (opts?.session) await applyForCurrentSession(opts.session, async () => {});
   await ensureDeviceKey();
   const devicePubkey = getDevicePubkey();
   if (!devicePubkey) {
@@ -400,124 +404,130 @@ export async function emitWitnessedSelfAdmission(
 
   const res = await fetchMembershipWitness(vaultId);
 
-  // Best-effort inviter-name stamp (visibility only — role/revocation stay
-  // chain-driven). The inviter is an owner (CreateInvite is requireOwner
-  // server-side); INSERT OR IGNORE means a chain-folded row wins on role,
-  // and we only fill display_name when it's still unknown.
-  const inviterName = opts?.inviterName?.trim();
-  const inviterId = res.member_witness?.inviter_account_id;
-  if (inviterName && inviterId) {
-    try {
-      const db = await getDb();
-      await db.runAsync(
-        `INSERT OR IGNORE INTO vault_members_mirror
+  // The witness request is outside the session mutex. Everything below is a
+  // local mirror/chain append and must still belong to the requesting account.
+  const applyAdmission = async () => {
+    // Best-effort inviter-name stamp (visibility only — role/revocation stay
+    // chain-driven). The inviter is an owner (CreateInvite is requireOwner
+    // server-side); INSERT OR IGNORE means a chain-folded row wins on role,
+    // and we only fill display_name when it's still unknown.
+    const inviterName = opts?.inviterName?.trim();
+    const inviterId = res.member_witness?.inviter_account_id;
+    if (inviterName && inviterId) {
+      try {
+        const db = await getDb();
+        await db.runAsync(
+          `INSERT OR IGNORE INTO vault_members_mirror
            (vault_id, account_id, role, accepted_at, revoked_at, display_name)
          VALUES (?, ?, 'owner', ?, NULL, ?)`,
-        vaultId,
-        inviterId,
-        Date.now(),
-        inviterName,
-      );
-      await db.runAsync(
-        `UPDATE vault_members_mirror SET display_name = ?
-          WHERE vault_id = ? AND account_id = ? AND display_name IS NULL`,
-        inviterName,
-        vaultId,
-        inviterId,
-      );
-    } catch (err) {
-      console.warn("[trust/backfill] inviter name stamp failed (cosmetic)", err);
-    }
-  }
-
-  // Invite acceptance requires sign-in, so account_id is normally set;
-  // the local sentinel is a defensive fallback only.
-  const accountId = getAccountIdSync() ?? buildLocalAccountId(devicePubkey);
-
-  // Diff against what is ALREADY chained. Prefer the folded chain state
-  // (what the handshake verifies); fall back to the materialized mirror /
-  // device registry when the vault has no local trust anchor yet (the
-  // folded state is null then).
-  const state = await getLocalMembershipState(vaultId);
-  let selfIsActiveMember: boolean;
-  let selfDeviceBound: boolean;
-  if (state) {
-    const m = state.members.get(accountId);
-    selfIsActiveMember = !!m && !m.removed;
-    const d = state.devices.get(devicePubkey);
-    selfDeviceBound = !!d && !d.removed;
-  } else {
-    const db = await getDb();
-    const memberRow = await db.getFirstAsync<{ one: number }>(
-      `SELECT 1 AS one FROM vault_members_mirror
-        WHERE vault_id = ? AND account_id = ? AND revoked_at IS NULL LIMIT 1`,
-      vaultId,
-      accountId,
-    );
-    selfIsActiveMember = !!memberRow;
-    const deviceRow = await db.getFirstAsync<{ one: number }>(
-      `SELECT 1 AS one FROM vault_device_registry
-        WHERE vault_id = ? AND device_pubkey = ? AND removed_at_ms IS NULL LIMIT 1`,
-      vaultId,
-      devicePubkey,
-    );
-    selfDeviceBound = !!deviceRow;
-  }
-
-  // Emit member_added ONLY when not already an active member AND the server
-  // brokered an invite (member_witness proves owner intent). Swallow a
-  // RoleGateRejectionError on a member_added the role-gate considers already
-  // present — the device_added below is what we actually need to complete.
-  if (res.member_witness && !selfIsActiveMember) {
-    const memberWitness: MembershipWitness = {
-      sig_b64: res.member_witness.sig_b64,
-      server_key_id: res.server_key_id,
-      issued_at_ms: res.member_witness.issued_at_ms,
-      inviter_account_id: res.member_witness.inviter_account_id,
-    };
-    // Self name for the payload: explicit opts win; otherwise derive from
-    // getLocalSelf so the recovery/backfill retry paths also carry it.
-    // Placeholder-guarded either way — "You" must never enter a signed event.
-    let selfDisplayName = opts?.selfDisplayName?.trim() || null;
-    if (!selfDisplayName) {
-      const self = await getLocalSelf().catch(() => null);
-      selfDisplayName = self?.name?.trim() || null;
-    }
-    if (selfDisplayName && isPlaceholderSelfName(selfDisplayName)) selfDisplayName = null;
-    try {
-      await appendVaultMemberAdded({
-        targetVaultId: vaultId,
-        accountId,
-        role: res.member_witness.role,
-        witness: memberWitness,
-        displayName: selfDisplayName ?? undefined,
-      });
-    } catch (err) {
-      if (err instanceof RoleGateRejectionError) {
-        console.warn(
-          "[trust/backfill] witnessed member_added declined by role-gate (already a member) — proceeding to device binding",
+          vaultId,
+          inviterId,
+          Date.now(),
+          inviterName,
         );
-      } else {
-        throw err;
+        await db.runAsync(
+          `UPDATE vault_members_mirror SET display_name = ?
+          WHERE vault_id = ? AND account_id = ? AND display_name IS NULL`,
+          inviterName,
+          vaultId,
+          inviterId,
+        );
+      } catch (err) {
+        console.warn("[trust/backfill] inviter name stamp failed (cosmetic)", err);
       }
     }
-  }
 
-  // Emit device_added ONLY when our pubkey isn't already an active bound
-  // device. If it's already bound the retry is complete — return so the
-  // caller clears witness_emit_pending.
-  if (selfDeviceBound) return;
+    // Invite acceptance requires sign-in, so account_id is normally set;
+    // the local sentinel is a defensive fallback only.
+    const accountId = getAccountIdSync() ?? buildLocalAccountId(devicePubkey);
 
-  const deviceWitness: MembershipWitness = {
-    sig_b64: res.device_witness.sig_b64,
-    server_key_id: res.server_key_id,
-    issued_at_ms: res.device_witness.issued_at_ms,
+    // Diff against what is ALREADY chained. Prefer the folded chain state
+    // (what the handshake verifies); fall back to the materialized mirror /
+    // device registry when the vault has no local trust anchor yet (the
+    // folded state is null then).
+    const state = await getLocalMembershipState(vaultId);
+    let selfIsActiveMember: boolean;
+    let selfDeviceBound: boolean;
+    if (state) {
+      const m = state.members.get(accountId);
+      selfIsActiveMember = !!m && !m.removed;
+      const d = state.devices.get(devicePubkey);
+      selfDeviceBound = !!d && !d.removed;
+    } else {
+      const db = await getDb();
+      const memberRow = await db.getFirstAsync<{ one: number }>(
+        `SELECT 1 AS one FROM vault_members_mirror
+        WHERE vault_id = ? AND account_id = ? AND revoked_at IS NULL LIMIT 1`,
+        vaultId,
+        accountId,
+      );
+      selfIsActiveMember = !!memberRow;
+      const deviceRow = await db.getFirstAsync<{ one: number }>(
+        `SELECT 1 AS one FROM vault_device_registry
+        WHERE vault_id = ? AND device_pubkey = ? AND removed_at_ms IS NULL LIMIT 1`,
+        vaultId,
+        devicePubkey,
+      );
+      selfDeviceBound = !!deviceRow;
+    }
+
+    // Emit member_added ONLY when not already an active member AND the server
+    // brokered an invite (member_witness proves owner intent). Swallow a
+    // RoleGateRejectionError on a member_added the role-gate considers already
+    // present — the device_added below is what we actually need to complete.
+    if (res.member_witness && !selfIsActiveMember) {
+      const memberWitness: MembershipWitness = {
+        sig_b64: res.member_witness.sig_b64,
+        server_key_id: res.server_key_id,
+        issued_at_ms: res.member_witness.issued_at_ms,
+        inviter_account_id: res.member_witness.inviter_account_id,
+      };
+      // Self name for the payload: explicit opts win; otherwise derive from
+      // getLocalSelf so the recovery/backfill retry paths also carry it.
+      // Placeholder-guarded either way — "You" must never enter a signed event.
+      let selfDisplayName = opts?.selfDisplayName?.trim() || null;
+      if (!selfDisplayName) {
+        const self = await getLocalSelf().catch(() => null);
+        selfDisplayName = self?.name?.trim() || null;
+      }
+      if (selfDisplayName && isPlaceholderSelfName(selfDisplayName)) selfDisplayName = null;
+      try {
+        await appendVaultMemberAdded({
+          targetVaultId: vaultId,
+          accountId,
+          role: res.member_witness.role,
+          witness: memberWitness,
+          displayName: selfDisplayName ?? undefined,
+        });
+      } catch (err) {
+        if (err instanceof RoleGateRejectionError) {
+          console.warn(
+            "[trust/backfill] witnessed member_added declined by role-gate (already a member) — proceeding to device binding",
+          );
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    // Emit device_added ONLY when our pubkey isn't already an active bound
+    // device. If it's already bound the retry is complete — return so the
+    // caller clears witness_emit_pending.
+    if (selfDeviceBound) return;
+
+    const deviceWitness: MembershipWitness = {
+      sig_b64: res.device_witness.sig_b64,
+      server_key_id: res.server_key_id,
+      issued_at_ms: res.device_witness.issued_at_ms,
+    };
+    await appendVaultDeviceAdded({
+      targetVaultId: vaultId,
+      accountId,
+      deviceId: getInstallIdSync(),
+      devicePubkeyB64: devicePubkey,
+      witness: deviceWitness,
+    });
   };
-  await appendVaultDeviceAdded({
-    targetVaultId: vaultId,
-    accountId,
-    deviceId: getInstallIdSync(),
-    devicePubkeyB64: devicePubkey,
-    witness: deviceWitness,
-  });
+  if (opts?.session) await applyForCurrentSession(opts.session, applyAdmission);
+  else await applyAdmission();
 }

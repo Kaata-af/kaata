@@ -8,14 +8,42 @@ export async function requestAccountDeletion(
   if (!jwt) throw new Error("account_delete_auth_required");
   const res = await request(`${baseUrl}/v1/account`, {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${jwt}` },
+    headers: { Authorization: `Bearer ${jwt}`, "X-Kaata-Deletion-Grace": "30" },
   });
   if (res.status === 401) throw new Error("account_delete_auth_required");
   if (!res.ok) throw new Error(`account_delete_failed:${res.status}`);
   const body: unknown = await res.json();
-  if (!body || typeof body !== "object" || !("status" in body) || body.status !== "deleted") {
+  if (
+    !body ||
+    typeof body !== "object" ||
+    !("status" in body) ||
+    (body.status !== "deleted" && body.status !== "deletion_scheduled")
+  ) {
     throw new Error("account_delete_unconfirmed");
   }
+}
+
+// Verify support before requesting deletion. An older backend immediately
+// hard-deletes; discovering that only after DELETE would be too late.
+export async function requireAccountDeletionGrace(
+  jwt: string | null,
+  baseUrl: string,
+  request: typeof fetch = fetch,
+): Promise<void> {
+  if (!jwt) throw new Error("account_delete_auth_required");
+  const res = await request(`${baseUrl}/v1/account/deletion-policy`, {
+    headers: { Authorization: `Bearer ${jwt}` },
+  });
+  if (res.status === 401) throw new Error("account_delete_auth_required");
+  if (!res.ok) throw new Error("account_delete_grace_unavailable");
+  const policy: unknown = await res.json();
+  if (
+    !policy ||
+    typeof policy !== "object" ||
+    !("grace_days" in policy) ||
+    policy.grace_days !== 30
+  )
+    throw new Error("account_delete_grace_unavailable");
 }
 
 type DeletionRecovery = {

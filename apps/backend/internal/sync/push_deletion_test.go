@@ -101,6 +101,33 @@ func TestPushSerializesBeforeAccountDeletion(t *testing.T) {
 	}
 }
 
+func TestAccountDeletionGracePendingCallerCannotPushWithCachedMembership(t *testing.T) {
+	f := newM1Fixture(t)
+	if _, err := f.svc.checkMembership(t.Context(), f.vaultID, f.accountID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(t.Context(), `UPDATE accounts SET pending_delete_at=NOW() WHERE id=$1::uuid`, f.accountID); err != nil {
+		t.Fatal(err)
+	}
+	regular := f.event(nil)
+	bound := f.event(nil)
+	bound.EventType = "account_bound"
+	bound.ActorAccountID = nil
+	bound.Payload = []byte(`{"account_id":"` + f.accountID + `"}`)
+	for _, ev := range []PushEvent{regular, bound} {
+		if _, err := f.svc.PushEvents(t.Context(), PushInput{AccountID: f.accountID, VaultID: f.vaultID, DeviceID: f.deviceID, Events: []PushEvent{ev}}); !errors.Is(err, ErrNotMember) {
+			t.Fatalf("pending cached caller pushed %s: %v", ev.EventType, err)
+		}
+	}
+	var intact bool
+	if err := f.pool.QueryRow(t.Context(), `SELECT NOT EXISTS(SELECT 1 FROM events WHERE vault_id=$1::uuid)
+	 AND EXISTS(SELECT 1 FROM vaults WHERE vault_id=$1::uuid AND owner_account_id=$2::uuid)
+	 AND EXISTS(SELECT 1 FROM vault_members WHERE vault_id=$1::uuid AND account_id=$2::uuid AND revoked_at IS NULL AND accepted_at IS NOT NULL)
+	 AND EXISTS(SELECT 1 FROM accounts WHERE id=$2::uuid AND pending_delete_at IS NOT NULL)`, f.vaultID, f.accountID).Scan(&intact); err != nil || !intact {
+		t.Fatalf("pending push changed retained ledger: intact=%v err=%v", intact, err)
+	}
+}
+
 func waitForPushDeletionBlock(t *testing.T, ctx context.Context, observer pgx.Tx, blockerPID uint32, queryPattern string) uint32 {
 	t.Helper()
 	ticker := time.NewTicker(5 * time.Millisecond)
