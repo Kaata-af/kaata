@@ -15,6 +15,12 @@ Build identifiers, delivery status and the store-review safeguards are recorded
 in [2.2.0-testing-distribution.md](2.2.0-testing-distribution.md). The development
 history and consolidated phone/visual checklist below remain applicable.
 
+Later on October 11, the user requested merging the completed branch into
+`main` and pushing it to trigger the existing Dokploy auto-deploy. This
+authorizes the backend/web refinements, including the weekly-growth dashboard
+and branding, to go live. It leaves the 2.1.1 store reviews and 2.2.0 testing
+tracks as they are. The working checkout returns to `main` after the merge.
+
 ## Implemented
 
 - **WhatsApp reminders:** a visible action below the balance, with a short

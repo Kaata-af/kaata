@@ -1,12 +1,16 @@
 # =============================================================================
 # Kaata web — Vite + React SPA, served by Caddy.
+# Build from the REPOSITORY ROOT so the canonical shared palette is available:
+#   docker build -f apps/web/Dockerfile .
+# Dokploy: Dockerfile = apps/web/Dockerfile; Docker context = .
+# Dockerfile.dockerignore limits this root context to web inputs and the palette.
 # =============================================================================
 
 # -----------------------------------------------------------------------------
 # Stage 1: build the static bundle
 # -----------------------------------------------------------------------------
 FROM oven/bun:1.3-alpine AS build
-WORKDIR /app
+WORKDIR /app/apps/web
 
 # Build-time env. Override per-environment in Dokploy via build args.
 # Vite embeds these into the bundle at build time; changing them requires
@@ -16,10 +20,11 @@ ARG VITE_WHATSAPP_CONTACT_URL=https://wa.me/93781696644
 ENV VITE_BACKEND_URL=$VITE_BACKEND_URL
 ENV VITE_WHATSAPP_CONTACT_URL=$VITE_WHATSAPP_CONTACT_URL
 
-COPY package.json bun.lock ./
+COPY apps/web/package.json apps/web/bun.lock ./
 RUN bun install --frozen-lockfile
 
-COPY . .
+COPY apps/web/ ./
+COPY apps/_shared/brand-palette.json /app/apps/_shared/brand-palette.json
 RUN bun run build
 
 # -----------------------------------------------------------------------------
@@ -27,8 +32,8 @@ RUN bun run build
 # -----------------------------------------------------------------------------
 FROM caddy:2-alpine
 
-COPY Caddyfile /etc/caddy/Caddyfile
-COPY --from=build /app/dist /srv
+COPY apps/web/Caddyfile /etc/caddy/Caddyfile
+COPY --from=build /app/apps/web/dist /srv
 
 EXPOSE 80
 
