@@ -5,6 +5,10 @@ implementation updates on **2 October 2026**. Original audit ran against
 `apps/mobile` + `apps/backend`, multi-agent code audit). If a data flow changes,
 update this and the Play form together. Source of truth is the code, not this file.
 
+**Play Console update — 11 October 2026, 2.1.1 / versionCode 50:** the answers below
+match the form saved for review. The changes are ready in Publishing overview;
+saving the form does not mean Google has approved it.
+
 **Four collection channels** (⚠️ corrected from the earlier draft — the check-in is
 NOT anonymous, and there is a third, offline path; the fourth arrived with mutual tabs):
 
@@ -12,7 +16,7 @@ NOT anonymous, and there is a third, offline path; the fourth arrived with mutua
    Carries install/usage/diagnostics **AND the shopkeeper's own `self_name` /
    `self_phone` / `shop_name`** (migration 028). So own-identity leaves the device
    with **no sign-in required**.
-2. **Sign-in + cloud sync** — Google, Apple, or a Kaata email + password account (2.1.0
+2. **Sign-in + cloud sync** — Google, Apple, or a Kaata email + password account (2.1.1
    build 50, `docs/kaata-accounts.md`), **only if the user signs in → "optional"**.
    Account identity + the **full customer ledger** (names, phones, amounts, notes),
    uploaded server-readable (`/v1/sync/push`, plaintext JSON over TLS — signed, not
@@ -67,6 +71,10 @@ the old assertion that no messaging provider exists no longer describes 2.0.
       cleartext transport is the LAN mesh, which is parked — `MESH_PARKED=true` — and
       doesn't ship)
 - [ ] Way to request deletion? → **Yes** — ⚠️ see deletion caveat below
+- [ ] Account creation methods → **Username and password**, **OAuth**
+- **Account deletion URL:** `https://kaata.af/delete-account`
+- **Data deletion request URL:** `https://kaata.af/delete-account`
+- **Privacy policy URL:** `https://www.kaata.af/privacy`
 
 ### Deletion caveat
 
@@ -131,12 +139,14 @@ the old assertion that no messaging provider exists no longer describes 2.0.
 ### Contacts — **✅ Yes** (declare defensively)
 
 Nuance from the audit: the device **address book is read on-device only and is NOT
-uploaded** (`contacts-sync.ts` imports only `expo-contacts`, no network). Strictly,
+uploaded** (`contacts-sync.ts` uses `expo-contacts/legacy`, no network). Strictly,
 "Contacts" as a _type_ isn't transmitted — a contact the user promotes to a customer
-becomes ledger Name/Phone (declared under Personal info). **But** the app holds
-`READ_CONTACTS`/`WRITE_CONTACTS`, and Google cross-references permissions against this
-form — so **declaring Contacts avoids review friction**. Keep it checked. (Verified:
-`app.json:47-48,70-74`, `contacts-sync.ts`, `person/new.tsx`.)
+becomes ledger Name/Phone (declared under Personal info). The existing defensive
+Contacts declaration was retained in the 11 October form as **Optional**, for **App
+functionality**. This is the runbook's declaration decision, not evidence that the
+address book is uploaded or that a permission alone creates a collected data type.
+Google's definitions exclude purely on-device processing. (Verified:
+`app.json`, `contacts-sync.ts`, `person/new.tsx`.)
 
 ### App activity
 
@@ -174,9 +184,10 @@ Calendar · Web browsing history.
 
 ## 2. Per-type follow-up answers
 
-For **every** selected type: **Collected = Yes · Processed ephemerally = No** (all
-stored server-side). **Shared = No** applies only when every transfer of that type
-qualifies for a Play exception described below. Encrypted in transit (see §3).
+For **every** selected type, the saved form answers are **Collected = Yes · Processed
+ephemerally = No · Shared = No**. The off-device records described above are stored;
+the retained defensive Contacts declaration is explained separately in §1.
+Encrypted in transit: **Yes** (see §3).
 
 **Provider transfers and "sharing":** Google/Apple handle user-initiated sign-in.
 Resend receives the recipient's email address and the code or security notice for
@@ -185,29 +196,34 @@ token and notification payload described above, including the actor's party labe
 tally amount, currency, outcome and shared-account identifiers. These transfers
 must be assessed under [Google's Data safety definitions](https://support.google.com/googleplay/android-developer/answer/10787469?hl=en),
 which exclude qualifying service-provider processing on the developer's behalf
-and qualifying user-initiated transfers from "sharing". Confirm that each
-integration meets the applicable exception before selecting **Shared = No**.
+and qualifying user-initiated transfers from "sharing". The saved **Shared = No**
+answers use those exceptions for delivery providers and the specific user-initiated
+transfers described above. Resend's [Data Processing Addendum](https://resend.com/legal/dpa)
+describes processing on the customer's behalf and instructions. Reassess these
+answers if a provider or use changes.
 No data sold; no ad/analytics SDKs.
 
-| Data type                                                      | Purpose(s)                                                                         | Collection is…                                                                                            |
-| -------------------------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Device or other IDs (`install_id`, IP)                         | App functionality, Analytics                                                       | **Required** (automatic check-in)                                                                         |
-| App activity → App interactions (usage counters)               | Analytics                                                                          | **Required** (automatic)                                                                                  |
-| App info & performance → Diagnostics                           | Analytics, App functionality (force-update)                                        | **Required** (automatic)                                                                                  |
-| App info & performance → Crash logs                            | Analytics (crash/bug diagnosis)                                                    | **Required** (automatic)                                                                                  |
-| Personal info → **Name**                                       | App functionality, Account management; own-name also Analytics (feedback outreach) | **Required** ⚠️ (own name via check-in — no opt-out)                                                      |
-| Personal info → **Phone number**                               | App functionality, Account management                                              | **Required** (own phone is mandatory in onboarding — `profile.tsx:148-155` — then sent on every check-in) |
-| Personal info → Email address                                  | Account management                                                                 | **Optional** (sign-in only)                                                                               |
-| Personal info → User IDs (account_id/sub)                      | Account management                                                                 | **Optional** (sign-in only)                                                                               |
-| Financial info → Other financial info (amounts)                | App functionality (backup/restore, member sync); also user-initiated share         | **Optional** (requires sign-in OR a deliberate WhatsApp-share tap)                                        |
-| App activity → Other user-generated content (notes, shop name) | App functionality                                                                  | **Optional** (sign-in only)¹                                                                              |
+| Data type                                                      | Purpose(s) saved in Play Console                                                 | Collection is…                                                                   |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Device or other IDs (`install_id`, IP)                         | App functionality, Analytics, Fraud prevention, security and compliance          | **Required** (automatic check-in)                                                |
+| App activity → App interactions (usage counters)               | Analytics                                                                        | **Required** (automatic)                                                         |
+| App info & performance → Diagnostics                           | App functionality, Analytics                                                     | **Required** (automatic)                                                         |
+| App info & performance → Crash logs                            | Analytics                                                                        | **Required** (automatic)                                                         |
+| Personal info → **Name**                                       | App functionality, Analytics, Account management, Developer communications       | **Required** (own name via check-in — no opt-out)                                |
+| Personal info → **Phone number**                               | App functionality, Analytics, Account management, Developer communications       | **Required** (own phone is mandatory in onboarding, then sent on every check-in) |
+| Personal info → Email address                                  | App functionality, Account management, Fraud prevention, security and compliance | **Optional** (sign-in only)                                                      |
+| Personal info → User IDs (account_id/sub/username)             | App functionality, Account management, Fraud prevention, security and compliance | **Optional** (sign-in only)                                                      |
+| Financial info → Other financial info (amounts)                | App functionality                                                                | **Optional** (requires sign-in OR a deliberate share action)                     |
+| App activity → Other user-generated content (notes, shop name) | App functionality, Analytics                                                     | **Required** (shop name via automatic check-in; ledger notes remain optional)    |
+| Contacts (retained defensive declaration; see §1)              | App functionality                                                                | **Optional**                                                                     |
 
 ("Required" = collected automatically, user cannot opt out. "Optional" = the user
 controls it by choosing whether to sign in / share.)
 
-¹ _Shop name is also sent on check-in (`shop_name`), so if you want to be strict, "Other
-user-generated content" leans Required too. Notes only leave via sync (optional). Pick
-Required for the type if you'd rather over-declare._
+The UGC type is **Required** because `shop_name` is sent automatically; transaction
+notes leave only through optional sync or sharing. Developer communications for
+Name/Phone covers the disclosed feedback outreach. Security purposes cover sign-in,
+session protection and the HMAC-keyed address/client/account throttle records.
 
 ---
 
@@ -218,9 +234,9 @@ Required for the type if you'd rather over-declare._
   over TLS — signed but not additionally end-to-end encrypted; the server can read it.)_
 - **Way to request deletion?** → **Yes** (in-app Delete account + email
   hello@kaata.af + kaata.af/delete-account) — mind the deletion caveat above.
-- **Data shared with third parties?** → **Assess per §2.** Resend processes email
-  delivery, and Expo/FCM/APNs process enabled remote notifications; the Play answer
-  depends on the applicable service-provider and user-initiated-transfer exceptions.
+- **Data shared with third parties?** → **No in the saved Play form**, using the
+  service-provider and user-initiated-transfer exceptions described in §2. Resend
+  processes email delivery; Expo/FCM/APNs process enabled remote notifications.
 - **Data collected from children / Families policy?** → No (audience is shopkeepers).
 - **Independent security review badge?** → No.
 
@@ -232,8 +248,8 @@ Required for the type if you'd rather over-declare._
   is why Name/Phone are "Required," not "Optional (sign-in only)."
 - **The debt amounts** must be declared as **Financial info › Other financial info**, not
   only as UGC — declaring them only as UGC under-declares their financial nature.
-- **Contacts** — declared defensively (permission cross-check), though the address book
-  itself isn't uploaded.
+- **Contacts** — the existing defensive declaration is retained as a runbook decision;
+  the address book itself isn't uploaded (see §1).
 - Crash-report `message` strings are truncated and _intended_ PII-free but not guaranteed
   — covered by declaring Crash logs.
 
@@ -274,9 +290,9 @@ standard/exempt" (we do use ChaCha20 in the parked mesh) — not "no encryption.
    "private/local"** until `/v1/sync` is E2E-encrypted. The mesh already has the
    ChaCha20-Poly1305 primitives to reuse. Near-term priority.
 
-## Kaata email accounts (2.1.0 build 50)
+## Kaata email accounts (2.1.1 build 50)
 
-- **Account creation methods** (App content → Data safety → account creation): tick
+- **Account creation methods** (App content → Data safety → account creation): saved
   **Username and password** as well as **OAuth** (Google, Apple). The in-app deletion path
   and the web deletion page cover every method.
 - **Passwords** are stored only as argon2id hashes (`account_passwords`); Play's form has
@@ -284,8 +300,8 @@ standard/exempt" (we do use ChaCha20 in the parked mesh) — not "no encryption.
   shown to other users).
 - **Email delivery provider: Resend** (SMTP, `internal/mail`) receives the user's address
   and the code or security notice to deliver. It processes on Kaata's behalf as a
-  service provider and is named in the privacy policy. Confirm the applicable Play
-  service-provider exception when completing the "sharing" answers.
+  service provider and is named in the privacy policy. The saved sharing answers
+  apply Play's service-provider exception as described in §2.
 - Codes (`email_codes`) are kept at most 7 days; throttle records (`auth_throttle_events`,
   HMAC keys only) and sent-mail rows (`email_outbox`, bodies cleared after sending) at most
   2 days.

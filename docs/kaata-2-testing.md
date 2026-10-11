@@ -142,8 +142,8 @@ Production/API coverage and native coverage are recorded separately below.
 | Backend     | Healthy production deployment; all four operator IDs active.                                    | Native integration checks.                               |
 | Account API | Sign-up, sign-in, reset, password change, session revocation and throttle verified.             | Native results listed below; physical two-device checks. |
 | Review demo | Ordinary email account and six-tally demo seeded; saved Play flow and one native Accept passed. | No remaining item 9 steps.                               |
-| Android APK | Replacement 2.1.0/50 installed; signing/version verified; code-step cold launch passed.         | Remaining native checks; store AAB/review submission.    |
-| Stores      | Play sign-in details updated; no new store submission.                                          | 2.1.1 production builds/reviews (Android 50, iOS 30).    |
+| Android APK | Replacement 2.1.0/50 installed; signing/version verified; code-step cold launch passed.         | Remaining native checks.                                 |
+| Stores      | iOS 2.1.1/30 waiting for review; Play 2.1.1/50 review-send confirmed.                           | Play quick checks; both store approvals.                 |
 | Firewall    | Matee skipped the optional Cloudflare-only origin firewall.                                     | No change planned for this rollout.                      |
 
 Resend verified `mail.kaata.af` using its current records in Cloudflare; the
@@ -387,20 +387,75 @@ of the different-account dialog are also outstanding.
     old-password rejection; the earlier API test did. Physical-phone coverage
     remains outstanding.
 
-### Production 2.1.1 requested — 11 October 2026 (50/30)
+### Production 2.1.1 review — 11 October 2026 (50/30)
 
 Matee requested production builds and review submission for both Google Play
 and the App Store as **2.1.1**, Android versionCode **50** and iOS build **30**.
-Production builds and store submissions have not started at this record. The
-2.1.0 internal APK results above remain the history of the email-account and
-startup-resume checks.
+Both EAS production build jobs started from source
+`d275470030a63dd49c0a59aca2e319457ad5974d`:
 
-Both review submissions will use the ordinary `kaata.team@gmail.com` Kaata
-account, its stable password stored outside Git, and the email sign-in →
+- Android 50: `4f8d7279-4da6-47ce-83fa-fc36ad8ad309`, created at 11:45:31 UTC.
+- iOS 30: `5cf3963b-b10b-48e8-a525-936f94c934fb`, created at 11:46:35 UTC.
+
+Both builds and uploads finished, and both store review-submission actions
+were completed. Apple's version is waiting for review; Play's initial quick
+checks are still running. The 2.1.0 internal APK results above remain the
+history of the email-account and startup-resume checks.
+
+Both store reviews use the ordinary `kaata.team@gmail.com` Kaata account,
+its stable password stored outside Git, and the email sign-in →
 Restore from cloud route verified above. The remaining native gaps are still
 those recorded in the checklist; no additional device coverage is claimed.
-Build IDs, artifacts and actual review statuses will be recorded after they
-exist.
+
+iOS production build `5cf3963b-b10b-48e8-a525-936f94c934fb` finished at
+11:53:22 UTC. EAS upload `8a671861-3ef6-4094-82b1-23208194595d` was confirmed
+`FINISHED` at 12:00:43 UTC. App Store Connect build
+`2cdcbf6d-d2a2-46e8-8b28-00f2a26719f3` is `VALID` in the 2.1.1 train.
+
+`asc-submit` created version `2fcbfaf3-fa73-4bdf-9547-73ec380c19e9`, attached
+build 30, wrote the 602-character release notes and retained the 1,420-character
+description and ten screenshots. It configured the ordinary Kaata email
+review account using its private credential file. The version was submitted
+at `2026-10-11T12:00:22.358Z` and is `WAITING_FOR_REVIEW`, with release type
+`AFTER_APPROVAL`. Independent `asc-submit --status` confirmed that state and
+the older 2.1.0 version as `READY_FOR_SALE`.
+
+Android production build `4f8d7279-4da6-47ce-83fa-fc36ad8ad309` finished at
+12:01:34 UTC. EAS internal-hold upload
+`cf558aa3-41a6-4a48-892e-dfb60aa63b3f` finished at 12:08:17 UTC, without
+sending changes for review. `play-promote --from internal --to production
+--no-send` successfully staged 2.1.1 [50] on production. Google approval and
+publication remain pending.
+
+Publishing overview exposed stale closed-testing release objects 47 and 46
+(2.1.0), then 45 and 44 (2.0.0). Each showed 0% of installs and was unsubmitted
+or rejected. All four release objects were discarded; each confirmation
+explicitly retained the uploaded bundles in the artifact library. Closed
+testing now remains paused on its already released 2.0.0 [43] from 25 September,
+with no pending new release, resume or rollout. Production 2.1.1 [50] remains
+staged.
+
+The final Publishing overview "Send changes for review" confirmation was
+completed. The page now shows "Changes in review": production 2.1.1's Start
+full rollout, the existing closed-track Pause entry, complete Data Safety and
+the updated Sign-in details. No old closed-release rollout is in this batch.
+Initial quick checks are still running; Play says the changes will be sent
+for review when these checks complete. Google approval and publication remain
+pending.
+
+The official 9 October rejection email for Android 49 was read through Play
+Console's policy-email link (`4977992791420563614`). It cites "Login credentials
+restricted by device authentication" and gives this sequence:
+
+1. Update App content → Sign-in details with valid credentials.
+2. Provide English instructions for accessing all restricted features.
+3. In Publishing overview, send the changes for review.
+
+The email allows corrected credentials to be resubmitted without contacting
+policy support. The ordinary Kaata email account and verified fresh-install
+route address the cited device-dependent login issue. Updating sign-in details
+does not itself send the app back for review; that final Publishing overview
+step was completed for this 2.1.1 submission.
 
 ### Production submission — 3 October 2026 (49/29)
 
