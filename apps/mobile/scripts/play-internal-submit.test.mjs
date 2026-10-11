@@ -55,10 +55,14 @@ function mock(options = {}) {
     if (init.method === "GET" && parsed.pathname.endsWith("/tracks/production/releases")) {
       if (options.failProductionBefore && calls.length === 1) return response({}, 403);
       if (options.targetOnProduction) {
-        return response({ releases: [{
-          ...production.releases[0],
-          activeArtifacts: [{ versionCode: 52 }],
-        }] });
+        return response({
+          releases: [
+            {
+              ...production.releases[0],
+              activeArtifacts: [{ versionCode: 52 }],
+            },
+          ],
+        });
       }
       if (options.productionChanged && committed) {
         return response({

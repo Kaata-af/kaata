@@ -314,9 +314,17 @@ let crashReports: unknown[] = [];
 let resets = 0;
 let resetFails = false;
 let nextSignInError: unknown = null;
+let screenFocused = true;
+let nextFocusEffect: (() => void | (() => void)) | null = null;
+let activeFocusEffect: {
+  run: () => void | (() => void);
+  cleanup: void | (() => void);
+} | null = null;
+const hardwareBackListeners = new Set<() => boolean>();
 const jsx = (type: unknown, props: Record<string, unknown>) => ({ type, props });
 
-const screen = load<{ AuthScreen: (props: { redirected?: boolean }) => unknown }>(
+type AuthScreenProps = { redirected?: boolean; emailRoute?: boolean };
+const screen = load<{ AuthScreen: (props: AuthScreenProps) => unknown }>(
   "../../app/onboarding/auth",
   {
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
@@ -336,13 +344,25 @@ const screen = load<{ AuthScreen: (props: { redirected?: boolean }) => unknown }
         return (slots[i] ??= { current: initial });
       },
       useEffect: () => {},
+      useCallback: (run: () => void | (() => void), deps?: unknown[]) => {
+        const i = cursor++;
+        const previous = slots[i] as { run: typeof run; deps?: unknown[] } | undefined;
+        if (sameDeps(previous?.deps, deps)) return previous!.run;
+        slots[i] = { run, deps };
+        return run;
+      },
     },
     "react-native": {
       View: "View",
       Text: "Text",
       Pressable: "Pressable",
       ActivityIndicator: "Spinner",
-      BackHandler: { addEventListener: () => ({ remove: () => {} }) },
+      BackHandler: {
+        addEventListener: (_event: string, run: () => boolean) => {
+          hardwareBackListeners.add(run);
+          return { remove: () => hardwareBackListeners.delete(run) };
+        },
+      },
       Keyboard: { dismiss: () => {} },
       KeyboardAvoidingView: "KeyboardAvoidingView",
       ScrollView: "ScrollView",
@@ -353,8 +373,14 @@ const screen = load<{ AuthScreen: (props: { redirected?: boolean }) => unknown }
     "@expo/vector-icons": { Ionicons: "Icon" },
     "expo-constants": { __esModule: true, default: { executionEnvironment: "standalone" } },
     "expo-router": {
+      Stack: { Screen: "StackScreen" },
+      useIsFocused: () => screenFocused,
+      useFocusEffect: (run: () => void | (() => void)) => {
+        nextFocusEffect = run;
+      },
       useRouter: () => ({
         replace: (r: unknown) => routes.push(r),
+        push: (r: unknown) => routes.push(r),
         dismissTo: (r: unknown) => routes.push({ dismissTo: r }),
         canGoBack: () => false,
       }),
@@ -424,12 +450,29 @@ function nodes(tree: unknown): Node[] {
   return node?.props ? [node, ...nodes(node.props.children)] : [];
 }
 
-function render(): Node[] {
+function render(props: AuthScreenProps = {}): Node[] {
   cursor = 0;
-  return nodes(screen.AuthScreen({}));
+  nextFocusEffect = null;
+  const tree = nodes(screen.AuthScreen(props));
+  // A native stack keeps covered screens mounted. Focus effects run after
+  // commit, clean up on blur, and restart on focus or callback changes.
+  if (!screenFocused || activeFocusEffect?.run !== nextFocusEffect) {
+    activeFocusEffect?.cleanup?.();
+    activeFocusEffect = null;
+    if (screenFocused && nextFocusEffect) {
+      const run: () => void | (() => void) = nextFocusEffect;
+      activeFocusEffect = { run, cleanup: run() };
+    }
+  }
+  return tree;
 }
 
 function freshScreen(): void {
+  activeFocusEffect?.cleanup?.();
+  activeFocusEffect = null;
+  nextFocusEffect = null;
+  screenFocused = true;
+  hardwareBackListeners.clear();
   slots = [];
   routes = [];
   crashReports = [];
@@ -1069,6 +1112,28 @@ test("sign-in screen: a retired install gets its own copy and the reset", async 
     assert.equal(crashReports.length, 0, "a known state is not reported as a crash");
     assert.equal(resetDialog().props.visible, false);
   }
+});
+
+test("sign-in screen: Android Back belongs only to the focused email screen", async () => {
+  freshScreen();
+  render();
+  assert.equal(hardwareBackListeners.size, 0, "the provider selector never intercepts Back");
+  freshScreen();
+  render({ emailRoute: true });
+  assert.equal(hardwareBackListeners.size, 1, "the focused email screen owns Back");
+  render({ emailRoute: true });
+  assert.equal(hardwareBackListeners.size, 1, "rerendering does not duplicate the listener");
+  const back = [...hardwareBackListeners][0];
+  assert.equal(back(), true, "Back is held while the stored email step is still loading");
+  assert.deepEqual(routes, [], "the first-frame guard does not leave email before storage loads");
+  screenFocused = false;
+  render({ emailRoute: true });
+  assert.equal(hardwareBackListeners.size, 0, "blur removes a covered screen's listener");
+  screenFocused = true;
+  render({ emailRoute: true });
+  assert.equal(hardwareBackListeners.size, 1, "refocus installs exactly one listener");
+  freshScreen();
+  assert.equal(hardwareBackListeners.size, 0, "unmount cleans up the focused screen");
 });
 
 test("sign-in screen: only the destructive confirmation erases", async () => {
