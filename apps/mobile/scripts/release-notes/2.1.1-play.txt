@@ -7,4 +7,4 @@ Kaata 2.1.1
 - Restore your kaatas from cloud backup.
 - Clearer Dari text and more reliable sign-in and code-screen recovery.
 
-Private kaatas stay private unless you choose to share them.
+Your existing kaatas and cloud backups stay available.
