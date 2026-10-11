@@ -7,7 +7,7 @@
 // opened; only pending tallies show an amber dot. Opened rows spell out every
 // state in a neutral centred pill; meta lines start at the start edge with
 // semibold names; review actions are the shared Button's "pill" size, with
-// Accept the black primary at the trailing end. The pills' touch targets are
+// Accept the Aubergine primary at the trailing end. The pills' touch targets are
 // checked through the real Button: 44pt each, and neither reaching past the
 // middle of the gap between Reject and Accept, because both are final.
 import assert from "node:assert/strict";
@@ -543,7 +543,7 @@ for (const isRTL of [false, true]) {
           accessibilityLabel: "tab.accept",
           disabled: false,
         },
-        `${what} ${state}: Accept is the black primary pill, never the collect green`,
+        `${what} ${state}: Accept is the brand primary pill, never the collect green`,
       );
       assert.deepEqual(
         nodes(row)

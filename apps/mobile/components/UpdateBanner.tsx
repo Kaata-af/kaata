@@ -9,8 +9,8 @@ import { t } from "../lib/i18n";
 import { radius } from "../lib/tokens";
 import { updateTargetUrl } from "../lib/update-url";
 
-// Both banner variants share the same monochrome chassis. The update banner
-// reverses to bgInverted so it asks for attention without breaking the palette;
+// Both banner variants share brand and neutral tokens. The update banner
+// uses brandPrimary so it asks for attention within the palette;
 // announcements stay light + bordered.
 
 // The CTA pill computes to ~31dp tall (6 + 6 padding around a 12px label).
@@ -139,8 +139,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   bannerInverted: {
-    backgroundColor: colors.bgInverted,
-    borderColor: colors.bgInverted,
+    backgroundColor: colors.brandPrimary,
+    borderColor: colors.brandPrimary,
   },
   bannerLight: {
     backgroundColor: colors.bgMuted,

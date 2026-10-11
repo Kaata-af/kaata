@@ -52,21 +52,17 @@
         unicode-range: U+0000-00FF, U+2000-206F, U+20AC, U+2122, U+2190-21FF, U+2212;
       }
 
+      /* Canonical brand colors are injected by build_flyer.py. */
       :root {
-        --ink: #171717;
-        --black: #000;
-        --white: #fff;
-        --muted: #737373;
-        --subtle: #a3a3a3;
-        --border: #e5e5e5;
-        --bg-muted: #fafafa;
-        --bg-subtle: #f5f5f5;
-        --emerald: #0c745a;
-        --emerald-text: #0a5a46;
-        --emerald-bg: #e8f4ef;
-        --garnet: #a3203a;
-        --garnet-text: #7e1b30;
-        --garnet-bg: #f8eaec;
+        --brand: {{BRAND_AUBERGINE}};
+        --highlight: {{BRAND_SAFFRON}};
+        --warm: {{BRAND_IVORY}};
+        --ink: {{BRAND_CHARCOAL}};
+        --white: {{BRAND_WHITE}};
+        --muted: #706573;
+        --subtle: #756B78;
+        --border: #E4DCE3;
+        --bg-muted: #F3EEE8;
       }
       * {
         box-sizing: border-box;
@@ -77,7 +73,7 @@
       body {
         margin: 0;
         padding: 0;
-        background: #fff;
+        background: var(--white);
         color: var(--ink);
         font-family:
           "Vazirmatn",
@@ -98,7 +94,7 @@
         display: flex;
         flex-direction: column;
         overflow: hidden;
-        background: #fff;
+        background: var(--warm);
       }
       .page.front {
         page-break-after: always;
@@ -115,6 +111,14 @@
         align-items: center;
         gap: 9px;
       }
+      .brandmark {
+        display: inline-flex;
+        isolation: isolate;
+        overflow: hidden;
+        border-radius: 22%;
+        background: var(--brand);
+      }
+      .brandmark img { mix-blend-mode: screen; }
       .brand .logo {
         width: 34px;
         height: 34px;
@@ -125,7 +129,7 @@
         font-weight: 700;
         font-size: 25px;
         letter-spacing: -0.5px;
-        color: var(--ink);
+        color: var(--brand);
         line-height: 1;
         transform: translateY(-1px);
       }
@@ -148,7 +152,7 @@
         color: var(--ink);
       }
       .headline .hl-accent {
-        color: var(--emerald);
+        color: var(--brand);
       }
       .subhead {
         margin: 9px 0 0;
@@ -177,12 +181,12 @@
         min-height: 0;
       }
       .panel.no {
-        background: var(--garnet-bg);
-        border-color: #ebc9cf;
+        background: var(--warm);
+        border-color: var(--border);
       }
       .panel.yes {
-        background: var(--emerald-bg);
-        border-color: #c3e2d7;
+        background: var(--highlight);
+        border-color: var(--brand);
       }
       .panel-cap {
         flex: 1;
@@ -201,14 +205,14 @@
         border-radius: 999px;
         font-size: 18px;
         font-weight: 700;
-        color: #fff;
+        color: var(--white);
         line-height: 1;
       }
       .badge.garnet {
-        background: var(--garnet);
+        background: var(--brand);
       }
       .badge.emerald {
-        background: var(--emerald);
+        background: var(--brand);
       }
       .cap-big {
         font-weight: 700;
@@ -217,15 +221,15 @@
         letter-spacing: -0.5px;
       }
       .panel.no .cap-big {
-        color: var(--garnet-text);
+        color: var(--ink);
       }
       .panel.yes .cap-big {
-        color: var(--emerald-text);
+        color: var(--brand);
       }
       .cap-sub {
         font-size: 14.5px;
         line-height: 1.5;
-        color: #4a4a4a;
+        color: var(--muted);
         font-weight: 500;
       }
       .panel-art {
@@ -246,6 +250,7 @@
         align-items: center;
         justify-content: center;
       }
+      .panel-art.logo .brandmark { width: 52mm; height: 52mm; border-radius: 14mm; }
       .panel-art.logo img {
         width: 52mm;
         height: 52mm;
@@ -296,8 +301,8 @@
         align-items: center;
         justify-content: center;
         gap: 10px;
-        background: var(--ink);
-        color: #fff;
+        background: var(--brand);
+        color: var(--white);
         border-radius: 16px;
         padding: 13px 16px;
         font-size: 16.5px;
@@ -331,7 +336,7 @@
         height: 52mm;
         border-radius: 10px;
         overflow: hidden;
-        background: #fff;
+        background: var(--white);
         border: 1px solid rgba(0, 0, 0, 0.12);
         box-shadow: 0 7px 16px -9px rgba(0, 0, 0, 0.45);
       }
@@ -355,11 +360,11 @@
         margin: 0;
       }
       .b-title .hl-accent {
-        color: var(--emerald);
+        color: var(--brand);
       }
       .qr-card {
         margin-top: 5mm;
-        background: #fff;
+        background: var(--white);
         border: 1.5px solid var(--border);
         border-radius: 22px;
         padding: 6mm;
@@ -386,7 +391,7 @@
         width: 7px;
         height: 7px;
         border-radius: 999px;
-        background: var(--emerald);
+        background: var(--brand);
       }
       .qr-meta .l2 {
         font-size: 14px;
@@ -459,7 +464,9 @@
     <section class="page front">
       <div class="brandbar">
         <div class="brand">
-          <img class="logo" src="data:image/png;base64,{{LOGO}}" alt="kaata" />
+          <span class="brandmark"
+            ><img class="logo" src="data:image/png;base64,{{LOGO}}" alt="kaata"
+          /></span>
           <span class="wordmark">کاتا.</span>
         </div>
         <span class="madein">★ ساخت کابل</span>
@@ -492,7 +499,7 @@
             <div class="cap-sub">یادآوری مشتری‌ها با یک ضربه در واتساپ.</div>
           </div>
           <div class="panel-art logo">
-            <img src="data:image/png;base64,{{LOGO}}" alt="" />
+            <span class="brandmark"><img src="data:image/png;base64,{{LOGO}}" alt="" /></span>
           </div>
         </div>
       </div>
@@ -500,10 +507,10 @@
       <div class="props">
         <div class="prop">
           <svg class="pic" viewBox="0 0 32 32" fill="none">
-            <rect x="2" y="2" width="28" height="28" rx="9" fill="#E8F4EF" />
+            <rect x="2" y="2" width="28" height="28" rx="9" fill="{{BRAND_SAFFRON}}" />
             <path
               d="M16 9v14M11 13.5c0-2 2.2-3 5-3s5 .8 5 2.6c0 3.4-10 1.6-10 5 0 1.9 2.3 2.8 5 2.8s5-1 5-3"
-              stroke="#0C745A"
+              stroke="{{BRAND_AUBERGINE}}"
               stroke-width="2.2"
               stroke-linecap="round"
             />
@@ -512,24 +519,42 @@
         </div>
         <div class="prop">
           <svg class="pic" viewBox="0 0 32 32" fill="none">
-            <rect x="2" y="2" width="28" height="28" rx="9" fill="#F5F5F5" />
+            <rect x="2" y="2" width="28" height="28" rx="9" fill="{{BRAND_IVORY}}" />
             <path
               d="M9 18c0-4 3-7 7-7s7 3 7 7"
-              stroke="#171717"
+              stroke="{{BRAND_CHARCOAL}}"
               stroke-width="2.2"
               stroke-linecap="round"
             />
-            <path d="M16 22v.01" stroke="#171717" stroke-width="3" stroke-linecap="round" />
-            <path d="M7 11l18 12" stroke="#A3203A" stroke-width="2.2" stroke-linecap="round" />
+            <path
+              d="M16 22v.01"
+              stroke="{{BRAND_CHARCOAL}}"
+              stroke-width="3"
+              stroke-linecap="round"
+            />
+            <path
+              d="M7 11l18 12"
+              stroke="{{BRAND_AUBERGINE}}"
+              stroke-width="2.2"
+              stroke-linecap="round"
+            />
           </svg>
           <div class="ptxt"><b>بدون انترنت</b><span>همیشه کار می‌کند</span></div>
         </div>
         <div class="prop">
           <svg class="pic" viewBox="0 0 32 32" fill="none">
-            <rect x="2" y="2" width="28" height="28" rx="9" fill="#F5F5F5" />
-            <rect x="9" y="14" width="14" height="9" rx="2.4" stroke="#171717" stroke-width="2.2" />
-            <path d="M12 14v-2.5a4 4 0 0 1 8 0V14" stroke="#171717" stroke-width="2.2" />
-            <circle cx="16" cy="18.5" r="1.6" fill="#0C745A" />
+            <rect x="2" y="2" width="28" height="28" rx="9" fill="{{BRAND_IVORY}}" />
+            <rect
+              x="9"
+              y="14"
+              width="14"
+              height="9"
+              rx="2.4"
+              stroke="{{BRAND_CHARCOAL}}"
+              stroke-width="2.2"
+            />
+            <path d="M12 14v-2.5a4 4 0 0 1 8 0V14" stroke="{{BRAND_CHARCOAL}}" stroke-width="2.2" />
+            <circle cx="16" cy="18.5" r="1.6" fill="{{BRAND_AUBERGINE}}" />
           </svg>
           <div class="ptxt"><b>بدون حساب</b><span>روی تلفون شما می‌ماند</span></div>
         </div>
@@ -560,7 +585,9 @@
     <section class="page back">
       <div class="brandbar">
         <div class="brand">
-          <img class="logo" src="data:image/png;base64,{{LOGO}}" alt="kaata" />
+          <span class="brandmark"
+            ><img class="logo" src="data:image/png;base64,{{LOGO}}" alt="kaata"
+          /></span>
           <span class="wordmark">کاتا.</span>
         </div>
         <span class="madein">★ ساخت کابل</span>

@@ -25,7 +25,7 @@ import { icon as iconSize, lift, radius, TOUCH_MIN, typography } from "../lib/to
 
 /**
  * Colour intent.
- *  - primary   — filled bgInverted. The one action a screen wants.
+ *  - primary   — filled brandPrimary. The one action a screen wants.
  *  - secondary — white + hairline border. A real alternative to primary.
  *  - muted     — filled bgMuted, no border. The quiet in-list CTA (Restore,
  *                Retry). Distinct from `secondary` on purpose: a row that is
@@ -84,7 +84,7 @@ export function Button(props: {
   const isDanger = variant === "danger";
   const isMuted = variant === "muted";
   const bg = isPrimary
-    ? colors.bgInverted
+    ? colors.brandPrimary
     : isDanger
       ? colors.danger
       : isMuted

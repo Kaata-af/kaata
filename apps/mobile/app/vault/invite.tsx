@@ -485,7 +485,7 @@ function RoleOption(props: {
       <Ionicons
         name={props.selected ? "checkmark-circle" : "ellipse-outline"}
         size={icon.row}
-        color={props.selected ? colors.textEmphasis : colors.textMuted}
+        color={props.selected ? colors.brandPrimary : colors.textMuted}
         style={props.isRTL ? { marginLeft: 14 } : { marginRight: 14 }}
       />
       <View style={styles.roleOptionTextCol}>

@@ -9,7 +9,7 @@ Change the campaign slug per neighbourhood / print batch: just edit SLUG below
 and re-run. The slug is the ?s= source param that Kaata's backend logs, so each
 batch's scans -> installs show up separately in /admin.
 """
-import base64, pathlib, subprocess, sys
+import base64, json, pathlib, subprocess, sys
 
 # ---- per-batch knob -------------------------------------------------------
 SLUG = "d2d_kabul_01"                       # door-to-door, Kabul, batch 01
@@ -19,6 +19,7 @@ URL  = f"https://www.kaata.af/download?s={SLUG}"
 HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 FONTS = REPO / "apps/web/public/fonts"
+PALETTE = json.loads((REPO / "apps/_shared/brand-palette.json").read_text(encoding="utf-8"))
 LOGO  = REPO / "apps/web/public/logo.png"
 ASSETS = HERE / "assets"           # panel photos — gitignored, see README
 CHROME = "google-chrome"
@@ -47,6 +48,7 @@ print(f"QR: {URL}  (version {qr.version}, ECC=H)")
 # --- assemble --------------------------------------------------------------
 tpl = (HERE / "flyer.template.html").read_text(encoding="utf-8")
 subs = {
+    **{f"{{{{BRAND_{key.upper()}}}}}": value for key, value in PALETTE.items()},
     "{{VAZIR_AR_400}}": b64(FONTS / "vazirmatn-arabic-400-normal.woff2"),
     "{{VAZIR_AR_500}}": b64(FONTS / "vazirmatn-arabic-500-normal.woff2"),
     "{{VAZIR_AR_700}}": b64(FONTS / "vazirmatn-arabic-700-normal.woff2"),

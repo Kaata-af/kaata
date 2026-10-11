@@ -236,7 +236,7 @@ export const EntryRow = memo(function EntryRow(props: {
           if (event.nativeEvent.actionName === "activate") setOpen((value) => !value);
           else if (event.nativeEvent.actionName === "longpress") props.onLongPress?.(entry);
         }}
-        style={({ pressed }) => [pressed && { backgroundColor: "#17171708" }]}
+        style={({ pressed }) => [pressed && { backgroundColor: colors.pressedOverlay }]}
       >
         {/* The status pill is the opened row's FIRST line, centred above the
           amount. It lives inside the Pressable, so tapping it closes the row
@@ -414,7 +414,7 @@ export const EntryRow = memo(function EntryRow(props: {
         Button: a 34px box whose vertical hitSlop restores the 44pt target;
         see ACTION_HIT_SLOP for why it never reaches sideways). Source order
         is [Reject, Accept] under rowDir + flex-end, so Accept is the
-        outermost pill in both scripts. Accept is the black primary, NEVER the
+        outermost pill in both scripts. Accept is the brand primary, NEVER the
         collect green: green and red mean money direction in this app. */}
       {showReview || showCancel ? (
         <View style={[styles.actions, rowDir(isRTL)]}>

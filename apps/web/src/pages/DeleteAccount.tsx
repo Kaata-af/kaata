@@ -253,7 +253,7 @@ export function DeleteAccount() {
         <div className="mt-14">
           <Link
             to="/"
-            className="inline-block bg-neutral-900 text-white font-semibold px-7 py-3 rounded-lg hover:bg-neutral-800 transition-colors text-sm"
+            className="inline-block bg-brand-primary text-white font-semibold px-7 py-3 rounded-lg hover:bg-brand-hover transition-colors text-sm"
           >
             ← Back to home
           </Link>

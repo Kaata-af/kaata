@@ -64,12 +64,12 @@ export default function OnboardingLanguageScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bgDefault },
+  container: { flex: 1, backgroundColor: colors.bgWarm },
   content: { flex: 1, padding: 24, justifyContent: "center" },
   brand: {
     fontSize: 28,
     fontFamily: fonts.sansBold,
-    color: colors.textEmphasis,
+    color: colors.brandPrimary,
     letterSpacing: -0.6,
     textAlign: "center",
   },

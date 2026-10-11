@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { FACEBOOK_URL, INSTAGRAM_URL, TIKTOK_URL, WHATSAPP_CONTACT_URL, YOUTUBE_URL } from "../env";
 import { useI18n } from "../lib/i18n";
+import { BrandLogo } from "./BrandLogo";
 
 // Header mirrors dub.co's chassis: logo at the start, nav links centered,
 // primary CTA at the end (start/end flip with the document direction for
@@ -24,11 +25,11 @@ export function SiteHeader() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex md:grid md:grid-cols-[1fr_auto_1fr] items-center justify-between">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2 md:justify-self-start">
-          <img src="/logo.png" alt="" className="w-6 h-6" />
+          <BrandLogo />
           {/* Persian wordmark (کاتا.) drops tracking-tight — negative
               letter-spacing breaks Arabic-script joining. */}
           <span
-            className={`text-base font-bold text-neutral-900 ${lang === "fa" ? "" : "tracking-tight"}`}
+            className={`text-base font-bold text-brand-primary ${lang === "fa" ? "" : "tracking-tight"}`}
           >
             {t("brand.wordmark")}
           </span>
@@ -71,7 +72,7 @@ export function SiteHeader() {
           {/* Primary CTA. Dub's signature interaction: ring on hover. */}
           <Link
             to="/download"
-            className="bg-neutral-900 text-white font-medium px-3.5 h-8 inline-flex items-center rounded-lg ring-0 ring-neutral-100 hover:ring-4 transition-[box-shadow] text-[13px]"
+            className="bg-brand-primary text-white font-medium px-3.5 h-8 inline-flex items-center rounded-lg ring-0 ring-neutral-100 hover:ring-4 transition-[box-shadow] text-[13px]"
           >
             {t("nav.getApp")}
           </Link>
@@ -99,9 +100,9 @@ export function SiteFooter() {
       <div className="max-w-6xl mx-auto px-6 py-16 grid md:grid-cols-3 gap-12 md:gap-6">
         <div>
           <Link to="/" className="flex items-center gap-2">
-            <img src="/logo.png" alt="" className="w-7 h-7" />
+            <BrandLogo className="h-7 w-7" />
             <span
-              className={`text-lg font-bold text-neutral-900 ${lang === "fa" ? "" : "tracking-tight"}`}
+              className={`text-lg font-bold text-brand-primary ${lang === "fa" ? "" : "tracking-tight"}`}
             >
               {t("brand.wordmark")}
             </span>

@@ -7,11 +7,9 @@
 // backend's Bearer check is the security boundary. Any 401 clears the key and
 // returns to the prompt.
 //
-// Chrome follows the public site (components/SiteChrome.tsx): Tailwind neutral
-// palette, one accent (neutral-900), hairline neutral-200 borders, Inter with
-// tight tracking. The sidebar is white with a hairline, the page is
-// neutral-50, and nothing decorative carries colour — colour is reserved for
-// data (charts, status pills). Data is live over the admin WebSocket, with
+// Chrome follows the public site's shared brand: aubergine navigation and
+// controls, charcoal text, white cards and an ivory page. Chart/status hues
+// keep their separate data meanings. Data is live over the admin WebSocket, with
 // 60-second polling and a Kabul-midnight invalidation as the authoritative
 // fallbacks, so there is no manual refresh control; the footer says when the
 // numbers were generated.
@@ -24,6 +22,7 @@ import {
 } from "@tanstack/react-query";
 import { formatDistanceToNowStrict, parseISO } from "date-fns";
 import { useEffect, useRef, useState } from "react";
+import { BrandLogo } from "../../components/BrandLogo";
 import { Acquisition } from "./Acquisition";
 import { AdminTokenContext, AuthError, TOKEN_KEY, useStats } from "./api";
 import { Campaigns } from "./Campaigns";
@@ -50,10 +49,9 @@ function sectionFromHash(): SectionId {
   return (SECTIONS.find((s) => s.id === h)?.id ?? "overview") as SectionId;
 }
 
-// Same interaction vocabulary as the marketing header's CTA: black button,
-// ring on hover (dub.co's signature), neutral focus ring.
+// Same aubergine action and quiet hover/focus ring as the marketing CTA.
 const PRIMARY_BUTTON =
-  "inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-neutral-900 px-4 text-sm font-medium text-white ring-0 ring-neutral-200 transition-[box-shadow,opacity] hover:ring-4 focus-visible:outline-none focus-visible:ring-4 disabled:opacity-40 disabled:hover:ring-0";
+  "inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-brand-primary px-4 text-sm font-medium text-white ring-0 ring-neutral-200 transition-[box-shadow,opacity] hover:ring-4 focus-visible:outline-none focus-visible:ring-4 disabled:opacity-40 disabled:hover:ring-0";
 
 export function AdminApp() {
   const [token, setToken] = useState<string>(() => localStorage.getItem(TOKEN_KEY) || "");
@@ -118,9 +116,9 @@ export function AdminApp() {
 function Wordmark({ large = false }: { large?: boolean }) {
   return (
     <span className="flex items-center gap-2">
-      <img src="/logo.png" alt="" className={large ? "h-7 w-7" : "h-6 w-6"} />
+      <BrandLogo className={large ? "h-7 w-7" : "h-6 w-6"} />
       <span
-        className={`font-bold tracking-tight text-neutral-900 ${large ? "text-lg" : "text-base"}`}
+        className={`font-bold tracking-tight text-brand-primary ${large ? "text-lg" : "text-base"}`}
       >
         kaata.
       </span>
@@ -131,7 +129,7 @@ function Wordmark({ large = false }: { large?: boolean }) {
 function KeyPrompt(props: { error: string | null; onSubmit: (key: string) => void }) {
   const [input, setInput] = useState("");
   return (
-    <div className="flex min-h-screen min-w-0 items-center justify-center bg-neutral-50 px-4 py-10">
+    <div className="flex min-h-screen min-w-0 items-center justify-center bg-brand-ivory px-4 py-10">
       <form
         className="flex w-full min-w-0 max-w-sm flex-col gap-6 rounded-2xl border border-neutral-200 bg-white p-8 shadow-sm"
         onSubmit={(e) => {
@@ -233,7 +231,7 @@ function Shell(props: { token: string; onSignOut: () => void; onUnauthorized: ()
   };
 
   return (
-    <div className="min-h-screen min-w-0 w-full bg-neutral-50 text-neutral-900 lg:flex">
+    <div className="min-h-screen min-w-0 w-full bg-brand-ivory text-neutral-900 lg:flex">
       <a
         href="#admin-main"
         onClick={(event) => {
@@ -245,9 +243,7 @@ function Shell(props: { token: string; onSignOut: () => void; onUnauthorized: ()
         Skip to content
       </a>
 
-      {/* Desktop sidebar: white, hairline, neutral — the same surface as a
-          card. The active item is a filled neutral-100 pill; nothing else is
-          lit. */}
+      {/* White sidebar; the selected destination carries the signature color. */}
       <aside className="sticky top-0 hidden h-screen w-[240px] shrink-0 flex-col border-r border-neutral-200 bg-white px-4 py-5 lg:flex">
         <div className="px-2 py-1.5">
           <Wordmark />
@@ -262,13 +258,13 @@ function Shell(props: { token: string; onSignOut: () => void; onUnauthorized: ()
                 aria-current={active ? "page" : undefined}
                 className={`flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300 ${
                   active
-                    ? "bg-neutral-100 font-medium text-neutral-900"
-                    : "text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900"
+                    ? "bg-brand-primary font-medium text-white"
+                    : "text-neutral-600 hover:bg-brand-ivory hover:text-neutral-900"
                 }`}
               >
                 <AdminIcon
                   name={s.id}
-                  className={`h-4 w-4 ${active ? "text-neutral-900" : "text-neutral-500"}`}
+                  className={`h-4 w-4 ${active ? "text-white" : "text-neutral-500"}`}
                 />
                 {s.label}
               </button>
@@ -310,7 +306,7 @@ function Shell(props: { token: string; onSignOut: () => void; onUnauthorized: ()
                 key={s.id}
                 onClick={() => navigate(s.id)}
                 aria-current={section === s.id ? "page" : undefined}
-                className={`flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-colors ${section === s.id ? "bg-neutral-100 text-neutral-900" : "text-neutral-600 hover:bg-neutral-50"}`}
+                className={`flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-colors ${section === s.id ? "bg-brand-primary text-white" : "text-neutral-600 hover:bg-brand-ivory"}`}
               >
                 <AdminIcon name={s.id} className="h-4 w-4" />
                 {s.label}

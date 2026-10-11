@@ -1,11 +1,9 @@
-// Design tokens, adapted from dub.co's system.
-// Monochrome chrome — black/white/neutral grays. Quiet semantic color appears
-// only on the things that carry meaning:
-//   - direction (collect / pay) — a refined red & green pair, "Emerald Vault &
-//     Garnet" (deep forest-emerald + garnet-wine), not the generic bright
-//     primaries
-//   - the danger color (delete only), as a saturated red
-// Chrome (headers, FAB, ping button, nav) stays monochrome.
+import brand from "../../_shared/brand-palette.json";
+
+// Kaata's shared brand palette. Brand chrome never replaces the colors that
+// carry ledger meaning: emerald/garnet direction, pending amber and danger.
+// Reading surfaces remain white; Ivory is reserved for warm selected surfaces.
+// Saffron is a highlight/background with Charcoal ink, never small light text.
 //
 // Khatabook flow-direction convention: collect = money TOWARD you (the
 // to-collect balance + "I received" entries); pay = money AWAY from you (the
@@ -13,25 +11,31 @@
 // you", on balances AND entries. Kept in sync with the web app
 // (apps/web/src/theme.ts) + the backend SSR ledger (internal/shared/templates.go).
 export const colors = {
+  brandPrimary: brand.aubergine,
+  brandAccent: brand.saffron,
+  bgWarm: brand.ivory,
+  // True black is a provider/camera requirement, not Kaata's primary color.
+  providerApple: "#000000",
+  pressedOverlay: `${brand.charcoal}08`,
   // Linked two-party account marker; never used for money direction.
   sharedAccount: "#2563EB",
   // Backgrounds
-  bgDefault: "#FFFFFF",
-  bgMuted: "#FAFAFA",
-  bgSubtle: "#F5F5F5",
-  bgInverted: "#171717",
+  bgDefault: brand.white,
+  bgMuted: "#FAF7F2",
+  bgSubtle: "#F3EEE8",
+  bgInverted: brand.charcoal,
 
   // Text
-  textEmphasis: "#171717",
-  textDefault: "#404040",
-  textSubtle: "#737373",
-  textMuted: "#A3A3A3",
-  textInverted: "#FFFFFF",
+  textEmphasis: brand.charcoal,
+  textDefault: brand.charcoal,
+  textSubtle: "#706573",
+  textMuted: "#756B78",
+  textInverted: brand.white,
 
   // Borders — hairline everywhere
-  borderSubtle: "#F5F5F5",
-  borderDefault: "#E5E5E5",
-  borderEmphasis: "#D4D4D4",
+  borderSubtle: "#F3EEE8",
+  borderDefault: "#E4DCE3",
+  borderEmphasis: "#D2C6D0",
 
   // Direction / semantic. collect = money TOWARD you (emerald), pay = money
   // AWAY from you (garnet). *Bg is the soft tint behind chips + arrow chips;
@@ -45,10 +49,11 @@ export const colors = {
   payStrong: "#A3203A",
 
   // Review state of a shared tally, independent of the money-direction colors
-  // above. Shown ONLY as the 6px dot inside the neutral status pill of an
-  // OPENED tally (components/EntryRow.tsx) — never as a row tint and never as
-  // a button colour. Full-surface greens and reds stay reserved for money
-  // direction; Accept is the black primary button. Pinned by selftest:tally-ui.
+  // above. Only pending gets a 6px dot (closed or opened); all opened states
+  // retain a neutral status pill. Never a row tint or a button colour.
+  // Accept uses the Aubergine primary, independent of money direction.
+  // The darker pending amber retains contrast at this small size; brand
+  // Saffron is too light on white for a status cue. Pinned by selftest:tally-ui.
   reviewPending: "#D29A00",
   reviewAccepted: "#0A5A46",
   reviewRejected: "#A34242",
@@ -63,7 +68,7 @@ export const colors = {
 // memberTints — the ONLY place in the app where color identifies a PERSON
 // rather than a direction or a danger.
 //
-// Why this exists at all, given the rule above that chrome stays monochrome:
+// Why this exists independently of brand chrome:
 // in a shared kaata the owner cannot tell their own tallies from their staff's
 // without opening the Activity screen, and nobody opens the Activity screen.
 // A name in text would have to compete with the amount and the date for the

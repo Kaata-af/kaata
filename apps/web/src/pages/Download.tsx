@@ -10,7 +10,7 @@ export function Download() {
   const isIOS =
     typeof navigator !== "undefined" && /iPad|iPhone|iPod/.test(navigator.userAgent ?? "");
   return (
-    <main>
+    <main className="bg-brand-ivory">
       <SiteHeader />
 
       <section className="px-5 py-10 sm:px-6 md:py-20 max-w-2xl mx-auto">

@@ -1,18 +1,9 @@
 import type { Config } from "tailwindcss";
-import { ledger } from "./src/theme";
+import { brand, ledger } from "./src/theme";
 
-// Design system mirrors the mobile app (apps/mobile/lib/colors.ts).
-// Most neutrals come straight from Tailwind's built-in `neutral` palette,
-// which happens to match our mobile tokens exactly:
-//   bgMuted    = neutral-50  (#FAFAFA)
-//   bgSubtle   = neutral-100 (#F5F5F5)
-//   border     = neutral-200 (#E5E5E5)
-//   textMuted  = neutral-400 (#A3A3A3)
-//   textSubtle = neutral-500 (#737373)
-//   textDefault= neutral-700 (#404040)
-//   textEmphasis / bgInverted = neutral-900 (#171717)
-//
-// Only the semantic chip colors and danger are added as explicit tokens.
+// Brand comes from apps/_shared/brand-palette.json. Legacy neutral utilities
+// use derived plum grays, while explicit brand utilities carry signatures.
+// Financial directions and chart series keep their own semantic colors.
 //
 // Tremor (admin dashboard kit): its components style themselves with
 // tremor-* theme tokens + Tailwind classes shipped inside node_modules —
@@ -25,6 +16,19 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        brand,
+        neutral: {
+          50: "#FAF7F2",
+          100: brand.faint,
+          200: brand.border,
+          300: "#D2C6D0",
+          400: brand.muted,
+          500: brand.muted,
+          600: brand.sub,
+          700: brand.charcoal,
+          800: "#403345",
+          900: brand.charcoal,
+        },
         // Direction tokens come from the shared ledger palette (src/theme.ts),
         // mirrored in CustomerView + the mobile app. collect = money toward you;
         // pay = money away. `strong` is the accent for numbers/arrows; `bg`/`text`
@@ -35,27 +39,27 @@ const config: Config = {
         // --- Tremor v3 theme tokens (light only — admin is light-theme) ---
         tremor: {
           brand: {
-            faint: "#eff6ff",
-            muted: "#bfdbfe",
-            subtle: "#60a5fa",
-            DEFAULT: "#2a78d6",
-            emphasis: "#1d4ed8",
-            inverted: "#ffffff",
+            faint: brand.faint,
+            muted: brand.border,
+            subtle: "#8C6B92",
+            DEFAULT: brand.primary,
+            emphasis: brand.hover,
+            inverted: brand.white,
           },
           background: {
-            muted: "#fafafa",
-            subtle: "#f5f5f5",
-            DEFAULT: "#ffffff",
-            emphasis: "#171717",
+            muted: brand.ivory,
+            subtle: brand.faint,
+            DEFAULT: brand.white,
+            emphasis: brand.charcoal,
           },
-          border: { DEFAULT: "#e5e5e5" },
-          ring: { DEFAULT: "#e5e5e5" },
+          border: { DEFAULT: brand.border },
+          ring: { DEFAULT: brand.border },
           content: {
-            subtle: "#a3a3a3",
-            DEFAULT: "#525252",
-            emphasis: "#171717",
-            strong: "#171717",
-            inverted: "#ffffff",
+            subtle: brand.muted,
+            DEFAULT: brand.sub,
+            emphasis: brand.charcoal,
+            strong: brand.charcoal,
+            inverted: brand.white,
           },
         },
       },

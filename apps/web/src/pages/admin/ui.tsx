@@ -1,20 +1,18 @@
-// Shared chrome for the admin dashboard — the public site's palette
-// (Tailwind neutral, mirrored from apps/mobile/lib/colors.ts): ink #171717,
-// borders #e5e5e5, white cards on a #fafafa page, Inter, tabular-nums on every
-// number. One accent (neutral-900) for interactive states; colour is reserved
-// for data.
+// Shared chrome follows the brand palette: charcoal numbers and text, white
+// cards and aubergine controls. Chart hues remain a separate data language.
 
 import type { ReactNode } from "react";
+import { brand } from "../../theme";
 export { fmtDateTime } from "./dates";
 
 // Palette. Chart series colors were validated with the dataviz six-checks
 // script (CVD ΔE ≥ 15, all ≥ 3:1 on white) — don't swap hues casually.
 export const C = {
-  ink: "#171717",
-  sub: "#525252",
-  mut: "#a3a3a3",
-  line: "#e5e5e5",
-  hair: "#f5f5f5",
+  ink: brand.ink,
+  sub: brand.sub,
+  mut: brand.muted,
+  line: brand.border,
+  hair: brand.faint,
   blue: "#2a78d6", // retained / active / English
   green: "#008300", // new / Dari
   teal: "#199e70", // resurrected / installs series
@@ -33,7 +31,7 @@ export const C = {
 // bg-[#199e70] text-[#199e70] fill-[#199e70] stroke-[#199e70]
 // bg-[#e34948] text-[#e34948] fill-[#e34948] stroke-[#e34948]
 // bg-[#e5e5e5] text-[#e5e5e5] fill-[#e5e5e5] stroke-[#e5e5e5]
-// bg-[#171717] text-[#171717] fill-[#171717] stroke-[#171717]
+// bg-[#29222B] text-[#29222B] fill-[#29222B] stroke-[#29222B]
 
 export function fmtInt(n: number | undefined | null): string {
   return n == null ? "—" : n.toLocaleString();
@@ -88,16 +86,16 @@ export function Card(props: {
 }) {
   return (
     <section
-      className={`min-w-0 w-full max-w-full rounded-xl border border-[#e5e5e5] bg-white p-4 shadow-sm sm:p-5 ${props.className ?? ""}`}
+      className={`min-w-0 w-full max-w-full rounded-xl border border-brand-border bg-white p-4 shadow-sm sm:p-5 ${props.className ?? ""}`}
     >
       {props.title ? (
         <div className="mb-4 flex min-w-0 flex-wrap items-start justify-between gap-3 sm:mb-5">
           <div className="min-w-0 max-w-full">
-            <h2 className="break-words text-[15px] font-semibold tracking-[-0.01em] text-[#171717]">
+            <h2 className="break-words text-[15px] font-semibold tracking-[-0.01em] text-brand-ink">
               {props.title}
             </h2>
             {props.sub ? (
-              <p className="mt-1 max-w-2xl break-words text-xs leading-relaxed text-[#737373]">
+              <p className="mt-1 max-w-2xl break-words text-xs leading-relaxed text-brand-muted">
                 {props.sub}
               </p>
             ) : null}
@@ -114,7 +112,7 @@ export function Card(props: {
 export function Skeleton(props: { className?: string }) {
   return (
     <div
-      className={`max-w-full animate-pulse rounded-lg bg-[#f5f5f5] ${props.className ?? "h-24"}`}
+      className={`max-w-full animate-pulse rounded-lg bg-brand-faint ${props.className ?? "h-24"}`}
     />
   );
 }
@@ -122,7 +120,7 @@ export function Skeleton(props: { className?: string }) {
 export function SkeletonCard(props: { lines?: number; className?: string }) {
   return (
     <div
-      className={`min-w-0 max-w-full rounded-xl border border-[#e5e5e5] bg-white p-4 sm:p-5 ${props.className ?? ""}`}
+      className={`min-w-0 max-w-full rounded-xl border border-brand-border bg-white p-4 sm:p-5 ${props.className ?? ""}`}
       aria-label="Loading dashboard data"
       role="status"
     >
@@ -142,10 +140,10 @@ export function ErrorCard(props: { message: string; onRetry: () => void }) {
       role="alert"
       className="flex min-w-0 max-w-full flex-wrap items-center justify-between gap-4 rounded-xl border border-red-100 bg-red-50/50 p-4 sm:p-5"
     >
-      <div className="min-w-0 break-words text-sm text-[#525252]">{props.message}</div>
+      <div className="min-w-0 break-words text-sm text-brand-sub">{props.message}</div>
       <button
         onClick={props.onRetry}
-        className="min-h-11 shrink-0 rounded-lg border border-[#e5e5e5] px-3 py-1.5 text-sm font-medium text-[#171717] hover:bg-[#fafafa]"
+        className="min-h-11 shrink-0 rounded-lg border border-brand-border px-3 py-1.5 text-sm font-medium text-brand-ink hover:bg-brand-ivory"
       >
         Retry
       </button>
@@ -161,10 +159,10 @@ export function ErrorCard(props: { message: string; onRetry: () => void }) {
 export function PageHeader(props: { title: string; description: string }) {
   return (
     <header className="mb-6 min-w-0 max-w-full sm:mb-8">
-      <h1 className="text-2xl font-semibold tracking-tight text-[#171717] sm:text-[28px]">
+      <h1 className="text-2xl font-semibold tracking-tight text-brand-ink sm:text-[28px]">
         {props.title}
       </h1>
-      <p className="mt-1.5 max-w-2xl break-words text-sm leading-relaxed text-[#737373]">
+      <p className="mt-1.5 max-w-2xl break-words text-sm leading-relaxed text-brand-muted">
         {props.description}
       </p>
     </header>

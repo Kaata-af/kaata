@@ -531,7 +531,7 @@ const styles = StyleSheet.create({
   },
   emph: { fontFamily: fonts.sansSemi, color: colors.textEmphasis },
   // Pure black letterbox behind the camera feed — deliberately NOT
-  // colors.bgInverted (#171717), which would show as a grey frame against
+  // colors.bgInverted (Charcoal), which would show as a grey frame against
   // the sensor's true black. lib/colors has no #000 token.
   cameraWrap: { flex: 1, backgroundColor: "#000" },
   scannerReticle: {

@@ -204,7 +204,7 @@ export function VaultPickerSheet(props: {
                     <PickerItem
                       key={v.id}
                       icon={isActive ? "checkmark-circle" : "ellipse-outline"}
-                      iconColor={isActive ? colors.textEmphasis : colors.textMuted}
+                      iconColor={isActive ? colors.brandPrimary : colors.textMuted}
                       label={v.name}
                       trailing={v.currency ? getCurrencySymbol(v.currency) : undefined}
                       bold={isActive}

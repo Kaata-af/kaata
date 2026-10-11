@@ -60,7 +60,7 @@ function LoadingView() {
         {t("invite.loading")}
       </p>
       <div className="mx-auto h-2 w-32 rounded-full bg-neutral-200 overflow-hidden">
-        <div className="h-full w-1/2 bg-neutral-900 animate-pulse" />
+        <div className="h-full w-1/2 bg-brand-primary animate-pulse" />
       </div>
     </div>
   );
@@ -105,7 +105,7 @@ function ErrorView({ err, onRetry }: { err: InviteInfoError; onRetry: () => void
         <button
           type="button"
           onClick={onRetry}
-          className="mt-8 inline-block bg-neutral-900 text-white font-semibold px-7 py-3 rounded-lg hover:bg-neutral-800 transition-colors text-sm"
+          className="mt-8 inline-block bg-brand-primary text-white font-semibold px-7 py-3 rounded-lg hover:bg-brand-hover transition-colors text-sm"
         >
           {t("invite.tryAgain")}
         </button>
@@ -194,7 +194,7 @@ function MobileActions({ deepLink }: { deepLink: string }) {
     <div className="flex flex-col gap-3">
       <a
         href={deepLink}
-        className="inline-flex justify-center items-center bg-neutral-900 text-white font-medium px-5 h-12 rounded-lg ring-0 ring-neutral-100 hover:ring-4 transition-[box-shadow] text-[15px]"
+        className="inline-flex justify-center items-center bg-brand-primary text-white font-medium px-5 h-12 rounded-lg ring-0 ring-neutral-100 hover:ring-4 transition-[box-shadow] text-[15px]"
       >
         {t("invite.openInApp")}
       </a>

@@ -7,7 +7,7 @@ export function Hero() {
   return (
     <section className="px-6 pt-16 md:pt-24 pb-20 md:pb-24">
       <div className="max-w-3xl mx-auto text-center">
-        <h1 className="text-4xl md:text-6xl font-bold -tracking-[0.02em] leading-[1.1] text-neutral-900">
+        <h1 className="text-4xl md:text-6xl font-bold -tracking-[0.02em] leading-[1.1] text-brand-primary">
           {t("hero.title.line1")}
           <br />
           {t("hero.title.line2")}
@@ -20,7 +20,7 @@ export function Hero() {
         <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center items-stretch sm:items-center">
           <Link
             to="/download"
-            className="bg-neutral-900 text-white font-semibold px-7 py-3 rounded-lg hover:bg-neutral-800 transition-colors text-sm"
+            className="bg-brand-primary text-white font-semibold px-7 py-3 rounded-lg hover:bg-brand-hover transition-colors text-sm"
           >
             {t("hero.cta")}
           </Link>

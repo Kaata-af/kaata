@@ -1,0 +1,4 @@
+# Portable previews embed font/image data; regenerate from the tracked source.
+post-*.html
+*.png
+*.pdf

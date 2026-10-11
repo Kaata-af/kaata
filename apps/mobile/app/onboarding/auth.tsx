@@ -577,9 +577,11 @@ export function AuthScreen({
         ]}
       >
         <View style={[styles.cardIcon, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}>
-          <Ionicons name="mail-outline" size={24} color={colors.textEmphasis} />
+          <Ionicons name="mail-outline" size={24} color={colors.brandPrimary} />
         </View>
-        <Text style={[styles.cardTitle, textDir(isRTL)]}>{t("onboardingMode.email.title")}</Text>
+        <Text style={[styles.cardTitle, styles.cardTitleKaata, textDir(isRTL)]}>
+          {t("onboardingMode.email.title")}
+        </Text>
       </Pressable>
 
       {failureNotice}
@@ -725,7 +727,7 @@ export function AuthScreen({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bgDefault },
+  container: { flex: 1, backgroundColor: colors.bgWarm },
   flex: { flex: 1 },
   // A scroll container (the email flow needs the keyboard room), so flexGrow,
   // not flex: the column still centres when it fits.
@@ -738,7 +740,7 @@ const styles = StyleSheet.create({
     // sansLineHeight so iOS can't clip the glyph tops.
     ...typography.heading,
     fontFamily: fonts.sansBold,
-    color: colors.textEmphasis,
+    color: colors.brandPrimary,
     letterSpacing: -0.4,
     textAlign: "center",
   },
@@ -787,8 +789,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   cardPrimary: {
-    backgroundColor: colors.bgInverted,
-    borderColor: colors.bgInverted,
+    backgroundColor: colors.providerApple,
+    borderColor: colors.providerApple,
     ...Platform.select({
       ios: {
         shadowColor: "#000",
@@ -807,7 +809,7 @@ const styles = StyleSheet.create({
   // shadow), a step quieter than the two branded cards above it.
   cardOutlined: {
     backgroundColor: colors.bgDefault,
-    borderColor: colors.borderEmphasis,
+    borderColor: colors.brandPrimary,
   },
   // Google's brand guidance puts the multicolor G on a LIGHT surface — and
   // the white card is also what visually separates it from the black Apple
@@ -842,6 +844,7 @@ const styles = StyleSheet.create({
     color: colors.textEmphasis,
   },
   cardTitlePrimary: { color: colors.textInverted },
+  cardTitleKaata: { color: colors.brandPrimary },
   errorText: {
     fontSize: 12,
     fontFamily: fonts.sansMedium,

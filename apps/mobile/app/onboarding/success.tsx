@@ -121,7 +121,7 @@ export default function OnboardingSuccessScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bgDefault },
+  container: { flex: 1, backgroundColor: colors.bgWarm },
   scroll: { flex: 1 },
   scrollContent: { flexGrow: 1, paddingHorizontal: gutter.hero, paddingVertical: space.xxl },
   content: {
@@ -136,12 +136,12 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: radius.md,
-    backgroundColor: colors.bgSubtle,
+    backgroundColor: colors.brandAccent,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: space.xl,
   },
-  title: { ...typography.heading, color: colors.textEmphasis },
+  title: { ...typography.heading, color: colors.brandPrimary },
   kaataRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -151,7 +151,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderDefault,
-    backgroundColor: colors.bgMuted,
+    backgroundColor: colors.bgDefault,
   },
   // User-entered names may be Dari even in English UI. Let them wrap and never
   // add tracking, which breaks Arabic-script joining.

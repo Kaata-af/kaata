@@ -467,7 +467,7 @@ const styles = StyleSheet.create({
     minHeight: TOUCH_MIN,
     justifyContent: "center",
     borderRadius: radius.sm,
-    backgroundColor: colors.bgInverted,
+    backgroundColor: colors.brandPrimary,
   },
   copyReportText: { color: colors.textInverted, fontSize: 14, fontFamily: fonts.sansSemi },
   shareReport: {
@@ -564,7 +564,7 @@ const styles = StyleSheet.create({
     minHeight: TOUCH_MIN,
     justifyContent: "center",
     borderRadius: radius.sm,
-    backgroundColor: colors.bgInverted,
+    backgroundColor: colors.brandPrimary,
   },
   refreshText: { color: colors.textInverted, fontSize: 14, fontFamily: fonts.sansSemi },
   dangerBtn: {

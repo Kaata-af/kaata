@@ -3,7 +3,7 @@ import { useI18n } from "../lib/i18n";
 
 // Visual mockups of the mobile app shown on the landing page. Mirrors the
 // production UI as closely as a static render can: same wordmark, same
-// monochrome palette, same Inter + JetBrains Mono treatment of amounts. All
+// brand and financial direction palette, same Inter + JetBrains Mono treatment of amounts. All
 // copy flows through useI18n() so the screens flip to Dari with the page.
 //
 // Two fidelity rules that make these read like the real app:
@@ -64,7 +64,7 @@ function Tabs({ active }: { active: "collect" | "pay" }) {
       <div
         className={`flex-1 py-1.5 rounded-[7px] text-[11px] text-center ${
           active === "collect"
-            ? "bg-neutral-900 text-white font-semibold"
+            ? "bg-brand-primary text-white font-semibold"
             : "text-neutral-700 font-medium"
         }`}
       >
@@ -73,7 +73,7 @@ function Tabs({ active }: { active: "collect" | "pay" }) {
       <div
         className={`flex-1 py-1.5 rounded-[7px] text-[11px] text-center ${
           active === "pay"
-            ? "bg-neutral-900 text-white font-semibold"
+            ? "bg-brand-primary text-white font-semibold"
             : "text-neutral-700 font-medium"
         }`}
       >
@@ -134,7 +134,7 @@ export function PhoneMockupHome() {
             apps/mobile/app/index.tsx. The app's ratios, scaled to this 44px
             mock: mark = 42% of the button, corner radius = 32% of the mark. */}
         <div className="mt-auto flex justify-end pt-3">
-          <div className="w-11 h-11 bg-neutral-900 rounded-full flex items-center justify-center">
+          <div className="w-11 h-11 bg-brand-primary rounded-full flex items-center justify-center">
             <div className="w-[18px] h-[18px] rounded-[6px] border-2 border-white" />
           </div>
         </div>

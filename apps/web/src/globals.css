@@ -8,8 +8,7 @@ body {
      the white background below is never algorithmically darkened on dark-mode
      phones. Mirrors the <meta name="color-scheme"> tag in index.html. */
   color-scheme: only light;
-  background: #ffffff;
-  color: #171717;
+  @apply bg-white text-brand-ink;
   font-family:
     "Inter",
     system-ui,
@@ -34,10 +33,14 @@ html[lang="fa"] body {
     sans-serif;
 }
 
-/* Neutral selection — matches the monochrome chrome */
+/* Saffron highlights keep readable charcoal text. */
 ::selection {
-  background: rgba(23, 23, 23, 0.12);
-  color: #171717;
+  @apply bg-brand-saffron text-brand-ink;
+}
+
+/* The browser supplies the outline geometry; brand only changes its color. */
+:focus-visible {
+  outline-color: theme("colors.brand.primary");
 }
 
 html {

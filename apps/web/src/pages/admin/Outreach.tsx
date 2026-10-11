@@ -165,21 +165,21 @@ import { Card, ErrorCard, PageHeader, SkeletonCard, fmtDateTime, fmtInt, lastSee
 // for Prospects, is dropped rather than left to linger.
 const STORAGE_KEY = "kaata_admin_outreach_filters_v3";
 const FIELD =
-  "min-h-11 min-w-0 w-full max-w-full rounded-lg border border-[#e5e5e5] bg-white px-3 py-2 text-base text-[#404040] outline-none transition focus:border-[#171717] focus:ring-2 focus:ring-[#171717]/10 md:text-sm";
+  "min-h-11 min-w-0 w-full max-w-full rounded-lg border border-brand-border bg-white px-3 py-2 text-base text-brand-ink outline-none transition focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/10 md:text-sm";
 const BUTTON =
-  "inline-flex min-h-11 min-w-11 max-w-full items-center justify-center gap-2 rounded-lg border border-[#e5e5e5] bg-white px-3 py-2 text-sm font-medium text-[#404040] transition hover:border-[#d4d4d4] hover:bg-[#fafafa] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#171717] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40";
+  "inline-flex min-h-11 min-w-11 max-w-full items-center justify-center gap-2 rounded-lg border border-brand-border bg-white px-3 py-2 text-sm font-medium text-brand-ink transition hover:border-neutral-300 hover:bg-brand-ivory focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40";
 const PRIMARY =
-  "inline-flex min-h-11 max-w-full items-center justify-center gap-2 rounded-lg bg-[#171717] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#404040] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#171717] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40";
+  "inline-flex min-h-11 max-w-full items-center justify-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40";
 const SMALL_BUTTON =
-  "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-[#e5e5e5] bg-white px-2.5 py-1 text-xs font-medium text-[#404040] transition hover:bg-[#fafafa] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#171717] disabled:cursor-not-allowed disabled:opacity-40 md:min-h-8";
-const CHECKBOX = "h-4 w-4 shrink-0 rounded accent-[#171717]";
+  "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-brand-border bg-white px-2.5 py-1 text-xs font-medium text-brand-ink transition hover:bg-brand-ivory focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:cursor-not-allowed disabled:opacity-40 md:min-h-8";
+const CHECKBOX = "h-4 w-4 shrink-0 rounded accent-brand-primary";
 const SMALL_SELECT =
-  "min-h-11 min-w-0 max-w-full rounded-md border border-[#e5e5e5] bg-white py-1.5 pl-2 pr-6 text-base text-[#404040] focus-visible:outline-[#171717] md:min-h-8 md:text-xs";
+  "min-h-11 min-w-0 max-w-full rounded-md border border-brand-border bg-white py-1.5 pl-2 pr-6 text-base text-brand-ink focus-visible:outline-brand-primary md:min-h-8 md:text-xs";
 const PAGE_SIZES = [25, 50, 100];
 const WA_BUTTON =
-  "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md bg-[#e8f5ed] px-2.5 py-1 text-xs font-semibold text-[#116b4f] transition hover:bg-[#d7eede] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#171717] disabled:cursor-not-allowed disabled:opacity-40 md:min-h-8";
+  "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md bg-[#e8f5ed] px-2.5 py-1 text-xs font-semibold text-[#116b4f] transition hover:bg-[#d7eede] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:cursor-not-allowed disabled:opacity-40 md:min-h-8";
 const SMALL_PRIMARY =
-  "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md bg-[#171717] px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-[#404040] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#171717] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 md:min-h-8";
+  "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md bg-brand-primary px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 md:min-h-8";
 
 type SelectKey =
   | "kind"
@@ -1126,7 +1126,7 @@ export function Outreach() {
         <ErrorCard message="Couldn't load outreach." onRetry={() => void outreach.refetch()} />
       ) : data === null ? (
         <Card>
-          <p className="text-sm text-[#525252]">
+          <p className="text-sm text-brand-sub">
             Backend update pending — the Outreach endpoints are not deployed yet.
           </p>
         </Card>
@@ -1205,7 +1205,7 @@ export function Outreach() {
             />
           </div>
           <div
-            className="mb-5 flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1 text-xs text-[#737373]"
+            className="mb-5 flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1 text-xs text-brand-muted"
             aria-label="Pipeline"
           >
             <p className="min-w-0 tabular-nums [overflow-wrap:anywhere]">
@@ -1217,14 +1217,14 @@ export function Outreach() {
                 ["Installed", cards.installed],
               ].map(([label, value], index) => (
                 <Fragment key={label}>
-                  {index > 0 ? <span className="mx-1.5 text-[#d4d4d4]">→</span> : null}
-                  <span className="font-medium text-[#404040]">{label}</span>{" "}
+                  {index > 0 ? <span className="mx-1.5 text-neutral-300">→</span> : null}
+                  <span className="font-medium text-brand-ink">{label}</span>{" "}
                   {fmtInt(Number(value))}
                 </Fragment>
               ))}
-              <span className="mx-1.5 text-[#d4d4d4]">·</span>
+              <span className="mx-1.5 text-neutral-300">·</span>
               Declined {fmtInt(cards.declined)}
-              <span className="mx-1.5 text-[#d4d4d4]">·</span>
+              <span className="mx-1.5 text-neutral-300">·</span>
               Unreachable {fmtInt(cards.unreachable)}
             </p>
             <p className="tabular-nums" role="status">
@@ -1250,18 +1250,18 @@ export function Outreach() {
             onCopyPhone={(contact) => void copyText(contact.phone, "Copied")}
           />
           <section
-            className="min-w-0 w-full max-w-full rounded-xl border border-[#e5e5e5] bg-white shadow-sm"
+            className="min-w-0 w-full max-w-full rounded-xl border border-brand-border bg-white shadow-sm"
             aria-label="Outreach directory"
           >
-            <div className="border-b border-[#f5f5f5] px-4 pt-5 sm:px-6">
+            <div className="border-b border-brand-faint px-4 pt-5 sm:px-6">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
-                  <h2 className="text-base font-semibold text-[#171717]">Numbers</h2>
-                  <p className="mt-1 text-xs leading-5 text-[#737373]">
+                  <h2 className="text-base font-semibold text-brand-ink">Numbers</h2>
+                  <p className="mt-1 text-xs leading-5 text-brand-muted">
                     One row per phone number. Expand a row for everything the database knows.
                   </p>
                 </div>
-                <span className="rounded-full bg-[#f5f5f5] px-3 py-1 text-xs font-medium tabular-nums text-[#737373]">
+                <span className="rounded-full bg-brand-faint px-3 py-1 text-xs font-medium tabular-nums text-brand-muted">
                   {fmtInt(contacts.length)} total rows
                 </span>
               </div>
@@ -1275,7 +1275,7 @@ export function Outreach() {
                     onClick={() => applyPreset(preset.id)}
                     aria-pressed={selectedPreset === preset.id}
                     title={presetDescription(preset.id, presetSort(preset.id))}
-                    className={`min-h-11 min-w-0 border-b-2 px-2 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#171717] sm:px-3 ${selectedPreset === preset.id ? "border-[#171717] text-[#171717]" : "border-transparent text-[#737373] hover:text-[#404040]"}`}
+                    className={`min-h-11 min-w-0 border-b-2 px-2 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary sm:px-3 ${selectedPreset === preset.id ? "border-brand-primary text-brand-ink" : "border-transparent text-brand-muted hover:text-brand-ink"}`}
                   >
                     {preset.label}
                   </button>
@@ -1285,7 +1285,7 @@ export function Outreach() {
             <div className="min-w-0 space-y-3 px-3 py-4 sm:space-y-4 sm:px-6 sm:py-5">
               <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2 sm:gap-3">
                 <div className="relative min-w-0">
-                  <span className="pointer-events-none absolute left-3 top-3 text-[#a3a3a3]">
+                  <span className="pointer-events-none absolute left-3 top-3 text-neutral-400">
                     <Icon name="search" />
                   </span>
                   <input
@@ -1309,7 +1309,7 @@ export function Outreach() {
                   <Icon name="filter" />
                   Filters
                   {activeFilters.length > 0 ? (
-                    <span className="rounded bg-[#f5f5f5] px-1.5 text-xs text-[#171717]">
+                    <span className="rounded bg-brand-faint px-1.5 text-xs text-brand-ink">
                       {activeFilters.length}
                     </span>
                   ) : null}
@@ -1322,14 +1322,14 @@ export function Outreach() {
               {/* The order sentence ("Newest tally first.") only while the
                   preset's own order is on screen (2026-09-30). */}
               {selectedPreset && selectedPreset !== "all" ? (
-                <p className="text-xs leading-5 text-[#737373]">
+                <p className="text-xs leading-5 text-brand-muted">
                   {presetDescription(selectedPreset, { sortKey, sortDesc })}
                 </p>
               ) : null}
               {showFilters ? (
                 <div
                   id="outreach-filters"
-                  className="min-w-0 max-w-full rounded-xl border border-[#e5e5e5] bg-[#fafafa] p-3 sm:p-4"
+                  className="min-w-0 max-w-full rounded-xl border border-brand-border bg-brand-ivory p-3 sm:p-4"
                 >
                   <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {SELECTS.slice(0, 2).map((field) => (
@@ -1398,18 +1398,18 @@ export function Outreach() {
                       onChange={(minReceivable) => updateFilters({ minReceivable })}
                     />
                   </div>
-                  <div className="mt-4 border-t border-[#e5e5e5] pt-4">
+                  <div className="mt-4 border-t border-brand-border pt-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <h3 className="text-xs font-semibold text-[#525252]">Contacted date range</h3>
+                      <h3 className="text-xs font-semibold text-brand-sub">Contacted date range</h3>
                       <button
                         onClick={() => updateFilters({ contactedFrom: "", contactedTo: "" })}
-                        className="min-h-11 rounded-md px-2 py-1 text-xs text-[#737373] hover:bg-[#f5f5f5]"
+                        className="min-h-11 rounded-md px-2 py-1 text-xs text-brand-muted hover:bg-brand-faint"
                       >
                         Any date
                       </button>
                     </div>
                     <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <label className="min-w-0 text-xs font-medium text-[#737373]">
+                      <label className="min-w-0 text-xs font-medium text-brand-muted">
                         From
                         <input
                           type="date"
@@ -1421,7 +1421,7 @@ export function Outreach() {
                           className={`${FIELD} mt-1`}
                         />
                       </label>
-                      <label className="min-w-0 text-xs font-medium text-[#737373]">
+                      <label className="min-w-0 text-xs font-medium text-brand-muted">
                         Through
                         <input
                           type="date"
@@ -1439,7 +1439,7 @@ export function Outreach() {
                         The end date must be on or after the start date.
                       </p>
                     ) : (
-                      <p className="mt-2 text-xs leading-5 text-[#737373]">
+                      <p className="mt-2 text-xs leading-5 text-brand-muted">
                         Both dates are included. Dates use Kabul time.
                       </p>
                     )}
@@ -1454,7 +1454,7 @@ export function Outreach() {
                   {activeFilters.map((chip) => (
                     <button
                       key={chip.key}
-                      className="inline-flex min-h-11 min-w-0 max-w-full items-center gap-1.5 rounded-xl border border-[#e5e5e5] bg-[#f5f5f5] px-2.5 py-1 text-left text-xs text-[#171717] hover:bg-[#f5f5f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#171717] md:min-h-8"
+                      className="inline-flex min-h-11 min-w-0 max-w-full items-center gap-1.5 rounded-xl border border-brand-border bg-brand-faint px-2.5 py-1 text-left text-xs text-brand-ink hover:bg-brand-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary md:min-h-8"
                       aria-label={`${chip.label} — remove filter`}
                       onClick={() => updateFilters({ [chip.key]: chipBaseline[chip.key] })}
                     >
@@ -1464,7 +1464,7 @@ export function Outreach() {
                   ))}
                   {search ? (
                     <button
-                      className="inline-flex min-h-11 min-w-0 max-w-full items-center gap-1.5 rounded-xl border border-[#e5e5e5] px-2.5 py-1 text-xs text-[#525252] md:min-h-8"
+                      className="inline-flex min-h-11 min-w-0 max-w-full items-center gap-1.5 rounded-xl border border-brand-border px-2.5 py-1 text-xs text-brand-sub md:min-h-8"
                       onClick={() => {
                         setSearch("");
                         setPage(0);
@@ -1476,7 +1476,7 @@ export function Outreach() {
                     </button>
                   ) : null}
                   <button
-                    className="min-h-11 px-1 py-1 text-xs font-medium text-[#737373] underline decoration-[#d4d4d4] underline-offset-4 hover:text-[#171717]"
+                    className="min-h-11 px-1 py-1 text-xs font-medium text-brand-muted underline decoration-neutral-300 underline-offset-4 hover:text-brand-ink"
                     onClick={reset}
                   >
                     Reset all
@@ -1484,9 +1484,9 @@ export function Outreach() {
                 </div>
               ) : null}
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-3 border-y border-[#f5f5f5] bg-[#fafafa] px-4 py-3 sm:px-6">
-              <p className="min-w-0 text-xs leading-5 text-[#737373]" role="status">
-                <strong className="font-semibold tabular-nums text-[#404040]">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-y border-brand-faint bg-brand-ivory px-4 py-3 sm:px-6">
+              <p className="min-w-0 text-xs leading-5 text-brand-muted" role="status">
+                <strong className="font-semibold tabular-nums text-brand-ink">
                   {fmtInt(sorted.length)} matching numbers
                 </strong>
                 <span className="mx-1.5">·</span>
@@ -1496,7 +1496,7 @@ export function Outreach() {
                 <span className="mx-1.5">·</span>
                 {fmtInt(sorted.filter((c) => c.follow_up_due).length)} follow-ups due
               </p>
-              <span className="min-w-0 text-xs leading-5 text-[#737373]">
+              <span className="min-w-0 text-xs leading-5 text-brand-muted">
                 WhatsApp and Copy message record "opened" only — record Sent once the message is
                 out.
               </span>
@@ -1520,11 +1520,11 @@ export function Outreach() {
             </div>
             {selectedPhones.length > 0 ? (
               <div
-                className="flex flex-wrap items-center gap-2 border-t border-[#f5f5f5] bg-[#fafafa] px-4 py-3 sm:px-6"
+                className="flex flex-wrap items-center gap-2 border-t border-brand-faint bg-brand-ivory px-4 py-3 sm:px-6"
                 role="region"
                 aria-label="Bulk actions"
               >
-                <span className="mr-1 text-xs font-medium tabular-nums text-[#404040]">
+                <span className="mr-1 text-xs font-medium tabular-nums text-brand-ink">
                   {fmtInt(selectedPhones.length)} selected
                 </span>
                 <button
@@ -1564,14 +1564,14 @@ export function Outreach() {
                 </button>
               </div>
             ) : null}
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#f5f5f5] px-4 py-3 sm:px-6">
-              <span className="text-xs text-[#737373]">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-brand-faint px-4 py-3 sm:px-6">
+              <span className="text-xs text-brand-muted">
                 {sorted.length
                   ? `${currentPage * pageSize + 1}–${Math.min((currentPage + 1) * pageSize, sorted.length)} of ${fmtInt(sorted.length)} visible rows`
                   : "No visible rows"}
               </span>
               <div className="flex min-w-0 max-w-full items-center gap-2">
-                <label className="flex min-w-0 items-center gap-2 text-xs text-[#737373]">
+                <label className="flex min-w-0 items-center gap-2 text-xs text-brand-muted">
                   Sort by
                   <select
                     value={sortKey}
@@ -1586,7 +1586,7 @@ export function Outreach() {
                   </select>
                 </label>
                 <button
-                  className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md p-1.5 text-[#737373] hover:bg-[#f5f5f5] focus-visible:outline-[#171717]"
+                  className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md p-1.5 text-brand-muted hover:bg-brand-faint focus-visible:outline-brand-primary"
                   aria-label={sortDesc ? "Sort ascending" : "Sort descending"}
                   title={sortDesc ? "Descending" : "Ascending"}
                   onClick={() => sortBy(sortKey)}
@@ -1615,17 +1615,17 @@ export function Outreach() {
               </>
             ) : (
               <div className="flex min-h-64 flex-col items-center justify-center px-6 py-10 text-center">
-                <span className="mb-4 rounded-full bg-[#f2f5f7] p-4 text-[#a3a3a3]">
+                <span className="mb-4 rounded-full bg-brand-faint p-4 text-neutral-400">
                   <Icon name="search" className="h-6 w-6" />
                 </span>
-                <h3 className="text-base font-semibold text-[#404040]">
+                <h3 className="text-base font-semibold text-brand-ink">
                   {invalidRange
                     ? "Check your date range"
                     : contacts.length
                       ? "No numbers match these filters"
                       : "No numbers yet"}
                 </h3>
-                <p className="mt-2 max-w-md text-sm leading-6 text-[#737373]">
+                <p className="mt-2 max-w-md text-sm leading-6 text-brand-muted">
                   {invalidRange
                     ? "Choose an end date on or after the start date."
                     : contacts.length
@@ -1640,12 +1640,12 @@ export function Outreach() {
               </div>
             )}
             {sorted.length > 0 ? (
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#f5f5f5] px-4 py-4 sm:px-6">
-                <label className="flex items-center gap-2 text-xs text-[#737373]">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-brand-faint px-4 py-4 sm:px-6">
+                <label className="flex items-center gap-2 text-xs text-brand-muted">
                   Rows per page
                   <select
                     aria-label="Rows per page"
-                    className="min-h-11 rounded-md border border-[#e5e5e5] bg-white px-2 py-1.5 text-base focus-visible:outline-[#171717] md:text-xs"
+                    className="min-h-11 rounded-md border border-brand-border bg-white px-2 py-1.5 text-base focus-visible:outline-brand-primary md:text-xs"
                     value={pageSize}
                     onChange={(event) => {
                       setPreferences((p) => ({ ...p, pageSize: Number(event.target.value) }));
@@ -1675,7 +1675,7 @@ export function Outreach() {
                     <span className="hidden sm:inline">Previous</span>
                     <span className="sr-only sm:hidden">Previous page</span>
                   </button>
-                  <span className="text-xs tabular-nums text-[#737373]">
+                  <span className="text-xs tabular-nums text-brand-muted">
                     Page {currentPage + 1} of {pageCount}
                   </span>
                   <button
@@ -1694,7 +1694,7 @@ export function Outreach() {
               </div>
             ) : null}
           </section>
-          <p className="mt-4 text-xs leading-5 text-[#737373]">
+          <p className="mt-4 text-xs leading-5 text-brand-muted">
             Customer numbers exist only for kaatas synced while signed in. Follow-up due = sent 48 h
             ago with no reply. Last seen is a device check-in, not a ledger edit. Validity comes
             from the numbering plan (libphonenumber); it says nothing about whether the number uses
@@ -1795,7 +1795,7 @@ function QueueCard(props: {
       action={
         <div className="flex min-w-0 max-w-full flex-col gap-1">
           <label
-            className="flex min-w-0 max-w-full flex-wrap items-center gap-2 text-xs font-medium text-[#525252]"
+            className="flex min-w-0 max-w-full flex-wrap items-center gap-2 text-xs font-medium text-brand-sub"
             htmlFor="outreach-session-language"
           >
             Message language
@@ -1819,7 +1819,7 @@ function QueueCard(props: {
               ))}
             </select>
           </label>
-          <p className="text-[11px] leading-4 text-[#737373]">
+          <p className="text-[11px] leading-4 text-brand-muted">
             {props.languageSaving
               ? "Saving…"
               : "For every number without its own language (set in its details)."}
@@ -1842,13 +1842,13 @@ function QueueCard(props: {
           Open next{props.next ? ` · ${props.next.phone}` : ""}
         </button>
         <p
-          className="min-w-0 text-xs leading-5 text-[#737373] [overflow-wrap:anywhere]"
+          className="min-w-0 text-xs leading-5 text-brand-muted [overflow-wrap:anywhere]"
           role="status"
         >
           {props.next && nextMessage ? (
             <>
               Next:{" "}
-              <span className="font-medium text-[#404040]" dir="auto">
+              <span className="font-medium text-brand-ink" dir="auto">
                 {contactDisplayName(props.next)}
               </span>
               {" · "}
@@ -1871,15 +1871,15 @@ function QueueCard(props: {
           </span>
         </p>
       </div>
-      <div className="mt-4 border-t border-[#f5f5f5] pt-4">
-        <h3 className="text-xs font-semibold text-[#525252]">
+      <div className="mt-4 border-t border-brand-faint pt-4">
+        <h3 className="text-xs font-semibold text-brand-sub">
           Awaiting outcome
-          <span className="ml-1 font-normal tabular-nums text-[#737373]">
+          <span className="ml-1 font-normal tabular-nums text-brand-muted">
             {fmtInt(props.pending.length)}
           </span>
         </h3>
         {props.pending.length === 0 ? (
-          <p className="mt-2 text-xs text-[#737373]">No chats awaiting an outcome.</p>
+          <p className="mt-2 text-xs text-brand-muted">No chats awaiting an outcome.</p>
         ) : (
           <ul
             className="mt-2 grid min-w-0 grid-cols-1 gap-2"
@@ -1900,24 +1900,24 @@ function QueueCard(props: {
               return (
                 <li
                   key={contact.phone}
-                  className="min-w-0 max-w-full rounded-lg border border-[#e5e5e5] bg-[#fafafa] p-3"
+                  className="min-w-0 max-w-full rounded-lg border border-brand-border bg-brand-ivory p-3"
                 >
                   <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                     <span
-                      className="min-w-0 text-sm font-semibold text-[#171717] [overflow-wrap:anywhere]"
+                      className="min-w-0 text-sm font-semibold text-brand-ink [overflow-wrap:anywhere]"
                       dir="auto"
                     >
                       {contactDisplayName(contact)}
                     </span>
                     <button
                       dir="ltr"
-                      className="min-h-11 rounded font-mono text-sm tabular-nums text-[#171717] hover:underline focus-visible:outline-2 focus-visible:outline-[#171717]"
+                      className="min-h-11 rounded font-mono text-sm tabular-nums text-brand-ink hover:underline focus-visible:outline-2 focus-visible:outline-brand-primary"
                       title="Copy number"
                       onClick={() => props.onCopyPhone(contact)}
                     >
                       {contact.phone}
                     </button>
-                    <span className="text-xs text-[#737373]">
+                    <span className="text-xs text-brand-muted">
                       waiting since {fmtDateTime(o.pending_since)}
                       {o.open_count > 1 ? ` · opened ${o.open_count}×` : ""} · {language}
                     </span>
@@ -1964,7 +1964,7 @@ function QueueCard(props: {
           </ul>
         )}
       </div>
-      <p className="mt-4 text-xs leading-5 text-[#737373]">
+      <p className="mt-4 text-xs leading-5 text-brand-muted">
         Opening a chat or copying its message records 'opened' only. Skipped numbers return
         tomorrow. Not-on-WhatsApp and invalid numbers stay out until you press Retry, and return to
         the queue only if they were never messaged.
@@ -2014,15 +2014,15 @@ function BooksSection(props: {
   );
   return (
     <section className="min-w-0" aria-labelledby="outreach-books-heading">
-      <h3 id="outreach-books-heading" className="text-sm font-semibold text-[#171717]">
+      <h3 id="outreach-books-heading" className="text-sm font-semibold text-brand-ink">
         Books
       </h3>
-      <p className="mt-1 text-xs leading-5 text-[#737373]">
+      <p className="mt-1 text-xs leading-5 text-brand-muted">
         Every book whose people feed this list. Exclude a book, or its owner, if it is test data.
       </p>
       <div className="mt-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-3">
         <div className="relative min-w-0">
-          <span className="pointer-events-none absolute left-3 top-3 text-[#a3a3a3]">
+          <span className="pointer-events-none absolute left-3 top-3 text-neutral-400">
             <Icon name="search" />
           </span>
           <input
@@ -2038,7 +2038,7 @@ function BooksSection(props: {
           />
         </div>
         {/* Its own name (2026-09-30), apart from the directory's "Sort by". */}
-        <label className="flex min-w-0 items-center gap-2 text-xs text-[#737373]">
+        <label className="flex min-w-0 items-center gap-2 text-xs text-brand-muted">
           Sort books by
           <select
             value={sortKey}
@@ -2057,12 +2057,12 @@ function BooksSection(props: {
           </select>
         </label>
       </div>
-      <p className="mt-3 text-xs tabular-nums text-[#737373]" role="status">
+      <p className="mt-3 text-xs tabular-nums text-brand-muted" role="status">
         {fmtInt(shown.length)} {shown.length === 1 ? "book" : "books"} · {fmtInt(numbers)}{" "}
         {numbers === 1 ? "number" : "numbers"}
       </p>
       {rows.length === 0 ? (
-        <p className="mt-3 text-sm text-[#737373]">
+        <p className="mt-3 text-sm text-brand-muted">
           {props.books.length ? "No books match this search." : "No books."}
         </p>
       ) : (
@@ -2071,7 +2071,7 @@ function BooksSection(props: {
             {rows.map((book) => (
               <li
                 key={book.vault_id}
-                className="min-w-0 max-w-full rounded-lg border border-[#e5e5e5] bg-[#fafafa] p-3"
+                className="min-w-0 max-w-full rounded-lg border border-brand-border bg-brand-ivory p-3"
               >
                 <BookName book={book} />
                 <div className="mt-1">
@@ -2089,71 +2089,71 @@ function BooksSection(props: {
             ))}
           </ul>
           <div
-            className="relative mt-3 hidden min-w-0 w-full max-w-full overflow-x-auto overscroll-x-contain rounded-lg border border-[#e5e5e5] focus-visible:outline-2 focus-visible:outline-[#171717] md:block"
+            className="relative mt-3 hidden min-w-0 w-full max-w-full overflow-x-auto overscroll-x-contain rounded-lg border border-brand-border focus-visible:outline-2 focus-visible:outline-brand-primary md:block"
             role="region"
             aria-label="Scrollable books table"
             tabIndex={0}
           >
             <table className="w-full min-w-[860px] border-collapse text-left" aria-label="Books">
               <thead>
-                <tr className="border-b border-[#f5f5f5] bg-[#fafafa]">
-                  <th scope="col" className="px-3 py-3 text-xs font-medium text-[#737373]">
+                <tr className="border-b border-brand-faint bg-brand-ivory">
+                  <th scope="col" className="px-3 py-3 text-xs font-medium text-brand-muted">
                     Book
                   </th>
-                  <th scope="col" className="px-3 py-3 text-xs font-medium text-[#737373]">
+                  <th scope="col" className="px-3 py-3 text-xs font-medium text-brand-muted">
                     Owner
                   </th>
-                  <th scope="col" className="px-3 py-3 text-xs font-medium text-[#737373]">
+                  <th scope="col" className="px-3 py-3 text-xs font-medium text-brand-muted">
                     Created
                   </th>
                   <th
                     scope="col"
-                    className="px-3 py-3 text-right text-xs font-medium text-[#737373]"
+                    className="px-3 py-3 text-right text-xs font-medium text-brand-muted"
                   >
                     Numbers
                   </th>
                   <th
                     scope="col"
-                    className="px-3 py-3 text-right text-xs font-medium text-[#737373]"
+                    className="px-3 py-3 text-right text-xs font-medium text-brand-muted"
                   >
                     People
                   </th>
                   <th
                     scope="col"
-                    className="px-3 py-3 text-right text-xs font-medium text-[#737373]"
+                    className="px-3 py-3 text-right text-xs font-medium text-brand-muted"
                   >
                     Tallies
                   </th>
-                  <th scope="col" className="px-3 py-3 text-xs font-medium text-[#737373]">
+                  <th scope="col" className="px-3 py-3 text-xs font-medium text-brand-muted">
                     Last activity
                   </th>
-                  <th scope="col" className="px-3 py-3 text-xs font-medium text-[#737373]">
+                  <th scope="col" className="px-3 py-3 text-xs font-medium text-brand-muted">
                     Actions
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((book) => (
-                  <tr key={book.vault_id} className="border-b border-[#f5f5f5] last:border-b-0">
+                  <tr key={book.vault_id} className="border-b border-brand-faint last:border-b-0">
                     <td className="px-3 py-3 align-top">
                       <BookName book={book} />
                     </td>
                     <td className="px-3 py-3 align-top">
                       <BookOwner book={book} />
                     </td>
-                    <td className="whitespace-nowrap px-3 py-3 align-top text-xs text-[#525252]">
+                    <td className="whitespace-nowrap px-3 py-3 align-top text-xs text-brand-sub">
                       {fmtDateTime(book.created_at)}
                     </td>
-                    <td className="px-3 py-3 text-right align-top text-xs tabular-nums text-[#404040]">
+                    <td className="px-3 py-3 text-right align-top text-xs tabular-nums text-brand-ink">
                       {fmtInt(book.numbers)}
                     </td>
-                    <td className="px-3 py-3 text-right align-top text-xs tabular-nums text-[#404040]">
+                    <td className="px-3 py-3 text-right align-top text-xs tabular-nums text-brand-ink">
                       {fmtInt(book.people)}
                     </td>
-                    <td className="px-3 py-3 text-right align-top text-xs tabular-nums text-[#404040]">
+                    <td className="px-3 py-3 text-right align-top text-xs tabular-nums text-brand-ink">
                       {fmtInt(book.tallies)}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-3 align-top text-xs text-[#525252]">
+                    <td className="whitespace-nowrap px-3 py-3 align-top text-xs text-brand-sub">
                       {fmtDateTime(book.last_tally_at)}
                     </td>
                     <td className="px-3 py-3 align-top">{actions(book, true)}</td>
@@ -2178,7 +2178,7 @@ function BooksSection(props: {
             <span className="hidden sm:inline">Previous</span>
             <span className="sr-only sm:hidden">Previous page</span>
           </button>
-          <span className="text-xs tabular-nums text-[#737373]">
+          <span className="text-xs tabular-nums text-brand-muted">
             Page {currentPage + 1} of {pageCount}
           </span>
           <button
@@ -2204,13 +2204,13 @@ function BookName(props: { book: OutreachBook }) {
   return (
     <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
       <span
-        className="min-w-0 max-w-full break-words text-sm font-medium text-[#404040]"
+        className="min-w-0 max-w-full break-words text-sm font-medium text-brand-ink"
         dir="auto"
       >
         {b.name || "Unnamed book"}
       </span>
       {b.currency ? (
-        <span className="rounded bg-[#f5f5f5] px-1.5 py-0.5 text-[10px] font-medium text-[#525252]">
+        <span className="rounded bg-brand-faint px-1.5 py-0.5 text-[10px] font-medium text-brand-sub">
           {b.currency}
         </span>
       ) : null}
@@ -2223,11 +2223,11 @@ function BookOwner(props: { book: OutreachBook }) {
   // A long address may wrap after its @ first, so it never widens the table.
   const at = b.owner_email.indexOf("@");
   if (!b.owner_name && !b.owner_email && !b.owner_phone)
-    return <p className="text-xs text-[#737373]">No owner details</p>;
+    return <p className="text-xs text-brand-muted">No owner details</p>;
   return (
-    <div className="min-w-0 max-w-full text-xs leading-5 text-[#525252]">
+    <div className="min-w-0 max-w-full text-xs leading-5 text-brand-sub">
       {b.owner_name ? (
-        <p className="break-words font-medium text-[#404040]" dir="auto">
+        <p className="break-words font-medium text-brand-ink" dir="auto">
           {b.owner_name}
         </p>
       ) : null}
@@ -2321,29 +2321,29 @@ function ExclusionsCard(props: {
         busy={props.busy}
         onExclude={props.onExclude}
       />
-      <h3 className="mt-6 border-t border-[#f5f5f5] pt-5 text-sm font-semibold text-[#171717]">
+      <h3 className="mt-6 border-t border-brand-faint pt-5 text-sm font-semibold text-brand-ink">
         Excluded
-        <span className="ml-1 font-normal tabular-nums text-[#737373]">
+        <span className="ml-1 font-normal tabular-nums text-brand-muted">
           {fmtInt(props.exclusions.length)}
         </span>
       </h3>
       {props.exclusions.length === 0 ? (
-        <p className="mt-2 text-sm text-[#737373]">Nothing excluded.</p>
+        <p className="mt-2 text-sm text-brand-muted">Nothing excluded.</p>
       ) : (
         <ul className="mt-2 grid min-w-0 grid-cols-1 gap-2" aria-label="Excluded sources">
           {props.exclusions.map((exclusion) => (
             <li
               key={`${exclusion.kind}:${exclusion.id}`}
-              className="flex min-w-0 max-w-full flex-wrap items-center justify-between gap-3 rounded-lg border border-[#e5e5e5] bg-[#fafafa] p-3"
+              className="flex min-w-0 max-w-full flex-wrap items-center justify-between gap-3 rounded-lg border border-brand-border bg-brand-ivory p-3"
             >
               <div className="min-w-0 flex-1">
-                <p className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-medium text-[#404040]">
+                <p className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-medium text-brand-ink">
                   <Pill tone="gray">{EXCLUSION_KIND_LABELS[exclusion.kind] ?? exclusion.kind}</Pill>
                   <span className="min-w-0 [overflow-wrap:anywhere]" dir="auto">
                     {exclusion.label || exclusion.id}
                   </span>
                 </p>
-                <p className="mt-1 text-xs leading-5 text-[#737373] [overflow-wrap:anywhere]">
+                <p className="mt-1 text-xs leading-5 text-brand-muted [overflow-wrap:anywhere]">
                   <span dir="auto">{exclusion.reason || "No reason given"}</span> ·{" "}
                   {fmtDateTime(exclusion.created_at)} ·{" "}
                   <span dir="ltr" className="font-mono">
@@ -2421,7 +2421,10 @@ function ExcludeButton(props: {
           its own, so a sentence never widens the Books table's narrow
           actions column. */}
       {props.title ? (
-        <p id={`${inputId}-effect`} className="w-0 min-w-full text-[11px] leading-4 text-[#737373]">
+        <p
+          id={`${inputId}-effect`}
+          className="w-0 min-w-full text-[11px] leading-4 text-brand-muted"
+        >
           {props.title}
         </p>
       ) : null}
@@ -2509,7 +2512,7 @@ function FilterSelect(props: {
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="min-w-0 max-w-full text-xs font-medium text-[#737373]">
+    <label className="min-w-0 max-w-full text-xs font-medium text-brand-muted">
       {props.label}
       <select
         className={`${FIELD} mt-1`}
@@ -2527,7 +2530,7 @@ function FilterSelect(props: {
 }
 function NumberFilter(props: { label: string; value: number; onChange: (value: number) => void }) {
   return (
-    <label className="min-w-0 max-w-full text-xs font-medium text-[#737373]">
+    <label className="min-w-0 max-w-full text-xs font-medium text-brand-muted">
       {props.label}
       <input
         type="number"
@@ -2555,25 +2558,27 @@ function SummaryCard(props: {
   return (
     <button
       onClick={props.onClick}
-      className="group min-w-0 rounded-xl border border-[#e5e5e5] bg-white p-3 text-left transition hover:border-[#e5e5e5] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#171717] sm:p-5"
+      className="group min-w-0 rounded-xl border border-brand-border bg-white p-3 text-left transition hover:border-brand-border hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary sm:p-5"
     >
       <div className="flex min-w-0 items-start justify-between gap-2">
-        <span className="min-w-0 text-xs font-medium leading-5 text-[#737373]">{props.label}</span>
-        <span className="hidden shrink-0 rounded-lg bg-[#f5f5f5] p-2 text-[#171717] sm:block">
+        <span className="min-w-0 text-xs font-medium leading-5 text-brand-muted">
+          {props.label}
+        </span>
+        <span className="hidden shrink-0 rounded-lg bg-brand-faint p-2 text-brand-ink sm:block">
           <Icon name={props.icon} />
         </span>
       </div>
-      <div className="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-[#171717] [overflow-wrap:anywhere] sm:text-3xl">
+      <div className="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-brand-ink [overflow-wrap:anywhere] sm:text-3xl">
         {fmtInt(props.value)}
       </div>
-      <p className="mt-1 text-[11px] leading-5 text-[#737373]">{props.sub}</p>
+      <p className="mt-1 text-[11px] leading-5 text-brand-muted">{props.sub}</p>
     </button>
   );
 }
 const PILL_TONE: Record<PillTone, string> = {
   green: "bg-[#e8f5ed] text-[#116b4f]",
   amber: "bg-[#fff4df] text-[#8c621a]",
-  gray: "bg-[#f5f5f5] text-[#737373]",
+  gray: "bg-brand-faint text-brand-muted",
   red: "bg-[#fdecec] text-[#a32d2d]",
   blue: "bg-[#e8f0fb] text-[#1f4f8f]",
 };
@@ -2637,13 +2642,13 @@ function PhoneButton(props: { contact: OutreachContact; onCopy: () => void; clas
     <div className={`min-w-0 ${props.className ?? ""}`}>
       <button
         dir="ltr"
-        className="min-h-11 max-w-full truncate rounded font-mono text-sm tabular-nums text-[#171717] hover:underline focus-visible:outline-2 focus-visible:outline-[#171717]"
+        className="min-h-11 max-w-full truncate rounded font-mono text-sm tabular-nums text-brand-ink hover:underline focus-visible:outline-2 focus-visible:outline-brand-primary"
         title="Copy number"
         onClick={props.onCopy}
       >
         {props.contact.phone}
       </button>
-      <p className="mt-0.5 truncate text-[11px] text-[#a3a3a3]">
+      <p className="mt-0.5 truncate text-[11px] text-neutral-400">
         {country && country !== code ? country : code}
         {carrier ? ` · ${carrier}` : ""}
         {lineType ? ` · ${lineType}` : ""}
@@ -2688,7 +2693,7 @@ function SentControl(props: { contact: OutreachContact; disabled: boolean; onSen
   const unreachable = isUnreachableStatus(o.status);
   return (
     <label
-      className="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 text-xs text-[#525252] md:min-h-8"
+      className="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 text-xs text-brand-sub md:min-h-8"
       title={
         checked
           ? `Recorded as sent ×${o.contact_count}. To record a further message, open the chat and use Sent in 'Awaiting outcome'.`
@@ -2723,7 +2728,7 @@ function RepliedControl(props: {
   const replied = !!o.replied_at;
   return (
     <label
-      className="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 text-xs text-[#525252] md:min-h-8"
+      className="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 text-xs text-brand-sub md:min-h-8"
       title={replied ? `Replied ${fmtDateTime(o.replied_at)}` : "Tick when they answer"}
     >
       <input
@@ -2764,7 +2769,7 @@ function RowActions(props: {
     <div className="flex min-w-0 flex-wrap items-center gap-2">
       {isStoppedStatus(status) ? (
         <span
-          className="inline-flex min-h-11 items-center rounded-md bg-[#f5f5f5] px-2.5 py-1 text-xs font-medium text-[#737373] md:min-h-8"
+          className="inline-flex min-h-11 items-center rounded-md bg-brand-faint px-2.5 py-1 text-xs font-medium text-brand-muted md:min-h-8"
           title="Change the status first to contact this number."
         >
           Stopped
@@ -2788,7 +2793,7 @@ function RowActions(props: {
         <>
           <span
             aria-hidden="true"
-            className="text-[11px] font-medium text-[#737373]"
+            className="text-[11px] font-medium text-brand-muted"
             title="The language WhatsApp and Copy message use for this number"
           >
             {language}
@@ -2840,13 +2845,13 @@ function Signal(props: { contact: OutreachContact; now: number }) {
         {seen.online ? <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> : null}
         Seen {seen.label}
       </span>,
-      <span key="tallies" className="whitespace-nowrap tabular-nums text-[#737373]">
+      <span key="tallies" className="whitespace-nowrap tabular-nums text-brand-muted">
         {fmtInt(contact.shopkeeper.tallies)} tallies · {fmtInt(contact.shopkeeper.people)} people
       </span>,
     );
     if (seenValid)
       lines.push(
-        <span key="seen-at" className="tabular-nums text-[#a3a3a3] [overflow-wrap:anywhere]">
+        <span key="seen-at" className="tabular-nums text-neutral-400 [overflow-wrap:anywhere]">
           {fmtDateTime(contact.shopkeeper.last_seen)}
         </span>,
       );
@@ -2864,7 +2869,7 @@ function Signal(props: { contact: OutreachContact; now: number }) {
       );
     }
     lines.push(
-      <span key="ctallies" className="whitespace-nowrap tabular-nums text-[#737373]">
+      <span key="ctallies" className="whitespace-nowrap tabular-nums text-brand-muted">
         {fmtInt(contact.customer.tallies_total)} tallies · {fmtInt(contact.customer.mention_count)}{" "}
         book{contact.customer.mention_count === 1 ? "" : "s"}
       </span>,
@@ -2873,17 +2878,17 @@ function Signal(props: { contact: OutreachContact; now: number }) {
   const lastTally = lastTallyAt(contact);
   if (lastTally)
     lines.push(
-      <span key="last-tally" className="text-[#a3a3a3] [overflow-wrap:anywhere]">
+      <span key="last-tally" className="text-neutral-400 [overflow-wrap:anywhere]">
         Last tally {fmtDateTime(lastTally)}
       </span>,
     );
-  return <div className="flex min-w-0 flex-col gap-0.5 text-xs text-[#525252]">{lines}</div>;
+  return <div className="flex min-w-0 flex-col gap-0.5 text-xs text-brand-sub">{lines}</div>;
 }
 
 // Phones get their own reading layout; the wide table appears from md up.
 function ContactCards(props: RowProps) {
   return (
-    <div className="grid min-w-0 w-full max-w-full gap-3 border-t border-[#f5f5f5] bg-[#fafafa] p-3 md:hidden">
+    <div className="grid min-w-0 w-full max-w-full gap-3 border-t border-brand-faint bg-brand-ivory p-3 md:hidden">
       {props.rows.map((contact) => {
         const open = !!props.expanded[contact.phone];
         const detailsId = `outreach-card-${contact.phone.replace(/\D/g, "")}`;
@@ -2891,7 +2896,7 @@ function ContactCards(props: RowProps) {
         return (
           <article
             key={contact.phone}
-            className="min-w-0 max-w-full rounded-xl border border-[#e5e5e5] bg-white p-4"
+            className="min-w-0 max-w-full rounded-xl border border-brand-border bg-white p-4"
             aria-label={contactDisplayName(contact)}
           >
             <div className="flex min-w-0 items-start gap-3">
@@ -2904,13 +2909,13 @@ function ContactCards(props: RowProps) {
               />
               <span
                 aria-hidden="true"
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#f5f5f5] text-xs font-semibold text-[#171717]"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-faint text-xs font-semibold text-brand-ink"
               >
                 {contactInitials(contact)}
               </span>
               <div className="min-w-0 flex-1">
                 <button
-                  className="max-w-full text-left text-sm font-semibold leading-6 text-[#171717] [overflow-wrap:anywhere] focus-visible:outline-2 focus-visible:outline-[#171717]"
+                  className="max-w-full text-left text-sm font-semibold leading-6 text-brand-ink [overflow-wrap:anywhere] focus-visible:outline-2 focus-visible:outline-brand-primary"
                   dir="auto"
                   aria-expanded={open}
                   aria-controls={detailsId}
@@ -2920,7 +2925,7 @@ function ContactCards(props: RowProps) {
                 </button>
                 {line2 ? (
                   <p
-                    className="mt-0.5 text-xs leading-5 text-[#737373] [overflow-wrap:anywhere]"
+                    className="mt-0.5 text-xs leading-5 text-brand-muted [overflow-wrap:anywhere]"
                     dir="auto"
                   >
                     {line2}
@@ -2940,7 +2945,7 @@ function ContactCards(props: RowProps) {
                 </Pill>
               ))}
             </div>
-            <div className="mt-3 border-y border-[#f5f5f5] py-3">
+            <div className="mt-3 border-y border-brand-faint py-3">
               <Signal contact={contact} now={props.now} />
             </div>
             <div className="mt-3 grid min-w-0 grid-cols-2 gap-x-3 gap-y-2">
@@ -2973,7 +2978,7 @@ function ContactCards(props: RowProps) {
               />
             </div>
             <button
-              className="mt-2 flex min-h-11 min-w-0 w-full items-center justify-between gap-3 rounded-lg px-1 text-sm font-medium text-[#171717] focus-visible:outline-2 focus-visible:outline-[#171717]"
+              className="mt-2 flex min-h-11 min-w-0 w-full items-center justify-between gap-3 rounded-lg px-1 text-sm font-medium text-brand-ink focus-visible:outline-2 focus-visible:outline-brand-primary"
               aria-expanded={open}
               aria-controls={detailsId}
               aria-label={`${open ? "Hide details" : "View details"}: ${contactDisplayName(contact)}`}
@@ -2983,7 +2988,7 @@ function ContactCards(props: RowProps) {
               <Icon name="chevron" className={open ? "rotate-180" : ""} />
             </button>
             {open ? (
-              <div className="mt-2 min-w-0 border-t border-[#e5e5e5] pt-4">
+              <div className="mt-2 min-w-0 border-t border-brand-border pt-4">
                 <ContactDetails contact={contact} id={detailsId} {...props} />
               </div>
             ) : null}
@@ -3017,14 +3022,14 @@ function ContactsTable(
   // Contain absolutely positioned sr-only labels inside the local scroll area.
   return (
     <div
-      className="relative hidden min-w-0 w-full max-w-full overflow-x-auto overscroll-x-contain focus-visible:outline-2 focus-visible:outline-[#171717] md:block"
+      className="relative hidden min-w-0 w-full max-w-full overflow-x-auto overscroll-x-contain focus-visible:outline-2 focus-visible:outline-brand-primary md:block"
       role="region"
       aria-label="Scrollable outreach table"
       tabIndex={0}
     >
       <table className="w-full min-w-[1180px] border-collapse text-left" aria-label="Numbers">
         <thead>
-          <tr className="border-y border-[#f5f5f5] bg-[#fafafa]">
+          <tr className="border-y border-brand-faint bg-brand-ivory">
             {HEADERS.map((column) => (
               <th
                 key={column.label}
@@ -3036,7 +3041,7 @@ function ContactsTable(
                       : "ascending"
                     : undefined
                 }
-                className={`px-3 py-3 text-xs font-medium text-[#737373] ${column.className ?? ""}`}
+                className={`px-3 py-3 text-xs font-medium text-brand-muted ${column.className ?? ""}`}
               >
                 {column.label === "Select" ? (
                   <input
@@ -3048,12 +3053,14 @@ function ContactsTable(
                   />
                 ) : column.key ? (
                   <button
-                    className="inline-flex items-center gap-1 rounded focus-visible:outline-2 focus-visible:outline-[#171717]"
+                    className="inline-flex items-center gap-1 rounded focus-visible:outline-2 focus-visible:outline-brand-primary"
                     onClick={() => props.onSort(column.key!)}
                   >
                     {column.label}
                     <span
-                      className={column.key === props.sortKey ? "text-[#171717]" : "text-[#d4d4d4]"}
+                      className={
+                        column.key === props.sortKey ? "text-brand-ink" : "text-neutral-300"
+                      }
                     >
                       {column.key === props.sortKey ? (props.sortDesc ? "↓" : "↑") : "↕"}
                     </span>
@@ -3075,7 +3082,7 @@ function ContactsTable(
             return (
               <Fragment key={contact.phone}>
                 <tr
-                  className={`border-b border-[#f5f5f5] transition ${open ? "bg-[#fafafa]" : "hover:bg-[#fafafa]"}`}
+                  className={`border-b border-brand-faint transition ${open ? "bg-brand-ivory" : "hover:bg-brand-ivory"}`}
                 >
                   <td className="px-3 py-4 align-top">
                     <input
@@ -3090,13 +3097,13 @@ function ContactsTable(
                     <div className="flex items-start gap-3">
                       <span
                         aria-hidden="true"
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#f5f5f5] text-xs font-semibold text-[#171717]"
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-faint text-xs font-semibold text-brand-ink"
                       >
                         {contactInitials(contact)}
                       </span>
                       <div className="min-w-0">
                         <button
-                          className="max-w-[240px] truncate rounded text-left text-sm font-semibold text-[#171717] focus-visible:outline-2 focus-visible:outline-[#171717]"
+                          className="max-w-[240px] truncate rounded text-left text-sm font-semibold text-brand-ink focus-visible:outline-2 focus-visible:outline-brand-primary"
                           dir="auto"
                           aria-expanded={open}
                           aria-controls={detailsId}
@@ -3105,7 +3112,7 @@ function ContactsTable(
                           {contactDisplayName(contact)}
                         </button>
                         {line2 ? (
-                          <p className="max-w-[240px] truncate text-xs text-[#737373]" dir="auto">
+                          <p className="max-w-[240px] truncate text-xs text-brand-muted" dir="auto">
                             {line2}
                           </p>
                         ) : null}
@@ -3158,7 +3165,7 @@ function ContactsTable(
                   </td>
                   <td className="px-3 py-4 align-top">
                     <button
-                      className="rounded-lg p-2 text-[#737373] hover:bg-[#f5f5f5] hover:text-[#171717] focus-visible:outline-2 focus-visible:outline-[#171717]"
+                      className="rounded-lg p-2 text-brand-muted hover:bg-brand-faint hover:text-brand-ink focus-visible:outline-2 focus-visible:outline-brand-primary"
                       aria-label={`${open ? "Hide" : "Show"} details for ${contactDisplayName(contact)}`}
                       aria-expanded={open}
                       aria-controls={detailsId}
@@ -3172,7 +3179,7 @@ function ContactsTable(
                   <tr>
                     <td
                       colSpan={HEADERS.length}
-                      className="border-b border-[#e5e5e5] bg-[#fafafa] px-5 py-5"
+                      className="border-b border-brand-border bg-brand-ivory px-5 py-5"
                     >
                       <ContactDetails contact={contact} id={detailsId} {...props} />
                     </td>
@@ -3199,15 +3206,15 @@ function ContactDetails(props: RowProps & { contact: OutreachContact; id: string
     <div id={props.id} className="min-w-0 max-w-full space-y-5">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 max-w-full">
-          <h3 className="text-sm font-semibold text-[#404040] [overflow-wrap:anywhere]" dir="auto">
+          <h3 className="text-sm font-semibold text-brand-ink [overflow-wrap:anywhere]" dir="auto">
             {contactDisplayName(contact)}
           </h3>
-          <p className="mt-1 text-xs leading-5 text-[#737373]" dir="ltr">
+          <p className="mt-1 text-xs leading-5 text-brand-muted" dir="ltr">
             {contact.phone} · {dialCode(contact.phone).country || "Unknown country"}
             {afghanCarrier(contact.phone) ? ` · ${afghanCarrier(contact.phone)}` : ""} ·{" "}
             {languageLabel(contact.locale)}
           </p>
-          <p className="mt-1 text-xs leading-5 text-[#737373]" dir="ltr">
+          <p className="mt-1 text-xs leading-5 text-brand-muted" dir="ltr">
             Numbering plan: {contact.number.valid ? "valid" : "invalid"}
             {contact.number.possible && !contact.number.valid ? " (possible)" : ""}
             {numberCaption(contact.number) ? ` · ${numberCaption(contact.number)}` : ""}
@@ -3235,8 +3242,8 @@ function ContactDetails(props: RowProps & { contact: OutreachContact; id: string
           onExclude={props.onExclude}
         />
       </div>
-      <div className="min-w-0 rounded-xl border border-[#e5e5e5] bg-white p-4">
-        <h4 className="text-xs font-semibold text-[#525252]">Outreach</h4>
+      <div className="min-w-0 rounded-xl border border-brand-border bg-white p-4">
+        <h4 className="text-xs font-semibold text-brand-sub">Outreach</h4>
         <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
           <Detail label="Status" value={STATUS_LABELS[o.status]} />
           <Detail
@@ -3279,7 +3286,10 @@ function ContactDetails(props: RowProps & { contact: OutreachContact; id: string
         </div>
         <div className="mt-4 grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-2">
           <div className="min-w-0">
-            <label className="text-[11px] font-medium text-[#737373]" htmlFor={`${props.id}-note`}>
+            <label
+              className="text-[11px] font-medium text-brand-muted"
+              htmlFor={`${props.id}-note`}
+            >
               Note
             </label>
             <textarea
@@ -3316,7 +3326,7 @@ function ContactDetails(props: RowProps & { contact: OutreachContact; id: string
                 is already open in the language it was opened in, which Sent
                 records (openedTemplateKey), so a change here only reaches
                 the next message; the hint says so. */}
-            <label className="mt-4 flex min-w-0 flex-col text-[11px] font-medium text-[#737373]">
+            <label className="mt-4 flex min-w-0 flex-col text-[11px] font-medium text-brand-muted">
               Message language
               <select
                 aria-label={`Message language for ${contact.phone}`}
@@ -3345,12 +3355,12 @@ function ContactDetails(props: RowProps & { contact: OutreachContact; id: string
                 message.
               </p>
             ) : null}
-            <p className="mt-1 text-[11px] leading-4 text-[#a3a3a3]">
+            <p className="mt-1 text-[11px] leading-4 text-neutral-400">
               Dari or English here wins over the session choice in the Queue card.
             </p>
           </div>
           <div className="min-w-0">
-            <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] font-medium text-[#737373]">
+            <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] font-medium text-brand-muted">
               Message preview
               <Pill tone="blue">{LANGUAGE_NAMES[message.language]}</Pill>
               <span dir="ltr" className="font-normal [overflow-wrap:anywhere]">
@@ -3359,7 +3369,7 @@ function ContactDetails(props: RowProps & { contact: OutreachContact; id: string
             </p>
             <pre
               dir="auto"
-              className="mt-1 max-h-64 min-w-0 overflow-auto whitespace-pre-wrap rounded-lg border border-[#e5e5e5] bg-[#fafafa] p-3 font-sans text-xs leading-5 text-[#404040] [overflow-wrap:anywhere]"
+              className="mt-1 max-h-64 min-w-0 overflow-auto whitespace-pre-wrap rounded-lg border border-brand-border bg-brand-ivory p-3 font-sans text-xs leading-5 text-brand-ink [overflow-wrap:anywhere]"
             >
               {message.text}
             </pre>
@@ -3375,21 +3385,21 @@ function ContactDetails(props: RowProps & { contact: OutreachContact; id: string
             </div>
           </div>
         </div>
-        <div className="mt-4 border-t border-[#f5f5f5] pt-3">
-          <h5 className="text-[11px] font-medium text-[#737373]">Timeline</h5>
+        <div className="mt-4 border-t border-brand-faint pt-3">
+          <h5 className="text-[11px] font-medium text-brand-muted">Timeline</h5>
           {o.touches.length === 0 ? (
-            <p className="mt-1 text-xs text-[#737373]">Nothing yet.</p>
+            <p className="mt-1 text-xs text-brand-muted">Nothing yet.</p>
           ) : (
             <ol className="mt-1 space-y-1">
               {o.touches.map((touch, index) => (
                 <li
                   key={`${touch.at}-${index}`}
-                  className="flex min-w-0 flex-wrap gap-x-2 text-xs text-[#525252]"
+                  className="flex min-w-0 flex-wrap gap-x-2 text-xs text-brand-sub"
                 >
-                  <span className="whitespace-nowrap tabular-nums text-[#a3a3a3]">
+                  <span className="whitespace-nowrap tabular-nums text-neutral-400">
                     {fmtDateTime(touch.at)}
                   </span>
-                  <span className="font-medium text-[#404040]">
+                  <span className="font-medium text-brand-ink">
                     {TOUCH_LABELS[touch.kind] ?? touch.kind}
                   </span>
                   {touch.detail ? (
@@ -3417,10 +3427,10 @@ function ShopkeeperBlock(props: {
   const s = props.shopkeeper;
   const hasAccount = !!s && s.signed_in && !!s.account_id;
   return (
-    <div className="min-w-0 rounded-xl border border-[#e5e5e5] bg-white p-4">
-      <h4 className="text-xs font-semibold text-[#525252]">Shopkeeper</h4>
+    <div className="min-w-0 rounded-xl border border-brand-border bg-white p-4">
+      <h4 className="text-xs font-semibold text-brand-sub">Shopkeeper</h4>
       {!s ? (
-        <p className="mt-2 text-xs leading-5 text-[#737373]">
+        <p className="mt-2 text-xs leading-5 text-brand-muted">
           No install or account with this number.
         </p>
       ) : (
@@ -3461,15 +3471,15 @@ function ShopkeeperBlock(props: {
             <DetailItem label="Last tally" value={fmtDateTime(s.last_tally_at)} />
           </dl>
           <div className="mt-4">
-            <h5 className="text-xs font-semibold text-[#525252]">Sources</h5>
-            <p className="mt-1 text-[11px] leading-4 text-[#737373]">
+            <h5 className="text-xs font-semibold text-brand-sub">Sources</h5>
+            <p className="mt-1 text-[11px] leading-4 text-brand-muted">
               Excluding a source drops only what it contributed — for an account, its own number and
               every book it owns; the number stays listed if a real book has it.
             </p>
             <div className="mt-2 grid min-w-0 grid-cols-1 gap-2">
               {hasAccount ? (
-                <div className="flex min-w-0 max-w-full flex-wrap items-center justify-between gap-2 rounded-lg border border-[#e5e5e5] bg-[#fafafa] p-2">
-                  <span className="min-w-0 text-xs text-[#525252] [overflow-wrap:anywhere]">
+                <div className="flex min-w-0 max-w-full flex-wrap items-center justify-between gap-2 rounded-lg border border-brand-border bg-brand-ivory p-2">
+                  <span className="min-w-0 text-xs text-brand-sub [overflow-wrap:anywhere]">
                     Account{" "}
                     <span dir="ltr" className="font-mono">
                       {s.account_id}
@@ -3489,9 +3499,9 @@ function ShopkeeperBlock(props: {
               {s.install_ids.map((installId) => (
                 <div
                   key={installId}
-                  className="flex min-w-0 max-w-full flex-wrap items-center justify-between gap-2 rounded-lg border border-[#e5e5e5] bg-[#fafafa] p-2"
+                  className="flex min-w-0 max-w-full flex-wrap items-center justify-between gap-2 rounded-lg border border-brand-border bg-brand-ivory p-2"
                 >
-                  <span className="min-w-0 text-xs text-[#525252] [overflow-wrap:anywhere]">
+                  <span className="min-w-0 text-xs text-brand-sub [overflow-wrap:anywhere]">
                     Install{" "}
                     <span dir="ltr" className="font-mono">
                       {installId}
@@ -3508,52 +3518,52 @@ function ShopkeeperBlock(props: {
                 </div>
               ))}
               {!hasAccount && s.install_ids.length === 0 ? (
-                <p className="text-xs text-[#737373]">No install ids reported.</p>
+                <p className="text-xs text-brand-muted">No install ids reported.</p>
               ) : null}
             </div>
             {hasAccount ? (
-              <p className="mt-2 text-[11px] leading-4 text-[#737373]">
+              <p className="mt-2 text-[11px] leading-4 text-brand-muted">
                 If this number is also the account's own phone, the account keeps this row listed;
                 exclude the account to remove it.
               </p>
             ) : null}
           </div>
           <div className="mt-4">
-            <h5 className="text-xs font-semibold text-[#525252]">
+            <h5 className="text-xs font-semibold text-brand-sub">
               Kaatas{" "}
-              <span className="ml-1 font-normal tabular-nums text-[#737373]">
+              <span className="ml-1 font-normal tabular-nums text-brand-muted">
                 {s.kaatas.length}
               </span>
             </h5>
             {s.kaatas.length === 0 ? (
-              <p className="mt-2 text-xs leading-5 text-[#737373]">No synced kaatas.</p>
+              <p className="mt-2 text-xs leading-5 text-brand-muted">No synced kaatas.</p>
             ) : (
               <div className="mt-2 grid min-w-0 grid-cols-1 gap-2">
                 {s.kaatas.map((kaata) => (
                   <div
                     key={kaata.vault_id}
-                    className="min-w-0 max-w-full rounded-lg border border-[#e5e5e5] bg-[#fafafa] p-3"
+                    className="min-w-0 max-w-full rounded-lg border border-brand-border bg-brand-ivory p-3"
                   >
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                       <span
-                        className="min-w-0 max-w-full text-sm font-medium text-[#404040] [overflow-wrap:anywhere]"
+                        className="min-w-0 max-w-full text-sm font-medium text-brand-ink [overflow-wrap:anywhere]"
                         dir="auto"
                       >
                         {kaata.name}
                       </span>
-                      <span className="rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[#171717]">
+                      <span className="rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase text-brand-ink">
                         {kaata.role}
                       </span>
-                      <span className="rounded bg-white px-1.5 py-0.5 text-[10px] font-medium text-[#525252]">
+                      <span className="rounded bg-white px-1.5 py-0.5 text-[10px] font-medium text-brand-sub">
                         {kaata.currency}
                       </span>
                       {kaata.archived ? <Pill tone="amber">Archived</Pill> : null}
                     </div>
-                    <p className="mt-2 text-xs leading-5 tabular-nums text-[#737373]">
+                    <p className="mt-2 text-xs leading-5 tabular-nums text-brand-muted">
                       {fmtInt(kaata.people)} people · {fmtInt(kaata.tallies)} tallies ·{" "}
                       {kaata.member_count} member{kaata.member_count === 1 ? "" : "s"}
                     </p>
-                    <p className="text-xs leading-5 tabular-nums text-[#737373]">
+                    <p className="text-xs leading-5 tabular-nums text-brand-muted">
                       Receivable {formatMoney(parseMoney(kaata.receivable), true)} · Payable{" "}
                       {formatMoney(parseMoney(kaata.payable), true)} · Last tally{" "}
                       {fmtDateTime(kaata.last_tally_at)}
@@ -3575,10 +3585,10 @@ function CustomerBlock(props: {
 }) {
   const c = props.customer;
   return (
-    <div className="min-w-0 rounded-xl border border-[#e5e5e5] bg-white p-4">
-      <h4 className="text-xs font-semibold text-[#525252]">Customer</h4>
+    <div className="min-w-0 rounded-xl border border-brand-border bg-white p-4">
+      <h4 className="text-xs font-semibold text-brand-sub">Customer</h4>
       {!c ? (
-        <p className="mt-2 text-xs leading-5 text-[#737373]">Not listed in any synced book.</p>
+        <p className="mt-2 text-xs leading-5 text-brand-muted">Not listed in any synced book.</p>
       ) : (
         <>
           <dl className="mt-3 grid min-w-0 grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
@@ -3607,9 +3617,9 @@ function CustomerBlock(props: {
             />
           </dl>
           <div className="mt-4">
-            <h5 className="text-xs font-semibold text-[#525252]">
+            <h5 className="text-xs font-semibold text-brand-sub">
               Listings{" "}
-              <span className="ml-1 font-normal tabular-nums text-[#737373]">
+              <span className="ml-1 font-normal tabular-nums text-brand-muted">
                 {c.listings.length}
               </span>
             </h5>
@@ -3621,11 +3631,11 @@ function CustomerBlock(props: {
                 return (
                   <div
                     key={`${listing.vault_id}-${index}`}
-                    className="min-w-0 max-w-full rounded-lg border border-[#e5e5e5] bg-[#fafafa] p-3"
+                    className="min-w-0 max-w-full rounded-lg border border-brand-border bg-brand-ivory p-3"
                   >
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                       <span
-                        className="min-w-0 max-w-full text-sm font-medium text-[#404040] [overflow-wrap:anywhere]"
+                        className="min-w-0 max-w-full text-sm font-medium text-brand-ink [overflow-wrap:anywhere]"
                         dir="auto"
                       >
                         {listing.vault_name}
@@ -3649,11 +3659,11 @@ function CustomerBlock(props: {
                       {listing.linked ? <Pill tone="blue">Shared account</Pill> : null}
                     </div>
                     {listing.linked ? (
-                      <p className="mt-1 text-[11px] leading-4 text-[#737373]">
+                      <p className="mt-1 text-[11px] leading-4 text-brand-muted">
                         balance shows local tallies only
                       </p>
                     ) : null}
-                    <p className="mt-1 text-xs leading-5 text-[#525252] [overflow-wrap:anywhere]">
+                    <p className="mt-1 text-xs leading-5 text-brand-sub [overflow-wrap:anywhere]">
                       <span dir="auto">Owner {listing.owner_name || "—"}</span>
                       {listing.owner_phone ? (
                         <>
@@ -3664,11 +3674,11 @@ function CustomerBlock(props: {
                         </>
                       ) : null}
                     </p>
-                    <p className="text-xs leading-5 text-[#525252] [overflow-wrap:anywhere]">
+                    <p className="text-xs leading-5 text-brand-sub [overflow-wrap:anywhere]">
                       Saved as <span dir="auto">{listing.person_name || "—"}</span> ·{" "}
                       {listing.context}
                     </p>
-                    <p className="text-xs leading-5 tabular-nums text-[#737373]">
+                    <p className="text-xs leading-5 tabular-nums text-brand-muted">
                       Balance{" "}
                       <span
                         className={
@@ -3706,8 +3716,8 @@ function CustomerBlock(props: {
 function Detail(props: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <p className="text-[11px] font-medium text-[#737373]">{props.label}</p>
-      <p className="mt-1 leading-5 text-[#404040] [overflow-wrap:anywhere]" dir="auto">
+      <p className="text-[11px] font-medium text-brand-muted">{props.label}</p>
+      <p className="mt-1 leading-5 text-brand-ink [overflow-wrap:anywhere]" dir="auto">
         {props.value || "—"}
       </p>
     </div>
@@ -3716,9 +3726,9 @@ function Detail(props: { label: string; value: string }) {
 function DetailItem(props: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[11px] font-medium text-[#737373]">{props.label}</dt>
+      <dt className="text-[11px] font-medium text-brand-muted">{props.label}</dt>
       <dd
-        className={`mt-1 text-xs leading-5 text-[#404040] [overflow-wrap:anywhere] ${props.mono ? "font-mono" : ""}`}
+        className={`mt-1 text-xs leading-5 text-brand-ink [overflow-wrap:anywhere] ${props.mono ? "font-mono" : ""}`}
         dir={props.mono ? "ltr" : "auto"}
       >
         {props.value || "Not provided"}
@@ -3757,7 +3767,7 @@ function TemplatesCard(props: {
           return (
             <div key={audience} className="min-w-0 space-y-4">
               <div className="min-w-0">
-                <label className="text-xs font-medium text-[#525252]" htmlFor={`slug-${audience}`}>
+                <label className="text-xs font-medium text-brand-sub" htmlFor={`slug-${audience}`}>
                   {label} link slug
                 </label>
                 <div className="mt-1 flex min-w-0 flex-wrap gap-2">
@@ -3782,7 +3792,7 @@ function TemplatesCard(props: {
                     Save
                   </button>
                 </div>
-                <p className="mt-1 font-mono text-[11px] text-[#737373]" dir="ltr">
+                <p className="mt-1 font-mono text-[11px] text-brand-muted" dir="ltr">
                   https://kaata.af/download?s={effectiveSlug}
                 </p>
               </div>
@@ -3793,12 +3803,12 @@ function TemplatesCard(props: {
                 const customised = !!props.settings[key]?.trim();
                 return (
                   <div key={key} className="min-w-0">
-                    <label className="text-xs font-medium text-[#525252]" htmlFor={key}>
+                    <label className="text-xs font-medium text-brand-sub" htmlFor={key}>
                       {label} · {language === "fa" ? "Dari" : "English"}
                       {customised ? (
-                        <span className="ml-2 font-normal text-[#737373]">customised</span>
+                        <span className="ml-2 font-normal text-brand-muted">customised</span>
                       ) : (
-                        <span className="ml-2 font-normal text-[#a3a3a3]">default</span>
+                        <span className="ml-2 font-normal text-neutral-400">default</span>
                       )}
                     </label>
                     <textarea
@@ -3839,11 +3849,11 @@ function TemplatesCard(props: {
           );
         })}
       </div>
-      <div className="mt-5 border-t border-[#f5f5f5] pt-4">
-        <h3 className="text-xs font-semibold text-[#525252]">
+      <div className="mt-5 border-t border-brand-faint pt-4">
+        <h3 className="text-xs font-semibold text-brand-sub">
           Live preview
           {preview && props.preview ? (
-            <span className="ml-2 font-normal text-[#737373]" dir="ltr">
+            <span className="ml-2 font-normal text-brand-muted" dir="ltr">
               {props.preview.phone} · {LANGUAGE_NAMES[preview.language]} · {preview.templateKey}
             </span>
           ) : null}
@@ -3851,12 +3861,12 @@ function TemplatesCard(props: {
         {preview ? (
           <pre
             dir="auto"
-            className="mt-2 max-h-64 min-w-0 overflow-auto whitespace-pre-wrap rounded-lg border border-[#e5e5e5] bg-[#fafafa] p-3 font-sans text-xs leading-5 text-[#404040] [overflow-wrap:anywhere]"
+            className="mt-2 max-h-64 min-w-0 overflow-auto whitespace-pre-wrap rounded-lg border border-brand-border bg-brand-ivory p-3 font-sans text-xs leading-5 text-brand-ink [overflow-wrap:anywhere]"
           >
             {preview.text}
           </pre>
         ) : (
-          <p className="mt-2 text-xs text-[#737373]">
+          <p className="mt-2 text-xs text-brand-muted">
             No visible rows to preview — widen the directory filters.
           </p>
         )}

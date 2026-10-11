@@ -78,7 +78,7 @@ export function BackupNagBanner(props: {
       accessibilityLabel={t("backupNag.cta")}
     >
       {/* Leading icon in a row → icon.row (22). Was a one-off 20. */}
-      <Ionicons name="cloud-offline-outline" size={icon.row} color={colors.textInverted} />
+      <Ionicons name="cloud-offline-outline" size={icon.row} color={colors.textEmphasis} />
       <View style={styles.textWrap}>
         <Text style={styles.title}>{t("backupNag.title")}</Text>
         <Text style={styles.body}>{t("backupNag.body")}</Text>
@@ -103,10 +103,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    // Amber — "at-risk, act" without alarm-red. Stays a literal: lib/colors.ts
-    // has no warning/amber token (the palette is monochrome + collect/pay +
-    // danger), and inventing one is a palette decision, not a refinement.
-    backgroundColor: "#9a6a00",
+    // Warm reminder, with Saffron as a small outline highlight. Charcoal
+    // stays legible on Ivory; Saffron is not a small-text ink.
+    backgroundColor: colors.bgWarm,
+    borderWidth: 1,
+    borderColor: colors.brandAccent,
     paddingHorizontal: 14,
     paddingVertical: 10,
     marginHorizontal: 16,
@@ -114,8 +115,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.md, // 12, unchanged — now the token
   },
   textWrap: { flex: 1 },
-  title: { fontFamily: fonts.sansSemi, fontSize: 13, color: colors.textInverted },
-  body: { fontFamily: fonts.sansRegular, fontSize: 12, color: colors.textInverted, opacity: 0.9 },
+  title: { fontFamily: fonts.sansSemi, fontSize: 13, color: colors.textEmphasis },
+  body: { fontFamily: fonts.sansRegular, fontSize: 12, color: colors.textDefault },
   dismiss: { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
   // 22/20 = 1.10em with NO fontFamily, so this fell back to the system font and
   // sat below even SF's ~1.2em — inside the band the lineHeight invariant
@@ -125,6 +126,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     lineHeight: sansLineHeight(20, 22),
     fontFamily: fonts.sansRegular,
-    color: colors.textInverted,
+    color: colors.textEmphasis,
   },
 });

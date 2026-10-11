@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../lib/i18n";
+import { BrandLogo } from "./BrandLogo";
 
 // Privacy notice card. Kaata sets no cookies (localStorage holds a few
 // preference keys), and the copy says what IS recorded: every visit, with its
@@ -66,14 +67,14 @@ export function CookieConsent() {
     >
       <div className="p-4 sm:p-5">
         <div className="flex items-start gap-3">
-          <img src="/logo.png" alt="" className="w-5 h-5 mt-0.5 shrink-0" />
+          <BrandLogo className="mt-0.5 h-5 w-5" />
           <p className="text-[13px] text-neutral-700 leading-relaxed">{t("consent.body")}</p>
         </div>
         <div className="mt-4 flex items-center justify-end">
           <button
             type="button"
             onClick={dismiss}
-            className="bg-neutral-900 text-white text-[13px] font-semibold px-4 py-1.5 rounded-lg ring-0 ring-neutral-200 hover:ring-4 transition-[box-shadow]"
+            className="bg-brand-primary text-white text-[13px] font-semibold px-4 py-1.5 rounded-lg ring-0 ring-neutral-200 hover:ring-4 transition-[box-shadow]"
           >
             {t("consent.accept")}
           </button>

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { BACKEND_URL } from "../env";
 import { useI18n } from "../lib/i18n";
-import { ledger } from "../theme";
+import { brand, ledger } from "../theme";
 
 // /v/:token — the customer-facing shared ledger ("see the full ledger on
 // kaata.af"). The shopkeeper's app POSTs a small snapshot to the backend and
@@ -49,17 +49,17 @@ type SharedLedger = {
 
 type Phase = { kind: "loading" } | { kind: "error" } | { kind: "ready"; data: SharedLedger };
 
-// Quiet-fintech palette: cool grays here, the semantic pair from the shared
+// Brand reading palette with the semantic pair from the shared
 // ledger palette (src/theme.ts). owe = you owe (a liability), credit = you're
 // owed (an asset) — read from the viewer's side; a refined red/green pair, not
 // the generic bright primaries.
 const C = {
-  bg: "#f9fafb",
-  ink: "#101828",
-  sub: "#475467",
-  mut: "#98a2b3",
-  line: "#eaecf0",
-  hair: "#f2f4f7",
+  bg: brand.ivory,
+  ink: brand.ink,
+  sub: brand.sub,
+  mut: brand.muted,
+  line: brand.border,
+  hair: brand.faint,
   owe: ledger.payStrong,
   oweBg: ledger.payBg,
   credit: ledger.collectStrong,
@@ -204,8 +204,8 @@ function Row({
         // the app's rows — whether or not it expands. hover + pointer only when
         // there's a clipped note to open. The --hair icon chip stays visible on
         // the lighter active tint.
-        "flex items-center gap-3 border-b px-4 py-[13px] transition-colors last:border-b-0 active:bg-[#eaecf0]" +
-        (interactive ? " cursor-pointer hover:bg-[#f9fafb]" : "")
+        "flex items-center gap-3 border-b px-4 py-[13px] transition-colors last:border-b-0 active:bg-brand-faint" +
+        (interactive ? " cursor-pointer hover:bg-brand-ivory" : "")
       }
       style={{ borderColor: C.hair }}
       role={interactive ? "button" : undefined}
@@ -679,7 +679,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
             type="button"
             onClick={() => setShowSettled((v) => !v)}
             className={
-              "w-full px-4 py-[13px] text-center text-[12px] font-medium transition-colors hover:bg-[#f9fafb] active:bg-[#eaecf0]" +
+              "w-full px-4 py-[13px] text-center text-[12px] font-medium transition-colors hover:bg-brand-ivory active:bg-brand-faint" +
               (shownEntries.length > 0 ? " border-t" : "")
             }
             style={{ borderColor: C.hair, color: C.sub }}
@@ -696,7 +696,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
           keeps "kaata." intact; centered text, so alignment is unaffected. */}
       <p dir="ltr" className="mt-[26px] text-center text-[12px]" style={{ color: C.mut }}>
         {L.tag}{" "}
-        <Link to="/" className="font-bold" style={{ color: C.sub }}>
+        <Link to="/" className="font-bold" style={{ color: brand.primary }}>
           {L.wordmark}
         </Link>
       </p>

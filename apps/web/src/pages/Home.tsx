@@ -12,7 +12,7 @@ import { useI18n } from "../lib/i18n";
 export function Home() {
   const { t } = useI18n();
   return (
-    <main>
+    <main className="bg-brand-ivory">
       <SiteHeader />
 
       <Hero />
@@ -60,8 +60,8 @@ function FinalCTA() {
   const { t } = useI18n();
   return (
     <section className="border-t border-neutral-200 px-6 py-20 md:py-28">
-      <div className="max-w-4xl mx-auto rounded-2xl border border-neutral-200 bg-neutral-50 px-8 py-16 md:py-20 text-center">
-        <h2 className="text-3xl md:text-5xl font-bold -tracking-[0.02em] text-neutral-900 leading-[1.1]">
+      <div className="max-w-4xl mx-auto rounded-2xl border border-brand-primary/15 bg-brand-saffron px-8 py-16 md:py-20 text-center">
+        <h2 className="text-3xl md:text-5xl font-bold -tracking-[0.02em] text-brand-primary leading-[1.1]">
           {t("cta.title.line1")}
           <br />
           {t("cta.title.line2")}
@@ -71,7 +71,7 @@ function FinalCTA() {
         </p>
         <Link
           to="/download"
-          className="mt-8 inline-block bg-neutral-900 text-white font-semibold px-8 py-3.5 rounded-lg hover:bg-neutral-800 transition-colors text-sm"
+          className="mt-8 inline-block bg-brand-primary text-white font-semibold px-8 py-3.5 rounded-lg hover:bg-brand-hover transition-colors text-sm"
         >
           {t("cta.button")}
         </Link>

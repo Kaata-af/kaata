@@ -287,8 +287,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   ctaPrimary: {
-    backgroundColor: colors.bgInverted,
-    borderColor: colors.bgInverted,
+    backgroundColor: colors.brandPrimary,
+    borderColor: colors.brandPrimary,
     ...Platform.select({
       ios: {
         shadowColor: "#000",

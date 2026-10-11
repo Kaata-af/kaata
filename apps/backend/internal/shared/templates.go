@@ -78,7 +78,7 @@ const viewHTML = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#f9fafb">
+<meta name="theme-color" content="#F9F2E7">
 <!-- "only light" disables Chrome's Auto Dark Theme on Android, which would
      otherwise darken this light page when the phone is in dark mode. -->
 <meta name="color-scheme" content="only light">
@@ -94,10 +94,10 @@ const viewHTML = `<!doctype html>
 <meta name="twitter:title" content="{{.OGTitle}}">
 <meta name="twitter:description" content="{{.OGDesc}}">
 <style>
-/* Direction palette "Emerald Vault & Garnet" — refined deep emerald + garnet,
-   Khatabook flow (credit = money toward you, owe = money away). Hand-kept in
-   sync with apps/web/src/theme.ts + apps/mobile/lib/colors.ts. */
-:root{--bg:#f9fafb;--card:#fff;--ink:#101828;--sub:#475467;--mut:#98a2b3;--line:#eaecf0;--hair:#f2f4f7;--owe:#A3203A;--owebg:#F8EAEC;--credit:#0C745A;--creditbg:#E8F4EF;--mono:'JetBrains Mono','Vazirmatn',ui-monospace,'Menlo',monospace;}
+/* Brand reading colors mirror apps/_shared/brand-palette.json. The separate
+   direction palette keeps Khatabook flow (credit = money toward you, owe =
+   money away), in sync with web/src/theme.ts + mobile/lib/colors.ts. */
+:root{--brand:#4A2A50;--bg:#F9F2E7;--card:#fff;--ink:#29222B;--sub:#706573;--mut:#756B78;--line:#E4DCE3;--hair:#F3EEE8;--owe:#A3203A;--owebg:#F8EAEC;--credit:#0C745A;--creditbg:#E8F4EF;--mono:'JetBrains Mono','Vazirmatn',ui-monospace,'Menlo',monospace;}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:"Vazirmatn",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
@@ -157,15 +157,15 @@ a{color:inherit;text-decoration:none;}
 .empty,.err{color:var(--mut);font-size:14px;padding:28px 4px;text-align:center;}
 .foot{margin-top:26px;text-align:center;}
 .foottag{font-size:12px;color:var(--mut);}
-.foottag a{color:var(--sub);font-weight:700;}
+.foottag a{color:var(--brand);font-weight:700;}
 .sk{background:var(--hair);border-radius:5px;animation:pulse 1.5s ease-in-out infinite;}
 .clearwrap{display:flex;flex-direction:column;align-items:center;text-align:center;padding-top:4px;}
 .clearic{width:48px;height:48px;border-radius:50%;background:var(--creditbg);color:var(--credit);display:flex;align-items:center;justify-content:center;}
 .cleartitle{margin-top:12px;font-size:19px;font-weight:700;letter-spacing:-.01em;color:var(--ink);}
 .clearsub{margin-top:4px;font-size:13px;color:var(--sub);}
 .clearsub b{color:var(--ink);font-weight:600;}
-.histbtn{display:none;width:100%;border:0;border-top:1px solid #f2f4f7;background:#fff;padding:13px 16px;text-align:center;font-size:12px;font-weight:500;color:#475467;font-family:inherit;cursor:pointer}
-.histbtn:active{background:#eaecf0}
+.histbtn{display:none;width:100%;border:0;border-top:1px solid var(--hair);background:#fff;padding:13px 16px;text-align:center;font-size:12px;font-weight:500;color:var(--sub);font-family:inherit;cursor:pointer}
+.histbtn:active{background:#E4DCE3}
 .chline{display:flex;align-items:center;gap:10px;padding:11px 16px;background:var(--bg);border-bottom:1px solid var(--hair);}
 .chrule{flex:1;height:1px;background:var(--mut);opacity:.4;}
 .chtext{font-size:11px;font-weight:500;color:var(--sub);}
@@ -447,7 +447,7 @@ const notFoundHTML = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="only light">
 <title>Kaata</title>
-<style>body{margin:0;background:#f9fafb;color:#101828;font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px;-webkit-font-smoothing:antialiased;}a{color:#475467;font-weight:600;text-decoration:none;}</style>
+<style>body{margin:0;background:#F9F2E7;color:#29222B;font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px;-webkit-font-smoothing:antialiased;}a{color:#706573;font-weight:600;text-decoration:none;}</style>
 </head><body><div><div style="font-size:16px;font-weight:700;letter-spacing:-.01em">kaata.</div>
-<p style="color:#475467;max-width:320px;line-height:1.55">{{if .RTL}}این کاتای مشترک وجود ندارد.{{else}}This shared ledger doesn’t exist.{{end}}</p>
+<p style="color:#706573;max-width:320px;line-height:1.55">{{if .RTL}}این کاتای مشترک وجود ندارد.{{else}}This shared ledger doesn’t exist.{{end}}</p>
 <p><a href="{{.Origin}}">{{if .RTL}}رفتن به kaata.af{{else}}Go to kaata.af{{end}}</a></p></div></body></html>`

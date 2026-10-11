@@ -355,7 +355,7 @@ export default function OnboardingKaataScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bgDefault },
+  container: { flex: 1, backgroundColor: colors.bgWarm },
   form: { flex: 1 },
   header: {
     paddingHorizontal: 8,

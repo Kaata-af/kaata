@@ -168,7 +168,7 @@ export const ROW_MIN = 52;
 /**
  * ONE shadow recipe for lifted surfaces.
  *
- * The app currently has four different primary black buttons at three shadow
+ * The app's primary brand buttons once used four versions at three shadow
  * recipes plus a flat one, and flat-vs-lifted is the most legible difference
  * between two otherwise identical buttons. Anything that should read as
  * floating uses exactly this; everything else is flat.

@@ -143,7 +143,7 @@ export function OptionSheet(props: {
                       // icon.row (22) — the selection tick reads as a row-level
                       // mark, not a trailing chevron, so it takes the row size.
                       // Matches the identical tick in CountryPickerSheet.
-                      <Ionicons name="checkmark" size={icon.row} color={colors.textEmphasis} />
+                      <Ionicons name="checkmark" size={icon.row} color={colors.brandPrimary} />
                     ) : null}
                   </Pressable>
                 );

@@ -144,22 +144,22 @@ html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 body{font-family:'Vazirmatn','Segoe UI',-apple-system,sans-serif;color:${colors.textEmphasis};font-size:12px;line-height:1.45}
 
 /* ---- masthead ---------------------------------------------------- */
-.masthead{background:${colors.bgInverted};color:${colors.textInverted};padding:26px 36px 22px;text-align:center}
+.masthead{background:${colors.brandPrimary};color:${colors.textInverted};padding:26px 36px 22px;text-align:center}
 .brand{font-size:20px;font-weight:700;letter-spacing:-.01em}
-.docTitle{font-size:12px;font-weight:400;color:#C9C9C9;margin-top:5px}
-.mastMeta{font-size:10px;color:#9A9A9A;margin-top:9px}
+.docTitle{font-size:12px;font-weight:400;color:${colors.bgWarm};margin-top:5px}
+.mastMeta{font-size:10px;color:${colors.textInverted};margin-top:9px}
 /* Each item is isolated and the separator is its own element. Without this
    the bidi algorithm runs a date and the count that follows it together —
    "۱۴۰۵" + "·" + "۴" renders as "۴۰۱۴۰۵", which looks like one nonsense
    number. Isolation is the whole fix; the dot alone is not a boundary. */
 .mastMeta > span{unicode-bidi:isolate}
-.mastMeta .sep{unicode-bidi:isolate;margin:0 7px;color:#6E6E6E}
+.mastMeta .sep{unicode-bidi:isolate;margin:0 7px;color:${colors.brandAccent}}
 
 /* ---- page body --------------------------------------------------- */
 .content{padding:22px 36px 0}
 .section{margin-top:20px}
 /* Accent bar on the leading edge — logical property so it mirrors in RTL. */
-.sectionTitle{font-size:13px;font-weight:700;border-inline-start:3px solid ${colors.textEmphasis};padding-inline-start:9px;margin-bottom:10px}
+.sectionTitle{font-size:13px;font-weight:700;border-inline-start:3px solid ${colors.brandAccent};padding-inline-start:9px;margin-bottom:10px}
 
 /* ---- party card -------------------------------------------------- */
 .party{border:1px solid ${colors.borderDefault};border-radius:10px;padding:12px 14px;background:${colors.bgMuted}}
@@ -183,9 +183,9 @@ body{font-family:'Vazirmatn','Segoe UI',-apple-system,sans-serif;color:${colors.
 table{width:100%;border-collapse:collapse}
 thead{display:table-header-group}
 tr{page-break-inside:avoid}
-th{background:${colors.bgInverted};color:${colors.textInverted};font-size:10px;font-weight:700;text-align:start;padding:8px 9px;white-space:nowrap}
+th{background:${colors.brandPrimary};color:${colors.textInverted};font-size:10px;font-weight:700;text-align:start;padding:8px 9px;white-space:nowrap}
 td{font-size:11px;padding:7px 9px;border-bottom:1px solid ${colors.borderSubtle};vertical-align:top}
-tbody tr:nth-child(even) td{background:${colors.bgMuted}}
+tbody tr td{background:${colors.bgDefault}}
 th.n,td.n{text-align:end}
 th.c,td.c{text-align:center}
 td.idx{color:${colors.textMuted};font-size:10px}

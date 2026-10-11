@@ -326,7 +326,7 @@ function classifyError(err: unknown): string {
 // ---------- styles (mirrors onboarding/auth.tsx for visual continuity) ----------
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bgDefault },
+  container: { flex: 1, backgroundColor: colors.bgWarm },
   content: { flex: 1, padding: 24, justifyContent: "center" },
   center: {
     flex: 1,
@@ -362,8 +362,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   cardPrimary: {
-    backgroundColor: colors.bgInverted,
-    borderColor: colors.bgInverted,
+    backgroundColor: colors.brandPrimary,
+    borderColor: colors.brandPrimary,
     ...Platform.select({
       ios: {
         shadowColor: "#000",

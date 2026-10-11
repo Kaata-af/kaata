@@ -1045,12 +1045,12 @@ export default function PersonDetailScreen() {
                     ]}
                   >
                     {pinging ? (
-                      <ActivityIndicator size="small" color={colors.textEmphasis} />
+                      <ActivityIndicator size="small" color={colors.brandPrimary} />
                     ) : (
                       <Ionicons
                         name="logo-whatsapp"
                         size={icon.trailing}
-                        color={colors.textEmphasis}
+                        color={colors.brandPrimary}
                       />
                     )}
                     <Text
@@ -1675,10 +1675,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     borderWidth: 1,
-    borderColor: colors.borderDefault,
+    borderColor: colors.brandPrimary,
     borderRadius: radius.sm,
   },
-  pingLabel: { ...typography.labelBold, flexShrink: 1, color: colors.textEmphasis },
+  pingLabel: { ...typography.labelBold, flexShrink: 1, color: colors.brandPrimary },
   pingHint: { ...typography.bodySm, color: colors.textSubtle },
   searchArea: { marginHorizontal: 16, marginBottom: 8, gap: 8 },
   searchBox: {
@@ -1738,7 +1738,7 @@ const styles = StyleSheet.create({
     // left/right position (I received LEFT, I gave RIGHT). The arrow rides in a
     // soft inner "coin" and the lift is a soft, diffuse shadow — refined and
     // premium rather than a flat black slab. Height (~52) matches the share bar.
-    backgroundColor: colors.bgInverted,
+    backgroundColor: colors.brandPrimary,
     ...Platform.select({
       ios: {
         shadowColor: "#000",
