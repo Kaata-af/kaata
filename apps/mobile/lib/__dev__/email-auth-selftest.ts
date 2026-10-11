@@ -1746,6 +1746,217 @@ const jsx = (type: unknown, props: Record<string, unknown>) => ({ type, props })
 const jsxRuntime = { jsx, jsxs: jsx, Fragment: "Fragment" };
 const LTR = { writingDirection: "ltr", textAlign: "left" };
 
+// --- cold-start routing: the mounted gate, with the real stored-flow readers ---
+
+const startupHooks = hookStore();
+let startupPath = "/";
+let startupNavigationReady = true;
+let startupForceUpdate = false;
+let startupURL: string | null = null;
+let startupURLWait: Promise<string | null> | null = null;
+let startupRoutes: unknown[] = [];
+const startupRouter = { push: (route: unknown) => startupRoutes.push(route) };
+const startup = load<typeof import("../../components/PendingEmailFlowResume")>(
+  "../../components/PendingEmailFlowResume",
+  {
+    react: startupHooks.react,
+    "expo-router": {
+      usePathname: () => startupPath,
+      useRootNavigationState: () => (startupNavigationReady ? { key: "root" } : undefined),
+      useRouter: () => startupRouter,
+    },
+    "react-native": {
+      Linking: { getInitialURL: () => startupURLWait ?? Promise.resolve(startupURL) },
+    },
+    "../lib/app-meta-context": { useAppMeta: () => ({ forceUpdate: startupForceUpdate }) },
+    "../lib/auth": auth,
+  },
+);
+type StartupProps = Parameters<typeof startup.PendingEmailFlowResume>[0];
+
+function resetStartup() {
+  startupHooks.reset();
+  startupPath = "/";
+  startupNavigationReady = true;
+  startupForceUpdate = false;
+  startupURL = null;
+  startupURLWait = null;
+  startupRoutes = [];
+}
+
+function renderStartup(over: Partial<StartupProps> = {}) {
+  startupHooks.render(() =>
+    startup.PendingEmailFlowResume({
+      hasOnboarded: true,
+      launchNotificationsReady: true,
+      launchNotificationOpened: false,
+      ...over,
+    }),
+  );
+}
+
+function pendingStartup(purpose: "signup" | "reset" | "setup", over = {}) {
+  metaSet(
+    PENDING_KEY,
+    JSON.stringify({ purpose, email: "code@example.com", sent_at: Date.now(), ...over }),
+  );
+}
+
+test("cold start: onboarded offline reset navigates from / once, after launch routing", async () => {
+  const install = boundPhone();
+  resetStartup();
+  pendingStartup("reset");
+  startupNavigationReady = false;
+  renderStartup({ launchNotificationsReady: false });
+  await settle();
+  assert.deepEqual(startupRoutes, [], "never navigate before the Stack is ready");
+  startupNavigationReady = true;
+  renderStartup({ launchNotificationsReady: false });
+  await settle();
+  assert.deepEqual(startupRoutes, [], "launch notification inspection has priority");
+  renderStartup();
+  await settle();
+  assert.deepEqual(startupRoutes, [{ pathname: "/sign-in", params: { mode: "email" } }]);
+  startupPath = "/sign-in";
+  renderStartup();
+  startupPath = "/";
+  renderStartup();
+  await settle();
+  assert.equal(startupRoutes.length, 1, "Back and rerenders do not reopen the flow");
+  assert.equal(metaGet("install_id"), install, "resuming never replaces the install");
+  const people = fixture.prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number };
+  assert.equal(people.n, 1);
+});
+
+test("cold start: fresh signup/reset survives Home's default onboarding redirect", async () => {
+  for (const purpose of ["signup", "reset"] as const) {
+    freshPhone();
+    resetStartup();
+    pendingStartup(purpose);
+    let release!: (url: string | null) => void;
+    startupURLWait = new Promise((resolve) => {
+      release = resolve;
+    });
+    renderStartup({ hasOnboarded: false });
+    startupPath = "/onboarding/language";
+    renderStartup({ hasOnboarded: false });
+    release(null);
+    await settle();
+    assert.deepEqual(startupRoutes, ["/onboarding/auth"], purpose);
+  }
+});
+
+test("cold start: cleared/expired steps and existing signed-in flows do not route", async () => {
+  for (const state of ["expired", "cancelled", "finished", "signed-in"] as const) {
+    boundPhone();
+    resetStartup();
+    pendingStartup("reset", {
+      sent_at: state === "expired" ? Date.now() - auth.EMAIL_CODE_TTL_MS : Date.now(),
+    });
+    if (state === "cancelled" || state === "finished") await auth.clearEmailFlowPending();
+    if (state === "finished" || state === "signed-in") signedIn();
+    renderStartup();
+    await settle();
+    assert.deepEqual(startupRoutes, [], state);
+    if (state !== "signed-in") assert.equal(await auth.readEmailFlowPending(), null, state);
+  }
+});
+
+test("cold start: setup resumes only the current signed-in account's password screen", async () => {
+  for (const state of ["matching", "different", "no-account", "no-session", "legacy"] as const) {
+    freshPhone();
+    resetStartup();
+    if (state !== "no-account") metaSet("account_id", "acct-current");
+    if (state !== "no-session") signedIn();
+    pendingStartup("setup", {
+      account_id: state === "legacy" ? null : state === "different" ? "acct-other" : "acct-current",
+    });
+    renderStartup();
+    await settle();
+    assert.deepEqual(startupRoutes, state === "matching" ? ["/account-password"] : [], state);
+    if (state === "different" || state === "no-account" || state === "legacy")
+      assert.equal(await auth.readEmailFlowPending(), null, `${state}: forgotten`);
+  }
+});
+
+test("cold start: links, notifications, update gates and active screens keep their route", async () => {
+  for (const intent of [
+    "deep-link",
+    "onboarding-link",
+    "notification",
+    "update",
+    "screen",
+  ] as const) {
+    boundPhone();
+    resetStartup();
+    pendingStartup("reset");
+    if (intent === "deep-link") startupPath = "/person/a";
+    if (intent === "onboarding-link") {
+      startupPath = "/onboarding/auth";
+      startupURL = "kaata://onboarding/auth";
+    }
+    if (intent === "update") startupForceUpdate = true;
+    if (intent === "screen") startupPath = "/account";
+    renderStartup({ launchNotificationOpened: intent === "notification" });
+    await settle();
+    assert.deepEqual(startupRoutes, [], intent);
+    startupPath = "/";
+    startupURL = null;
+    startupForceUpdate = false;
+    renderStartup();
+    await settle();
+    assert.deepEqual(startupRoutes, [], `${intent}: no later takeover`);
+  }
+});
+
+test("cold start: new launch routing or an update while storage is read cancels resume", async () => {
+  for (const change of ["route", "update", "notification"] as const) {
+    boundPhone();
+    resetStartup();
+    pendingStartup("reset");
+    let release!: (url: string | null) => void;
+    startupURLWait = new Promise((resolve) => {
+      release = resolve;
+    });
+    renderStartup();
+    if (change === "route") startupPath = "/person/a";
+    if (change === "update") startupForceUpdate = true;
+    renderStartup({ launchNotificationOpened: change === "notification" });
+    release(null);
+    await settle();
+    assert.deepEqual(startupRoutes, [], change);
+  }
+});
+
+test("cold start: the real root layout mounts the resume gate beside its Stack", async () => {
+  const layout = ts.createSourceFile(
+    "_layout.tsx",
+    readFileSync(require.resolve("../../app/_layout"), "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  let mounted = false;
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isJsxElement(node) &&
+      node.openingElement.tagName.getText(layout) === "AppMetaProvider"
+    ) {
+      const tags = node.children.filter(ts.isJsxElement);
+      const stack = tags.find((tag) => tag.openingElement.tagName.getText(layout) === "Stack");
+      const gate = node.children.find(
+        (child) =>
+          ts.isJsxSelfClosingElement(child) &&
+          child.tagName.getText(layout) === "PendingEmailFlowResume",
+      );
+      mounted = Boolean(stack && gate && gate.pos > stack.end);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(layout);
+  assert.ok(mounted, "a functional gate must be mounted after the actual root Stack");
+});
+
 // Timers the components schedule run by hand, so a focus or a countdown is a
 // step of the case rather than a race with it.
 type Timer = { fn: () => void; ms: number; repeat: boolean; cleared: boolean };

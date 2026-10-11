@@ -37,6 +37,7 @@ import { AutoSync } from "../components/AutoSync";
 import { TabSync } from "../components/TabSync";
 import { MeshController } from "../components/MeshController";
 import { ProjectionConflictsListener } from "../components/ProjectionConflictsListener";
+import { PendingEmailFlowResume } from "../components/PendingEmailFlowResume";
 import { ToastProvider } from "../components/Toast";
 import { stopShopModeForegroundService } from "../lib/mesh/foreground";
 
@@ -293,6 +294,8 @@ export default function RootLayout() {
   // fresh" on the restore screen for the current account.
   const [accountId, setAccountId] = useState<string | null>(null);
   const [restoreSkipped, setRestoreSkipped] = useState(false);
+  const [launchNotificationsReady, setLaunchNotificationsReady] = useState(false);
+  const [launchNotificationOpened, setLaunchNotificationOpened] = useState(false);
 
   // Bumped to re-run the whole boot sequence in-process. Two callers: the
   // recovery screen, once it has repaired the database, and the "try again"
@@ -312,6 +315,7 @@ export default function RootLayout() {
     setDbCorrupt(null);
     setDbReady(null);
     setAppReady(false);
+    setLaunchNotificationsReady(false);
     setBootNonce((n) => n + 1);
   }, []);
 
@@ -733,8 +737,10 @@ export default function RootLayout() {
       }
       if (cancelled) return;
       sub = notifications.addNotificationResponseReceivedListener((response) => {
-        if (response.actionIdentifier === notifications.DEFAULT_ACTION_IDENTIFIER)
+        if (response.actionIdentifier === notifications.DEFAULT_ACTION_IDENTIFIER) {
+          setLaunchNotificationOpened(true);
           routeFromNotificationData(response.notification.request.content.data);
+        }
       });
       try {
         const last = await notifications.getLastNotificationResponseAsync();
@@ -743,13 +749,17 @@ export default function RootLayout() {
         // refresh, a retryBoot) would re-navigate to a stale tap.
         if (!cancelled && last && !launchResponseHandled) {
           launchResponseHandled = true;
-          if (last.actionIdentifier === notifications.DEFAULT_ACTION_IDENTIFIER)
+          if (last.actionIdentifier === notifications.DEFAULT_ACTION_IDENTIFIER) {
+            setLaunchNotificationOpened(true);
             routeFromNotificationData(last.notification.request.content.data);
+          }
         }
       } catch (err) {
         if (__DEV__) console.warn("[layout] last notification response failed", err);
       }
-    })();
+    })().finally(() => {
+      if (!cancelled) setLaunchNotificationsReady(true);
+    });
     return () => {
       cancelled = true;
       sub?.remove();
@@ -975,6 +985,11 @@ export default function RootLayout() {
                   Reuses the same 5-step issuance as vault/pair-scan.tsx. */}
               <Stack.Screen name="pair/[token]" options={{ presentation: "modal" }} />
             </Stack>
+            <PendingEmailFlowResume
+              hasOnboarded={hasOnboarded}
+              launchNotificationsReady={launchNotificationsReady}
+              launchNotificationOpened={launchNotificationOpened}
+            />
           </AppMetaProvider>
         </ToastProvider>
       </SafeAreaProvider>
