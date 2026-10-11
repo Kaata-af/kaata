@@ -7,7 +7,6 @@ import {
   Dimensions,
   Image,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -16,7 +15,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { isGoogleSignInAvailable, type SessionUser } from "../lib/auth";
+import type { SessionUser } from "../lib/auth";
 import { colors } from "../lib/colors";
 import { SHEET_BLUR_METHOD } from "../lib/blur";
 import { getAccountIdSync } from "../lib/db-tx";
@@ -59,7 +58,7 @@ import { NavRow, SectionGap, SectionHeader } from "./SettingsScreen";
 // SectionGap rendered at the TOP of the following section, so the last
 // rendered section never trails an orphaned gap (matters in SOLO_STORE_MODE
 // where KAATAS + SYNC are absent):
-//   1. ACCOUNT — signed-in avatar+email OR Sign in with Google button.
+//   1. ACCOUNT — signed-in avatar+email OR one Sign in row → /sign-in.
 //      "Account settings" row → /account (personal: name + phone + language +
 //      default country + archived kaatas). Sign out (when signed in) is last.
 //   2. CURRENT KAATA — "Manage this Kaata" → /vault/settings: the kaata's
@@ -106,7 +105,6 @@ export function ProfileSettingsSheet(props: {
 
   // --- Actions ---
   // Profile
-  onSignIn: (provider: "google" | "apple") => void;
   onSignOut: () => void;
 
   // Kaatas
@@ -136,12 +134,12 @@ export function ProfileSettingsSheet(props: {
   const insets = useSafeAreaInsets();
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(OFFSCREEN)).current;
+  const actionQueued = useRef(false);
 
   // Reactive account_id — same pattern as the old HamburgerMenuSheet.
   // Reads the synchronous module cache on every `visible` flip so a sign-in
-  // completed inline (Phase 7 D-ACCOUNT-PAGE-ROLE — /account screen was
-  // killed; sign-in runs from the host's runSignIn helper) is
-  // reflected immediately even if the sheet hasn't been re-rendered yet.
+  // completed on /sign-in is reflected immediately even if the sheet
+  // hasn't been re-rendered yet.
   const [liveAccountId, setLiveAccountId] = useState<string | null>(props.activeAccountId);
   useEffect(() => {
     if (props.visible) {
@@ -151,6 +149,7 @@ export function ProfileSettingsSheet(props: {
 
   useEffect(() => {
     if (props.visible) {
+      actionQueued.current = false;
       setRendered(true);
       requestAnimationFrame(() => {
         Animated.parallel([
@@ -191,6 +190,10 @@ export function ProfileSettingsSheet(props: {
   // mitigation as BottomSheet.tsx / the deprecated HamburgerMenuSheet.tsx.
   function chained(action: () => void) {
     return () => {
+      // The sheet remains mounted during its exit animation. A second tap
+      // there must not push another sign-in page (or run a second action).
+      if (actionQueued.current) return;
+      actionQueued.current = true;
       props.onDismiss();
       setTimeout(action, EXIT_DURATION_MS);
     };
@@ -323,48 +326,15 @@ export function ProfileSettingsSheet(props: {
                   <Text style={[styles.emptyHint, textDir(isRTL)]}>
                     {t("menu.account.localOnlyHint")}
                   </Text>
-                  {/* BOTH providers, mirroring onboarding/auth.tsx — the
-                      platform's home-team option leads, and Google hides on
-                      iOS builds without the iOS OAuth client
-                      (isGoogleSignInAvailable). Same email → same account
-                      either way (backend email linking). */}
-                  {Platform.OS === "ios" ? (
-                    <NavRow
-                      icon="logo-apple"
-                      label={t("menu.account.signIn.apple")}
-                      onPress={chained(() => props.onSignIn("apple"))}
-                      isRTL={isRTL}
-                      emphasis
-                    />
-                  ) : null}
-                  {isGoogleSignInAvailable() ? (
-                    <NavRow
-                      icon="logo-google"
-                      label={t("menu.account.signIn")}
-                      onPress={chained(() => props.onSignIn("google"))}
-                      isRTL={isRTL}
-                      emphasis={Platform.OS !== "ios"}
-                    />
-                  ) : null}
-                  {Platform.OS !== "ios" ? (
-                    <NavRow
-                      icon="logo-apple"
-                      label={t("menu.account.signIn.apple")}
-                      onPress={chained(() => props.onSignIn("apple"))}
-                      isRTL={isRTL}
-                    />
-                  ) : null}
-                  {/* Kaata's own accounts (docs/kaata-accounts.md), both
-                      platforms. Unlike the provider rows above, which sign in
-                      inline, it opens /sign-in straight on the email flow:
-                      there are fields to type. */}
+                  {/* Keep the sheet compact; the dedicated page offers email,
+                      Google and Apple with the existing recovery and account
+                      change guards. Close this native Modal before navigating. */}
                   <NavRow
-                    icon="mail-outline"
-                    label={t("menu.account.signIn.email")}
-                    onPress={chained(() =>
-                      router.push({ pathname: "/sign-in", params: { mode: "email" } }),
-                    )}
+                    icon="log-in-outline"
+                    label={t("menu.account.signIn.choose")}
+                    onPress={chained(() => router.push("/sign-in"))}
                     isRTL={isRTL}
+                    emphasis
                   />
                   {/* Editable while signed out too — it's the local identity. */}
                   <NavRow

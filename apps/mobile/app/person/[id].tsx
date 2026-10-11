@@ -6,11 +6,13 @@ import {
   ActivityIndicator,
   Animated,
   AppState,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -66,7 +68,8 @@ import { sumAmounts } from "../../lib/money";
 import { getLocale, getShareLangPref, resolveShareLang, t, type LocaleCode } from "../../lib/i18n";
 import { formatSettlementDate } from "../../lib/jalali";
 import { useCalendar } from "../../lib/calendar";
-import { shareKaataViaWhatsApp } from "../../lib/share";
+import { shareKaataViaWhatsApp, type WhatsAppShareStage } from "../../lib/share";
+import { filterTalliesByNote, noteSearchTerms } from "../../lib/tally-search";
 import {
   getLatestTabLinkForPerson,
   listPreLinkEntries,
@@ -166,6 +169,8 @@ export default function PersonDetailScreen() {
   const [sharedSettlements, setSharedSettlements] = useState<TabSettlement[]>([]);
   const settlementRequest = useRef<{ id: string; throughSeq: number } | null>(null);
   const [showFullHistory, setShowFullHistory] = useState(false);
+  const [noteQuery, setNoteQuery] = useState("");
+  useEffect(() => setNoteQuery(""), [id, entryId, notificationKey]);
   useEffect(() => {
     if (entryId) setShowFullHistory(true);
   }, [entryId, notificationKey]);
@@ -210,10 +215,25 @@ export default function PersonDetailScreen() {
   // L12: synchronous re-entry guard for the WhatsApp ping — the share awaits an
   // up-to-8s snapshot upload before opening WhatsApp, and without this a user
   // tapping repeatedly minted a separate 90-day shared-ledger token per tap.
-  const [pinging, setPinging] = useState(false);
+  const [pingStage, setPingStage] = useState<WhatsAppShareStage | null>(null);
+  const pinging = pingStage != null;
   const pingBusyRef = useRef(false);
+  const pingAbortRef = useRef<AbortController | null>(null);
   // Message-language picker for the ping, shown when share_lang_pref = 'ask'.
   const [askLangVisible, setAskLangVisible] = useState(false);
+  const pingLanguageChosen = useRef(false);
+  const pingLanguageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPing = useCallback(() => {
+    pingLanguageChosen.current = true;
+    setAskLangVisible(false);
+    pingAbortRef.current?.abort();
+    pingAbortRef.current = null;
+    pingBusyRef.current = false;
+    if (pingLanguageTimer.current) clearTimeout(pingLanguageTimer.current);
+    pingLanguageTimer.current = null;
+    setPingStage(null);
+  }, []);
+  useEffect(() => () => cancelPing(), [cancelPing]);
   // Statement export. It used to live on the EDIT screen, behind the pencil —
   // which hid it twice over. Nobody looks for "give me a copy of this account"
   // inside a form for changing someone's name, and the pencil only renders
@@ -323,6 +343,24 @@ export default function PersonDetailScreen() {
   // Shared chapters use server sequence, so backdating a new tally can never
   // tuck it behind an old settlement. Local boundaries only apply locally.
   const displayedEntries = useMemo(() => entries.filter(visibleTally), [entries]);
+  const searchTerms = useMemo(() => noteSearchTerms(noteQuery), [noteQuery]);
+  const searching = searchTerms.length > 0;
+  const searchingRef = useRef(searching);
+  searchingRef.current = searching;
+  const matchedEntries = useMemo(
+    () => filterTalliesByNote(displayedEntries, searchTerms),
+    [displayedEntries, searchTerms],
+  );
+  const matchedPreLink = useMemo(
+    () => filterTalliesByNote(preLink, searchTerms),
+    [preLink, searchTerms],
+  );
+  const matchedFailedTallies = useMemo(
+    () => filterTalliesByNote(failedTallies, searchTerms),
+    [failedTallies, searchTerms],
+  );
+  const searchResultCount =
+    matchedEntries.length + matchedPreLink.length + matchedFailedTallies.length;
   const sharedThroughSeq = sharedSettlements.at(-1)?.through_seq ?? 0;
   const settledCount = tabHistory ? sharedSettlements.length : settlement.count;
   const chapterEntries = useMemo(
@@ -368,6 +406,9 @@ export default function PersonDetailScreen() {
     | { kind: "entry"; entry: Entry }
     | { kind: "marker"; ms: number; settlement?: TabSettlement };
   const historyItems = useMemo<HistoryItem[]>(() => {
+    // Search spans settled chapters too. It filters the presentation only;
+    // the balance, settlement guards and exported/shared statement stay whole.
+    if (searching) return matchedEntries.map((entry) => ({ kind: "entry", entry }));
     if (tabHistory && effectiveShowFull) return sharedHistory(displayedEntries, sharedSettlements);
     if (!effectiveShowFull || tabHistory || boundaries.length === 0) {
       return visibleEntries.map((e) => ({ kind: "entry", entry: e }));
@@ -392,6 +433,8 @@ export default function PersonDetailScreen() {
     displayedEntries,
     tabHistory,
     sharedSettlements,
+    searching,
+    matchedEntries,
   ]);
   const sharedReviewPending = entries.some(
     (e) =>
@@ -469,11 +512,23 @@ export default function PersonDetailScreen() {
 
   // Send the WhatsApp ping in the given message language (already resolved
   // from share_lang_pref, or picked in the ask-sheet).
-  const sendPing = async (lang: LocaleCode) => {
-    if (!person || pingBusyRef.current) return;
+  const sendPing = async (lang?: LocaleCode) => {
+    if (!person || pingBusyRef.current || (lang == null && askLangVisible)) return;
     pingBusyRef.current = true;
-    setPinging(true);
+    const controller = new AbortController();
+    pingAbortRef.current = controller;
+    setPingStage("preparing");
     try {
+      if (lang == null) {
+        const pref = await getShareLangPref();
+        if (controller.signal.aborted) return;
+        if (pref === "ask") {
+          pingLanguageChosen.current = false;
+          setAskLangVisible(true);
+          return;
+        }
+        lang = resolveShareLang(pref);
+      }
       const ok = await shareKaataViaWhatsApp(
         { id: person.id, name: person.name, phone: person.phone },
         person.balance,
@@ -490,18 +545,31 @@ export default function PersonDetailScreen() {
         // line with no rows behind either — on a document the paper rule
         // makes the recipient's permanent asset. lib/export/data.ts drops
         // the same boundaries for the same reason.
-        link
+        tabHistory
           ? { settledChapters: 0, settledBoundaryMs: null, settledBoundaries: [] }
           : {
               settledChapters: settlement.count,
               settledBoundaryMs: settlement.lastSettledAtMs,
               settledBoundaries: boundaries,
             },
+        (stage) => {
+          if (pingAbortRef.current === controller && !controller.signal.aborted)
+            setPingStage(stage);
+        },
+        controller.signal,
       );
-      if (!ok) toast.push(t("share.whatsappUnavailable"), "error");
+      if (!ok && !controller.signal.aborted) toast.push(t("share.whatsappUnavailable"), "error");
+    } catch (err) {
+      if (!controller.signal.aborted) {
+        console.warn("[person] WhatsApp reminder failed", err);
+        toast.push(t("share.whatsappUnavailable"), "error");
+      }
     } finally {
-      pingBusyRef.current = false;
-      setPinging(false);
+      if (pingAbortRef.current === controller) {
+        pingAbortRef.current = null;
+        pingBusyRef.current = false;
+        setPingStage(null);
+      }
     }
   };
 
@@ -570,11 +638,17 @@ export default function PersonDetailScreen() {
   // for the return-to-foreground mark.
   const focused = useRef(false);
   const seen = useCallback((tl: TabLink | null) => {
+    // A note filter can hide an incoming tally. Do not acknowledge the whole
+    // loaded revision until the unfiltered account is visible again.
+    if (searchingRef.current) return;
     if (tl) markTabNoticesSeen(tl, { focused: focused.current, appState: AppState.currentState });
   }, []);
+  useEffect(() => {
+    if (!searching) seen(latestLink.current);
+  }, [searching, seen]);
 
   // Person-screen focus is one of the three pull triggers (D13; the others are
-  // foreground and the 60 s loop). Only HERE — not on every load(): a pull
+  // foreground and the fallback loop). Only HERE — not on every load(): a pull
   // fires onTabApplied, which calls load(), and a sync request in load()
   // would make that a loop.
   useFocusEffect(
@@ -598,9 +672,10 @@ export default function PersonDetailScreen() {
       });
       return () => {
         focused.current = false;
+        cancelPing();
         app.remove();
       };
-    }, [load, seen]),
+    }, [load, seen, cancelPing]),
   );
 
   // Live refresh: re-load when a sync applies events for the active vault, so a
@@ -821,14 +896,7 @@ export default function PersonDetailScreen() {
                     label: t("person.ping", { name: person.name }),
                     icon: "logo-whatsapp" as const,
                     disabled: pinging,
-                    onPress: () => {
-                      void (async () => {
-                        if (pingBusyRef.current) return;
-                        const pref = await getShareLangPref();
-                        if (pref === "ask") setAskLangVisible(true);
-                        else await sendPing(resolveShareLang(pref));
-                      })().catch(() => toast.push(t("share.whatsappUnavailable"), "error"));
-                    },
+                    onPress: () => void sendPing(),
                   },
                 ]
               : []),
@@ -865,295 +933,409 @@ export default function PersonDetailScreen() {
           ("the old one shows blank text after the second one is added, fixed
           by going back and returning"). A single uniform card has no per-row
           style flip, so it can't happen. */}
-      <ScrollView
-        ref={scrollRef}
-        onLayout={(event) => {
-          viewport.current.height = event.nativeEvent.layout.height;
-          revealNotificationTally();
-        }}
-        onScroll={(event) => {
-          viewport.current.offset = event.nativeEvent.contentOffset.y;
-        }}
-        scrollEventThrottle={16}
-        onContentSizeChange={revealNotificationTally}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingBottom: canCreate ? actionsHeight + 24 : 24 + insets.bottom,
-        }}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        enabled={Platform.OS === "android"}
+        behavior={Platform.OS === "android" ? "height" : undefined}
       >
-        <View>
-          <View style={styles.info}>
-            <View style={[styles.nameRow, rowDir(isRTL)]}>
-              <Text style={[styles.name, { flexShrink: 1 }, textDir(isRTL)]}>{person.name}</Text>
-              {link ? (
-                <SharedAccountBadge
-                  size={20}
-                  name={person.name}
-                  fontSize={typography.heading.fontSize}
-                />
-              ) : null}
-            </View>
-            {person.phone ? (
-              <Text
-                style={[
-                  styles.phone,
-                  { writingDirection: "ltr", textAlign: isRTL ? "right" : "left" },
-                ]}
-              >
-                {ltrIsolate(person.phone)}
-              </Text>
-            ) : null}
-            <View style={{ height: 16 }} />
-            <View style={[styles.chipRow, rowDir(isRTL)]}>
-              {chipLabel && chipVariant ? (
-                <Chip label={chipLabel} variant={chipVariant} />
-              ) : settledCount > 0 &&
-                chapterCoherent &&
-                !sharedReviewPending &&
-                unsettledOriginalCount === 0 ? (
-                // "SETTLED" only when the user actually drew the line and it
-                // covers everything.
-                <Chip label={t("person.balance.settled")} variant="neutral" />
-              ) : displayedEntries.length > 0 ? (
-                // A tally that merely SUMS to zero (or whose chapter no longer
-                // adds up after a sync) is not a settled account — say so
-                // rather than leaving the chip slot blank while every other
-                // state labels itself. Hollow pill: true, but not an
-                // achievement. The settle-row invitation sits below.
-                // Contacts with no entries at all keep an empty slot — there
-                // is no tally yet to have a state.
-                <Chip label={t("person.balance.notSettled")} variant="outline" />
-              ) : null}
-              {link && link.other_joined_at == null ? (
-                // Keep the invitation-waiting cue until the other side joins.
-                // Once linked, the name badge is enough; no duplicate chip.
-                <Pressable
-                  onPress={canAmend ? () => setLinkedSheetVisible(true) : undefined}
-                  disabled={!canAmend}
-                  accessibilityRole={canAmend ? "button" : "text"}
-                  style={({ pressed }) => [styles.readOnlyChip, pressed && { opacity: 0.5 }]}
+        <ScrollView
+          ref={scrollRef}
+          onLayout={(event) => {
+            viewport.current.height = event.nativeEvent.layout.height;
+            revealNotificationTally();
+          }}
+          onScroll={(event) => {
+            viewport.current.offset = event.nativeEvent.contentOffset.y;
+          }}
+          scrollEventThrottle={16}
+          onContentSizeChange={revealNotificationTally}
+          showsVerticalScrollIndicator={false}
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+          contentContainerStyle={{
+            paddingBottom: canCreate ? actionsHeight + 24 : 24 + insets.bottom,
+          }}
+        >
+          <View>
+            <View style={styles.info}>
+              <View style={[styles.nameRow, rowDir(isRTL)]}>
+                <Text style={[styles.name, { flexShrink: 1 }, textDir(isRTL)]}>{person.name}</Text>
+                {link ? (
+                  <SharedAccountBadge
+                    size={20}
+                    name={person.name}
+                    fontSize={typography.heading.fontSize}
+                  />
+                ) : null}
+              </View>
+              {person.phone ? (
+                <Text
+                  style={[
+                    styles.phone,
+                    { writingDirection: "ltr", textAlign: isRTL ? "right" : "left" },
+                  ]}
                 >
-                  <Ionicons name="link-outline" size={14} color={colors.textSubtle} />
-                  <Text style={styles.readOnlyChipText} allowFontScaling={false} numberOfLines={1}>
-                    {t("tab.chip.waiting")}
-                  </Text>
-                </Pressable>
+                  {ltrIsolate(person.phone)}
+                </Text>
               ) : null}
-            </View>
-            <View style={[styles.balanceRow, rowDir(isRTL)]}>
-              <Text
-                style={[styles.balance, { color: balanceColor, flexShrink: 1 }]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.5}
-              >
-                {formatAmount(abs)}
-              </Text>
-              <Text style={styles.balanceAfn}>{getCurrentCurrencySymbol()}</Text>
+              <View style={{ height: 16 }} />
+              <View style={[styles.chipRow, rowDir(isRTL)]}>
+                {chipLabel && chipVariant ? (
+                  <Chip label={chipLabel} variant={chipVariant} />
+                ) : settledCount > 0 &&
+                  chapterCoherent &&
+                  !sharedReviewPending &&
+                  unsettledOriginalCount === 0 ? (
+                  // "SETTLED" only when the user actually drew the line and it
+                  // covers everything.
+                  <Chip label={t("person.balance.settled")} variant="neutral" />
+                ) : displayedEntries.length > 0 ? (
+                  // A tally that merely SUMS to zero (or whose chapter no longer
+                  // adds up after a sync) is not a settled account — say so
+                  // rather than leaving the chip slot blank while every other
+                  // state labels itself. Hollow pill: true, but not an
+                  // achievement. The settle-row invitation sits below.
+                  // Contacts with no entries at all keep an empty slot — there
+                  // is no tally yet to have a state.
+                  <Chip label={t("person.balance.notSettled")} variant="outline" />
+                ) : null}
+                {link && link.other_joined_at == null ? (
+                  // Keep the invitation-waiting cue until the other side joins.
+                  // Once linked, the name badge is enough; no duplicate chip.
+                  <Pressable
+                    onPress={canAmend ? () => setLinkedSheetVisible(true) : undefined}
+                    disabled={!canAmend}
+                    accessibilityRole={canAmend ? "button" : "text"}
+                    style={({ pressed }) => [styles.readOnlyChip, pressed && { opacity: 0.5 }]}
+                  >
+                    <Ionicons name="link-outline" size={14} color={colors.textSubtle} />
+                    <Text
+                      style={styles.readOnlyChipText}
+                      allowFontScaling={false}
+                      numberOfLines={1}
+                    >
+                      {t("tab.chip.waiting")}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+              <View style={[styles.balanceRow, rowDir(isRTL)]}>
+                <Text
+                  style={[styles.balance, { color: balanceColor, flexShrink: 1 }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.5}
+                >
+                  {formatAmount(abs)}
+                </Text>
+                <Text style={styles.balanceAfn}>{getCurrentCurrencySymbol()}</Text>
+              </View>
+              {entries.length > 0 ? (
+                <View style={styles.pingArea}>
+                  <Pressable
+                    onPress={() => void sendPing()}
+                    disabled={pinging}
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: pinging, busy: pinging }}
+                    style={({ pressed }) => [
+                      styles.pingButton,
+                      rowDir(isRTL),
+                      pressed && { opacity: 0.65 },
+                    ]}
+                  >
+                    {pinging ? (
+                      <ActivityIndicator size="small" color={colors.textEmphasis} />
+                    ) : (
+                      <Ionicons
+                        name="logo-whatsapp"
+                        size={icon.trailing}
+                        color={colors.textEmphasis}
+                      />
+                    )}
+                    <Text
+                      style={[styles.pingLabel, textDir(isRTL)]}
+                      accessibilityLiveRegion="polite"
+                    >
+                      {t(
+                        pingStage === "preparing"
+                          ? "person.ping.preparing"
+                          : pingStage === "opening"
+                            ? "person.ping.opening"
+                            : "person.ping.button",
+                      )}
+                    </Text>
+                  </Pressable>
+                  <Text style={[styles.pingHint, textDir(isRTL)]}>
+                    {t("person.ping.hint", { name: person.name })}
+                  </Text>
+                </View>
+              ) : null}
             </View>
           </View>
-        </View>
 
-        {/* Settle-up affordance — deliberately NOT a button. A ruled line,
+          {entries.length > 0 || preLink.length > 0 || failedTallies.length > 0 ? (
+            <View style={styles.searchArea}>
+              <View style={[styles.searchBox, rowDir(isRTL)]}>
+                <Ionicons name="search-outline" size={icon.trailing} color={colors.textSubtle} />
+                <TextInput
+                  value={noteQuery}
+                  onChangeText={setNoteQuery}
+                  placeholder={t("person.search.placeholder")}
+                  accessibilityLabel={t("person.search.placeholder")}
+                  placeholderTextColor={colors.textSubtle}
+                  style={[styles.searchInput, textDir(isRTL)]}
+                  returnKeyType="search"
+                  maxLength={500}
+                />
+                {noteQuery.length > 0 ? (
+                  <Pressable
+                    onPress={() => setNoteQuery("")}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("person.search.clear")}
+                    style={styles.clearSearch}
+                  >
+                    <Ionicons name="close-circle" size={icon.trailing} color={colors.textSubtle} />
+                  </Pressable>
+                ) : null}
+              </View>
+              {searching ? (
+                <Text
+                  style={[styles.searchSummary, textDir(isRTL)]}
+                  accessibilityLiveRegion="polite"
+                >
+                  {t("person.search.results", { count: searchResultCount })}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+
+          {/* Settle-up affordance — deliberately NOT a button. A ruled line,
             the same mark a paper khata gets when an account is closed. It
             only exists in the exact moment it means something: balance is
             zero AND the current chapter has entries. Tapping it draws the
             line for real. */}
-        {canSettle ? (
-          <Pressable
-            onPress={() => setConfirmSettle(true)}
-            accessibilityRole="button"
-            accessibilityLabel={t("person.settle.row")}
-            style={({ pressed }) => [styles.settleRow, rowDir(isRTL), pressed && { opacity: 0.5 }]}
-          >
-            <View style={styles.settleRule} />
-            <Text style={styles.settleRowText} allowFontScaling={false}>
-              {t("person.settle.row")}
-            </Text>
-            <View style={styles.settleRule} />
-          </Pressable>
-        ) : null}
+          {canSettle && !searching ? (
+            <Pressable
+              onPress={() => setConfirmSettle(true)}
+              accessibilityRole="button"
+              accessibilityLabel={t("person.settle.row")}
+              style={({ pressed }) => [
+                styles.settleRow,
+                rowDir(isRTL),
+                pressed && { opacity: 0.5 },
+              ]}
+            >
+              <View style={styles.settleRule} />
+              <Text style={styles.settleRowText} allowFontScaling={false}>
+                {t("person.settle.row")}
+              </Text>
+              <View style={styles.settleRule} />
+            </Pressable>
+          ) : null}
 
-        {historyItems.length === 0 ? (
-          settledCount > 0 ? (
-            // Fresh page after a settlement: not "empty", just a new chapter.
-            <EmptyState
-              title={t("person.freshChapter.title")}
-              subtitle={t("person.freshChapter.subtitle")}
-              isRTL={isRTL}
-            />
+          {historyItems.length === 0 ? (
+            searching ? (
+              searchResultCount === 0 ? (
+                <EmptyState
+                  title={t("person.search.empty.title")}
+                  subtitle={t("person.search.empty.subtitle")}
+                  isRTL={isRTL}
+                />
+              ) : null
+            ) : settledCount > 0 ? (
+              // Fresh page after a settlement: not "empty", just a new chapter.
+              <EmptyState
+                title={t("person.freshChapter.title")}
+                subtitle={t("person.freshChapter.subtitle")}
+                isRTL={isRTL}
+              />
+            ) : (
+              <EmptyState
+                title={t("person.empty.title")}
+                subtitle={t("person.empty.subtitle")}
+                isRTL={isRTL}
+              />
+            )
           ) : (
-            <EmptyState
-              title={t("person.empty.title")}
-              subtitle={t("person.empty.subtitle")}
-              isRTL={isRTL}
-            />
-          )
-        ) : (
-          <View
-            style={styles.entriesCard}
-            onLayout={(event) => {
-              entriesCardY.current = event.nativeEvent.layout.y;
-              revealNotificationTally();
-            }}
-          >
-            {historyItems.map((item, index) => {
-              if (item.kind === "marker") {
-                // The ruled-off line, dated — a khata page's visible mark.
+            <View
+              style={styles.entriesCard}
+              onLayout={(event) => {
+                entriesCardY.current = event.nativeEvent.layout.y;
+                revealNotificationTally();
+              }}
+            >
+              {historyItems.map((item, index) => {
+                if (item.kind === "marker") {
+                  // The ruled-off line, dated — a khata page's visible mark.
+                  return (
+                    <View key={`m-${item.ms}-${index}`} style={[styles.chapterLine, rowDir(isRTL)]}>
+                      <View style={styles.settleRule} />
+                      <Text style={styles.chapterLineText} allowFontScaling={false}>
+                        {t(item.settlement ? "tab.settle.history" : "person.history.settledOn", {
+                          date: formatSettlementDate(item.ms, getLocale(), calendar),
+                          name: item.settlement?.actor_name || t("entry.by.someone"),
+                        })}
+                      </Text>
+                      <View style={styles.settleRule} />
+                    </View>
+                  );
+                }
+                const entry = item.entry;
+                // Settled history is READ-ONLY (review fix): editing or
+                // deleting a ruled-off entry would un-zero a closed chapter.
+                // Remote edits can still arrive — the coherence rule above
+                // handles those by falling open — but this device won't offer
+                // the footgun.
+                const inSettledChapter =
+                  !entry.tab &&
+                  settlement.lastSettledAtMs != null &&
+                  entry.created_at <= settlement.lastSettledAtMs;
+                const canOpenSheet = canAmend && !inSettledChapter && !entry.tab;
                 return (
-                  <View key={`m-${item.ms}-${index}`} style={[styles.chapterLine, rowDir(isRTL)]}>
-                    <View style={styles.settleRule} />
-                    <Text style={styles.chapterLineText} allowFontScaling={false}>
-                      {t(item.settlement ? "tab.settle.history" : "person.history.settledOn", {
-                        date: formatSettlementDate(item.ms, getLocale(), calendar),
-                        name: item.settlement?.actor_name || t("entry.by.someone"),
-                      })}
-                    </Text>
-                    <View style={styles.settleRule} />
-                  </View>
-                );
-              }
-              const entry = item.entry;
-              // Settled history is READ-ONLY (review fix): editing or
-              // deleting a ruled-off entry would un-zero a closed chapter.
-              // Remote edits can still arrive — the coherence rule above
-              // handles those by falling open — but this device won't offer
-              // the footgun.
-              const inSettledChapter =
-                !entry.tab &&
-                settlement.lastSettledAtMs != null &&
-                entry.created_at <= settlement.lastSettledAtMs;
-              const canOpenSheet = canAmend && !inSettledChapter && !entry.tab;
-              return (
-                <View
-                  key={entry.id}
-                  onLayout={(event) => {
-                    const { y, height } = event.nativeEvent.layout;
-                    entryPositions.current.set(entry.id, { y, height });
-                    revealNotificationTally();
-                  }}
-                >
-                  {index > 0 && historyItems[index - 1].kind !== "marker" ? (
-                    <View style={styles.divider} />
-                  ) : null}
-                  {/* setSheetFor is referentially stable — keeps the memoized
+                  <View
+                    key={entry.id}
+                    onLayout={(event) => {
+                      const { y, height } = event.nativeEvent.layout;
+                      entryPositions.current.set(entry.id, { y, height });
+                      revealNotificationTally();
+                    }}
+                  >
+                    {index > 0 && historyItems[index - 1].kind !== "marker" ? (
+                      <View style={styles.divider} />
+                    ) : null}
+                    {/* setSheetFor is referentially stable — keeps the memoized
                       EntryRow from re-rendering on unrelated screen renders.
                       Opens the edit/delete sheet on TAP-AND-HOLD only. */}
-                  <EntryRow
-                    entry={entry}
-                    onLongPress={canOpenSheet ? setSheetFor : undefined}
-                    attribution={attribution.get(entry.id)}
-                    tab={entry.tab}
-                    selfAccountId={getAccountIdSync()}
-                    onAccept={canAmend && link ? onAccept : undefined}
-                    onReject={canAmend && link ? onReject : undefined}
-                    onCancel={canAmend && link ? onVoid : undefined}
-                  />
-                  {highlight?.id === entry.id ? (
-                    <TallyHighlight requestKey={highlight.key} />
-                  ) : null}
-                </View>
-              );
-            })}
-          </View>
-        )}
+                    <EntryRow
+                      entry={entry}
+                      onLongPress={canOpenSheet ? setSheetFor : undefined}
+                      attribution={attribution.get(entry.id)}
+                      tab={entry.tab}
+                      selfAccountId={getAccountIdSync()}
+                      onAccept={canAmend && link ? onAccept : undefined}
+                      onReject={canAmend && link ? onReject : undefined}
+                      onCancel={canAmend && link ? onVoid : undefined}
+                    />
+                    {highlight?.id === entry.id ? (
+                      <TallyHighlight requestKey={highlight.key} />
+                    ) : null}
+                  </View>
+                );
+              })}
+            </View>
+          )}
 
-        {failedTallies.length > 0 ? (
-          <>
-            <Pressable
-              onPress={() => setFailedTalliesOpen((v) => !v)}
-              accessibilityRole="button"
-              accessibilityState={{ expanded: failedTalliesOpen }}
-              style={[styles.foldRow, rowDir(isRTL)]}
-            >
-              <Text style={styles.historyRowText}>
-                {t("tab.notSent", { count: failedTallies.length })}
-              </Text>
-              <Ionicons
-                name={failedTalliesOpen ? "chevron-up" : "chevron-down"}
-                size={14}
-                color={colors.textSubtle}
-              />
-            </Pressable>
-            {failedTalliesOpen ? (
-              <View style={[styles.entriesCard, styles.preLinkCard]}>
-                <Text style={[styles.historyRowText, { padding: 14 }, textDir(isRTL)]}>
-                  {t("tab.notSent.body")}
+          {matchedFailedTallies.length > 0 ? (
+            <>
+              <Pressable
+                onPress={() => setFailedTalliesOpen((v) => !v)}
+                disabled={searching}
+                accessibilityRole="button"
+                accessibilityState={{
+                  expanded: searching || failedTalliesOpen,
+                  disabled: searching,
+                }}
+                style={[styles.foldRow, rowDir(isRTL)]}
+              >
+                <Text style={styles.historyRowText}>
+                  {t("tab.notSent", { count: matchedFailedTallies.length })}
                 </Text>
-                {failedTallies.map((entry) => (
-                  <EntryRow key={entry.id} entry={entry} />
-                ))}
-              </View>
-            ) : null}
-          </>
-        ) : null}
+                {!searching ? (
+                  <Ionicons
+                    name={failedTalliesOpen ? "chevron-up" : "chevron-down"}
+                    size={14}
+                    color={colors.textSubtle}
+                  />
+                ) : null}
+              </Pressable>
+              {searching || failedTalliesOpen ? (
+                <View style={[styles.entriesCard, styles.preLinkCard]}>
+                  <Text style={[styles.historyRowText, { padding: 14 }, textDir(isRTL)]}>
+                    {t("tab.notSent.body")}
+                  </Text>
+                  {matchedFailedTallies.map((entry) => (
+                    <EntryRow key={entry.id} entry={entry} />
+                  ))}
+                </View>
+              ) : null}
+            </>
+          ) : null}
 
-        {tabHistory?.closed_reason === "account_deleted" ? (
-          <Text
-            style={[
-              styles.historyRowText,
-              { paddingHorizontal: 14, paddingVertical: 10 },
-              textDir(isRTL),
-            ]}
-          >
-            {t("export.record.closedDeleted")}
-          </Text>
-        ) : null}
+          {tabHistory?.closed_reason === "account_deleted" ? (
+            <Text
+              style={[
+                styles.historyRowText,
+                { paddingHorizontal: 14, paddingVertical: 10 },
+                textDir(isRTL),
+              ]}
+            >
+              {t("export.record.closedDeleted")}
+            </Text>
+          ) : null}
 
-        {/* Pre-link history (D8). Visible but folded, in the settled-history
+          {/* Pre-link history (D8). Visible but folded, in the settled-history
             row's visual language: these rows are the book as it was before
             the account became shared, their sum is already the opening tally
             on the tab, and nothing here can be edited (TabLinkedEntryError).
             No long-press, no attribution: frozen pages. */}
-        {tabHistory && preLink.length > 0 ? (
-          <>
-            <Pressable
-              onPress={() => setPreLinkOpen((v) => !v)}
-              accessibilityRole="button"
-              accessibilityState={{ expanded: preLinkOpen }}
-              style={({ pressed }) => [styles.foldRow, rowDir(isRTL), pressed && { opacity: 0.5 }]}
-            >
-              <Text style={styles.historyRowText} allowFontScaling={false}>
-                {t("tab.beforeLinking", { count: preLink.length })}
-              </Text>
-              <Ionicons
-                name={preLinkOpen ? "chevron-up" : "chevron-down"}
-                size={14}
-                color={colors.textSubtle}
-              />
-            </Pressable>
-            {preLinkOpen ? (
-              <View style={[styles.entriesCard, styles.preLinkCard]}>
-                {preLink.map((entry, index) => (
-                  <View key={entry.id}>
-                    {index > 0 ? <View style={styles.divider} /> : null}
-                    <EntryRow entry={entry} />
-                  </View>
-                ))}
-              </View>
-            ) : null}
-          </>
-        ) : null}
+          {tabHistory && matchedPreLink.length > 0 ? (
+            <>
+              <Pressable
+                onPress={() => setPreLinkOpen((v) => !v)}
+                disabled={searching}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: searching || preLinkOpen, disabled: searching }}
+                style={({ pressed }) => [
+                  styles.foldRow,
+                  rowDir(isRTL),
+                  pressed && { opacity: 0.5 },
+                ]}
+              >
+                <Text style={styles.historyRowText} allowFontScaling={false}>
+                  {t("tab.beforeLinking", { count: matchedPreLink.length })}
+                </Text>
+                {!searching ? (
+                  <Ionicons
+                    name={preLinkOpen ? "chevron-up" : "chevron-down"}
+                    size={14}
+                    color={colors.textSubtle}
+                  />
+                ) : null}
+              </Pressable>
+              {searching || preLinkOpen ? (
+                <View style={[styles.entriesCard, styles.preLinkCard]}>
+                  {matchedPreLink.map((entry, index) => (
+                    <View key={entry.id}>
+                      {index > 0 ? <View style={styles.divider} /> : null}
+                      <EntryRow entry={entry} />
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </>
+          ) : null}
 
-        {/* Settled history collapse — one quiet row, only when chapters
+          {/* Settled history collapse — one quiet row, only when chapters
             exist AND the collapse is coherent (when the chapter can't
             explain the balance, the view is forced open and the toggle
             hides rather than pretend). Nothing was deleted; the book just
             has pages now. */}
-        {settledCount > 0 && chapterCoherent ? (
-          <Pressable
-            onPress={() => setShowFullHistory((v) => !v)}
-            accessibilityRole="button"
-            style={({ pressed }) => [styles.historyRow, pressed && { opacity: 0.5 }]}
-          >
-            <Text style={styles.historyRowText} allowFontScaling={false}>
-              {showFullHistory
-                ? t("person.history.hide")
-                : t("person.history.show", { count: settledCount })}
-            </Text>
-          </Pressable>
-        ) : null}
-      </ScrollView>
+          {settledCount > 0 && chapterCoherent && !searching ? (
+            <Pressable
+              onPress={() => setShowFullHistory((v) => !v)}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.historyRow, pressed && { opacity: 0.5 }]}
+            >
+              <Text style={styles.historyRowText} allowFontScaling={false}>
+                {showFullHistory
+                  ? t("person.history.hide")
+                  : t("person.history.show", { count: settledCount })}
+              </Text>
+            </Pressable>
+          ) : null}
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* Same floating geometry as the old ping bar, including its toast lift.
           Received LEFT, gave RIGHT regardless of language. */}
@@ -1339,10 +1521,24 @@ export default function PersonDetailScreen() {
         ]}
         selected=""
         onSelect={(k) => {
+          // OptionSheet's Modal stays mounted throughout its 220 ms exit.
+          // Claim the choice now; a fast offline share must not permit a
+          // second tap there or open WhatsApp over the native sheet.
+          if (pingLanguageChosen.current || pingBusyRef.current) return;
+          pingLanguageChosen.current = true;
           setAskLangVisible(false);
-          void sendPing(k as LocaleCode);
+          pingBusyRef.current = true;
+          setPingStage("preparing");
+          pingLanguageTimer.current = setTimeout(() => {
+            pingLanguageTimer.current = null;
+            pingBusyRef.current = false;
+            void sendPing(k as LocaleCode);
+          }, 220);
         }}
-        onDismiss={() => setAskLangVisible(false)}
+        onDismiss={() => {
+          pingLanguageChosen.current = true;
+          setAskLangVisible(false);
+        }}
         isRTL={isRTL}
       />
 
@@ -1470,6 +1666,40 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
   balanceAfn: { fontSize: 15, fontFamily: fonts.sansMedium, color: colors.textMuted },
+  pingArea: { marginTop: 14, gap: 6 },
+  pingButton: {
+    minHeight: TOUCH_MIN,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: radius.sm,
+  },
+  pingLabel: { ...typography.labelBold, flexShrink: 1, color: colors.textEmphasis },
+  pingHint: { ...typography.bodySm, color: colors.textSubtle },
+  searchArea: { marginHorizontal: 16, marginBottom: 8, gap: 8 },
+  searchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: radius.sm,
+    paddingHorizontal: 12,
+    minHeight: TOUCH_MIN,
+  },
+  searchInput: { ...typography.body, flex: 1, color: colors.textEmphasis, paddingVertical: 10 },
+  clearSearch: {
+    minWidth: TOUCH_MIN,
+    minHeight: TOUCH_MIN,
+    justifyContent: "center",
+    alignItems: "center",
+    marginEnd: -12,
+  },
+  searchSummary: { ...typography.bodySm, color: colors.textSubtle },
   actions: {
     // INVARIANT: "I received" stays physical LEFT, "I gave" stays physical
     // RIGHT. Right-hand-is-giving cultural rule. Yoga WOULD auto-reverse

@@ -9,7 +9,9 @@ let slots: any[] = [],
 let recovery = { recovered: [] as string[], failed: [] as any[] };
 let routes: any[] = [],
   authCalls = 0,
-  restoredVault = "";
+  restoredVault = "",
+  googleAvailable = true,
+  rtl = false;
 const meta = new Map<string, string>();
 const jsx = (type: any, props: any) => ({ type, props });
 const mocks: Record<string, any> = {
@@ -49,6 +51,7 @@ const mocks: Record<string, any> = {
   "expo-router": {
     useRouter: () => ({
       replace: (r: any) => routes.push(r),
+      push: (r: any) => routes.push(r),
       dismissTo: (r: any) => routes.push({ dismissTo: r }),
       canGoBack: () => false,
     }),
@@ -67,7 +70,7 @@ const mocks: Record<string, any> = {
   "../../lib/recovery": { recoverAllVaults: async () => recovery },
   "../../lib/sync/reconcile": { reconcileVaultRegistrations: async () => {} },
   "../../lib/auth": {
-    isGoogleSignInAvailable: () => true,
+    isGoogleSignInAvailable: () => googleAvailable,
     isCancellation: () => false,
     SignInFailedError: class extends Error {},
     InstallRetiredError: class extends Error {},
@@ -104,7 +107,7 @@ const mocks: Record<string, any> = {
     rowDir: () => ({}),
     textDir: () => ({}),
     trackingSafe: () => ({}),
-    useIsRTL: () => false,
+    useIsRTL: () => rtl,
   },
   "../../lib/fonts": { fonts: {}, sansLineHeight: (_: number, h: number) => h },
   "../../lib/i18n": { t: (k: string) => k },
@@ -140,6 +143,120 @@ function reset() {
   self = { name: "Matee" };
   recovery = { recovered: [], failed: [] };
   restoredVault = "";
+  googleAvailable = true;
+  rtl = false;
+}
+function settingsSignIn() {
+  // Exercise the real settings sheet: dismiss its native Modal first, then
+  // push the provider page once the existing exit delay has elapsed.
+  const sheetMocks: Record<string, any> = {
+    ...mocks,
+    react: { ...mocks.react, useMemo: (fn: any) => fn() },
+    "react-native": {
+      ...mocks["react-native"],
+      Modal: "Modal",
+      Image: "Image",
+      Switch: "Switch",
+      Dimensions: { get: () => ({ height: 800 }) },
+      Animated: { View: "AnimatedView", Value: class {} },
+    },
+    "react-native-safe-area-context": {
+      SafeAreaView: "Safe",
+      useSafeAreaInsets: () => ({ bottom: 0 }),
+    },
+    "expo-blur": { BlurView: "Blur" },
+    "../lib/colors": mocks["../../lib/colors"],
+    "../lib/blur": { SHEET_BLUR_METHOD: "none" },
+    "../lib/db-tx": { getAccountIdSync: () => null },
+    "../lib/design-tokens": {},
+    "../lib/currency": { getCurrencySymbol: (code: string) => code },
+    "../lib/direction": mocks["../../lib/direction"],
+    "../lib/fonts": mocks["../../lib/fonts"],
+    "../constants/env": { SOLO_STORE_MODE: true },
+    "../lib/i18n": mocks["../../lib/i18n"],
+    "../lib/tokens": { radius: {} },
+    "../lib/use-vault-summary": { useMembersCount: () => 1 },
+    "./InitialAvatar": { InitialAvatar: "Avatar" },
+    "./SettingsScreen": {
+      NavRow: "NavRow",
+      SectionHeader: "SectionHeader",
+      SectionGap: "SectionGap",
+    },
+  };
+  let dismissed = 0;
+  let timers = 0;
+  let queued: { callback: () => void; delay: number } | null = null;
+  const sheet: any = {};
+  new Function(
+    "require",
+    "exports",
+    "setTimeout",
+    ts.transpileModule(
+      readFileSync(require.resolve("../../components/ProfileSettingsSheet"), "utf8"),
+      {
+        compilerOptions: {
+          module: ts.ModuleKind.CommonJS,
+          jsx: ts.JsxEmit.ReactJSX,
+          target: ts.ScriptTarget.ES2022,
+        },
+      },
+    ).outputText,
+  )(
+    (k: string) => {
+      assert.ok(k in sheetMocks, k);
+      return sheetMocks[k];
+    },
+    sheet,
+    (callback: () => void, delay: number) => {
+      timers++;
+      queued = { callback, delay };
+    },
+  );
+  for (const platform of ["android", "ios"]) {
+    mocks["react-native"].Platform.OS = platform;
+    for (const isRTL of [false, true]) {
+      reset();
+      rtl = isRTL;
+      // The sheet is already mounted and visible; native animation isn't the
+      // behavior under test. This initializes its first `rendered` state.
+      slots = [true];
+      cursor = 0;
+      queued = null;
+      dismissed = 0;
+      timers = 0;
+      const tree = sheet.ProfileSettingsSheet({
+        visible: true,
+        signedInUser: null,
+        activeAccountId: null,
+        activeVaultId: null,
+        vaults: [],
+        shopModeEnabled: false,
+        onDismiss: () => dismissed++,
+      });
+      const signInRows = nodes(tree).filter((n) =>
+        n.props.label?.startsWith("menu.account.signIn"),
+      );
+      assert.deepEqual(
+        signInRows.map((n) => n.props.label),
+        ["menu.account.signIn.choose"],
+      );
+      assert.equal(signInRows[0].props.icon, "log-in-outline");
+      signInRows[0].props.onPress();
+      signInRows[0].props.onPress();
+      assert.equal(dismissed, 1);
+      assert.equal(timers, 1, "a second tap during sheet exit never pushes a second page");
+      assert.deepEqual(routes, [], "no page opens while the native Modal is closing");
+      const scheduled = queued as { callback: () => void; delay: number } | null;
+      assert.equal(scheduled?.delay, 220);
+      scheduled?.callback();
+      assert.deepEqual(routes, ["/sign-in"], "open all providers, not the email-only mode");
+      assert.equal(authCalls, 0, "choosing Sign in does not start a provider handshake");
+    }
+  }
+  mocks["react-native"].Platform.OS = "android";
+  console.log(
+    "PASS: one settings Sign in row in EN/FA on Android/iOS; dismiss before provider page",
+  );
 }
 async function signIn() {
   const tree = render();
@@ -148,6 +265,33 @@ async function signIn() {
     .props.onPress();
 }
 async function main() {
+  settingsSignIn();
+  for (const platform of ["android", "ios"]) {
+    mocks["react-native"].Platform.OS = platform;
+    for (const available of [true, false]) {
+      reset();
+      googleAvailable = available;
+      const providerLabels = nodes(render())
+        .filter((n) =>
+          /onboardingMode\.(google|apple|email)\.title/.test(n.props.accessibilityLabel),
+        )
+        .map((n) => n.props.accessibilityLabel);
+      assert.deepEqual(
+        providerLabels,
+        [
+          ...(platform === "ios"
+            ? ["onboardingMode.apple.title", ...(available ? ["onboardingMode.google.title"] : [])]
+            : [
+                ...(available ? ["onboardingMode.google.title"] : []),
+                "onboardingMode.apple.title",
+              ]),
+          "onboardingMode.email.title",
+        ],
+        "the destination retains email, Apple and available Google with platform ordering",
+      );
+    }
+  }
+  mocks["react-native"].Platform.OS = "android";
   reset();
   assert.equal(
     nodes(render()).some((n) => n.type === "Ninja"),

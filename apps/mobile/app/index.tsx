@@ -27,29 +27,14 @@ import { InitialAvatar } from "../components/InitialAvatar";
 import { NotificationBell } from "../components/NotificationInbox";
 import { PersonRow } from "../components/PersonRow";
 import { ProfileSettingsSheet, type VaultListItem } from "../components/ProfileSettingsSheet";
-import { RestoreProgress, restoreProgressLabel } from "../components/RestoreProgress";
 import { Tabs } from "../components/Tabs";
 import { useToast, useToastOffset } from "../components/Toast";
 import { UpdateBanner } from "../components/UpdateBanner";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
 import { applyVaultCurrency, getCurrentCurrencySymbol } from "../lib/currency";
-// Type-only — the recovery module itself stays a lazy dynamic import below.
-import type { RecoveryProgress } from "../lib/recovery";
 import { VaultPickerSheet } from "../components/VaultPickerSheet";
-import {
-  type DifferentAccountChoice,
-  type DifferentAccountPromptArgs,
-  getSessionUser,
-  InstallRetiredError,
-  isCancellation,
-  type SessionUser,
-  SignInCancelledByUserError,
-  SignInFailedError,
-  signInWithApple,
-  signInWithGoogle,
-  signOut,
-} from "../lib/auth";
+import { getSessionUser, type SessionUser, signOut } from "../lib/auth";
 import {
   archivePerson,
   getActiveVaultArchivedAt,
@@ -63,7 +48,7 @@ import {
 } from "../lib/db";
 import { getAccountIdSync, getActiveVaultId, setActiveVaultId } from "../lib/db-tx";
 import { useLedgerRefresh } from "../lib/ledger-events";
-import { ltrIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
+import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { formatAmount } from "../lib/format";
 import { sumAmounts } from "../lib/money";
@@ -293,37 +278,15 @@ export default function HomeScreen() {
   // BLE "Don't ask again" recovery — the OS suppresses the permission
   // dialog, so the only path forward is system settings.
   const [bleSettingsDialogOpen, setBleSettingsDialogOpen] = useState(false);
-  // Phase 7 (D-ACCOUNT-PAGE-ROLE): account.tsx was killed and folded
-  // into ProfileSettingsSheet. The sign-in flow + "different Google
-  // account on this phone?" prompt now live here so the sheet can fire
-  // them inline (same approach as sign-out, which was already inlined).
-  // While the dialog is up, signInWithGoogle is awaiting
-  // `pendingAccountDecision.resolve`; until the user taps a button the
-  // sign-in is suspended.
-  const [pendingAccountDecision, setPendingAccountDecision] = useState<{
-    args: DifferentAccountPromptArgs;
-    resolve: (choice: DifferentAccountChoice) => void;
-  } | null>(null);
-  const [authBusy, setAuthBusy] = useState(false);
-  // Loading overlay for the in-app sign-in chain (handshake → register → restore →
-  // reload). Without it the user taps "Sign in", the sheet closes, and nothing
-  // visibly changes for several seconds (auth chip/avatar + restored kaatas only
-  // appear at the very end). "signingIn" covers the Google handshake + backend +
-  // registration; "restoring" covers recoverAllVaults (which can take a while).
-  const [authPhase, setAuthPhase] = useState<null | "signingIn" | "restoring" | "signingOut">(null);
-  // Live recovery progress for the determinate bar shown during the "restoring"
-  // leg of the sign-in chain (the other legs have no measurable progress).
-  const [authProgress, setAuthProgress] = useState<RecoveryProgress | null>(null);
+  // Sign-in, recovery and the different-account guard live on /sign-in.
+  // Sign-out still runs here and blocks interactions until the local session
+  // and the home view have both refreshed.
+  const [signingOut, setSigningOut] = useState(false);
   // UX critique #6 — sign-out is destructive enough to warrant a ConfirmDialog
   // per the documented contract in design-tokens.ts. The sheet's danger-styled
   // NavRow opens this dialog; only on confirmation do we actually wipe the
   // local session.
   const [signOutConfirm, setSignOutConfirm] = useState(false);
-  // Retired install (InstallRetiredError, HTTP 410 on sign-in): a dialog that
-  // explains and opens Account, whose notice card holds the export guidance and
-  // the only destructive confirmation. Home never erases: a second dialog here
-  // put "Erase and reset" under the user's previous tap.
-  const [retiredNotice, setRetiredNotice] = useState(false);
 
   // Rail position: 0 = collect tab visible, -screenWidth = pay tab visible.
   //
@@ -685,105 +648,6 @@ export default function HomeScreen() {
     },
     [router],
   );
-
-  // Phase 7 D-ACCOUNT-PAGE-ROLE: shared sign-in driver behind the settings
-  // sheet's "Sign in" row. Provider is platform-determined, mirroring
-  // onboarding/auth.tsx: Sign in with Apple on iOS (there is no iOS Google
-  // OAuth client — configureGoogleSignIn() deliberately no-ops there), Google
-  // everywhere else. BOTH providers get the same different-account
-  // keep/wipe/cancel prompt — the server answers 409 different_account when
-  // the sign-in resolves to another account than the one this phone's ledger
-  // is bound to, so an iOS device whose Apple ID changed hands can't silently
-  // rebind the local ledger. Everything after the provider handshake — vault
-  // registration reconcile, restore, toasts — is provider-agnostic. (Email
-  // sign-in has fields to type, so the sheet opens /sign-in?mode=email.)
-  async function runSignIn(provider: "google" | "apple") {
-    if (authBusy) return;
-    setAuthBusy(true);
-    setAuthPhase("signingIn");
-    // "Start fresh" erases this phone's ledger before the sign-in resends. If
-    // the sign-in then fails, the screen must still stop showing what is gone.
-    let wiped = false;
-    try {
-      const promptDifferentAccount = async (args: DifferentAccountPromptArgs) => {
-        const choice = await new Promise<DifferentAccountChoice>((resolve) => {
-          setPendingAccountDecision({ args, resolve });
-        });
-        if (choice === "wipe") wiped = true;
-        return choice;
-      };
-      // Both providers work on both platforms (Apple via the web OAuth flow
-      // on Android; Google on iOS when the iOS client id is baked in — the
-      // sheet hides its row otherwise). Same email → same account either way
-      // (backend email linking).
-      if (provider === "apple") {
-        await signInWithApple(promptDifferentAccount);
-      } else {
-        await signInWithGoogle(promptDifferentAccount);
-      }
-      // Register-on-sign-in: durably POST every owned-but-unregistered LOCAL
-      // vault to the server NOW, while the user is guaranteed online and engaged
-      // — instead of relying on vault/new's fire-and-forget POST or the delayed
-      // background sweep. This is what makes an EXISTING user's kaata actually
-      // back up (and therefore restorable on reinstall): without the server
-      // owner-membership row, every push 403s and GET /v1/vaults omits the vault.
-      // Idempotent (409 = already registered = success); best-effort.
-      try {
-        const { reconcileVaultRegistrations } = await import("../lib/sync/reconcile");
-        await reconcileVaultRegistrations();
-      } catch (err) {
-        if (__DEV__) console.warn("[home] post-sign-in registration failed (non-fatal)", err);
-      }
-      // Restore-on-sign-in: automatically load the account's vaults/kaatas from
-      // the server (Matee: "if it's on, it should load your vaults/kaatas once you
-      // sign in"). Idempotent + safe — a first-time account lists ZERO server
-      // vaults (no-op, local data untouched); a fresh phone loads its backed-up
-      // vaults; an already-synced phone re-applies idempotently. Recovery failure
-      // must not break the sign-in, so it's caught.
-      setAuthProgress(null);
-      setAuthPhase("restoring");
-      let recovery: { recovered: string[]; failed: { vaultId: string }[] } | null = null;
-      try {
-        const { recoverAllVaults } = await import("../lib/recovery");
-        recovery = await recoverAllVaults({ onProgress: setAuthProgress });
-      } catch (err) {
-        if (__DEV__) console.warn("[home] post-sign-in recovery failed (non-fatal)", err);
-      }
-      await load();
-      // H21: don't report unqualified success when some kaatas failed to
-      // restore — the old code discarded the result and always toasted "Signed
-      // in", so a shopkeeper whose supplier ledger silently failed to come back
-      // had no signal. Surface the count (and log which) so a retry is possible.
-      const failedCount = recovery?.failed?.length ?? 0;
-      setTimeout(() => {
-        if (failedCount > 0) {
-          console.warn("[home] recovery: failed vaults", recovery?.failed);
-          toast.push(t("menu.account.signIn.partialToast", { count: failedCount }), "error");
-        } else {
-          toast.push(t("menu.account.signIn.toast"), "success");
-        }
-      }, 240);
-    } catch (err) {
-      if (wiped) void load();
-      if (err instanceof SignInCancelledByUserError) return;
-      if (isCancellation(err)) return;
-      console.warn("[home] sign-in failed", err);
-      if (err instanceof InstallRetiredError) {
-        // Not "try again": the server refuses this install for good. Explain
-        // and offer the confirmed reset instead of the generic toast.
-        setTimeout(() => setRetiredNotice(true), 240);
-      } else if (err instanceof SignInFailedError && err.stage === "token_expired") {
-        // The question stayed up past the token's life; nothing was changed.
-        setTimeout(() => toast.push(t("auth.error.tokenExpired"), "error"), 240);
-      } else {
-        setTimeout(() => toast.push(t("menu.account.signIn.failed"), "error"), 240);
-      }
-    } finally {
-      setAuthBusy(false);
-      setAuthPhase(null);
-      setAuthProgress(null);
-    }
-  }
 
   if (forceUpdate) return <Redirect href="/update-prompt" />;
   if (loaded && !self) return <Redirect href="/onboarding" />;
@@ -1187,7 +1051,6 @@ export default function HomeScreen() {
         shopModeBusy={shopModeBusy}
         activePeers={meshActivePeers}
         onDismiss={() => setSettingsVisible(false)}
-        onSignIn={runSignIn}
         onSignOut={() => {
           // UX critique #6: open a ConfirmDialog before wiping the
           // session. The sheet was already dismissed via chained()
@@ -1471,50 +1334,6 @@ export default function HomeScreen() {
         onCancel={() => setBleSettingsDialogOpen(false)}
       />
 
-      {/* "Different account on this phone?" — the SERVER asks (409
-          different_account, docs/kaata-accounts.md §7) when this phone
-          holds a ledger bound within the last 30 days and the sign-in
-          resolves to another account. Three outcomes; the sign-in is
-          awaiting our resolve() and resends (keep / wipe) or throws
-          SignInCancelledByUserError based on which button gets tapped.
-          It runs inline from ProfileSettingsSheet, so it lives here. */}
-      <ConfirmDialog
-        visible={pendingAccountDecision !== null}
-        title={t("account.differentAccount.title")}
-        description={
-          pendingAccountDecision
-            ? t("account.differentAccount.body", {
-                // Latin addresses, isolated so a Dari sentence cannot reorder them.
-                oldEmail: pendingAccountDecision.args.cachedEmail
-                  ? ltrIsolate(pendingAccountDecision.args.cachedEmail)
-                  : "—",
-                newEmail: pendingAccountDecision.args.newEmail
-                  ? ltrIsolate(pendingAccountDecision.args.newEmail)
-                  : "—",
-              })
-            : ""
-        }
-        confirmLabel={t("account.differentAccount.keep")}
-        tertiaryLabel={t("account.differentAccount.wipe")}
-        tertiaryDestructive
-        cancelLabel={t("account.differentAccount.cancel")}
-        onConfirm={() => {
-          const p = pendingAccountDecision;
-          setPendingAccountDecision(null);
-          p?.resolve("keep");
-        }}
-        onTertiary={() => {
-          const p = pendingAccountDecision;
-          setPendingAccountDecision(null);
-          p?.resolve("wipe");
-        }}
-        onCancel={() => {
-          const p = pendingAccountDecision;
-          setPendingAccountDecision(null);
-          p?.resolve("cancel");
-        }}
-      />
-
       {/* UX critique #6 — sign-out confirmation. The body interpolates
           the current email when known so the user knows which account
           they're exiting; falls back to a generic phrasing when only
@@ -1536,8 +1355,8 @@ export default function HomeScreen() {
         onConfirm={async () => {
           setSignOutConfirm(false);
           // Sign-out hits the backend + clears the session + reloads; show the
-          // same overlay as sign-in so the screen doesn't look frozen.
-          setAuthPhase("signingOut");
+          // overlay so the screen doesn't look frozen.
+          setSigningOut(true);
           try {
             await signOut();
             await load();
@@ -1546,58 +1365,20 @@ export default function HomeScreen() {
             console.warn("[home] signOut failed", err);
             setTimeout(() => toast.push(t("menu.account.signOut.failed"), "error"), 240);
           } finally {
-            setAuthPhase(null);
+            setSigningOut(false);
           }
         }}
         onCancel={() => setSignOutConfirm(false)}
       />
 
-      {/* Retired install: say what happened and open Account, which shows the
-          export guidance and the reset behind its own destructive confirmation
-          (the sign-in 410 already set app_meta install_retired). Navigate after
-          this dialog's Modal has unmounted, the same 220 ms the sheets wait. */}
-      <ConfirmDialog
-        visible={retiredNotice}
-        title={t("account.retired.title")}
-        description={t("account.retired.body")}
-        confirmLabel={t("menu.account.settings")}
-        cancelLabel={t("common.notNow")}
-        onConfirm={() => {
-          setRetiredNotice(false);
-          setTimeout(() => router.push("/account"), 220);
-        }}
-        onCancel={() => setRetiredNotice(false)}
-      />
-
-      {/* Sign-in / restore loading overlay. Plain absolute-fill View (no Modal —
-          the settings sheet has already closed, so there's no Modal-stacking risk)
-          covering the screen while the multi-step sign-in chain runs, so the user
-          gets clear feedback instead of a frozen-looking screen. */}
-      {authPhase ? (
+      {/* Sign-out runs after the settings sheet has closed, so a plain
+          overlay can block interaction without another native Modal. */}
+      {signingOut ? (
         <View style={styles.authOverlay} pointerEvents="auto">
-          {authPhase === "restoring" ? (
-            // Determinate bar — recovery reports real per-vault progress.
-            <RestoreProgress
-              fraction={authProgress?.fraction ?? 0}
-              label={
-                authProgress
-                  ? restoreProgressLabel(authProgress)
-                  : t("menu.account.signIn.restoring")
-              }
-              tone="light"
-              isRTL={isRTL}
-            />
-          ) : (
-            // Handshake / sign-out have no measurable progress → spinner.
-            <>
-              <ActivityIndicator size="large" color={colors.textInverted} />
-              <Text style={[styles.authOverlayText, textDir(isRTL)]}>
-                {authPhase === "signingOut"
-                  ? t("menu.account.signOut.pending")
-                  : t("menu.account.signIn.signingIn")}
-              </Text>
-            </>
-          )}
+          <ActivityIndicator size="large" color={colors.textInverted} />
+          <Text style={[styles.authOverlayText, textDir(isRTL)]}>
+            {t("menu.account.signOut.pending")}
+          </Text>
         </View>
       ) : null}
     </SafeAreaView>

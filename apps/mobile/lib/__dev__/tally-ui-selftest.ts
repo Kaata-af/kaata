@@ -1,11 +1,11 @@
 // Render the real row with mocked native primitives. Pins UI behavior; this
 // does NOT replace Yoga/device layout checks on iOS and Android.
 //
-// The tally row's look is design "A · Quiet" (2026-10-03), and it was already
+// The tally row's look is design "A · Quiet" (refined 2026-10-11), and it was already
 // regressed once by an agent, so the review-state presentation is pinned here
 // in EN and RTL: rows are white whatever their state and turn bgMuted when
-// opened; the state shows ONLY on an opened row, as a neutral centred pill
-// whose dot is the state's one colour; meta lines start at the start edge with
+// opened; only pending tallies show an amber dot. Opened rows spell out every
+// state in a neutral centred pill; meta lines start at the start edge with
 // semibold names; review actions are the shared Button's "pill" size, with
 // Accept the black primary at the trailing end. The pills' touch targets are
 // checked through the real Button: 44pt each, and neither reaching past the
@@ -198,18 +198,7 @@ function touchTarget(button: any, actions: any) {
   };
 }
 const REVIEW = ["tab.reject", "tab.accept"];
-// The approved dot hues; anything else is a design change, not a refactor.
-assert.deepEqual(
-  pick(colors, ["reviewPending", "reviewAccepted", "reviewRejected"]),
-  { reviewPending: "#D29A00", reviewAccepted: "#0A5A46", reviewRejected: "#A34242" },
-  "review dots: amber pending, green accepted, red rejected",
-);
-const DOT: Record<string, string> = {
-  pending: colors.reviewPending,
-  accepted: colors.reviewAccepted,
-  disputed: colors.reviewRejected,
-  sending: colors.textMuted,
-};
+assert.equal(colors.reviewPending, "#D29A00", "the only review dot is amber pending");
 const base = {
   entry: { id: "1", type: "debt", amount_afn: 10, created_at: 1000, note: "Goods" },
   onAccept() {},
@@ -319,6 +308,7 @@ for (const isRTL of [false, true]) {
     const props = { ...base, tab };
     const what = `${c.tab.by}/${c.key}${rtl ? " (RTL)" : ""}`;
     const statusKey = "tab.status." + c.key;
+    const pending = tab.status === "pending";
 
     // "I gave" keeps its pay tile; a rejected tally's tile goes grey.
     const tile = c.key === "disputed" ? colors.bgSubtle : colors.payBg;
@@ -329,31 +319,28 @@ for (const isRTL of [false, true]) {
       [
         `row backgroundColor ${colors.bgDefault}`,
         `tile backgroundColor ${tile}`,
-        `status dot backgroundColor ${DOT[c.key]}`,
+        ...(pending ? [`status dot backgroundColor ${colors.reviewPending}`] : []),
       ].sort(),
-      `${what}: a collapsed tally is plain white; its state is one dot, nothing tinted`,
+      `${what}: a collapsed tally is white with only a pending amber dot`,
     );
-    // Matee (2026-10-03): with no sign at all the state was "completely unknown
-    // unless I tap". The dot sits right before the time, and is silent to
-    // screen readers (the row announces its state through accessibilityValue).
+    // Every state stays announced, including the final states whose visual
+    // dots were removed. Pending's dot itself stays silent to screen readers.
     const closedDot = nodes(collapsed).find((n) => n.props?.testID === "status-dot");
-    const dotRow = nodes(collapsed).find((n) => kids(n).includes(closedDot));
-    const afterDot = kids(dotRow)[kids(dotRow).indexOf(closedDot) + 1];
-    assert.deepEqual(
-      {
-        shape: pick(style(closedDot?.props.style), ["width", "height", "borderRadius"]),
-        next: words(afterDot),
-        silent: closedDot?.props.accessibilityElementsHidden === true,
-        announced: body(collapsed)?.props.accessibilityValue?.text,
-      },
-      {
-        shape: { width: 6, height: 6, borderRadius: 3 },
-        next: "yesterday",
-        silent: true,
-        announced: statusKey,
-      },
-      `${what}: a 6px dot right before the time, announced by the row, not the dot`,
-    );
+    assert.equal(body(collapsed)?.props.accessibilityValue?.text, statusKey);
+    assert.equal(!!closedDot, pending, `${what}: final states have no dot`);
+    if (pending) {
+      const dotRow = nodes(collapsed).find((n) => kids(n).includes(closedDot));
+      const afterDot = kids(dotRow)[kids(dotRow).indexOf(closedDot) + 1];
+      assert.deepEqual(
+        {
+          shape: pick(style(closedDot?.props.style), ["width", "height", "borderRadius"]),
+          next: words(afterDot),
+          silent: closedDot?.props.accessibilityElementsHidden === true,
+        },
+        { shape: { width: 6, height: 6, borderRadius: 3 }, next: "yesterday", silent: true },
+        `${what}: a silent 6px pending dot right before the time`,
+      );
+    }
     assert.equal(
       words(collapsed).includes("tab.status."),
       false,
@@ -376,9 +363,9 @@ for (const isRTL of [false, true]) {
         `pill backgroundColor ${colors.bgDefault}`,
         `pill borderWidth 1`,
         `pill borderColor ${colors.borderDefault}`,
-        `dot backgroundColor ${DOT[c.key]}`,
+        ...(pending ? [`dot backgroundColor ${colors.reviewPending}`] : []),
       ].sort(),
-      `${what}: an opened tally, actions included, sits on bgMuted; only the pill's dot carries the state`,
+      `${what}: an opened tally sits on bgMuted with a neutral pill and only a pending dot`,
     );
     const first = lines(tree)[0];
     const firstStyle = style(first?.props.style);
@@ -437,14 +424,23 @@ for (const isRTL of [false, true]) {
         backgroundColor: colors.bgDefault,
         height22to24: true,
       },
-      `${what}: a neutral white pill, hairline border, dot before the label`,
+      `${what}: a neutral white pill with a hairline border`,
     );
-    const [dot, label] = kids(pill);
-    assert.deepEqual(
-      pick(style(dot?.props.style), ["width", "height", "borderRadius", "backgroundColor"]),
-      { width: 6, height: 6, borderRadius: 3, backgroundColor: DOT[c.key] },
-      `${what}: the dot is the state's one colour`,
-    );
+    const pillChildren = kids(pill);
+    assert.equal(pillChildren.length, pending ? 2 : 1, `${what}: final-state pills have no dot`);
+    const label = pillChildren.at(-1);
+    if (pending) {
+      assert.deepEqual(
+        pick(style(pillChildren[0]?.props.style), [
+          "width",
+          "height",
+          "borderRadius",
+          "backgroundColor",
+        ]),
+        { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.reviewPending },
+        `${what}: a pending dot is amber, including a queued tally labelled Sending`,
+      );
+    }
     const labelStyle = style(label?.props.style);
     assert.deepEqual(
       {
@@ -696,7 +692,7 @@ assert.ok(
     person.indexOf('label: t("person.sheet.edit"', person.indexOf("<OverflowMenu")),
 );
 console.log(
-  "PASS: quiet rows (white, bgMuted when open, no other paint) with a centred status pill and state dot, start-aligned meta, wrapping pill review actions with separate 44pt targets in EN/FA, cancelled rows hidden, floating full-size controls",
+  "PASS: quiet rows with only pending amber dots, accessible final states, centred status pills, start-aligned meta, separate 44pt review targets in EN/FA, cancelled rows hidden, floating full-size controls",
 );
 
 // Render the real bell/header against different safe viewports. In particular,

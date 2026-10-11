@@ -102,8 +102,7 @@ const sqlite = {
 
 function metaGet(key: string): string | null {
   const row = fixture.prepare("SELECT value FROM app_meta WHERE key = ?").get(key) as
-    | { value: string }
-    | undefined;
+    { value: string } | undefined;
   return row?.value ?? null;
 }
 
@@ -1179,6 +1178,7 @@ test("copy: every new string in English and its own Dari; provider-neutral where
   for (const extra of [
     "onboardingMode.email.title",
     "menu.account.signIn.email",
+    "menu.account.signIn.choose",
     "inviteAccept.signin.cta",
   ]) {
     keys.add(extra);

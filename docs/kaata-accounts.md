@@ -453,8 +453,10 @@ providers: ["google","apple","email"...], name, setup_email}`. `setup_email` is 
 enabled={Platform.OS === "android"}` around a ScrollView using
   `useOnboardingKeyboardScroll`, ref + setTimeout(280) focus, toasts on success.
   `selftest:onboarding-keyboard` checks both files.
-- **Profile sheet**, signed out: "Sign in with email" on both platforms →
-  `/sign-in?mode=email`.
+- **Profile sheet**, signed out: one "Sign in" row on both platforms → `/sign-in`.
+  The dedicated page offers email, Google (when configured) and Apple. All three
+  use the same existing-account, recovery and different-account guards. The sheet
+  closes before navigation; provider choices do not fill the settings sheet.
 - **Copy**: provider-neutral wording for the different-account dialog and the
   invitation/pairing strings that say "Google". All new strings in en and fa.
 

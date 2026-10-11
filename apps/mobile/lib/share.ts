@@ -23,6 +23,7 @@ async function uploadSharedLedger(args: {
   self: Self | null;
   lang: LocaleCode;
   settled?: SettledInfo;
+  signal?: AbortSignal;
 }): Promise<string | null> {
   const snapshot = {
     v: 1,
@@ -76,6 +77,9 @@ async function uploadSharedLedger(args: {
   };
 
   const controller = new AbortController();
+  const cancel = () => controller.abort();
+  if (args.signal?.aborted) cancel();
+  else args.signal?.addEventListener("abort", cancel, { once: true });
   const timer = setTimeout(() => controller.abort(), SHARE_UPLOAD_TIMEOUT_MS);
   try {
     const baseUrl = await getBackendUrl();
@@ -98,6 +102,7 @@ async function uploadSharedLedger(args: {
     return null;
   } finally {
     clearTimeout(timer);
+    args.signal?.removeEventListener("abort", cancel);
   }
 }
 
@@ -125,6 +130,8 @@ export type SettledInfo = {
   settledBoundaries?: number[];
 };
 
+export type WhatsAppShareStage = "preparing" | "opening";
+
 export async function shareKaataViaWhatsApp(
   person: { id?: string; name: string; phone: string | null },
   balance: number,
@@ -132,7 +139,11 @@ export async function shareKaataViaWhatsApp(
   entries: Entry[],
   lang: LocaleCode,
   settled?: SettledInfo,
+  onStage?: (stage: WhatsAppShareStage) => void,
+  signal?: AbortSignal,
 ): Promise<boolean> {
+  if (signal?.aborted) return false;
+  onStage?.("preparing");
   const accountWith = self?.shop_name ?? self?.name ?? "Kaata";
   const currency = getCurrentCurrencySymbol();
   const amount = formatAmount(balance);
@@ -160,7 +171,10 @@ export async function shareKaataViaWhatsApp(
 
   // "See the full ledger on kaata.af" + link. Falls back to the plain tagline
   // when the snapshot upload couldn't produce a link (offline / error).
-  const link = await uploadSharedLedger({ person, balance, entries, self, lang, settled });
+  const link = await uploadSharedLedger({ person, balance, entries, self, lang, settled, signal });
+  // Leaving the contact cancels its pending reminder. A late upload must not
+  // launch another app from the screen the user navigated to in the meantime.
+  if (signal?.aborted) return false;
   lines.push("");
   if (link) {
     lines.push(tIn(lang, "share.fullLedger"));
@@ -174,6 +188,7 @@ export async function shareKaataViaWhatsApp(
   const url = phone
     ? `whatsapp://send?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(text)}`
     : `whatsapp://send?text=${encodeURIComponent(text)}`;
+  onStage?.("opening");
   try {
     await Linking.openURL(url);
   } catch (err) {

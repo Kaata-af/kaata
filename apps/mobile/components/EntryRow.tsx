@@ -21,7 +21,7 @@ import type { Entry } from "../lib/types";
 // tally list's vertical rhythm is untouched by turning attribution on.
 const AUTHOR_CHIP_SIZE = 20;
 
-// The review state's only colour: a dot inside the opened row's neutral pill.
+// Only a pending tally carries a review-state dot, in the row or its opened pill.
 const STATUS_DOT_SIZE = 6;
 
 // The action pills reach up and down only. Button's default pill slop also
@@ -162,20 +162,20 @@ export const EntryRow = memo(function EntryRow(props: {
 
   // Review state is separate from money direction. Every synced tally has a
   // status, and it is QUIET (design "A · Quiet", 2026-10-03): no row tint and
-  // no coloured button. A closed row carries it as ONE 6px dot before the time
-  // (Matee: without it the state was "completely unknown unless I tap"); an
-  // opened row spells it out in a neutral pill whose dot is the same colour.
-  // The label and the dot come from ONE lookup so they can never disagree.
+  // no coloured button. Pending tallies have ONE amber 6px dot before the time;
+  // accepted tallies need none, and rejected amounts already carry a strike.
+  // An opened row spells every state out in a neutral pill, with a dot only
+  // while pending. An unsent tally is still pending, but its label says Sending.
   const pending = tab?.status === "pending";
   const status = !tab
     ? null
     : tab.local_pending
-      ? { label: t("tab.status.sending"), dot: colors.textMuted }
+      ? { label: t("tab.status.sending") }
       : tab.status === "disputed"
-        ? { label: t("tab.status.disputed"), dot: colors.reviewRejected }
+        ? { label: t("tab.status.disputed") }
         : tab.status === "accepted"
-          ? { label: t("tab.status.accepted"), dot: colors.reviewAccepted }
-          : { label: t("tab.status.pending"), dot: colors.reviewPending };
+          ? { label: t("tab.status.accepted") }
+          : { label: t("tab.status.pending") };
   const statusLabel = status?.label ?? null;
   // Visibility rules for the inline actions (docs/mutual-tab-design.md):
   // the other party's pending tally offers Accept/Reject even while collapsed;
@@ -244,7 +244,7 @@ export const EntryRow = memo(function EntryRow(props: {
         {open && status ? (
           <View style={styles.statusRow}>
             <View style={[styles.statusPill, rowDir(isRTL), isRTL && styles.statusPillRTL]}>
-              <View style={[styles.statusDot, { backgroundColor: status.dot }]} />
+              {pending ? <View style={styles.statusDot} /> : null}
               {/* Tracking severs Persian joining: trackingSafe drops it in Dari. */}
               <Text style={[styles.statusText, trackingSafe(isRTL)]} numberOfLines={1}>
                 {status.label}
@@ -306,14 +306,14 @@ export const EntryRow = memo(function EntryRow(props: {
                     />
                   </View>
                 ) : null}
-                {/* Closed, the review state is this one dot before the time;
+                {/* Closed, a pending state is this one amber dot before the time;
                   opened, the pill above says it in words, so the dot steps
                   aside. Screen readers get the state from the row's
                   accessibilityValue, so the dot itself stays silent. */}
-                {!open && status ? (
+                {!open && pending ? (
                   <View
                     testID="status-dot"
-                    style={[styles.closedStatusDot, { backgroundColor: status.dot }]}
+                    style={styles.statusDot}
                     accessibilityElementsHidden
                     importantForAccessibility="no"
                   />
@@ -466,7 +466,7 @@ const styles = StyleSheet.create({
   // The opened row's first line: the status pill, centred.
   statusRow: { alignItems: "center", paddingHorizontal: 14, paddingTop: 12 },
   // Neutral on purpose: white, hairline border, body ink. Only the dot is
-  // coloured, so the pill never competes with the amount's direction colour.
+  // coloured when pending, so the pill never competes with money direction.
   statusPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -484,12 +484,7 @@ const styles = StyleSheet.create({
     width: STATUS_DOT_SIZE,
     height: STATUS_DOT_SIZE,
     borderRadius: STATUS_DOT_SIZE / 2,
-  },
-  // The same dot on a closed row, in the time slot. The meta row's gap spaces it.
-  closedStatusDot: {
-    width: STATUS_DOT_SIZE,
-    height: STATUS_DOT_SIZE,
-    borderRadius: STATUS_DOT_SIZE / 2,
+    backgroundColor: colors.reviewPending,
   },
   statusText: {
     fontSize: 11,

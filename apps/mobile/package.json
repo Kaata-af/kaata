@@ -37,7 +37,10 @@
     "selftest:tab-join": "tsx lib/__dev__/tab-join-selftest.ts",
     "selftest:update-url": "tsx lib/__dev__/update-url-selftest.ts",
     "preview:pdf": "tsx lib/__dev__/pdf-preview.ts",
-    "selftest:sync-reconcile": "tsx lib/__dev__/sync-reconcile-selftest.ts"
+    "selftest:tally-search": "tsx lib/__dev__/tally-search-selftest.ts",
+    "selftest:share": "tsx lib/__dev__/share-selftest.ts",
+    "selftest:sync-reconcile": "tsx lib/__dev__/sync-reconcile-selftest.ts",
+    "selftest:person-detail": "tsx lib/__dev__/person-detail-selftest.ts"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",
