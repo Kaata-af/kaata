@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Upload ONLY Kaata 2.2.0/code 51 to Play INTERNAL testing, preserving reviews.
+// Upload ONLY Kaata 2.2.0/code 52 to Play INTERNAL testing, preserving reviews.
 // No track-selection or review-cancellation flag exists. Every commit uses
 // ERROR_IF_IN_REVIEW; a refusal is final, with no automatic retry or fallback.
 // Run only after every other Android EAS submission has finished: one open edit
@@ -16,7 +16,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const MOBILE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PACKAGE = "af.kaata.app";
 const VERSION = "2.2.0";
-const CODE = 51;
+const CODE = 52;
 const ORIGIN = "https://androidpublisher.googleapis.com";
 const BASE = `${ORIGIN}/androidpublisher/v3/applications/${PACKAGE}`;
 const COMMIT_GUARD = "changesInReviewBehavior=ERROR_IF_IN_REVIEW";
@@ -203,16 +203,16 @@ export async function submitInternal(
   report(`Production before: ${JSON.stringify(productionBefore)}`);
   report(`Internal before: ${JSON.stringify(internalBefore)}`);
   if (productionBefore.some((release) => release.codes.includes(String(CODE)))) {
-    throw new Error("Code 51 already exists on production; refusing to continue.");
+    throw new Error(`Code ${CODE} already exists on production; refusing to continue.`);
   }
   const existing = internalBefore.find((release) => release.codes.includes(String(CODE)));
   if (existing) {
     if (existing.state !== "RELEASE_LIFECYCLE_STATE_PUBLISHED") {
       throw new Error(
-        `Code 51 already exists on internal (${existing.state}); inspect it without re-uploading.`,
+        `Code ${CODE} already exists on internal (${existing.state}); inspect it without re-uploading.`,
       );
     }
-    report("2.2.0/code 51 is already published on internal. No edit opened.");
+    report(`${VERSION}/code ${CODE} is already published on internal. No edit opened.`);
     return {
       alreadyPublished: true,
       productionBefore,
@@ -315,7 +315,7 @@ export async function submitInternal(
   const release = internalAfter.find((candidate) => candidate.codes.includes(String(CODE)));
   if (!release)
     throw new Error(
-      "Commit was acknowledged but internal code 51 is not yet visible. Recheck read-only status; do not re-upload.",
+      `Commit was acknowledged but internal code ${CODE} is not yet visible. Recheck read-only status; do not re-upload.`,
     );
   report(`Internal ${VERSION}/code ${CODE}: ${release.state}. Production lifecycle unchanged.`);
   return { committed, productionBefore, productionAfter, internalAfter };
@@ -349,7 +349,7 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
     console.log(
-      "Upload only af.kaata.app 2.2.0/code 51 to INTERNAL testing.\n" +
+      `Upload only ${PACKAGE} ${VERSION}/code ${CODE} to INTERNAL testing.\n` +
         "Usage: node scripts/play-internal-submit.mjs --aab <local.aab> [--notes-file <file>] [--key <file>]\n" +
         "Commit always uses ERROR_IF_IN_REVIEW. No retries, production writes, or review cancellations.\n" +
         "Do not run while another Android EAS/Play submission has an open edit.",

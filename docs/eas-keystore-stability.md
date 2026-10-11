@@ -7,8 +7,12 @@ project and signing credentials so each store can update the installed app.
 
 - EAS project: `a612156b-0f0b-47ea-ac66-b54d880d98aa`; owner: `mateesaafi`.
 - Android package and iOS bundle identifier: `af.kaata.app`.
-- Use `production` for builds and `testing` for submissions:
-  `eas build --profile production --platform all --auto-submit-with-profile testing --non-interactive`.
+- Use `production` for signed store binaries, with `--freeze-credentials`.
+  While a production review is pending, build without auto-submit. Upload iOS
+  using the `testing` submit profile; submit Android through the guarded
+  internal-only helper in [2.2.0-testing-distribution.md](2.2.0-testing-distribution.md).
+  The Android `testing` submit profile targets closed testing (`alpha`), not
+  internal testing. Never use it for the current internal-test request.
 - Verify the build log uses the configured Android keystore. Stop if it proposes
   creating replacement credentials; investigate before distributing anything.
 - Keep store updates in place. Never uninstall or clear app data to bypass an

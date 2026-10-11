@@ -1,7 +1,15 @@
-2.2.0 testing build
+2.2.0 testing build 32
 
-Please test the new Aubergine, Saffron, Ivory and Charcoal interface in English and Dari; Settings sign-in; tally note search across current and settled history; pending-only status dots; WhatsApp reminder loading, repeated taps and cancellation; cloud restore of linked ledgers; and synchronization between phones on separate networks, including reconnecting after going offline.
+Please test in English and Dari:
+
+- WhatsApp sharing beside the three-dot menu, visible preparation, repeated taps and cancellation. There should be one share action.
+- Neutral everyday surfaces and the black home add/find button. Check large text, disabled/loading controls and mirrored Dari layouts.
+- A brief highlight and message when a visible shared tally is accepted or rejected on another phone. Check reduced motion, offline acknowledgement, repeated pulls and background/resume.
+- Swiping Back from the first email form returns to the sign-in choices. Also check signup/reset/code steps, cold pending-code resume and successful restore/invite navigation.
+- Gregorian, Solar Hijri and Qamari calendar choices across languages, restart, kaata changes, tally dates and PDF exports. Qamari uses a calculated civil calendar and may differ from local moon sighting.
+
+Also check tally note search across current and settled history, pending-only dots, cloud restore of linked ledgers and synchronization across separate networks after reconnecting.
 
 Check that search does not change the full balance, exports or WhatsApp statements. Keep your existing app and ledgers intact when updating.
 
-This build is for testing only. Family ledger permissions remain deferred. The weekly growth dashboard and server-rendered branding are separate local web/backend changes and are not included in this native build.
+This build is for testing only. Family ledger permissions remain deferred. The weekly growth dashboard is already live and is separate from this native build. Qamari dates on shared web links and their previews need the matching backend/web update, which has not been deployed for this testing upload; use the app and PDF export for Qamari checks meanwhile.
