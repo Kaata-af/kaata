@@ -1,0 +1,10 @@
+Kaata 2.1.1 adds email sign-in alongside Google and Apple.
+
+- Create your own Kaata account with an email address, a verification code and a password.
+- Choose an optional username for sign-in, and reset a forgotten password by email.
+- Google and Apple users can add an email password from Account settings.
+- Password changes and resets sign out older sessions on your other devices.
+- Return directly to an unfinished email code step after reopening the app.
+- Clearer Dari account screens and security emails, with support for Persian digits.
+
+Your existing kaatas and cloud backups stay available.

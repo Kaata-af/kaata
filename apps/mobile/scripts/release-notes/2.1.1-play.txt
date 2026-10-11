@@ -1,0 +1,10 @@
+Kaata 2.1.1
+
+- Create a Kaata account with email and password, or keep using Google.
+- Sign in with email or a username; reset your password by email.
+- Share an account, review tallies and keep a saved history.
+- Clear a shared account at zero and start a fresh page.
+- Restore your kaatas from cloud backup.
+- Clearer Dari text and more reliable sign-in and code-screen recovery.
+
+Private kaatas stay private unless you choose to share them.

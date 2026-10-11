@@ -6,7 +6,7 @@ durable offline queue, and push delivery infrastructure. Existing private ledger
 events are not rewritten.
 Automated checks and store submissions do not replace native two-phone testing.
 
-Current release candidate: **2.1.0 / Android 47 / iOS 27**: build 46/26
+Earlier release candidate: **2.1.0 / Android 47 / iOS 27**: build 46/26
 (below) plus the fixes for its known issues, all mobile-only (the backend is
 unchanged):
 
@@ -117,8 +117,10 @@ Phone checks for 50 (Android, before sending it for review):
    password on another phone. Back in the Google session, Remove password: the
    password stops working, the other phone is signed out, and a "password was
    removed" email arrives.
-5. On a phone with an offline kaata, sign in to an account that is not this
-   phone's: the keep / start fresh / cancel dialog appears, for email AND Google.
+5. On a phone with a kaata recently bound to an account, sign out and sign in
+   to a different account: the keep / start fresh / cancel dialog appears, for
+   email AND Google. An unbound offline kaata is adopted on first sign-in by
+   design and does not exercise this dialog.
 6. On a phone with no Google account, tap Sign in with Google and back out:
    no error.
 7. Kill the app on the code screen and reopen: it returns to the code step.
@@ -129,6 +131,276 @@ Phone checks for 50 (Android, before sending it for review):
 10. Change password on one phone while another is signed in: this phone stays
     signed in, the other is signed out, and a "password was changed" email
     arrives in the app's language.
+
+#### Rollout record — 11 October 2026
+
+Production/API coverage and native coverage are recorded separately below.
+
+| Area        | Completed                                                                                       | Remaining                                                |
+| ----------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Mail        | Domain verified; SMTP enabled; all eight messages confirmed delivered.                          | Inbox versus Spam placement.                             |
+| Backend     | Healthy production deployment; all four operator IDs active.                                    | Native integration checks.                               |
+| Account API | Sign-up, sign-in, reset, password change, session revocation and throttle verified.             | Native results listed below; physical two-device checks. |
+| Review demo | Ordinary email account and six-tally demo seeded; saved Play flow and one native Accept passed. | No remaining item 9 steps.                               |
+| Android APK | Replacement 2.1.0/50 installed; signing/version verified; code-step cold launch passed.         | Remaining native checks; store AAB/review submission.    |
+| Stores      | Play sign-in details updated; no new store submission.                                          | 2.1.1 production builds/reviews (Android 50, iOS 30).    |
+| Firewall    | Matee skipped the optional Cloudflare-only origin firewall.                                     | No change planned for this rollout.                      |
+
+Resend verified `mail.kaata.af` using its current records in Cloudflare; the
+existing root DMARC policy was preserved. The sending-only key is restricted
+to that domain. SMTP uses port 587 and username `resend`, with caps of 30/hour
+and 90/day. Matee received the Dari sign-up and reset codes in Gmail; inbox
+versus Spam placement was not observed.
+
+The initial mail/copy deploy `d964382` passed its SMTP login check. Migrations
+052 and 053 ran at 08:42 UTC after a validated 08:40 UTC backup in root's
+`kaata-backups` directory. The 09:41:26 UTC audit of `8bd28f3` confirmed a
+running, healthy container, public health 200 and four live
+`OPERATOR_ACCOUNT_IDS`: both demo accounts plus the two existing operators.
+Both demo accounts are excluded from operator-filtered analytics. Production
+then deployed `280c048`, whose backend code is unchanged; it was healthy and
+passed SMTP login at 10:28:46 UTC.
+The API and web returned 200 from Matee's workstation at 10:39 UTC. A
+Cloudflare 403 for a Python request from the VPS was separate from those
+successful public requests.
+
+EAS build `66bbeb06-d8ff-4cfd-8ddf-863fdf906ab9` finished from `8bd28f3`
+as version 2.1.0, versionCode 50: `device-test` profile, production environment,
+existing keystore and frozen remote credentials. The
+[original APK artifact](https://expo.dev/artifacts/eas/wKGaiV4d3_OzwDStPzB4sxj4O-Ri81XWwkw_sSNQiEw.apk)
+was installed on two new, clean Android 14 AVDs (`emulator-5560` and
+`emulator-5562`). The original Pixel 4 AVD was untouched. This internal APK
+has not been submitted to a store; `ios.buildNumber` remains 29.
+
+The original APK exposed a startup-routing bug: after an onboarded offline
+user closed the app on the reset-code screen, cold launch opened Home. The
+pending reset was preserved; manually opening email sign-in resumed the
+code/password step with the email retained and code/password fields empty.
+Commit `280c048` fixes startup navigation in three mobile files, with an
+actual mounted-route resume after launch notifications are inspected. Seven
+new regression cases cover resumption, current-account setup, one-time
+navigation and cancellation by other launch intents. Typecheck and the
+email-auth selftest (69 cases), auth-redirect, notification-navigation and
+install-retired (26 cases) all passed. Replacement EAS build
+`061b44b3-9bf8-4e21-9460-0fb91e1d542c` finished at 10:46:30 UTC from
+`280c048dcc34743555fc91ab8964935217f79b99`: version 2.1.0, versionCode 50,
+internal `device-test` APK, production environment and frozen existing
+signing credentials. Its
+[replacement APK artifact](https://expo.dev/artifacts/eas/0ugSbfl-4niwZvsi6d2SGI88pRP44YegEhg_fcPhVy0.apk)
+was downloaded (136,542,293 bytes); `aapt` confirmed `af.kaata.app`, version
+2.1.0 and versionCode 50. `apksigner` verified it and confirmed the same signing
+certificate as the original APK. Installation on the primary `emulator-5560`
+succeeded at 10:54 UTC; its installed manifest confirmed versionCode 50,
+version 2.1.0, minSdk 24 and targetSdk 36. Only this disposable AVD's app data
+was cleared at about 10:55 UTC, after the revocation check. The second
+emulator's app data was not cleared; the original Pixel 4 AVD was untouched.
+On the fresh-data Dari reset step, process death was confirmed by an empty
+`adb pidof`; cold launch directly
+resumed the code/password pane with the team email retained and both input
+fields empty, without manual sign-in or Account navigation.
+
+The exact original failure condition also passed: after restoring Demo Shop,
+explicit sign-out and email sign-in's Forgot password flow, one code was
+requested. Removing the app from Recents and confirming an empty `adb pidof`
+then cold launching directly resumed the Dari reset pane, preserving the email
+and leaving both code/password fields empty. No code was fetched or entered
+and no reset verification/password change was made for this last challenge.
+Back cancelled its pending step. A final sign-in with `play_demo_reviewer` and
+the stable password using Persian digits returned to Demo Shop, with the same
+1,475 AFN balance, three pending tallies and signed-in avatar.
+
+Production API observations before native testing: ordinary email/code/password
+sign-up and email/username sign-in worked. A reset accepted Persian digits,
+rejected the old password with 401 and invalidated all older/other session
+JWTs with 401. A new sign-in invalidated its previous token; changing the
+password kept the current session working (200) and rejected the other session
+(401). The username is `play_demo_reviewer`. A Dari name containing ZWNJ
+round-tripped; the name was then restored to `Demo Reviewer`. A signed pull
+returned three events, one vault and the tab binding with six entries, four
+pending.
+
+The 09:38 UTC audit made exactly 11 failed sign-in requests for a unique,
+unregistered controlled address and a fresh install ID. Requests 1–10 returned
+401 `invalid_credentials`; request 11 returned 429 `too_many_attempts` with
+`Retry-After: 894` seconds. No account, install or mail was created; the
+reviewer address's limits were not used. This covers the server side of
+checklist item 2.
+
+At that audit, the SMTP outbox held three sent rows, zero pending and zero
+expired: one each of Dari (`fa`) `signup_code`, `reset_code` and
+`password_changed`. Each had a cleared body, one attempt and no errors.
+Resend showed all three as Delivered (accepted by Gmail); receipt of the first
+two codes was confirmed by Matee. The reviewer had exactly one active
+credential; Demo Partner had none after privileged fixture cleanup.
+
+The later native English reset start returned 200 at 10:08:22 UTC. Its
+English `reset_code` was sent at 10:08:25 UTC through SMTP with one attempt,
+a cleared body and no error. At 10:11 UTC, Resend's dashboard showed all four
+messages as Delivered. This is historical mail-delivery evidence; that reset
+was cancelled before completion.
+
+The second emulator completed a password-change flow at 10:44:45 UTC and
+remained signed in. It reused the existing review password, so Play's saved
+credentials are unchanged. The English `password_changed` notice was sent
+at 10:44:48.971 UTC in one SMTP attempt, with its bodies cleared and no error;
+the outbox then held five sent messages. At 10:51 UTC, Resend showed all five
+as Delivered, including the English password-change notice. An older setup
+JWT returned 401 at 10:47:28 UTC, and a scoped database check found one active
+reviewer credential. The first emulator initially displayed its cached profile;
+after automatic sync settled, its avatar became anonymous and the sheet showed
+Google, Apple and email sign-in choices, without manual sign-in or sign-out.
+Its local 1 AFN tally remained intact. Reusing the same password exercised the
+session-revocation path; old-password rejection was covered by the earlier API
+test using a different password.
+
+The replacement APK's Dari reset requested a code at 11:03:02.976 UTC; it was
+sent at 11:03:10.078 UTC in one SMTP attempt, with the body cleared and no
+error. At 11:03:50 UTC, all six outbox messages were sent. Matee confirmed
+receipt of this code, including its leading zeros. Inbox/Spam placement was
+not observed. Native reset verification
+returned 200 at 11:09:55.313 UTC after entry of the code with Persian digits
+and both leading zeros, plus the stable password using Persian digits. The
+challenge was consumed and exactly one new active credential remained. A
+new Dari `password_changed` notice was sent at 11:09:58.391 UTC in one SMTP
+attempt with its body cleared and no error. The app restored its one cloud
+ledger to Demo Shop, with a 1,475 AFN balance and three pending Demo Partner
+tallies. The second emulator automatically signed out, without manual
+sign-out, and retained the same ledger, balance and pending tallies. Its
+anonymous avatar and account sheet offered sign-in to enable backup/sync and
+provider choices. This reset reused the stable Play password; rejection of a
+different old password was proved earlier through the API. Native username
+sign-in using `play_demo_reviewer` and the stable password with Persian digits
+then returned to Dari Demo Shop with the same balance and three pending
+tallies. A controlled wrong-credentials request showed the Dari error and
+provider hint, with coherent RTL wrapping. Both fresh and onboarded-offline
+cold-launch rechecks then passed on the replacement APK.
+
+At 11:34 UTC, Resend's browser table confirmed all eight messages as Delivered:
+one Dari sign-up code, three Dari reset codes (including the final, unverified
+cold-launch challenge), one English reset code, two Dari password-change
+notices and one English password-change notice. Receipt of the codes used in
+the completed flows was confirmed by Matee. Delivered confirms recipient-mail
+server acceptance; Inbox versus Spam placement remains unobserved.
+
+Demo identifiers (no credentials):
+
+- Review account: `kaata.team@gmail.com`, `724724ec-be90-46c5-a081-4b635a246af4`.
+- Demo Shop vault: `5ae56887-3db1-4e74-afa8-aaf02833730d`.
+- Demo Partner fixture: `df92808e-c741-4d72-91bf-e1861be4d619`; tab
+  `409636e1-90d1-4382-876f-52d70503501f`. Its phone number is empty. The demo
+  was seeded with four pending, one accepted and one disputed tally. The
+  partner is a privileged synthetic fixture with no email/password identity;
+  its temporary credential was revoked after seeding. It was not created
+  through anonymous sign-up.
+
+The first disposable native offline kaata had never been bound to an account,
+so sign-in adopted it as the contract requires. That disposable vault
+(`617094ea…`) was archived through the API at 10:23:03 UTC. The sole active
+reviewer vault was then Demo Shop, with the seeded six entries still at four
+pending, one accepted and one disputed.
+
+The fresh Play flow later accepted exactly one tally. A read-only server
+check at 10:33:20 UTC confirmed six total: three pending, two accepted and one
+disputed, with only the original Demo Shop vault active and the disposable
+vault still reversibly archived. First sign-in had also adopted the fixture's
+WhatsApp number; the reviewer's original blank number was restored through
+the scoped public API at 10:36:55 UTC and then cleared in the native UI after
+the password change. The second emulator's Save then showed the blank phone
+placeholder, with `Demo Reviewer`, `play_demo_reviewer` and its signed-in state
+unchanged. Other profile fields were unchanged.
+
+The final primary Account readback confirmed `Demo Reviewer`, the team email,
+`play_demo_reviewer`, an empty phone placeholder and Dari. Returning Home
+showed the restored Demo Shop, 1,475 AFN and three pending Demo Partner tallies.
+
+The proposed second mailbox already belonged to an existing Google account;
+it received no sign-up/reset request and no account or credential changes.
+No plus-tag alias was used, and the unused generated fixture password was
+discarded. Native fresh email sign-up and the different-account test remain
+outstanding without an unused mailbox or another account's Kaata password.
+
+Play Console's saved form was reloaded: instructions matched, the form buttons
+were disabled with no unsaved changes, and a screenshot showed the correct
+email. Tool readback returned `<redacted>` for username/password, so their
+exact strings were not compared by readback. Passwords are stored outside Git
+under local `Documents/Security` with a user-only ACL.
+
+Native results below match checklist items 1–10 above. The clean-emulator
+report confirms only the stated portions; other results are pending. A second
+isolated emulator (`emulator-5562`) has run the fresh Play sign-in/restore flow.
+No spare physical phone is available, so physical-phone coverage remains
+outstanding. Authenticated Google first-password/removal and the Google branch
+of the different-account dialog are also outstanding.
+
+1. **Partial:** English and Dari Create a Kaata account screens show the
+   existing-account sign-in shortcut before the keyboard opens. Native real-email
+   sign-up remains outstanding without an unused mailbox.
+2. **Partial:** one wrong password showed the English "That email, username
+   or password isn't right." error and provider hint. Entering a Gmail address
+   in sign-in showed no "Continue with Google" shortcut. Email sign-in passed
+   in the fresh Play flow. On the fixed APK, `play_demo_reviewer` sign-in with
+   the stable password entered in Persian digits returned to Demo Shop. A
+   controlled wrong-credentials request showed the Dari error/provider hint.
+   The 11th-attempt throttle passed through the API; a native 11-attempt sequence
+   was not performed.
+3. **Passed on two emulators:** the Dari code arrived, the reset using Persian
+   digits succeeded, and the primary restored Demo Shop. The second emulator
+   automatically signed out and retained its local ledger. This reused the
+   stable password; old-password rejection was proved by the earlier API test
+   with different passwords. Physical-phone coverage remains outstanding.
+4. **Outstanding:** authenticated Google first-password setup and removal,
+   second-phone behavior and the removal notice.
+5. **Outstanding:** different-account keep/start-fresh/cancel for email with a
+   previously bound, signed-out kaata; the authenticated Google branch remains
+   outstanding. Another account's Kaata password is unavailable. First sign-in's
+   adoption of an unbound offline kaata worked as expected.
+6. **Passed on emulator:** with no Google accounts configured, Google sign-in
+   opened the account-add UI; Android edge-back returned silently to Kaata's
+   provider choices with no error.
+7. **Passed on the fixed APK in both fresh and onboarded flows:** after
+   confirmed process death, cold launch directly opened the Dari code/password
+   pane, retaining the email with both fields empty. No manual Account/sign-in
+   navigation was needed. The onboarded check followed restored Demo Shop →
+   sign out → Home email sign-in → Forgot password, matching the original
+   failure. Its final code was not fetched or verified. The original APK had
+   opened Home; its stored step still resumed through manual sign-in.
+8. **Passed on emulator:** Dari signup/reset labels and RTL wrapping looked
+   coherent.
+   Native reset admitted the code in Persian digits with both leading zeros
+   preserved, and the stable password typed with Persian digits. A controlled
+   wrong-credentials request showed "ایمیل، نام کاربری یا رمز درست نیست." and
+   the provider hint with coherent RTL wrapping. ZWNJ names passed through the
+   API.
+9. **Passed on emulator:** the fresh second emulator followed the saved Play
+   instructions through email sign-in, "Restore 1 ledger" and "Restore from
+   cloud" to Demo Shop. Demo Partner showed six tallies, four "To review" and
+   a 1,475 AFN balance before the decision. Exactly one Accept was tapped on
+   the 75 AFN "Sample: cash received" tally: its UI turned accepted and the
+   decision buttons disappeared. The 1,200, 250 and 500 AFN samples remained
+   pending (three total).
+10. **Passed on two emulators:** the second completed a change using the
+    existing review password and remained signed in. The older emulator's
+    cached profile became signed out after automatic sync settled, with no
+    manual sign-in/sign-out and its local 1 AFN tally preserved. The English
+    notice was Delivered in Resend. The old setup JWT returned 401 and one
+    reviewer credential remained active. Same-password reuse does not test
+    old-password rejection; the earlier API test did. Physical-phone coverage
+    remains outstanding.
+
+### Production 2.1.1 requested — 11 October 2026 (50/30)
+
+Matee requested production builds and review submission for both Google Play
+and the App Store as **2.1.1**, Android versionCode **50** and iOS build **30**.
+Production builds and store submissions have not started at this record. The
+2.1.0 internal APK results above remain the history of the email-account and
+startup-resume checks.
+
+Both review submissions will use the ordinary `kaata.team@gmail.com` Kaata
+account, its stable password stored outside Git, and the email sign-in →
+Restore from cloud route verified above. The remaining native gaps are still
+those recorded in the checklist; no additional device coverage is claimed.
+Build IDs, artifacts and actual review statuses will be recorded after they
+exist.
 
 ### Production submission — 3 October 2026 (49/29)
 
