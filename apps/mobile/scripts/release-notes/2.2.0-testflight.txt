@@ -1,0 +1,7 @@
+2.2.0 testing build
+
+Please test the new Aubergine, Saffron, Ivory and Charcoal interface in English and Dari; Settings sign-in; tally note search across current and settled history; pending-only status dots; WhatsApp reminder loading, repeated taps and cancellation; cloud restore of linked ledgers; and synchronization between phones on separate networks, including reconnecting after going offline.
+
+Check that search does not change the full balance, exports or WhatsApp statements. Keep your existing app and ledgers intact when updating.
+
+This build is for testing only. Family ledger permissions remain deferred. The weekly growth dashboard and server-rendered branding are separate local web/backend changes and are not included in this native build.

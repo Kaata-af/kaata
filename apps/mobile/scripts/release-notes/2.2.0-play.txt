@@ -1,0 +1,1 @@
+Internal testing: new Kaata colors, tally note search, one Settings sign-in entry, clearer WhatsApp reminder loading, quieter tally status, shared-ledger restore fixes and faster remote synchronization. Please test in English and Dari, including offline/reconnect and settled history. This build is for testing only.
