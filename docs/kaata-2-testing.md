@@ -143,7 +143,7 @@ Production/API coverage and native coverage are recorded separately below.
 | Account API | Sign-up, sign-in, reset, password change, session revocation and throttle verified.             | Native results listed below; physical two-device checks. |
 | Review demo | Ordinary email account and six-tally demo seeded; saved Play flow and one native Accept passed. | No remaining item 9 steps.                               |
 | Android APK | Replacement 2.1.0/50 installed; signing/version verified; code-step cold launch passed.         | Remaining native checks.                                 |
-| Stores      | iOS 2.1.1/30 waiting for review; Play 2.1.1/50 review-send confirmed.                           | Play quick checks; both store approvals.                 |
+| Stores      | iOS 2.1.1/30 waiting for review; Play 2.1.1/50 in review after quick checks passed.             | Both store approvals.                                    |
 | Firewall    | Matee skipped the optional Cloudflare-only origin firewall.                                     | No change planned for this rollout.                      |
 
 Resend verified `mail.kaata.af` using its current records in Cloudflare; the
@@ -399,8 +399,8 @@ Both EAS production build jobs started from source
 
 Both builds and uploads finished, and both store review-submission actions
 were completed. Apple's version is waiting for review; Play's initial quick
-checks are still running. The 2.1.0 internal APK results above remain the
-history of the email-account and startup-resume checks.
+checks passed and its changes are in review. The 2.1.0 internal APK results
+above remain the history of the email-account and startup-resume checks.
 
 Both store reviews use the ordinary `kaata.team@gmail.com` Kaata account,
 its stable password stored outside Git, and the email sign-in →
@@ -439,8 +439,8 @@ The final Publishing overview "Send changes for review" confirmation was
 completed. The page now shows "Changes in review": production 2.1.1's Start
 full rollout, the existing closed-track Pause entry, complete Data Safety and
 the updated Sign-in details. No old closed-release rollout is in this batch.
-Initial quick checks are still running; Play says the changes will be sent
-for review when these checks complete. Google approval and publication remain
+At 12:24 UTC, the quick checks had completed and Publishing overview confirmed
+"Your changes are now in review." Google approval and publication remain
 pending.
 
 The official 9 October rejection email for Android 49 was read through Play
