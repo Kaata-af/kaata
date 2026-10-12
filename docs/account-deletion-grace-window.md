@@ -1,8 +1,9 @@
 # Recoverable account deletion
 
-Status: implemented in the next local development batch, 2026-10-12. Not deployed
-or included in the currently published 2.2.0 testing builds yet. This replaces
-the October 8 design. Backend migration is **057**, not the proposed 054.
+Status: implemented and deployed for the 2026-10-12 testing update, included in
+2.2.0 TestFlight **34** and Play internal **54**. Physical-device recovery checks
+remain pending. This replaces the October 8 design. Backend migration is **057**,
+not the proposed 054.
 
 ## User contract
 
@@ -143,8 +144,11 @@ References: [Apple account deletion](https://developer.apple.com/support/offerin
 
 When asked to ship, deploy backend migration/worker and public web disclosures
 before distributing mobile. Verify the live policy reports 30, worker health
-and any store disclosures needed for that release. This development task changes
-no production server, store review or testing distribution.
+and any store disclosures needed for that release. The 34/54 testing delivery
+deployed migration 057, the exact worker source and public disclosures, and
+verified the live authenticated policy reports 30. No destructive live deletion
+or purge was tested. Both testing builds are available; production store reviews
+were unchanged. See [the rollout evidence](2.2.0-testing-distribution.md).
 
 ## Validation and device checks
 

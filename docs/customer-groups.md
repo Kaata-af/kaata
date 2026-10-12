@@ -74,8 +74,9 @@ projection before sharing these assignments through cloud sync.
 Go projection/snapshots carry groups, additive `group_ids` and exact group field HLCs. Mobile recovery
 seeds them before relationships; old snapshots with omitted additive fields
 remain supported. Full local SQLite backups include the tables automatically.
-The backend must be updated before shared cloud group synchronization can work;
-this local building batch performs no deployment.
+The backend must be updated before shared cloud group synchronization can work.
+The matching projection deployed for the 34/54 testing update; update editing
+phones to that release before using multiple cloud groups.
 
 ## Checks
 

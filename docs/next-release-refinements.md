@@ -245,12 +245,15 @@ no push, deployment or new native distribution had occurred. The subsequent
 33/53 delivery is recorded in [the distribution log](2.2.0-testing-distribution.md).
 Consolidated phone and visual checks 15–21 below remain pending.
 
-## October 12 safety and customization — local development
+## October 12 safety and customization — testing update 34/54
 
-These five requests are implemented in the working source after the 2.2.0
-TestFlight 33 / Play internal 53 delivery. They are **not in those testing
-binaries**. This batch remains local: no push, backend deployment, signed build,
-store upload or mobile production submission is part of this work.
+These five requests were implemented after the 2.2.0 TestFlight 33 / Play internal
+53 delivery and saved in feature commit `d7e337b`. The user then requested a new
+testing release: **TestFlight 34 / Play internal 54**. Their matching backend/web
+support deployed before distribution. Exact source and verified delivery are in
+[the distribution log](2.2.0-testing-distribution.md). The 2.1.1 production reviews
+and closed-testing track remain unchanged; no mobile production submission was
+made.
 
 - **Recoverable account deletion:** a verified authenticated deletion schedules
   permanent removal after 30 days, revokes older sessions immediately, and retains
@@ -261,7 +264,7 @@ store upload or mobile production submission is part of this work.
   intact. Private reminder configurations and old Not sent drafts are excluded
   from cloud recovery, with an explicit export warning. An account already
   permanently purged cannot be restored by this change. Migration 057 and the
-  hourly purge worker require a future backend deployment. See the
+  hourly purge worker deployed for the 34/54 testing update. See the
   [deletion/recovery contract](account-deletion-grace-window.md).
 - **Consistent sheet blur:** every menu, country/vault/option picker, sort sheet,
   link/confirmation dialog, date-filter sheet and notification dropdown uses the
@@ -322,8 +325,8 @@ along with the signed-unarchive and shop-profile sync regressions. Android and
 iOS Metro/Hermes exports passed with the production build profile's public
 environment. These are local bundle checks, not signed store builds or uploads.
 Phone blur pixels, keyboard/gesture geometry, actual background notices,
-and two-device recovery/sync remain pending. This batch is local only: no push,
-deployment, version bump or testing distribution.
+and two-device recovery/sync remain pending. These local checks preceded the
+verified 34/54 testing distribution; marketing version remains 2.2.0.
 
 ## Deferred by the user
 

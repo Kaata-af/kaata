@@ -82,8 +82,8 @@ synthetic data and controlled native boundaries.
 
 Signed Android/iOS testing is still required for notification permission,
 background delivery, timezone changes, native date/time pickers, notification
-taps and English/Dari layouts. No signed binary or store distribution is part of
-this local development batch.
+taps and English/Dari layouts. Signed binaries are available in TestFlight 34 and
+Play internal 54; those deliveries do not complete the physical-device checks.
 
 The schedule JSON adds new kinds without altering migration 036 or rewriting
 existing reminders. Existing once/daily/weekly JSON remains valid. As personal
