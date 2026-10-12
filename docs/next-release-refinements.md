@@ -328,11 +328,14 @@ Phone blur pixels, keyboard/gesture geometry, actual background notices,
 and two-device recovery/sync remain pending. These local checks preceded the
 verified 34/54 testing distribution; marketing version remains 2.2.0.
 
-## October 12 home controls and timed ranges — local development
+## October 12 home controls and timed ranges — testing update 35/55
 
-These two requests follow the verified TestFlight 34 / Play internal 54 release.
-They are a new local development batch, absent from those binaries. No version
-bump, push, deployment or store upload is part of this batch.
+These two requests followed the verified TestFlight 34 / Play internal 54 release
+and were built in `c549e04`. The user then requested testing delivery: they are
+now available in **TestFlight 35 / Play internal 55**, from release source
+`f91b9a8`. Exact signed-build, rollout and tester-access evidence is in
+[the distribution log](2.2.0-testing-distribution.md). Production versions/reviews
+and closed testing remain unchanged.
 
 - **Separate home controls:** one lower dock contains Sort & filter, an inline
   customer search field and the black plus/add button fixed at the right. Search

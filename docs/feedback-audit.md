@@ -81,8 +81,9 @@ and these changes are available in TestFlight 34 and Play internal 54.
 
 ## Validation and remaining checks
 
-The follow-up home/timed-range requests are implemented locally after the
-34/54 delivery and are not included in those testing binaries:
+The follow-up home/timed-range requests were built after the 34/54 delivery and
+are now available in **TestFlight 35 / Play internal 55**, from feature `c549e04`
+and release source `f91b9a8`:
 
 - Home exposes Sort & filter on the left, customer search beside it and the
   black add-only plus on the right. Search includes zero-tally customers and
@@ -93,8 +94,9 @@ The follow-up home/timed-range requests are implemented locally after the
   Presets still cover whole days, and whole balances/statements remain whole.
 
 Focused development checks and native scenarios for this new batch are recorded
-in [next-release-refinements.md](next-release-refinements.md). This batch makes
-no version bump, push or store upload.
+in [next-release-refinements.md](next-release-refinements.md). Signed builds and
+testing-store delivery are verified in the distribution log; native phone checks
+remain pending. Production reviews and closed testing were unchanged.
 
 The earlier customer-tools batch passed 45 mobile suites plus TypeScript. The
 safety/customization batch passed **50 mobile suites plus TypeScript: 51 checks**,
