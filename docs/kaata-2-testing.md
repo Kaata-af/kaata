@@ -6,6 +6,42 @@ durable offline queue, and push delivery infrastructure. Existing private ledger
 events are not rewritten.
 Automated checks and store submissions do not replace native two-phone testing.
 
+## Testing release preparation — 13 October 2026 (56/36)
+
+Prepared **2.2.0 / Android 56 / iOS 36** from the reviewed feature source
+`57d41c9` plus release metadata. Destinations are **Google Play internal testing**
+and the existing **TestFlight internal tester group** only. This preparation
+record does not claim an upload, processing success or tester availability;
+record those after both services confirm them. Production and closed-testing
+tracks, App Store review submissions and their pending reviews must stay intact.
+The Play uploader remains restricted to this exact package/version/code, commits
+with `changesInReviewBehavior=ERROR_IF_IN_REVIEW`, and has no review-cancellation
+fallback. The iOS helper manages TestFlight only.
+
+This candidate adds the reviewed sign-in/restore/session fixes, shared-sync
+watchdog and reconnect catch-up, kaata default credit limits and refusal details,
+group member editing and repair migration, group filter subtotals, reminder
+permission/named-alert refinements, Qamari adjustment, search/date/keyboard and
+accessibility corrections, and the updated brand icons/splash. Backend migrations
+058 and 059 and the matching web/server source must be deployed before tester
+distribution. The Android neutral widget theme and brand assets require these
+new native binaries.
+
+Fresh checks for `57d41c9` passed all 52 mobile selftest suites and TypeScript,
+89 web tests and the TypeScript/Vite production build, and nine changed backend
+packages against an isolated PostgreSQL database (519 test/subcase passes, no
+failures or database skips; only the opt-in bill-image preview was skipped).
+The server command compiled, diff checks were clean, eight generated logos
+matched their generator and 34 raster assets decoded. Explicit iOS and Android
+production Metro/Hermes exports passed. All 26 Play/TestFlight release-helper
+tests passed with no skips, and resolved Expo config verified 2.2.0/56/36,
+`af.kaata.app`, the neutral Android theme plugin and Aubergine adaptive icon.
+These local checks do not verify a signed binary or native device behavior.
+Device checks remain outstanding: email swipe Back, keyboard/dock geometry,
+Android native theme/pickers/blur, native reminder delivery and two-phone shared-ledger
+reconnect/restore. Use synthetic data for deletion and credit-limit tests; update
+existing installations without uninstalling.
+
 Earlier release candidate: **2.1.0 / Android 47 / iOS 27**: build 46/26
 (below) plus the fixes for its known issues, all mobile-only (the backend is
 unchanged):
