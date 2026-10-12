@@ -78,6 +78,17 @@ type UserRow struct {
 	Source         string      `json:"source"`
 	InstallCount   int         `json:"install_count"`
 	Kaatas         []UserKaata `json:"kaatas"`
+	// Excluded = the operator excluded this account as test data
+	// (outreach_exclusions kind 'account', set from Users or Outreach), so
+	// every install metric leaves out every device it has used
+	// (reportExclusionCTEs); ExclusionReason is the reason given. Operator
+	// accounts are not listed at all.
+	Excluded        bool   `json:"excluded"`
+	ExclusionReason string `json:"exclusion_reason"`
+	// ExcludedInstalls = how many of the InstallCount devices the install
+	// metrics leave out (all of them when Excluded; otherwise devices
+	// excluded by hand, or also linked to an operator or excluded account).
+	ExcludedInstalls int `json:"excluded_installs"`
 }
 
 // InstallRow is a device with no known account binding. We have
@@ -109,6 +120,14 @@ type InstallRow struct {
 	UsageCustomers int64  `json:"usage_customers"`
 	UsageShares    int64  `json:"usage_shares"`
 	CheckInCount   int    `json:"check_in_count"`
+	// Excluded = every install metric leaves this device out as test data
+	// (reportExclusionCTEs). ExcludedBy says why: "install" — excluded by
+	// hand (ExclusionReason is the reason given; including it again undoes
+	// it); "operator" — it is or was linked to an operator account (e.g. one
+	// since deleted); "account" — linked to an account excluded as test data.
+	Excluded        bool   `json:"excluded"`
+	ExcludedBy      string `json:"excluded_by"`
+	ExclusionReason string `json:"exclusion_reason"`
 }
 
 type UsersResult struct {
@@ -327,6 +346,16 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 		return out, err
 	}
 
+	// 6. Test data: which accounts and devices every install metric leaves
+	//    out, from the same definition the reports use.
+	excluded, err := s.readUserExclusions(ctx, tx)
+	if err != nil {
+		return out, err
+	}
+	if err := s.applyAccountExclusions(ctx, tx, byID, excluded); err != nil {
+		return out, err
+	}
+
 	for _, id := range order {
 		out.Users = append(out.Users, *byID[id])
 	}
@@ -336,6 +365,12 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 	out.AnonymousInstalls, err = s.fetchAnonymousInstalls(ctx, tx)
 	if err != nil {
 		return out, err
+	}
+	for i := range out.AnonymousInstalls {
+		in := &out.AnonymousInstalls[i]
+		if x, ok := excluded.installs[in.InstallID]; ok {
+			in.Excluded, in.ExcludedBy, in.ExclusionReason = true, x.by, x.reason
+		}
 	}
 
 	out.SignedInCount = len(out.Users)
@@ -497,6 +532,109 @@ func (s *Service) fetchAnonymousInstalls(ctx context.Context, tx pgx.Tx) ([]Inst
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// userExclusion is why the install metrics leave one device out.
+type userExclusion struct{ by, reason string }
+
+// userExclusions is the test data the Users page shows: accounts excluded by
+// hand (id → reason) and every install the reports leave out.
+type userExclusions struct {
+	accounts map[string]string
+	installs map[string]userExclusion
+}
+
+// readUserExclusions evaluates reportExclusionCTEs in the report's snapshot,
+// so the Users page marks exactly the devices the Overview, weekly growth and
+// cohorts leave out. A device excluded by hand reads "install" whatever else
+// links it; otherwise "operator" when any of its links is an operator
+// account, else "account".
+func (s *Service) readUserExclusions(ctx context.Context, tx pgx.Tx) (userExclusions, error) {
+	out := userExclusions{accounts: map[string]string{}, installs: map[string]userExclusion{}}
+	arows, err := tx.Query(ctx, `SELECT id, reason FROM outreach_exclusions WHERE kind = 'account'`)
+	if err != nil {
+		return out, err
+	}
+	for arows.Next() {
+		var id, reason string
+		if err := arows.Scan(&id, &reason); err != nil {
+			arows.Close()
+			return out, err
+		}
+		out.accounts[id] = reason
+	}
+	arows.Close()
+	if err := arows.Err(); err != nil {
+		return out, err
+	}
+	rows, err := tx.Query(ctx, `
+		WITH `+reportExclusionCTEs+`
+		SELECT e.install_id::text, x.id IS NOT NULL, COALESCE(x.reason, ''),
+		       COALESCE(i.account_id::text = ANY($1::text[]), FALSE)
+		        OR COALESCE(i.deletion_account_id::text = ANY($1::text[]), FALSE)
+		        OR EXISTS (
+		          SELECT 1 FROM auth_credentials c
+		          WHERE c.install_id = i.install_id AND c.account_id::text = ANY($1::text[])
+		        )
+		FROM report_excluded_installs e
+		JOIN installs i ON i.install_id = e.install_id
+		LEFT JOIN outreach_exclusions x ON x.kind = 'install' AND x.id = e.install_id::text
+	`, s.operatorAccountIDs)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, reason string
+		var byHand, byOperator bool
+		if err := rows.Scan(&id, &byHand, &reason, &byOperator); err != nil {
+			return out, err
+		}
+		switch {
+		case byHand:
+			out.installs[id] = userExclusion{by: "install", reason: reason}
+		case byOperator:
+			out.installs[id] = userExclusion{by: "operator"}
+		default:
+			out.installs[id] = userExclusion{by: "account"}
+		}
+	}
+	return out, rows.Err()
+}
+
+// applyAccountExclusions marks the accounts excluded by hand and counts each
+// account's devices the install metrics leave out, through the same
+// report_installs resolution that counted InstallCount.
+func (s *Service) applyAccountExclusions(ctx context.Context, tx pgx.Tx, byID map[string]*UserRow, excluded userExclusions) error {
+	for id, u := range byID {
+		if reason, ok := excluded.accounts[id]; ok {
+			u.Excluded, u.ExclusionReason = true, reason
+		}
+	}
+	if len(excluded.installs) == 0 || len(byID) == 0 {
+		return nil
+	}
+	rows, err := tx.Query(ctx, userReportInstalls+`
+		SELECT resolved_account_id::text, install_id::text
+		FROM report_installs
+		WHERE resolved_account_id IS NOT NULL
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var account, install string
+		if err := rows.Scan(&account, &install); err != nil {
+			return err
+		}
+		if u := byID[account]; u != nil {
+			if _, ok := excluded.installs[install]; ok {
+				u.ExcludedInstalls++
+			}
+		}
+	}
+	return rows.Err()
 }
 
 // enrichLedgerIdentity reads the latest snapshot per vault and, for its

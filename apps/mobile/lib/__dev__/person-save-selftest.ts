@@ -220,6 +220,12 @@ function openFixture(): void {
     )?.[1];
   assert.ok(creditDDL, "shipped migration034 credit tables");
   fixture.exec(creditDDL);
+  const creditDefaultDDL =
+    /execAsync\(`([^`]*CREATE TABLE IF NOT EXISTS kaata_credit_defaults[^`]*)`\)/.exec(
+      readFileSync(require.resolve("../db"), "utf8"),
+    )?.[1];
+  assert.ok(creditDefaultDDL, "shipped migration038 kaata default credit limit");
+  fixture.exec(creditDefaultDDL);
   failUsageKey = null;
   failedUsageWrites = 0;
   failEventType = null;

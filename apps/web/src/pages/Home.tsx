@@ -66,7 +66,8 @@ function FinalCTA() {
           <br />
           {t("cta.title.line2")}
         </h2>
-        <p className="mt-5 text-base md:text-lg text-neutral-600 max-w-md mx-auto leading-relaxed">
+        {/* Saffron takes dark ink: Charcoal is 8.5:1 here, plum gray only 3:1. */}
+        <p className="mt-5 text-base md:text-lg text-brand-ink max-w-md mx-auto leading-relaxed">
           {t("cta.sub")}
         </p>
         <Link

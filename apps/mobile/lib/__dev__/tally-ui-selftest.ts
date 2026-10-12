@@ -552,7 +552,7 @@ for (const isRTL of [false, true]) {
           accessibilityLabel: "tab.accept",
           disabled: false,
         },
-        `${what} ${state}: Accept is the brand primary pill, never the collect green`,
+        `${what} ${state}: Accept is the black primary pill, never the collect green`,
       );
       assert.deepEqual(
         nodes(row)
@@ -695,11 +695,23 @@ assert.ok(capturedStyles.actionBtn.minHeight >= 52);
 assert.equal(capturedStyles.actionBtnWrap.flex, 1, "equal-width buttons");
 assert.equal(capturedStyles.actionText.color, colors.textInverted);
 assert.ok(capturedStyles.actionText.lineHeight >= 20, "visible Dari line box");
-assert.match(person, /translateY: toastOffset/);
-assert.ok(
-  person.indexOf('label: t("person.ping"') <
-    person.indexOf('label: t("person.sheet.edit"', person.indexOf("<OverflowMenu")),
+// Toasts lift the dock, except above an open keyboard (the toast is behind it).
+assert.match(person, /translateY: keyboardShown \? 0 : toastOffset/);
+// WhatsApp sits beside the ⋯ menu, never inside it (#11). The old check here
+// compared against a menu label that no longer exists (indexOf -1), so it
+// passed without testing anything.
+const menuStart = person.indexOf("<OverflowMenu");
+assert.ok(menuStart > 0, "the header menu exists");
+assert.equal(
+  person.indexOf('label: t("person.ping', menuStart),
+  -1,
+  "no WhatsApp item in the menu",
 );
+const pingAt = person.indexOf('testID="whatsapp-reminder"');
+assert.ok(pingAt > 0 && pingAt < menuStart, "the WhatsApp button comes before the menu");
+// Spacing lives in the row's gap, so Dari's reversed row keeps it too.
+assert.equal(capturedStyles.headerActions.gap, 10);
+assert.equal(capturedStyles.headerShare.marginEnd, undefined);
 console.log(
   "PASS: quiet closed rows with pending amber dots, colored opened status labels, accessible final states, start-aligned meta, separate 44pt review targets in EN/FA, cancelled rows hidden, floating full-size controls",
 );
@@ -740,7 +752,7 @@ mocks["../lib/tabs/use-inbox"] = {
   }),
 };
 mocks["../lib/tabs/open-notification"] = { openTabNotification: async () => {} };
-mocks["../lib/use-customer-reminders"] = { useCustomerReminders: () => ({ due: [] }) };
+mocks["../lib/use-customer-reminders"] = { useCustomerReminders: () => ({ due: [], rows: [] }) };
 const { NotificationBell, FullNotificationInbox } = compile(
   readFileSync(require.resolve("../../components/NotificationInbox"), "utf8"),
 );

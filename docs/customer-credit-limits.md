@@ -19,7 +19,11 @@ Owner and manager can configure limits. Editor, clerk and viewer cannot.
 `clerk_block` refuses a clerk's tally that increases exposure beyond a cap.
 Owner, manager and editor retain their existing write authority and can override
 a cap. A direct mutual-tab party retains the existing party authority; the
-clerk restriction applies to a clerk delegated through that party's kaata.
+clerk restriction applies to a clerk delegated through that party's kaata, and
+to a bound account whose own role in that kaata is clerk (an editor who linked
+the shared account and was later demoted). A bound account's rights never
+exceed its own role in the party's kaata when it is a member there
+(`Party.BoundMemberRole`); evidence still records it as the account.
 Existing lawful-at-event-HLC permissions also apply to delayed local events:
 an owner/editor write authored before a demotion is not retroactively converted
 into a clerk write.
@@ -56,20 +60,47 @@ limits locally. This prevents a private hard-mode cache from silently making an
 unregistered paired notebook disagree between devices. A shared kaata's policy
 save requires the online authority as well.
 
-For a cloud-connected kaata, **every new clerk tally** waits for authenticated
-HTTPS admission, including warning-only and unlimited customers. An offline
-device cannot safely infer that a stale or absent policy permits it to record
-money. This is an intentional connection requirement for cloud clerks. Owner,
-manager and editor retain their existing offline workflow. The server returns
-admission directly; mesh receipt is not sufficient authority.
+A **kaata-wide default limit** (Kaata settings → Default credit limit, owner or
+manager, sign-in and an online save required) covers every customer without
+their own limit, including customers added later, so a clerk cannot escape a
+limit by re-adding a customer as a new contact. A customer's own limit always
+wins, even a warn-only one. The server stores the default in
+`customer_credit_limits` under the all-zero relationship id
+(`credit.DefaultRelationshipID`) and admission falls back to it
+(`credit.Effective`) for vault and shared-account clerk tallies; phones cache
+it in `kaata_credit_defaults` (mobile migration 038) because local limit rows
+reference a customer. Older apps ignore the extra row.
 
-Pure local pairing retains its offline workflow only for a conservatively
-observed local-CA notebook: a pinned anchor, valid local-sentinel identities for
-all observed members/devices/legacy credentials, and no cloud account binding,
-registration marker, HTTPS acknowledgment, applied cloud identity history or
-hard policy. Missing, malformed or mixed metadata waits for server admission.
-`registered_with_server_at = NULL` alone is insufficient: scanning a cloud
-pairing QR deliberately leaves that field null.
+Clerks record tallies **offline like everyone else**, unless the customer is
+under a known hard ("restrict clerks") limit; only those tallies wait for
+authenticated HTTPS admission (Matee, 2026-10-12). The earlier rule held
+**every** cloud clerk tally for admission, including warning-only and unlimited
+customers, so clerks could not work without internet. The server still checks
+every clerk tally on push, so the accepted residual risk is a hard limit set on
+another phone that the clerk has not pulled yet: the server refuses that
+offline tally, and the phone moves it from the balance to the "not recorded"
+list (`revertRefusedClerkTally`) instead of retrying it forever. A tally that
+was already deferred keeps waiting for the server's decision even if the limit
+is lifted on the phone. Owner, manager and editor keep their offline workflow;
+mesh receipt is not sufficient authority for a deferred tally.
+
+What the clerk is told: a waiting "I gave" tally says to hand nothing over until
+the server confirms it; a signed-out clerk's waiting rows say to sign in rather
+than "Waiting for server confirmation" forever; the entry and edit forms warn
+live once the typed amount passes the limit (an edit counts only the change
+from the stored amount).
+
+**Owners and managers see refused attempts** (audit #24). Every over-limit
+refusal, from a kaata push or a shared-account append, records its customer,
+direction, amount and clerk (backend migration 059 adds nullable columns to
+`customer_credit_event_refusals` and `customer_credit_tab_refusals`; earlier
+rows stay unlisted). Protocol refusals (replays, id collisions, malformed
+envelopes) record no details. `GET /v1/sync/credit-refusals?vault_id=` returns
+the last 30 days, newest first, at most 50, to owners and managers only (403
+`insufficient_role` otherwise; older servers 404, which the app treats as none).
+The customer's page shows "The limit stopped a tally by {clerk}…" under the
+limit line; the app fetches it at most once a minute per kaata and session and
+never stores it.
 
 This observed local state is not proof that no unseen phone has enrolled with
 the cloud. Cloud enrollment and activation must synchronize across the kaata's

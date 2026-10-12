@@ -2,8 +2,16 @@ import { useEffect, useRef } from "react";
 import { AccessibilityInfo, Animated, StyleSheet } from "react-native";
 import { colors } from "../lib/colors";
 
-/** A brief, touch-through cue for a notification or a live review decision. */
-export function TallyHighlight({ requestKey }: { requestKey: string }) {
+/** A brief, touch-through cue for a notification or a live review decision.
+ *  A decision flashes in its outcome's colour (the review dots' green/red);
+ *  the neutral grey alone was easy to miss (audit #13). */
+export function TallyHighlight({
+  requestKey,
+  tone = "neutral",
+}: {
+  requestKey: string;
+  tone?: "neutral" | "accepted" | "rejected";
+}) {
   const opacity = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     let cancelled = false;
@@ -26,7 +34,7 @@ export function TallyHighlight({ requestKey }: { requestKey: string }) {
           opacity.setValue(0);
         }, 1500);
       }
-      opacity.setValue(0.4);
+      opacity.setValue(tone === "neutral" ? 0.4 : 0.22);
       if (!reduced) {
         const remaining = Math.max(0, endsAt - Date.now());
         const delay = Math.min(300, remaining);
@@ -57,12 +65,23 @@ export function TallyHighlight({ requestKey }: { requestKey: string }) {
       animation?.stop();
       if (timer) clearTimeout(timer);
     };
-  }, [opacity, requestKey]);
+  }, [opacity, requestKey, tone]);
   return (
     <Animated.View
       pointerEvents="none"
       accessible={false}
-      style={[StyleSheet.absoluteFill, { backgroundColor: colors.tallyHighlight, opacity }]}
+      style={[
+        StyleSheet.absoluteFill,
+        {
+          backgroundColor:
+            tone === "accepted"
+              ? colors.reviewAccepted
+              : tone === "rejected"
+                ? colors.reviewRejected
+                : colors.tallyHighlight,
+          opacity,
+        },
+      ]}
     />
   );
 }

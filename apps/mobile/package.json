@@ -49,6 +49,7 @@
     "selftest:tally-date-sheet": "tsx lib/__dev__/tally-date-sheet-selftest.ts",
     "selftest:share": "tsx lib/__dev__/share-selftest.ts",
     "selftest:sync-reconcile": "tsx lib/__dev__/sync-reconcile-selftest.ts",
+    "selftest:sync-live": "tsx lib/__dev__/sync-live-selftest.ts",
     "selftest:person-detail": "tsx lib/__dev__/person-detail-selftest.ts",
     "selftest:person-find": "tsx lib/__dev__/person-find-selftest.ts",
     "selftest:tally-summary": "tsx lib/__dev__/tally-summary-selftest.ts",
@@ -59,6 +60,7 @@
     "selftest:customer-reminders": "tsx lib/__dev__/customer-reminders-selftest.ts",
     "selftest:reminder-notifications": "tsx lib/__dev__/reminder-notifications-selftest.ts",
     "selftest:reminders-ui": "tsx lib/__dev__/reminders-ui-selftest.ts",
+    "selftest:reminder-permission": "tsx lib/__dev__/reminder-permission-selftest.ts",
     "selftest:credit-limits": "tsx lib/__dev__/credit-limits-selftest.ts",
     "selftest:entry-create-ui": "tsx lib/__dev__/entry-create-ui-selftest.ts"
   },

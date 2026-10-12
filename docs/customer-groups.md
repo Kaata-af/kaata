@@ -12,27 +12,42 @@ extra hierarchy or permanent row of filter chips.
 
 ## Interface
 
-The home tabs share one small **Sort & filter** button. Its sheet selects a sort
-and optional groups. Sorting defaults to the previous behavior: open accounts
-first, then most recent tally, then name. Explicit name, amount and date choices
-have both directions. Amount sorts the absolute current balance, so "largest"
-has the same meaning on both the Collect and Pay sides. Date means the latest
-tally date, including shared-tab activity. Ties use name and person ID.
+The home tabs share one small **Sort & filter** button in the home dock. It is
+hidden in an empty kaata, and it carries a dot while a sort or filter is active.
+Its sheet selects a sort and optional groups; the group rows appear only once
+the kaata has groups. Sorting defaults to the previous behavior: open accounts
+first, then most recent tally, then name. Name and amount have both directions;
+date offers oldest first (newest first is the default, so a second "newest" was
+removed). Names sort naturally, Persian and Arabic digits included. Amount sorts
+the absolute current balance, so "largest" has the same meaning on both the
+Collect and Pay sides, and the ascending orders still keep open accounts first.
+Date means the latest tally date, including shared-tab activity. Ties use name
+and person ID. A new order scrolls the list back to its top.
 
 All/Ungrouped/custom groups filter the customer list. Selecting multiple custom
 groups uses **any selected group (OR)**: someone in Family or West neighborhood
 appears once, including someone in both. All and Ungrouped are exclusive modes;
 unchecking the last custom group returns to All. The hero amount and active
-customer count still describe the entire side. A filtered-count explanation
-states that totals include everyone. Local per-kaata preferences remember the
-chosen sort/filter. Removing a selected group drops just that selection; if none
+customer count still describe the entire side. Home names the active groups in a
+chip under the hero; tapping it clears the filter. The filtered hint states how
+many customers are shown and what they come to ("{amount} of the total above"),
+so a group's total is visible without changing the hero. Local per-kaata
+preferences remember the chosen sort/filter. Removing a selected group drops just that selection; if none
 remain, the list returns to All. Legacy saved single-group filters still load.
 
 Group management sits behind the sheet. Customer group selection lives in the
-person menu/edit controls. That screen uses checkmarks and one Done action to
-save the complete selection. Editors, managers and owners may create, rename,
-remove and assign groups. Clerks/viewers may sort and filter but cannot edit
-the shared classification. Existing person-create authority is unchanged.
+person menu/edit controls. Both are modal screens, so they open above Edit
+customer on iOS. The picker uses checkmarks and one Done action to save the
+complete selection, and leaving it with changes (back or swipe) saves them too;
+a group removed while it is open drops out of the draft. Manage groups keeps its
+name field and Save above the Android keyboard, and each group row opens that
+group's member checklist (`app/group-members.tsx`): searchable, current members
+first, saved on Done or on leaving. A customer's own page lists their groups for
+every role. Editors, managers and owners may create, rename, remove and assign
+groups. Clerks/viewers may sort and filter and see members, but cannot edit the
+shared classification. Existing person-create authority is unchanged. The member
+count on Manage groups is membership, so it includes customers without tallies
+whom home does not list.
 
 ## Persistence and sync
 
@@ -48,6 +63,12 @@ existing signed `person_group_set` event and schema version remain unchanged;
 new payloads add sorted unique `group_ids` (up to 100), and `group_id` mirrors
 the first ID or null for compatibility. A mismatched mirror, malformed set or
 unknown group is refused. Signed historical payloads are never rewritten.
+
+Phones that applied multi-group assignments while on the 2.2.0 test builds
+33/53 stored only the first group. Mobile migration 039 re-reads the payload of
+each relationship's winning `person_group_set` (matched by its `field_hlcs`
+HLC) and restores the full set when every group still exists; the HLC and the
+signed events are untouched.
 
 Name and assignment are HLC registers. An archive is a retained tombstone;
 concurrent rename/create cannot revive it. Archived groups and their dormant
@@ -90,9 +111,11 @@ scheduling are replaced; it does not access live data.
 The suite also covers the real 037 backfill SQL, two simultaneous memberships,
 per-group counts, canonical sets, no-op reordering, legacy complete-set edits,
 OR filters without duplicate people, saved single/multi-filter compatibility and
-old/new snapshot membership expansion. The actual customer assignment screen
-checks drafts, explicit Done, repeated save taps, live refresh, route changes and
-viewer/scope guards.
+old/new snapshot membership expansion, and migration 039. The actual customer
+assignment screen checks drafts, explicit Done, save on leave, a group removed
+mid-edit, repeated save taps, live refresh, route changes and viewer/scope
+guards; `selftest:customer-group-ui` also covers the member checklist, and
+`selftest:person-find` the home chip, the subtotal hint and the empty kaata.
 
 The production session capture/guard/mutex declarations run in the fixture
 against synthetic SecureStore/account cache. It covers an account switch that

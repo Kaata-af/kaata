@@ -4,10 +4,19 @@ import type { Growth, GrowthWeek } from "./api";
 import {
   comparableWeek,
   comparisonUnavailable,
+  excludedDevicesNote,
   weeklyGrowthView,
   weeklyRateLabel,
   weeklyCalendarLabel,
 } from "./weekly-growth.ts";
+
+test("the excluded-device count is stated only when the backend reports it", () => {
+  assert.equal(excludedDevicesNote(undefined), "");
+  assert.equal(excludedDevicesNote(Number.NaN), "");
+  assert.equal(excludedDevicesNote(0), "No devices are excluded as operator or test data.");
+  assert.equal(excludedDevicesNote(1), "1 device is excluded as operator or test data.");
+  assert.equal(excludedDevicesNote(1234), "1,234 devices are excluded as operator or test data.");
+});
 
 function week(overrides: Partial<GrowthWeek> = {}): GrowthWeek {
   return {

@@ -73,7 +73,7 @@ import {
   type OutreachStatus,
   type OutreachTouch,
 } from "./api";
-import { reportingDay } from "./dates";
+import { fmtDateTimeParts, reportingDay } from "./dates";
 import {
   AFGHAN_CARRIERS,
   BOOK_SORT_OPTIONS,
@@ -2313,7 +2313,7 @@ function ExclusionsCard(props: {
   return (
     <Card
       title="Excluded sources"
-      sub="Books, accounts and installs you verified as test data. A book drops its own listings; an account drops its own number and every book it owns; an install drops what it reported. A number that also appears in a real book stays listed. Undo puts a source back."
+      sub="Books, accounts and installs you verified as test data. A book drops its own listings; an account drops its own number and every book it owns; an install drops what it reported. A number that also appears in a real book stays listed. Excluded accounts and installs are also left out of the Overview, weekly growth and cohorts, the same as when excluded from Users. Undo puts a source back."
     >
       <BooksSection
         books={props.books}
@@ -2713,10 +2713,29 @@ function SentControl(props: { contact: OutreachContact; disabled: boolean; onSen
           if (event.target.checked) props.onSent();
         }}
       />
-      <span className="min-w-0 tabular-nums [overflow-wrap:anywhere]">
-        {o.contact_count > 0 ? `×${o.contact_count} · ${fmtDateTime(o.contacted_at)}` : "Sent"}
-      </span>
+      {o.contact_count > 0 ? (
+        <Stamp prefix={`×${o.contact_count} ·`} at={o.contacted_at} />
+      ) : (
+        <span className="whitespace-nowrap">Sent</span>
+      )}
     </label>
+  );
+}
+// A recorded moment in a narrow column (2026-10-12): an optional prefix and
+// the Kabul date on the first line, wrapping only between them, and the
+// clock time on its own line. Every token is unbreakable, so the table's
+// auto layout can never squeeze a label or a number into fragments ("Sen t",
+// "202/6", "12:/35"); its Sent and Replied headers set the width it needs.
+function Stamp(props: { prefix?: string; at: string }) {
+  const { date, time } = fmtDateTimeParts(props.at);
+  return (
+    <span className="flex min-w-0 flex-col leading-4 tabular-nums">
+      <span className="flex flex-wrap gap-x-1">
+        {props.prefix ? <span className="whitespace-nowrap">{props.prefix}</span> : null}
+        <span className="whitespace-nowrap">{date}</span>
+      </span>
+      {time ? <span className="whitespace-nowrap text-brand-muted">{time}</span> : null}
+    </span>
   );
 }
 function RepliedControl(props: {
@@ -2738,9 +2757,7 @@ function RepliedControl(props: {
         disabled={props.disabled || replied}
         onChange={() => props.onChange()}
       />
-      <span className="min-w-0 tabular-nums [overflow-wrap:anywhere]">
-        {replied ? fmtDateTime(o.replied_at) : "Replied"}
-      </span>
+      {replied ? <Stamp at={o.replied_at} /> : <span className="whitespace-nowrap">Replied</span>}
     </label>
   );
 }
@@ -2840,21 +2857,25 @@ function Signal(props: { contact: OutreachContact; now: number }) {
     const seen = seenValid
       ? lastSeenInfo(contact.shopkeeper.last_seen)
       : { label: "Not seen", online: false };
+    // The last-seen clock time belongs to "Seen …" (2026-10-12): it sits in
+    // the same line, in parentheses, so it never reads as a tally's time.
     lines.push(
-      <span key="seen" className="flex items-center gap-1.5 whitespace-nowrap">
-        {seen.online ? <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> : null}
-        Seen {seen.label}
+      <span key="seen" className="flex flex-wrap items-center gap-x-1.5">
+        {seen.online ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
+        <span className="whitespace-nowrap">Seen {seen.label}</span>
+        {seenValid ? (
+          <time
+            dateTime={contact.shopkeeper.last_seen}
+            className="whitespace-nowrap tabular-nums text-brand-muted"
+          >
+            ({fmtDateTime(contact.shopkeeper.last_seen)})
+          </time>
+        ) : null}
       </span>,
       <span key="tallies" className="whitespace-nowrap tabular-nums text-brand-muted">
         {fmtInt(contact.shopkeeper.tallies)} tallies · {fmtInt(contact.shopkeeper.people)} people
       </span>,
     );
-    if (seenValid)
-      lines.push(
-        <span key="seen-at" className="tabular-nums text-neutral-400 [overflow-wrap:anywhere]">
-          {fmtDateTime(contact.shopkeeper.last_seen)}
-        </span>,
-      );
   }
   if (contact.customer) {
     for (const b of balanceSummary(contact.customer)) {
@@ -2876,12 +2897,17 @@ function Signal(props: { contact: OutreachContact; now: number }) {
     );
   }
   const lastTally = lastTallyAt(contact);
-  if (lastTally)
+  if (lastTally) {
+    // Whole tokens here too: the line may wrap between them, never inside.
+    const { date, time } = fmtDateTimeParts(lastTally);
     lines.push(
-      <span key="last-tally" className="text-neutral-400 [overflow-wrap:anywhere]">
-        Last tally {fmtDateTime(lastTally)}
+      <span key="last-tally" className="flex flex-wrap gap-x-1 tabular-nums text-neutral-400">
+        <span className="whitespace-nowrap">Last tally</span>
+        <span className="whitespace-nowrap">{time ? `${date},` : date}</span>
+        {time ? <span className="whitespace-nowrap">{time}</span> : null}
       </span>,
     );
+  }
   return <div className="flex min-w-0 flex-col gap-0.5 text-xs text-brand-sub">{lines}</div>;
 }
 
@@ -3005,8 +3031,9 @@ const HEADERS: { label: string; key?: OutreachSortKey; className?: string }[] = 
   { label: "Phone", key: "phone" },
   { label: "Signal", key: "last_seen" },
   { label: "Status" },
-  { label: "Sent", key: "contacted" },
-  { label: "Replied", key: "replied" },
+  // Room for the checkbox plus "×12 · Oct 11, 2026" on one line (Stamp).
+  { label: "Sent", key: "contacted", className: "min-w-[10rem]" },
+  { label: "Replied", key: "replied", className: "min-w-[8.5rem]" },
   { label: "Actions" },
   { label: "Details" },
 ];

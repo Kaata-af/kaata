@@ -12,7 +12,10 @@ let routes: any[] = [],
   authCalls = 0,
   restoredVault = "",
   googleAvailable = true,
+  appleAvailable = true,
+  focused = true,
   rtl = false;
+let toasts: unknown[][] = [];
 const meta = new Map<string, string>();
 const jsx = (type: any, props: any) => ({ type, props });
 const mocks: Record<string, any> = {
@@ -20,7 +23,7 @@ const mocks: Record<string, any> = {
   react: {
     useState: (v: any) => {
       const i = cursor++;
-      if (!(i in slots)) slots[i] = v;
+      if (!(i in slots)) slots[i] = typeof v === "function" ? v() : v;
       return [
         slots[i],
         (n: any) => {
@@ -52,7 +55,7 @@ const mocks: Record<string, any> = {
   "expo-constants": { default: { executionEnvironment: "standalone" } },
   "expo-router": {
     Stack: { Screen: "StackScreen" },
-    useIsFocused: () => true,
+    useIsFocused: () => focused,
     useFocusEffect: () => {},
     useRouter: () => ({
       replace: (r: any) => routes.push(r),
@@ -62,6 +65,13 @@ const mocks: Record<string, any> = {
     }),
   },
   "../../components/EmailAuthFlow": { EmailAuthFlow: "EmailAuthFlow" },
+  "../../components/RestoreProgress": {
+    RestoreProgress: "RestoreProgress",
+    restoreProgressLabel: () => "progress",
+  },
+  "../../components/Toast": {
+    useToast: () => ({ push: (...args: unknown[]) => toasts.push(args) }),
+  },
   "../../lib/use-onboarding-keyboard-scroll": {
     useOnboardingKeyboardScroll: () => ({
       scrollProps: {},
@@ -76,6 +86,8 @@ const mocks: Record<string, any> = {
   "../../lib/sync/reconcile": { reconcileVaultRegistrations: async () => {} },
   "../../lib/auth": {
     isGoogleSignInAvailable: () => googleAvailable,
+    isAppleSignInAvailable: () => appleAvailable,
+    refreshAppleSignInAvailability: async () => appleAvailable,
     isCancellation: () => false,
     SignInFailedError: class extends Error {},
     InstallRetiredError: class extends Error {},
@@ -155,6 +167,9 @@ function reset() {
   recovery = { recovered: [], failed: [] };
   restoredVault = "";
   googleAvailable = true;
+  appleAvailable = true;
+  focused = true;
+  toasts = [];
   rtl = false;
 }
 function settingsSignIn() {
@@ -348,7 +363,15 @@ async function main() {
       return {
         ...mocks[name],
         useLocalSearchParams: () => ({ redirected: wrapperRedirected }),
-        useRootNavigationState: () => wrapperState,
+        // The real hook returns expo-router's outer slot navigator, whose only
+        // route is "__root" with the root Stack nested inside it. Faking the
+        // Stack here once hid that the swipe could never be enabled.
+        useRootNavigationState: () => ({
+          key: "slot",
+          index: 0,
+          routes: [{ name: "__root", state: wrapperState }],
+        }),
+        useNavigation: () => ({ getState: () => wrapperState, addListener: () => () => {} }),
       };
     assert.ok(name in mocks, name);
     return mocks[name];
@@ -479,6 +502,7 @@ async function main() {
     for (const available of [true, false]) {
       reset();
       googleAvailable = available;
+      appleAvailable = true;
       const providerLabels = nodes(render())
         .filter((n) =>
           /onboardingMode\.(google|apple|email)\.title/.test(n.props.accessibilityLabel),
@@ -535,10 +559,45 @@ async function main() {
   // Back DOWN to the home screen the sign-in was opened from, never a second
   // home on top of it.
   assert.deepEqual(routes, [{ dismissTo: "/" }]);
+  assert.deepEqual(
+    toasts,
+    [["menu.account.signIn.toast", "success"]],
+    "Settings sign-in says it worked",
+  );
+  // Some kaatas did not come back: said, not silent (audit #2).
+  reset();
+  recovery.recovered = ["cloud-vault"];
+  recovery.failed = [{ vaultId: "other", error: "timeout" }];
+  await signIn();
+  assert.deepEqual(toasts, [["menu.account.signIn.partialToast", "error"]]);
+  // Left the page while the kaatas restored: no late jump to another screen.
+  reset();
+  focused = false;
+  await signIn();
+  assert.deepEqual(routes, [], "a finish after leaving never navigates");
+  assert.equal(meta.get("onboarding_step"), "done", "the restore itself still completes");
+  // Apple on Android only when the server's web sign-in is configured.
+  reset();
+  mocks["react-native"].Platform.OS = "android";
+  appleAvailable = false;
+  assert.equal(
+    nodes(render()).some((n) => n.props.accessibilityLabel === "onboardingMode.apple.title"),
+    false,
+    "an Apple card that cannot finish is not offered",
+  );
   reset();
   self = null;
   await signIn();
   assert.deepEqual(routes, ["/onboarding/profile"]);
+  // A first-time invitee who signed in from the kaata invite joins it first
+  // and sets up afterwards; the invitation used to be dropped here (audit #7).
+  reset();
+  self = null;
+  meta.set("pending_invite_token", "first-member");
+  await signIn();
+  assert.deepEqual(routes, [{ pathname: "/invite/[token]", params: { token: "first-member" } }]);
+  assert.equal(meta.get("onboarding_step"), "profile", "setup resumes after the join");
+  assert.equal(meta.get("pending_invite_token"), "", "the invitation is consumed once");
   reset();
   self = null;
   recovery.failed = [{ vaultId: "*", error: "offline" }];
@@ -551,7 +610,10 @@ async function main() {
   }
   assert.equal(routes.length, 0, "failed recovery cannot masquerade as a new account");
   assert.equal(meta.get("onboarding_step"), undefined);
-  assert.ok(nodes(render()).some((n) => n.props.children === "onboardingMode.signInFailed"));
+  assert.ok(
+    nodes(render()).some((n) => n.props.children === "auth.error.recoveryUnavailable"),
+    "a recovery failure after a good sign-in says so, not 'Sign-in didn't work'",
+  );
   console.log(
     "PASS: redirect-only sign-in, provider guard, existing/local/restored/new accounts, intent handoff, active vault and retryable recovery failure",
   );

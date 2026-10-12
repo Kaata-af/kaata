@@ -130,6 +130,21 @@ func TestListAttachesMemberNames(t *testing.T) {
 	if err != nil || len(listings) != 1 || len(listings[0].Members) != 2 {
 		t.Fatalf("member listing = %+v, err=%v", listings, err)
 	}
+	// The name a member chose in Kaata (their phone's profile) outranks the
+	// Google/Apple profile name; members used to see only the provider's.
+	if _, err := pool.Exec(ctx, `INSERT INTO installs (install_id, account_id, self_name)
+		VALUES ($1::uuid, $2::uuid, 'Matee')`, uuid.NewString(), owner); err != nil {
+		t.Fatal(err)
+	}
+	listings, err = svc.List(ctx, editor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, member := range listings[0].Members {
+		if member.AccountID == owner && member.Name != "Matee" {
+			t.Fatalf("owner shown as %q, want the name chosen in Kaata over the provider's", member.Name)
+		}
+	}
 	stranger := seedAccount("Stranger")
 	listings, err = svc.List(ctx, stranger)
 	if err != nil || len(listings) != 0 {
@@ -271,4 +286,69 @@ func TestPhaseBRestGrantsAndManagerCaps(t *testing.T) {
 	if _, err := svc.SetMemberRole(ctx, vaultID, editor2, manager, "viewer"); !errors.Is(err, ErrNotOwner) {
 		t.Fatalf("editor SetMemberRole = %v, want ErrNotOwner", err)
 	}
+}
+
+// Audit #19: invitations introduced the owner by the Google/Apple name. Both
+// the token preview (kaata.af invite page, joiner's stored owner name) and the
+// signed-in pending list use the Members order: Kaata display name, then the
+// name used in Kaata on the latest phone, then the provider name.
+func TestInvitationsNameTheInviterAsKaataDoes(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	ctx := context.Background()
+	svc := NewService(pool)
+
+	var owner, invitee string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO accounts (google_sub, email, email_verified, name, display_name)
+		VALUES ($1, $2, TRUE, 'Google Name', 'Kaata Name') RETURNING id::text
+	`, "sub-"+uuid.NewString(), uuid.NewString()+"@gmail.com").Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	inviteeEmail := uuid.NewString() + "@gmail.com"
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO accounts (google_sub, email, email_verified, name)
+		VALUES ($1, $2, TRUE, 'Joiner') RETURNING id::text
+	`, "sub-"+uuid.NewString(), inviteeEmail).Scan(&invitee); err != nil {
+		t.Fatal(err)
+	}
+	vaultID := uuid.NewString()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO vaults (vault_id, owner_account_id, name, currency, vault_epoch)
+		VALUES ($1::uuid, $2::uuid, 'Shop', 'AFN', 0)
+	`, vaultID, owner); err != nil {
+		t.Fatal(err)
+	}
+	token := "invite-token-" + uuid.NewString()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO vault_members (vault_id, role, invited_by, invited_at,
+			invite_email, invite_token_hash, invite_expires_at, invite_attempts)
+		VALUES ($1::uuid, 'editor', $2::uuid, NOW(), $3, $4, NOW() + INTERVAL '1 day', 0)
+	`, vaultID, owner, NormalizeInviteEmail(inviteeEmail), hashInviteToken(token)); err != nil {
+		t.Fatal(err)
+	}
+	expect := func(want string) {
+		t.Helper()
+		info, err := svc.InviteInfo(ctx, token)
+		if err != nil || info.InviterName != want {
+			t.Fatalf("invite preview names %q (%v), want %q", info.InviterName, err, want)
+		}
+		pending, err := svc.ListPendingInvites(ctx, invitee)
+		if err != nil || len(pending) != 1 || pending[0].InviterName != want {
+			t.Fatalf("pending invites %+v (%v), want inviter %q", pending, err, want)
+		}
+	}
+	expect("Kaata Name")
+	if _, err := pool.Exec(ctx, `UPDATE accounts SET display_name = NULL WHERE id = $1::uuid`, owner); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO installs (install_id, account_id, self_name) VALUES ($1::uuid, $2::uuid, 'Shop Name')
+	`, uuid.NewString(), owner); err != nil {
+		t.Fatal(err)
+	}
+	expect("Shop Name")
+	if _, err := pool.Exec(ctx, `UPDATE installs SET self_name = '' WHERE account_id = $1::uuid`, owner); err != nil {
+		t.Fatal(err)
+	}
+	expect("Google Name")
 }

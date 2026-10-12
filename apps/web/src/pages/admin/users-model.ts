@@ -1,5 +1,5 @@
-import type { InstallRow, UserRow, UsersResult } from "./api";
-import { reportingDay, reportingInstallDay } from "./dates.ts";
+import type { InstallExclusionSource, InstallRow, UserRow, UsersResult } from "./api";
+import { reportingDay } from "./dates.ts";
 
 // The API combines signed-in accounts (possibly several devices) and
 // signed-out installs. Keep these units explicit; rows are not device counts.
@@ -15,15 +15,43 @@ export type UserListRow = {
   platform: string;
   version: string;
   onboarded: boolean;
+  // The truthful install moment (installTime) and its Kabul calendar day,
+  // which the install-date filter compares — the same day the row shows.
   installed_at: string;
   installed_day: string;
   last_seen: string;
   entries: number;
   customers: number;
   shares: number | null;
+  // Test data (2026-10-12): the install metrics leave this row out.
+  // excludedBy "account" on an account row and "install" on a device row
+  // mean excluded by hand on this row (undoable here); a device row can also
+  // be left out because it is linked to an operator account ("operator") or
+  // to an excluded account ("account").
+  excluded: boolean;
+  excludedBy: InstallExclusionSource | "";
+  exclusionReason: string;
+  // Account rows: devices the metrics leave out (InstallRow exclusions).
+  excludedDevices: number;
   account?: UserRow;
   install?: InstallRow;
 };
+
+// The truthful install moment (2026-10-12). installed_at is the device's
+// clock when the install id was minted — but installs older than that field
+// (migration 003) had it back-filled with a LATER check-in's time, and a fast
+// device clock can put it minutes after the server first saw the install.
+// first_seen is the server's own first record. The earlier of the two is
+// when the install demonstrably existed. For an account both are already
+// minimums over its devices, so the earlier is its first device's install.
+export function installTime(installedAt?: string, firstSeen?: string): string {
+  let best = "";
+  for (const value of [installedAt, firstSeen]) {
+    if (!value || !Number.isFinite(Date.parse(value))) continue;
+    if (!best || Date.parse(value) < Date.parse(best)) best = value;
+  }
+  return best;
+}
 
 export type UserFilters = {
   signIn: "all" | "signed-in" | "signed-out";
@@ -38,6 +66,8 @@ export type UserFilters = {
   from: string;
   to: string;
   includeUnidentified: boolean;
+  // Rows the reports leave out as test data are hidden unless this is on.
+  includeExcluded: boolean;
 };
 export type SortKey = "name" | "installed_at" | "last_seen" | "entries" | "customers" | "shares";
 export type UserPreferences = {
@@ -60,6 +90,7 @@ export const DEFAULT_FILTERS: UserFilters = {
   from: "",
   to: "",
   includeUnidentified: false,
+  includeExcluded: false,
 };
 export const PRESETS = [
   {
@@ -104,11 +135,15 @@ export function hasContact(row: UserListRow): boolean {
   return !!(row.phone.trim() || row.email.trim());
 }
 
-export function userRows(data: UsersResult | undefined, cutover?: string): UserListRow[] {
+// Install times are exact instants, so the page shows and filters them on the
+// Kabul calendar like every other timestamp (2026-10-12). The historical UTC
+// day boundary only concerns date-only ACTIVITY records and the charts and
+// cohorts built on them; it no longer applies here.
+export function userRows(data: UsersResult | undefined): UserListRow[] {
   if (!data) return [];
   return [
     ...data.users.map((u): UserListRow => {
-      const installedAt = u.installed_at || u.first_seen || "";
+      const installedAt = installTime(u.installed_at, u.first_seen);
       return {
         id: `a:${u.account_id}`,
         kind: "account",
@@ -122,16 +157,21 @@ export function userRows(data: UsersResult | undefined, cutover?: string): UserL
         version: u.app_version,
         onboarded: u.has_onboarded,
         installed_at: installedAt,
-        installed_day: reportingInstallDay(installedAt, cutover),
+        installed_day: reportingDay(installedAt),
         last_seen: u.last_seen,
         entries: u.kaatas.reduce((sum, k) => sum + k.tally_count, 0),
         customers: u.kaatas.reduce((sum, k) => sum + k.customer_count, 0),
         shares: null,
+        excluded: u.excluded === true,
+        excludedBy: u.excluded === true ? "account" : "",
+        exclusionReason: u.exclusion_reason ?? "",
+        excludedDevices: u.excluded_installs ?? 0,
         account: u,
       };
     }),
     ...(data.anonymous_installs ?? []).map((d): UserListRow => {
-      const installedAt = d.installed_at || d.first_seen || "";
+      const installedAt = installTime(d.installed_at, d.first_seen);
+      const excluded = d.excluded === true;
       return {
         id: `i:${d.install_id}`,
         kind: "install",
@@ -145,15 +185,37 @@ export function userRows(data: UsersResult | undefined, cutover?: string): UserL
         version: d.app_version,
         onboarded: d.has_onboarded,
         installed_at: installedAt,
-        installed_day: reportingInstallDay(installedAt, cutover),
+        installed_day: reportingDay(installedAt),
         last_seen: d.last_seen,
         entries: d.usage_entries,
         customers: d.usage_customers,
         shares: d.usage_shares,
+        excluded,
+        excludedBy: excluded ? d.excluded_by || "install" : "",
+        exclusionReason: d.exclusion_reason ?? "",
+        excludedDevices: excluded ? 1 : 0,
         install: d,
       };
     }),
   ];
+}
+
+// Rows the reports count: test data left out, like every install metric.
+export function reportedRows(rows: UserListRow[]): UserListRow[] {
+  return rows.filter((row) => !row.excluded);
+}
+
+// Devices behind the counted rows: an account's devices minus those the
+// metrics leave out on their own, plus one per counted signed-out install.
+export function reportedDevices(rows: UserListRow[]): number {
+  return reportedRows(rows).reduce(
+    (sum, row) =>
+      sum +
+      (row.kind === "account"
+        ? Math.max(0, (row.account?.install_count ?? 0) - row.excludedDevices)
+        : 1),
+    0,
+  );
 }
 
 export function matchesActivity(
@@ -200,13 +262,16 @@ function matchesSearch(row: UserListRow, search: string): boolean {
   return query.split(/\s+/).every((word) => fields.some((field) => field.includes(word)));
 }
 
+// Test data stays out of the list (and every count below) unless
+// includeExcluded is on; `excluded` counts the matching rows it holds back,
+// so the page can say how many and offer to show them.
 export function filterUsers(
   rows: UserListRow[],
   filters: UserFilters,
   search: string,
   now: number,
 ) {
-  const matching = rows.filter((row) => {
+  const candidates = rows.filter((row) => {
     if (filters.signIn === "signed-in" && row.kind !== "account") return false;
     if (filters.signIn === "signed-out" && row.kind !== "install") return false;
     if (filters.onboarding !== "all" && row.onboarded !== (filters.onboarding === "complete"))
@@ -225,6 +290,8 @@ export function filterUsers(
     if (filters.to && row.installed_day > filters.to) return false;
     return matchesSearch(row, search);
   });
+  const excluded = candidates.filter((row) => row.excluded).length;
+  const matching = filters.includeExcluded ? candidates : reportedRows(candidates);
   const unidentified = matching.filter((row) => !isIdentified(row));
   return {
     matching,
@@ -232,6 +299,8 @@ export function filterUsers(
     hidden: filters.includeUnidentified ? 0 : unidentified.length,
     identified: matching.length - unidentified.length,
     unidentified: unidentified.length,
+    excluded,
+    excludedHidden: filters.includeExcluded ? 0 : excluded,
   };
 }
 
@@ -307,6 +376,8 @@ export function parsePreferences(value: unknown): UserPreferences {
   }
   if (typeof filters.includeUnidentified === "boolean")
     defaults.filters.includeUnidentified = filters.includeUnidentified;
+  if (typeof filters.includeExcluded === "boolean")
+    defaults.filters.includeExcluded = filters.includeExcluded;
   if (
     ["name", "installed_at", "last_seen", "entries", "customers", "shares"].includes(
       String(saved.sortKey),

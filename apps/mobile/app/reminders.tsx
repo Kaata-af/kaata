@@ -1,10 +1,11 @@
-import { Stack, useFocusEffect, useRouter } from "expo-router";
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, BackHandler, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CustomerReminderRow } from "../components/CustomerReminderRow";
+import { ReminderPermissionNotice } from "../components/ReminderPermissionNotice";
 import { ScreenHeader } from "../components/SettingsScreen";
 import { useCalendar } from "../lib/calendar";
 import { colors } from "../lib/colors";
@@ -26,7 +27,10 @@ export default function RemindersScreen() {
     rtl = useIsRTL(),
     state = useCustomerReminders();
   useCalendar();
-  const [dueOnly, setDueOnly] = useState(true),
+  // "All" opens the full list; a due shortcut opens the due ones (audit #25:
+  // "All" used to land on Due and needed a second tap).
+  const { view } = useLocalSearchParams<{ view?: string }>();
+  const [dueOnly, setDueOnly] = useState(view !== "all"),
     [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<CustomerReminder | null>(null);
@@ -106,6 +110,7 @@ export default function RemindersScreen() {
       />
       <ScrollView contentContainerStyle={styles.body}>
         <Text style={[styles.hint, textDir(rtl)]}>{t("reminders.personal")}</Text>
+        <ReminderPermissionNotice isRTL={rtl} />
         <View style={[styles.filters, rowDir(rtl)]}>
           <Button
             label={t("reminders.due")}
@@ -123,11 +128,15 @@ export default function RemindersScreen() {
         {!state.loaded ? (
           <ActivityIndicator color={colors.textDefault} />
         ) : state.failed ? (
-          <Button
-            variant="secondary"
-            label={t("inbox.retry")}
-            onPress={() => void state.refresh()}
-          />
+          // Say what failed: a bare "Tap to retry." explained nothing (audit #25).
+          <>
+            <Text style={[styles.hint, textDir(rtl)]}>{t("reminders.loadFailed")}</Text>
+            <Button
+              variant="secondary"
+              label={t("inbox.retry")}
+              onPress={() => void state.refresh()}
+            />
+          </>
         ) : !rows.length ? (
           <Text style={[styles.hint, textDir(rtl)]}>
             {t(dueOnly ? "reminders.noDue" : "reminders.empty")}

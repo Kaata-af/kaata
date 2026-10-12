@@ -55,7 +55,12 @@ type sharePayload struct {
 	// predating the calendar setting; resolveCalendar falls back to deriving
 	// it from Locale, which is exactly the old behaviour.
 	Calendar string `json:"calendar"`
-	Entries  []struct {
+	// The shopkeeper's Qamari adjustment in days, frozen like Calendar (audit
+	// #15): the tabular Qamari date can sit a day or two off the local moon
+	// sighting. Absent on other calendars and on older bills; see
+	// resolveQamariOffset.
+	QamariOffset *float64 `json:"qamari_offset"`
+	Entries      []struct {
 		Type   string  `json:"type"`
 		Amount float64 `json:"amount"`
 		Note   *string `json:"note"`
@@ -81,6 +86,16 @@ func resolveCalendar(calendar string, rtl bool) string {
 		}
 		return "gregorian"
 	}
+}
+
+// resolveQamariOffset narrows the frozen adjustment: whole days within ±2,
+// else none. The snapshot is untrusted JSON, so anything else is ignored
+// rather than trusted, exactly as resolveCalendar treats an unknown calendar.
+func resolveQamariOffset(raw *float64) int {
+	if raw == nil || *raw != float64(int(*raw)) || *raw < -2 || *raw > 2 {
+		return 0
+	}
+	return int(*raw)
 }
 
 // Create — POST /v1/shared (PUBLIC, rate-limited). Body: the snapshot JSON.
@@ -180,6 +195,7 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 	}
 	rtl := strings.HasPrefix(p.Locale, "fa") || strings.HasPrefix(p.Locale, "ps")
 	calendar := resolveCalendar(p.Calendar, rtl)
+	qamariOffset := resolveQamariOffset(p.QamariOffset)
 
 	// Format the balance once, in the snapshot's locale, so the instant
 	// server-painted hero matches the JS-rendered (fa-AF) row amounts.
@@ -189,19 +205,20 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := viewData{
-		Token:      token,
-		Shop:       p.Shop,
-		Person:     p.Person,
-		Currency:   p.Currency,
-		AbsBalance: absBal,
-		Direction:  dir,
-		RTL:        rtl,
-		Calendar:   calendar,
-		Origin:     h.webBaseURL,
-		ShareURL:   h.shareBaseURL + "/v/" + token,
-		APIBase:    h.apiBaseURL,
-		OGTitle:    ogTitle(p),
-		OGDesc:     ogDesc(absBal, p.Currency, dir, rtl, billDate(p.GeneratedAt, rtl, calendar)),
+		Token:        token,
+		Shop:         p.Shop,
+		Person:       p.Person,
+		Currency:     p.Currency,
+		AbsBalance:   absBal,
+		Direction:    dir,
+		RTL:          rtl,
+		Calendar:     calendar,
+		QamariOffset: qamariOffset,
+		Origin:       h.webBaseURL,
+		ShareURL:     h.shareBaseURL + "/v/" + token,
+		APIBase:      h.apiBaseURL,
+		OGTitle:      ogTitle(p),
+		OGDesc:       ogDesc(absBal, p.Currency, dir, rtl, billDate(p.GeneratedAt, rtl, calendar, qamariOffset)),
 		// Bills are permanent (paper rule), so the issue date is load-bearing:
 		// a two-year-old link must read as "bill dated X", never as the
 		// current balance. Formatted by the inline script's fmtDate (Afghan
@@ -224,6 +241,7 @@ type viewData struct {
 	Direction     string // owe | credit | settled
 	RTL           bool
 	Calendar      string // resolved frozen calendar (see sharePayload.Calendar)
+	QamariOffset  int    // frozen Qamari adjustment in days (resolveQamariOffset)
 	Origin        string // canonical site origin for chrome links (kaata.af)
 	ShareURL      string // this page's own canonical URL (for og:url)
 	APIBase       string // absolute API origin for the inline fetch; "" → relative

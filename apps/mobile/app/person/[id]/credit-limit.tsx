@@ -1,6 +1,15 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useRef, useState } from "react";
-import { ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../../components/Button";
 import { ScreenHeader } from "../../../components/SettingsScreen";
@@ -9,6 +18,7 @@ import { colors } from "../../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../../lib/currency";
 import {
   type CreditPolicy,
+  KAATA_DEFAULT_CREDIT_ID,
   readCreditPolicy,
   refreshCreditPolicies,
   relationshipForCredit,
@@ -16,6 +26,7 @@ import {
   ClerkCloudEnrollmentRequiredError,
   CreditOnlineSaveRequiredError,
 } from "../../../lib/credit-limits";
+import { KAATA_DEFAULT_ROUTE_ID } from "../../../lib/credit-policy";
 import { getActiveVaultIdSyncMaybe } from "../../../lib/db-tx";
 import {
   applyForUnchangedLocalSession,
@@ -24,7 +35,8 @@ import {
   type SessionSnapshot,
 } from "../../../lib/auth";
 import { textDir, useIsRTL } from "../../../lib/direction";
-import { fonts } from "../../../lib/fonts";
+import { getPerson } from "../../../lib/db";
+import { fonts, sansLineHeight } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
 import { fromMinorUnits, normalizeAmountInput, toMinorUnits } from "../../../lib/money";
 import { readVaultRole, useActiveVaultWriteCaps } from "../../../lib/use-vault-role";
@@ -54,6 +66,12 @@ export default function CreditLimitScreen() {
     lifetime: number;
   } | null>(null);
   const [canSave, setCanSave] = useState(false);
+  // Whose limits these are: the screen used to name no one (audit #24).
+  const [customerName, setCustomerName] = useState<string | null>(null);
+  // The kaata-wide default (no customer), and for a customer whether the
+  // default covers them while they have no limit of their own.
+  const isDefault = id === KAATA_DEFAULT_ROUTE_ID;
+  const [inheritsDefault, setInheritsDefault] = useState(false);
   const liveVaultId = context?.vaultId ?? null;
   const caps = useActiveVaultWriteCaps(liveVaultId);
   const editable =
@@ -78,18 +96,25 @@ export default function CreditLimitScreen() {
       void (async () => {
         if (!id || !vaultId || (routeVaultId && routeVaultId !== vaultId)) return;
         const session = await captureCurrentSession();
-        const relationshipId = await relationshipForCredit(id, vaultId);
+        const relationshipId = isDefault
+          ? KAATA_DEFAULT_CREDIT_ID
+          : await relationshipForCredit(id, vaultId);
         const p = await readCreditPolicy(relationshipId, vaultId);
+        const covered =
+          !isDefault && !p && (await readCreditPolicy(KAATA_DEFAULT_CREDIT_ID, vaultId)) != null;
         const role = await readVaultRole(vaultId, session.accountId);
+        const customer = isDefault ? null : await getPerson(id);
         await applyForUnchangedLocalSession(session, async () => {
           if (!alive || lifetime.current !== focus || getActiveVaultIdSyncMaybe() !== vaultId)
             return;
+          setCustomerName(customer?.name ?? null);
           setContext({ vaultId, relationshipId, session, lifetime: focus });
           setCollect(
             p?.max_collect_minor == null ? "" : String(fromMinorUnits(p.max_collect_minor)),
           );
           setPay(p?.max_pay_minor == null ? "" : String(fromMinorUnits(p.max_pay_minor)));
           setMode(p?.mode ?? "warn");
+          setInheritsDefault(covered);
           setCanSave(role === "owner" || role === "manager");
         });
         await refreshCreditPolicies(vaultId, session).catch(() => undefined);
@@ -109,14 +134,15 @@ export default function CreditLimitScreen() {
           setMode(fresh?.mode ?? "warn");
         });
       })().catch((err) => {
+        // A failed LOAD is not a failed save.
         if (alive && lifetime.current === focus && !(err instanceof SessionChangedError))
-          setError(t("credit.saveFailed"));
+          setError(t("credit.loadFailed"));
       });
       return () => {
         alive = false;
         lifetime.current++;
       };
-    }, [id, routeVaultId]),
+    }, [id, routeVaultId, isDefault]),
   );
   async function save() {
     if (!context || !editable || saving.current) return;
@@ -170,71 +196,95 @@ export default function CreditLimitScreen() {
   return (
     <SafeAreaView style={styles.screen}>
       <ScreenHeader
-        title={t("credit.title")}
+        title={t(isDefault ? "credit.defaultTitle" : "credit.title")}
         onBack={() => router.back()}
         isRTL={isRTL}
         backDisabled={busy}
       />
-      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-        <Text style={[styles.label, textDir(isRTL)]}>
-          {t("credit.maxCollect")} ({currency})
-        </Text>
-        <TextInput
-          style={[styles.input, textDir(isRTL)]}
-          value={collect}
-          onChangeText={(v) => {
-            editVersion.current++;
-            setCollect(normalizeAmountInput(v));
-          }}
-          placeholder={t("credit.unlimited")}
-          keyboardType="decimal-pad"
-          editable={editable && !busy}
-          accessibilityLabel={`${t("credit.maxCollect")} (${currency})`}
-        />
-        <Text style={[styles.label, textDir(isRTL)]}>
-          {t("credit.maxPay")} ({currency})
-        </Text>
-        <TextInput
-          style={[styles.input, textDir(isRTL)]}
-          value={pay}
-          onChangeText={(v) => {
-            editVersion.current++;
-            setPay(normalizeAmountInput(v));
-          }}
-          placeholder={t("credit.unlimited")}
-          keyboardType="decimal-pad"
-          editable={editable && !busy}
-          accessibilityLabel={`${t("credit.maxPay")} (${currency})`}
-        />
-        <Button
-          label={t("credit.warnMode")}
-          variant={mode === "warn" ? "primary" : "secondary"}
-          onPress={() => {
-            editVersion.current++;
-            setMode("warn");
-          }}
-          disabled={!editable || busy}
-        />
-        <View style={styles.gap} />
-        <Button
-          label={t("credit.hardMode")}
-          variant={mode === "clerk_block" ? "primary" : "secondary"}
-          onPress={() => {
-            editVersion.current++;
-            setMode("clerk_block");
-          }}
-          disabled={!editable || busy}
-        />
-        <Text style={[styles.help, textDir(isRTL)]}>{t("credit.hardHelp")}</Text>
-        <Text style={[styles.help, textDir(isRTL)]}>{t("credit.onlineSave")}</Text>
-        {error ? <Text style={[styles.error, textDir(isRTL)]}>{error}</Text> : null}
-        <Button
-          label={t("credit.save")}
-          onPress={() => void save()}
-          disabled={!editable || busy}
-          loading={busy}
-        />
-      </ScrollView>
+      {/* Android does not resize for the keyboard; without this the decimal
+          pad covered Save (audit #24). iOS adjusts the ScrollView insets. */}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior="height"
+        enabled={Platform.OS === "android"}
+      >
+        <ScrollView
+          contentContainerStyle={styles.body}
+          keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets
+        >
+          {customerName ? (
+            <Text style={[styles.label, textDir(isRTL)]}>
+              {t("credit.forCustomer", { name: customerName })}
+            </Text>
+          ) : null}
+          {context === null && !error ? <ActivityIndicator color={colors.textDefault} /> : null}
+          {isDefault ? (
+            <Text style={[styles.help, textDir(isRTL)]}>{t("credit.defaultHelp")}</Text>
+          ) : inheritsDefault ? (
+            <Text style={[styles.help, textDir(isRTL)]}>{t("credit.usesDefault")}</Text>
+          ) : null}
+          <Text style={[styles.label, textDir(isRTL)]}>
+            {t("credit.maxCollect")} ({currency})
+          </Text>
+          <TextInput
+            style={[styles.input, textDir(isRTL)]}
+            value={collect}
+            onChangeText={(v) => {
+              editVersion.current++;
+              setCollect(normalizeAmountInput(v));
+            }}
+            placeholder={t("credit.unlimited")}
+            keyboardType="decimal-pad"
+            editable={editable && !busy}
+            accessibilityLabel={`${t("credit.maxCollect")} (${currency})`}
+          />
+          <Text style={[styles.label, textDir(isRTL)]}>
+            {t("credit.maxPay")} ({currency})
+          </Text>
+          <TextInput
+            style={[styles.input, textDir(isRTL)]}
+            value={pay}
+            onChangeText={(v) => {
+              editVersion.current++;
+              setPay(normalizeAmountInput(v));
+            }}
+            placeholder={t("credit.unlimited")}
+            keyboardType="decimal-pad"
+            editable={editable && !busy}
+            accessibilityLabel={`${t("credit.maxPay")} (${currency})`}
+          />
+          <Text style={[styles.help, textDir(isRTL)]}>{t("credit.zeroHelp")}</Text>
+          <Button
+            label={t("credit.warnMode")}
+            variant={mode === "warn" ? "primary" : "secondary"}
+            onPress={() => {
+              editVersion.current++;
+              setMode("warn");
+            }}
+            disabled={!editable || busy}
+          />
+          <View style={styles.gap} />
+          <Button
+            label={t("credit.hardMode")}
+            variant={mode === "clerk_block" ? "primary" : "secondary"}
+            onPress={() => {
+              editVersion.current++;
+              setMode("clerk_block");
+            }}
+            disabled={!editable || busy}
+          />
+          <Text style={[styles.help, textDir(isRTL)]}>{t("credit.hardHelp")}</Text>
+          <Text style={[styles.help, textDir(isRTL)]}>{t("credit.onlineSave")}</Text>
+          {error ? <Text style={[styles.error, textDir(isRTL)]}>{error}</Text> : null}
+          <Button
+            label={t("credit.save")}
+            onPress={() => void save()}
+            disabled={!editable || busy}
+            loading={busy}
+          />
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -253,7 +303,12 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     fontSize: 18,
   },
-  help: { fontFamily: fonts.sansRegular, fontSize: 13, lineHeight: 20, color: colors.textMuted },
+  help: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 13,
+    lineHeight: sansLineHeight(13, 20),
+    color: colors.textMuted,
+  },
   error: { fontFamily: fonts.sansRegular, color: colors.danger, fontSize: 14 },
   gap: { height: 0 },
 });

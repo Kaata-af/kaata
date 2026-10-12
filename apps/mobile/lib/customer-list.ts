@@ -1,12 +1,14 @@
 import type { Direction, PersonWithBalance } from "./types";
 
+// "Last tally · newest first" was dropped: it only differed from "Recent
+// activity" by mixing settled customers in. A saved "date_desc" parses as
+// "recent", which orders open customers identically.
 export const CUSTOMER_SORTS = [
   "recent",
   "name_asc",
   "name_desc",
   "amount_desc",
   "amount_asc",
-  "date_desc",
   "date_asc",
 ] as const;
 export type CustomerSort = (typeof CUSTOMER_SORTS)[number];
@@ -24,7 +26,9 @@ export function availableCustomerGroupFilter(
   filter: CustomerGroupFilter,
   available: readonly { id: string }[],
 ): CustomerGroupFilter {
-  if (filter === "all" || filter === "ungrouped") return filter;
+  if (filter === "all") return filter;
+  // With no groups at all, "Ungrouped" is everyone: show it as no filter.
+  if (filter === "ungrouped") return available.length ? filter : "all";
   const valid = new Set(available.map((g) => g.id));
   const ids = selectedCustomerGroupIds(filter).filter((id) => valid.has(id));
   return ids.length ? ids : "all";
@@ -80,6 +84,33 @@ export function customerSide(p: PersonWithBalance): Direction {
         : "collect";
 }
 
+/** Persian and Arabic-Indic digits as ASCII, so "۱۰" compares like "10". */
+function asciiDigits(value: string): string {
+  return value
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660));
+}
+
+/** Number-aware name order: "Ahmad 2" before "Ahmad 10", "دکان ۲" before "دکان ۱۰". */
+export function compareCustomerNames(a: string, b: string, locale: "en" | "fa"): number {
+  const chunks = (value: string) => asciiDigits(value).match(/\d+|\D+/g) ?? [];
+  const left = chunks(a);
+  const right = chunks(b);
+  for (let i = 0; i < Math.min(left.length, right.length); i++) {
+    let order: number;
+    if (/^\d/.test(left[i]) && /^\d/.test(right[i])) {
+      // Compare as integers of any length: fewer significant digits is smaller.
+      const x = left[i].replace(/^0+(?=\d)/, "");
+      const y = right[i].replace(/^0+(?=\d)/, "");
+      order = x.length - y.length || (x < y ? -1 : x > y ? 1 : 0);
+    } else {
+      order = left[i].localeCompare(right[i], locale, { sensitivity: "base" });
+    }
+    if (order !== 0) return order;
+  }
+  return left.length - right.length || a.localeCompare(b, locale, { sensitivity: "base" });
+}
+
 /** Sorting/filtering is presentation only: never modifies balances or input. */
 export function selectCustomers<T extends PersonWithBalance>(
   people: readonly T[],
@@ -89,8 +120,11 @@ export function selectCustomers<T extends PersonWithBalance>(
   locale: "en" | "fa",
 ): T[] {
   const byName = (a: T, b: T) =>
-    a.name.localeCompare(b.name, locale, { sensitivity: "base" }) || a.id.localeCompare(b.id);
+    compareCustomerNames(a.name, b.name, locale) || a.id.localeCompare(b.id);
   const byDate = (a: T, b: T) => (b.last_entry_at ?? 0) - (a.last_entry_at ?? 0);
+  // Ascending amount/date sorts are for finding debts to chase; settled
+  // customers (0, or an old closed account) must not bury the open ones.
+  const openFirst = (a: T, b: T) => (a.is_settled === 1 ? 1 : 0) - (b.is_settled === 1 ? 1 : 0);
   const selected = selectedCustomerGroupIds(preference.group);
   return people
     .filter(
@@ -114,17 +148,11 @@ export function selectCustomers<T extends PersonWithBalance>(
         case "amount_desc":
           return Math.abs(b.balance) - Math.abs(a.balance) || byName(a, b);
         case "amount_asc":
-          return Math.abs(a.balance) - Math.abs(b.balance) || byName(a, b);
-        case "date_desc":
-          return byDate(a, b) || byName(a, b);
+          return openFirst(a, b) || Math.abs(a.balance) - Math.abs(b.balance) || byName(a, b);
         case "date_asc":
-          return -byDate(a, b) || byName(a, b);
+          return openFirst(a, b) || -byDate(a, b) || byName(a, b);
         default:
-          return (
-            (a.is_settled === 1 ? 1 : 0) - (b.is_settled === 1 ? 1 : 0) ||
-            byDate(a, b) ||
-            byName(a, b)
-          );
+          return openFirst(a, b) || byDate(a, b) || byName(a, b);
       }
     });
 }

@@ -47,7 +47,8 @@ async function editorTests() {
     dismisses: any[] = [],
     saves: any[] = [];
   let platform = "android",
-    busy = false;
+    busy = false,
+    calendar = "gregorian";
   const { ReminderEditor } = compileUI("../../components/ReminderEditor", {
     "react/jsx-runtime": jsxRuntime,
     react: hooks.react,
@@ -71,6 +72,8 @@ async function editorTests() {
       },
     },
     "./Button": { Button: "Button" },
+    "./CalendarDayPicker": { CalendarDayPicker: "CalendarDayPicker" },
+    "../lib/calendar": { useCalendar: () => calendar },
     "../lib/colors": { colors },
     "../lib/direction": direction,
     "../lib/format": { formatDate: (at: number) => `preferred-calendar:${at}` },
@@ -136,6 +139,29 @@ async function editorTests() {
     "late native callback cannot modify a busy editor",
   );
   busy = false;
+  render();
+  // A Shamsi or Qamari user picks a one-off date in that calendar's months,
+  // never the phone's Gregorian picker (audit #25); the time stays.
+  calendar = "jalali";
+  render();
+  const nativeRequests = requests.length;
+  label(hooks.tree, "reminders.date").props.onPress();
+  render();
+  assert.equal(requests.length, nativeRequests, "no native date picker");
+  assert.equal(find(hooks.tree, "Picker"), undefined);
+  const grid = find(hooks.tree, "CalendarDayPicker");
+  assert.equal(grid.props.calendar, "jalali");
+  grid.props.onChange(new Date(2027, 1, 10).getTime());
+  render();
+  label(hooks.tree, "entry.save").props.onPress();
+  assert.equal(new Date(saves.at(-1).at).getMonth(), 1);
+  assert.equal(new Date(saves.at(-1).at).getDate(), 10);
+  assert.equal(new Date(saves.at(-1).at).getHours(), 16, "the chosen time stays");
+  assert.equal(new Date(saves.at(-1).at).getMinutes(), 20);
+  label(hooks.tree, "common.done").props.onPress();
+  render();
+  assert.equal(find(hooks.tree, "CalendarDayPicker"), undefined);
+  calendar = "gregorian";
   render();
   label(hooks.tree, "reminders.weekly").props.onPress();
   render();
@@ -288,6 +314,9 @@ function screenFixture(global = false) {
       [prefix + "components/ConfirmDialog"]: { ConfirmDialog: "Confirm" },
       [prefix + "components/CustomerReminderRow"]: { CustomerReminderRow: "Row" },
       [prefix + "components/ReminderEditor"]: { ReminderEditor: "Editor" },
+      [prefix + "components/ReminderPermissionNotice"]: {
+        ReminderPermissionNotice: "PermissionNotice",
+      },
       [prefix + "components/SettingsScreen"]: { ScreenHeader: "Header" },
       [prefix + "components/Toast"]: {
         useToast: () => ({ push: (...a: any[]) => notices.push(a) }),
@@ -632,7 +661,30 @@ async function openTests() {
   assert.equal(listeners.size, 0);
 }
 
+// Audit #25/#29: reminder times use the app's 12-hour clock in both languages
+// (ICU's fa-AF clock is 24-hour), and monthly dates are day-first.
+function formatTests() {
+  let locale = "en";
+  const strings: Record<string, string> = { "format.am": "AM", "format.pm": "PM" };
+  const faStrings: Record<string, string> = { "format.am": "ق.ظ", "format.pm": "ب.ظ" };
+  const format = compileUI("../reminder-format", {
+    "./i18n": {
+      getLocale: () => locale,
+      t: (key: string) => (locale === "fa" ? faStrings : strings)[key] ?? key,
+    },
+    "./format": { formatTimestamp: () => "" },
+    "./jalali": require("../jalali"),
+  });
+  assert.equal(format.reminderClock(15, 5), "3:05 PM");
+  assert.equal(format.reminderClock(0, 0), "12:00 AM");
+  locale = "fa";
+  assert.equal(format.reminderClock(15, 5), "۳:۰۵ ب.ظ", "Dari reads 12-hour, like the app");
+  locale = "en";
+  assert.equal(format.reminderMonthlyDate(new Date(2026, 9, 12, 9).getTime()), "12 Oct");
+}
+
 async function main() {
+  formatTests();
   await editorTests();
   await screenTests();
   await hookTests();

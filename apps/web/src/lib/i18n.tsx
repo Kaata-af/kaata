@@ -49,7 +49,7 @@ const en = {
   "feature.ping.eyebrow": "The killer feature",
   "feature.ping.title": "A reminder, two taps away.",
   "feature.ping.body":
-    "Open a person, tap Ping. Kaata opens WhatsApp with a polite, pre-filled message — their name, your shop, their balance, and a private link where they can see their full kaata without installing anything. No copy-paste, no awkward typing. A friendly nudge, sent in seconds.",
+    "Open a person and tap the WhatsApp button at the top. Kaata opens WhatsApp with a polite, pre-filled message — their name, your shop, their balance, and a private link where they can see their full kaata without installing anything. No copy-paste, no awkward typing. A friendly nudge, sent in seconds.",
   "feature.backup.eyebrow": "Never lose the book",
   "feature.backup.title": "Phones get lost. Your kaata comes back.",
   "feature.backup.body":
@@ -155,6 +155,7 @@ const en = {
   "home.tab.pay": "To pay",
   "home.total.label.collect": "To collect",
   "home.from.many": "from {count} people",
+  "customers.search": "Search customers",
   "format.yesterday": "yesterday",
   "format.daysAgo": "{n}d ago",
   "format.weeksAgo": "{n}w ago",
@@ -200,7 +201,7 @@ const fa: Record<keyof typeof en, string> = {
   "feature.ping.eyebrow": "امکان اصلی",
   "feature.ping.title": "یادآوری، فقط با دو ضربه.",
   "feature.ping.body":
-    "صفحهٔ شخص را باز کنید و پینگ را بزنید. کاتا واتساپ را با یک پیام مودبانه و آماده باز می‌کند — نام او، دکان شما، باقی‌ماندهٔ حساب و یک لینک خصوصی که کاتای کامل خود را بدون نصب چیزی ببیند. بدون کاپی‌پیست، بدون تایپ. یک یادآوری دوستانه، در چند ثانیه.",
+    "صفحهٔ شخص را باز کنید و دکمهٔ واتساپ را در بالای صفحه بزنید. کاتا واتساپ را با یک پیام مودبانه و آماده باز می‌کند — نام او، دکان شما، باقی‌ماندهٔ حساب و یک لینک خصوصی که کاتای کامل خود را بدون نصب چیزی ببیند. بدون کاپی‌پیست، بدون تایپ. یک یادآوری دوستانه، در چند ثانیه.",
   "feature.backup.eyebrow": "کتاب هرگز گم نمی‌شود",
   "feature.backup.title": "تلفون گم می‌شود. کاتای شما برمی‌گردد.",
   "feature.backup.body":
@@ -303,6 +304,7 @@ const fa: Record<keyof typeof en, string> = {
   "home.tab.pay": "پرداخت",
   "home.total.label.collect": "قابل وصول",
   "home.from.many": "از {count} نفر",
+  "customers.search": "جستجوی مشتری‌ها",
   "format.yesterday": "دیروز",
   "format.daysAgo": "{n} روز پیش",
   "format.weeksAgo": "{n} هفته پیش",

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { drainDeletionBackup } from "../account-deletion-backup";
 import { compileUI } from "./ui-fixture";
 import { createHash } from "node:crypto";
+import Database from "better-sqlite3";
 
 async function finalCleanupTests() {
   let pending = "",
@@ -291,10 +292,58 @@ async function serviceTests() {
   // failed proof leaves financial data intact for an explicit later retry.
 }
 
+// Audit #27: unsent edits in a kaata this phone can no longer reach (archived,
+// gone, or every membership revoked) cannot hold the deletion forever.
+async function unreachableTests() {
+  const sqlite = new Database(":memory:");
+  sqlite.exec(`CREATE TABLE vaults(id TEXT PRIMARY KEY, archived_at INTEGER);
+    CREATE TABLE vault_members_mirror(vault_id TEXT, account_id TEXT, revoked_at INTEGER);
+    INSERT INTO vaults VALUES ('live', NULL), ('archived', 1), ('left', NULL), ('mixed', NULL);
+    INSERT INTO vault_members_mirror VALUES ('live', 'me', NULL), ('left', 'me', 5),
+      ('left', 'local:old', 6), ('mixed', 'me', 5), ('mixed', 'local:old', NULL);`);
+  const db = {
+    getFirstAsync: async (sql: string, ...args: unknown[]) =>
+      sqlite.prepare(sql).get(...args) ?? null,
+    getAllAsync: async (sql: string, ...args: unknown[]) => sqlite.prepare(sql).all(...args),
+  };
+  const module = compileUI("../account-deletion-backup", {
+    "./db-tx": { getDb: async () => db, getAccountIdSync: () => "me" },
+    "./effective-account": { resolveAccountIdCandidates: async () => ["me", "local:old"] },
+  });
+  const unreachable = await module.unreachableVaults([
+    "live",
+    "archived",
+    "left",
+    "mixed",
+    "gone",
+    null,
+  ]);
+  assert.deepEqual(
+    [...unreachable].sort(),
+    ["archived", "gone", "left"],
+    "archived, missing and fully revoked kaatas are unreachable; any live membership keeps one",
+  );
+  const broken = compileUI("../account-deletion-backup", {
+    "./db-tx": {
+      getDb: async () => {
+        throw new Error("db down");
+      },
+      getAccountIdSync: () => "me",
+    },
+    "./effective-account": { resolveAccountIdCandidates: async () => ["me"] },
+  });
+  assert.equal(
+    (await broken.unreachableVaults(["archived"])).size,
+    0,
+    "doubt keeps a kaata reachable",
+  );
+}
+
 async function main() {
   await drainTests();
   await serviceTests();
   await finalCleanupTests();
+  await unreachableTests();
   console.log(
     "Account deletion backup: upload batches, time/work bounds, refusals and pending queues passed.",
   );

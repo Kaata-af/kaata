@@ -3,7 +3,8 @@
 The Overview activity chart and DAU count the same thing: distinct installs
 that checked in, including signed-out users and people who only read a balance.
 They do not count ledger events or signed-in accounts. Repeated check-ins count
-once per bucket; configured operator accounts are excluded from both metrics.
+once per bucket; operator and test data (see "Test data and frozen weeks") is
+excluded from both metrics.
 
 DAU is the current calendar day. WAU and MAU are distinct installs over the
 current day plus the preceding 6 or 29 days; daily counts must not be summed.
@@ -56,8 +57,17 @@ separate; the report never rewrites identities or device activity history.
 Search matches names, shops, email addresses, and phone numbers, including
 Persian/Arabic digits. Filters combine sign-in status, onboarding, check-in
 recency, platform, language, acquisition source, app version, reported entries,
-contact availability, and an inclusive install-date range. The historical
-UTC/Kabul cutover applies to both displayed install dates and date filters.
+contact availability, and an inclusive install-date range.
+
+A row's install time is the earlier of `installed_at` (the device's clock when
+the install id was minted) and `first_seen` (the server's first record); for an
+account, the earliest over its devices. The earlier one is used because
+installs older than migration 003 had `installed_at` back-filled with a later
+check-in's time, and a fast device clock can put it after `first_seen`. It is
+shown once — list column, phone card and expanded details — as a Kabul date
+and clock time, and the install-date filter compares the same Kabul day.
+Install times are exact instants, so the UTC rule for date-only activity
+history (below) does not apply to them; charts and cohorts keep it.
 
 "Active" uses the preceding seven elapsed days; "Today" uses the Kabul calendar
 day. The DAU/WAU/MAU cards retain their separate calendar-based definitions
@@ -86,6 +96,70 @@ an explicit account-switch wipe can replace `app_meta` while the root stays
 mounted. Checks around the request prevent a replaced install from applying its
 response to the new profile. This client fix takes effect with the next mobile
 release; deploying the admin report does not update installed mobile binaries.
+
+## Test data and frozen weeks
+
+One definition of test data applies to every install metric: the Overview KPIs
+and chart, weekly growth, cohorts, adoption and the funnel
+(`internal/admin/report_exclusions.go`, `reportExclusionCTEs`). An install is
+left out when:
+
+- it was excluded by hand (`outreach_exclusions` kind `install`), or
+- it is or was linked to an excluded account — an account in
+  `OPERATOR_ACCOUNT_IDS`, or one excluded by hand (kind `account`). "Linked"
+  means `installs.account_id`, any `auth_credentials` row for the account
+  (revoked or not), or `installs.deletion_account_id`. The last keeps a device
+  excluded after its account is deleted and purged (the purge nulls
+  `account_id`), so deleting a reviewer or operator account never puts its
+  devices back.
+
+A vault exclusion is not an install; it only removes the vault from the
+"kaatas using settle-up" adoption count (as do vaults owned by an excluded
+account). Excluded accounts also leave the "accounts in shared kaatas" count.
+
+How to exclude: in Users, expand a row and press "Exclude from reports" (a
+device) or "Exclude account from reports", with a one-line reason; in
+Outreach, the existing Exclude buttons. Both write
+`POST /v1/admin/outreach/exclude` (`{kind, id, excluded, reason?}`, POST-only,
+admin key, UUID in the body), so one decision shows on both pages with its
+undo ("Include again" in Users, Undo in Outreach's Excluded sources). Users
+hides excluded rows by default, keeps them out of its summary cards, and shows
+them with "Include excluded test data"; an expanded excluded row says why.
+Only a row's own exclusion can be undone there. A device left out because it
+was signed in to an operator account comes back only when that id leaves
+`OPERATOR_ACCOUNT_IDS` — so keep deleted operator and reviewer account ids in
+the list. A device left out through an excluded account comes back with that
+account's undo. Excluding a signed-out install never touches its data; it is
+only left out of the numbers.
+
+No robot heuristic exists. `installs` records no IP, user agent, device model or
+test-lab flag (only `crash_reports.ip`, for installs that sent a diagnostic),
+so Play pre-launch and App Review devices cannot be recognised reliably;
+exclude them by hand from the Users list (they are usually unidentified
+installs: tick "Include unidentified installs"). A reliable future signal would
+be the app reporting Android's `firebase.test.lab` system setting at check-in.
+
+Frozen weeks. The weekly growth accounting (new, retained, reactivated,
+churned) of a completed week is recorded the first time the dashboard reports
+it after Sunday ends in Kabul (`admin_growth_weeks`, migration 058; aggregates
+only, no install or account ids) and reused from then on, so a device later
+signing in to another account, an identity merge or a purge cannot change a
+past week or its 7% verdict. Each row carries the fingerprint of the exclusion
+rules it was computed under (`OPERATOR_ACCOUNT_IDS` plus the install/account
+exclusions, not their reasons). Any change to those rules — an exclusion, an
+undo, or editing `OPERATOR_ACCOUNT_IDS` — recalculates the recorded weeks once
+from the activity history, which is append-only (check-ins are stamped with the
+server clock, installs are never deleted). The unfinished week is always live.
+The card shows when the latest completed week was recorded. Bump
+`growthRulesVersion` when a change to the accounting or exclusion queries
+should recalculate weeks already recorded.
+
+Phones retired by an account deletion are not fixed by this: their check-ins
+are refused (410) before any activity is recorded, so they count as churned
+while still used offline, and the reset that ends the retirement mints a new
+install id that counts as new. Recording an activity hour on the 410 path would
+be a check-in change and a product decision; the reset severs the link to the
+old id by design.
 
 ## Outreach
 
@@ -418,10 +492,13 @@ From `apps/backend`, run `go test ./internal/admin ./internal/checkin` with
 `POSTGRES_TEST_URL` pointing at a disposable test database. The test harness
 resets its schema and applies migrations; never point it at application data.
 Tests cover local midnight, operator exclusion, repeated/anonymous check-ins,
-calendar cutover, and PostgreSQL session timezone independence.
+calendar cutover, and PostgreSQL session timezone independence;
+`report_exclusions_test.go` covers test data across every metric (deleted
+accounts included), frozen weeks surviving link changes and recalculating on a
+rule change, the rules fingerprint, and the Users exclusion flags.
 
 From `apps/web`, run
-`node --experimental-strip-types --test src/pages/admin/dates.test.ts src/pages/admin/users-model.test.ts src/pages/admin/outreach-model.test.ts src/pages/admin/live.test.ts`,
+`node --experimental-strip-types --test src/pages/admin/dates.test.ts src/pages/admin/users-model.test.ts src/pages/admin/outreach-model.test.ts src/pages/admin/live.test.ts src/pages/admin/weekly-growth.test.ts`,
 `bun run typecheck`, and `bun run build`.
 
 The backend live-channel tests exercise authentication, ticket expiry/replay,

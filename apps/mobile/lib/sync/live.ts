@@ -24,6 +24,12 @@
 import { getBackendUrl } from "../api";
 
 const BACKOFF_STEPS_MS = [1_000, 2_000, 5_000, 10_000, 30_000];
+// The server pings every 30 s. A mobile NAT can drop a connection without a
+// close ever reaching the phone, which then believed it was connected and
+// never redialed: pokes stopped and only polling remained. Silence for 2.5
+// pings means the socket is dead.
+const SILENCE_TIMEOUT_MS = 75_000;
+const WATCHDOG_EVERY_MS = 15_000;
 // ±25% jitter so a fleet dropped by one server restart doesn't redial in
 // lockstep.
 const JITTER_FRACTION = 0.25;
@@ -51,6 +57,9 @@ export type LiveChannelOpts = {
   // Optional so the scheduler's existing call shape keeps working; the
   // scheduler wires it to lib/tabs/sync requestTabSync. Same non-blocking rule.
   onTabPoke?: (tabId: string) => void;
+  // Every successful (re)connect. Pokes sent while the socket was down are
+  // lost, so the scheduler catches up here. Same non-blocking rule.
+  onOpen?: () => void;
 };
 
 export type LiveChannel = {
@@ -68,6 +77,15 @@ export function connectLiveChannel(opts: LiveChannelOpts): LiveChannel {
   // bumps this, and the stale dial bails instead of racing the fresh one.
   let generation = 0;
   let dialing = false;
+  // Last frame (ping, poke, or open) from the current socket; see SILENCE_TIMEOUT_MS.
+  let lastHeardAt = 0;
+  let watchdog: ReturnType<typeof setInterval> | null = null;
+  const stopWatchdog = (): void => {
+    if (watchdog) {
+      clearInterval(watchdog);
+      watchdog = null;
+    }
+  };
 
   const clearRetryTimer = (): void => {
     if (retryTimer) {
@@ -91,6 +109,7 @@ export function connectLiveChannel(opts: LiveChannelOpts): LiveChannel {
   // Detach handlers BEFORE close so the dying socket's onclose can't schedule
   // a retry after stop() (or fight a fresh socket after a restart).
   const teardownSocket = (): void => {
+    stopWatchdog();
     const sock = ws;
     if (!sock) return;
     ws = null;
@@ -106,6 +125,7 @@ export function connectLiveChannel(opts: LiveChannelOpts): LiveChannel {
   };
 
   const handleMessage = (data: unknown): void => {
+    lastHeardAt = Date.now();
     try {
       if (typeof data !== "string") return;
       const msg = JSON.parse(data) as { t?: string; vault_id?: string; tab_id?: string };
@@ -157,13 +177,27 @@ export function connectLiveChannel(opts: LiveChannelOpts): LiveChannel {
       sock.onopen = () => {
         // Connected — future drops start the backoff ladder from the bottom.
         attempt = 0;
+        lastHeardAt = Date.now();
+        stopWatchdog();
+        watchdog = setInterval(() => {
+          if (ws !== sock || Date.now() - lastHeardAt < SILENCE_TIMEOUT_MS) return;
+          if (__DEV__) console.log("[sync.live] silent too long, redialing");
+          teardownSocket();
+          scheduleRetry();
+        }, WATCHDOG_EVERY_MS);
         if (__DEV__) console.log("[sync.live] connected");
+        try {
+          opts.onOpen?.();
+        } catch (err) {
+          if (__DEV__) console.warn("[sync.live] onOpen failed", err);
+        }
       };
       sock.onmessage = (e) => handleMessage(e.data);
       sock.onerror = () => {
         // RN always follows onerror with onclose; reconnect is handled there.
       };
       sock.onclose = () => {
+        if (ws === sock) stopWatchdog();
         ws = null;
         if (__DEV__) console.log("[sync.live] closed, will retry");
         scheduleRetry();

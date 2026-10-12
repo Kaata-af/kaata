@@ -76,13 +76,18 @@ export async function checkIn(payload: {
       // for Account's reset notice — only while it is still this phone's id —
       // and hand callers the typed error. Nothing is queued as a crash report.
       let detail = "";
+      // Present while the account is inside its 30-day deletion grace window:
+      // signing in with it then cancels the deletion (Account says so).
+      let recoverableUntil: string | null = null;
       try {
-        detail = (await res.json())?.error ?? "";
+        const body = await res.json();
+        detail = body?.error ?? "";
+        if (typeof body?.recoverable_until === "string") recoverableUntil = body.recoverable_until;
       } catch {
         // The status is the signal; the body only adds the server's wording.
       }
       try {
-        await markInstallRetired(payload.install_id);
+        await markInstallRetired(payload.install_id, recoverableUntil);
       } catch (err) {
         console.warn("[api] could not record the retired install", err);
       }

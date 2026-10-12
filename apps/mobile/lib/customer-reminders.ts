@@ -1,5 +1,5 @@
 import * as Crypto from "expo-crypto";
-import { getAccountIdSync, getDb, getInstallIdSync, type SQLiteTx } from "./db-tx";
+import { getDb, getInstallIdSync, getSessionAccountIdSync, type SQLiteTx } from "./db-tx";
 import { resolveAccountIdCandidates } from "./effective-account";
 import { getReminderDeviceId, getReminderDeviceIdSync } from "./reminder-device";
 import {
@@ -48,8 +48,10 @@ export async function migrateCustomerReminders(db: SQLiteTx): Promise<void> {
   });
 }
 
+// The signed-in account; a signed-out phone has the local scope, launch after
+// launch (a relaunch used to bring the account's reminders back, audit #25).
 export function reminderOwnerScope(): string {
-  const account = getAccountIdSync();
+  const account = getSessionAccountIdSync();
   return account ? `account:${account}` : `local:${getInstallIdSync()}`;
 }
 export function reminderTimezone(): string {
@@ -91,7 +93,7 @@ export async function canReadReminderVault(db: SQLiteTx, vaultId: string): Promi
     vaultId,
   );
   if (!vault || vault.archived_at != null) return false;
-  const ids = await resolveAccountIdCandidates(getAccountIdSync());
+  const ids = await resolveAccountIdCandidates(getSessionAccountIdSync());
   if (!ids.length) return false;
   const own = await db.getAllAsync<{ revoked_at: number | null; accepted_at: number | null }>(
     `SELECT revoked_at, accepted_at FROM vault_members_mirror WHERE vault_id = ? AND account_id IN (${ids.map(() => "?").join(",")})`,
@@ -192,12 +194,28 @@ export async function saveCustomerReminder(
       // native requests. Reject the save rather than silently dropping notices
       // when iOS's pending-notification limit would be exceeded. Edits replace
       // their own budget, including an existing disabled task being re-enabled.
-      const others = await db.getAllAsync<{ schedule_json: string }>(
-        "SELECT schedule_json FROM customer_reminders WHERE owner_scope=? AND install_id=? AND enabled=1 AND id<>?",
+      // Only reminders this phone can still show and ring count toward the
+      // limits, the same set listCustomerReminders schedules: a removed
+      // customer's hidden reminder used to hold a slot nobody could free
+      // (audit #25).
+      const candidates = await db.getAllAsync<{ schedule_json: string; vault_id: string }>(
+        `SELECT cr.schedule_json, cr.vault_id FROM customer_reminders cr
+        JOIN users u ON u.id = cr.person_id JOIN vaults v ON v.id = cr.vault_id
+        WHERE cr.owner_scope=? AND cr.install_id=? AND cr.enabled=1 AND cr.id<>?
+          AND u.archived_at IS NULL AND u.is_local_self = 0 AND v.archived_at IS NULL
+          AND EXISTS (SELECT 1 FROM relationships r WHERE r.vault_id = cr.vault_id
+            AND r.archived_at IS NULL AND (r.user_a_id = cr.person_id OR r.user_b_id = cr.person_id))`,
         owner,
         install,
         reminderId,
       );
+      const readable = new Map<string, boolean>();
+      const others: { schedule_json: string }[] = [];
+      for (const row of candidates) {
+        if (!readable.has(row.vault_id))
+          readable.set(row.vault_id, await canReadReminderVault(db, row.vault_id));
+        if (readable.get(row.vault_id)) others.push(row);
+      }
       if (others.length >= MAX_ACTIVE_REMINDERS) throw new Error("reminder_limit");
       const requests = others.reduce((count, row) => {
         const other = readReminderSchedule(row);

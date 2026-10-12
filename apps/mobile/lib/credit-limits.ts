@@ -1,5 +1,15 @@
-import { type CreditPolicy, creditExceeded, validCreditPolicy } from "./credit-policy";
-export { type CreditPolicy, creditExceeded, validCreditPolicy } from "./credit-policy";
+import {
+  type CreditPolicy,
+  creditExceeded,
+  KAATA_DEFAULT_CREDIT_ID,
+  validCreditPolicy,
+} from "./credit-policy";
+export {
+  type CreditPolicy,
+  creditExceeded,
+  KAATA_DEFAULT_CREDIT_ID,
+  validCreditPolicy,
+} from "./credit-policy";
 import { cacheCreditPolicies } from "./credit-policy-cache";
 import type { SQLiteTx } from "./db-tx";
 import { getActiveVaultIdSyncMaybe, getDb } from "./db-tx";
@@ -63,10 +73,29 @@ export async function readCreditPolicy(
 ): Promise<CreditPolicy | null> {
   if (!vaultId) return null;
   const db = await getDb();
+  if (relationshipId === KAATA_DEFAULT_CREDIT_ID)
+    return db.getFirstAsync<CreditPolicy>(
+      "SELECT ? AS relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms FROM kaata_credit_defaults WHERE vault_id=?",
+      KAATA_DEFAULT_CREDIT_ID,
+      vaultId,
+    );
   return db.getFirstAsync<CreditPolicy>(
     "SELECT relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms FROM customer_credit_limits WHERE vault_id=? AND relationship_id=?",
     vaultId,
     relationshipId,
+  );
+}
+
+/** The customer's own limit, else the kaata default, else null. */
+export async function readEffectiveCreditPolicy(
+  relationshipId: string,
+  vaultId = getActiveVaultIdSyncMaybe(),
+): Promise<CreditPolicy | null> {
+  return (
+    (await readCreditPolicy(relationshipId, vaultId)) ??
+    (relationshipId === KAATA_DEFAULT_CREDIT_ID
+      ? null
+      : await readCreditPolicy(KAATA_DEFAULT_CREDIT_ID, vaultId))
   );
 }
 
@@ -207,6 +236,59 @@ export async function refreshCreditPolicies(
   }
 }
 
+/** A clerk tally a limit stopped, as the server recorded it. */
+export type CreditRefusal = {
+  relationship_id: string;
+  type: "debt" | "payment";
+  amount_minor: number;
+  actor_account_id: string;
+  actor_name: string;
+  refused_at_ms: number;
+};
+const refusalCache = new Map<string, { at: number; jwt: string; rows: CreditRefusal[] }>();
+
+/** The last 30 days of clerk tallies a limit stopped, for the owner and
+ *  managers who set limits (audit #24: they never heard of them). Server
+ *  state only, never cached on disk; anyone else, or an older server, gets
+ *  an empty list. One request a minute per kaata and session at most. */
+export async function fetchCreditRefusals(
+  vaultId: string,
+  expected?: SessionSnapshot,
+): Promise<CreditRefusal[]> {
+  const session = expected ?? (await captureCurrentSession());
+  if (!session.jwt) return [];
+  const role = await readVaultRole(vaultId, session.accountId);
+  if (role !== "owner" && role !== "manager") return [];
+  const cached = refusalCache.get(vaultId);
+  if (cached && cached.jwt === session.jwt && Date.now() - cached.at < 60_000) return cached.rows;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+  try {
+    const res = await fetch(
+      `${await getBackendUrl()}/v1/sync/credit-refusals?vault_id=${encodeURIComponent(vaultId)}`,
+      { headers: { Authorization: `Bearer ${session.jwt}` }, signal: controller.signal },
+    );
+    if (!res.ok) return cached?.jwt === session.jwt ? cached.rows : [];
+    const body = (await res.json()) as { refusals?: unknown };
+    const rows = (Array.isArray(body?.refusals) ? body.refusals : []).filter(
+      (r): r is CreditRefusal =>
+        !!r &&
+        typeof r === "object" &&
+        typeof (r as CreditRefusal).relationship_id === "string" &&
+        ((r as CreditRefusal).type === "debt" || (r as CreditRefusal).type === "payment") &&
+        Number.isSafeInteger((r as CreditRefusal).amount_minor) &&
+        typeof (r as CreditRefusal).actor_name === "string" &&
+        Number.isSafeInteger((r as CreditRefusal).refused_at_ms),
+    );
+    refusalCache.set(vaultId, { at: Date.now(), jwt: session.jwt, rows });
+    return rows;
+  } catch {
+    return cached?.jwt === session.jwt ? cached.rows : [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function saveCreditPolicy(
   vaultId: string,
   p: CreditPolicy,
@@ -222,7 +304,9 @@ async function saveCreditPolicyInner(
 ): Promise<CreditPolicy> {
   if (!validCreditPolicy(p)) throw new Error("Invalid credit limit");
   const session = expected ?? (await captureCurrentSession());
-  if (p.mode === "clerk_block" && !session.jwt)
+  const kaataDefault = p.relationship_id === KAATA_DEFAULT_CREDIT_ID;
+  // The kaata default is a shared rule other phones must receive: always online.
+  if ((p.mode === "clerk_block" || kaataDefault) && !session.jwt)
     throw new CreditOnlineSaveRequiredError(
       "Hard credit limits require sign-in and an online save",
     );
@@ -280,6 +364,17 @@ async function saveCreditPolicyInner(
     const db = await getDb();
     await applyEventMutex.runExclusive(() =>
       db.withTransactionAsync(async () => {
+        if (kaataDefault) {
+          await db.runAsync(
+            "INSERT INTO kaata_credit_defaults(vault_id,max_collect_minor,max_pay_minor,mode,updated_at_ms) VALUES(?,?,?,?,?) ON CONFLICT(vault_id) DO UPDATE SET max_collect_minor=excluded.max_collect_minor,max_pay_minor=excluded.max_pay_minor,mode=excluded.mode,updated_at_ms=excluded.updated_at_ms WHERE kaata_credit_defaults.updated_at_ms<=excluded.updated_at_ms",
+            vaultId,
+            saved.max_collect_minor,
+            saved.max_pay_minor,
+            saved.mode,
+            saved.updated_at_ms,
+          );
+          return;
+        }
         await db.runAsync(
           "INSERT INTO customer_credit_limits(vault_id,relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms,sync_pending) VALUES(?,?,?,?,?,?,?) ON CONFLICT(vault_id,relationship_id) DO UPDATE SET max_collect_minor=excluded.max_collect_minor,max_pay_minor=excluded.max_pay_minor,mode=excluded.mode,updated_at_ms=excluded.updated_at_ms,sync_pending=excluded.sync_pending WHERE customer_credit_limits.updated_at_ms<=excluded.updated_at_ms OR customer_credit_limits.sync_pending=1",
           vaultId,
@@ -315,8 +410,21 @@ export async function readCreditPoliciesForPeople(
   vaultId: string,
 ): Promise<Record<string, CreditPolicy>> {
   const db = await getDb();
+  // Each customer's own limit, else the kaata default (so home colours a
+  // customer the default covers too).
   const rows = await db.getAllAsync<CreditPolicy & { person_id: string }>(
-    "SELECT r.user_b_id AS person_id,p.relationship_id,p.max_collect_minor,p.max_pay_minor,p.mode,p.updated_at_ms FROM customer_credit_limits p JOIN relationships r ON r.id=p.relationship_id AND r.vault_id=p.vault_id WHERE p.vault_id=? AND r.archived_at IS NULL",
+    `SELECT r.user_b_id AS person_id,
+            CASE WHEN p.relationship_id IS NOT NULL THEN p.relationship_id ELSE ? END AS relationship_id,
+            CASE WHEN p.relationship_id IS NOT NULL THEN p.max_collect_minor ELSE d.max_collect_minor END AS max_collect_minor,
+            CASE WHEN p.relationship_id IS NOT NULL THEN p.max_pay_minor ELSE d.max_pay_minor END AS max_pay_minor,
+            CASE WHEN p.relationship_id IS NOT NULL THEN p.mode ELSE d.mode END AS mode,
+            CASE WHEN p.relationship_id IS NOT NULL THEN p.updated_at_ms ELSE d.updated_at_ms END AS updated_at_ms
+       FROM relationships r
+       LEFT JOIN customer_credit_limits p ON p.vault_id=r.vault_id AND p.relationship_id=r.id
+       LEFT JOIN kaata_credit_defaults d ON d.vault_id=r.vault_id
+      WHERE r.vault_id=? AND r.archived_at IS NULL
+        AND (p.relationship_id IS NOT NULL OR d.vault_id IS NOT NULL)`,
+    KAATA_DEFAULT_CREDIT_ID,
     vaultId,
   );
   return Object.fromEntries(rows.map((r) => [r.person_id, r]));
@@ -330,11 +438,39 @@ export async function creditWarning(
 ): Promise<boolean> {
   if (!vaultId) return false;
   const relationshipId = await relationshipForCredit(personId, vaultId);
-  const policy = await readCreditPolicy(relationshipId, vaultId);
+  const policy = await readEffectiveCreditPolicy(relationshipId, vaultId);
   if (!policy) return false;
   const db = await getDb();
   const before = await creditBalanceInTx(db, vaultId, relationshipId);
   return creditExceeded(policy, before, before + (type === "debt" ? 1 : -1) * toMinorUnits(amount));
+}
+
+/** The same check for an edit (audit #24): the stored amount is already in
+ *  the balance, so only the change moves it. A row the balance leaves out
+ *  (rejected) cannot push it over by being edited. */
+export async function creditWarningForEdit(
+  entryId: string,
+  amount: number,
+  vaultId = getActiveVaultIdSyncMaybe(),
+): Promise<boolean> {
+  if (!vaultId) return false;
+  const db = await getDb();
+  const row = await db.getFirstAsync<{
+    relationship_id: string;
+    type: "debt" | "payment";
+    amount_afn: number;
+    disputed_at: number | null;
+  }>(
+    "SELECT relationship_id,type,amount_afn,disputed_at FROM entries WHERE id=? AND vault_id=?",
+    entryId,
+    vaultId,
+  );
+  if (!row || row.disputed_at != null) return false;
+  const policy = await readEffectiveCreditPolicy(row.relationship_id, vaultId);
+  if (!policy) return false;
+  const before = await creditBalanceInTx(db, vaultId, row.relationship_id);
+  const change = toMinorUnits(amount) - toMinorUnits(row.amount_afn);
+  return creditExceeded(policy, before, before + (row.type === "debt" ? 1 : -1) * change);
 }
 
 export type CreditIntent = {

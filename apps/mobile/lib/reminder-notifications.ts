@@ -1,7 +1,7 @@
 import { isRunningInExpoGo } from "expo";
 import { Platform } from "react-native";
 import { getDb } from "./db-tx";
-import { t } from "./i18n";
+import { getLocale, t } from "./i18n";
 import {
   listCustomerReminders,
   readReminderSchedule,
@@ -38,6 +38,16 @@ export async function requestReminderNotifications(): Promise<
     });
   let permission = await n.getPermissionsAsync();
   if (!permission.granted && permission.canAskAgain) permission = await n.requestPermissionsAsync();
+  return permission.granted || permission.ios?.status === n.IosAuthorizationStatus.PROVISIONAL
+    ? "granted"
+    : "denied";
+}
+
+/** Permission as it stands, without ever prompting (screens read it on focus). */
+export async function reminderNotificationStatus(): Promise<"granted" | "denied" | "unavailable"> {
+  const n = await native();
+  if (!n) return "unavailable";
+  const permission = await n.getPermissionsAsync();
   return permission.granted || permission.ios?.status === n.IosAuthorizationStatus.PROVISIONAL
     ? "granted"
     : "denied";
@@ -144,10 +154,17 @@ export function reconcileReminderNotifications(): Promise<void> {
     for (const { row, id, trigger } of plans) {
       if (!current()) return;
       const fingerprint = `${row.updated_at}:${row.schedule_json}:${zone}`;
+      // The text is fixed when scheduled: a language switch or a rename
+      // rewrites pending alerts. A notice already in the tray is left as it is
+      // (the task did not change), so the text is kept apart from the
+      // fingerprint.
+      const name = (row.person_name ?? "").trim();
+      const textKey = textHash(`${getLocale()}\0${name}`);
       const old = live.get(id);
       if (
         old?.content.data?.reminder_fingerprint === fingerprint &&
-        old.content.data?.owner_scope === owner
+        old.content.data?.owner_scope === owner &&
+        old.content.data?.text_key === textKey
       )
         continue;
       if (old) await n.cancelScheduledNotificationAsync(id);
@@ -156,13 +173,16 @@ export function reconcileReminderNotifications(): Promise<void> {
         identifier: id,
         content: {
           title: "Kaata",
-          body: t("reminders.notifyBody"),
+          // Name the customer (Matee, 2026-10-12): several due reminders used
+          // to look identical. Shared-account alerts already show names.
+          body: name ? t("reminders.notifyBodyNamed", { name }) : t("reminders.notifyBody"),
           sound: "default",
           data: {
             kind: "customer_reminder",
             reminder_id: row.id,
             owner_scope: owner,
             reminder_fingerprint: fingerprint,
+            text_key: textKey,
           },
         },
         trigger,
@@ -176,6 +196,17 @@ export function reconcileReminderNotifications(): Promise<void> {
   const work = tail.then(run, run);
   tail = work.catch(() => undefined);
   return work;
+}
+
+// FNV-1a of the alert's text inputs: notices which alerts need rewriting
+// without putting the customer's name into the payload's data.
+function textHash(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(36);
 }
 
 export function invalidateReminderNotificationWork(): void {

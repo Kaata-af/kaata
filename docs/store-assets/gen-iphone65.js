@@ -9,7 +9,7 @@ const S = require("./gen-screens.js"); // reuse FONTS, CSS, and screen builders
 // scaled up so it grounds at the bottom edge like the Play panels.
 //
 // Render each HTML with headless Chrome at --window-size=1284,2778 (see
-// render-iphone65 command in the repo docs / git history).
+// docs/store-listing.md).
 
 const OUT = path.join(__dirname, "iphone-6.5");
 

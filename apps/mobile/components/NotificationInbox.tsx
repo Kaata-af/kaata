@@ -66,24 +66,30 @@ function InboxContent({
   compact,
   open,
   openReminders,
-  remindersActive = true,
+  dueReminders,
+  hasReminders,
 }: {
   inbox: Inbox;
   compact?: boolean;
   open: (item: InboxItem) => void;
   openReminders?: () => void;
-  remindersActive?: boolean;
+  /** A count kept loaded by the caller; without it the row loads its own. */
+  dueReminders?: number;
+  /** Any reminder at all: the row is then the way into the full list. */
+  hasReminders?: boolean;
 }) {
   const rtl = useIsRTL();
   const toast = useToast();
   const [marking, setMarking] = useState(false);
   const { page, loading, failed, signedIn } = inbox;
+  const toReminders = openReminders ?? (() => router.push("/reminders"));
   return (
     <>
-      <DueRemindersShortcut
-        active={remindersActive}
-        onPress={openReminders ?? (() => router.push("/reminders"))}
-      />
+      {dueReminders === undefined ? (
+        <DueRemindersShortcut active onPress={toReminders} />
+      ) : (
+        <DueRemindersRow count={dueReminders} any={hasReminders} onPress={toReminders} />
+      )}
       {compact || page.unread > 0 ? (
         <View style={[styles.heading, rowDir(rtl), !compact && { justifyContent: "flex-end" }]}>
           {compact ? <Text style={[styles.title, textDir(rtl)]}>{t("inbox.title")}</Text> : null}
@@ -162,19 +168,37 @@ export function DueRemindersShortcut({
   onPress: () => void;
 }) {
   const { due } = useCustomerReminders(undefined, undefined, active);
+  // Called, not mounted: always called, so its hook order never changes.
+  return DueRemindersRow({ count: due.length, onPress });
+}
+
+/** The "Reminders due" row from a count its owner keeps loaded. The bell's
+ * dropdown passes its own count: a row that loaded only while the dropdown was
+ * open popped in after opening and vanished as the close fade began, which
+ * made the panel jump. */
+// With reminders but none due it reads "Reminders": the list of every
+// reminder had no way in except a due one or a customer's page (audit #25).
+function DueRemindersRow({
+  count,
+  any = false,
+  onPress,
+}: {
+  count: number;
+  any?: boolean;
+  onPress: () => void;
+}) {
   const rtl = useIsRTL();
-  if (!due.length) return null;
+  if (!count && !any) return null;
+  const label = count ? t("reminders.dueShortcut", { count }) : t("reminders.title");
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={t("reminders.dueShortcut", { count: due.length })}
+      accessibilityLabel={label}
       onPress={onPress}
       style={[styles.reminders, rowDir(rtl)]}
     >
       <Ionicons name="alarm-outline" size={icon.row} color={colors.textSubtle} />
-      <Text style={[styles.body, textDir(rtl), { flex: 1 }]}>
-        {t("reminders.dueShortcut", { count: due.length })}
-      </Text>
+      <Text style={[styles.body, textDir(rtl), { flex: 1 }]}>{label}</Text>
       <Ionicons
         name={rtl ? "chevron-back" : "chevron-forward"}
         size={16}
@@ -186,6 +210,13 @@ export function DueRemindersShortcut({
 
 export function NotificationBell() {
   const inbox = useInbox();
+  // Due reminders count on the bell too: they used to be invisible until the
+  // dropdown was opened. Loaded here, not by the dropdown, so the row stays
+  // put through opening and closing.
+  const reminders = useCustomerReminders(undefined, undefined, true);
+  const dueReminders = reminders.due.length;
+  const hasReminders = reminders.rows.length > 0;
+  const badge = inbox.page.unread + dueReminders;
   const toast = useToast();
   const anchor = useRef<View>(null);
   const [position, setPosition] = useState<{ y: number } | null>(null);
@@ -305,7 +336,10 @@ export function NotificationBell() {
       <View ref={anchor} collapsable={false}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={t("inbox.bell", { count: inbox.page.unread })}
+          accessibilityLabel={
+            t("inbox.bell", { count: inbox.page.unread }) +
+            (dueReminders ? `. ${t("reminders.dueShortcut", { count: dueReminders })}` : "")
+          }
           accessibilityState={{ expanded: visible && !closing }}
           style={styles.bell}
           onPress={() => {
@@ -342,10 +376,10 @@ export function NotificationBell() {
           }}
         >
           <Ionicons name="notifications-outline" size={icon.row} color={colors.textEmphasis} />
-          {inbox.page.unread > 0 ? (
+          {badge > 0 ? (
             <View style={styles.count}>
               <Text style={styles.countText} numberOfLines={1} allowFontScaling={false}>
-                {inbox.page.unread > 99 ? "99+" : inbox.page.unread}
+                {badge > 99 ? "99+" : badge}
               </Text>
             </View>
           ) : null}
@@ -382,8 +416,17 @@ export function NotificationBell() {
               inbox={inbox}
               compact
               open={open}
-              remindersActive={visible && !closing}
-              openReminders={() => close(() => router.push("/reminders"))}
+              dueReminders={dueReminders}
+              hasReminders={hasReminders}
+              openReminders={() =>
+                close(() =>
+                  router.push(
+                    dueReminders > 0
+                      ? "/reminders"
+                      : { pathname: "/reminders", params: { view: "all" } },
+                  ),
+                )
+              }
             />
             <Pressable
               accessibilityRole="button"

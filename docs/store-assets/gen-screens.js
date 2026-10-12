@@ -1,20 +1,47 @@
 const fs = require("fs");
 const path = require("path");
+const { pathToFileURL } = require("url");
 const brand = require("../../apps/_shared/brand-palette.json");
-const neutral = {
-  subtle: "#706573",
-  muted: "#756B78",
-  bgMuted: "#FAF7F2",
-  border: "#E4DCE3",
+
+// Store screenshots (Play phone set; reused by gen-iphone65.js and, for fonts,
+// palette and icons, by gen-tablet10.js). The marketing panel around the phone
+// uses the brand palette (docs/brand-language.md). The phone screens mirror
+// the CURRENT app, which is neutral black/white/gray: home (apps/mobile/app/
+// index.tsx), person (app/person/[id].tsx + components/EntryRow.tsx), entry
+// (app/entry/new.tsx) and onboarding success (app/onboarding/success.tsx).
+// When those screens change, change these too; nothing tests the drawings.
+
+// Mirror of apps/mobile/lib/colors.ts.
+const app = {
+  action: "#000000",
+  bg: "#FFFFFF",
+  bgMuted: "#F7F7F7",
+  bgSubtle: "#EFEFEF",
+  bgWarm: brand.ivory,
+  textEmphasis: "#171717",
+  textDefault: "#292929",
+  textSubtle: "#616161",
+  textMuted: "#6B6B6B",
+  borderSubtle: "#EFEFEF",
+  borderDefault: "#E2E2E2",
+  collectBg: "#E8F4EF",
+  collectText: "#0A5A46",
+  collectStrong: "#0C745A",
+  payBg: "#F8EAEC",
+  payStrong: "#A3203A",
+  reviewPending: "#D29A00",
+  sharedAccount: "#2563EB",
+  danger: "#DC2626",
 };
 
 const OUT = __dirname;
-const GF =
-  "file:///C:/Users/Matee/Desktop/Projects/Kaata/kaata/apps/mobile/node_modules/@expo-google-fonts";
+const MOBILE_MODULES = path.resolve(__dirname, "../../apps/mobile/node_modules");
+const fileUrl = (...parts) => pathToFileURL(path.join(MOBILE_MODULES, ...parts)).href;
 const V = (w, f) =>
-  `@font-face{font-family:"Vaz";font-weight:${w};src:url("${GF}/vazirmatn/${f}/Vazirmatn_${f}.ttf");}`;
+  `@font-face{font-family:"Vaz";font-weight:${w};src:url("${fileUrl("@expo-google-fonts/vazirmatn", f, `Vazirmatn_${f}.ttf`)}");}`;
 const M = (w, f) =>
-  `@font-face{font-family:"Mono";font-weight:${w};src:url("${GF}/jetbrains-mono/${f}/JetBrainsMono_${f}.ttf");}`;
+  `@font-face{font-family:"Mono";font-weight:${w};src:url("${fileUrl("@expo-google-fonts/jetbrains-mono", f, `JetBrainsMono_${f}.ttf`)}");}`;
+const ICON_FONTS = "@expo/vector-icons/build/vendor/react-native-vector-icons";
 
 const FONTS = [
   V(400, "400Regular"),
@@ -27,48 +54,28 @@ const FONTS = [
   M(600, "600SemiBold"),
   M(700, "700Bold"),
   M(800, "800ExtraBold"),
+  // The app's own icon fonts, so every glyph is the one the app draws.
+  `@font-face{font-family:"Ion";src:url("${fileUrl(ICON_FONTS, "Fonts", "Ionicons.ttf")}");}`,
+  `@font-face{font-family:"MI";src:url("${fileUrl(ICON_FONTS, "Fonts", "MaterialIcons.ttf")}");}`,
 ].join("\n");
 
-// ---- inline Ionicons-style SVGs (stroke = currentColor) ----
+const IONICONS = require(path.join(MOBILE_MODULES, ICON_FONTS, "glyphmaps/Ionicons.json"));
+const MATERIAL = require(path.join(MOBILE_MODULES, ICON_FONTS, "glyphmaps/MaterialIcons.json"));
+const glyph = (family, map, name, size, color) => {
+  if (!(name in map)) throw new Error(`unknown icon ${name}`);
+  const box = `calc(var(--k)*${size}px)`;
+  return `<span class="glyph" style="font-family:${family};font-size:${box};width:${box};height:${box}${color ? `;color:${color}` : ""}">&#x${map[name].toString(16)};</span>`;
+};
+// Ionicons by name, sized in dp like the app's <Ionicons size>. Color defaults
+// to the parent's.
+const ion = (name, size, color) => glyph("Ion", IONICONS, name, size, color);
+const material = (name, size, color) => glyph("MI", MATERIAL, name, size, color);
+
+// WhatsApp's own chrome (the reminder panel) keeps simple inline drawings.
 const svg = (inner, o = {}) =>
   `<svg viewBox="0 0 24 24" width="${o.w || 24}" height="${o.w || 24}" fill="${o.fill || "none"}" stroke="${o.fill ? "none" : "currentColor"}" stroke-width="${o.sw || 2}" stroke-linecap="round" stroke-linejoin="round" style="display:block">${inner}</svg>`;
 const ic = {
-  chevronDown: (w) => svg('<polyline points="6 9 12 15 18 9"/>', { w, sw: 2.2 }),
   chevronBack: (w) => svg('<polyline points="15 6 9 12 15 18"/>', { w, sw: 2.4 }),
-  // The home FAB's mark. A rounded square, NOT a "+" — see HOME_MARK_SIZE in
-  // apps/mobile/app/index.tsx for why. (The old `plus` entry is gone; these
-  // two FABs were its only call sites.)
-  //
-  // The rect is inset by half the stroke so the mark's OUTER edge spans the
-  // full requested `w` px, which makes `w` mean the same thing here as
-  // HOME_MARK_SIZE does in the app. rx is the app's 32%-of-the-mark radius
-  // measured on the outer edge (0.32 * 24 = 7.68), minus the same half-stroke
-  // to convert it to the centerline the path is drawn on.
-  homeMark: (w) =>
-    svg('<rect x="1.1" y="1.1" width="21.8" height="21.8" rx="6.6"/>', { w, sw: 2.2 }),
-  pencil: (w) =>
-    svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>', {
-      w,
-      sw: 2,
-    }),
-  arrowUp: (w) =>
-    svg('<line x1="12" y1="19" x2="12" y2="6"/><polyline points="6 12 12 6 18 12"/>', {
-      w,
-      sw: 2.4,
-    }),
-  arrowDown: (w) =>
-    svg('<line x1="12" y1="5" x2="12" y2="18"/><polyline points="6 12 12 18 18 12"/>', {
-      w,
-      sw: 2.4,
-    }),
-  storefront: (w) =>
-    svg(
-      '<path d="M3 9l1.6-5h14.8L21 9"/><path d="M4.5 9v11h15V9"/><path d="M9.5 20v-6h5v6"/><path d="M3 9a2.4 2.4 0 0 0 4.5 0 2.4 2.4 0 0 0 4.5 0 2.4 2.4 0 0 0 4.5 0 2.4 2.4 0 0 0 4.5 0"/>',
-      { w, sw: 1.7 },
-    ),
-  check: (w) => svg('<polyline points="4 12.5 9.5 18 20 6.5"/>', { w, sw: 3 }),
-  whatsapp: (w) =>
-    `<svg viewBox="0 0 24 24" width="${w}" height="${w}" fill="currentColor" style="display:block"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.71.306 1.263.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.885-9.885 9.885M20.52 3.449C18.24 1.245 15.24 0 12.045 0 5.463 0 .104 5.334.101 11.892c0 2.096.549 4.14 1.595 5.945L0 24l6.335-1.652a12.062 12.062 0 005.71 1.454h.005c6.585 0 11.946-5.335 11.949-11.893a11.821 11.821 0 00-3.479-8.46"/></svg>`,
   send: (w) =>
     svg('<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>', {
       w,
@@ -76,9 +83,17 @@ const ic = {
     }),
 };
 
-// ---- status bar (iOS-ish), color adapts ----
+// Every app dp value from source is written as d(dp) = dp × --k px. Inside the
+// phone frame --k is 1.6 (the 630px screen is a 393dp iPhone); the tablet sets
+// render the same screens at --k: 1, true dp. --ib is the bottom safe-area
+// inset in dp and --sbar the status bar height in px.
+const d = (n) => `calc(var(--k)*${n}px)`;
+// Bottom offsets that include the safe-area inset: d(n) + inset, in dp.
+const dIb = (n) => `calc(var(--k)*(${n}px + var(--ib)))`;
+
+// ---- status bar (iOS-ish) ----
 const statusBar = (dark = false) => {
-  const c = dark ? brand.white : brand.charcoal;
+  const c = dark ? brand.white : "#000000";
   return `<div class="sbar" style="color:${c}">
     <span class="sb-time">9:41</span>
     <span class="sb-right">
@@ -89,105 +104,140 @@ const statusBar = (dark = false) => {
   </div>`;
 };
 
-// ---- money helper ----
-const money = (n, symSize) =>
-  `<span class="num">${n}</span><span class="afn"${symSize ? ` style="font-size:${symSize}px"` : ""}>؋</span>`;
+// ---- money helper: Latin digits in every language, ؋ after the number ----
+const money = (n, cls = "") => `<span class="num ${cls}">${n}</span><span class="afn">؋</span>`;
 
 // =================== SCREENS ===================
 
-// avatar-less person row
-const pRow = (name, sub, amt) =>
-  `<div class="prow"><div class="pleft"><div class="pname">${name}</div><div class="psub">${sub}</div></div><div class="pamt">${money(amt, 22)}</div></div>`;
+const HOME = {
+  en: {
+    shop: "Baradaran Market",
+    chip: "B",
+    collect: "To collect",
+    pay: "To pay",
+    label: "To collect",
+    sub: "from 4 people",
+    search: "Search customers",
+    rows: [
+      ["Ahmad Wali", "2h ago", "12,500"],
+      ["Gul Rahman", "yesterday", "8,750"],
+      ["Fatima Noori", "3d ago", "3,200"],
+      ["Naseer Ahmadzai", "1w ago", "1,400"],
+    ],
+  },
+  // Verbatim app strings (apps/mobile/lib/i18n.ts). t() does not localize
+  // digits, so counts and times keep Latin digits in Dari, as on the phone.
+  fa: {
+    shop: "مارکیت برادران",
+    chip: "م",
+    collect: "وصول",
+    pay: "پرداخت",
+    label: "قابل وصول",
+    sub: "از 4 نفر",
+    search: "جستجوی مشتری‌ها",
+    rows: [
+      ["احمد ولی", "2 ساعت پیش", "12,500"],
+      ["گل رحمان", "دیروز", "8,750"],
+      ["فاطمه نوری", "3 روز پیش", "3,200"],
+      ["نصیر احمدزی", "1 هفته پیش", "1,400"],
+    ],
+  },
+};
 
+// Home: kaata-name switcher, bell and profile chip; black segmented tabs; the
+// hero total; one bordered people card; the bottom dock. The app is LTR-locked
+// in Dari, but rowDir()/textDir() mirror each row: the title block, totals and
+// names sit on the right, while the tabs and the dock order (Sort left, add
+// right) stay put and only the search field's contents mirror.
 function screenHome(opts = {}) {
-  const rtl = opts.rtl;
-  const t = rtl
-    ? {
-        shop: "مارکیت برادران",
-        collect: "وصول",
-        pay: "پرداخت",
-        label: "قابل وصول",
-        sub: "از ۴ نفر",
-        rows: [
-          ["احمد ولی", "۲ ساعت پیش", "12,500"],
-          ["گل رحمان", "دیروز", "8,750"],
-          ["فاطمه نوری", "۳ روز پیش", "3,200"],
-          ["نصیر احمدزی", "۱ هفته پیش", "1,400"],
-        ],
-      }
-    : {
-        shop: "Baradaran Market",
-        collect: "To collect",
-        pay: "To pay",
-        label: "TO COLLECT",
-        sub: "from 4 people",
-        rows: [
-          ["Ahmad Wali", "2h ago", "12,500"],
-          ["Gul Rahman", "yesterday", "8,750"],
-          ["Fatima Noori", "3d ago", "3,200"],
-          ["Naseer Ahmadzai", "1w ago", "1,400"],
-        ],
-      };
-  // App is LTR-locked even in Dari (I18nManager.forceRTL(false)) — layout does
-  // NOT flip; only the strings change. Keep the English geometry verbatim.
-  // Profile initial matches the visible shop name's first letter: "B" for
-  // "Baradaran Market", "م" for "مارکیت برادران".
-  const chip = rtl ? "م" : "B";
-  return `${statusBar()}
+  const rtl = !!opts.rtl;
+  const bar = opts.bar ?? statusBar();
+  const t = HOME[rtl ? "fa" : "en"];
+  const dir = rtl ? ' dir="rtl"' : "";
+  const row = (r) =>
+    `<div class="prow"><div class="pleft"><div class="pname"${dir}>${r[0]}</div><div class="psub"${dir}>${r[1]}</div></div><div class="pamt">${money(r[2])}</div></div>`;
+  return `<div class="home${rtl ? " rtl" : ""}">${bar}
   <div class="hdr">
-    <div class="hdr-l"><span class="shop">${t.shop}</span><span class="chev">${ic.chevronDown(30)}</span></div>
-    <div class="pchip">${chip}</div>
+    <div class="hdr-title"><span class="shop"${dir}>${t.shop}</span>${ion("chevron-down", 16, app.textSubtle)}</div>
+    <div class="hdr-sp"></div>
+    <div class="bell">${ion("notifications-outline", 22, app.textEmphasis)}</div>
+    <div class="pchip"${dir}>${t.chip}</div>
   </div>
-  <div class="tabs"><div class="tab tab-on">${t.collect}</div><div class="tab tab-off">${t.pay}</div></div>
+  <div class="tabs"><div class="tab tab-on">${t.collect}</div><div class="tab">${t.pay}</div></div>
   <div class="total">
-    <div class="total-lbl">${t.label}</div>
-    <div class="total-row">${money('<span style="color:#0C745A">25,850</span>', 32)}</div>
-    <div class="total-sub">${t.sub}</div>
+    <div class="total-lbl"${dir}>${t.label}</div>
+    <div class="total-row">${money("25,850", "collect")}</div>
+    <div class="total-sub"${dir}>${t.sub}</div>
   </div>
-  <div class="card">${t.rows.map((r) => pRow(r[0], r[1], r[2])).join('<div class="div"></div>')}</div>
-  <div class="fab">${ic.homeMark(44)}</div>`;
+  <div class="card">${t.rows.map(row).join('<div class="div"></div>')}</div>
+  <div class="dock">
+    <div class="dock-opt">${ion("options-outline", 22, app.textDefault)}</div>
+    <div class="dock-search">${ion("search-outline", 22, app.textSubtle)}<span class="ph"${dir}>${t.search}</span></div>
+    <div class="dock-add">${ion("add", 28, app.bg)}</div>
+  </div></div>`;
 }
 
-function screenPerson() {
-  const entry = (dir, amt, note, when) => {
+// Person: WhatsApp reminder icon beside the ⋯ menu; name, phone, direction
+// chip, hero balance and the Given/Received summary; the tallies card; the
+// opaque bottom dock with I received (LEFT) / I gave (RIGHT) and the tally
+// search beneath. Ahmad's account is shared (blue marker), so the newest tally,
+// still waiting for his review, carries the quiet amber pending dot.
+function screenPerson(opts = {}) {
+  const bar = opts.bar ?? statusBar();
+  const entry = (dir, amt, note, when, pending) => {
     const gave = dir === "gave";
-    const bg = gave ? "#F8EAEC" : "#E8F4EF";
-    const col = gave ? "#A3203A" : "#0C745A";
-    const arrow = gave ? ic.arrowUp(28) : ic.arrowDown(28);
     return `<div class="erow">
-      <div class="eicon" style="background:${bg};color:${col}">${arrow}</div>
+      <div class="etile" style="background:${gave ? app.payBg : app.collectBg}">${ion(gave ? "arrow-up-outline" : "arrow-down-outline", 16, gave ? app.payStrong : app.collectStrong)}</div>
       <div class="emid">
-        <div class="etop"><div class="eamt">${money(amt, 20)}</div><div class="ewhen">${when}</div></div>
+        <div class="etop"><div class="eamt">${money(amt)}</div><div class="emeta">${pending ? '<span class="edot"></span>' : ""}<span class="ewhen">${when}</span></div></div>
         ${note ? `<div class="enote">${note}</div>` : ""}
       </div></div>`;
   };
-  return `${statusBar()}
-  <div class="nav"><div class="navbtn">${ic.chevronBack(38)}</div><div class="navbtn">${ic.pencil(34)}</div></div>
-  <div class="pinfo">
-    <div class="pd-name">Ahmad Wali</div>
-    <div class="pd-phone">+93 70 123 4567</div>
-    <div class="pd-chip chip-collect">THEY OWE YOU</div>
-    <div class="pd-bal">${money('<span style="color:#0C745A">12,500</span>', 30)}</div>
+  const flow = (label, amount) =>
+    `<div class="flow"><div class="flow-lbl">${label}</div><div class="flow-amt">${amount}</div></div>`;
+  return `<div class="person">${bar}
+  <div class="pnav">
+    <div class="navbtn">${ion("chevron-back", 26, app.textEmphasis)}</div>
+    <div class="pnav-actions">
+      <div class="navwa">${ion("logo-whatsapp", 26, app.action)}</div>
+      <div class="navmore">${ion("ellipsis-horizontal", 22, app.textEmphasis)}</div>
+    </div>
   </div>
-  <div class="actions">
-    <div class="actbtn"><span class="coin">${ic.arrowDown(30)}</span><span>I received</span></div>
-    <div class="actbtn"><span class="coin">${ic.arrowUp(30)}</span><span>I gave</span></div>
+  <div class="pinfo">
+    <div class="pd-namerow"><span class="pd-name">Ahmad Wali</span>${material("verified", 20, app.sharedAccount)}</div>
+    <div class="pd-phone">+93 70 123 4567</div>
+    <div class="pd-overview">
+      <div class="pd-balance">
+        <div class="pd-chip">THEY OWE YOU</div>
+        <div class="pd-bal">${money("12,500", "collect")}</div>
+      </div>
+      <div class="pd-flows">${flow("Given · 2", "15,000")}${flow("Received · 1", "2,500")}</div>
+    </div>
   </div>
   <div class="ecard">
-    ${entry("received", "2,500", "", "2h ago")}<div class="div"></div>
-    ${entry("gave", "5,000", "Cooking oil &amp; rice", "yesterday")}<div class="div"></div>
-    ${entry("gave", "10,000", "Sacks of flour", "4d ago")}
+    ${entry("gave", "5,000", "Cooking oil &amp; rice", "2h ago", true)}<div class="div"></div>
+    ${entry("received", "2,500", "", "yesterday", false)}<div class="div"></div>
+    ${entry("gave", "10,000", "Sacks of flour", "4d ago", false)}
   </div>
-  <div class="pingbar"><div class="ping"><span class="wa">${ic.whatsapp(34)}</span><span>Ping Ahmad Wali on WhatsApp</span></div></div>`;
+  <div class="pdock">
+    <div class="pdock-row">
+      <div class="abtn"><span class="coin">${ion("arrow-down-outline", 16, app.bg)}</span><span>I received</span></div>
+      <div class="abtn"><span class="coin">${ion("arrow-up-outline", 16, app.bg)}</span><span>I gave</span></div>
+    </div>
+    <div class="psearch">
+      <div class="psearch-box">${ion("search-outline", 16, app.textSubtle)}<span>Search notes or amounts</span></div>
+      <div class="pdate">${ion("calendar-outline", 22, app.textSubtle)}</div>
+    </div>
+  </div></div>`;
 }
 
 function screenEntry() {
   const key = (t, sub) =>
     `<div class="key"><span class="kd">${t}</span>${sub ? `<span class="ks">${sub}</span>` : ""}</div>`;
-  return `${statusBar()}
-  <div class="ehdr"><span class="ehdr-cancel">Cancel</span><span class="ehdr-title">I gave</span><span class="ehdr-sp"></span></div>
+  return `<div class="entry">${statusBar()}
+  <div class="shdr"><div class="shdr-btn">${ion("chevron-back", 26, app.textEmphasis)}</div><div class="shdr-title">I gave</div><div class="shdr-btn"></div></div>
   <div class="ebody">
-    <div class="ectx"><div class="ectx-lbl">TO</div><div class="ectx-name">Ahmad Wali</div></div>
+    <div class="ectx"><div class="ectx-lbl">to</div><div class="ectx-name">Ahmad Wali</div></div>
     <div class="fld">
       <div class="flbl">Amount (؋) <span class="req">*</span></div>
       <div class="amtbox"><span class="amtnum">5000</span><span class="caret"></span></div>
@@ -202,19 +252,22 @@ function screenEntry() {
     ${key("1", "")}${key("2", "ABC")}${key("3", "DEF")}
     ${key("4", "GHI")}${key("5", "JKL")}${key("6", "MNO")}
     ${key("7", "PQRS")}${key("8", "TUV")}${key("9", "WXYZ")}
-    <div class="key key-blank"></div>${key("0", "")}<div class="key key-del">⌫</div>
-  </div>`;
+    <div class="key key-fn"><span class="kd">.</span></div>${key("0", "")}<div class="key key-fn">⌫</div>
+  </div></div>`;
 }
 
-function screenOnboarding() {
-  return `${statusBar()}
+// Onboarding success: the one first-run screen that keeps brand color (Ivory
+// ground, Saffron check tile, Aubergine title) above a black hero button.
+function screenOnboarding(opts = {}) {
+  const bar = opts.bar ?? statusBar();
+  return `<div class="ob-screen">${bar}
   <div class="ob">
-    <div class="ob-check">${ic.check(64)}</div>
-    <div class="ob-title">Your kaata is ready!</div>
-    <div class="ob-card"><span class="ob-store">${ic.storefront(40)}</span><span class="ob-shop">Baradaran Market</span></div>
-    <div class="ob-body">This is your shop's book. Add a tally for each<br>customer with the button at the bottom right.</div>
+    <div class="ob-check">${ion("checkmark", 28, app.textEmphasis)}</div>
+    <div class="ob-title">Your kaata is ready</div>
+    <div class="ob-card">${ion("book-outline", 22, app.textSubtle)}<span class="ob-shop">Baradaran Market</span></div>
+    <div class="ob-body">Add someone with the button at the bottom right.</div>
   </div>
-  <div class="ob-foot"><div class="savebtn">Open my kaata</div></div>`;
+  <div class="ob-foot"><div class="herobtn">Open my kaata</div></div></div>`;
 }
 
 function screenWhatsApp() {
@@ -258,37 +311,42 @@ https://kaata.af/v/AbC123`;
 const panels = [
   {
     n: 1,
+    slug: "home",
     eyebrow: "YOUR SHOP LEDGER",
     head: 'Know who owes you,<br><span class="g">at a glance.</span>',
     screen: screenHome(),
   },
   {
     n: 2,
+    slug: "whatsapp-reminder",
     eyebrow: "GET PAID",
     head: 'A polite nudge,<br><span class="g">on WhatsApp.</span>',
     screen: screenWhatsApp(),
-    noPad: true,
   },
   {
     n: 3,
+    slug: "person-detail",
     eyebrow: "EVERY CUSTOMER",
     head: 'One running balance,<br><span class="g">every deal logged.</span>',
     screen: screenPerson(),
   },
   {
     n: 4,
+    slug: "add-entry",
     eyebrow: "FAST ENTRY",
     head: 'Gave or received?<br><span class="g">Logged in seconds.</span>',
     screen: screenEntry(),
   },
   {
     n: 5,
+    slug: "onboarding",
     eyebrow: "GET STARTED",
     head: 'Your shop’s book,<br><span class="g">ready in a minute.</span>',
     screen: screenOnboarding(),
   },
   {
     n: 6,
+    slug: "dari",
     eyebrow: "دری  •  OFFLINE",
     head: 'به زبان خودت.<br><span class="g">بدون انترنت.</span>',
     screen: screenHome({ rtl: true }),
@@ -306,17 +364,21 @@ html,body{width:1080px;height:1920px;}
 .cap{position:absolute;top:96px;left:0;right:0;padding:0 96px;text-align:center;}
 .eyebrow{font-family:"Mono",monospace;font-weight:600;font-size:23px;letter-spacing:5px;color:${brand.aubergine};text-transform:uppercase;}
 .headline{margin-top:22px;font-weight:800;font-size:72px;line-height:1.05;color:${brand.aubergine};letter-spacing:-2px;text-wrap:balance;}
-.headline .g{color:${brand.charcoal};background:${brand.saffron};}
+.headline .g{color:${brand.charcoal};padding:0 .1em;-webkit-box-decoration-break:clone;box-decoration-break:clone;
+  background:linear-gradient(transparent 34%,${brand.saffron} 34%,${brand.saffron} 94%,transparent 94%);}
 .cap.rtl .headline{direction:rtl;letter-spacing:-1px;}
 
 /* phone frame */
 .phone{position:absolute;left:50%;transform:translateX(-50%);top:566px;width:660px;height:1400px;
   background:#0b0b0b;border-radius:74px;padding:15px;
-  box-shadow:0 60px 130px rgba(0,0,0,.6), inset 0 0 0 2px #2a2a2a, 0 0 0 1px #000;}
-.screen{position:relative;width:100%;height:100%;background:${brand.white};border-radius:60px;overflow:hidden;}
+  box-shadow:0 60px 130px rgba(41,34,43,.45), inset 0 0 0 2px #2a2a2a, 0 0 0 1px #000;}
+.screen{--k:1.6;--ib:34px;--sbar:78px;position:relative;width:100%;height:100%;background:${app.bg};border-radius:60px;overflow:hidden;font-family:"Vaz",sans-serif;color:${app.textEmphasis};}
 .island{position:absolute;top:20px;left:50%;transform:translateX(-50%);width:150px;height:33px;background:#000;border-radius:20px;z-index:20;}
+.screen:has(.ob-screen){background:${app.bgWarm};}
+.home,.person,.entry,.ob-screen{position:absolute;inset:0;}
 
-.screen:has(.ob){background:${brand.ivory};}
+/* icon glyphs (Ionicons / MaterialIcons fonts) */
+.glyph{display:inline-flex;align-items:center;justify-content:center;line-height:1;flex:none;font-style:normal;font-weight:normal;}
 
 /* status bar */
 .sbar{height:78px;display:flex;align-items:center;justify-content:space-between;padding:22px 46px 0;font-family:"Mono";}
@@ -329,103 +391,123 @@ html,body{width:1080px;height:1920px;}
 
 /* money */
 .num{font-family:"Mono";}
-.afn{font-family:"Vaz";font-weight:500;color:${neutral.muted};font-size:22px;margin-left:6px;}
+.num.collect{color:${app.collectStrong};}
+.afn{font-family:"Vaz";font-weight:500;color:${app.textMuted};}
 
 /* ---------- HOME ---------- */
-.hdr{display:flex;align-items:center;justify-content:space-between;padding:26px 30px 12px;}
-.hdr-l{display:flex;align-items:center;gap:6px;min-width:0;}
-.shop{font-family:"Vaz";font-weight:700;font-size:44px;color:${brand.charcoal};letter-spacing:-1px;white-space:nowrap;}
-.chev{color:${neutral.subtle};display:flex;margin-top:6px;}
-.pchip{width:58px;height:58px;border-radius:999px;background:${neutral.bgMuted};border:1px solid ${neutral.border};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:26px;color:${brand.charcoal};flex:none;}
-.tabs{display:flex;gap:0;margin:6px 30px 0;background:${neutral.bgMuted};border:1px solid ${neutral.border};border-radius:18px;padding:7px;}
-.tab{flex:1;text-align:center;padding:20px 0;border-radius:12px;font-weight:600;font-size:26px;}
-.tab-on{background:${brand.aubergine};color:${brand.white};}
-.tab-off{color:${brand.charcoal};font-weight:500;}
-.total{padding:30px 30px 22px;}
-.total-lbl{font-weight:600;font-size:20px;letter-spacing:1.2px;color:${neutral.subtle};text-transform:uppercase;}
-.total-row{display:flex;align-items:center;margin-top:10px;}
-.total-row .num{font-weight:700;font-size:66px;letter-spacing:-2px;}
-.total-row .afn{font-size:38px;margin-left:12px;position:relative;top:2px;}
-.total-sub{margin-top:8px;font-size:24px;color:${neutral.subtle};}
-.card{margin:0 30px;border:1px solid ${neutral.border};border-radius:22px;overflow:hidden;background:${brand.white};}
-.div{height:1px;background:${neutral.border};}
-.prow{display:flex;align-items:center;padding:24px 26px;}
-.pleft{flex:1;min-width:0;}
-.pname{font-weight:600;font-size:30px;color:${brand.charcoal};}
-.psub{font-size:22px;color:${neutral.subtle};margin-top:3px;}
-.pamt{display:flex;align-items:baseline;}
-.pamt .num{font-weight:600;font-size:30px;color:${brand.charcoal};}
-.rtl .prow{flex-direction:row-reverse;}
-.rtl .pleft{text-align:right;}
-.fab{position:absolute;right:38px;bottom:44px;width:104px;height:104px;border-radius:999px;background:${brand.aubergine};color:${brand.white};display:flex;align-items:center;justify-content:center;box-shadow:0 16px 40px rgba(0,0,0,.35);}
+.hdr{display:flex;align-items:center;padding:${d(18)} ${d(16)} ${d(14)};}
+.hdr-title{display:flex;align-items:center;gap:${d(4)};min-width:0;min-height:${d(40)};}
+.hdr-title .glyph{margin-top:${d(3)};}
+.shop{font-weight:700;font-size:${d(28)};line-height:${d(32)};color:${app.textEmphasis};white-space:nowrap;}
+.hdr-sp{flex:1;}
+.bell{width:${d(44)};height:${d(44)};display:flex;align-items:center;justify-content:center;}
+.pchip{width:${d(36)};height:${d(36)};margin-left:${d(12)};border-radius:999px;background:${app.bgMuted};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:${d(16)};color:${app.textEmphasis};flex:none;}
+.tabs{display:flex;margin:${d(2)} ${d(16)} ${d(16)};padding:${d(4)};background:${app.bgMuted};border:${d(1)} solid ${app.borderDefault};border-radius:${d(8)};}
+.tab{flex:1;min-height:${d(44)};display:flex;align-items:center;justify-content:center;border-radius:${d(8)};font-weight:500;font-size:${d(13)};color:${app.textDefault};}
+.tab-on{background:${app.action};color:${app.bg};font-weight:600;}
+.total{margin:0 ${d(16)} ${d(20)};}
+.total-lbl{font-weight:600;font-size:${d(11)};letter-spacing:${d(0.6)};color:${app.textSubtle};text-transform:uppercase;}
+.total-row{display:flex;align-items:baseline;gap:${d(6)};margin-top:${d(6)};}
+.total-row .num{font-weight:700;font-size:${d(36)};letter-spacing:${d(-0.5)};line-height:1.2;}
+.total-row .afn{font-size:${d(14)};}
+.total-sub{margin-top:${d(4)};font-size:${d(13)};color:${app.textSubtle};}
+.card{margin:0 ${d(16)};border:${d(1)} solid ${app.borderDefault};border-radius:${d(12)};overflow:hidden;background:${app.bg};}
+.div{height:${d(1)};background:${app.borderDefault};}
+.prow{display:flex;align-items:center;padding:${d(12)} ${d(14)};}
+.pleft{flex:1;min-width:0;margin-right:${d(12)};}
+.pname{font-weight:600;font-size:${d(15)};color:${app.textEmphasis};}
+.psub{font-size:${d(12)};color:${app.textSubtle};margin-top:${d(2)};}
+.pamt{display:flex;align-items:baseline;gap:${d(4)};}
+.pamt .num{font-weight:600;font-size:${d(15)};color:${app.textEmphasis};}
+.pamt .afn{font-size:${d(11)};}
+.dock{position:absolute;left:${d(16)};right:${d(16)};bottom:${dIb(20)};display:flex;align-items:center;gap:${d(8)};}
+.dock-opt{width:${d(44)};height:${d(52)};border-radius:${d(12)};border:${d(1)} solid ${app.borderDefault};background:${app.bg};display:flex;align-items:center;justify-content:center;flex:none;}
+.dock-search{flex:1;min-width:0;height:${d(52)};border-radius:${d(12)};border:${d(1)} solid ${app.borderDefault};background:${app.bg};display:flex;align-items:center;gap:${d(8)};padding:0 ${d(8)};font-size:${d(14)};color:${app.textMuted};white-space:nowrap;}
+.dock-search .ph{flex:1;min-width:0;}
+.dock-add{width:${d(52)};height:${d(52)};border-radius:999px;background:${app.action};display:flex;align-items:center;justify-content:center;flex:none;}
+/* Dari: rows mirror (rowDir/textDir); tabs and dock order stay LTR-locked. */
+.rtl .hdr,.rtl .hdr-title,.rtl .total-row,.rtl .prow,.rtl .pamt,.rtl .dock-search{flex-direction:row-reverse;}
+.rtl .pchip{margin-left:0;margin-right:${d(12)};}
+.rtl .total,.rtl .pleft,.rtl .dock-search .ph{text-align:right;}
+.rtl .pleft{margin-right:0;margin-left:${d(12)};}
 
 /* ---------- PERSON ---------- */
-.nav{display:flex;align-items:center;justify-content:space-between;padding:6px 22px;}
-.navbtn{width:72px;height:72px;display:flex;align-items:center;justify-content:center;color:${brand.charcoal};}
-.pinfo{padding:6px 32px 26px;}
-.pd-name{font-weight:700;font-size:44px;color:${brand.charcoal};}
-.pd-phone{font-family:"Mono";font-size:24px;color:${neutral.subtle};margin-top:6px;}
-.pd-chip{display:inline-block;margin-top:22px;padding:7px 15px;border-radius:10px;font-weight:600;font-size:19px;letter-spacing:1px;}
-.chip-collect{background:#E8F4EF;color:#0A5A46;}
-.pd-bal{display:flex;align-items:center;margin-top:16px;}
-.pd-bal .num{font-weight:700;font-size:78px;letter-spacing:-2px;}
-.pd-bal .afn{font-size:44px;margin-left:12px;position:relative;top:2px;}
-.actions{display:flex;gap:18px;padding:0 32px;margin-bottom:26px;}
-.actbtn{flex:1;display:flex;align-items:center;justify-content:center;gap:14px;padding:24px 0;border-radius:20px;background:${brand.aubergine};color:${brand.white};font-weight:600;font-size:27px;box-shadow:0 8px 22px rgba(0,0,0,.16);}
-.coin{width:46px;height:46px;border-radius:999px;background:rgba(255,255,255,.13);display:flex;align-items:center;justify-content:center;}
-.ecard{margin:0 32px;border:1px solid ${neutral.border};border-radius:22px;overflow:hidden;background:${brand.white};}
-.erow{display:flex;align-items:flex-start;padding:24px 26px;}
-.eicon{width:58px;height:58px;border-radius:14px;display:flex;align-items:center;justify-content:center;margin-right:22px;flex:none;}
+.pnav{display:flex;align-items:center;justify-content:space-between;padding:${d(4)} ${d(8)};}
+.navbtn{width:${d(40)};height:${d(40)};display:flex;align-items:center;justify-content:center;}
+.pnav-actions{display:flex;align-items:center;gap:${d(2)};}
+.navwa{min-width:${d(44)};height:${d(44)};margin-right:${d(8)};display:flex;align-items:center;justify-content:center;}
+.navmore{min-width:${d(44)};height:${d(44)};display:flex;align-items:center;justify-content:center;}
+.pinfo{padding:${d(4)} ${d(16)} ${d(20)};}
+.pd-namerow{display:flex;align-items:center;gap:${d(7)};}
+.pd-name{font-weight:700;font-size:${d(20)};color:${app.textEmphasis};}
+.pd-phone{font-family:"Mono";font-size:${d(13)};color:${app.textSubtle};margin-top:${d(4)};}
+.pd-overview{display:flex;align-items:center;gap:${d(18)};margin-top:${d(16)};}
+.pd-balance{flex:1;min-width:0;}
+.pd-chip{display:inline-block;padding:${d(3)} ${d(8)};border-radius:${d(8)};font-weight:600;font-size:${d(11)};line-height:${d(15)};letter-spacing:${d(0.6)};background:${app.collectBg};color:${app.collectText};}
+.pd-bal{display:flex;align-items:baseline;gap:${d(6)};margin-top:${d(10)};}
+.pd-bal .num{font-weight:700;font-size:${d(36)};letter-spacing:${d(-0.5)};line-height:1.2;}
+.pd-bal .afn{font-size:${d(15)};}
+.pd-flows{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:${d(8)};text-align:right;}
+.flow-lbl{font-size:${d(11)};line-height:${d(16)};color:${app.textSubtle};}
+.flow-amt{font-family:"Mono";font-weight:500;font-size:${d(16)};line-height:${d(21)};color:${app.textEmphasis};}
+.ecard{margin:${d(8)} ${d(16)} 0;border:${d(1)} solid ${app.borderDefault};border-radius:${d(12)};overflow:hidden;background:${app.bg};}
+.erow{display:flex;align-items:center;padding:${d(12)} ${d(14)};}
+.etile{width:${d(32)};height:${d(32)};border-radius:${d(8)};display:flex;align-items:center;justify-content:center;margin-right:${d(12)};flex:none;}
 .emid{flex:1;min-width:0;}
-.etop{display:flex;align-items:baseline;justify-content:space-between;}
-.eamt{display:flex;align-items:baseline;}
-.eamt .num{font-weight:700;font-size:30px;color:${brand.charcoal};}
-.ewhen{font-size:22px;color:${neutral.subtle};}
-.enote{font-size:24px;color:${brand.charcoal};margin-top:8px;}
-.pingbar{position:absolute;left:0;right:0;bottom:0;padding:22px 32px 40px;}
-.ping{height:96px;border-radius:22px;background:${brand.aubergine};color:${brand.white};display:flex;align-items:center;justify-content:center;gap:18px;font-weight:600;font-size:28px;box-shadow:0 8px 22px rgba(0,0,0,.2);}
-.wa{display:flex;}
+.etop{display:flex;align-items:center;justify-content:space-between;gap:${d(10)};}
+.eamt{display:flex;align-items:baseline;gap:${d(4)};}
+.eamt .num{font-weight:700;font-size:${d(15)};color:${app.textEmphasis};}
+.eamt .afn{font-size:${d(11)};}
+.emeta{display:flex;align-items:center;gap:${d(6)};}
+.edot{width:${d(6)};height:${d(6)};border-radius:999px;background:${app.reviewPending};}
+.ewhen{font-size:${d(12)};line-height:${d(17)};color:${app.textSubtle};}
+.enote{margin-top:${d(5)};font-size:${d(13)};line-height:${d(18)};color:${app.textDefault};}
+.pdock{position:absolute;left:0;right:0;bottom:0;display:flex;flex-direction:column;gap:${d(10)};padding:${d(12)} ${d(16)} ${dIb(20)};background:${app.bg};border-top:1px solid ${app.borderSubtle};}
+.pdock-row{display:flex;gap:${d(10)};}
+.abtn{flex:1;min-height:${d(54)};display:flex;align-items:center;justify-content:center;gap:${d(8)};padding:${d(13)} ${d(10)};border-radius:${d(12)};background:${app.action};color:${app.bg};font-weight:600;font-size:${d(15)};letter-spacing:${d(0.2)};box-shadow:0 ${d(5)} ${d(14)} rgba(0,0,0,.16);}
+.coin{width:${d(26)};height:${d(26)};border-radius:999px;background:rgba(255,255,255,.13);display:flex;align-items:center;justify-content:center;}
+.psearch{display:flex;align-items:center;gap:${d(8)};}
+.psearch-box{flex:1;min-width:0;min-height:${d(44)};display:flex;align-items:center;gap:${d(8)};padding:0 ${d(12)};border:${d(1)} solid ${app.borderDefault};border-radius:${d(8)};font-size:${d(14)};color:${app.textSubtle};white-space:nowrap;}
+.pdate{width:${d(44)};height:${d(44)};border:${d(1)} solid ${app.borderDefault};border-radius:${d(8)};display:flex;align-items:center;justify-content:center;flex:none;}
 
 /* ---------- ENTRY ---------- */
-.ehdr{display:flex;align-items:center;justify-content:space-between;padding:24px 30px;border-bottom:1px solid ${neutral.border};}
-.ehdr-cancel{font-size:27px;color:${neutral.subtle};font-weight:500;min-width:110px;}
-.ehdr-title{font-size:28px;font-weight:600;color:${brand.charcoal};}
-.ehdr-sp{min-width:110px;}
-.ebody{padding:40px 30px 0;}
-.ectx{margin-bottom:40px;}
-.ectx-lbl{font-weight:600;font-size:20px;letter-spacing:1.2px;color:${neutral.subtle};}
-.ectx-name{font-weight:700;font-size:34px;color:${brand.charcoal};margin-top:6px;}
-.fld{margin-bottom:34px;}
-.flbl{font-weight:500;font-size:24px;color:${brand.charcoal};margin-bottom:14px;}
-.req{color:#DC2626;}
-.amtbox{min-height:120px;border:1px solid ${neutral.border};border-radius:22px;display:flex;align-items:center;justify-content:center;background:${brand.white};}
-.amtnum{font-family:"Mono";font-weight:700;font-size:64px;color:${brand.charcoal};}
-.caret{width:3px;height:64px;background:${brand.charcoal};margin-left:4px;opacity:.85;}
-.notebox{min-height:80px;border:1px solid ${neutral.border};border-radius:16px;padding:0 26px;display:flex;align-items:center;font-size:27px;color:${brand.charcoal};background:${brand.white};}
-.savebtn{min-height:84px;border-radius:16px;background:${brand.aubergine};color:${brand.white};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:28px;margin-top:12px;}
+.shdr{display:flex;align-items:center;min-height:${d(48)};padding:${d(8)};border-bottom:1px solid ${app.borderSubtle};}
+.shdr-btn{width:${d(44)};height:${d(44)};display:flex;align-items:center;justify-content:center;flex:none;}
+.shdr-title{flex:1;text-align:center;font-weight:600;font-size:${d(16)};color:${app.textEmphasis};}
+.ebody{padding:${d(24)} ${d(16)} 0;}
+.ectx{margin-bottom:${d(24)};}
+.ectx-lbl{font-weight:600;font-size:${d(11)};letter-spacing:${d(0.6)};text-transform:uppercase;color:${app.textSubtle};}
+.ectx-name{font-weight:700;font-size:${d(20)};color:${app.textEmphasis};margin-top:${d(4)};}
+.fld{margin-bottom:${d(20)};}
+.flbl{font-weight:500;font-size:${d(13)};color:${app.textDefault};margin-bottom:${d(8)};}
+.req{color:${app.danger};}
+.amtbox{min-height:${d(72)};border:${d(1)} solid ${app.borderDefault};border-radius:${d(12)};display:flex;align-items:center;justify-content:center;background:${app.bg};}
+.amtnum{font-family:"Mono";font-weight:700;font-size:${d(36)};color:${app.textEmphasis};}
+.caret{width:3px;height:${d(36)};background:${app.textEmphasis};margin-left:4px;opacity:.85;}
+.notebox{min-height:${d(44)};border:${d(1)} solid ${app.borderDefault};border-radius:${d(8)};padding:0 ${d(14)};display:flex;align-items:center;font-size:${d(15)};color:${app.textEmphasis};background:${app.bg};}
+.savebtn{min-height:${d(44)};margin-top:${d(4)};border-radius:${d(8)};background:${app.action};color:${app.bg};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:${d(15)};}
 .keypad{position:absolute;left:0;right:0;bottom:0;height:520px;background:#D6DAE0;display:grid;grid-template-columns:repeat(3,1fr);gap:2px;padding:14px 8px 44px;}
-.key{background:${brand.white};border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:"Vaz";}
-.kd{font-weight:500;font-size:46px;color:${brand.charcoal};line-height:1;}
-.ks{font-size:15px;font-weight:600;letter-spacing:2px;color:${brand.charcoal};margin-top:3px;}
-.key-blank{background:transparent;}
-.key-del{background:transparent;font-size:40px;color:${brand.charcoal};}
+.key{background:#FFFFFF;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:"Vaz";color:#000;}
+.kd{font-weight:500;font-size:46px;line-height:1;}
+.ks{font-size:15px;font-weight:600;letter-spacing:2px;margin-top:3px;}
+.key-fn{background:transparent;font-size:40px;}
 
-/* ---------- ONBOARDING ---------- */
-.ob{position:absolute;top:0;left:0;right:0;bottom:220px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 60px;}
-.ob-check{width:180px;height:180px;border-radius:999px;background:${brand.saffron};display:flex;align-items:center;justify-content:center;color:${brand.charcoal};margin-bottom:50px;}
-.ob-title{font-weight:700;font-size:48px;color:${brand.aubergine};letter-spacing:-1px;text-align:center;}
-.ob-card{display:flex;align-items:center;gap:20px;margin-top:38px;padding:28px 38px;border:1px solid ${neutral.border};border-radius:26px;background:${brand.white};}
-.ob-store{color:${brand.charcoal};display:flex;}
-.ob-shop{font-weight:600;font-size:34px;color:${brand.charcoal};}
-.ob-body{margin-top:38px;font-size:27px;line-height:1.5;color:${neutral.subtle};text-align:center;}
-.ob-foot{position:absolute;left:0;right:0;bottom:0;padding:0 44px 56px;}
+/* ---------- ONBOARDING SUCCESS ---------- */
+.ob{position:absolute;top:var(--sbar);left:0;right:0;bottom:${dIb(16 + 52 + 20)};display:flex;flex-direction:column;justify-content:center;padding:0 ${d(24)};}
+.ob-check{width:${d(44)};height:${d(44)};border-radius:${d(12)};background:${brand.saffron};display:flex;align-items:center;justify-content:center;margin-bottom:${d(20)};}
+.ob-title{font-weight:600;font-size:${d(20)};line-height:${d(26)};color:${brand.aubergine};}
+.ob-card{display:flex;align-items:center;gap:${d(12)};margin-top:${d(20)};padding:${d(16)};border:1px solid ${app.borderDefault};border-radius:${d(12)};background:${app.bg};}
+.ob-shop{flex:1;min-width:0;font-weight:600;font-size:${d(15)};color:${app.textEmphasis};}
+.ob-body{margin-top:${d(16)};font-size:${d(14)};line-height:${d(20)};color:${app.textSubtle};}
+.ob-foot{position:absolute;left:0;right:0;bottom:0;padding:${d(16)} ${d(24)} ${dIb(20)};}
+.herobtn{min-height:${d(52)};border-radius:${d(12)};background:${app.action};color:${app.bg};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:${d(15)};box-shadow:0 ${d(5)} ${d(14)} rgba(0,0,0,.16);}
 
 /* ---------- WHATSAPP ---------- */
 .wa-screen{position:absolute;inset:0;background:#0B141A;display:flex;flex-direction:column;}
 .wa-screen .sbar{color:${brand.white};}
 .wa-hdr{background:#1F2C33;display:flex;align-items:center;gap:16px;padding:14px 26px 22px;}
 .wa-back{color:${brand.white};display:flex;}
-.wa-av{width:74px;height:74px;border-radius:999px;background:#0C745A;color:${brand.white};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:34px;}
+.wa-av{width:74px;height:74px;border-radius:999px;background:#6B7C85;color:${brand.white};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:34px;}
 .wa-who{display:flex;flex-direction:column;}
 .wa-name{color:${brand.white};font-weight:600;font-size:32px;}
 .wa-seen{color:#8FA1AC;font-size:22px;margin-top:2px;}
@@ -455,10 +537,11 @@ function page(p) {
 module.exports = {
   FONTS,
   brand,
-  neutral,
+  app,
   CSS,
   statusBar,
-  ic,
+  ion,
+  material,
   money,
   screenHome,
   screenPerson,
@@ -467,9 +550,14 @@ module.exports = {
   screenWhatsApp,
 };
 
+// Writes screenshots/NN-<slug>.html. Render each with headless Chrome
+// (--window-size=1080,1920 --allow-file-access-from-files
+// --virtual-time-budget=4000) to the PNG of the same name, then delete the HTML.
 if (require.main === module) {
+  const dir = path.join(OUT, "screenshots");
+  fs.mkdirSync(dir, { recursive: true });
   for (const p of panels) {
-    const f = path.join(OUT, `screenshot-${p.n}.html`);
+    const f = path.join(dir, `${String(p.n).padStart(2, "0")}-${p.slug}.html`);
     fs.writeFileSync(f, page(p), "utf8");
     console.log("wrote", f);
   }

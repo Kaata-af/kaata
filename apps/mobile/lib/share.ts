@@ -1,6 +1,6 @@
 import { Linking } from "react-native";
 import { getBackendUrl } from "./api";
-import { getEffectiveCalendar } from "./calendar";
+import { getEffectiveCalendar, getQamariOffset } from "./calendar";
 import { getCurrentCurrencySymbol } from "./currency";
 import { bumpUsageCounter } from "./db";
 import { formatAmount } from "./format";
@@ -47,6 +47,12 @@ async function uploadSharedLedger(args: {
     // snapshots simply lack it, and both renderers fall back to deriving the
     // calendar from `locale` — the pre-setting behaviour.
     calendar: getEffectiveCalendar(),
+    // The Qamari adjustment is frozen the same way (audit #15): a bill keeps
+    // the dates it was sent with. Absent on other calendars and on old bills,
+    // which every renderer reads as no adjustment.
+    ...(getEffectiveCalendar() === "qamari" && getQamariOffset() !== 0
+      ? { qamari_offset: getQamariOffset() }
+      : {}),
     // A linked contact's rows come from the mutual tab and include voided
     // originals (struck on screen). A bill is a statement of account, not an
     // audit trail: a voided tally is not part of the account, so it is left

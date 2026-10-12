@@ -4,12 +4,19 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import Database from "better-sqlite3";
-import { creditExceeded, validCreditPolicy, type CreditPolicy } from "../credit-policy";
+import {
+  creditExceeded,
+  KAATA_DEFAULT_CREDIT_ID,
+  validCreditPolicy,
+  type CreditPolicy,
+} from "../credit-policy";
 import { cacheCreditPolicies } from "../credit-policy-cache";
 import {
   needsCreditAdmission,
   deferCreditAdmission,
   requiresCreditAdmission,
+  revertRefusedClerkTally,
+  hardLimitApplies,
 } from "../credit-admission";
 import { Mutex } from "../util/mutex";
 import { toMinorUnits } from "../money";
@@ -32,7 +39,12 @@ INSERT INTO vaults VALUES('v1',NULL,NULL,NULL,'anchor'),('v2',NULL,NULL,NULL,'an
 INSERT INTO relationships VALUES('r1','v1','p1',1,NULL),('r2','v2','p2',1,NULL);
 INSERT INTO users VALUES('self',1,'Owner');`);
 const dbSource = readFileSync(require.resolve("../db"), "utf8");
-for (const marker of ["customer_credit_limits", "tab_links", "tab_failed_ops"]) {
+for (const marker of [
+  "customer_credit_limits",
+  "kaata_credit_defaults",
+  "tab_links",
+  "tab_failed_ops",
+]) {
   const ddl = new RegExp(
     "execAsync\\(`([^`]*CREATE TABLE IF NOT EXISTS " + marker + "[^`]*)`\\)",
   ).exec(dbSource)?.[1];
@@ -482,38 +494,116 @@ async function run() {
     false,
     "mesh copy has same local admission decision",
   );
+  // Clerks record offline unless the customer is under a hard ("restrict
+  // clerks") limit (Matee, 2026-10-12). Codex's rule sent EVERY cloud clerk
+  // tally through HTTPS admission, even with no limit, so clerks could not
+  // work without internet.
   fixture.prepare("UPDATE vaults SET registered_with_server_at=0 WHERE id='v1'").run();
-  assert.equal(
-    await requiresCreditAdmission(db, localEvent, "clerk"),
-    true,
-    "zero registration marker is unknown/cloud",
-  );
-  fixture.prepare("UPDATE vaults SET registered_with_server_at=NULL WHERE id='v1'").run();
-  fixture.prepare("UPDATE vault_device_registry SET account_id='cloud-account'").run();
-  assert.equal(
-    await requiresCreditAdmission(db, localEvent, "clerk"),
-    true,
-    "pair scan NULL registration cannot hide cloud peer identity",
-  );
-  fixture.prepare("UPDATE vault_device_registry SET account_id=?").run(localClerk);
-  fixture.prepare("UPDATE vaults SET account_id='' WHERE id='v1'").run();
-  assert.equal(
-    await requiresCreditAdmission(db, localEvent, "clerk"),
-    true,
-    "malformed empty binding fails closed",
-  );
-  fixture.prepare("UPDATE vaults SET account_id=NULL WHERE id='v1'").run();
   fixture.prepare("UPDATE event_log SET server_acked_at=1 WHERE event_id='founder'").run();
   assert.equal(
     await requiresCreditAdmission(db, localEvent, "clerk"),
-    true,
-    "observed HTTPS history requires admission even without limits",
+    false,
+    "a cloud kaata without a hard limit records clerk tallies offline",
   );
   await cacheCreditPolicies(db, "v1", [policy(10000, "warn", 1)], 2);
   assert.equal(
     await requiresCreditAdmission(db, localEvent, "clerk"),
+    false,
+    "a warning limit never holds a clerk tally",
+  );
+  await cacheCreditPolicies(db, "v1", [policy(10000, "clerk_block", 3)], 4);
+  assert.equal(
+    await requiresCreditAdmission(db, localEvent, "clerk"),
     true,
-    "warning policies do not bypass cloud clerk admission",
+    "a hard limit on this customer needs the server's OK",
+  );
+  assert.equal(
+    await requiresCreditAdmission(
+      db,
+      {
+        ...localEvent,
+        payload: { ...localEvent.payload, relationship_id: "r2" },
+      } as EntryCreatedEvent,
+      "clerk",
+    ),
+    false,
+    "another customer without a limit is not held",
+  );
+  assert.equal(
+    await requiresCreditAdmission(db, localEvent, "owner"),
+    false,
+    "owners are never held",
+  );
+  fixture
+    .prepare(
+      "INSERT INTO credit_admission_intents(event_id,vault_id,relationship_id,status,reason) VALUES('local-new','v1','r1','pending',NULL)",
+    )
+    .run();
+  await cacheCreditPolicies(db, "v1", [policy(10000, "warn", 5)], 6);
+  assert.equal(
+    await requiresCreditAdmission(db, localEvent, "clerk"),
+    true,
+    "a deferred tally keeps waiting for the server's decision",
+  );
+  fixture.prepare("DELETE FROM credit_admission_intents WHERE event_id='local-new'").run();
+  fixture.prepare("DELETE FROM customer_credit_limits").run();
+  fixture.prepare("UPDATE vaults SET registered_with_server_at=NULL WHERE id='v1'").run();
+  fixture.prepare("UPDATE event_log SET server_acked_at=NULL WHERE event_id='founder'").run();
+
+  // A hard limit set on another phone that this clerk had not pulled: the
+  // server refuses the offline tally on push. It leaves the balance for the
+  // refused list instead of being retried forever.
+  fixture.exec(
+    "ALTER TABLE entries ADD COLUMN current_event_id TEXT; ALTER TABLE entries ADD COLUMN is_settled INTEGER DEFAULT 0; ALTER TABLE event_log ADD COLUMN last_reject_reason TEXT",
+  );
+  const offline = {
+    entry_id: "offline-money",
+    relationship_id: "r1",
+    type: "debt",
+    amount_afn: 40,
+  };
+  fixture
+    .prepare(
+      "INSERT INTO event_log(event_id,vault_id,event_type,target_id,payload_json,applied_at,hlc_physical_ms,hlc_logical,hlc_device_id) VALUES('offline-evt','v1','entry_created','offline-money',?,9,9,0,'d')",
+    )
+    .run(JSON.stringify(offline));
+  fixture
+    .prepare(
+      "INSERT INTO entries(id,vault_id,relationship_id,type,amount_afn,created_at,current_event_id) VALUES('offline-money','v1','r1','debt',40,9999999999999,'offline-evt')",
+    )
+    .run();
+  const before = await credit.creditBalanceInTx(db, "v1", "r1");
+  assert.equal(await revertRefusedClerkTally(db, "offline-evt", "credit_limit_exceeded", 99), true);
+  assert.equal(
+    await credit.creditBalanceInTx(db, "v1", "r1"),
+    before - 4000,
+    "the refused tally leaves the balance",
+  );
+  assert.ok(
+    (await credit.listCreditIntents("p1", "v1")).some(
+      (r) => r.id === "offline-evt" && r.admission_status === "refused",
+    ),
+    "and shows as not recorded",
+  );
+  assert.equal(
+    await revertRefusedClerkTally(db, "offline-evt", "credit_limit_exceeded", 100),
+    false,
+    "a refused tally is not reverted twice",
+  );
+  fixture
+    .prepare(
+      "INSERT INTO event_log(event_id,vault_id,event_type,target_id,payload_json,applied_at,hlc_physical_ms,hlc_logical,hlc_device_id) VALUES('built-on','v1','entry_created','amended-money',?,9,9,0,'d')",
+    )
+    .run(JSON.stringify({ ...offline, entry_id: "amended-money" }));
+  fixture
+    .prepare(
+      "INSERT INTO entries(id,vault_id,relationship_id,type,amount_afn,created_at,current_event_id) VALUES('amended-money','v1','r1','debt',40,9,'later-amend')",
+    )
+    .run();
+  assert.equal(
+    await revertRefusedClerkTally(db, "built-on", "credit_limit_exceeded", 101),
+    false,
+    "a tally something else already built on keeps the retry rule",
   );
   identities = [localClerk, localOwner];
   const dual = await roleGate.checkRoleForEvent(db, { ...localEvent, event_id: "dual" });
@@ -529,8 +619,132 @@ async function run() {
     credit.ClerkCloudEnrollmentRequiredError,
   );
   fixture.prepare("DELETE FROM vault_members_mirror WHERE role='clerk'").run();
+
+  // Kaata-wide default (Matee, 2026-10-12): it covers every customer without
+  // their own limit, newly added ones included; a customer's own limit wins.
+  fixture.prepare("INSERT INTO relationships VALUES('r3','v1','p3',1,NULL)").run();
+  fixture.prepare("DELETE FROM customer_credit_limits").run();
+  const kaataDefault = {
+    ...policy(5000, "clerk_block", 20),
+    relationship_id: KAATA_DEFAULT_CREDIT_ID,
+  };
+  await cacheCreditPolicies(
+    db,
+    "v1",
+    [kaataDefault, { ...policy(9000, "warn", 20), relationship_id: "r3" }],
+    21,
+  );
+  assert.deepEqual(
+    await credit.readCreditPolicy(KAATA_DEFAULT_CREDIT_ID, "v1"),
+    kaataDefault,
+    "the default is cached in its own table",
+  );
+  assert.equal(
+    (await credit.readEffectiveCreditPolicy("r1", "v1"))?.max_collect_minor,
+    5000,
+    "a customer without their own limit inherits the default",
+  );
+  assert.equal(
+    (await credit.readEffectiveCreditPolicy("r3", "v1"))?.mode,
+    "warn",
+    "a customer's own limit wins over the default",
+  );
+  const people = await credit.readCreditPoliciesForPeople("v1");
+  assert.equal(people.p1?.max_collect_minor, 5000, "home colours customers the default covers");
+  assert.equal(people.p3?.max_collect_minor, 9000);
+  assert.equal(await hardLimitApplies(db, "v1", "r1"), true, "a hard default holds clerk tallies");
+  assert.equal(await hardLimitApplies(db, "v1", "r3"), false, "an own warn limit does not");
+  await cacheCreditPolicies(db, "v1", [{ ...policy(9000, "warn", 20), relationship_id: "r3" }], 22);
+  assert.equal(
+    await credit.readCreditPolicy(KAATA_DEFAULT_CREDIT_ID, "v1"),
+    null,
+    "a server answer without the default removes it",
+  );
+
+  // Editing warns too (audit #24), counting only the change: r3 may owe 90.00
+  // and already owes the 60.00 being edited.
+  fixture
+    .prepare(
+      "INSERT INTO entries(id,vault_id,relationship_id,type,amount_afn,created_at,disputed_at) VALUES('edit-me','v1','r3','debt',60,30,NULL),('rejected-row','v1','r3','debt',500,31,1)",
+    )
+    .run();
+  assert.equal(await credit.creditWarningForEdit("edit-me", 90, "v1"), false, "up to the cap");
+  assert.equal(
+    await credit.creditWarning("p3", "debt", 90, "v1"),
+    true,
+    "a NEW 90.00 would pass it",
+  );
+  assert.equal(await credit.creditWarningForEdit("edit-me", 95, "v1"), true, "past the cap");
+  assert.equal(
+    await credit.creditWarningForEdit("edit-me", 50, "v1"),
+    false,
+    "lowering never warns",
+  );
+  assert.equal(
+    await credit.creditWarningForEdit("rejected-row", 900, "v1"),
+    false,
+    "a rejected row is outside the balance",
+  );
+  assert.equal(await credit.creditWarningForEdit("missing", 900, "v1"), false);
+
+  // Owners and managers hear what a limit stopped (audit #24); nobody else
+  // asks, and an older server's 404 is an empty list.
+  const policyFetch = globalThis.fetch;
+  let refusalCalls = 0;
+  let refusalStatus = 200;
+  globalThis.fetch = async (url, init) => {
+    if (!String(url).includes("/v1/sync/credit-refusals?vault_id=v1"))
+      return policyFetch(url, init);
+    refusalCalls++;
+    assert.equal(
+      (init?.headers as Record<string, string> | undefined)?.Authorization,
+      `Bearer ${session.jwt}`,
+    );
+    if (refusalStatus !== 200) return new Response("{}", { status: refusalStatus });
+    return new Response(
+      JSON.stringify({
+        refusals: [
+          {
+            relationship_id: "r1",
+            type: "debt",
+            amount_minor: 500,
+            actor_account_id: "acct-clerk",
+            actor_name: "Clerk",
+            refused_at_ms: 7,
+          },
+          {
+            relationship_id: "r1",
+            type: "loan",
+            amount_minor: 1,
+            actor_name: "",
+            refused_at_ms: 1,
+          },
+        ],
+      }),
+    );
+  };
+  resetSession("jwt-refusals", "acct-owner");
+  role = "clerk";
+  assert.deepEqual(await credit.fetchCreditRefusals("v1"), [], "a clerk never asks");
+  assert.equal(refusalCalls, 0);
+  role = "owner";
+  const refused = await credit.fetchCreditRefusals("v1");
+  assert.equal(refused.length, 1, "a malformed row is dropped");
+  assert.equal(refused[0].amount_minor, 500);
+  assert.equal(refused[0].actor_name, "Clerk");
+  await credit.fetchCreditRefusals("v1");
+  assert.equal(refusalCalls, 1, "one request a minute");
+  resetSession("jwt-other", "acct-owner");
+  refusalStatus = 404;
+  assert.deepEqual(
+    await credit.fetchCreditRefusals("v1"),
+    [],
+    "another session never reuses the cache",
+  );
+  assert.equal(refusalCalls, 2);
+  globalThis.fetch = policyFetch;
   console.log(
-    "PASS actual signed-out/local paired role gate, mesh parity, conservative cloud markers and clerk enrollment activation guard",
+    "PASS actual signed-out/local paired role gate, mesh parity, offline clerk tallies unless a hard limit applies, stale-limit refusals leave the balance, clerk enrollment activation guard",
   );
 }
 void run()

@@ -269,6 +269,8 @@ const auth = load<Auth>("../auth", {
     setAccountIdCache: (id: string | null) => {
       accountCache = id;
     },
+    SESSION_ENDED_KEY: "session_ended",
+    setSessionEndedSync: () => {},
     setAppMetaInTx: async (_db: unknown, key: string, value: string) => metaSet(key, value),
     setInstallIdCache: () => {},
     setLocalSelfUserIdCache: () => {},
@@ -523,6 +525,12 @@ test("proved deletion cancellation installs an account-scoped restore marker", a
     "other-account",
     "ordinary sign-in cannot convert a different account's recovery marker",
   );
+  // A phone that kept its ledger (its wipe was blocked, or another phone of
+  // the account) is never sent to the forced restore on every launch (#27).
+  boundPhone("acct-email");
+  script = [reply(200, { ...session("acct-email", "a@example.com"), deletion_cancelled: true })];
+  await auth.emailSignIn("a@example.com", "secret pass");
+  assert.equal(metaGet("account_deletion_cancelled") ?? "", "", "its own ledger stays in charge");
 });
 
 test("sign-in, sign-up and reset refusals store no session", async () => {
@@ -698,6 +706,9 @@ test("different account (email): keep resends with allow_switch; the ledger stay
 
 test("different account (email): wipe resends under a fresh install id, unprotected", async () => {
   const install = boundPhone("acct-old");
+  // Device settings, not account data: "start fresh" keeps them (audit #22).
+  metaSet("calendar_pref", "qamari");
+  metaSet("locale_pref", "fa");
   const { prompt } = prompter("wipe");
   script = [differentAccount, reply(200, session("acct-new", "new@example.com"))];
   await auth.emailSignUpVerify(
@@ -715,6 +726,8 @@ test("different account (email): wipe resends under a fresh install id, unprotec
   assert.equal(fixture.prepare("SELECT 1 FROM users").get(), undefined, "the old ledger is gone");
   assert.equal(metaGet("account_id"), "acct-new");
   assert.equal(secure.get(SESSION_KEY), "jwt.acct-new");
+  assert.equal(metaGet("calendar_pref"), "qamari", "the chosen date format survives");
+  assert.equal(metaGet("locale_pref"), "fa", "the chosen language survives");
 });
 
 test("different account (email): cancel stops and writes nothing", async () => {
@@ -976,6 +989,8 @@ test("account endpoints: session-bound, sent once, typed refusals", async () => 
     hasPassword: false,
     providers: ["apple"],
     name: "Ahmad",
+    // An older server says nothing: treat the name as the provider's.
+    nameExplicit: false,
     setupEmail: null,
   });
   assert.deepEqual(calls[0], {
@@ -984,6 +999,19 @@ test("account endpoints: session-bound, sent once, typed refusals", async () => 
     body: undefined,
     auth: "Bearer jwt.me",
   });
+  script = [
+    reply(200, {
+      email: "a@gmail.com",
+      providers: ["google"],
+      name: "Chosen In Kaata",
+      name_explicit: true,
+    }),
+  ];
+  assert.equal(
+    (await auth.fetchAccountMe()).nameExplicit,
+    true,
+    "an explicit Kaata name is marked",
+  );
   // 401 always means the session ended, whatever the body names.
   script = [reply(401, { error: "x", error_code: "wrong_password" })];
   refusal(
@@ -1427,6 +1455,9 @@ test("a pending code step ends with every sign-in and sign-out, and is one accou
   script = [reply(200, session("acct-a", "a@gmail.com", { sub: "g" }))];
   await auth.signInWithGoogle();
   assert.equal(await auth.readEmailFlowPending(), null, "a sign-in ends it");
+  // The next launch must know whether the phone is signed out: account-scoped
+  // reminders stay hidden after a sign-out, relaunch or not (audit #25).
+  assert.equal(metaGet("session_ended"), "", "a sign-in clears the signed-out marker");
   // Sign-out after a set-password start: nothing either.
   script = [reply(200, { status: "sent" })];
   await auth.passwordSetupStart(null, "en");
@@ -1434,6 +1465,7 @@ test("a pending code step ends with every sign-in and sign-out, and is one accou
   script = [reply(200, {})];
   await auth.signOut();
   assert.equal(await auth.readEmailFlowPending(), null, "a sign-out ends it");
+  assert.equal(metaGet("session_ended"), "1", "a sign-out leaves the marker for the next launch");
   // A setup step another account left behind is never offered here.
   metaSet("account_id", "acct-a");
   metaSet(
@@ -1480,12 +1512,45 @@ test("only the newest session token counts: stale refreshes and stale 401s chang
   secure.set(SESSION_KEY, renewed);
   await auth.clearLocalSession({ onlyIfJwt: current });
   assert.equal(secure.get(SESSION_KEY), renewed, "the newer session stays");
+  assert.notEqual(metaGet("session_ended"), "1", "a stale 401 marks nothing");
   await auth.clearLocalSession({ onlyIfJwt: renewed });
   assert.equal(secure.has(SESSION_KEY), false, "the refused session ends");
+  assert.equal(metaGet("session_ended"), "1", "an ended session counts as signed out");
   // The sync layer's 401 names the token it carried.
   const errors = load<typeof import("../sync/errors")>("../sync/errors", {});
   assert.equal(new errors.SessionExpiredError(undefined, "jwt.sent").refusedJwt, "jwt.sent");
   assert.equal(new errors.SessionExpiredError().refusedJwt, null);
+});
+
+test("a check-in refresh of the same session keeps earlier snapshots current", async () => {
+  // Audit #8: the onboarding restore captured a snapshot, a check-in refreshed
+  // the token, and every guarded step after that silently did nothing.
+  const claims = { account_id: "acct", install_id: "i", provider: "email", provider_sub: "acct" };
+  freshPhone();
+  secure.set(SESSION_KEY, jwtWith({ ...claims, ep: "e2", iat: 1 }));
+  secure.set(USER_KEY, "{}");
+  const before = await auth.captureCurrentSession();
+  await auth.rotateSessionJWT(jwtWith({ ...claims, ep: "e2", iat: 2 }));
+  assert.equal(
+    await auth.applyForCurrentSession(before, async () => "ran"),
+    "ran",
+    "a refresh is not a session change",
+  );
+  assert.equal(await auth.applyForUnchangedLocalSession(before, async () => "ran"), "ran");
+  // A new sign-in (a new epoch) still is.
+  secure.set(SESSION_KEY, jwtWith({ ...claims, ep: "e3", iat: 3 }));
+  await assert.rejects(
+    auth.applyForCurrentSession(before, async () => "ran"),
+    auth.SessionChangedError,
+  );
+  // Tokens whose claims cannot be read only match themselves.
+  secure.set(SESSION_KEY, "opaque-a");
+  const opaque = await auth.captureCurrentSession();
+  secure.set(SESSION_KEY, "opaque-b");
+  await assert.rejects(
+    auth.applyForCurrentSession(opaque, async () => "ran"),
+    auth.SessionChangedError,
+  );
 });
 
 test("session kind: Google or Apple named a subject, an email session did not", async () => {
@@ -3070,10 +3135,17 @@ const accountModule = load<{ default: () => unknown }>("../../app/account", {
   },
   "../lib/calendar": {
     CALENDAR_PREF_KEY: "calendar_pref",
+    QAMARI_OFFSET_KEY: "qamari_offset",
+    getQamariOffset: () => 0,
     parseCalendarPref: () => "auto",
     setCalendarPref: () => {},
+    setQamariOffset: () => {},
   },
-  "../lib/install-id": { isInstallRetired: async () => false },
+  "../lib/install-id": {
+    isInstallRetired: async () => false,
+    getInstallRetiredRecoverableUntil: async () => null,
+  },
+  "../lib/format": { formatDate: (ms: number) => `date:${ms}` },
   "../lib/jalali": { formatCalendarDate: () => "date" },
   "../lib/phone": {
     getCountry: () => ({ code: "AF", flag: "AF", dialCode: "+93", name: "Afghanistan" }),
@@ -3288,7 +3360,7 @@ componentTest(
   "account: fresh cloud names prefill, provider rename rules apply, unchanged long names permit phone edits",
   async () => {
     let tree = await openAccount({
-      me: { ...accountMeOf(["google"]), name: "Current Cloud Name" },
+      me: { ...accountMeOf(["google"]), name: "Current Cloud Name", nameExplicit: true },
       session: "provider",
     });
     assert.equal(accountInput(tree, "personEdit.firstName.label").props.value, "Current");
@@ -3316,6 +3388,28 @@ componentTest(
       accountInput(tree, "personEdit.firstName.label").props.value,
       "Ahmad",
       "queued local edit survives fresh cloud read",
+    );
+  },
+);
+
+componentTest(
+  "account: a Google/Apple profile name never replaces the name chosen in Kaata",
+  async () => {
+    // The server's name for a provider account without a Kaata display name is
+    // the Google/Apple profile name. It used to fill the form, and a phone-only
+    // save then wrote it over the name the user picked in Kaata.
+    const tree = await openAccount({
+      me: { ...accountMeOf(["google"]), name: "Google Profile Name", nameExplicit: false },
+      session: "provider",
+    });
+    assert.equal(accountInput(tree, "personEdit.firstName.label").props.value, "Ahmad");
+    assert.equal(accountInput(tree, "personEdit.lastName.label").props.value, "Karimi");
+    accountInput(tree, "personEdit.phone.label").props.onChangeText("700000005");
+    await saveAccount();
+    assert.ok(accountCalls.includes("updateSelfProfile:Ahmad Karimi:+93700000005"));
+    assert.ok(
+      !accountCalls.some((call) => call.includes("Google Profile Name")),
+      "the provider name is never written locally or sent",
     );
   },
 );
@@ -3441,6 +3535,11 @@ const screen = load<{
     }),
   },
   "../../components/EmailAuthFlow": { EmailAuthFlow: "EmailAuthFlow" },
+  "../../components/RestoreProgress": {
+    RestoreProgress: "RestoreProgress",
+    restoreProgressLabel: () => "progress",
+  },
+  "../../components/Toast": { useToast: () => ({ push: () => {} }) },
   "../../lib/use-onboarding-keyboard-scroll": {
     useOnboardingKeyboardScroll: () => ({
       scrollProps: {},
@@ -3455,6 +3554,8 @@ const screen = load<{
   "../../lib/sync/reconcile": { reconcileVaultRegistrations: async () => {} },
   "../../lib/auth": {
     isGoogleSignInAvailable: () => true,
+    isAppleSignInAvailable: () => true,
+    refreshAppleSignInAvailability: async () => true,
     isCancellation: auth.isCancellation,
     SignInFailedError: auth.SignInFailedError,
     InstallRetiredError: auth.InstallRetiredError,

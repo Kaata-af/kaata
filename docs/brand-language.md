@@ -17,10 +17,13 @@ mirror its values explicitly, so update those styles when changing the palette.
 
 Matee refined the mobile direction on October 11 after trying the first palette
 pass: the everyday app should mainly use black, white and neutral grays, with
-brand colors appearing sparingly. The add/find home button is black again.
+brand colors appearing sparingly. The home add button ("+") is black.
 Primary buttons, selected tabs, confirmation actions and routine selection
 markers use `colors.actionPrimary` (black) with white text where filled. App
 surfaces, text and separators use neutral grays; detailed ledger rows stay white.
+Android widgets the app does not draw itself (date and time dialogs, text
+cursors, selection handles) follow the native theme, which
+`plugins/withNeutralAndroidAccent.js` sets to black; it takes a native build.
 
 `colors.brandPrimary` remains Aubergine. Keep it for identity, the first-run
 journey, occasional attention cues and exported material. Ivory stays available
@@ -30,8 +33,11 @@ small text on white. This mobile refinement does not change the canonical brand
 palette or the web, social and flyer source treatments.
 
 The money-direction colors remain emerald for collect/received and garnet for
-pay/gave. They carry a financial meaning. Pending retains its darker amber dot
-for visibility on white; accepted has no dot and rejected retains a strike.
+pay/gave. They carry a financial meaning. On a closed tally row only pending
+carries a dot (darker amber, for visibility on white); accepted has none and a
+rejected amount keeps its strike. An opened row states the review status beside
+a dot: amber pending, green accepted, red rejected, grey sending (see the
+"A · Quiet" rule in CLAUDE.md and `selftest:tally-ui`).
 Destructive actions and member-attribution tints retain their separate meanings.
 Apple provider branding, camera surfaces and notification masks keep their
 platform-specific requirements.
@@ -53,15 +59,37 @@ white reading rows, readable direction colors and their existing print rules.
 
 ## Artwork status
 
-The original launcher/splash, web favicon and social-preview images have baked
-backgrounds and no editable logo master in this repository. The web and
-marketing sources use an exact-art CSS treatment where supported. Android's
-transparent adaptive foreground can sit on Aubergine without changing its
-shape; notification accent uses Aubergine. The opaque native launcher/splash
-and remaining standalone raster artwork retain their original treatment until
-an editable master or a faithful recolored asset is available. Keep the native
-splash background matched to its opaque artwork in the meantime.
+There is still no editable logo master. The logo rasters were exported as a
+white K on a black tile, and they are now recolored per pixel by
+`marketing/recolor_logo.py`: each pixel's gray level `t` (0 = black tile,
+1 = white K) becomes `lerp(Aubergine, White, t)` with alpha unchanged, so the
+K's shape and anti-aliasing are exactly the original export. The script reads
+the black originals from git (commit `0f7cc3b`), so re-running is safe; after a
+palette change, run `python marketing/recolor_logo.py` (`--check` verifies
+without writing). It produces:
+
+- `apps/mobile/assets/icon.png` (iOS and legacy launcher icon) and
+  `splash-icon.png` (native splash). `app.json` sets the splash background to
+  `#4A2A50` in light and dark so it matches the opaque artwork; change both
+  together.
+- `apps/mobile/assets/favicon.png` and `logo.png`.
+- `apps/web/public/favicon.png`, `logo.png` (site logo, `og:image`, flyer and
+  social templates, which now show it as is) and a 180px `apple-touch-icon.png`.
+- `docs/store-assets/play-icon-512.png` for the Play listing icon.
+
+Android's transparent adaptive foreground sits on an Aubergine background; the
+notification mask keeps its own white-on-transparent form with an Aubergine
+accent. The store screenshots, Play feature graphic and the website's download
+thumbnail are generated from `docs/store-assets` in the current app look and
+these roles (see [store-listing.md](store-listing.md)).
+
+Nothing outside the repository changes by itself. The App Store icon and the
+native splash reach phones only with the next native build. Upload by hand: the
+Play icon, feature graphic and screenshots, the App Store screenshots, and the
+social-profile pictures (Facebook, Instagram, TikTok, YouTube). Link previews
+refresh on each platform's own schedule (Facebook's Sharing Debugger forces a
+re-scrape). Existing posts, printed flyers and issued documents stay as they
+are.
 
 Do not replace the logo with the simplified notification mask or an approximate
-redrawing. Updated source templates still need visual/print/export checks;
-existing published posts, issued documents and store screenshots are unchanged.
+redrawing. Templates still need visual/print/export checks before each use.

@@ -31,7 +31,10 @@ import {
   VaultNotRegisteredError,
 } from "./errors";
 
-const PULL_TIMEOUT_MS = 30_000;
+// 20 s, not 30: on a stalled connection a pull plus a push held each sync
+// attempt for about a minute before any retry (audit #5). Slow but moving
+// links still finish a full page well inside it.
+const PULL_TIMEOUT_MS = 20_000;
 const DEFAULT_BATCH_LIMIT = 200;
 
 type WirePulledEvent = {

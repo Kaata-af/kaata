@@ -12,8 +12,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     (plugin): NonNullable<ExpoConfig["plugins"]>[number] => {
       if (!Array.isArray(plugin)) return plugin;
       const [name, options] = plugin;
-      // The existing splash PNG has an opaque black background. Preserve
-      // its matching native background until an editable master is available.
+      // expo-splash-screen is not overridden here: its PNG is opaque with an
+      // Aubergine tile (marketing/recolor_logo.py), and app.json sets the
+      // matching #4A2A50 background for light and dark. Change both together.
       if (name === "expo-notifications") return [name, { ...options, color: brand.aubergine }];
       return plugin;
     },

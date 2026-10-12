@@ -81,7 +81,10 @@ func (s *Service) listInbox(ctx context.Context, accountID, locale string, befor
 	}
 	rows, err := tx.Query(ctx, `SELECT n.id::text,n.tab_id::text,n.recipient_role,n.rev,n.event_kind,
  COALESCE(n.entry_id::text,''),n.actor_label,n.created_at,nr.notification_id IS NOT NULL,
- COALESCE(e.amount_minor,0),COALESCE(e.direction,''),t.currency
+ COALESCE(e.amount_minor,0),COALESCE(e.direction,''),t.currency,
+ (p.account_id=$1::uuid OR EXISTS(SELECT 1 FROM vault_members vm WHERE vm.vault_id=p.vault_id
+   AND vm.account_id=$1::uuid AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL
+   AND vm.role IN ('owner','manager','editor')))
  FROM tab_notifications n JOIN tab_parties p ON p.tab_id=n.tab_id AND p.role=n.recipient_role
  JOIN tabs t ON t.id=n.tab_id LEFT JOIN tab_entries e ON e.id=n.entry_id AND e.tab_id=n.tab_id
  LEFT JOIN tab_notification_reads nr ON nr.notification_id=n.id AND nr.account_id=$1::uuid
@@ -95,11 +98,12 @@ func (s *Service) listInbox(ctx context.Context, accountID, locale string, befor
 		var at time.Time
 		var actor, direction, currency string
 		var amount int64
-		if err = rows.Scan(&item.ID, &item.TabID, &item.Role, &item.Rev, &item.Kind, &item.EntryID, &actor, &at, &item.Read, &amount, &direction, &currency); err != nil {
+		var canReview bool
+		if err = rows.Scan(&item.ID, &item.TabID, &item.Role, &item.Rev, &item.Kind, &item.EntryID, &actor, &at, &item.Read, &amount, &direction, &currency, &canReview); err != nil {
 			return page, err
 		}
 		item.CreatedAtMS = at.UnixMilli()
-		item.Body = detailedPushBody(item.Kind, locale, actor, amount, direction, currency, item.Role)
+		item.Body = detailedPushBody(item.Kind, locale, actor, amount, direction, currency, item.Role, canReview)
 		page.Items = append(page.Items, item)
 	}
 	if err = rows.Err(); err != nil {
@@ -228,7 +232,7 @@ func notificationLabel(label string) string {
 	return string(runes)
 }
 
-func detailedPushBody(kind, locale, actor string, minor int64, direction, currency, recipient string) string {
+func detailedPushBody(kind, locale, actor string, minor int64, direction, currency, recipient string, canReview bool) string {
 	actor = notificationLabel(actor)
 	if actor == "" {
 		if locale == "fa" {
@@ -239,7 +243,7 @@ func detailedPushBody(kind, locale, actor string, minor int64, direction, curren
 	}
 	actor = "\u2068" + actor + "\u2069"
 	if minor <= 0 {
-		return actor + ": " + pushBody(kind, locale)
+		return actor + ": " + pushBodyFor(kind, locale, canReview)
 	}
 	sign := "−"
 	if (direction == "a_to_b" && recipient == "a") || (direction == "b_to_a" && recipient == "b") {
@@ -249,6 +253,9 @@ func detailedPushBody(kind, locale, actor string, minor int64, direction, curren
 	if locale == "fa" {
 		switch kind {
 		case "entry_created":
+			if !canReview {
+				return fmt.Sprintf("%s یک ثبت %s افزود.", actor, amount)
+			}
 			return fmt.Sprintf("%s یک ثبت %s افزود. قبول یا رد کنید.", actor, amount)
 		case "entry_accepted":
 			return fmt.Sprintf("ثبت %s شما توسط %s قبول شد.", amount, actor)
@@ -260,6 +267,9 @@ func detailedPushBody(kind, locale, actor string, minor int64, direction, curren
 	}
 	switch kind {
 	case "entry_created":
+		if !canReview {
+			return fmt.Sprintf("%s added a tally (%s).", actor, amount)
+		}
 		return fmt.Sprintf("%s added a tally (%s). Accept or reject it.", actor, amount)
 	case "entry_accepted":
 		return fmt.Sprintf("Your tally (%s) was accepted by %s.", amount, actor)
@@ -268,5 +278,5 @@ func detailedPushBody(kind, locale, actor string, minor int64, direction, curren
 	case "entry_voided":
 		return fmt.Sprintf("%s voided a tally (%s).", actor, amount)
 	}
-	return actor + ": " + pushBody(kind, locale)
+	return actor + ": " + pushBodyFor(kind, locale, canReview)
 }

@@ -86,15 +86,28 @@
         margin: 0;
       }
 
+      /* The paper edge stays white: home and office printers cannot print the
+         outer ~3-5 mm of a sheet, so the Ivory panel sits 7 mm inside it and
+         the content 13 mm in. No full-bleed or borderless setup is needed. */
       .page {
         position: relative;
         width: 210mm;
         height: 297mm;
-        padding: 13mm 13mm 11mm;
+        padding: 13mm;
         display: flex;
         flex-direction: column;
         overflow: hidden;
+        background: var(--white);
+      }
+      .page::before {
+        content: "";
+        position: absolute;
+        inset: 7mm;
+        border-radius: 6mm;
         background: var(--warm);
+      }
+      .page > * {
+        position: relative;
       }
       .page.front {
         page-break-after: always;
@@ -111,14 +124,14 @@
         align-items: center;
         gap: 9px;
       }
+      /* logo.png is already Aubergine (marketing/recolor_logo.py); the tile
+         only clips it to the brand corner. */
       .brandmark {
         display: inline-flex;
-        isolation: isolate;
         overflow: hidden;
         border-radius: 22%;
         background: var(--brand);
       }
-      .brandmark img { mix-blend-mode: screen; }
       .brand .logo {
         width: 34px;
         height: 34px;
@@ -231,6 +244,10 @@
         line-height: 1.5;
         color: var(--muted);
         font-weight: 500;
+      }
+      /* Saffron takes dark ink: Charcoal is 8.5:1 there, the plum gray 3:1. */
+      .panel.yes .cap-sub {
+        color: var(--ink);
       }
       .panel-art {
         width: 102mm;
@@ -603,9 +620,9 @@
           <div class="qr-card">
             <img class="qimg" src="{{QR_URI}}" alt="QR" />
             <div class="qr-meta">
-              <div class="l1"><span class="dot"></span><span>دانلود برای اندروید</span></div>
+              <div class="l1"><span class="dot"></span><span>دانلود برای اندروید و آیفون</span></div>
               <div class="l2">یا به <b>kaata.af</b> بروید</div>
-              <div class="l3">فعلاً فقط برای اندروید</div>
+              <div class="l3">برای اندروید از Google Play و برای آیفون از App Store</div>
             </div>
           </div>
         </div>

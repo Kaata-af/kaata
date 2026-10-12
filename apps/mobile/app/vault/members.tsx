@@ -129,6 +129,9 @@ export default function VaultMembersScreen() {
   // keep the offline event path unchanged.
   const isManager = role === "manager";
 
+  // Whose list is on screen: a return to this screen keeps it while it
+  // refreshes, unless the kaata changed meanwhile.
+  const listedScope = useRef<string | null>(null);
   const loadAll = useCallback(async () => {
     const request = ++loadRequestRef.current;
     const activeVaultId = await getActiveVaultId();
@@ -177,6 +180,8 @@ export default function VaultMembersScreen() {
     }
 
     const db = await getDb();
+    // The caller's account plus its pre-sign-in local ids, as one JSON array.
+    const callerIds = [accId, ...ownLocalIds].filter((id): id is string => !!id);
     const rows = await db.getAllAsync<MemberRow>(
       // Current authorized profiles override admission-time identity, including
       // an explicit empty name. Local-only peers keep their signed fallback.
@@ -196,9 +201,11 @@ export default function VaultMembersScreen() {
            ON p.vault_id = vmm.vault_id AND p.account_id = vmm.account_id
           AND p.viewer_account_id = ?
           AND vmm.accepted_at IS NOT NULL
+          -- The caller's own row may still carry a pre-sign-in local: id.
           AND EXISTS (
             SELECT 1 FROM vault_members_mirror caller
-             WHERE caller.vault_id = vmm.vault_id AND caller.account_id = ?
+             WHERE caller.vault_id = vmm.vault_id
+               AND caller.account_id IN (SELECT value FROM json_each(?))
                AND caller.accepted_at IS NOT NULL AND caller.revoked_at IS NULL
           )
         WHERE vmm.vault_id = ?
@@ -209,7 +216,7 @@ export default function VaultMembersScreen() {
             WHEN 'clerk' THEN 3 ELSE 4 END,
           vmm.accepted_at ASC`,
       accId,
-      accId,
+      JSON.stringify(callerIds),
       activeVaultId,
     );
 
@@ -239,6 +246,7 @@ export default function VaultMembersScreen() {
     setAccountId(accId);
     setSelfName(ownName);
     setLocalSelfAccountIds(ownLocalIds);
+    listedScope.current = activeVaultId;
     setMembers(rows);
     setPending(inv);
   }, [router, toast]);
@@ -376,8 +384,13 @@ export default function VaultMembersScreen() {
   useFocusEffect(
     useCallback(() => {
       focusedRef.current = true;
-      setMembers([]);
-      setLoaded(false);
+      // Returning used to blank the list to a full-screen spinner and could
+      // flash "No members" (audit #19). Only another kaata's list is cleared.
+      if (listedScope.current !== getActiveVaultIdSyncMaybe()) {
+        listedScope.current = null;
+        setMembers([]);
+        setLoaded(false);
+      }
       let running = false;
       let queued = false;
       let cancelled = false;
@@ -425,7 +438,6 @@ export default function VaultMembersScreen() {
         ++authorizationRequestRef.current;
         app.remove();
         clearInterval(timer);
-        setMembers([]);
       };
     }, [loadAll, toast]),
   );
@@ -697,7 +709,7 @@ export default function VaultMembersScreen() {
               <MemberIdentityRow
                 key={m.account_id}
                 name={displayName}
-                sub={m.email}
+                sub={visibleMemberEmail(m.email)}
                 role={m.role}
                 isRTL={isRTL}
                 online={!isSelf && onlineAccounts.has(m.account_id)}
@@ -902,6 +914,13 @@ function MemberIdentityRow(props: {
       {body}
     </Pressable>
   );
+}
+
+// Apple's "Hide My Email" relay address identifies nobody a shopkeeper knows,
+// so it reads as an Apple account with a hidden email (audit #19).
+function visibleMemberEmail(email: string | null): string | null {
+  if (!email) return null;
+  return /@privaterelay\.appleid\.com$/i.test(email) ? t("members.appleHiddenEmail") : email;
 }
 
 function buildSheetActions(

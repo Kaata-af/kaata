@@ -442,6 +442,19 @@ async function main() {
       );
       const own = response("default", { ...payload, actor_account_id: "account" }).notification;
       assert.equal((await handler.handleNotification(own)).shouldShowBanner, false);
+      // A customer reminder is an alarm the user set: it alerts even while
+      // Kaata is open, where it used to be dropped without a sound or banner.
+      state.currentState = "active";
+      const reminder = response("default", {
+        kind: "customer_reminder",
+        reminder_id: "r1",
+      }).notification;
+      assert.deepEqual(await handler.handleNotification(reminder), {
+        shouldShowBanner: true,
+        shouldShowList: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+      });
     }
   });
   await test("pull fallback ignores foreground and own acknowledgements", async () => {

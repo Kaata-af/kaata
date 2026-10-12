@@ -1,24 +1,19 @@
 const fs = require("fs");
 const path = require("path");
-const S = require("./gen-screens.js"); // reuse FONTS + inline icon SVGs only
+const S = require("./gen-screens.js"); // the phone set's screens, palette and fonts
 
-const { brand, neutral } = S;
+const { brand, app } = S;
 
-const OUT = __dirname;
-
-// ACCURATE 10-inch tablet rendering.
+// ACCURATE tablet rendering.
 // The app has NO tablet layout and NO content maxWidth, and is portrait-locked.
-// On a ~800dp-wide 10" tablet (portrait) the single-column UI STRETCHES to full
+// On a ~600-800dp-wide tablet (portrait) the single-column UI STRETCHES to full
 // width at its TRUE dp sizes -> small text, wide sparse rows, lots of whitespace.
-// Canvas = 800x1422 dp (9:16); rendered at device-scale-factor 2 -> 1600x2844 px.
-// Every value below is the app's real dp value (from source), used 1:1 as CSS px.
-
-const ic = S.ic;
-const money = (n, afn, color) =>
-  `<span class="num"${color ? ` style="color:${color}"` : ""}>${n}</span><span class="afn" style="font-size:${afn}px">؋</span>`;
+// These are the phone set's own screen builders (gen-screens.js) drawn at
+// --k: 1, so every app dp value is 1 CSS px, rendered at device-scale-factor 2:
+// 600x1067 dp -> 1200x2134 px (7"), 800x1422 dp -> 1600x2844 px (10").
 
 const statusBar = (dark) => {
-  const c = dark ? brand.white : brand.charcoal;
+  const c = dark ? brand.white : "#000000";
   return `<div class="sb" style="color:${c}">
     <span class="sb-t">9:41</span>
     <span class="sb-r">
@@ -29,167 +24,55 @@ const statusBar = (dark) => {
   </div>`;
 };
 
-function home(lang) {
-  const rtl = lang === "fa";
-  const t = rtl
-    ? {
-        shop: "مارکیت برادران",
-        chip: "م",
-        collect: "وصول",
-        pay: "پرداخت",
-        lbl: "قابل وصول",
-        sub: "از ۴ نفر",
-        rows: [
-          ["احمد ولی", "۲ ساعت پیش", "12,500"],
-          ["گل رحمان", "دیروز", "8,750"],
-          ["فاطمه نوری", "۳ روز پیش", "3,200"],
-          ["نصیر احمدزی", "۱ هفته پیش", "1,400"],
-        ],
-      }
-    : {
-        shop: "Baradaran Market",
-        chip: "B",
-        collect: "To collect",
-        pay: "To pay",
-        lbl: "TO COLLECT",
-        sub: "from 4 people",
-        rows: [
-          ["Ahmad Wali", "2h ago", "12,500"],
-          ["Gul Rahman", "yesterday", "8,750"],
-          ["Fatima Noori", "3d ago", "3,200"],
-          ["Naseer Ahmadzai", "1w ago", "1,400"],
-        ],
-      };
-  const row = (r) =>
-    `<div class="row"><div class="row-l"><div class="row-nm">${r[0]}</div><div class="row-sub">${r[1]}</div></div><div class="row-r">${money(r[2], 11)}</div></div>`;
-  return `${statusBar()}
-  <div class="hd"><span class="hd-shop">${t.shop}</span><span class="hd-chev">${ic.chevronDown(16)}</span><span class="hd-sp"></span><span class="hd-chip">${t.chip}</span></div>
-  <div class="tabs"><div class="tab tab-on">${t.collect}</div><div class="tab tab-off">${t.pay}</div></div>
-  <div class="total"><div class="total-l">${t.lbl}</div><div class="total-row">${money("25,850", 14, "#0C745A")}</div><div class="total-sub">${t.sub}</div></div>
-  <div class="card">${t.rows.map(row).join('<div class="div"></div>')}</div>
-  <div class="fab">${ic.homeMark(22)}</div>`;
-}
+const home = (lang) => S.screenHome({ rtl: lang === "fa", bar: statusBar() });
+const person = () => S.screenPerson({ bar: statusBar() });
+const onboarding = () => S.screenOnboarding({ bar: statusBar() });
 
-function person() {
-  const entry = (dir, amt, note, when) => {
-    const gave = dir === "gave";
-    return `<div class="erow"><div class="eic" style="background:${gave ? "#F8EAEC" : "#E8F4EF"};color:${gave ? "#A3203A" : "#0C745A"}">${gave ? ic.arrowUp(16) : ic.arrowDown(16)}</div>
-      <div class="emid"><div class="etop"><div class="eamt">${money(amt, 11)}</div><div class="ewhen">${when}</div></div>${note ? `<div class="enote">${note}</div>` : ""}</div></div>`;
-  };
-  return `${statusBar()}
-  <div class="nav"><div class="nav-b">${ic.chevronBack(22)}</div><div class="nav-b">${ic.pencil(20)}</div></div>
-  <div class="info"><div class="pn">Ahmad Wali</div><div class="pph">+93 70 123 4567</div><div class="pchip">THEY OWE YOU</div><div class="pbal">${money("12,500", 15, "#0C745A")}</div></div>
-  <div class="acts"><div class="act"><span class="coin">${ic.arrowDown(16)}</span><span>I received</span></div><div class="act"><span class="coin">${ic.arrowUp(16)}</span><span>I gave</span></div></div>
-  <div class="ecard">${entry("received", "2,500", "", "2h ago")}<div class="div"></div>${entry("gave", "5,000", "Cooking oil &amp; rice", "yesterday")}<div class="div"></div>${entry("gave", "10,000", "Sacks of flour", "4d ago")}</div>
-  <div class="ping"><div class="ping-b"><span style="display:flex">${ic.whatsapp(20)}</span><span>Ping Ahmad Wali on WhatsApp</span></div></div>`;
-}
-
-function onboarding() {
-  return `${statusBar()}
-  <div class="ob"><div class="ob-c">${ic.check(54)}</div><div class="ob-t">Your kaata is ready!</div>
-    <div class="ob-card"><span style="color:${brand.charcoal};display:flex">${ic.storefront(24)}</span><span class="ob-shop">Baradaran Market</span></div>
-    <div class="ob-body">This is your shop's book. Add a tally for each<br>customer with the button at the bottom right.</div></div>
-  <div class="ob-foot"><div class="ob-btn">Open my kaata</div></div>`;
-}
-
-const CSS = `
-${S.FONTS}
-*{margin:0;padding:0;box-sizing:border-box;}
-.t10{position:relative;overflow:hidden;background:${brand.white};font-family:"Vaz",sans-serif;-webkit-font-smoothing:antialiased;}
-.t10:has(.ob){background:${brand.ivory};}
-.num{font-family:"Mono";}
-.afn{font-family:"Vaz";font-weight:500;color:${neutral.muted};margin-left:3px;}
+// --ib: Android tablets draw the app edge-to-edge above the navigation bar
+// here, as in the earlier accurate set; gen-ipad13.js sets the iPad's inset.
+const CSS = `${S.CSS}
+.t10{--k:1;--ib:0px;--sbar:34px;position:relative;overflow:hidden;background:${app.bg};font-family:"Vaz",sans-serif;color:${app.textEmphasis};-webkit-font-smoothing:antialiased;}
+.t10:has(.ob-screen){background:${app.bgWarm};}
 .sb{height:34px;display:flex;align-items:center;justify-content:space-between;padding:10px 22px 0;font-family:"Mono";}
 .sb-t{font-weight:600;font-size:14px;}
 .sb-r{display:flex;align-items:center;gap:6px;}
 .bat{width:22px;height:11px;border:1.5px solid;border-radius:3px;padding:1.5px;display:flex;opacity:.9;}
 .batf{flex:1;border-radius:1px;}
-/* HOME */
-.hd{display:flex;align-items:center;padding:18px 16px 14px;}
-.hd-shop{font-weight:700;font-size:28px;color:${brand.charcoal};letter-spacing:-.5px;white-space:nowrap;}
-.hd-chev{color:${neutral.subtle};margin-left:4px;margin-top:3px;display:flex;}
-.hd-sp{flex:1;}
-.hd-chip{width:32px;height:32px;border-radius:16px;background:${neutral.bgMuted};border:1px solid ${neutral.border};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:${brand.charcoal};flex:none;}
-.tabs{margin:2px 16px 16px;display:flex;padding:4px;background:${neutral.bgMuted};border:1px solid ${neutral.border};border-radius:10px;}
-.tab{flex:1;min-height:44px;display:flex;align-items:center;justify-content:center;border-radius:7px;font-size:13px;}
-.tab-on{background:${brand.aubergine};color:${brand.white};font-weight:600;}
-.tab-off{color:${brand.charcoal};font-weight:500;}
-.total{margin:0 16px 20px;}
-.total-l{font-weight:600;font-size:11px;letter-spacing:.6px;color:${neutral.subtle};text-transform:uppercase;}
-.total-row{display:flex;align-items:baseline;gap:6px;margin-top:6px;}
-.total-row .num{font-weight:700;font-size:36px;letter-spacing:-.5px;}
-.total-row .afn{font-size:14px;}
-.total-sub{font-weight:400;font-size:13px;color:${neutral.subtle};margin-top:4px;}
-.card{margin:0 16px;border:1px solid ${neutral.border};border-radius:12px;overflow:hidden;}
-.div{height:1px;background:${neutral.border};}
-.row{display:flex;align-items:center;padding:12px 14px;}
-.row-l{flex:1;margin-right:12px;min-width:0;}
-.row-nm{font-weight:600;font-size:15px;color:${brand.charcoal};}
-.row-sub{font-weight:400;font-size:12px;color:${neutral.subtle};margin-top:2px;}
-.row-r{display:flex;align-items:baseline;}
-.row-r .num{font-weight:600;font-size:15px;color:${brand.charcoal};}
-.row-r .afn{font-size:11px;}
-.fab{position:absolute;right:20px;bottom:20px;width:52px;height:52px;border-radius:26px;background:${brand.aubergine};color:${brand.white};display:flex;align-items:center;justify-content:center;}
-/* PERSON */
-.nav{display:flex;align-items:center;justify-content:space-between;padding:4px 8px;}
-.nav-b{width:40px;height:40px;display:flex;align-items:center;justify-content:center;color:${brand.charcoal};}
-.info{padding:4px 16px 20px;}
-.pn{font-weight:700;font-size:22px;color:${brand.charcoal};}
-.pph{font-family:"Mono";font-size:13px;color:${neutral.subtle};margin-top:4px;}
-.pchip{display:inline-block;margin-top:16px;padding:3px 8px;border-radius:6px;font-weight:600;font-size:10px;letter-spacing:.6px;background:#E8F4EF;color:#0A5A46;}
-.pbal{display:flex;align-items:baseline;gap:6px;margin-top:10px;}
-.pbal .num{font-weight:700;font-size:40px;letter-spacing:-.5px;}
-.pbal .afn{font-size:15px;}
-.acts{display:flex;gap:10px;padding:0 16px;margin-bottom:20px;}
-.act{flex:1;display:flex;align-items:center;justify-content:center;gap:9px;padding:13px 0;border-radius:12px;background:${brand.aubergine};color:${brand.white};font-weight:600;font-size:15px;box-shadow:0 5px 14px rgba(0,0,0,.16);}
-.coin{width:26px;height:26px;border-radius:13px;background:rgba(255,255,255,.13);display:flex;align-items:center;justify-content:center;}
-.ecard{margin:8px 16px 0;border:1px solid ${neutral.border};border-radius:12px;overflow:hidden;}
-.erow{display:flex;align-items:flex-start;padding:12px 14px;}
-.eic{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:12px;flex:none;}
-.emid{flex:1;min-width:0;}
-.etop{display:flex;align-items:baseline;justify-content:space-between;}
-.eamt{display:flex;align-items:baseline;}
-.eamt .num{font-weight:700;font-size:15px;color:${brand.charcoal};}
-.eamt .afn{font-size:11px;}
-.ewhen{font-weight:400;font-size:12px;color:${neutral.subtle};}
-.enote{font-weight:400;font-size:13px;color:${brand.charcoal};line-height:18px;margin-top:5px;}
-.ping{position:absolute;left:0;right:0;bottom:0;padding:12px 16px 20px;}
-.ping-b{height:52px;border-radius:12px;background:${brand.aubergine};color:${brand.white};display:flex;align-items:center;justify-content:center;gap:10px;font-weight:600;font-size:15px;box-shadow:0 4px 12px rgba(0,0,0,.18);}
-/* ONBOARDING */
-.ob{position:absolute;top:0;left:0;right:0;bottom:76px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 24px;}
-.ob-c{width:96px;height:96px;border-radius:48px;background:${brand.saffron};display:flex;align-items:center;justify-content:center;color:${brand.charcoal};margin-bottom:28px;}
-.ob-t{font-weight:700;font-size:24px;color:${brand.aubergine};letter-spacing:-.4px;text-align:center;}
-.ob-card{display:flex;align-items:center;gap:12px;margin-top:20px;padding:16px 20px;border:1px solid ${neutral.border};border-radius:14px;background:${brand.white};}
-.ob-shop{font-weight:600;font-size:18px;color:${brand.charcoal};}
-.ob-body{font-weight:400;font-size:14px;line-height:21px;color:${neutral.subtle};text-align:center;margin-top:20px;}
-.ob-foot{position:absolute;left:0;right:0;bottom:0;padding:0 24px 16px;}
-.ob-btn{min-height:44px;border-radius:8px;background:${brand.aubergine};color:${brand.white};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:15px;}
 `;
 
 const panels = [
-  { name: "home", screen: home("en") },
-  { name: "person", screen: person() },
-  { name: "onboarding", screen: onboarding() },
-  { name: "dari", screen: home("fa") },
+  { n: 1, name: "home", screen: home("en") },
+  { n: 2, name: "person", screen: person() },
+  { n: 3, name: "onboarding", screen: onboarding() },
+  { n: 4, name: "dari", screen: home("fa") },
 ];
 
 // Reused by gen-ipad13.js — same true-dp screens, different canvas.
 module.exports = { CSS, home, person, onboarding, statusBar, panels };
 
+// Writes tablet-screenshots/<7-inch|10-inch>/NN-<name>.html. Render each with
+// headless Chrome at the dp window size and --force-device-scale-factor=2
+// (plus --virtual-time-budget=4000) to the PNG of the same name.
 if (require.main === module) {
   // Real portrait dp widths: 7" tablet ~600dp, 10" tablet ~800dp. Height = 9:16.
   const sizes = [
-    { tag: "7in", w: 600, h: 1067 },
-    { tag: "10in", w: 800, h: 1422 },
+    { dir: "7-inch", w: 600, h: 1067 },
+    { dir: "10-inch", w: 800, h: 1422 },
   ];
 
   for (const s of sizes) {
+    const out = path.join(__dirname, "tablet-screenshots", s.dir);
+    fs.mkdirSync(out, { recursive: true });
     for (const p of panels) {
       const html = `<!doctype html><html><head><meta charset="utf-8"/><style>${CSS}
 html,body,.t10{width:${s.w}px;height:${s.h}px;}</style></head><body><div class="t10">${p.screen}</div></body></html>`;
-      fs.writeFileSync(path.join(OUT, `tab-${s.tag}-${p.name}.html`), html, "utf8");
+      fs.writeFileSync(
+        path.join(out, `${String(p.n).padStart(2, "0")}-${p.name}.html`),
+        html,
+        "utf8",
+      );
     }
-    console.log("wrote", s.tag, "(" + s.w + "x" + s.h + " dp)");
+    console.log("wrote", s.dir, "(" + s.w + "x" + s.h + " dp)");
   }
   console.log("done", sizes.length * panels.length, "files");
 }

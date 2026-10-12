@@ -37,7 +37,7 @@ import { getSessionJWT } from "../../lib/auth";
 import { requestImmediateCheckIn } from "../../lib/checkin-trigger";
 import { colors } from "../../lib/colors";
 import { setActiveVaultId } from "../../lib/db-tx";
-import { setAppMeta } from "../../lib/db";
+import { getLocalSelf, setAppMeta } from "../../lib/db";
 import { textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
@@ -219,6 +219,18 @@ export default function InviteAcceptScreen() {
       } catch (err) {
         console.warn("[invite] witness emission failed (backfill path will retry)", err);
       }
+      // The joined kaata's shared accounts must be known before the first
+      // tally, or that tally lands in the private book and never reaches the
+      // other side (audit #7). Bounded; the tab sync loop keeps retrying.
+      try {
+        const { syncAllTabs } = await import("../../lib/tabs/sync");
+        await Promise.race([
+          syncAllTabs({ discover: true }),
+          new Promise((resolve) => setTimeout(resolve, 5000)),
+        ]);
+      } catch (err) {
+        console.warn("[invite] shared-account discovery after join failed", err);
+      }
       setStage("done");
       // Push the joined-vault membership + onboarded state to the backend now.
       // recoverJoinedVault created the local-self; without an immediate check-in
@@ -259,10 +271,14 @@ export default function InviteAcceptScreen() {
     router.replace("/");
   }
 
-  function onSignIn() {
+  async function onSignIn() {
     // The auth screen reads pending_invite_token from app_meta after
     // sign-in completes and routes back to this screen with the token.
-    router.replace("/sign-in");
+    // A phone that was never set up goes through onboarding instead, so the
+    // invitee still chooses language and date format; its sign-in step
+    // consumes the same stash (audit #22).
+    const set = await getLocalSelf().catch(() => null);
+    router.replace(set ? "/sign-in" : "/onboarding");
   }
 
   // Confirm-stage body is ONE i18n sentence with {inviter} + {role}

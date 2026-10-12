@@ -59,6 +59,21 @@ func Lock(ctx context.Context, tx pgx.Tx, vaultID string) error {
 	return err
 }
 
+// DefaultRelationshipID keys the kaata-wide default limit in
+// customer_credit_limits: it covers every customer without their own policy,
+// newly added ones included, so re-adding a customer as a new contact no longer
+// escapes a limit (Matee, 2026-10-12). No relationship can have this id.
+const DefaultRelationshipID = "00000000-0000-0000-0000-000000000000"
+
+// Effective is the customer's own policy, else the kaata default, else nil.
+func Effective(ctx context.Context, tx pgx.Tx, vaultID, relationshipID string) (*Policy, error) {
+	p, err := Read(ctx, tx, vaultID, relationshipID)
+	if err != nil || p != nil || relationshipID == DefaultRelationshipID {
+		return p, err
+	}
+	return Read(ctx, tx, vaultID, DefaultRelationshipID)
+}
+
 func Read(ctx context.Context, tx pgx.Tx, vaultID, relationshipID string) (*Policy, error) {
 	var p Policy
 	err := tx.QueryRow(ctx, `SELECT relationship_id::text,max_collect_minor,max_pay_minor,mode,updated_at_ms FROM customer_credit_limits WHERE vault_id=$1::uuid AND relationship_id=$2::uuid`, vaultID, relationshipID).Scan(&p.RelationshipID, &p.MaxCollectMinor, &p.MaxPayMinor, &p.Mode, &p.UpdatedAtMS)

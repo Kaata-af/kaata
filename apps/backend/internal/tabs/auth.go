@@ -37,6 +37,21 @@ type Party struct {
 	// bound account (full party rights); otherwise the caller's
 	// vault_members.role in the party's kaata, which allows() ranks.
 	MemberRole string
+	// BoundMemberRole is the bound account's OWN role in the party's kaata,
+	// when it is a member there. It caps the bound account's rights: an
+	// editor who linked the account and was later made a clerk acts as a
+	// clerk, credit limits included (audit #24). Evidence and attribution
+	// still record the bound account as "account" through MemberRole.
+	BoundMemberRole string
+}
+
+// effectiveRole is the kaata role that governs this caller: a delegated
+// member's role, else the bound account's own role in the party's kaata.
+func (p Party) effectiveRole() string {
+	if p.MemberRole != "" {
+		return p.MemberRole
+	}
+	return p.BoundMemberRole
 }
 
 // Role ranks — roles v2 order, identical to sync.roleRank but declared here
@@ -55,10 +70,11 @@ const (
 // allows reports whether the caller may perform an action of the given
 // minimum rank. Token callers and the bound account are unrestricted.
 func (p Party) allows(minRank int) bool {
-	if p.MemberRole == "" {
+	role := p.effectiveRole()
+	if role == "" {
 		return true
 	}
-	return roleRank[p.MemberRole] >= minRank
+	return roleRank[role] >= minRank
 }
 
 // Other is the counterparty's role.
@@ -144,6 +160,8 @@ func partyByAccountRoleQuery(ctx context.Context, q querier, tabID, accountID, r
 	p.ActorAccountID = accountID
 	if !direct {
 		p.MemberRole = memberRole
+	} else {
+		p.BoundMemberRole = memberRole
 	}
 	return p, nil
 }

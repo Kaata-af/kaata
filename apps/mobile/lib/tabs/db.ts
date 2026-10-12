@@ -982,6 +982,14 @@ export async function listTabIdsWithQueuedOps(): Promise<string[]> {
   return rows.map((r) => r.tab_id);
 }
 
+/** Back online: ops sitting out a backoff (30 s up to 1 h) that was mostly
+ *  earned while the network was down get one try now. attempts is kept, so a
+ *  real server failure still climbs the ladder. */
+export async function makeWaitingTabOpsDueNow(): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(`UPDATE tab_outbox SET next_at = NULL WHERE next_at > ?`, Date.now());
+}
+
 /** Acked (or dropped as a permanent verdict): gone. */
 export async function completeTabOp(id: string): Promise<void> {
   const db = await getDb();

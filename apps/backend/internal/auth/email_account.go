@@ -1169,18 +1169,23 @@ type AccountMe struct {
 	HasPassword bool     `json:"has_password"`
 	Providers   []string `json:"providers"`
 	Name        string   `json:"name,omitempty"`
-	SetupEmail  string   `json:"setup_email,omitempty"`
+	// NameExplicit: Name is a display name chosen in Kaata (possibly on another
+	// phone), not the Google/Apple profile name. The app pre-fills only an
+	// explicit one, so a provider name never overwrites the phone's own name.
+	NameExplicit bool   `json:"name_explicit"`
+	SetupEmail   string `json:"setup_email,omitempty"`
 }
 
 func (s *Service) AccountMe(ctx context.Context, accountID string) (AccountMe, error) {
 	var me AccountMe
 	var login *string
 	err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE(a.email, ''), COALESCE(a.username, ''), COALESCE(a.display_name, a.name, ''), p.login_email,
+		SELECT COALESCE(a.email, ''), COALESCE(a.username, ''), COALESCE(a.display_name, a.name, ''),
+		       COALESCE(a.display_name, '') <> '', p.login_email,
 		       ARRAY(SELECT DISTINCT provider FROM account_identities WHERE account_id = a.id ORDER BY provider)
 		FROM accounts a LEFT JOIN account_passwords p ON p.account_id = a.id
 		WHERE a.id = $1::uuid
-	`, accountID).Scan(&me.Email, &me.Username, &me.Name, &login, &me.Providers)
+	`, accountID).Scan(&me.Email, &me.Username, &me.Name, &me.NameExplicit, &login, &me.Providers)
 	if err != nil {
 		return AccountMe{}, fmt.Errorf("read account: %w", err)
 	}

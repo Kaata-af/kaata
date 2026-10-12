@@ -60,16 +60,16 @@ func TestBillDateGoldenVectors(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := billDate(c.ms, false, "jalali"); got != c.jalaliEn {
+			if got := billDate(c.ms, false, "jalali", 0); got != c.jalaliEn {
 				t.Errorf("jalali+en: got %q, want %q", got, c.jalaliEn)
 			}
-			if got := billDate(c.ms, true, "jalali"); got != c.jalaliFa {
+			if got := billDate(c.ms, true, "jalali", 0); got != c.jalaliFa {
 				t.Errorf("jalali+fa: got %q, want %q", got, c.jalaliFa)
 			}
-			if got := billDate(c.ms, false, "gregorian"); got != c.gregEn {
+			if got := billDate(c.ms, false, "gregorian", 0); got != c.gregEn {
 				t.Errorf("gregorian+en: got %q, want %q", got, c.gregEn)
 			}
-			if got := billDate(c.ms, true, "gregorian"); got != c.gregFa {
+			if got := billDate(c.ms, true, "gregorian", 0); got != c.gregFa {
 				t.Errorf("gregorian+fa: got %q, want %q", got, c.gregFa)
 			}
 		})
@@ -78,7 +78,7 @@ func TestBillDateGoldenVectors(t *testing.T) {
 
 func TestBillDateRejectsUnusableTimestamp(t *testing.T) {
 	for _, ms := range []int64{0, -1} {
-		if got := billDate(ms, true, "jalali"); got != "" {
+		if got := billDate(ms, true, "jalali", 0); got != "" {
 			t.Errorf("billDate(%d) = %q, want empty", ms, got)
 		}
 	}

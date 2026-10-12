@@ -4,16 +4,23 @@ Paste these into Play Console → Store presence → Main store listing. Keep th
 app positioned as a **record-keeping / ledger tool**, not a lender or payment
 app, to avoid the Personal Loans policy false-positive.
 
+## App icon (512×512)
+
+`docs/store-assets/play-icon-512.png` — upload this in Main store listing → App
+icon. It is the launcher icon (white K on Aubergine), written by
+`marketing/recolor_logo.py` together with the app's own icon files. The App
+Store icon comes from the app binary instead (`apps/mobile/assets/icon.png`), so
+it changes with the next native build.
+
 ## Feature graphic (1024×500, required)
 
 `docs/store-assets/feature-graphic.png` — upload this in Main store listing →
-Graphics → Feature graphic. It's the black brand field with the white K mark,
-the `kaata.` wordmark, and a product card. To regenerate/tweak, edit
-`docs/store-assets/feature-graphic.html` and re-render with headless Chrome:
-`chrome --headless=new --allow-file-access-from-files --window-size=1024,500
---screenshot=feature-graphic.png feature-graphic.html` (the HTML references the
-Vazirmatn/JetBrains ttf under `apps/mobile/node_modules` by absolute path, so
-run it from this machine or fix those paths first).
+Graphics → Feature graphic. It's the Aubergine brand field with the white K
+mark, the `kaata.` wordmark with a Saffron dot, a Saffron tagline accent and a
+white product card drawn like the app's ledger rows
+([brand-language.md](brand-language.md)). To regenerate/tweak, edit
+`docs/store-assets/feature-graphic.html` and render it at 1024×500 (see
+[Rendering the store images](#rendering-the-store-images)).
 
 ## Phone screenshots (2–8 required; ≥4 at ≥1080px for promo eligibility)
 
@@ -28,13 +35,14 @@ landscape set below. Upload in this order:
 5. `05-onboarding.png` — "Your shop's book, ready in a minute." (setup done)
 6. `06-dari.png` — "In your language. Works offline." (Dari home; LTR-locked like the app)
 
-Built from the app's real design system (Vazirmatn + JetBrains Mono, exact
-color tokens, faithful layouts) via `docs/store-assets/gen-screens.js` →
-headless Chrome. To regenerate: `node gen-screens.js` then
-`chrome --headless=new --allow-file-access-from-files --window-size=1080,1920
---screenshot=screenshot-N.png screenshot-N.html`. The generator references
-Vazirmatn/JetBrains ttf under `apps/mobile/node_modules` and the K asset by
-absolute path — run on this machine or fix those paths first.
+Built from the app's real design system (Vazirmatn + JetBrains Mono, the app's
+own Ionicons font, exact neutral color tokens, the current screens' layouts)
+inside a brand-colored marketing panel, via `docs/store-assets/gen-screens.js` →
+headless Chrome. `node gen-screens.js` writes `screenshots/NN-<slug>.html`
+beside each PNG; render each at 1080×1920 (see
+[Rendering the store images](#rendering-the-store-images)). When the home,
+person, entry or onboarding-success screens change, update the generator too;
+nothing tests the drawings.
 
 Note: `02-whatsapp-reminder.png` depicts a WhatsApp chat to show the reminder
 feature. That's standard for depicting an integration, but if you'd rather not
@@ -57,18 +65,48 @@ would misrepresent how the app actually looks on a tablet.
 Both are 9:16 and inside their slot's px range. Each folder: `01-home`,
 `02-person`, `03-onboarding`, `04-dari`.
 
-Generate with `node gen-tablet10.js` (requires `gen-screens.js` beside it, for
-fonts + icon SVGs), then render each `tab-<size>-<name>.html`:
-`chrome --headless=new --allow-file-access-from-files --force-device-scale-factor=2
---window-size=600,1067   --virtual-time-budget=4000 --screenshot=out.png in.html` (7")
-`--window-size=800,1422` for 10". `--virtual-time-budget` is required so the local
-@font-face files load before capture (else text falls back to serif).
+Generate with `node gen-tablet10.js`, which draws `gen-screens.js`'s screens at
+true dp and writes `tablet-screenshots/<7-inch|10-inch>/NN-<name>.html`; render
+each at its dp window size with device-scale-factor 2 (see below).
 
 **Honest trade-off:** because the app isn't tablet-optimized, the accurate
 renders look sparse. Tablet screenshots are **optional** — if you'd rather not
 show the sparse look, leave the tablet slots empty (Play falls back to your phone
 screenshots on tablets). The only way to get genuinely _good_ tablet screenshots
 is to add a real tablet layout (e.g. two-pane list+detail) to the app.
+
+## Rendering the store images
+
+Every generator in `docs/store-assets` writes `<name>.html` beside the
+`<name>.png` it becomes, using fonts from `apps/mobile/node_modules` (install it
+first). The App Store sets come from `gen-iphone65.js` (1284×2778) and
+`gen-ipad13.js` (2048×2732); `gen-demo-thumbnail.js` makes the website's
+download-page thumbnail. From `docs/store-assets` in Git Bash (use `$PWD` instead
+of `$(pwd -W)` on macOS/Linux; Chrome on Windows ignores relative paths):
+
+```bash
+CHROME="/c/Program Files/Google/Chrome/Application/chrome.exe"
+DIR="$(pwd -W)"
+shot() { # <html> <png> <width> <height> <scale>
+  "$CHROME" --headless=new --disable-gpu --hide-scrollbars --allow-file-access-from-files \
+    --force-device-scale-factor="$5" --window-size="$3,$4" --virtual-time-budget=6000 \
+    --screenshot="$DIR/$2" "file:///$DIR/$1"
+}
+render() { # <folder> <width> <height> <scale>: every HTML there, then delete it
+  for f in "$1"/*.html; do shot "$f" "${f%.html}.png" "$2" "$3" "$4" && rm "$f"; done
+}
+node gen-screens.js && render screenshots 1080 1920 1
+node gen-iphone65.js && render iphone-6.5 1284 2778 1
+node gen-tablet10.js && render tablet-screenshots/7-inch 600 1067 2 && render tablet-screenshots/10-inch 800 1422 2
+node gen-ipad13.js && render ipad-13 1024 1366 2
+shot feature-graphic.html feature-graphic.png 1024 500 1
+node gen-demo-thumbnail.js && shot demo-thumbnail.html demo-thumbnail.png 1280 720 1 && rm demo-thumbnail.html
+python -c "from PIL import Image; Image.open('demo-thumbnail.png').convert('RGB').save('../../apps/web/src/assets/kaata-demo.jpg', quality=88, optimize=True, progressive=True)" && rm demo-thumbnail.png
+```
+
+`--virtual-time-budget` lets the local @font-face files load before capture
+(else text falls back to serif). Chrome writes 24-bit PNGs without alpha, as
+Play requires. Look at every PNG before uploading.
 
 ## Short description (max 80 chars)
 

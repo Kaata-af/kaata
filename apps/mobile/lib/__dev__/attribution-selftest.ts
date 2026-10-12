@@ -69,6 +69,15 @@ fixture.exec(`
     account_id   TEXT,
     display_name TEXT
   );
+  CREATE TABLE vault_member_profiles (
+    viewer_account_id TEXT NOT NULL,
+    vault_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    display_name TEXT,
+    email TEXT,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (viewer_account_id, vault_id, account_id)
+  );
   CREATE TABLE vault_device_registry (
     vault_id   TEXT NOT NULL,
     device_id  TEXT NOT NULL,
@@ -85,7 +94,7 @@ const db = {
 
 const attribution = withModuleStubs(
   {
-    "../db-tx": { getDb: async () => db },
+    "../db-tx": { getDb: async () => db, getAccountIdSync: () => "viewer" },
     // i18n pulls expo-localization and ./db; the resolver only needs this one
     // pure predicate, and the real strings are asserted against below so the
     // stub cannot drift away from production behaviour.
@@ -307,6 +316,20 @@ async function main() {
       assert.equal(names.get(GONE), "Old Staff");
       // "You" must never become a member's name on this device.
       assert.equal(names.has("acct-placeholder"), false);
+      // A rename reaches "Added by": the current profile name wins over the
+      // name recorded at joining (audit #19). A blank profile name does not.
+      fixture
+        .prepare(
+          "INSERT INTO vault_member_profiles VALUES ('viewer', ?, ?, 'Sara Karimi', NULL, 1)",
+        )
+        .run(VAULT, SARA);
+      fixture
+        .prepare("INSERT INTO vault_member_profiles VALUES ('viewer', ?, ?, '  ', NULL, 1)")
+        .run(VAULT, AHMAD);
+      const renamed = await loadMemberNames(VAULT);
+      assert.equal(renamed.get(SARA), "Sara Karimi");
+      assert.equal(renamed.get(AHMAD), "Ahmad Wali");
+      fixture.exec("DELETE FROM vault_member_profiles");
     },
   );
 

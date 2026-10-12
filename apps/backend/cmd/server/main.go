@@ -403,15 +403,20 @@ func main() {
 		pr.Use(authenticator.OptionalMiddleware())
 		pr.With(httpx.RateLimitPerIP(httpx.TabCreateLimit, httpx.TabCreateWindow)).
 			Post("/v1/tabs", tabsH.Create)
-		pr.With(httpx.RateLimitPerIP(httpx.TabWriteLimit, httpx.TabWriteWindow)).
+		// Signed-in reads are budgeted per account (shops behind one carrier
+		// NAT no longer share a single budget) under a looser per-IP ceiling.
+		pr.With(httpx.RateLimitPerAccountOrIP(httpx.TabWriteLimit, httpx.TabWriteWindow),
+			httpx.RateLimitPerIP(httpx.TabReadIPCeiling, httpx.TabReadWindow)).
 			Get("/v1/tabs/mine", tabsH.Mine)
-		pr.With(httpx.RateLimitPerIP(httpx.TabReadLimit, httpx.TabReadWindow)).
+		pr.With(httpx.RateLimitPerAccountOrIP(httpx.TabReadLimit, httpx.TabReadWindow),
+			httpx.RateLimitPerIP(httpx.TabReadIPCeiling, httpx.TabReadWindow)).
 			Get("/v1/tabs/inbox", tabsH.Inbox)
 		pr.With(httpx.RateLimitPerIP(httpx.TabWriteLimit, httpx.TabWriteWindow)).
 			Post("/v1/tabs/inbox/read", tabsH.ReadInbox)
 		pr.With(httpx.RateLimitPerIP(httpx.TabReadLimit, httpx.TabReadWindow)).
 			Post("/v1/tabs/by-token", tabsH.ByToken)
-		pr.With(httpx.RateLimitPerIP(httpx.TabReadLimit, httpx.TabReadWindow)).
+		pr.With(httpx.RateLimitPerAccountOrIP(httpx.TabReadLimit, httpx.TabReadWindow),
+			httpx.RateLimitPerIP(httpx.TabReadIPCeiling, httpx.TabReadWindow)).
 			Get("/v1/tabs/{tab_id}", tabsH.Get)
 		pr.With(httpx.RateLimitPerIP(httpx.TabJoinLimit, httpx.TabJoinWindow)).
 			Post("/v1/tabs/{tab_id}/notifications", tabsH.Notifications)
@@ -551,6 +556,7 @@ func main() {
 		pr.Get("/v1/sync/snapshot", syncH.Snapshot)
 		pr.Get("/v1/sync/credit-limits", syncH.CreditLimits)
 		pr.Put("/v1/sync/credit-limits", syncH.CreditLimits)
+		pr.Get("/v1/sync/credit-refusals", syncH.CreditRefusals)
 		// M1 (sync v2 §5): advisory per-device author_seq summary so a
 		// relay can ask "what is the server missing?" in one round trip.
 		pr.Get("/v1/sync/vector", syncH.Vector)

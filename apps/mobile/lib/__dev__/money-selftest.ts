@@ -489,46 +489,47 @@ async function main(): Promise<void> {
       created_at: e.payload.occurred_at_ms,
       updated_at: e.payload.occurred_at_ms,
     })) as Entry[];
-    const { buildPersonStatement, buildVaultReport, isoDate, shamsiDate } = withModuleStubs(
-      {
-        "expo-file-system": {},
-        "expo-sharing": {},
-        // data.ts now reaches react-native (Platform) and the kaata-save-file
-        // native facade for save-to-phone; neither loads under Node (Flow
-        // syntax / no native module). Nothing here exercises the save path.
-        "react-native": { Platform: { OS: "android" } },
-        "kaata-save-file": {
-          SAVE_FILE_ERR: { UNSUPPORTED: "E_UNSUPPORTED" },
-          saveFileToPhone: async () => null,
+    const { buildPersonStatement, buildVaultReport, isoDate, qamariDate, shamsiDate } =
+      withModuleStubs(
+        {
+          "expo-file-system": {},
+          "expo-sharing": {},
+          // data.ts now reaches react-native (Platform) and the kaata-save-file
+          // native facade for save-to-phone; neither loads under Node (Flow
+          // syntax / no native module). Nothing here exercises the save path.
+          "react-native": { Platform: { OS: "android" } },
+          "kaata-save-file": {
+            SAVE_FILE_ERR: { UNSUPPORTED: "E_UNSUPPORTED" },
+            saveFileToPhone: async () => null,
+          },
+          "../calendar": { getEffectiveCalendar: () => "gregorian" },
+          "../currency": { getCurrencySymbol: () => "$" },
+          "../projection": { applyEventMutex: exportMutex },
+          "../tabs/db": {
+            listTabSettlements: async (tabId: string) => sharedMarkers.get(tabId) ?? [],
+          },
+          "../db": {
+            getPerson: async () => ({
+              id: "person",
+              name: "Fixture",
+              balance: 0,
+              tab_id: personTabId,
+            }),
+            listEntries: async () => [...fixture].reverse(),
+            listSettlementBoundaries: async () => [3000],
+            getLocalSelf: async () => null,
+            listArchivedSharedPeriodsForExport: async () => archives,
+            listEntriesForExport: async () =>
+              fixture.map((e) => ({
+                ...e,
+                person_id: "person",
+                person_name: "Fixture",
+                person_phone: null,
+              })),
+          },
         },
-        "../calendar": { getEffectiveCalendar: () => "gregorian" },
-        "../currency": { getCurrencySymbol: () => "$" },
-        "../projection": { applyEventMutex: exportMutex },
-        "../tabs/db": {
-          listTabSettlements: async (tabId: string) => sharedMarkers.get(tabId) ?? [],
-        },
-        "../db": {
-          getPerson: async () => ({
-            id: "person",
-            name: "Fixture",
-            balance: 0,
-            tab_id: personTabId,
-          }),
-          listEntries: async () => [...fixture].reverse(),
-          listSettlementBoundaries: async () => [3000],
-          getLocalSelf: async () => null,
-          listArchivedSharedPeriodsForExport: async () => archives,
-          listEntriesForExport: async () =>
-            fixture.map((e) => ({
-              ...e,
-              person_id: "person",
-              person_name: "Fixture",
-              person_phone: null,
-            })),
-        },
-      },
-      () => require("../export/data") as typeof import("../export/data"),
-    );
+        () => require("../export/data") as typeof import("../export/data"),
+      );
     const statement = await buildPersonStatement("person", "en", "USD", "$", 4000);
     assert.ok(statement);
     assert.equal(statement.balance, 0);
@@ -614,6 +615,31 @@ async function main(): Promise<void> {
         dated(3000, "Fixture,,,0.3,0,,c"),
       "an unshared kaata CSV is exactly the 2.0.0 file",
     );
+    // A Qamari export adds only its own date column, just before the entry
+    // id (audit #15): every other cell keeps its place.
+    for (const [plain, withQamari] of [
+      [
+        csv.buildPersonCsv(statement),
+        csv.buildPersonCsv({ ...statement, calendar: "qamari" as const }),
+      ],
+      [csv.buildVaultCsv(report), csv.buildVaultCsv({ ...report, calendar: "qamari" as const })],
+    ]) {
+      const before = csvTable(plain);
+      const after = csvTable(withQamari);
+      assert.deepEqual(after.header.slice(-2), ["Date (Qamari)", "Entry ID"]);
+      assert.deepEqual([...after.header.slice(0, -2), after.header.at(-1)], before.header);
+      // A settled line's note states its date in the export's calendar.
+      const note = before.header.indexOf("Note");
+      const comparable = (cells: string[]) => cells.map((c, i) => (i === note ? "" : c));
+      after.rows.forEach((cells, i) => {
+        assert.deepEqual(
+          comparable([...cells.slice(0, -2), cells.at(-1)!]),
+          comparable(before.rows[i]),
+        );
+        assert.match(cells.at(-2)!, /^\d{4}-\d{2}-\d{2}$/, "ASCII digits like the Shamsi column");
+      });
+      assert.equal(after.rows[0].at(-2), qamariDate(1000));
+    }
     // Only a shared record's status can empty Gave/Received, never its
     // amount: a private tally of 0 still prints its counted 0.
     const zeroRow = { kind: "entry" as const, entry: { ...fixture[0], id: "zero", amount_afn: 0 } };

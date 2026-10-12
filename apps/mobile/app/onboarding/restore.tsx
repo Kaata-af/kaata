@@ -44,6 +44,7 @@ import { t } from "../../lib/i18n";
 import {
   adoptAccountPhoneToSelf,
   applyForCurrentSession,
+  applyForUnchangedLocalSession,
   captureCurrentSession,
   SessionChangedError,
   type SessionSnapshot,
@@ -58,7 +59,7 @@ type Phase =
   | { kind: "ready"; vaultCount: number }
   | { kind: "ready_none" }
   | { kind: "restoring" }
-  | { kind: "error"; message: string; retryable: boolean };
+  | { kind: "error"; message: string; retryable: boolean; expired?: boolean };
 
 export default function OnboardingRestoreScreen() {
   const router = useRouter();
@@ -123,6 +124,7 @@ export default function OnboardingRestoreScreen() {
           kind: "error",
           message: classifyError(err),
           retryable: !(err instanceof RestoreSessionExpiredError),
+          expired: err instanceof RestoreSessionExpiredError,
         });
       }
     })();
@@ -227,14 +229,18 @@ export default function OnboardingRestoreScreen() {
         kind: "error",
         message: classifyError(err),
         retryable: !(err instanceof RestoreSessionExpiredError),
+        expired: err instanceof RestoreSessionExpiredError,
       });
     }
   }
 
+  // Start fresh is local work (a flag and a route), so it uses the local guard:
+  // the account guard demands a session token, and an expired or missing one
+  // made this button a silent no-op on the very screen that offered it.
   async function onStartFresh(opts: { persistSkip: boolean }) {
     const session = probedSession.current;
     if (!session?.accountId) return;
-    await applyForCurrentSession(session, async () => {
+    await applyForUnchangedLocalSession(session, async () => {
       if (!mounted.current || !focused.current) return;
       // Only persist the per-account skip flag for a DELIBERATE choice on the
       // "we found your data" screen. From the ERROR screen we must NOT persist
@@ -251,6 +257,17 @@ export default function OnboardingRestoreScreen() {
       }
       await setAppMeta("onboarding_step", "profile");
       router.replace("/onboarding/profile");
+    }).catch(() => {});
+  }
+
+  // The expired-session error says "Sign in again"; this is that way out.
+  async function onSignInAgain() {
+    const session = probedSession.current;
+    if (!session) return;
+    await applyForUnchangedLocalSession(session, async () => {
+      if (!mounted.current || !focused.current) return;
+      await setAppMeta("onboarding_step", "auth");
+      router.replace("/onboarding/auth");
     }).catch(() => {});
   }
 
@@ -296,6 +313,12 @@ export default function OnboardingRestoreScreen() {
           </Text>
           <Text style={[styles.subtitle, textDir(isRTL)]}>{phase.message}</Text>
           <View style={styles.spacer} />
+          {phase.expired ? (
+            <Button
+              label={t("onboardingRestore.signInAgain")}
+              onPress={() => void onSignInAgain()}
+            />
+          ) : null}
           {phase.retryable ? (
             <Button
               label={t("onboardingRestore.tryAgain")}
@@ -431,9 +454,11 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
   },
+  // Black like every other primary card, not the one Aubergine card on the
+  // first-run screens (audit #9).
   cardPrimary: {
-    backgroundColor: colors.brandPrimary,
-    borderColor: colors.brandPrimary,
+    backgroundColor: colors.actionPrimary,
+    borderColor: colors.actionPrimary,
     ...Platform.select({
       ios: {
         shadowColor: "#000",

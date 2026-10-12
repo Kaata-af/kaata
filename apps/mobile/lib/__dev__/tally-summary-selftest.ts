@@ -69,3 +69,43 @@ assert.throws(
 console.log(
   "PASS flow totals: exact cents, known pre-link history, pending, rejected/cancelled/opening/deleted and duplicate exclusion",
 );
+
+// Audit #23: the summary beside the balance stays as small as the balance side.
+// One line per direction, the app's own "I gave / I received" words, nothing
+// for a contact without tallies.
+{
+  const { compileUI, jsx, nodes } = require("./ui-fixture") as typeof import("./ui-fixture");
+  const { TallyFlowSummary } = compileUI("../../components/TallyFlowSummary", {
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {
+      StyleSheet: { create: (s: any) => s },
+      Text: "Text",
+      View: "View",
+    },
+    "../lib/colors": { colors: {} },
+    "../lib/currency": { getCurrentCurrencySymbol: () => "AFN" },
+    "../lib/direction": {
+      rowDir: (rtl: boolean) => ({ flexDirection: rtl ? "row-reverse" : "row" }),
+    },
+    "../lib/format": { formatAmount: (n: number) => String(n) },
+    "../lib/fonts": { fonts: {}, monoLineHeight: () => 20, sansLineHeight: () => 18 },
+    "../lib/i18n": {
+      t: (key: string, vars?: Record<string, unknown>) => `${key}(${vars?.count ?? ""})`,
+    },
+    "../lib/jalali": { faDigits: (s: string) => s },
+  });
+  const empty = { gave: { count: 0, amount: 0 }, received: { count: 0, amount: 0 } };
+  assert.equal(TallyFlowSummary({ summary: empty, isRTL: false }), null, "no rows of zeros");
+  const tree = TallyFlowSummary({
+    summary: { gave: { count: 3, amount: 1500 }, received: { count: 1, amount: 200 } },
+    isRTL: false,
+  });
+  const lines = nodes(tree).filter((n: any) => n.props.accessible === true);
+  assert.equal(lines.length, 2, "one accessible line per direction");
+  for (const line of lines) {
+    assert.equal(line.props.style[1].flexDirection, "row", "label and amount share one line");
+    assert.ok(line.props.accessibilityHint, "the explanation is announced on each line");
+  }
+  assert.ok(tree.props.style.maxWidth === "50%", "never wider than half the header row");
+}
+console.log("PASS flow summary: one line per direction, no empty rows, half-row cap, spoken hint");

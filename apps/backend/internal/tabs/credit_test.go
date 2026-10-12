@@ -38,6 +38,15 @@ func TestCreditSharedPendingRejectedAndCancelled(t *testing.T) {
 	if _, err := appendOne("50.01"); !errors.Is(err, credit.ErrLimit) {
 		t.Fatalf("opening cap %v", err)
 	}
+	// The kaata's owner can see the attempt (audit #24).
+	var vault, relID, kind, actor string
+	var amount int64
+	if err := f.pool.QueryRow(ctx, `SELECT vault_id::text, relationship_id::text, entry_type, amount_minor, actor_account_id::text FROM customer_credit_tab_refusals WHERE tab_id=$1::uuid`, created.Tab.ID).Scan(&vault, &relID, &kind, &amount, &actor); err != nil {
+		t.Fatal(err)
+	}
+	if vault != f.vaultA || relID != rel || kind != "debt" || amount != 5001 || actor != clerk {
+		t.Fatalf("refusal details %s %s %s %d %s", vault, relID, kind, amount, actor)
+	}
 	tally, err := appendOne("50")
 	if err != nil {
 		t.Fatal(err)
@@ -163,5 +172,61 @@ func TestCreditCombinedLocalTabConcurrentAdmissionAndTerminalID(t *testing.T) {
 	}
 	if _, err := f.svc.Append(ctx, p, AppendInput{ID: uuid.NewString(), Direction: "a_to_b", Amount: "31", OccurredAtMS: boundary + 4}); err != nil {
 		t.Fatalf("fresh tab attempt %v", err)
+	}
+}
+
+// Audit #24: an editor who linked the shared account and was later made a
+// clerk is the BOUND account, which used to keep full party rights and skip
+// the clerk limit. Its own role in the party's kaata now governs it.
+func TestCreditBoundAccountDemotedToClerkIsLimited(t *testing.T) {
+	f := newTabFixture(t)
+	ctx := context.Background()
+	rel := uuid.NewString()
+	boundary := time.Now().UnixMilli()
+	f.svc.SetCreditBalanceReader(syncapi.CreditBalance)
+	editor := seedAccount(t, f.pool, "linker@example.com", "Linker")
+	seedMember(t, f.pool, f.vaultA, editor, "editor")
+	created, err := f.svc.Create(ctx, CreateInput{Currency: "AFN", Label: "Store", AccountID: &editor, VaultID: &f.vaultA, RelationshipID: &rel, LinkedAtMS: &boundary})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `INSERT INTO customer_credit_limits(vault_id,relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms) VALUES($1::uuid,$2::uuid,10000,10000,'clerk_block',1)`, f.vaultA, rel); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE vault_members SET role='clerk' WHERE vault_id=$1::uuid AND account_id=$2::uuid`, f.vaultA, editor); err != nil {
+		t.Fatal(err)
+	}
+	p, err := f.svc.PartyByAccount(ctx, created.Tab.ID, editor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.MemberRole != "" || p.BoundMemberRole != "clerk" {
+		t.Fatalf("bound clerk resolved as %+v", p)
+	}
+	if _, err := f.svc.Append(ctx, p, AppendInput{ID: uuid.NewString(), Direction: "a_to_b", Amount: "100.01", OccurredAtMS: boundary + 1}); !errors.Is(err, credit.ErrLimit) {
+		t.Fatalf("a bound clerk must be held to the limit, got %v", err)
+	}
+	if _, err := f.svc.Append(ctx, p, AppendInput{ID: uuid.NewString(), Direction: "a_to_b", Amount: "100", OccurredAtMS: boundary + 1}); err != nil {
+		t.Fatalf("within the limit %v", err)
+	}
+	// Reviewing the other side's tallies needs editor rank; a clerk may not.
+	peer := f.party(t, created.InviteToken, created.Tab.ID)
+	theirs, err := f.svc.Append(ctx, peer, AppendInput{ID: uuid.NewString(), Direction: "b_to_a", Amount: "5", OccurredAtMS: boundary + 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.Accept(ctx, p, theirs.Entry.ID); err == nil {
+		t.Fatal("a bound clerk accepted a tally")
+	}
+	// The kaata owner restores rights by promoting the account again.
+	if _, err := f.pool.Exec(ctx, `UPDATE vault_members SET role='editor' WHERE vault_id=$1::uuid AND account_id=$2::uuid`, f.vaultA, editor); err != nil {
+		t.Fatal(err)
+	}
+	p, err = f.svc.PartyByAccount(ctx, created.Tab.ID, editor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.Accept(ctx, p, theirs.Entry.ID); err != nil {
+		t.Fatalf("editor accept %v", err)
 	}
 }

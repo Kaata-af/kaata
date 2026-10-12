@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import { usePreventRemove } from "expo-router/react-navigation";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -17,6 +18,7 @@ import { icon } from "../../../lib/tokens";
 
 export default function PersonGroupScreen() {
   const router = useRouter(),
+    navigation = useNavigation(),
     isRTL = useIsRTL(),
     params = useLocalSearchParams<{ id: string; vaultId?: string }>();
   const [vaultId] = useState(() => params.vaultId ?? getActiveVaultIdSyncMaybe());
@@ -30,9 +32,22 @@ export default function PersonGroupScreen() {
     writing = useRef(false);
   const [draft, setDraft] = useState<{ personId: string; ids: string[] } | null>(null);
   const dirty = useRef<string | null>(null);
-  const selection =
-    draft?.personId === params.id ? draft.ids : (state.groupsByPerson[params.id] ?? []);
+  // A group removed meanwhile (Manage groups is one tap away) drops out of the
+  // draft; otherwise Done would try to assign a group that no longer exists.
+  const liveGroupIds = new Set(state.groups.map((group) => group.id));
+  const live = (ids: readonly string[]) =>
+    state.loaded ? ids.filter((id) => liveGroupIds.has(id)) : [...ids];
+  const saved = live(state.groupsByPerson[params.id] ?? []);
+  const selection = draft?.personId === params.id ? live(draft.ids) : saved;
   const found = inScope && Object.hasOwn(state.groupByPerson, params.id);
+  // Checks are saved on the way out (Back, swipe, Android back), as they were
+  // when each tap saved; only a failed save lets the next Back discard them.
+  const changed =
+    found &&
+    canManage &&
+    (selection.length !== saved.length || selection.some((id) => !saved.includes(id)));
+  const [discardAllowed, setDiscardAllowed] = useState(false);
+  const leaving = useRef(false);
   const mounted = useRef(true);
   useEffect(() => {
     if (found && dirty.current !== params.id)
@@ -48,7 +63,7 @@ export default function PersonGroupScreen() {
     mounted.current &&
     viewAccount === getAccountIdSync() &&
     vaultId === getActiveVaultIdSyncMaybe();
-  async function save() {
+  async function save(leave: () => void = () => router.back()) {
     if (!vaultId || !found || !canManage || writing.current) return;
     writing.current = true;
     setBusy(true);
@@ -56,17 +71,28 @@ export default function PersonGroupScreen() {
     const account = getAccountIdSync();
     try {
       await assignCustomerGroups(vaultId, params.id, selection);
-      if (current() && getAccountIdSync() === account) router.back();
+      if (current() && getAccountIdSync() === account) {
+        leaving.current = true;
+        leave();
+      }
     } catch (e) {
-      if (current())
+      if (current()) {
         setError(
           e instanceof RoleGateRejectionError ? t("entry.roleDenied") : t("entry.saveFailed"),
         );
+        setDiscardAllowed(true);
+      }
     } finally {
       writing.current = false;
       if (mounted.current) setBusy(false);
     }
   }
+  usePreventRemove(changed && !discardAllowed, ({ data }) => {
+    // The re-dispatched action is marked as already asked for this screen.
+    if (leaving.current) return navigation.dispatch(data.action);
+    if (writing.current) return;
+    void save(() => navigation.dispatch(data.action));
+  });
   return (
     <SafeAreaView edges={["top", "bottom"]} style={styles.page}>
       <ScreenHeader

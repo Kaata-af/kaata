@@ -959,3 +959,45 @@ func TestWireShape(t *testing.T) {
 		t.Errorf("created_at_ms = %v is not epoch ms", ms)
 	}
 }
+
+// One account must never see both sides of a tab: a phone holds one side and
+// GET /v1/tabs/mine returns one side per tab, so a restore of that account
+// brought back one contact and left the other on its stale pre-link book.
+func TestSameAccountCannotSeeBothSides(t *testing.T) {
+	f := newTabFixture(t)
+	ctx := context.Background()
+	newTab := func() Party {
+		t.Helper()
+		rel := uuid.NewString()
+		res, err := f.svc.Create(ctx, CreateInput{Currency: "AFN", Label: "Saafi Store", VaultID: &f.vaultA, RelationshipID: &rel, AccountID: &f.acctA})
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		return f.party(t, res.InviteToken, res.Tab.ID)
+	}
+
+	// A's own second kaata on the other side.
+	ownSecond := seedVault(t, f.pool, f.acctA, "Matee Home")
+	pb := newTab()
+	rel := uuid.NewString()
+	if _, err := f.svc.Join(ctx, pb, JoinInput{Label: "Home", VaultID: &ownSecond, RelationshipID: &rel, AccountID: &f.acctA}); !errors.Is(err, ErrSameAccount) {
+		t.Fatalf("joining your own other kaata = %v, want ErrSameAccount", err)
+	}
+	if _, err := f.svc.Bind(ctx, pb, BindInput{AccountID: f.acctA, VaultID: &ownSecond, RelationshipID: &rel}); !errors.Is(err, ErrSameAccount) {
+		t.Fatalf("binding your own other kaata = %v, want ErrSameAccount", err)
+	}
+
+	// A is a member of the kaata B tries to join with: A would see both sides.
+	shared := seedVault(t, f.pool, f.acctB, "Ahmad Shop")
+	seedMember(t, f.pool, shared, f.acctA, "viewer")
+	pb2 := newTab()
+	rel2 := uuid.NewString()
+	if _, err := f.svc.Join(ctx, pb2, JoinInput{Label: "Ahmad", VaultID: &shared, RelationshipID: &rel2, AccountID: &f.acctB}); !errors.Is(err, ErrSameAccount) {
+		t.Fatalf("joining with a kaata the other side's owner belongs to = %v, want ErrSameAccount", err)
+	}
+
+	// The ordinary case still links: no account on both sides.
+	if _, err := f.svc.Join(ctx, pb2, JoinInput{Label: "Ahmad", VaultID: &f.vaultB, RelationshipID: &rel2, AccountID: &f.acctB}); err != nil {
+		t.Fatalf("ordinary join: %v", err)
+	}
+}

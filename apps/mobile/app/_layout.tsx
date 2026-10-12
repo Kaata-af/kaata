@@ -878,6 +878,13 @@ export default function RootLayout() {
                 />
                 <Stack.Screen name="person/[id]" />
                 <Stack.Screen name="person/[id]/edit" options={{ presentation: "modal" }} />
+                {/* Opened from Edit customer too: a card pushed from a modal opens
+                    BEHIND it on iOS, so the picker is a modal as well. */}
+                <Stack.Screen name="person/[id]/group" options={{ presentation: "modal" }} />
+                {/* Reachable from that modal ("Manage groups"), so these stack
+                    over it as modals instead of opening behind it. */}
+                <Stack.Screen name="groups" options={{ presentation: "modal" }} />
+                <Stack.Screen name="group-members" options={{ presentation: "modal" }} />
                 <Stack.Screen name="person/new" options={{ presentation: "modal" }} />
                 <Stack.Screen name="entry/new" options={{ presentation: "modal" }} />
                 <Stack.Screen name="entry/[id]/edit" options={{ presentation: "modal" }} />

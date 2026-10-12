@@ -1,6 +1,8 @@
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useStats, useUsers } from "./api";
-import { reportingDay } from "./dates";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Fragment, useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { useToast } from "../../components/Toast";
+import { postExclusion, useAdminToken, useUsers, type OutreachExclusionBody } from "./api";
+import { fmtDateTimeParts, reportingDay } from "./dates";
 import { ErrorCard, PageHeader, SkeletonCard, fmtDateTime, fmtInt, lastSeenInfo } from "./ui";
 import { AccountDetail, InstallDetail } from "./UsersDetails";
 import {
@@ -13,6 +15,8 @@ import {
   parsePreferences,
   presetFilters,
   quickDateRange,
+  reportedDevices,
+  reportedRows,
   sortUsers,
   userRows,
   type SortKey,
@@ -21,6 +25,14 @@ import {
   type UserPreferences,
   type UserPreset,
 } from "./users-model";
+
+// Test data (2026-10-12): a row's details can exclude the account or device
+// from every install metric — the Overview, weekly growth (past weeks
+// included) and cohorts — through the same POST the Outreach page uses, so
+// one "this is test data" decision applies everywhere and shows in both
+// places with its Undo. Excluded rows are hidden unless the directory is
+// asked to include them.
+type ExclusionHandler = (body: OutreachExclusionBody, message: string) => void;
 
 const STORAGE_KEY = "kaata_admin_user_filters_v1";
 const FIELD =
@@ -141,8 +153,17 @@ function humanValue(value: string): string {
 
 export function Users() {
   const users = useUsers();
-  const stats = useStats();
-  const cutover = stats.data?.activity_timezone_since;
+  const token = useAdminToken();
+  const client = useQueryClient();
+  const toast = useToast();
+  // Every report changes with an exclusion, so every admin query refetches.
+  const exclusion = useMutation({
+    mutationFn: (body: OutreachExclusionBody) => postExclusion(token, body),
+    onError: (error) => toast.push(error.message || "Couldn't update the exclusion.", "error"),
+    onSettled: () => client.invalidateQueries({ queryKey: ["admin"] }),
+  });
+  const onExclusion: ExclusionHandler = (body, message) =>
+    exclusion.mutate(body, { onSuccess: () => toast.push(message, "success") });
   const [preferences, setPreferences] = useState(initialPreferences);
   const { filters, sortKey, sortDesc, pageSize } = preferences;
   const [search, setSearch] = useState("");
@@ -153,7 +174,7 @@ export function Users() {
   // Fresh query results can contain check-ins after the last local clock tick.
   const now = Math.max(clockTick, users.dataUpdatedAt);
   const selectedPreset = activePreset(filters);
-  const allRows = useMemo(() => userRows(users.data, cutover), [users.data, cutover]);
+  const allRows = useMemo(() => userRows(users.data), [users.data]);
   const result = useMemo(
     () => filterUsers(allRows, filters, search, now),
     [allRows, filters, search, now],
@@ -167,14 +188,18 @@ export function Users() {
   const pageRows = sorted.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
   const invalidRange = !!(filters.from && filters.to && filters.from > filters.to);
   const activeFilters = filterChips(filters);
-  const summary = useMemo(
-    () => ({
-      known: allRows.filter(isIdentified).length,
-      active: allRows.filter((row) => matchesActivity(row, "7d", now) && isIdentified(row)).length,
-      onboarding: allRows.filter((row) => !row.onboarded).length,
-    }),
-    [allRows, now],
-  );
+  // The cards count what the reports count (test data left out), so each
+  // equals the list its click opens, which hides test data the same way.
+  const summary = useMemo(() => {
+    const counted = reportedRows(allRows);
+    return {
+      known: counted.filter(isIdentified).length,
+      active: counted.filter((row) => matchesActivity(row, "7d", now) && isIdentified(row)).length,
+      onboarding: counted.filter((row) => !row.onboarded).length,
+      accounts: counted.filter((row) => row.kind === "account").length,
+      devices: reportedDevices(allRows),
+    };
+  }, [allRows, now]);
 
   useEffect(() => {
     try {
@@ -269,15 +294,10 @@ export function Users() {
         title="Users"
         description="Who is using Kaata, on which devices, and what they have reported."
       />
-      {users.isPending || stats.isPending ? (
+      {users.isPending ? (
         <SkeletonCard lines={10} />
       ) : users.isError ? (
         <ErrorCard message="Couldn't load users." onRetry={() => void users.refetch()} />
-      ) : stats.isError && !stats.data ? (
-        <ErrorCard
-          message="Couldn't load the reporting calendar. Retry to show consistent install dates."
-          onRetry={() => void stats.refetch()}
-        />
       ) : (
         <>
           <div className="mb-5 grid min-w-0 grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
@@ -290,8 +310,8 @@ export function Users() {
             />
             <SummaryCard
               label="Signed-in accounts"
-              value={users.data.signed_in_count}
-              sub={`${fmtInt(users.data.total_installs)} devices in total`}
+              value={summary.accounts}
+              sub={`${fmtInt(summary.devices)} devices in total`}
               onClick={() => {
                 reset();
                 updateFilters({ signIn: "signed-in" });
@@ -494,10 +514,7 @@ export function Users() {
                       </p>
                     ) : (
                       <p className="mt-2 text-xs leading-5 text-brand-muted">
-                        Both dates are included.{" "}
-                        {cutover
-                          ? `Install dates before ${fmtDay(cutover)} use UTC; newer dates use Kabul time.`
-                          : "Dates use Kabul time."}
+                        Both dates are included. Dates use Kabul time, the same day each row shows.
                       </p>
                     )}
                   </div>
@@ -550,16 +567,39 @@ export function Users() {
                 {fmtInt(result.identified)} identified<span className="mx-1.5">·</span>
                 {fmtInt(result.unidentified)} unidentified
                 {result.hidden ? ` (${fmtInt(result.hidden)} hidden)` : ""}
+                {result.excluded ? (
+                  <>
+                    <span className="mx-1.5">·</span>
+                    {fmtInt(result.excluded)} excluded as test data
+                    {result.excludedHidden ? " (hidden)" : ""}
+                  </>
+                ) : null}
               </p>
-              <label className="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 text-xs text-brand-sub">
-                <input
-                  type="checkbox"
-                  checked={filters.includeUnidentified}
-                  onChange={(event) => updateFilters({ includeUnidentified: event.target.checked })}
-                  className="h-4 w-4 shrink-0 rounded accent-brand-primary"
-                />
-                Include unidentified installs
-              </label>
+              <div className="flex min-w-0 flex-wrap items-center gap-x-4">
+                <label className="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 text-xs text-brand-sub">
+                  <input
+                    type="checkbox"
+                    checked={filters.includeUnidentified}
+                    onChange={(event) =>
+                      updateFilters({ includeUnidentified: event.target.checked })
+                    }
+                    className="h-4 w-4 shrink-0 rounded accent-brand-primary"
+                  />
+                  Include unidentified installs
+                </label>
+                <label
+                  className="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 text-xs text-brand-sub"
+                  title="Accounts and devices left out of the reports as operator or test data"
+                >
+                  <input
+                    type="checkbox"
+                    checked={filters.includeExcluded}
+                    onChange={(event) => updateFilters({ includeExcluded: event.target.checked })}
+                    className="h-4 w-4 shrink-0 rounded accent-brand-primary"
+                  />
+                  Include excluded test data
+                </label>
+              </div>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
               <span className="text-xs text-brand-muted">
@@ -601,6 +641,8 @@ export function Users() {
                 onSort={sortBy}
                 expanded={expanded}
                 onToggle={(id) => setExpanded((value) => ({ ...value, [id]: !value[id] }))}
+                busy={exclusion.isPending}
+                onExclusion={onExclusion}
               />
             ) : (
               <div className="flex min-h-64 flex-col items-center justify-center px-6 py-10 text-center">
@@ -612,18 +654,22 @@ export function Users() {
                     ? "Check your date range"
                     : result.hidden
                       ? "These matches have no reported identity"
-                      : allRows.length
-                        ? "No people match these filters"
-                        : "Your user directory is ready"}
+                      : result.excludedHidden
+                        ? "These matches are excluded as test data"
+                        : allRows.length
+                          ? "No people match these filters"
+                          : "Your user directory is ready"}
                 </h3>
                 <p className="mt-2 max-w-md text-sm leading-6 text-brand-muted">
                   {invalidRange
                     ? "Choose an end date on or after the start date."
                     : result.hidden
                       ? `${fmtInt(result.hidden)} matching installs are hidden. Include unidentified installs to inspect them.`
-                      : allRows.length
-                        ? "Try a wider date range, remove a filter, or search with fewer words."
-                        : "Profiles and activity appear after devices check in."}
+                      : result.excludedHidden
+                        ? `${fmtInt(result.excludedHidden)} matching rows are left out of the reports as operator or test data. Include excluded test data to inspect them.`
+                        : allRows.length
+                          ? "Try a wider date range, remove a filter, or search with fewer words."
+                          : "Profiles and activity appear after devices check in."}
                 </p>
                 {result.hidden ? (
                   <button
@@ -631,6 +677,13 @@ export function Users() {
                     onClick={() => updateFilters({ includeUnidentified: true })}
                   >
                     Show unidentified installs
+                  </button>
+                ) : result.excludedHidden ? (
+                  <button
+                    className={`${BUTTON} mt-5`}
+                    onClick={() => updateFilters({ includeExcluded: true })}
+                  >
+                    Show excluded test data
                   </button>
                 ) : allRows.length && (activeFilters.length > 0 || search) ? (
                   <button className={`${BUTTON} mt-5`} onClick={reset}>
@@ -726,6 +779,8 @@ function filterChips(filters: UserFilters): { key: keyof UserFilters; label: str
   if (filters.to) chips.push({ key: "to", label: `Through ${fmtDay(filters.to)}` });
   if (filters.includeUnidentified)
     chips.push({ key: "includeUnidentified", label: "Unidentified included" });
+  if (filters.includeExcluded)
+    chips.push({ key: "includeExcluded", label: "Excluded test data included" });
   return chips;
 }
 function FilterSelect(props: {
@@ -804,7 +859,23 @@ type UserResultsProps = {
   onSort: (key: SortKey) => void;
   expanded: Record<string, boolean>;
   onToggle: (id: string) => void;
+  busy: boolean;
+  onExclusion: ExclusionHandler;
 };
+
+// The install moment as two unbreakable tokens — the Kabul date, then the
+// clock time on its own line — in the list column and the phone card alike.
+function InstalledStamp(props: { at: string }) {
+  const { date, time } = fmtDateTimeParts(props.at);
+  return (
+    <>
+      <span className="block whitespace-nowrap">{date}</span>
+      {time ? (
+        <span className="mt-0.5 block whitespace-nowrap text-[11px] text-brand-muted">{time}</span>
+      ) : null}
+    </>
+  );
+}
 
 function UserResults(props: UserResultsProps) {
   return (
@@ -871,6 +942,7 @@ function UserCards(props: UserResultsProps) {
               <Pill tone={row.onboarded ? "gray" : "amber"}>
                 {row.onboarded ? "Onboarded" : "Not onboarded"}
               </Pill>
+              {row.excluded ? <Pill tone="gray">Excluded from reports</Pill> : null}
             </div>
             <dl className="mt-4 grid min-w-0 grid-cols-2 gap-x-3 gap-y-3 border-y border-brand-faint py-3">
               <div className="min-w-0">
@@ -900,8 +972,8 @@ function UserCards(props: UserResultsProps) {
               </div>
               <div className="min-w-0">
                 <dt className="text-[11px] text-brand-muted">Installed</dt>
-                <dd className="mt-1 text-xs leading-5 text-brand-sub [overflow-wrap:anywhere]">
-                  {fmtDay(row.installed_day)}
+                <dd className="mt-1 text-xs leading-5 text-brand-sub">
+                  <InstalledStamp at={row.installed_at} />
                 </dd>
               </div>
               <div className="min-w-0">
@@ -928,7 +1000,12 @@ function UserCards(props: UserResultsProps) {
             </button>
             {open ? (
               <div className="mt-2 min-w-0 border-t border-brand-border pt-4">
-                <UserDetails row={row} id={detailsId} />
+                <UserDetails
+                  row={row}
+                  id={detailsId}
+                  busy={props.busy}
+                  onExclusion={props.onExclusion}
+                />
               </div>
             ) : null}
           </article>
@@ -1044,6 +1121,7 @@ function UsersTable(props: UserResultsProps) {
                       >
                         {row.onboarded ? "Onboarded" : "Not onboarded"}
                       </span>
+                      {row.excluded ? <Pill tone="gray">Excluded</Pill> : null}
                     </div>
                   </td>
                   <td className="px-4 py-4">
@@ -1069,8 +1147,8 @@ function UsersTable(props: UserResultsProps) {
                       · {row.source || "Unattributed"}
                     </p>
                   </td>
-                  <td className="whitespace-nowrap px-4 py-4 text-xs text-brand-muted">
-                    {fmtDay(row.installed_day)}
+                  <td className="px-4 py-4 text-xs text-brand-sub">
+                    <InstalledStamp at={row.installed_at} />
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-1.5 whitespace-nowrap text-xs text-brand-sub">
@@ -1115,7 +1193,12 @@ function UsersTable(props: UserResultsProps) {
                       colSpan={HEADERS.length}
                       className="border-b border-brand-border bg-brand-ivory px-5 py-5"
                     >
-                      <UserDetails row={row} id={detailsId} />
+                      <UserDetails
+                        row={row}
+                        id={detailsId}
+                        busy={props.busy}
+                        onExclusion={props.onExclusion}
+                      />
                     </td>
                   </tr>
                 ) : null}
@@ -1127,7 +1210,17 @@ function UsersTable(props: UserResultsProps) {
     </div>
   );
 }
-function UserDetails({ row, id }: { row: UserListRow; id: string }) {
+function UserDetails({
+  row,
+  id,
+  busy,
+  onExclusion,
+}: {
+  row: UserListRow;
+  id: string;
+  busy: boolean;
+  onExclusion: ExclusionHandler;
+}) {
   return (
     <div id={id} className="min-w-0 max-w-full space-y-4">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
@@ -1157,14 +1250,160 @@ function UserDetails({ row, id }: { row: UserListRow; id: string }) {
         <Detail label="Shop" value={row.shop} />
         <Detail label="Language" value={row.locale} />
         <Detail label="Source" value={row.source} />
-        <Detail label="Installed" value={fmtDay(row.installed_day)} />
+        {/* The one install time (installTime): the earliest record of the
+            account's first device or of this device, in Kabul time. */}
+        <Detail label="Installed" value={fmtDateTime(row.installed_at)} />
       </div>
       {row.account ? (
         <AccountDetail u={row.account} />
       ) : row.install ? (
         <InstallDetail d={row.install} />
       ) : null}
+      <ReportStatus row={row} busy={busy} onExclusion={onExclusion} />
     </div>
+  );
+}
+
+// Whether the reports count this row, why not, and the way to change it.
+// Only a row's own decision can be undone here: a device left out because it
+// was used with an operator account, or with an account excluded as test
+// data, comes back through OPERATOR_ACCOUNT_IDS or that account's Undo.
+function ReportStatus(props: { row: UserListRow; busy: boolean; onExclusion: ExclusionHandler }) {
+  const { row } = props;
+  const kind = row.kind === "account" ? "account" : "install";
+  const id = row.account?.account_id ?? row.install?.install_id ?? "";
+  if (!id) return null;
+  const subject = row.kind === "account" ? "account" : "device";
+  let body: ReactNode;
+  if (row.excluded && row.excludedBy === kind) {
+    body = (
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <p className="min-w-0 text-xs leading-5 text-brand-sub [overflow-wrap:anywhere]">
+          <span className="font-medium text-brand-ink">Excluded from reports</span>
+          {row.exclusionReason ? (
+            <>
+              {" "}
+              · <span dir="auto">{row.exclusionReason}</span>
+            </>
+          ) : null}
+          . The Overview, weekly growth and cohorts leave this {subject} out, past weeks included.
+        </p>
+        <button
+          className={BUTTON}
+          disabled={props.busy}
+          aria-label={`Include again: ${displayName(row)}`}
+          onClick={() =>
+            props.onExclusion(
+              { kind, id, excluded: false },
+              `${displayName(row)} is counted in reports again`,
+            )
+          }
+        >
+          Include again
+        </button>
+      </div>
+    );
+  } else if (row.excluded) {
+    body = (
+      <p className="text-xs leading-5 text-brand-sub">
+        <span className="font-medium text-brand-ink">Excluded from reports</span>: this device{" "}
+        {row.excludedBy === "operator"
+          ? "is or was signed in to an operator account (OPERATOR_ACCOUNT_IDS), deleted accounts included."
+          : "is or was signed in to an account excluded as test data; that account's Undo counts it again."}
+      </p>
+    );
+  } else {
+    body = (
+      <div className="min-w-0 space-y-2">
+        <p className="text-xs leading-5 text-brand-sub">
+          Counted in reports.{" "}
+          {row.kind === "account"
+            ? "Excluding leaves out every device this account has used — in the Overview, weekly growth and cohorts, past weeks included — and drops its number and the books it owns from Outreach."
+            : "Excluding leaves this device out of the Overview, weekly growth and cohorts, past weeks included."}
+        </p>
+        {row.kind === "account" && row.excludedDevices > 0 ? (
+          <p className="text-xs leading-5 text-brand-muted">
+            {fmtInt(row.excludedDevices)} of {fmtInt(row.account?.install_count ?? 0)} devices are
+            already left out on their own.
+          </p>
+        ) : null}
+        <ExcludeForm
+          label={row.kind === "account" ? "Exclude account from reports" : "Exclude from reports"}
+          name={displayName(row)}
+          busy={props.busy}
+          onSubmit={(reason) =>
+            props.onExclusion(
+              { kind, id, excluded: true, reason },
+              `${displayName(row)} excluded from reports`,
+            )
+          }
+        />
+      </div>
+    );
+  }
+  return (
+    <section className="min-w-0 border-t border-brand-border pt-3" aria-label="Reports">
+      <h4 className="mb-2 text-xs font-semibold text-brand-sub">Reports</h4>
+      {body}
+    </section>
+  );
+}
+
+// "Exclude …" asks for a one-line reason in place, like Outreach's buttons.
+function ExcludeForm(props: {
+  label: string;
+  name: string;
+  busy: boolean;
+  onSubmit: (reason: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("test data");
+  const inputId = useId();
+  if (!open)
+    return (
+      <button
+        className={BUTTON}
+        disabled={props.busy}
+        aria-label={`${props.label}: ${props.name}`}
+        onClick={() => setOpen(true)}
+      >
+        {props.label}
+      </button>
+    );
+  return (
+    <form
+      className="flex min-w-0 max-w-full flex-wrap items-center gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        props.onSubmit(reason.trim() || "test data");
+        setOpen(false);
+      }}
+    >
+      <label className="sr-only" htmlFor={inputId}>
+        Reason for excluding
+      </label>
+      <input
+        id={inputId}
+        autoFocus
+        className={`${FIELD} sm:w-56 sm:flex-none`}
+        value={reason}
+        maxLength={200}
+        dir="auto"
+        placeholder="Reason"
+        onChange={(event) => setReason(event.target.value)}
+      />
+      <button
+        type="submit"
+        className={BUTTON}
+        disabled={props.busy}
+        aria-label={`Exclude: ${props.name}`}
+      >
+        Exclude
+      </button>
+      <button type="button" className={BUTTON} onClick={() => setOpen(false)}>
+        Cancel
+      </button>
+    </form>
   );
 }
 function Detail(props: { label: string; value: string }) {

@@ -19,6 +19,11 @@ func TestDisplayNameSurvivesProviderRelogin(t *testing.T) {
 		profile := googleProfile(provider+"@example.test", "Original Provider Name")
 		sub := provider + "-display-name"
 		account, _ := resolveInTx(t, pool, provider, sub, profile)
+		// A Google/Apple profile name is not a Kaata choice: the app must not
+		// pre-fill it over the name the phone already uses.
+		if me, err := svc.AccountMe(ctx, account); err != nil || me.NameExplicit {
+			t.Fatalf("%s provider name reported explicit: %+v, %v", provider, me, err)
+		}
 		if name, err := svc.SetAccountDisplayName(ctx, account, "  احمد‌  ولی\u200b\u202e "); err != nil || name != "احمد‌ ولی" {
 			t.Fatalf("%s rename = %q, %v", provider, name, err)
 		}
@@ -43,7 +48,7 @@ func TestDisplayNameSurvivesProviderRelogin(t *testing.T) {
 			t.Fatalf("provider identity overwritten: provider=%q credential=%q display=%q", providerName, credentialName, displayName)
 		}
 		me, err := svc.AccountMe(ctx, account)
-		if err != nil || me.Name != displayName || me.Email != profile.Email || len(me.Providers) != 1 || me.Providers[0] != provider {
+		if err != nil || me.Name != displayName || !me.NameExplicit || me.Email != profile.Email || len(me.Providers) != 1 || me.Providers[0] != provider {
 			t.Fatalf("account me = %+v, %v", me, err)
 		}
 		if _, err := svc.SetAccountDisplayName(ctx, account, "A"); !errors.As(err, new(*InvalidNameError)) {

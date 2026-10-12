@@ -162,11 +162,37 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
       assert.equal(hooks.tree, null);
       visible = true;
       render();
+      // Audit #31: the applied choice is marked when the sheet reopens.
+      const choiceRow = (label: string) =>
+        nodes(hooks.tree).find(
+          (node) => node.type === "Pressable" && words(node.props.children) === label,
+        )!;
+      assert.equal(choiceRow("person.date.month").props.accessibilityState.selected, true);
+      assert.equal(choiceRow("person.date.all").props.accessibilityState.selected, false);
       press("person.date.all");
       assert.equal(range, null);
       visible = true;
       render();
       press("person.date.custom");
+      const weekdays = nodes(hooks.tree).filter(
+        (node) =>
+          node.type === "Text" &&
+          typeof node.props.children === "string" &&
+          node.props.children.startsWith("person.date.weekday."),
+      );
+      assert.equal(
+        weekdays[0]?.props.children,
+        locale === "fa" || calendar !== "gregorian"
+          ? "person.date.weekday.6"
+          : "person.date.weekday.1",
+        "Shamsi and Qamari weeks start on Saturday in either language",
+      );
+      const todayCell = nodes(hooks.tree).find(
+        (node) =>
+          node.props.accessibilityLabel ===
+          formatCalendarDate(dateFilter.localDayStart(now), locale, calendar),
+      );
+      assert.equal(flattenStyle(todayCell!.props.style).borderWidth, 1, "today is marked");
       let apply = applyButton();
       assert.equal(apply.props.disabled, true);
       const month = calendarMonthDays(now, calendar);
@@ -358,6 +384,95 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
       if (platform === "android") unmounted.onError(new Error("late native error"));
       assert.equal(hooks.lateWrites, 0, "unmounted picker never writes state");
     }
+// The reminder editor's one-off date grid (audit #25): the same month helpers,
+// one day, nothing before the minimum, in the app's calendar and digits.
+for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
+  for (const locale of ["en", "fa"] as const) {
+    const hooks = uiHooks();
+    const picks: number[] = [];
+    let value = now;
+    const { CalendarDayPicker } = compileUI(
+      "../../components/CalendarDayPicker",
+      {
+        react: hooks.react,
+        "react/jsx-runtime": { jsx: keyedJSX, jsxs: keyedJSX, Fragment: "Fragment" },
+        "react-native": {
+          Pressable: "Pressable",
+          Text: "Text",
+          View: "View",
+          StyleSheet: { hairlineWidth: 1, create: (style: any) => style },
+        },
+        "@expo/vector-icons": { Ionicons: "Icon" },
+        "../lib/colors": require("../colors"),
+        "../lib/direction": {
+          rowDir: (rtl: boolean) => ({ flexDirection: rtl ? "row-reverse" : "row" }),
+        },
+        "../lib/fonts": { fonts: {} },
+        "../lib/i18n": { getLocale: () => locale, t: (key: string) => key },
+        "../lib/jalali": { faDigits, formatCalendarDate },
+        "../lib/tally-date-filter": dateFilter,
+        "../lib/tokens": { radius: { sm: 8 }, TOUCH_MIN: 44, typography: {} },
+      },
+      {
+        Date: class extends Date {
+          static now() {
+            return now;
+          }
+        },
+      },
+    );
+    const render = () =>
+      hooks.render(() =>
+        CalendarDayPicker({
+          value,
+          calendar,
+          isRTL: locale === "fa",
+          minimum: now,
+          onChange: (day: number) => {
+            picks.push(day);
+            value = day;
+          },
+        }),
+      );
+    render();
+    const control = (name: string) =>
+      nodes(hooks.tree).find((n: any) => n.props?.accessibilityLabel === name)!;
+    const dayButtons = () =>
+      nodes(hooks.tree).filter(
+        (n: any) =>
+          n.type === "Pressable" && !String(n.props.accessibilityLabel).startsWith("person.date."),
+      );
+    const month = calendarMonthDays(now, calendar);
+    assert.deepEqual(
+      dayButtons().map((n: any) => n.props.accessibilityLabel),
+      month.map((day) => formatCalendarDate(day, locale, calendar)),
+      `${calendar}/${locale}: one button per day of the app's month`,
+    );
+    const firstDigit = nodes(dayButtons()[0]).find((n: any) => n.type === "Text")!.props.children;
+    assert.equal(String(firstDigit), locale === "fa" ? faDigits(1) : "1", "the calendar's day 1");
+    const today = dateFilter.localDayStart(now);
+    dayButtons().forEach((n: any, i: number) =>
+      assert.equal(!!n.props.disabled, month[i] < today, "nothing before the minimum"),
+    );
+    assert.equal(control("person.date.previousMonth").props.disabled, true);
+    const later = month.find((day) => day > today);
+    if (later != null) {
+      dayButtons()[month.indexOf(later)].props.onPress();
+      render();
+      assert.deepEqual(picks, [later], "the start of the chosen local day");
+      assert.equal(dayButtons()[month.indexOf(later)].props.accessibilityState.selected, true);
+    }
+    control("person.date.nextMonth").props.onPress();
+    render();
+    const nextMonth = calendarMonthDays(adjacentCalendarMonth(now, 1, calendar), calendar);
+    assert.equal(
+      dayButtons()[0].props.accessibilityLabel,
+      formatCalendarDate(nextMonth[0], locale, calendar),
+      "the next month of the app's calendar",
+    );
+    assert.equal(control("person.date.previousMonth").props.disabled, false);
+    hooks.unmount();
+  }
 console.log(
   "PASS: real date/time sheet, presets, inclusive boundaries, validation/reopen, request-keyed iOS wheels, retryable Android errors and stale native callbacks in EN/FA across all three calendars",
 );

@@ -81,7 +81,7 @@ function FunnelCard(props: { stats: Stats }) {
             </dd>
           </div>
           <div className="flex flex-wrap justify-between gap-x-3 gap-y-1">
-            <dt className="min-w-0">Operator installs excluded</dt>
+            <dt className="min-w-0">Operator and test installs excluded</dt>
             <dd className="min-w-0 break-words tabular-nums [overflow-wrap:anywhere]">
               {fmtInt(s.excluded_installs)}
             </dd>

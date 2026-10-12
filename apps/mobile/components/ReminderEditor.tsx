@@ -3,6 +3,8 @@ import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Button } from "./Button";
+import { CalendarDayPicker } from "./CalendarDayPicker";
+import { useCalendar } from "../lib/calendar";
 import { colors } from "../lib/colors";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { formatDate } from "../lib/format";
@@ -33,6 +35,7 @@ export function ReminderEditor({
   onCancel: () => void;
 }) {
   const rtl = useIsRTL();
+  const calendar = useCalendar();
   const [kind, setKind] = useState<"once" | "daily" | "weekly" | "monthly">(
     value.kind === "weekdays" ? "weekly" : value.kind,
   );
@@ -83,6 +86,13 @@ export function ReminderEditor({
   }, []);
   function pick(mode: "date" | "time") {
     if (busy || !focused.current || androidMode.current) return;
+    // The phone's date picker only knows its own (Gregorian) months; a
+    // one-off date is chosen in the app's calendar instead (audit #25).
+    // Monthly repeats stay Gregorian days for now, as their caption says.
+    if (mode === "date" && kind === "once" && calendar !== "gregorian") {
+      setPicker((open) => (open === "date" ? null : "date"));
+      return;
+    }
     const request = ++pickerRequest.current;
     const change = (_: unknown, selected: Date) => {
       if (
@@ -241,7 +251,31 @@ export function ReminderEditor({
           {reminderClock(when.getHours(), when.getMinutes())}
         </Text>
       </Pressable>
-      {picker && Platform.OS !== "android" ? (
+      {picker === "date" && kind === "once" && calendar !== "gregorian" ? (
+        <View>
+          <CalendarDayPicker
+            value={when.getTime()}
+            calendar={calendar}
+            isRTL={rtl}
+            minimum={Date.now()}
+            disabled={busy}
+            onChange={(day) => {
+              if (busyRef.current || !mounted.current || !focused.current) return;
+              setWhen((previous) => {
+                const next = new Date(day);
+                next.setHours(previous.getHours(), previous.getMinutes(), 0, 0);
+                return next;
+              });
+            }}
+          />
+          <Button
+            variant="secondary"
+            label={t("common.done")}
+            onPress={() => setPicker(null)}
+            disabled={busy}
+          />
+        </View>
+      ) : picker && Platform.OS !== "android" ? (
         <View>
           <DateTimePicker
             value={when}

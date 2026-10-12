@@ -58,12 +58,14 @@ export async function reconcileVaultRegistrations(): Promise<void> {
   // vault with a null account_id makes it invisible to account-scoped queries:
   // the mechanism-B data-loss path the audit flagged). Cache can be cold, so
   // fall back to app_meta before giving up.
+  // Session first: app_meta.account_id survives sign-out, so priming the cache
+  // from it on a signed-out phone would quietly re-attribute that phone's
+  // later edits to the account it just left.
+  const jwt = await getSessionJWT();
+  if (!jwt) return;
   let accountId = getAccountIdSync();
   if (!accountId) accountId = await refreshAccountIdCache();
   if (!accountId) return; // not signed in → nothing to register
-
-  const jwt = await getSessionJWT();
-  if (!jwt) return;
 
   // Our device pubkey is the "we own this vault" signal. Ensure the key is
   // loaded first; without it we can't tell our vaults from joined ones, so we

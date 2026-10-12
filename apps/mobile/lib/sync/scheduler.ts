@@ -35,7 +35,7 @@ import { pullEvents } from "./pull";
 import { pushEvents } from "./push";
 import { ensureVaultRegistered, fullBackupSweep } from "./reconcile";
 import { onLedgerApplied } from "../ledger-events";
-import { requestTabSync } from "../tabs/sync";
+import { requestTabSync, syncAllTabs } from "../tabs/sync";
 
 const FOREGROUND_INTERVAL_MS = 5_000;
 const BACKGROUND_INTERVAL_MS = 30_000;
@@ -52,6 +52,16 @@ const SWEEP_EVERY_N = 12;
 const KICK_DEBOUNCE_MS = 1_000;
 // Advisory vector convergence check every N successful cycles (M1).
 const CONVERGENCE_EVERY_N = 60;
+// Credit limits change rarely, and a policy save pokes the kaata's live
+// subscribers: refresh them after a poke, else at most once a minute. Every
+// 5 s tick used to re-download them, a round trip per tick on weak links
+// (audit #5). A local save publishes through its own path at once.
+const CREDIT_REFRESH_EVERY_MS = 60_000;
+const creditRefreshDue = new Set<string>();
+const creditRefreshedAt = new Map<string, number>();
+function markCreditRefreshDue(vaultId: string): void {
+  creditRefreshDue.add(vaultId);
+}
 
 export type SyncOnceResult = {
   pulled: number;
@@ -107,8 +117,15 @@ export async function syncOnce(
   const pushRes = await pushEvents(vaultId);
   // Configuration is separate from signed ledger evidence. Local policies
   // publish after cloud registration/contact push and then refresh peers.
-  const { refreshCreditPolicies } = await import("../credit-limits");
-  await refreshCreditPolicies(vaultId).catch(() => undefined);
+  if (
+    creditRefreshDue.has(vaultId) ||
+    Date.now() - (creditRefreshedAt.get(vaultId) ?? 0) >= CREDIT_REFRESH_EVERY_MS
+  ) {
+    creditRefreshDue.delete(vaultId);
+    creditRefreshedAt.set(vaultId, Date.now());
+    const { refreshCreditPolicies } = await import("../credit-limits");
+    await refreshCreditPolicies(vaultId).catch(() => undefined);
+  }
 
   // Sync v2 M1: advisory convergence check (docs/sync-v2-architecture.md
   // §9-M1). Compares our author-seq vector with the server's AFTER the
@@ -177,11 +194,35 @@ export type StartSyncSchedulerOpts = {
 // Returns a stop function. Calling it cancels any pending timer and prevents
 // the next iteration from firing. The currently-in-flight syncOnce (if any)
 // is allowed to complete.
+// The running scheduler's "sync now" (pull-to-refresh); null while none runs.
+let currentSyncNow: (() => Promise<void>) | null = null;
+
+/** One sync cycle of the active kaata now (pull-to-refresh), waiting at most
+ *  `timeoutMs`. Resolves without throwing; a failure keeps the normal retry. */
+export function syncActiveVaultNow(timeoutMs = 8_000): Promise<void> {
+  const run = currentSyncNow;
+  if (!run) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, timeoutMs);
+    void run().then(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
 export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let backoffAttempt = 0;
   let inFlight = false;
+  // A poke, kick or explicit request that lands mid-tick used to be dropped by
+  // the inFlight guard (the update then waited for the next interval); it now
+  // queues exactly one trailing tick.
+  let tickDirty = false;
+  // syncActiveVaultNow callers, resolved by the first tick that STARTS after
+  // their request.
+  let tickWaiters: Array<() => void> = [];
   // Whether the previous tick failed — so we clear the persisted last-sync-error
   // exactly once on recovery instead of writing app_meta every successful tick.
   let lastTickFailed = false;
@@ -388,6 +429,8 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
   };
 
   const onPoke = (vaultId: string): void => {
+    // Any poke may be a credit-limit change on another phone.
+    markCreditRefreshDue(vaultId);
     if (stopped || pokeTimers.has(vaultId)) return; // coalesce a poke burst per vault
     pokeTimers.set(
       vaultId,
@@ -415,6 +458,14 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
     getJwt: getSessionJWT,
     onPoke,
     onTabPoke: requestTabSync,
+    // Pokes sent while the socket was down are lost: catch up on the active
+    // kaata, every other kaata and the shared accounts once it is back.
+    onOpen: () => {
+      if (stopped) return;
+      requestTick();
+      runSweep();
+      void syncAllTabs({ discover: false });
+    },
   });
   // Foreground + signed-in only: torn down on background (the AppState
   // listener above) and never dialed while the JWT is absent. live.ts also
@@ -438,9 +489,14 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
 
   const tick = async (): Promise<void> => {
     if (stopped) return;
-    if (inFlight) return;
+    if (inFlight) {
+      tickDirty = true;
+      return;
+    }
 
     inFlight = true;
+    const waiters = tickWaiters;
+    tickWaiters = [];
     try {
       cyclesSinceConvergenceCheck++;
       const verifyConvergence = cyclesSinceConvergenceCheck >= CONVERGENCE_EVERY_N;
@@ -527,8 +583,56 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
       scheduleNext(nextDelay);
     } finally {
       inFlight = false;
+      for (const done of waiters) done();
+      if (tickDirty && !stopped) {
+        tickDirty = false;
+        scheduleNext(0);
+      }
     }
   };
+
+  // Run a tick as soon as possible: now, or right after the one in flight.
+  const requestTick = (): void => {
+    if (stopped) return;
+    if (inFlight) tickDirty = true;
+    else scheduleNext(0);
+  };
+  const syncNow = (): Promise<void> =>
+    new Promise<void>((resolve) => {
+      if (stopped) {
+        resolve();
+        return;
+      }
+      tickWaiters.push(resolve);
+      requestTick();
+    });
+  currentSyncNow = syncNow;
+
+  // Back online: sync now instead of sitting out a backoff slot (up to 60 s)
+  // earned while the network was down, and redial the poke socket. Unknown
+  // (null) until the first read counts as offline, so starting offline and
+  // then connecting still wakes the loop.
+  let reachable: boolean | null = null;
+  const isReachable = (state: {
+    isConnected?: boolean | null;
+    isInternetReachable?: boolean | null;
+  }): boolean => state.isConnected !== false && state.isInternetReachable !== false;
+  void Network.getNetworkStateAsync()
+    .then((state) => {
+      if (reachable === null) reachable = isReachable(state);
+    })
+    .catch(() => {});
+  const networkSub = Network.addNetworkStateListener((state) => {
+    const now = isReachable(state);
+    if (now && reachable !== true && !stopped) {
+      backoffAttempt = 0;
+      requestTick();
+      runSweep();
+      void drainAllOutboxes();
+      maybeStartLive();
+    }
+    reachable = now;
+  });
 
   // Kick off immediately on mount. Also run a full sweep right away so any
   // vault that never registered (created offline, or whose create-time POST
@@ -559,6 +663,9 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
     liveChannel.stop();
     unsubLedger();
     appStateSub.remove();
+    networkSub.remove();
+    for (const done of tickWaiters.splice(0)) done();
+    if (currentSyncNow === syncNow) currentSyncNow = null;
   };
 }
 

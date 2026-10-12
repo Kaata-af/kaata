@@ -14,12 +14,19 @@ import (
 //
 // Weeks are ISO weeks (Monday start) in the reporting calendar: Kabul since
 // migration 036, with earlier UTC date-only history preserved. All install
-// metrics apply the SAME operator exclusion as GetStats:
-// keep = account_id IS NULL OR account_id NOT IN operatorAccountIDs
-// (NULL-account local-only installs are kept). Activity comes from
+// metrics apply the SAME test-data exclusion as GetStats (reportExclusionCTEs:
+// operator accounts plus the installs and accounts excluded as test data;
+// signed-out installs are kept unless excluded). Activity comes from
 // admin_active_days, which accrues from the day per-day tracking deployed
 // (migration 022) — cohorts installed before that show honest zeros, not
 // backfilled history.
+//
+// Completed weeks of the growth accounting are recorded the first time they
+// are reported (admin_growth_weeks, migration 058) and reused while the
+// exclusion rules are unchanged, so a closed week's count and 7% verdict
+// cannot change because a device later signs in to another account, is
+// merged, or loses its account link to a purge. Excluding or including test
+// data, or editing OPERATOR_ACCOUNT_IDS, recalculates them once.
 
 // growthWeeks is the reporting window: the current ISO week plus the 11 before
 // it. Also the cap on cohort retained[] length (a cohort is tracked at most 12
@@ -63,6 +70,10 @@ type GrowthWeek struct {
 	GrowthRatePercent        *float64 `json:"growth_rate_percent"` // null for provisional/incomplete tracking/zero baseline
 	TargetActive             *int64   `json:"target_active"`       // also available for this unfinished week's goal
 	TargetMet                *bool    `json:"target_met"`          // null until a comparable week has ended
+	// RecordedAt is when this completed week's counts were recorded
+	// (admin_growth_weeks), RFC3339 UTC; "" for the unfinished week, which is
+	// always live.
+	RecordedAt string `json:"recorded_at"`
 }
 
 type Adoption struct {
@@ -89,6 +100,9 @@ type Growth struct {
 	ActivityTimezoneSince string       `json:"activity_timezone_since"`
 	ActivityTrackingSince string       `json:"activity_tracking_since"`
 	GrowthTargetPercent   int64        `json:"growth_target_percent"`
+	// ExcludedInstalls = installs every metric above leaves out as operator
+	// or test data (reportExclusionCTEs), so the page can say how many.
+	ExcludedInstalls int64 `json:"excluded_installs"`
 }
 
 // GetGrowth computes the growth dashboard aggregates. Read-only; a handful of
@@ -111,12 +125,21 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 		g.ActivityTrackingSince = trackingSince.UTC().Format(time.RFC3339)
 	}
 	g.GrowthTargetPercent = growthTargetPercent
+	// The fingerprint the recorded weeks must match, read before the
+	// accounting: freezeClosedWeeks reads it again and records nothing if an
+	// exclusion changed in between, so no week is recorded under rules its
+	// counts were not computed with.
+	rules, err := s.exclusionRules(ctx)
+	if err != nil {
+		return g, err
+	}
 
 	// 1. Cohort sizes — dense 12-week series (generate_series) LEFT JOINed with
 	//    install weeks, so empty cohort weeks still emit a row. Same keep
 	//    predicate + installed_at fallback as GetStats' installs series.
 	rows, err := s.pool.Query(ctx, `
-		WITH cur AS (
+		WITH `+reportExclusionCTEs+`,
+		cur AS (
 		  SELECT date_trunc('week', $3::timestamptz AT TIME ZONE 'Asia/Kabul')::date AS w
 		),
 		weeks AS (
@@ -125,7 +148,7 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 		base AS (
 		  SELECT date_trunc('week', d.installed_date::timestamp)::date AS cw
 		  FROM installs JOIN admin_install_dates d USING (install_id)
-		  WHERE (account_id IS NULL OR account_id::text <> ALL($1::text[]))
+		  WHERE install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		)
 		SELECT to_char(weeks.w, 'YYYY-MM-DD'), COUNT(base.cw)
 		FROM weeks
@@ -162,14 +185,15 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 	//    offset 0 is the install week itself. Activity before the install week
 	//    (clock skew / reinstall edge) is dropped rather than mis-bucketed.
 	rrows, err := s.pool.Query(ctx, `
-		WITH cur AS (
+		WITH `+reportExclusionCTEs+`,
+		cur AS (
 		  SELECT date_trunc('week', $3::timestamptz AT TIME ZONE 'Asia/Kabul')::date AS w
 		),
 		base AS (
 		  SELECT install_id,
 		         date_trunc('week', d.installed_date::timestamp)::date AS cw
 		  FROM installs JOIN admin_install_dates d USING (install_id)
-		  WHERE (account_id IS NULL OR account_id::text <> ALL($1::text[]))
+		  WHERE install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		),
 		act AS (
 		  SELECT DISTINCT install_id, date_trunc('week', active_date::timestamp)::date AS aw
@@ -210,7 +234,8 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 	//    week), churned (active last week, silent this week). LEFT JOIN LATERAL
 	//    keeps the dense week series even when there are zero installs.
 	grows, err := s.pool.Query(ctx, `
-		WITH cur AS (
+		WITH `+reportExclusionCTEs+`,
+		cur AS (
 		  SELECT date_trunc('week', $3::timestamptz AT TIME ZONE 'Asia/Kabul')::date AS w
 		),
 		weeks AS (
@@ -219,8 +244,7 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 		aw AS (
 		  SELECT DISTINCT a.install_id, date_trunc('week', a.active_date::timestamp)::date AS w
 		  FROM admin_active_days a
-		  JOIN installs i ON i.install_id = a.install_id
-		  WHERE (i.account_id IS NULL OR i.account_id::text <> ALL($1::text[]))
+		  WHERE a.install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		    AND a.active_date <= ($3::timestamptz AT TIME ZONE 'Asia/Kabul')::date
 		),
 		firsts AS (
@@ -256,13 +280,19 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 	if err := grows.Err(); err != nil {
 		return g, err
 	}
+	if err := s.freezeClosedWeeks(ctx, g.GrowthAccounting, now, rules); err != nil {
+		return g, err
+	}
 	fillWeeklyGrowth(g.GrowthAccounting, now, trackingSince, g.ActivityTimezoneSince)
 
 	// 4. Adoption. signed_in / with_shares reuse the GetStats keep subquery
-	//    verbatim; multi_member counts non-operator accounts sharing a vault
+	//    verbatim; multi_member counts non-excluded accounts sharing a vault
 	//    that has >1 active (accepted, not revoked) member; with_settlements
-	//    counts non-operator-OWNED vaults with at least one entry_settled event.
+	//    counts vaults with at least one entry_settled event that are neither
+	//    owned by an excluded account nor excluded themselves (the only place a
+	//    vault exclusion reaches the install metrics).
 	if err := s.pool.QueryRow(ctx, `
+		WITH `+reportExclusionCTEs+`
 		SELECT
 		  COUNT(*) FILTER (WHERE keep AND account_id IS NOT NULL),
 		  COUNT(*) FILTER (WHERE keep AND usage_shares_sent > 0),
@@ -271,7 +301,7 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 		    FROM vault_members vm
 		    WHERE vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL
 		      AND vm.account_id IS NOT NULL
-		      AND vm.account_id::text <> ALL($1::text[])
+		      AND vm.account_id::text NOT IN (SELECT id FROM report_excluded_accounts)
 		      AND vm.vault_id IN (
 		        SELECT vault_id FROM vault_members
 		        WHERE accepted_at IS NOT NULL AND revoked_at IS NULL AND account_id IS NOT NULL
@@ -284,15 +314,18 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 		    FROM events e
 		    JOIN vaults v ON v.vault_id = e.vault_id
 		    WHERE e.event_type = 'entry_settled'
-		      AND v.owner_account_id::text <> ALL($1::text[])
-		  )
+		      AND v.owner_account_id::text NOT IN (SELECT id FROM report_excluded_accounts)
+		      AND v.vault_id::text NOT IN (SELECT id FROM outreach_exclusions WHERE kind = 'vault')
+		  ),
+		  COUNT(*) FILTER (WHERE NOT keep)
 		FROM (
-		  SELECT *, (account_id IS NULL OR account_id::text <> ALL($1::text[])) AS keep
+		  SELECT *, (install_id NOT IN (SELECT install_id FROM report_excluded_installs)) AS keep
 		  FROM installs
 		) i
 	`, s.operatorAccountIDs).Scan(
 		&g.Adoption.SignedIn, &g.Adoption.WithShares,
 		&g.Adoption.MultiMember, &g.Adoption.WithSettlements,
+		&g.ExcludedInstalls,
 	); err != nil {
 		return g, err
 	}
@@ -308,6 +341,119 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 	return g, nil
 }
 
+// kabulWeekStart is the current reporting week's Monday in Kabul,
+// "YYYY-MM-DD" — the same week the SQL above calls `cur`. A week labelled
+// earlier than it has ended.
+func kabulWeekStart(now time.Time) string {
+	kabul := time.FixedZone("Asia/Kabul", 4*60*60+30*60)
+	local := now.In(kabul)
+	today := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, kabul)
+	return today.AddDate(0, 0, -((int(today.Weekday()) + 6) % 7)).Format("2006-01-02")
+}
+
+// freezeClosedWeeks records every completed week's accounting the first time
+// it is reported and replaces the live counts with the recorded ones, so a
+// closed week keeps the numbers (and therefore the 7% verdict) it was first
+// reported with. Device links still change after the fact — a sign-in to
+// another account, an identity merge, a purge that nulls installs.account_id
+// — and a recount would move devices into or out of weeks that are over.
+// Activity itself cannot change (check-ins are stamped with the server's
+// clock, and installs are never deleted), so what is recorded is what the
+// week was.
+//
+// A row recorded under other exclusion rules is recalculated once: excluding
+// or including test data, or editing OPERATOR_ACCOUNT_IDS, is a deliberate
+// correction of the past. rules is the fingerprint read before the
+// accounting queries; if the rules changed while they ran, nothing is
+// recorded and the live counts are returned, so no week is ever recorded
+// under rules it was not computed with. The unfinished week is always live.
+func (s *Service) freezeClosedWeeks(ctx context.Context, weeks []GrowthWeek, now time.Time, rules string) error {
+	current := kabulWeekStart(now)
+	var labels []string
+	var news, retained, resurrected, churned []int64
+	for _, w := range weeks {
+		if w.Week >= current {
+			continue
+		}
+		labels = append(labels, w.Week)
+		news = append(news, w.New)
+		retained = append(retained, w.Retained)
+		resurrected = append(resurrected, w.Resurrected)
+		churned = append(churned, w.Churned)
+	}
+	if len(labels) == 0 {
+		return nil
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	latest, err := s.exclusionRules(ctx)
+	if err != nil {
+		return err
+	}
+	if latest != rules {
+		return nil // an exclusion changed mid-report; record on the next read
+	}
+	// Insert weeks never recorded; replace weeks recorded under other rules;
+	// leave every other recorded week exactly as it is. Concurrent readers
+	// under the same rules converge on whichever row committed first.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO admin_growth_weeks AS g
+		  (week, rules, new_installs, retained, resurrected, churned, recorded_at)
+		SELECT t.week::date, $2, t.n, t.r, t.z, t.c, $7
+		FROM unnest($1::text[], $3::bigint[], $4::bigint[], $5::bigint[], $6::bigint[]) AS t(week, n, r, z, c)
+		ON CONFLICT (week) DO UPDATE SET
+		  rules = EXCLUDED.rules,
+		  new_installs = EXCLUDED.new_installs,
+		  retained = EXCLUDED.retained,
+		  resurrected = EXCLUDED.resurrected,
+		  churned = EXCLUDED.churned,
+		  recorded_at = EXCLUDED.recorded_at
+		WHERE g.rules <> EXCLUDED.rules
+	`, labels, rules, news, retained, resurrected, churned, now); err != nil {
+		return err
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT to_char(week, 'YYYY-MM-DD'), new_installs, retained, resurrected, churned, recorded_at
+		FROM admin_growth_weeks
+		WHERE week = ANY($1::text[]::date[]) AND rules = $2
+	`, labels, rules)
+	if err != nil {
+		return err
+	}
+	type recordedWeek struct {
+		new, retained, resurrected, churned int64
+		at                                  time.Time
+	}
+	recorded := map[string]recordedWeek{}
+	for rows.Next() {
+		var week string
+		var r recordedWeek
+		if err := rows.Scan(&week, &r.new, &r.retained, &r.resurrected, &r.churned, &r.at); err != nil {
+			rows.Close()
+			return err
+		}
+		recorded[week] = r
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	for i := range weeks {
+		if r, ok := recorded[weeks[i].Week]; ok {
+			weeks[i].New, weeks[i].Retained = r.new, r.retained
+			weeks[i].Resurrected, weeks[i].Churned = r.resurrected, r.churned
+			weeks[i].RecordedAt = r.at.UTC().Format(time.RFC3339)
+		}
+	}
+	return nil
+}
+
 // fillWeeklyGrowth derives the baseline from accounting, so even the oldest
 // displayed week compares against its real previous week outside the window.
 // Only completed and fully observed weeks receive a growth rate or verdict.
@@ -315,9 +461,7 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 // in; the migration-036 cutover is disclosed separately by the API.
 func fillWeeklyGrowth(weeks []GrowthWeek, now, trackingSince time.Time, kabulSince string) {
 	kabul := time.FixedZone("Asia/Kabul", 4*60*60+30*60)
-	local := now.In(kabul)
-	today := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, kabul)
-	currentMonday := today.AddDate(0, 0, -((int(today.Weekday()) + 6) % 7)).Format("2006-01-02")
+	currentMonday := kabulWeekStart(now)
 	cutoverDate, cutoverErr := time.Parse("2006-01-02", kabulSince)
 	cutoverMonday := cutoverDate.AddDate(0, 0, -((int(cutoverDate.Weekday()) + 6) % 7))
 	transitionWeek := cutoverMonday.Format("2006-01-02")

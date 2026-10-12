@@ -250,6 +250,27 @@ export function toJalali(ms: number): { jy: number; jm: number; jd: number } {
   return d2j(g2d(gy, dt.getMonth() + 1, dt.getDate()));
 }
 
+/** How far the Qamari adjustment may move a date, in days, either way. */
+export const QAMARI_OFFSET_LIMIT = 2;
+// The phone's adjustment, set by lib/calendar.ts from app_meta.qamari_offset.
+let qamariOffsetDays = 0;
+
+/** A whole number of days within ±QAMARI_OFFSET_LIMIT, else 0. Narrows
+ *  untrusted input (app_meta, a bill snapshot). */
+export function clampQamariOffset(raw: unknown): number {
+  const n =
+    typeof raw === "number" ? raw : typeof raw === "string" && raw.trim() ? Number(raw) : NaN;
+  return Number.isInteger(n) && Math.abs(n) <= QAMARI_OFFSET_LIMIT ? n + 0 : 0;
+}
+
+export function setQamariOffsetDays(days: number): void {
+  qamariOffsetDays = clampQamariOffset(days);
+}
+
+export function getQamariOffsetDays(): number {
+  return qamariOffsetDays;
+}
+
 /** Lunar Hijri using the deterministic Islamic civil (tabular) calendar.
  * Friday epoch = JDN 1948440 (Gregorian 19 July 622). Alternating 30/29-day
  * months, with a leap day in Dhu al-Hijjah in 11 years of each 30-year cycle.
@@ -258,11 +279,22 @@ export function toJalali(ms: number): { jy: number; jm: number; jd: number } {
  * the date follows the phone's local civil day rather than sunset.
  * Reference: https://github.com/unicode-org/icu/blob/main/icu4c/source/i18n/islamcal.cpp
  * No platform Intl dependency, so a frozen bill stays consistent across OSes.
+ *
+ * `offsetDays` is the user's Qamari adjustment: the tabular date can sit a day
+ * or two off the moon-sighted date people go by, so it can be moved by up to
+ * QAMARI_OFFSET_LIMIT days (audit #15). It defaults to the phone's setting;
+ * a frozen bill passes its own. The Gregorian fallback is never shifted.
  */
-export function toQamari(ms: number): { hy: number; hm: number; hd: number } {
+export function toQamari(
+  ms: number,
+  offsetDays: number = qamariOffsetDays,
+): { hy: number; hm: number; hd: number } {
   const dt = new Date(ms);
   if (!Number.isFinite(dt.getFullYear())) throw new Error(`unusable timestamp ${ms}`);
-  const days = g2d(dt.getFullYear(), dt.getMonth() + 1, dt.getDate()) - 1948440;
+  const days =
+    g2d(dt.getFullYear(), dt.getMonth() + 1, dt.getDate()) -
+    1948440 +
+    clampQamariOffset(offsetDays);
   if (days < 0) throw new Error("date precedes the Qamari epoch");
   const hy = Math.floor((30 * days + 10646) / 10631);
   const yearStart = 354 * (hy - 1) + Math.floor((3 + 11 * hy) / 30);
@@ -275,17 +307,23 @@ export function toQamari(ms: number): { hy: number; hm: number; hd: number } {
  * THE absolute-date formatter. Calendar chooses the month set, locale chooses
  * the script and digits; the result is day-first in all six combinations.
  *
- * Deliberately PURE — it reads no module state, so the Go port and the golden
- * vectors can exercise it directly. Callers that want the user's current
- * setting go through lib/format.ts's formatDate, which does the wiring.
+ * Pure apart from one default: the Qamari adjustment is the phone's unless
+ * `qamariOffset` is passed, so every Qamari date in the app moves together,
+ * and the Go port and the golden vectors pass it explicitly. Callers that want
+ * the user's current calendar go through lib/format.ts's formatDate.
  */
-export function formatCalendarDate(ms: number, locale: "en" | "fa", calendar: Calendar): string {
+export function formatCalendarDate(
+  ms: number,
+  locale: "en" | "fa",
+  calendar: Calendar,
+  qamariOffset: number = qamariOffsetDays,
+): string {
   const fa = locale === "fa";
   const num = (v: number): string => (fa ? faDigits(v) : String(v));
 
   if (calendar === "qamari") {
     try {
-      const { hy, hm, hd } = toQamari(ms);
+      const { hy, hm, hd } = toQamari(ms, qamariOffset);
       return `${num(hd)} ${(fa ? QAMARI_MONTHS_FA : QAMARI_MONTHS_EN)[hm - 1]} ${num(hy)}`;
     } catch {
       // Invalid dates and dates before the Hijri epoch use the same safe

@@ -5,15 +5,33 @@ import { toMinorUnits } from "./money";
 // Search normalization only. Never change the stored note: ZWNJs and script
 // choices are part of what the author wrote, even when matching ignores them.
 function normalizeNote(text: string): string {
-  return toAsciiDigits(text)
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f\u064b-\u065f\u0670]/g, "")
-    .replace(/ي|ى/g, "ی")
-    .replace(/ك/g, "ک")
-    .replace(/[\u200c\u200d\u0640\u200e\u200f\u2066-\u2069]/g, "")
-    .toLowerCase()
-    .trim();
+  return (
+    toAsciiDigits(text)
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f\u064b-\u065f\u0670]/g, "")
+      .replace(/ي|ى/g, "ی")
+      .replace(/ك/g, "ک")
+      // Heh forms: ۀ (NFKD leaves ە), ة and ھ all read as ه (audit #3).
+      .replace(/[ۀەةھ]/g, "ه")
+      .replace(/[\u200c\u200d\u0640\u200e\u200f\u2066-\u2069]/g, "")
+      .toLowerCase()
+      .trim()
+  );
 }
+
+// "500" must not find "1500 bags": a number in a note matches whole (#16).
+function noteHas(note: string, compactNote: string, term: string): boolean {
+  if (/^\d+(?:[.,]\d+)?$/.test(term)) {
+    const escaped = term.replace(/[.,]/g, (mark) => `\\${mark}`);
+    return new RegExp(`(^|[^\\d.,])${escaped}($|[^\\d.,])`).test(note);
+  }
+  // A half-space typed as nothing ("میروم") still finds "می روم": compare the
+  // note without spaces as well (the ZWNJ itself is already ignored).
+  return note.includes(term) || compactNote.includes(term);
+}
+
+// A query term that is only the currency ("AFN", "؋") narrows nothing.
+const CURRENCY_TERM = /^(?:afn|؋|افغانی)$/;
 
 export type TallySearchOptions = { locale: "en" | "fa"; calendar: Calendar };
 
@@ -22,9 +40,10 @@ type SearchableTally = { note: string | null; amount_afn: number; created_at: nu
 // comma grouping, Persian grouping/decimal marks and harmless decimal zeros.
 // Never strip arbitrary punctuation: malformed grouping must not become money.
 function searchAmountMinor(term: string): number | null {
-  let amount = term.replace(/٫/g, ".");
-  if (/^\d{1,3}(?:[,٬]\d{3})+(?:\.\d{1,2})?$/.test(amount)) {
-    amount = amount.replace(/[,٬]/g, "");
+  // A trailing currency ("500؋", "500afn") is the amount (audit #16).
+  let amount = term.replace(/٫/g, ".").replace(/(?:؋|afn)$/, "");
+  if (/^\d{1,3}(?:[,٬،]\d{3})+(?:\.\d{1,2})?$/.test(amount)) {
+    amount = amount.replace(/[,٬،]/g, "");
   } else if (/^\d+,\d{1,2}$/.test(amount)) {
     amount = amount.replace(",", ".");
   }
@@ -43,10 +62,12 @@ export function filterTallies<T extends SearchableTally>(
   terms: readonly string[],
   _options?: TallySearchOptions,
 ): T[] {
-  if (terms.length === 0) return [...entries];
-  const queries = terms.map((term) => ({ term, amount: searchAmountMinor(term) }));
+  const meaningful = terms.filter((term) => !CURRENCY_TERM.test(term));
+  if (meaningful.length === 0) return [...entries];
+  const queries = meaningful.map((term) => ({ term, amount: searchAmountMinor(term) }));
   return entries.filter((entry) => {
     const note = normalizeNote(entry.note ?? "");
+    const compactNote = note.replace(/\s+/g, "");
     let amount: number | null = null;
     try {
       amount = Math.abs(toMinorUnits(entry.amount_afn));
@@ -54,13 +75,24 @@ export function filterTallies<T extends SearchableTally>(
       /* Invalid failed tally. */
     }
     return queries.every(
-      (query) => note.includes(query.term) || (query.amount !== null && query.amount === amount),
+      (query) =>
+        noteHas(note, compactNote, query.term) ||
+        (query.amount !== null && query.amount === amount),
     );
   });
 }
 
 export function noteSearchTerms(query: string): string[] {
-  return normalizeNote(query).split(/\s+/).filter(Boolean);
+  return (
+    normalizeNote(query)
+      // "1 500" is one amount: join space-grouped thousands (audit #16).
+      .replace(
+        /(^|\s)(\d{1,3})((?: \d{3})+)(?=\s|$)/g,
+        (_, lead, head, groups) => `${lead}${head}${groups.replace(/ /g, "")}`,
+      )
+      .split(/\s+/)
+      .filter(Boolean)
+  );
 }
 
 // Every word must appear in the note; order and punctuation are literal.

@@ -129,7 +129,7 @@ function KpiStrip({ stats: s }: { stats: Stats }) {
       </div>
       <p className="mt-3 text-xs leading-relaxed text-brand-sub">
         Activity counts distinct app installs that checked in, including people who only opened the
-        app. Each install counts once per period.
+        app. Each install counts once per period. Operator and test devices are left out.
       </p>
     </div>
   );

@@ -242,6 +242,7 @@ a{color:inherit;text-decoration:none;}
   var dir = {{.Direction}};
   var rtl = {{.RTL}};
   var calendar = {{.Calendar}};
+  var qamariOffset = {{.QamariOffset}};
   var apiBase = {{.APIBase}};
   // iOS Safari only fires :active when an ancestor has a touch listener; this
   // empty one lets every row show its tap-darken on iOS. Harmless elsewhere.
@@ -281,10 +282,11 @@ a{color:inherit;text-decoration:none;}
   var GMF=['جنوری','فبروری','مارچ','اپریل','می','جون','جولای','اگست','سپتمبر','اکتوبر','نومبر','دسمبر'];
   var QME=['Muharram','Safar','Rabi al-Awwal','Rabi al-Thani','Jumada al-Awwal','Jumada al-Thani','Rajab',"Sha'ban",'Ramadan','Shawwal','Dhu al-Qadah','Dhu al-Hijjah'];
   var QMF=['محرم','صفر','ربیع‌الاول','ربیع‌الثانی','جمادی‌الاول','جمادی‌الثانی','رجب','شعبان','رمضان','شوال','ذوالقعده','ذوالحجه'];
-  // Friday-epoch Islamic civil, matching mobile and the server OG formatter.
+  // Friday-epoch Islamic civil, matching mobile and the server OG formatter,
+  // moved by the bill's frozen Qamari adjustment (whole days, ±2).
   function qamariDate(dt){
     var civil=new Date(0);civil.setUTCFullYear(dt.getFullYear(),dt.getMonth(),dt.getDate());civil.setUTCHours(0,0,0,0);
-    var days=Math.floor(civil.getTime()/86400000)+2440588-1948440;
+    var days=Math.floor(civil.getTime()/86400000)+2440588-1948440+qamariOffset;
     if(!Number.isFinite(days)||days<0) throw 0;
     var y=Math.floor((30*days+10646)/10631),ys=354*(y-1)+Math.floor((3+11*y)/30);
     var m=Math.min(11,Math.ceil((days-29-ys)/29.5)),ds=ys+Math.ceil(29.5*m);

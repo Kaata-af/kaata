@@ -1,12 +1,32 @@
 import type { SQLiteTx } from "./db-tx";
-import { type CreditPolicy, validCreditPolicy } from "./credit-policy";
+import { type CreditPolicy, KAATA_DEFAULT_CREDIT_ID, validCreditPolicy } from "./credit-policy";
 
 export async function cacheCreditPolicies(
   tx: SQLiteTx,
   vaultId: string,
-  policies: CreditPolicy[],
+  all: CreditPolicy[],
   startedAt: number,
 ): Promise<void> {
+  // The kaata default belongs to no customer: it has its own table.
+  const kaataDefault = all.find((p) => p.relationship_id === KAATA_DEFAULT_CREDIT_ID);
+  const policies = all.filter((p) => p.relationship_id !== KAATA_DEFAULT_CREDIT_ID);
+  if (kaataDefault) {
+    if (!validCreditPolicy(kaataDefault)) throw new Error("Invalid credit policy response");
+    await tx.runAsync(
+      "INSERT INTO kaata_credit_defaults(vault_id,max_collect_minor,max_pay_minor,mode,updated_at_ms) VALUES(?,?,?,?,?) ON CONFLICT(vault_id) DO UPDATE SET max_collect_minor=excluded.max_collect_minor,max_pay_minor=excluded.max_pay_minor,mode=excluded.mode,updated_at_ms=excluded.updated_at_ms WHERE kaata_credit_defaults.updated_at_ms<=excluded.updated_at_ms",
+      vaultId,
+      kaataDefault.max_collect_minor,
+      kaataDefault.max_pay_minor,
+      kaataDefault.mode,
+      kaataDefault.updated_at_ms,
+    );
+  } else {
+    await tx.runAsync(
+      "DELETE FROM kaata_credit_defaults WHERE vault_id=? AND updated_at_ms<=?",
+      vaultId,
+      startedAt,
+    );
+  }
   const present = new Set(policies.map((p) => p.relationship_id));
   const old = await tx.getAllAsync<{
     relationship_id: string;

@@ -48,7 +48,12 @@ function fixture(
       locale = value;
     },
   };
-  const calendar = compileUI("../calendar", { "./db": db, "./i18n": i18n, react: hooks.react });
+  const calendar = compileUI("../calendar", {
+    "./db": db,
+    "./i18n": i18n,
+    "./jalali": require("../jalali"),
+    react: hooks.react,
+  });
   // _layout initializes the global preference before any screen mounts.
   calendar.setCalendarPref(calendar.parseCalendarPref(storedPref));
   const native = {

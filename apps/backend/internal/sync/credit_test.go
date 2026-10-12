@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/matee/kaata-backend/internal/auth"
+	"github.com/matee/kaata-backend/internal/credit"
 )
 
 func seedCreditContact(t *testing.T, f *m1Fixture) string {
@@ -75,6 +76,10 @@ func TestCreditPolicyHTTPAuthorityAndExactCaps(t *testing.T) {
 	}
 	if r := request("PUT", strings.Replace(body, rel, uuid.NewString(), 1), true); r.Code != 409 {
 		t.Fatalf("foreign customer %d", r.Code)
+	}
+	// The kaata default belongs to no customer and saves without one.
+	if r := request("PUT", strings.Replace(body, rel, credit.DefaultRelationshipID, 1), true); r.Code != 200 {
+		t.Fatalf("kaata default PUT %d %s", r.Code, r.Body.String())
 	}
 	if _, err := f.pool.Exec(context.Background(), `UPDATE vault_members SET revoked_at=NOW() WHERE vault_id=$1::uuid`, f.vaultID); err != nil {
 		t.Fatal(err)
@@ -441,6 +446,101 @@ func TestCreditHardPolicyRequiresCloudClerkEnrollment(t *testing.T) {
 			}
 		} else if r.Code != 200 {
 			t.Fatalf("warn %d %s", r.Code, r.Body.String())
+		}
+	}
+}
+
+// A clerk's tally for a customer without their own limit falls under the
+// kaata default: re-adding a customer as a new contact no longer escapes a
+// limit. A customer's own policy, even warn-only, still wins.
+func TestCreditKaataDefaultCoversCustomersWithoutTheirOwn(t *testing.T) {
+	f := newM1Fixture(t)
+	plain := seedCreditContact(t, f)
+	ownWarn := seedCreditContact(t, f)
+	seedCreditPolicy(t, f, credit.DefaultRelationshipID, "clerk_block", 10000)
+	seedCreditPolicy(t, f, ownWarn, "warn", 10000)
+	if _, err := f.pool.Exec(context.Background(), `UPDATE vault_members SET role='clerk' WHERE vault_id=$1::uuid`, f.vaultID); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.push(t, creditEntry(f, plain, "debt", "150")); len(got.Rejected) != 1 {
+		t.Fatalf("over the kaata default %+v", got)
+	}
+	if got := f.push(t, creditEntry(f, plain, "debt", "50")); len(got.Accepted) != 1 {
+		t.Fatalf("within the kaata default %+v", got)
+	}
+	if got := f.push(t, creditEntry(f, ownWarn, "debt", "150")); len(got.Accepted) != 1 {
+		t.Fatalf("a customer's own warn-only limit must win over the default %+v", got)
+	}
+}
+
+// Audit #24: the owner never learned that a limit stopped a clerk. A genuine
+// over-limit attempt is listed once, with its customer, direction, amount and
+// clerk; protocol refusals are not; only owners and managers may read it.
+func TestCreditRefusalsListedForOwnersOnly(t *testing.T) {
+	f := newM1Fixture(t)
+	ctx := context.Background()
+	rel := seedCreditContact(t, f)
+	seedCreditPolicy(t, f, rel, "clerk_block", 100)
+	if _, err := f.pool.Exec(ctx, `UPDATE accounts SET display_name='Clerk Ahmad' WHERE id=$1::uuid`, f.accountID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE vault_members SET role='clerk' WHERE vault_id=$1::uuid`, f.vaultID); err != nil {
+		t.Fatal(err)
+	}
+	over := creditEntry(f, rel, "debt", "5")
+	for i := 0; i < 2; i++ { // a retry must not list the attempt twice
+		if got := f.push(t, over); len(got.Rejected) != 1 || got.Rejected[0].Reason != "credit_limit_exceeded" {
+			t.Fatalf("over-limit push %d: %+v", i, got)
+		}
+	}
+	// A protocol refusal (envelope and payload disagree) is no attempt.
+	malformed := creditEntry(f, rel, "debt", "0.5")
+	other := uuid.NewString()
+	malformed.RelationshipID = &other
+	if got := f.push(t, malformed); len(got.Rejected) != 1 {
+		t.Fatalf("malformed push %+v", got)
+	}
+	var relID, kind, actor string
+	var amount int64
+	if err := f.pool.QueryRow(ctx, `SELECT relationship_id::text, entry_type, amount_minor, actor_account_id::text FROM customer_credit_event_refusals WHERE event_id=$1::uuid`, over.EventID).Scan(&relID, &kind, &amount, &actor); err != nil {
+		t.Fatal(err)
+	}
+	if relID != rel || kind != "debt" || amount != 500 || actor != f.accountID {
+		t.Fatalf("details %s %s %d %s", relID, kind, amount, actor)
+	}
+
+	handler := auth.RequireSession(testJWTSecret)(http.HandlerFunc(NewHandler(f.svc).CreditRefusals))
+	get := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", "/v1/sync/credit-refusals?vault_id="+f.vaultID, nil)
+		tok, err := auth.SignSession(testJWTSecret, f.accountID, uuid.NewString(), "google", "sub-x")
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+tok)
+		r := httptest.NewRecorder()
+		handler.ServeHTTP(r, req)
+		return r
+	}
+	if r := get(); r.Code != 403 || !strings.Contains(r.Body.String(), "insufficient_role") {
+		t.Fatalf("clerk read %d %s", r.Code, r.Body.String())
+	}
+	for _, role := range []string{"manager", "owner"} {
+		if _, err := f.pool.Exec(ctx, `UPDATE vault_members SET role=$1 WHERE vault_id=$2::uuid`, role, f.vaultID); err != nil {
+			t.Fatal(err)
+		}
+		r := get()
+		var body struct {
+			Refusals []CreditRefusal `json:"refusals"`
+		}
+		if r.Code != 200 || json.Unmarshal(r.Body.Bytes(), &body) != nil {
+			t.Fatalf("%s read %d %s", role, r.Code, r.Body.String())
+		}
+		if len(body.Refusals) != 1 {
+			t.Fatalf("%s sees %+v", role, body.Refusals)
+		}
+		got := body.Refusals[0]
+		if got.RelationshipID != rel || got.Type != "debt" || got.AmountMinor != 500 || got.ActorAccountID != f.accountID || got.ActorName != "Clerk Ahmad" || got.RefusedAtMS <= 0 {
+			t.Fatalf("%s listing %+v", role, got)
 		}
 	}
 }

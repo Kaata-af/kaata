@@ -101,6 +101,8 @@ type Stats struct {
 	StoreClicks int64 `json:"store_clicks"`
 	RawVisits   int64 `json:"raw_visits"`
 	// Signal quality: how much was removed as operator/bot noise.
+	// ExcludedInstalls counts installs left out as operator or test data
+	// (reportExclusionCTEs), the same set every install metric drops.
 	ExcludedInstalls int64 `json:"excluded_installs"`
 	ExcludedVisits   int64 `json:"excluded_visits"`
 	// Engagement — from admin_active_days. Accrues from the day per-day
@@ -160,12 +162,15 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 	st.Bucket = bucket
 	st.Points = points
 
-	// Installs funnel. `keep` = NOT an operator install (operator account_ids in
-	// $1; NULL-account local-only installs are kept). Computed once, then every
-	// metric FILTERs on it. "active" is now RECENCY-WINDOWED via last_activity_at
-	// instead of the old "ever touched a feature" (which counted every reinstall
-	// of one dev phone). excluded_installs reports the noise we filtered.
+	// Installs funnel. `keep` = not test data (reportExclusionCTEs: operator
+	// accounts in $1 and the installs/accounts excluded as test data, including
+	// devices of such an account that was since deleted; signed-out installs
+	// are kept unless excluded). Computed once, then every metric FILTERs on
+	// it. "active" is now RECENCY-WINDOWED via last_activity_at instead of the
+	// old "ever touched a feature" (which counted every reinstall of one dev
+	// phone). excluded_installs reports the noise we filtered.
 	if err := s.pool.QueryRow(ctx, `
+		WITH `+reportExclusionCTEs+`
 		SELECT
 		  COUNT(*) FILTER (WHERE keep),
 		  COUNT(*) FILTER (WHERE keep AND has_onboarded),
@@ -180,7 +185,7 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		  COALESCE(SUM(usage_shares_sent) FILTER (WHERE keep), 0),
 		  COUNT(*) FILTER (WHERE NOT keep)
 		FROM (
-		  SELECT *, (account_id IS NULL OR account_id::text <> ALL($1::text[])) AS keep
+		  SELECT *, (install_id NOT IN (SELECT install_id FROM report_excluded_installs)) AS keep
 		  FROM installs
 		) i
 	`, s.operatorAccountIDs).Scan(
@@ -220,7 +225,8 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 	// lands between them. "Active" means checked in, not uploaded ledger edits.
 	// All new day/hour/week/month boundaries are explicitly Kabul-local.
 	rows, err := s.pool.Query(ctx, `
-		WITH clock AS (
+		WITH `+reportExclusionCTEs+`,
+		clock AS (
 		  SELECT $6::timestamptz AT TIME ZONE 'Asia/Kabul' AS local_now
 		), buckets AS (
 		  SELECT generate_series(
@@ -235,23 +241,23 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		    THEN COALESCE(i.installed_at, i.first_seen_at) AT TIME ZONE 'Asia/Kabul'
 		    ELSE d.installed_date::timestamp END) AS b, COUNT(*) AS n
 		  FROM installs i JOIN admin_install_dates d USING (install_id)
-		  WHERE (i.account_id IS NULL OR i.account_id::text <> ALL($1::text[]))
+		  WHERE i.install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		    AND COALESCE(i.installed_at, i.first_seen_at) <= $6
 		  GROUP BY 1
 		),
 		days AS (
 		  SELECT ad.install_id, ad.active_date
-		  FROM admin_active_days ad JOIN installs i USING (install_id)
-		  WHERE (i.account_id IS NULL OR i.account_id::text <> ALL($1::text[]))
+		  FROM admin_active_days ad
+		  WHERE ad.install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		    AND ad.active_date <= (SELECT local_now::date FROM clock)
 		),
 		activity AS (
 		  SELECT install_id, active_date::timestamp AS at FROM days WHERE $2 <> 'hour'
 		  UNION ALL
 		  SELECT h.install_id, h.active_hour AT TIME ZONE 'Asia/Kabul'
-		  FROM install_active_hours h JOIN installs i USING (install_id)
+		  FROM install_active_hours h
 		  WHERE $2 = 'hour' AND h.active_hour <= $6
-		    AND (i.account_id IS NULL OR i.account_id::text <> ALL($1::text[]))
+		    AND h.install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		),
 		act AS (
 		  SELECT date_trunc($2, at) AS b, COUNT(DISTINCT install_id) AS n
@@ -293,12 +299,13 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 	// day d0+N). Raw counts; frontend divides. Meaningful only for installs first
 	// seen AFTER per-day tracking deployed.
 	if err := s.pool.QueryRow(ctx, `
-		WITH clock AS (
+		WITH `+reportExclusionCTEs+`,
+		clock AS (
 		  SELECT ($2::timestamptz AT TIME ZONE 'Asia/Kabul')::date AS today
 		), base AS (
 		  SELECT i.install_id, d.first_seen_date AS d0
 		  FROM installs i JOIN admin_install_dates d USING (install_id)
-		  WHERE (i.account_id IS NULL OR i.account_id::text <> ALL($1::text[]))
+		  WHERE i.install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		)
 		SELECT
 		  COUNT(*) FILTER (WHERE d0 <= today - 1),
@@ -318,9 +325,10 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 
 	// Language split — installs by in-app language (app_locale).
 	lrows, err := s.pool.Query(ctx, `
+		WITH `+reportExclusionCTEs+`
 		SELECT COALESCE(NULLIF(app_locale, ''), 'unknown') AS locale, COUNT(*)
 		FROM installs
-		WHERE (account_id IS NULL OR account_id::text <> ALL($1::text[]))
+		WHERE install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		GROUP BY 1 ORDER BY 2 DESC
 	`, s.operatorAccountIDs)
 	if err != nil {

@@ -87,9 +87,11 @@ const (
 	//   tabCreate: 60/hr. A shop links a handful of contacts ever; this is
 	//   the only route that mints a kaata.af/t/<token> link and it also caps
 	//   regenerate-link, which rotates a token.
-	//   tabRead: 3000/hr. The web page polls GET /v1/tabs/{id} every 10 s
-	//   while visible (360/hr per open tab) and the phones pull on focus and
-	//   every 60 s; a CGNAT cell with eight open tabs must not trip it.
+	//   tabRead: 3000/hr per signed-in account (per IP without a session),
+	//   under a 30000/hr per-IP ceiling. Phones pull the tab on screen (or
+	//   recently poked) every 5 s and every other tab once a minute; carrier
+	//   NAT puts many shops behind one IP, so signed-in reads are not pooled
+	//   per IP. by-token stays per IP: it is the anonymous probe surface.
 	//   tabWrite: 600/hr. Append / accept / dispute / void — one per human
 	//   action, so 10/min per IP is far above organic use and still stops a
 	//   scripted flood of a tab.
@@ -98,10 +100,13 @@ const (
 	tabCreateWindow = time.Hour
 	tabReadLimit    = 3000
 	tabReadWindow   = time.Hour
-	tabWriteLimit   = 600
-	tabWriteWindow  = time.Hour
-	tabJoinLimit    = 120
-	tabJoinWindow   = time.Hour
+	// tabReadIPCeiling backs the per-account tab read budget: generous enough
+	// for a carrier NAT full of shops, still a cap for one abusive address.
+	tabReadIPCeiling = 30000
+	tabWriteLimit    = 600
+	tabWriteWindow   = time.Hour
+	tabJoinLimit     = 120
+	tabJoinWindow    = time.Hour
 )
 
 // keyByAccount pulls the authenticated account_id off the request via the
@@ -206,6 +211,30 @@ func rateLimitErrorResponder(w http.ResponseWriter, _ *http.Request, err error) 
 	})
 }
 
+// keyByAccountOrIP keys an optional-auth route by the signed-in account and by
+// the client IP otherwise. Signed-in tab reads used to share ONE per-IP budget,
+// so shops behind the same carrier NAT (common on mobile data) throttled each
+// other; anonymous probes keep the per-IP key.
+func keyByAccountOrIP(r *http.Request) (string, error) {
+	if id := accountIDResolver(r); id != "" {
+		return "acct:" + id, nil
+	}
+	return keyByRealIP(r)
+}
+
+// RateLimitPerAccountOrIP is for routes behind OptionalMiddleware: a session
+// gets its account's budget, a request without one its IP's. Pair it with a
+// looser RateLimitPerIP ceiling so one address cannot multiply budgets by
+// rotating accounts.
+func RateLimitPerAccountOrIP(limit int, window time.Duration) func(http.Handler) http.Handler {
+	return httprate.Limit(
+		limit,
+		window,
+		httprate.WithKeyFuncs(keyByAccountOrIP),
+		httprate.WithLimitHandler(rateLimitResponder),
+	)
+}
+
 // RateLimitPerIP returns middleware that caps requests at `limit` per `window`
 // keyed by the request's real IP. Use for public/unauthenticated routes.
 // Install AFTER httpx.RealIP so the client, not a proxy, is the key.
@@ -248,12 +277,13 @@ var (
 	ShareCreateLimit  = shareCreateLimit
 	ShareCreateWindow = shareCreateWindow
 
-	TabCreateLimit  = tabCreateLimit
-	TabCreateWindow = tabCreateWindow
-	TabReadLimit    = tabReadLimit
-	TabReadWindow   = tabReadWindow
-	TabWriteLimit   = tabWriteLimit
-	TabWriteWindow  = tabWriteWindow
-	TabJoinLimit    = tabJoinLimit
-	TabJoinWindow   = tabJoinWindow
+	TabCreateLimit   = tabCreateLimit
+	TabCreateWindow  = tabCreateWindow
+	TabReadLimit     = tabReadLimit
+	TabReadWindow    = tabReadWindow
+	TabReadIPCeiling = tabReadIPCeiling
+	TabWriteLimit    = tabWriteLimit
+	TabWriteWindow   = tabWriteWindow
+	TabJoinLimit     = tabJoinLimit
+	TabJoinWindow    = tabJoinWindow
 )

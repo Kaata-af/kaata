@@ -17,6 +17,7 @@ async function main() {
     INSERT INTO relationships VALUES ('r1','local','self','customer',NULL),('r2','shared','self','customer',NULL),('r3','local','self','archived',NULL);
     INSERT INTO vault_members_mirror VALUES ('shared','account-a',1,NULL);`);
   let account: string | null = "account-a",
+    sessionEnded = false,
     appInstall = "cloned-db-install",
     physicalDevice = "phone-a",
     uuid = 0;
@@ -45,6 +46,8 @@ async function main() {
     "expo-crypto": { randomUUID: () => `reminder-${++uuid}` },
     "./db-tx": {
       getAccountIdSync: () => account,
+      // A relaunch primes the account again; the sign-out marker hides it.
+      getSessionAccountIdSync: () => (sessionEnded ? null : account),
       getInstallIdSync: () => appInstall,
       getDb: async () => {
         if (dbGate) await dbGate;
@@ -52,8 +55,8 @@ async function main() {
       },
     },
     "./effective-account": {
-      resolveAccountIdCandidates: async () => {
-        const captured = account;
+      resolveAccountIdCandidates: async (accountId: string | null) => {
+        const captured = accountId;
         if (accessGate) await accessGate;
         return captured ? [captured, "retired-device"] : [appInstall];
       },
@@ -130,6 +133,22 @@ async function main() {
     "queued save rechecks membership inside ledger mutation lane",
   );
   sqlite.prepare("UPDATE vault_members_mirror SET revoked_at=NULL").run();
+  // A sign-out hides the account's reminders, and the next launch (which
+  // primes the account id again) keeps them hidden; they used to come back
+  // after a relaunch (audit #25). Signing in again shows them.
+  const beforeSignOut = (await service.listCustomerReminders()).map((r: any) => r.id);
+  assert.ok(beforeSignOut.length > 0);
+  account = null;
+  assert.deepEqual(await service.listCustomerReminders(), [], "a sign-out hides them");
+  account = "account-a";
+  sessionEnded = true;
+  assert.deepEqual(await service.listCustomerReminders(), [], "a relaunch keeps them hidden");
+  sessionEnded = false;
+  assert.deepEqual(
+    (await service.listCustomerReminders()).map((r: any) => r.id),
+    beforeSignOut,
+    "signing in again shows them",
+  );
   account = "account-b";
   assert.deepEqual(await service.listCustomerReminders(), []);
   await assert.rejects(
@@ -222,6 +241,15 @@ async function main() {
     /reminder_limit/,
     "re-enabling a disabled task cannot exceed the 40-task limit",
   );
+  // Audit #25: reminders of a removed customer are hidden and never ring, so
+  // they no longer hold slots nobody can free.
+  sqlite.exec(`INSERT INTO relationships VALUES ('r4','local','self','other',NULL);
+    UPDATE relationships SET archived_at=1 WHERE id='r1';`);
+  const freed = await service.saveCustomerReminder("local", "other", once);
+  sqlite.exec(`UPDATE relationships SET archived_at=NULL WHERE id='r1';`);
+  await service.dismissCustomerReminder(freed, true);
+  sqlite.exec(`DELETE FROM customer_reminders WHERE person_id='other';
+    DELETE FROM relationships WHERE id='r4';`);
   const active = (await service.listCustomerReminders())[0];
   await service.saveCustomerReminder(
     "local",

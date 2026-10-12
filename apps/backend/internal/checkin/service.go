@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/matee/kaata-backend/internal/auth"
 	"github.com/matee/kaata-backend/internal/mesh"
 )
 
@@ -173,6 +174,29 @@ type Response struct {
 type MeshServerPubkeys struct {
 	Primary  string  `json:"primary"`            // base64, 32 bytes
 	Rotation *string `json:"rotation,omitempty"` // base64, 32 bytes; absent when no rotation
+}
+
+// DeletionRecoverableUntil returns when a retired install's account stops being
+// recoverable, or nil when no deletion is pending (purged, or never deleted).
+// A pending account keeps its installs' account_id; deletion_account_id covers
+// installs whose link was redirected. IDs compare as text so a malformed id
+// from an old client finds nothing instead of failing the cast.
+func (s *Service) DeletionRecoverableUntil(ctx context.Context, installID, actorAccountID string) (*time.Time, error) {
+	var requested *time.Time
+	if err := s.pool.QueryRow(ctx, `
+		SELECT MAX(a.pending_delete_at) FROM accounts a
+		WHERE a.pending_delete_at IS NOT NULL
+		  AND (a.id::text = $2 OR a.id IN (
+		    SELECT COALESCE(i.deletion_account_id, i.account_id) FROM installs i
+		    WHERE i.install_id::text = $1))
+	`, installID, actorAccountID).Scan(&requested); err != nil || requested == nil {
+		return nil, err
+	}
+	until := requested.Add(auth.AccountDeletionGrace)
+	if !until.After(time.Now()) {
+		return nil, nil
+	}
+	return &until, nil
 }
 
 func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Response, error) {

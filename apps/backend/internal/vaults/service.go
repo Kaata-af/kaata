@@ -393,7 +393,11 @@ func (s *Service) attachMembers(ctx context.Context, accountID string, listings 
 		SELECT vm.vault_id::text,
 		       vm.account_id::text,
 		       vm.role,
-		       COALESCE(a.display_name, NULLIF(a.name, ''), i.self_name, '') AS name,
+		       -- An explicit Kaata display name, else the name the member uses
+		       -- in Kaata on their latest phone, and only then the Google/Apple
+		       -- profile name. The provider name used to outrank the phone's,
+		       -- so names chosen (or changed) in Kaata never showed.
+		       COALESCE(NULLIF(a.display_name, ''), i.self_name, NULLIF(a.name, ''), '') AS name,
 		       CASE WHEN a.email_verified THEN COALESCE(a.email, '') ELSE '' END AS email
 		  FROM vault_members vm
 		  JOIN accounts a ON a.id = vm.account_id
@@ -1682,7 +1686,7 @@ func (s *Service) ListPendingInvites(ctx context.Context, accountID string) ([]P
 
 	rows, err := s.pool.Query(ctx, `
 		SELECT vm.vault_id::text, v.name,
-		       COALESCE(inviter.email, ''), COALESCE(inviter.name, ''),
+		       COALESCE(inviter.email, ''), `+inviterNameSQL("inviter")+`,
 		       vm.role, vm.invited_at, vm.invite_expires_at
 		  FROM vault_members vm
 		  JOIN vaults v ON v.vault_id = vm.vault_id
@@ -1764,9 +1768,9 @@ func (s *Service) InviteInfo(ctx context.Context, token string) (InviteInfoResul
 		return InviteInfoResult{}, ErrInviteNotFound
 	}
 	tokenHash := hashInviteToken(token)
-	const q = `
+	q := `
 		SELECT v.name, vm.role,
-		       COALESCE(a.email, ''), COALESCE(a.name, ''),
+		       COALESCE(a.email, ''), ` + inviterNameSQL("a") + `,
 		       vm.invite_expires_at
 		  FROM vault_members vm
 		  JOIN vaults v ON v.vault_id = vm.vault_id
@@ -2156,4 +2160,19 @@ func newInviteToken() (string, error) {
 func hashInviteToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
+}
+
+// inviterNameSQL is the name an invitation introduces its sender by: their
+// explicit Kaata display name, else the name they use in Kaata on their latest
+// phone, and only then the Google/Apple profile name. Same order as the
+// Members list; invitations used to show the provider name (audit #19).
+// alias names the joined accounts row; a missing inviter yields an empty name.
+func inviterNameSQL(alias string) string {
+	return `COALESCE(NULLIF(` + alias + `.display_name, ''),
+		       (SELECT i.self_name FROM installs i
+		         WHERE i.account_id = ` + alias + `.id
+		           AND i.self_name IS NOT NULL AND i.self_name <> ''
+		         ORDER BY i.last_seen_at DESC
+		         LIMIT 1),
+		       NULLIF(` + alias + `.name, ''), '')`
 }

@@ -155,7 +155,9 @@ func creditAdmit(ctx context.Context, tx pgx.Tx, vaultID string, ev PushEvent, a
 	if _, err := uuid.Parse(payload.RelationshipID); err != nil {
 		return nil
 	}
-	policy, err := credit.Read(ctx, tx, vaultID, payload.RelationshipID)
+	// The customer's own limit, else the kaata default (which also covers
+	// a customer re-added as a new contact to get round a limit).
+	policy, err := credit.Effective(ctx, tx, vaultID, payload.RelationshipID)
 	if err != nil {
 		return err
 	}
@@ -186,14 +188,16 @@ func creditAdmit(ctx context.Context, tx pgx.Tx, vaultID string, ev PushEvent, a
 		return credit.ErrLimit
 	}
 	after := new(big.Int).Add(big.NewInt(before), big.NewInt(delta))
-	if !after.IsInt64() {
-		return credit.ErrLimit
-	}
-	if policy.Exceeded(before, after.Int64()) {
-		return credit.ErrLimit
+	if !after.IsInt64() || policy.Exceeded(before, after.Int64()) {
+		return errCreditOverLimit
 	}
 	return nil
 }
+
+// errCreditOverLimit is the one refusal an owner is told about: a clerk's
+// tally that the limit stopped. The other ErrLimit answers (replays, id
+// collisions, malformed backfills) are protocol guards, not attempts.
+var errCreditOverLimit = fmt.Errorf("%w: over the limit", credit.ErrLimit)
 
 // author_seq is intentionally excluded: legacy re-announcements and seq
 // conflict recovery may change it. Every immutable financial envelope field
@@ -236,9 +240,112 @@ func lockCreditEntryIDs(ctx context.Context, tx pgx.Tx, events []PushEvent) erro
 	return nil
 }
 
-func recordCreditRefusal(ctx context.Context, tx pgx.Tx, vaultID, eventID string) error {
-	_, err := tx.Exec(ctx, `INSERT INTO customer_credit_event_refusals(vault_id,event_id) SELECT $1::uuid,$2::uuid WHERE NOT EXISTS(SELECT 1 FROM events WHERE event_id=$2::uuid) ON CONFLICT DO NOTHING`, vaultID, eventID)
+// recordCreditRefusal keeps a refused event from ever becoming money on a
+// later retry. A genuine over-limit attempt also keeps what an owner needs to
+// hear about it (customer, direction, amount, clerk); other refusals keep
+// NULL details and are never listed.
+func recordCreditRefusal(ctx context.Context, tx pgx.Tx, vaultID string, ev PushEvent, actorAccountID string, overLimit bool) error {
+	var relationshipID, entryType, actor *string
+	var amountMinor *int64
+	var payload entryCreatedPayload
+	if overLimit && json.Unmarshal(ev.Payload, &payload) == nil {
+		if minor, err := credit.Minor(payload.AmountAFN.String()); err == nil && minor > 0 {
+			if _, err := uuid.Parse(payload.RelationshipID); err == nil && (payload.Type == "debt" || payload.Type == "payment") {
+				relationshipID, entryType, amountMinor = &payload.RelationshipID, &payload.Type, &minor
+			}
+		}
+		if _, err := uuid.Parse(actorAccountID); err == nil {
+			actor = &actorAccountID
+		}
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO customer_credit_event_refusals(vault_id,event_id,relationship_id,entry_type,amount_minor,actor_account_id) SELECT $1::uuid,$2::uuid,$3::uuid,$4,$5,$6::uuid WHERE NOT EXISTS(SELECT 1 FROM events WHERE event_id=$2::uuid) ON CONFLICT DO NOTHING`, vaultID, ev.EventID, relationshipID, entryType, amountMinor, actor)
 	return err
+}
+
+// CreditRefusal is one clerk tally a limit stopped, for owners and managers.
+type CreditRefusal struct {
+	RelationshipID string `json:"relationship_id"`
+	Type           string `json:"type"`
+	AmountMinor    int64  `json:"amount_minor"`
+	ActorAccountID string `json:"actor_account_id"`
+	ActorName      string `json:"actor_name"`
+	RefusedAtMS    int64  `json:"refused_at_ms"`
+}
+
+// CreditRefusals lists the last 30 days of clerk tallies a limit stopped,
+// newest first (audit #24: the owner never learned of them). Owner/manager
+// only: the people who set limits. Both refusal paths are listed: kaata pushes
+// and shared-account appends.
+func (h *Handler) CreditRefusals(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.ClaimsFromContext(r.Context())
+	if !ok {
+		httpx.Error(w, 401, "authentication required")
+		return
+	}
+	vaultID := r.URL.Query().Get("vault_id")
+	if _, err := uuid.Parse(vaultID); err != nil {
+		httpx.Error(w, 400, "invalid vault_id")
+		return
+	}
+	var role string
+	err := h.svc.pool.QueryRow(r.Context(), `SELECT m.role FROM vault_members m JOIN vaults v ON v.vault_id=m.vault_id JOIN accounts a ON a.id=m.account_id WHERE m.vault_id=$1::uuid AND m.account_id=$2::uuid AND m.accepted_at IS NOT NULL AND m.revoked_at IS NULL AND a.pending_delete_at IS NULL AND (v.archived_at IS NULL OR m.role='owner')`, vaultID, claims.AccountID).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpx.ErrorCode(w, 403, "not_member", "membership required")
+		return
+	}
+	if err != nil {
+		httpx.Error(w, 500, "storage unavailable")
+		return
+	}
+	if role != "owner" && role != "manager" {
+		httpx.ErrorCode(w, 403, "insufficient_role", "manager required")
+		return
+	}
+	rows, err := h.svc.pool.Query(r.Context(), `
+		SELECT r.relationship_id::text, r.entry_type, r.amount_minor,
+		       COALESCE(r.actor_account_id::text, ''),
+		       COALESCE(NULLIF(a.display_name, ''), i.self_name, NULLIF(a.name, ''), ''),
+		       (EXTRACT(EPOCH FROM r.refused_at) * 1000)::bigint
+		  FROM (
+		        SELECT relationship_id, entry_type, amount_minor, actor_account_id, refused_at
+		          FROM customer_credit_event_refusals
+		         WHERE vault_id = $1::uuid AND relationship_id IS NOT NULL
+		           AND refused_at > NOW() - INTERVAL '30 days'
+		        UNION ALL
+		        SELECT relationship_id, entry_type, amount_minor, actor_account_id, refused_at
+		          FROM customer_credit_tab_refusals
+		         WHERE vault_id = $1::uuid AND relationship_id IS NOT NULL
+		           AND refused_at > NOW() - INTERVAL '30 days'
+		  ) r
+		  LEFT JOIN accounts a ON a.id = r.actor_account_id
+		  LEFT JOIN LATERAL (
+		        SELECT self_name FROM installs
+		         WHERE account_id = r.actor_account_id
+		           AND self_name IS NOT NULL AND self_name <> ''
+		         ORDER BY last_seen_at DESC
+		         LIMIT 1
+		  ) i ON TRUE
+		 ORDER BY r.refused_at DESC
+		 LIMIT 50`, vaultID)
+	if err != nil {
+		httpx.Error(w, 500, "storage unavailable")
+		return
+	}
+	defer rows.Close()
+	out := []CreditRefusal{}
+	for rows.Next() {
+		var item CreditRefusal
+		if err := rows.Scan(&item.RelationshipID, &item.Type, &item.AmountMinor, &item.ActorAccountID, &item.ActorName, &item.RefusedAtMS); err != nil {
+			httpx.Error(w, 500, "storage unavailable")
+			return
+		}
+		out = append(out, item)
+	}
+	if rows.Err() != nil {
+		httpx.Error(w, 500, "storage unavailable")
+		return
+	}
+	httpx.JSON(w, 200, map[string]any{"refusals": out})
 }
 
 // CreditLimits is authoritative [] when empty. GET and PUT are member scoped;
@@ -306,10 +413,13 @@ func (h *Handler) CreditLimits(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, 500, "storage unavailable")
 			return
 		}
-		rel := projection.Relationships[p.RelationshipID]
-		if rel == nil || rel.ArchivedAt != nil {
-			httpx.ErrorCode(w, 409, "relationship_missing", "sync customer first")
-			return
+		// The kaata default belongs to no customer.
+		if p.RelationshipID != credit.DefaultRelationshipID {
+			rel := projection.Relationships[p.RelationshipID]
+			if rel == nil || rel.ArchivedAt != nil {
+				httpx.ErrorCode(w, 409, "relationship_missing", "sync customer first")
+				return
+			}
 		}
 		if p.Mode == "clerk_block" {
 			for _, member := range projection.Members {

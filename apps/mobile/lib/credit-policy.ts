@@ -1,3 +1,10 @@
+/** Keys the kaata-wide default limit: it covers every customer without their
+ *  own policy, newly added ones included (Matee, 2026-10-12). No relationship
+ *  can have this id; the server uses the same one. */
+export const KAATA_DEFAULT_CREDIT_ID = "00000000-0000-0000-0000-000000000000";
+/** Route id that opens the default in the limit screen: /person/kaata-default/credit-limit. */
+export const KAATA_DEFAULT_ROUTE_ID = "kaata-default";
+
 export type CreditPolicy = {
   relationship_id: string;
   max_collect_minor: number | null;

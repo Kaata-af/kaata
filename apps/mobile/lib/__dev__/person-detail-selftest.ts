@@ -9,7 +9,7 @@ import {
   filterTalliesByDate,
   dateRangeBetween,
   customDateRange,
-  formatFilterClock,
+  formatDateRangeLabel,
 } from "../tally-date-filter";
 import { summarizeTallyFlows } from "../tally-summary";
 import type { Calendar } from "../calendar";
@@ -86,6 +86,7 @@ const query = (value: string) => find("TextInput")!.props.onChangeText(value);
 const pingButton = () => nodes(tree).find((n) => n.props.testID === "whatsapp-reminder")!;
 
 let params: Record<string, string> = { id: "person" };
+let justSaved: string | null = null;
 let platform = "android",
   rtl = false,
   appState = "active";
@@ -106,6 +107,8 @@ const shares: any[] = [],
   toasts: any[] = [];
 const tabListeners = new Set<(event: any) => void>();
 const appListeners = new Set<(state: string) => void>();
+// Tabs the screen keeps on the sync loop's 5 s backstop (watchTab refcounts).
+const watched = new Map<string, number>();
 const focusEffects = new Set<{
   start: () => void | (() => void);
   cleanup?: () => void;
@@ -148,6 +151,11 @@ function advance(ms: number) {
     }
 }
 const toastOffset = { addListener: () => "toast", removeListener() {} };
+const TOAST_LIFT = 78; // iOS worst case: a two-line toast
+const keyboardListeners = new Set<{ event: string; fn: () => void }>();
+const keyboardEvent = (event: string) => {
+  for (const listener of [...keyboardListeners]) if (listener.event === event) listener.fn();
+};
 const dummyError = class extends Error {};
 const native: any = {
   View: "View",
@@ -157,7 +165,14 @@ const native: any = {
   ScrollView: "ScrollView",
   ActivityIndicator: "Spinner",
   KeyboardAvoidingView: "Keyboard",
-  Keyboard: { dismiss() {} },
+  Keyboard: {
+    dismiss() {},
+    addListener(event: string, fn: () => void) {
+      const listener = { event, fn };
+      keyboardListeners.add(listener);
+      return { remove: () => keyboardListeners.delete(listener) };
+    },
+  },
   Animated: { View: "AnimatedView" },
   Platform: {
     get OS() {
@@ -221,6 +236,7 @@ const mocks: Record<string, any> = {
   "../../components/Toast": {
     useToast: () => ({ push: (...args: any[]) => toasts.push(args) }),
     useToastOffset: () => toastOffset,
+    TOAST_LIFT,
   },
   "../../lib/attribution": { loadRelationshipAttribution: async () => new Map() },
   "../../lib/colors": require("../colors"),
@@ -288,8 +304,23 @@ const mocks: Record<string, any> = {
     },
   },
   "../../lib/tally-search": { filterTallies, noteSearchTerms },
-  "../../lib/tally-date-filter": { filterTalliesByDate, formatFilterClock },
+  "../../lib/tally-date-filter": { filterTalliesByDate, formatDateRangeLabel },
   "../../lib/tally-summary": { summarizeTallyFlows },
+  "../../lib/recent-entry": {
+    takeSavedEntry: () => {
+      const taken = justSaved;
+      justSaved = null;
+      return taken;
+    },
+  },
+  "../../lib/use-customer-groups": {
+    useCustomerGroups: () => ({
+      groups: [{ id: "family", name: "Family", member_count: 1 }],
+      groupsByPerson: { [params.id]: ["family"] },
+      loaded: true,
+      failed: false,
+    }),
+  },
   "../../lib/tabs/db": {
     getLatestTabLinkForPerson: async () => (link ? { ...link } : null),
     listPreLinkEntries: async () => [...preLink],
@@ -316,6 +347,10 @@ const mocks: Record<string, any> = {
   },
   "../../lib/tabs/sync": {
     requestTabSync() {},
+    watchTab(tabId: string) {
+      watched.set(tabId, (watched.get(tabId) ?? 0) + 1);
+      return () => watched.set(tabId, (watched.get(tabId) ?? 1) - 1);
+    },
     onTabApplied: (fn: (event: any) => void) => {
       tabListeners.add(fn);
       return () => tabListeners.delete(fn);
@@ -502,6 +537,49 @@ async function main() {
           node.type === "AnimatedView" && nodes(node).some((child) => child.type === "TextInput"),
       )!;
       assert.ok(dock, "search lives in the bottom action dock");
+      assert.ok(
+        words(tree).includes("groups.view"),
+        "the customer's groups show on their page for every role",
+      );
+      // The dock is opaque: "box-none" passed taps on its background to the
+      // hidden tally rows underneath, including final Accept/Reject pills.
+      assert.notEqual(dock.props.pointerEvents, "box-none", "the opaque dock takes its own taps");
+      const dockStyle = Object.assign({}, ...[dock.props.style].flat(2).filter(Boolean));
+      assert.ok(
+        -dockStyle.bottom >= TOAST_LIFT,
+        "the dock's own background reaches past the full toast lift",
+      );
+      assert.equal(
+        dockStyle.paddingBottom + dockStyle.bottom,
+        20,
+        "at rest the controls stay 20pt above the safe area",
+      );
+      assert.equal(dockStyle.transform[0].translateY, toastOffset, "toasts still lift the dock");
+      keyboardEvent("keyboardDidShow");
+      await flush();
+      const typingDock = nodes(tree).find(
+        (node) =>
+          node.type === "AnimatedView" && nodes(node).some((child) => child.type === "TextInput"),
+      )!;
+      // Audit #31: typing a search leaves room for results above the keyboard.
+      const typingStyle = Object.assign({}, ...[typingDock.props.style].flat(2).filter(Boolean));
+      assert.ok(
+        typingStyle.paddingBottom + typingStyle.bottom < 20,
+        "no safe-area band under the search while the keyboard covers it",
+      );
+      assert.equal(
+        words(typingDock).includes("person.action.iGave"),
+        false,
+        "the entry buttons step aside while typing",
+      );
+      assert.equal(
+        Object.assign({}, ...[typingDock.props.style].flat(2).filter(Boolean)).transform[0]
+          .translateY,
+        0,
+        "a toast behind the keyboard does not make the dock jump while typing",
+      );
+      keyboardEvent("keyboardDidHide");
+      await flush();
       const dockNodes = nodes(dock);
       assert.ok(
         dockNodes.findIndex((node) => words(node) === "person.action.iReceived") <
@@ -523,6 +601,18 @@ async function main() {
       query("rice");
       await flush();
       assert.deepEqual(rowIds(), ["new-rice", "old-rice"], "search spans settled chapters");
+      // The dated settlement line stays between a current and a settled
+      // result, so an old paid tally never reads as current (audit #3).
+      assert.deepEqual(
+        nodes(tree).flatMap((n) =>
+          n.type === "EntryRow"
+            ? [n.props.entry.id]
+            : n.props?.children === "person.history.settledOn"
+              ? ["settled-line"]
+              : [],
+        ),
+        ["new-rice", "settled-line", "old-rice"],
+      );
       assert.equal(
         tallies().find((n) => n.props.entry.id === "old-rice")?.props.onLongPress,
         undefined,
@@ -663,16 +753,20 @@ async function main() {
       );
       await flush();
       assert.deepEqual(rowIds(), ["rejected-rice"], "custom end includes its entire minute");
+      const label = formatDateRangeLabel(
+        customDateRange(datedAt, datedAt, 12 * 60, 12 * 60),
+        language,
+        selected,
+      );
       assert.ok(
-        words(tree).includes(`fixture date · ${formatFilterClock(datedAt, language)}`),
+        words(tree).includes(label),
         "active custom range visibly includes localized clocks with the dates",
       );
+      if (language === "fa")
+        assert.ok(!label.includes("·"), "no middle dot beside Persian digits in the Dari label");
       assert.equal(
-        nodes(tree).find(
-          (node) =>
-            node.type === "Text" &&
-            words(node).includes(`fixture date · ${formatFilterClock(datedAt, language)}`),
-        )?.props.numberOfLines,
+        nodes(tree).find((node) => node.type === "Text" && words(node).includes(label))?.props
+          .numberOfLines,
         2,
         "timed summaries allow two lines so the end clock is not squeezed into one line",
       );
@@ -686,8 +780,21 @@ async function main() {
   }
   entries[0].created_at = datedAt;
   find("TallyDateFilterSheet")!.props.onChange(null);
+  // Audit #3: a tally just saved from this page clears an active search so it
+  // shows, instead of vanishing behind the filter it does not match.
+  query("no such words");
+  await flush();
+  justSaved = "new-entry";
+  tabListeners.forEach((fn) => fn({ relationshipId: "relationship", origin: "local" }));
+  await flush();
+  assert.equal(find("TextInput")!.props.value, "", "the search clears for the new tally");
   query("rice 10");
   await flush();
+  const searchRows = nodes(tree).filter((n) => n.type === "EntryRow");
+  assert.ok(
+    searchRows.length > 0 && searchRows.every((n) => n.props.showFullNote === true),
+    "a note search shows whole notes, so a late match is visible (audit #3)",
+  );
   assert.ok(words(tree).includes("amount:5"), "date filters keep the whole shared balance");
   assert.deepEqual(
     find("TallyFlowSummary")?.props.summary,
@@ -804,12 +911,15 @@ async function main() {
   assert.equal(toasts.length, 0, "revealing search results does not replay a decision");
 
   fixture(true);
+  watched.clear();
   await flush();
+  assert.equal(watched.get("tab"), 1, "the shared account on screen stays on the 5 s backstop");
   review("disputed");
   await flush();
   assert.equal(toasts.at(-1)?.[0], "tab.feedback.rejected");
   blur();
   await flush();
+  assert.equal(watched.get("tab"), 0, "leaving the screen releases its fast backstop");
   assert.equal(
     nodes(tree).some((n) => n.type === "TallyHighlight"),
     false,
@@ -827,20 +937,68 @@ async function main() {
     "returning to the contact does not replay background reviews",
   );
 
+  // Audit #13: a decision made while the phone was locked is cued once on
+  // return, and an app round trip never eats the next live decision.
   fixture(true);
   await flush();
   appState = "background";
   appListeners.forEach((fn) => fn(appState));
   review("accepted");
   await flush();
+  assert.equal(toasts.length, 0, "nothing is announced while the app is away");
   appState = "active";
   appListeners.forEach((fn) => fn(appState));
+  await flush();
+  assert.deepEqual(
+    toasts.map((toast) => toast[0]),
+    ["tab.feedback.accepted"],
+    "the decision made while away is cued on return",
+  );
+  const accepted = nodes(tree).find((n) => n.type === "TallyHighlight");
+  assert.equal(accepted?.props.tone, "accepted", "the flash takes the outcome's colour");
   review("accepted");
   await flush();
-  assert.equal(toasts.length, 0, "foreground resumption starts a fresh baseline");
-  console.log(
-    "PASS: confirmed live reviews pulse once; optimistic, hidden, cold and background decisions stay quiet",
+  assert.equal(toasts.length, 1, "and is never replayed");
+  fixture(true);
+  await flush();
+  appState = "background";
+  appListeners.forEach((fn) => fn(appState));
+  appState = "active";
+  appListeners.forEach((fn) => fn(appState));
+  await flush();
+  review("disputed");
+  await flush();
+  assert.equal(
+    toasts.at(-1)?.[0],
+    "tab.feedback.rejected",
+    "the next live decision after a round trip is cued",
   );
+  console.log(
+    "PASS: confirmed live reviews pulse once; optimistic, hidden and cold decisions stay quiet; decisions made while away are cued on return",
+  );
+
+  // Audit #1: right after a tally is saved, the page offers the WhatsApp ping.
+  fixture();
+  await flush();
+  const nudgeSend = () =>
+    nodes(tree).find(
+      (n) =>
+        n.type === "Pressable" &&
+        nodes(n).some((c) => c.type === "Text" && c.props.children === "person.ping.nudgeSend"),
+    );
+  assert.equal(nudgeSend(), undefined, "no nudge on a plain visit");
+  blur();
+  await flush();
+  justSaved = "fresh-tally";
+  refocus();
+  await flush();
+  assert.ok(nudgeSend(), "a new tally offers the WhatsApp ping");
+  nudgeSend()!.props.onPress();
+  await flush();
+  assert.equal(nudgeSend(), undefined, "the nudge goes once used");
+  assert.equal(shares.length, 1, "Send starts the WhatsApp ping");
+  shares[0].resolve(true);
+  await flush();
 
   fixture();
   preference = "ask";

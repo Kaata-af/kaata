@@ -21,27 +21,33 @@ const displayDateFormatter = new Intl.DateTimeFormat("en-US", {
   month: "short",
   day: "numeric",
 });
-const timestampFormatter = new Intl.DateTimeFormat("en-US", {
+const timeFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: REPORTING_TIME_ZONE,
-  year: "numeric",
-  month: "short",
-  day: "numeric",
   hourCycle: "h23",
   hour: "2-digit",
   minute: "2-digit",
 });
 
+// A timestamp's Kabul date ("Oct 11, 2026") and clock time ("12:35") as
+// separate tokens, so a narrow column can put them on two lines or wrap
+// between them without ever breaking inside a word or a number (2026-10-12).
+// Date-only history has no recorded time ("" time); unknown values read "—".
+export function fmtDateTimeParts(value: string | number): { date: string; time: string } {
+  if (value === "") return { date: "—", time: "" };
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return { date: "—", time: "" };
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    if (date.toISOString().slice(0, 10) !== value) return { date: "—", time: "" };
+    return { date: displayDateFormatter.format(date), time: "" };
+  }
+  return { date: displayDateFormatter.format(date), time: timeFormatter.format(date) };
+}
+
 // Operational timestamps use the same Kabul clock as dashboard reporting,
 // including in a browser abroad. Date-only history has no recorded time.
 export function fmtDateTime(value: string | number): string {
-  if (value === "") return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    if (date.toISOString().slice(0, 10) !== value) return "—";
-    return displayDateFormatter.format(date);
-  }
-  return timestampFormatter.format(date);
+  const { date, time } = fmtDateTimeParts(value);
+  return time ? `${date}, ${time}` : date;
 }
 
 export function reportingDay(value: string | number): string {
@@ -50,14 +56,6 @@ export function reportingDay(value: string | number): string {
   if (Number.isNaN(date.getTime())) return "";
   const parts = Object.fromEntries(dayFormatter.formatToParts(date).map((p) => [p.type, p.value]));
   return `${parts.year}-${parts.month}-${parts.day}`;
-}
-
-// Match admin_install_dates: historical install cohorts retain UTC dates,
-// while installs on/after the activity cutover use the Kabul calendar.
-export function reportingInstallDay(value: string | number, cutover?: string): string {
-  const day = reportingDay(value);
-  if (!day) return "";
-  return cutover && day < cutover ? new Date(value).toISOString().slice(0, 10) : day;
 }
 
 export function msUntilReportingMidnight(now = Date.now()): number {

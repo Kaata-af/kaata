@@ -14,11 +14,13 @@
 // and Received EMPTY. Their amount lives in "Recorded amount", which every
 // tally row of a shared-shape file fills, signed like Balance contribution
 // (gave +, received −) so the direction survives. Unshared contacts and
-// kaatas export byte-for-byte what 2.0.0 did.
+// kaatas export byte-for-byte what 2.0.0 did. A Qamari export adds its own
+// date column just before the entry id (audit #15), so no other column moves
+// and every other calendar's file is unchanged.
 import { tIn } from "../i18n";
 import { clearanceNote, noteFor } from "./note";
 import { formatSettlementDate } from "../jalali";
-import { isoDate, shamsiDate, type PersonStatement, type VaultReport } from "./data";
+import { isoDate, qamariDate, shamsiDate, type PersonStatement, type VaultReport } from "./data";
 import { EVIDENCE_KEYS, evidenceCells, evidenceTime } from "./evidence";
 import {
   addRecordTotal,
@@ -78,6 +80,7 @@ function clearanceEvidence(tabId: string, ms: number): string[] {
 
 export function buildPersonCsv(st: PersonStatement): string {
   const { locale, calendar, currencyCode: code } = st;
+  const qamari = calendar === "qamari";
   const shared =
     st.rows.some((r) => (r.kind === "entry" ? r.entry.tab : r.shared)) ||
     !!st.archivedSharedPeriods?.length;
@@ -106,6 +109,7 @@ export function buildPersonCsv(st: PersonStatement): string {
             ...EVIDENCE_KEYS.map((k) => tIn(locale, k)),
           ]
         : []),
+      ...(qamari ? [tIn(locale, "export.col.dateQamari")] : []),
       tIn(locale, "export.col.id"),
     ]),
   ];
@@ -139,6 +143,7 @@ export function buildPersonCsv(st: PersonStatement): string {
                   : EVIDENCE_KEYS.map(() => "")),
               ]
             : []),
+          ...(qamari ? [qamariDate(row.ms)] : []),
           row.shared?.settlement.id ?? "",
         ]),
       );
@@ -166,6 +171,7 @@ export function buildPersonCsv(st: PersonStatement): string {
               ...evidenceCells(e.tab, locale).map(guardText),
             ]
           : []),
+        ...(qamari ? [qamariDate(e.created_at)] : []),
         e.id,
       ]),
     );
@@ -196,6 +202,7 @@ export function buildPersonCsv(st: PersonStatement): string {
             "",
             "",
             ...clearanceEvidence(period.link.tab_id, row.ms),
+            ...(qamari ? [qamariDate(row.ms)] : []),
             row.shared?.settlement.id ?? "",
           ]),
         );
@@ -222,6 +229,7 @@ export function buildPersonCsv(st: PersonStatement): string {
           "",
           "",
           ...evidenceCells(entry.tab, locale).map(guardText),
+          ...(qamari ? [qamariDate(entry.created_at)] : []),
           entry.id,
         ]),
       );
@@ -232,6 +240,7 @@ export function buildPersonCsv(st: PersonStatement): string {
 
 export function buildVaultCsv(report: VaultReport): string {
   const { locale, currencyCode: code } = report;
+  const qamari = report.calendar === "qamari";
   const shared = report.journal.some((r) => r.tab);
   const totalsByPerson = new Map<string, RecordTotals>();
   const lines: string[] = [
@@ -256,6 +265,7 @@ export function buildVaultCsv(report: VaultReport): string {
             ...EVIDENCE_KEYS.map((k) => tIn(locale, k)),
           ]
         : []),
+      ...(qamari ? [tIn(locale, "export.col.dateQamari")] : []),
       tIn(locale, "export.col.id"),
     ]),
   ];
@@ -284,6 +294,7 @@ export function buildVaultCsv(report: VaultReport): string {
               ...evidenceCells(row.tab, locale).map(guardText),
             ]
           : []),
+        ...(qamari ? [qamariDate(row.created_at)] : []),
         row.id,
       ]),
     );

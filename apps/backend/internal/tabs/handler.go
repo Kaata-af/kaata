@@ -120,6 +120,8 @@ func mapServiceError(err error) (int, string, string) {
 		return http.StatusBadRequest, "invalid_occurred_at", err.Error()
 	case errors.Is(err, ErrSameKaata):
 		return http.StatusConflict, "same_kaata", err.Error()
+	case errors.Is(err, ErrSameAccount):
+		return http.StatusConflict, "same_account", err.Error()
 	case errors.Is(err, ErrAlreadyLinked):
 		return http.StatusConflict, "already_linked", err.Error()
 	case errors.Is(err, ErrCurrencyMismatch):

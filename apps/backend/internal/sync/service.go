@@ -569,7 +569,12 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 		}
 		if err := creditAdmit(ctx, tx, in.VaultID, ev, eventRole, creditState); err != nil {
 			if errors.Is(err, credit.ErrLimit) {
-				if err := recordCreditRefusal(ctx, tx, in.VaultID, ev.EventID); err != nil {
+				// The signed author is the clerk; the pusher only relays.
+				actor := in.AccountID
+				if ev.ActorAccountID != nil && *ev.ActorAccountID != "" {
+					actor = *ev.ActorAccountID
+				}
+				if err := recordCreditRefusal(ctx, tx, in.VaultID, ev, actor, errors.Is(err, errCreditOverLimit)); err != nil {
 					return nil, fmt.Errorf("record credit refusal: %w", err)
 				}
 				rejected = append(rejected, RejectedEvent{EventID: ev.EventID, Reason: "credit_limit_exceeded"})

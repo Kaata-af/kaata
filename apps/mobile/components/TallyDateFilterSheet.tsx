@@ -91,7 +91,23 @@ export function TallyDateFilterSheet(props: {
     setMonth(props.range?.start ?? Date.now());
   }, [props.visible, props.range, props.calendar]);
   const days = useMemo(() => calendarMonthDays(month, props.calendar), [month, props.calendar]);
-  const weekStart = locale === "fa" ? 6 : 1;
+  // Afghan weeks start on Saturday: in Dari, and for the Shamsi and Qamari
+  // calendars in English too (audit #31). Gregorian English keeps Monday.
+  const weekStart = locale === "fa" || props.calendar !== "gregorian" ? 6 : 1;
+  const todayStart = localDayStart(Date.now());
+  // Which choice the applied filter is, so the sheet can mark it.
+  const activeChoice = useMemo(() => {
+    if (!props.range) return "all";
+    if (props.range.timePrecision) return "custom";
+    const now = Date.now();
+    for (const preset of ["today", "last7", "last30", "month"] as TallyDatePreset[]) {
+      const candidate = datePresetRange(preset, now, props.calendar);
+      if (candidate.start === props.range.start && candidate.end === props.range.end) return preset;
+    }
+    return "custom";
+  }, [props.range, props.calendar]);
+  const check = (selected: boolean) =>
+    selected ? <Ionicons name="checkmark" size={20} color={colors.textEmphasis} /> : null;
   const padding = days.length ? (new Date(days[0]).getDay() - weekStart + 7) % 7 : 0;
   const grid: (number | null)[] = [...Array.from({ length: padding }, () => null), ...days];
   while (grid.length % 7) grid.push(null);
@@ -189,25 +205,32 @@ export function TallyDateFilterSheet(props: {
               <>
                 <Pressable
                   accessibilityRole="button"
+                  accessibilityState={{ selected: activeChoice === "all" }}
                   onPress={() => commit(null)}
-                  style={styles.row}
+                  style={[styles.row, rowDir(props.isRTL)]}
                 >
-                  <Text style={[styles.label, textDir(props.isRTL)]}>{t("person.date.all")}</Text>
+                  <Text style={[styles.label, { flex: 1 }, textDir(props.isRTL)]}>
+                    {t("person.date.all")}
+                  </Text>
+                  {check(activeChoice === "all")}
                 </Pressable>
                 {(["today", "last7", "last30", "month"] as TallyDatePreset[]).map((preset) => (
                   <Pressable
                     key={preset}
                     accessibilityRole="button"
+                    accessibilityState={{ selected: activeChoice === preset }}
                     onPress={() => commit(datePresetRange(preset, Date.now(), props.calendar))}
-                    style={styles.row}
+                    style={[styles.row, rowDir(props.isRTL)]}
                   >
-                    <Text style={[styles.label, textDir(props.isRTL)]}>
+                    <Text style={[styles.label, { flex: 1 }, textDir(props.isRTL)]}>
                       {t(`person.date.${preset}`)}
                     </Text>
+                    {check(activeChoice === preset)}
                   </Pressable>
                 ))}
                 <Pressable
                   accessibilityRole="button"
+                  accessibilityState={{ selected: activeChoice === "custom" }}
                   onPress={() => {
                     setCustom(true);
                   }}
@@ -216,6 +239,7 @@ export function TallyDateFilterSheet(props: {
                   <Text style={[styles.label, { flex: 1 }, textDir(props.isRTL)]}>
                     {t("person.date.custom")}
                   </Text>
+                  {check(activeChoice === "custom")}
                   <Ionicons
                     name={props.isRTL ? "chevron-back" : "chevron-forward"}
                     size={18}
@@ -287,6 +311,7 @@ export function TallyDateFilterSheet(props: {
                           style={[
                             styles.day,
                             inside && styles.inRange,
+                            day === todayStart && !selected && styles.today,
                             selected && styles.selected,
                           ]}
                           accessibilityRole="button"
@@ -311,7 +336,9 @@ export function TallyDateFilterSheet(props: {
                 ))}
                 <Text style={[styles.range, textDir(props.isRTL)]}>
                   {selectedDays
-                    ? `${dateLabel(selectedDays.start)} – ${dateLabel(selectedDays.end - 1)}`
+                    ? dateLabel(selectedDays.start) === dateLabel(selectedDays.end - 1)
+                      ? dateLabel(selectedDays.start)
+                      : `${dateLabel(selectedDays.start)} – ${dateLabel(selectedDays.end - 1)}`
                     : first != null
                       ? dateLabel(first)
                       : t("person.date.chooseRange")}
@@ -445,6 +472,8 @@ const styles = StyleSheet.create({
     marginVertical: 1,
   },
   inRange: { backgroundColor: colors.bgMuted },
+  // Today, so a custom range can be placed relative to it.
+  today: { borderWidth: 1, borderColor: colors.textSubtle },
   selected: { backgroundColor: colors.actionPrimary },
   dayText: { ...typography.body, color: colors.textEmphasis },
   range: { ...typography.bodySm, color: colors.textMuted, minHeight: 44, paddingVertical: 12 },

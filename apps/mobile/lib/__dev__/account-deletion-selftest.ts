@@ -66,6 +66,8 @@ function authDeletionFixture() {
       setAccountIdCache: (id: string | null) => {
         account = id;
       },
+      SESSION_ENDED_KEY: "session_ended",
+      setSessionEndedSync: () => {},
       setLocalSelfUserIdCache: () => {},
       setInstallIdCache: () => {},
     },
@@ -332,6 +334,8 @@ async function testCurrentSessionResponseGuard() {
       setAccountIdCache: (id: string | null) => {
         account = id;
       },
+      SESSION_ENDED_KEY: "session_ended",
+      setSessionEndedSync: () => {},
       setLocalSelfUserIdCache: () => {},
       setInstallIdCache: () => {},
     },

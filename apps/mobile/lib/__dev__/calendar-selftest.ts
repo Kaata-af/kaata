@@ -10,12 +10,13 @@ function stub(name: string, exports: object) {
 }
 let locale = "en";
 let stored: string | null = null;
+let storedOffset: string | null = null;
 let readFails = false;
 stub("../db", {
   getAppMeta: async (key: string) => {
-    assert.equal(key, "calendar_pref");
+    assert.ok(key === "calendar_pref" || key === "qamari_offset", key);
     if (readFails) throw new Error("synthetic metadata read failure");
-    return stored;
+    return key === "calendar_pref" ? stored : storedOffset;
   },
 });
 stub("../i18n", { getLocale: () => locale, subscribeLocale: () => () => {} });
@@ -45,6 +46,23 @@ async function main() {
   assert.equal(repaintCount, 1, "same preference has no redundant notification");
   cal.setCalendarPref("gregorian");
   assert.equal(repaintCount, 2, "mounted dates repaint when calendar changes");
+  // The Qamari adjustment (audit #15) loads with the calendar and repaints
+  // mounted dates; only whole days within ±2 are kept.
+  storedOffset = "-1";
+  await cal.initCalendarFromPref();
+  assert.equal(cal.getQamariOffset(), -1, "the saved adjustment applies before first render");
+  assert.equal(repaintCount, 3);
+  cal.setQamariOffset(-1);
+  assert.equal(repaintCount, 3, "same adjustment, no redundant notification");
+  cal.setQamariOffset(2);
+  assert.equal(cal.getQamariOffset(), 2);
+  assert.equal(repaintCount, 4, "mounted Qamari dates repaint");
+  cal.setQamariOffset(9);
+  assert.equal(cal.getQamariOffset(), 0, "out of range is no adjustment");
+  storedOffset = "garbage";
+  await cal.initCalendarFromPref();
+  assert.equal(cal.getQamariOffset(), 0);
+  storedOffset = null;
   unsubscribe();
   stored = "qamari";
   await cal.initCalendarFromPref();

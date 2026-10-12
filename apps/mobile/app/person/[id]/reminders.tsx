@@ -6,6 +6,7 @@ import { Button } from "../../../components/Button";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
 import { CustomerReminderRow } from "../../../components/CustomerReminderRow";
 import { ReminderEditor } from "../../../components/ReminderEditor";
+import { ReminderPermissionNotice } from "../../../components/ReminderPermissionNotice";
 import { ScreenHeader } from "../../../components/SettingsScreen";
 import { useToast } from "../../../components/Toast";
 import { useCalendar } from "../../../lib/calendar";
@@ -194,14 +195,19 @@ export default function PersonRemindersScreen() {
       />
       <ScrollView contentContainerStyle={styles.body}>
         <Text style={[styles.hint, textDir(rtl)]}>{t("reminders.personal")}</Text>
+        <ReminderPermissionNotice isRTL={rtl} />
         {!state.loaded ? (
           <ActivityIndicator color={colors.textDefault} />
         ) : state.failed ? (
-          <Button
-            variant="secondary"
-            label={t("inbox.retry")}
-            onPress={() => void state.refresh()}
-          />
+          // Say what failed: a bare "Tap to retry." explained nothing (audit #25).
+          <>
+            <Text style={[styles.hint, textDir(rtl)]}>{t("reminders.loadFailed")}</Text>
+            <Button
+              variant="secondary"
+              label={t("inbox.retry")}
+              onPress={() => void state.refresh()}
+            />
+          </>
         ) : !state.customer ? (
           <Text style={[styles.hint, textDir(rtl)]}>{t("reminders.unavailable")}</Text>
         ) : (
@@ -251,7 +257,7 @@ export default function PersonRemindersScreen() {
         <Button
           variant="secondary"
           label={t("reminders.all")}
-          onPress={() => router.push("/reminders")}
+          onPress={() => router.push({ pathname: "/reminders", params: { view: "all" } })}
           disabled={busy}
           fullWidth
         />

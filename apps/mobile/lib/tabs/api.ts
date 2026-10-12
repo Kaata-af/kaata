@@ -98,10 +98,14 @@ async function request<T>(
       /* body unreadable — status alone is still a verdict */
     }
     if (!code) code = res.status === 429 ? "rate_limited" : `http_${res.status}`;
+    const retryAfterS = Number(res.headers?.get?.("Retry-After"));
     throw new TabApiError(
       res.status,
       code,
       `${method} ${path}: ${res.status}${serverMsg ? ` — ${serverMsg}` : ""}`,
+      res.status === 429 && Number.isFinite(retryAfterS) && retryAfterS > 0
+        ? retryAfterS * 1000
+        : null,
     );
   }
   return (await res.json()) as T;

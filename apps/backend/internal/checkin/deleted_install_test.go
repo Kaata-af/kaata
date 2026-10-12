@@ -2,6 +2,7 @@ package checkin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -193,6 +194,75 @@ func TestAccountDeletionGracePendingCheckInDoesNotMutateRetainedData(t *testing.
 				 FROM installs WHERE install_id=$1::uuid`, install, account).Scan(&intact); err != nil || !intact {
 					t.Fatalf("pending check-in changed retained identity/usage: intact=%v err=%v", intact, err)
 				}
+			}
+		})
+	}
+}
+
+// During the 30-day grace window a retired phone must be told to sign in
+// (which cancels the deletion), not to reset itself and erase its ledger.
+func TestPendingDeletionCheckInTellsAppToSignInUntilDeadline(t *testing.T) {
+	type body struct {
+		Error            string `json:"error"`
+		ErrorCode        string `json:"error_code"`
+		RecoverableUntil string `json:"recoverable_until"`
+	}
+	checkIn := func(t *testing.T, svc *Service, install string) body {
+		t.Helper()
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPost, "/v1/check-in", strings.NewReader(
+			`{"install_id":"`+install+`","app_version":"1.0.0","platform":"android"}`,
+		))
+		NewHandler(svc, nil).CheckIn(w, r)
+		if w.Code != http.StatusGone {
+			t.Fatalf("status = %d, want 410: %s", w.Code, w.Body.String())
+		}
+		var got body
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	for _, tc := range []struct {
+		name        string
+		requested   string // SQL interval before NOW(); "" = no pending deletion
+		recoverable bool
+	}{
+		{"pending one day", "1 day", true},
+		{"window expired", "31 days", false},
+		{"plain retired install", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pool := testutil.ConnectTestDB(t)
+			ctx := t.Context()
+			account, install := seedCheckInAccount(t, pool), uuid.NewString()
+			if tc.requested != "" {
+				if _, err := pool.Exec(ctx, `UPDATE accounts SET pending_delete_at = NOW() - $2::interval WHERE id = $1::uuid`,
+					account, tc.requested); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := pool.Exec(ctx, `INSERT INTO installs (install_id, account_id, account_deleted_at, deletion_account_id)
+				VALUES ($1::uuid, $2::uuid, NOW(), $2::uuid)`, install, account); err != nil {
+				t.Fatal(err)
+			}
+			got := checkIn(t, NewService(pool, "", nil), install)
+			if !tc.recoverable {
+				if got.RecoverableUntil != "" || got.ErrorCode == "account_deletion_pending" {
+					t.Fatalf("unrecoverable install told to sign in: %+v", got)
+				}
+				return
+			}
+			if got.ErrorCode != "account_deletion_pending" {
+				t.Fatalf("error_code = %q, want account_deletion_pending", got.ErrorCode)
+			}
+			until, err := time.Parse(time.RFC3339, got.RecoverableUntil)
+			if err != nil {
+				t.Fatalf("recoverable_until %q: %v", got.RecoverableUntil, err)
+			}
+			want := time.Now().Add(-24 * time.Hour).Add(30 * 24 * time.Hour)
+			if d := until.Sub(want); d < -2*time.Minute || d > 2*time.Minute {
+				t.Fatalf("recoverable_until = %s, want about %s", until, want)
 			}
 		})
 	}

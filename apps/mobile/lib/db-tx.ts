@@ -282,17 +282,41 @@ export function _resetActiveVaultIdCacheForReset(): void {
 // carry their own actor_account_id and don't need re-attribution.
 
 let cachedAccountId: string | null = null;
+// A sign-out (or an expired session) clears cachedAccountId for the rest of
+// the session, but the next launch primes it again from app_meta.account_id,
+// which a sign-out keeps. app_meta.session_ended remembers the sign-out so
+// personal device state scoped by account (customer reminders) stays hidden
+// across a relaunch, as docs/customer-reminders.md promises; it used to come
+// back after a restart (audit #25). Ledger writes and role checks keep using
+// getAccountIdSync, whose meaning this does not change.
+export const SESSION_ENDED_KEY = "session_ended";
+let sessionEnded = false;
+
+export function setSessionEndedSync(ended: boolean): void {
+  if (sessionEnded === ended) return;
+  sessionEnded = ended;
+  // Signing back in as the account the cache already holds changes no id, so
+  // personal device services would not hear of it otherwise.
+  notifyAccountIdentity();
+}
+
+/** The signed-in account, or null on a signed-out phone, launch after launch. */
+export function getSessionAccountIdSync(): string | null {
+  return sessionEnded ? null : cachedAccountId;
+}
 
 export function setAccountIdCache(id: string | null): void {
   const changed = cachedAccountId !== id;
   cachedAccountId = id;
-  if (changed) {
-    for (const listener of [...accountIdentityListeners]) {
-      try {
-        listener();
-      } catch {
-        /* A consumer cannot interrupt sign-in. */
-      }
+  if (changed) notifyAccountIdentity();
+}
+
+function notifyAccountIdentity(): void {
+  for (const listener of [...accountIdentityListeners]) {
+    try {
+      listener();
+    } catch {
+      /* A consumer cannot interrupt sign-in. */
     }
   }
 }
@@ -319,11 +343,14 @@ export function getAccountIdSync(): string | null {
 export async function refreshAccountIdCache(): Promise<string | null> {
   const db = await getDb();
   const v = await getAppMetaInTx(db, "account_id");
+  // Before the cache, so identity listeners already see the right scope.
+  setSessionEndedSync((await getAppMetaInTx(db, SESSION_ENDED_KEY)) === "1");
   setAccountIdCache(v);
   return v;
 }
 
 // Used by resetAllLocalData().
 export function _resetAccountIdCacheForReset(): void {
+  setSessionEndedSync(false);
   setAccountIdCache(null);
 }

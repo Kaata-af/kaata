@@ -250,6 +250,7 @@ const en = {
   "onboardingRestore.startFresh": "Start fresh",
   "onboardingRestore.errorTitle": "Couldn't restore",
   "onboardingRestore.errorSessionExpired": "Your sign-in expired. Sign in again to restore.",
+  "onboardingRestore.signInAgain": "Sign in again",
   "onboardingRestore.errorTimeout": "Network was too slow. Try again on a better connection.",
   "onboardingRestore.errorGeneric": "Something went wrong. Try again.",
 
@@ -363,7 +364,7 @@ const en = {
   "person.date.month": "This month",
   "person.date.custom": "Custom range",
   "person.date.pickStart": "Choose a start date",
-  "person.date.pickEnd": "Choose an end date",
+  "person.date.pickEnd": "Choose an end date, or tap the same day again for one day",
   "person.date.rangeReady": "Tap a date to start a new range",
   "person.date.chooseRange": "Choose two dates for the range",
   "person.date.startTime": "Start time",
@@ -386,15 +387,18 @@ const en = {
   "customers.search": "Search customers",
   "customers.search.clear": "Clear customer search",
   "customers.noResults": "No matching customers",
+  "customers.otherSide.pay": "{count} more in To pay",
+  "customers.otherSide.collect": "{count} more in To collect",
+  "customers.otherSideOnly.pay": "{count} found in To pay",
+  "customers.otherSideOnly.collect": "{count} found in To collect",
   "customers.sort": "Sort customers",
   "customers.sort.recent": "Recent activity",
   "customers.sort.name_asc": "Name · A–Z",
   "customers.sort.name_desc": "Name · Z–A",
   "customers.sort.amount_desc": "Amount · largest first",
   "customers.sort.amount_asc": "Amount · smallest first",
-  "customers.sort.date_desc": "Last tally · newest first",
   "customers.sort.date_asc": "Last tally · oldest first",
-  "customers.filtered": "{shown} of {total} customers · totals include everyone",
+  "customers.filtered": "{shown} of {total} customers: {amount} of the total above",
   "groups.filter": "Groups",
   "groups.filterHelp": "Choose groups to show customers in any of them.",
   "groups.all": "All customers",
@@ -405,6 +409,14 @@ const en = {
     "Create your own groups for this kaata. Each customer can belong to several groups. Groups organize the list; they do not change access or balances.",
   "groups.personAction": "Customer groups",
   "groups.personHelp": "Choose one or more groups for this customer in this kaata.",
+  "groups.members.help":
+    "Tick customers to put them in this group, untick to take them out. Changes are saved with Done or when you go back.",
+  "groups.members.viewHelp": "Customers in this group.",
+  "groups.members.search": "Search customers",
+  "groups.members.none": "No customers in this group yet.",
+  "groups.members.missing": "This group is no longer available.",
+  "groups.members.open": "Shows who is in this group",
+  "groups.memberCountOne": "{count} customer",
   "groups.memberCount": "{count} customers",
   "groups.edit": "Edit {name}",
   "groups.empty": "No groups yet.",
@@ -418,24 +430,48 @@ const en = {
   "groups.archiveTitle": "Remove {name}?",
   "groups.archiveHelp":
     "Customers keep their other groups. Their tallies and balances stay the same.",
-  "customers.noGroupResults": "No customers in this group on this side.",
+  "customers.noGroupResults": "No customers from the selected groups on this side.",
   "groups.view": "Group: {name}",
+  "groups.viewMany": "Groups: {name}",
+  "groups.clearFilter": "Shows all customers again",
   "reminders.channel": "Customer reminders",
   "credit.title": "Credit limits",
+  "credit.defaultTitle": "Default credit limit",
+  "credit.defaultHelp":
+    "Applies to every customer without their own limit, including customers added later. A customer's own limit always wins.",
+  "credit.usesDefault":
+    "This customer has no limit of their own, so the kaata's default limit applies. Saving here gives them their own.",
+  "credit.defaultRow": "Default credit limit",
+  "credit.defaultRowHint": "For customers without their own limit",
   "credit.maxCollect": "Maximum they owe us",
   "credit.maxPay": "Maximum we owe them",
   "credit.unlimited": "No limit",
   "credit.warnMode": "Warn only",
   "credit.hardMode": "Restrict clerks",
   "credit.hardHelp":
-    "In cloud-connected kaatas, every new clerk tally needs a connection, even with warnings or no limit. Local paired kaatas work offline until cloud enrollment. Repayments are allowed; owners, managers and editors can override a limit.",
+    "Clerks record tallies offline as usual. For a customer under a restricted limit, a clerk's new tally waits for the server's OK and is refused if it goes over. Repayments are always allowed; owners, managers and editors can go over a limit.",
+  "credit.forCustomer": "For {name}",
+  "credit.zeroHelp":
+    "Leave a field blank for no limit. 0 means no credit at all in that direction.",
+  "credit.loadFailed": "Could not load the limits. Go back and open them again.",
+  "credit.limitLeft": "Limit {limit} · {left} left",
+  "credit.limitOver": "Limit {limit} · {over} over",
   "credit.clerksNeedSignIn": "Ask every clerk to sign in and sync before enabling restrictions.",
   "credit.warning": "This tally exceeds the credit limit",
   "credit.blocked": "Credit limit exceeded. This tally was not recorded.",
   "credit.pending": "Waiting for server confirmation",
+  "credit.pendingHold":
+    "Waiting for the server to check the limit. Hand nothing over until it's confirmed.",
+  "credit.signInToSend": "Not sent: sign in so the server can check it",
+  "credit.refusalOne": "The limit stopped a tally by {name}: {what}, {when}",
+  "credit.refusalMany":
+    "The limit stopped {count} tallies in the last 30 days. Latest by {name}: {what}, {when}",
+  "credit.refusalSomeone": "a clerk",
+  "tab.savedSignIn": "Saved on this phone. Sign in to send it to {name}.",
   "credit.refused": "Credit limit exceeded — not recorded",
   "credit.intentsTitle": "Waiting / not recorded",
-  "credit.onlineSave": "Shared limits and clerk restrictions need sign-in and an online save.",
+  "credit.onlineSave":
+    "Once you're signed in, every save of a limit needs a connection, so all phones get the same rule.",
   "credit.saveFailed": "Could not save the limits. Check your connection and try again.",
   "credit.limitInvalid": "Enter zero or a positive amount with up to two decimals",
   "credit.recorded": "Recorded",
@@ -463,7 +499,7 @@ const en = {
   "reminders.onMonthlyDay": "Day {day} of every Gregorian month at {time}",
   "reminders.onMonthInterval": "Every {months} Gregorian months, day {day}, at {time}",
   "reminders.scheduleLimit":
-    "These schedules use too many notification slots. Select fewer weekdays, or remove another reminder.",
+    "This phone has no notification slots left for this schedule. Choose fewer weekdays or a longer interval, or remove another reminder.",
   "reminders.date": "Date",
   "reminders.time": "Time",
   "reminders.weekday": "Day of week",
@@ -482,17 +518,24 @@ const en = {
   "reminders.future": "Choose a future date and time.",
   "reminders.unavailable": "This customer is no longer available.",
   "reminders.permissionDenied": "Saved. Notifications are off; this reminder will appear in Kaata.",
+  "reminders.notificationsOff":
+    "Notifications are off for Kaata, so reminders only show inside the app. Turn them on in Settings to be alerted on time.",
   "reminders.permissionUnavailable": "Saved. This build supports reminders inside Kaata.",
   "reminders.nativeFailed":
     "Saved. Phone notifications could not be scheduled; the reminder remains in Kaata.",
   "reminders.limit": "This phone can have up to 40 active reminders.",
+  "reminders.loadFailed":
+    "Reminders couldn't be read on this phone. Try again; if it keeps failing, restart Kaata.",
   "reminders.notifyBody": "A customer reminder is due. Open Kaata to view it.",
-  "person.flows.gave": "Given · {count}",
-  "person.flows.received": "Received · {count}",
+  "reminders.notifyBodyNamed": "Time to notify {name} about their tally. Open Kaata to send it.",
+  "person.flows.allTime": "All time",
+  "person.flows.gave": "I gave ({count})",
+  "person.flows.received": "I received ({count})",
   "person.flows.hint":
     "Recorded gives and receives across available history. Opening balances are not counted as new handovers.",
   "onboardingCalendar.title": "Choose your date format",
   "onboardingCalendar.subtitle": "Use the dates you know. You can change this later in Account.",
+  "person.search.result": "{count} matching tally · balance includes all tallies",
   "person.search.results": "{count} matching tallies · balance includes all tallies",
   "person.search.empty.title": "No matching tallies",
   "person.search.empty.subtitle": "Try another note or amount, or clear the filters.",
@@ -529,6 +572,7 @@ const en = {
   "personAdd.save.failed":
     "Couldn't finish saving this person. Reopen Kaata and try again. If it keeps happening, share an App health report.",
   "personAdd.section.matches": "Matches",
+  "personAdd.section.existing": "Already in this kaata",
   "personAdd.section.recent": "Recent",
   "personAdd.section.fromPhone": "From your phone",
   "personAdd.section.allContacts": "All contacts",
@@ -631,7 +675,15 @@ const en = {
   "settings.calendar.option.jalali": "Solar Hijri",
   "settings.calendar.option.qamari": "Lunar Hijri (Qamari)",
   "settings.calendar.hint.qamari":
-    "Calculated calendar. Local moon sighting may give a different date.",
+    "Calculated calendar. If your moon sighting differs, adjust it in Account.",
+  "settings.qamariOffset.label": "Adjust Qamari date",
+  "settings.qamariOffset.hint": "For when the date is a day off from your moon sighting",
+  "settings.qamariOffset.none": "No change",
+  "settings.qamariOffset.later1": "1 day later",
+  "settings.qamariOffset.later2": "2 days later",
+  "settings.qamariOffset.earlier1": "1 day earlier",
+  "settings.qamariOffset.earlier2": "2 days earlier",
+  "settings.qamariOffset.changed": "Qamari dates adjusted",
   // Subtitles carry a live example, which is the only thing that actually
   // tells a shopkeeper what they are picking.
   "settings.calendar.hint.auto": "Follows your language",
@@ -734,6 +786,7 @@ const en = {
   "share.whatsappUnavailable": "Couldn't open WhatsApp. Is it installed on this phone?",
   "common.retry": "Retry",
   "common.done": "Done",
+  "common.close": "Close",
   "common.loading": "Loading…",
   "common.tryAgain": "Try again",
   "common.removed": "{name} removed",
@@ -744,6 +797,8 @@ const en = {
   // Shared by the invite/[token] + pair/[token] deep-link screens (their
   // sign-in gates and error states use identical copy).
   "common.notNow": "Not now",
+  "person.ping.nudge": "Let {name} know on WhatsApp?",
+  "person.ping.nudgeSend": "Send",
   "common.backToKaata": "Back to Kaata",
   "common.signInToContinue": "Sign in to continue",
 
@@ -949,8 +1004,10 @@ const en = {
   "menu.account.signIn.email": "Sign in with email",
   "menu.account.signIn.toast": "Signed in",
   "menu.account.signIn.partialToast":
-    "Signed in, but {count} kaata(s) couldn't be restored. Pull down to retry.",
+    "Signed in, but {count} kaata(s) couldn't be restored. Sign in again to retry.",
   "menu.account.signIn.failed": "Couldn't sign in — try again",
+  "auth.error.recoveryUnavailable":
+    "You're signed in, but your kaatas couldn't be restored. Check your connection and try again.",
   "menu.account.signIn.signingIn": "Signing in…",
   "menu.account.signIn.restoring": "Restoring your kaatas…",
   "menu.account.signOut": "Sign out",
@@ -1036,7 +1093,7 @@ const en = {
   "account.deleteAccount.hint": "30 days to recover by signing back in",
   "account.deleteAccount.confirm.title": "Delete your account?",
   "account.deleteAccount.confirm.body":
-    "We will back up your saved tallies, sign you out and clear this phone. Your account and cloud data will be kept for 30 days, then permanently deleted. Sign back in within 30 days to cancel and restore saved cloud data you still have access to. Export private reminders, Not sent drafts and shared archives you can no longer access first. Previously purged data cannot return. Other participants keep shared tally history. Deletion does not settle a balance.",
+    "We will back up your saved tallies, sign you out and clear this phone. Your account and cloud data will be kept for 30 days, then permanently deleted. Sign back in within 30 days to cancel and restore saved cloud data you still have access to. Private reminders and Not sent drafts are only on this phone and will be lost, so note down any you need. Export statements of shared accounts you can no longer reach from the customer's page first. Previously purged data cannot return. Other participants keep shared tally history. Deletion does not settle a balance.",
   "account.deleteAccount.confirm.cta": "Delete account",
   "account.deleteAccount.preparing": "Saving a recovery copy…",
   "account.deleteAccount.backupFailed":
@@ -1059,7 +1116,12 @@ const en = {
   // still arrive. Only signing in and backing up need the reset.
   "account.retired.title": "This phone's account was deleted",
   "account.retired.body":
-    "The account this phone last signed in to has been deleted. Your kaatas still work on this phone. To sign in or back up again, export anything you need first, then reset this phone, which erases everything Kaata keeps on it.",
+    "The account this phone last signed in to was deleted. Your kaatas still work on this phone. If it was deleted less than 30 days ago, sign in with the same account to cancel the deletion and get everything back. Otherwise, to sign in or back up again, export anything you need first, then reset this phone, which erases everything Kaata keeps on it.",
+  // While the account is inside its 30-day grace window (the server says so).
+  "account.retired.pendingTitle": "Account deletion pending",
+  "account.retired.pendingBody":
+    "This phone's account will be deleted for good on {date}. Sign in with the same account before then to cancel the deletion and get everything back. Your kaatas still work on this phone meanwhile.",
+  "account.retired.signInCancel": "Sign in to cancel deletion",
   "account.retired.reset": "Reset this phone",
   "account.retired.confirm.title": "Reset this phone?",
   "account.retired.confirm.body":
@@ -1381,6 +1443,7 @@ const en = {
   "members.sheet.makeViewer": "Make viewer",
   // Roles v2 Phase B — granting UI.
   "members.sheet.makeManager": "Make manager",
+  "members.appleHiddenEmail": "Apple account · email hidden",
   "members.sheet.makeClerk": "Make clerk",
   "members.sheet.transfer": "Transfer ownership",
   "members.sheet.remove": "Remove from vault",
@@ -1410,7 +1473,10 @@ const en = {
   "invite.link.createAnother": "Create another link",
   "invite.link.viewerDisclosure":
     "Viewers can see everything in this Kaata — all balances and phone numbers — but can't make changes.",
-  "invite.link.editorDisclosure": "Editors can add and edit tallies in this Kaata.",
+  "invite.link.editorDisclosure":
+    "Editors can add, edit and delete tallies in this Kaata. In shared accounts they can also accept or reject the other side's tallies (final) and unlink the account.",
+  "invite.managerNote":
+    "Managers also set credit limits and manage members. Invite the person first, then open Members, tap their name and choose Make manager.",
   "invite.link.clerkDisclosure":
     "Clerks can add new tallies but can never change or delete history.",
   "invite.link.ready": "Link ready",
@@ -1586,6 +1652,7 @@ const en = {
   "export.doc.clearedUnnamed": "Cleared on {date} (name not recorded)",
   "export.col.date": "Date",
   "export.col.dateShamsi": "Date (Shamsi)",
+  "export.col.dateQamari": "Date (Qamari)",
   "export.col.person": "Name",
   "export.col.phone": "Phone",
   "export.col.note": "Note",
@@ -1765,7 +1832,9 @@ const en = {
   "tab.status.accepted": "Accepted",
   "tab.feedback.accepted": "Tally ({amount}) accepted.",
   "tab.feedback.rejected": "Tally ({amount}) rejected. Excluded from the balance.",
-  "tab.feedback.reviewed": "{count} tallies reviewed. Their statuses are updated.",
+  "tab.feedback.manyAccepted": "{count} tallies accepted.",
+  "tab.feedback.manyRejected": "{count} tallies rejected. Excluded from the balance.",
+  "tab.feedback.mixed": "{accepted} accepted, {rejected} rejected. Rejected tallies don't count.",
   "tab.status.pending": "Pending",
   "tab.status.disputed": "Rejected",
   "tab.status.voided": "Voided",
@@ -1796,6 +1865,7 @@ const en = {
   "tab.dispute.notFound": "This tally is no longer on the shared account.",
   "tab.disputed": "Rejected — removed from the balance",
   "tab.closed": "This shared account was closed.",
+  "tab.closedNote": "Shared account closed on {date}. New tallies here are private.",
   "tab.settle.confirm":
     "The reviewed balance with {name} is zero. Move these tallies into shared history for both of you and start a fresh page? The records stay saved, and you can keep using this shared account.",
   "tab.settle.pending": "Review and sync all pending tallies before clearing this account.",
@@ -1815,6 +1885,9 @@ const en = {
   // by {name}" / "so {name} understands", and "they" turns both ungrammatical.
   "tab.them": "the other side",
   "tab.row.pending": "{count} to review",
+  "tab.row.notDownloaded": "Shared account not downloaded yet",
+  "tab.notDownloaded":
+    "This shared account hasn't downloaded to this phone yet. Its balance appears once it does; check your connection if this stays.",
   // Outgoing WhatsApp invite. The URL sits on its own line, exactly like
   // share.fullLedger's link: nothing (not even an invisible bidi mark) may
   // touch it, or some clients stop recognising it as a link.
@@ -1847,6 +1920,8 @@ const en = {
   "tab.join.notFound": "This link is not valid any more.",
   "tab.join.currencyMismatch": "Your kaata is in {kaata}; this account is in {tab}.",
   "tab.join.sameKaata": "You can't share an account with your own kaata.",
+  "tab.join.sameAccount":
+    "You are already on the other side of this shared account (it is your kaata, or you are a member of it). Join with a different account.",
   "tab.join.alreadyLinked": "This contact already has a shared account.",
   // TabCurrencyMismatchError.serverStale: the kaata already matches locally,
   // only the server's copy of its currency is behind (event not pushed yet).
@@ -2118,6 +2193,7 @@ const fa: Partial<Record<Key, string>> = {
   "onboardingRestore.startFresh": "شروع تازه",
   "onboardingRestore.errorTitle": "بازیابی ممکن نشد",
   "onboardingRestore.errorSessionExpired": "نشست شما منقضی شد. برای بازیابی دوباره وارد شوید.",
+  "onboardingRestore.signInAgain": "دوباره وارد شوید",
   "onboardingRestore.errorTimeout": "شبکه خیلی کند بود. با اتصال بهتر دوباره تلاش کنید.",
   "onboardingRestore.errorGeneric": "مشکلی پیش آمد. دوباره تلاش کنید.",
 
@@ -2213,7 +2289,7 @@ const fa: Partial<Record<Key, string>> = {
   "person.date.month": "این ماه",
   "person.date.custom": "بازه دلخواه",
   "person.date.pickStart": "تاریخ آغاز را انتخاب کنید",
-  "person.date.pickEnd": "تاریخ پایان را انتخاب کنید",
+  "person.date.pickEnd": "تاریخ پایان را انتخاب کنید، یا برای یک روز همان روز را دوباره لمس کنید",
   "person.date.rangeReady": "برای بازه تازه، یک تاریخ را لمس کنید",
   "person.date.chooseRange": "دو تاریخ برای بازه انتخاب کنید",
   "person.date.startTime": "ساعت آغاز",
@@ -2236,15 +2312,18 @@ const fa: Partial<Record<Key, string>> = {
   "customers.search": "جستجوی مشتری‌ها",
   "customers.search.clear": "پاک‌کردن جستجوی مشتری‌ها",
   "customers.noResults": "مشتری مطابق جستجو پیدا نشد",
+  "customers.otherSide.pay": "{count} مشتری دیگر در بخش پرداخت",
+  "customers.otherSide.collect": "{count} مشتری دیگر در بخش وصول",
+  "customers.otherSideOnly.pay": "{count} مشتری در بخش پرداخت پیدا شد",
+  "customers.otherSideOnly.collect": "{count} مشتری در بخش وصول پیدا شد",
   "customers.sort": "ترتیب مشتری‌ها",
   "customers.sort.recent": "فعالیت تازه",
   "customers.sort.name_asc": "نام · الف تا ی",
   "customers.sort.name_desc": "نام · ی تا الف",
   "customers.sort.amount_desc": "مبلغ · بزرگ‌تر اول",
   "customers.sort.amount_asc": "مبلغ · کوچک‌تر اول",
-  "customers.sort.date_desc": "آخرین ثبت · تازه‌تر اول",
   "customers.sort.date_asc": "آخرین ثبت · قدیمی‌تر اول",
-  "customers.filtered": "{shown} از {total} مشتری · جمع شامل همه است",
+  "customers.filtered": "{shown} از {total} مشتری: {amount} از جمع بالا",
   "groups.filter": "گروه‌ها",
   "groups.filterHelp": "مشتری‌های هر یک از گروه‌های انتخاب‌شده نمایش داده می‌شوند.",
   "groups.all": "همهٔ مشتری‌ها",
@@ -2255,6 +2334,14 @@ const fa: Partial<Record<Key, string>> = {
     "برای این کاتا گروه دلخواه بسازید. هر مشتری می‌تواند در چند گروه باشد. گروه‌ها فهرست را منظم می‌کنند؛ دسترسی یا بیلانس را تغییر نمی‌دهند.",
   "groups.personAction": "گروه‌های مشتری",
   "groups.personHelp": "در این کاتا برای این مشتری یک یا چند گروه انتخاب کنید.",
+  "groups.members.help":
+    "مشتری‌ها را برای افزودن به این گروه نشانی کنید و برای بیرون کردن، نشانی را بردارید. تغییرات با «تمام» یا هنگام برگشتن ذخیره می‌شوند.",
+  "groups.members.viewHelp": "مشتری‌های این گروه.",
+  "groups.members.search": "جستجوی مشتری",
+  "groups.members.none": "هنوز مشتری‌ای در این گروه نیست.",
+  "groups.members.missing": "این گروه دیگر در دسترس نیست.",
+  "groups.members.open": "نشان می‌دهد چه کسانی در این گروه هستند",
+  "groups.memberCountOne": "{count} مشتری",
   "groups.memberCount": "{count} مشتری",
   "groups.edit": "ویرایش {name}",
   "groups.empty": "هنوز گروهی نیست.",
@@ -2268,25 +2355,47 @@ const fa: Partial<Record<Key, string>> = {
   "groups.archiveTitle": "{name} حذف شود؟",
   "groups.archiveHelp":
     "گروه‌های دیگر مشتری‌ها باقی می‌مانند. ثبت‌ها و بیلانس آن‌ها تغییر نمی‌کند.",
-  "customers.noGroupResults": "در این بخش مشتری‌ای از این گروه نیست.",
+  "customers.noGroupResults": "در این بخش مشتری‌ای از گروه‌های انتخاب‌شده نیست.",
   "groups.view": "گروه: {name}",
+  "groups.viewMany": "گروه‌ها: {name}",
+  "groups.clearFilter": "دوباره همه مشتری‌ها را نشان می‌دهد",
   "reminders.channel": "یادآوری مشتری‌ها",
   "credit.title": "حد قرض",
+  "credit.defaultTitle": "حد قرض پیش‌فرض",
+  "credit.defaultHelp":
+    "برای هر مشتری که حد قرض جداگانه ندارد اعمال می‌شود، از جمله مشتریانی که بعداً اضافه می‌شوند. حد قرض خودِ مشتری همیشه مقدم است.",
+  "credit.usesDefault":
+    "این مشتری حد قرض جداگانه ندارد، پس حد قرض پیش‌فرض کاتا بر او اعمال می‌شود. با ذخیره کردن در اینجا، حد جداگانه برایش تعیین می‌شود.",
+  "credit.defaultRow": "حد قرض پیش‌فرض",
+  "credit.defaultRowHint": "برای مشتریانی که حد جداگانه ندارند",
   "credit.maxCollect": "بیشترین قرض آن‌ها به ما",
   "credit.maxPay": "بیشترین قرض ما به آن‌ها",
   "credit.unlimited": "بدون حد",
   "credit.warnMode": "فقط هشدار بده",
-  "credit.hardMode": "محدودکردن ثبت‌های کارمند",
+  "credit.hardMode": "محدودکردن ثبت‌کننده‌ها",
   "credit.hardHelp":
-    "در کاتای وصل به ابر، هر ثبت جدید کارمند به اینترنت نیاز دارد، حتی با هشدار یا بدون حد. کاتای محلیِ جفت‌شده تا وصل‌شدن به ابر آفلاین کار می‌کند. پرداخت قرض مجاز است؛ مالک، مدیر و ویرایشگر می‌توانند از حد عبور کنند.",
+    "ثبت‌کننده‌ها مثل همیشه بدون اینترنت ثبت می‌کنند. برای مشتری با حد محدود، ثبت تازهٔ ثبت‌کننده منتظر تأیید سرور می‌ماند و اگر از حد بگذرد رد می‌شود. پرداخت قرض همیشه مجاز است؛ مالک، مدیر و ویرایشگر می‌توانند از حد بگذرند.",
+  "credit.forCustomer": "برای {name}",
+  "credit.zeroHelp": "برای بدون حد، خانه را خالی بگذارید. ۰ یعنی در آن طرف هیچ قرضی نه.",
+  "credit.loadFailed": "حد قرض بارگیری نشد. برگردید و دوباره باز کنید.",
+  "credit.limitLeft": "حد {limit} · {left} باقی",
+  "credit.limitOver": "حد {limit} · {over} بیشتر",
   "credit.clerksNeedSignIn":
-    "پیش از فعال‌کردن محدودیت، از همهٔ کارمندان بخواهید وارد حساب شوند و همگام کنند.",
+    "پیش از فعال‌کردن محدودیت، از همهٔ ثبت‌کننده‌ها بخواهید وارد حساب شوند و همگام کنند.",
   "credit.warning": "این ثبت از حد قرض بیشتر می‌شود",
   "credit.blocked": "حد قرض گذشته است. این ثبت حساب نشد.",
   "credit.pending": "منتظر تأیید سرور",
+  "credit.pendingHold": "منتظر بررسی حد قرض از طرف سرور. تا تأیید نشده، چیزی تحویل ندهید.",
+  "credit.signInToSend": "ارسال نشده: وارد حساب شوید تا سرور آن را بررسی کند",
+  "credit.refusalOne": "حد قرض جلوی ثبت {name} را گرفت: {what}، {when}",
+  "credit.refusalMany":
+    "حد قرض در ۳۰ روز گذشته جلوی {count} ثبت را گرفت. آخرین از {name}: {what}، {when}",
+  "credit.refusalSomeone": "یک ثبت‌کننده",
+  "tab.savedSignIn": "در این تلفون ذخیره شد. برای فرستادن به {name} وارد حساب شوید.",
   "credit.refused": "بیشتر از حد قرض — حساب نشده",
   "credit.intentsTitle": "منتظر / حساب نشده",
-  "credit.onlineSave": "حد قرض مشترک و محدودیت کارمند به ورود به حساب و ذخیرهٔ آنلاین نیاز دارد.",
+  "credit.onlineSave":
+    "وقتی وارد حساب هستید، هر ذخیرهٔ حد قرض به اینترنت نیاز دارد تا همه تلفون‌ها یک قاعده داشته باشند.",
   "credit.saveFailed": "حد قرض ذخیره نشد. اتصال را بررسی کنید و دوباره کوشش کنید.",
   "credit.limitInvalid": "صفر یا مبلغ مثبت با حداکثر دو رقم اعشار وارد کنید",
   "credit.recorded": "حساب شد",
@@ -2314,7 +2423,7 @@ const fa: Partial<Record<Key, string>> = {
   "reminders.onMonthlyDay": "روز {day} هر ماه میلادی، ساعت {time}",
   "reminders.onMonthInterval": "هر {months} ماه میلادی، روز {day}، ساعت {time}",
   "reminders.scheduleLimit":
-    "این برنامه‌ها جای زیادی برای اعلان می‌گیرند. روزهای کمتری را انتخاب کنید یا یک یادآوری دیگر را حذف کنید.",
+    "جای اعلان برای این برنامه در این تلفن نمانده است. روزهای کمتر یا فاصلهٔ طولانی‌تر انتخاب کنید، یا یک یادآوری دیگر را حذف کنید.",
   "reminders.date": "تاریخ",
   "reminders.time": "وقت",
   "reminders.weekday": "روز هفته",
@@ -2334,17 +2443,25 @@ const fa: Partial<Record<Key, string>> = {
   "reminders.unavailable": "این مشتری دیگر در دسترس نیست.",
   "reminders.permissionDenied":
     "ذخیره شد. اعلان‌ها خاموش‌اند؛ این یادآوری در کاتا نشان داده می‌شود.",
+  "reminders.notificationsOff":
+    "اعلان‌های کاتا خاموش‌اند، پس یادآوری‌ها فقط داخل برنامه دیده می‌شوند. برای اینکه به‌وقت باخبر شوید، آن‌ها را در تنظیمات روشن کنید.",
   "reminders.permissionUnavailable": "ذخیره شد. در این نسخه، یادآوری در کاتا نشان داده می‌شود.",
   "reminders.nativeFailed": "ذخیره شد. اعلان تلفن تنظیم نشد؛ یادآوری در کاتا باقی می‌ماند.",
   "reminders.limit": "در این تلفن تا ۴۰ یادآوری فعال می‌توانید داشته باشید.",
+  "reminders.loadFailed":
+    "یادآوری‌ها در این تلفن خوانده نشدند. دوباره امتحان کنید؛ اگر باز نشد، کاتا را دوباره باز کنید.",
   "reminders.notifyBody": "وقت یادآوری یک مشتری رسیده است. برای دیدن آن کاتا را باز کنید.",
-  "person.flows.gave": "داده‌شده · {count}",
-  "person.flows.received": "گرفته‌شده · {count}",
+  "reminders.notifyBodyNamed":
+    "وقت آن است که {name} را از حسابش باخبر کنید. برای فرستادن، کاتا را باز کنید.",
+  "person.flows.allTime": "همه زمان‌ها",
+  "person.flows.gave": "دادم ({count})",
+  "person.flows.received": "گرفتم ({count})",
   "person.flows.hint":
     "ثبت‌های داد و گرفت در تاریخچهٔ موجود. بیلانس آغازین به‌عنوان داد و گرفت جدید حساب نمی‌شود.",
   "onboardingCalendar.title": "شیوهٔ نمایش تاریخ را انتخاب کنید",
   "onboardingCalendar.subtitle":
     "تاریخ‌ها را به شیوه‌ای که می‌شناسید ببینید. بعداً می‌توانید آن را در حساب تغییر دهید.",
+  "person.search.result": "{count} ثبت پیدا شد · بیلانس شامل همه ثبت‌ها است",
   "person.search.results": "{count} ثبت پیدا شد · بیلانس شامل همه ثبت‌ها است",
   "person.search.empty.title": "ثبتی پیدا نشد",
   "person.search.empty.subtitle": "یادداشت یا مقدار دیگری را جستجو کنید یا فیلترها را پاک کنید.",
@@ -2382,6 +2499,7 @@ const fa: Partial<Record<Key, string>> = {
   "personAdd.save.failed":
     "ذخیرهٔ این شخص کامل نشد. کاتا را دوباره باز کنید و امتحان کنید. اگر مشکل ادامه داشت، گزارش وضعیت برنامه را بفرستید.",
   "personAdd.section.matches": "نتایج",
+  "personAdd.section.existing": "از قبل در این کاتا",
   "personAdd.section.recent": "اخیر",
   "personAdd.section.fromPhone": "از مخاطبین تلفن",
   "personAdd.section.allContacts": "همه مخاطبین",
@@ -2487,7 +2605,15 @@ const fa: Partial<Record<Key, string>> = {
   "settings.calendar.option.jalali": "هجری شمسی",
   "settings.calendar.option.qamari": "هجری قمری",
   "settings.calendar.hint.qamari":
-    "تقویم محاسبه‌شده؛ تاریخ بر اساس دیدن ماه در محل ممکن است فرق کند.",
+    "تقویم محاسبه‌شده؛ اگر با دیدن ماه در محل شما فرق کند، در حساب تنظیمش کنید.",
+  "settings.qamariOffset.label": "تنظیم تاریخ قمری",
+  "settings.qamariOffset.hint": "وقتی تاریخ با دیدن ماه در محل شما یک روز فرق دارد",
+  "settings.qamariOffset.none": "بدون تغییر",
+  "settings.qamariOffset.later1": "یک روز بعد",
+  "settings.qamariOffset.later2": "دو روز بعد",
+  "settings.qamariOffset.earlier1": "یک روز قبل",
+  "settings.qamariOffset.earlier2": "دو روز قبل",
+  "settings.qamariOffset.changed": "تاریخ‌های قمری تنظیم شد",
   "settings.calendar.hint.auto": "از زبان شما پیروی می‌کند",
   "settings.calendar.changed": "تقویم تغییر کرد.",
   "settings.messageLang.label": "زبان پیام",
@@ -2557,6 +2683,8 @@ const fa: Partial<Record<Key, string>> = {
     "از لیست شما حذف می‌شود. ثبت‌های آن‌ها نگه داشته می‌شود — هر وقت خواستید از تنظیمات کاتا بازگردانید.",
   // Shared by the invite/[token] + pair/[token] deep-link screens.
   "common.notNow": "حالا نه",
+  "person.ping.nudge": "به {name} در واتساپ خبر بدهید؟",
+  "person.ping.nudgeSend": "ارسال",
   "common.backToKaata": "بازگشت به کاتا",
   "common.signInToContinue": "برای ادامه وارد شوید",
 
@@ -2707,8 +2835,10 @@ const fa: Partial<Record<Key, string>> = {
   "menu.account.signIn.email": "ورود با ایمیل",
   "menu.account.signIn.toast": "ورود انجام شد",
   "menu.account.signIn.partialToast":
-    "وارد شدید، اما {count} کاتا بازیابی نشد. برای تلاش دوباره به پایین بکشید.",
+    "وارد شدید، اما {count} کاتا بازیابی نشد. برای تلاش دوباره، دوباره وارد شوید.",
   "menu.account.signIn.failed": "ورود ناموفق — دوباره کوشش کنید",
+  "auth.error.recoveryUnavailable":
+    "وارد شدید، اما کاتاهای شما بازیابی نشدند. اتصال انترنت را بررسی کنید و دوباره امتحان کنید.",
   "menu.account.signIn.signingIn": "در حال ورود…",
   "menu.account.signIn.restoring": "در حال بازیابی کاتاها…",
   "menu.account.signOut": "خروج",
@@ -2786,7 +2916,7 @@ const fa: Partial<Record<Key, string>> = {
   "account.deleteAccount.hint": "برای بازیابی، تا ۳۰ روز دوباره وارد شوید",
   "account.deleteAccount.confirm.title": "حساب‌تان حذف شود؟",
   "account.deleteAccount.confirm.body":
-    "نخست از ثبت‌های ذخیره‌شدهٔ شما نسخهٔ ابری می‌گیریم، سپس شما خارج می‌شوید و معلومات این تلفون پاک می‌شود. حساب و معلومات ابری شما ۳۰ روز نگه داشته می‌شود و پس از آن برای همیشه حذف می‌گردد. برای لغو حذف و بازیابی معلومات ابری که هنوز به آن دسترسی دارید، ظرف ۳۰ روز دوباره وارد شوید. از یادآوری‌های شخصی، پیش‌نویس‌های «ارسال نشده» و آرشیف‌های مشترک که دیگر به آن‌ها دسترسی ندارید قبلاً خروجی بگیرید. معلوماتی که قبلاً برای همیشه پاک شده برنمی‌گردد. طرف‌های دیگر سابقهٔ حساب مشترک را نگه می‌دارند. حذف حساب هیچ بیلانسی را تصفیه نمی‌کند.",
+    "نخست از ثبت‌های ذخیره‌شدهٔ شما نسخهٔ ابری می‌گیریم، سپس شما خارج می‌شوید و معلومات این تلفون پاک می‌شود. حساب و معلومات ابری شما ۳۰ روز نگه داشته می‌شود و پس از آن برای همیشه حذف می‌گردد. برای لغو حذف و بازیابی معلومات ابری که هنوز به آن دسترسی دارید، ظرف ۳۰ روز دوباره وارد شوید. یادآوری‌های شخصی و پیش‌نویس‌های «ارسال نشده» فقط در همین تلفون هستند و از بین می‌روند؛ هر کدام را که لازم دارید یادداشت کنید. از صفحهٔ مشتری، صورت‌حساب حساب‌های مشترکی را که دیگر به آن‌ها دسترسی ندارید پیش از حذف خروجی بگیرید. معلوماتی که قبلاً برای همیشه پاک شده برنمی‌گردد. طرف‌های دیگر سابقهٔ حساب مشترک را نگه می‌دارند. حذف حساب هیچ بیلانسی را تصفیه نمی‌کند.",
   "account.deleteAccount.confirm.cta": "حذف حساب",
   "account.deleteAccount.preparing": "در حال ذخیرهٔ نسخهٔ بازیابی…",
   "account.deleteAccount.backupFailed":
@@ -2803,7 +2933,11 @@ const fa: Partial<Record<Key, string>> = {
     "پیش از حذف حساب دوباره وارد شوید. دفتر این تلفن حذف نشده است.",
   "account.retired.title": "حساب این تلفون حذف شده است",
   "account.retired.body":
-    "حسابی که این تلفون آخرین بار با آن وارد شده بود، حذف شده است. کاتاهای شما در این تلفون هنوز کار می‌کنند. برای ورود یا پشتیبان‌گیری دوباره، نخست از معلومات مورد نیازتان خروجی بگیرید، سپس این تلفون را از نو تنظیم کنید. این کار همه چیزهایی را که کاتا روی این تلفون نگه می‌دارد پاک می‌کند.",
+    "حسابی که این تلفون آخرین بار با آن وارد شده بود، حذف شده است. کاتاهای شما در این تلفون هنوز کار می‌کنند. اگر کمتر از ۳۰ روز از حذف آن گذشته است، با همان حساب دوباره وارد شوید تا حذف لغو شود و همه چیز برگردد. در غیر آن، برای ورود یا پشتیبان‌گیری دوباره، نخست از معلومات مورد نیازتان خروجی بگیرید، سپس این تلفون را از نو تنظیم کنید. این کار همه چیزهایی را که کاتا روی این تلفون نگه می‌دارد پاک می‌کند.",
+  "account.retired.pendingTitle": "حذف حساب در انتظار است",
+  "account.retired.pendingBody":
+    "حساب این تلفون در {date} برای همیشه حذف می‌شود. پیش از آن با همان حساب دوباره وارد شوید تا حذف لغو شود و همه چیز برگردد. تا آن وقت کاتاهای شما در این تلفون کار می‌کنند.",
+  "account.retired.signInCancel": "ورود و لغو حذف",
   "account.retired.reset": "از نو تنظیم کردن این تلفون",
   "account.retired.confirm.title": "این تلفون از نو تنظیم شود؟",
   "account.retired.confirm.body":
@@ -2982,6 +3116,7 @@ const fa: Partial<Record<Key, string>> = {
     "این لینک برای حساب دیگری ساخته شده. از مالک بخواهید دعوت ایمیلی بفرستد.",
 
   "common.done": "تمام",
+  "common.close": "بستن",
   "common.loading": "بارگیری…",
   "common.tryAgain": "دوباره کوشش",
 
@@ -3090,6 +3225,7 @@ const fa: Partial<Record<Key, string>> = {
   "members.sheet.makeEditor": "ویرایشگر کردن",
   "members.sheet.makeViewer": "بیننده کردن",
   "members.sheet.makeManager": "مدیر کردن",
+  "members.appleHiddenEmail": "حساب اپل · ایمیل پنهان",
   "members.sheet.makeClerk": "ثبت‌کننده کردن",
   "members.sheet.transfer": "انتقال مالکیت",
   "members.sheet.remove": "حذف از کاتا",
@@ -3112,7 +3248,10 @@ const fa: Partial<Record<Key, string>> = {
   "invite.link.createAnother": "ساختن لینک دیگر",
   "invite.link.viewerDisclosure":
     "بیننده‌ها همه‌چیز این کاتا را می‌بینند — همه مانده‌ها و شماره‌ها — اما نمی‌توانند تغییری بدهند.",
-  "invite.link.editorDisclosure": "ویرایشگرها می‌توانند در این کاتا ثبت اضافه و ویرایش کنند.",
+  "invite.link.editorDisclosure":
+    "ویرایشگرها می‌توانند در این کاتا ثبت اضافه، ویرایش و حذف کنند. در حساب‌های مشترک، ثبت‌های طرف مقابل را تأیید یا رد (نهایی) و حساب مشترک را قطع هم می‌توانند.",
+  "invite.managerNote":
+    "مدیرها حد قرض تعیین می‌کنند و اعضا را هم مدیریت می‌کنند. اول شخص را دعوت کنید، بعد در «اعضا» روی نامش بزنید و «مدیر کردن» را انتخاب کنید.",
   "invite.link.clerkDisclosure":
     "ثبت‌کننده‌ها می‌توانند ثبت تازه اضافه کنند اما هرگز نمی‌توانند سابقه را تغییر دهند یا حذف کنند.",
   "invite.link.ready": "لینک آماده شد",
@@ -3263,6 +3402,7 @@ const fa: Partial<Record<Key, string>> = {
   "export.doc.clearedUnnamed": "صاف‌شده در {date} (نام ثبت نشده)",
   "export.col.date": "تاریخ",
   "export.col.dateShamsi": "تاریخ شمسی",
+  "export.col.dateQamari": "تاریخ قمری",
   "export.col.person": "نام",
   "export.col.phone": "تلفون",
   "export.col.note": "یادداشت",
@@ -3417,7 +3557,9 @@ const fa: Partial<Record<Key, string>> = {
   "tab.status.accepted": "پذیرفته شده",
   "tab.feedback.accepted": "ثبت ({amount}) پذیرفته شد.",
   "tab.feedback.rejected": "ثبت ({amount}) رد شد و در بیلانس حساب نمی‌شود.",
-  "tab.feedback.reviewed": "{count} ثبت بررسی شد. وضعیت آن‌ها به‌روز شده است.",
+  "tab.feedback.manyAccepted": "{count} ثبت پذیرفته شد.",
+  "tab.feedback.manyRejected": "{count} ثبت رد شد و در بیلانس حساب نمی‌شود.",
+  "tab.feedback.mixed": "{accepted} پذیرفته شد، {rejected} رد شد. ثبت‌های ردشده حساب نمی‌شوند.",
   "tab.status.pending": "در انتظار",
   "tab.status.disputed": "رد شده",
   "tab.status.voided": "باطل",
@@ -3446,6 +3588,7 @@ const fa: Partial<Record<Key, string>> = {
   "tab.dispute.notFound": "این ثبت دیگر در حساب مشترک نیست.",
   "tab.disputed": "رد شد — از ماندهٔ حساب حذف شد",
   "tab.closed": "این حساب مشترک بسته شده است.",
+  "tab.closedNote": "حساب مشترک در {date} بسته شد. ثبت‌های تازه اینجا شخصی هستند.",
   "tab.settle.confirm":
     "بیلانس بررسی‌شده با {name} صفر است. این ثبت‌ها به سابقهٔ مشترک هر دوی شما منتقل و صفحهٔ تازه باز شود؟ ثبت‌ها محفوظ می‌مانند و می‌توانید از همین حساب مشترک استفاده کنید.",
   "tab.settle.pending": "پیش از صاف‌کردن حساب، همهٔ ثبت‌های در انتظار را بررسی و همگام کنید.",
@@ -3460,6 +3603,9 @@ const fa: Partial<Record<Key, string>> = {
   "tab.duplicateHint": "پیشتر توسط {name} ثبت شده — بررسی کنید دو بار حساب نشود.",
   "tab.them": "او",
   "tab.row.pending": "{count} برای بررسی",
+  "tab.row.notDownloaded": "حساب مشترک هنوز دانلود نشده",
+  "tab.notDownloaded":
+    "این حساب مشترک هنوز روی این تلفن دانلود نشده است. بیلانس آن پس از دانلود نمایش داده می‌شود؛ اگر همین‌طور ماند، اتصال انترنت را بررسی کنید.",
   "tab.invite.message":
     "{name} یک حساب کاتا را با شما شریک کرده است. لینک را باز کنید تا باقی‌مانده را ببینید و ثبت اضافه یا تأیید کنید:\n{url}",
   "tab.join.title": "حساب مشترک",
@@ -3477,6 +3623,8 @@ const fa: Partial<Record<Key, string>> = {
   "tab.join.notFound": "این لینک دیگر معتبر نیست.",
   "tab.join.currencyMismatch": "کاتای شما به {kaata} است؛ این حساب به {tab} است.",
   "tab.join.sameKaata": "حساب مشترک با کاتای خودتان ساخته نمی‌شود.",
+  "tab.join.sameAccount":
+    "شما همین حالا در طرف دیگرِ این حساب مشترک هستید (کاتای خودتان است یا عضو آن هستید). با یک حساب دیگر وارد شوید.",
   "tab.join.alreadyLinked": "این مخاطب از قبل یک حساب مشترک دارد.",
   "tab.join.currencyNotSynced":
     "تغییر ارز کاتای شما هنوز به سرور نرسیده است. اتصال انترنت را بررسی کنید و دوباره تلاش کنید.",

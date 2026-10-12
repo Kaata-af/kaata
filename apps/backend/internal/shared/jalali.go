@@ -53,8 +53,10 @@ var qamariMonthsFa = [12]string{
 // Same Islamic civil (tabular, Friday epoch) convention as mobile toQamari.
 // ICU reference: icu4c/source/i18n/islamcal.cpp, IslamicCivilCalendar.
 // Local moon sighting can differ; this is a civil date, not a sunset boundary.
-func toQamari(y, m, d int) (hy, hm, hd int, ok bool) {
-	days := jalG2D(y, m, d) - 1948440
+// offset is the bill's frozen Qamari adjustment in days (see
+// resolveQamariOffset); a date it moves before the epoch reports !ok.
+func toQamari(y, m, d, offset int) (hy, hm, hd int, ok bool) {
+	days := jalG2D(y, m, d) - 1948440 + offset
 	if days < 0 {
 		return 0, 0, 0, false
 	}
@@ -182,7 +184,7 @@ var kabulTZ = time.FixedZone("AFT", 4*3600+30*60)
 // (Persian digits + Arabic-script month names, or Latin). Previously one
 // boolean drove both, so "Dari language, Gregorian dates" was inexpressible.
 // Empty string when ms is unusable.
-func billDate(ms int64, rtl bool, calendar string) string {
+func billDate(ms int64, rtl bool, calendar string, qamariOffset int) string {
 	// Zero is the missing generated_at sentinel. Legacy calendars also treated
 	// every pre-1970 timestamp as missing; preserve that rule for old bills.
 	// Qamari accepts negative timestamps so its pre-Hijri Gregorian fallback
@@ -198,7 +200,7 @@ func billDate(ms int64, rtl bool, calendar string) string {
 		return strconv.Itoa(n)
 	}
 	if calendar == "qamari" {
-		if hy, hm, hd, ok := toQamari(t.Year(), int(t.Month()), t.Day()); ok {
+		if hy, hm, hd, ok := toQamari(t.Year(), int(t.Month()), t.Day(), qamariOffset); ok {
 			month := qamariMonthsEn[hm-1]
 			if rtl {
 				month = qamariMonthsFa[hm-1]

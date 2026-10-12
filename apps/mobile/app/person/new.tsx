@@ -215,8 +215,19 @@ export default function PersonAddOrFindScreen() {
   );
   // Merge against every kaata person before hiding the existing-person section:
   // phone-book shortcuts must not offer duplicates just because they're hidden.
+  // Add-only mode still shows people already in this kaata once something is
+  // typed, flagged as such, so a second "Ahmad" is a choice, not an accident.
+  // Deferred like the sections themselves, so the heading never sits on the
+  // unfiltered Recent list for a frame while the query catches up.
+  const deferredQuerying = dFirst.length > 0 || dLast.length > 0 || dPhone.length > 0;
   const visibleSections = addOnly
-    ? sections.filter((section) => section.key === "device")
+    ? sections.flatMap((section) =>
+        section.key === "device"
+          ? [section]
+          : deferredQuerying
+            ? [{ ...section, titleKey: "personAdd.section.existing" as const }]
+            : [],
+      )
     : sections;
 
   function openPerson(id: string) {

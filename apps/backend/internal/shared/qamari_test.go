@@ -33,21 +33,57 @@ func TestQamariBillDateAndInlineGoldens(t *testing.T) {
 		{at(622, time.July, 18), "18 Jul 622", "۱۸ جولای ۶۲۲"},
 	}
 	for _, tc := range cases {
-		if got := billDate(tc.MS, false, "qamari"); got != tc.En {
+		if got := billDate(tc.MS, false, "qamari", 0); got != tc.En {
 			t.Errorf("English Qamari at %d: got %q, want %q", tc.MS, got, tc.En)
 		}
-		if got := billDate(tc.MS, true, "qamari"); got != tc.Fa {
+		if got := billDate(tc.MS, true, "qamari", 0); got != tc.Fa {
 			t.Errorf("Dari Qamari at %d: got %q, want %q", tc.MS, got, tc.Fa)
 		}
 	}
-	if hy, hm, hd, ok := toQamari(622, 7, 19); !ok || hy != 1 || hm != 1 || hd != 1 {
+	if hy, hm, hd, ok := toQamari(622, 7, 19, 0); !ok || hy != 1 || hm != 1 || hd != 1 {
 		t.Fatalf("Friday epoch got %d/%d/%d, ok=%v", hy, hm, hd, ok)
 	}
-	if _, _, _, ok := toQamari(622, 7, 18); ok {
+	if _, _, _, ok := toQamari(622, 7, 18, 0); ok {
 		t.Fatal("a date before the epoch must use Gregorian fallback")
 	}
-	if got := billDate(0, false, "qamari"); got != "" {
+	if got := billDate(0, false, "qamari", 0); got != "" {
 		t.Errorf("missing generated_at must have no preview date: got %q", got)
+	}
+
+	// The frozen Qamari adjustment (audit #15). THE SAME LIST as mobile's
+	// QAMARI_OFFSET_GOLDEN and web's customer-dates.test. A date the shift
+	// moves before the epoch falls back to its own, unshifted, Gregorian date.
+	offsetCases := []struct {
+		MS     int64  `json:"ms"`
+		Offset int    `json:"offset"`
+		En     string `json:"en"`
+		Fa     string `json:"fa"`
+	}{
+		{at(2026, time.August, 5), -2, "18 Safar 1448", "۱۸ صفر ۱۴۴۸"},
+		{at(2026, time.August, 5), -1, "19 Safar 1448", "۱۹ صفر ۱۴۴۸"},
+		{at(2026, time.August, 5), 1, "21 Safar 1448", "۲۱ صفر ۱۴۴۸"},
+		{at(2026, time.August, 5), 2, "22 Safar 1448", "۲۲ صفر ۱۴۴۸"},
+		{at(2026, time.June, 16), 1, "1 Muharram 1448", "۱ محرم ۱۴۴۸"},
+		{at(2026, time.June, 17), -1, "30 Dhu al-Hijjah 1447", "۳۰ ذوالحجه ۱۴۴۷"},
+		{at(622, time.July, 19), -1, "19 Jul 622", "۱۹ جولای ۶۲۲"},
+		{at(622, time.July, 18), 1, "1 Muharram 1", "۱ محرم ۱"},
+	}
+	for _, tc := range offsetCases {
+		if got := billDate(tc.MS, false, "qamari", tc.Offset); got != tc.En {
+			t.Errorf("English Qamari %+d at %d: got %q, want %q", tc.Offset, tc.MS, got, tc.En)
+		}
+		if got := billDate(tc.MS, true, "qamari", tc.Offset); got != tc.Fa {
+			t.Errorf("Dari Qamari %+d at %d: got %q, want %q", tc.Offset, tc.MS, got, tc.Fa)
+		}
+	}
+	two, half, three, minusOne := 2.0, 1.5, 3.0, -1.0
+	for _, rc := range []struct {
+		raw  *float64
+		want int
+	}{{nil, 0}, {&two, 2}, {&minusOne, -1}, {&half, 0}, {&three, 0}} {
+		if got := resolveQamariOffset(rc.raw); got != rc.want {
+			t.Errorf("resolveQamariOffset(%v) = %d, want %d", rc.raw, got, rc.want)
+		}
 	}
 
 	// Execute the ACTUAL inline JS so a typo/escaping discrepancy in the SSR
@@ -65,7 +101,12 @@ func TestQamariBillDateAndInlineGoldens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	program := "var calendar='qamari',rtl=false;\n" + viewHTML[start:end] + "\nvar cases=" + string(encoded) + `;
+	encodedOffsets, err := json.Marshal(offsetCases)
+	if err != nil {
+		t.Fatal(err)
+	}
+	program := "var calendar='qamari',rtl=false,qamariOffset=0;\n" + viewHTML[start:end] +
+		"\nvar cases=" + string(encoded) + ";\nvar offsetCases=" + string(encodedOffsets) + `;
 for(var tc of cases){
   rtl=false;if(fmtDate(tc.ms)!==tc.en) throw new Error('English SSR date '+fmtDate(tc.ms)+' != '+tc.en);
   rtl=true;if(fmtDate(tc.ms)!==tc.fa) throw new Error('Dari SSR date '+fmtDate(tc.ms)+' != '+tc.fa);
@@ -74,6 +115,12 @@ if(fmtDate(NaN)!=='') throw new Error('Invalid SSR date must be blank');
 var epoch=new Date(0);epoch.setFullYear(622,6,19);epoch.setHours(12,0,0,0);
 rtl=false;if(fmtDate(epoch.getTime())!=='1 Muharram 1') throw new Error('SSR epoch');
 epoch.setDate(18);if(fmtDate(epoch.getTime())!=='18 Jul 622') throw new Error('SSR pre-epoch fallback');
+for(var oc of offsetCases){
+  qamariOffset=oc.offset;
+  rtl=false;if(fmtDate(oc.ms)!==oc.en) throw new Error('English SSR offset '+oc.offset+': '+fmtDate(oc.ms)+' != '+oc.en);
+  rtl=true;if(fmtDate(oc.ms)!==oc.fa) throw new Error('Dari SSR offset '+oc.offset+': '+fmtDate(oc.ms)+' != '+oc.fa);
+}
+qamariOffset=0;
 `
 	cmd := exec.Command(node, "--input-type=commonjs")
 	cmd.Env = append(os.Environ(), "TZ=Asia/Kabul")

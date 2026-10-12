@@ -10,6 +10,8 @@ import {
   getDb,
   refreshAccountIdCache,
   setAccountIdCache,
+  SESSION_ENDED_KEY,
+  setSessionEndedSync,
   setAppMetaInTx,
   setInstallIdCache,
   setLocalSelfUserIdCache,
@@ -107,6 +109,20 @@ export function captureCurrentSession(): Promise<SessionSnapshot> {
   }));
 }
 
+// A check-in refresh (rotateSessionJWT) re-signs the SAME session: same
+// account, install, provider and epoch, so it is not a session change. Before
+// this, every guarded step after a refresh threw SessionChangedError, which
+// callers swallow by design: the onboarding restore spun forever and its Start
+// fresh did nothing (audit #8). A token whose claims cannot be read only
+// matches itself.
+function sameSessionToken(snapshot: string | null, current: string | null): boolean {
+  if (snapshot === current) return true;
+  if (!snapshot || !current) return false;
+  const x = decodeIdTokenClaims(snapshot);
+  const y = decodeIdTokenClaims(current);
+  return !!x && !!y && SESSION_CLAIMS.every((claim) => x[claim] === y[claim]);
+}
+
 /** Serialize only short local cache work with sign-in/sign-out/deletion.
  * Never put a request or another session helper inside this callback. */
 export function applyForCurrentSession<T>(
@@ -118,7 +134,7 @@ export function applyForCurrentSession<T>(
     if (
       !snapshot.jwt ||
       snapshot.bindingVersion !== sessionBindingVersion ||
-      snapshot.jwt !== jwt ||
+      !sameSessionToken(snapshot.jwt, jwt) ||
       snapshot.accountId !== getAccountIdSync()
     ) {
       throw new SessionChangedError();
@@ -137,7 +153,7 @@ export function applyForUnchangedLocalSession<T>(
     const jwt = await SecureStore.getItemAsync(SESSION_KEY);
     if (
       snapshot.bindingVersion !== sessionBindingVersion ||
-      snapshot.jwt !== jwt ||
+      !sameSessionToken(snapshot.jwt, jwt) ||
       snapshot.accountId !== getAccountIdSync()
     )
       throw new SessionChangedError();
@@ -386,7 +402,9 @@ async function signInExchange(args: {
         // The local ledger goes BEFORE the new sign-in, so the new account
         // lands on a clean phone. The wipe drops app_meta too; the sign-in's
         // housekeeping repopulates it.
-        await mutateLocalSession(() => wipeLocalPhone({ keepAppleName: true }));
+        await mutateLocalSession(() =>
+          wipeLocalPhone({ keepAppleName: true, keepDevicePrefs: true }),
+        );
         state.protect = null;
       } else {
         // "keep": postSignInHousekeeping overwrites account_id with the new
@@ -494,6 +512,35 @@ export function configureGoogleSignIn(): void {
 // so an unconfigured build degrades to Apple-only instead of crashing.
 export function isGoogleSignInAvailable(): boolean {
   return Platform.OS !== "ios" || GOOGLE_IOS_CLIENT_ID !== "";
+}
+
+// Apple on Android is a web flow that works only where the server has a
+// Services ID (APPLE_SERVICES_ID). Production has none, so the card always
+// failed with "Sign-in didn't work" (audit #2). Android offers it only once
+// the server's probe says it is configured; iOS uses the native sheet.
+let appleWebConfigured: boolean | null = null;
+
+export function isAppleSignInAvailable(): boolean {
+  return Platform.OS === "ios" || appleWebConfigured === true;
+}
+
+export async function refreshAppleSignInAvailability(): Promise<boolean> {
+  if (Platform.OS === "ios") return true;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const baseUrl = await getBackendUrl();
+    const probe = await fetch(`${baseUrl}/v1/auth/apple/web/start?state=probe`, {
+      redirect: "manual",
+      signal: controller.signal,
+    });
+    appleWebConfigured = probe.status !== 404 && probe.status !== 400;
+  } catch {
+    // Offline: keep what was known; a web sign-in needs the network anyway.
+  } finally {
+    clearTimeout(timer);
+  }
+  return appleWebConfigured === true;
 }
 
 // One interactive Google sign-in attempt → its ID token (or null if the result
@@ -823,10 +870,20 @@ async function installAuthResponse(body: AuthResponse): Promise<SessionUser> {
   await SecureStore.deleteItemAsync(DELETION_BASELINE_KEY);
   await SecureStore.setItemAsync(SESSION_KEY, body.session_jwt);
   await SecureStore.setItemAsync(USER_KEY, JSON.stringify(body.user ?? {}));
-  // Account-scoped, non-secret hint for the returning account's restore flow.
+  await markSessionEnded(false);
+  // Account-scoped, non-secret hint for the returning account's restore flow:
+  // it routes every launch to the strict restore until one completes. Only a
+  // phone without a ledger needs that (the wiped one). A phone that kept its
+  // ledger (the deleting phone whose wipe late edits blocked, or another phone
+  // of the account) used to be trapped behind it on each launch while offline
+  // (audit #27); it keeps its data and syncs as usual.
   if (body.deletion_cancelled && body.account_id) {
     try {
-      await setAppMetaInTx(await getDb(), "account_deletion_cancelled", body.account_id);
+      const db = await getDb();
+      const ledger = await db.getFirstAsync<{ one: number }>(
+        "SELECT 1 AS one FROM users WHERE is_local_self = 1 LIMIT 1",
+      );
+      if (!ledger) await setAppMetaInTx(db, "account_deletion_cancelled", body.account_id);
     } catch (err) {
       console.warn("[auth] could not save the account recovery hint", err);
     }
@@ -1786,6 +1843,9 @@ export type AccountMe = {
   /** "google", "apple", "email". */
   providers: string[];
   name: string | null;
+  /** `name` is a display name chosen in Kaata (maybe on another phone), not
+   *  the Google/Apple profile name. False from an older server. */
+  nameExplicit: boolean;
   /**
    * Where a first-password code goes: the account's own address, fixed (§6.7).
    * Null when the user must name one (an Apple relay address nobody can read).
@@ -1810,6 +1870,7 @@ export async function fetchAccountMe(expectedSession?: SessionSnapshot): Promise
       ? body.providers.filter((p): p is string => typeof p === "string")
       : [],
     name: stringOrNull(body.name),
+    nameExplicit: body.name_explicit === true,
     setupEmail: stringOrNull(body.setup_email),
   };
 }
@@ -2395,6 +2456,7 @@ export async function signOut(): Promise<void> {
     }
     await SecureStore.deleteItemAsync(SESSION_KEY);
     await SecureStore.deleteItemAsync(USER_KEY);
+    await markSessionEnded(true);
     // A pending code step (a set-password code above all) belonged to the
     // session that just ended.
     await clearEmailFlowPending();
@@ -2623,6 +2685,8 @@ async function clearDeletedAccountLocally(baseline: DeletionCleanupBaseline | nu
 // ever sent for that Apple ID.
 async function wipeLocalPhone(opts: {
   keepAppleName: boolean;
+  /** Only "Switch, start fresh": keep language and date format. */
+  keepDevicePrefs?: boolean;
   deletionBaseline?: DeletionCleanupBaseline | null;
 }): Promise<void> {
   // Invalidate every response captured before the wipe, even if it is
@@ -2651,6 +2715,21 @@ async function wipeLocalPhone(opts: {
     } catch (err) {
       // Never blocks a wipe the user confirmed; the name is lost as before.
       console.warn("[auth] could not read the Apple name before the wipe", err);
+    }
+  }
+  // "Switch, start fresh" is a new account on the same phone: the language
+  // and date format the person chose are device settings, not account data,
+  // and the wipe used to drop them for good (audit #22). Deletion and the
+  // retired-install reset keep their "only the Apple name survives" contract.
+  const devicePrefs: [string, string][] = [];
+  if (opts.keepDevicePrefs) {
+    for (const key of DEVICE_PREF_KEYS) {
+      try {
+        const value = await getAppMetaInTx(await getDb(), key);
+        if (value) devicePrefs.push([key, value]);
+      } catch {
+        /* never blocks a confirmed wipe */
+      }
     }
   }
   // Drop the Google session, the mesh key cache, the stored JWT, and every
@@ -2689,8 +2768,32 @@ async function wipeLocalPhone(opts: {
       console.warn("[auth] could not keep the Apple name across the wipe", err);
     }
   }
+  for (const [key, value] of devicePrefs) {
+    try {
+      await setAppMetaInTx(await getDb(), key, value);
+    } catch (err) {
+      console.warn("[auth] could not keep a device preference across the wipe", err);
+    }
+  }
   await SecureStore.deleteItemAsync(USER_KEY);
   await SecureStore.deleteItemAsync(SESSION_KEY);
+}
+
+// Device settings a "start fresh" keeps (language, date format).
+const DEVICE_PREF_KEYS = ["locale_pref", "calendar_pref"] as const;
+
+// A sign-out keeps app_meta.account_id (the binding), and every launch primes
+// the account cache from it; this marker is what tells the next launch that
+// the phone is signed out, so account-scoped personal state (customer
+// reminders) stays hidden instead of coming back (audit #25). Best effort: a
+// failed write costs only that consistency, never the sign-in or sign-out.
+async function markSessionEnded(ended: boolean): Promise<void> {
+  setSessionEndedSync(ended);
+  try {
+    await setAppMetaInTx(await getDb(), SESSION_ENDED_KEY, ended ? "1" : "");
+  } catch (err) {
+    console.warn("[auth] could not record the session state", err);
+  }
 }
 
 // Wipes the SecureStore session entries WITHOUT calling the backend signout
@@ -2708,6 +2811,7 @@ export async function clearLocalSession(opts: { onlyIfJwt?: string | null } = {}
     sessionBindingVersion++;
     await SecureStore.deleteItemAsync(SESSION_KEY);
     await SecureStore.deleteItemAsync(USER_KEY);
+    await markSessionEnded(true);
     setAccountIdCache(null);
     try {
       const mesh = await import("./mesh/device-key");

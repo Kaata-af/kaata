@@ -5,6 +5,7 @@ import {
   WEEKLY_GROWTH_TARGET,
   comparableWeek,
   comparisonUnavailable,
+  excludedDevicesNote,
   weeklyGrowthView,
   weeklyRateLabel,
   weeklyCalendarLabel,
@@ -64,6 +65,11 @@ export function WeeklyGrowthCard({ growth }: { growth: Growth | null }) {
                       ? `Needed ${fmtInt(latest.target_active ?? 0)} active devices for 7% growth. Change: ${latest.change! > 0 ? "+" : ""}${fmtInt(latest.change ?? 0)}.`
                       : comparisonUnavailable(latest, growth?.activity_tracking_since)}
                   </p>
+                  {latest.recorded_at ? (
+                    <p className="mt-1 text-xs text-brand-sub">
+                      Recorded {fmtDateTime(latest.recorded_at)} · Kabul
+                    </p>
+                  ) : null}
                 </>
               ) : null}
             </div>
@@ -144,8 +150,19 @@ export function WeeklyGrowthCard({ growth }: { growth: Growth | null }) {
         <div className="mt-2 space-y-2 leading-relaxed">
           <p>
             Each app install counts once in a week when it checks in, including signed-out use and
-            people who only open the app. Two phones belonging to one person count twice. Operator
-            accounts are excluded using the same rules as the other dashboard metrics.
+            people who only open the app. Two phones belonging to one person count twice.
+          </p>
+          <p>
+            Test data is left out of every week, the same as in every other dashboard metric:
+            devices signed in to an operator account (OPERATOR_ACCOUNT_IDS), and accounts and
+            devices you exclude in Users or Outreach. A device stays out after its account is
+            deleted. {excludedDevicesNote(growth?.excluded_installs)}
+          </p>
+          <p>
+            Completed weeks are recorded the first time they are reported after Sunday ends in Kabul
+            and keep those numbers, so a device later signing in to another account, or an account
+            being deleted, cannot change a past week or its verdict. Excluding or including test
+            data, or editing OPERATOR_ACCOUNT_IDS, recalculates the recorded weeks once.
           </p>
           <p>
             Growth = (this week − previous week) ÷ previous week × 100. A zero baseline has no

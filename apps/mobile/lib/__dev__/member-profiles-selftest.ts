@@ -35,9 +35,17 @@ fixture.exec(`
   INSERT INTO vault_members_mirror VALUES ('other', 'peer', 'viewer', 'Other vault name', 1, NULL);
   CREATE TABLE users (account_id TEXT, display_name TEXT);
 `);
+// Profile-cache writes must hold the ledger write lock (applyEventMutex): an
+// unlocked transaction on the shared connection could interleave with a sync.
+let lockHeld = false;
 const db = {
   execAsync: async (sql: string) => fixture.exec(sql),
-  runAsync: async (sql: string, ...args: unknown[]) => fixture.prepare(sql).run(...args),
+  runAsync: async (sql: string, ...args: unknown[]) => {
+    if (/^\s*(DELETE FROM|INSERT(?: OR REPLACE)? INTO)\s+vault_member_profiles/i.test(sql))
+      assert.ok(lockHeld, "profile cache writes hold the ledger write lock");
+    return fixture.prepare(sql).run(...args);
+  },
+  getAllAsync: async (sql: string, ...args: unknown[]) => fixture.prepare(sql).all(...args),
   withTransactionAsync: async (work: () => Promise<void>) => {
     fixture.exec("BEGIN");
     try {
@@ -97,6 +105,18 @@ const profiles = compile<typeof import("../member-profiles")>(
           "members.nameUnavailable": "Name unavailable",
         })[key] ?? key,
     },
+    "./projection": {
+      applyEventMutex: {
+        runExclusive: async <T>(work: () => Promise<T>) => {
+          lockHeld = true;
+          try {
+            return await work();
+          } finally {
+            lockHeld = false;
+          }
+        },
+      },
+    },
     "./vault-api": {
       ApiError,
       listVaults: async () => {
@@ -129,7 +149,7 @@ assert.ok(memberSQL, "the screen's actual member query exists");
 const visiblePeer = (viewer: string, vault = "v") =>
   fixture
     .prepare(memberSQL)
-    .all(viewer, viewer, vault)
+    .all(viewer, JSON.stringify([viewer]), vault)
     .find((row) => (row as { account_id: string }).account_id === "peer") as {
     display_name: string | null;
     profile_name: string | null;
@@ -151,6 +171,34 @@ async function main() {
       .count,
     1,
   );
+  response = async () => listing("Ahmad");
+  await profiles.refreshMemberProfiles("v");
+  assert.deepEqual(cached(), [{ display_name: "Ahmad", email: "peer@example.test" }]);
+  // Audit #19: a kaata made before sign-in keys its owner by a local: id the
+  // server never lists; the listed owner's profile is stored under it too.
+  fixture.exec(
+    "INSERT INTO vault_members_mirror VALUES ('v', 'local:AbCdEfGhIjKlMnOp', 'owner', NULL, 1, NULL)",
+  );
+  response = async () => [
+    {
+      ...listing("Ahmad")[0],
+      members: [
+        { account_id: "peer", role: "viewer", name: "Ahmad", email: "peer@example.test" },
+        { account_id: "owner-account", role: "owner", name: "Matee", email: "owner@example.test" },
+      ],
+    },
+  ];
+  await profiles.refreshMemberProfiles("v");
+  assert.deepEqual(
+    fixture
+      .prepare(
+        "SELECT display_name, email FROM vault_member_profiles WHERE vault_id = 'v' AND account_id = 'local:AbCdEfGhIjKlMnOp'",
+      )
+      .get(),
+    { display_name: "Matee", email: "owner@example.test" },
+    "the pre-sign-in owner shows the owner's current name and email",
+  );
+  fixture.exec("DELETE FROM vault_members_mirror WHERE account_id = 'local:AbCdEfGhIjKlMnOp'");
   response = async () => listing("Ahmad");
   await profiles.refreshMemberProfiles("v");
   assert.deepEqual(cached(), [{ display_name: "Ahmad", email: "peer@example.test" }]);

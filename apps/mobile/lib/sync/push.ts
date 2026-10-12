@@ -37,7 +37,7 @@ import {
   VaultNotRegisteredError,
 } from "./errors";
 
-const PUSH_TIMEOUT_MS = 30_000;
+const PUSH_TIMEOUT_MS = 20_000; // See PULL_TIMEOUT_MS.
 // Max events per push request. The backend caps decompressed body at 16 MiB;
 // the average event payload is well under 1 KiB so 500 is a safe ceiling.
 const MAX_BATCH_SIZE = 500;
@@ -368,6 +368,10 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
             );
             continue;
           }
+          // An offline clerk tally recorded before this phone learned of a hard
+          // limit: move it to the refused list rather than retry it forever.
+          const { revertRefusedClerkTally } = await import("../credit-admission");
+          if (await revertRefusedClerkTally(db, r.event_id, r.reason, now)) continue;
         }
         // seq_conflict is NOT a verdict on the event — only on its seq claim
         // (a different event_id already holds that (vault, device, seq) slot

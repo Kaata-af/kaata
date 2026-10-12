@@ -1,5 +1,6 @@
 import { getLocale, t } from "./i18n";
 import { formatTimestamp } from "./format";
+import { faDigits, formatCalendarDate } from "./jalali";
 import type { ReminderSchedule } from "./reminder-schedule";
 
 export function reminderWeekday(weekday: number): string {
@@ -7,20 +8,18 @@ export function reminderWeekday(weekday: number): string {
     new Date(2024, 0, 7 + weekday, 12),
   );
 }
+// The app's own 12-hour clock with ق.ظ/ب.ظ, like every other time it shows.
+// ICU's fa-AF clock is 24-hour, so Dari reminders read 15:05 (audit #25).
 export function reminderClock(hour: number, minute: number): string {
-  const clock = new Date();
-  clock.setHours(hour, minute, 0, 0);
-  return new Intl.DateTimeFormat(getLocale() === "fa" ? "fa-AF" : "en", {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(clock);
+  const hours12 = hour % 12 === 0 ? 12 : hour % 12;
+  const clock = `${hours12}:${String(minute).padStart(2, "0")}`;
+  const marker = t(hour < 12 ? "format.am" : "format.pm");
+  return `${getLocale() === "fa" ? faDigits(clock) : clock} ${marker}`;
 }
+// Day-first like every app date ("12 Oct", "۱۲ اکتوبر"), not ICU's
+// month-first "October 12" (audit #29). Monthly repeats are Gregorian.
 export function reminderMonthlyDate(at: number): string {
-  return new Intl.DateTimeFormat(getLocale() === "fa" ? "fa-AF" : "en", {
-    calendar: "gregory",
-    month: "long",
-    day: "numeric",
-  }).format(new Date(at));
+  return formatCalendarDate(at, getLocale(), "gregorian").split(" ").slice(0, 2).join(" ");
 }
 export function reminderMonthCount(months: number): string {
   return months === 1

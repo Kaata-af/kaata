@@ -29,11 +29,14 @@ export class TabApiError extends Error {
   readonly kind = "tab_api" as const;
   status: number;
   code: string;
-  constructor(status: number, code: string, message: string) {
+  /** A 429's Retry-After, in ms, when the server sent one. */
+  retryAfterMs: number | null;
+  constructor(status: number, code: string, message: string, retryAfterMs: number | null = null) {
     super(message);
     this.name = "TabApiError";
     this.status = status;
     this.code = code;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -74,6 +77,16 @@ export class TabSameKaataError extends Error {
   constructor() {
     super("both parties of a tab cannot be the same kaata");
     this.name = "TabSameKaataError";
+  }
+}
+
+/** Server 409 same_account: one account would see both sides (e.g. two of
+ *  your own kaatas). Refused because a restore brings back one side only. */
+export class TabSameAccountError extends Error {
+  readonly kind = "tab_same_account" as const;
+  constructor() {
+    super("one account cannot see both sides of a shared account");
+    this.name = "TabSameAccountError";
   }
 }
 

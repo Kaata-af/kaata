@@ -47,6 +47,7 @@ import type {
 } from "./types";
 import { KAATA_UUID_NAMESPACE, uuidv5 } from "./uuid-v5";
 import { serializeHLC } from "./hlc";
+import { groupIdsFromPayload, storedGroupIds } from "./group-memberships";
 import { signedEntryMinorSumSql } from "./money-sql";
 import {
   getLatestTabLinkForPerson,
@@ -107,6 +108,8 @@ const MIGRATION_034 = "034_customer_credit_limits";
 const MIGRATION_035 = "035_customer_groups";
 const MIGRATION_036 = "036_customer_reminders";
 const MIGRATION_037 = "037_customer_group_memberships";
+const MIGRATION_038 = "038_kaata_credit_defaults";
+const MIGRATION_039 = "039_customer_groups_from_payloads";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -525,6 +528,12 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   }
   if (!(await hasRunMigration(db, MIGRATION_037))) {
     await runMigration037(db);
+  }
+  if (!(await hasRunMigration(db, MIGRATION_038))) {
+    await runMigration038(db);
+  }
+  if (!(await hasRunMigration(db, MIGRATION_039))) {
+    await runMigration039(db);
   }
 }
 
@@ -3441,6 +3450,98 @@ async function runMigration037(db: SQLite.SQLiteDatabase): Promise<void> {
   });
 }
 
+// The kaata-wide default credit limit (Matee, 2026-10-12). It covers every
+// customer without their own limit, so it cannot live in customer_credit_limits,
+// whose rows reference a relationship. The server keys it by the all-zero id.
+async function runMigration038(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS kaata_credit_defaults (
+      vault_id TEXT PRIMARY KEY REFERENCES vaults(id) ON DELETE CASCADE,
+      max_collect_minor INTEGER, max_pay_minor INTEGER,
+      mode TEXT NOT NULL CHECK (mode IN ('warn','clerk_block')),
+      updated_at_ms INTEGER NOT NULL
+    );`);
+    await db.runAsync(
+      "INSERT INTO schema_migrations (name,applied_at) VALUES (?,?)",
+      MIGRATION_038,
+      Date.now(),
+    );
+  });
+}
+
+// Single-group test builds (2.2.0 33/53) projected only `group_id` from
+// person_group_set events whose payloads already carried the full
+// `group_ids`, and 037 then seeded group_ids from that one id. The next group
+// edit on such a phone dropped the other groups. The event log kept every
+// payload, so re-read the WINNING event (the HLC stored for the group field)
+// and restore its complete set. HLCs are untouched; nothing is re-signed.
+async function runMigration039(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    const rows = await db.getAllAsync<{
+      id: string;
+      vault_id: string;
+      group_id: string | null;
+      group_ids: string | null;
+      pms: number | null;
+      l: number | null;
+      did: string | null;
+    }>(
+      `SELECT id,vault_id,group_id,group_ids,
+        json_extract(field_hlcs,'$.group_id.pms') AS pms,
+        json_extract(field_hlcs,'$.group_id.l') AS l,
+        json_extract(field_hlcs,'$.group_id.did') AS did
+      FROM relationships
+      WHERE field_hlcs IS NOT NULL AND json_valid(field_hlcs)
+        AND json_extract(field_hlcs,'$.group_id') IS NOT NULL`,
+    );
+    for (const row of rows) {
+      if (row.pms == null || row.l == null || row.did == null) continue;
+      const winner = await db.getFirstAsync<{ payload_json: string }>(
+        `SELECT payload_json FROM event_log
+        WHERE event_type='person_group_set' AND target_id=?
+          AND hlc_physical_ms=? AND hlc_logical=? AND hlc_device_id=? LIMIT 1`,
+        row.id,
+        row.pms,
+        row.l,
+        row.did,
+      );
+      if (!winner) continue;
+      let ids: string[];
+      let current: string[];
+      try {
+        ids = groupIdsFromPayload(JSON.parse(winner.payload_json));
+        current = storedGroupIds(row.group_ids, row.group_id);
+      } catch {
+        continue;
+      }
+      if (JSON.stringify(ids) === JSON.stringify(current)) continue;
+      // Same prerequisite as the applier: every group exists in this kaata.
+      let known = true;
+      for (const groupId of ids) {
+        const group = await db.getFirstAsync<{ id: string }>(
+          "SELECT id FROM customer_groups WHERE vault_id=? AND id=?",
+          row.vault_id,
+          groupId,
+        );
+        if (!group) known = false;
+      }
+      if (!known) continue;
+      await db.runAsync(
+        "UPDATE relationships SET group_id=?,group_ids=? WHERE vault_id=? AND id=?",
+        ids[0] ?? null,
+        JSON.stringify(ids),
+        row.vault_id,
+        row.id,
+      );
+    }
+    await db.runAsync(
+      "INSERT INTO schema_migrations (name,applied_at) VALUES (?,?)",
+      MIGRATION_039,
+      Date.now(),
+    );
+  });
+}
+
 // --- v0 row shapes (used only during migration) ---
 type V0Shopkeeper = {
   id: number;
@@ -3532,6 +3633,7 @@ export async function resetAllLocalData(opts: { keepLocalBackups?: boolean } = {
     DROP TABLE IF EXISTS vault_members_mirror;
     DROP TABLE IF EXISTS vault_member_profiles;
     DROP TABLE IF EXISTS customer_credit_limits;
+    DROP TABLE IF EXISTS kaata_credit_defaults;
     DROP TABLE IF EXISTS credit_admission_intents;
     DROP TABLE IF EXISTS customer_reminders;
     DROP TABLE IF EXISTS customer_groups;
@@ -4129,6 +4231,7 @@ const TAB_PERSON_COLUMNS = `
             END AS tab_pending,
             tl.closed_at AS tab_closed_at,
             CASE WHEN tl.other_joined_at IS NOT NULL THEN 1 ELSE 0 END AS tab_other_joined,
+            CASE WHEN tl.tab_id IS NOT NULL AND tl.last_synced_at IS NULL THEN 1 ELSE 0 END AS tab_unsynced,
             (SELECT MAX(tn.occurred_at) FROM tab_entries tn
               WHERE tn.tab_id = tl.tab_id AND tn.kind <> 'void') AS tab_last_at,
             (SELECT tn.direction FROM tab_entries tn

@@ -26,7 +26,11 @@ stub("react-native", {
 });
 stub("../api", { getBackendUrl: async () => "https://example.invalid" });
 let selectedCalendar = "jalali";
-stub("../calendar", { getEffectiveCalendar: () => selectedCalendar });
+let qamariOffset = 0;
+stub("../calendar", {
+  getEffectiveCalendar: () => selectedCalendar,
+  getQamariOffset: () => qamariOffset,
+});
 stub("../currency", { getCurrentCurrencySymbol: () => "AFN" });
 stub("../db", {
   bumpUsageCounter: async () => {
@@ -106,6 +110,7 @@ async function main() {
   assert.equal(opens.length, 0, "WhatsApp waits while the statement is preparing");
   assert.equal(snapshot!.locale, "fa");
   assert.equal(snapshot!.calendar, "jalali");
+  assert.equal("qamari_offset" in snapshot!, false, "no adjustment field off Qamari");
   assert.deepEqual(
     snapshot!.entries.map((entry: any) => entry.note),
     entries.slice(0, 2).map((e) => e.note),
@@ -125,6 +130,7 @@ async function main() {
   // Freeze the explicit third calendar even when the message language is
   // English. Later local preference changes cannot mutate an issued bill.
   selectedCalendar = "qamari";
+  qamariOffset = -1;
   globalThis.fetch = (async (_url: unknown, init: RequestInit) => {
     snapshot = JSON.parse(String(init.body));
     return new Response(JSON.stringify({ url: "https://example.invalid/v/qamari" }), {
@@ -133,9 +139,11 @@ async function main() {
   }) as typeof fetch;
   assert.equal(await shareKaataViaWhatsApp(person, 10, null, entries, "en"), true);
   assert.equal(snapshot!.calendar, "qamari");
+  assert.equal(snapshot!.qamari_offset, -1, "the Qamari adjustment is frozen too (audit #15)");
   assert.equal(snapshot!.locale, "en");
   assert.equal(snapshot!.entries[0].date, entries[0].created_at, "timestamps remain unchanged");
   selectedCalendar = "gregorian";
+  qamariOffset = 0;
   assert.equal(snapshot!.calendar, "qamari", "bill calendar stays frozen");
   // Restore the prior fixture's counters for its routing/failure assertions.
   opens.pop();

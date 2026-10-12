@@ -31,7 +31,12 @@ because native repeating triggers behave differently on short months. The editor
 states the calendar and range, and blocks saving an out-of-range date. This keeps
 the due task and Android/iOS notices on the same predictable date without relying
 on the app to refill a queue. One-off dates retain the ledger's chosen display
-calendar and accept any valid future day.
+calendar and accept any valid future day. In Shamsi or Qamari they are picked on
+a month grid of that calendar (`components/CalendarDayPicker.tsx`, the tally
+date filter's helpers and look), because the phone's date picker only offers
+Gregorian months; Gregorian keeps the native picker. Repeating on Shamsi or
+Qamari months, every other week and days 29–31 would need one-shot triggers the
+app refills (and the iOS 64-notice budget); that is an open product decision.
 
 ## Privacy and delivery
 
@@ -46,7 +51,11 @@ activate the original phone's tasks. A local database recovery on the same phone
 keeps the key. Sign-out, account changes, removed customers and revoked kaata
 access remove the corresponding tasks from the visible list and cancel their
 native notices. Tasks are retained privately in local storage until deleted or
-the app's local data is reset.
+the app's local data is reset. A sign-out stays in effect across relaunches:
+every launch primes the account id from `app_meta.account_id`, which a sign-out
+keeps, so sign-out and an expired session also set `app_meta.session_ended`,
+and every sign-in clears it (`getSessionAccountIdSync`). Without it, a relaunch
+brought a signed-out account's reminders back.
 
 Save asks for notification permission explicitly. If permission is unavailable
 or denied, the reminder still appears in-app; launch and resume never prompt.
@@ -62,9 +71,14 @@ rechecks both limits. Eight iOS pending-request slots remain available for other
 features. On Android, the month plans use Expo's monthly/yearly triggers; on iOS
 they use repeating ISO-calendar triggers so a non-Gregorian system calendar
 cannot reinterpret the chosen month/day. Scheduled and delivered
-notifications use generic text and opaque reminder IDs, with no customer name,
-amount or account credential. A tap resolves the ID against current private
-storage and rechecks access before navigation.
+notifications name the customer to notify (Matee, 2026-10-12: several due
+reminders looked identical; shared-account alerts already show names), and
+carry only opaque reminder IDs in their data, with no amount or account
+credential. A language switch or a rename rewrites pending alerts; a notice
+already in the tray is left as it is. Reminders alert while Kaata is open too,
+the home bell counts due reminders, and the reminder screens show a notice with
+an Open settings action while notifications are off. A tap resolves the ID
+against current private storage and rechecks access before navigation.
 
 All recurring times follow the device's local clock and timezone. An already
 due task remains due after a timezone change. Native scheduling follows platform

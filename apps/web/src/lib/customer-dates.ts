@@ -38,12 +38,23 @@ const QAMARI_MONTHS_FA = [
   "ذوالحجه",
 ];
 
+/** The bill's frozen Qamari adjustment (audit #15): whole days within ±2,
+ * else none. Absent on older bills and other calendars; the snapshot is
+ * untrusted JSON, so anything else counts as no adjustment. */
+export function resolveQamariOffset(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && Math.abs(value) <= 2
+    ? value + 0
+    : 0;
+}
+
 /** Deterministic Islamic civil (Friday epoch), matching mobile toQamari and
- * server billDate. Return null for pre-epoch dates so the caller uses Gregorian;
- * invalid dates return an empty string. No Intl calendar data required.
+ * server billDate, moved by the bill's Qamari adjustment. Return null for
+ * pre-epoch dates (after the shift) so the caller uses the unshifted
+ * Gregorian date; invalid dates return an empty string. No Intl calendar data
+ * required.
  * https://github.com/unicode-org/icu/blob/main/icu4c/source/i18n/islamcal.cpp
  */
-export function formatQamariDate(ms: number, rtl: boolean): string | null {
+export function formatQamariDate(ms: number, rtl: boolean, offsetDays = 0): string | null {
   const dt = new Date(ms);
   if (!Number.isFinite(dt.getTime())) return "";
   // Extract the viewer's local civil date, then map that triple to a UTC day.
@@ -51,7 +62,7 @@ export function formatQamariDate(ms: number, rtl: boolean): string | null {
   const civil = new Date(0);
   civil.setUTCFullYear(dt.getFullYear(), dt.getMonth(), dt.getDate());
   civil.setUTCHours(0, 0, 0, 0);
-  const days = Math.floor(civil.getTime() / 86_400_000) + 2440588 - 1948440;
+  const days = Math.floor(civil.getTime() / 86_400_000) + 2440588 - 1948440 + offsetDays;
   if (days < 0) return null;
   const y = Math.floor((30 * days + 10646) / 10631);
   const yearStart = 354 * (y - 1) + Math.floor((3 + 11 * y) / 30);

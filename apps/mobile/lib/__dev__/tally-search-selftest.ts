@@ -10,6 +10,7 @@ import {
   dateRangeDraft,
   dateRangeBetween,
   filterTalliesByDate,
+  formatDateRangeLabel,
   formatFilterClock,
   localDayStart,
   localMinute,
@@ -297,6 +298,57 @@ try {
 } finally {
   if (oldTZ === undefined) delete process.env.TZ;
   else process.env.TZ = oldTZ;
+}
+// Audit #3/#16: Dari spellings, whole numbers in notes, and amounts typed with
+// a Dari comma, a currency or spaced thousands.
+{
+  const notes = [
+    { id: "bags", note: "1500 bags", amount_afn: 30, created_at: 1 },
+    { id: "five", note: "500 bags", amount_afn: 40, created_at: 2 },
+    { id: "heh", note: "خانۀ احمد", amount_afn: 50, created_at: 3 },
+    { id: "spaced", note: "می روم", amount_afn: 60, created_at: 4 },
+    { id: "big", note: null, amount_afn: 1500, created_at: 5 },
+  ];
+  const ids = (query: string) =>
+    filterTallies(notes, noteSearchTerms(query), gregorian).map((row) => row.id);
+  assert.deepEqual(ids("500"), ["five"], "500 does not find 1500 bags");
+  assert.deepEqual(ids("خانه"), ["heh"], "ۀ in a note reads as ه");
+  assert.deepEqual(ids("میروم"), ["spaced"], "a half-space typed as nothing finds the spaced word");
+  assert.deepEqual(ids("۱،۵۰۰"), ["big"], "Dari comma grouping is an amount");
+  assert.deepEqual(ids("1500؋"), ["big"], "a trailing ؋ is the amount");
+  assert.deepEqual(ids("1500 AFN"), ids("1500"), "AFN alone narrows nothing");
+  assert.deepEqual(ids("1 500"), ids("1500"), "spaced thousands are one amount");
+  assert.ok(ids("1 500").includes("big"));
+}
+
+// The active-filter label: one day reads once (not "X – X"), and Dari joins
+// date and clock with a Persian comma, never a middle dot beside its digits.
+{
+  const day = at(2026, 8, 5);
+  for (const calendar of ["gregorian", "jalali", "qamari"] as const) {
+    for (const locale of ["en", "fa"] as const) {
+      const oneDay = formatDateRangeLabel(
+        datePresetRange("today", day, calendar),
+        locale,
+        calendar,
+      );
+      assert.ok(!oneDay.includes("–"), `${calendar}/${locale}: a single day is not "X – X"`);
+      const week = formatDateRangeLabel(datePresetRange("last7", day, calendar), locale, calendar);
+      assert.ok(week.includes(" – "), `${calendar}/${locale}: a range shows both ends`);
+      const timed = formatDateRangeLabel(
+        customDateRange(day, day, 9 * 60, 17 * 60)!,
+        locale,
+        calendar,
+      );
+      assert.ok(
+        timed.includes(formatFilterClock(localDayStart(day) + 9 * 3_600_000, locale)) &&
+          timed.includes(formatFilterClock(localDayStart(day) + 17 * 3_600_000, locale)),
+        `${calendar}/${locale}: a timed single day shows both clocks`,
+      );
+      if (locale === "fa") assert.ok(!timed.includes("·"), "no middle dot in Dari");
+    }
+  }
+  assert.equal(formatDateRangeLabel(null, "en", "gregorian"), "");
 }
 assert.equal(filterTallies(tallies, noteSearchTerms("rice 500"), gregorian)[0], tallies[0]);
 assert.deepEqual(tallies, baseline, "search never rewrites stored notes, amounts, dates or status");

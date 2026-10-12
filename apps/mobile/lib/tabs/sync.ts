@@ -64,6 +64,7 @@ import {
   listDueTabOps,
   listTabIdsWithQueuedOps,
   listTabLinks,
+  makeWaitingTabOpsDueNow,
   setTabLinkError,
   upsertTabFromWire,
   upsertTabLink,
@@ -80,11 +81,25 @@ export { onTabApplied } from "./events";
 // one pull.
 const DEBOUNCE_MS = 300;
 // The foreground backstop. Pokes make the common case ~1 RTT; this catches a
-// dropped socket or a missed account-channel invalidation.
+// dropped socket or a missed account-channel invalidation. Each tick pulls only
+// the tabs where a wait is felt (isHot); every link is pulled once a minute.
+// Pulling every link every 5 s spent the server's per-network read budget
+// (GET /v1/tabs/{id}: 3000/h per IP) with five shared contacts on one phone,
+// and carrier NAT shares that budget between shops.
 const LOOP_INTERVAL_MS = 5_000;
+const FULL_SWEEP_INTERVAL_MS = 60_000;
+// A poke (or the person screen's focus request) keeps a tab on the fast
+// cadence this long, for the follow-up review or reply.
+const RECENT_POKE_MS = 2 * 60_000;
 // Finding new bindings is account-wide and more expensive than pulling a
 // cached tab. Do it once a minute, plus sign-in/restore/resume and unknown pokes.
 const DISCOVERY_INTERVAL_MS = 60_000;
+// A failed discovery waits 15 s, 30 s, … up to 5 min instead of rerunning
+// before every 5 s pass (GET /v1/tabs/mine is capped at 600/h per IP).
+const DISCOVERY_RETRY_BASE_MS = 15_000;
+const DISCOVERY_RETRY_CAP_MS = 5 * 60_000;
+// A 429 without Retry-After pauses the loop this long.
+const RATE_LIMIT_PAUSE_MS = 60_000;
 // One slow tab must not hold every other contact behind its 15 s timeout.
 // Keep request fan-out bounded on phones with many shared contacts.
 const SYNC_WORKERS = 3;
@@ -331,6 +346,7 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
     void flushInboxReads();
     return result;
   } catch (err) {
+    noteRateLimit(err);
     const msg = describe(err);
     if (__DEV__) console.warn("[tabs.sync] syncTab failed", tabId.slice(0, 8), msg);
     if (session && !(err instanceof SessionChangedError)) {
@@ -387,6 +403,7 @@ async function syncPokedTab(tabId: string): Promise<void> {
 
 /** Debounced (300 ms) syncTab — the live-poke and focus-effect entry point. */
 export function requestTabSync(tabId: string): void {
+  recentPokes.set(tabId, Date.now());
   if (debounceTimers.has(tabId)) return;
   debounceTimers.set(
     tabId,
@@ -409,6 +426,67 @@ export function requestTabSync(tabId: string): void {
 const boundSessions = new Map<string, string>();
 let lastDiscoveryJwt: string | null = null;
 let lastDiscoveryAt = 0;
+let discoveryFailures = 0;
+let lastDiscoveryOkAt: number | null = null;
+// What the last good discovery could NOT bind: a party with no contact on the
+// server, a contact not on this phone yet, an insert the local cache refused.
+type DiscoverySkips = { unbound: number; waiting: number; conflicts: number };
+let lastDiscoverySkips: DiscoverySkips = { unbound: 0, waiting: 0, conflicts: 0 };
+
+/** For the App health report: a failed or never-run discovery, or a shared
+ *  account it skipped, used to leave no trace anywhere (audit #8). Counts
+ *  only, never ids or names. */
+export function tabDiscoveryStatus(): {
+  failures: number;
+  lastOkAt: number | null;
+  skips: DiscoverySkips;
+} {
+  return { failures: discoveryFailures, lastOkAt: lastDiscoveryOkAt, skips: lastDiscoverySkips };
+}
+
+// Tabs a screen is showing right now (refcounted) and tabs poked recently:
+// the 5 s backstop pulls these; the rest wait for the minute sweep.
+const watchedTabs = new Map<string, number>();
+const recentPokes = new Map<string, number>();
+let lastFullSweepAt = 0;
+/** Keep `tabId` on the 5 s backstop while a screen shows it. Returns the stop. */
+export function watchTab(tabId: string): () => void {
+  watchedTabs.set(tabId, (watchedTabs.get(tabId) ?? 0) + 1);
+  let stopped = false;
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    const left = (watchedTabs.get(tabId) ?? 1) - 1;
+    if (left > 0) watchedTabs.set(tabId, left);
+    else watchedTabs.delete(tabId);
+  };
+}
+function isHot(tabId: string, now: number): boolean {
+  const poked = recentPokes.get(tabId);
+  if (poked != null && now - poked >= RECENT_POKE_MS) recentPokes.delete(tabId);
+  return watchedTabs.has(tabId) || (poked != null && now - poked < RECENT_POKE_MS);
+}
+
+// The server said 429: every tab read shares the same per-network budget, so
+// the whole loop waits instead of spending it faster.
+let rateLimitedUntil = 0;
+function noteRateLimit(err: unknown): void {
+  if (err instanceof TabApiError && err.status === 429)
+    rateLimitedUntil = Date.now() + (err.retryAfterMs ?? RATE_LIMIT_PAUSE_MS);
+}
+
+/** Selftests only: forget pacing state (hot tabs, sweep and backoff clocks). */
+export function _resetTabSyncPacingForTests(): void {
+  watchedTabs.clear();
+  recentPokes.clear();
+  lastFullSweepAt = 0;
+  rateLimitedUntil = 0;
+  discoveryFailures = 0;
+  lastDiscoveryOkAt = null;
+  lastDiscoverySkips = { unbound: 0, waiting: 0, conflicts: 0 };
+  lastDiscoveryAt = 0;
+  lastDiscoveryJwt = null;
+}
 // /mine may arrive before the contact's ordinary vault events. Retrying when
 // those events land avoids leaving a new shared binding stranded for a minute.
 const awaitingRelationships = new Set<string>();
@@ -445,10 +523,12 @@ export function reconcileTabsFromServer(): Promise<void> {
 }
 
 async function runReconcileTabsFromServer(): Promise<void> {
+  let attemptedJwt: string | null = null;
   try {
     const session = await captureCurrentSession();
     const jwt = await getSessionJWT().catch(() => null);
     if (!jwt) return;
+    attemptedJwt = jwt;
     // Retry recovery binding for token-held tabs created while signed out.
     for (const link of await listTabLinks()) {
       if (!link.party_token || boundSessions.get(link.tab_id) === jwt) continue;
@@ -485,6 +565,7 @@ async function runReconcileTabsFromServer(): Promise<void> {
     await syncTabsInParallel(closing);
     const toPull = new Set<string>();
     const waiting = new Set<string>();
+    const skips: DiscoverySkips = { unbound: 0, waiting: 0, conflicts: 0 };
     for (const t of mine.tabs) {
       const needsSync = await applyForCurrentSession(session, async () => {
         const existing = await getTabLink(t.tab.id);
@@ -499,7 +580,10 @@ async function runReconcileTabsFromServer(): Promise<void> {
         }
         // A party bound to the account but to no contact (joined from the web,
         // or bound before the kaata was restored) has nothing to hang off yet.
-        if (!t.vault_id || !t.relationship_id) return false;
+        if (!t.vault_id || !t.relationship_id) {
+          skips.unbound++;
+          return false;
+        }
         const db = await getDb();
         // Observe this vault BEFORE the async lookup: ordinary vault sync may
         // create the relationship between the query's read and its reply. Its
@@ -513,6 +597,7 @@ async function runReconcileTabsFromServer(): Promise<void> {
         );
         if (!rel) {
           waiting.add(t.vault_id);
+          skips.waiting++;
           return false;
         }
         const me = t.role;
@@ -538,6 +623,7 @@ async function runReconcileTabsFromServer(): Promise<void> {
         } catch (err) {
           // idx_tab_links_open_rel: the contact already has another open tab
           // locally. Leave the local truth alone; the user unlinks explicitly.
+          skips.conflicts++;
           console.warn("[tabs.sync] reconcile could not insert link", t.tab.id.slice(0, 8), err);
         }
         return true;
@@ -550,9 +636,24 @@ async function runReconcileTabsFromServer(): Promise<void> {
       for (const vaultId of waiting) awaitingRelationships.add(vaultId);
       lastDiscoveryJwt = jwt;
       lastDiscoveryAt = Date.now();
+      lastDiscoveryOkAt = lastDiscoveryAt;
+      lastDiscoverySkips = skips;
+      discoveryFailures = 0;
     });
     await syncTabsInParallel(toPull);
   } catch (err) {
+    noteRateLimit(err);
+    // Retry after 15 s, 30 s, … 5 min, not before every 5 s pass: a failing
+    // /mine used to rerun on each tick and hold every linked contact's pull
+    // behind its timeout.
+    if (attemptedJwt && !(err instanceof SessionChangedError)) {
+      discoveryFailures++;
+      lastDiscoveryJwt = attemptedJwt;
+      lastDiscoveryAt =
+        Date.now() -
+        DISCOVERY_INTERVAL_MS +
+        Math.min(DISCOVERY_RETRY_CAP_MS, DISCOVERY_RETRY_BASE_MS * 2 ** (discoveryFailures - 1));
+    }
     if (__DEV__) console.warn("[tabs.sync] reconcile failed", describe(err));
   }
 }
@@ -566,6 +667,7 @@ export function setTabPushRefreshHook(fn: () => Promise<void>): void {
 }
 
 async function runSyncAll(discover: boolean): Promise<void> {
+  if (Date.now() < rateLimitedUntil) return;
   if (!(await isOnline())) return;
   const jwt = await getSessionJWT().catch(() => null);
   if (!jwt) return;
@@ -576,6 +678,8 @@ async function runSyncAll(discover: boolean): Promise<void> {
   ) {
     await reconcileTabsFromServer();
   }
+  const now = Date.now();
+  const full = discover || now - lastFullSweepAt >= FULL_SWEEP_INTERVAL_MS;
   const ids = new Set<string>();
   for (const l of await listTabLinks({ includeClosed: true })) {
     // Open links every sweep. A CLOSED one only when it has never been
@@ -585,10 +689,15 @@ async function runSyncAll(discover: boolean): Promise<void> {
     // contact would read 0 forever. Closing always bumps the server rev, so
     // a populated closed tab is re-pulled by /mine reconciliation only when
     // its revision changes (for example, after an account is deleted).
-    if (l.closed_at == null || l.rev === 0) ids.add(l.tab_id);
+    if (!(l.closed_at == null || l.rev === 0)) continue;
+    // Between full sweeps, only links where a wait is felt (see isHot); a
+    // never-synced link (restore) is always due. rev 0 is not that test: an
+    // empty tab stays at rev 0 after it has been pulled.
+    if (full || l.last_synced_at == null || isHot(l.tab_id, now)) ids.add(l.tab_id);
   }
-  // Closed links with an unsent close op still need one flush.
+  // Unsent ops (closes included) are due every tick.
   for (const id of await listTabIdsWithQueuedOps()) ids.add(id);
+  if (full) lastFullSweepAt = now;
   await syncTabsInParallel(ids);
   // Notification availability must never determine whether ledger sync works.
   if (pushRefresh) void pushRefresh().catch(() => {});
@@ -655,8 +764,30 @@ export function startTabSyncLoop(): () => void {
       disarm();
     }
   });
+  // Only a return from offline forces discovery and a full sweep. Android
+  // reports capability changes while connected too, and each one used to
+  // re-run discovery and pull every link back to back. Unknown (null) until
+  // the first state read, and treated as offline, so starting offline and then
+  // connecting still kicks.
+  let reachable: boolean | null = null;
+  const isReachable = (state: {
+    isConnected?: boolean | null;
+    isInternetReachable?: boolean | null;
+  }) => state.isConnected !== false && state.isInternetReachable !== false;
+  void Network.getNetworkStateAsync()
+    .then((state) => {
+      if (reachable === null) reachable = isReachable(state);
+    })
+    .catch(() => {});
   const networkSub = Network.addNetworkStateListener((state) => {
-    if (state.isConnected !== false && state.isInternetReachable !== false) kick(true);
+    const now = isReachable(state);
+    // A tally sent while the signal was gone waited out a 30 s+ backoff even
+    // after it came back; make those sends due first.
+    if (now && reachable !== true)
+      void makeWaitingTabOpsDueNow()
+        .catch(() => {})
+        .finally(() => kick(true));
+    reachable = now;
   });
   const unsubLedger = onLedgerApplied((vaultId) => {
     if (awaitingRelationships.has(vaultId)) kick(true);

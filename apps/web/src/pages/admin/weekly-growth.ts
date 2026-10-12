@@ -61,6 +61,15 @@ export function comparisonUnavailable(row: GrowthWeek, trackingSince?: string): 
   return "A comparable weekly rate is currently unavailable.";
 }
 
+// How many devices every install metric leaves out as operator or test data
+// (2026-10-12). "" when the backend predates the count, so nothing is
+// claimed about exclusions it did not report.
+export function excludedDevicesNote(count?: number): string {
+  if (typeof count !== "number" || !Number.isFinite(count) || count < 0) return "";
+  if (count === 0) return "No devices are excluded as operator or test data.";
+  return `${count.toLocaleString("en-US")} ${count === 1 ? "device is" : "devices are"} excluded as operator or test data.`;
+}
+
 export function weeklyCalendarLabel(week: string, cutover?: string): string {
   if (!cutover) return "Reporting calendar";
   if (week >= cutover) return "Kabul";

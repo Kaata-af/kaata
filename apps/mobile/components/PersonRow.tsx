@@ -46,8 +46,12 @@ export const PersonRow = memo(function PersonRow(props: {
   // figure and its currency and switches to the settled tick; a pill stacked
   // there would break both. "{n} to review", not "pending": a tally already
   // counts (D6), so the only thing waiting is the shopkeeper's glance.
-  const subtitle =
-    person.tab_id && person.tab_pending > 0
+  // A shared account found on this phone but not downloaded yet has no known
+  // balance: say so rather than show a false 0.
+  const unsynced = person.tab_unsynced === 1;
+  const subtitle = unsynced
+    ? t("tab.row.notDownloaded")
+    : person.tab_id && person.tab_pending > 0
       ? `${t("tab.row.pending", { count: person.tab_pending })} · ${timeline}`
       : timeline;
 
@@ -96,7 +100,11 @@ export const PersonRow = memo(function PersonRow(props: {
       </View>
       <View style={{ alignItems: isRTL ? "flex-start" : "flex-end" }}>
         <View style={[styles.right, rowDir(isRTL), settled && { alignItems: "center" }]}>
-          {settled ? (
+          {unsynced ? (
+            <Text style={[styles.amount, { color: colors.textMuted }]} maxFontSizeMultiplier={1.5}>
+              …
+            </Text>
+          ) : settled ? (
             // Cleared account: the mark, not a meaningless zero. Grey, not
             // emerald — emerald/garnet are strictly directional (money toward
             // you / away from you) and a settled account has no direction. Grey

@@ -19,7 +19,6 @@ export function AccountDetail(props: { u: UserRow }) {
       <dl className="grid min-w-0 grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
         <DetailItem label="Account name" value={u.name} />
         <DetailItem label="Account created" value={fmtDateTime(u.created_at)} />
-        <DetailItem label="Installed" value={fmtDateTime(u.installed_at || u.first_seen || "")} />
         <DetailItem label="Last sign-in" value={fmtDateTime(u.last_login_at)} />
         <DetailItem label="Last reported activity" value={fmtDateTime(u.last_activity_at)} />
         <DetailItem
@@ -93,7 +92,8 @@ export function InstallDetail(props: { d: InstallRow }) {
         label="Device"
         value={`${d.platform || "Unknown"}${d.app_version ? ` · v${d.app_version}` : ""}`}
       />
-      <DetailItem label="Installed" value={fmtDateTime(d.installed_at || d.first_seen)} />
+      {/* "Installed" is shown once, above, as the earlier of the device's
+          own clock and First seen (users-model installTime). */}
       <DetailItem label="First seen" value={fmtDateTime(d.first_seen)} />
       <DetailItem label="Last seen" value={fmtDateTime(d.last_seen)} />
       <DetailItem label="Last reported activity" value={fmtDateTime(d.last_activity_at)} />

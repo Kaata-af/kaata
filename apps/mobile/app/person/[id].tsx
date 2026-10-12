@@ -28,10 +28,11 @@ import { CreditIntentList } from "../../components/CreditIntentList";
 import { CreditStatusBadge } from "../../components/CreditStatusBadge";
 import { EntryRow } from "../../components/EntryRow";
 import { SharedAccountBadge } from "../../components/SharedAccountBadge";
+import { useCustomerGroups } from "../../lib/use-customer-groups";
 import { LinkAccountDialog } from "../../components/LinkAccountDialog";
 import { OverflowMenu } from "../../components/OverflowMenu";
 import { OptionSheet } from "../../components/OptionSheet";
-import { useToast, useToastOffset } from "../../components/Toast";
+import { TOAST_LIFT, useToast, useToastOffset } from "../../components/Toast";
 import { loadRelationshipAttribution, type EntryAttribution } from "../../lib/attribution";
 import { colors } from "../../lib/colors";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
@@ -69,7 +70,7 @@ import {
   useIsRTL,
 } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
-import { formatAmount } from "../../lib/format";
+import { formatAmount, formatDate } from "../../lib/format";
 import { sumAmounts } from "../../lib/money";
 import { getLocale, getShareLangPref, resolveShareLang, t, type LocaleCode } from "../../lib/i18n";
 import { formatSettlementDate } from "../../lib/jalali";
@@ -78,7 +79,7 @@ import { shareKaataViaWhatsApp, type WhatsAppShareStage } from "../../lib/share"
 import { filterTallies, noteSearchTerms } from "../../lib/tally-search";
 import {
   filterTalliesByDate,
-  formatFilterClock,
+  formatDateRangeLabel,
   type TallyDateRange,
 } from "../../lib/tally-date-filter";
 import { summarizeTallyFlows } from "../../lib/tally-summary";
@@ -100,7 +101,7 @@ import {
   voidEntry,
   settleSharedTab,
 } from "../../lib/tabs/link";
-import { onTabApplied, requestTabSync } from "../../lib/tabs/sync";
+import { onTabApplied, requestTabSync, watchTab } from "../../lib/tabs/sync";
 import { TabApiError, TabInputError, TabReviewFinalError } from "../../lib/tabs/errors";
 import { applyEventMutex } from "../../lib/projection";
 import type { TabLink, TabSettlement } from "../../lib/tabs/types";
@@ -110,6 +111,7 @@ import { useActiveVaultWriteCaps } from "../../lib/use-vault-role";
 import { useMembersCount } from "../../lib/use-vault-summary";
 import { tallyScrollTarget } from "../../lib/tally-viewport";
 import { compareTallyReviews, type ReviewSnapshot } from "../../lib/tally-review-feedback";
+import { takeSavedEntry } from "../../lib/recent-entry";
 import type { Entry, PersonWithBalance, Self } from "../../lib/types";
 
 // Wording for a failed tab operation (accept / void / unlink / regenerate).
@@ -129,11 +131,35 @@ function tabErrorMessage(err: unknown): string {
 // never allocates, and the identity stays stable across renders.
 const EMPTY_ATTRIBUTION: Map<string, EntryAttribution> = new Map();
 
+// The bottom dock is opaque, so it carries its own background this far below
+// the screen edge. When a toast lifts it, that background (not see-through,
+// tappable tally rows) fills the space underneath. The margin covers the
+// spring's settle.
+const DOCK_SKIRT = TOAST_LIFT + 12;
+
 export default function PersonDetailScreen() {
   const router = useRouter();
   const toast = useToast();
   const toastOffset = useToastOffset();
   const [actionsHeight, setActionsHeight] = useState(100);
+  // A toast sits behind the keyboard, so lifting the dock above an open
+  // keyboard only made it jump while typing.
+  const [keyboardShown, setKeyboardShown] = useState(false);
+  const keyboardShownRef = useRef(false);
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", () => {
+      keyboardShownRef.current = true;
+      setKeyboardShown(true);
+    });
+    const hide = Keyboard.addListener("keyboardDidHide", () => {
+      keyboardShownRef.current = false;
+      setKeyboardShown(false);
+    });
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
   const insets = useSafeAreaInsets();
   // Clerks can add; only editors and above can amend/review/cancel.
   const {
@@ -161,7 +187,9 @@ export default function PersonDetailScreen() {
   }, [toastOffset]);
   const highlightedRequest = useRef("");
   const [highlight, setHighlight] = useState<{ id: string; key: string } | null>(null);
-  const [reviewHighlights, setReviewHighlights] = useState<Map<string, string>>(new Map());
+  const [reviewHighlights, setReviewHighlights] = useState<
+    Map<string, { key: string; status: "accepted" | "disputed" }>
+  >(new Map());
   const reviewSnapshot = useRef<ReviewSnapshot | null>(null);
   const reviewEpoch = useRef(0);
   const reviewSequence = useRef(0);
@@ -230,7 +258,7 @@ export default function PersonDetailScreen() {
       height: row.height,
       offset: viewport.current.offset,
       viewport: viewport.current.height,
-      bottomInset: actionsHeight + viewport.current.lift,
+      bottomInset: actionsHeight + (keyboardShownRef.current ? 0 : viewport.current.lift),
     });
     if (target != null) scrollRef.current?.scrollTo({ y: target, animated: true });
     setHighlight({ id: entryId, key });
@@ -256,6 +284,12 @@ export default function PersonDetailScreen() {
   // tapping repeatedly minted a separate 90-day shared-ledger token per tap.
   const [pingStage, setPingStage] = useState<WhatsAppShareStage | null>(null);
   const pinging = pingStage != null;
+  // "Let {name} know on WhatsApp?" after a new tally, and when this page was
+  // opened from a reminder: reminders had no way to send the ping (audit #1).
+  const [pingNudge, setPingNudge] = useState(false);
+  useEffect(() => {
+    if (reminderId) setPingNudge(true);
+  }, [reminderId]);
   const pingBusyRef = useRef(false);
   const pingAbortRef = useRef<AbortController | null>(null);
   // Message-language picker for the ping, shown when share_lang_pref = 'ask'.
@@ -345,6 +379,11 @@ export default function PersonDetailScreen() {
   // the feature switches itself on the moment a kaata becomes shared and off
   // again if it stops being.
   const activeVaultId = getActiveVaultIdSyncMaybe();
+  // Every role sees which groups a customer is in; only managers edit them.
+  const customerGroups = useCustomerGroups(activeVaultId);
+  const personGroupNames = (customerGroups.groupsByPerson[id] ?? [])
+    .map((groupId) => customerGroups.groups.find((group) => group.id === groupId)?.name)
+    .filter((name): name is string => !!name);
   const membersCount = useMembersCount(activeVaultId);
   const isShared = membersCount > 1;
   const [attribution, setAttribution] = useState<Map<string, EntryAttribution>>(EMPTY_ATTRIBUTION);
@@ -414,15 +453,7 @@ export default function PersonDetailScreen() {
     [failedTallies, searchTerms, dateRange],
   );
   const hasTallies = entries.length > 0 || preLink.length > 0 || failedTallies.length > 0;
-  const dateRangeLabel = dateRange
-    ? [dateRange.start, dateRange.end - 1]
-        .map((ms) =>
-          dateRange.timePrecision === "minute"
-            ? `${formatSettlementDate(ms, locale, calendar)} · ${formatFilterClock(ms, locale)}`
-            : formatSettlementDate(ms, locale, calendar),
-        )
-        .join(" – ")
-    : "";
+  const dateRangeLabel = formatDateRangeLabel(dateRange, locale, calendar);
   const searchResultCount =
     matchedEntries.length + matchedPreLink.length + matchedFailedTallies.length;
   const sharedThroughSeq = sharedSettlements.at(-1)?.through_seq ?? 0;
@@ -470,26 +501,41 @@ export default function PersonDetailScreen() {
     | { kind: "entry"; entry: Entry }
     | { kind: "marker"; ms: number; settlement?: TabSettlement };
   const historyItems = useMemo<HistoryItem[]>(() => {
+    const withLocalMarkers = (list: Entry[]): HistoryItem[] => {
+      const items: HistoryItem[] = [];
+      const desc = [...boundaries].sort((a, b) => b - a);
+      let bi = 0;
+      for (const e of list) {
+        while (bi < desc.length && desc[bi] >= e.created_at) {
+          if (items.length === 0 || items[items.length - 1].kind !== "marker") {
+            items.push({ kind: "marker", ms: desc[bi] });
+          }
+          bi++;
+        }
+        items.push({ kind: "entry", entry: e });
+      }
+      return items;
+    };
     // Search spans settled chapters too. It filters the presentation only;
     // the balance, settlement guards and exported/shared statement stay whole.
-    if (searching) return matchedEntries.map((entry) => ({ kind: "entry", entry }));
+    // The dated settlement lines stay between the results, so a settled tally
+    // never reads as current (audit #3); a line with no result below it, or
+    // right after another line, says nothing and is dropped.
+    if (searching) {
+      const items = tabHistory
+        ? sharedHistory(matchedEntries, sharedSettlements)
+        : withLocalMarkers(matchedEntries);
+      const shown = items.filter(
+        (item, i) => item.kind === "entry" || items[i - 1]?.kind !== "marker",
+      );
+      while (shown.at(-1)?.kind === "marker") shown.pop();
+      return shown;
+    }
     if (tabHistory && effectiveShowFull) return sharedHistory(displayedEntries, sharedSettlements);
     if (!effectiveShowFull || tabHistory || boundaries.length === 0) {
       return visibleEntries.map((e) => ({ kind: "entry", entry: e }));
     }
-    const items: HistoryItem[] = [];
-    const desc = [...boundaries].sort((a, b) => b - a);
-    let bi = 0;
-    for (const e of displayedEntries) {
-      while (bi < desc.length && desc[bi] >= e.created_at) {
-        if (items.length === 0 || items[items.length - 1].kind !== "marker") {
-          items.push({ kind: "marker", ms: desc[bi] });
-        }
-        bi++;
-      }
-      items.push({ kind: "entry", entry: e });
-    }
-    return items;
+    return withLocalMarkers(displayedEntries);
   }, [
     visibleEntries,
     effectiveShowFull,
@@ -700,6 +746,17 @@ export default function PersonDetailScreen() {
       });
       setPerson(p);
       setEntries(list);
+      // A tally just added from this page shows even if a search or date
+      // filter was on: clear them rather than hide what was just saved.
+      if (takeSavedEntry(id)) {
+        if (searchingRef.current) {
+          setSearchQuery("");
+          setDateRange(null);
+        }
+        // The moment a customer should hear about a tally is right after it
+        // is written: offer the WhatsApp ping then (audit #1).
+        setPingNudge(true);
+      }
       if (epoch === reviewEpoch.current && focused.current && AppState.currentState === "active") {
         const { snapshot, changes } = compareTallyReviews(reviewSnapshot.current, list);
         reviewSnapshot.current = snapshot;
@@ -709,7 +766,11 @@ export default function PersonDetailScreen() {
         const visible = changes.filter((change) => visibleReviewIds.current.has(change.entry.id));
         if (visible.length > 0) {
           const sequence = ++reviewSequence.current;
-          setReviewHighlights(new Map(visible.map(({ entry }) => [entry.id, `${id}:${sequence}`])));
+          setReviewHighlights(
+            new Map(
+              visible.map(({ entry, status }) => [entry.id, { key: `${id}:${sequence}`, status }]),
+            ),
+          );
           setHighlight((current) =>
             current && visible.some(({ entry }) => entry.id === current.id) ? null : current,
           );
@@ -721,7 +782,17 @@ export default function PersonDetailScreen() {
                     `${formatAmount(first.entry.amount_afn)} ${getCurrentCurrencySymbol()}`,
                   ),
                 })
-              : t("tab.feedback.reviewed", { count: visible.length }),
+              : (() => {
+                  // Several at once: say how many went each way, so a
+                  // rejection is not hidden inside "N reviewed" (audit #13).
+                  const rejected = visible.filter((change) => change.status === "disputed").length;
+                  const accepted = visible.length - rejected;
+                  return rejected === 0
+                    ? t("tab.feedback.manyAccepted", { count: accepted })
+                    : accepted === 0
+                      ? t("tab.feedback.manyRejected", { count: rejected })
+                      : t("tab.feedback.mixed", { accepted, rejected });
+                })(),
             "info",
           );
         }
@@ -776,10 +847,17 @@ export default function PersonDetailScreen() {
       reviewEpoch.current++;
       reviewSnapshot.current = null;
       setReviewHighlights(new Map());
+      // While this screen shows a shared account, the sync loop keeps it on
+      // its 5 s backstop (other links wait for the minute sweep).
+      let active = true;
+      let stopWatch: (() => void) | null = null;
       void load().then((tl) => {
         if (!tl) return;
         // Only an OPEN tab is worth syncing; a closed one never changes again.
-        if (tl.closed_at == null) requestTabSync(tl.tab_id);
+        if (tl.closed_at == null) {
+          requestTabSync(tl.tab_id);
+          if (active) stopWatch = watchTab(tl.tab_id);
+        }
         // Decision A4: the screen is up with the tab's rows on it, so its
         // notices up to the applied rev are handled — unless the user left
         // (or the app did) while the load was in flight.
@@ -790,14 +868,21 @@ export default function PersonDetailScreen() {
       // the sync loop kicks at the same moment re-marks through its newer
       // rev via the listener below, once its rows are on screen.
       const app = AppState.addEventListener("change", (state) => {
-        // Returning from the background starts a baseline, not a replay of
-        // decisions made while the screen was hidden.
+        // Loads that finish while the app is away are not seen, so they must
+        // not move the baseline; the snapshot keeps what was last on screen.
+        // On return, reload and compare against it: a decision made while the
+        // phone was locked is cued once, and the next live one is not eaten as
+        // a fresh baseline (audit #13: both used to pass silently).
         reviewEpoch.current++;
-        reviewSnapshot.current = null;
         setReviewHighlights(new Map());
-        if (state === "active") seen(latestLink.current);
+        if (state === "active") {
+          seen(latestLink.current);
+          void load();
+        }
       });
       return () => {
+        active = false;
+        stopWatch?.();
         focused.current = false;
         reviewEpoch.current++;
         reviewSnapshot.current = null;
@@ -1159,6 +1244,21 @@ export default function PersonDetailScreen() {
                     {ltrIsolate(person.phone)}
                   </Text>
                 ) : null}
+                {/* A closed shared account freezes its history; tallies written
+                    after it are private and carry no review state, which made
+                    them look like accepted shared ones (audit #6). */}
+                {tabHistory?.closed_at != null ? (
+                  <Text style={[styles.groups, textDir(isRTL)]} numberOfLines={2}>
+                    {t("tab.closedNote", { date: formatDate(tabHistory.closed_at) })}
+                  </Text>
+                ) : null}
+                {personGroupNames.length > 0 ? (
+                  <Text style={[styles.groups, textDir(isRTL)]} numberOfLines={2}>
+                    {t(personGroupNames.length > 1 ? "groups.viewMany" : "groups.view", {
+                      name: personGroupNames.join(locale === "fa" ? "، " : ", "),
+                    })}
+                  </Text>
+                ) : null}
                 <View style={{ height: 16 }} />
                 <View style={[styles.balanceOverview, rowDir(isRTL)]}>
                   <View style={styles.balanceSide}>
@@ -1207,18 +1307,33 @@ export default function PersonDetailScreen() {
                     </View>
                     <View style={[styles.balanceRow, rowDir(isRTL)]}>
                       <Text
-                        style={[styles.balance, { color: balanceColor, flexShrink: 1 }]}
+                        style={[
+                          styles.balance,
+                          {
+                            color: person.tab_unsynced === 1 ? colors.textMuted : balanceColor,
+                            flexShrink: 1,
+                          },
+                        ]}
                         numberOfLines={1}
                         adjustsFontSizeToFit
                         minimumFontScale={0.5}
                       >
-                        {formatAmount(abs)}
+                        {person.tab_unsynced === 1 ? "…" : formatAmount(abs)}
                       </Text>
-                      <Text style={styles.balanceAfn}>{getCurrentCurrencySymbol()}</Text>
+                      {person.tab_unsynced === 1 ? null : (
+                        <Text style={styles.balanceAfn}>{getCurrentCurrencySymbol()}</Text>
+                      )}
                     </View>
+                    {/* A discovered shared account that has not been pulled yet
+                        has no known balance; the pull is already queued. */}
+                    {person.tab_unsynced === 1 ? (
+                      <Text style={[styles.unsyncedNote, textDir(isRTL)]}>
+                        {t("tab.notDownloaded")}
+                      </Text>
+                    ) : null}
                     <CreditStatusBadge personId={person.id} vaultId={activeVaultId} />
                   </View>
-                  <TallyFlowSummary summary={flowSummary} isRTL={isRTL} />
+                  <TallyFlowSummary summary={flowSummary} isRTL={isRTL} allTime={searching} />
                 </View>
                 {reminderId ? (
                   <Pressable
@@ -1242,6 +1357,35 @@ export default function PersonDetailScreen() {
                       {t("reminders.title")}
                     </Text>
                   </Pressable>
+                ) : null}
+                {pingNudge && person.phone && !link && entries.length > 0 && !pinging ? (
+                  <View style={[styles.pingNudge, rowDir(isRTL)]}>
+                    <Ionicons name="logo-whatsapp" size={18} color={colors.textEmphasis} />
+                    <Text style={[styles.pingNudgeText, textDir(isRTL)]} numberOfLines={2}>
+                      {t("person.ping.nudge", { name: person.name })}
+                    </Text>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={t("person.ping.button")}
+                      onPress={() => {
+                        setPingNudge(false);
+                        void sendPing();
+                      }}
+                      hitSlop={{ top: 8, bottom: 8 }}
+                      style={({ pressed }) => [styles.pingNudgeSend, pressed && { opacity: 0.7 }]}
+                    >
+                      <Text style={styles.pingNudgeSendText}>{t("person.ping.nudgeSend")}</Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={t("common.notNow")}
+                      onPress={() => setPingNudge(false)}
+                      hitSlop={12}
+                      style={styles.pingNudgeClose}
+                    >
+                      <Ionicons name="close" size={16} color={colors.textSubtle} />
+                    </Pressable>
+                  </View>
                 ) : null}
               </View>
             </View>
@@ -1269,6 +1413,11 @@ export default function PersonDetailScreen() {
                 <View style={styles.settleRule} />
               </Pressable>
             ) : null}
+
+            {/* Waiting and refused clerk attempts sit above the history, where
+                they are seen, not under every tally; a search hides them like
+                any other row it does not match (audit #24, #3). */}
+            {!searching ? <CreditIntentList personId={person.id} vaultId={activeVaultId} /> : null}
 
             {historyItems.length === 0 ? (
               searching ? (
@@ -1355,19 +1504,25 @@ export default function PersonDetailScreen() {
                         onAccept={canAmend && link ? onAccept : undefined}
                         onReject={canAmend && link ? onReject : undefined}
                         onCancel={canAmend && link ? onVoid : undefined}
+                        showFullNote={searchTerms.length > 0}
                       />
                       {highlight?.id === entry.id ? (
                         <TallyHighlight requestKey={highlight.key} />
                       ) : reviewHighlights.has(entry.id) ? (
-                        <TallyHighlight requestKey={reviewHighlights.get(entry.id)!} />
+                        <TallyHighlight
+                          requestKey={reviewHighlights.get(entry.id)!.key}
+                          tone={
+                            reviewHighlights.get(entry.id)!.status === "accepted"
+                              ? "accepted"
+                              : "rejected"
+                          }
+                        />
                       ) : null}
                     </View>
                   );
                 })}
               </View>
             )}
-
-            <CreditIntentList personId={person.id} vaultId={activeVaultId} />
 
             {matchedFailedTallies.length > 0 ? (
               <>
@@ -1479,21 +1634,32 @@ export default function PersonDetailScreen() {
             ) : null}
           </ScrollView>
 
-          {/* Same floating geometry as the old ping bar, including its toast lift.
-          Received LEFT, gave RIGHT regardless of language. */}
+          {/* Opaque dock: it takes every tap on its own background. The old
+          ping bar was a floating button and passed taps through ("box-none"),
+          which here reached tally rows hidden behind the dock, Accept/Reject
+          included. It still lifts above toasts, over its own DOCK_SKIRT, but not
+          above an open keyboard. Received LEFT, gave RIGHT regardless of
+          language. */}
           {canCreate || hasTallies ? (
             <Animated.View
-              pointerEvents="box-none"
-              onLayout={(event) => setActionsHeight(event.nativeEvent.layout.height)}
+              onLayout={(event) =>
+                setActionsHeight(Math.max(0, event.nativeEvent.layout.height - DOCK_SKIRT))
+              }
               style={[
                 styles.actions,
                 {
-                  paddingBottom: 20 + insets.bottom,
-                  transform: [{ translateY: toastOffset }],
+                  bottom: -DOCK_SKIRT,
+                  // Over an open keyboard the safe-area inset is covered: its
+                  // padding was an empty band that cost result rows (audit #31).
+                  paddingBottom: (keyboardShown ? 8 : 20 + insets.bottom) + DOCK_SKIRT,
+                  transform: [{ translateY: keyboardShown ? 0 : toastOffset }],
                 },
               ]}
             >
-              {canCreate ? (
+              {/* While typing a search the entry buttons step aside so the
+                  results above the keyboard get their room (0-1 rows before,
+                  audit #31); they return with the keyboard's close. */}
+              {canCreate && !keyboardShown ? (
                 <View style={styles.actionRow}>
                   <View style={styles.actionBtnWrap}>
                     <Pressable
@@ -1612,10 +1778,7 @@ export default function PersonDetailScreen() {
                         accessibilityRole="button"
                         accessibilityLabel={t("person.date.active", { range: dateRangeLabel })}
                       >
-                        <Text
-                          numberOfLines={dateRange.timePrecision === "minute" ? 2 : 1}
-                          style={[styles.searchSummary, textDir(isRTL)]}
-                        >
+                        <Text numberOfLines={2} style={[styles.searchSummary, textDir(isRTL)]}>
                           {dateRangeLabel}
                         </Text>
                       </Pressable>
@@ -1634,7 +1797,12 @@ export default function PersonDetailScreen() {
                       style={[styles.searchSummary, textDir(isRTL)]}
                       accessibilityLiveRegion="polite"
                     >
-                      {t("person.search.results", { count: searchResultCount })}
+                      {t(
+                        searchResultCount === 1 ? "person.search.result" : "person.search.results",
+                        {
+                          count: searchResultCount,
+                        },
+                      )}
                     </Text>
                   ) : null}
                 </View>
@@ -1851,11 +2019,13 @@ const styles = StyleSheet.create({
   fillCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
   notFoundText: { fontSize: 14, fontFamily: fonts.sansRegular, color: colors.textSubtle },
   // One compact action group with separate 44pt targets, mirrored in Dari.
-  headerActions: { flexDirection: "row", alignItems: "center", gap: 2 },
+  // The 10pt between WhatsApp and the menu lives in the row's gap: a margin on
+  // one side of the button landed on the outer edge in Dari's reversed row,
+  // leaving 2pt between the icons (audit #11).
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 10 },
   headerShare: {
     minWidth: TOUCH_MIN,
     minHeight: TOUCH_MIN,
-    marginEnd: 8,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radius.sm,
@@ -1912,6 +2082,43 @@ const styles = StyleSheet.create({
     fontFamily: fonts.monoRegular,
     color: colors.textSubtle,
     marginTop: 4,
+  },
+  groups: {
+    fontSize: 13,
+    fontFamily: fonts.sansRegular,
+    color: colors.textSubtle,
+    marginTop: 4,
+  },
+  pingNudge: {
+    alignItems: "center",
+    gap: 10,
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    backgroundColor: colors.bgDefault,
+  },
+  pingNudgeText: {
+    flex: 1,
+    fontFamily: fonts.sansRegular,
+    fontSize: 13,
+    color: colors.textDefault,
+  },
+  pingNudgeSend: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: radius.sm,
+    backgroundColor: colors.actionPrimary,
+  },
+  pingNudgeSendText: { fontFamily: fonts.sansSemi, fontSize: 13, color: colors.textInverted },
+  pingNudgeClose: { padding: 4 },
+  unsyncedNote: {
+    fontSize: 12,
+    fontFamily: fonts.sansRegular,
+    color: colors.textSubtle,
+    marginTop: 6,
   },
   balanceRow: { flexDirection: "row", alignItems: "baseline", marginTop: 10, gap: 6 },
   // 40 → typography.numHero (36). This was the app's ONLY 40px value, and the

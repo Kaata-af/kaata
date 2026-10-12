@@ -230,6 +230,8 @@ const auth = load<Auth>("../auth", {
       trace.push(`setAccountIdCache:${id}`);
       accountCache = id;
     },
+    SESSION_ENDED_KEY: "session_ended",
+    setSessionEndedSync: () => {},
     setAppMetaInTx: async (_db: unknown, key: string, value: string) => {
       if (key === APPLE_NAME_KEY) trace.push(`meta.set:${key}`);
       metaSet(key, value);
@@ -388,6 +390,11 @@ const screen = load<{ AuthScreen: (props: AuthScreenProps) => unknown }>(
     },
     // The email flow is its own component (selftest:email-auth renders it).
     "../../components/EmailAuthFlow": { EmailAuthFlow: "EmailAuthFlow" },
+    "../../components/RestoreProgress": {
+      RestoreProgress: "RestoreProgress",
+      restoreProgressLabel: () => "progress",
+    },
+    "../../components/Toast": { useToast: () => ({ push: () => {} }) },
     "../../lib/use-onboarding-keyboard-scroll": {
       useOnboardingKeyboardScroll: () => ({
         scrollProps: {},
@@ -402,6 +409,8 @@ const screen = load<{ AuthScreen: (props: AuthScreenProps) => unknown }>(
     "../../lib/sync/reconcile": { reconcileVaultRegistrations: async () => {} },
     "../../lib/auth": {
       isGoogleSignInAvailable: () => true,
+      isAppleSignInAvailable: () => true,
+      refreshAppleSignInAvailability: async () => true,
       isCancellation: () => false,
       // The REAL classes, so the screen's instanceof checks are the shipped ones.
       SignInFailedError: auth.SignInFailedError,
@@ -685,6 +694,41 @@ test("check-in 410 sets install_retired and throws InstallRetiredError", async (
   assert.ok(err instanceof auth.InstallRetiredError, "410 → InstallRetiredError");
   assert.equal(err.message, CHECKIN_GONE);
   assert.equal(metaGet("install_retired"), "1");
+});
+
+test("a check-in 410 inside the deletion grace window records its recovery deadline", async () => {
+  phone("install-a");
+  const until = new Date(Date.now() + 5 * 86_400_000).toISOString();
+  respond = reply(410, {
+    error: CHECKIN_GONE,
+    error_code: "account_deletion_pending",
+    recoverable_until: until,
+  });
+  await rejection(api.checkIn(checkInPayload("install-a")));
+  assert.equal(metaGet("install_retired"), "1");
+  assert.equal(metaGet("install_retired_recoverable_until"), until);
+  assert.equal(await installId.getInstallRetiredRecoverableUntil(), Date.parse(until));
+  // A sign-in 410 (another account on this phone) says nothing about the deadline.
+  respond = reply(410, { error: AUTH_GONE });
+  await rejection(signIn("google"));
+  assert.equal(metaGet("install_retired_recoverable_until"), until, "a sign-in 410 keeps it");
+  // Check-in is authoritative: a 410 without a deadline (window over) drops it.
+  respond = reply(410, { error: CHECKIN_GONE });
+  await rejection(api.checkIn(checkInPayload("install-a")));
+  assert.equal(metaGet("install_retired_recoverable_until"), null);
+  assert.equal(await installId.getInstallRetiredRecoverableUntil(), null);
+  metaSet("install_retired_recoverable_until", new Date(Date.now() - 1000).toISOString());
+  assert.equal(
+    await installId.getInstallRetiredRecoverableUntil(),
+    null,
+    "a past deadline is not offered",
+  );
+  // Signing in cancelled the deletion: the next accepted check-in clears both.
+  metaSet("install_retired_recoverable_until", until);
+  respond = reply(200, checkInOk);
+  await api.checkIn(checkInPayload("install-a"));
+  assert.equal(metaGet("install_retired"), null);
+  assert.equal(metaGet("install_retired_recoverable_until"), null);
 });
 
 test("other check-in failures keep today's behaviour and set no flag", async () => {
@@ -1063,6 +1107,9 @@ test("the copy exists in English and in its own Dari", async () => {
   const keys = [
     "account.retired.title",
     "account.retired.body",
+    "account.retired.pendingTitle",
+    "account.retired.pendingBody",
+    "account.retired.signInCancel",
     "account.retired.reset",
     "account.retired.confirm.title",
     "account.retired.confirm.body",
@@ -1080,12 +1127,17 @@ test("the copy exists in English and in its own Dari", async () => {
   // notice must not say the phone "needs" a reset or cannot get updates.
   const title = i18n.tIn("en", "account.retired.title");
   const body = i18n.tIn("en", "account.retired.body");
-  assert.match(body, /The account this phone last signed in to has been deleted/);
+  assert.match(body, /The account this phone last signed in to was deleted/);
   assert.match(body, /Your kaatas still work on this phone/);
+  // Inside the 30-day grace window, signing in restores everything; the reset
+  // (which erases the phone) is only for an account that is already gone.
+  assert.match(body, /less than 30 days ago, sign in with the same account to cancel the deletion/);
   assert.match(
     body,
-    /To sign in or back up again, export anything you need first, then reset this phone/,
+    /Otherwise, to sign in or back up again, export anything you need first, then reset this phone/,
   );
+  assert.match(i18n.tIn("en", "account.retired.pendingBody"), /\{date\}/);
+  assert.match(i18n.tIn("fa", "account.retired.pendingBody"), /\{date\}/);
   assert.match(body, /erases everything Kaata keeps on it/);
   assert.doesNotMatch(`${title} ${body}`, /needs a reset|update|can't sign in/i);
   const confirm = i18n.tIn("en", "account.retired.confirm.body");

@@ -40,6 +40,7 @@ export type MergedSection<P, D> = {
   key: "app" | "device";
   titleKey:
     | "personAdd.section.matches"
+    | "personAdd.section.existing"
     | "personAdd.section.recent"
     | "personAdd.section.fromPhone"
     | "personAdd.section.allContacts";

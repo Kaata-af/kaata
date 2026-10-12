@@ -37,6 +37,7 @@
 
 import { getAppMeta } from "./db";
 import { getLocale, subscribeLocale } from "./i18n";
+import { clampQamariOffset, getQamariOffsetDays, setQamariOffsetDays } from "./jalali";
 import { useEffect, useState } from "react";
 
 /** The resolved calendar actually used for rendering. */
@@ -49,6 +50,11 @@ export const DEFAULT_CALENDAR_PREF: CalendarPref = "auto";
 
 /** app_meta key. Named beside `locale_pref` / `default_currency`. */
 export const CALENDAR_PREF_KEY = "calendar_pref";
+
+/** app_meta key: the Qamari adjustment in whole days (−2…+2). The tabular
+ *  Qamari calendar can sit a day or two off the moon-sighted date people go
+ *  by (audit #15). A device setting like the calendar; bills freeze it. */
+export const QAMARI_OFFSET_KEY = "qamari_offset";
 
 // Module-level mutable so any render path can read it synchronously without
 // prop-drilling — same pattern as lib/currency.ts's currentCurrency and
@@ -112,8 +118,10 @@ export function subscribeCalendar(fn: () => void): () => void {
 export async function initCalendarFromPref(): Promise<void> {
   try {
     const next = parseCalendarPref(await getAppMeta(CALENDAR_PREF_KEY));
-    if (next !== currentPref) {
+    const offset = clampQamariOffset(await getAppMeta(QAMARI_OFFSET_KEY));
+    if (next !== currentPref || offset !== getQamariOffsetDays()) {
       currentPref = next;
+      setQamariOffsetDays(offset);
       notifyCalendarChange();
     }
   } catch {
@@ -130,6 +138,20 @@ export async function initCalendarFromPref(): Promise<void> {
 export function setCalendarPref(pref: CalendarPref): void {
   if (currentPref === pref) return;
   currentPref = pref;
+  notifyCalendarChange();
+}
+
+/** The Qamari adjustment in days. Every Qamari date in the app follows it. */
+export function getQamariOffset(): number {
+  return getQamariOffsetDays();
+}
+
+/** Like setCalendarPref: applies and repaints, the caller persists
+ *  QAMARI_OFFSET_KEY. */
+export function setQamariOffset(days: number): void {
+  const next = clampQamariOffset(days);
+  if (next === getQamariOffsetDays()) return;
+  setQamariOffsetDays(next);
   notifyCalendarChange();
 }
 

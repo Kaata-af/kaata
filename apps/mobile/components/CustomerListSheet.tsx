@@ -146,7 +146,22 @@ export function CustomerListSheet(props: {
       statusBarTranslucent
       onRequestClose={props.onDismiss}
     >
-      <SheetBackdrop onDismiss={props.onDismiss} />
+      {/* The blur fades with the sheet, like every other sheet, instead of
+          snapping on and off. */}
+      <Animated.View
+        style={[
+          StyleSheet.absoluteFill,
+          {
+            opacity: slide.interpolate({
+              inputRange: [0, 600],
+              outputRange: [1, 0],
+              extrapolate: "clamp",
+            }),
+          },
+        ]}
+      >
+        <SheetBackdrop onDismiss={props.onDismiss} />
+      </Animated.View>
       <Animated.View
         style={[
           styles.container,
@@ -163,13 +178,21 @@ export function CustomerListSheet(props: {
                 props.onChange({ ...props.preference, sort }),
               ),
             )}
-            <Text style={[styles.section, textDir(props.isRTL)]}>{t("groups.filter")}</Text>
-            <Text style={[styles.help, textDir(props.isRTL)]}>{t("groups.filterHelp")}</Text>
-            {[
-              { id: "all", name: t("groups.all") },
-              { id: "ungrouped", name: t("groups.ungrouped") },
-              ...props.groups,
-            ].map((group) =>
+            {props.groups.length > 0 || props.canManage ? (
+              <Text style={[styles.section, textDir(props.isRTL)]}>{t("groups.filter")}</Text>
+            ) : null}
+            {/* All/Ungrouped mean nothing until a group exists. */}
+            {props.groups.length > 0 ? (
+              <Text style={[styles.help, textDir(props.isRTL)]}>{t("groups.filterHelp")}</Text>
+            ) : null}
+            {(props.groups.length > 0
+              ? [
+                  { id: "all", name: t("groups.all") },
+                  { id: "ungrouped", name: t("groups.ungrouped") },
+                  ...props.groups,
+                ]
+              : []
+            ).map((group) =>
               row(
                 group.id,
                 group.name,

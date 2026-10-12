@@ -43,7 +43,9 @@ export function formatTimestamp(ms: number): string {
   const clock = `${hours12}:${String(date.getMinutes()).padStart(2, "0")}`;
   const marker = t(hours24 < 12 ? "format.am" : "format.pm");
   const localClock = getLocale() === "fa" ? faDigits(clock) : clock;
-  return `\u2068${formatDate(ms)}\u2069 · \u2068${localClock} ${marker}\u2069`;
+  // In Dari a middle dot beside Persian digits reads as a zero: a comma.
+  const sep = getLocale() === "fa" ? "، " : " · ";
+  return `\u2068${formatDate(ms)}\u2069${sep}\u2068${localClock} ${marker}\u2069`;
 }
 
 // Human-friendly "5 minutes ago" / "3 days ago". Used on list rows where

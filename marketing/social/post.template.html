@@ -20,8 +20,9 @@
       body { margin: 0; width: {{WIDTH}}px; height: {{HEIGHT}}px; background: var(--highlight); color: var(--ink); font-family: Vazirmatn, sans-serif; }
       .canvas { width: 100%; height: 100%; padding: 84px; display: flex; flex-direction: column; gap: 64px; }
       .brand { display: flex; align-items: center; gap: 24px; color: var(--brand); font-size: 62px; font-weight: 700; }
-      .brandmark { width: 88px; height: 88px; display: inline-flex; isolation: isolate; overflow: hidden; border-radius: 22%; background: var(--brand); }
-      .brandmark img { width: 100%; height: 100%; mix-blend-mode: screen; }
+      /* logo.png is already Aubergine (marketing/recolor_logo.py). */
+      .brandmark { width: 88px; height: 88px; display: inline-flex; overflow: hidden; border-radius: 22%; background: var(--brand); }
+      .brandmark img { width: 100%; height: 100%; }
       .message { margin-block: auto; padding: 64px; background: var(--warm); border-radius: 48px; }
       h1 { margin: 0; font-size: 76px; font-weight: 700; line-height: 1.5; color: var(--brand); }
       p { margin: 36px 0 0; font-size: 36px; line-height: 1.8; }
@@ -35,6 +36,10 @@
       .square .details { margin-top: 28px; font-size: 24px; }
       .square .footer { font-size: 26px; }
       .square .cta { padding: 16px 24px; }
+      /* Stories: Instagram, Facebook and WhatsApp Status draw their own UI over
+         about the top 250px and bottom 340px of 1080x1920. The Saffron field
+         stays full-bleed; the logo, copy and CTA stay between those bands. */
+      .story .canvas { padding: 280px 84px 370px; }
     </style>
   </head>
   <body class="{{FORMAT}}">

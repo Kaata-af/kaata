@@ -199,6 +199,40 @@ export async function buildDiagnosticsReport(): Promise<string> {
     push("Device key: —");
   }
 
+  // Shared accounts: counts only. "N not downloaded" or failing discovery is
+  // the fingerprint of a restore that did not bring shared ledgers back (#8).
+  try {
+    const db = await getDb();
+    const links = await db.getFirstAsync<{
+      open: number | null;
+      closed: number | null;
+      unsynced: number | null;
+      errored: number | null;
+    }>(
+      `SELECT SUM(CASE WHEN closed_at IS NULL THEN 1 ELSE 0 END) AS open,
+              SUM(CASE WHEN closed_at IS NOT NULL THEN 1 ELSE 0 END) AS closed,
+              SUM(CASE WHEN last_synced_at IS NULL THEN 1 ELSE 0 END) AS unsynced,
+              SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END) AS errored
+         FROM tab_links`,
+    );
+    const { tabDiscoveryStatus } = await import("./tabs/sync");
+    const discovery = tabDiscoveryStatus();
+    const { unbound, waiting, conflicts } = discovery.skips;
+    const skipped =
+      unbound + waiting + conflicts > 0
+        ? `; skipped ${unbound} without a contact, ${waiting} waiting for their contact, ` +
+          `${conflicts} refused locally`
+        : "";
+    push(
+      `Shared accounts: ${links?.open ?? 0} open, ${links?.closed ?? 0} closed; ` +
+        `${links?.unsynced ?? 0} not downloaded, ${links?.errored ?? 0} with errors; ` +
+        `discovery ${discovery.failures > 0 ? `FAILING (${discovery.failures}x)` : "ok"}, ` +
+        `last ${fmtMaybe(discovery.lastOkAt)}${skipped}`,
+    );
+  } catch {
+    push("Shared accounts: —");
+  }
+
   // --- Sync / vault state (the "is this device actually backing up" block) ---
   section("Sync");
   const vaultId = (() => {

@@ -27,7 +27,7 @@ import {
   type ExportEntryRow,
 } from "../db";
 import type { LocaleCode } from "../i18n";
-import { toJalali } from "../jalali";
+import { toJalali, toQamari } from "../jalali";
 import type { Entry, PersonWithBalance, Self } from "../types";
 import { addAmounts } from "../money";
 import { balanceContribution, recordTotals, type RecordTotals } from "./shared-record";
@@ -337,6 +337,19 @@ export function shamsiDate(ms: number): string {
   try {
     const { jy, jm, jd } = toJalali(ms);
     return `${jy}-${pad2(jm)}-${pad2(jd)}`;
+  } catch {
+    return isoDate(ms);
+  }
+}
+
+/** Qamari day in ASCII digits (e.g. "1448-02-20"), with the user's Qamari
+ *  adjustment like every other Qamari date in the app. Only Qamari exports
+ *  carry it (audit #15). Falls back to the Gregorian ISO day before the Hijri
+ *  epoch. */
+export function qamariDate(ms: number): string {
+  try {
+    const { hy, hm, hd } = toQamari(ms);
+    return `${hy}-${pad2(hm)}-${pad2(hd)}`;
   } catch {
     return isoDate(ms);
   }

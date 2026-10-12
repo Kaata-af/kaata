@@ -30,7 +30,10 @@
 import {
   AFGHAN_MONTHS,
   AFGHAN_MONTHS_LATIN,
+  clampQamariOffset,
   formatCalendarDate,
+  getQamariOffsetDays,
+  setQamariOffsetDays,
   toJalali,
   toQamari,
 } from "../jalali";
@@ -178,6 +181,54 @@ for (const g of QAMARI_GOLDEN) {
   test(`${new Date(g.ms).toDateString()} · qamari + fa`, () =>
     eq(formatCalendarDate(g.ms, "fa", "qamari"), g.fa, "out"));
 }
+
+// The Qamari adjustment (audit #15). THE SAME LIST is pinned in Go's
+// TestQamariBillDateAndInlineGoldens (both the Go and the inline-JS renderer)
+// and web's customer-dates.test: add a case to one, add it to the others.
+// A date the shift moves before the epoch falls back to its own, unshifted,
+// Gregorian date.
+const QAMARI_OFFSET_GOLDEN = [
+  { ms: at(2026, 8, 5), offset: -2, en: "18 Safar 1448", fa: "۱۸ صفر ۱۴۴۸" },
+  { ms: at(2026, 8, 5), offset: -1, en: "19 Safar 1448", fa: "۱۹ صفر ۱۴۴۸" },
+  { ms: at(2026, 8, 5), offset: 1, en: "21 Safar 1448", fa: "۲۱ صفر ۱۴۴۸" },
+  { ms: at(2026, 8, 5), offset: 2, en: "22 Safar 1448", fa: "۲۲ صفر ۱۴۴۸" },
+  { ms: at(2026, 6, 16), offset: 1, en: "1 Muharram 1448", fa: "۱ محرم ۱۴۴۸" },
+  { ms: at(2026, 6, 17), offset: -1, en: "30 Dhu al-Hijjah 1447", fa: "۳۰ ذوالحجه ۱۴۴۷" },
+  { ms: at(622, 7, 19), offset: -1, en: "19 Jul 622", fa: "۱۹ جولای ۶۲۲" },
+  { ms: at(622, 7, 18), offset: 1, en: "1 Muharram 1", fa: "۱ محرم ۱" },
+];
+for (const g of QAMARI_OFFSET_GOLDEN) {
+  test(`${new Date(g.ms).toDateString()} · qamari offset ${g.offset}`, () => {
+    eq(formatCalendarDate(g.ms, "en", "qamari", g.offset), g.en, "en");
+    eq(formatCalendarDate(g.ms, "fa", "qamari", g.offset), g.fa, "fa");
+  });
+}
+
+test("the phone's Qamari adjustment is the default, whole days within ±2", () => {
+  setQamariOffsetDays(1);
+  try {
+    eq(formatCalendarDate(at(2026, 8, 5), "en", "qamari"), "21 Safar 1448", "formatter default");
+    eq(
+      JSON.stringify(toQamari(at(2026, 8, 5))),
+      JSON.stringify({ hy: 1448, hm: 2, hd: 21 }),
+      "toQamari",
+    );
+    eq(formatCalendarDate(at(2026, 8, 5), "en", "qamari", 0), "20 Safar 1448", "explicit wins");
+    eq(
+      formatCalendarDate(at(2026, 8, 5), "en", "jalali"),
+      "14 Asad 1405",
+      "other calendars untouched",
+    );
+  } finally {
+    setQamariOffsetDays(0);
+  }
+  setQamariOffsetDays(5);
+  eq(getQamariOffsetDays(), 0, "out of range is no adjustment");
+  eq(clampQamariOffset("-2"), -2, "an app_meta string");
+  eq(clampQamariOffset("1.5"), 0, "whole days only");
+  eq(clampQamariOffset(null), 0, "absent");
+  eq(Object.is(clampQamariOffset(-0), 0), true, "never -0");
+});
 
 test("Qamari Friday epoch and invalid/pre-epoch fallback", () => {
   eq(JSON.stringify(toQamari(at(622, 7, 19))), JSON.stringify({ hy: 1, hm: 1, hd: 1 }), "epoch");

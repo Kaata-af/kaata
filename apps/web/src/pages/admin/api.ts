@@ -118,15 +118,29 @@ export type UserRow = {
   app_version: string;
   installed_at: string;
   // Optional so a dashboard deployed ahead of the backend that adds it still
-  // renders — same reason as SourceRow.store_clicks. Read it as the fallback
-  // for installed_at, which is device-supplied and often empty.
+  // renders — same reason as SourceRow.store_clicks. The install time shown
+  // is the earlier of installed_at and first_seen (users-model installTime):
+  // installed_at is device-supplied, often empty, and for the oldest
+  // installs a back-filled later check-in time.
   first_seen?: string;
   last_activity_at: string;
   has_onboarded: boolean;
   source: string;
   install_count: number;
   kaatas: UserKaata[];
+  // Test data (2026-10-12; optional while an older backend is live). An
+  // account excluded by hand (outreach_exclusions kind "account") leaves
+  // every device it uses out of every install metric. excluded_installs is
+  // how many of install_count the metrics leave out.
+  excluded?: boolean;
+  exclusion_reason?: string;
+  excluded_installs?: number;
 };
+// Why the install metrics leave a device out: "install" = excluded by hand
+// (undo with "Include again"); "operator" = it is or was linked to an
+// operator account (OPERATOR_ACCOUNT_IDS); "account" = linked to an account
+// excluded as test data.
+export type InstallExclusionSource = "install" | "operator" | "account";
 export type InstallRow = {
   install_id: string;
   self_name: string;
@@ -146,6 +160,10 @@ export type InstallRow = {
   usage_customers: number;
   usage_shares: number;
   check_in_count: number;
+  // Optional while an older backend is live; see InstallExclusionSource.
+  excluded?: boolean;
+  excluded_by?: InstallExclusionSource | "";
+  exclusion_reason?: string;
 };
 export type UsersResult = {
   users: UserRow[];
@@ -181,6 +199,10 @@ export type GrowthWeek = {
   growth_rate_percent?: number | null;
   target_active?: number | null;
   target_met?: boolean | null;
+  // When a completed week's counts were recorded (2026-10-12): closed weeks
+  // keep the numbers they were first reported with until the exclusion
+  // rules change. "" for the unfinished week, which is always live.
+  recorded_at?: string;
 };
 export type Adoption = {
   signed_in: number;
@@ -196,6 +218,8 @@ export type Growth = {
   activity_timezone_since?: string;
   activity_tracking_since?: string;
   growth_target_percent?: number;
+  // Installs every install metric leaves out as operator or test data.
+  excluded_installs?: number;
 };
 
 // ---- fetch + hooks ----
@@ -260,6 +284,7 @@ export function useGrowth() {
         activity_timezone_since: g.activity_timezone_since ?? "",
         activity_tracking_since: g.activity_tracking_since ?? "",
         growth_target_percent: g.growth_target_percent,
+        excluded_installs: g.excluded_installs,
       };
     },
     enabled: !!token,

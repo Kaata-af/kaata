@@ -3,7 +3,12 @@ import { Link, useParams } from "react-router-dom";
 import { BACKEND_URL } from "../env";
 import { useI18n } from "../lib/i18n";
 import { brand, ledger } from "../theme";
-import { formatQamariDate, resolveBillCalendar, type BillCalendar } from "../lib/customer-dates";
+import {
+  formatQamariDate,
+  resolveBillCalendar,
+  resolveQamariOffset,
+  type BillCalendar,
+} from "../lib/customer-dates";
 
 // /v/:token — the customer-facing shared ledger ("see the full ledger on
 // kaata.af"). The shopkeeper's app POSTs a small snapshot to the backend and
@@ -36,6 +41,9 @@ type SharedLedger = {
    *  derived from `locale`, which is what they were rendered with originally.
    *  Widened to string because this is untrusted JSON off the wire. */
   calendar?: string;
+  /** Qamari adjustment in days, frozen like calendar (audit #15). Optional:
+   *  absent on other calendars and older bills, which means no adjustment. */
+  qamari_offset?: number;
   entries: SharedEntry[];
   // Settled-chapter structure (2026-07-27, optional — old snapshots lack it):
   // entries dated <= settled_boundary_ms belong to settled (ruled-off)
@@ -177,6 +185,7 @@ function Row({
   currency,
   rtl,
   calendar,
+  qamariOffset,
   L,
 }: {
   e: SharedEntry;
@@ -185,6 +194,7 @@ function Row({
   /** Calendar frozen into the bill; threaded alongside rtl because the two
    *  are independent axes (calendar = which months, rtl = which script). */
   calendar: BillCalendar;
+  qamariOffset: number;
   L: ReturnType<typeof pickLabels>;
 }) {
   const gave = e.type !== "payment"; // debt → "I gave" (up); payment → "I received" (down)
@@ -252,7 +262,7 @@ function Row({
           </p>
           {/* Date only — the arrow carries direction. */}
           <p className="shrink-0 whitespace-nowrap text-[12px]" style={{ color: C.mut }}>
-            {fmtDate(e.date, rtl, calendar)}
+            {fmtDate(e.date, rtl, calendar, qamariOffset)}
           </p>
         </div>
         {e.note ? (
@@ -384,10 +394,10 @@ const GREGORIAN_MONTHS_FA = [
  * (paper rule), so this never resolves against the viewer's preferences.
  * Day-first in all six combinations.
  */
-function fmtDate(ms: number, rtl: boolean, calendar: BillCalendar): string {
+function fmtDate(ms: number, rtl: boolean, calendar: BillCalendar, qamariOffset = 0): string {
   const num = (v: string | number): string => (rtl ? faDigits(v) : String(v));
   if (calendar === "qamari") {
-    const qamari = formatQamariDate(ms, rtl);
+    const qamari = formatQamariDate(ms, rtl, qamariOffset);
     if (qamari !== null) return qamari;
   }
   try {
@@ -482,6 +492,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
   // Explicit snapshot value wins; absent (a bill cut before the calendar
   // setting shipped) falls back to the old language-derived rule.
   const calendar = resolveBillCalendar(d.calendar, rtl);
+  const qamariOffset = resolveQamariOffset(d.qamari_offset);
   const L = pickLabels(d.locale);
   const dir = d.balance > 0 ? "owe" : d.balance < 0 ? "credit" : "settled";
   const accent = dir === "owe" ? C.owe : dir === "credit" ? C.credit : C.ink;
@@ -564,7 +575,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
               className="rounded-full border px-3 py-1 text-[12px] font-semibold"
               style={{ borderColor: C.line, background: C.bg, color: C.sub }}
             >
-              {L.billDated.replace("{date}", fmtDate(d.generated_at, rtl, calendar))}
+              {L.billDated.replace("{date}", fmtDate(d.generated_at, rtl, calendar, qamariOffset))}
             </span>
           </div>
         ) : null}
@@ -667,12 +678,20 @@ function Ledger({ data: d }: { data: SharedLedger }) {
               >
                 <div className="h-px flex-1" style={{ background: C.mut, opacity: 0.4 }} />
                 <span className="text-[11px] font-medium" style={{ color: C.sub }}>
-                  {L.settledOn.replace("{date}", fmtDate(item.ms, rtl, calendar))}
+                  {L.settledOn.replace("{date}", fmtDate(item.ms, rtl, calendar, qamariOffset))}
                 </span>
                 <div className="h-px flex-1" style={{ background: C.mut, opacity: 0.4 }} />
               </div>
             ) : (
-              <Row key={i} e={item.e} currency={d.currency} rtl={rtl} calendar={calendar} L={L} />
+              <Row
+                key={i}
+                e={item.e}
+                currency={d.currency}
+                rtl={rtl}
+                calendar={calendar}
+                qamariOffset={qamariOffset}
+                L={L}
+              />
             ),
           )
         )}

@@ -27,29 +27,63 @@ export async function refreshMemberProfiles(vaultId: string): Promise<boolean> {
       const db = await getDb();
       if (!current()) return false;
       let applied = false;
-      await db.withTransactionAsync(async () => {
-        if (!current()) return;
-        await db.runAsync(
-          `DELETE FROM vault_member_profiles WHERE viewer_account_id = ? AND vault_id = ?`,
-          viewer,
-          vaultId,
-        );
-        for (const member of listing?.members ?? []) {
-          if (!member.account_id || typeof member.account_id !== "string") continue;
+      // Every write on the shared connection takes the ledger write lock; an
+      // unlocked transaction here could interleave with a sync's and leave
+      // that sync half-saved.
+      const { applyEventMutex } = await import("./projection");
+      await applyEventMutex.runExclusive(() =>
+        db.withTransactionAsync(async () => {
+          if (!current()) return;
           await db.runAsync(
-            `INSERT INTO vault_member_profiles
-               (viewer_account_id, vault_id, account_id, display_name, email, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?)`,
+            `DELETE FROM vault_member_profiles WHERE viewer_account_id = ? AND vault_id = ?`,
             viewer,
             vaultId,
-            member.account_id,
-            realName(member.name),
-            typeof member.email === "string" ? member.email.trim() || null : null,
-            Date.now(),
           );
-        }
-        applied = true;
-      });
+          for (const member of listing?.members ?? []) {
+            if (!member.account_id || typeof member.account_id !== "string") continue;
+            await db.runAsync(
+              `INSERT INTO vault_member_profiles
+                 (viewer_account_id, vault_id, account_id, display_name, email, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)`,
+              viewer,
+              vaultId,
+              member.account_id,
+              realName(member.name),
+              typeof member.email === "string" ? member.email.trim() || null : null,
+              Date.now(),
+            );
+          }
+          // A kaata made before sign-in keys its owner by a local: id here,
+          // which the server never lists, so that owner had no name or email
+          // on members' phones (audit #19). With exactly one owner on each
+          // side, the listed owner's profile is also stored under the local
+          // id. Anything ambiguous (two owners mid-transfer) is left alone.
+          const listedOwners = (listing?.members ?? []).filter(
+            (member) => member.role === "owner" && typeof member.account_id === "string",
+          );
+          const localOwners = await db.getAllAsync<{ account_id: string }>(
+            `SELECT account_id FROM vault_members_mirror
+              WHERE vault_id = ? AND role = 'owner' AND revoked_at IS NULL
+                AND account_id LIKE 'local:%'`,
+            vaultId,
+          );
+          if (listedOwners.length === 1 && localOwners.length === 1) {
+            const owner = listedOwners[0];
+            await db.runAsync(
+              `INSERT OR REPLACE INTO vault_member_profiles
+                 (viewer_account_id, vault_id, account_id, display_name, email, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)`,
+              viewer,
+              vaultId,
+              localOwners[0].account_id,
+              realName(owner.name),
+              typeof owner.email === "string" ? owner.email.trim() || null : null,
+              Date.now(),
+            );
+          }
+          applied = true;
+        }),
+      );
       return applied;
     });
   } catch (err) {
@@ -60,10 +94,13 @@ export async function refreshMemberProfiles(vaultId: string): Promise<boolean> {
         if (!current()) return;
         const db = await getDb();
         if (!current()) return;
-        await db.runAsync(
-          `DELETE FROM vault_member_profiles WHERE viewer_account_id = ? AND vault_id = ?`,
-          viewer,
-          vaultId,
+        const { applyEventMutex } = await import("./projection");
+        await applyEventMutex.runExclusive(() =>
+          db.runAsync(
+            `DELETE FROM vault_member_profiles WHERE viewer_account_id = ? AND vault_id = ?`,
+            viewer,
+            vaultId,
+          ),
         );
       });
     }

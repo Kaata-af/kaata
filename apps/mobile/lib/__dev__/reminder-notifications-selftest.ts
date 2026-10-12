@@ -7,6 +7,7 @@ async function main() {
     platform = "android",
     owner = "account:a",
     zone = "Asia/Kabul",
+    locale = "en",
     permission: any = { granted: true, canAskAgain: true };
   let rows: any[] = [],
     requests = 0,
@@ -79,7 +80,11 @@ async function main() {
         },
       }),
     },
-    "./i18n": { t: (key: string) => key },
+    "./i18n": {
+      t: (key: string, params?: { name?: string }) =>
+        params?.name ? `${key}:${params.name}` : key,
+      getLocale: () => locale,
+    },
     "./customer-reminders": {
       listCustomerReminders: async () => rows.filter((row) => row.owner_scope === owner),
       readReminderSchedule: (row: any) => {
@@ -134,15 +139,36 @@ async function main() {
   assert.ok(channels.length > 0);
   for (const request of scheduledCalls) {
     assert.equal(request.content.title, "Kaata");
-    assert.equal(request.content.body, "reminders.notifyBody");
+    // The visible text names the customer (decided 2026-10-12)...
+    assert.equal(request.content.body, "reminders.notifyBodyNamed:Sensitive customer");
     assert.equal(request.content.data.kind, "customer_reminder");
     assert.ok(
-      !JSON.stringify(request.content).includes("Sensitive customer"),
+      // ...while the payload data stays opaque IDs: no name, ledger or amount.
+      !JSON.stringify(request.content.data).includes("Sensitive customer"),
       "OS payload has no customer/ledger/amount data",
     );
   }
   await module.reconcileReminderNotifications();
   assert.equal(scheduledCalls.length, 3, "matching native requests are not churned");
+  // The text is fixed when scheduled: a language switch must rewrite every
+  // pending alert instead of leaving the old language in the tray.
+  locale = "fa";
+  await module.reconcileReminderNotifications();
+  assert.equal(scheduledCalls.length, 6, "a language switch reschedules each request once");
+  await module.reconcileReminderNotifications();
+  assert.equal(scheduledCalls.length, 6, "and then leaves them alone");
+  locale = "en";
+  await module.reconcileReminderNotifications();
+  assert.equal(scheduledCalls.length, 9);
+  // The alert names the customer, so a rename rewrites pending alerts too.
+  const names = rows.map((row) => row.person_name);
+  rows = rows.map((row) => ({ ...row, person_name: "Renamed customer" }));
+  await module.reconcileReminderNotifications();
+  assert.equal(scheduledCalls.length, 12, "a rename rewrites each pending alert once");
+  assert.ok(scheduledCalls.slice(9).every((r) => r.content.body.endsWith(":Renamed customer")));
+  rows = rows.map((row, i) => ({ ...row, person_name: names[i] }));
+  await module.reconcileReminderNotifications();
+  scheduledCalls.splice(3);
   const oldDaily = scheduled.get(prefix + "daily");
   presented.set(oldDaily.identifier, oldDaily);
   rows[1] = {
@@ -285,7 +311,7 @@ async function main() {
   assert.ok(!scheduled.has(prefix + "alternate:month:0"));
   for (const request of privateRequests()) {
     assert.equal(request.content.data.owner_scope, owner);
-    assert.ok(!JSON.stringify(request.content).includes("Sensitive customer"));
+    assert.ok(!JSON.stringify(request.content.data).includes("Sensitive customer"));
   }
   rows = Array.from({ length: 9 }, (_, i) =>
     make(`budget-${i}`, { kind: "weekdays", weekdays: [0, 1, 2, 3, 4, 5, 6], hour: 10, minute: 0 }),

@@ -10,6 +10,7 @@ import {
 } from "react";
 import { AccessibilityInfo, Platform, Pressable, StyleSheet, View } from "react-native";
 import { SHEET_BLUR_METHOD } from "../lib/blur";
+import { t } from "../lib/i18n";
 
 type BackdropContext = {
   target: RefObject<View | null> | undefined;
@@ -89,30 +90,40 @@ export function SheetBackdrop({ onDismiss }: { onDismiss: () => void }) {
     !reducedTransparency &&
     (Platform.OS !== "android" || (Number(Platform.Version) >= 31 && !!target));
   return (
-    <View
-      style={StyleSheet.absoluteFill}
-      pointerEvents="box-none"
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-    >
-      {supportsBlur ? (
-        <BlurView
-          intensity={20}
-          tint="light"
-          blurTarget={target}
-          blurMethod={SHEET_BLUR_METHOD}
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-        />
-      ) : null}
+    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       <View
+        style={StyleSheet.absoluteFill}
         pointerEvents="none"
-        style={[
-          StyleSheet.absoluteFill,
-          { backgroundColor: supportsBlur ? "rgba(0,0,0,0.08)" : "rgba(0,0,0,0.24)" },
-        ]}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      >
+        {supportsBlur ? (
+          <BlurView
+            intensity={20}
+            tint="light"
+            blurTarget={target}
+            blurMethod={SHEET_BLUR_METHOD}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
+        ) : null}
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            { backgroundColor: supportsBlur ? "rgba(0,0,0,0.08)" : "rgba(0,0,0,0.24)" },
+          ]}
+        />
+      </View>
+      {/* The tap-outside target is a labelled button for screen readers: short
+          menus and pickers have no close control of their own, and hiding it
+          left VoiceOver and TalkBack users no way out (audit #28). */}
+      <Pressable
+        style={StyleSheet.absoluteFill}
+        onPress={onDismiss}
+        accessibilityRole="button"
+        accessibilityLabel={t("common.close")}
       />
-      <Pressable style={StyleSheet.absoluteFill} onPress={onDismiss} />
     </View>
   );
 }

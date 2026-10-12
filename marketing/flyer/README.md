@@ -58,21 +58,25 @@ To re-shoot/swap, drop new files at those paths and rebuild. Tips:
 ## Print settings
 
 - **A4**, **double-sided** (flip on the **short edge**), 100% scale / "actual
-  size" (not "fit to page"), color. Margins (~13 mm) are built in, so it prints
-  safely on any home/office printer — no full-bleed setup needed.
+  size" (not "fit to page"), color. The outer 7 mm of each sheet is white by
+  design: the Ivory panel sits inside it and the content 13 mm in, so home and
+  office printers (which cannot print the outer ~3–5 mm) need no full-bleed or
+  borderless setup, and a print shop needs no bleed or trimming.
 
 ## How the QR works
 
 The QR encodes `https://www.kaata.af/download?s=<slug>` — it opens the web
-download page (where the visitor taps "Download APK"). The page reads the `?s=`
+download page, which shows the official Google Play and App Store badges with
+the visitor's own store first. The page reads the `?s=`
 source param, stickies it, and reports it to the backend, so scans → installs
 are still attributable per batch in `/admin` (IP + 60-min window). Because this
 goes through the page, attribution depends on the visitor's browser running JS —
-slightly less robust than a direct link, but it shows install instructions
-first. ECC level **H** is used so the code still scans if smudged/creased.
+slightly less robust than a direct link, but one code serves both Android and
+iPhone. ECC level **H** is used so the code still scans if smudged/creased.
 
 ## Honesty guardrails baked into the copy
 
-- Only the **Android** APK is live → the flyer says "فقط برای اندروید".
-- It does **not** advertise parked/coming-soon features (iPhone, Play Store,
-  customer self-view, cloud backup, multi-shop, sync). Keep it that way.
+- Kaata is on **Google Play** (Android) and the **App Store** (iPhone), so the
+  back names both stores, in the same words as the website's download page.
+- It does **not** advertise parked features (such as nearby phone-to-phone
+  sync). Check `docs/backlog.md` before adding a feature claim.

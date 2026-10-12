@@ -49,12 +49,26 @@ export default function GroupsScreen() {
     [error, setError] = useState<string | null>(null);
   const writing = useRef(false);
   const mounted = useRef(true);
+  const nameRef = useRef<TextInput>(null);
+  const scrollRef = useRef<ScrollView>(null);
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
     };
   }, []);
+  // Focus by ref after the BottomSheet's modal has gone (CLAUDE.md: autoFocus
+  // under a closing modal leaves Android's keyboard shut), and bring the
+  // editor, which sits under the list, into view.
+  const editorOpen = editing !== null;
+  useEffect(() => {
+    if (!editorOpen) return;
+    const timer = setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+      nameRef.current?.focus();
+    }, 280);
+    return () => clearTimeout(timer);
+  }, [editorOpen]);
   const current = () =>
     mounted.current &&
     viewAccount === getAccountIdSync() &&
@@ -109,11 +123,19 @@ export default function GroupsScreen() {
   return (
     <SafeAreaView edges={["top", "bottom"]} style={styles.page}>
       <ScreenHeader title={t("groups.manage")} onBack={() => router.back()} isRTL={isRTL} />
+      {/* Android does not resize for the keyboard (edge-to-edge); iOS adjusts
+          the ScrollView's insets itself, so the KAV is Android-only. */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior="height"
+        enabled={Platform.OS === "android"}
       >
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.body}>
+        <ScrollView
+          ref={scrollRef}
+          keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets
+          contentContainerStyle={styles.body}
+        >
           <Text style={[styles.hint, textDir(isRTL)]}>{t("groups.help")}</Text>
           {failed ? (
             <Text style={[styles.error, textDir(isRTL)]}>{t("home.loadFailed")}</Text>
@@ -123,12 +145,27 @@ export default function GroupsScreen() {
           ) : inScope ? (
             groups.map((group) => (
               <View key={group.id} style={[styles.groupRow, rowDir(isRTL)]}>
-                <View style={{ flex: 1 }}>
+                {/* Opens who is in the group, where several customers can be
+                    put in or taken out at once. */}
+                <Pressable
+                  style={({ pressed }) => [{ flex: 1 }, pressed && { opacity: 0.6 }]}
+                  accessibilityRole="button"
+                  accessibilityHint={t("groups.members.open")}
+                  disabled={busy}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/group-members",
+                      params: { vaultId: vaultId!, groupId: group.id },
+                    })
+                  }
+                >
                   <Text style={[styles.name, textDir(isRTL)]}>{group.name}</Text>
                   <Text style={[styles.hint, textDir(isRTL)]}>
-                    {t("groups.memberCount", { count: group.member_count })}
+                    {t(group.member_count === 1 ? "groups.memberCountOne" : "groups.memberCount", {
+                      count: group.member_count,
+                    })}
                   </Text>
-                </View>
+                </Pressable>
                 {canManage ? (
                   <Pressable
                     accessibilityRole="button"
@@ -153,9 +190,9 @@ export default function GroupsScreen() {
           {canManage && editing ? (
             <View style={styles.editor}>
               <TextInput
+                ref={nameRef}
                 value={editing.name}
                 onChangeText={(name) => setEditing({ ...editing, name })}
-                autoFocus
                 editable={!busy}
                 placeholder={t("groups.namePlaceholder")}
                 accessibilityLabel={t("groups.name")}

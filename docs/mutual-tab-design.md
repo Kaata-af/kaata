@@ -71,9 +71,10 @@ second decisions atomically with its outbox, but still accepts authoritative ser
 state when another phone won. Review buttons never reappear when a row is expanded.
 
 UI: one soft-red Voided pill only; Rejected uses a soft red pill with gray struck
-amount/note. Attribution is date-side with bold names. Received/gave buttons float at
-full touch size and share the old ping bar's toast lift. WhatsApp is first in the
-bottom sheet. The bell preview spans the safe viewport; the full inbox title is
+amount/note. Attribution is date-side with bold names. Received/gave buttons sit at
+full touch size in the opaque bottom dock with the search, which takes its own taps
+and lifts over toasts. WhatsApp is a header button beside ⋯ (and a one-tap nudge
+after a save), no longer a bottom-sheet row. The bell preview spans the safe viewport; the full inbox title is
 centered in its back-button row. WebSocket pokes remain the fast sync path; periodic
 pulls are only the existing safety net.
 
@@ -327,6 +328,10 @@ All timestamps are epoch **ms** integers. All amounts are decimal **strings** in
 { "label": "Ahmad", "vault_id": "uuid|null", "relationship_id": "uuid|null" }
 // A join by a party that already joined is idempotent (label updated).
 // 409 same_kaata when vault_id equals party a's vault_id.
+// 409 same_account (join AND bind) when one account would see both sides: the joiner, or an accepted
+//   member of the joining kaata, is also party a's account or an accepted member of party a's kaata
+//   (e.g. two of your own kaatas). A phone holds one side and /mine returns one side per tab, so such an
+//   account restored only one side (Matee, 2026-10-12: refuse it). Later membership is not re-checked.
 // 409 currency_mismatch: checked on BOTH sides (D9). Mobile compares the local vault currency first; the server compares
 //   the tab currency to ITS vaults.currency (checkContactBinding), which only learns a local change once the
 //   vault_setting_set{key:"currency"} event is PUSHED — so mobile pushes before joining and, on a 409, pushes + retries once.
@@ -350,7 +355,7 @@ All timestamps are epoch **ms** integers. All amounts are decimal **strings** in
 
 // Errors: httpx.ErrorCode → { "error": "...", "error_code": "tab_not_found" | "tab_closed" | "not_author" | "own_entry"
 //   | "already_voided" | "id_taken" | "invalid_amount" | "invalid_direction" | "label_required" | "reason_required"
-//   | "same_kaata" | "role_insufficient" | "not_party_a" | "rate_limited" }
+//   | "same_kaata" | "same_account" | "role_insufficient" | "not_party_a" | "rate_limited" }
 ```
 
 ### 3.5 Live pokes
@@ -523,7 +528,7 @@ export async function linkContact(personId: string, opts: { myLabel: string }): 
 //   opening = { direction: directionFor('a', balance>0 ? 'debt' : 'payment'), amount: |balance| } or null when 0;
 //   POST /v1/tabs (with vault_id+relationship_id when signed in), upsertTabLink, upsertTabFromWire, notify permission prompt (best effort)
 export async function joinTabAsContact(token: string, tab: WireTab, target: { vaultId: string } & ({ personId: string } | { newPerson: { firstName; lastName: string|null; phone: string|null } }), myLabel: string): Promise<TabLink>;
-//   validates vault currency === tab.currency (TabCurrencyMismatchError), rejects self-referential vault (server 409 same_kaata → TabSameKaataError), creates the person when needed via createPerson (surfacing phone_* results), POST /join (+bind when signed in), upsertTabLink+FromWire
+//   validates vault currency === tab.currency (TabCurrencyMismatchError), rejects self-referential vault (server 409 same_kaata → TabSameKaataError) and a link one account would see from both sides (409 same_account → TabSameAccountError), creates the person when needed via createPerson (surfacing phone_* results), POST /join (+bind when signed in), upsertTabLink+FromWire
 export async function addTabEntry(personId: string, type: EntryType, amount: number, note: string|null): Promise<{ duplicateHint: EntryResponse["duplicate_hint"] }>;
 //   optimistic insert + outbox + syncTab; used by entry/new when the person is linked
 export async function acceptEntry(link, entryId), disputeEntry(link, entryId, reason), voidEntry(link, entryId), unlinkContact(link) /* = close */, shareTabLinkOnWhatsApp(link, person, lang): Promise<boolean>;

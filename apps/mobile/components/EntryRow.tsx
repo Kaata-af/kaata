@@ -78,6 +78,9 @@ export const EntryRow = memo(function EntryRow(props: {
   onAccept?: (entry: Entry) => void | Promise<void>;
   onReject?: (entry: Entry) => void | Promise<void>;
   onCancel?: (entry: Entry) => void | Promise<void>;
+  // While a note search is on, the whole note shows: a match past the first
+  // line was clipped away from the result that found it (audit #3).
+  showFullNote?: boolean;
 }) {
   const isRTL = useIsRTL();
   useCalendar(); // This memoized row must also refresh when its calendar changes.
@@ -368,7 +371,7 @@ export const EntryRow = memo(function EntryRow(props: {
                   <View style={styles.noteFlex}>
                     <Text
                       style={[styles.note, textDir(isRTL), excluded && styles.voidedAmount]}
-                      numberOfLines={measured ? 1 : undefined}
+                      numberOfLines={measured && !props.showFullNote ? 1 : undefined}
                       // Full note for screen readers, regardless of the visual clamp.
                       accessibilityLabel={note}
                       onTextLayout={(e) => {
@@ -381,7 +384,9 @@ export const EntryRow = memo(function EntryRow(props: {
                       {note}
                     </Text>
                   </View>
-                  {measured && clipped ? <Text style={styles.more}>{t("common.more")}</Text> : null}
+                  {measured && clipped && !props.showFullNote ? (
+                    <Text style={styles.more}>{t("common.more")}</Text>
+                  ) : null}
                 </View>
               )
             ) : null}
@@ -418,7 +423,7 @@ export const EntryRow = memo(function EntryRow(props: {
         Button: a 34px box whose vertical hitSlop restores the 44pt target;
         see ACTION_HIT_SLOP for why it never reaches sideways). Source order
         is [Reject, Accept] under rowDir + flex-end, so Accept is the
-        outermost pill in both scripts. Accept is the brand primary, NEVER the
+        outermost pill in both scripts. Accept is the black primary, NEVER the
         collect green: green and red mean money direction in this app. */}
       {showReview || showCancel ? (
         <View style={[styles.actions, rowDir(isRTL)]}>

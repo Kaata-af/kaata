@@ -359,6 +359,9 @@ export default function VaultInviteScreen() {
                       ? t("invite.link.clerkDisclosure")
                       : t("invite.link.editorDisclosure")}
                 </Text>
+                {/* Invites never mint a manager (the server caps them below it);
+                    say where that role is granted instead of leaving it hidden. */}
+                <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("invite.managerNote")}</Text>
 
                 <View style={{ height: 24 }} />
                 <Button
@@ -391,7 +394,13 @@ export default function VaultInviteScreen() {
                   </Text>
                   <Text style={[styles.identitySub, textDir(isRTL)]} numberOfLines={2}>
                     {t("invite.link.readySub", {
-                      role: t(role === "viewer" ? "invite.role.viewer" : "invite.role.editor"),
+                      role: t(
+                        role === "viewer"
+                          ? "invite.role.viewer"
+                          : role === "clerk"
+                            ? "invite.role.clerk"
+                            : "invite.role.editor",
+                      ),
                       when: formatExpires(result.expires_at),
                     })}
                   </Text>

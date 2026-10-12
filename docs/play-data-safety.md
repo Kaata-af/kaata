@@ -80,7 +80,12 @@ the old assertion that no messaging provider exists no longer describes 2.0.
 
 - In-app **Delete account** (`DELETE /v1/account`) removes the signed-in account,
   credentials, owned vaults, memberships and bound installation self-profile/crash
-  records. Shared history belonging to others survives. Installation tombstones
+  records **after a 30-day recovery window** (backend migration 057,
+  `docs/account-deletion-grace-window.md`): the account and its cloud data are
+  kept, inaccessible, for 30 days, signing in again within them cancels the
+  deletion, and an hourly purge removes everything listed here once the deadline
+  passes. The Play form's "data is deleted" answer must state that 30-day delay.
+  Shared history belonging to others survives. Installation tombstones
   prevent stale devices from reuploading the deleted profile; a minimal matching
   account/install receipt lets a signed session confirm deletion after a lost reply.
   The phone wipes its local ledger only after the server confirms.

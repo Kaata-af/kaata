@@ -18,7 +18,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { GoogleGIcon } from "../../components/GoogleGIcon";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { EmailAuthFlow } from "../../components/EmailAuthFlow";
-import { recoverAllVaults } from "../../lib/recovery";
+import { recoverAllVaults, type RecoveryProgress } from "../../lib/recovery";
+import { RestoreProgress, restoreProgressLabel } from "../../components/RestoreProgress";
+import { useToast } from "../../components/Toast";
 import { reconcileVaultRegistrations } from "../../lib/sync/reconcile";
 import { NinjaIcon } from "../../components/NinjaIcon";
 import {
@@ -26,9 +28,11 @@ import {
   type DifferentAccountPromptArgs,
   type EmailFlowPending,
   InstallRetiredError,
+  isAppleSignInAvailable,
   isCancellation,
   isGoogleSignInAvailable,
   readEmailFlowPending,
+  refreshAppleSignInAvailability,
   resetRetiredInstall,
   type SessionUser,
   signInWithApple,
@@ -94,6 +98,11 @@ function describeSignInFailure(err: unknown): {
   if (err instanceof Error && "reason" in err && err.reason === "account_deletion_expired") {
     return { text: t("auth.error.accountDeletionExpired"), retired: false, known: true };
   }
+  // Signed in, but the account's kaatas could not be listed or restored: say
+  // that, not "Sign-in didn't work" (audit #2).
+  if (err instanceof AccountRecoveryUnavailableError) {
+    return { text: t("auth.error.recoveryUnavailable"), retired: false, known: true };
+  }
   if (err instanceof SignInFailedError) {
     // InstallRetiredError is a SignInFailedError ("server 410"), so it is told
     // apart inside this branch, before the generic server copy.
@@ -138,6 +147,14 @@ export default function OnboardingAuthScreen() {
   return <AuthScreen />;
 }
 
+/** Signed in, but no kaata could be listed or restored for a new local book. */
+class AccountRecoveryUnavailableError extends Error {
+  constructor() {
+    super("Account recovery unavailable");
+    this.name = "AccountRecoveryUnavailableError";
+  }
+}
+
 export function AuthScreen({
   redirected = false,
   initialMode = "providers",
@@ -155,6 +172,24 @@ export function AuthScreen({
   const router = useRouter();
   const isFocused = useIsFocused();
   const isRTL = useIsRTL();
+  const toast = useToast();
+  // A redirected sign-in restores the account's kaatas before it returns;
+  // show that instead of a frozen card (audit #2).
+  const [restoring, setRestoring] = useState<RecoveryProgress | "start" | null>(null);
+  // Apple on Android depends on the server's web sign-in; ask before offering.
+  const [appleAvailable, setAppleAvailable] = useState(isAppleSignInAvailable);
+  useEffect(() => {
+    if (appleAvailable) return;
+    let alive = true;
+    refreshAppleSignInAvailability()
+      .then((ok) => {
+        if (alive && ok) setAppleAvailable(true);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [appleAvailable]);
   // WHICH sign-in is mid-handshake (null = idle). Every control disables
   // while one runs, but only the tapped one shows the spinner — a shared
   // boolean used to put a spinner on BOTH cards at once. "reset" = the
@@ -326,10 +361,20 @@ export function AuthScreen({
       // before deciding this is a new user; a failed lookup is NOT "no books".
       const hadSelf = await getLocalSelf();
       const previousVault = getActiveVaultIdSyncMaybe();
-      await reconcileVaultRegistrations().catch(() => undefined);
-      const result = await recoverAllVaults();
+      setRestoring("start");
+      let result: Awaited<ReturnType<typeof recoverAllVaults>>;
+      try {
+        await reconcileVaultRegistrations().catch(() => undefined);
+        result = await recoverAllVaults({
+          onProgress: (next) => {
+            if (focusedRef.current) setRestoring(next);
+          },
+        });
+      } finally {
+        setRestoring(null);
+      }
       if (result.failed.length && !hadSelf && !result.recovered.length) {
-        throw new Error("Account recovery unavailable");
+        throw new AccountRecoveryUnavailableError();
       }
       if (hadSelf || result.recovered.length) {
         if (hadSelf && previousVault) {
@@ -337,6 +382,17 @@ export function AuthScreen({
           await applyVaultCurrency(previousVault);
         }
         await setAppMeta("onboarding_step", "done");
+        // Say it worked, and say which kaatas did not come back instead of
+        // letting them go missing silently (audit #2).
+        toast.push(
+          result.failed.length
+            ? t("menu.account.signIn.partialToast", { count: result.failed.length })
+            : t("menu.account.signIn.toast"),
+          result.failed.length ? "error" : "success",
+        );
+        // Left this page while the kaatas restored: a late finish must not
+        // pull the user to another screen (audit #2).
+        if (!focusedRef.current) return;
         const pendingPerson = await getAppMeta("pending_tab_person");
         const pendingTab = await getAppMeta("pending_tab_token");
         const pendingInvite = await getAppMeta("pending_invite_token");
@@ -358,6 +414,15 @@ export function AuthScreen({
       }
       // Only a genuinely new account without a local ledger needs setup.
       await setAppMeta("onboarding_step", "profile");
+      // A first-time invitee who signed in FROM the kaata invite joins it first;
+      // setup resumes after the join, as on the onboarding path below. Without
+      // this the stash was left unread and the invitation was lost (audit #7).
+      const firstInvite = await getAppMeta("pending_invite_token");
+      if (firstInvite) {
+        await setAppMeta("pending_invite_token", "");
+        replaceAuthRoute({ pathname: "/invite/[token]", params: { token: firstInvite } });
+        return;
+      }
       replaceAuthRoute("/onboarding/profile");
       return;
     }
@@ -567,7 +632,16 @@ export function AuthScreen({
 
   const providerChoices = (
     <>
-      <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
+      {/* Onboarding keeps the brand heading; the in-app page from Settings is
+          neutral like the rest of the app (audit #12). */}
+      <Text
+        style={[
+          styles.title,
+          redirected && { color: colors.textEmphasis },
+          textDir(isRTL),
+          trackingSafe(isRTL),
+        ]}
+      >
         {t(redirected ? "auth.redirect.title" : "onboardingMode.title")}
       </Text>
       <Text style={[styles.subtitle, textDir(isRTL)]}>
@@ -595,7 +669,7 @@ export function AuthScreen({
           handshake runs both cards disable, but only the tapped one shows
           the spinner. */}
       {(Platform.OS === "ios" ? (["apple", "google"] as const) : (["google", "apple"] as const))
-        .filter((p) => p !== "google" || googleAvailable)
+        .filter((p) => (p !== "google" || googleAvailable) && (p !== "apple" || appleAvailable))
         .map((provider, idx) => {
           const isGoogle = provider === "google";
           const spinning = busy === provider;
@@ -707,7 +781,7 @@ export function AuthScreen({
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, redirected && { backgroundColor: colors.bgDefault }]}>
       {emailRoute ? (
         <Stack.Screen
           options={{
@@ -758,6 +832,19 @@ export function AuthScreen({
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
         >
+          {restoring ? (
+            <View style={styles.restoring}>
+              <RestoreProgress
+                fraction={restoring === "start" ? undefined : restoring.fraction}
+                label={
+                  restoring === "start"
+                    ? t("restoreProgress.preparing")
+                    : restoreProgressLabel(restoring)
+                }
+                isRTL={isRTL}
+              />
+            </View>
+          ) : null}
           {inEmailMode ? (
             resumeChecked ? (
               <EmailAuthFlow
@@ -823,6 +910,7 @@ export function AuthScreen({
 }
 
 const styles = StyleSheet.create({
+  restoring: { marginBottom: 24 },
   container: { flex: 1, backgroundColor: colors.bgWarm },
   flex: { flex: 1 },
   // A scroll container (the email flow needs the keyboard room), so flexGrow,

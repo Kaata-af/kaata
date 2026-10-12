@@ -9,15 +9,7 @@ const T = require("./gen-tablet10.js"); // true-dp screens + CSS (guarded export
 // iPad 12.9"/13" logical canvas = 1024x1366 pt; rendered with headless Chrome
 // at --window-size=1024,1366 --force-device-scale-factor=2 -> 2048x2732 px.
 //
-// Render (Git Bash):
-//   node gen-ipad13.js
-//   BASE=".../docs/store-assets/ipad-13"
-//   for n in 01-home 02-person 03-onboarding 04-dari; do
-//     chrome --headless=new --disable-gpu --no-sandbox \
-//       --allow-file-access-from-files --hide-scrollbars \
-//       --force-device-scale-factor=2 --window-size=1024,1366 \
-//       --screenshot="$BASE/$n.png" "file:///$BASE/$n.html"
-//   done
+// Render: see docs/store-listing.md (1024x1366 window, device-scale-factor 2).
 
 const OUT = path.join(__dirname, "ipad-13");
 const W = 1024;
@@ -33,8 +25,9 @@ const panels = [
 if (require.main === module) {
   fs.mkdirSync(OUT, { recursive: true });
   for (const p of panels) {
+    // --ib: the 20pt home-indicator inset of Face ID iPads.
     const html = `<!doctype html><html><head><meta charset="utf-8"/><style>${T.CSS}
-html,body,.t10{width:${W}px;height:${H}px;}</style></head><body><div class="t10">${p.screen}</div></body></html>`;
+html,body,.t10{width:${W}px;height:${H}px;}.t10{--ib:20px;}</style></head><body><div class="t10">${p.screen}</div></body></html>`;
     fs.writeFileSync(
       path.join(OUT, `${String(p.n).padStart(2, "0")}-${p.name}.html`),
       html,

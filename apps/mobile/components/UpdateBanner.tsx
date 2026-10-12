@@ -9,8 +9,7 @@ import { t } from "../lib/i18n";
 import { radius } from "../lib/tokens";
 import { updateTargetUrl } from "../lib/update-url";
 
-// Both banner variants share brand and neutral tokens. The update banner
-// uses brandPrimary so it asks for attention within the palette;
+// The update banner is the black primary that asks for attention;
 // announcements stay light + bordered.
 
 // The CTA pill computes to ~31dp tall (6 + 6 padding around a 12px label).
@@ -138,9 +137,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.md, // 12, unchanged — now the token
     borderWidth: 1,
   },
+  // Black like the app's other primary actions: the in-app UI is black, white
+  // and grey (#16), and this was the last Aubergine block on home (audit #12).
   bannerInverted: {
-    backgroundColor: colors.brandPrimary,
-    borderColor: colors.brandPrimary,
+    backgroundColor: colors.actionPrimary,
+    borderColor: colors.actionPrimary,
   },
   bannerLight: {
     backgroundColor: colors.bgMuted,

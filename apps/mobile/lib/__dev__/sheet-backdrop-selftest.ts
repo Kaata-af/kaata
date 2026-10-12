@@ -41,6 +41,7 @@ async function main() {
       },
     },
     "../lib/blur": require("../blur"),
+    "../lib/i18n": { t: (key: string) => key },
   });
   const provider = () => {
     const tree = hooks.render(() => module.SheetBlurProvider({ children: "app" }));
@@ -57,10 +58,24 @@ async function main() {
   const blur = nodes(overlay).find((node) => node.type === "BlurView")!;
   assert.equal(blur.props.blurTarget, target.props.ref, "Android blurs the actual root target");
   assert.equal(blur.props.blurMethod, "dimezisBlurViewSdk31Plus");
-  nodes(overlay)
-    .find((node) => node.type === "Pressable")!
-    .props.onPress();
+  const dismiss = nodes(overlay).find((node) => node.type === "Pressable")!;
+  dismiss.props.onPress();
   assert.equal(dismisses, 1);
+  // Screen readers keep a way out of short menus (audit #28): the dismiss
+  // target is a labelled button outside the hidden blur and tint.
+  assert.equal(dismiss.props.accessibilityLabel, "common.close");
+  assert.equal(dismiss.props.accessibilityRole, "button");
+  assert.notEqual(overlay.props.accessibilityElementsHidden, true);
+  const hidden = nodes(overlay).find((node) => node.props?.accessibilityElementsHidden)!;
+  assert.ok(
+    nodes(hidden).some((node) => node.type === "BlurView"),
+    "the blur stays hidden",
+  );
+  assert.equal(
+    nodes(hidden).some((node) => node.type === "Pressable"),
+    false,
+    "the dismiss button is not inside the hidden layer",
+  );
   sdk = 30;
   assert.equal(
     nodes(backdrop()).some((node) => node.type === "BlurView"),
@@ -108,6 +123,7 @@ async function main() {
       },
     },
     "../lib/blur": require("../blur"),
+    "../lib/i18n": { t: (key: string) => key },
   });
   const iosProvider = () => {
     const tree = iosHooks.render(() => iosModule.SheetBlurProvider({ children: "app" }));

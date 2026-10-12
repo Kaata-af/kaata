@@ -381,8 +381,7 @@ function Freshness() {
       <span className="ml-2 text-xs text-neutral-400">· Kabul time (UTC+04:30)</span>
       {stats.data.activity_timezone_since ? (
         <p className="mt-2 text-xs leading-5 text-neutral-400">
-          Activity and install dates before {stats.data.activity_timezone_since} use UTC day
-          boundaries.
+          Charts and cohorts before {stats.data.activity_timezone_since} use UTC day boundaries.
         </p>
       ) : null}
     </>

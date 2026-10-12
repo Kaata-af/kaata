@@ -15,6 +15,7 @@ let slots: any[] = [],
   dirty = false,
   tree: Node;
 let effects: (() => void)[] = [];
+const tParams = new Map<string, Record<string, unknown> | undefined>();
 let screen: () => Node;
 let role: "owner" | "clerk" | "viewer" = "viewer";
 let rtl = false,
@@ -37,6 +38,10 @@ const homeReadScopes: (string | null)[] = [];
 let appState = "active";
 let roleReadFails = false,
   focusEpoch = 0;
+// app_meta.account_id survives sign-out; the in-memory cache does not.
+let persistedAccountId: string | null = null,
+  cachedAccountId: string | null = null;
+const identityListeners = new Set<() => void>();
 const routes: any[] = [],
   toasts: any[] = [],
   writes: any[] = [];
@@ -299,7 +304,13 @@ const libMocks: Record<string, any> = {
   },
   fonts: { fonts, sansLineHeight: (_: number, height: number) => height },
   format: { formatAmount: String },
-  i18n: { t: (key: string) => key, getLocale: () => (rtl ? "fa" : "en") },
+  i18n: {
+    t: (key: string, params?: Record<string, unknown>) => {
+      tParams.set(key, params);
+      return key;
+    },
+    getLocale: () => (rtl ? "fa" : "en"),
+  },
   "customer-list": require("../customer-list"),
   "customer-groups": { readCustomerGroups: async () => ({ ...groupState, groupByPerson: {} }) },
   "credit-limits": {
@@ -308,13 +319,21 @@ const libMocks: Record<string, any> = {
     refreshCreditPolicies: async () => {},
   },
   "credit-policy-events": { onCreditPoliciesChanged: () => () => {} },
+  "sync/scheduler": { syncActiveVaultNow: async () => {} },
+  "tabs/sync": { syncAllTabs: async () => {} },
   tokens,
   "use-vault-role": roleHooks,
   "db-tx": {
     clearActiveVaultId: async () => {
       vaultId = null;
     },
-    getAccountIdSync: () => null,
+    getAccountIdSync: () => cachedAccountId,
+    onAccountIdentityChanged: (fn: () => void) => {
+      identityListeners.add(fn);
+      return () => {
+        identityListeners.delete(fn);
+      };
+    },
     getActiveVaultIdSyncMaybe: () => vaultId,
     getActiveVaultId: async () => vaultId,
     setActiveVaultId: async (id: string | null) => {
@@ -335,7 +354,7 @@ const libMocks: Record<string, any> = {
     },
     getActiveVaultArchivedAt: async () => null,
     getActiveVaultArchivedState: async () => delayedGuard ?? { state: archivedState },
-    getAppMeta: async () => null,
+    getAppMeta: async (key: string) => (key === "account_id" ? persistedAccountId : null),
     setAppMeta: async () => {},
     listActiveVaults: async () =>
       activeVaultsOverride ?? (vaultId ? [{ id: vaultId, name: "Shop", currency: "AFN" }] : []),
@@ -424,6 +443,7 @@ function unmount() {
   effects = [];
   timers.clear();
   appListeners.clear();
+  identityListeners.clear();
 }
 function fixture(
   component: () => Node,
@@ -444,6 +464,8 @@ function fixture(
   peopleByVault = new Map([["kaata", people]]);
   appState = "active";
   roleReadFails = false;
+  persistedAccountId = null;
+  cachedAccountId = null;
   screenWidth = 390;
   routeParams = {};
   keyboardDismissals = 0;
@@ -700,12 +722,76 @@ async function main() {
     1500,
     "filtered sort leaves collect total intact",
   );
+  // A search match on the other tab is linked, not reported as "No matching
+  // customers" (the c549e04 regression).
+  byLabel("customers.search")!.props.onChangeText("Hamidi");
+  await flush();
+  const collectPage = homePages().find((page) => page.props.direction === "collect")!;
+  assert.equal(collectPage.props.people.length, 0);
+  assert.equal(collectPage.props.otherSideMatches, 1, "other-tab matches are counted");
+  // TabPage is a local component the harness records but does not call; it
+  // holds no state, so render it directly to reach the link.
+  const renderTabPage = collectPage.type as unknown as (props: unknown) => unknown;
+  const otherSideLink = nodes(renderTabPage(collectPage.props)).find(
+    (node) =>
+      node.type === "Pressable" &&
+      nodes(node).some(
+        (child) => child.type === "Text" && child.props.children === "customers.otherSideOnly.pay",
+      ),
+  );
+  assert.ok(otherSideLink, "an empty side links to the matches on the other tab");
+  otherSideLink!.props.onPress();
+  await flush();
+  assert.equal(find("Tabs")!.props.value, "pay", "the link opens the tab holding the match");
+  find("Tabs")!.props.onChange("collect");
+  byLabel("customers.search")!.props.onChangeText("Ahmad");
+  await flush();
+  // The active group filter is named on home, the sort button carries a dot,
+  // and the chip's clear restores every customer.
+  const groupedPage = homePages().find((page) => page.props.direction === "collect")!;
+  assert.equal(groupedPage.props.groupFilterLabel, "Family, Shop", "home names the active groups");
+  assert.equal(groupedPage.props.groupFilterCount, 2);
+  const listOptions = byLabel("customers.listOptions")!;
+  assert.equal(listOptions.props.accessibilityState.selected, true);
+  assert.ok(
+    nodes(listOptions.props.children).some((node) => node.type === "View"),
+    "a customized sort or filter shows a dot on the sort button",
+  );
+  // What the filtered customers come to, beside the whole-side hero (#26).
+  const groupedTree = renderTabPage(groupedPage.props);
+  const shownSum = (groupedPage.props as any).people.reduce(
+    (sum: number, p: { balance: number }) => sum + Math.abs(p.balance),
+    0,
+  );
+  assert.ok(nodes(groupedTree).some((node) => node.props?.children === "customers.filtered"));
+  assert.equal(tParams.get("customers.filtered")?.amount, `${shownSum} AFN`);
+  const groupChip = nodes(groupedTree).find(
+    (node) => node.type === "Pressable" && node.props.accessibilityHint === "groups.clearFilter",
+  );
+  assert.ok(groupChip, "the active group filter is a chip on home");
+  groupChip!.props.onPress();
+  await flush();
+  assert.equal(
+    homePages().find((page) => page.props.direction === "collect")!.props.groupFilterLabel,
+    null,
+    "the chip clears the group filter",
+  );
   find("CustomerListSheet")!.props.onChange({ sort: "name_desc", group: "all" });
   await flush();
   assert.deepEqual(
     homeIds(),
     ["ahmad-high", "ahmad", "ahmad-low", "ahmad-other"],
     "name sorting remains effective during search",
+  );
+
+  fixture(home, "owner");
+  peopleByVault = new Map([["kaata", []]]);
+  dirty = true;
+  await flush();
+  assert.equal(
+    byLabel("customers.listOptions"),
+    undefined,
+    "an empty kaata has nothing to sort or filter",
   );
 
   for (const nextRole of ["owner", "clerk"] as const) {
@@ -729,6 +815,15 @@ async function main() {
       !text(tree).includes("Ahmad Karimi"),
       "hidden app contact still deduplicates phone-book shortcut",
     );
+    byLabel("personEdit.firstName.label")!.props.onChangeText("Ahmad");
+    await flush();
+    assert.ok(
+      personRows().length > 0 && text(tree).includes("personAdd.section.existing"),
+      "typing an existing customer's name shows them as already in this kaata",
+    );
+    byLabel("personEdit.firstName.label")!.props.onChangeText("");
+    await flush();
+    assert.equal(personRows().length, 0, "clearing the name hides them again");
     assert.equal(find("Button")!.props.label, "personAdd.new");
     byLabel("personEdit.firstName.label")!.props.onChangeText("Nadia");
     await flush();
@@ -1064,6 +1159,42 @@ async function main() {
   await flush();
   assert.ok(find("Button"), "a successful focus refresh recovers the writable role");
   assert.equal(contactsReads, 1);
+
+  // Sign-out keeps app_meta.account_id (only the next sign-in overwrites it)
+  // and clears the in-memory account. Home must scope itself to the in-memory
+  // value: comparing the two hid the add button and blocked row taps until a
+  // relaunch (35/55).
+  const openFirstRow = () => {
+    const page = nodes(tree).find(
+      (node) => "filterTotal" in node.props && node.props.people.length > 0,
+    )!;
+    page.props.onPersonPress(page.props.people[0]);
+  };
+  fixture(home, "owner");
+  persistedAccountId = "acc-1";
+  await flush();
+  assert.ok(byLabel("personAdd.new"), "a signed-out owner with a stale account id keeps the plus");
+  openFirstRow();
+  assert.deepEqual(
+    routes.at(-1),
+    { pathname: "/person/[id]", params: { id: "ahmad" } },
+    "a signed-out owner can open a customer",
+  );
+  fixture(home, "owner");
+  persistedAccountId = cachedAccountId = "acc-1";
+  await flush();
+  assert.ok(byLabel("personAdd.new"), "a signed-in owner has the plus");
+  cachedAccountId = null; // signOut() or a 401 clears the cache in place
+  for (const listener of [...identityListeners]) listener();
+  await flush();
+  assert.ok(byLabel("personAdd.new"), "the plus survives an in-session sign-out");
+  routes.length = 0;
+  openFirstRow();
+  assert.deepEqual(
+    routes.at(-1),
+    { pathname: "/person/[id]", params: { id: "ahmad" } },
+    "rows still open after an in-session sign-out",
+  );
 
   fixture(addOrFind, "owner");
   await flush();

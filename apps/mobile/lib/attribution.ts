@@ -23,7 +23,7 @@
 // identity the chain would disagree with.
 
 import { memberTints, type MemberTint } from "./colors";
-import { getDb } from "./db-tx";
+import { getAccountIdSync, getDb } from "./db-tx";
 import { isPlaceholderSelfName } from "./i18n";
 
 /** One member's identity as a tally row needs it. */
@@ -106,12 +106,20 @@ export function initialOf(name: string | null | undefined): string {
  */
 export async function loadMemberNames(vaultId: string): Promise<Map<string, string>> {
   const db = await getDb();
+  // A member's CURRENT name (the authorized profile this phone last fetched)
+  // wins over the name recorded when they joined, so a rename reaches "Added
+  // by" too (audit #19). Members who left keep their recorded name.
   const rows = await db.getAllAsync<{ account_id: string; display_name: string | null }>(
     `SELECT vmm.account_id AS account_id,
-            COALESCE(vmm.display_name, u.display_name) AS display_name
+            COALESCE(NULLIF(TRIM(p.display_name), ''), vmm.display_name, u.display_name)
+              AS display_name
        FROM vault_members_mirror vmm
        LEFT JOIN users u ON u.account_id = vmm.account_id
+       LEFT JOIN vault_member_profiles p
+         ON p.vault_id = vmm.vault_id AND p.account_id = vmm.account_id
+        AND p.viewer_account_id = ? AND vmm.revoked_at IS NULL
       WHERE vmm.vault_id = ?`,
+    getAccountIdSync() ?? "",
     vaultId,
   );
   const out = new Map<string, string>();

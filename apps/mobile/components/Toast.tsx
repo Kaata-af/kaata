@@ -210,11 +210,16 @@ const BASE_LIFT =
   BUTTON_OFFSET_ABOVE_SAFE_AREA +
   2 * TOAST_TEXT_LINE_DELTA;
 
+/** How far useToastOffset() lifts bottom-anchored UI while a toast is shown.
+ * An opaque full-width dock extends its own background below the screen edge
+ * by at least this much, so the lift never opens a see-through, tappable gap. */
+export const TOAST_LIFT = BASE_LIFT + LIFT_GAP; // constant — no insets dependence
+
 export function useToastOffset(): Animated.Value {
   const translateY = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const lift = BASE_LIFT + LIFT_GAP; // constant — no insets dependence
+    const lift = TOAST_LIFT;
     let animation: Animated.CompositeAnimation | null = null;
     // Dampened spring: higher friction prevents overshoot/oscillation that
     // previously left the button hanging mid-screen when rapid toast pushes

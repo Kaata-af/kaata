@@ -70,6 +70,7 @@ var (
 	ErrInvalidCurrency   = errors.New("currency is required")
 	ErrInvalidOccurredAt = errors.New("occurred_at_ms must be a positive epoch-ms integer")
 	ErrSameKaata         = errors.New("both parties cannot be the same kaata")
+	ErrSameAccount       = errors.New("one account cannot see both sides of a shared account")
 	ErrRoleInsufficient  = errors.New("your role in this kaata does not allow that")
 	ErrNotPartyA         = errors.New("only the party that created the tab can do that")
 	ErrNotVaultMember    = errors.New("caller is not an active member of vault_id")
@@ -785,6 +786,39 @@ func checkSameKaata(ctx context.Context, tx pgx.Tx, tabID, role string, vaultID 
 	return nil
 }
 
+// checkSameAccount refuses a binding through which one account would see BOTH
+// sides: the joiner (or an accepted member of the joining kaata) is also the
+// other side's account or an accepted member of its kaata, e.g. linking two of
+// your own kaatas. A phone holds one side of a tab and GET /v1/tabs/mine
+// returns one side per tab, so such an account restores only one side and the
+// other contact stays on its stale pre-link book (Matee, 2026-10-12: block it).
+// Membership granted after the link is not re-checked here.
+func checkSameAccount(ctx context.Context, tx pgx.Tx, tabID, role string, accountID, vaultID *string) error {
+	var overlap bool
+	if err := tx.QueryRow(ctx, `
+		WITH other AS (
+		  SELECT account_id, vault_id FROM tab_parties WHERE tab_id = $1::uuid AND role = $2
+		), other_side AS (
+		  SELECT account_id FROM other WHERE account_id IS NOT NULL
+		  UNION
+		  SELECT vm.account_id FROM vault_members vm JOIN other o ON vm.vault_id = o.vault_id
+		   WHERE vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL
+		), this_side AS (
+		  SELECT $3::uuid AS account_id WHERE $3::uuid IS NOT NULL
+		  UNION
+		  SELECT vm.account_id FROM vault_members vm
+		   WHERE vm.vault_id = $4::uuid AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL
+		)
+		SELECT EXISTS (SELECT 1 FROM other_side o JOIN this_side t ON t.account_id = o.account_id)
+	`, tabID, otherRole(role), accountID, vaultID).Scan(&overlap); err != nil {
+		return fmt.Errorf("check both-sides account: %w", err)
+	}
+	if overlap {
+		return ErrSameAccount
+	}
+	return nil
+}
+
 func setLinkBoundary(ctx context.Context, tx pgx.Tx, tabID, role string, at *int64) error {
 	if at != nil && *at <= 0 {
 		return ErrInvalidOccurredAt
@@ -1145,6 +1179,9 @@ func (s *Service) Join(ctx context.Context, p Party, in JoinInput) (TabResponse,
 	if err := checkSameKaata(ctx, tx, p.TabID, p.Role, in.VaultID); err != nil {
 		return TabResponse{}, err
 	}
+	if err := checkSameAccount(ctx, tx, p.TabID, p.Role, in.AccountID, in.VaultID); err != nil {
+		return TabResponse{}, err
+	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE tab_parties
 		   SET label = $3,
@@ -1208,6 +1245,9 @@ func (s *Service) Bind(ctx context.Context, p Party, in BindInput) (TabResponse,
 		return TabResponse{}, err
 	}
 	if err := checkSameKaata(ctx, tx, p.TabID, p.Role, in.VaultID); err != nil {
+		return TabResponse{}, err
+	}
+	if err := checkSameAccount(ctx, tx, p.TabID, p.Role, &in.AccountID, in.VaultID); err != nil {
 		return TabResponse{}, err
 	}
 	// Re-registering recovery after an app restart is not a ledger change.
@@ -1385,8 +1425,9 @@ func (s *Service) Append(ctx context.Context, p Party, in AppendInput) (AppendRe
 	if locked.ClosedAt != nil {
 		return AppendResult{}, ErrTabClosed
 	}
-	if p.MemberRole == "clerk" && p.VaultID != nil && p.RelationshipID != nil {
-		policy, err := credit.Read(ctx, tx, *p.VaultID, *p.RelationshipID)
+	if p.effectiveRole() == "clerk" && p.VaultID != nil && p.RelationshipID != nil {
+		// The customer's own limit, else the kaata default.
+		policy, err := credit.Effective(ctx, tx, *p.VaultID, *p.RelationshipID)
 		if err != nil {
 			return AppendResult{}, err
 		}
@@ -1403,7 +1444,12 @@ func (s *Service) Append(ctx context.Context, p Party, in AppendInput) (AppendRe
 				delta = -delta
 			}
 			if (delta > 0 && before > 9223372036854775807-delta) || (delta < 0 && before < (-9223372036854775807-1)-delta) || policy.Exceeded(before, before+delta) {
-				if _, err := tx.Exec(ctx, `INSERT INTO customer_credit_tab_refusals(tab_id,entry_id) VALUES($1::uuid,$2::uuid) ON CONFLICT DO NOTHING`, p.TabID, in.ID); err != nil {
+				// The details let the kaata's owner see the attempt (audit #24).
+				entryType := "debt"
+				if delta < 0 {
+					entryType = "payment"
+				}
+				if _, err := tx.Exec(ctx, `INSERT INTO customer_credit_tab_refusals(tab_id,entry_id,vault_id,relationship_id,entry_type,amount_minor,actor_account_id) VALUES($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,$6,NULLIF($7,'')::uuid) ON CONFLICT DO NOTHING`, p.TabID, in.ID, *p.VaultID, *p.RelationshipID, entryType, minor, p.ActorAccountID); err != nil {
 					return AppendResult{}, err
 				}
 				if err := tx.Commit(ctx); err != nil {

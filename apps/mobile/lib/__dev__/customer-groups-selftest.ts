@@ -92,6 +92,9 @@ const sessionAuth = compile(
   const {SecureStore,getAccountIdSync,setAccount,setJwt}=require("fixture-auth");
   let sessionBindingVersion=0;let sessionMutationTail=Promise.resolve();
   ${declaration("../auth.ts", "mutateLocalSession")}
+  const SESSION_CLAIMS = ["account_id", "install_id", "provider", "provider_sub", "ep"];
+  ${declaration("../auth.ts", "decodeIdTokenClaims")}
+  ${declaration("../auth.ts", "sameSessionToken")}
   export ${declaration("../auth.ts", "SessionChangedError")}
   export ${declaration("../auth.ts", "captureCurrentSession")}
   export ${declaration("../auth.ts", "applyForUnchangedLocalSession")}
@@ -176,6 +179,15 @@ const runMembershipMigration = compile(
   `const MIGRATION_037="037_customer_group_memberships";export ${declaration("../db.ts", "runMigration037")}`,
   () => ({}),
 ).runMigration037;
+const runPayloadMigration = compile(
+  `import { groupIdsFromPayload, storedGroupIds } from "../group-memberships";
+  const MIGRATION_039="039_customer_groups_from_payloads";
+  export ${declaration("../db.ts", "runMigration039")}`,
+  (name) => {
+    if (name.endsWith("group-memberships")) return load("../group-memberships");
+    throw new Error(`unexpected import ${name}`);
+  },
+).runMigration039;
 function setRole(role: VaultRole) {
   fixture.prepare("DELETE FROM event_log").run();
   fixture
@@ -301,6 +313,31 @@ async function main() {
   );
   assert.equal(assigned().group_id, null, "stale arrival does not undo newer removal");
   console.log("PASS group/name/assignment LWW, missing-prerequisite retry, per-kaata isolation");
+  // Migration 039: a phone that ran a single-group build (2.2.0 33/53) kept
+  // only the first id of a multi-group payload; the winning event restores it.
+  fixture
+    .prepare(
+      `INSERT INTO event_log (event_id,event_type,vault_id,target_id,payload_json,
+        hlc_physical_ms,hlc_logical,hlc_device_id,applied_at,quarantine_reason)
+      VALUES ('multi','person_group_set','v1','r1',?,65,0,'test',1,NULL)`,
+    )
+    .run(JSON.stringify({ group_id: "g1", group_ids: ["g1", "later"] }));
+  fixture
+    .prepare(`UPDATE relationships SET group_id='g1',group_ids='["g1"]',field_hlcs=? WHERE id='r1'`)
+    .run(JSON.stringify({ group_id: { pms: 65, l: 0, did: "test" } }));
+  fixture
+    .prepare(`UPDATE relationships SET group_id='g1',group_ids='["g1"]',field_hlcs=? WHERE id='r2'`)
+    .run(JSON.stringify({ group_id: { pms: 99, l: 0, did: "unknown" } }));
+  await runPayloadMigration(sqlite);
+  assert.equal(assigned().group_ids, '["g1","later"]', "the winning payload's full set returns");
+  assert.equal(assigned().group_id, "g1", "the first id still mirrors old clients");
+  assert.equal(JSON.parse(assigned().field_hlcs).group_id.pms, 65, "the migration rewrites no HLC");
+  assert.equal(assigned("r2").group_ids, '["g1"]', "no winning event found: left as it is");
+  fixture.prepare("DELETE FROM event_log WHERE event_id='multi'").run();
+  fixture
+    .prepare(`UPDATE relationships SET group_id=NULL,group_ids='[]',field_hlcs=NULL WHERE id='r2'`)
+    .run();
+  console.log("PASS migration 039 restores multi-group sets from the winning stored payload");
   await appliers.applyPersonGroupSet(
     sqlite,
     event("person_group_set", "r1", { group_id: "g1" }, 70, "v1", "r1"),
@@ -453,9 +490,51 @@ async function main() {
   assert.deepEqual(ids("name_asc"), ["a", "b", "c"]);
   assert.deepEqual(ids("name_desc"), ["c", "b", "a"]);
   assert.deepEqual(ids("amount_desc"), ["a", "b", "c"]);
-  assert.deepEqual(ids("amount_asc"), ["c", "b", "a"]);
-  assert.deepEqual(ids("date_desc"), ["c", "b", "a"]);
+  assert.deepEqual(
+    ids("amount_asc"),
+    ["b", "a", "c"],
+    "smallest first lists open debts before a settled (zero) customer",
+  );
   assert.deepEqual(ids("date_asc"), ["a", "b", "c"]);
+  assert.equal(
+    parseCustomerListPreference('{"sort":"date_desc","group":"all"}').sort,
+    "recent",
+    "the dropped newest-first sort reads as Recent activity",
+  );
+  {
+    const oldSettled = {
+      ...people[2],
+      id: "old",
+      name: "Old",
+      last_entry_at: 1,
+    } as PersonWithBalance;
+    assert.deepEqual(
+      selectCustomers(
+        [...people, oldSettled],
+        "collect",
+        { sort: "date_asc", group: "all" },
+        {},
+        "en",
+      ).map((p) => p.id),
+      ["a", "b", "old", "c"],
+      "oldest first keeps settled customers after the open ones",
+    );
+    const named = (names: string[], locale: "en" | "fa") =>
+      selectCustomers(
+        names.map((name, i) => ({ ...people[0], id: `n${i}`, name })),
+        "collect",
+        { sort: "name_asc", group: "all" },
+        {},
+        locale,
+      ).map((p) => p.name);
+    assert.deepEqual(named(["Ahmad 10", "Ahmad 2", "Ahmad 1"], "en"), [
+      "Ahmad 1",
+      "Ahmad 2",
+      "Ahmad 10",
+    ]);
+    assert.deepEqual(named(["دکان ۱۰", "دکان ۲"], "fa"), ["دکان ۲", "دکان ۱۰"]);
+    assert.deepEqual(named(["Shop 02", "Shop 1"], "en"), ["Shop 1", "Shop 02"]);
+  }
   assert.deepEqual(ids("amount_desc", "pay"), ["d", "e"]);
   assert.deepEqual(ids("amount_asc", "pay"), ["e", "d"]);
   assert.deepEqual(ids("recent", "collect", "g"), ["a", "c"]);

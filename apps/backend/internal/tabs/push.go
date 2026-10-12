@@ -262,7 +262,7 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
 		var ticket pushTicket
 		var sendErr error
 		if receipt == nil {
-			body := pushBody(kind, locale)
+			body := pushBodyFor(kind, locale, canReview)
 			var actor, direction, currency string
 			var minor int64
 			err = tx.QueryRow(ctx, `SELECT n.actor_label,COALESCE(e.amount_minor,0),COALESCE(e.direction,''),t.currency
@@ -273,7 +273,7 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
 				return false, err
 			}
 			if err == nil {
-				body = detailedPushBody(kind, locale, actor, minor, direction, currency, role)
+				body = detailedPushBody(kind, locale, actor, minor, direction, currency, role, canReview)
 			}
 			data := map[string]any{"tab_id": tabID, "rev": rev, "kind": kind, "role": role}
 			var actorID *string
@@ -345,7 +345,18 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
 	}
 	return true, tx.Commit(ctx)
 }
-func pushBody(kind, locale string) string {
+func pushBody(kind, locale string) string { return pushBodyFor(kind, locale, true) }
+
+// pushBodyFor words a notice for its reader. Only someone who may review (the
+// party's own account, or an owner/manager/editor of its kaata) is asked to
+// accept or reject; a clerk or viewer is told what happened (audit #7).
+func pushBodyFor(kind, locale string, canReview bool) string {
+	if kind == "entry_created" && !canReview {
+		if locale == "fa" {
+			return "یک ثبت نو در حساب مشترک اضافه شد."
+		}
+		return "A new tally was added to your shared account."
+	}
 	if locale == "fa" {
 		switch kind {
 		case "entry_created":

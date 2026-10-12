@@ -51,9 +51,9 @@
         {
           "image": "./assets/splash-icon.png",
           "resizeMode": "contain",
-          "backgroundColor": "#000000",
+          "backgroundColor": "#4A2A50",
           "dark": {
-            "backgroundColor": "#000000"
+            "backgroundColor": "#4A2A50"
           }
         }
       ],
@@ -89,6 +89,7 @@
       "./plugins/withBackupRules",
       "./plugins/withNearbyWifiNeverForLocation",
       "./plugins/withGradleJvmArgs",
+      "./plugins/withNeutralAndroidAccent",
       "expo-background-task",
       [
         "expo-build-properties",

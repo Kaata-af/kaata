@@ -1,34 +1,141 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useI18n } from "../lib/i18n";
 
-// Visual mockups of the mobile app shown on the landing page. Mirrors the
-// production UI as closely as a static render can: same wordmark, same
-// brand and financial direction palette, same Inter + JetBrains Mono treatment of amounts. All
-// copy flows through useI18n() so the screens flip to Dari with the page.
+// Visual mockups of the mobile app shown on the landing page. They mirror the
+// current home screen (apps/mobile/app/index.tsx) as closely as a static render
+// can: the kaata-name switcher with the bell and profile chip, the black
+// segmented tabs, the hero total, one bordered people card and the bottom dock
+// (Sort & filter, customer search, the black add button). All copy flows
+// through useI18n() so the screens flip to Dari with the page.
 //
-// Two fidelity rules that make these read like the real app:
-//   1. Amounts stay Western digits in BOTH languages — the app's formatAmount()
-//      uses toLocaleString("en-US"), so Dari users see "1,250" too, not "۱٬۲۵۰".
-//   2. The currency label is the AFN symbol "؋" (getCurrentCurrencySymbol()),
-//      not the letters "AFN" — that's what the app actually renders everywhere,
-//      including the WhatsApp share body, and it's locale-independent.
+// Fidelity rules that make these read like the real app:
+//   1. The app's own chrome is neutral black/white/gray, so the screens use the
+//      app palette below, not the site's plum-tinted neutrals. Brand color stays
+//      outside the phone; only money direction (collect green) is colored.
+//   2. UI text renders in Vazirmatn, the app's face in English too; amounts use
+//      JetBrains Mono and stay Western digits in BOTH languages (formatAmount()
+//      uses toLocaleString("en-US")).
+//   3. The currency label is the AFN symbol "؋" (getCurrentCurrencySymbol()),
+//      not the letters "AFN", in every language.
+//   4. Dari mirrors each ROW the way the app's rowDir()/textDir() do (titles and
+//      names on the right, amounts on the left), while the screen stays
+//      LTR-locked: To collect stays the left tab and the add button stays right.
 const CURRENCY = "؋";
+
+// Mirror of apps/mobile/lib/colors.ts (actionPrimary, bgDefault, bgMuted,
+// borderDefault, textEmphasis, textDefault, textSubtle, textMuted).
+const APP = {
+  action: "#000000",
+  surface: "#FFFFFF",
+  muted: "#F7F7F7",
+  border: "#E2E2E2",
+  emphasis: "#171717",
+  text: "#292929",
+  subtle: "#616161",
+  faint: "#6B6B6B",
+} as const;
+
+const APP_FONT: CSSProperties = { fontFamily: '"Vazirmatn", system-ui, sans-serif' };
+
+// The app writes Dari text right-to-left (lib/direction.ts textDir), which
+// also keeps trailing periods and leading digits on the correct side inside
+// the LTR frame. Applied to text leaves only; layout mirrors via row-reverse.
+const textDir = (isRTL: boolean) => (isRTL ? "rtl" : undefined);
 
 function PhoneFrame({ children }: { children: ReactNode }) {
   return (
     // dir="ltr": the mockups depict the mobile app, which is deliberately
     // locked LTR (see the app's I18nManager architecture) — they must not
-    // mirror when the surrounding page flips to RTL for Persian. Dari text
-    // still renders correctly (bidi handles the RTL runs), just left-aligned,
-    // exactly as the LTR-locked app shows it.
+    // mirror when the surrounding page flips to RTL for Persian. Rows that the
+    // app mirrors for Dari are mirrored explicitly below.
     <div
       dir="ltr"
-      className="relative w-[284px] max-w-full aspect-[284/580] bg-white rounded-[2.25rem] border-[7px] border-neutral-900 shadow-[0_20px_50px_-15px_rgba(0,0,0,0.18)] overflow-hidden flex flex-col"
+      className="relative w-[284px] max-w-full aspect-[284/580] bg-white rounded-[2.25rem] border-[7px] border-[#111111] shadow-[0_20px_50px_-15px_rgba(0,0,0,0.18)] overflow-hidden flex flex-col"
     >
       {/* Pill notch — purely decorative */}
-      <div className="h-5 bg-neutral-900 mx-auto w-28 rounded-b-2xl shrink-0" />
+      <div className="h-5 bg-[#111111] mx-auto w-28 rounded-b-2xl shrink-0" />
       {children}
     </div>
+  );
+}
+
+// ---- Icons: Ionicons outlines (the app's icon set), drawn inline ----------
+
+type IconProps = { className?: string; style?: CSSProperties };
+
+const STROKE = {
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 32,
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+} as const;
+
+function ChevronDownIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 512 512" aria-hidden="true" {...props}>
+      <path {...STROKE} strokeWidth={48} d="M112 184l144 144 144-144" />
+    </svg>
+  );
+}
+
+function BellIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 512 512" aria-hidden="true" {...props}>
+      <path
+        {...STROKE}
+        d="M427.68 351.43C402 320 383.87 304 383.87 217.35 383.87 138 343.35 109.73 310 96c-4.43-1.82-8.6-6-9.95-10.55C294.2 65.54 277.8 48 256 48s-38.21 17.55-44 37.47c-1.35 4.6-5.52 8.71-9.95 10.53-33.39 13.75-73.87 41.92-73.87 121.35C128.13 304 110 320 84.32 351.43 73.68 364.45 83 384 101.61 384h308.88c18.51 0 27.77-19.61 17.19-32.57zM320 384v16a64 64 0 01-128 0v-16"
+      />
+    </svg>
+  );
+}
+
+function OptionsIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 512 512" aria-hidden="true" {...props}>
+      <path {...STROKE} d="M368 128h80M64 128h240M368 384h80M64 384h240M208 256h240M64 256h80" />
+      <circle {...STROKE} cx="336" cy="128" r="32" />
+      <circle {...STROKE} cx="176" cy="256" r="32" />
+      <circle {...STROKE} cx="336" cy="384" r="32" />
+    </svg>
+  );
+}
+
+function SearchIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 512 512" aria-hidden="true" {...props}>
+      <path
+        {...STROKE}
+        d="M221.09 64a157.09 157.09 0 10157.09 157.09A157.1 157.1 0 00221.09 64zM338.29 338.29L448 448"
+      />
+    </svg>
+  );
+}
+
+function AddIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 512 512" aria-hidden="true" {...props}>
+      <path {...STROKE} d="M256 112v288M400 256H112" />
+    </svg>
+  );
+}
+
+function CheckCircleIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 512 512" aria-hidden="true" fill="currentColor" {...props}>
+      <path d="M256 48C141.31 48 48 141.31 48 256s93.31 208 208 208 208-93.31 208-208S370.69 48 256 48zm108.25 138.29l-134.4 160a16 16 0 01-12 5.71h-.27a16 16 0 01-11.89-5.3l-57.6-64a16 16 0 1123.78-21.4l45.29 50.32 122.59-145.91a16 16 0 0124.5 20.58z" />
+    </svg>
+  );
+}
+
+function CloudOfflineIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 512 512" aria-hidden="true" {...props}>
+      <path
+        {...STROKE}
+        d="M93.72 183.25C49.49 198.05 16 233.1 16 288c0 66 54 112 120 112h184.37M467.82 377.74C485.24 363.3 496 341.61 496 312c0-59.82-53-85.76-96-88-8.89-89.54-71-144-144-144-26.16 0-48.79 6.93-67.6 18.14M448 448L64 64"
+      />
+    </svg>
   );
 }
 
@@ -40,105 +147,253 @@ function WhatsAppGlyph({ className }: { className?: string }) {
   );
 }
 
-function ListRow(props: { name: string; amount: number; sub: string }) {
+// ---- Home screen pieces ----------------------------------------------------
+
+function AppHeader({ badge }: { badge?: ReactNode }) {
+  const { t, isRTL } = useI18n();
+  // The profile chip shows the signed-in user's first letter (InitialAvatar).
+  const initial = Array.from(t("mock.self.name"))[0] ?? "";
   return (
-    <div className="flex items-center justify-between px-3 py-2.5 border-b border-neutral-200 last:border-0">
-      <div className="min-w-0 mr-2">
-        <p className="text-[12px] font-semibold text-neutral-900 truncate">{props.name}</p>
-        <p className="text-[10px] text-neutral-500 mt-0.5">{props.sub}</p>
-      </div>
-      <div className="flex items-baseline gap-1 shrink-0">
-        <span className="text-[12px] font-semibold font-mono text-neutral-900">
-          {props.amount.toLocaleString("en-US")}
+    <div className={`flex items-center px-3 pt-3 pb-2.5 ${isRTL ? "flex-row-reverse" : ""}`}>
+      <div className={`flex min-w-0 items-center gap-[3px] ${isRTL ? "flex-row-reverse" : ""}`}>
+        <span
+          dir={textDir(isRTL)}
+          className="truncate text-[19px] font-bold leading-snug"
+          style={{ color: APP.emphasis }}
+        >
+          {t("mock.self.shop")}
         </span>
-        <span className="text-[9px] font-medium text-neutral-400">{CURRENCY}</span>
+        <ChevronDownIcon className="h-[11px] w-[11px] shrink-0" style={{ color: APP.subtle }} />
       </div>
+      {badge}
+      <div className="flex-1" />
+      <BellIcon className="h-[15px] w-[15px] shrink-0" style={{ color: APP.emphasis }} />
+      <span
+        className={`flex h-[25px] w-[25px] shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${isRTL ? "mr-2.5" : "ml-2.5"}`}
+        style={{ background: APP.muted, color: APP.emphasis }}
+      >
+        {initial}
+      </span>
     </div>
+  );
+}
+
+function OfflineBadge() {
+  const { t, isRTL } = useI18n();
+  // Styled like the app's read-only header badge: a quiet gray pill.
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-[3px] rounded-full px-[6px] py-[2px] ${isRTL ? "mr-1.5 flex-row-reverse" : "ml-1.5"}`}
+      style={{ background: APP.muted, color: APP.subtle }}
+    >
+      <CloudOfflineIcon className="h-[9px] w-[9px]" />
+      <span dir={textDir(isRTL)} className="text-[8.5px] font-medium leading-none">
+        {t("mock.offline")}
+      </span>
+    </span>
   );
 }
 
 function Tabs({ active }: { active: "collect" | "pay" }) {
   const { t } = useI18n();
+  // Not mirrored in Dari: the tabs track the LTR-locked swipe rail.
   return (
-    <div className="flex p-[3px] bg-neutral-50 border border-neutral-200 rounded-[10px]">
-      <div
-        className={`flex-1 py-1.5 rounded-[7px] text-[11px] text-center ${
-          active === "collect"
-            ? "bg-brand-primary text-white font-semibold"
-            : "text-neutral-700 font-medium"
-        }`}
+    <div
+      className="flex rounded-[6px] border p-[3px]"
+      style={{ background: APP.muted, borderColor: APP.border }}
+    >
+      {(["collect", "pay"] as const).map((key) => (
+        <div
+          key={key}
+          className={`flex h-[30px] flex-1 items-center justify-center rounded-[5px] text-[10.5px] ${
+            key === active ? "font-semibold" : "font-medium"
+          }`}
+          style={
+            key === active ? { background: APP.action, color: APP.surface } : { color: APP.text }
+          }
+        >
+          {t(key === "collect" ? "home.tab.collect" : "home.tab.pay")}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Total({ amount, count }: { amount: string; count: number }) {
+  const { t, isRTL } = useI18n();
+  return (
+    <div className={`mt-3 px-3 ${isRTL ? "text-right" : ""}`}>
+      <p
+        dir={textDir(isRTL)}
+        className={`text-[9px] font-semibold ${isRTL ? "" : "uppercase tracking-[0.06em]"}`}
+        style={{ color: APP.subtle }}
       >
-        {t("home.tab.collect")}
+        {t("home.total.label.collect")}
+      </p>
+      <div className={`mt-1 flex items-baseline gap-1.5 ${isRTL ? "flex-row-reverse" : ""}`}>
+        <span className="font-mono text-[28px] font-bold leading-none -tracking-[0.02em] text-collect-strong">
+          {amount}
+        </span>
+        <span className="text-[11px] font-medium" style={{ color: APP.faint }}>
+          {CURRENCY}
+        </span>
       </div>
-      <div
-        className={`flex-1 py-1.5 rounded-[7px] text-[11px] text-center ${
-          active === "pay"
-            ? "bg-brand-primary text-white font-semibold"
-            : "text-neutral-700 font-medium"
-        }`}
-      >
-        {t("home.tab.pay")}
+      <p dir={textDir(isRTL)} className="mt-1 text-[10px]" style={{ color: APP.subtle }}>
+        {t("home.from.many", { count })}
+      </p>
+    </div>
+  );
+}
+
+type Row = { name: string; amount: number; sub: string };
+
+function PeopleCard({ rows }: { rows: Row[] }) {
+  const { isRTL } = useI18n();
+  return (
+    <div
+      className="mx-3 mt-3.5 overflow-hidden rounded-[9px] border bg-white"
+      style={{ borderColor: APP.border }}
+    >
+      {rows.map((row, index) => (
+        <div
+          key={row.name}
+          className={`flex items-center px-2.5 py-[9px] ${isRTL ? "flex-row-reverse" : ""} ${
+            index > 0 ? "border-t" : ""
+          }`}
+          style={{ borderColor: APP.border }}
+        >
+          <div className={`min-w-0 flex-1 ${isRTL ? "ml-2 text-right" : "mr-2"}`}>
+            <p
+              dir={textDir(isRTL)}
+              className="truncate text-[12px] font-semibold"
+              style={{ color: APP.emphasis }}
+            >
+              {row.name}
+            </p>
+            <p dir={textDir(isRTL)} className="mt-px text-[9.5px]" style={{ color: APP.subtle }}>
+              {row.sub}
+            </p>
+          </div>
+          <div className={`flex shrink-0 items-baseline gap-1 ${isRTL ? "flex-row-reverse" : ""}`}>
+            <span className="font-mono text-[12px] font-semibold" style={{ color: APP.emphasis }}>
+              {row.amount.toLocaleString("en-US")}
+            </span>
+            <span className="text-[9px] font-medium" style={{ color: APP.faint }}>
+              {CURRENCY}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// The app's success toast: white card, hairline border, lifted, check icon.
+function AppToast({ title, sub }: { title: string; sub: string }) {
+  const { isRTL } = useI18n();
+  return (
+    <div
+      className={`mx-3 mb-2 flex items-start gap-2 rounded-[10px] border bg-white px-2.5 py-2 shadow-[0_10px_20px_-10px_rgba(0,0,0,0.3)] ${
+        isRTL ? "flex-row-reverse text-right" : ""
+      }`}
+      style={{ borderColor: APP.border }}
+    >
+      <CheckCircleIcon className="h-[15px] w-[15px] shrink-0" style={{ color: APP.emphasis }} />
+      <div className="min-w-0">
+        <p
+          dir={textDir(isRTL)}
+          className="text-[10px] font-semibold leading-tight"
+          style={{ color: APP.emphasis }}
+        >
+          {title}
+        </p>
+        <p
+          dir={textDir(isRTL)}
+          className="mt-0.5 text-[9.5px] leading-tight"
+          style={{ color: APP.subtle }}
+        >
+          {sub}
+        </p>
       </div>
     </div>
   );
 }
 
-// Small uppercase eyebrow labels. Arabic script doesn't uppercase and reacts
-// badly to letter-spacing, so drop both for Dari (mirrors the SiteChrome
-// wordmark treatment).
-function eyebrowClass(isRTL: boolean): string {
-  return `text-[9px] font-semibold text-neutral-500 ${isRTL ? "" : "uppercase tracking-wider"}`;
+// Bottom dock: Sort & filter stays left and add stays right in both languages;
+// only the search field's contents mirror in Dari.
+function Dock() {
+  const { t, isRTL } = useI18n();
+  return (
+    <div className="flex items-center gap-1.5 px-3 pb-3.5">
+      <div
+        className="flex h-9 w-[30px] shrink-0 items-center justify-center rounded-[8px] border bg-white"
+        style={{ borderColor: APP.border, color: APP.text }}
+      >
+        <OptionsIcon className="h-[15px] w-[15px]" />
+      </div>
+      <div
+        className={`flex h-9 min-w-0 flex-1 items-center gap-1.5 rounded-[8px] border bg-white px-1.5 ${
+          isRTL ? "flex-row-reverse" : ""
+        }`}
+        style={{ borderColor: APP.border }}
+      >
+        <SearchIcon className="h-[15px] w-[15px] shrink-0" style={{ color: APP.subtle }} />
+        <span
+          dir={textDir(isRTL)}
+          className={`min-w-0 flex-1 truncate text-[10px] ${isRTL ? "text-right" : ""}`}
+          style={{ color: APP.faint }}
+        >
+          {t("customers.search")}
+        </span>
+      </div>
+      <div
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+        style={{ background: APP.action, color: APP.surface }}
+      >
+        <AddIcon className="h-[19px] w-[19px]" />
+      </div>
+    </div>
+  );
+}
+
+function HomeScreen(props: {
+  total: string;
+  count: number;
+  rows: Row[];
+  badge?: ReactNode;
+  toast?: { title: string; sub: string };
+}) {
+  return (
+    <div className="flex flex-1 flex-col" style={APP_FONT}>
+      <AppHeader badge={props.badge} />
+      <div className="px-3">
+        <Tabs active="collect" />
+      </div>
+      <Total amount={props.total} count={props.count} />
+      <PeopleCard rows={props.rows} />
+      <div className="mt-auto pt-3">
+        {props.toast ? <AppToast title={props.toast.title} sub={props.toast.sub} /> : null}
+        <Dock />
+      </div>
+    </div>
+  );
+}
+
+function useSampleRows(): Row[] {
+  const { t } = useI18n();
+  return [
+    { name: t("mock.name.mahmood"), amount: 3800, sub: t("format.daysAgo", { n: 2 }) },
+    { name: t("mock.name.ahmad"), amount: 1250, sub: t("format.yesterday") },
+    { name: t("mock.name.sultan"), amount: 750, sub: t("format.daysAgo", { n: 3 }) },
+    { name: t("mock.name.wahid"), amount: 420, sub: t("format.weeksAgo", { n: 1 }) },
+  ];
 }
 
 export function PhoneMockupHome() {
-  const { t, lang } = useI18n();
-  const isRTL = lang === "fa";
+  const rows = useSampleRows();
   return (
     <PhoneFrame>
-      <div className="px-4 pt-3 pb-4 flex-1 flex flex-col">
-        <p className={`text-[18px] font-bold text-neutral-900 ${isRTL ? "" : "-tracking-tight"}`}>
-          {t("brand.wordmark")}
-        </p>
-        <p className="text-[10px] text-neutral-500 mt-0.5">
-          {t("mock.self.name")} · {t("mock.self.shop")}
-        </p>
-
-        <div className="mt-4">
-          <Tabs active="collect" />
-        </div>
-
-        <div className="mt-4">
-          <p className={eyebrowClass(isRTL)}>{t("home.total.label.collect")}</p>
-          <div className="flex items-baseline gap-1.5 mt-1">
-            <p className="text-[32px] font-bold font-mono text-collect-strong leading-none -tracking-tight">
-              6,220
-            </p>
-            <p className="text-[11px] text-neutral-400 font-medium">{CURRENCY}</p>
-          </div>
-          <p className="text-[10px] text-neutral-500 mt-1">{t("home.from.many", { count: 4 })}</p>
-        </div>
-
-        <div className="mt-4 rounded-xl border border-neutral-200 overflow-hidden bg-white">
-          <ListRow
-            name={t("mock.name.mahmood")}
-            amount={3800}
-            sub={t("format.daysAgo", { n: 2 })}
-          />
-          <ListRow name={t("mock.name.ahmad")} amount={1250} sub={t("format.yesterday")} />
-          <ListRow name={t("mock.name.sultan")} amount={750} sub={t("format.daysAgo", { n: 3 })} />
-          <ListRow name={t("mock.name.wahid")} amount={420} sub={t("format.weeksAgo", { n: 1 })} />
-        </div>
-
-        {/* Mirrors the app's home FAB, which draws a rounded-square
-            "home button" mark rather than a "+" — see HOME_MARK_SIZE in
-            apps/mobile/app/index.tsx. The app's ratios, scaled to this 44px
-            mock: mark = 42% of the button, corner radius = 32% of the mark. */}
-        <div className="mt-auto flex justify-end pt-3">
-          <div className="w-11 h-11 bg-brand-primary rounded-full flex items-center justify-center">
-            <div className="w-[18px] h-[18px] rounded-[6px] border-2 border-white" />
-          </div>
-        </div>
-      </div>
+      <HomeScreen total="6,220" count={4} rows={rows} />
     </PhoneFrame>
   );
 }
@@ -179,9 +434,9 @@ export function PhoneMockupWhatsApp() {
           </div>
         </div>
 
-        {/* Outgoing message (the Kaata ping). dir follows the language so the
-            Dari message reads right-to-left the way WhatsApp renders it for the
-            recipient; the bubble stays on the right via physical ml-auto. */}
+        {/* Outgoing message (the Kaata reminder). dir follows the language so
+            the Dari message reads right-to-left the way WhatsApp renders it for
+            the recipient; the bubble stays on the right via physical ml-auto. */}
         <div className="mt-4 flex-1 space-y-2.5">
           <div
             dir={isRTL ? "rtl" : "ltr"}
@@ -223,122 +478,35 @@ export function PhoneMockupWhatsApp() {
   );
 }
 
-// The just-restored home screen: same layout as PhoneMockupHome, with a
-// success card where the offline mockup shows its "entry saved" card. Depicts
-// the sign-in-on-a-new-phone moment the backup feature section describes.
+// The just-restored home screen: the sign-in-on-a-new-phone moment the backup
+// feature section describes, confirmed by the app's success toast.
 export function PhoneMockupRestore() {
-  const { t, lang } = useI18n();
-  const isRTL = lang === "fa";
+  const { t } = useI18n();
+  const rows = useSampleRows();
   return (
     <PhoneFrame>
-      <div className="px-4 pt-3 pb-4 flex-1 flex flex-col">
-        <p className={`text-[18px] font-bold text-neutral-900 ${isRTL ? "" : "-tracking-tight"}`}>
-          {t("brand.wordmark")}
-        </p>
-        <p className="text-[10px] text-neutral-500 mt-0.5">
-          {t("mock.self.name")} · {t("mock.self.shop")}
-        </p>
-
-        <div className="mt-4">
-          <Tabs active="collect" />
-        </div>
-
-        <div className="mt-4">
-          <p className={eyebrowClass(isRTL)}>{t("home.total.label.collect")}</p>
-          <div className="flex items-baseline gap-1.5 mt-1">
-            <p className="text-[32px] font-bold font-mono text-collect-strong leading-none -tracking-tight">
-              6,220
-            </p>
-            <p className="text-[11px] text-neutral-400 font-medium">{CURRENCY}</p>
-          </div>
-          <p className="text-[10px] text-neutral-500 mt-1">{t("home.from.many", { count: 4 })}</p>
-        </div>
-
-        <div className="mt-4 rounded-xl border border-neutral-200 overflow-hidden bg-white">
-          <ListRow
-            name={t("mock.name.mahmood")}
-            amount={3800}
-            sub={t("format.daysAgo", { n: 2 })}
-          />
-          <ListRow name={t("mock.name.ahmad")} amount={1250} sub={t("format.yesterday")} />
-          <ListRow name={t("mock.name.sultan")} amount={750} sub={t("format.daysAgo", { n: 3 })} />
-        </div>
-
-        <div className="mt-auto rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5 flex items-start gap-2">
-          <span className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white text-[9px] leading-none">
-            ✓
-          </span>
-          <div>
-            <p className="text-[10px] font-semibold text-neutral-900 leading-tight">
-              {t("mock.restored.title")}
-            </p>
-            <p className="text-[10px] text-neutral-500 leading-tight mt-0.5">
-              {t("mock.restored.sub")}
-            </p>
-          </div>
-        </div>
-      </div>
+      <HomeScreen
+        total="6,220"
+        count={4}
+        rows={rows}
+        toast={{ title: t("mock.restored.title"), sub: t("mock.restored.sub") }}
+      />
     </PhoneFrame>
   );
 }
 
 export function PhoneMockupOffline() {
-  const { t, lang } = useI18n();
-  const isRTL = lang === "fa";
+  const { t } = useI18n();
+  const rows = useSampleRows().slice(0, 3);
   return (
     <PhoneFrame>
-      <div className="px-4 pt-3 pb-4 flex-1 flex flex-col">
-        <div className="flex items-center justify-between">
-          <p className={`text-[18px] font-bold text-neutral-900 ${isRTL ? "" : "-tracking-tight"}`}>
-            {t("brand.wordmark")}
-          </p>
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-neutral-100 border border-neutral-200">
-            <span className="w-1.5 h-1.5 rounded-full bg-neutral-400" />
-            <span
-              className={`text-[9px] font-semibold text-neutral-600 ${isRTL ? "" : "uppercase tracking-wider"}`}
-            >
-              {t("mock.offline")}
-            </span>
-          </div>
-        </div>
-        <p className="text-[10px] text-neutral-500 mt-0.5">
-          {t("mock.self.name")} · {t("mock.self.shop")}
-        </p>
-
-        <div className="mt-4">
-          <Tabs active="collect" />
-        </div>
-
-        <div className="mt-4">
-          <p className={eyebrowClass(isRTL)}>{t("home.total.label.collect")}</p>
-          <div className="flex items-baseline gap-1.5 mt-1">
-            <p className="text-[32px] font-bold font-mono text-collect-strong leading-none -tracking-tight">
-              5,800
-            </p>
-            <p className="text-[11px] text-neutral-400 font-medium">{CURRENCY}</p>
-          </div>
-          <p className="text-[10px] text-neutral-500 mt-1">{t("home.from.many", { count: 3 })}</p>
-        </div>
-
-        <div className="mt-4 rounded-xl border border-neutral-200 overflow-hidden bg-white">
-          <ListRow
-            name={t("mock.name.mahmood")}
-            amount={3800}
-            sub={t("format.daysAgo", { n: 2 })}
-          />
-          <ListRow name={t("mock.name.ahmad")} amount={1250} sub={t("format.yesterday")} />
-          <ListRow name={t("mock.name.sultan")} amount={750} sub={t("format.daysAgo", { n: 3 })} />
-        </div>
-
-        <div className="mt-auto rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5">
-          <p className="text-[10px] font-semibold text-neutral-900 leading-tight">
-            {t("mock.entrySaved.title")}
-          </p>
-          <p className="text-[10px] text-neutral-500 leading-tight mt-0.5">
-            {t("mock.entrySaved.sub")}
-          </p>
-        </div>
-      </div>
+      <HomeScreen
+        total="5,800"
+        count={3}
+        rows={rows}
+        badge={<OfflineBadge />}
+        toast={{ title: t("mock.entrySaved.title"), sub: t("mock.entrySaved.sub") }}
+      />
     </PhoneFrame>
   );
 }

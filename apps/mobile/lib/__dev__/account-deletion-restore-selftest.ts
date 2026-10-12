@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { compileUI, deferred, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
 
-function restoreFixture(marker = "account-a") {
+function restoreFixture(marker = "account-a", options: { expiredSession?: boolean } = {}) {
   const hooks = uiHooks();
   const meta = new Map<string, string>([
     ["account_id", "account-a"],
@@ -19,7 +19,7 @@ function restoreFixture(marker = "account-a") {
     focused = true;
   const router = { replace: (route: string) => routes.push(route) };
   const session = () => ({
-    jwt: "session-" + meta.get("account_id"),
+    jwt: options.expiredSession ? null : "session-" + meta.get("account_id"),
     accountId: meta.get("account_id"),
     generation,
     bindingVersion: generation,
@@ -69,7 +69,12 @@ function restoreFixture(marker = "account-a") {
         adoptAccountPhoneToSelf: async () => {},
         captureCurrentSession: async () => session(),
         isCurrentSession: async (before: any) => sameSession(before),
+        // Like the real guard, the account guard refuses a missing token.
         applyForCurrentSession: async (before: any, apply: () => Promise<any>) => {
+          if (!before.jwt || !sameSession(before)) throw new SessionChangedError();
+          return apply();
+        },
+        applyForUnchangedLocalSession: async (before: any, apply: () => Promise<any>) => {
           if (!sameSession(before)) throw new SessionChangedError();
           return apply();
         },
@@ -95,6 +100,7 @@ function restoreFixture(marker = "account-a") {
       "../../lib/vault-api": {
         listVaults: async () => {
           listings++;
+          if (options.expiredSession) throw new RestoreSessionExpiredError();
           return [
             { vault_id: "kaata-a", archived_at_ms: null },
             { vault_id: "kaata-b", archived_at_ms: null },
@@ -221,6 +227,21 @@ async function main() {
     [false],
     "ordinary restore retains its existing best-effort behavior",
   );
+
+  // Audit #8: an expired or missing session token used to dead-end here.
+  const expired = restoreFixture("", { expiredSession: true });
+  await expired.flush();
+  assert.ok(button(expired, "onboardingRestore.signInAgain"), "an expired session offers sign-in");
+  assert.equal(button(expired, "onboardingRestore.tryAgain"), undefined);
+  button(expired, "onboardingRestore.startFresh").props.onPress();
+  await expired.flush();
+  assert.deepEqual(expired.routes, ["/onboarding/profile"], "Start fresh escapes without a token");
+  const signInAgain = restoreFixture("", { expiredSession: true });
+  await signInAgain.flush();
+  button(signInAgain, "onboardingRestore.signInAgain").props.onPress();
+  await signInAgain.flush();
+  assert.deepEqual(signInAgain.routes, ["/onboarding/auth"], "Sign in again opens sign-in");
+  assert.equal(signInAgain.meta.get("onboarding_step"), "auth");
 
   const switched = restoreFixture(),
     oldResult = deferred<any>();

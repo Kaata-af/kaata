@@ -40,6 +40,47 @@ async function refusedFingerprints(): Promise<{ events: string | null; tabs: str
   };
 }
 
+/** Kaatas this phone can no longer write to: archived or gone here, or every
+ * membership of this phone's accounts there is revoked (left, removed). Their
+ * unsent edits can never reach the server, so they must not block deletion
+ * forever (audit #27); the confirmation asks the user to export statements
+ * first. Any doubt (an error, an unknown state) keeps a kaata reachable. */
+export async function unreachableVaults(
+  vaultIds: readonly (string | null)[],
+): Promise<Set<string>> {
+  const out = new Set<string>();
+  try {
+    const [{ getDb, getAccountIdSync }, { resolveAccountIdCandidates }] = await Promise.all([
+      import("./db-tx"),
+      import("./effective-account"),
+    ]);
+    const db = await getDb();
+    const mine = await resolveAccountIdCandidates(getAccountIdSync());
+    for (const vaultId of vaultIds) {
+      if (!vaultId) continue;
+      const vault = await db.getFirstAsync<{ archived_at: number | null }>(
+        "SELECT archived_at FROM vaults WHERE id = ?",
+        vaultId,
+      );
+      if (!vault || vault.archived_at != null) {
+        out.add(vaultId);
+        continue;
+      }
+      if (!mine.length) continue;
+      const rows = await db.getAllAsync<{ revoked_at: number | null }>(
+        `SELECT revoked_at FROM vault_members_mirror
+          WHERE vault_id = ? AND account_id IN (SELECT value FROM json_each(?))`,
+        vaultId,
+        JSON.stringify(mine),
+      );
+      if (rows.length > 0 && rows.every((row) => row.revoked_at != null)) out.add(vaultId);
+    }
+  } catch {
+    return new Set();
+  }
+  return out;
+}
+
 /** Capture only previously refused intent, covered by the explicit export warning. */
 export async function captureDeletionCleanupBaseline(): Promise<DeletionCleanupBaseline> {
   const { applyEventMutex } = await import("./projection");
@@ -57,7 +98,19 @@ export async function assertAccountDeletionCleanupSafe(
     "SELECT 1 AS pending FROM tab_outbox LIMIT 1",
     "SELECT 1 AS pending FROM customer_credit_limits WHERE sync_pending<>0 LIMIT 1",
   ]) {
-    if ((await deletionRows(query))?.length) throw new Error("account_delete_late_edits");
+    if (!(await deletionRows(query))?.length) continue;
+    // Unsent edits only in kaatas this phone can no longer reach cannot be
+    // backed up by anyone; they do not hold the deletion (audit #27).
+    if (query.includes("FROM event_log")) {
+      const vaults = await deletionRows<{ vault_id: string | null }>(
+        `SELECT DISTINCT vault_id FROM event_log WHERE server_acked_at IS NULL
+         AND rejected_at IS NULL AND tombstone_reason IS NULL`,
+      );
+      const ids = (vaults ?? []).map((row) => row.vault_id);
+      const unreachable = await unreachableVaults(ids);
+      if (ids.length > 0 && ids.every((id) => id != null && unreachable.has(id))) continue;
+    }
+    throw new Error("account_delete_late_edits");
   }
   const current = await refusedFingerprints();
   if (
@@ -80,7 +133,11 @@ export async function prepareAccountDeletionBackup(): Promise<void> {
     `SELECT DISTINCT vault_id AS id FROM event_log
      WHERE server_acked_at IS NULL AND rejected_at IS NULL AND tombstone_reason IS NULL`,
   );
+  const unreachable = await unreachableVaults(vaults.map((vault) => vault.id));
   for (const vault of vaults) {
+    // Edits in a kaata left, removed from or archived can never be pushed;
+    // waiting on them made deletion fail forever (audit #27).
+    if (unreachable.has(vault.id)) continue;
     await drainDeletionBackup({
       remaining: async () => {
         const row = await db.getFirstAsync<{ n: number }>(

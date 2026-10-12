@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/matee/kaata-backend/internal/auth"
@@ -58,6 +59,20 @@ func (h *Handler) CheckIn(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.svc.Handle(ctx, req, httpx.ClientIP(r))
 	if err != nil {
 		if errors.Is(err, ErrInstallDeleted) {
+			// Within the 30-day grace window, signing in with the same account
+			// cancels the deletion and restores this phone, so tell the app
+			// that instead of "reset" (which erases the phone).
+			actor := ""
+			if claims, ok := auth.ClaimsFromContext(r.Context()); ok && claims != nil &&
+				claims.InstallID == req.InstallID {
+				actor = claims.AccountID
+			}
+			if until, lookupErr := h.svc.DeletionRecoverableUntil(r.Context(), req.InstallID, actor); lookupErr == nil && until != nil {
+				httpx.ErrorFields(w, http.StatusGone, "account_deletion_pending",
+					"this account is scheduled for deletion; signing in with it cancels the deletion",
+					map[string]any{"recoverable_until": until.UTC().Format(time.RFC3339)})
+				return
+			}
 			httpx.Error(w, http.StatusGone, "install was retired after account deletion; reset this device before continuing")
 			return
 		}

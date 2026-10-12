@@ -18,6 +18,7 @@
 // name is not event-sourced — it lives in the vaults table directly,
 // mirrored to the server-side vaults row by the same PATCH).
 
+import { KAATA_DEFAULT_ROUTE_ID } from "../../lib/credit-policy";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useRef, useState } from "react";
@@ -740,8 +741,25 @@ export default function VaultSettingsScreen() {
             }
             onPress={() => router.push("/vault/members")}
             isRTL={isRTL}
-            isLast
+            isLast={!(role === "owner" || role === "manager")}
           />
+          {/* The kaata-wide default credit limit covers every customer without
+              their own, so re-adding a customer cannot escape a limit. */}
+          {role === "owner" || role === "manager" ? (
+            <NavRow
+              icon="speedometer-outline"
+              label={t("credit.defaultRow")}
+              hint={t("credit.defaultRowHint")}
+              onPress={() =>
+                router.push({
+                  pathname: "/person/[id]/credit-limit",
+                  params: { id: KAATA_DEFAULT_ROUTE_ID },
+                })
+              }
+              isRTL={isRTL}
+              isLast
+            />
+          ) : null}
           <SectionGap />
 
           {/* ============ ACTIVITY ============ */}

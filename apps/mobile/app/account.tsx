@@ -69,12 +69,16 @@ import {
 } from "../lib/i18n";
 import {
   CALENDAR_PREF_KEY,
+  getQamariOffset,
   parseCalendarPref,
+  QAMARI_OFFSET_KEY,
   setCalendarPref,
+  setQamariOffset,
   type Calendar,
   type CalendarPref,
 } from "../lib/calendar";
-import { isInstallRetired } from "../lib/install-id";
+import { getInstallRetiredRecoverableUntil, isInstallRetired } from "../lib/install-id";
+import { formatDate } from "../lib/format";
 import { formatCalendarDate } from "../lib/jalali";
 import {
   getCountry,
@@ -106,6 +110,16 @@ const MESSAGE_LANGUAGE_OPTIONS: ReadonlyArray<{ value: ShareLangPref; labelKey: 
 // explicit picks follow in the order a shopkeeper is likeliest to want them.
 // Independent of language on purpose — Dari + Gregorian is a real combination
 // that could not be expressed before. See lib/calendar.ts.
+// The Qamari adjustment, in words: "+1"/"−1" beside Persian digits reorders
+// under the bidi algorithm, and "later/earlier" says which way the date moves.
+const QAMARI_OFFSET_OPTIONS: ReadonlyArray<{ value: number; labelKey: string }> = [
+  { value: -2, labelKey: "settings.qamariOffset.earlier2" },
+  { value: -1, labelKey: "settings.qamariOffset.earlier1" },
+  { value: 0, labelKey: "settings.qamariOffset.none" },
+  { value: 1, labelKey: "settings.qamariOffset.later1" },
+  { value: 2, labelKey: "settings.qamariOffset.later2" },
+];
+
 const CALENDAR_OPTIONS: ReadonlyArray<{ value: CalendarPref; labelKey: string }> = [
   { value: "auto", labelKey: "settings.calendar.option.auto" },
   { value: "gregorian", labelKey: "settings.calendar.option.gregorian" },
@@ -145,6 +159,8 @@ export default function AccountScreen() {
   const [msgLangSheetVisible, setMsgLangSheetVisible] = useState(false);
   const [calendarPref, setCalendarPrefState] = useState<CalendarPref>("auto");
   const [calSheetVisible, setCalSheetVisible] = useState(false);
+  const [qamariOffset, setQamariOffsetState] = useState(getQamariOffset);
+  const [qamariSheetVisible, setQamariSheetVisible] = useState(false);
   const [prefCountry, setPrefCountry] = useState(getCurrentDefaultCountryCode);
   const [prefCountryVisible, setPrefCountryVisible] = useState(false);
 
@@ -179,6 +195,9 @@ export default function AccountScreen() {
   // in or not, from the flag check-in and sign-in set on a 410 (and clear
   // again on a later success for the same install id).
   const [retired, setRetired] = useState(false);
+  // While the deleted account is inside its 30-day grace window, signing in
+  // with it cancels the deletion: offer that first, the erasing reset second.
+  const [retiredUntil, setRetiredUntil] = useState<number | null>(null);
   const [resetConfirmVisible, setResetConfirmVisible] = useState(false);
   // Sign-in section (docs/kaata-accounts.md §7): how this account signs in, read
   // from the server on every visit, since the password and username screens
@@ -207,8 +226,16 @@ export default function AccountScreen() {
       await applyForCurrentSession(session, async () => {
         setMe(account);
         // Another phone may have renamed the account. Prefill its current name
-        // without replacing an in-progress edit or this phone's queued save.
-        if (account.name && !nameEditedRef.current && !nameUnsettledRef.current) {
+        // without replacing an in-progress edit or this phone's queued save,
+        // and only a name chosen in Kaata: a Google/Apple profile name used
+        // to replace the phone's own name, and a phone-only save then wrote it
+        // over the name the user picked.
+        if (
+          account.name &&
+          account.nameExplicit &&
+          !nameEditedRef.current &&
+          !nameUnsettledRef.current
+        ) {
           initialNameRef.current = account.name;
           const split = splitName(account.name);
           setFirstName(split.firstName);
@@ -262,6 +289,7 @@ export default function AccountScreen() {
       setSignedIn(session || (await hasPendingAccountDeletion()));
       setDeletionRecoveryNeeded((await getAppMeta("account_deletion_cleanup_blocked")) === "1");
       setRetired(await isInstallRetired().catch(() => false));
+      setRetiredUntil(await getInstallRetiredRecoverableUntil().catch(() => null));
       setLoaded(true);
     })();
   }, []);
@@ -455,6 +483,18 @@ export default function AccountScreen() {
     toast.push(t("settings.calendar.changed"), "success");
   }
 
+  // The tabular Qamari date can sit a day or two off the local moon sighting
+  // (audit #15); this moves every Qamari date in the app, and new bills freeze
+  // it. Same commit order as pickCalendar.
+  async function pickQamariOffset(value: number) {
+    setQamariSheetVisible(false);
+    if (value === qamariOffset) return;
+    setQamariOffsetState(value);
+    setQamariOffset(value);
+    await setAppMeta(QAMARI_OFFSET_KEY, String(value));
+    toast.push(t("settings.qamariOffset.changed"), "success");
+  }
+
   async function pickMessageLang(value: ShareLangPref) {
     setMsgLangSheetVisible(false);
     if (value === shareLangPref) return;
@@ -513,6 +553,12 @@ export default function AccountScreen() {
     (CALENDAR_OPTIONS.find((o) => o.value === calendarPref)?.labelKey ??
       "settings.calendar.option.auto") as Parameters<typeof t>[0],
   );
+  const qamariOffsetValue = t(
+    (QAMARI_OFFSET_OPTIONS.find((o) => o.value === qamariOffset)?.labelKey ??
+      "settings.qamariOffset.none") as Parameters<typeof t>[0],
+  );
+  // A digit follows, so Dari takes the comma: a middle dot there reads as a zero.
+  const exampleSeparator = getLocale() === "fa" ? "، " : " · ";
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -535,14 +581,27 @@ export default function AccountScreen() {
           contentContainerStyle={{ flexGrow: 1, paddingBottom: 24 + insets.bottom * 0.25 }}
         >
           {/* ============ RETIRED INSTALL NOTICE ============
-              First on the page: until this phone is reset it cannot sign in
-              or check in. The action only opens the destructive confirmation. */}
+              First on the page. Signing in with the deleted account cancels
+              the deletion within its 30-day window, so that comes first; the
+              reset only opens the destructive confirmation. */}
           {retired ? (
             <View style={styles.retiredCard}>
               <Text style={[styles.retiredTitle, textDir(isRTL)]}>
-                {t("account.retired.title")}
+                {t(retiredUntil ? "account.retired.pendingTitle" : "account.retired.title")}
               </Text>
-              <Text style={[styles.retiredBody, textDir(isRTL)]}>{t("account.retired.body")}</Text>
+              <Text style={[styles.retiredBody, textDir(isRTL)]}>
+                {retiredUntil
+                  ? t("account.retired.pendingBody", { date: formatDate(retiredUntil) })
+                  : t("account.retired.body")}
+              </Text>
+              <View style={styles.retiredSignIn}>
+                <Button
+                  label={t(
+                    retiredUntil ? "account.retired.signInCancel" : "menu.account.signIn.choose",
+                  )}
+                  onPress={() => router.push("/sign-in")}
+                />
+              </View>
               <Pressable
                 onPress={() => setResetConfirmVisible(true)}
                 accessibilityRole="button"
@@ -772,6 +831,16 @@ export default function AccountScreen() {
             onPress={() => setCalSheetVisible(true)}
             isRTL={isRTL}
           />
+          {resolveCalendar(calendarPref) === "qamari" ? (
+            <NavRow
+              icon="moon-outline"
+              label={t("settings.qamariOffset.label")}
+              hint={t("settings.qamariOffset.hint")}
+              trailing={qamariOffsetValue}
+              onPress={() => setQamariSheetVisible(true)}
+              isRTL={isRTL}
+            />
+          ) : null}
           <NavRow
             icon="chatbubble-ellipses-outline"
             label={t("settings.messageLang.label")}
@@ -882,6 +951,19 @@ export default function AccountScreen() {
         selected={calendarPref}
         onSelect={(k) => pickCalendar(k as CalendarPref)}
         onDismiss={() => setCalSheetVisible(false)}
+        isRTL={isRTL}
+      />
+      <OptionSheet
+        visible={qamariSheetVisible}
+        title={t("settings.qamariOffset.label")}
+        options={QAMARI_OFFSET_OPTIONS.map((o) => ({
+          key: String(o.value),
+          // Each choice shows today as it would read, like the calendar sheet.
+          label: `${t(o.labelKey as Parameters<typeof t>[0])}${exampleSeparator}${formatCalendarDate(nowMs, getLocale(), "qamari", o.value)}`,
+        }))}
+        selected={String(qamariOffset)}
+        onSelect={(k) => pickQamariOffset(Number(k))}
+        onDismiss={() => setQamariSheetVisible(false)}
         isRTL={isRTL}
       />
       <OptionSheet
@@ -1009,6 +1091,7 @@ const styles = StyleSheet.create({
   },
   retiredTitle: { ...typography.labelBold, color: colors.textEmphasis },
   retiredBody: { ...typography.bodySm, color: colors.textDefault, marginTop: 6 },
+  retiredSignIn: { marginTop: 12 },
   retiredAction: {
     alignItems: "center",
     justifyContent: "center",

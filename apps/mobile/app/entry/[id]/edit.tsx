@@ -7,6 +7,7 @@ import { ScreenLoading } from "../../../components/ScreenLoading";
 import { ScreenHeader } from "../../../components/SettingsScreen";
 import { useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
+import { creditWarningForEdit } from "../../../lib/credit-limits";
 import { getCurrentCurrencySymbol } from "../../../lib/currency";
 import { getEntry, SettledChapterError, TabLinkedEntryError, updateEntry } from "../../../lib/db";
 import { textDir, useIsRTL } from "../../../lib/direction";
@@ -38,6 +39,28 @@ export default function EditEntryScreen() {
   // Inline errors — modal screen, toasts can't render above it (Toast.tsx).
   const [amountError, setAmountError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Raising an amount past a limit warned nowhere (audit #24); the same
+  // live hint as the new-tally form, counting only the change.
+  const [overLimit, setOverLimit] = useState(false);
+  useEffect(() => {
+    const parsed = parseAmountInput(amount);
+    if (!loaded || !found || parsed === null || parsed <= 0 || !id) {
+      setOverLimit(false);
+      return;
+    }
+    let alive = true;
+    const timer = setTimeout(() => {
+      creditWarningForEdit(id, parsed)
+        .then((over) => {
+          if (alive) setOverLimit(over);
+        })
+        .catch(() => undefined);
+    }, 250);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [amount, id, loaded, found]);
   // Mutual tab (docs/mutual-tab-design.md §4.4): a local row of a LINKED
   // contact is frozen — its sum is already the tab's opening tally (D8) —
   // so the form shows the reason up front and disables Save instead of
@@ -210,6 +233,10 @@ export default function EditEntryScreen() {
             <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
               {amountError}
             </Text>
+          ) : overLimit && !tabLocked ? (
+            <Text style={[styles.creditHint, textDir(isRTL)]} accessibilityLiveRegion="polite">
+              {t("credit.warning")}
+            </Text>
           ) : null}
         </View>
         <View style={styles.field}>
@@ -294,6 +321,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: fonts.sansMedium,
     color: colors.danger,
+    marginTop: 6,
+  },
+  creditHint: {
+    fontSize: 12,
+    fontFamily: fonts.sansMedium,
+    color: colors.reviewPending,
     marginTop: 6,
   },
 });

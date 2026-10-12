@@ -1,8 +1,11 @@
 // Executes the actual sheet and scoped data hook. Native animation/timer frames
 // are controlled so stopped callbacks can still be delivered adversarially.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { compileUI, deferred, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
+import { searchContacts } from "../search";
 import {
+  compareCustomerNames,
   DEFAULT_CUSTOMER_LIST,
   CUSTOMER_SORTS,
   selectedCustomerGroupIds,
@@ -25,6 +28,10 @@ export async function customerGroupUIChecks() {
       this.value = value;
     }
     stopAnimation() {}
+    // The backdrop's opacity follows the slide.
+    interpolate(config: { inputRange: number[]; outputRange: number[] }) {
+      return { interpolation: config, source: this };
+    }
   }
   const animate = () => {
     const record = {
@@ -118,6 +125,20 @@ export async function customerGroupUIChecks() {
       .props.onPress();
   render();
   flushFrames();
+  const rowLabels = () =>
+    nodes(hooks.tree)
+      .map((n) => n.props.accessibilityLabel)
+      .filter(Boolean);
+  assert.ok(rowLabels().includes("groups.ungrouped"), "group rows show once a group exists");
+  props.groups = [];
+  render();
+  assert.ok(
+    !rowLabels().includes("groups.all") && !rowLabels().includes("groups.ungrouped"),
+    "no All/Ungrouped filter rows before any group exists",
+  );
+  assert.ok(rowLabels().includes("groups.manage"), "managers can still create the first group");
+  props.groups = [{ id: "g", name: "Family", member_count: 1 }];
+  render();
   props.visible = false;
   render();
   const staleClose = animations.at(-1)!;
@@ -271,48 +292,71 @@ export async function customerGroupUIChecks() {
   };
   const written: string[][] = [];
   const pendingSave = deferred<void>();
-  const { default: PersonGroupScreen } = compileUI("../../app/person/[id]/group.tsx", {
-    react: personHooks.react,
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "expo-router": {
-      useRouter: () => ({ back: () => backCount++, push() {} }),
-      useLocalSearchParams: () => ({ id: personId, vaultId: "v" }),
-    },
-    "@expo/vector-icons": { Ionicons: "Icon" },
-    "react-native": {
-      ActivityIndicator: "Spinner",
-      Pressable: "Pressable",
-      ScrollView: "ScrollView",
-      Text: "Text",
-      View: "View",
-      StyleSheet: { create: (s: any) => s },
-    },
-    "react-native-safe-area-context": { SafeAreaView: "SafeArea" },
-    "../../../components/SettingsScreen": { ScreenHeader: "Header" },
-    "../../../lib/customer-groups": {
-      assignCustomerGroups: async (_vault: string, _id: string, ids: string[]) => {
-        written.push([...ids]);
-        await pendingSave.promise;
+  let failSave = false;
+  let preventRemove = false;
+  let preventCallback: ((options: { data: { action: unknown } }) => void) | null = null;
+  const dispatched: unknown[] = [];
+  const compilePersonGroup = (react: typeof personHooks.react) =>
+    compileUI("../../app/person/[id]/group.tsx", {
+      react,
+      "react/jsx-runtime": { jsx, jsxs: jsx },
+      "expo-router": {
+        useRouter: () => ({ back: () => backCount++, push() {} }),
+        useNavigation: () => ({ dispatch: (action: unknown) => dispatched.push(action) }),
+        useLocalSearchParams: () => ({ id: personId, vaultId: "v" }),
       },
-    },
-    "../../../lib/db-tx": {
-      getAccountIdSync: () => currentAccount,
-      getActiveVaultIdSyncMaybe: () => currentVault,
-    },
-    "../../../lib/colors": { colors: {} },
-    "../../../lib/direction": { rowDir: () => ({}), textDir: () => ({}), useIsRTL: () => false },
-    "../../../lib/event-log": { RoleGateRejectionError: class extends Error {} },
-    "../../../lib/fonts": { fonts: {} },
-    "../../../lib/i18n": { t: (key: string) => key },
-    "../../../lib/use-customer-groups": { useCustomerGroups: () => personState },
-    "../../../lib/use-vault-role": {
-      useActiveVaultWriteCaps: () => ({ resolved: true, canAmend: editable }),
-    },
-    "../../../lib/tokens": { icon: { row: 22 } },
-  });
-  const personRender = () => personHooks.render(() => PersonGroupScreen());
+      "expo-router/react-navigation": {
+        usePreventRemove: (prevent: boolean, callback: typeof preventCallback) => {
+          preventRemove = prevent;
+          preventCallback = callback;
+        },
+      },
+      "@expo/vector-icons": { Ionicons: "Icon" },
+      "react-native": {
+        ActivityIndicator: "Spinner",
+        Pressable: "Pressable",
+        ScrollView: "ScrollView",
+        Text: "Text",
+        View: "View",
+        StyleSheet: { create: (s: any) => s },
+      },
+      "react-native-safe-area-context": { SafeAreaView: "SafeArea" },
+      "../../../components/SettingsScreen": { ScreenHeader: "Header" },
+      "../../../lib/customer-groups": {
+        assignCustomerGroups: async (_vault: string, _id: string, ids: string[]) => {
+          written.push([...ids]);
+          await pendingSave.promise;
+          if (failSave) throw new Error("synthetic save failure");
+        },
+      },
+      "../../../lib/db-tx": {
+        getAccountIdSync: () => currentAccount,
+        getActiveVaultIdSyncMaybe: () => currentVault,
+      },
+      "../../../lib/colors": { colors: {} },
+      "../../../lib/direction": { rowDir: () => ({}), textDir: () => ({}), useIsRTL: () => false },
+      "../../../lib/event-log": { RoleGateRejectionError: class extends Error {} },
+      "../../../lib/fonts": { fonts: {} },
+      "../../../lib/i18n": { t: (key: string) => key },
+      "../../../lib/use-customer-groups": { useCustomerGroups: () => personState },
+      "../../../lib/use-vault-role": {
+        useActiveVaultWriteCaps: () => ({ resolved: true, canAmend: editable }),
+      },
+      "../../../lib/tokens": { icon: { row: 22 } },
+    }).default;
+  const PersonGroupScreen = compilePersonGroup(personHooks.react);
+  let personRender = () => personHooks.render(() => PersonGroupScreen());
+  // The harness ignores state after unmount, so every remount is a fresh one.
+  const remountPersonGroup = () => {
+    const hooks = uiHooks();
+    const Screen = compilePersonGroup(hooks.react);
+    personRender = () => hooks.render(() => Screen());
+    personTree = () => hooks.tree;
+    return hooks;
+  };
+  let personTree = () => personHooks.tree;
   const personRow = (label: string) =>
-    nodes(personHooks.tree).find((n) => n.props.accessibilityLabel === label)!;
+    nodes(personTree()).find((n) => n.props.accessibilityLabel === label)!;
   personRender();
   assert.equal(personRow("Family").props.accessibilityState.selected, true);
   personRow("Neighbors").props.onPress();
@@ -360,6 +404,279 @@ export async function customerGroupUIChecks() {
     "scope change hides write action",
   );
   personHooks.unmount();
+
+  // Leaving with unsaved checks saves them, whichever way the user leaves.
+  currentAccount = "a";
+  currentVault = "v";
+  editable = true;
+  personId = "p";
+  personState = { ...personState, groupsByPerson: { p: ["g"], q: ["h"] } };
+  let mounted = remountPersonGroup();
+  personRender();
+  await settleUI();
+  personRender();
+  assert.equal(preventRemove, false, "nothing unsaved: leaving is not intercepted");
+  personRow("Neighbors").props.onPress();
+  personRender();
+  assert.equal(preventRemove, true, "unsaved checks intercept leaving");
+  const writesBeforeBack = written.length;
+  preventCallback!({ data: { action: { type: "GO_BACK" } } });
+  await settleUI();
+  assert.deepEqual(written.slice(writesBeforeBack), [["g", "h"]], "Back saves the checked groups");
+  assert.equal(dispatched.length, 1, "and then leaves");
+  mounted.unmount();
+
+  // A group removed before Done drops out of the draft instead of sticking.
+  personState = {
+    ...personState,
+    groups: personState.groups.slice(),
+    groupsByPerson: { p: ["g"], q: ["h"] },
+  };
+  mounted = remountPersonGroup();
+  personRender();
+  await settleUI();
+  personRender();
+  personRow("Neighbors").props.onPress();
+  personRender();
+  assert.equal(preventRemove, true);
+  personState = {
+    ...personState,
+    groups: personState.groups.filter((group) => group.id !== "h"),
+  };
+  personRender();
+  assert.equal(preventRemove, false, "a removed group leaves the draft");
+  mounted.unmount();
+
+  // A failed save is shown, and the next Back may discard instead of trapping.
+  personState = {
+    ...personState,
+    groups: [
+      { id: "g", name: "Family", member_count: 1 },
+      { id: "h", name: "Neighbors", member_count: 0 },
+    ],
+  };
+  failSave = true;
+  mounted = remountPersonGroup();
+  personRender();
+  await settleUI();
+  personRender();
+  personRow("Neighbors").props.onPress();
+  personRender();
+  preventCallback!({ data: { action: { type: "GO_BACK" } } });
+  await settleUI();
+  personRender();
+  assert.ok(
+    nodes(personTree()).some((n) => n.props.children === "entry.saveFailed"),
+    "the failed save is visible",
+  );
+  assert.equal(preventRemove, false, "after a failed save, Back can leave");
+  failSave = false;
+  mounted.unmount();
+
+  // Manage groups: Android keyboard avoidance (CLAUDE.md) and ref focus, not
+  // autoFocus under the closing BottomSheet modal.
+  const manageSource = readFileSync(require.resolve("../../app/groups.tsx"), "utf8");
+  assert.ok(
+    /behavior="height"\s+enabled=\{Platform\.OS === "android"\}/.test(manageSource),
+    "Manage groups lifts the name field and Save above Android's keyboard",
+  );
+  assert.ok(manageSource.includes("automaticallyAdjustKeyboardInsets"), "iOS keyboard insets");
+  assert.ok(
+    !/^\s*autoFocus(=|\s*$)/m.test(manageSource),
+    "group name focuses by ref after the sheet closes",
+  );
+
+  // Group members: who is in a group, and many customers in or out at once.
+  {
+    const hooks = uiHooks();
+    let canAmend = true;
+    const assignments: [string, string[]][] = [];
+    let membersPrevent = false;
+    let membersCallback: ((options: { data: { action: unknown } }) => void) | null = null;
+    const membersDispatched: unknown[] = [];
+    let membersBack = 0;
+    const roster = [
+      { id: "p1", name: "Zarif", phone: null },
+      { id: "p2", name: "Ahmad 10", phone: "+93700000002" },
+      { id: "p3", name: "Ahmad 2", phone: null },
+    ];
+    const groupState = {
+      groups: [
+        { id: "g", name: "Family", member_count: 1 },
+        { id: "h", name: "Shop", member_count: 1 },
+      ],
+      groupByPerson: { p1: "g", p2: "h", p3: null },
+      groupsByPerson: { p1: ["g"], p2: ["h"], p3: [] as string[] },
+      loaded: true,
+      failed: false,
+    };
+    const { default: GroupMembers } = compileUI("../../app/group-members.tsx", {
+      react: hooks.react,
+      "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+      "expo-router": {
+        useRouter: () => ({ back: () => membersBack++, push() {} }),
+        useNavigation: () => ({ dispatch: (action: unknown) => membersDispatched.push(action) }),
+        useLocalSearchParams: () => ({ vaultId: "v", groupId: "g" }),
+        useFocusEffect: (fn: () => void) => hooks.react.useEffect(fn, [fn]),
+      },
+      "expo-router/react-navigation": {
+        usePreventRemove: (prevent: boolean, callback: typeof membersCallback) => {
+          membersPrevent = prevent;
+          membersCallback = callback;
+        },
+      },
+      "@expo/vector-icons": { Ionicons: "Icon" },
+      "react-native": {
+        ActivityIndicator: "Spinner",
+        KeyboardAvoidingView: "KAV",
+        Platform: { OS: "android" },
+        Pressable: "Pressable",
+        ScrollView: "ScrollView",
+        StyleSheet: { create: (s: any) => s, hairlineWidth: 1 },
+        Text: "Text",
+        TextInput: "TextInput",
+        View: "View",
+      },
+      "react-native-safe-area-context": { SafeAreaView: "SafeArea" },
+      "../components/Button": { Button: "Button" },
+      "../components/SettingsScreen": { ScreenHeader: "Header" },
+      "../lib/colors": { colors: {} },
+      "../lib/contacts-merge": {
+        splitSearchQuery: (q: string) => ({ first: q.trim(), last: "", phoneDigits: "" }),
+      },
+      "../lib/customer-groups": {
+        assignCustomerGroups: async (_vault: string, personId: string, ids: string[]) => {
+          assignments.push([personId, [...ids].sort()]);
+        },
+      },
+      "../lib/customer-list": { compareCustomerNames },
+      "../lib/db": { listAllPeopleForSearch: async () => roster },
+      "../lib/db-tx": { getAccountIdSync: () => "a", getActiveVaultIdSyncMaybe: () => "v" },
+      "../lib/bidi": { ltrIsolate: (value: string) => value },
+      "../lib/direction": { rowDir: () => ({}), textDir: () => ({}), useIsRTL: () => false },
+      "../lib/event-log": { RoleGateRejectionError: class extends Error {} },
+      "../lib/fonts": { fonts: {} },
+      "../lib/i18n": { t: (key: string) => key, getLocale: () => "en" },
+      "../lib/search": { searchContacts },
+      "../lib/tokens": { icon: { row: 22 }, radius: { sm: 8 } },
+      "../lib/use-customer-groups": { useCustomerGroups: () => groupState },
+      "../lib/use-vault-role": {
+        useActiveVaultWriteCaps: () => ({ resolved: true, canAmend }),
+      },
+    });
+    const renderMembers = () => hooks.render(() => GroupMembers());
+    const listed = () =>
+      nodes(hooks.tree)
+        .filter((n) => n.type === "Pressable" && typeof n.props.accessibilityLabel === "string")
+        .map((n) => n.props.accessibilityLabel);
+    const memberRow = (name: string) =>
+      nodes(hooks.tree).find((n) => n.type === "Pressable" && n.props.accessibilityLabel === name)!;
+    renderMembers();
+    await settleUI();
+    renderMembers();
+    assert.deepEqual(
+      listed(),
+      ["Zarif", "Ahmad 2", "Ahmad 10"],
+      "members first, then everyone else in number-aware name order",
+    );
+    assert.equal(memberRow("Zarif").props.accessibilityState.checked, true);
+    memberRow("Ahmad 2").props.onPress();
+    memberRow("Ahmad 10").props.onPress();
+    renderMembers();
+    memberRow("Zarif").props.onPress();
+    renderMembers();
+    assert.deepEqual(listed(), ["Zarif", "Ahmad 2", "Ahmad 10"], "ticking never reorders rows");
+    assert.equal(membersPrevent, true, "unsaved ticks intercept leaving");
+    nodes(hooks.tree)
+      .find((n) => n.type === "Button")!
+      .props.onPress();
+    await settleUI();
+    assert.deepEqual(
+      assignments.sort((a, b) => a[0].localeCompare(b[0])),
+      [
+        ["p1", []],
+        ["p2", ["g", "h"]],
+        ["p3", ["g"]],
+      ],
+      "Done writes each changed customer's complete set, keeping their other groups",
+    );
+    assert.equal(membersBack + membersDispatched.length, 1, "and leaves once");
+    nodes(hooks.tree)
+      .find((n) => n.type === "TextInput")!
+      .props.onChangeText("Ahmad");
+    renderMembers();
+    assert.deepEqual(listed(), ["Ahmad 2", "Ahmad 10"], "search narrows the roster");
+    hooks.unmount();
+
+    const viewerHooks = uiHooks();
+    canAmend = false;
+    const { default: ViewerMembers } = compileUI("../../app/group-members.tsx", {
+      react: viewerHooks.react,
+      "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+      "expo-router": {
+        useRouter: () => ({ back() {}, push() {} }),
+        useNavigation: () => ({ dispatch() {} }),
+        useLocalSearchParams: () => ({ vaultId: "v", groupId: "g" }),
+        useFocusEffect: (fn: () => void) => viewerHooks.react.useEffect(fn, [fn]),
+      },
+      "expo-router/react-navigation": { usePreventRemove() {} },
+      "@expo/vector-icons": { Ionicons: "Icon" },
+      "react-native": {
+        ActivityIndicator: "Spinner",
+        KeyboardAvoidingView: "KAV",
+        Platform: { OS: "ios" },
+        Pressable: "Pressable",
+        ScrollView: "ScrollView",
+        StyleSheet: { create: (s: any) => s, hairlineWidth: 1 },
+        Text: "Text",
+        TextInput: "TextInput",
+        View: "View",
+      },
+      "react-native-safe-area-context": { SafeAreaView: "SafeArea" },
+      "../components/Button": { Button: "Button" },
+      "../components/SettingsScreen": { ScreenHeader: "Header" },
+      "../lib/colors": { colors: {} },
+      "../lib/contacts-merge": {
+        splitSearchQuery: (q: string) => ({ first: q.trim(), last: "", phoneDigits: "" }),
+      },
+      "../lib/customer-groups": { assignCustomerGroups: async () => assert.fail("viewer write") },
+      "../lib/customer-list": { compareCustomerNames },
+      "../lib/db": { listAllPeopleForSearch: async () => roster },
+      "../lib/db-tx": { getAccountIdSync: () => "a", getActiveVaultIdSyncMaybe: () => "v" },
+      "../lib/bidi": { ltrIsolate: (value: string) => value },
+      "../lib/direction": { rowDir: () => ({}), textDir: () => ({}), useIsRTL: () => false },
+      "../lib/event-log": { RoleGateRejectionError: class extends Error {} },
+      "../lib/fonts": { fonts: {} },
+      "../lib/i18n": { t: (key: string) => key, getLocale: () => "en" },
+      "../lib/search": { searchContacts },
+      "../lib/tokens": { icon: { row: 22 }, radius: { sm: 8 } },
+      "../lib/use-customer-groups": { useCustomerGroups: () => groupState },
+      "../lib/use-vault-role": {
+        useActiveVaultWriteCaps: () => ({ resolved: true, canAmend }),
+      },
+    });
+    viewerHooks.render(() => ViewerMembers());
+    await settleUI();
+    viewerHooks.render(() => ViewerMembers());
+    const viewerRows = nodes(viewerHooks.tree).filter(
+      (n) => n.type === "Pressable" && typeof n.props.accessibilityLabel === "string",
+    );
+    assert.deepEqual(
+      viewerRows.map((n) => n.props.accessibilityLabel),
+      ["Zarif"],
+      "a viewer sees who is in the group",
+    );
+    assert.ok(
+      viewerRows.every((n) => n.props.disabled),
+      "and cannot change it",
+    );
+    assert.equal(
+      nodes(viewerHooks.tree).some((n) => n.type === "Button"),
+      false,
+      "no Done for a viewer",
+    );
+    viewerHooks.unmount();
+  }
   console.log(
     "PASS real customer group multi-selection, explicit Done, route refresh, viewer and scope guards",
   );

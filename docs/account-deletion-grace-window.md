@@ -26,7 +26,10 @@ The store-review/demo account receives the same recovery protection.
 An account-matched cancellation marker takes priority at cold launch and the
 onboarding index, even when an interrupted restore already minted a self row or
 ordinary recovery was previously skipped. It clears only after complete
-restoration. Recovery includes still-saved owned archives and preserves their
+restoration. The sign-in writes it only on a phone WITHOUT a ledger (no local
+self): a phone that kept its data (the deleting phone whose wipe late edits
+blocked, or another phone of the account) keeps using it and syncs as usual,
+instead of being held at a strict online restore on every launch (audit #27). Recovery includes still-saved owned archives and preserves their
 archived status without selecting them as the active kaata. Archived member
 metadata returns, while historical reads remain subject to the existing sharing
 cutoff. Already purged archives and shared history the account can no longer
@@ -38,7 +41,11 @@ New clients first verify authenticated `GET /v1/account/deletion-policy` reports
 `grace_days: 30`. Against an older backend, the app stops before DELETE.
 
 Then the app registers pending kaatas and drains unacknowledged financial vault
-events through normal signed sync, followed by the shared tally outbox. Offline
+events through normal signed sync, followed by the shared tally outbox. Kaatas
+this phone can no longer reach (archived, missing, or every membership of the
+account's identities revoked) are skipped, and their pending rows do not block
+cleanup: the server would never accept them, and they used to dead-end Delete
+permanently (`unreachableVaults`). Offline
 no-ops, transport failures, refused uploads, incomplete registration, remaining
 shared intents and unsaved credit policies stop deletion and retain phone data.
 A newly refused shared intent moving into `tab_failed_ops` is still a failure
@@ -63,7 +70,8 @@ and enables backup. Legacy proof without a fingerprint fails closed for unknown
 refused drafts; already dropped tables allow interrupted cleanup to finish.
 
 **Private reminder settings and previously refused “Not sent” drafts are not
-cloud-backed.** The confirmation asks users to export these first. Recovery
+cloud-backed.** The app cannot export them, so the confirmation says they are
+lost and to note down any that are needed. Recovery
 restores saved cloud data, not every local-only setting or draft. The existing
 confirmed cleanup also clears backup files on this phone.
 

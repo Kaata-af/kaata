@@ -22,6 +22,8 @@ import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { normalizeAmountInput, parseAmountInput } from "../../lib/money";
 import { getTabLinkForPerson } from "../../lib/tabs/db";
+import { creditWarning } from "../../lib/credit-limits";
+import { noteSavedEntry } from "../../lib/recent-entry";
 import {
   TabAuthUnavailableError,
   TabApiError,
@@ -63,6 +65,28 @@ export default function NewEntryScreen() {
   // render above native stack modals (see components/Toast.tsx), so
   // validation and save failures MUST surface inline or they're invisible.
   const [amountError, setAmountError] = useState<string | null>(null);
+  // Said while typing, not only after the save (audit #24): the same check
+  // the save makes, on the amount as it stands.
+  const [overLimit, setOverLimit] = useState(false);
+  useEffect(() => {
+    const parsed = parseAmountInput(amount);
+    if (parsed === null || parsed <= 0 || !personId) {
+      setOverLimit(false);
+      return;
+    }
+    let alive = true;
+    const timer = setTimeout(() => {
+      creditWarning(personId, type, parsed)
+        .then((over) => {
+          if (alive) setOverLimit(over);
+        })
+        .catch(() => undefined);
+    }, 250);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [amount, personId, type]);
   const [saveError, setSaveError] = useState<string | null>(null);
   const amountRef = useRef<TextInput>(null);
   const noteRef = useRef<TextInput>(null);
@@ -223,6 +247,15 @@ export default function NewEntryScreen() {
         savedNote,
         { session, vaultId },
       );
+      // A refused clerk tally is not in the ledger; anything else should be
+      // visible when the customer's page comes back, filters or not.
+      if (saved.admission_status !== "refused") noteSavedEntry(attempt.personId, saved.entry_id);
+      // Signed out, a shared tally waits on this phone until sign-in; "Saved"
+      // alone hid that it has not reached the other side (audit #24).
+      const waitingLink =
+        !session.jwt && saved.admission_status == null
+          ? await getTabLinkForPerson(attempt.personId).catch(() => null)
+          : null;
       let duplicateName: string | null = null;
       if (saved.duplicate_hint && isCurrent(attempt)) {
         // The other party recorded the same transfer within a day. Queued,
@@ -233,20 +266,30 @@ export default function NewEntryScreen() {
         duplicateName = link?.other_label || t("tab.them");
       }
       await present(() => {
-        toast.push(
-          t(
+        if (waitingLink)
+          toast.push(
+            t("tab.savedSignIn", { name: waitingLink.other_label || t("tab.them") }),
+            "info",
+          );
+        else
+          toast.push(
+            t(
+              saved.admission_status === "refused"
+                ? "credit.blocked"
+                : saved.admission_status === "pending"
+                  ? // Goods handed over now cannot be taken back if the
+                    // server refuses (audit #24).
+                    attempt.type === "debt"
+                    ? "credit.pendingHold"
+                    : "credit.pending"
+                  : "entry.saved",
+            ),
             saved.admission_status === "refused"
-              ? "credit.blocked"
+              ? "error"
               : saved.admission_status === "pending"
-                ? "credit.pending"
-                : "entry.saved",
-          ),
-          saved.admission_status === "refused"
-            ? "error"
-            : saved.admission_status === "pending"
-              ? "info"
-              : "success",
-        );
+                ? "info"
+                : "success",
+          );
         if (saved.credit_warning && !saved.admission_status)
           queuePendingToast(t("credit.warning"), "info");
         if (duplicateName)
@@ -376,6 +419,10 @@ export default function NewEntryScreen() {
             <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
               {amountError}
             </Text>
+          ) : overLimit ? (
+            <Text style={[styles.creditHint, textDir(isRTL)]} accessibilityLiveRegion="polite">
+              {t("credit.warning")}
+            </Text>
           ) : null}
         </View>
 
@@ -471,6 +518,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: fonts.sansMedium,
     color: colors.danger,
+    marginTop: 6,
+  },
+  creditHint: {
+    fontSize: 12,
+    fontFamily: fonts.sansMedium,
+    color: colors.reviewPending,
     marginTop: 6,
   },
 });

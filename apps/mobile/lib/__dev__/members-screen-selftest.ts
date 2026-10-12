@@ -440,6 +440,29 @@ export async function runMembersScreenSelftest() {
 
   fixture();
   await flush();
+  assert.ok(memberRow());
+  // Audit #19: coming back keeps the list on screen while it refreshes; it
+  // used to blank to a full-screen spinner (and could flash "No members").
+  focused = false;
+  focusEpoch++;
+  dirty = true;
+  await flush();
+  focused = true;
+  focusEpoch++;
+  // One synchronous tick: render, run the focus effect, render what it set.
+  cursor = 0;
+  tree = screen();
+  effects.splice(0).forEach((fn) => fn());
+  if (dirty) {
+    dirty = false;
+    cursor = 0;
+    tree = screen();
+  }
+  assert.ok(memberRow(), "the list stays while it refreshes on return");
+  await flush();
+
+  fixture();
+  await flush();
   callerAccepted = false;
   const beforeBlur = deferred();
   authorityGate = beforeBlur;

@@ -94,9 +94,10 @@ function fixture() {
         },
       },
       "../lib/use-customer-reminders": {
-        useCustomerReminders: (_vault: any, _person: any, active = true) => ({
-          due: active ? Array.from({ length: dueCount }, (_, id) => ({ id })) : [],
-        }),
+        useCustomerReminders: (_vault: any, _person: any, active = true) => {
+          const due = active ? Array.from({ length: dueCount }, (_, id) => ({ id })) : [];
+          return { due, rows: due };
+        },
       },
       "./Toast": { useToast: () => ({ push() {} }) },
     },
@@ -119,7 +120,13 @@ function fixture() {
   const find = (type: string) => nodes(hooks.tree).find((node) => node.type === type)!;
   const label = (key: string) =>
     nodes(hooks.tree).find((node) => node.props.accessibilityLabel === key)!;
-  const bell = () => label("inbox.bell");
+  // The label grows a due-reminders suffix when reminders are due.
+  const bell = () =>
+    nodes(hooks.tree).find(
+      (node) =>
+        typeof node.props.accessibilityLabel === "string" &&
+        node.props.accessibilityLabel.startsWith("inbox.bell"),
+    )!;
   return {
     hooks,
     motion,
@@ -302,6 +309,30 @@ async function main() {
   nav.measure();
   nav.flushTimers();
   assert.equal(nav.routes.length, 1, "reopening cancels pending navigation");
+  nav.seeAll();
+  nav.flushTimers();
+  // Due reminders count on the bell (they used to be invisible until the
+  // dropdown opened), and the dropdown's row takes the bell's count, so it no
+  // longer pops in after opening or vanishes as the fade begins.
+  nav.due(2);
+  nav.render();
+  const badge = nodes(nav.bell()).find(
+    (node) => node.type === "Text" && node.props.allowFontScaling === false,
+  )!;
+  assert.equal(badge.props.children, 3, "1 unread notice + 2 due reminders on the badge");
+  assert.ok(nav.bell().props.accessibilityLabel.includes("reminders.dueShortcut"));
+  const rowCount = () =>
+    nodes(nav.hooks.tree).find((node) => "dueReminders" in node.props)?.props.dueReminders;
+  nav.open();
+  nav.measure();
+  assert.equal(rowCount(), 2, "the open dropdown shows the bell's due count");
+  assert.equal(
+    nodes(nav.hooks.tree).find((node) => "hasReminders" in node.props)?.props.hasReminders,
+    true,
+    "any reminder at all makes the row the way into the full list (audit #25)",
+  );
+  nav.close();
+  assert.equal(rowCount(), 2, "the row keeps its count while the panel fades out");
   nav.seeAll();
   nav.hooks.unmount();
   assert.equal(nav.timers.size, 0, "unmount cancels pending navigation");

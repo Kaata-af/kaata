@@ -13,15 +13,29 @@ func TestNotificationDetails(t *testing.T) {
 	for _, locale := range []string{"en", "fa"} {
 		for _, kind := range []string{"entry_created", "entry_accepted", "entry_rejected", "entry_voided"} {
 			for _, currency := range []string{"AFN", "USD", "AED"} {
-				body := detailedPushBody(kind, locale, "احمد", 50025, "a_to_b", currency, "b")
+				body := detailedPushBody(kind, locale, "احمد", 50025, "a_to_b", currency, "b", true)
 				if !strings.Contains(body, "احمد") || !strings.Contains(body, "\u2066−500.25 "+currency+"\u2069") {
 					t.Fatal(body)
 				}
-				opposite := detailedPushBody(kind, locale, "Matee", 50025, "a_to_b", currency, "a")
+				opposite := detailedPushBody(kind, locale, "Matee", 50025, "a_to_b", currency, "a", true)
 				if !strings.Contains(opposite, "+500.25") {
 					t.Fatal(opposite)
 				}
 			}
+		}
+	}
+	// A clerk or viewer is told what happened, never asked to review (audit #7).
+	for _, locale := range []string{"en", "fa"} {
+		reviewer := detailedPushBody("entry_created", locale, "Ahmad", 50025, "a_to_b", "AFN", "b", true)
+		reader := detailedPushBody("entry_created", locale, "Ahmad", 50025, "a_to_b", "AFN", "b", false)
+		short := pushBodyFor("entry_created", locale, false)
+		for _, body := range []string{reader, short} {
+			if strings.Contains(body, "Accept") || strings.Contains(body, "قبول") {
+				t.Fatalf("%s: a reader is asked to review: %q", locale, body)
+			}
+		}
+		if reviewer == reader {
+			t.Fatalf("%s: reviewers lost the review prompt", locale)
 		}
 	}
 	if got := notificationLabel("X\n\u202eY"); got != "XY" {

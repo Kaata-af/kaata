@@ -1,5 +1,5 @@
 import type { Calendar } from "./calendar";
-import { faDigits, toJalali, toQamari } from "./jalali";
+import { faDigits, formatSettlementDate, toJalali, toQamari } from "./jalali";
 
 /** Local business dates, [start,end). Never mutate ledger times or totals. */
 export type TallyDateRange = { start: number; end: number; timePrecision?: "minute" };
@@ -129,6 +129,28 @@ export function formatFilterClock(ms: number, locale: "en" | "fa"): string {
   if (!Number.isFinite(date.getTime())) return "";
   const clock = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
   return locale === "fa" ? faDigits(clock) : clock;
+}
+
+/** The active filter as one short label. A single day reads as that day, not
+ *  "X – X". In Dari the date and clock are joined by a Persian comma: a middle
+ *  dot against Persian digits reads as a zero (CLAUDE.md, PDF exports). */
+export function formatDateRangeLabel(
+  range: TallyDateRange | null,
+  locale: "en" | "fa",
+  calendar: Calendar,
+): string {
+  if (!range) return "";
+  const last = range.end - 1;
+  const startDate = formatSettlementDate(range.start, locale, calendar);
+  const lastDate = formatSettlementDate(last, locale, calendar);
+  if (range.timePrecision !== "minute")
+    return startDate === lastDate ? startDate : `${startDate} – ${lastDate}`;
+  const sep = locale === "fa" ? "، " : " · ";
+  const startClock = formatFilterClock(range.start, locale);
+  const lastClock = formatFilterClock(last, locale);
+  return startDate === lastDate
+    ? `${startDate}${sep}${startClock} – ${lastClock}`
+    : `${startDate}${sep}${startClock} – ${lastDate}${sep}${lastClock}`;
 }
 
 export function datePresetRange(

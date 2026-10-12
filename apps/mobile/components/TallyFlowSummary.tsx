@@ -1,20 +1,40 @@
 import { StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
 import { getCurrentCurrencySymbol } from "../lib/currency";
+import { rowDir } from "../lib/direction";
 import { formatAmount } from "../lib/format";
 import { fonts, monoLineHeight, sansLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
 import { faDigits } from "../lib/jalali";
 import type { TallyFlowSummary as FlowSummary } from "../lib/tally-summary";
 
-/** Two rows occupy the other half of the balance header. No new card or graph. */
-export function TallyFlowSummary({ summary, isRTL }: { summary: FlowSummary; isRTL: boolean }) {
+/** Two lines on the other side of the balance header. No new card or graph.
+ *  Matee asked for this side to be no taller or wider than the balance side
+ *  (audit #23): one line per direction, at most half the row, and nothing at
+ *  all for a contact with no tallies (it used to be two rows of zeros). */
+export function TallyFlowSummary({
+  summary,
+  isRTL,
+  allTime = false,
+}: {
+  summary: FlowSummary;
+  isRTL: boolean;
+  /** A search or date filter is on, but these totals cover all time (#31). */
+  allTime?: boolean;
+}) {
+  if (summary.gave.count === 0 && summary.received.count === 0) return null;
   const currency = getCurrentCurrencySymbol();
-  const aligned = { textAlign: isRTL ? ("left" as const) : ("right" as const) };
   return (
-    <View style={styles.summary} accessibilityHint={t("person.flows.hint")}>
+    <View style={styles.summary}>
+      {allTime ? (
+        <Text style={[styles.caption, { textAlign: isRTL ? "right" : "left" }]}>
+          {t("person.flows.allTime")}
+        </Text>
+      ) : null}
       {(["gave", "received"] as const).map((direction) => {
         const flow = summary[direction];
+        // The app's own words ("I gave", "دادم") with the count in brackets: a
+        // middle dot beside Persian digits reads as a zero.
         const label = t(direction === "gave" ? "person.flows.gave" : "person.flows.received", {
           count: isRTL ? faDigits(String(flow.count)) : flow.count,
         });
@@ -23,12 +43,18 @@ export function TallyFlowSummary({ summary, isRTL }: { summary: FlowSummary; isR
             key={direction}
             accessible
             accessibilityLabel={`${label}, ${formatAmount(flow.amount)} ${currency}`}
+            // On each row: a hint on the non-accessible container was never read.
+            accessibilityHint={t("person.flows.hint")}
+            style={[styles.line, rowDir(isRTL)]}
           >
-            <Text style={[styles.label, aligned, { writingDirection: isRTL ? "rtl" : "ltr" }]}>
+            <Text
+              style={[styles.label, { writingDirection: isRTL ? "rtl" : "ltr" }]}
+              numberOfLines={1}
+            >
               {label}
             </Text>
             <Text
-              style={[styles.amount, aligned]}
+              style={styles.amount}
               numberOfLines={1}
               adjustsFontSizeToFit
               minimumFontScale={0.65}
@@ -43,17 +69,27 @@ export function TallyFlowSummary({ summary, isRTL }: { summary: FlowSummary; isR
 }
 
 const styles = StyleSheet.create({
-  summary: { flex: 1, minWidth: 0, justifyContent: "center", gap: 8 },
-  label: {
-    fontFamily: fonts.sansRegular,
+  // Content-sized up to half the row, so a large balance keeps its room.
+  summary: { flexShrink: 1, maxWidth: "50%", minWidth: 0, justifyContent: "center", gap: 6 },
+  line: { alignItems: "baseline", justifyContent: "space-between", gap: 10 },
+  caption: {
+    fontFamily: fonts.sansMedium,
     fontSize: 11,
-    lineHeight: sansLineHeight(11, 16),
+    lineHeight: sansLineHeight(11, 14),
+    color: colors.textSubtle,
+  },
+  label: {
+    flexShrink: 1,
+    fontFamily: fonts.sansRegular,
+    fontSize: 12,
+    lineHeight: sansLineHeight(12, 18),
     color: colors.textSubtle,
   },
   amount: {
+    flexShrink: 0,
     fontFamily: fonts.monoMedium,
-    fontSize: 16,
-    lineHeight: monoLineHeight(16, 21),
+    fontSize: 15,
+    lineHeight: monoLineHeight(15, 20),
     color: colors.textEmphasis,
   },
 });

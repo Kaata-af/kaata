@@ -5,10 +5,13 @@ import {
   DEFAULT_FILTERS,
   activePreset,
   filterUsers,
+  installTime,
   matchesActivity,
   parsePreferences,
   presetFilters,
   quickDateRange,
+  reportedDevices,
+  reportedRows,
   sortUsers,
   userRows,
 } from "./users-model.ts";
@@ -83,20 +86,44 @@ function data(installs: InstallRow[] = [], users: UserRow[] = []): UsersResult {
   };
 }
 
-test("rows retain account versus device units, date fallback, cutoff and reported totals", () => {
-  const rows = userRows(data([install("device-1")], [account()]), "2026-09-13");
+test("rows retain account versus device units, date fallback, Kabul install day and reported totals", () => {
+  const rows = userRows(data([install("device-1")], [account()]));
   assert.equal(rows.length, 2);
   assert.deepEqual(
     rows.map((row) => row.id),
     ["a:account-1", "i:device-1"],
   );
-  assert.equal(rows[0].installed_day, "2026-09-01");
+  // 20:00 UTC is 00:30 the next morning in Kabul: the day the row shows.
+  assert.equal(rows[0].installed_at, "2026-09-01T20:00:00Z");
+  assert.equal(rows[0].installed_day, "2026-09-02");
   assert.equal(rows[0].platform, "ios");
   assert.equal(rows[0].entries, 12);
   assert.equal(rows[0].shares, null);
   assert.equal(rows[1].shares, 1);
-  assert.equal(rows[1].installed_day, "2026-09-01");
+  assert.equal(rows[1].installed_day, "2026-09-02");
+  assert.equal(rows[0].excluded, false);
+  assert.equal(rows[1].excludedBy, "");
   assert.deepEqual(userRows(undefined), []);
+});
+
+test("the install time is the earlier of the device's mint time and the server's first record", () => {
+  // Device clock first (installed offline, checked in later).
+  assert.equal(installTime("2026-09-01T08:00:00Z", "2026-09-01T18:00:00Z"), "2026-09-01T08:00:00Z");
+  // A legacy install whose installed_at was back-filled by a later check-in.
+  assert.equal(installTime("2026-06-02T10:00:00Z", "2026-05-17T09:00:00Z"), "2026-05-17T09:00:00Z");
+  assert.equal(installTime("", "2026-05-17T09:00:00Z"), "2026-05-17T09:00:00Z");
+  assert.equal(installTime("not a timestamp", undefined), "");
+  assert.equal(installTime(undefined, undefined), "");
+  const [legacy] = userRows(
+    data([
+      install("legacy", {
+        installed_at: "2026-06-02T10:00:00Z",
+        first_seen: "2026-05-17T09:00:00Z",
+      }),
+    ]),
+  );
+  assert.equal(legacy.installed_at, "2026-05-17T09:00:00Z");
+  assert.equal(legacy.installed_day, "2026-05-17");
 });
 
 test("facets combine with search across profile fields and normalized phone digits", () => {
@@ -111,7 +138,6 @@ test("facets combine with search across profile fields and normalized phone digi
       ],
       [account()],
     ),
-    "2026-09-13",
   );
   const filters = {
     ...DEFAULT_FILTERS,
@@ -168,20 +194,27 @@ test("unidentified counts reflect the other filters and remain explicit when hid
   assert.equal(included.hidden, 0);
 });
 
-test("inclusive install ranges preserve historical UTC dates and new Kabul days", () => {
+test("inclusive install ranges compare the Kabul day each row shows, old installs included", () => {
+  const at = (value: string) => ({ installed_at: value, first_seen: value });
   const rows = userRows(
     data([
       install("history"),
-      install("before", { installed_at: "2026-09-12T19:29:59Z" }),
-      install("boundary", { installed_at: "2026-09-12T19:30:00Z" }),
+      install("before", at("2026-09-12T19:29:59Z")),
+      install("boundary", at("2026-09-12T19:30:00Z")),
       install("missing", { installed_at: "", first_seen: "" }),
     ]),
-    "2026-09-13",
+  );
+  // "history" was installed at 20:00 UTC on Sep 1 — Sep 2, 00:30 in Kabul,
+  // which is what the row shows, so a Sep 1 filter does not list it.
+  assert.deepEqual(
+    filterUsers(rows, { ...DEFAULT_FILTERS, from: "2026-09-01", to: "2026-09-01" }, "", NOW)
+      .visible,
+    [],
   );
   assert.deepEqual(
     filterUsers(
       rows,
-      { ...DEFAULT_FILTERS, from: "2026-09-01", to: "2026-09-12" },
+      { ...DEFAULT_FILTERS, from: "2026-09-02", to: "2026-09-12" },
       "",
       NOW,
     ).visible.map((r) => r.id),
@@ -332,6 +365,73 @@ test("preferences restore only whitelisted fields and never search or user ident
   assert.equal(JSON.stringify(restored).includes("private"), false);
   assert.equal(JSON.stringify(restored).includes("account-id"), false);
   assert.equal(parsePreferences({ pageSize: 999 }).pageSize, 25);
+});
+
+test("test data is hidden by default, counted, and shown with its reason on request", () => {
+  const rows = userRows(
+    data(
+      [
+        install("robot", {
+          self_name: "Pixel robot",
+          excluded: true,
+          excluded_by: "install",
+          exclusion_reason: "robot",
+        }),
+        install("old-operator-phone", { excluded: true, excluded_by: "operator" }),
+        install("real"),
+        // A backend that predates exclusions sends no flags: counted.
+        install("legacy"),
+      ],
+      [
+        account({
+          account_id: "qa",
+          excluded: true,
+          exclusion_reason: "QA",
+          install_count: 1,
+          excluded_installs: 1,
+        }),
+        account({ account_id: "shop", install_count: 3, excluded_installs: 1 }),
+      ],
+    ),
+  );
+  const byId = Object.fromEntries(rows.map((row) => [row.id, row]));
+  assert.equal(byId["i:robot"].excludedBy, "install");
+  assert.equal(byId["i:robot"].exclusionReason, "robot");
+  assert.equal(byId["i:old-operator-phone"].excludedBy, "operator");
+  assert.equal(byId["a:qa"].excludedBy, "account");
+  assert.equal(byId["a:shop"].excluded, false);
+  assert.equal(byId["a:shop"].excludedDevices, 1);
+
+  const hidden = filterUsers(rows, DEFAULT_FILTERS, "", NOW);
+  assert.deepEqual(hidden.visible.map((row) => row.id).sort(), ["a:shop", "i:legacy", "i:real"]);
+  assert.equal(hidden.excluded, 3);
+  assert.equal(hidden.excludedHidden, 3);
+  // Hidden test data never counts as unidentified or identified.
+  assert.equal(hidden.identified + hidden.unidentified, hidden.matching.length);
+
+  const shown = filterUsers(rows, { ...DEFAULT_FILTERS, includeExcluded: true }, "", NOW);
+  assert.equal(shown.visible.length, 6);
+  assert.equal(shown.excluded, 3);
+  assert.equal(shown.excludedHidden, 0);
+  // A search that only matches test data finds nothing visible but reports
+  // the hidden match, so the page can offer to show it.
+  const onlyTest = filterUsers(rows, DEFAULT_FILTERS, "Pixel", NOW);
+  assert.equal(onlyTest.visible.length, 0);
+  assert.equal(onlyTest.excludedHidden, 1);
+  assert.equal(filterUsers(rows, DEFAULT_FILTERS, "Ahmad", NOW).excludedHidden, 1);
+
+  // Counted rows and devices leave test data out: 2 shop devices + 2 installs.
+  assert.equal(reportedRows(rows).length, 3);
+  assert.equal(reportedDevices(rows), 4);
+  assert.equal(activePreset({ ...DEFAULT_FILTERS, includeExcluded: true }), undefined);
+  assert.equal(
+    parsePreferences({ filters: { includeExcluded: true } }).filters.includeExcluded,
+    true,
+  );
+  assert.equal(
+    parsePreferences({ filters: { includeExcluded: "yes" } }).filters.includeExcluded,
+    false,
+  );
 });
 
 test("quick ranges include today and cross calendar months without browser timezone drift", () => {

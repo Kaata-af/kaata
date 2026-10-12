@@ -54,7 +54,8 @@ function fixture() {
   let duplicateGate: ReturnType<typeof deferred<any>> | null = null;
   const timers = new Map<number, () => void>();
   let timerID = 0,
-    keyboardFocuses = 0;
+    keyboardFocuses = 0,
+    overLimit = false;
   const Screen = compileUI(
     "../../app/entry/new",
     {
@@ -135,6 +136,10 @@ function fixture() {
       "../../lib/fonts": { fonts: {} },
       "../../lib/i18n": { t: (key: string) => key },
       "../../lib/money": { normalizeAmountInput, parseAmountInput },
+      "../../lib/credit-limits": { creditWarning: async () => overLimit },
+      "../../lib/recent-entry": {
+        noteSavedEntry: (personId: string, entryId: string) => savedNotes.push([personId, entryId]),
+      },
       "../../lib/tabs/db": {
         getTabLinkForPerson: async () =>
           duplicateGate ? duplicateGate.promise : { other_label: "Peer" },
@@ -242,12 +247,16 @@ function fixture() {
       saveError = next;
     },
     fireKeyboardTimers: () => [...timers.values()].forEach((fn) => fn()),
+    setOverLimit: (value: boolean) => {
+      overLimit = value;
+    },
     get keyboardFocuses() {
       return keyboardFocuses;
     },
   };
 }
 
+const savedNotes: [string, string][] = [];
 async function main() {
   let cases = 0;
   for (const status of [undefined, "pending", "refused"] as const) {
@@ -265,7 +274,8 @@ async function main() {
         status === "refused"
           ? "credit.blocked"
           : status === "pending"
-            ? "credit.pending"
+            ? // An "I gave" tally waiting for the limit check: hand nothing over.
+              "credit.pendingHold"
             : "entry.saved",
         status === "refused" ? "error" : status === "pending" ? "info" : "success",
       ],
@@ -276,6 +286,19 @@ async function main() {
       status ? 0 : 1,
       "pending/refused must not claim a recorded warning",
     );
+    f.hooks.unmount();
+    cases++;
+  }
+  {
+    // A waiting "I received" hands nothing over, so it keeps the plain words.
+    const f = fixture();
+    f.transitions.type();
+    await f.ready();
+    f.setResult({ ...normal, admission_status: "pending" });
+    await f.button().props.onPress();
+    await f.flush();
+    assert.equal(f.writes[0][1], "payment");
+    assert.deepEqual(f.notices, [["credit.pending", "info"]]);
     f.hooks.unmount();
     cases++;
   }
@@ -457,6 +480,46 @@ async function main() {
       "old button closure cannot write its amount into a new customer",
     );
     f.hooks.unmount();
+    cases++;
+  }
+  {
+    // Audit #24: an amount over the credit limit is flagged while typing,
+    // not only after the save.
+    const f = fixture();
+    f.setOverLimit(true);
+    await f.ready();
+    f.fireKeyboardTimers();
+    await f.flush();
+    const warned = () =>
+      nodes(f.hooks.tree).some((n) => n.type === "Text" && n.props.children === "credit.warning");
+    assert.ok(warned(), "an over-limit amount is flagged before Save");
+    f.setOverLimit(false);
+    f.input().props.onChangeText("1");
+    f.render();
+    f.fireKeyboardTimers();
+    await f.flush();
+    assert.equal(warned(), false, "and clears once the amount is back under");
+    f.hooks.unmount();
+    cases++;
+  }
+  {
+    // Audit #3: a saved tally is noted so its customer's page can show it
+    // even under a search; a refused clerk attempt is not in the ledger.
+    savedNotes.length = 0;
+    const f = fixture();
+    await f.ready();
+    f.setResult(normal);
+    await f.button().props.onPress();
+    await f.flush();
+    assert.deepEqual(savedNotes, [["customer", "entry"]]);
+    f.hooks.unmount();
+    const g = fixture();
+    await g.ready();
+    g.setResult({ ...normal, admission_status: "refused" });
+    await g.button().props.onPress();
+    await g.flush();
+    assert.equal(savedNotes.length, 1, "a refused attempt is not noted");
+    g.hooks.unmount();
     cases++;
   }
   console.log(`entry-create-ui selftest: ${cases} checks passed`);

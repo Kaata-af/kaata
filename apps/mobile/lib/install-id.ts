@@ -49,12 +49,23 @@ export async function getInstalledAtUnixMs(): Promise<number | null> {
 // and clearInstallRetired, once a later check-in or sign-in for the same id
 // succeeds.
 export const INSTALL_RETIRED_KEY = "install_retired";
+// ISO time from the server when the 410 came from an account still inside its
+// 30-day deletion grace window. Until then, signing in with that account cancels
+// the deletion and restores this phone, so Account offers that before a reset
+// (which erases everything). Written and cleared with the flag above.
+export const INSTALL_RETIRED_UNTIL_KEY = "install_retired_recoverable_until";
 
 // Records a 410 for `installId`, but only while it is still this phone's
 // install_id. A reset that minted a fresh id while the request was in flight
 // must not inherit the old id's verdict, so the check and the write are ONE
 // statement instead of a read followed by a write that a reset can slip between.
-export async function markInstallRetired(installId: string): Promise<void> {
+// `recoverableUntil`: a string records the server's grace deadline, null drops
+// a stale one (check-in is authoritative), undefined leaves it as it is (a
+// sign-in 410 says nothing about the deadline).
+export async function markInstallRetired(
+  installId: string,
+  recoverableUntil?: string | null,
+): Promise<void> {
   const db = await getDb();
   await db.runAsync(
     `INSERT OR REPLACE INTO app_meta (key, value)
@@ -63,6 +74,25 @@ export async function markInstallRetired(installId: string): Promise<void> {
     INSTALL_RETIRED_KEY,
     installId,
   );
+  if (recoverableUntil === undefined) return;
+  if (recoverableUntil) {
+    await db.runAsync(
+      `INSERT OR REPLACE INTO app_meta (key, value)
+         SELECT ?, ?
+          WHERE EXISTS (SELECT 1 FROM app_meta WHERE key = 'install_id' AND value = ?)`,
+      INSTALL_RETIRED_UNTIL_KEY,
+      recoverableUntil,
+      installId,
+    );
+  } else {
+    await db.runAsync(
+      `DELETE FROM app_meta
+        WHERE key = ?
+          AND EXISTS (SELECT 1 FROM app_meta WHERE key = 'install_id' AND value = ?)`,
+      INSTALL_RETIRED_UNTIL_KEY,
+      installId,
+    );
+  }
 }
 
 // Forgets a recorded 410 once a check-in or sign-in for `installId` has
@@ -80,13 +110,21 @@ export async function clearInstallRetired(installId: string): Promise<void> {
   const db = await getDb();
   await db.runAsync(
     `DELETE FROM app_meta
-      WHERE key = ?
+      WHERE key IN (?, ?)
         AND EXISTS (SELECT 1 FROM app_meta WHERE key = 'install_id' AND value = ?)`,
     INSTALL_RETIRED_KEY,
+    INSTALL_RETIRED_UNTIL_KEY,
     installId,
   );
 }
 
 export async function isInstallRetired(): Promise<boolean> {
   return (await getAppMeta(INSTALL_RETIRED_KEY)) === "1";
+}
+
+/** The deletion grace deadline (ms) while it is still ahead, otherwise null. */
+export async function getInstallRetiredRecoverableUntil(now = Date.now()): Promise<number | null> {
+  const raw = await getAppMeta(INSTALL_RETIRED_UNTIL_KEY);
+  const until = raw ? Date.parse(raw) : NaN;
+  return Number.isFinite(until) && until > now ? until : null;
 }

@@ -142,11 +142,17 @@ async function bootstrap() {
   n.setNotificationHandler({
     handleNotification: async (notification) => {
       const data = notification.request.content.data;
+      // A customer reminder is an alarm the user set for themselves: it must
+      // alert even while Kaata is open, where it used to be silently dropped.
+      // Shared-account notices stay quiet in the foreground (the open app
+      // already shows them) and never alert their own author.
       const show =
-        (AppState.currentState === "background" || AppState.currentState === "inactive") &&
-        !(
-          typeof data?.actor_account_id === "string" && data.actor_account_id === getAccountIdSync()
-        );
+        data?.kind === "customer_reminder" ||
+        ((AppState.currentState === "background" || AppState.currentState === "inactive") &&
+          !(
+            typeof data?.actor_account_id === "string" &&
+            data.actor_account_id === getAccountIdSync()
+          ));
       return {
         shouldShowBanner: show,
         shouldShowList: show,

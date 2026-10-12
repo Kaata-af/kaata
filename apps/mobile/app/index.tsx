@@ -58,6 +58,7 @@ import {
   getAccountIdSync,
   getActiveVaultId,
   getActiveVaultIdSyncMaybe,
+  onAccountIdentityChanged,
   setActiveVaultId,
 } from "../lib/db-tx";
 import { readCustomerGroups, type CustomerGroup } from "../lib/customer-groups";
@@ -67,6 +68,7 @@ import {
   DEFAULT_CUSTOMER_LIST,
   parseCustomerListPreference,
   selectCustomers,
+  selectedCustomerGroupIds,
   type CustomerListPreference,
 } from "../lib/customer-list";
 import {
@@ -78,7 +80,9 @@ import {
 import { onCreditPoliciesChanged } from "../lib/credit-policy-events";
 import type { CreditStatus } from "../components/CreditStatusBadge";
 import { useLedgerRefresh } from "../lib/ledger-events";
-import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
+import { syncActiveVaultNow } from "../lib/sync/scheduler";
+import { syncAllTabs } from "../lib/tabs/sync";
+import { bidiIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { formatAmount } from "../lib/format";
 import { sumAmounts } from "../lib/money";
@@ -305,12 +309,11 @@ export default function HomeScreen() {
     // previously meant setLoaded(true) never ran — an infinite spinner on
     // the ROOT screen with no retry and no back.
     try {
-      const [s, searchList, user, vaultId, accId, shopRaw] = await Promise.all([
+      const [s, searchList, user, vaultId, shopRaw] = await Promise.all([
         getLocalSelf(),
         listAllPeopleForSearch(requestedVault),
         getSessionUser(),
         getActiveVaultId(),
-        getAppMeta("account_id"),
         getAppMeta("shop_mode_enabled"),
       ]);
       const [groupState, prefRaw, creditPolicies] = await Promise.all([
@@ -361,7 +364,12 @@ export default function HomeScreen() {
       }
       setSessionUser(user);
       setActiveVaultIdState(vaultId);
-      setActiveAccountId(accId);
+      // The scope checks below compare against the in-memory account cache, so
+      // record that same value. app_meta.account_id outlives sign-out (it is
+      // only overwritten by the next sign-in), and comparing it with the
+      // cleared cache hid the add button and blocked opening rows until a
+      // relaunch.
+      setActiveAccountId(requestedAccount);
       setShopModeEnabled(shopRaw === "1");
 
       // D-ARCHIVED-VAULT-FILTER: helpers in lib/db.ts return the two slices
@@ -495,6 +503,10 @@ export default function HomeScreen() {
   // behind. useLedgerRefresh coalesces a burst into one reload, so widening
   // the filter does not multiply work during a sync.
   useLedgerRefresh(null, load);
+  // Sign-in, sign-out and a 401-cleared session change which account this
+  // screen is scoped to. Reload so the add button and row taps follow it
+  // without waiting for the next focus.
+  useEffect(() => onAccountIdentityChanged(() => void load()), [load]);
 
   // Pull-to-refresh — with mesh/vault sync now core, entries can land while
   // the shopkeeper sits on this screen (the dominant shop-counter posture).
@@ -503,7 +515,17 @@ export default function HomeScreen() {
     setRefreshing(true);
     try {
       const vaultId = getActiveVaultIdSyncMaybe();
-      if (vaultId) await refreshCreditPolicies(vaultId).catch(() => undefined);
+      // Fetch what other members and linked contacts wrote, not only re-read
+      // this phone: one sync cycle of the open kaata plus a shared-account
+      // sweep, each bounded so a bad connection cannot hold the spinner.
+      await Promise.all([
+        vaultId ? refreshCreditPolicies(vaultId).catch(() => undefined) : undefined,
+        syncActiveVaultNow(),
+        Promise.race([
+          syncAllTabs({ discover: true }),
+          new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
+        ]),
+      ]);
       await load();
     } finally {
       setRefreshing(false);
@@ -662,6 +684,41 @@ export default function HomeScreen() {
     if (JSON.stringify(listPreference.group) !== JSON.stringify(effectiveGroup))
       setListPreference((p) => ({ ...p, group: effectiveGroup }));
   }, [effectiveGroup, listPreference.group]);
+  const listCustomized = effectiveGroup !== "all" || listPreference.sort !== "recent";
+  // Home names the active group filter, so a filtered list (it persists across
+  // launches) never looks like customers went missing.
+  const groupFilterLabel = useMemo(() => {
+    if (effectiveGroup === "all") return null;
+    if (effectiveGroup === "ungrouped") return t("groups.ungrouped");
+    const names = selectedCustomerGroupIds(effectiveGroup)
+      .map((id) => customerGroups.find((group) => group.id === id)?.name)
+      .filter((name): name is string => !!name);
+    return names.length ? names.join(locale === "fa" ? "، " : ", ") : null;
+  }, [effectiveGroup, customerGroups, locale]);
+  const groupFilterCount =
+    effectiveGroup === "all" || effectiveGroup === "ungrouped"
+      ? 1
+      : selectedCustomerGroupIds(effectiveGroup).length;
+  // A new order starts at its top; otherwise the first rows of a re-sorted
+  // long list are scrolled off-screen.
+  const collectScrollRef = useRef<ScrollView>(null);
+  const payScrollRef = useRef<ScrollView>(null);
+  const listOrderKey = `${listPreference.sort}|${JSON.stringify(effectiveGroup)}`;
+  const shownListOrderKey = useRef(listOrderKey);
+  useEffect(() => {
+    if (shownListOrderKey.current === listOrderKey) return;
+    shownListOrderKey.current = listOrderKey;
+    collectScrollRef.current?.scrollTo({ y: 0, animated: false });
+    payScrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [listOrderKey]);
+  const changeListPreference = (preference: CustomerListPreference) => {
+    if (!activeVaultId || getActiveVaultIdSyncMaybe() !== activeVaultId) return;
+    preferenceVersion.current++;
+    setListPreference(preference);
+    void setAppMeta(`customer_list:${activeVaultId}`, JSON.stringify(preference)).catch(() =>
+      toast.push(t("entry.saveFailed"), "error"),
+    );
+  };
 
   // Animate the rail to the resting position for the current direction.
   // Fires on both tab taps (direction changes via Tabs) and post-commit
@@ -1047,6 +1104,14 @@ export default function HomeScreen() {
                       ? visibleSearchPeople.filter((p) => customerSide(p) === "collect").length
                       : collectAll.length
                   }
+                  otherSideMatches={searching ? payPeople.length : 0}
+                  onShowOtherSide={() => setDirection("pay")}
+                  scrollRef={collectScrollRef}
+                  groupFilterLabel={groupFilterLabel}
+                  groupFilterCount={groupFilterCount}
+                  onClearGroupFilter={() =>
+                    changeListPreference({ ...listPreference, group: "all" })
+                  }
                   creditByPerson={creditByPerson}
                   vaultId={activeVaultId}
                   width={screenWidth}
@@ -1066,6 +1131,14 @@ export default function HomeScreen() {
                     searching
                       ? visibleSearchPeople.filter((p) => customerSide(p) === "pay").length
                       : payAll.length
+                  }
+                  otherSideMatches={searching ? collectPeople.length : 0}
+                  onShowOtherSide={() => setDirection("collect")}
+                  scrollRef={payScrollRef}
+                  groupFilterLabel={groupFilterLabel}
+                  groupFilterCount={groupFilterCount}
+                  onClearGroupFilter={() =>
+                    changeListPreference({ ...listPreference, group: "all" })
                   }
                   creditByPerson={creditByPerson}
                   vaultId={activeVaultId}
@@ -1100,20 +1173,23 @@ export default function HomeScreen() {
               ]}
               pointerEvents="box-none"
             >
-              <Pressable
-                style={({ pressed }) => [styles.listOptions, pressed && { opacity: 0.65 }]}
-                accessibilityRole="button"
-                accessibilityLabel={t("customers.listOptions")}
-                accessibilityState={{
-                  selected: effectiveGroup !== "all" || listPreference.sort !== "recent",
-                }}
-                onPress={() => {
-                  Keyboard.dismiss();
-                  setListOptionsVisible(true);
-                }}
-              >
-                <Ionicons name="options-outline" size={icon.row} color={colors.textDefault} />
-              </Pressable>
+              {/* Nothing to sort or filter in an empty kaata. */}
+              {visibleSearchPeople.length > 0 ? (
+                <Pressable
+                  style={({ pressed }) => [styles.listOptions, pressed && { opacity: 0.65 }]}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("customers.listOptions")}
+                  accessibilityState={{ selected: listCustomized }}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setListOptionsVisible(true);
+                  }}
+                >
+                  <Ionicons name="options-outline" size={icon.row} color={colors.textDefault} />
+                  {/* A non-default sort or filter is visible without opening the sheet. */}
+                  {listCustomized ? <View style={styles.listOptionsDot} /> : null}
+                </Pressable>
+              ) : null}
               <View style={[styles.searchBar, rowDir(isRTL)]}>
                 <Ionicons name="search-outline" size={icon.row} color={colors.textSubtle} />
                 <TextInput
@@ -1344,14 +1420,7 @@ export default function HomeScreen() {
           if (canAmend && activeVaultId && getActiveVaultIdSyncMaybe() === activeVaultId)
             router.push({ pathname: "/groups", params: { vaultId: activeVaultId } });
         }}
-        onChange={(preference) => {
-          if (!activeVaultId || getActiveVaultIdSyncMaybe() !== activeVaultId) return;
-          preferenceVersion.current++;
-          setListPreference(preference);
-          void setAppMeta(`customer_list:${activeVaultId}`, JSON.stringify(preference)).catch(() =>
-            toast.push(t("entry.saveFailed"), "error"),
-          );
-        }}
+        onChange={changeListPreference}
       />
 
       <BottomSheet
@@ -1578,6 +1647,14 @@ function TabPage(props: {
   filtered: boolean;
   searching: boolean;
   filterTotal: number;
+  // Search runs per side; matches on the other tab get a link there instead
+  // of a bare "No matching customers".
+  otherSideMatches: number;
+  onShowOtherSide: () => void;
+  scrollRef: React.RefObject<ScrollView | null>;
+  groupFilterLabel: string | null;
+  groupFilterCount: number;
+  onClearGroupFilter: () => void;
   creditByPerson: Record<string, CreditStatus>;
   vaultId: string | null;
   width: number;
@@ -1612,6 +1689,7 @@ function TabPage(props: {
   return (
     <View style={{ width: props.width }}>
       <ScrollView
+        ref={props.scrollRef}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingBottom: props.paddingBottom }}
         refreshControl={
@@ -1651,9 +1729,37 @@ function TabPage(props: {
           ) : null}
         </View>
 
+        {props.groupFilterLabel ? (
+          <Pressable
+            onPress={props.onClearGroupFilter}
+            accessibilityRole="button"
+            accessibilityHint={t("groups.clearFilter")}
+            hitSlop={{ top: 6, bottom: 6 }}
+            style={({ pressed }) => [
+              styles.groupChip,
+              rowDir(isRTL),
+              pressed && { backgroundColor: colors.bgMuted },
+            ]}
+          >
+            <Text style={[styles.groupChipText, textDir(isRTL)]} numberOfLines={1}>
+              {t(props.groupFilterCount > 1 ? "groups.viewMany" : "groups.view", {
+                name: props.groupFilterLabel,
+              })}
+            </Text>
+            <Ionicons name="close" size={14} color={colors.textSubtle} />
+          </Pressable>
+        ) : null}
         {props.filtered ? (
           <Text style={[styles.filterHint, textDir(isRTL)]}>
-            {t("customers.filtered", { shown: people.length, total: props.filterTotal })}
+            {/* The hero above stays the whole side (by design); what the
+                filtered customers come to was shown nowhere (audit #26). */}
+            {t("customers.filtered", {
+              shown: people.length,
+              total: props.filterTotal,
+              amount: bidiIsolate(
+                `${formatAmount(sumAmounts(people.map((p) => Math.abs(p.balance))))} ${getCurrentCurrencySymbol()}`,
+              ),
+            })}
           </Text>
         ) : null}
         {people.length === 0 ? (
@@ -1691,6 +1797,35 @@ function TabPage(props: {
             ))}
           </View>
         )}
+        {props.searching && props.otherSideMatches > 0 ? (
+          <Pressable
+            onPress={props.onShowOtherSide}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.otherSideLink,
+              rowDir(isRTL),
+              pressed && { opacity: 0.6 },
+            ]}
+          >
+            <Text style={styles.otherSideText}>
+              {t(
+                props.direction === "collect"
+                  ? people.length === 0
+                    ? "customers.otherSideOnly.pay"
+                    : "customers.otherSide.pay"
+                  : people.length === 0
+                    ? "customers.otherSideOnly.collect"
+                    : "customers.otherSide.collect",
+                { count: props.otherSideMatches },
+              )}
+            </Text>
+            <Ionicons
+              name={isRTL ? "chevron-back" : "chevron-forward"}
+              size={16}
+              color={colors.textEmphasis}
+            />
+          </Pressable>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -1866,6 +2001,48 @@ const styles = StyleSheet.create({
     color: colors.textDefault,
   },
   clearSearch: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  listOptionsDot: {
+    position: "absolute",
+    top: 9,
+    right: 9,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.textEmphasis,
+  },
+  groupChip: {
+    alignSelf: "flex-start",
+    alignItems: "center",
+    gap: 6,
+    maxWidth: "90%",
+    minHeight: 32,
+    paddingHorizontal: 12,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    backgroundColor: colors.bgDefault,
+  },
+  groupChipText: {
+    flexShrink: 1,
+    fontFamily: fonts.sansMedium,
+    fontSize: 13,
+    color: colors.textDefault,
+  },
+  otherSideLink: {
+    alignSelf: "center",
+    alignItems: "center",
+    gap: 4,
+    minHeight: 44,
+    paddingHorizontal: 16,
+    marginTop: 8,
+  },
+  otherSideText: {
+    fontFamily: fonts.sansSemi,
+    fontSize: 14,
+    color: colors.textEmphasis,
+  },
   filterHint: {
     fontFamily: fonts.sansRegular,
     fontSize: 12,

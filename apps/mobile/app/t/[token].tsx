@@ -109,6 +109,7 @@ import {
   TabCreatePersonError,
   TabCurrencyMismatchError,
   TabPermissionError,
+  TabSameAccountError,
   TabSameKaataError,
   type JoinTarget,
 } from "../../lib/tabs/link";
@@ -536,6 +537,8 @@ export default function TabJoinScreen() {
         );
       } else if (err instanceof TabSameKaataError) {
         setPickError(t("tab.join.sameKaata"));
+      } else if (err instanceof TabSameAccountError) {
+        setPickError(t("tab.join.sameAccount"));
       } else if (err instanceof TabAlreadyLinkedError) {
         setPickError(t("tab.join.alreadyLinked"));
       } else if (err instanceof TabClosedError) {

@@ -220,6 +220,9 @@ const MIGRATION_034_DDL =
     dbSource,
   )?.[1];
 assert.ok(MIGRATION_034_DDL, "migration034 preserves credit policy and deferred intent");
+const MIGRATION_038_DDL =
+  /execAsync\(`([^`]*CREATE TABLE IF NOT EXISTS kaata_credit_defaults[^`]*)`\)/.exec(dbSource)?.[1];
+assert.ok(MIGRATION_038_DDL, "migration038 adds the kaata default credit limit");
 
 const VAULT = "fixture-vault";
 const SELF = "fixture-self";
@@ -280,6 +283,7 @@ function openFixture(): void {
     ${MIGRATION_031_DDL}
     ${MIGRATION_032_DDL}
     ${MIGRATION_034_DDL}
+    ${MIGRATION_038_DDL}
     INSERT INTO vaults VALUES ('${VAULT}', 'AFN');
     INSERT INTO users VALUES ('${SELF}', '+93700111222', 'Synthetic Owner', 1, NULL, NULL, 1, 1, NULL, NULL);
     INSERT INTO users VALUES ('${CONTACT}', '+93700333444', 'Synthetic Contact', 0, NULL, NULL, 1, 1, NULL, NULL);
@@ -1942,6 +1946,10 @@ async function main(): Promise<void> {
     ];
     await sync.reconcileTabsFromServer();
     assert.equal(count("tab_links"), 1, "only the tab whose contact exists locally");
+    // The App health report's trace of what discovery could not bind (#8).
+    assert.deepEqual(sync.tabDiscoveryStatus().skips, { unbound: 1, waiting: 1, conflicts: 0 });
+    assert.equal(sync.tabDiscoveryStatus().failures, 0);
+    assert.notEqual(sync.tabDiscoveryStatus().lastOkAt, null);
     const stored = storedLink();
     assert.equal(stored.party_token, null, "JWT is the credential");
     assert.equal(stored.rev, 0, "only a pull advances the cursor; this empty tab remains rev 0");
@@ -1994,6 +2002,11 @@ async function main(): Promise<void> {
     session.jwt = "jwt-1";
     server.failNext = { status: 500, code: "http_500" };
     await sync.reconcileTabsFromServer();
+    assert.equal(
+      sync.tabDiscoveryStatus().failures,
+      1,
+      "a failing /mine is counted for the report",
+    );
   });
 
   await test("restore discovers and pulls the shared book instead of leaving the pre-link 500", async () => {
@@ -2194,9 +2207,13 @@ async function main(): Promise<void> {
     assert.equal(ledgerListeners.size, 0);
   });
 
-  await test("foreground fallback pulls cached tabs every 5s without fetching /mine on every tick", async () => {
+  await test("foreground fallback pulls a watched tab every 5s; idle links wait for the minute sweep", async () => {
+    sync._resetTabSyncPacingForTests();
     await tabsDb.upsertTabLink(link());
     const realInterval = globalThis.setInterval;
+    const realNow = Date.now;
+    let offset = 0;
+    Date.now = () => realNow() + offset;
     let tick: (() => void) | null = null;
     let intervalMs = 0;
     globalThis.setInterval = ((callback: () => void, delay: number) => {
@@ -2204,29 +2221,73 @@ async function main(): Promise<void> {
       intervalMs = delay;
       return realInterval(callback, delay);
     }) as typeof setInterval;
+    const mine = () => server.calls.filter((call) => call === "GET /v1/tabs/mine").length;
+    const pulls = () =>
+      server.calls.filter((call) => call.startsWith(`GET /v1/tabs/${TAB}?`)).length;
     const stop = sync.startTabSyncLoop();
+    const unwatch = sync.watchTab(TAB);
     try {
       await sleep(30);
       assert.equal(intervalMs, 5_000);
-      assert.equal(server.calls.filter((call) => call === "GET /v1/tabs/mine").length, 1);
+      assert.equal(mine(), 1);
       const runTick = tick as (() => void) | null;
       assert.ok(runTick);
       runTick();
       await sleep(30);
       runTick();
       await sleep(30);
-      assert.equal(
-        server.calls.filter((call) => call === "GET /v1/tabs/mine").length,
-        1,
-        "binding discovery keeps its own minute cadence",
-      );
-      assert.equal(
-        server.calls.filter((call) => call.startsWith(`GET /v1/tabs/${TAB}?`)).length,
-        3,
-      );
+      assert.equal(mine(), 1, "binding discovery keeps its own minute cadence");
+      assert.equal(pulls(), 3, "the tab on screen is pulled on every 5 s tick");
+      // Polling every link every 5 s spent the per-network read budget
+      // (3000/h per IP) at five shared contacts. An idle link waits.
+      unwatch();
+      runTick();
+      await sleep(30);
+      assert.equal(pulls(), 3, "an idle link is not pulled between minute sweeps");
+      offset += 61_000;
+      runTick();
+      await sleep(30);
+      assert.equal(pulls(), 4, "the minute sweep still pulls every link");
+      assert.equal(mine(), 2, "and discovery runs on its minute");
     } finally {
+      unwatch();
       stop();
       globalThis.setInterval = realInterval;
+      Date.now = realNow;
+    }
+  });
+
+  await test("a failing discovery backs off instead of running every tick; a 429 pauses the loop", async () => {
+    sync._resetTabSyncPacingForTests();
+    await tabsDb.upsertTabLink(link());
+    const realNow = Date.now;
+    let offset = 0;
+    Date.now = () => realNow() + offset;
+    const mine = () => server.calls.filter((call) => call === "GET /v1/tabs/mine").length;
+    try {
+      server.failNext = { status: 503, code: "http_503" };
+      await sync.syncAllTabs();
+      assert.equal(mine(), 1);
+      for (let i = 0; i < 3; i++) await sync.syncAllTabs({ discover: false });
+      assert.equal(mine(), 1, "a failed /mine is not retried on every tick");
+      offset += 16_000;
+      await sync.syncAllTabs({ discover: false });
+      assert.equal(mine(), 2, "it is retried after the first backoff step");
+      const before = server.calls.length;
+      server.failNext = { status: 429, code: "rate_limited" };
+      offset += 61_000;
+      await sync.syncAllTabs({ discover: false });
+      const paused = server.calls.length;
+      assert.ok(paused > before, "the sweep that met the 429 ran");
+      await sync.syncAllTabs({ discover: false });
+      await sync.syncAllTabs();
+      assert.equal(server.calls.length, paused, "nothing more is requested while rate-limited");
+      offset += 61_000;
+      await sync.syncAllTabs();
+      assert.ok(server.calls.length > paused, "the loop resumes after the pause");
+    } finally {
+      Date.now = realNow;
+      sync._resetTabSyncPacingForTests();
     }
   });
 
@@ -2333,6 +2394,9 @@ async function main(): Promise<void> {
 
     // Link: opening carries the 70; they record 20 received; I add 5 (pending ack).
     await tabsDb.upsertTabLink(link());
+    // Discovered but never pulled: the balance is unknown, not 0 (audit #8).
+    assert.equal((await db.getPerson(CONTACT))?.tab_unsynced, 1);
+    assert.equal((await db.listAllPeople())[0].tab_unsynced, 1);
     server.parties.b = { label: "Synthetic Customer", joined_at_ms: 6_000, bound: true };
     server.seed({
       id: "op",
@@ -2373,6 +2437,7 @@ async function main(): Promise<void> {
       { balance: 55, last: 8_000, tab_id: TAB, pending: 1, joined: 1 },
       "tab balance 70 - 20 + 5 (optimistic counts), local rows excluded",
     );
+    assert.equal(after.tab_unsynced, 0, "the first pull makes the balance known");
     const home = await db.listAllPeople();
     assert.equal(home[0].balance, 55);
     assert.equal(home[0].last_entry_at, 8_000);

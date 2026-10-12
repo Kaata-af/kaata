@@ -140,7 +140,7 @@ for (const os of ["ios", "android"] as const) {
       }),
     },
     "../lib/tabs/open-notification": { openTabNotification: async () => {} },
-    "../lib/use-customer-reminders": { useCustomerReminders: () => ({ due: [] }) },
+    "../lib/use-customer-reminders": { useCustomerReminders: () => ({ due: [], rows: [] }) },
     "./Toast": { useToast: () => ({ push() {} }) },
   };
   const { NotificationBell } = compile("../../components/NotificationInbox", mocks);

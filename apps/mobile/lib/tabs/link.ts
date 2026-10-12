@@ -73,6 +73,7 @@ import {
   TabCurrencyMismatchError,
   TabInputError,
   TabPermissionError,
+  TabSameAccountError,
   TabSameKaataError,
   isRetryableTabError,
 } from "./errors";
@@ -99,6 +100,7 @@ export {
   TabInputError,
   TabLinkedEntryError,
   TabPermissionError,
+  TabSameAccountError,
   TabSameKaataError,
 } from "./errors";
 
@@ -303,6 +305,7 @@ async function joinFailure(
   }
   if (err instanceof TabApiError) {
     if (err.code === "same_kaata") return new TabSameKaataError();
+    if (err.code === "same_account") return new TabSameAccountError();
     if (err.code === "tab_closed") return new TabClosedError();
     if (err.code === "currency_mismatch")
       return new TabCurrencyMismatchError(vaultCurrency, tab.currency, { serverStale: afterPush });
