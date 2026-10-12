@@ -6,26 +6,60 @@ durable offline queue, and push delivery infrastructure. Existing private ledger
 events are not rewritten.
 Automated checks and store submissions do not replace native two-phone testing.
 
-## Testing release preparation — 13 October 2026 (56/36)
+## Testing delivery — 13 October 2026 (56/36)
 
-Prepared **2.2.0 / Android 56 / iOS 36** from the reviewed feature source
-`57d41c9` plus release metadata. Destinations are **Google Play internal testing**
-and the existing **TestFlight internal tester group** only. This preparation
-record does not claim an upload, processing success or tester availability;
-record those after both services confirm them. Production and closed-testing
-tracks, App Store review submissions and their pending reviews must stay intact.
+Built **2.2.0 / Android 56 / iOS 36** from reviewed feature source `57d41c9`
+and release commit `83314b0ba4134d7c1e154d709bca9c2e6b436879`, pushed to main.
+Destinations were **Google Play internal testing** and the existing
+**TestFlight internal tester group** only. TestFlight is available; Play's guarded
+commit was acknowledged and a separate track read confirmed the internal release
+is `completed`. Its newer lifecycle listing endpoint hit a quota, so an explicit
+`RELEASE_LIFECYCLE_STATE_PUBLISHED` response was not obtained for code 56.
+Production and closed-testing tracks and App Store reviews were preserved.
 The Play uploader remains restricted to this exact package/version/code, commits
 with `changesInReviewBehavior=ERROR_IF_IN_REVIEW`, and has no review-cancellation
 fallback. The iOS helper manages TestFlight only.
+
+- **Android 56:** EAS build `ba72c977-8cae-4452-b4b3-d024599f221d` finished at
+  `2026-10-12T21:10:15.170Z`, with the exact version, code and source verified.
+  Downloaded AAB: 94,827,126 bytes; SHA-256
+  `b73181426cc4b462b1391ed97048b6edc9e6f6bd67f844e481b6fe26a982ede0`.
+  The first upload received Google HTTP 503 before any commit, and cleanup could
+  not initially be confirmed. Independent lifecycle reads showed no code 56,
+  then a disposable bundle inventory confirmed that no code 56 artifact had been
+  accepted and was deleted without commit. A fresh guarded attempt uploaded,
+  validated and committed internal only. Its final lifecycle read failed due to
+  `Listing releases quota exceeded`; it was not uploaded again. One separate
+  disposable edit read confirmed `2.2.0 (56) — internal testing`, code 56,
+  `status=completed`, and the exact updated English notes. That inspection edit
+  was deleted without any track, tester, listing or commit mutation.
+- **iOS 36:** EAS build `1e68923c-2510-4a74-ad2b-b3e71ac3e0d8` finished from the
+  same exact source. Upload `313fd97c-c38b-46fd-9eff-9ff9deb44291` finished.
+  ASC build `1599b2ad-1f6c-4358-bf24-8fdd5db6df90` is `VALID` and
+  `IN_BETA_TESTING`, assigned to the existing **Team (Expo)** internal group
+  `fcb33597-43b6-42ba-8582-b85d26fc3895`, with automatic tester notification
+  enabled and exempt-encryption metadata verified. All 2,989 characters of the
+  new English testing notes were written and read back exactly.
+- **Production preserved:** Apple's complete version/review snapshot matched
+  preflight; 2.1.1/build 30 remains `WAITING_FOR_REVIEW`. Play production code 50
+  remained `IN_REVIEW` after the guarded commit, with code 40 published. Alpha
+  code 43 remained published. The final separate edit read also confirmed the
+  same production and alpha codes; those older track statuses do not assert
+  production approval. No production or closed-testing submission was made.
+- **Backend/web:** Dokploy auto-deploy completed from `83314b0` before store
+  distribution. Backend deployment `ZdV8a1eXhDIMX3mh3IwZa` and web deployment
+  `wm2phC2sjWoUDEHX7XeII` had fresh healthy containers and matching checkouts.
+  Live migrations 058/059, the growth table, refusal fields and indexes were
+  verified; public backend health was `ok`, the website returned 200, and the
+  new credit-refusal route required authentication (401 without credentials).
 
 This candidate adds the reviewed sign-in/restore/session fixes, shared-sync
 watchdog and reconnect catch-up, kaata default credit limits and refusal details,
 group member editing and repair migration, group filter subtotals, reminder
 permission/named-alert refinements, Qamari adjustment, search/date/keyboard and
 accessibility corrections, and the updated brand icons/splash. Backend migrations
-058 and 059 and the matching web/server source must be deployed before tester
-distribution. The Android neutral widget theme and brand assets require these
-new native binaries.
+058 and 059 and matching web/server support are live. The Android neutral widget
+theme and brand assets are included in these new native binaries.
 
 Fresh checks for `57d41c9` passed all 52 mobile selftest suites and TypeScript,
 89 web tests and the TypeScript/Vite production build, and nine changed backend
@@ -37,6 +71,9 @@ production Metro/Hermes exports passed. All 26 Play/TestFlight release-helper
 tests passed with no skips, and resolved Expo config verified 2.2.0/56/36,
 `af.kaata.app`, the neutral Android theme plugin and Aubergine adaptive icon.
 These local checks do not verify a signed binary or native device behavior.
+Both signed cloud builds finished successfully; native device checks remain
+separate from build/upload verification. Operation evidence is retained locally
+under ignored `apps/mobile/dist/testing-36-56`, with no credentials in this log.
 Device checks remain outstanding: email swipe Back, keyboard/dock geometry,
 Android native theme/pickers/blur, native reminder delivery and two-phone shared-ledger
 reconnect/restore. Use synthetic data for deletion and credit-limit tests; update
