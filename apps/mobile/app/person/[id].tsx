@@ -78,7 +78,7 @@ import { shareKaataViaWhatsApp, type WhatsAppShareStage } from "../../lib/share"
 import { filterTallies, noteSearchTerms } from "../../lib/tally-search";
 import {
   filterTalliesByDate,
-  shiftLocalDay,
+  formatFilterClock,
   type TallyDateRange,
 } from "../../lib/tally-date-filter";
 import { summarizeTallyFlows } from "../../lib/tally-summary";
@@ -415,10 +415,13 @@ export default function PersonDetailScreen() {
   );
   const hasTallies = entries.length > 0 || preLink.length > 0 || failedTallies.length > 0;
   const dateRangeLabel = dateRange
-    ? [
-        formatSettlementDate(dateRange.start, locale, calendar),
-        formatSettlementDate(shiftLocalDay(dateRange.end, -1), locale, calendar),
-      ].join(" – ")
+    ? [dateRange.start, dateRange.end - 1]
+        .map((ms) =>
+          dateRange.timePrecision === "minute"
+            ? `${formatSettlementDate(ms, locale, calendar)} · ${formatFilterClock(ms, locale)}`
+            : formatSettlementDate(ms, locale, calendar),
+        )
+        .join(" – ")
     : "";
   const searchResultCount =
     matchedEntries.length + matchedPreLink.length + matchedFailedTallies.length;
@@ -1609,7 +1612,10 @@ export default function PersonDetailScreen() {
                         accessibilityRole="button"
                         accessibilityLabel={t("person.date.active", { range: dateRangeLabel })}
                       >
-                        <Text numberOfLines={1} style={[styles.searchSummary, textDir(isRTL)]}>
+                        <Text
+                          numberOfLines={dateRange.timePrecision === "minute" ? 2 : 1}
+                          style={[styles.searchSummary, textDir(isRTL)]}
+                        >
                           {dateRangeLabel}
                         </Text>
                       </Pressable>

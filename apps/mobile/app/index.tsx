@@ -8,6 +8,8 @@ import {
   Animated,
   BackHandler,
   Image,
+  Keyboard,
+  KeyboardAvoidingView,
   Linking,
   Platform,
   Pressable,
@@ -15,6 +17,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -34,6 +37,8 @@ import { useToast, useToastOffset } from "../components/Toast";
 import { UpdateBanner } from "../components/UpdateBanner";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
+import { splitSearchQuery } from "../lib/contacts-merge";
+import { searchContacts } from "../lib/search";
 import { applyVaultCurrency, getCurrentCurrencySymbol } from "../lib/currency";
 import { VaultPickerSheet } from "../components/VaultPickerSheet";
 import { getSessionUser, type SessionUser, signOut } from "../lib/auth";
@@ -44,7 +49,7 @@ import {
   getAppMeta,
   getLocalSelf,
   listActiveVaults,
-  listAllPeople,
+  listAllPeopleForSearch,
   listAllVaultsIncludingArchived,
   setAppMeta,
 } from "../lib/db";
@@ -98,47 +103,9 @@ import type { Direction, PersonWithBalance, Self } from "../lib/types";
 // Apple sign-in has no photo URL so the letter chip is the steady state.
 const PROFILE_SLOT_SIZE = 36;
 
-// FAB diameter. Named so the inner circle's radius is FAB_SIZE / 2 rather than a
-// hardcoded 26 that silently stops being a circle if the size ever changes
-// (tokens.ts rule 3: circles are size/2, never a literal). Value unchanged.
-//
-// Do NOT retune this: Button.tsx documents 52 as a three-way family constant
-// (FAB / ping bar / hero CTA all optically aligned), and both rails' bottom
-// padding (96 + insets.bottom) is sized to clear it.
+// Add button and search share the 52px action height used by the other docks.
 const FAB_SIZE = 52;
-
-// The mark drawn inside the FAB: a rounded square — the glyph the iPhone 4s
-// printed on its physical home button (Matee, 2026-08-11). It replaced a "+".
-//
-// WHY NOT A PLUS. This FAB is the app's ONE master action: it opens
-// person/new, which is equally where you FIND an existing contact and where
-// you ADD a new one. A plus names only the second half. Matee's call was that
-// the psychology stops making sense on a button that is mostly how you reach
-// someone you already have.
-//
-// WHAT IT COSTS, so nobody "fixes" this back by accident: a rounded square
-// carries no verb — it has to be learned once, and an outlined square inside
-// a filled circle is also the STOP idiom on mobile. Two things carry the
-// meaning instead, and both must survive any future edit here: the FAB's
-// accessibilityLabel stays the full "Add or find person", and the copy that
-// used to read "the + button" (guide.p2, onboardingSuccess.body,
-// home.empty.collect.subtitle, en + fa) now points at the button's POSITION
-// rather than its glyph.
-//
-// WHY A BORDERED View AND NOT Ionicons `square-outline`: this mark IS its
-// proportions — corner radius and stroke weight are the entire design. A font
-// glyph fixes both to whatever the typeface chose and offers no way to tune
-// them; five style properties give exact control and render identically on
-// Android and iOS. Precedent: NinjaIcon / GoogleGIcon are also hand-drawn.
-//
-// SIZE is 42% of the button, the share the printed squircle occupied on the
-// 4s, which also leaves ~15px of black on every side so the mark reads as a
-// mark rather than a fill. RADIUS is a RATIO of the mark, not a literal —
-// resize the mark and it stays a squircle instead of quietly degrading into a
-// rounded-ish box. (tokens.ts rule 3 governs circles only; this isn't one.)
-const HOME_MARK_SIZE = 22;
-const HOME_MARK_RADIUS = HOME_MARK_SIZE * 0.32;
-const HOME_MARK_STROKE = 2;
+const EMPTY_PEOPLE: PersonWithBalance[] = [];
 
 // Tab labels are computed at render time so locale changes (after a hot reload
 // during dev) flow through. The keys remain stable identifiers.
@@ -206,6 +173,12 @@ export default function HomeScreen() {
   const [self, setSelf] = useState<Self | null>(null);
   const [direction, setDirection] = useState<Direction>("collect");
   const [allPeople, setAllPeople] = useState<PersonWithBalance[]>([]);
+  const [peopleForSearch, setPeopleForSearch] = useState<PersonWithBalance[]>([]);
+  const [peopleScope, setPeopleScope] = useState<{
+    vaultId: string | null;
+    accountId: string | null;
+  } | null>(null);
+  const [customerQuery, setCustomerQuery] = useState("");
   const [customerGroups, setCustomerGroups] = useState<CustomerGroup[]>([]);
   const [groupByPerson, setGroupByPerson] = useState<Record<string, string[]>>({});
   const [listPreference, setListPreference] =
@@ -239,9 +212,24 @@ export default function HomeScreen() {
   // Viewer read-only gate: false only when I'm a viewer on the active (shared)
   // vault. Hides write affordances (long-press edit/delete). Defaults true
   // for local-only / owner / editor.
-  // Roles v2 split: canCreate chooses add/find versus find-only; canAmend
-  // gates the long-press edit/delete sheet (clerks cannot touch history).
-  const { canCreate, canAmend } = useActiveVaultWriteCaps(activeVaultId);
+  // Search is available to every role; only resolved writers get the add button.
+  const caps = useActiveVaultWriteCaps(activeVaultId);
+  const currentVaultScope =
+    activeVaultId != null &&
+    activeVaultId === getActiveVaultIdSyncMaybe() &&
+    activeAccountId === getAccountIdSync();
+  const canCreate = caps.resolved && caps.canCreate && currentVaultScope;
+  const { canAmend } = caps;
+  const canCreateRef = useRef(canCreate);
+  canCreateRef.current = canCreate;
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => setCustomerQuery(""), [activeVaultId, activeAccountId]);
   // D-ARCHIVED-VAULT-FILTER: the picker and settings sheet consume only
   // non-archived vaults; the archived sub-section (toggle-revealed) reads
   // `archivedVaults`. Two arrays > one array + per-render filter — the
@@ -317,9 +305,9 @@ export default function HomeScreen() {
     // previously meant setLoaded(true) never ran — an infinite spinner on
     // the ROOT screen with no retry and no back.
     try {
-      const [s, list, user, vaultId, accId, shopRaw] = await Promise.all([
+      const [s, searchList, user, vaultId, accId, shopRaw] = await Promise.all([
         getLocalSelf(),
-        listAllPeople(requestedVault),
+        listAllPeopleForSearch(requestedVault),
         getSessionUser(),
         getActiveVaultId(),
         getAppMeta("account_id"),
@@ -343,12 +331,19 @@ export default function HomeScreen() {
       if (!current()) return;
 
       setSelf(s);
+      // Keep the idle home tally-only, while search can find newly added people.
+      const list = searchList.filter((person) => person.last_entry_at != null);
       setAllPeople(list);
+      setPeopleForSearch(searchList);
+      setPeopleScope({ vaultId: requestedVault, accountId: requestedAccount });
       setCustomerGroups(groupState.groups);
       setGroupByPerson(
         groupState.groupsByPerson ??
           Object.fromEntries(
-            Object.entries(groupState.groupByPerson).map(([id, group]) => [id, group ? [group] : []]),
+            Object.entries(groupState.groupByPerson).map(([id, group]) => [
+              id,
+              group ? [group] : [],
+            ]),
           ),
       );
       setCreditByPerson(
@@ -408,6 +403,8 @@ export default function HomeScreen() {
               return;
             setActiveVaultIdState(null);
             setAllPeople([]);
+            setPeopleForSearch([]);
+            setPeopleScope(null);
             setCustomerGroups([]);
             setGroupByPerson({});
             setCreditByPerson({});
@@ -624,19 +621,39 @@ export default function HomeScreen() {
 
   // Filtering changes the list, while each tab's hero totals keep every customer.
   // The default ordering still puts open tallies before settled ones.
+  const currentPeopleScope =
+    peopleScope?.vaultId === getActiveVaultIdSyncMaybe() &&
+    peopleScope?.accountId === getAccountIdSync();
+  const visibleAllPeople = currentPeopleScope ? allPeople : EMPTY_PEOPLE;
+  const visibleSearchPeople = currentPeopleScope ? peopleForSearch : EMPTY_PEOPLE;
+  const searching = customerQuery.trim().length > 0;
+  const matchedPeople = useMemo(() => {
+    if (!searching) return visibleAllPeople;
+    const query = splitSearchQuery(customerQuery);
+    const ids = new Set(
+      searchContacts(query.first, query.last, query.phoneDigits, visibleSearchPeople).map(
+        (p) => p.id,
+      ),
+    );
+    // The user's chosen sort wins over fuzzy match ranking.
+    return visibleSearchPeople.filter((person) => ids.has(person.id));
+  }, [visibleAllPeople, visibleSearchPeople, searching, customerQuery]);
   const collectPeople = useMemo(
-    () => selectCustomers(allPeople, "collect", listPreference, groupByPerson, locale),
-    [allPeople, listPreference, groupByPerson, locale],
+    () => selectCustomers(matchedPeople, "collect", listPreference, groupByPerson, locale),
+    [matchedPeople, listPreference, groupByPerson, locale],
   );
   const payPeople = useMemo(
-    () => selectCustomers(allPeople, "pay", listPreference, groupByPerson, locale),
-    [allPeople, listPreference, groupByPerson, locale],
+    () => selectCustomers(matchedPeople, "pay", listPreference, groupByPerson, locale),
+    [matchedPeople, listPreference, groupByPerson, locale],
   );
   const collectAll = useMemo(
-    () => allPeople.filter((p) => customerSide(p) === "collect"),
-    [allPeople],
+    () => visibleAllPeople.filter((p) => customerSide(p) === "collect"),
+    [visibleAllPeople],
   );
-  const payAll = useMemo(() => allPeople.filter((p) => customerSide(p) === "pay"), [allPeople]);
+  const payAll = useMemo(
+    () => visibleAllPeople.filter((p) => customerSide(p) === "pay"),
+    [visibleAllPeople],
+  );
   const effectiveGroup = useMemo(
     () => availableCustomerGroupFilter(listPreference.group, customerGroups),
     [listPreference.group, customerGroups],
@@ -721,9 +738,11 @@ export default function HomeScreen() {
   // toast push / locale flip (see PersonRow's memo rationale).
   const openPerson = useCallback(
     (p: PersonWithBalance) => {
+      if (activeVaultId !== getActiveVaultIdSyncMaybe() || activeAccountId !== getAccountIdSync())
+        return;
       router.push({ pathname: "/person/[id]", params: { id: p.id } });
     },
-    [router],
+    [router, activeVaultId, activeAccountId],
   );
 
   if (forceUpdate) return <Redirect href="/update-prompt" />;
@@ -843,7 +862,7 @@ export default function HomeScreen() {
             picker (it used to: the switcher's tap target spanned to the avatar). */}
         {/* Read-only badge — shown when I'm a viewer on this (shared) kaata, so
             the absent FAB / write actions are explained rather than mysterious. */}
-        {activeVaultId && !canCreate ? (
+        {caps.resolved && !caps.canCreate && currentVaultScope ? (
           <View style={[styles.readOnlyBadge, isRTL ? { marginRight: 8 } : { marginLeft: 8 }]}>
             {/* Stays 12, NOT icon.trailing (16): this glyph is optically paired
                 to the 11px caption inside a 3px-padded micro-pill — a composed
@@ -929,43 +948,40 @@ export default function HomeScreen() {
           <View style={{ flex: 1 }}>
             <Tabs<Direction> tabs={buildTabs()} value={direction} onChange={setDirection} />
           </View>
-          <Pressable
-            style={styles.listOptions}
-            accessibilityRole="button"
-            accessibilityLabel={t("customers.listOptions")}
-            onPress={() => setListOptionsVisible(true)}
-          >
-            <Ionicons name="options-outline" size={icon.row} color={colors.textDefault} />
-          </Pressable>
         </View>
       ) : null}
 
-      {loaded && !activeVaultId ? (
-        // No kaatas yet — a fresh account that hasn't created one, or one where
-        // the last kaata was just left/archived. A DELIBERATE "create your
-        // first kaata" screen; the app never silently auto-creates a kaata.
-        // (Matee: "don't auto-create ... make a default screen for when there
-        // are no kaatas, like onboarding the user to make a kaata".)
-        <View style={styles.noKaataWrap}>
-          {/* Was a THIRD "there is nothing here" vocabulary: an 18/14 headline
+      <KeyboardAvoidingView
+        style={styles.body}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <View style={styles.body}>
+          {loaded && !activeVaultId ? (
+            // No kaatas yet — a fresh account that hasn't created one, or one where
+            // the last kaata was just left/archived. A DELIBERATE "create your
+            // first kaata" screen; the app never silently auto-creates a kaata.
+            // (Matee: "don't auto-create ... make a default screen for when there
+            // are no kaatas, like onboarding the user to make a kaata".)
+            <View style={styles.noKaataWrap}>
+              {/* Was a THIRD "there is nothing here" vocabulary: an 18/14 headline
               pair, a full step louder than the 15/13 every other empty moment in
               the app uses (home's two tabs, person detail's fresh page). The
               shared atom now owns the glyph, the copy rhythm and the CTA slot.
               size="inline" (24px own air) rather than "page" (56): the wrapper's
               flex:1 centering already supplies the page air, and "page" would
               open a 56px hole between the icon and the title. */}
-          <EmptyState
-            size="inline"
-            icon="albums-outline"
-            title={t("home.noKaata.title")}
-            subtitle={t("home.noKaata.subtitle")}
-            action={
-              <>
-                <Button
-                  label={t("home.noKaata.create")}
-                  onPress={() => router.push("/vault/new")}
-                />
-                {/* PARKED (mesh): "Join an existing kaata" opened the offline QR scan
+              <EmptyState
+                size="inline"
+                icon="albums-outline"
+                title={t("home.noKaata.title")}
+                subtitle={t("home.noKaata.subtitle")}
+                action={
+                  <>
+                    <Button
+                      label={t("home.noKaata.create")}
+                      onPress={() => router.push("/vault/new")}
+                    />
+                    {/* PARKED (mesh): "Join an existing kaata" opened the offline QR scan
                     (vault/pair-scan), parked with the rest of mesh. Joining online
                     happens by opening an invite link (kaata://invite/<token>). Re-add
                     when mesh ships again.
@@ -977,144 +993,195 @@ export default function HomeScreen() {
                   <Text style={styles.noKaataLinkText}>{t("home.noKaata.join")}</Text>
                 </Pressable>
                 */}
-                {/* The archived link rides in `action` WITH the button rather than
+                    {/* The archived link rides in `action` WITH the button rather than
                     after the atom, so the two stay one cluster — outside, the
                     atom's bottom padding would drop 24px between them. */}
-                {archivedVaults.length > 0 ? (
+                    {archivedVaults.length > 0 ? (
+                      <Pressable
+                        onPress={() => router.push("/vault/archived")}
+                        accessibilityRole="button"
+                        style={({ pressed }) => [styles.noKaataLink, pressed && { opacity: 0.6 }]}
+                      >
+                        <Text style={styles.noKaataLinkText}>
+                          {t("home.noKaata.archived", { count: archivedVaults.length })}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </>
+                }
+                isRTL={isRTL}
+              />
+            </View>
+          ) : loaded && loadError && allPeople.length === 0 ? (
+            // Load failed with nothing cached to show. Rendering the rail here
+            // would show "0" totals — the false data-loss signal this audience
+            // is most sensitive to. A later successful retry clears this.
+            <View style={styles.loadingFill}>
+              <Text style={styles.loadErrorText}>{t("home.loadFailed")}</Text>
+              <View style={{ height: 16 }} />
+              <Pressable
+                onPress={() => void load()}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.loadErrorRetry, pressed && { opacity: 0.85 }]}
+              >
+                <Text style={styles.loadErrorRetryText}>{t("common.tryAgain")}</Text>
+              </Pressable>
+            </View>
+          ) : loaded && screenWidth > 0 ? (
+            // screenWidth>0 gate: on some devices (Xiaomi/MIUI) useWindowDimensions
+            // returns 0 for the first frame(s); rendering the rail at width 0 paints
+            // blank-white until a swipe forces a re-layout (the reported bug). Showing
+            // the spinner until width resolves makes the main page appear on its own.
+            <GestureDetector gesture={swipeGesture}>
+              <Animated.View
+                style={[styles.rail, { width: screenWidth * 2, transform: [{ translateX }] }]}
+              >
+                <TabPage
+                  direction="collect"
+                  people={collectPeople}
+                  allPeople={collectAll}
+                  filtered={effectiveGroup !== "all" || searching}
+                  searching={searching}
+                  filterTotal={
+                    searching
+                      ? visibleSearchPeople.filter((p) => customerSide(p) === "collect").length
+                      : collectAll.length
+                  }
+                  creditByPerson={creditByPerson}
+                  vaultId={activeVaultId}
+                  width={screenWidth}
+                  paddingBottom={96 + insets.bottom}
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  onPersonPress={openPerson}
+                  onPersonLongPress={canAmend ? setSheetFor : undefined}
+                />
+                <TabPage
+                  direction="pay"
+                  people={payPeople}
+                  allPeople={payAll}
+                  filtered={effectiveGroup !== "all" || searching}
+                  searching={searching}
+                  filterTotal={
+                    searching
+                      ? visibleSearchPeople.filter((p) => customerSide(p) === "pay").length
+                      : payAll.length
+                  }
+                  creditByPerson={creditByPerson}
+                  vaultId={activeVaultId}
+                  width={screenWidth}
+                  paddingBottom={96 + insets.bottom}
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  onPersonPress={openPerson}
+                  onPersonLongPress={canAmend ? setSheetFor : undefined}
+                />
+              </Animated.View>
+            </GestureDetector>
+          ) : (
+            // Pre-load: spinner instead of the rail. Rendering the rail before
+            // load() resolves flashed "0" totals + the first-run empty state at
+            // every cold launch — a false "my ledger is gone" signal for a
+            // shopkeeper with a full book.
+            <View style={styles.loadingFill}>
+              <ActivityIndicator color={colors.textDefault} />
+            </View>
+          )}
+
+          {/* One dock for list controls. Sort stays left and add stays physically
+          right; the search contents mirror in Dari. Viewers keep search and
+          sorting without an add action. The inner flex view lets iOS's
+          keyboard padding move this absolute dock above the keyboard. */}
+          {activeVaultId ? (
+            <Animated.View
+              style={[
+                styles.dock,
+                { bottom: 20 + insets.bottom, transform: [{ translateY: toastOffset }] },
+              ]}
+              pointerEvents="box-none"
+            >
+              <Pressable
+                style={({ pressed }) => [styles.listOptions, pressed && { opacity: 0.65 }]}
+                accessibilityRole="button"
+                accessibilityLabel={t("customers.listOptions")}
+                accessibilityState={{
+                  selected: effectiveGroup !== "all" || listPreference.sort !== "recent",
+                }}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setListOptionsVisible(true);
+                }}
+              >
+                <Ionicons name="options-outline" size={icon.row} color={colors.textDefault} />
+              </Pressable>
+              <View style={[styles.searchBar, rowDir(isRTL)]}>
+                <Ionicons name="search-outline" size={icon.row} color={colors.textSubtle} />
+                <TextInput
+                  style={[styles.searchInput, textDir(isRTL)]}
+                  value={customerQuery}
+                  onChangeText={setCustomerQuery}
+                  placeholder={t("customers.search")}
+                  placeholderTextColor={colors.textMuted}
+                  accessibilityLabel={t("customers.search")}
+                  autoCorrect={false}
+                  returnKeyType="search"
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                  maxLength={200}
+                />
+                {customerQuery.length > 0 ? (
                   <Pressable
-                    onPress={() => router.push("/vault/archived")}
+                    style={styles.clearSearch}
                     accessibilityRole="button"
-                    style={({ pressed }) => [styles.noKaataLink, pressed && { opacity: 0.6 }]}
+                    accessibilityLabel={t("customers.search.clear")}
+                    onPress={() => setCustomerQuery("")}
                   >
-                    <Text style={styles.noKaataLinkText}>
-                      {t("home.noKaata.archived", { count: archivedVaults.length })}
-                    </Text>
+                    <Ionicons name="close" size={icon.trailing} color={colors.textSubtle} />
                   </Pressable>
                 ) : null}
-              </>
-            }
-            isRTL={isRTL}
-          />
+              </View>
+              {canCreate ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t("personAdd.new")}
+                  // D-DEFENSIVE-ARCHIVED-GUARD: D-POST-ARCHIVE-SWITCH should
+                  // normally keep the active vault writable, but a mesh-sourced
+                  // archive event can race the FAB tap; refuse here and tell the
+                  // user where to go instead. Cheap 1-row DB read; we don't
+                  // memoize because the answer can change between renders and
+                  // the UX cost of a stale "yes, write" is higher than a 1ms
+                  // SELECT.
+                  onPress={async () => {
+                    const requestedVault = activeVaultId;
+                    const requestedAccount = activeAccountId;
+                    const current = () =>
+                      mounted.current &&
+                      canCreateRef.current &&
+                      getActiveVaultIdSyncMaybe() === requestedVault &&
+                      getAccountIdSync() === requestedAccount;
+                    if (!current()) return;
+                    const guard = await getActiveVaultArchivedState();
+                    if (!current()) return;
+                    if (guard.state === "archived") {
+                      toast.push(t("home.fab.blockedArchived"), "error");
+                      return;
+                    }
+                    if (guard.state === "none") {
+                      toast.push(t("entry.noActiveVault"), "error");
+                      return;
+                    }
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+                    Keyboard.dismiss();
+                    router.push({ pathname: "/person/new", params: { mode: "add" } });
+                  }}
+                  style={({ pressed }) => [styles.fabInner, pressed && { opacity: 0.85 }]}
+                >
+                  <Ionicons name="add" size={28} color={colors.textInverted} />
+                </Pressable>
+              ) : null}
+            </Animated.View>
+          ) : null}
         </View>
-      ) : loaded && loadError && allPeople.length === 0 ? (
-        // Load failed with nothing cached to show. Rendering the rail here
-        // would show "0" totals — the false data-loss signal this audience
-        // is most sensitive to. A later successful retry clears this.
-        <View style={styles.loadingFill}>
-          <Text style={styles.loadErrorText}>{t("home.loadFailed")}</Text>
-          <View style={{ height: 16 }} />
-          <Pressable
-            onPress={() => void load()}
-            accessibilityRole="button"
-            style={({ pressed }) => [styles.loadErrorRetry, pressed && { opacity: 0.85 }]}
-          >
-            <Text style={styles.loadErrorRetryText}>{t("common.tryAgain")}</Text>
-          </Pressable>
-        </View>
-      ) : loaded && screenWidth > 0 ? (
-        // screenWidth>0 gate: on some devices (Xiaomi/MIUI) useWindowDimensions
-        // returns 0 for the first frame(s); rendering the rail at width 0 paints
-        // blank-white until a swipe forces a re-layout (the reported bug). Showing
-        // the spinner until width resolves makes the main page appear on its own.
-        <GestureDetector gesture={swipeGesture}>
-          <Animated.View
-            style={[styles.rail, { width: screenWidth * 2, transform: [{ translateX }] }]}
-          >
-            <TabPage
-              direction="collect"
-              people={collectPeople}
-              allPeople={collectAll}
-              filtered={effectiveGroup !== "all"}
-              creditByPerson={creditByPerson}
-              vaultId={activeVaultId}
-              width={screenWidth}
-              paddingBottom={96 + insets.bottom}
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              onPersonPress={openPerson}
-              onPersonLongPress={canAmend ? setSheetFor : undefined}
-            />
-            <TabPage
-              direction="pay"
-              people={payPeople}
-              allPeople={payAll}
-              filtered={effectiveGroup !== "all"}
-              creditByPerson={creditByPerson}
-              vaultId={activeVaultId}
-              width={screenWidth}
-              paddingBottom={96 + insets.bottom}
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              onPersonPress={openPerson}
-              onPersonLongPress={canAmend ? setSheetFor : undefined}
-            />
-          </Animated.View>
-        </GestureDetector>
-      ) : (
-        // Pre-load: spinner instead of the rail. Rendering the rail before
-        // load() resolves flashed "0" totals + the first-run empty state at
-        // every cold launch — a false "my ledger is gone" signal for a
-        // shopkeeper with a full book.
-        <View style={styles.loadingFill}>
-          <ActivityIndicator color={colors.textDefault} />
-        </View>
-      )}
-
-      {/*
-       * INVARIANT: the add/find FAB on the RIGHT side. Same right-hand-is-giving
-       * cultural rule as the give/receive row in person/[id]. The
-       * absolute `right: 20` works only because _layout.tsx neutralizes
-       * I18nManager (allowRTL(false) + swapLeftAndRightInRTL(false))
-       * and ensures the Activity is LTR via the one-shot migration
-       * prompt. If the Activity were RTL, RN would silently reinterpret
-       * `right` as `left` (the v0.2.4 bug).
-       */}
-      {/* Finding an existing person is a read: every active kaata keeps this
-          control. The destination offers creation only to writable roles. */}
-      {activeVaultId ? (
-        <Animated.View
-          style={[
-            styles.fab,
-            { bottom: 20 + insets.bottom, transform: [{ translateY: toastOffset }] },
-          ]}
-          pointerEvents="box-none"
-        >
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t(canCreate ? "personAdd.title" : "personFind.title")}
-            // D-DEFENSIVE-ARCHIVED-GUARD: D-POST-ARCHIVE-SWITCH should
-            // normally keep the active vault writable, but a mesh-sourced
-            // archive event can race the FAB tap; refuse here and tell the
-            // user where to go instead. Cheap 1-row DB read; we don't
-            // memoize because the answer can change between renders and
-            // the UX cost of a stale "yes, write" is higher than a 1ms
-            // SELECT.
-            onPress={async () => {
-              const guard = await getActiveVaultArchivedState();
-              if (guard.state === "archived") {
-                toast.push(t("home.fab.blockedArchived"), "error");
-                return;
-              }
-              if (guard.state === "none") {
-                toast.push(t("entry.noActiveVault"), "error");
-                return;
-              }
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
-              router.push("/person/new");
-            }}
-            style={({ pressed }) => [styles.fabInner, pressed && { opacity: 0.85 }]}
-          >
-            {/* The rounded-square home-button mark, NOT a "+" and not an
-              Ionicons glyph at all — see HOME_MARK_SIZE at the top of this
-              file for the full rationale and for what this trade costs.
-              Short version: the button is equally find-someone and
-              add-someone, so a plus named only half of it. The verb now lives
-              in accessibilityLabel above and in the copy that points at this
-              button's position. */}
-            <View style={styles.fabMark} />
-          </Pressable>
-        </Animated.View>
-      ) : null}
+      </KeyboardAvoidingView>
 
       {/* Phase 7 — unified settings sheet replaces HamburgerMenuSheet +
           ProfileMenuSheet. Opens from the profile chip top-RIGHT. All
@@ -1509,6 +1576,8 @@ function TabPage(props: {
   people: PersonWithBalance[];
   allPeople: PersonWithBalance[];
   filtered: boolean;
+  searching: boolean;
+  filterTotal: number;
   creditByPerson: Record<string, CreditStatus>;
   vaultId: string | null;
   width: number;
@@ -1529,8 +1598,8 @@ function TabPage(props: {
   // person balance number and the web ledger.)
   const totalColor = props.direction === "collect" ? colors.collectStrong : colors.payStrong;
 
-  // The home list is TALLIES-ONLY (listAllPeople filters to people with entries),
-  // so it's short — rendered as ONE real bordered CARD (ScrollView + map), not the
+  // Idle home shows people with tallies; search can include new contacts too.
+  // Both use ONE real bordered CARD (ScrollView + map), not the
   // old per-row border emulation. That emulation drew the card edges as ASYMMETRIC
   // per-row borders (first row top-only, last row bottom-only), which Android RN
   // renders wrong together with borderRadius — the first/last edges + corners
@@ -1584,17 +1653,19 @@ function TabPage(props: {
 
         {props.filtered ? (
           <Text style={[styles.filterHint, textDir(isRTL)]}>
-            {t("customers.filtered", { shown: people.length, total: props.allPeople.length })}
+            {t("customers.filtered", { shown: people.length, total: props.filterTotal })}
           </Text>
         ) : null}
         {people.length === 0 ? (
           <EmptyState
             title={
-              props.filtered
-                ? t("customers.noGroupResults")
-                : props.direction === "collect"
-                  ? t("home.empty.collect.title")
-                  : t("home.empty.pay.title")
+              props.searching
+                ? t("customers.noResults")
+                : props.filtered
+                  ? t("customers.noGroupResults")
+                  : props.direction === "collect"
+                    ? t("home.empty.collect.title")
+                    : t("home.empty.pay.title")
             }
             subtitle={
               props.filtered
@@ -1627,6 +1698,7 @@ function TabPage(props: {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
+  body: { flex: 1 },
   authOverlay: {
     ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(0,0,0,0.55)",
@@ -1761,8 +1833,39 @@ const styles = StyleSheet.create({
   // tabsWrap — gap above the swipe rail. marginTop:2 closes the gap a
   // hair after the header's paddingBottom shrunk to 14 (was 16);
   // marginBottom:16 keeps the rail from feeling glued to the tab strip.
-  tabsWrap: { paddingHorizontal: 16, marginTop: 2, marginBottom: 16, alignItems: "center", gap: 8 },
-  listOptions: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  tabsWrap: { paddingHorizontal: 16, marginTop: 2, marginBottom: 16 },
+  listOptions: {
+    width: 44,
+    height: FAB_SIZE,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+    backgroundColor: colors.bgDefault,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+  },
+  searchBar: {
+    flex: 1,
+    minWidth: 0,
+    height: FAB_SIZE,
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    backgroundColor: colors.bgDefault,
+  },
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    padding: 0,
+    height: FAB_SIZE - 2,
+    fontFamily: fonts.sansRegular,
+    fontSize: 14,
+    color: colors.textDefault,
+  },
+  clearSearch: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   filterHint: {
     fontFamily: fonts.sansRegular,
     fontSize: 12,
@@ -1853,37 +1956,21 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgDefault,
   },
   divider: { height: 1, backgroundColor: colors.borderDefault },
-  fab: {
+  dock: {
     position: "absolute",
-    // INVARIANT: the add/find FAB stays on the physical RIGHT regardless of script.
-    // Relies on the Activity being LTR — _layout.tsx neutralizes
-    // I18nManager (allowRTL(false) + swapLeftAndRightInRTL(false) + a
-    // one-shot forceRTL(false) migration). Once that's persisted, every
-    // future Activity comes up LTR and `right: 20` means physical right.
-    // (If the Activity is RTL, RN's auto-swap would silently reinterpret
-    // `right` as `left`. The migration prompt in _layout.tsx prevents that
-    // case from ever rendering this view.)
-    right: 20,
-    width: FAB_SIZE,
-    height: FAB_SIZE,
+    flexDirection: "row",
+    left: 16,
+    right: 16,
+    alignItems: "center",
+    gap: 8,
   },
   fabInner: {
     width: FAB_SIZE,
     height: FAB_SIZE,
-    // The BUTTON stays a circle — only the mark inside it changed. Circle =
-    // own size / 2, not a literal 26 (tokens.ts rule 3). Same pixels.
+    // Circle = its size / 2, matching the rest of the action family.
     borderRadius: FAB_SIZE / 2,
     backgroundColor: colors.actionPrimary,
     alignItems: "center",
     justifyContent: "center",
-  },
-  // The rounded-square home-button mark. A bordered View rather than an icon
-  // font, and sized/rounded by ratio — see HOME_MARK_SIZE for why both.
-  fabMark: {
-    width: HOME_MARK_SIZE,
-    height: HOME_MARK_SIZE,
-    borderRadius: HOME_MARK_RADIUS,
-    borderWidth: HOME_MARK_STROKE,
-    borderColor: colors.textInverted,
   },
 });

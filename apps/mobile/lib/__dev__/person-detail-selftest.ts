@@ -5,7 +5,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { filterTallies, noteSearchTerms } from "../tally-search";
-import { filterTalliesByDate, dateRangeBetween, shiftLocalDay } from "../tally-date-filter";
+import {
+  filterTalliesByDate,
+  dateRangeBetween,
+  customDateRange,
+  formatFilterClock,
+} from "../tally-date-filter";
 import { summarizeTallyFlows } from "../tally-summary";
 import type { Calendar } from "../calendar";
 import { toJalali, toQamari } from "../jalali";
@@ -283,7 +288,7 @@ const mocks: Record<string, any> = {
     },
   },
   "../../lib/tally-search": { filterTallies, noteSearchTerms },
-  "../../lib/tally-date-filter": { filterTalliesByDate, shiftLocalDay },
+  "../../lib/tally-date-filter": { filterTalliesByDate, formatFilterClock },
   "../../lib/tally-summary": { summarizeTallyFlows },
   "../../lib/tabs/db": {
     getLatestTabLinkForPerson: async () => (link ? { ...link } : null),
@@ -648,6 +653,38 @@ async function main() {
       "calendar changes render labels without changing selected business dates",
     );
   }
+  for (const selected of ["gregorian", "jalali", "qamari"] as Calendar[]) {
+    calendar = selected;
+    for (const language of ["en", "fa"] as const) {
+      rtl = language === "fa";
+      entries[0].created_at = datedAt + 59_999;
+      find("TallyDateFilterSheet")!.props.onChange(
+        customDateRange(datedAt, datedAt, 12 * 60, 12 * 60),
+      );
+      await flush();
+      assert.deepEqual(rowIds(), ["rejected-rice"], "custom end includes its entire minute");
+      assert.ok(
+        words(tree).includes(`fixture date · ${formatFilterClock(datedAt, language)}`),
+        "active custom range visibly includes localized clocks with the dates",
+      );
+      assert.equal(
+        nodes(tree).find(
+          (node) =>
+            node.type === "Text" &&
+            words(node).includes(`fixture date · ${formatFilterClock(datedAt, language)}`),
+        )?.props.numberOfLines,
+        2,
+        "timed summaries allow two lines so the end clock is not squeezed into one line",
+      );
+      entries[0].created_at = datedAt + 60_000;
+      find("TallyDateFilterSheet")!.props.onChange(
+        customDateRange(datedAt, datedAt, 12 * 60, 12 * 60),
+      );
+      await flush();
+      assert.deepEqual(rowIds(), [], "custom time excludes the next minute on the actual screen");
+    }
+  }
+  entries[0].created_at = datedAt;
   find("TallyDateFilterSheet")!.props.onChange(null);
   query("rice 10");
   await flush();

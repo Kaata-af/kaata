@@ -1,8 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useMemo, useState } from "react";
+import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -23,10 +25,12 @@ import {
   adjacentCalendarMonth,
   calendarDay,
   calendarMonthDays,
+  customDateRange,
   datePresetRange,
+  dateRangeDraft,
   dateRangeBetween,
+  formatFilterClock,
   localDayStart,
-  shiftLocalDay,
   type TallyDateRange,
   type TallyDatePreset,
 } from "../lib/tally-date-filter";
@@ -48,37 +52,116 @@ export function TallyDateFilterSheet(props: {
   const [month, setMonth] = useState(Date.now());
   const [first, setFirst] = useState<number | null>(null);
   const [last, setLast] = useState<number | null>(null);
+  const [startMinute, setStartMinute] = useState(0);
+  const [endMinute, setEndMinute] = useState(1439);
+  const [picker, setPicker] = useState<{ field: "start" | "end"; request: number } | null>(null);
+  const [timeUnavailable, setTimeUnavailable] = useState(false);
+  const pickerRequest = useRef(0),
+    androidPicker = useRef(false),
+    mounted = useRef(true);
+  const visible = useRef(props.visible);
+  visible.current = props.visible;
   const { height } = useWindowDimensions();
   const locale = getLocale();
+  const cancelNativePicker = () => {
+    pickerRequest.current++;
+    if (androidPicker.current) {
+      androidPicker.current = false;
+      void DateTimePickerAndroid.dismiss("time").catch(() => undefined);
+    }
+  };
   useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      cancelNativePicker();
+    };
+  }, []);
+  useEffect(() => {
+    cancelNativePicker();
+    setPicker(null);
+    setTimeUnavailable(false);
     if (!props.visible) return;
+    const draft = dateRangeDraft(props.range);
     setCustom(false);
-    setFirst(props.range?.start ?? null);
-    setLast(props.range ? shiftLocalDay(props.range.end, -1) : null);
+    setFirst(draft.first);
+    setLast(draft.last);
+    setStartMinute(draft.startMinute);
+    setEndMinute(draft.endMinute);
     setMonth(props.range?.start ?? Date.now());
-  }, [props.visible, props.range]);
+  }, [props.visible, props.range, props.calendar]);
   const days = useMemo(() => calendarMonthDays(month, props.calendar), [month, props.calendar]);
   const weekStart = locale === "fa" ? 6 : 1;
   const padding = days.length ? (new Date(days[0]).getDay() - weekStart + 7) % 7 : 0;
   const grid: (number | null)[] = [...Array.from({ length: padding }, () => null), ...days];
   while (grid.length % 7) grid.push(null);
-  const preview = first != null && last != null ? dateRangeBetween(first, last) : null;
+  const selectedDays = first != null && last != null ? dateRangeBetween(first, last) : null;
+  const preview =
+    first != null && last != null ? customDateRange(first, last, startMinute, endMinute) : null;
   const dateLabel = (ms: number) => formatCalendarDate(ms, locale, props.calendar);
+  const clockDate = (minute: number) => new Date(2000, 0, 15, Math.floor(minute / 60), minute % 60);
+  const changeClock = (field: "start" | "end", request: number, selected: Date) => {
+    if (
+      !mounted.current ||
+      !visible.current ||
+      request !== pickerRequest.current ||
+      !Number.isFinite(selected.getTime())
+    )
+      return;
+    const minute = selected.getHours() * 60 + selected.getMinutes();
+    if (field === "start") setStartMinute(minute);
+    else setEndMinute(minute);
+    if (Platform.OS === "android") {
+      androidPicker.current = false;
+      pickerRequest.current++;
+    }
+  };
+  const pickClock = (field: "start" | "end") => {
+    if (!props.visible || androidPicker.current) return;
+    setTimeUnavailable(false);
+    const request = ++pickerRequest.current;
+    if (Platform.OS === "android") {
+      androidPicker.current = true;
+      const unavailable = () => {
+        if (!mounted.current || !visible.current || request !== pickerRequest.current) return;
+        androidPicker.current = false;
+        pickerRequest.current++;
+        setTimeUnavailable(true);
+      };
+      try {
+        DateTimePickerAndroid.open({
+          value: clockDate(field === "start" ? startMinute : endMinute),
+          mode: "time",
+          is24Hour: true,
+          onValueChange: (_, selected) => changeClock(field, request, selected),
+          onError: unavailable,
+          onDismiss: () => {
+            if (request === pickerRequest.current) {
+              androidPicker.current = false;
+              pickerRequest.current++;
+            }
+          },
+        });
+      } catch {
+        unavailable();
+      }
+    } else setPicker({ field, request });
+  };
+  const dismiss = () => {
+    cancelNativePicker();
+    setPicker(null);
+    props.onDismiss();
+  };
   const commit = (range: TallyDateRange | null) => {
+    cancelNativePicker();
     props.onChange(range);
     props.onDismiss();
   };
   if (!rendered) return null;
   return (
-    <Modal
-      visible
-      transparent
-      animationType="none"
-      statusBarTranslucent
-      onRequestClose={props.onDismiss}
-    >
+    <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={dismiss}>
       <Animated.View style={[StyleSheet.absoluteFill, { opacity }]}>
-        <SheetBackdrop onDismiss={props.onDismiss} />
+        <SheetBackdrop onDismiss={dismiss} />
       </Animated.View>
       <Animated.View
         style={[
@@ -93,7 +176,7 @@ export function TallyDateFilterSheet(props: {
               {t("person.date.title")}
             </Text>
             <Pressable
-              onPress={props.onDismiss}
+              onPress={dismiss}
               style={styles.icon}
               accessibilityRole="button"
               accessibilityLabel={t("common.cancel")}
@@ -127,8 +210,6 @@ export function TallyDateFilterSheet(props: {
                   accessibilityRole="button"
                   onPress={() => {
                     setCustom(true);
-                    setFirst(null);
-                    setLast(null);
                   }}
                   style={[styles.row, rowDir(props.isRTL)]}
                 >
@@ -197,7 +278,8 @@ export function TallyDateFilterSheet(props: {
                     {grid.slice(week * 7, week * 7 + 7).map((day, column) => {
                       if (day == null) return <View key={column} style={styles.day} />;
                       const selected = day === first || day === last;
-                      const inside = !!preview && day >= preview.start && day < preview.end;
+                      const inside =
+                        !!selectedDays && day >= selectedDays.start && day < selectedDays.end;
                       const number = calendarDay(day, props.calendar).day;
                       return (
                         <Pressable
@@ -228,12 +310,68 @@ export function TallyDateFilterSheet(props: {
                   </View>
                 ))}
                 <Text style={[styles.range, textDir(props.isRTL)]}>
-                  {preview
-                    ? `${dateLabel(preview.start)} – ${dateLabel(shiftLocalDay(preview.end, -1))}`
+                  {selectedDays
+                    ? `${dateLabel(selectedDays.start)} – ${dateLabel(selectedDays.end - 1)}`
                     : first != null
                       ? dateLabel(first)
                       : t("person.date.chooseRange")}
                 </Text>
+                <View style={[styles.times, rowDir(props.isRTL)]}>
+                  {(["start", "end"] as const).map((field) => {
+                    const label = t(
+                      field === "start" ? "person.date.startTime" : "person.date.endTime",
+                    );
+                    const clock = formatFilterClock(
+                      clockDate(field === "start" ? startMinute : endMinute).getTime(),
+                      locale,
+                    );
+                    return (
+                      <Pressable
+                        key={field}
+                        accessibilityRole="button"
+                        accessibilityLabel={label}
+                        accessibilityValue={{ text: clock }}
+                        onPress={() => pickClock(field)}
+                        style={[styles.timeField, picker?.field === field && styles.timeActive]}
+                      >
+                        <Text style={[styles.timeCaption, textDir(props.isRTL)]}>{label}</Text>
+                        <Text style={[styles.timeClock, textDir(props.isRTL)]}>{clock}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                {picker && Platform.OS !== "android" ? (
+                  <View style={styles.timePicker}>
+                    <DateTimePicker
+                      key={picker.request}
+                      value={clockDate(picker.field === "start" ? startMinute : endMinute)}
+                      mode="time"
+                      display="spinner"
+                      themeVariant="light"
+                      onValueChange={(_, selected) =>
+                        changeClock(picker.field, picker.request, selected)
+                      }
+                    />
+                    <Button
+                      variant="secondary"
+                      label={t("common.done")}
+                      onPress={() => {
+                        cancelNativePicker();
+                        setPicker(null);
+                      }}
+                    />
+                  </View>
+                ) : null}
+                {timeUnavailable ? (
+                  <Text accessibilityRole="alert" style={[styles.invalid, textDir(props.isRTL)]}>
+                    {t("person.date.timeUnavailable")}
+                  </Text>
+                ) : null}
+                {selectedDays && !preview ? (
+                  <Text accessibilityRole="alert" style={[styles.invalid, textDir(props.isRTL)]}>
+                    {t("person.date.invalidTimes")}
+                  </Text>
+                ) : null}
                 <Button
                   fullWidth
                   label={t("person.date.apply")}
@@ -310,4 +448,20 @@ const styles = StyleSheet.create({
   selected: { backgroundColor: colors.actionPrimary },
   dayText: { ...typography.body, color: colors.textEmphasis },
   range: { ...typography.bodySm, color: colors.textMuted, minHeight: 44, paddingVertical: 12 },
+  times: { gap: 12, marginBottom: 14 },
+  timeField: {
+    flex: 1,
+    minHeight: TOUCH_MIN,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: radius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderDefault,
+    backgroundColor: colors.bgMuted,
+  },
+  timeActive: { borderColor: colors.borderEmphasis },
+  timeCaption: { ...typography.caption, color: colors.textMuted },
+  timeClock: { ...typography.labelBold, color: colors.textEmphasis, marginTop: 4 },
+  timePicker: { marginBottom: 14 },
+  invalid: { ...typography.bodySm, color: colors.danger, marginBottom: 12 },
 });

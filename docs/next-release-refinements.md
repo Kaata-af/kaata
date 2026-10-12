@@ -328,6 +328,42 @@ Phone blur pixels, keyboard/gesture geometry, actual background notices,
 and two-device recovery/sync remain pending. These local checks preceded the
 verified 34/54 testing distribution; marketing version remains 2.2.0.
 
+## October 12 home controls and timed ranges — local development
+
+These two requests follow the verified TestFlight 34 / Play internal 54 release.
+They are a new local development batch, absent from those binaries. No version
+bump, push, deployment or store upload is part of this batch.
+
+- **Separate home controls:** one lower dock contains Sort & filter, an inline
+  customer search field and the black plus/add button fixed at the right. Search
+  contents and text mirror in Dari; Sort stays to the left of the search field.
+  Search finds existing customers, including people with no tallies; an explicit
+  add mode opens the creation form and phone-book shortcuts. Viewers retain
+  search/sort without creation. Kaata totals remain whole when filtering.
+- **Custom tally times:** the custom date sheet adds start/end time selectors.
+  Defaults are 00:00–23:59; the chosen end minute is included. Invalid same-day
+  reversed times cannot apply. Today/week/month presets still span whole local
+  days. Saved custom times survive reopening and calendar changes; the active
+  range chip shows dates and localized 24-hour times. Dates continue to follow
+  Gregorian, Shamsi or Qamari; the time follows the device timezone.
+
+TypeScript and nine focused regression suites passed: person-find, person-detail,
+tally-date-sheet, tally-search, customer-groups, bell-badge, notification-popup,
+sheet-backdrop and tab-join. The final person-screen check covers inclusive end
+minutes and two-line localized clock labels. iOS/Android Metro/Hermes exports
+passed with the production build profile's public environment. These are local
+bundle checks, not signed binaries or store uploads. Independent review's picker
+error/queued-event and resolving-role badge findings were fixed and covered.
+Stale group setup copy now correctly says a customer may belong to several groups.
+
+Native narrow-screen, keyboard, RTL and Android/iOS time-picker checks remain
+device work. Before the
+next distribution, test search on both home tabs, groups/sorting, zero-tally
+customers, viewer controls and a kaata switch while results are loading. For
+timed ranges, check equal start/end minutes, crossed months, reopen/cancel,
+clearing and the end-minute boundary across current/settled/Not sent history.
+Whole balances, exports, WhatsApp statements and unread notices must stay whole.
+
 ## Deferred by the user
 
 The household/shopkeeper ledger needs two parties: the user and Dad on one

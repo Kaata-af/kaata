@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -68,6 +68,7 @@ type Row = MergedRow<PersonWithBalance, DeviceContact>;
 // person here also writes them to the device Contacts app (see contacts-sync).
 export default function PersonAddOrFindScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ mode?: string }>();
   const toast = useToast();
   // Subscribes to locale changes — flipping language in Settings live-updates
   // this screen if it happens to be focused.
@@ -77,6 +78,9 @@ export default function PersonAddOrFindScreen() {
   // Search works during role lookup; creation and phone-book access wait for
   // the current vault's role so a viewer never briefly sees the add flow.
   const canCreate = caps.resolved && caps.canCreate;
+  // Home now searches in place. Its plus opens creation only; old links still
+  // retain the combined picker, and a viewer always falls back to read-only find.
+  const addOnly = params.mode === "add" && canCreate;
   const canCreateRef = useRef(canCreate);
   canCreateRef.current = canCreate;
   const [findQuery, setFindQuery] = useState("");
@@ -209,6 +213,11 @@ export default function PersonAddOrFindScreen() {
       }),
     [people, deviceContacts, dFirst, dLast, dPhone],
   );
+  // Merge against every kaata person before hiding the existing-person section:
+  // phone-book shortcuts must not offer duplicates just because they're hidden.
+  const visibleSections = addOnly
+    ? sections.filter((section) => section.key === "device")
+    : sections;
 
   function openPerson(id: string) {
     if (!mounted.current || getActiveVaultIdSyncMaybe() !== activeVaultId) return;
@@ -318,7 +327,9 @@ export default function PersonAddOrFindScreen() {
   }
 
   const addLabel =
-    nameQuery.length > 0 ? t("personAdd.add", { name: nameQuery }) : t("personAdd.title");
+    nameQuery.length > 0
+      ? t("personAdd.add", { name: nameQuery })
+      : t(addOnly ? "personAdd.new" : "personAdd.title");
   const canAdd = firstName.trim().length > 0;
 
   function renderItem({ item }: { item: Row }) {
@@ -440,7 +451,7 @@ export default function PersonAddOrFindScreen() {
       {/* The "Cancel" word becomes the shared chevron; it survives as the a11y
           label so TalkBack still announces "Cancel", not "Back". */}
       <ScreenHeader
-        title={t(canCreate ? "personAdd.title" : "personFind.title")}
+        title={t(canCreate ? (addOnly ? "personAdd.new" : "personAdd.title") : "personFind.title")}
         onBack={() => router.back()}
         isRTL={isRTL}
         backLabel={t("common.cancel")}
@@ -563,32 +574,36 @@ export default function PersonAddOrFindScreen() {
           contentContainerStyle={styles.listContent}
         >
           {renderContactsAccess()}
-          {people === null || sections.length === 0
+          {people === null
             ? renderEmpty()
-            : sections.map((section) => (
-                <View key={section.key} style={styles.section}>
-                  <Text style={[styles.sectionLabel, textDir(isRTL), trackingSafe(isRTL)]}>
-                    {t(section.titleKey)}
-                  </Text>
-                  <View style={styles.peopleCard}>
-                    {section.data.map((item, index) => (
-                      <View
-                        key={
-                          item.kind === "app" ? `app-${item.person.id}` : `dev-${item.contact.id}`
-                        }
-                      >
-                        {index > 0 ? <View style={styles.divider} /> : null}
-                        {renderItem({ item })}
-                      </View>
-                    ))}
-                  </View>
-                  {section.key === "device" && deviceTruncated ? (
-                    <Text style={[styles.moreHint, textDir(isRTL)]}>
-                      {t("personAdd.moreContacts")}
+            : visibleSections.length === 0
+              ? addOnly
+                ? null
+                : renderEmpty()
+              : visibleSections.map((section) => (
+                  <View key={section.key} style={styles.section}>
+                    <Text style={[styles.sectionLabel, textDir(isRTL), trackingSafe(isRTL)]}>
+                      {t(section.titleKey)}
                     </Text>
-                  ) : null}
-                </View>
-              ))}
+                    <View style={styles.peopleCard}>
+                      {section.data.map((item, index) => (
+                        <View
+                          key={
+                            item.kind === "app" ? `app-${item.person.id}` : `dev-${item.contact.id}`
+                          }
+                        >
+                          {index > 0 ? <View style={styles.divider} /> : null}
+                          {renderItem({ item })}
+                        </View>
+                      ))}
+                    </View>
+                    {section.key === "device" && deviceTruncated ? (
+                      <Text style={[styles.moreHint, textDir(isRTL)]}>
+                        {t("personAdd.moreContacts")}
+                      </Text>
+                    ) : null}
+                  </View>
+                ))}
         </ScrollView>
       </KeyboardAvoidingView>
 

@@ -20,6 +20,13 @@ let role: "owner" | "clerk" | "viewer" = "viewer";
 let rtl = false,
   platform = "android",
   vaultId: string | null = "kaata";
+let screenWidth = 390;
+let routeParams: { mode?: string } = {};
+let keyboardDismissals = 0;
+let groupState = {
+  groups: [] as { id: string; name: string; member_count: number }[],
+  groupsByPerson: {} as Record<string, string[]>,
+};
 let archivedState: "active" | "archived" | "none" = "active";
 let delayedGuard: Promise<{ state: string }> | null = null;
 let delayedRole: Promise<void> | null = null;
@@ -144,6 +151,11 @@ const native: Record<string, any> = {
   ActivityIndicator: "Spinner",
   RefreshControl: "RefreshControl",
   KeyboardAvoidingView: "Keyboard",
+  Keyboard: {
+    dismiss: () => {
+      keyboardDismissals++;
+    },
+  },
   Platform: {
     get OS() {
       return platform;
@@ -151,7 +163,7 @@ const native: Record<string, any> = {
     select: (values: any) => values[platform],
   },
   StyleSheet: { create: (styles: any) => styles, hairlineWidth: 1 },
-  useWindowDimensions: () => ({ width: 390, height: 844 }),
+  useWindowDimensions: () => ({ width: screenWidth, height: 844 }),
   BackHandler: { addEventListener: () => ({ remove() {} }), exitApp() {} },
   Linking: {
     openSettings: async () => {
@@ -264,7 +276,7 @@ const sharedMocks: Record<string, any> = {
   "react-native": native,
   "expo-router": {
     useRouter: () => router,
-    useLocalSearchParams: () => ({}),
+    useLocalSearchParams: () => routeParams,
     Redirect: "Redirect",
     useFocusEffect: (fn: any) => react.useEffect(fn, [fn, focusEpoch]),
   },
@@ -289,7 +301,7 @@ const libMocks: Record<string, any> = {
   format: { formatAmount: String },
   i18n: { t: (key: string) => key, getLocale: () => (rtl ? "fa" : "en") },
   "customer-list": require("../customer-list"),
-  "customer-groups": { readCustomerGroups: async () => ({ groups: [], groupByPerson: {} }) },
+  "customer-groups": { readCustomerGroups: async () => ({ ...groupState, groupByPerson: {} }) },
   "credit-limits": {
     readCreditPoliciesForPeople: async () => ({}),
     creditStatusForBalance: () => "none",
@@ -316,6 +328,7 @@ const libMocks: Record<string, any> = {
       return peopleByVault.get(scope) ?? [];
     },
     listAllPeopleForSearch: async (scope: string | null = vaultId) => {
+      if (screen === home) homeReadScopes.push(scope);
       const rows = peopleByVault.get(scope) ?? [];
       if (delayedPeople) await delayedPeople;
       return rows;
@@ -431,6 +444,10 @@ function fixture(
   peopleByVault = new Map([["kaata", people]]);
   appState = "active";
   roleReadFails = false;
+  screenWidth = 390;
+  routeParams = {};
+  keyboardDismissals = 0;
+  groupState = { groups: [], groupsByPerson: {} };
   focusEpoch = 0;
   routes.length = 0;
   toasts.length = 0;
@@ -499,20 +516,238 @@ async function main() {
   await flush();
   assert.equal(contactsReads, 0, "resolved viewer never starts a phone-book read");
 
-  for (const nextRole of ["viewer", "owner", "clerk"] as const) {
-    fixture(home, nextRole);
+  const homePages = () => nodes(tree).filter((node) => "filterTotal" in node.props);
+  const homeIds = () => homePages().flatMap((page) => page.props.people.map((p: any) => p.id));
+  for (const nextRole of ["viewer", "owner", "clerk"] as const)
+    for (const nextPlatform of ["android", "ios"])
+      for (const nextRtl of [false, true]) {
+        fixture(home, nextRole, nextRtl, nextPlatform);
+        screenWidth = 320;
+        await flush();
+        const input = byLabel("customers.search")!;
+        const sort = byLabel("customers.listOptions")!;
+        const button = byLabel("personAdd.new");
+        assert.ok(input && sort, `${nextRole} has persistent search and sort`);
+        assert.equal(button != null, nextRole !== "viewer", "only writers get the plus");
+        assert.equal(
+          nodes(tree).some(
+            (node) => node.type === "Text" && node.props.children === "readonly.badge",
+          ),
+          nextRole === "viewer",
+          "only a resolved viewer displays the read-only badge",
+        );
+        const dock = nodes(tree).find(
+          (node) => node.type === "AnimatedView" && nodes(node).includes(input),
+        )!;
+        assert.equal(
+          flattenStyle(dock.props.style).flexDirection,
+          "row",
+          "sort stays physically left and add right in both languages",
+        );
+        assert.deepEqual(
+          nodes(dock.props.children)
+            .filter((node) =>
+              ["customers.listOptions", "customers.search", "personAdd.new"].includes(
+                node.props.accessibilityLabel,
+              ),
+            )
+            .map((node) => node.props.accessibilityLabel),
+          nextRole === "viewer"
+            ? ["customers.listOptions", "customers.search"]
+            : ["customers.listOptions", "customers.search", "personAdd.new"],
+          "sort/search/add are neighboring dock controls",
+        );
+        assert.equal(
+          flattenStyle(input.props.style).minWidth,
+          0,
+          "search can shrink on a 320px screen",
+        );
+        assert.equal(flattenStyle(input.props.style).textAlign, nextRtl ? "right" : "left");
+        const keyboard = find("Keyboard")!;
+        assert.equal(keyboard.props.behavior, nextPlatform === "ios" ? "padding" : "height");
+        const body = nodes(keyboard.props.children).find(
+          (node) => node.type === "View" && node.props.children && nodes(node).includes(dock),
+        )!;
+        assert.equal(
+          flattenStyle(body.props.style).flex,
+          1,
+          "dock containing block shrinks above keyboard",
+        );
+        assert.deepEqual(homeIds(), ["ahmad"], "idle home keeps zero-tally contacts hidden");
+        input.props.onChangeText("فاطمه");
+        await flush();
+        assert.deepEqual(homeIds(), ["fatima"], "Dari search reaches zero-tally customers");
+        const collect = homePages().find((page) => page.props.direction === "collect")!;
+        assert.deepEqual(
+          collect.props.allPeople.map((p: any) => p.id),
+          ["ahmad"],
+          "search leaves totals unfiltered",
+        );
+        assert.equal(collect.props.filterTotal, 2, "search result count includes no-tally people");
+        byLabel("customers.search")!.props.onChangeText("۰۷۰۰۱۲۳۴۵۶");
+        await flush();
+        assert.deepEqual(
+          homeIds(),
+          ["ahmad"],
+          "localized trunk-format numbers find E.164 customers",
+        );
+        byLabel("customers.search")!.props.onChangeText("nobody");
+        await flush();
+        assert.deepEqual(homeIds(), []);
+        assert.ok(homePages().every((page) => page.props.searching && page.props.filtered));
+        byLabel("customers.search.clear")!.props.onPress();
+        await flush();
+        assert.deepEqual(homeIds(), ["ahmad"]);
+        sort.props.onPress();
+        await flush();
+        assert.equal(find("CustomerListSheet")!.props.visible, true, "sort sheet opens from dock");
+        assert.equal(keyboardDismissals, 1);
+        assert.equal(contactsReads, 0, "home search does not read the phone book");
+        assert.equal(permissionRequests, 0);
+        assert.equal(writes.length, 0);
+        if (button) {
+          assert.equal(
+            flattenStyle(button.props.style({ pressed: false })).backgroundColor,
+            "#000000",
+          );
+          assert.equal(nodes(button).find((node) => node.type === "Icon")?.props.name, "add");
+          await button.props.onPress();
+          assert.deepEqual(routes.at(-1), { pathname: "/person/new", params: { mode: "add" } });
+          archivedState = "archived";
+          await button.props.onPress();
+          assert.equal(routes.length, 1, "archived kaata cannot enter add");
+          assert.equal(toasts.at(-1)?.[0], "home.fab.blockedArchived");
+        }
+      }
+
+  fixture(home, "owner");
+  let finishHomeRole!: () => void;
+  delayedRole = new Promise((resolve) => {
+    finishHomeRole = resolve;
+  });
+  await flush();
+  assert.equal(byLabel("personAdd.new"), undefined, "unresolved role never flashes the plus");
+  assert.ok(
+    !nodes(tree).some((node) => node.type === "Text" && node.props.children === "readonly.badge"),
+    "owner role lookup never temporarily labels the kaata read-only",
+  );
+  assert.ok(byLabel("customers.search"));
+  delayedRole = null;
+  finishHomeRole();
+  await flush();
+  const staleHomeAdd = byLabel("personAdd.new")!.props.onPress;
+  let finishHomeGuard!: (value: { state: string }) => void;
+  delayedGuard = new Promise((resolve) => {
+    finishHomeGuard = resolve;
+  });
+  const lateAdd = staleHomeAdd();
+  applyRole("viewer");
+  await flush();
+  finishHomeGuard({ state: "active" });
+  await lateAdd;
+  assert.equal(routes.length, 0, "role downgrade during add guard blocks navigation");
+  assert.equal(byLabel("personAdd.new"), undefined);
+  assert.ok(
+    nodes(tree).some((node) => node.type === "Text" && node.props.children === "readonly.badge"),
+    "completed downgrade labels the resolved viewer correctly",
+  );
+  assert.ok(byLabel("customers.search"));
+
+  fixture(home, "viewer");
+  await flush();
+  byLabel("customers.search")!.props.onChangeText("Ahmad");
+  await flush();
+  const oldHomePersonTap = homePages()[0].props.onPersonPress;
+  const otherPerson = { ...people[0], id: "nadia", name: "Nadia", last_entry_at: 200 };
+  vaultId = "second-kaata";
+  peopleByVault.set(vaultId, [otherPerson]);
+  activeVaultsOverride = [{ id: vaultId, name: "Second", currency: "AFN" }];
+  ledgerEvents.emitLedgerApplied(vaultId, "remote");
+  await runTimers();
+  assert.equal(byLabel("customers.search")!.props.value, "", "kaata switch clears the old query");
+  assert.deepEqual(homeIds(), ["nadia"]);
+  oldHomePersonTap(people[0]);
+  assert.equal(routes.length, 0, "old search row cannot navigate after a kaata switch");
+
+  fixture(home, "viewer");
+  const ahmadLow = { ...people[0], id: "ahmad-low", name: "Ahmad Amini", balance: 100 };
+  const ahmadHigh = { ...people[0], id: "ahmad-high", name: "Ahmad Zia", balance: 900 };
+  const ahmadOther = { ...people[0], id: "ahmad-other", name: "Ahmad Hamidi", balance: -700 };
+  peopleByVault.set("kaata", [people[0], ahmadLow, ahmadHigh, ahmadOther]);
+  groupState = {
+    groups: [
+      { id: "family", name: "Family", member_count: 2 },
+      { id: "shop", name: "Shop", member_count: 1 },
+    ],
+    groupsByPerson: {
+      ahmad: ["family"],
+      "ahmad-high": ["family", "shop"],
+      "ahmad-other": ["shop"],
+    },
+  };
+  await flush();
+  byLabel("customers.search")!.props.onChangeText("Ahmad");
+  await flush();
+  find("CustomerListSheet")!.props.onChange({ sort: "amount_asc", group: ["family", "shop"] });
+  await flush();
+  assert.deepEqual(
+    homeIds(),
+    ["ahmad", "ahmad-high", "ahmad-other"],
+    "search composes with multi-group OR and amount order on each side",
+  );
+  assert.equal(
+    homePages()[0].props.allPeople.reduce((sum: number, p: any) => sum + p.balance, 0),
+    1500,
+    "filtered sort leaves collect total intact",
+  );
+  find("CustomerListSheet")!.props.onChange({ sort: "name_desc", group: "all" });
+  await flush();
+  assert.deepEqual(
+    homeIds(),
+    ["ahmad-high", "ahmad", "ahmad-low", "ahmad-other"],
+    "name sorting remains effective during search",
+  );
+
+  for (const nextRole of ["owner", "clerk"] as const) {
+    fixture(addOrFind, nextRole);
+    routeParams = { mode: "add" };
+    deviceContacts.push({
+      id: "duplicate-ahmad",
+      name: "Ahmad Karimi",
+      firstName: "Ahmad",
+      lastName: "Karimi",
+      phone: "+93700123456",
+    });
     await flush();
-    const button = byLabel(nextRole === "viewer" ? "personFind.title" : "personAdd.title")!;
-    assert.ok(button, `${nextRole} has the home's add/find entry point`);
-    assert.equal(flattenStyle(button.props.style({ pressed: false })).backgroundColor, "#000000");
-    await button.props.onPress();
-    assert.equal(routes.at(-1), "/person/new");
-    assert.equal(writes.length, 0, "opening search performs no write");
-    archivedState = "archived";
-    await button.props.onPress();
-    assert.equal(routes.length, 1, "an archived kaata still cannot open add/find");
-    assert.equal(toasts.at(-1)?.[0], "home.fab.blockedArchived");
+    assert.equal(find("Header")!.props.title, "personAdd.new");
+    assert.equal(personRows().length, 0, "add mode hides existing-person find results");
+    assert.ok(
+      text(tree).includes("Zarif Rahimi"),
+      "new phone-book contact remains a creation shortcut",
+    );
+    assert.ok(
+      !text(tree).includes("Ahmad Karimi"),
+      "hidden app contact still deduplicates phone-book shortcut",
+    );
+    assert.equal(find("Button")!.props.label, "personAdd.new");
+    byLabel("personEdit.firstName.label")!.props.onChangeText("Nadia");
+    await flush();
+    find("Button")!.props.onPress();
+    await flush();
+    assert.equal(writes.length, 1, "add-only mode still creates authorized people");
+    deviceContacts.pop();
   }
+  fixture(addOrFind, "viewer");
+  routeParams = { mode: "add" };
+  await flush();
+  assert.equal(
+    find("Header")!.props.title,
+    "personFind.title",
+    "direct add link remains read-only for viewer",
+  );
+  assert.equal(find("Button"), undefined);
+  assert.equal(contactsReads, 0);
+  assert.equal(personRows().length, 2);
   fixture(home, "viewer");
   vaultId = "archived-kaata";
   const replacementPerson = { ...people[0], id: "replacement", name: "Replacement" };
@@ -540,14 +775,14 @@ async function main() {
   activeVaultsOverride = [];
   await flush();
   assert.equal(vaultId, null, "archiving the final kaata clears the active cache");
-  assert.equal(byLabel("personFind.title"), undefined);
+  assert.equal(byLabel("customers.search"), undefined);
   assert.equal(find("ActivityIndicator"), undefined);
 
   fixture(home, "viewer");
   vaultId = null;
   await flush();
   assert.equal(
-    byLabel("personFind.title"),
+    byLabel("customers.search"),
     undefined,
     "no search destination without an active kaata",
   );
@@ -840,7 +1075,7 @@ async function main() {
   assert.deepEqual(routes.at(-1), { pathname: "/person/[id]", params: { id: "created" } });
   unmount();
   console.log(
-    "PASS: black home find control, EN/FA search, scoped live/resume reloads, in-place role downgrades, late-read and unmount guards, no viewer phone-book reads/prompts or writes, stable writable tally refresh and authorized creation",
+    "PASS: persistent home search/sort and add-only plus, EN/FA and 320px keyboard layout, zero-tally/phone searches, multi-group/sort composition, scoped live/resume reloads, in-place role downgrades, late-read and unmount guards, no viewer phone-book reads/prompts or writes, stable writable tally refresh and authorized creation",
   );
 }
 void main().catch((error) => {

@@ -5,10 +5,14 @@ import {
   adjacentCalendarMonth,
   calendarDay,
   calendarMonthDays,
+  customDateRange,
   datePresetRange,
+  dateRangeDraft,
   dateRangeBetween,
   filterTalliesByDate,
+  formatFilterClock,
   localDayStart,
+  localMinute,
   shiftLocalDay,
 } from "../tally-date-filter";
 
@@ -133,6 +137,75 @@ assert.deepEqual(
   dateRangeBetween(at(2026, 8, 5), at(2026, 8, 6)),
   "reverse selection is normalized",
 );
+const minuteRange = customDateRange(at(2026, 8, 5), at(2026, 8, 5), 10 * 60 + 15, 11 * 60 + 30)!;
+assert.deepEqual(
+  filterTalliesByDate(
+    [
+      { id: "before", created_at: minuteRange.start - 1 },
+      { id: "start", created_at: minuteRange.start },
+      { id: "final-second", created_at: minuteRange.end - 1 },
+      { id: "next-minute", created_at: minuteRange.end },
+    ],
+    minuteRange,
+  ).map((row) => row.id),
+  ["start", "final-second"],
+  "custom clocks include every second of the end minute and exclude the next minute",
+);
+assert.deepEqual(dateRangeDraft(minuteRange), {
+  first: localDayStart(at(2026, 8, 5)),
+  last: localDayStart(at(2026, 8, 5)),
+  startMinute: 615,
+  endMinute: 690,
+});
+assert.equal(
+  customDateRange(at(2026, 8, 5), at(2026, 8, 5), 615, 614),
+  null,
+  "same-day reversed clocks must remain invalid",
+);
+assert.equal(
+  customDateRange(at(2026, 8, 5), at(2026, 8, 5), 615, 615)!.end -
+    customDateRange(at(2026, 8, 5), at(2026, 8, 5), 615, 615)!.start,
+  60_000,
+);
+assert.deepEqual(
+  customDateRange(at(2026, 8, 6), at(2026, 8, 5), 615, 614),
+  customDateRange(at(2026, 8, 5), at(2026, 8, 6), 615, 614),
+  "reversed days are normalized while clocks stay on their chronological endpoints",
+);
+assert.deepEqual(
+  dateRangeDraft(customDateRange(at(2026, 8, 5), at(2026, 8, 6), 0, 1439)),
+  {
+    first: localDayStart(at(2026, 8, 5)),
+    last: localDayStart(at(2026, 8, 6)),
+    startMinute: 0,
+    endMinute: 1439,
+  },
+  "exclusive next-midnight end reopens on the inclusive selected day",
+);
+assert.deepEqual(
+  dateRangeDraft(range),
+  {
+    first: range.start,
+    last: range.start,
+    startMinute: 0,
+    endMinute: 1439,
+  },
+  "whole-day presets have whole-day custom defaults",
+);
+assert.deepEqual(dateRangeDraft(null), {
+  first: null,
+  last: null,
+  startMinute: 0,
+  endMinute: 1439,
+});
+assert.equal(formatFilterClock(minuteRange.start, "en"), "10:15");
+assert.equal(formatFilterClock(minuteRange.start, "fa"), "۱۰:۱۵");
+assert.equal(formatFilterClock(Number.NaN, "en"), "");
+for (const badMinute of [-1, 1440, 0.5, Number.NaN]) {
+  assert.equal(localMinute(at(2026, 8, 5), badMinute), null);
+  assert.equal(customDateRange(at(2026, 8, 5), at(2026, 8, 5), badMinute, 1439), null);
+}
+assert.equal(localMinute(Number.NaN, 0), null);
 for (const options of [gregorian, shamsi, qamari]) {
   const month = calendarMonthDays(at(2026, 8, 5), options.calendar);
   assert.ok(month.length >= 29 && month.length <= 31);
@@ -191,6 +264,36 @@ try {
   assert.equal(spring.end - spring.start, 23 * 3600000, "DST-short day is still one business date");
   assert.equal(autumn.end - autumn.start, 25 * 3600000, "DST-long day includes its final hour");
   assert.equal(localDayStart(spring.end), spring.end);
+  const customSpring = customDateRange(at(2026, 3, 8), at(2026, 3, 8), 0, 1439)!;
+  const customAutumn = customDateRange(at(2026, 11, 1), at(2026, 11, 1), 0, 1439)!;
+  assert.deepEqual(
+    { start: customSpring.start, end: customSpring.end },
+    spring,
+    "00:00–23:59 covers the 23-hour daylight-saving day",
+  );
+  assert.deepEqual(
+    { start: customAutumn.start, end: customAutumn.end },
+    autumn,
+    "00:00–23:59 covers both occurrences of the repeated autumn hour",
+  );
+  assert.equal(
+    localMinute(at(2026, 3, 8), 150),
+    null,
+    "nonexistent 02:30 is not silently moved to 03:30",
+  );
+  assert.equal(customDateRange(at(2026, 3, 8), at(2026, 3, 8), 150, 1439), null);
+  const repeatedMinute = customDateRange(at(2026, 11, 1), at(2026, 11, 1), 119, 119)!;
+  assert.equal(
+    repeatedMinute.end - repeatedMinute.start,
+    60_000,
+    "inclusive final minute uses elapsed time across the repeated hour, not a local-clock jump",
+  );
+  assert.deepEqual(dateRangeDraft(customAutumn), {
+    first: autumn.start,
+    last: autumn.start,
+    startMinute: 0,
+    endMinute: 1439,
+  });
 } finally {
   if (oldTZ === undefined) delete process.env.TZ;
   else process.env.TZ = oldTZ;
@@ -203,5 +306,5 @@ assert.equal(
   "search does not change the full ledger total",
 );
 console.log(
-  "PASS: notes/exact localized amounts; explicit local date ranges, all three calendar months/leaps/fallbacks, presets/DST and unchanged ledger data/order",
+  "PASS: notes/exact localized amounts; local date/minute ranges, inclusive boundaries/reopen, all three calendar months/leaps/fallbacks, DST gaps/repeated minutes and unchanged ledger data/order",
 );
