@@ -78,7 +78,7 @@ const viewHTML = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#F9F2E7">
+<meta name="theme-color" content="#FFFFFF">
 <!-- "only light" disables Chrome's Auto Dark Theme on Android, which would
      otherwise darken this light page when the phone is in dark mode. -->
 <meta name="color-scheme" content="only light">
@@ -94,10 +94,10 @@ const viewHTML = `<!doctype html>
 <meta name="twitter:title" content="{{.OGTitle}}">
 <meta name="twitter:description" content="{{.OGDesc}}">
 <style>
-/* Brand reading colors mirror apps/_shared/brand-palette.json. The separate
-   direction palette keeps Khatabook flow (credit = money toward you, owe =
+/* Product reading surfaces stay neutral; the marketing palette is separate.
+   The direction palette keeps Khatabook flow (credit = money toward you, owe =
    money away), in sync with web/src/theme.ts + mobile/lib/colors.ts. */
-:root{--brand:#4A2A50;--bg:#F9F2E7;--card:#fff;--ink:#29222B;--sub:#706573;--mut:#756B78;--line:#E4DCE3;--hair:#F3EEE8;--owe:#A3203A;--owebg:#F8EAEC;--credit:#0C745A;--creditbg:#E8F4EF;--mono:'JetBrains Mono','Vazirmatn',ui-monospace,'Menlo',monospace;}
+:root{--brand:#000000;--bg:#FFFFFF;--card:#fff;--ink:#171717;--sub:#616161;--mut:#6B6B6B;--line:#E2E2E2;--hair:#F7F7F7;--owe:#A3203A;--owebg:#F8EAEC;--credit:#0C745A;--creditbg:#E8F4EF;--mono:'JetBrains Mono','Vazirmatn',ui-monospace,'Menlo',monospace;}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:"Vazirmatn",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
@@ -165,7 +165,7 @@ a{color:inherit;text-decoration:none;}
 .clearsub{margin-top:4px;font-size:13px;color:var(--sub);}
 .clearsub b{color:var(--ink);font-weight:600;}
 .histbtn{display:none;width:100%;border:0;border-top:1px solid var(--hair);background:#fff;padding:13px 16px;text-align:center;font-size:12px;font-weight:500;color:var(--sub);font-family:inherit;cursor:pointer}
-.histbtn:active{background:#E4DCE3}
+.histbtn:active{background:#E2E2E2}
 .chline{display:flex;align-items:center;gap:10px;padding:11px 16px;background:var(--bg);border-bottom:1px solid var(--hair);}
 .chrule{flex:1;height:1px;background:var(--mut);opacity:.4;}
 .chtext{font-size:11px;font-weight:500;color:var(--sub);}
@@ -464,7 +464,7 @@ const notFoundHTML = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="only light">
 <title>Kaata</title>
-<style>body{margin:0;background:#F9F2E7;color:#29222B;font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px;-webkit-font-smoothing:antialiased;}a{color:#706573;font-weight:600;text-decoration:none;}</style>
+<style>body{margin:0;background:#FFFFFF;color:#171717;font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px;-webkit-font-smoothing:antialiased;}a{color:#616161;font-weight:600;text-decoration:none;}</style>
 </head><body><div><div style="font-size:16px;font-weight:700;letter-spacing:-.01em">kaata.</div>
-<p style="color:#706573;max-width:320px;line-height:1.55">{{if .RTL}}این کاتای مشترک وجود ندارد.{{else}}This shared ledger doesn’t exist.{{end}}</p>
+<p style="color:#616161;max-width:320px;line-height:1.55">{{if .RTL}}این کاتای مشترک وجود ندارد.{{else}}This shared ledger doesn’t exist.{{end}}</p>
 <p><a href="{{.Origin}}">{{if .RTL}}رفتن به kaata.af{{else}}Go to kaata.af{{end}}</a></p></div></body></html>`

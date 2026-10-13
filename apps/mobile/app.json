@@ -14,7 +14,7 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "36"
+      "buildNumber": "37"
     },
     "android": {
       "package": "af.kaata.app",
@@ -37,7 +37,7 @@
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.RECORD_AUDIO"
       ],
-      "versionCode": 56
+      "versionCode": 57
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -51,9 +51,9 @@
         {
           "image": "./assets/splash-icon.png",
           "resizeMode": "contain",
-          "backgroundColor": "#4A2A50",
+          "backgroundColor": "#000000",
           "dark": {
-            "backgroundColor": "#4A2A50"
+            "backgroundColor": "#000000"
           }
         }
       ],

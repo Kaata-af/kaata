@@ -22,14 +22,14 @@ func TestFillWeeklyGrowth(t *testing.T) {
 		wantTarget    *int64
 		wantMet       *bool
 	}{
-		{"exact seven percent", GrowthWeek{Week: "2026-09-21", New: 7, Retained: 100}, tracked, 107, 100, growthFloat(7), growthInt(107), growthBool(true)},
-		{"round whole device up", GrowthWeek{Week: "2026-09-21", Retained: 10}, tracked, 10, 10, growthFloat(0), growthInt(11), growthBool(false)},
-		{"decline to zero", GrowthWeek{Week: "2026-09-21", Churned: 4}, tracked, 0, 4, growthFloat(-100), growthInt(5), growthBool(false)},
-		{"zero baseline", GrowthWeek{Week: "2026-09-21", New: 1}, tracked, 1, 0, nil, nil, nil},
-		{"current week provisional", GrowthWeek{Week: "2026-09-28", New: 7, Retained: 100}, tracked, 107, 100, nil, growthInt(107), nil},
-		{"prior week partly tracked", GrowthWeek{Week: "2026-09-21", Retained: 100}, activityTime(t, "2026-09-20T12:00:00Z"), 100, 100, nil, nil, nil},
-		{"this week partly tracked", GrowthWeek{Week: "2026-09-21", Retained: 100}, activityTime(t, "2026-09-21T12:00:00Z"), 100, 100, nil, nil, nil},
-		{"tracking start unknown", GrowthWeek{Week: "2026-09-21", Retained: 100}, time.Time{}, 100, 100, nil, nil, nil},
+		{"exact seven percent", GrowthWeek{Week: "2026-09-19", New: 7, Retained: 100}, tracked, 107, 100, growthFloat(7), growthInt(107), growthBool(true)},
+		{"round whole device up", GrowthWeek{Week: "2026-09-19", Retained: 10}, tracked, 10, 10, growthFloat(0), growthInt(11), growthBool(false)},
+		{"decline to zero", GrowthWeek{Week: "2026-09-19", Churned: 4}, tracked, 0, 4, growthFloat(-100), growthInt(5), growthBool(false)},
+		{"zero baseline", GrowthWeek{Week: "2026-09-19", New: 1}, tracked, 1, 0, nil, nil, nil},
+		{"current week provisional", GrowthWeek{Week: "2026-09-26", New: 7, Retained: 100}, tracked, 107, 100, nil, growthInt(107), nil},
+		{"prior week partly tracked", GrowthWeek{Week: "2026-09-19", Retained: 100}, activityTime(t, "2026-09-18T12:00:00Z"), 100, 100, nil, nil, nil},
+		{"this week partly tracked", GrowthWeek{Week: "2026-09-19", Retained: 100}, activityTime(t, "2026-09-19T12:00:00Z"), 100, 100, nil, nil, nil},
+		{"tracking start unknown", GrowthWeek{Week: "2026-09-19", Retained: 100}, time.Time{}, 100, 100, nil, nil, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -52,23 +52,23 @@ func TestFillWeeklyGrowth(t *testing.T) {
 	}
 }
 
-func TestWeeklyGrowthKabulMondayAndHistoricalCoverage(t *testing.T) {
-	weeks := []GrowthWeek{{Week: "2026-09-21", New: 7, Retained: 100}}
+func TestWeeklyGrowthKabulSaturdayAndHistoricalCoverage(t *testing.T) {
+	weeks := []GrowthWeek{{Week: "2026-09-19", New: 7, Retained: 100}}
 	tracked := activityTime(t, "2026-08-01T00:00:00Z")
-	fillWeeklyGrowth(weeks, activityTime(t, "2026-09-27T19:29:59Z"), tracked, "2026-09-01")
+	fillWeeklyGrowth(weeks, activityTime(t, "2026-09-25T19:29:59Z"), tracked, "2026-09-01")
 	if weeks[0].Complete || weeks[0].GrowthRatePercent != nil || weeks[0].TargetMet != nil {
-		t.Fatalf("one second before Kabul Monday got completed verdict: %+v", weeks[0])
+		t.Fatalf("one second before Kabul Saturday got completed verdict: %+v", weeks[0])
 	}
-	fillWeeklyGrowth(weeks, activityTime(t, "2026-09-27T19:30:00Z"), tracked, "2026-09-01")
+	fillWeeklyGrowth(weeks, activityTime(t, "2026-09-25T19:30:00Z"), tracked, "2026-09-01")
 	if !weeks[0].Complete || weeks[0].GrowthRatePercent == nil || math.Abs(*weeks[0].GrowthRatePercent-7) > 1e-9 {
-		t.Fatalf("Kabul Monday must complete last week: %+v", weeks[0])
+		t.Fatalf("Kabul Saturday must complete last week: %+v", weeks[0])
 	}
 
 	// Before migration 036, date-only weeks start at UTC midnight. Tracking
-	// that began Sunday 21:00 UTC is therefore available for the Monday week,
-	// even though this instant is already Monday in Kabul.
-	legacy := []GrowthWeek{{Week: "2026-08-17", Retained: 100}}
-	fillWeeklyGrowth(legacy, activityTime(t, "2026-09-28T10:00:00Z"), activityTime(t, "2026-08-09T21:00:00Z"), "2026-09-01")
+	// that began Friday 21:00 UTC is therefore available for the Saturday week,
+	// even though this instant is already Saturday in Kabul.
+	legacy := []GrowthWeek{{Week: "2026-08-15", Retained: 100}}
+	fillWeeklyGrowth(legacy, activityTime(t, "2026-09-28T10:00:00Z"), activityTime(t, "2026-08-07T21:00:00Z"), "2026-09-01")
 	if !legacy[0].TrackingComplete || !legacy[0].PreviousTrackingComplete || legacy[0].GrowthRatePercent == nil {
 		t.Fatalf("legacy UTC coverage incorrectly reinterpreted as Kabul: %+v", legacy[0])
 	}
@@ -88,14 +88,14 @@ func TestWeeklyGrowthCalendarTransition(t *testing.T) {
 		week       string
 		comparable bool
 	}{
-		{"last fully UTC comparison", "2026-09-01", "2026-08-24", true},
-		{"midweek cutover", "2026-09-01", "2026-08-31", false},
-		{"mixed previous week baseline", "2026-09-01", "2026-09-07", false},
-		{"first two fully Kabul weeks", "2026-09-01", "2026-09-14", true},
-		{"Sunday cutover same ISO week", "2026-09-06", "2026-08-31", false},
-		{"Monday cutover may be mid-day", "2026-09-07", "2026-09-07", false},
-		{"Monday cutover next baseline", "2026-09-07", "2026-09-14", false},
-		{"unknown calendar cutover", "", "2026-09-21", false},
+		{"last fully UTC comparison", "2026-09-01", "2026-08-22", true},
+		{"midweek cutover", "2026-09-01", "2026-08-29", false},
+		{"mixed previous week baseline", "2026-09-01", "2026-09-05", false},
+		{"first two fully Kabul weeks", "2026-09-01", "2026-09-12", true},
+		{"Friday cutover same reporting week", "2026-09-04", "2026-08-29", false},
+		{"Saturday cutover may be mid-day", "2026-09-05", "2026-09-05", false},
+		{"Saturday cutover next baseline", "2026-09-05", "2026-09-12", false},
+		{"unknown calendar cutover", "", "2026-09-19", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -118,8 +118,8 @@ func TestWeeklyGrowthCalendarTransition(t *testing.T) {
 		})
 	}
 	// Current-week goals must also avoid using the transition week's baseline.
-	current := []GrowthWeek{{Week: "2026-09-28", Retained: 100}}
-	fillWeeklyGrowth(current, now, tracked, "2026-09-21")
+	current := []GrowthWeek{{Week: "2026-09-26", Retained: 100}}
+	fillWeeklyGrowth(current, now, tracked, "2026-09-19")
 	if current[0].Complete || current[0].CalendarComparable || current[0].TargetActive != nil {
 		t.Errorf("provisional transition comparison must have no target: %+v", current[0])
 	}
@@ -159,14 +159,14 @@ func TestGetGrowthWeeklyActiveDevices(t *testing.T) {
 		t.Errorf("growth metadata = target %d tracking %q", g.GrowthTargetPercent, g.ActivityTrackingSince)
 	}
 	last := g.GrowthAccounting[len(g.GrowthAccounting)-2]
-	if last.Week != "2026-09-21" || last.Active != 3 || last.PreviousActive != 2 || last.Change != 1 || !last.Complete || !last.TrackingComplete || !last.PreviousTrackingComplete {
+	if last.Week != "2026-09-19" || last.Active != 3 || last.PreviousActive != 2 || last.Change != 1 || !last.Complete || !last.TrackingComplete || !last.PreviousTrackingComplete {
 		t.Fatalf("last completed week = %+v, want 3 distinct devices from baseline 2", last)
 	}
 	if last.GrowthRatePercent == nil || *last.GrowthRatePercent != 50 || last.TargetActive == nil || *last.TargetActive != 3 || last.TargetMet == nil || !*last.TargetMet {
 		t.Errorf("last completed growth = %+v, want +50%% target 3 met", last)
 	}
 	current := g.GrowthAccounting[len(g.GrowthAccounting)-1]
-	if current.Week != "2026-09-28" || current.Active != 1 || current.PreviousActive != 3 || current.Complete || current.GrowthRatePercent != nil || current.TargetMet != nil || current.TargetActive == nil || *current.TargetActive != 4 {
+	if current.Week != "2026-09-26" || current.Active != 1 || current.PreviousActive != 3 || current.Complete || current.GrowthRatePercent != nil || current.TargetMet != nil || current.TargetActive == nil || *current.TargetActive != 4 {
 		t.Fatalf("provisional week = %+v, want 1 active target 4 without verdict", current)
 	}
 	// Nulls must remain explicit in JSON rather than becoming a misleading 0%.

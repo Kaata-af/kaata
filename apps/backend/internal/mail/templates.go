@@ -126,15 +126,15 @@ func render(kind Kind, lang, to, code, address string) Message {
 	}
 
 	var h strings.Builder
-	// Brand colors mirror apps/_shared/brand-palette.json. Codes stay large,
+	// Transactional mail stays neutral, separate from marketing. Codes stay large,
 	// dark and selectable; all verification instructions retain their wording.
-	h.WriteString(`<!doctype html><html lang="` + htmlLang + `" dir="` + dir + `"><body style="margin:0;padding:24px;background:#F9F2E7;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.5;color:#29222B"><div style="max-width:520px;margin:0 auto;padding:24px;background:#FFFFFF;border:1px solid #E4DCE3;border-radius:16px">`)
-	h.WriteString(`<p dir="ltr" style="margin:0 0 24px;font-size:22px;font-weight:bold;color:#4A2A50">kaata.</p>`)
+	h.WriteString(`<!doctype html><html lang="` + htmlLang + `" dir="` + dir + `"><body style="margin:0;padding:24px;background:#F7F7F7;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.5;color:#292929"><div style="max-width:520px;margin:0 auto;padding:24px;background:#FFFFFF;border:1px solid #E2E2E2;border-radius:16px">`)
+	h.WriteString(`<p dir="ltr" style="margin:0 0 24px;font-size:22px;font-weight:bold;color:#000000">kaata.</p>`)
 	h.WriteString("<p>" + htmlLead + "</p>")
 	if kind.HasCode() {
-		h.WriteString(`<p dir="ltr" style="font-size:28px;font-weight:bold;letter-spacing:6px;font-family:Menlo,Consolas,monospace;color:#29222B;background:#F9F2E7;padding:16px;border-radius:12px">` +
+		h.WriteString(`<p dir="ltr" style="font-size:28px;font-weight:bold;letter-spacing:6px;font-family:Menlo,Consolas,monospace;color:#171717;background:#F7F7F7;padding:16px;border-radius:12px">` +
 			html.EscapeString(code) + "</p>")
-		h.WriteString(`<p style="color:#706573;font-size:14px">` + html.EscapeString(footer) + "</p>")
+		h.WriteString(`<p style="color:#616161;font-size:14px">` + html.EscapeString(footer) + "</p>")
 	}
 	h.WriteString("</div></body></html>")
 

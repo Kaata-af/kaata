@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { FACEBOOK_URL, INSTAGRAM_URL, TIKTOK_URL, WHATSAPP_CONTACT_URL, YOUTUBE_URL } from "../env";
 import { useI18n } from "../lib/i18n";
 import { BrandLogo } from "./BrandLogo";
+import { Button } from "./ui/button";
 
 // Header mirrors dub.co's chassis: logo at the start, nav links centered,
 // primary CTA at the end (start/end flip with the document direction for
@@ -60,22 +61,20 @@ export function SiteHeader() {
         <div className="flex items-center gap-2 md:justify-self-end">
           {/* Language toggle — shows the language you'd switch TO. Persian
               is the audience's language; one tap from either side. */}
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             type="button"
             onClick={() => setLang(lang === "fa" ? "en" : "fa")}
             lang={lang === "fa" ? "en" : "fa"}
-            className="text-[13px] font-medium text-neutral-600 hover:text-neutral-900 px-2.5 h-8 inline-flex items-center rounded-lg hover:bg-neutral-100 transition-colors"
+            className="text-[13px] text-muted-foreground"
           >
             {lang === "fa" ? "English" : "دری"}
-          </button>
+          </Button>
 
-          {/* Primary CTA. Dub's signature interaction: ring on hover. */}
-          <Link
-            to="/download"
-            className="bg-brand-primary text-white font-medium px-3.5 h-8 inline-flex items-center rounded-lg ring-0 ring-neutral-100 hover:ring-4 transition-[box-shadow] text-[13px]"
-          >
-            {t("nav.getApp")}
-          </Link>
+          <Button asChild size="sm" className="text-[13px]">
+            <Link to="/download">{t("nav.getApp")}</Link>
+          </Button>
         </div>
       </div>
     </header>

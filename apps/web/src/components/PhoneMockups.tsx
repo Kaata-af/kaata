@@ -10,8 +10,8 @@ import { useI18n } from "../lib/i18n";
 //
 // Fidelity rules that make these read like the real app:
 //   1. The app's own chrome is neutral black/white/gray, so the screens use the
-//      app palette below, not the site's plum-tinted neutrals. Brand color stays
-//      outside the phone; only money direction (collect green) is colored.
+//      app palette below, matching the site's neutral chrome. Only money
+//      direction (collect green) is colored inside the phone.
 //   2. UI text renders in Vazirmatn, the app's face in English too; amounts use
 //      JetBrains Mono and stay Western digits in BOTH languages (formatAmount()
 //      uses toLocaleString("en-US")).

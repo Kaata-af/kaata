@@ -1,8 +1,8 @@
 import type { Config } from "tailwindcss";
 import { brand, ledger } from "./src/theme";
 
-// Brand comes from apps/_shared/brand-palette.json. Legacy neutral utilities
-// use derived plum grays, while explicit brand utilities carry signatures.
+// shadcn CSS-variable tokens and Tailwind's genuine neutral scale power the
+// web. Existing brand utilities are compatibility aliases to neutral colors.
 // Financial directions and chart series keep their own semantic colors.
 //
 // Tremor (admin dashboard kit): its components style themselves with
@@ -12,23 +12,32 @@ import { brand, ledger } from "./src/theme";
 // shape, tinted to our quiet-fintech neutrals.
 
 const config: Config = {
+  // Light-only web UI: Tremor's optional dark classes must not follow OS
+  // dark mode independently of the page's declared light color scheme.
+  darkMode: "class",
   content: ["./index.html", "./src/**/*.{ts,tsx}", "./node_modules/@tremor/**/*.{js,ts,jsx,tsx}"],
   theme: {
     extend: {
       colors: {
         brand,
-        neutral: {
-          50: "#FAF7F2",
-          100: brand.faint,
-          200: brand.border,
-          300: "#D2C6D0",
-          400: brand.muted,
-          500: brand.muted,
-          600: brand.sub,
-          700: brand.charcoal,
-          800: "#403345",
-          900: brand.charcoal,
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        primary: { DEFAULT: "hsl(var(--primary))", foreground: "hsl(var(--primary-foreground))" },
+        secondary: {
+          DEFAULT: "hsl(var(--secondary))",
+          foreground: "hsl(var(--secondary-foreground))",
         },
+        destructive: {
+          DEFAULT: "hsl(var(--destructive))",
+          foreground: "hsl(var(--destructive-foreground))",
+        },
+        muted: { DEFAULT: "hsl(var(--muted))", foreground: "hsl(var(--muted-foreground))" },
+        accent: { DEFAULT: "hsl(var(--accent))", foreground: "hsl(var(--accent-foreground))" },
+        popover: { DEFAULT: "hsl(var(--popover))", foreground: "hsl(var(--popover-foreground))" },
+        card: { DEFAULT: "hsl(var(--card))", foreground: "hsl(var(--card-foreground))" },
         // Direction tokens come from the shared ledger palette (src/theme.ts),
         // mirrored in CustomerView + the mobile app. collect = money toward you;
         // pay = money away. `strong` is the accent for numbers/arrows; `bg`/`text`
@@ -41,7 +50,7 @@ const config: Config = {
           brand: {
             faint: brand.faint,
             muted: brand.border,
-            subtle: "#8C6B92",
+            subtle: "#A3A3A3",
             DEFAULT: brand.primary,
             emphasis: brand.hover,
             inverted: brand.white,
@@ -69,6 +78,9 @@ const config: Config = {
         "tremor-dropdown": "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)",
       },
       borderRadius: {
+        lg: "var(--radius)",
+        md: "calc(var(--radius) - 2px)",
+        sm: "calc(var(--radius) - 4px)",
         "tremor-small": "0.375rem",
         "tremor-default": "0.5rem",
         "tremor-full": "9999px",

@@ -9,6 +9,7 @@ import {
   weeklyGrowthView,
   weeklyRateLabel,
   weeklyCalendarLabel,
+  reportingWeekLabels,
 } from "./weekly-growth";
 
 function weekLabel(week: string): string {
@@ -20,12 +21,13 @@ function weekLabel(week: string): string {
 }
 
 export function WeeklyGrowthCard({ growth }: { growth: Growth | null }) {
+  const reporting = reportingWeekLabels(growth?.week_starts_on);
   const { available, completed, latest, current } = weeklyGrowthView(growth);
   const comparable = latest !== null && comparableWeek(latest);
   return (
     <Card
       title="Weekly growth"
-      sub={`Weekly active devices · ${WEEKLY_GROWTH_TARGET}% target · Monday–Sunday reporting weeks`}
+      sub={`Weekly active devices · ${WEEKLY_GROWTH_TARGET}% target · ${reporting.range} reporting weeks`}
     >
       {!available ? (
         <p className="py-6 text-sm text-brand-sub">
@@ -73,7 +75,7 @@ export function WeeklyGrowthCard({ growth }: { growth: Growth | null }) {
                 </>
               ) : null}
             </div>
-            {current ? <CurrentWeek row={current} /> : null}
+            {current ? <CurrentWeek row={current} weekEndsOn={reporting.end} /> : null}
           </div>
           {completed.length > 0 ? (
             <details className="mt-5 border-t border-brand-border pt-4">
@@ -89,7 +91,7 @@ export function WeeklyGrowthCard({ growth }: { growth: Growth | null }) {
                 <table className="w-full text-left text-xs tabular-nums">
                   <caption className="sr-only">
                     Growth in weekly active devices, compared with the previous calendar week. Weeks
-                    start on Monday. The reporting calendar is noted for each week.
+                    start on {reporting.start}. The reporting calendar is noted for each week.
                   </caption>
                   <thead className="border-b border-brand-border text-brand-sub">
                     <tr>
@@ -159,11 +161,18 @@ export function WeeklyGrowthCard({ growth }: { growth: Growth | null }) {
             deleted. {excludedDevicesNote(growth?.excluded_installs)}
           </p>
           <p>
-            Completed weeks are recorded the first time they are reported after Sunday ends in Kabul
-            and keep those numbers, so a device later signing in to another account, or an account
-            being deleted, cannot change a past week or its verdict. Excluding or including test
-            data, or editing OPERATOR_ACCOUNT_IDS, recalculates the recorded weeks once.
+            Completed weeks are recorded the first time they are reported after {reporting.end} ends
+            in Kabul and keep those numbers, so a device later signing in to another account, or an
+            account being deleted, cannot change a past week or its verdict. Excluding or including
+            test data, or editing OPERATOR_ACCOUNT_IDS, recalculates the recorded weeks once.
           </p>
+          {growth?.week_starts_on === 6 ? (
+            <p className="mt-2 text-xs leading-relaxed text-brand-muted">
+              Working days are Saturday–Thursday; Friday is the weekly holiday. Activity on all
+              seven days counts, including Friday. Earlier Monday-week records remain saved; these
+              Saturday-week counts are regrouped from the recorded daily activity.
+            </p>
+          ) : null}
           <p>
             Growth = (this week − previous week) ÷ previous week × 100. A zero baseline has no
             percentage. The 7% goal rounds up to a whole device; the verdict uses that exact count.
@@ -204,7 +213,7 @@ export function WeeklyGrowthCard({ growth }: { growth: Growth | null }) {
   );
 }
 
-function CurrentWeek({ row }: { row: GrowthWeek }) {
+function CurrentWeek({ row, weekEndsOn }: { row: GrowthWeek; weekEndsOn: string }) {
   const active = row.active ?? 0;
   const target = row.target_active;
   const hasTarget =
@@ -252,7 +261,7 @@ function CurrentWeek({ row }: { row: GrowthWeek }) {
       <p className="mt-2 text-xs leading-relaxed text-brand-sub">
         {fmtInt(row.previous_active ?? 0)} active last week.{" "}
         {hasTarget
-          ? "This week’s rate and verdict appear after Sunday ends in Kabul."
+          ? `This week’s rate and verdict appear after ${weekEndsOn} ends in Kabul.`
           : "This week stays provisional; the comparison requirements are not met yet."}
       </p>
     </div>

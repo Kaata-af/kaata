@@ -35,7 +35,7 @@ func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
 
 // Growth — GET /v1/admin/growth. Weekly cohort retention + growth accounting +
 // adoption for the dashboard's Retention/Overview sections. No query params —
-// the window is fixed at the last 12 ISO weeks. Mounted behind
+// the window is fixed at the last 12 Saturday–Friday weeks. Mounted behind
 // httpx.AdminKeyMiddleware.
 func (h *Handler) Growth(w http.ResponseWriter, r *http.Request) {
 	g, err := h.svc.GetGrowth(r.Context())

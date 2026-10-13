@@ -8,7 +8,19 @@ import {
   weeklyGrowthView,
   weeklyRateLabel,
   weeklyCalendarLabel,
+  reportingWeekLabels,
 } from "./weekly-growth.ts";
+
+test("week labels follow the backend calendar through rollout and rollback", () => {
+  assert.deepEqual(reportingWeekLabels(6), {
+    range: "Saturday–Friday",
+    start: "Saturday",
+    end: "Friday",
+  });
+  assert.equal(reportingWeekLabels(undefined).range, "Monday–Sunday");
+  assert.equal(reportingWeekLabels(1).end, "Sunday");
+  assert.equal(reportingWeekLabels(6).end, "Friday");
+});
 
 test("the excluded-device count is stated only when the backend reports it", () => {
   assert.equal(excludedDevicesNote(undefined), "");
@@ -20,7 +32,7 @@ test("the excluded-device count is stated only when the backend reports it", () 
 
 function week(overrides: Partial<GrowthWeek> = {}): GrowthWeek {
   return {
-    week: "2026-09-21",
+    week: "2026-09-19",
     new: 7,
     retained: 100,
     resurrected: 0,
@@ -50,12 +62,12 @@ function growth(rows: GrowthWeek[]): Growth {
 test("unfinished weeks cannot become the completed headline, even when the response arrives unsorted", () => {
   const latest = week();
   const current = week({
-    week: "2026-09-28",
+    week: "2026-09-26",
     complete: false,
     growth_rate_percent: null,
     target_met: null,
   });
-  const earlier = week({ week: "2026-09-14" });
+  const earlier = week({ week: "2026-09-12" });
   const input = [current, earlier, latest];
   const view = weeklyGrowthView(growth(input));
   assert.equal(view.latest, latest);
@@ -67,7 +79,7 @@ test("unfinished weeks cannot become the completed headline, even when the respo
 
 test("missing coverage from an older backend cannot produce a percentage or verdict", () => {
   const legacy: GrowthWeek = {
-    week: "2026-09-21",
+    week: "2026-09-19",
     new: 7,
     retained: 100,
     resurrected: 0,
@@ -81,7 +93,7 @@ test("missing coverage from an older backend cannot produce a percentage or verd
 
 test("an untracked latest week stays visible instead of cherry-picking an older comparable week", () => {
   const untracked = week({
-    week: "2026-09-28",
+    week: "2026-09-26",
     tracking_complete: false,
     growth_rate_percent: null,
     target_met: null,
@@ -117,9 +129,9 @@ test("rounding the displayed rate cannot overturn the server's exact whole-devic
 });
 
 test("UTC history and the mixed-calendar cutover are labelled without claiming comparable growth", () => {
-  assert.equal(weeklyCalendarLabel("2026-08-24", "2026-09-01"), "UTC");
-  assert.equal(weeklyCalendarLabel("2026-08-31", "2026-09-01"), "Calendar transition");
-  assert.equal(weeklyCalendarLabel("2026-09-07", "2026-09-01"), "Kabul");
+  assert.equal(weeklyCalendarLabel("2026-08-22", "2026-09-01"), "UTC");
+  assert.equal(weeklyCalendarLabel("2026-08-29", "2026-09-01"), "Calendar transition");
+  assert.equal(weeklyCalendarLabel("2026-09-05", "2026-09-01"), "Kabul");
   const transition = week({
     calendar_comparable: false,
     growth_rate_percent: null,

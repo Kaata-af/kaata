@@ -2,13 +2,43 @@
 @tailwind components;
 @tailwind utilities;
 
+/* shadcn/ui neutral tokens, kept in the Tailwind 3 HSL form used by the
+   official new-york registry. This app intentionally remains light-only. */
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 9%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 9%;
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 0 0% 96.1%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 45.1%;
+    --accent: 0 0% 96.1%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 72.2% 50.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 89.8%;
+    --input: 0 0% 89.8%;
+    --ring: 0 0% 9%;
+    --radius: 0.625rem;
+  }
+  * {
+    @apply border-border;
+  }
+}
+
 html,
 body {
   /* `only light` opts the page out of Chrome's Auto Dark Theme on Android, so
      the white background below is never algorithmically darkened on dark-mode
      phones. Mirrors the <meta name="color-scheme"> tag in index.html. */
   color-scheme: only light;
-  @apply bg-white text-brand-ink;
+  @apply bg-background text-foreground;
   font-family:
     "Inter",
     system-ui,
@@ -33,9 +63,9 @@ html[lang="fa"] body {
     sans-serif;
 }
 
-/* Saffron highlights keep readable charcoal text. */
+/* Selection stays neutral, like other web controls. */
 ::selection {
-  @apply bg-brand-saffron text-brand-ink;
+  @apply bg-secondary text-secondary-foreground;
 }
 
 /* The browser supplies the outline geometry; brand only changes its color. */
@@ -45,4 +75,10 @@ html[lang="fa"] body {
 
 html {
   scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
 }

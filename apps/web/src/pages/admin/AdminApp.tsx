@@ -7,8 +7,8 @@
 // backend's Bearer check is the security boundary. Any 401 clears the key and
 // returns to the prompt.
 //
-// Chrome follows the public site's shared brand: aubergine navigation and
-// controls, charcoal text, white cards and an ivory page. Chart/status hues
+// Chrome follows the public site's neutral shadcn theme: black navigation and
+// controls, dark text, white cards and a gray page. Chart/status hues
 // keep their separate data meanings. Data is live over the admin WebSocket, with
 // 60-second polling and a Kabul-midnight invalidation as the authoritative
 // fallbacks, so there is no manual refresh control; the footer says when the
@@ -23,6 +23,8 @@ import {
 import { formatDistanceToNowStrict, parseISO } from "date-fns";
 import { useEffect, useRef, useState } from "react";
 import { BrandLogo } from "../../components/BrandLogo";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
 import { Acquisition } from "./Acquisition";
 import { AdminTokenContext, AuthError, TOKEN_KEY, useStats } from "./api";
 import { Campaigns } from "./Campaigns";
@@ -48,10 +50,6 @@ function sectionFromHash(): SectionId {
   const h = window.location.hash.replace(/^#\/?/, "").split("?")[0];
   return (SECTIONS.find((s) => s.id === h)?.id ?? "overview") as SectionId;
 }
-
-// Same aubergine action and quiet hover/focus ring as the marketing CTA.
-const PRIMARY_BUTTON =
-  "inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-brand-primary px-4 text-sm font-medium text-white ring-0 ring-neutral-200 transition-[box-shadow,opacity] hover:ring-4 focus-visible:outline-none focus-visible:ring-4 disabled:opacity-40 disabled:hover:ring-0";
 
 export function AdminApp() {
   const [token, setToken] = useState<string>(() => localStorage.getItem(TOKEN_KEY) || "");
@@ -148,7 +146,7 @@ function KeyPrompt(props: { error: string | null; onSubmit: (key: string) => voi
           <label htmlFor="admin-key" className="mb-1.5 block text-sm font-medium text-neutral-700">
             Admin key
           </label>
-          <input
+          <Input
             id="admin-key"
             type="password"
             autoComplete="current-password"
@@ -158,7 +156,7 @@ function KeyPrompt(props: { error: string | null; onSubmit: (key: string) => voi
             placeholder="Paste your key"
             aria-invalid={!!props.error}
             aria-describedby={props.error ? "admin-key-error" : undefined}
-            className="h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-neutral-900 focus:ring-4 focus:ring-neutral-100"
+            className="h-10 min-w-0"
           />
           {props.error ? (
             <p id="admin-key-error" role="alert" className="mt-2 text-sm text-red-600">
@@ -166,9 +164,9 @@ function KeyPrompt(props: { error: string | null; onSubmit: (key: string) => voi
             </p>
           ) : null}
         </div>
-        <button type="submit" className={PRIMARY_BUTTON} disabled={!input.trim()}>
+        <Button type="submit" className="h-10" disabled={!input.trim()}>
           Open dashboard
-        </button>
+        </Button>
         <p className="text-xs leading-5 text-neutral-500">
           For Kaata operators. The key stays in this browser until you sign out.
         </p>

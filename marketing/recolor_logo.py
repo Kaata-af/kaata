@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Recolor Kaata's two-tone logo rasters from black to Aubergine.
+"""Build Kaata's Aubergine logo for flyers and social artwork only.
 
-The launcher, splash, favicon and logo PNGs were exported as a white K on a
-black tile, and no editable master exists. Each pixel is remapped by its own
-gray level, so the K's shape and anti-aliasing stay exactly as exported:
+The original logo is a white K on a black tile. Each pixel is remapped by its
+own gray level, so the K's shape and anti-aliasing stay exactly as exported:
 
     t     = luminance / 255              (0 = black tile, 1 = white K)
     color = lerp(Aubergine, White, t)    (colors from apps/_shared/brand-palette.json)
@@ -11,8 +10,9 @@ gray level, so the K's shape and anti-aliasing stay exactly as exported:
 
 Sources are always the black originals read from git (SOURCE_COMMIT), never the
 working tree, so a re-run is idempotent and a palette change is one edit to the
-JSON followed by `python marketing/recolor_logo.py`. `--check` reports whether
-the files on disk match without writing anything. Requires Pillow and git.
+JSON followed by `python marketing/recolor_logo.py`. Output is confined to
+marketing/assets: app, website, splash, notification and store assets are never
+overwritten. `--check` compares without writing. Requires Pillow and git.
 """
 import io
 import json
@@ -26,21 +26,9 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 # Last commit with the black originals (0f7cc3b, 2026-06-25).
 SOURCE_COMMIT = "0f7cc3b3d44856468b6d471bccba6d6d361ae22c"
 
-# Recolored in place: same path, size and mode as the original.
-TARGETS = [
-    "apps/mobile/assets/icon.png",  # iOS/legacy launcher icon, 1024 opaque
-    "apps/mobile/assets/splash-icon.png",  # native splash, 1024 opaque
-    "apps/mobile/assets/favicon.png",  # Expo web favicon, 256 rounded tile
-    "apps/mobile/assets/logo.png",  # 512 rounded tile
-    "apps/web/public/favicon.png",  # kaata.af favicon, 256 rounded tile
-    "apps/web/public/logo.png",  # site logo + og:image, 512 rounded tile
-]
-
-# Downscaled copies of the recolored square icon (opaque, full bleed; the
-# platform applies its own corner mask).
-DERIVED = {
-    "apps/web/public/apple-touch-icon.png": ("apps/mobile/assets/icon.png", 180),
-    "docs/store-assets/play-icon-512.png": ("apps/mobile/assets/icon.png", 512),
+# Marketing-only destination -> exact black original source in Git.
+TARGETS = {
+    "marketing/assets/logo.png": "apps/web/public/logo.png",
 }
 
 # A source with more chroma than this is not a two-tone gray image.
@@ -87,9 +75,11 @@ def encode(image: Image.Image) -> bytes:
 def build() -> dict[str, Image.Image]:
     palette = json.loads((REPO / "apps/_shared/brand-palette.json").read_text(encoding="utf-8"))
     dark, light = hex_rgb(palette["aubergine"]), hex_rgb(palette["white"])
-    images = {path: recolor(original(path), dark, light) for path in TARGETS}
-    for path, (source, size) in DERIVED.items():
-        images[path] = images[source].resize((size, size), Image.LANCZOS)
+    images = {}
+    for target, source in TARGETS.items():
+        if not (REPO / target).resolve().is_relative_to((REPO / "marketing/assets").resolve()):
+            raise ValueError("logo output must stay inside marketing/assets")
+        images[target] = recolor(original(source), dark, light)
     return images
 
 
@@ -116,6 +106,7 @@ def main() -> int:
             stale.append(path)
             print(f"stale   {path}")
             continue
+        target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(encode(image))
         print(f"wrote   {path} {image.size[0]}x{image.size[1]} {image.mode}")
     return 1 if stale else 0

@@ -27,7 +27,7 @@ def main():
         "{{WIDTH}}": str(width),
         "{{HEIGHT}}": str(height),
         "{{FORMAT}}": args.format,
-        "{{LOGO}}": encoded(REPO / "apps/web/public/logo.png"),
+        "{{LOGO}}": encoded(REPO / "marketing/assets/logo.png"),
         "{{VAZIR_AR_400}}": encoded(fonts / "vazirmatn-arabic-400-normal.woff2"),
         "{{VAZIR_AR_700}}": encoded(fonts / "vazirmatn-arabic-700-normal.woff2"),
         "{{VAZIR_LA_400}}": encoded(fonts / "vazirmatn-latin-400-normal.woff2"),

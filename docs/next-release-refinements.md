@@ -498,6 +498,38 @@ remain for repeated focus/clear/close, slow interactive drags and cancellations,
 toasts, narrow screens, large text and navigating to an add form and back.
 This source change follows testing build 36/56 and has not been uploaded.
 
+## October 13 neutral product identity and Afghan reporting week
+
+The user requested the original black icon/splash and mostly black/white/gray
+app and website. Mobile identity assets are restored from their exact original
+Git bytes, and native splash/adaptive/notification colors are black. Onboarding
+and export headers also use neutral tokens. The web adopts actual neutral
+shadcn Button, Card, Input and Skeleton components for public controls and
+shared admin chrome. Statement/invite/error pages and transactional email chrome
+follow the same product direction. Financial, review, provider and chart colors
+retain their meaning. The five-color marketing palette stays intact, with its
+own colored logo asset and generators that cannot overwrite product assets.
+
+Dashboard weeks now run **Saturday–Friday in Kabul**, including weekly activity,
+growth accounting and install cohorts. Saturday–Thursday are the working days;
+Friday is the holiday, with any Friday app use still included in the seven-day
+metric. Migration 060 preserves frozen Monday rows and recomputes Saturday
+windows from recorded daily history before freezing them separately. It never
+shifts a Monday aggregate to a Saturday label. API metadata keeps frontend labels
+correct during rollout/rollback; incomplete coverage and undefined growth rates
+remain explicit.
+
+This batch also ships the prior local home/search/group/keyboard refinements.
+The candidate remains **2.2.0**, with **iOS 37 / Android 57**, restricted to
+TestFlight and Play internal testing. Fresh store preflight shows production
+2.1.1 is now approved on both stores; this testing request does not promote 2.2.0
+or change production store versions. Mobile 53 selftest suites, TypeScript,
+explicit iOS/Android production bundle exports, web 90 tests/typecheck/build and
+26 release-helper tests passed. Saturday-boundary/migration checks passed on an
+isolated PostgreSQL database; full server verification is recorded with delivery.
+Browser checks inspected neutral English/Dari web layouts at desktop and phone
+widths. Native phone checks remain separate.
+
 ## Deferred by the user
 
 The household/shopkeeper ledger needs two parties: the user and Dad on one
@@ -589,7 +621,7 @@ restored; changing solo-mode configuration alone is insufficient.
    PDF exports, adaptive icons and notification contrast. Compare web/admin and
    statement/invite pages at mobile and desktop widths. Review email rendering,
    flyer print output, social formats and later store screenshots together.
-7. Weekly growth: compare counts with the weekly activity chart; confirm Monday
+7. Weekly growth: compare counts with the weekly activity chart; confirm Saturday
    rollover in Kabul even in a browser abroad, the latest completed-week verdict,
    current-week provisional target, zero/unknown/partial coverage and the
    historical UTC/Kabul transition. Verify missing/older backend, loading and

@@ -1,10 +1,8 @@
-import brand from "../../_shared/brand-palette.json";
-
 // Everyday app chrome is neutral: white reading surfaces, gray separators and
-// black actions. Brand colors stay available for the first-run journey, logo,
-// occasional highlights and exported/marketing materials. They never replace
-// emerald/garnet direction, pending amber or danger. Saffron is a background
-// highlight with dark ink, never small light text.
+// black actions, including onboarding, the logo and exports. The marketing
+// palette lives separately in apps/_shared/brand-palette.json for flyers and
+// social posts; changing it must not recolor the app. Emerald/garnet direction,
+// pending amber, provider artwork and danger keep their semantic meanings.
 //
 // Khatabook flow-direction convention: collect = money TOWARD you (the
 // to-collect balance + "I received" entries); pay = money AWAY from you (the
@@ -12,9 +10,10 @@ import brand from "../../_shared/brand-palette.json";
 // you", on balances AND entries. Kept in sync with the web app
 // (apps/web/src/theme.ts) + the backend SSR ledger (internal/shared/templates.go).
 export const colors = {
-  brandPrimary: brand.aubergine,
-  brandAccent: brand.saffron,
-  bgWarm: brand.ivory,
+  // Existing branding/onboarding roles remain neutral without changing layouts.
+  brandPrimary: "#000000",
+  brandAccent: "#171717",
+  bgWarm: "#FFFFFF",
   // Keep action intent separate from brand identity so ordinary controls do
   // not become purple whenever the brand palette is used elsewhere.
   actionPrimary: "#000000",
@@ -23,7 +22,7 @@ export const colors = {
   // Linked two-party account marker; never used for money direction.
   sharedAccount: "#2563EB",
   // Backgrounds
-  bgDefault: brand.white,
+  bgDefault: "#FFFFFF",
   bgMuted: "#F7F7F7",
   bgSubtle: "#EFEFEF",
   bgInverted: "#000000",
@@ -33,7 +32,7 @@ export const colors = {
   textDefault: "#292929",
   textSubtle: "#616161",
   textMuted: "#6B6B6B",
-  textInverted: brand.white,
+  textInverted: "#FFFFFF",
 
   // Borders — hairline everywhere
   borderSubtle: "#EFEFEF",

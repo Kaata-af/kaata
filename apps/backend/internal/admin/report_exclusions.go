@@ -46,7 +46,7 @@ const reportExclusionCTEs = `
 // growthRulesVersion is part of the fingerprint closed weeks are recorded
 // under (admin_growth_weeks.rules). Bump it when a change to the accounting
 // or exclusion queries should recalculate weeks that are already recorded.
-const growthRulesVersion = "growth-rules-v1"
+const growthRulesVersion = "growth-rules-v2-saturday"
 
 // exclusionRules fingerprints everything that decides which installs the
 // install metrics leave out: OPERATOR_ACCOUNT_IDS and the install and account

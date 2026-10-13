@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useI18n } from "../lib/i18n";
 import { PhoneMockupHome } from "./PhoneMockups";
+import { Button } from "./ui/button";
 
 export function Hero() {
   const { t } = useI18n();
@@ -18,18 +19,12 @@ export function Hero() {
         </p>
 
         <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center items-stretch sm:items-center">
-          <Link
-            to="/download"
-            className="bg-brand-primary text-white font-semibold px-7 py-3 rounded-lg hover:bg-brand-hover transition-colors text-sm"
-          >
-            {t("hero.cta")}
-          </Link>
-          <Link
-            to="/#how"
-            className="text-neutral-600 hover:text-neutral-900 transition-colors px-4 py-3 text-sm font-medium"
-          >
-            {t("hero.how")}
-          </Link>
+          <Button asChild size="lg" className="min-h-11">
+            <Link to="/download">{t("hero.cta")}</Link>
+          </Button>
+          <Button asChild variant="ghost" size="lg" className="min-h-11">
+            <Link to="/#how">{t("hero.how")}</Link>
+          </Button>
         </div>
 
         <p className="mt-7 text-xs text-neutral-500 font-medium">{t("hero.points")}</p>

@@ -1,8 +1,11 @@
-// Shared chrome follows the brand palette: charcoal numbers and text, white
-// cards and aubergine controls. Chart hues remain a separate data language.
+// Shared chrome uses neutral shadcn primitives. Chart hues remain a separate
+// data language and retain their validated semantics.
 
 import type { ReactNode } from "react";
 import { brand } from "../../theme";
+import { Button } from "../../components/ui/button";
+import { Card as ShadcnCard } from "../../components/ui/card";
+import { Skeleton as ShadcnSkeleton } from "../../components/ui/skeleton";
 export { fmtDateTime } from "./dates";
 
 // Palette. Chart series colors were validated with the dataviz six-checks
@@ -31,7 +34,7 @@ export const C = {
 // bg-[#199e70] text-[#199e70] fill-[#199e70] stroke-[#199e70]
 // bg-[#e34948] text-[#e34948] fill-[#e34948] stroke-[#e34948]
 // bg-[#e5e5e5] text-[#e5e5e5] fill-[#e5e5e5] stroke-[#e5e5e5]
-// bg-[#29222B] text-[#29222B] fill-[#29222B] stroke-[#29222B]
+// bg-[#171717] text-[#171717] fill-[#171717] stroke-[#171717]
 
 export function fmtInt(n: number | undefined | null): string {
   return n == null ? "—" : n.toLocaleString();
@@ -85,7 +88,7 @@ export function Card(props: {
   action?: ReactNode;
 }) {
   return (
-    <section
+    <ShadcnCard
       className={`min-w-0 w-full max-w-full rounded-xl border border-brand-border bg-white p-4 shadow-sm sm:p-5 ${props.className ?? ""}`}
     >
       {props.title ? (
@@ -104,14 +107,14 @@ export function Card(props: {
         </div>
       ) : null}
       {props.children}
-    </section>
+    </ShadcnCard>
   );
 }
 
 // Pulse skeleton — one per card while its query is pending.
 export function Skeleton(props: { className?: string }) {
   return (
-    <div
+    <ShadcnSkeleton
       className={`max-w-full animate-pulse rounded-lg bg-brand-faint ${props.className ?? "h-24"}`}
     />
   );
@@ -141,12 +144,13 @@ export function ErrorCard(props: { message: string; onRetry: () => void }) {
       className="flex min-w-0 max-w-full flex-wrap items-center justify-between gap-4 rounded-xl border border-red-100 bg-red-50/50 p-4 sm:p-5"
     >
       <div className="min-w-0 break-words text-sm text-brand-sub">{props.message}</div>
-      <button
+      <Button
+        variant="outline"
         onClick={props.onRetry}
         className="min-h-11 shrink-0 rounded-lg border border-brand-border px-3 py-1.5 text-sm font-medium text-brand-ink hover:bg-brand-ivory"
       >
         Retry
-      </button>
+      </Button>
     </div>
   );
 }

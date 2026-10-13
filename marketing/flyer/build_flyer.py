@@ -20,7 +20,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 FONTS = REPO / "apps/web/public/fonts"
 PALETTE = json.loads((REPO / "apps/_shared/brand-palette.json").read_text(encoding="utf-8"))
-LOGO  = REPO / "apps/web/public/logo.png"
+LOGO  = REPO / "marketing/assets/logo.png"
 ASSETS = HERE / "assets"           # panel photos — gitignored, see README
 CHROME = "google-chrome"
 

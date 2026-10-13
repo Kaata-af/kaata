@@ -2,7 +2,7 @@ package tabs
 
 // Invitation landing only. No ledger reads, API credentials or financial OG
 // previews in the browser. html/template escapes the token in script context.
-// Brand colors mirror apps/_shared/brand-palette.json; financial data is absent.
+// Neutral product styling stays separate from the flyers/social palette.
 const viewHTML = `<!doctype html>
 <html lang="{{if .RTL}}fa{{else}}en{{end}}" dir="{{if .RTL}}rtl{{else}}ltr{{end}}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -11,11 +11,11 @@ const viewHTML = `<!doctype html>
 <meta property="og:description" content="{{if .RTL}}این دعوت را در برنامهٔ کاتا باز کنید.{{else}}Open this invitation in the Kaata app.{{end}}">
 <title>Kaata</title>
 <style>
-*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;padding:24px;background:#F9F2E7;color:#29222B;font:16px/1.7 system-ui,sans-serif}
-main{width:100%;max-width:420px;text-align:center;background:white;border:1px solid #E4DCE3;border-radius:20px;padding:36px 24px}
-.brand{font-size:26px;font-weight:700;color:#4A2A50}h1{font-size:21px;line-height:1.5;margin:24px 0 12px}p{color:#756B78}
-a{display:block;color:#29222B;text-decoration:none;padding:12px;margin-top:8px;border:1px solid #E4DCE3;border-radius:12px}
-.primary{background:#4A2A50;color:white;border-color:#4A2A50;font-weight:600;margin:24px 0}
+*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;padding:24px;background:#FFFFFF;color:#171717;font:16px/1.7 system-ui,sans-serif}
+main{width:100%;max-width:420px;text-align:center;background:white;border:1px solid #E2E2E2;border-radius:20px;padding:36px 24px}
+.brand{font-size:26px;font-weight:700;color:#000000}h1{font-size:21px;line-height:1.5;margin:24px 0 12px}p{color:#6B6B6B}
+a{display:block;color:#171717;text-decoration:none;padding:12px;margin-top:8px;border:1px solid #E2E2E2;border-radius:12px}
+.primary{background:#000000;color:white;border-color:#000000;font-weight:600;margin:24px 0}
 .stores{display:flex;gap:8px}.stores a{flex:1;font-size:14px}
 </style></head><body><main>
 <div class="brand" dir="ltr">kaata.</div>
@@ -45,7 +45,7 @@ const notFoundHTML = `<!doctype html>
 <meta name="color-scheme" content="only light">
 <meta name="robots" content="noindex, nofollow">
 <title>Kaata</title>
-<style>body{margin:0;background:#F9F2E7;color:#29222B;font-family:"Vazirmatn","Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px;-webkit-font-smoothing:antialiased;}a{color:#706573;font-weight:600;text-decoration:none;}</style>
+<style>body{margin:0;background:#FFFFFF;color:#171717;font-family:"Vazirmatn","Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px;-webkit-font-smoothing:antialiased;}a{color:#616161;font-weight:600;text-decoration:none;}</style>
 </head><body><div><div style="font-size:16px;font-weight:700;letter-spacing:-.01em" dir="ltr">kaata.</div>
-<p style="color:#706573;max-width:320px;line-height:1.55">{{if .RTL}}این حساب مشترک وجود ندارد یا لینک آن تازه شده است.{{else}}This tab doesn’t exist, or its link has been renewed.{{end}}</p>
+<p style="color:#616161;max-width:320px;line-height:1.55">{{if .RTL}}این حساب مشترک وجود ندارد یا لینک آن تازه شده است.{{else}}This tab doesn’t exist, or its link has been renewed.{{end}}</p>
 <p><a href="{{.Origin}}">{{if .RTL}}رفتن به kaata.af{{else}}Go to kaata.af{{end}}</a></p></div></body></html>`

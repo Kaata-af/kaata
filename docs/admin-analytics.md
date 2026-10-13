@@ -14,7 +14,9 @@ check-ins cannot make today's chart point disagree with DAU.
 ## Midnight and historical data
 
 New reporting days start at midnight in `Asia/Kabul` (19:30 UTC). Weekly buckets
-start on Monday. This is independent of the PostgreSQL session timezone and the
+start on Saturday and end on Friday (migration 060). Working days are Saturday
+through Thursday; Friday activity still counts toward the full reporting week.
+This is independent of the PostgreSQL session timezone and the
 operator's browser timezone. The web dashboard refreshes at that midnight, in
 addition to its regular polling and refresh on return from a hidden tab.
 
@@ -141,7 +143,7 @@ be the app reporting Android's `firebase.test.lab` system setting at check-in.
 
 Frozen weeks. The weekly growth accounting (new, retained, reactivated,
 churned) of a completed week is recorded the first time the dashboard reports
-it after Sunday ends in Kabul (`admin_growth_weeks`, migration 058; aggregates
+it after Friday ends in Kabul (`admin_growth_weeks`, migrations 058/060; aggregates
 only, no install or account ids) and reused from then on, so a device later
 signing in to another account, an identity merge or a purge cannot change a
 past week or its 7% verdict. Each row carries the fingerprint of the exclusion

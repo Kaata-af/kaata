@@ -83,7 +83,7 @@ func TestGetStatsActivityKabulMidnight(t *testing.T) {
 	}
 
 	// The same install in another hour remains one active install per day,
-	// week, and month. The new local Monday also starts the weekly bucket.
+	// week, and month. Monday stays inside the same Saturday-start weekly bucket.
 	seedActivityHour(t, pool, anonymous, "2026-09-13T20:30:00Z")
 	now = activityTime(t, "2026-09-13T20:40:00Z")
 	for _, tc := range []struct {
@@ -92,7 +92,7 @@ func TestGetStatsActivityKabulMidnight(t *testing.T) {
 		active int64
 	}{
 		{"day", "2026-09-14", 1},
-		{"week", "2026-09-14", 1},
+		{"week", "2026-09-12", 2},
 		{"month", "2026-09", 2},
 	} {
 		t.Run(tc.bucket, func(t *testing.T) {
@@ -282,31 +282,31 @@ func TestGetGrowthStartsWeekAtKabulMidnight(t *testing.T) {
 	pool := testutil.ConnectTestDB(t)
 	ctx := t.Context()
 	setActivityCutover(t, pool, "2026-09-01")
-	install := seedActivityInstall(t, pool, nil, "2026-09-13T19:29:59Z")
-	seedActivityHour(t, pool, install, "2026-09-13T19:29:59Z")
+	install := seedActivityInstall(t, pool, nil, "2026-09-11T19:29:59Z")
+	seedActivityHour(t, pool, install, "2026-09-11T19:29:59Z")
 	svc := NewService(pool, nil, nil)
-	now := activityTime(t, "2026-09-13T19:29:59Z")
+	now := activityTime(t, "2026-09-11T19:29:59Z")
 	svc.now = func() time.Time { return now }
 	before, err := svc.GetGrowth(ctx)
 	if err != nil {
-		t.Fatalf("GetGrowth before Monday: %v", err)
+		t.Fatalf("GetGrowth before Saturday: %v", err)
 	}
-	if got := before.GrowthAccounting[len(before.GrowthAccounting)-1]; got.Week != "2026-09-07" || got.New != 1 {
-		t.Errorf("Sunday growth = %+v, want week 2026-09-07 new=1", got)
+	if got := before.GrowthAccounting[len(before.GrowthAccounting)-1]; got.Week != "2026-09-05" || got.New != 1 {
+		t.Errorf("Friday growth = %+v, want week 2026-09-05 new=1", got)
 	}
 
-	now = activityTime(t, "2026-09-13T19:30:00Z")
-	seedActivityHour(t, pool, install, "2026-09-13T19:30:00Z")
+	now = activityTime(t, "2026-09-11T19:30:00Z")
+	seedActivityHour(t, pool, install, "2026-09-11T19:30:00Z")
 	after, err := svc.GetGrowth(ctx)
 	if err != nil {
-		t.Fatalf("GetGrowth at Monday midnight: %v", err)
+		t.Fatalf("GetGrowth at Saturday midnight: %v", err)
 	}
-	if got := after.GrowthAccounting[len(after.GrowthAccounting)-1]; got.Week != "2026-09-14" || got.New != 0 || got.Retained != 1 || got.Churned != 0 {
-		t.Errorf("Monday growth = %+v, want week 2026-09-14 retained=1", got)
+	if got := after.GrowthAccounting[len(after.GrowthAccounting)-1]; got.Week != "2026-09-12" || got.New != 0 || got.Retained != 1 || got.Churned != 0 {
+		t.Errorf("Saturday growth = %+v, want week 2026-09-12 retained=1", got)
 	}
 	cohort := after.WeeklyCohorts[len(after.WeeklyCohorts)-2]
-	if cohort.Week != "2026-09-07" || cohort.Size != 1 || !reflect.DeepEqual(cohort.Retained, []int64{1, 1}) {
-		t.Errorf("Sunday cohort after Monday rollover = %+v, want week 2026-09-07 size=1 retained=[1 1]", cohort)
+	if cohort.Week != "2026-09-05" || cohort.Size != 1 || !reflect.DeepEqual(cohort.Retained, []int64{1, 1}) {
+		t.Errorf("Friday cohort after Saturday rollover = %+v, want week 2026-09-05 size=1 retained=[1 1]", cohort)
 	}
 }
 

@@ -87,6 +87,8 @@ export type Stats = {
   // Older activity was stored as UTC dates without times and cannot be
   // accurately reassigned to Kabul days. Optional during backend rollout.
   activity_timezone_since?: string;
+  // 6 = Saturday. Missing on older Monday-start backends during rollout.
+  week_starts_on?: number;
   generated_at: string;
 };
 
@@ -217,6 +219,7 @@ export type Growth = {
   generated_at: string;
   activity_timezone_since?: string;
   activity_tracking_since?: string;
+  week_starts_on?: number;
   growth_target_percent?: number;
   // Installs every install metric leaves out as operator or test data.
   excluded_installs?: number;
@@ -283,6 +286,7 @@ export function useGrowth() {
         generated_at: g.generated_at ?? "",
         activity_timezone_since: g.activity_timezone_since ?? "",
         activity_tracking_since: g.activity_tracking_since ?? "",
+        week_starts_on: g.week_starts_on,
         growth_target_percent: g.growth_target_percent,
         excluded_installs: g.excluded_installs,
       };

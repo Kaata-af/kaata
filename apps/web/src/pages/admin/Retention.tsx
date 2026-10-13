@@ -6,6 +6,7 @@ import { Metric, Text } from "@tremor/react";
 import { format, parseISO } from "date-fns";
 import { useGrowth, useStats, type Growth, type Stats } from "./api";
 import { Card, ErrorCard, PageHeader, SkeletonCard, fmtInt } from "./ui";
+import { reportingWeekLabels } from "./weekly-growth";
 
 export function Retention() {
   const stats = useStats();
@@ -99,6 +100,7 @@ function weekLabel(iso: string): string {
 // tooltips.
 function CohortGrid(props: { growth: Growth | null }) {
   const cohorts = props.growth?.weekly_cohorts ?? [];
+  const reporting = reportingWeekLabels(props.growth?.week_starts_on);
   if (props.growth === null || cohorts.length === 0 || !cohorts.some((c) => c.size > 0)) {
     return (
       <Card title="Weekly cohorts" sub="retention by install week">
@@ -114,7 +116,7 @@ function CohortGrid(props: { growth: Growth | null }) {
   return (
     <Card
       title="Weekly cohorts"
-      sub="Share of each install cohort that checked in during a later week"
+      sub={`Share of each install cohort that checked in during a later ${reporting.range} week`}
     >
       <p className="mb-2 text-xs text-brand-muted sm:hidden">Scroll across to see all weeks.</p>
       <div
@@ -183,9 +185,9 @@ function CohortGrid(props: { growth: Growth | null }) {
         </table>
       </div>
       <p className="mt-3 text-xs leading-relaxed text-brand-muted">
-        W0 is the install week; W1 is the following week. Weeks start Monday in the reporting
-        calendar. The current week is incomplete. Blank cells are future weeks; a dash means no
-        installs in that cohort.
+        W0 is the install week; W1 is the following week. Weeks start {reporting.start} in the
+        reporting calendar. The current week is incomplete. Blank cells are future weeks; a dash
+        means no installs in that cohort.
       </p>
     </Card>
   );

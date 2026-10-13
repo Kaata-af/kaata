@@ -80,13 +80,13 @@ func TestReportExclusionsApplyToEveryInstallMetric(t *testing.T) {
 	if g.ExcludedInstalls != 5 {
 		t.Errorf("growth excluded installs = %d, want 5", g.ExcludedInstalls)
 	}
-	last := growthWeek(t, g, "2026-09-21")
+	last := growthWeek(t, g, "2026-09-19")
 	if last.Active != 2 || last.PreviousActive != 2 || !last.Complete || last.RecordedAt == "" {
 		t.Errorf("last completed week = %+v, want 2 active from 2, recorded", last)
 	}
-	cohort := g.WeeklyCohorts[growthWeeks-5] // 2026-08-31, the install week
-	if cohort.Week != "2026-08-31" || cohort.Size != 2 {
-		t.Errorf("install cohort = %+v, want week 2026-08-31 size 2", cohort)
+	cohort := g.WeeklyCohorts[growthWeeks-5] // 2026-08-29, the install week
+	if cohort.Week != "2026-08-29" || cohort.Size != 2 {
+		t.Errorf("install cohort = %+v, want week 2026-08-29 size 2", cohort)
 	}
 	if g.Adoption.SignedIn != 1 || g.Adoption.MultiMember != 1 || g.Adoption.WithSettlements != 1 {
 		t.Errorf("adoption = %+v, want signed_in 1 (real), multi_member 1 (real only), settlements 1 (%s)",
@@ -123,7 +123,7 @@ func TestClosedWeeksKeepTheirCountsWhenDeviceLinksChange(t *testing.T) {
 	svc := NewService(pool, []string{operator, reviewer}, nil)
 	now := activityTime(t, "2026-09-28T10:00:00Z")
 	svc.now = func() time.Time { return now }
-	first := growthWeek(t, mustGrowth(t, svc), "2026-09-21")
+	first := growthWeek(t, mustGrowth(t, svc), "2026-09-19")
 	if first.Active != 4 || first.PreviousActive != 3 || first.TargetMet == nil || !*first.TargetMet {
 		t.Fatalf("first report = %+v, want 4 from 3, target met", first)
 	}
@@ -135,7 +135,7 @@ func TestClosedWeeksKeepTheirCountsWhenDeviceLinksChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	now = activityTime(t, "2026-09-29T10:00:00Z")
-	after := growthWeek(t, mustGrowth(t, svc), "2026-09-21")
+	after := growthWeek(t, mustGrowth(t, svc), "2026-09-19")
 	if after.Active != first.Active || after.PreviousActive != first.PreviousActive ||
 		after.RecordedAt != first.RecordedAt || after.TargetMet == nil || *after.TargetMet != *first.TargetMet {
 		t.Fatalf("closed week changed after link changes: %+v, first %+v", after, first)
@@ -152,25 +152,25 @@ func TestClosedWeeksKeepTheirCountsWhenDeviceLinksChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	now = activityTime(t, "2026-09-30T10:00:00Z")
-	corrected := growthWeek(t, mustGrowth(t, svc), "2026-09-21")
+	corrected := growthWeek(t, mustGrowth(t, svc), "2026-09-19")
 	if corrected.Active != 4 || corrected.PreviousActive != 4 || corrected.RecordedAt != "2026-09-30T10:00:00Z" ||
 		corrected.TargetMet == nil || *corrected.TargetMet {
 		t.Fatalf("after excluding the newcomer = %+v, want 4 from 4 (operator phone now counted), below target, re-recorded", corrected)
 	}
 	now = activityTime(t, "2026-10-01T10:00:00Z")
-	if again := growthWeek(t, mustGrowth(t, svc), "2026-09-21"); again.RecordedAt != corrected.RecordedAt || again.Active != corrected.Active {
+	if again := growthWeek(t, mustGrowth(t, svc), "2026-09-19"); again.RecordedAt != corrected.RecordedAt || again.Active != corrected.Active {
 		t.Errorf("unchanged rules recalculated the week: %+v", again)
 	}
 	// Undo is a rule change too.
 	if _, err := svc.SetOutreachExclusion(ctx, "install", newcomer, false, ""); err != nil {
 		t.Fatal(err)
 	}
-	if undone := growthWeek(t, mustGrowth(t, svc), "2026-09-21"); undone.Active != 5 || undone.PreviousActive != 4 {
+	if undone := growthWeek(t, mustGrowth(t, svc), "2026-09-19"); undone.Active != 5 || undone.PreviousActive != 4 {
 		t.Errorf("after undo = %+v, want 5 from 4", undone)
 	}
 	// The unfinished week is never recorded.
 	var recorded int
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM admin_growth_weeks WHERE week >= '2026-09-28'`).Scan(&recorded); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM admin_growth_weeks WHERE week >= '2026-09-26' AND week_starts_on = 6`).Scan(&recorded); err != nil {
 		t.Fatal(err)
 	}
 	if recorded != 0 {

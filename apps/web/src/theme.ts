@@ -1,16 +1,19 @@
-import palette from "../../_shared/brand-palette.json";
-
-// One brand palette for product, web and marketing. Derived neutrals keep
-// secondary text readable; saffron is a highlight, never body text on white.
+// Web chrome follows shadcn's neutral theme. Keep these compatibility names
+// for existing pages and Tremor; the marketing palette remains independent in
+// apps/_shared/brand-palette.json for flyers and social material.
 export const brand = {
-  ...palette,
-  primary: palette.aubergine,
-  hover: "#3B2140",
-  faint: "#F3EEE8",
-  border: "#E4DCE3",
-  ink: palette.charcoal,
-  sub: "#706573",
-  muted: "#756B78",
+  aubergine: "#171717",
+  saffron: "#F5F5F5",
+  ivory: "#FAFAFA",
+  charcoal: "#171717",
+  white: "#FFFFFF",
+  primary: "#171717",
+  hover: "#262626",
+  faint: "#F5F5F5",
+  border: "#E5E5E5",
+  ink: "#171717",
+  sub: "#525252",
+  muted: "#737373",
 } as const;
 
 // Shared ledger semantic palette for the web app — imported by BOTH

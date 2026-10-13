@@ -131,6 +131,7 @@ type Stats struct {
 	GeneratedAt string `json:"generated_at"`
 	// Earlier date-only history used UTC and cannot be exactly re-bucketed.
 	ActivityTimezoneSince string `json:"activity_timezone_since"`
+	WeekStartsOn          int    `json:"week_starts_on"` // 6 = Saturday; rolling WAU remains seven days
 }
 
 // bucketSpec maps a granularity to the date_trunc field, generate_series step
@@ -161,6 +162,7 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 	var st Stats
 	st.Bucket = bucket
 	st.Points = points
+	st.WeekStartsOn = int(time.Saturday)
 
 	// Installs funnel. `keep` = not test data (reportExclusionCTEs: operator
 	// accounts in $1 and the installs/accounts excluded as test data, including
@@ -230,14 +232,14 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		  SELECT $6::timestamptz AT TIME ZONE 'Asia/Kabul' AS local_now
 		), buckets AS (
 		  SELECT generate_series(
-		    date_trunc($2, local_now) - ($4 - 1) * $3::interval,
-		    date_trunc($2, local_now),
+		    admin_bucket_start($2, local_now) - ($4 - 1) * $3::interval,
+		    admin_bucket_start($2, local_now),
 		    $3::interval
 		  ) AS b
 		  FROM clock
 		),
 		ins AS (
-		  SELECT date_trunc($2, CASE WHEN $2 = 'hour'
+		  SELECT admin_bucket_start($2, CASE WHEN $2 = 'hour'
 		    THEN COALESCE(i.installed_at, i.first_seen_at) AT TIME ZONE 'Asia/Kabul'
 		    ELSE d.installed_date::timestamp END) AS b, COUNT(*) AS n
 		  FROM installs i JOIN admin_install_dates d USING (install_id)
@@ -260,7 +262,7 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		    AND h.install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		),
 		act AS (
-		  SELECT date_trunc($2, at) AS b, COUNT(DISTINCT install_id) AS n
+		  SELECT admin_bucket_start($2, at) AS b, COUNT(DISTINCT install_id) AS n
 		  FROM activity
 		  GROUP BY 1
 		), engagement AS (

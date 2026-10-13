@@ -12,7 +12,7 @@ import (
 // growth accounting (new / retained / resurrected / churned), and feature
 // adoption, for the operator dashboard's Retention + Overview sections.
 //
-// Weeks are ISO weeks (Monday start) in the reporting calendar: Kabul since
+// Weeks run Saturday through Friday in the reporting calendar: Kabul since
 // migration 036, with earlier UTC date-only history preserved. All install
 // metrics apply the SAME test-data exclusion as GetStats (reportExclusionCTEs:
 // operator accounts plus the installs and accounts excluded as test data;
@@ -28,7 +28,7 @@ import (
 // merged, or loses its account link to a purge. Excluding or including test
 // data, or editing OPERATOR_ACCOUNT_IDS, recalculates them once.
 
-// growthWeeks is the reporting window: the current ISO week plus the 11 before
+// growthWeeks is the reporting window: the current Afghan week plus the 11 before
 // it. Also the cap on cohort retained[] length (a cohort is tracked at most 12
 // weeks out, W0..W11).
 const growthWeeks = 12
@@ -39,7 +39,7 @@ const growthWeeks = 12
 const growthTargetPercent int64 = 7
 
 type CohortRow struct {
-	// Week is the cohort's ISO week start (Monday), date only.
+	// Week is the cohort's reporting week start (Saturday), date only.
 	Week string `json:"week"`
 	// Size = non-operator installs whose install time falls in this week
 	// (COALESCE(installed_at, first_seen_at), same fallback as the stats series).
@@ -63,7 +63,7 @@ type GrowthWeek struct {
 	Active                   int64    `json:"active"`
 	PreviousActive           int64    `json:"previous_active"`
 	Change                   int64    `json:"change"`
-	Complete                 bool     `json:"complete"`          // Monday–Sunday has ended in Kabul
+	Complete                 bool     `json:"complete"`          // Saturday–Friday has ended in Kabul
 	TrackingComplete         bool     `json:"tracking_complete"` // tracking existed before this week started
 	PreviousTrackingComplete bool     `json:"previous_tracking_complete"`
 	CalendarComparable       bool     `json:"calendar_comparable"` // excludes UTC/Kabul transition week and its following comparison
@@ -100,6 +100,7 @@ type Growth struct {
 	ActivityTimezoneSince string       `json:"activity_timezone_since"`
 	ActivityTrackingSince string       `json:"activity_tracking_since"`
 	GrowthTargetPercent   int64        `json:"growth_target_percent"`
+	WeekStartsOn          int          `json:"week_starts_on"` // 6 = Saturday; additive rollout metadata
 	// ExcludedInstalls = installs every metric above leaves out as operator
 	// or test data (reportExclusionCTEs), so the page can say how many.
 	ExcludedInstalls int64 `json:"excluded_installs"`
@@ -125,6 +126,7 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 		g.ActivityTrackingSince = trackingSince.UTC().Format(time.RFC3339)
 	}
 	g.GrowthTargetPercent = growthTargetPercent
+	g.WeekStartsOn = int(time.Saturday)
 	// The fingerprint the recorded weeks must match, read before the
 	// accounting: freezeClosedWeeks reads it again and records nothing if an
 	// exclusion changed in between, so no week is recorded under rules its
@@ -140,13 +142,13 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 	rows, err := s.pool.Query(ctx, `
 		WITH `+reportExclusionCTEs+`,
 		cur AS (
-		  SELECT date_trunc('week', $3::timestamptz AT TIME ZONE 'Asia/Kabul')::date AS w
+		  SELECT admin_bucket_start('week', $3::timestamptz AT TIME ZONE 'Asia/Kabul')::date AS w
 		),
 		weeks AS (
 		  SELECT generate_series((SELECT w FROM cur) - 7 * ($2 - 1), (SELECT w FROM cur), '7 days'::interval)::date AS w
 		),
 		base AS (
-		  SELECT date_trunc('week', d.installed_date::timestamp)::date AS cw
+		  SELECT admin_bucket_start('week', d.installed_date::timestamp)::date AS cw
 		  FROM installs JOIN admin_install_dates d USING (install_id)
 		  WHERE install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		)
@@ -187,16 +189,16 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 	rrows, err := s.pool.Query(ctx, `
 		WITH `+reportExclusionCTEs+`,
 		cur AS (
-		  SELECT date_trunc('week', $3::timestamptz AT TIME ZONE 'Asia/Kabul')::date AS w
+		  SELECT admin_bucket_start('week', $3::timestamptz AT TIME ZONE 'Asia/Kabul')::date AS w
 		),
 		base AS (
 		  SELECT install_id,
-		         date_trunc('week', d.installed_date::timestamp)::date AS cw
+		         admin_bucket_start('week', d.installed_date::timestamp)::date AS cw
 		  FROM installs JOIN admin_install_dates d USING (install_id)
 		  WHERE install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		),
 		act AS (
-		  SELECT DISTINCT install_id, date_trunc('week', active_date::timestamp)::date AS aw
+		  SELECT DISTINCT install_id, admin_bucket_start('week', active_date::timestamp)::date AS aw
 		  FROM admin_active_days
 		  WHERE active_date <= ($3::timestamptz AT TIME ZONE 'Asia/Kabul')::date
 		)
@@ -236,13 +238,13 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 	grows, err := s.pool.Query(ctx, `
 		WITH `+reportExclusionCTEs+`,
 		cur AS (
-		  SELECT date_trunc('week', $3::timestamptz AT TIME ZONE 'Asia/Kabul')::date AS w
+		  SELECT admin_bucket_start('week', $3::timestamptz AT TIME ZONE 'Asia/Kabul')::date AS w
 		),
 		weeks AS (
 		  SELECT generate_series((SELECT w FROM cur) - 7 * ($2 - 1), (SELECT w FROM cur), '7 days'::interval)::date AS w
 		),
 		aw AS (
-		  SELECT DISTINCT a.install_id, date_trunc('week', a.active_date::timestamp)::date AS w
+		  SELECT DISTINCT a.install_id, admin_bucket_start('week', a.active_date::timestamp)::date AS w
 		  FROM admin_active_days a
 		  WHERE a.install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		    AND a.active_date <= ($3::timestamptz AT TIME ZONE 'Asia/Kabul')::date
@@ -341,14 +343,14 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 	return g, nil
 }
 
-// kabulWeekStart is the current reporting week's Monday in Kabul,
+// kabulWeekStart is the current reporting week's Saturday in Kabul,
 // "YYYY-MM-DD" — the same week the SQL above calls `cur`. A week labelled
 // earlier than it has ended.
 func kabulWeekStart(now time.Time) string {
 	kabul := time.FixedZone("Asia/Kabul", 4*60*60+30*60)
 	local := now.In(kabul)
 	today := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, kabul)
-	return today.AddDate(0, 0, -((int(today.Weekday()) + 6) % 7)).Format("2006-01-02")
+	return today.AddDate(0, 0, -((int(today.Weekday()) + 1) % 7)).Format("2006-01-02")
 }
 
 // freezeClosedWeeks records every completed week's accounting the first time
@@ -401,8 +403,8 @@ func (s *Service) freezeClosedWeeks(ctx context.Context, weeks []GrowthWeek, now
 	// under the same rules converge on whichever row committed first.
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO admin_growth_weeks AS g
-		  (week, rules, new_installs, retained, resurrected, churned, recorded_at)
-		SELECT t.week::date, $2, t.n, t.r, t.z, t.c, $7
+		  (week, week_starts_on, rules, new_installs, retained, resurrected, churned, recorded_at)
+		SELECT t.week::date, 6, $2, t.n, t.r, t.z, t.c, $7
 		FROM unnest($1::text[], $3::bigint[], $4::bigint[], $5::bigint[], $6::bigint[]) AS t(week, n, r, z, c)
 		ON CONFLICT (week) DO UPDATE SET
 		  rules = EXCLUDED.rules,
@@ -418,7 +420,7 @@ func (s *Service) freezeClosedWeeks(ctx context.Context, weeks []GrowthWeek, now
 	rows, err := tx.Query(ctx, `
 		SELECT to_char(week, 'YYYY-MM-DD'), new_installs, retained, resurrected, churned, recorded_at
 		FROM admin_growth_weeks
-		WHERE week = ANY($1::text[]::date[]) AND rules = $2
+		WHERE week = ANY($1::text[]::date[]) AND rules = $2 AND week_starts_on = 6
 	`, labels, rules)
 	if err != nil {
 		return err
@@ -461,11 +463,11 @@ func (s *Service) freezeClosedWeeks(ctx context.Context, weeks []GrowthWeek, now
 // in; the migration-036 cutover is disclosed separately by the API.
 func fillWeeklyGrowth(weeks []GrowthWeek, now, trackingSince time.Time, kabulSince string) {
 	kabul := time.FixedZone("Asia/Kabul", 4*60*60+30*60)
-	currentMonday := kabulWeekStart(now)
+	currentSaturday := kabulWeekStart(now)
 	cutoverDate, cutoverErr := time.Parse("2006-01-02", kabulSince)
-	cutoverMonday := cutoverDate.AddDate(0, 0, -((int(cutoverDate.Weekday()) + 6) % 7))
-	transitionWeek := cutoverMonday.Format("2006-01-02")
-	followingWeek := cutoverMonday.AddDate(0, 0, 7).Format("2006-01-02")
+	cutoverSaturday := cutoverDate.AddDate(0, 0, -((int(cutoverDate.Weekday()) + 1) % 7))
+	transitionWeek := cutoverSaturday.Format("2006-01-02")
+	followingWeek := cutoverSaturday.AddDate(0, 0, 7).Format("2006-01-02")
 	weekStart := func(label string) time.Time {
 		zone := kabul
 		if label < kabulSince {
@@ -481,7 +483,7 @@ func fillWeeklyGrowth(weeks []GrowthWeek, now, trackingSince time.Time, kabulSin
 		w.Active = w.New + w.Retained + w.Resurrected
 		w.PreviousActive = w.Retained + w.Churned
 		w.Change = w.Active - w.PreviousActive
-		w.Complete = w.Week < currentMonday
+		w.Complete = w.Week < currentSaturday
 		start := weekStart(w.Week)
 		w.TrackingComplete = !trackingSince.IsZero() && !start.Before(trackingSince)
 		previousLabel := start.AddDate(0, 0, -7).Format("2006-01-02")
@@ -490,7 +492,7 @@ func fillWeeklyGrowth(weeks []GrowthWeek, now, trackingSince time.Time, kabulSin
 		// activity and can only seed the rollout day's latest known check-in.
 		// Keep its observed counts, but do not claim a comparable growth rate
 		// in that week or use it as the next week's benchmark baseline. Even a
-		// Monday cutover can be a mid-day deploy with partial hourly history.
+		// Saturday cutover can be a mid-day deploy with partial hourly history.
 		w.CalendarComparable = cutoverErr == nil && w.Week != transitionWeek && w.Week != followingWeek
 		if !w.TrackingComplete || !w.PreviousTrackingComplete || !w.CalendarComparable || w.PreviousActive == 0 {
 			continue

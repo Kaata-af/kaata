@@ -2,6 +2,14 @@ import type { Growth, GrowthWeek } from "./api";
 
 export const WEEKLY_GROWTH_TARGET = 7;
 
+// Follow backend metadata during rollout/rollback. A new frontend must never
+// label the previous backend's Monday aggregates as Saturday reporting weeks.
+export function reportingWeekLabels(weekStartsOn?: number) {
+  return weekStartsOn === 6
+    ? { range: "Saturday–Friday", start: "Saturday", end: "Friday" }
+    : { range: "Monday–Sunday", start: "Monday", end: "Sunday" };
+}
+
 // Use the server's reporting calendar/coverage rather than the browser clock.
 // An older backend can still render accounting charts, but cannot claim that
 // its historical tracking covered two full weeks.
