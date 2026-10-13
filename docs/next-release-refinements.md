@@ -462,6 +462,16 @@ and cancelled drags, closing/refocusing, Android Back, narrow screens and large
 text with a full list. This source change follows testing build 36/56 and has
 not been uploaded.
 
+## October 13 search clear-button alignment — awaiting next testing build
+
+Both bottom searches use the same plain cross, vertically centered in a fixed
+44pt tap area at the trailing edge. The home clear target no longer leaves extra
+padding around that edge, matching the tally search. Explicit physical margins
+mirror the spacing in Dari; the previous tally `marginEnd` did not follow the
+app's manual row reversal. Clear still only clears the query, independently of
+the keyboard-down control and date filter. Existing search regressions and
+TypeScript passed; inspect the alignment on phones in the next testing build.
+
 ## Deferred by the user
 
 The household/shopkeeper ledger needs two parties: the user and Dad on one

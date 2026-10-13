@@ -1754,13 +1754,12 @@ export default function PersonDetailScreen() {
                           onPress={() => setSearchQuery("")}
                           accessibilityRole="button"
                           accessibilityLabel={t("person.search.clear")}
-                          style={styles.clearSearch}
+                          style={[
+                            styles.clearSearch,
+                            isRTL ? styles.clearSearchRTL : styles.clearSearchLTR,
+                          ]}
                         >
-                          <Ionicons
-                            name="close-circle"
-                            size={icon.trailing}
-                            color={colors.textSubtle}
-                          />
+                          <Ionicons name="close" size={icon.trailing} color={colors.textSubtle} />
                         </Pressable>
                       ) : null}
                     </View>
@@ -2199,12 +2198,15 @@ const styles = StyleSheet.create({
   },
   searchInput: { ...typography.body, flex: 1, color: colors.textEmphasis, paddingVertical: 10 },
   clearSearch: {
-    minWidth: TOUCH_MIN,
-    minHeight: TOUCH_MIN,
+    width: TOUCH_MIN,
+    height: TOUCH_MIN,
+    flexShrink: 0,
     justifyContent: "center",
     alignItems: "center",
-    marginEnd: -12,
   },
+  // The Activity stays LTR, so choose the outer physical edge explicitly.
+  clearSearchLTR: { marginRight: -12 },
+  clearSearchRTL: { marginLeft: -12 },
   searchSummary: { ...typography.bodySm, color: colors.textSubtle },
   actions: {
     // INVARIANT: "I received" stays physical LEFT, "I gave" stays physical

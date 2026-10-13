@@ -1267,7 +1267,10 @@ export default function HomeScreen() {
                 />
                 {customerQuery.length > 0 ? (
                   <Pressable
-                    style={styles.clearSearch}
+                    style={[
+                      styles.clearSearch,
+                      isRTL ? styles.clearSearchRTL : styles.clearSearchLTR,
+                    ]}
                     accessibilityRole="button"
                     accessibilityLabel={t("customers.search.clear")}
                     onPress={() => setCustomerQuery("")}
@@ -2176,7 +2179,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textDefault,
   },
-  clearSearch: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  clearSearch: {
+    width: 44,
+    height: 44,
+    flexShrink: 0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  // Release the bar's outer padding while retaining the full clear target.
+  // Manual row reversal does not mirror Yoga's logical margins.
+  clearSearchLTR: { marginRight: -8 },
+  clearSearchRTL: { marginLeft: -8 },
   listOptionsDot: {
     position: "absolute",
     top: 9,
