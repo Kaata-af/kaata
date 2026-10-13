@@ -787,6 +787,7 @@ const en = {
   "common.retry": "Retry",
   "common.done": "Done",
   "common.close": "Close",
+  "common.hideKeyboard": "Hide keyboard",
   "common.loading": "Loading…",
   "common.tryAgain": "Try again",
   "common.removed": "{name} removed",
@@ -3117,6 +3118,7 @@ const fa: Partial<Record<Key, string>> = {
 
   "common.done": "تمام",
   "common.close": "بستن",
+  "common.hideKeyboard": "پنهان‌کردن صفحه‌کلید",
   "common.loading": "بارگیری…",
   "common.tryAgain": "دوباره کوشش",
 

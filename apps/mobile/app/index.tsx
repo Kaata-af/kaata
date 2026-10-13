@@ -185,6 +185,22 @@ export default function HomeScreen() {
     accountId: string | null;
   } | null>(null);
   const [customerQuery, setCustomerQuery] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
+  const searchInputRef = useRef<TextInput>(null);
+  const dismissSearchKeyboard = useCallback(() => {
+    searchInputRef.current?.blur();
+    setSearchFocused(false);
+    Keyboard.dismiss();
+  }, []);
+  useEffect(() => {
+    // Android Back can hide the keyboard without a TextInput blur event.
+    // Release focus too, so Add returns and the next tap can reopen typing.
+    const hide = Keyboard.addListener("keyboardDidHide", () => {
+      searchInputRef.current?.blur();
+      setSearchFocused(false);
+    });
+    return () => hide.remove();
+  }, []);
   const [customerGroups, setCustomerGroups] = useState<CustomerGroup[]>([]);
   const [groupByPerson, setGroupByPerson] = useState<Record<string, string[]>>({});
   const [listPreference, setListPreference] =
@@ -235,7 +251,11 @@ export default function HomeScreen() {
       mounted.current = false;
     };
   }, []);
-  useEffect(() => setCustomerQuery(""), [activeVaultId, activeAccountId]);
+  useEffect(() => {
+    setCustomerQuery("");
+    searchInputRef.current?.blur();
+    setSearchFocused(false);
+  }, [activeVaultId, activeAccountId]);
   // D-ARCHIVED-VAULT-FILTER: the picker and settings sheet consume only
   // non-archived vaults; the archived sub-section (toggle-revealed) reads
   // `archivedVaults`. Two arrays > one array + per-render filter — the
@@ -1218,7 +1238,7 @@ export default function HomeScreen() {
                   accessibilityLabel={t("customers.listOptions")}
                   accessibilityState={{ selected: listCustomized }}
                   onPress={() => {
-                    Keyboard.dismiss();
+                    dismissSearchKeyboard();
                     setListOptionsVisible(true);
                   }}
                 >
@@ -1230,15 +1250,19 @@ export default function HomeScreen() {
               <View style={[styles.searchBar, rowDir(isRTL)]}>
                 <Ionicons name="search-outline" size={icon.row} color={colors.textSubtle} />
                 <TextInput
+                  ref={searchInputRef}
                   style={[styles.searchInput, textDir(isRTL)]}
                   value={customerQuery}
                   onChangeText={setCustomerQuery}
+                  onFocus={() => setSearchFocused(true)}
+                  onBlur={() => setSearchFocused(false)}
                   placeholder={t("customers.search")}
                   placeholderTextColor={colors.textMuted}
                   accessibilityLabel={t("customers.search")}
                   autoCorrect={false}
                   returnKeyType="search"
-                  onSubmitEditing={() => Keyboard.dismiss()}
+                  submitBehavior="blurAndSubmit"
+                  onSubmitEditing={dismissSearchKeyboard}
                   maxLength={200}
                 />
                 {customerQuery.length > 0 ? (
@@ -1252,7 +1276,18 @@ export default function HomeScreen() {
                   </Pressable>
                 ) : null}
               </View>
-              {canCreate ? (
+              {/* Reuse the Add slot while typing: a separate control inside
+                  the search bar would leave little input space on small phones. */}
+              {searchFocused ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t("common.hideKeyboard")}
+                  onPress={dismissSearchKeyboard}
+                  style={({ pressed }) => [styles.fabInner, pressed && { opacity: 0.85 }]}
+                >
+                  <Ionicons name="chevron-down" size={26} color={colors.textInverted} />
+                </Pressable>
+              ) : canCreate ? (
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={t("personAdd.new")}
@@ -1776,6 +1811,7 @@ function SearchResultsPage(
       ref={props.scrollRef}
       style={styles.body}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
       contentContainerStyle={{ paddingBottom: props.paddingBottom }}
       refreshControl={
         <RefreshControl
@@ -1876,6 +1912,7 @@ function TabPage(
       <ScrollView
         ref={props.scrollRef}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         contentContainerStyle={{ paddingBottom: props.paddingBottom }}
         refreshControl={
           <RefreshControl

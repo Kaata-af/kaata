@@ -435,6 +435,33 @@ build: add a customer and go back without a tally, search/open it, then add a
 tally; repeat on both tabs and with groups, narrow screens and large text.
 This source change follows testing build 36/56 and has not been uploaded.
 
+## October 13 bottom-search keyboard dismissal — awaiting next testing build
+
+Home customer search and customer tally search now offer an accessible **Hide
+keyboard** down-arrow while their input is focused, even with an empty query.
+Home uses the black Add button's existing space during typing, then restores Add
+when the input loses focus; viewers also get the dismissal control. Tally search
+places its 44pt control alongside the date filter without adding a toolbar row.
+Closing the keyboard preserves the query, matched rows and date range. Clear
+still clears only the query. The keyboard's Search key also closes typing on
+both screens.
+
+The home idle/results lists and tally list use interactive keyboard dismissal on
+iOS and drag dismissal on Android. Existing handled row taps, horizontal home
+navigation and keyboard avoidance stay intact. Keyboard-hide events release the
+input focus, including ordinary Android Back; route and account/kaata changes
+clear stale focus on the screen's own field. Sort and date-sheet opening also
+dismiss first. Older Android resize configurations may omit keyboard-hide events;
+in that case Back can leave the down control visible until explicitly pressed.
+
+TypeScript, person-find and person-detail regressions passed, covering empty and
+nonempty searches, retained date filters, separate Clear behavior, native hide
+events, focus release, viewer access and English/Dari on Android/iOS. Source
+review found no blocker. Device checks remain for iPhone interactive dragging
+and cancelled drags, closing/refocusing, Android Back, narrow screens and large
+text with a full list. This source change follows testing build 36/56 and has
+not been uploaded.
+
 ## Deferred by the user
 
 The household/shopkeeper ledger needs two parties: the user and Dad on one

@@ -153,6 +153,7 @@ function advance(ms: number) {
 const toastOffset = { addListener: () => "toast", removeListener() {} };
 const TOAST_LIFT = 78; // iOS worst case: a two-line toast
 const keyboardListeners = new Set<{ event: string; fn: () => void }>();
+let keyboardDismissals = 0;
 const keyboardEvent = (event: string) => {
   for (const listener of [...keyboardListeners]) if (listener.event === event) listener.fn();
 };
@@ -166,7 +167,9 @@ const native: any = {
   ActivityIndicator: "Spinner",
   KeyboardAvoidingView: "Keyboard",
   Keyboard: {
-    dismiss() {},
+    dismiss() {
+      keyboardDismissals++;
+    },
     addListener(event: string, fn: () => void) {
       const listener = { event, fn };
       keyboardListeners.add(listener);
@@ -555,6 +558,14 @@ async function main() {
         "at rest the controls stay 20pt above the safe area",
       );
       assert.equal(dockStyle.transform[0].translateY, toastOffset, "toasts still lift the dock");
+      assert.equal(
+        nodes(tree).find((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
+        undefined,
+      );
+      assert.equal(find("TextInput")!.props.submitBehavior, "blurAndSubmit");
+      let inputBlurs = 0;
+      find("TextInput")!.props.ref.current = { blur: () => inputBlurs++ };
+      find("TextInput")!.props.onFocus();
       keyboardEvent("keyboardDidShow");
       await flush();
       const typingDock = nodes(tree).find(
@@ -578,6 +589,29 @@ async function main() {
         0,
         "a toast behind the keyboard does not make the dock jump while typing",
       );
+      const closeEmptySearch = nodes(tree).find(
+        (node) => node.props.accessibilityLabel === "common.hideKeyboard",
+      )!;
+      assert.ok(closeEmptySearch, "empty tally search has a reachable keyboard close control");
+      const closeStyle = Object.assign(
+        {},
+        ...[closeEmptySearch.props.style].flat(2).filter(Boolean),
+      );
+      assert.ok(
+        (closeStyle.width ?? closeStyle.minWidth) >= 44 &&
+          (closeStyle.height ?? closeStyle.minHeight) >= 44,
+        "tally dismiss target is at least 44pt",
+      );
+      const beforeEmptyClose = keyboardDismissals;
+      closeEmptySearch.props.onPress();
+      await flush();
+      assert.equal(keyboardDismissals, beforeEmptyClose + 1);
+      assert.equal(inputBlurs, 1, "down releases the tally input itself");
+      assert.equal(find("TextInput")!.props.value, "");
+      assert.equal(
+        nodes(tree).find((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
+        undefined,
+      );
       keyboardEvent("keyboardDidHide");
       await flush();
       const dockNodes = nodes(dock);
@@ -597,10 +631,42 @@ async function main() {
         false,
         "KAV owns keyboard avoidance; do not add duplicate automatic scroll insets",
       );
+      assert.equal(
+        find("ScrollView")!.props.keyboardDismissMode,
+        p === "ios" ? "interactive" : "on-drag",
+      );
       assert.deepEqual(rowIds(), ["new-rice", "new-tea"], "settled history starts folded");
       query("rice");
+      find("TextInput")!.props.onFocus();
       await flush();
       assert.deepEqual(rowIds(), ["new-rice", "old-rice"], "search spans settled chapters");
+      nodes(tree)
+        .find((node) => node.props.accessibilityLabel === "common.hideKeyboard")!
+        .props.onPress();
+      await flush();
+      assert.equal(find("TextInput")!.props.value, "rice", "down keeps tally search text");
+      assert.deepEqual(
+        rowIds(),
+        ["new-rice", "old-rice"],
+        "down keeps current/settled search matches",
+      );
+      find("TextInput")!.props.onFocus();
+      await flush();
+      find("TextInput")!.props.onSubmitEditing();
+      await flush();
+      assert.equal(
+        nodes(tree).find((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
+        undefined,
+      );
+      assert.equal(find("TextInput")!.props.value, "rice", "Search return keeps tally search text");
+      find("TextInput")!.props.onFocus();
+      await flush();
+      keyboardEvent("keyboardDidHide");
+      await flush();
+      assert.equal(
+        nodes(tree).find((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
+        undefined,
+      );
       // The dated settlement line stays between a current and a settled
       // result, so an old paid tally never reads as current (audit #3).
       assert.deepEqual(
@@ -708,6 +774,18 @@ async function main() {
     nodes(tree).some((node) => node.props.accessibilityLabel === "person.date.title"),
     "viewers keep date filter",
   );
+  find("TextInput")!.props.onFocus();
+  await flush();
+  const viewerDismiss = nodes(tree).find(
+    (node) => node.props.accessibilityLabel === "common.hideKeyboard",
+  )!;
+  assert.ok(viewerDismiss, "viewers can close the tally keyboard too");
+  viewerDismiss.props.onPress();
+  await flush();
+  assert.equal(
+    nodes(tree).find((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
+    undefined,
+  );
   fixture(true);
   const datedAt = new Date(2026, 9, 11, 12).getTime();
   entries[0].created_at = datedAt;
@@ -732,6 +810,37 @@ async function main() {
   find("TallyDateFilterSheet")!.props.onChange(dateRangeBetween(datedAt, datedAt));
   await flush();
   assert.deepEqual(rowIds(), ["rejected-rice"], "proper range selects the tally business day");
+  const selectedRange = find("TallyDateFilterSheet")!.props.range;
+  query("rice");
+  find("TextInput")!.props.onFocus();
+  await flush();
+  nodes(tree)
+    .find((node) => node.props.accessibilityLabel === "common.hideKeyboard")!
+    .props.onPress();
+  await flush();
+  assert.deepEqual(
+    find("TallyDateFilterSheet")!.props.range,
+    selectedRange,
+    "closing the keyboard retains the date range",
+  );
+  assert.equal(find("TextInput")!.props.value, "rice");
+  assert.deepEqual(
+    rowIds(),
+    ["rejected-rice"],
+    "note/date matches stay in place after keyboard dismissal",
+  );
+  find("TextInput")!.props.onFocus();
+  await flush();
+  nodes(tree)
+    .find((node) => node.props.accessibilityLabel === "person.search.clear")!
+    .props.onPress();
+  await flush();
+  assert.ok(
+    nodes(tree).find((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
+    "tally Clear leaves typing available",
+  );
+  keyboardEvent("keyboardDidHide");
+  await flush();
   for (const selected of ["jalali", "qamari"] as Calendar[]) {
     calendar = selected;
     rtl = true;

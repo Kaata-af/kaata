@@ -146,6 +146,13 @@ export default function PersonDetailScreen() {
   // keyboard only made it jump while typing.
   const [keyboardShown, setKeyboardShown] = useState(false);
   const keyboardShownRef = useRef(false);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const searchInputRef = useRef<TextInput>(null);
+  const dismissSearchKeyboard = useCallback(() => {
+    searchInputRef.current?.blur();
+    setSearchFocused(false);
+    Keyboard.dismiss();
+  }, []);
   useEffect(() => {
     const show = Keyboard.addListener("keyboardDidShow", () => {
       keyboardShownRef.current = true;
@@ -154,6 +161,10 @@ export default function PersonDetailScreen() {
     const hide = Keyboard.addListener("keyboardDidHide", () => {
       keyboardShownRef.current = false;
       setKeyboardShown(false);
+      // Android Back need not blur the input. Release it so the down control
+      // disappears and a later tap reliably reopens the keyboard.
+      searchInputRef.current?.blur();
+      setSearchFocused(false);
     });
     return () => {
       show.remove();
@@ -237,6 +248,8 @@ export default function PersonDetailScreen() {
     setSearchQuery("");
     setDateRange(null);
     setDateSheetVisible(false);
+    searchInputRef.current?.blur();
+    setSearchFocused(false);
   }, [id, entryId, notificationKey]);
   useEffect(() => {
     if (entryId) setShowFullHistory(true);
@@ -1213,7 +1226,7 @@ export default function PersonDetailScreen() {
             scrollEventThrottle={16}
             onContentSizeChange={revealNotificationTally}
             showsVerticalScrollIndicator={false}
-            keyboardDismissMode="on-drag"
+            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
             keyboardShouldPersistTaps="handled"
             automaticallyAdjustKeyboardInsets={false}
             contentContainerStyle={{
@@ -1721,13 +1734,18 @@ export default function PersonDetailScreen() {
                         color={colors.textSubtle}
                       />
                       <TextInput
+                        ref={searchInputRef}
                         value={searchQuery}
                         onChangeText={setSearchQuery}
+                        onFocus={() => setSearchFocused(true)}
+                        onBlur={() => setSearchFocused(false)}
                         placeholder={t("person.search.placeholder")}
                         accessibilityLabel={t("person.search.placeholder")}
                         placeholderTextColor={colors.textSubtle}
                         style={[styles.searchInput, textDir(isRTL)]}
                         returnKeyType="search"
+                        submitBehavior="blurAndSubmit"
+                        onSubmitEditing={dismissSearchKeyboard}
                         autoCorrect={false}
                         maxLength={500}
                       />
@@ -1748,7 +1766,7 @@ export default function PersonDetailScreen() {
                     </View>
                     <Pressable
                       onPress={() => {
-                        Keyboard.dismiss();
+                        dismissSearchKeyboard();
                         setDateSheetVisible(true);
                       }}
                       accessibilityRole="button"
@@ -1766,13 +1784,23 @@ export default function PersonDetailScreen() {
                         color={dateRange ? colors.textEmphasis : colors.textSubtle}
                       />
                     </Pressable>
+                    {searchFocused ? (
+                      <Pressable
+                        onPress={dismissSearchKeyboard}
+                        accessibilityRole="button"
+                        accessibilityLabel={t("common.hideKeyboard")}
+                        style={styles.dateButton}
+                      >
+                        <Ionicons name="chevron-down" size={icon.row} color={colors.textEmphasis} />
+                      </Pressable>
+                    ) : null}
                   </View>
                   {dateRange ? (
                     <View style={[styles.dateSummary, rowDir(isRTL)]}>
                       <Pressable
                         style={styles.dateSummaryLabel}
                         onPress={() => {
-                          Keyboard.dismiss();
+                          dismissSearchKeyboard();
                           setDateSheetVisible(true);
                         }}
                         accessibilityRole="button"

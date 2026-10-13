@@ -24,6 +24,10 @@ let rtl = false,
 let screenWidth = 390;
 let routeParams: { mode?: string } = {};
 let keyboardDismissals = 0;
+const keyboardListeners = new Set<{ event: string; fn: () => void }>();
+const keyboardEvent = (event: string) => {
+  for (const listener of [...keyboardListeners]) if (listener.event === event) listener.fn();
+};
 const springTargets: number[] = [];
 let groupState = {
   groups: [] as { id: string; name: string; member_count: number }[],
@@ -162,6 +166,11 @@ const native: Record<string, any> = {
   Keyboard: {
     dismiss: () => {
       keyboardDismissals++;
+    },
+    addListener(event: string, fn: () => void) {
+      const listener = { event, fn };
+      keyboardListeners.add(listener);
+      return { remove: () => keyboardListeners.delete(listener) };
     },
   },
   Platform: {
@@ -634,6 +643,49 @@ async function main() {
           1,
           "dock containing block shrinks above keyboard",
         );
+        assert.equal(
+          byLabel("common.hideKeyboard"),
+          undefined,
+          "idle search adds no dismiss control",
+        );
+        assert.equal(input.props.submitBehavior, "blurAndSubmit");
+        let inputBlurs = 0;
+        input.props.ref.current = { blur: () => inputBlurs++ };
+        input.props.onFocus();
+        await flush();
+        const closeEmptySearch = byLabel("common.hideKeyboard")!;
+        assert.ok(
+          closeEmptySearch,
+          "every role can dismiss a focused empty search without blank space",
+        );
+        assert.equal(
+          byLabel("personAdd.new"),
+          undefined,
+          "the down control uses the home add slot while typing",
+        );
+        assert.ok(byLabel("customers.listOptions"), "sort remains available while typing");
+        const dismissStyle = flattenStyle(closeEmptySearch.props.style({ pressed: false }));
+        assert.ok(
+          dismissStyle.width >= 44 && dismissStyle.height >= 44,
+          "dismiss target is easy to hit",
+        );
+        closeEmptySearch.props.onPress();
+        await flush();
+        assert.equal(inputBlurs, 1, "the down control releases the focused input itself");
+        assert.equal(
+          byLabel("customers.search")!.props.value,
+          "",
+          "closing empty search does not insert a query",
+        );
+        assert.equal(byLabel("common.hideKeyboard"), undefined);
+        assert.equal(byLabel("personAdd.new") != null, nextRole !== "viewer");
+        for (const page of homePages())
+          assert.equal(
+            nodes(renderList(page)).find((node) => node.type === "ScrollView")!.props
+              .keyboardDismissMode,
+            nextPlatform === "ios" ? "interactive" : "on-drag",
+            "both idle home lists allow keyboard dismissal by dragging",
+          );
         assert.deepEqual(homeIds(), ["ahmad", "fatima"], "idle home retains zero-tally contacts");
         for (const page of homePages()) {
           assert.deepEqual(
@@ -651,6 +703,7 @@ async function main() {
             "existing no-tally contacts replace the otherwise empty financial list",
           );
         }
+        input.props.onFocus();
         input.props.onChangeText("فاطمه");
         await flush();
         assert.deepEqual(homeIds(), ["fatima"], "Dari search reaches zero-tally customers");
@@ -661,6 +714,22 @@ async function main() {
         assert.equal(find("Gesture"), undefined, "search results do not swipe between sides");
         const resultTree = renderList(results);
         assert.equal(nodes(resultTree).filter((node) => node.type === "ScrollView").length, 1);
+        assert.equal(
+          nodes(resultTree).find((node) => node.type === "ScrollView")!.props.keyboardDismissMode,
+          nextPlatform === "ios" ? "interactive" : "on-drag",
+          "combined results support the same drag dismissal",
+        );
+        const beforeClose = keyboardDismissals;
+        byLabel("common.hideKeyboard")!.props.onPress();
+        await flush();
+        assert.equal(keyboardDismissals, beforeClose + 1, "down explicitly dismisses the keyboard");
+        assert.equal(byLabel("customers.search")!.props.value, "فاطمه");
+        assert.deepEqual(homeIds(), ["fatima"], "hiding the keyboard retains search results");
+        assert.ok(
+          byLabel("customers.search.clear"),
+          "query clear stays separate from keyboard dismissal",
+        );
+        assert.equal(byLabel("common.hideKeyboard"), undefined);
         assert.ok(text(resultTree).includes("customers.noTallies"));
         assert.ok(!text(resultTree).includes("home.tab.collect"));
         assert.ok(!text(resultTree).includes("home.tab.pay"), "empty result sections stay hidden");
@@ -674,13 +743,33 @@ async function main() {
           "combined results keep clerks and viewers out of edit/delete actions",
         );
         byLabel("customers.search")!.props.onChangeText("۰۷۰۰۱۲۳۴۵۶");
+        byLabel("customers.search")!.props.onFocus();
         await flush();
         assert.deepEqual(
           homeIds(),
           ["ahmad"],
           "localized trunk-format numbers find E.164 customers",
         );
+        byLabel("customers.search")!.props.onSubmitEditing();
+        await flush();
+        assert.equal(
+          byLabel("common.hideKeyboard"),
+          undefined,
+          "Search return closes the keyboard",
+        );
+        assert.deepEqual(homeIds(), ["ahmad"], "Search return preserves the current query");
+        byLabel("customers.search")!.props.onFocus();
+        await flush();
+        keyboardEvent("keyboardDidHide");
+        await flush();
+        assert.equal(
+          byLabel("common.hideKeyboard"),
+          undefined,
+          "native Back or drag-hide restores idle controls",
+        );
+        assert.equal(byLabel("personAdd.new") != null, nextRole !== "viewer");
         byLabel("customers.search")!.props.onChangeText("nobody");
+        byLabel("customers.search")!.props.onFocus();
         await flush();
         assert.deepEqual(homeIds(), []);
         assert.equal(
@@ -689,6 +778,12 @@ async function main() {
           "no match produces one empty state for both sides",
         );
         byLabel("customers.search.clear")!.props.onPress();
+        await flush();
+        assert.ok(
+          byLabel("common.hideKeyboard"),
+          "Clear removes the query without dismissing typing",
+        );
+        byLabel("common.hideKeyboard")!.props.onPress();
         await flush();
         assert.deepEqual(homeIds(), ["ahmad", "fatima"]);
         assert.equal(find("Tabs")!.props.value, "collect");
@@ -700,7 +795,7 @@ async function main() {
         sort.props.onPress();
         await flush();
         assert.equal(find("CustomerListSheet")!.props.visible, true, "sort sheet opens from dock");
-        assert.equal(keyboardDismissals, 1);
+        assert.ok(keyboardDismissals >= 4, "dismissal and sort all hide the keyboard explicitly");
         assert.equal(contactsReads, 0, "home search does not read the phone book");
         assert.equal(permissionRequests, 0);
         assert.equal(writes.length, 0);
