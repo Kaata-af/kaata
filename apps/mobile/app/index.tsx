@@ -641,14 +641,24 @@ export default function HomeScreen() {
     }, [toast]),
   );
 
-  // Filtering changes the list, while each tab's hero totals keep every customer.
-  // The default ordering still puts open tallies before settled ones.
+  // Idle group filters keep each tab's hero totals whole. A text query opens
+  // one result list for this kaata, grouped by the two money directions.
   const currentPeopleScope =
     peopleScope?.vaultId === getActiveVaultIdSyncMaybe() &&
     peopleScope?.accountId === getAccountIdSync();
   const visibleAllPeople = currentPeopleScope ? allPeople : EMPTY_PEOPLE;
   const visibleSearchPeople = currentPeopleScope ? peopleForSearch : EMPTY_PEOPLE;
   const searching = customerQuery.trim().length > 0;
+  // A swipe queued before search must never switch the remembered tab, even
+  // if its JS callback arrives after search is cleared and the rail returns.
+  const searchGestureState = useRef({ active: searching, generation: 0 });
+  if (searchGestureState.current.active !== searching) {
+    searchGestureState.current.active = searching;
+    searchGestureState.current.generation++;
+  }
+  // A discarded concurrent search render can advance the ref even when the
+  // committed `searching` value stays false. Memoize by this generation too.
+  const searchGestureGeneration = searchGestureState.current.generation;
   const matchedPeople = useMemo(() => {
     if (!searching) return visibleAllPeople;
     const query = splitSearchQuery(customerQuery);
@@ -703,6 +713,7 @@ export default function HomeScreen() {
   // long list are scrolled off-screen.
   const collectScrollRef = useRef<ScrollView>(null);
   const payScrollRef = useRef<ScrollView>(null);
+  const searchScrollRef = useRef<ScrollView>(null);
   const listOrderKey = `${listPreference.sort}|${JSON.stringify(effectiveGroup)}`;
   const shownListOrderKey = useRef(listOrderKey);
   useEffect(() => {
@@ -710,7 +721,11 @@ export default function HomeScreen() {
     shownListOrderKey.current = listOrderKey;
     collectScrollRef.current?.scrollTo({ y: 0, animated: false });
     payScrollRef.current?.scrollTo({ y: 0, animated: false });
+    searchScrollRef.current?.scrollTo({ y: 0, animated: false });
   }, [listOrderKey]);
+  useEffect(() => {
+    searchScrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [customerQuery]);
   const changeListPreference = (preference: CustomerListPreference) => {
     if (!activeVaultId || getActiveVaultIdSyncMaybe() !== activeVaultId) return;
     preferenceVersion.current++;
@@ -726,6 +741,12 @@ export default function HomeScreen() {
   // a rapid tap-then-swipe (or vice-versa) doesn't stall mid-screen.
   useEffect(() => {
     const target = direction === "collect" ? 0 : -screenWidth;
+    if (searching) {
+      // setValue stops any swipe spring while the rail is hidden. The effect
+      // reruns on clearing search, so the remembered tab remounts at rest.
+      translateX.setValue(target);
+      return;
+    }
     const animation = Animated.spring(translateX, {
       toValue: target,
       useNativeDriver: false, // see translateX decl — JS-driven to fix MIUI blank-on-mount
@@ -733,7 +754,7 @@ export default function HomeScreen() {
     });
     animation.start();
     return () => animation.stop();
-  }, [direction, screenWidth, translateX]);
+  }, [direction, screenWidth, translateX, searching]);
 
   // (The old 0ms native-driver "commit the initial transform" effect was
   // removed — it didn't fix the Mi 10T blank-on-mount. The rail is now
@@ -746,11 +767,15 @@ export default function HomeScreen() {
   // if the user starts a clearly-vertical drag.
   const swipeGesture = useMemo(() => {
     const baseAt = (d: Direction) => (d === "collect" ? 0 : -screenWidth);
+    const generation = searchGestureGeneration;
+    const current = () =>
+      !searchGestureState.current.active && searchGestureState.current.generation === generation;
     return Gesture.Pan()
       .activeOffsetX([-24, 24])
       .failOffsetY([-16, 16])
       .runOnJS(true)
       .onUpdate((e) => {
+        if (!current()) return;
         // Follow finger. Clamp to the rail's bounds so users can't drag
         // past the first/last tab into empty space.
         const next = baseAt(direction) + e.translationX;
@@ -758,6 +783,7 @@ export default function HomeScreen() {
         translateX.setValue(clamped);
       })
       .onEnd((e) => {
+        if (!current()) return;
         const distance = e.translationX;
         const velocity = e.velocityX;
         // Velocity-aware commit: a flick beats a slow drag. Without a flick,
@@ -788,7 +814,7 @@ export default function HomeScreen() {
           }).start();
         }
       });
-  }, [direction, screenWidth, translateX]);
+  }, [direction, screenWidth, translateX, searching, searchGestureGeneration]);
 
   // Stable row handlers — PersonRow is memoized, and these two props must
   // keep their identity across renders or every row re-renders on each
@@ -998,9 +1024,9 @@ export default function HomeScreen() {
 
       <UpdateBanner />
 
-      {/* Tabs only when there's an active kaata; the no-kaatas empty state
-          below stands in for the whole ledger area otherwise. */}
-      {activeVaultId ? (
+      {/* Direction tabs are idle-only; search has one list for both sides.
+          The no-kaatas empty state stands in for the whole ledger area. */}
+      {activeVaultId && !searching ? (
         <View style={[styles.tabsWrap, rowDir(isRTL)]}>
           <View style={{ flex: 1 }}>
             <Tabs<Direction> tabs={buildTabs()} value={direction} onChange={setDirection} />
@@ -1084,6 +1110,21 @@ export default function HomeScreen() {
                 <Text style={styles.loadErrorRetryText}>{t("common.tryAgain")}</Text>
               </Pressable>
             </View>
+          ) : loaded && searching ? (
+            <SearchResultsPage
+              collectPeople={collectPeople}
+              payPeople={payPeople}
+              scrollRef={searchScrollRef}
+              groupFilterLabel={groupFilterLabel}
+              groupFilterCount={groupFilterCount}
+              onClearGroupFilter={() => changeListPreference({ ...listPreference, group: "all" })}
+              creditByPerson={creditByPerson}
+              paddingBottom={96 + insets.bottom}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              onPersonPress={openPerson}
+              onPersonLongPress={canAmend ? setSheetFor : undefined}
+            />
           ) : loaded && screenWidth > 0 ? (
             // screenWidth>0 gate: on some devices (Xiaomi/MIUI) useWindowDimensions
             // returns 0 for the first frame(s); rendering the rail at width 0 paints
@@ -1097,15 +1138,8 @@ export default function HomeScreen() {
                   direction="collect"
                   people={collectPeople}
                   allPeople={collectAll}
-                  filtered={effectiveGroup !== "all" || searching}
-                  searching={searching}
-                  filterTotal={
-                    searching
-                      ? visibleSearchPeople.filter((p) => customerSide(p) === "collect").length
-                      : collectAll.length
-                  }
-                  otherSideMatches={searching ? payPeople.length : 0}
-                  onShowOtherSide={() => setDirection("pay")}
+                  filtered={effectiveGroup !== "all"}
+                  filterTotal={collectAll.length}
                   scrollRef={collectScrollRef}
                   groupFilterLabel={groupFilterLabel}
                   groupFilterCount={groupFilterCount}
@@ -1125,15 +1159,8 @@ export default function HomeScreen() {
                   direction="pay"
                   people={payPeople}
                   allPeople={payAll}
-                  filtered={effectiveGroup !== "all" || searching}
-                  searching={searching}
-                  filterTotal={
-                    searching
-                      ? visibleSearchPeople.filter((p) => customerSide(p) === "pay").length
-                      : payAll.length
-                  }
-                  otherSideMatches={searching ? collectPeople.length : 0}
-                  onShowOtherSide={() => setDirection("collect")}
+                  filtered={effectiveGroup !== "all"}
+                  filterTotal={payAll.length}
                   scrollRef={payScrollRef}
                   groupFilterLabel={groupFilterLabel}
                   groupFilterCount={groupFilterCount}
@@ -1640,31 +1667,150 @@ export default function HomeScreen() {
   );
 }
 
-function TabPage(props: {
-  direction: Direction;
+type CustomerRowsProps = {
   people: PersonWithBalance[];
-  allPeople: PersonWithBalance[];
-  filtered: boolean;
-  searching: boolean;
-  filterTotal: number;
-  // Search runs per side; matches on the other tab get a link there instead
-  // of a bare "No matching customers".
-  otherSideMatches: number;
-  onShowOtherSide: () => void;
-  scrollRef: React.RefObject<ScrollView | null>;
-  groupFilterLabel: string | null;
-  groupFilterCount: number;
-  onClearGroupFilter: () => void;
   creditByPerson: Record<string, CreditStatus>;
-  vaultId: string | null;
-  width: number;
-  paddingBottom: number;
-  refreshing: boolean;
-  onRefresh: () => void;
   onPersonPress: (person: PersonWithBalance) => void;
   // Omitted for a viewer (read-only) — long-press opens the edit/delete sheet.
   onPersonLongPress?: (person: PersonWithBalance) => void;
-}) {
+};
+
+type GroupFilterChipProps = {
+  groupFilterLabel: string | null;
+  groupFilterCount: number;
+  onClearGroupFilter: () => void;
+};
+
+type CustomerScrollProps = {
+  scrollRef: React.RefObject<ScrollView | null>;
+  paddingBottom: number;
+  refreshing: boolean;
+  onRefresh: () => void;
+};
+
+/** One bordered card keeps the existing row behavior in idle and search. */
+function CustomerRows(props: CustomerRowsProps) {
+  return (
+    <View style={styles.peopleCard}>
+      {props.people.map((item, index) => (
+        <View key={item.id}>
+          {index > 0 ? <View style={styles.divider} /> : null}
+          <PersonRow
+            person={item}
+            creditStatus={props.creditByPerson[item.id] ?? "none"}
+            onPress={props.onPersonPress}
+            onLongPress={props.onPersonLongPress}
+          />
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function GroupFilterChip(props: GroupFilterChipProps) {
+  const isRTL = useIsRTL();
+  if (!props.groupFilterLabel) return null;
+  return (
+    <Pressable
+      onPress={props.onClearGroupFilter}
+      accessibilityRole="button"
+      accessibilityHint={t("groups.clearFilter")}
+      hitSlop={{ top: 6, bottom: 6 }}
+      style={({ pressed }) => [
+        styles.groupChip,
+        rowDir(isRTL),
+        pressed && { backgroundColor: colors.bgMuted },
+      ]}
+    >
+      <Text style={[styles.groupChipText, textDir(isRTL)]} numberOfLines={1}>
+        {t(props.groupFilterCount > 1 ? "groups.viewMany" : "groups.view", {
+          name: props.groupFilterLabel,
+        })}
+      </Text>
+      <Ionicons name="close" size={14} color={colors.textSubtle} />
+    </Pressable>
+  );
+}
+
+/** Search crosses both sides of the active kaata. Direction headings preserve
+ * the meaning of each amount without mixing them into a misleading total. */
+function SearchResultsPage(
+  props: Omit<CustomerRowsProps, "people"> &
+    GroupFilterChipProps &
+    CustomerScrollProps & {
+      collectPeople: PersonWithBalance[];
+      payPeople: PersonWithBalance[];
+    },
+) {
+  const isRTL = useIsRTL();
+  const count = props.collectPeople.length + props.payPeople.length;
+  return (
+    <ScrollView
+      ref={props.scrollRef}
+      style={styles.body}
+      keyboardShouldPersistTaps="handled"
+      contentContainerStyle={{ paddingBottom: props.paddingBottom }}
+      refreshControl={
+        <RefreshControl
+          refreshing={props.refreshing}
+          onRefresh={props.onRefresh}
+          colors={[colors.textEmphasis]}
+          tintColor={colors.textSubtle}
+        />
+      }
+    >
+      <View style={styles.searchHeading}>
+        <Text style={[styles.searchTitle, textDir(isRTL)]} accessibilityRole="header">
+          {t("customers.search.title")}
+        </Text>
+        {count > 0 ? (
+          <Text style={[styles.searchCount, textDir(isRTL)]} accessibilityLiveRegion="polite">
+            {t(count === 1 ? "customers.search.result" : "customers.search.results", { count })}
+          </Text>
+        ) : null}
+      </View>
+      <GroupFilterChip
+        groupFilterLabel={props.groupFilterLabel}
+        groupFilterCount={props.groupFilterCount}
+        onClearGroupFilter={props.onClearGroupFilter}
+      />
+      {count === 0 ? (
+        <EmptyState title={t("customers.noResults")} isRTL={isRTL} />
+      ) : (
+        (["collect", "pay"] as const).map((direction) => {
+          const people = direction === "collect" ? props.collectPeople : props.payPeople;
+          if (!people.length) return null;
+          return (
+            <View key={direction}>
+              <Text style={[styles.searchSectionTitle, textDir(isRTL)]} accessibilityRole="header">
+                {t(direction === "collect" ? "home.tab.collect" : "home.tab.pay")}
+              </Text>
+              <CustomerRows
+                people={people}
+                creditByPerson={props.creditByPerson}
+                onPersonPress={props.onPersonPress}
+                onPersonLongPress={props.onPersonLongPress}
+              />
+            </View>
+          );
+        })
+      )}
+    </ScrollView>
+  );
+}
+
+function TabPage(
+  props: CustomerRowsProps &
+    GroupFilterChipProps &
+    CustomerScrollProps & {
+      direction: Direction;
+      allPeople: PersonWithBalance[];
+      filtered: boolean;
+      filterTotal: number;
+      vaultId: string | null;
+      width: number;
+    },
+) {
   const isRTL = useIsRTL();
   const total = sumAmounts(props.allPeople.map((p) => Math.abs(p.balance)));
   const active = props.allPeople.filter((p) => p.balance !== 0).length;
@@ -1729,26 +1875,11 @@ function TabPage(props: {
           ) : null}
         </View>
 
-        {props.groupFilterLabel ? (
-          <Pressable
-            onPress={props.onClearGroupFilter}
-            accessibilityRole="button"
-            accessibilityHint={t("groups.clearFilter")}
-            hitSlop={{ top: 6, bottom: 6 }}
-            style={({ pressed }) => [
-              styles.groupChip,
-              rowDir(isRTL),
-              pressed && { backgroundColor: colors.bgMuted },
-            ]}
-          >
-            <Text style={[styles.groupChipText, textDir(isRTL)]} numberOfLines={1}>
-              {t(props.groupFilterCount > 1 ? "groups.viewMany" : "groups.view", {
-                name: props.groupFilterLabel,
-              })}
-            </Text>
-            <Ionicons name="close" size={14} color={colors.textSubtle} />
-          </Pressable>
-        ) : null}
+        <GroupFilterChip
+          groupFilterLabel={props.groupFilterLabel}
+          groupFilterCount={props.groupFilterCount}
+          onClearGroupFilter={props.onClearGroupFilter}
+        />
         {props.filtered ? (
           <Text style={[styles.filterHint, textDir(isRTL)]}>
             {/* The hero above stays the whole side (by design); what the
@@ -1765,13 +1896,11 @@ function TabPage(props: {
         {people.length === 0 ? (
           <EmptyState
             title={
-              props.searching
-                ? t("customers.noResults")
-                : props.filtered
-                  ? t("customers.noGroupResults")
-                  : props.direction === "collect"
-                    ? t("home.empty.collect.title")
-                    : t("home.empty.pay.title")
+              props.filtered
+                ? t("customers.noGroupResults")
+                : props.direction === "collect"
+                  ? t("home.empty.collect.title")
+                  : t("home.empty.pay.title")
             }
             subtitle={
               props.filtered
@@ -1783,49 +1912,13 @@ function TabPage(props: {
             isRTL={isRTL}
           />
         ) : (
-          <View style={styles.peopleCard}>
-            {people.map((item, index) => (
-              <View key={item.id}>
-                {index > 0 ? <View style={styles.divider} /> : null}
-                <PersonRow
-                  person={item}
-                  creditStatus={props.creditByPerson[item.id] ?? "none"}
-                  onPress={onPersonPress}
-                  onLongPress={onPersonLongPress}
-                />
-              </View>
-            ))}
-          </View>
+          <CustomerRows
+            people={people}
+            creditByPerson={props.creditByPerson}
+            onPersonPress={onPersonPress}
+            onPersonLongPress={onPersonLongPress}
+          />
         )}
-        {props.searching && props.otherSideMatches > 0 ? (
-          <Pressable
-            onPress={props.onShowOtherSide}
-            accessibilityRole="button"
-            style={({ pressed }) => [
-              styles.otherSideLink,
-              rowDir(isRTL),
-              pressed && { opacity: 0.6 },
-            ]}
-          >
-            <Text style={styles.otherSideText}>
-              {t(
-                props.direction === "collect"
-                  ? people.length === 0
-                    ? "customers.otherSideOnly.pay"
-                    : "customers.otherSide.pay"
-                  : people.length === 0
-                    ? "customers.otherSideOnly.collect"
-                    : "customers.otherSide.collect",
-                { count: props.otherSideMatches },
-              )}
-            </Text>
-            <Ionicons
-              name={isRTL ? "chevron-back" : "chevron-forward"}
-              size={16}
-              color={colors.textEmphasis}
-            />
-          </Pressable>
-        ) : null}
       </ScrollView>
     </View>
   );
@@ -2030,18 +2123,25 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.textDefault,
   },
-  otherSideLink: {
-    alignSelf: "center",
-    alignItems: "center",
-    gap: 4,
-    minHeight: 44,
-    paddingHorizontal: 16,
-    marginTop: 8,
-  },
-  otherSideText: {
+  searchHeading: { marginHorizontal: 16, marginTop: 4, marginBottom: 12 },
+  searchTitle: {
     fontFamily: fonts.sansSemi,
-    fontSize: 14,
+    fontSize: 18,
     color: colors.textEmphasis,
+  },
+  searchCount: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 12,
+    color: colors.textSubtle,
+    marginTop: 4,
+  },
+  searchSectionTitle: {
+    fontFamily: fonts.sansSemi,
+    fontSize: 13,
+    color: colors.textEmphasis,
+    marginHorizontal: 16,
+    marginTop: 4,
+    marginBottom: 8,
   },
   filterHint: {
     fontFamily: fonts.sansRegular,

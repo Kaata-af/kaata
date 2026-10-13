@@ -16,7 +16,7 @@ import type { PersonWithBalance } from "../lib/types";
 // borderWidth:1 and divider Views between rows.
 //
 // `balance` is signed at the type level but the row always shows the absolute
-// amount — direction is conveyed by the active tab, not by the row.
+// amount — direction is conveyed by the containing tab or search section.
 //
 // Memoized, and the callbacks take the person so parents can pass STABLE
 // handlers — home renders every person in two lists, and without the memo a

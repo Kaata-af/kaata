@@ -367,6 +367,35 @@ timed ranges, check equal start/end minutes, crossed months, reopen/cancel,
 clearing and the end-minute boundary across current/settled/Not sent history.
 Whole balances, exports, WhatsApp statements and unread notices must stay whole.
 
+## October 13 combined home search — awaiting next testing build
+
+After testing build 36/56, the user requested that the home search show both
+**To collect** and **To pay** results together. A nonblank query now opens one
+scrollable results view for the active kaata, with compact direction headings
+and a matching-customer count. Empty sides are omitted and no matches show one
+empty state. Directional overview tabs and totals are hidden while searching,
+so the absolute row amounts keep their meaning without a misleading total.
+
+Clearing search restores the previous tab. A queued swipe from before search
+cannot switch that tab during search or after it returns. Selected groups and
+sorting still apply; each customer appears once, and row navigation, credit
+badges, pull-to-refresh and role permissions use the same controls as the idle
+overview. Viewers retain search without edit/delete or creation actions. Names
+and phone-number matching include zero-tally customers as before. Search remains
+within the current kaata and clears on a kaata/account switch.
+
+TypeScript, person-find, customer-group-ui and customer-groups checks passed,
+including English/Dari, both platforms, opposite-side-only matches, zero-tally
+contacts, group deduplication, viewer/clerk gates and stale swipe callbacks before
+and after clearing search. Local iOS/Android Metro/Hermes exports passed with the
+production public environment. Review checked scope safety, direction cues and
+accessibility; the swipe memo also tracks its generation across discarded renders.
+
+This is a source change after the 36/56 delivery, not a new store upload. Check
+the combined list in English/Dari, narrow screens and large text, including
+opposite-side-only matches, both previous tabs, group filters, keyboard clearing
+and returning from a customer.
+
 ## Deferred by the user
 
 The household/shopkeeper ledger needs two parties: the user and Dad on one

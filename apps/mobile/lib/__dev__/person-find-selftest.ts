@@ -24,6 +24,7 @@ let rtl = false,
 let screenWidth = 390;
 let routeParams: { mode?: string } = {};
 let keyboardDismissals = 0;
+const springTargets: number[] = [];
 let groupState = {
   groups: [] as { id: string; name: string; member_count: number }[],
   groupsByPerson: {} as Record<string, string[]>,
@@ -192,7 +193,10 @@ const native: Record<string, any> = {
         this.value = value;
       }
     },
-    spring: () => ({ start() {}, stop() {} }),
+    spring: (_value: unknown, options: { toValue: number }) => {
+      springTargets.push(options.toValue);
+      return { start() {}, stop() {} };
+    },
   },
 };
 const fonts = {
@@ -426,8 +430,13 @@ function screenMocks(prefix: string) {
   };
 }
 const gesture: any = {};
-for (const name of ["activeOffsetX", "failOffsetY", "runOnJS", "onUpdate", "onEnd"])
-  gesture[name] = () => gesture;
+const gestureHandlers: Record<string, (event: any) => void> = {};
+for (const name of ["activeOffsetX", "failOffsetY", "runOnJS"]) gesture[name] = () => gesture;
+for (const name of ["onUpdate", "onEnd"])
+  gesture[name] = (handler: (event: any) => void) => {
+    gestureHandlers[name] = handler;
+    return gesture;
+  };
 const home = compile("../../app/index", {
   ...screenMocks("../"),
   "expo-haptics": {
@@ -469,6 +478,7 @@ function fixture(
   screenWidth = 390;
   routeParams = {};
   keyboardDismissals = 0;
+  springTargets.length = 0;
   groupState = { groups: [], groupsByPerson: {} };
   focusEpoch = 0;
   routes.length = 0;
@@ -539,7 +549,22 @@ async function main() {
   assert.equal(contactsReads, 0, "resolved viewer never starts a phone-book read");
 
   const homePages = () => nodes(tree).filter((node) => "filterTotal" in node.props);
-  const homeIds = () => homePages().flatMap((page) => page.props.people.map((p: any) => p.id));
+  const homeSearch = () =>
+    nodes(tree).find((node) => "collectPeople" in node.props && "payPeople" in node.props);
+  const homeIds = () => {
+    const results = homeSearch();
+    return results
+      ? [...results.props.collectPeople, ...results.props.payPeople].map((person: any) => person.id)
+      : homePages().flatMap((page) => page.props.people.map((person: any) => person.id));
+  };
+  // Expand the stateless local list views so assertions reach actual headings,
+  // empty states and row handlers, rather than just their parent props.
+  const renderList = (node: any): any => {
+    if (Array.isArray(node)) return node.map(renderList);
+    if (!node?.props) return node;
+    if (typeof node.type === "function") return renderList(node.type(node.props));
+    return { ...node, props: { ...node.props, children: renderList(node.props.children) } };
+  };
   for (const nextRole of ["viewer", "owner", "clerk"] as const)
     for (const nextPlatform of ["android", "ios"])
       for (const nextRtl of [false, true]) {
@@ -599,13 +624,24 @@ async function main() {
         input.props.onChangeText("فاطمه");
         await flush();
         assert.deepEqual(homeIds(), ["fatima"], "Dari search reaches zero-tally customers");
-        const collect = homePages().find((page) => page.props.direction === "collect")!;
-        assert.deepEqual(
-          collect.props.allPeople.map((p: any) => p.id),
-          ["ahmad"],
-          "search leaves totals unfiltered",
+        const results = homeSearch()!;
+        assert.ok(results, "search uses one combined result view");
+        assert.equal(homePages().length, 0, "directional overview is hidden during search");
+        assert.equal(find("Tabs"), undefined, "a selected tab cannot mislabel mixed results");
+        assert.equal(find("Gesture"), undefined, "search results do not swipe between sides");
+        const resultTree = renderList(results);
+        assert.equal(nodes(resultTree).filter((node) => node.type === "ScrollView").length, 1);
+        assert.ok(text(resultTree).includes("home.tab.collect"));
+        assert.ok(!text(resultTree).includes("home.tab.pay"), "empty result sections stay hidden");
+        assert.ok(
+          !text(resultTree).includes("home.total.label"),
+          "search has no directional total",
         );
-        assert.equal(collect.props.filterTotal, 2, "search result count includes no-tally people");
+        assert.equal(
+          results.props.onPersonLongPress != null,
+          nextRole === "owner",
+          "combined results keep clerks and viewers out of edit/delete actions",
+        );
         byLabel("customers.search")!.props.onChangeText("۰۷۰۰۱۲۳۴۵۶");
         await flush();
         assert.deepEqual(
@@ -616,10 +652,20 @@ async function main() {
         byLabel("customers.search")!.props.onChangeText("nobody");
         await flush();
         assert.deepEqual(homeIds(), []);
-        assert.ok(homePages().every((page) => page.props.searching && page.props.filtered));
+        assert.equal(
+          nodes(renderList(homeSearch()!)).filter((node) => node.type === "EmptyState").length,
+          1,
+          "no match produces one empty state for both sides",
+        );
         byLabel("customers.search.clear")!.props.onPress();
         await flush();
         assert.deepEqual(homeIds(), ["ahmad"]);
+        assert.equal(find("Tabs")!.props.value, "collect");
+        assert.equal(homeSearch(), undefined);
+        assert.deepEqual(
+          homePages()[0].props.allPeople.map((person: any) => person.id),
+          ["ahmad"],
+        );
         sort.props.onPress();
         await flush();
         assert.equal(find("CustomerListSheet")!.props.visible, true, "sort sheet opens from dock");
@@ -679,7 +725,7 @@ async function main() {
   await flush();
   byLabel("customers.search")!.props.onChangeText("Ahmad");
   await flush();
-  const oldHomePersonTap = homePages()[0].props.onPersonPress;
+  const oldHomePersonTap = homeSearch()!.props.onPersonPress;
   const otherPerson = { ...people[0], id: "nadia", name: "Nadia", last_entry_at: 200 };
   vaultId = "second-kaata";
   peopleByVault.set(vaultId, [otherPerson]);
@@ -717,38 +763,35 @@ async function main() {
     ["ahmad", "ahmad-high", "ahmad-other"],
     "search composes with multi-group OR and amount order on each side",
   );
+  const mixedResults = renderList(homeSearch()!);
+  assert.ok(text(mixedResults).includes("home.tab.collect"));
+  assert.ok(text(mixedResults).includes("home.tab.pay"));
   assert.equal(
-    homePages()[0].props.allPeople.reduce((sum: number, p: any) => sum + p.balance, 0),
-    1500,
-    "filtered sort leaves collect total intact",
+    nodes(mixedResults).filter((node) => node.type === "PersonRow").length,
+    3,
+    "customers in multiple groups appear once across the combined list",
   );
-  // A search match on the other tab is linked, not reported as "No matching
-  // customers" (the c549e04 regression).
+  // A match on the opposite balance side is immediately visible, even when
+  // searching started from To collect; no tab-switch link is required.
   byLabel("customers.search")!.props.onChangeText("Hamidi");
   await flush();
-  const collectPage = homePages().find((page) => page.props.direction === "collect")!;
-  assert.equal(collectPage.props.people.length, 0);
-  assert.equal(collectPage.props.otherSideMatches, 1, "other-tab matches are counted");
-  // TabPage is a local component the harness records but does not call; it
-  // holds no state, so render it directly to reach the link.
-  const renderTabPage = collectPage.type as unknown as (props: unknown) => unknown;
-  const otherSideLink = nodes(renderTabPage(collectPage.props)).find(
-    (node) =>
-      node.type === "Pressable" &&
-      nodes(node).some(
-        (child) => child.type === "Text" && child.props.children === "customers.otherSideOnly.pay",
-      ),
+  assert.deepEqual(homeIds(), ["ahmad-other"]);
+  const oppositeResults = renderList(homeSearch()!);
+  assert.ok(text(oppositeResults).includes("home.tab.pay"));
+  assert.ok(!text(oppositeResults).includes("home.tab.collect"));
+  assert.equal(nodes(oppositeResults).filter((node) => node.type === "EmptyState").length, 0);
+  const oppositeRow = nodes(oppositeResults).find((node) => node.type === "PersonRow")!;
+  oppositeRow.props.onPress(oppositeRow.props.person);
+  assert.deepEqual(
+    routes.at(-1),
+    { pathname: "/person/[id]", params: { id: "ahmad-other" } },
+    "opposite-side result opens that customer",
   );
-  assert.ok(otherSideLink, "an empty side links to the matches on the other tab");
-  otherSideLink!.props.onPress();
-  await flush();
-  assert.equal(find("Tabs")!.props.value, "pay", "the link opens the tab holding the match");
-  find("Tabs")!.props.onChange("collect");
   byLabel("customers.search")!.props.onChangeText("Ahmad");
   await flush();
   // The active group filter is named on home, the sort button carries a dot,
   // and the chip's clear restores every customer.
-  const groupedPage = homePages().find((page) => page.props.direction === "collect")!;
+  const groupedPage = homeSearch()!;
   assert.equal(groupedPage.props.groupFilterLabel, "Family, Shop", "home names the active groups");
   assert.equal(groupedPage.props.groupFilterCount, 2);
   const listOptions = byLabel("customers.listOptions")!;
@@ -757,25 +800,18 @@ async function main() {
     nodes(listOptions.props.children).some((node) => node.type === "View"),
     "a customized sort or filter shows a dot on the sort button",
   );
-  // What the filtered customers come to, beside the whole-side hero (#26).
-  const groupedTree = renderTabPage(groupedPage.props);
-  const shownSum = (groupedPage.props as any).people.reduce(
-    (sum: number, p: { balance: number }) => sum + Math.abs(p.balance),
-    0,
+  const groupedTree = renderList(groupedPage);
+  assert.ok(
+    !text(groupedTree).includes("customers.filtered"),
+    "search does not refer to a hidden total",
   );
-  assert.ok(nodes(groupedTree).some((node) => node.props?.children === "customers.filtered"));
-  assert.equal(tParams.get("customers.filtered")?.amount, `${shownSum} AFN`);
   const groupChip = nodes(groupedTree).find(
     (node) => node.type === "Pressable" && node.props.accessibilityHint === "groups.clearFilter",
   );
   assert.ok(groupChip, "the active group filter is a chip on home");
   groupChip!.props.onPress();
   await flush();
-  assert.equal(
-    homePages().find((page) => page.props.direction === "collect")!.props.groupFilterLabel,
-    null,
-    "the chip clears the group filter",
-  );
+  assert.equal(homeSearch()!.props.groupFilterLabel, null, "the chip clears the group filter");
   find("CustomerListSheet")!.props.onChange({ sort: "name_desc", group: "all" });
   await flush();
   assert.deepEqual(
@@ -783,6 +819,43 @@ async function main() {
     ["ahmad-high", "ahmad", "ahmad-low", "ahmad-other"],
     "name sorting remains effective during search",
   );
+  // Both previous pages survive a complete search session. A delayed swipe
+  // callback from the old rail must not change that remembered page.
+  byLabel("customers.search.clear")!.props.onPress();
+  await flush();
+  assert.equal(find("Tabs")!.props.value, "collect");
+  for (const previousDirection of ["collect", "pay"]) {
+    find("Tabs")!.props.onChange(previousDirection);
+    await flush();
+    const oldGestureEnd = gestureHandlers.onEnd;
+    byLabel("customers.search")!.props.onChangeText("Ahmad");
+    await flush();
+    assert.deepEqual(homeIds(), ["ahmad-high", "ahmad", "ahmad-low", "ahmad-other"]);
+    oldGestureEnd({ translationX: previousDirection === "collect" ? -200 : 200, velocityX: 0 });
+    await flush();
+    byLabel("customers.search.clear")!.props.onPress();
+    await flush();
+    assert.equal(find("Tabs")!.props.value, previousDirection);
+    assert.equal(springTargets.at(-1), previousDirection === "collect" ? 0 : -screenWidth);
+    oldGestureEnd({ translationX: previousDirection === "collect" ? -200 : 200, velocityX: 0 });
+    await flush();
+    assert.equal(
+      find("Tabs")!.props.value,
+      previousDirection,
+      "a pre-search swipe remains invalid even after the original tab is restored",
+    );
+    assert.equal(
+      homePages()
+        .find((page) => page.props.direction === "collect")!
+        .props.allPeople.reduce((sum: number, person: any) => sum + person.balance, 0),
+      1500,
+      "combined search never changes the normal overview totals",
+    );
+  }
+  byLabel("customers.search")!.props.onChangeText("   ");
+  await flush();
+  assert.equal(homeSearch(), undefined, "whitespace restores the normal overview");
+  assert.equal(find("Tabs")!.props.value, "pay");
 
   fixture(home, "owner");
   peopleByVault = new Map([["kaata", []]]);
@@ -1206,7 +1279,7 @@ async function main() {
   assert.deepEqual(routes.at(-1), { pathname: "/person/[id]", params: { id: "created" } });
   unmount();
   console.log(
-    "PASS: persistent home search/sort and add-only plus, EN/FA and 320px keyboard layout, zero-tally/phone searches, multi-group/sort composition, scoped live/resume reloads, in-place role downgrades, late-read and unmount guards, no viewer phone-book reads/prompts or writes, stable writable tally refresh and authorized creation",
+    "PASS: combined collect/pay home search, direction headings and remembered-tab/stale-swipe guards, persistent sort/add controls, EN/FA and 320px keyboard layout, zero-tally/phone searches, multi-group/sort composition, scoped live/resume reloads, in-place role downgrades, late-read and unmount guards, no viewer phone-book reads/prompts or writes, stable writable tally refresh and authorized creation",
   );
 }
 void main().catch((error) => {
