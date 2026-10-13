@@ -14,6 +14,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  type KeyboardEvent,
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -28,6 +29,8 @@ import { CreditIntentList } from "../../components/CreditIntentList";
 import { CreditStatusBadge } from "../../components/CreditStatusBadge";
 import { EntryRow } from "../../components/EntryRow";
 import { SharedAccountBadge } from "../../components/SharedAccountBadge";
+import { SearchControlSlot } from "../../components/SearchControlSlot";
+import { useSheetMotionPreference } from "../../components/SheetBackdrop";
 import { useCustomerGroups } from "../../lib/use-customer-groups";
 import { LinkAccountDialog } from "../../components/LinkAccountDialog";
 import { OverflowMenu } from "../../components/OverflowMenu";
@@ -147,6 +150,16 @@ export default function PersonDetailScreen() {
   const [keyboardShown, setKeyboardShown] = useState(false);
   const keyboardShownRef = useRef(false);
   const [searchFocused, setSearchFocused] = useState(false);
+  const reducedMotion = useSheetMotionPreference();
+  const keyboardRouteFocused = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      keyboardRouteFocused.current = true;
+      return () => {
+        keyboardRouteFocused.current = false;
+      };
+    }, []),
+  );
   const searchInputRef = useRef<TextInput>(null);
   const dismissSearchKeyboard = useCallback(() => {
     searchInputRef.current?.blur();
@@ -154,23 +167,47 @@ export default function PersonDetailScreen() {
     Keyboard.dismiss();
   }, []);
   useEffect(() => {
-    const show = Keyboard.addListener("keyboardDidShow", () => {
-      keyboardShownRef.current = true;
-      setKeyboardShown(true);
-    });
-    const hide = Keyboard.addListener("keyboardDidHide", () => {
+    const syncLayout = (shown: boolean, event?: KeyboardEvent) => {
+      // iOS KAV starts at the will event; waiting for didShow removed the
+      // action row only after the keyboard arrived, causing a second jump.
+      if (Platform.OS === "ios" && event && !reducedMotion && keyboardRouteFocused.current)
+        Keyboard.scheduleLayoutAnimation(event);
+      keyboardShownRef.current = shown;
+      setKeyboardShown(shown);
+    };
+    const finishHide = () => {
       keyboardShownRef.current = false;
       setKeyboardShown(false);
       // Android Back need not blur the input. Release it so the down control
       // disappears and a later tap reliably reopens the keyboard.
       searchInputRef.current?.blur();
       setSearchFocused(false);
-    });
+    };
+    const show = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      (event) => syncLayout(true, event),
+    );
+    const hide = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      (event) => {
+        syncLayout(false, event);
+        if (Platform.OS !== "ios") finishHide();
+      },
+    );
+    const didShow =
+      Platform.OS === "ios"
+        ? Keyboard.addListener("keyboardDidShow", () => syncLayout(true))
+        : null;
+    // Do not blur at willHide: an interactive drag may still be cancelled.
+    const didHide =
+      Platform.OS === "ios" ? Keyboard.addListener("keyboardDidHide", finishHide) : null;
     return () => {
       show.remove();
       hide.remove();
+      didShow?.remove();
+      didHide?.remove();
     };
-  }, []);
+  }, [reducedMotion]);
   const insets = useSafeAreaInsets();
   // Clerks can add; only editors and above can amend/review/cancel.
   const {
@@ -1749,19 +1786,21 @@ export default function PersonDetailScreen() {
                         autoCorrect={false}
                         maxLength={500}
                       />
-                      {searchQuery.length > 0 ? (
+                      <SearchControlSlot
+                        visible={searchQuery.length > 0}
+                        width={TOUCH_MIN}
+                        height={TOUCH_MIN}
+                        style={isRTL ? styles.clearSearchRTL : styles.clearSearchLTR}
+                      >
                         <Pressable
                           onPress={() => setSearchQuery("")}
                           accessibilityRole="button"
                           accessibilityLabel={t("person.search.clear")}
-                          style={[
-                            styles.clearSearch,
-                            isRTL ? styles.clearSearchRTL : styles.clearSearchLTR,
-                          ]}
+                          style={styles.clearSearch}
                         >
                           <Ionicons name="close" size={icon.trailing} color={colors.textSubtle} />
                         </Pressable>
-                      ) : null}
+                      </SearchControlSlot>
                     </View>
                     <Pressable
                       onPress={() => {
@@ -1783,7 +1822,14 @@ export default function PersonDetailScreen() {
                         color={dateRange ? colors.textEmphasis : colors.textSubtle}
                       />
                     </Pressable>
-                    {searchFocused ? (
+                    <SearchControlSlot
+                      visible={searchFocused}
+                      width={TOUCH_MIN}
+                      height={TOUCH_MIN}
+                      collapse
+                      gap={8}
+                      isRTL={isRTL}
+                    >
                       <Pressable
                         onPress={dismissSearchKeyboard}
                         accessibilityRole="button"
@@ -1792,7 +1838,7 @@ export default function PersonDetailScreen() {
                       >
                         <Ionicons name="chevron-down" size={icon.row} color={colors.textEmphasis} />
                       </Pressable>
-                    ) : null}
+                    </SearchControlSlot>
                   </View>
                   {dateRange ? (
                     <View style={[styles.dateSummary, rowDir(isRTL)]}>

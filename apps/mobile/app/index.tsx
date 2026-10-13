@@ -18,6 +18,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  type KeyboardEvent,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -31,6 +32,8 @@ import { EmptyState } from "../components/EmptyState";
 import { InitialAvatar } from "../components/InitialAvatar";
 import { NotificationBell } from "../components/NotificationInbox";
 import { PersonRow } from "../components/PersonRow";
+import { SearchControlSlot } from "../components/SearchControlSlot";
+import { useSheetMotionPreference } from "../components/SheetBackdrop";
 import { ProfileSettingsSheet, type VaultListItem } from "../components/ProfileSettingsSheet";
 import { Tabs } from "../components/Tabs";
 import { useToast, useToastOffset } from "../components/Toast";
@@ -186,6 +189,17 @@ export default function HomeScreen() {
   } | null>(null);
   const [customerQuery, setCustomerQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
+  const [keyboardShown, setKeyboardShown] = useState(false);
+  const reducedMotion = useSheetMotionPreference();
+  const keyboardRouteFocused = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      keyboardRouteFocused.current = true;
+      return () => {
+        keyboardRouteFocused.current = false;
+      };
+    }, []),
+  );
   const searchInputRef = useRef<TextInput>(null);
   const dismissSearchKeyboard = useCallback(() => {
     searchInputRef.current?.blur();
@@ -193,14 +207,46 @@ export default function HomeScreen() {
     Keyboard.dismiss();
   }, []);
   useEffect(() => {
+    const syncLayout = (shown: boolean, event?: KeyboardEvent) => {
+      // Match KAV's iOS frame transition. Its hide path otherwise drops
+      // padding immediately, before the keyboard finishes moving.
+      if (Platform.OS === "ios" && event && !reducedMotion && keyboardRouteFocused.current)
+        Keyboard.scheduleLayoutAnimation(event);
+      setKeyboardShown(shown);
+    };
     // Android Back can hide the keyboard without a TextInput blur event.
     // Release focus too, so Add returns and the next tap can reopen typing.
-    const hide = Keyboard.addListener("keyboardDidHide", () => {
+    const finishHide = () => {
+      setKeyboardShown(false);
       searchInputRef.current?.blur();
       setSearchFocused(false);
-    });
-    return () => hide.remove();
-  }, []);
+    };
+    const show = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      (event) => syncLayout(true, event),
+    );
+    const hide = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      (event) => {
+        syncLayout(false, event);
+        if (Platform.OS !== "ios") finishHide();
+      },
+    );
+    // Did events are a fallback; only a completed hide releases focus, so
+    // cancelling an interactive iOS drag does not end the search session.
+    const didShow =
+      Platform.OS === "ios"
+        ? Keyboard.addListener("keyboardDidShow", () => setKeyboardShown(true))
+        : null;
+    const didHide =
+      Platform.OS === "ios" ? Keyboard.addListener("keyboardDidHide", finishHide) : null;
+    return () => {
+      show.remove();
+      hide.remove();
+      didShow?.remove();
+      didHide?.remove();
+    };
+  }, [reducedMotion]);
   const [customerGroups, setCustomerGroups] = useState<CustomerGroup[]>([]);
   const [groupByPerson, setGroupByPerson] = useState<Record<string, string[]>>({});
   const [listPreference, setListPreference] =
@@ -1226,7 +1272,10 @@ export default function HomeScreen() {
             <Animated.View
               style={[
                 styles.dock,
-                { bottom: 20 + insets.bottom, transform: [{ translateY: toastOffset }] },
+                {
+                  bottom: 20 + insets.bottom,
+                  transform: [{ translateY: keyboardShown ? 0 : toastOffset }],
+                },
               ]}
               pointerEvents="box-none"
             >
@@ -1265,31 +1314,41 @@ export default function HomeScreen() {
                   onSubmitEditing={dismissSearchKeyboard}
                   maxLength={200}
                 />
-                {customerQuery.length > 0 ? (
+                <SearchControlSlot
+                  visible={customerQuery.length > 0}
+                  width={44}
+                  height={44}
+                  style={isRTL ? styles.clearSearchRTL : styles.clearSearchLTR}
+                >
                   <Pressable
-                    style={[
-                      styles.clearSearch,
-                      isRTL ? styles.clearSearchRTL : styles.clearSearchLTR,
-                    ]}
+                    style={styles.clearSearch}
                     accessibilityRole="button"
                     accessibilityLabel={t("customers.search.clear")}
                     onPress={() => setCustomerQuery("")}
                   >
                     <Ionicons name="close" size={icon.trailing} color={colors.textSubtle} />
                   </Pressable>
-                ) : null}
+                </SearchControlSlot>
               </View>
               {/* Reuse the Add slot while typing: a separate control inside
                   the search bar would leave little input space on small phones. */}
-              {searchFocused ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={t("common.hideKeyboard")}
-                  onPress={dismissSearchKeyboard}
-                  style={({ pressed }) => [styles.fabInner, pressed && { opacity: 0.85 }]}
+              {searchFocused || !canCreate ? (
+                <SearchControlSlot
+                  visible={searchFocused}
+                  width={FAB_SIZE}
+                  height={FAB_SIZE}
+                  collapse={!canCreate}
+                  gap={8}
                 >
-                  <Ionicons name="chevron-down" size={26} color={colors.textInverted} />
-                </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={t("common.hideKeyboard")}
+                    onPress={dismissSearchKeyboard}
+                    style={({ pressed }) => [styles.fabInner, pressed && { opacity: 0.85 }]}
+                  >
+                    <Ionicons name="chevron-down" size={26} color={colors.textInverted} />
+                  </Pressable>
+                </SearchControlSlot>
               ) : canCreate ? (
                 <Pressable
                   accessibilityRole="button"

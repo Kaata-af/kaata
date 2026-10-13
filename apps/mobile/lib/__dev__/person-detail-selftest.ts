@@ -69,7 +69,11 @@ const react = {
 };
 const jsx = (type: string, props: any): Node => ({ type, props });
 const nodes = (n: any): Node[] =>
-  Array.isArray(n) ? n.flatMap(nodes) : n?.props ? [n, ...nodes(n.props.children)] : [];
+  Array.isArray(n)
+    ? n.flatMap(nodes)
+    : n?.props
+      ? [n, ...nodes(n.type === "SearchControlSlot" && !n.props.visible ? null : n.props.children)]
+      : [];
 const kids = (n: any): Node[] => [n?.props?.children].flat(Infinity).filter((v) => v?.props);
 const words = (n: any): string =>
   Array.isArray(n)
@@ -152,10 +156,17 @@ function advance(ms: number) {
 }
 const toastOffset = { addListener: () => "toast", removeListener() {} };
 const TOAST_LIFT = 78; // iOS worst case: a two-line toast
-const keyboardListeners = new Set<{ event: string; fn: () => void }>();
+let reducedMotion = false;
+const scheduledKeyboardLayouts: unknown[] = [];
+const keyboardListeners = new Set<{ event: string; fn: (payload: any) => void }>();
 let keyboardDismissals = 0;
 const keyboardEvent = (event: string) => {
-  for (const listener of [...keyboardListeners]) if (listener.event === event) listener.fn();
+  const payload = {
+    duration: 250,
+    easing: "keyboard",
+    endCoordinates: { height: 300, screenY: 544 },
+  };
+  for (const listener of [...keyboardListeners]) if (listener.event === event) listener.fn(payload);
 };
 const dummyError = class extends Error {};
 const native: any = {
@@ -170,7 +181,8 @@ const native: any = {
     dismiss() {
       keyboardDismissals++;
     },
-    addListener(event: string, fn: () => void) {
+    scheduleLayoutAnimation: (event: unknown) => scheduledKeyboardLayouts.push(event),
+    addListener(event: string, fn: (payload: any) => void) {
       const listener = { event, fn };
       keyboardListeners.add(listener);
       return { remove: () => keyboardListeners.delete(listener) };
@@ -198,6 +210,7 @@ const components = Object.fromEntries(
   [
     "BottomSheet",
     "TallyDateFilterSheet",
+    "SearchControlSlot",
     "Chip",
     "ConfirmDialog",
     "EmptyState",
@@ -214,6 +227,7 @@ const components = Object.fromEntries(
 );
 const mocks: Record<string, any> = {
   ...components,
+  "../../components/SheetBackdrop": { useSheetMotionPreference: () => reducedMotion },
   "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
   react,
   "react-native": native,
@@ -456,6 +470,8 @@ const tally = (
 });
 function fixture(shared = false) {
   unmount();
+  reducedMotion = false;
+  scheduledKeyboardLayouts.length = 0;
   params = { id: "person" };
   appState = "active";
   preference = "en";
@@ -566,6 +582,45 @@ async function main() {
       let inputBlurs = 0;
       find("TextInput")!.props.ref.current = { blur: () => inputBlurs++ };
       find("TextInput")!.props.onFocus();
+      if (p === "ios") {
+        keyboardEvent("keyboardWillShow");
+        await flush();
+        assert.ok(
+          !words(tree).includes("person.action.iGave"),
+          "the dock compacts when the keyboard begins moving, not afterward",
+        );
+        assert.equal(scheduledKeyboardLayouts.length, 1);
+        keyboardEvent("keyboardWillHide");
+        await flush();
+        assert.equal(inputBlurs, 0, "interactive closing does not blur before completion");
+        assert.ok(
+          nodes(tree).find((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
+        );
+        keyboardEvent("keyboardWillShow");
+        await flush();
+        assert.ok(
+          !words(tree).includes("person.action.iGave"),
+          "cancelled close returns the compact dock without losing focus",
+        );
+        const beforeLeavingRoute = scheduledKeyboardLayouts.length;
+        blur();
+        keyboardEvent("keyboardWillShow");
+        keyboardEvent("keyboardWillHide");
+        await flush();
+        assert.equal(
+          scheduledKeyboardLayouts.length,
+          beforeLeavingRoute,
+          "a retained hidden route does not animate another page's keyboard",
+        );
+        refocus();
+        keyboardEvent("keyboardWillShow");
+        await flush();
+        assert.equal(
+          scheduledKeyboardLayouts.length,
+          beforeLeavingRoute + 1,
+          "returning restores the route's keyboard synchronization",
+        );
+      }
       keyboardEvent("keyboardDidShow");
       await flush();
       const typingDock = nodes(tree).find(
@@ -786,6 +841,20 @@ async function main() {
     nodes(tree).find((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
     undefined,
   );
+  if (platform === "ios") {
+    reducedMotion = true;
+    dirty = true;
+    await flush();
+    const beforeReducedLayouts = scheduledKeyboardLayouts.length;
+    keyboardEvent("keyboardWillShow");
+    keyboardEvent("keyboardWillHide");
+    await flush();
+    assert.equal(
+      scheduledKeyboardLayouts.length,
+      beforeReducedLayouts,
+      "Reduce Motion skips added tally keyboard animation scheduling",
+    );
+  }
   fixture(true);
   const datedAt = new Date(2026, 9, 11, 12).getTime();
   entries[0].created_at = datedAt;

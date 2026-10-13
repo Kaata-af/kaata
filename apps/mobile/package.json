@@ -52,6 +52,7 @@
     "selftest:sync-live": "tsx lib/__dev__/sync-live-selftest.ts",
     "selftest:person-detail": "tsx lib/__dev__/person-detail-selftest.ts",
     "selftest:person-find": "tsx lib/__dev__/person-find-selftest.ts",
+    "selftest:search-controls": "tsx lib/__dev__/search-control-slot-selftest.ts",
     "selftest:tally-summary": "tsx lib/__dev__/tally-summary-selftest.ts",
     "selftest:notification-popup": "tsx lib/__dev__/notification-popup-selftest.ts",
     "selftest:customer-groups": "tsx lib/__dev__/customer-groups-selftest.ts",

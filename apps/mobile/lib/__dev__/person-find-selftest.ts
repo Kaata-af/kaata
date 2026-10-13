@@ -24,9 +24,17 @@ let rtl = false,
 let screenWidth = 390;
 let routeParams: { mode?: string } = {};
 let keyboardDismissals = 0;
-const keyboardListeners = new Set<{ event: string; fn: () => void }>();
+let reducedMotion = false,
+  homeToastOffset = 0;
+const scheduledKeyboardLayouts: unknown[] = [];
+const keyboardListeners = new Set<{ event: string; fn: (payload: any) => void }>();
 const keyboardEvent = (event: string) => {
-  for (const listener of [...keyboardListeners]) if (listener.event === event) listener.fn();
+  const payload = {
+    duration: 250,
+    easing: "keyboard",
+    endCoordinates: { height: 300, screenY: 544 },
+  };
+  for (const listener of [...keyboardListeners]) if (listener.event === event) listener.fn(payload);
 };
 const springTargets: number[] = [];
 let groupState = {
@@ -104,7 +112,12 @@ const nodes = (node: any): Node[] =>
     ? node.flatMap(nodes)
     : !node || typeof node !== "object"
       ? []
-      : [node, ...nodes(node.props?.children)];
+      : [
+          node,
+          ...nodes(
+            node.type === "SearchControlSlot" && !node.props.visible ? null : node.props?.children,
+          ),
+        ];
 const text = (node: any): string =>
   Array.isArray(node)
     ? node.map(text).join("")
@@ -167,7 +180,8 @@ const native: Record<string, any> = {
     dismiss: () => {
       keyboardDismissals++;
     },
-    addListener(event: string, fn: () => void) {
+    scheduleLayoutAnimation: (event: unknown) => scheduledKeyboardLayouts.push(event),
+    addListener(event: string, fn: (payload: any) => void) {
       const listener = { event, fn };
       keyboardListeners.add(listener);
       return { remove: () => keyboardListeners.delete(listener) };
@@ -413,6 +427,8 @@ const libMocks: Record<string, any> = {
 };
 const componentMocks: Record<string, any> = {
   CustomerListSheet: { CustomerListSheet: "CustomerListSheet" },
+  SearchControlSlot: { SearchControlSlot: "SearchControlSlot" },
+  SheetBackdrop: { useSheetMotionPreference: () => reducedMotion },
   BottomSheet: { BottomSheet: "BottomSheet" },
   ConfirmDialog: { ConfirmDialog: "ConfirmDialog" },
   Button: { Button: "Button" },
@@ -422,7 +438,7 @@ const componentMocks: Record<string, any> = {
   PersonRow: { PersonRow: "PersonRow" },
   ProfileSettingsSheet: { ProfileSettingsSheet: "Settings" },
   Tabs: { Tabs: "Tabs" },
-  Toast: { useToast: () => toast, useToastOffset: () => 0 },
+  Toast: { useToast: () => toast, useToastOffset: () => homeToastOffset },
   UpdateBanner: { UpdateBanner: "UpdateBanner" },
   VaultPickerSheet: { VaultPickerSheet: "VaultPicker" },
   CountryPickerSheet: { CountryPickerSheet: "CountryPicker" },
@@ -489,6 +505,9 @@ function fixture(
   screenWidth = 390;
   routeParams = {};
   keyboardDismissals = 0;
+  reducedMotion = false;
+  homeToastOffset = 0;
+  scheduledKeyboardLayouts.length = 0;
   springTargets.length = 0;
   groupState = { groups: [], groupsByPerson: {} };
   focusEpoch = 0;
@@ -813,6 +832,79 @@ async function main() {
           assert.equal(toasts.at(-1)?.[0], "home.fab.blockedArchived");
         }
       }
+
+  fixture(home, "viewer", false, "ios");
+  homeToastOffset = -78;
+  await flush();
+  const smoothInput = byLabel("customers.search")!;
+  const currentHomeDock = () =>
+    nodes(tree).find(
+      (node) =>
+        node.type === "AnimatedView" &&
+        nodes(node).some((child) => child.props.accessibilityLabel === "customers.search"),
+    )!;
+  assert.equal(flattenStyle(currentHomeDock().props.style).transform[0].translateY, -78);
+  smoothInput.props.onFocus();
+  keyboardEvent("keyboardWillShow");
+  await flush();
+  assert.equal(
+    flattenStyle(currentHomeDock().props.style).transform[0].translateY,
+    0,
+    "keyboard motion suppresses independent toast lift",
+  );
+  assert.equal(
+    scheduledKeyboardLayouts.length,
+    1,
+    "opening uses the native keyboard animation boundary",
+  );
+  keyboardEvent("keyboardDidShow");
+  await flush();
+  const beforeTypingLayouts = scheduledKeyboardLayouts.length;
+  for (const value of ["F", "Fa", "فاطمه"]) {
+    byLabel("customers.search")!.props.onChangeText(value);
+    await flush();
+    assert.equal(
+      byLabel("customers.search")!.props.ref,
+      smoothInput.props.ref,
+      "typing keeps the same native input",
+    );
+  }
+  assert.equal(
+    scheduledKeyboardLayouts.length,
+    beforeTypingLayouts,
+    "typing does not trigger keyboard-wide layout animations",
+  );
+  keyboardEvent("keyboardWillHide");
+  await flush();
+  assert.ok(
+    byLabel("common.hideKeyboard"),
+    "a started interactive close does not prematurely blur the field",
+  );
+  keyboardEvent("keyboardWillShow");
+  await flush();
+  assert.ok(byLabel("common.hideKeyboard"), "cancelling the close preserves typing");
+  keyboardEvent("keyboardWillHide");
+  keyboardEvent("keyboardDidHide");
+  await flush();
+  assert.equal(byLabel("common.hideKeyboard"), undefined);
+  assert.equal(byLabel("customers.search")!.props.value, "فاطمه");
+  assert.equal(
+    flattenStyle(currentHomeDock().props.style).transform[0].translateY,
+    -78,
+    "toast clearance returns after completed dismissal",
+  );
+  reducedMotion = true;
+  dirty = true;
+  await flush();
+  const beforeReducedLayouts = scheduledKeyboardLayouts.length;
+  keyboardEvent("keyboardWillShow");
+  keyboardEvent("keyboardWillHide");
+  await flush();
+  assert.equal(
+    scheduledKeyboardLayouts.length,
+    beforeReducedLayouts,
+    "Reduce Motion skips added keyboard animation scheduling",
+  );
 
   fixture(home, "owner");
   let finishHomeRole!: () => void;

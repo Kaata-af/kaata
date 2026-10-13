@@ -472,6 +472,32 @@ app's manual row reversal. Clear still only clears the query, independently of
 the keyboard-down control and date filter. Existing search regressions and
 TypeScript passed; inspect the alignment on phones in the next testing build.
 
+## October 13 smoother bottom-search transitions — awaiting next testing build
+
+The iPhone dock now updates its height, action buttons and bottom padding when
+the keyboard begins moving, using the same keyboard timing for opening and
+closing. It previously changed again after the keyboard finished. Only a
+completed hide releases input focus, so cancelling an interactive drag retains
+the query and typing session. Added keyboard animation scheduling is limited to
+the visible route; existing keyboard avoidance remains the single owner of
+screen insets. Android retains its supported completed-event path.
+
+Clear controls reserve their 44pt space, preventing the input from resizing on
+the first or last character. The tally down control and viewer home down control
+ease their width and spacing over 160ms. Hidden controls have no tappable or
+accessible children; rapid changes stop the prior animation, and Reduce Motion
+switches immediately. The input stays mounted and queries/date filters retain
+their existing behavior. Home also avoids an independent toast lift while the
+keyboard is visible. No ledger-row or per-keystroke layout animation is added.
+
+TypeScript, person-find, person-detail and the new search-controls selftest passed.
+They cover keyboard-start timing, cancelled closes, hidden-route isolation,
+retained input identity, no added keyboard animation per keystroke, Reduce Motion,
+LTR/RTL spacing and interrupted/unmounted control animations. Visual phone checks
+remain for repeated focus/clear/close, slow interactive drags and cancellations,
+toasts, narrow screens, large text and navigating to an add form and back.
+This source change follows testing build 36/56 and has not been uploaded.
+
 ## Deferred by the user
 
 The household/shopkeeper ledger needs two parties: the user and Dad on one
