@@ -64,7 +64,8 @@ geometry and anti-aliasing through the established per-pixel recolor. Run its
 this independent asset. Re-running marketing generation cannot recolor app, web
 or store assets.
 
-Native black icons/splash reach phones through the next testing build. This work
-does not edit production store listings, screenshots or social-profile pictures.
+Native black icons/splash are included in the 2.2.0 testing binaries, iOS 37 and
+Android 57. This work does not edit production store listings, screenshots or
+social-profile pictures.
 Website changes deploy through the existing main-branch workflow. Check marketing
 print/export output separately before publishing it.

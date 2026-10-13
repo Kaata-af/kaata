@@ -1,9 +1,9 @@
 # Kaata accounts: email + password
 
-Status: accounts were submitted in 2.1.1 (Android build 50 / iOS build 30).
-The display-name and current-member-profile extensions below are local development
-after 2.2.0 TestFlight build 32 / Play internal code 52; those binaries do not
-contain the extensions. Owner decisions (Matee, 2026-10-10):
+Status: accounts are released in 2.1.1 (Android build 50 / iOS build 30).
+The display-name and current-member-profile extensions below are included in
+the newer 2.2.0 testing line and deployed backend. Older TestFlight build 32 /
+Play internal code 52 do not contain them. Owner decisions (Matee, 2026-10-10):
 
 - Kaata has its own accounts for everyone, next to Google and Apple: sign up with
   email + password; the email is verified with an emailed 6-digit code.

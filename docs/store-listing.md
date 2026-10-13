@@ -6,11 +6,12 @@ app, to avoid the Personal Loans policy false-positive.
 
 ## App icon (512×512)
 
-`docs/store-assets/play-icon-512.png` — upload this in Main store listing → App
-icon. It is the launcher icon (white K on Aubergine), written by
-`marketing/recolor_logo.py` together with the app's own icon files. The App
-Store icon comes from the app binary instead (`apps/mobile/assets/icon.png`), so
-it changes with the next native build.
+`docs/store-assets/play-icon-512.png` is the opaque 512px export of the original
+black launcher icon with the white K, derived from `apps/mobile/assets/icon.png`.
+The App Store icon comes from that app binary. The marketing recolor generator
+writes only its separate marketing logo and cannot overwrite product icons.
+These source assets are ready for a future production listing update; the
+2.2.0 testing delivery does not change the current production store listings.
 
 ## Feature graphic (1024×500, required)
 

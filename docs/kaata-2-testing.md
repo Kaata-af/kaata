@@ -6,6 +6,73 @@ durable offline queue, and push delivery infrastructure. Existing private ledger
 events are not rewritten.
 Automated checks and store submissions do not replace native two-phone testing.
 
+## Testing delivery — 14 October 2026 (57/37)
+
+Candidate **2.2.0 / Android 57 / iOS 37** uses the exact release source
+`0424b02effd243e10f509771afa64b788cd79655`, pushed to `main`. This request targets
+**Play internal testing** and the existing **TestFlight internal group** only.
+Both testing releases are independently verified available.
+Production 2.1.1 is now approved on both stores; older pending-review statements
+below describe their historical checks. No 2.2.0 production promotion, closed-track
+change, review cancellation or production listing edit is part of this delivery.
+
+This candidate restores the original black native icon/splash and black/white/gray
+product theme, adopts neutral shadcn web controls and isolates the colored marketing
+logo/generators. Financial/review/provider/chart colors keep their meaning. It also
+includes the combined home search, distinct Manage groups action, persistent
+zero-tally customers, keyboard dismissal, clear-button alignment and smoother search
+transitions developed after 36/56. Dashboard weekly activity, growth and cohorts
+now follow **Saturday–Friday in Kabul**; Friday usage is included.
+
+- **Live backend/web:** deployment `UGcfDy1IyVSLQMyF32RcJ` (backend) and
+  `6no-2cGcW423Egmv_6kgn` (web) completed with exact source and fresh healthy
+  containers. Migration 060 and its calendar constraint/function are present.
+  Authenticated growth and weekly-stat reads returned 200, `week_starts_on=6`,
+  and all 12 labels on Saturdays; cohort starts match. The original 11 Monday
+  aggregates retain their complete fingerprint `0fc860bb9f3337ecf032ae1b0ca91086`,
+  including counts, rules and recorded timestamps; 11 Saturday frozen aggregates
+  are stored separately. Public health, neutral CSS, original logo hash and SMTP
+  login passed.
+- **Checks:** all 53 mobile selftest suites, mobile TypeScript, explicit iOS and
+  Android production Metro/Hermes exports, all 90 web tests/typecheck/build, and
+  26 release-helper tests passed. The full backend passed 14 tested packages and
+  567 test/subcase results against an isolated UTF-8 PostgreSQL database, with no
+  failures or database skips; only the optional bill-preview generator skipped.
+  Go vet and server compilation passed. Original native asset bytes and marketing
+  generator/path guards were verified. Browser QA covered neutral desktop/phone
+  public layouts in English/Dari and the admin sign-in screen.
+- **Native dependency note:** these binaries use the same native dependency
+  versions/lockfile as 36/56. Expo Doctor's existing 29 patch-version warnings
+  remain within SDK 57/RN 0.86; no native dependency or architecture change was
+  introduced. A signed build is not a physical-device behavior check.
+- **iOS 37:** EAS build `4eff038b-311e-467f-a477-cd20aefab214` finished with the
+  exact version/build/source; upload `76199406-fd8c-40e0-940f-8f695a02edf7` finished.
+  ASC build `14197de8-97fc-43f3-9711-f4be2f3c9a23` is `VALID`, unexpired and
+  `IN_BETA_TESTING`, assigned to **Team (Expo)**
+  `fcb33597-43b6-42ba-8582-b85d26fc3895`, with automatic tester notification enabled
+  and exempt-encryption metadata verified. All 2,870 characters of the new English
+  testing notes were written and read back exactly. The complete Apple production
+  version/review snapshot matches preflight; no group/encryption change or
+  production submission was needed.
+- **Android 57:** EAS build `2cca5fd2-3ecc-4d11-b6b6-85d21b2400c6` finished at
+  `2026-10-13T20:05:22.184Z`, with exact version/code/source verified. AAB:
+  94,815,237 bytes; SHA-256
+  `b75c21ab651943b6275ef49a351dac320c7dec322ed5f461a571d31298357568`.
+  The guarded uploader verified Google's returned code/hash, validated and
+  committed internal only once with `ERROR_IF_IN_REVIEW`. Its canonical lifecycle
+  read confirms `RELEASE_LIFECYCLE_STATE_PUBLISHED` for code 57 and unchanged
+  production 2.1.1/code 50. A separate disposable edit read confirmed internal
+  `status=completed`, exact English testing notes, and byte-equivalent production
+  and closed alpha track snapshots. That inspection edit was deleted without
+  commit. Alpha remains code 43; no production or closed-testing submission was made.
+
+Evidence is retained under ignored `apps/mobile/dist/testing-37-57`. Update existing
+installations without uninstalling. Native keyboard/drag/cancel geometry, original
+splash/launcher appearance, date/time widgets, blur, reminders and two-phone
+shared-ledger restore/reconnect still need device checks. Use synthetic data for
+deletion and credit-limit tests. The consolidated checklist remains in
+[next-release-refinements.md](next-release-refinements.md).
+
 ## Testing delivery — 13 October 2026 (56/36)
 
 Built **2.2.0 / Android 56 / iOS 36** from reviewed feature source `57d41c9`

@@ -56,19 +56,14 @@ tracks as they are. The working checkout returns to `main` after the merge.
 - **Admin times:** operational timestamps show date and 24-hour Kabul time,
   regardless of browser timezone. Relative recency remains visible; records
   with only a calendar date do not acquire a fictional time.
-- **Brand color language:** the approved Aubergine/Saffron/Ivory/Charcoal/White
-  palette drives branding, web controls, onboarding and marketing surfaces.
-  Following the user's visual feedback, everyday mobile controls use black and
-  neutral grays, including the home add/find button, selected tabs and give/receive.
-  Brand colors remain for identity, onboarding and occasional highlights.
-  Detailed ledger rows stay white; money direction, destructive actions,
-  attribution and pending-only amber retain their meanings. Web/admin/SSR
-  pages, transactional email styles, PDF headers and future flyer/social/store
-  screenshot sources follow the roles in [brand-language.md](brand-language.md).
-  Shared JSON is available to Metro through a scoped watch folder. The Android
-  adaptive background and notification accent use Aubergine. Original opaque
-  launcher/splash, favicon and social-preview artwork still need their editable
-  master for faithful recoloring; existing artwork is retained meanwhile.
+- **Product and marketing colors:** app/web controls, onboarding and PDF/email
+  chrome use black, white and neutral grays, with the original black identity
+  assets restored from Git. Android adaptive and notification accents are black;
+  the website adopts actual neutral shadcn controls. Detailed ledger rows stay
+  white, and financial, destructive, attribution and review-state colors keep
+  their meanings. The Aubergine/Saffron/Ivory/Charcoal/White palette remains for
+  flyers, posts and other marketing, with its own colored logo and generators
+  that cannot overwrite product assets. See [brand-language.md](brand-language.md).
 - **Weekly growth:** Admin Overview shows the latest completed week's active
   device growth, a 7% verdict, the exact whole-device target and a completed-week
   history. The current week has a provisional count/target/progress, with no
@@ -79,7 +74,9 @@ tracks as they are. The working checkout returns to `main` after the merge.
   the target is `ceil(previous active × 1.07)`. A zero denominator stays undefined.
   Full tracking is required for both weeks. Missing coverage and the UTC/Kabul
   transition week plus its following comparison have counts without a verdict.
-  Backend changes are read-only and additive, with no migration or new telemetry.
+  Reporting weeks now run Saturday–Friday in Kabul. Migration 060 preserves
+  legacy Monday aggregates and stores recomputed Saturday windows separately;
+  Friday activity remains included. No new device telemetry is collected.
   Older backend responses retain accounting charts but do not invent a rate.
   The benchmark links to [Paul Graham's essay](https://paulgraham.com/growth.html).
 
@@ -367,7 +364,7 @@ timed ranges, check equal start/end minutes, crossed months, reopen/cancel,
 clearing and the end-minute boundary across current/settled/Not sent history.
 Whole balances, exports, WhatsApp statements and unread notices must stay whole.
 
-## October 13 combined home search — awaiting next testing build
+## October 13 combined home search — testing 37/57
 
 After testing build 36/56, the user requested that the home search show both
 **To collect** and **To pay** results together. A nonblank query now opens one
@@ -391,12 +388,12 @@ and after clearing search. Local iOS/Android Metro/Hermes exports passed with th
 production public environment. Review checked scope safety, direction cues and
 accessibility; the swipe memo also tracks its generation across discarded renders.
 
-This is a source change after the 36/56 delivery, not a new store upload. Check
+This source change after the 36/56 delivery is included in testing 37/57. Check
 the combined list in English/Dari, narrow screens and large text, including
 opposite-side-only matches, both previous tabs, group filters, keyboard clearing
 and returning from a customer.
 
-## October 13 group-management visibility — awaiting next testing build
+## October 13 group-management visibility — testing 37/57
 
 **Manage groups** is now a full-width black button with a folder icon in a
 separated footer of the Sort & filter sheet. It stays outside the scrolling
@@ -405,13 +402,13 @@ the footer under the existing sheet height limit, with bottom safe-area padding
 applied once. The button also remains available when creating the first group.
 Existing role restrictions and dismissal-before-navigation, double-tap and
 account/kaata guards are preserved. This refinement follows testing build 36/56
-and awaits the next native testing update.
+and is included in testing 37/57.
 
 TypeScript and the existing customer-groups regressions, including the sheet's
 navigation/timer checks, passed. Check the footer on narrow screens, large text
 and long group lists in English/Dari during the next device pass.
 
-## October 13 saved customers without tallies — awaiting next testing build
+## October 13 saved customers without tallies — testing 37/57
 
 Saved customers now stay on the home screen even before their first tally. A
 compact **No tallies yet** section follows the financial rows on both To collect
@@ -430,12 +427,12 @@ appear here, not the device's entire phone book.
 TypeScript and the customer-groups and person-find regressions passed. Coverage
 checks returning from creation on To pay, both idle tabs, a single search match,
 first-tally transitions, group filtering, viewer/clerk controls, English/Dari,
-and financial totals staying whole. Native checks remain for the next testing
-build: add a customer and go back without a tally, search/open it, then add a
+and financial totals staying whole. Native checks remain for testing 37/57:
+add a customer and go back without a tally, search/open it, then add a
 tally; repeat on both tabs and with groups, narrow screens and large text.
-This source change follows testing build 36/56 and has not been uploaded.
+This source change follows testing build 36/56 and is included in testing 37/57.
 
-## October 13 bottom-search keyboard dismissal — awaiting next testing build
+## October 13 bottom-search keyboard dismissal — testing 37/57
 
 Home customer search and customer tally search now offer an accessible **Hide
 keyboard** down-arrow while their input is focused, even with an empty query.
@@ -459,10 +456,10 @@ nonempty searches, retained date filters, separate Clear behavior, native hide
 events, focus release, viewer access and English/Dari on Android/iOS. Source
 review found no blocker. Device checks remain for iPhone interactive dragging
 and cancelled drags, closing/refocusing, Android Back, narrow screens and large
-text with a full list. This source change follows testing build 36/56 and has
-not been uploaded.
+text with a full list. This source change follows testing build 36/56 and is
+included in testing 37/57.
 
-## October 13 search clear-button alignment — awaiting next testing build
+## October 13 search clear-button alignment — testing 37/57
 
 Both bottom searches use the same plain cross, vertically centered in a fixed
 44pt tap area at the trailing edge. The home clear target no longer leaves extra
@@ -470,9 +467,9 @@ padding around that edge, matching the tally search. Explicit physical margins
 mirror the spacing in Dari; the previous tally `marginEnd` did not follow the
 app's manual row reversal. Clear still only clears the query, independently of
 the keyboard-down control and date filter. Existing search regressions and
-TypeScript passed; inspect the alignment on phones in the next testing build.
+TypeScript passed; inspect the alignment on phones in testing 37/57.
 
-## October 13 smoother bottom-search transitions — awaiting next testing build
+## October 13 smoother bottom-search transitions — testing 37/57
 
 The iPhone dock now updates its height, action buttons and bottom padding when
 the keyboard begins moving, using the same keyboard timing for opening and
@@ -496,7 +493,7 @@ retained input identity, no added keyboard animation per keystroke, Reduce Motio
 LTR/RTL spacing and interrupted/unmounted control animations. Visual phone checks
 remain for repeated focus/clear/close, slow interactive drags and cancellations,
 toasts, narrow screens, large text and navigating to an add form and back.
-This source change follows testing build 36/56 and has not been uploaded.
+This source change follows testing build 36/56 and is included in testing 37/57.
 
 ## October 13 neutral product identity and Afghan reporting week
 
@@ -528,7 +525,9 @@ explicit iOS/Android production bundle exports, web 90 tests/typecheck/build and
 26 release-helper tests passed. Saturday-boundary/migration checks passed on an
 isolated PostgreSQL database; full server verification is recorded with delivery.
 Browser checks inspected neutral English/Dari web layouts at desktop and phone
-widths. Native phone checks remain separate.
+widths. Native phone checks remain separate. Both testing releases are now
+verified available, with backend/web live at `0424b02`, preserved Monday history
+and unchanged mobile production versions. See [the delivery log](kaata-2-testing.md).
 
 ## Deferred by the user
 
@@ -617,7 +616,7 @@ restored; changing solo-mode configuration alone is insufficient.
 5. Leave a joined kaata non-active on a paired member's phone, write remotely,
    then revisit it. Check current and retired device identities where available.
 6. English/Dari and large text: inspect primary/selected/disabled/loading
-   controls, Ivory onboarding, white ledger rows, direction and pending states,
+   controls, neutral onboarding, white ledger rows, direction and pending states,
    PDF exports, adaptive icons and notification contrast. Compare web/admin and
    statement/invite pages at mobile and desktop widths. Review email rendering,
    flyer print output, social formats and later store screenshots together.

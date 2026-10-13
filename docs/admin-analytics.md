@@ -16,6 +16,9 @@ check-ins cannot make today's chart point disagree with DAU.
 New reporting days start at midnight in `Asia/Kabul` (19:30 UTC). Weekly buckets
 start on Saturday and end on Friday (migration 060). Working days are Saturday
 through Thursday; Friday activity still counts toward the full reporting week.
+Previously frozen Monday weeks are preserved with their original counts, rules
+and timestamps. Saturday windows are computed from canonical daily history and
+stored separately; old aggregates are never shifted to a different weekday.
 This is independent of the PostgreSQL session timezone and the
 operator's browser timezone. The web dashboard refreshes at that midnight, in
 addition to its regular polling and refresh on return from a hidden tab.
