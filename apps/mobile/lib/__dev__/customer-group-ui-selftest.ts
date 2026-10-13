@@ -68,6 +68,7 @@ export async function customerGroupUIChecks() {
       react: hooks.react,
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "@expo/vector-icons": { Ionicons: "Ionicons" },
+      "./Button": { Button: "Button" },
       "react-native": {
         Animated: { Value, spring: animate, timing: animate, View: "AnimatedView" },
         Dimensions: { get: () => ({ height: 800 }) },

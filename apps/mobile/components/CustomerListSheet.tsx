@@ -24,6 +24,7 @@ import {
 } from "../lib/customer-list";
 import type { CustomerGroup } from "../lib/customer-groups";
 import { icon, radius } from "../lib/tokens";
+import { Button } from "./Button";
 import { SheetBackdrop } from "./SheetBackdrop";
 
 /** One small entry point, two independent choices; no permanent filter bar. */
@@ -168,17 +169,17 @@ export function CustomerListSheet(props: {
           { transform: [{ translateY: slide }], maxHeight: Dimensions.get("window").height * 0.78 },
         ]}
       >
-        <SafeAreaView edges={["bottom"]} style={{ flexShrink: 1 }}>
+        <SafeAreaView edges={["bottom"]} style={styles.content}>
           <View style={styles.grabber} />
           <Text style={[styles.title, textDir(props.isRTL)]}>{t("customers.listOptions")}</Text>
-          <ScrollView bounces={false}>
+          <ScrollView bounces={false} style={styles.optionsScroll}>
             <Text style={[styles.section, textDir(props.isRTL)]}>{t("customers.sort")}</Text>
             {CUSTOMER_SORTS.map((sort) =>
               row(sort, t(`customers.sort.${sort}`), props.preference.sort === sort, () =>
                 props.onChange({ ...props.preference, sort }),
               ),
             )}
-            {props.groups.length > 0 || props.canManage ? (
+            {props.groups.length > 0 ? (
               <Text style={[styles.section, textDir(props.isRTL)]}>{t("groups.filter")}</Text>
             ) : null}
             {/* All/Ungrouped mean nothing until a group exists. */}
@@ -209,8 +210,15 @@ export function CustomerListSheet(props: {
                   }),
               ),
             )}
-            {props.canManage
-              ? row("manage", t("groups.manage"), false, () => {
+          </ScrollView>
+          {props.canManage ? (
+            <View style={styles.manageFooter}>
+              <Button
+                label={t("groups.manage")}
+                accessibilityLabel={t("groups.manage")}
+                icon="folder-open-outline"
+                fullWidth
+                onPress={() => {
                   if (actionTimer.current || !latest.current.visible) return;
                   const scope = props.contextKey;
                   props.onDismiss();
@@ -224,9 +232,10 @@ export function CustomerListSheet(props: {
                     )
                       latest.current.onManage();
                   }, 240);
-                })
-              : null}
-          </ScrollView>
+                }}
+              />
+            </View>
+          ) : null}
         </SafeAreaView>
       </Animated.View>
     </Modal>
@@ -243,6 +252,15 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radius.sheet,
     borderTopWidth: 1,
     borderColor: colors.borderDefault,
+  },
+  content: { flexShrink: 1, minHeight: 0 },
+  optionsScroll: { flexShrink: 1, minHeight: 0 },
+  manageFooter: {
+    flexShrink: 0,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderDefault,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
   },
   grabber: {
     alignSelf: "center",

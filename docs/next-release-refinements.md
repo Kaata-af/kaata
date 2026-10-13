@@ -396,6 +396,21 @@ the combined list in English/Dari, narrow screens and large text, including
 opposite-side-only matches, both previous tabs, group filters, keyboard clearing
 and returning from a customer.
 
+## October 13 group-management visibility — awaiting next testing build
+
+**Manage groups** is now a full-width black button with a folder icon in a
+separated footer of the Sort & filter sheet. It stays outside the scrolling
+options, so long group lists do not bury it. The scroll area yields space to
+the footer under the existing sheet height limit, with bottom safe-area padding
+applied once. The button also remains available when creating the first group.
+Existing role restrictions and dismissal-before-navigation, double-tap and
+account/kaata guards are preserved. This refinement follows testing build 36/56
+and awaits the next native testing update.
+
+TypeScript and the existing customer-groups regressions, including the sheet's
+navigation/timer checks, passed. Check the footer on narrow screens, large text
+and long group lists in English/Dari during the next device pass.
+
 ## Deferred by the user
 
 The household/shopkeeper ledger needs two parties: the user and Dad on one
