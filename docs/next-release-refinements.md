@@ -411,6 +411,30 @@ TypeScript and the existing customer-groups regressions, including the sheet's
 navigation/timer checks, passed. Check the footer on narrow screens, large text
 and long group lists in English/Dari during the next device pass.
 
+## October 13 saved customers without tallies — awaiting next testing build
+
+Saved customers now stay on the home screen even before their first tally. A
+compact **No tallies yet** section follows the financial rows on both To collect
+and To pay, so returning from a new customer does not make them disappear or
+switch tabs. Combined search includes those customers once. Adding a first tally
+moves the same customer into the appropriate financial section.
+
+Neutral contacts do not contribute to the financial totals, customer counts or
+filtered subtotals. The group-filter hint explicitly names its financial side.
+Known balances/history, settled accounts and linked or undownloaded shared
+accounts retain their financial classification. Group filters still apply to
+neutral contacts and can be cleared from search; recent/date sorting uses the
+contact's creation date when it has no tally date. Only saved active customers
+appear here, not the device's entire phone book.
+
+TypeScript and the customer-groups and person-find regressions passed. Coverage
+checks returning from creation on To pay, both idle tabs, a single search match,
+first-tally transitions, group filtering, viewer/clerk controls, English/Dari,
+and financial totals staying whole. Native checks remain for the next testing
+build: add a customer and go back without a tally, search/open it, then add a
+tally; repeat on both tabs and with groups, narrow screens and large text.
+This source change follows testing build 36/56 and has not been uploaded.
+
 ## Deferred by the user
 
 The household/shopkeeper ledger needs two parties: the user and Dad on one

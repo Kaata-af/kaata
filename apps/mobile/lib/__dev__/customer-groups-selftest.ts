@@ -7,7 +7,10 @@ import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import ts from "typescript";
 import {
+  DEFAULT_CUSTOMER_LIST,
   selectCustomers,
+  isNeverTalliedCustomer,
+  selectNeverTalliedCustomers,
   parseCustomerListPreference,
   toggleCustomerGroupFilter,
   availableCustomerGroupFilter,
@@ -478,6 +481,69 @@ async function main() {
     { id: "d", name: "Dawood", balance: -200, last_entry_at: 15 },
     { id: "e", name: "Ehsan", balance: -10, last_entry_at: 10 },
   ] as PersonWithBalance[];
+  const newPerson = {
+    ...people[0],
+    id: "new",
+    name: "Zarif New",
+    balance: 0,
+    last_entry_at: null,
+    last_entry_type: null,
+    is_settled: 0,
+    created_at: 100,
+  } as PersonWithBalance;
+  const olderEmptyPerson = { ...newPerson, id: "old-empty", name: "Amir Empty", created_at: 50 };
+  assert.equal(isNeverTalliedCustomer(newPerson), true);
+  for (const financial of [
+    ...people,
+    { ...newPerson, balance: 5 },
+    { ...newPerson, balance: -5 },
+    { ...newPerson, is_settled: 1 },
+    { ...newPerson, last_entry_type: "debt" as const },
+    { ...newPerson, tab_id: "shared" },
+    { ...newPerson, tab_unsynced: 1 as const },
+  ])
+    assert.equal(
+      isNeverTalliedCustomer(financial),
+      false,
+      "financial history, known balances and unknown shared ledgers never become no-tally contacts",
+    );
+  const completePeople = [...people, olderEmptyPerson, newPerson];
+  const originalCompletePeople = JSON.stringify(completePeople);
+  for (const direction of ["collect", "pay"] as const)
+    assert.ok(
+      selectCustomers(completePeople, direction, DEFAULT_CUSTOMER_LIST, {}, "en").every(
+        (person) => !isNeverTalliedCustomer(person),
+      ),
+      "neutral contacts are excluded from both financial lists",
+    );
+  assert.deepEqual(
+    selectNeverTalliedCustomers(completePeople, DEFAULT_CUSTOMER_LIST, {}, "en").map(
+      (person) => person.id,
+    ),
+    ["new", "old-empty"],
+    "recent neutral contacts use their creation time",
+  );
+  assert.deepEqual(
+    selectNeverTalliedCustomers(completePeople, { sort: "name_asc", group: "all" }, {}, "en").map(
+      (person) => person.id,
+    ),
+    ["old-empty", "new"],
+  );
+  assert.deepEqual(
+    selectNeverTalliedCustomers(
+      completePeople,
+      { sort: "recent", group: ["family", "shop"] },
+      { new: ["family", "shop"], "old-empty": [] },
+      "en",
+    ).map((person) => person.id),
+    ["new"],
+    "neutral selection respects groups and deduplicates membership",
+  );
+  assert.equal(
+    JSON.stringify(completePeople),
+    originalCompletePeople,
+    "selectors leave balances untouched",
+  );
   const ids = (sort: any, direction: any = "collect", filter: string | string[] = "all") =>
     selectCustomers(
       people,

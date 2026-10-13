@@ -127,6 +127,7 @@ const people = [
     phone: "+93700123456",
     balance: 500,
     last_entry_at: 100,
+    created_at: 10,
     direction: "collect",
   },
   {
@@ -135,6 +136,7 @@ const people = [
     phone: "+93700987654",
     balance: 0,
     last_entry_at: null,
+    created_at: 20,
     direction: "collect",
   },
 ];
@@ -554,8 +556,20 @@ async function main() {
   const homeIds = () => {
     const results = homeSearch();
     return results
-      ? [...results.props.collectPeople, ...results.props.payPeople].map((person: any) => person.id)
-      : homePages().flatMap((page) => page.props.people.map((person: any) => person.id));
+      ? [
+          ...results.props.collectPeople,
+          ...results.props.payPeople,
+          ...results.props.neverTalliedPeople,
+        ].map((person: any) => person.id)
+      : [
+          ...new Set(
+            homePages().flatMap((page) =>
+              [...page.props.people, ...page.props.neverTalliedPeople].map(
+                (person: any) => person.id,
+              ),
+            ),
+          ),
+        ];
   };
   // Expand the stateless local list views so assertions reach actual headings,
   // empty states and row handlers, rather than just their parent props.
@@ -620,7 +634,23 @@ async function main() {
           1,
           "dock containing block shrinks above keyboard",
         );
-        assert.deepEqual(homeIds(), ["ahmad"], "idle home keeps zero-tally contacts hidden");
+        assert.deepEqual(homeIds(), ["ahmad", "fatima"], "idle home retains zero-tally contacts");
+        for (const page of homePages()) {
+          assert.deepEqual(
+            page.props.neverTalliedPeople.map((person: any) => person.id),
+            ["fatima"],
+            "a new contact remains visible from either previous tab",
+          );
+          assert.ok(
+            !page.props.allPeople.some((person: any) => person.id === "fatima"),
+            "no-tally contacts stay outside financial totals and counts",
+          );
+          assert.equal(
+            nodes(renderList(page)).filter((node) => node.type === "EmptyState").length,
+            0,
+            "existing no-tally contacts replace the otherwise empty financial list",
+          );
+        }
         input.props.onChangeText("فاطمه");
         await flush();
         assert.deepEqual(homeIds(), ["fatima"], "Dari search reaches zero-tally customers");
@@ -631,7 +661,8 @@ async function main() {
         assert.equal(find("Gesture"), undefined, "search results do not swipe between sides");
         const resultTree = renderList(results);
         assert.equal(nodes(resultTree).filter((node) => node.type === "ScrollView").length, 1);
-        assert.ok(text(resultTree).includes("home.tab.collect"));
+        assert.ok(text(resultTree).includes("customers.noTallies"));
+        assert.ok(!text(resultTree).includes("home.tab.collect"));
         assert.ok(!text(resultTree).includes("home.tab.pay"), "empty result sections stay hidden");
         assert.ok(
           !text(resultTree).includes("home.total.label"),
@@ -659,7 +690,7 @@ async function main() {
         );
         byLabel("customers.search.clear")!.props.onPress();
         await flush();
-        assert.deepEqual(homeIds(), ["ahmad"]);
+        assert.deepEqual(homeIds(), ["ahmad", "fatima"]);
         assert.equal(find("Tabs")!.props.value, "collect");
         assert.equal(homeSearch(), undefined);
         assert.deepEqual(
@@ -856,6 +887,116 @@ async function main() {
   await flush();
   assert.equal(homeSearch(), undefined, "whitespace restores the normal overview");
   assert.equal(find("Tabs")!.props.value, "pay");
+
+  // Return to To pay after adding a contact with no financial activity. The
+  // focus reload must keep it visible without assigning it a debt direction.
+  fixture(home, "owner");
+  await flush();
+  find("Tabs")!.props.onChange("pay");
+  await flush();
+  const freshPerson = {
+    ...people[1],
+    id: "new-person",
+    name: "Zarif New",
+    created_at: 200,
+  };
+  peopleByVault.set("kaata", [...people, freshPerson]);
+  focusEpoch++;
+  dirty = true;
+  await flush();
+  assert.equal(find("Tabs")!.props.value, "pay", "adding a person does not jump balance tabs");
+  for (const page of homePages()) {
+    assert.deepEqual(
+      page.props.neverTalliedPeople.map((person: any) => person.id),
+      ["new-person", "fatima"],
+      "the latest addition leads the neutral section on both pages",
+    );
+    const freshRow = nodes(renderList(page)).find(
+      (node) => node.type === "PersonRow" && node.props.person.id === "new-person",
+    )!;
+    assert.ok(freshRow, "the saved no-tally contact is rendered and reachable");
+    freshRow.props.onPress(freshRow.props.person);
+    assert.deepEqual(routes.at(-1), { pathname: "/person/[id]", params: { id: "new-person" } });
+    assert.ok(!page.props.allPeople.some((person: any) => person.id === "new-person"));
+  }
+  byLabel("customers.search")!.props.onChangeText("Zarif");
+  await flush();
+  assert.deepEqual(homeIds(), ["new-person"], "home search finds a saved no-tally contact");
+  const neutralSearch = renderList(homeSearch()!);
+  assert.equal(
+    nodes(neutralSearch).filter((node) => node.type === "PersonRow").length,
+    1,
+    "the neutral contact is rendered once in combined search",
+  );
+  assert.ok(!text(neutralSearch).includes("home.tab.collect"));
+  assert.ok(!text(neutralSearch).includes("home.tab.pay"));
+  assert.ok(text(neutralSearch).includes("customers.noTallies"));
+  byLabel("customers.search.clear")!.props.onPress();
+  await flush();
+  assert.equal(find("Tabs")!.props.value, "pay");
+
+  // An active group filter remains explicit and removable; search should not
+  // silently discard the user's filter just because the person is new.
+  groupState = {
+    groups: [
+      { id: "family", name: "Family", member_count: 1 },
+      { id: "newcomers", name: "Newcomers", member_count: 2 },
+    ],
+    groupsByPerson: { ahmad: ["family"], fatima: ["newcomers"], "new-person": ["newcomers"] },
+  };
+  focusEpoch++;
+  dirty = true;
+  await flush();
+  find("CustomerListSheet")!.props.onChange({ sort: "recent", group: "newcomers" });
+  await flush();
+  for (const page of homePages()) {
+    const neutralGroupTree = renderList(page);
+    assert.equal(nodes(neutralGroupTree).filter((node) => node.type === "PersonRow").length, 2);
+    assert.equal(tParams.get("customers.filtered")?.shown, 0);
+    assert.equal(
+      tParams.get("customers.filtered")?.direction,
+      page.props.direction === "collect" ? "home.tab.collect" : "home.tab.pay",
+      "the zero financial match count explicitly names its side, separate from neutral rows",
+    );
+  }
+  find("CustomerListSheet")!.props.onChange({ sort: "recent", group: "family" });
+  await flush();
+  byLabel("customers.search")!.props.onChangeText("Zarif");
+  await flush();
+  assert.deepEqual(homeIds(), [], "selected groups still filter a new ungrouped contact");
+  const clearNewPersonFilter = nodes(renderList(homeSearch()!)).find(
+    (node) => node.type === "Pressable" && node.props.accessibilityHint === "groups.clearFilter",
+  )!;
+  assert.ok(clearNewPersonFilter, "the limiting group filter can be cleared from empty search");
+  clearNewPersonFilter.props.onPress();
+  await flush();
+  assert.deepEqual(homeIds(), ["new-person"], "clearing the visible filter restores that match");
+  assert.equal(writes.length, 0, "visibility and search do not create fake financial entries");
+
+  peopleByVault.set("kaata", [...people, { ...freshPerson, balance: -250, last_entry_at: 300 }]);
+  focusEpoch++;
+  dirty = true;
+  await flush();
+  assert.deepEqual(
+    homeIds(),
+    ["new-person"],
+    "the first tally keeps the same saved contact findable",
+  );
+  const firstTallyResults = homeSearch()!;
+  assert.deepEqual(
+    firstTallyResults.props.payPeople.map((person: any) => person.id),
+    ["new-person"],
+  );
+  assert.deepEqual(
+    firstTallyResults.props.neverTalliedPeople,
+    [],
+    "first activity removes the neutral row",
+  );
+  assert.equal(
+    nodes(renderList(firstTallyResults)).filter((node) => node.type === "PersonRow").length,
+    1,
+    "moving into the financial section does not duplicate the contact",
+  );
 
   fixture(home, "owner");
   peopleByVault = new Map([["kaata", []]]);

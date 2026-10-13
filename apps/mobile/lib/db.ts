@@ -4273,8 +4273,7 @@ const TAB_LINK_JOIN = `LEFT JOIN tab_links tl ON tl.tab_id = (
 /**
  * last_entry_at is the home sort key and last_entry_type the settled-person
  * side picker; for a linked contact both must consider the tab's newest row
- * as well as the local book's (a linked contact with only tab activity would
- * otherwise vanish from home, which hides people with no entries). Done in
+ * as well as the local book's so linked activity sorts on the correct side. Done in
  * JS because SQLite's scalar MAX() is NULL when either side is NULL, and the
  * mapping of a direction to a type needs the viewer's role (entryTypeFor).
  * Unlinked rows pass through untouched.
@@ -4364,20 +4363,15 @@ async function selectAllPeopleRaw(
   return rows.map(finishTabColumns);
 }
 
-// Returns every active person, regardless of which tab they'd land in.
-// Used by the search-or-create flow where direction doesn't matter — the user
-// just wants to find or add a contact. Sorted most-recently-active first so
-// the quick-switcher pre-populates with familiar names.
+// Legacy tally-only list, regardless of financial side. Sorted by the latest
+// tally date, then name. Home now uses the complete list below and separates
+// customers without financial activity into its neutral section.
 export async function listAllPeople(
   vaultId = getActiveVaultIdSyncMaybe(),
 ): Promise<PersonWithBalance[]> {
   const db = await getDb();
   const rows = await selectAllPeopleRaw(db, vaultId);
-  // HOME list: only people with TALLIES (≥1 entry) — phone-book contacts and
-  // freshly-added people with no transactions don't clutter the main page; they
-  // stay findable via the search/add flow (listAllPeopleForSearch). Sorted by
-  // modified date (most-recent entry first), name as tie-break. (Matee: "only the
-  // ones that has some tallies" + "sorted by modified date".)
+  // Retain the legacy activity-only contract for existing callers.
   return rows
     .filter((p) => p.last_entry_at != null)
     .sort((a, b) => {
@@ -4388,9 +4382,9 @@ export async function listAllPeople(
     });
 }
 
-// Every active person INCLUDING zero-tally (no entries yet) — for the search/add
-// flow so a freshly-added or phone-imported contact is findable before they have
-// any ledger activity. The home list (listAllPeople) excludes zero-tally people.
+// Every active saved person, including contacts without tallies. Home and the
+// search/add flow use this complete source; native phone-book suggestions are
+// read separately by the add flow and are not automatically home customers.
 export async function listAllPeopleForSearch(
   vaultId = getActiveVaultIdSyncMaybe(),
 ): Promise<PersonWithBalance[]> {

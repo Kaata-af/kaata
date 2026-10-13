@@ -66,8 +66,10 @@ import {
   customerSide,
   availableCustomerGroupFilter,
   DEFAULT_CUSTOMER_LIST,
+  isNeverTalliedCustomer,
   parseCustomerListPreference,
   selectCustomers,
+  selectNeverTalliedCustomers,
   selectedCustomerGroupIds,
   type CustomerListPreference,
 } from "../lib/customer-list";
@@ -334,9 +336,9 @@ export default function HomeScreen() {
       if (!current()) return;
 
       setSelf(s);
-      // Keep the idle home tally-only, while search can find newly added people.
-      const list = searchList.filter((person) => person.last_entry_at != null);
-      setAllPeople(list);
+      // Every saved active customer stays visible. Financial lists and the
+      // neutral "No tallies yet" section split this full list at render time.
+      setAllPeople(searchList);
       setPeopleForSearch(searchList);
       setPeopleScope({ vaultId: requestedVault, accountId: requestedAccount });
       setCustomerGroups(groupState.groups);
@@ -351,7 +353,7 @@ export default function HomeScreen() {
       );
       setCreditByPerson(
         Object.fromEntries(
-          list.map((person) => [
+          searchList.map((person) => [
             person.id,
             creditStatusForBalance(creditPolicies[person.id] ?? null, person.balance),
           ]),
@@ -678,12 +680,17 @@ export default function HomeScreen() {
     () => selectCustomers(matchedPeople, "pay", listPreference, groupByPerson, locale),
     [matchedPeople, listPreference, groupByPerson, locale],
   );
+  const neverTalliedPeople = useMemo(
+    () => selectNeverTalliedCustomers(matchedPeople, listPreference, groupByPerson, locale),
+    [matchedPeople, listPreference, groupByPerson, locale],
+  );
   const collectAll = useMemo(
-    () => visibleAllPeople.filter((p) => customerSide(p) === "collect"),
+    () =>
+      visibleAllPeople.filter((p) => !isNeverTalliedCustomer(p) && customerSide(p) === "collect"),
     [visibleAllPeople],
   );
   const payAll = useMemo(
-    () => visibleAllPeople.filter((p) => customerSide(p) === "pay"),
+    () => visibleAllPeople.filter((p) => !isNeverTalliedCustomer(p) && customerSide(p) === "pay"),
     [visibleAllPeople],
   );
   const effectiveGroup = useMemo(
@@ -1114,6 +1121,7 @@ export default function HomeScreen() {
             <SearchResultsPage
               collectPeople={collectPeople}
               payPeople={payPeople}
+              neverTalliedPeople={neverTalliedPeople}
               scrollRef={searchScrollRef}
               groupFilterLabel={groupFilterLabel}
               groupFilterCount={groupFilterCount}
@@ -1138,6 +1146,7 @@ export default function HomeScreen() {
                   direction="collect"
                   people={collectPeople}
                   allPeople={collectAll}
+                  neverTalliedPeople={neverTalliedPeople}
                   filtered={effectiveGroup !== "all"}
                   filterTotal={collectAll.length}
                   scrollRef={collectScrollRef}
@@ -1159,6 +1168,7 @@ export default function HomeScreen() {
                   direction="pay"
                   people={payPeople}
                   allPeople={payAll}
+                  neverTalliedPeople={neverTalliedPeople}
                   filtered={effectiveGroup !== "all"}
                   filterTotal={payAll.length}
                   scrollRef={payScrollRef}
@@ -1707,6 +1717,21 @@ function CustomerRows(props: CustomerRowsProps) {
   );
 }
 
+/** A customer has no money direction until there is a tally. Kept visible on
+ * both idle pages, and once in search, without contributing to either total. */
+function NoTalliesSection(props: CustomerRowsProps) {
+  const isRTL = useIsRTL();
+  if (!props.people.length) return null;
+  return (
+    <View style={styles.noTalliesSection}>
+      <Text style={[styles.searchSectionTitle, textDir(isRTL)]} accessibilityRole="header">
+        {t("customers.noTallies")}
+      </Text>
+      <CustomerRows {...props} />
+    </View>
+  );
+}
+
 function GroupFilterChip(props: GroupFilterChipProps) {
   const isRTL = useIsRTL();
   if (!props.groupFilterLabel) return null;
@@ -1740,10 +1765,12 @@ function SearchResultsPage(
     CustomerScrollProps & {
       collectPeople: PersonWithBalance[];
       payPeople: PersonWithBalance[];
+      neverTalliedPeople: PersonWithBalance[];
     },
 ) {
   const isRTL = useIsRTL();
-  const count = props.collectPeople.length + props.payPeople.length;
+  const count =
+    props.collectPeople.length + props.payPeople.length + props.neverTalliedPeople.length;
   return (
     <ScrollView
       ref={props.scrollRef}
@@ -1777,23 +1804,34 @@ function SearchResultsPage(
       {count === 0 ? (
         <EmptyState title={t("customers.noResults")} isRTL={isRTL} />
       ) : (
-        (["collect", "pay"] as const).map((direction) => {
-          const people = direction === "collect" ? props.collectPeople : props.payPeople;
-          if (!people.length) return null;
-          return (
-            <View key={direction}>
-              <Text style={[styles.searchSectionTitle, textDir(isRTL)]} accessibilityRole="header">
-                {t(direction === "collect" ? "home.tab.collect" : "home.tab.pay")}
-              </Text>
-              <CustomerRows
-                people={people}
-                creditByPerson={props.creditByPerson}
-                onPersonPress={props.onPersonPress}
-                onPersonLongPress={props.onPersonLongPress}
-              />
-            </View>
-          );
-        })
+        <>
+          {(["collect", "pay"] as const).map((direction) => {
+            const people = direction === "collect" ? props.collectPeople : props.payPeople;
+            if (!people.length) return null;
+            return (
+              <View key={direction}>
+                <Text
+                  style={[styles.searchSectionTitle, textDir(isRTL)]}
+                  accessibilityRole="header"
+                >
+                  {t(direction === "collect" ? "home.tab.collect" : "home.tab.pay")}
+                </Text>
+                <CustomerRows
+                  people={people}
+                  creditByPerson={props.creditByPerson}
+                  onPersonPress={props.onPersonPress}
+                  onPersonLongPress={props.onPersonLongPress}
+                />
+              </View>
+            );
+          })}
+          <NoTalliesSection
+            people={props.neverTalliedPeople}
+            creditByPerson={props.creditByPerson}
+            onPersonPress={props.onPersonPress}
+            onPersonLongPress={props.onPersonLongPress}
+          />
+        </>
       )}
     </ScrollView>
   );
@@ -1805,6 +1843,7 @@ function TabPage(
     CustomerScrollProps & {
       direction: Direction;
       allPeople: PersonWithBalance[];
+      neverTalliedPeople: PersonWithBalance[];
       filtered: boolean;
       filterTotal: number;
       vaultId: string | null;
@@ -1821,8 +1860,8 @@ function TabPage(
   // person balance number and the web ledger.)
   const totalColor = props.direction === "collect" ? colors.collectStrong : colors.payStrong;
 
-  // Idle home shows people with tallies; search can include new contacts too.
-  // Both use ONE real bordered CARD (ScrollView + map), not the
+  // Financial and neutral customer sections use ONE real bordered CARD each
+  // (ScrollView + map), not the
   // old per-row border emulation. That emulation drew the card edges as ASYMMETRIC
   // per-row borders (first row top-only, last row bottom-only), which Android RN
   // renders wrong together with borderRadius — the first/last edges + corners
@@ -1885,6 +1924,7 @@ function TabPage(
             {/* The hero above stays the whole side (by design); what the
                 filtered customers come to was shown nowhere (audit #26). */}
             {t("customers.filtered", {
+              direction: t(props.direction === "collect" ? "home.tab.collect" : "home.tab.pay"),
               shown: people.length,
               total: props.filterTotal,
               amount: bidiIsolate(
@@ -1893,7 +1933,7 @@ function TabPage(
             })}
           </Text>
         ) : null}
-        {people.length === 0 ? (
+        {people.length === 0 && props.neverTalliedPeople.length === 0 ? (
           <EmptyState
             title={
               props.filtered
@@ -1911,14 +1951,20 @@ function TabPage(
             }
             isRTL={isRTL}
           />
-        ) : (
+        ) : people.length > 0 ? (
           <CustomerRows
             people={people}
             creditByPerson={props.creditByPerson}
             onPersonPress={onPersonPress}
             onPersonLongPress={onPersonLongPress}
           />
-        )}
+        ) : null}
+        <NoTalliesSection
+          people={props.neverTalliedPeople}
+          creditByPerson={props.creditByPerson}
+          onPersonPress={onPersonPress}
+          onPersonLongPress={onPersonLongPress}
+        />
       </ScrollView>
     </View>
   );
@@ -2143,6 +2189,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: 8,
   },
+  noTalliesSection: { marginTop: 16 },
   filterHint: {
     fontFamily: fonts.sansRegular,
     fontSize: 12,

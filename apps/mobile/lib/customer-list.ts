@@ -84,6 +84,19 @@ export function customerSide(p: PersonWithBalance): Direction {
         : "collect";
 }
 
+/** A saved private contact without financial activity. Unknown shared data,
+ * settled accounts and any known balance/history keep their financial side. */
+export function isNeverTalliedCustomer(p: PersonWithBalance): boolean {
+  return (
+    p.last_entry_at == null &&
+    p.last_entry_type == null &&
+    p.balance === 0 &&
+    p.is_settled !== 1 &&
+    p.tab_id == null &&
+    p.tab_unsynced !== 1
+  );
+}
+
 /** Persian and Arabic-Indic digits as ASCII, so "۱۰" compares like "10". */
 function asciiDigits(value: string): string {
   return value
@@ -119,9 +132,45 @@ export function selectCustomers<T extends PersonWithBalance>(
   groupByPerson: Readonly<Record<string, string | readonly string[] | null>>,
   locale: "en" | "fa",
 ): T[] {
+  return selectCustomerRows(
+    people,
+    (person) => !isNeverTalliedCustomer(person) && customerSide(person) === direction,
+    preference,
+    groupByPerson,
+    locale,
+    (person) => person.last_entry_at ?? 0,
+  );
+}
+
+/** Neutral contacts follow the same groups and sort as the financial lists.
+ * For recent/date order, creation replaces the tally date they do not have. */
+export function selectNeverTalliedCustomers<T extends PersonWithBalance>(
+  people: readonly T[],
+  preference: CustomerListPreference,
+  groupByPerson: Readonly<Record<string, string | readonly string[] | null>>,
+  locale: "en" | "fa",
+): T[] {
+  return selectCustomerRows(
+    people,
+    isNeverTalliedCustomer,
+    preference,
+    groupByPerson,
+    locale,
+    (person) => person.created_at,
+  );
+}
+
+function selectCustomerRows<T extends PersonWithBalance>(
+  people: readonly T[],
+  matches: (person: T) => boolean,
+  preference: CustomerListPreference,
+  groupByPerson: Readonly<Record<string, string | readonly string[] | null>>,
+  locale: "en" | "fa",
+  activityAt: (person: T) => number,
+): T[] {
   const byName = (a: T, b: T) =>
     compareCustomerNames(a.name, b.name, locale) || a.id.localeCompare(b.id);
-  const byDate = (a: T, b: T) => (b.last_entry_at ?? 0) - (a.last_entry_at ?? 0);
+  const byDate = (a: T, b: T) => activityAt(b) - activityAt(a);
   // Ascending amount/date sorts are for finding debts to chase; settled
   // customers (0, or an old closed account) must not bury the open ones.
   const openFirst = (a: T, b: T) => (a.is_settled === 1 ? 1 : 0) - (b.is_settled === 1 ? 1 : 0);
@@ -129,7 +178,7 @@ export function selectCustomers<T extends PersonWithBalance>(
   return people
     .filter(
       (p) =>
-        customerSide(p) === direction &&
+        matches(p) &&
         (preference.group === "all" ||
           (() => {
             const membership = groupByPerson[p.id];
