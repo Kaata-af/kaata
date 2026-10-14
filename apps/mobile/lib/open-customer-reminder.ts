@@ -1,14 +1,22 @@
 import { router } from "expo-router";
 import { applyVaultCurrency } from "./currency";
 import { onAccountIdentityChanged, setActiveVaultId } from "./db-tx";
-import { listCustomerReminders, reminderOwnerScope } from "./customer-reminders";
+import { listCustomerReminders, reminderOwnerScope, reminderTimezone } from "./customer-reminders";
+import { queueReminderPing } from "./reminder-ping-intent";
 
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 let latestTap = 0;
 
 /** Resolve opaque notice IDs against the current private state. Payloads never
- * choose a customer/vault route or grant access, and opening is not Mark done. */
-export async function openCustomerReminder(id: string, owner: string): Promise<void> {
+ * choose a customer/vault route or grant access, and opening is not Mark done.
+ * Only a native notification tap supplies a key to prepare the reminder draft;
+ * an in-app View action just opens the customer. */
+export async function openCustomerReminder(
+  id: string,
+  owner: string,
+  notificationKey?: string,
+  notificationFingerprint?: string,
+): Promise<void> {
   if (!UUID.test(id) || owner !== reminderOwnerScope()) return;
   const tap = ++latestTap;
   let switched = false;
@@ -24,14 +32,35 @@ export async function openCustomerReminder(id: string, owner: string): Promise<v
     await applyVaultCurrency(reminder.vault_id);
     if (!current()) return;
     // Membership/customer removal can apply while the vault switch awaits.
-    if (
-      !(await listCustomerReminders(reminder.vault_id, reminder.person_id)).some(
-        (r) => r.id === id,
-      ) ||
-      !current()
-    )
-      return;
-    router.push({ pathname: "/person/[id]", params: { id: reminder.person_id, reminderId: id } });
+    const fresh = (await listCustomerReminders(reminder.vault_id, reminder.person_id)).find(
+      (r) => r.id === id,
+    );
+    if (!fresh || !current()) return;
+    const fingerprint = `${fresh.updated_at}:${fresh.schedule_json}:${reminderTimezone()}`;
+    // Editing or completing a recurrence can update the same ID before the
+    // old alert leaves the tray. Still show its customer, but do not prepare a
+    // draft for that stale occurrence. Older alerts lack a fingerprint.
+    const stale = notificationFingerprint !== undefined && notificationFingerprint !== fingerprint;
+    const actionKey =
+      notificationKey !== undefined && !stale
+        ? queueReminderPing({
+            reminderId: id,
+            personId: reminder.person_id,
+            vaultId: reminder.vault_id,
+            ownerScope: owner,
+            notificationKey,
+            fingerprint,
+          })
+        : null;
+    if (notificationKey !== undefined && !stale && !actionKey) return;
+    router.push({
+      pathname: "/person/[id]",
+      params: {
+        id: reminder.person_id,
+        reminderId: id,
+        ...(actionKey ? { reminderActionKey: actionKey } : {}),
+      },
+    });
   } finally {
     stop();
   }

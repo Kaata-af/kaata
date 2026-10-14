@@ -152,9 +152,22 @@ const DB_BOOT_STAGES = new Set<BootErrorStage>([
 
 // Deep-link prefix carried by a mutual-tab notification (lib/tabs/notify.ts).
 const NOTIFICATION_PERSON_PREFIX = "kaata://person/";
-// getLastNotificationResponseAsync returns the launch tap forever; this latch
-// makes the app act on it exactly once per process.
-let launchResponseHandled = false;
+// Listener + launch lookup can report the same tap. A repeating request keeps
+// its identifier, so include the delivered date to admit the next occurrence.
+const handledNotificationResponses = new Set<string>();
+function notificationResponseKey(
+  response: import("expo-notifications").NotificationResponse,
+): string | null {
+  const { identifier } = response.notification.request;
+  const { date } = response.notification;
+  return typeof identifier === "string" &&
+    identifier.length > 0 &&
+    typeof date === "number" &&
+    Number.isFinite(date) &&
+    date > 0
+    ? JSON.stringify([identifier, date])
+    : null;
+}
 
 /**
  * Open the contact a tapped notification points at. Notification payloads are
@@ -164,13 +177,27 @@ let launchResponseHandled = false;
  * layout and loops (the documented expo-router anti-pattern). push also leaves
  * the user a back button to whatever they were on.
  */
-function routeFromNotificationData(data: unknown): void {
-  const reminder = data as { kind?: unknown; reminder_id?: unknown; owner_scope?: unknown } | null;
+function routeFromNotificationData(data: unknown, notificationKey?: string): void {
+  const reminder = data as {
+    kind?: unknown;
+    reminder_id?: unknown;
+    owner_scope?: unknown;
+    reminder_fingerprint?: unknown;
+  } | null;
   if (reminder?.kind === "customer_reminder") {
     if (typeof reminder.reminder_id === "string" && typeof reminder.owner_scope === "string") {
       void import("../lib/open-customer-reminder")
         .then(({ openCustomerReminder }) =>
-          openCustomerReminder(reminder.reminder_id as string, reminder.owner_scope as string),
+          openCustomerReminder(
+            reminder.reminder_id as string,
+            reminder.owner_scope as string,
+            notificationKey,
+            typeof reminder.reminder_fingerprint === "string"
+              ? reminder.reminder_fingerprint
+              : reminder.reminder_fingerprint === undefined
+                ? undefined
+                : "",
+          ),
         )
         .catch(() => undefined);
     }
@@ -678,7 +705,7 @@ export default function RootLayout() {
   // whole value of the notification thrown away.
   //
   // Two deliveries, both needed: the listener covers a tap while the process
-  // is alive (backgrounded), and getLastNotificationResponseAsync covers the
+  // is alive (backgrounded), and getLastNotificationResponse covers the
   // tap that LAUNCHED the process, which happened before any listener existed.
   // Gated on appReady so the Stack is mounted and there is a route to push
   // onto; lazy import + the Expo Go skip for the reason in lib/tabs/notify.ts
@@ -697,24 +724,36 @@ export default function RootLayout() {
         return;
       }
       if (cancelled) return;
-      sub = notifications.addNotificationResponseReceivedListener((response) => {
-        if (response.actionIdentifier === notifications.DEFAULT_ACTION_IDENTIFIER) {
-          setLaunchNotificationOpened(true);
-          routeFromNotificationData(response.notification.request.content.data);
+      const routeResponse = (response: import("expo-notifications").NotificationResponse) => {
+        if (cancelled || response.actionIdentifier !== notifications.DEFAULT_ACTION_IDENTIFIER)
+          return;
+        const key = notificationResponseKey(response);
+        if (!key || handledNotificationResponses.has(key)) return;
+        handledNotificationResponses.add(key);
+        // Native retained responses are cleared below; keep only recent
+        // listener/launch duplicates, matching the draft handoff's bound.
+        while (handledNotificationResponses.size > 128)
+          handledNotificationResponses.delete(handledNotificationResponses.values().next().value!);
+        try {
+          // SDK 57's synchronous getter/clear avoid an async lookup racing the
+          // listener. Clear only THIS retained response, so an ordinary future
+          // launch cannot open the draft again or erase another native action.
+          const retained = notifications.getLastNotificationResponse();
+          if (
+            retained?.actionIdentifier === notifications.DEFAULT_ACTION_IDENTIFIER &&
+            notificationResponseKey(retained) === key
+          )
+            notifications.clearLastNotificationResponse();
+        } catch (err) {
+          if (__DEV__) console.warn("[layout] clearing notification response failed", err);
         }
-      });
+        setLaunchNotificationOpened(true);
+        routeFromNotificationData(response.notification.request.content.data, key);
+      };
+      sub = notifications.addNotificationResponseReceivedListener(routeResponse);
       try {
-        const last = await notifications.getLastNotificationResponseAsync();
-        // Once per process: this call keeps returning the SAME launch response
-        // for the life of the app, so without the latch a remount (fast
-        // refresh, a retryBoot) would re-navigate to a stale tap.
-        if (!cancelled && last && !launchResponseHandled) {
-          launchResponseHandled = true;
-          if (last.actionIdentifier === notifications.DEFAULT_ACTION_IDENTIFIER) {
-            setLaunchNotificationOpened(true);
-            routeFromNotificationData(last.notification.request.content.data);
-          }
-        }
+        const last = notifications.getLastNotificationResponse();
+        if (last) routeResponse(last);
       } catch (err) {
         if (__DEV__) console.warn("[layout] last notification response failed", err);
       }

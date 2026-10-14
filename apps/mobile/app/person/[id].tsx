@@ -115,6 +115,8 @@ import { useMembersCount } from "../../lib/use-vault-summary";
 import { tallyScrollTarget } from "../../lib/tally-viewport";
 import { compareTallyReviews, type ReviewSnapshot } from "../../lib/tally-review-feedback";
 import { takeSavedEntry } from "../../lib/recent-entry";
+import { reminderOwnerScope } from "../../lib/customer-reminders";
+import { useReminderPing } from "../../lib/use-reminder-ping";
 import type { Entry, PersonWithBalance, Self } from "../../lib/types";
 
 // Wording for a failed tab operation (accept / void / unlink / regenerate).
@@ -217,11 +219,12 @@ export default function PersonDetailScreen() {
     resolved: roleResolved,
   } = useActiveVaultWriteCaps(getActiveVaultIdSyncMaybe());
   const canManageCredit = roleResolved && canConfigureCredit;
-  const { id, entryId, notificationKey, reminderId } = useLocalSearchParams<{
+  const { id, entryId, notificationKey, reminderId, reminderActionKey } = useLocalSearchParams<{
     id: string;
     entryId?: string;
     notificationKey?: string;
     reminderId?: string;
+    reminderActionKey?: string;
   }>();
   const scrollRef = useRef<ScrollView>(null);
   const entriesCardY = useRef<number | null>(null);
@@ -334,12 +337,13 @@ export default function PersonDetailScreen() {
   // tapping repeatedly minted a separate 90-day shared-ledger token per tap.
   const [pingStage, setPingStage] = useState<WhatsAppShareStage | null>(null);
   const pinging = pingStage != null;
-  // "Let {name} know on WhatsApp?" after a new tally, and when this page was
-  // opened from a reminder: reminders had no way to send the ping (audit #1).
+  // Offer a ping after a new tally or an in-app reminder View. Native taps
+  // start the flow directly, so don't flash the manual nudge during loading.
   const [pingNudge, setPingNudge] = useState(false);
   useEffect(() => {
-    if (reminderId) setPingNudge(true);
-  }, [reminderId]);
+    if (reminderActionKey) setPingNudge(false);
+    else if (reminderId) setPingNudge(true);
+  }, [reminderId, reminderActionKey]);
   const pingBusyRef = useRef(false);
   const pingAbortRef = useRef<AbortController | null>(null);
   // Message-language picker for the ping, shown when share_lang_pref = 'ask'.
@@ -735,6 +739,27 @@ export default function PersonDetailScreen() {
       }
     }
   };
+
+  useReminderPing({
+    actionKey: reminderActionKey,
+    reminderId,
+    personId: id,
+    vaultId: getActiveVaultIdSyncMaybe(),
+    ownerScope: reminderOwnerScope(),
+    ready:
+      loaded &&
+      !loadFailed &&
+      person?.id === id &&
+      entries.length > 0 &&
+      flowHistory?.scope === flowScope,
+    busy: pinging || askLangVisible,
+    onStart: () => {
+      if (pingBusyRef.current || askLangVisible) return;
+      setPingNudge(false);
+      void sendPing();
+    },
+    onCancel: cancelPing,
+  });
 
   // The link load() last found (open OR closed), for the marks below that
   // must not wait on state.

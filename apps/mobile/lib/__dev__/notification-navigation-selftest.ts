@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { tallyScrollTarget } from "../tally-viewport";
+import { settleUI } from "./ui-fixture";
 
 const viewport = { offset: 100, viewport: 700, bottomInset: 100, height: 80 };
 assert.equal(tallyScrollTarget({ ...viewport, top: 250 }), null, "upper-middle tally stays put");
@@ -114,7 +115,263 @@ new Function(
   assert.ok(key in mocks, key);
   return mocks[key];
 }, out);
+
+// Execute the real root-layout notification effect without booting React
+// Native/database/fonts. Its native API and route adapters are the boundary.
+function notificationTapFixture(initial: any = null, listenerOnSubscribe: any = null) {
+  const text = readFileSync(require.resolve("../../app/_layout"), "utf8");
+  const source = ts.createSourceFile(
+    "_layout.tsx",
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const globals = source.statements
+    .filter((node) => {
+      if (ts.isFunctionDeclaration(node))
+        return ["notificationResponseKey", "routeFromNotificationData"].includes(
+          node.name?.text ?? "",
+        );
+      if (ts.isVariableStatement(node))
+        return node.declarationList.declarations.some((declaration) =>
+          ["NOTIFICATION_PERSON_PREFIX", "handledNotificationResponses"].includes(
+            declaration.name.getText(source),
+          ),
+        );
+      return false;
+    })
+    .map((node) => node.getText(source))
+    .join("\n");
+  const root = source.statements.find(
+    (node) => ts.isFunctionDeclaration(node) && node.name?.text === "RootLayout",
+  ) as ts.FunctionDeclaration;
+  const effect = root.body!.statements.find(
+    (node) =>
+      ts.isExpressionStatement(node) &&
+      ts.isCallExpression(node.expression) &&
+      node.expression.expression.getText(source) === "useEffect" &&
+      node.getText(source).includes("addNotificationResponseReceivedListener"),
+  );
+  assert.ok(effect, "actual tap-routing effect exists");
+  let retained = initial,
+    listener: ((response: any) => void) | null = null,
+    cleanup: (() => void) | undefined,
+    clearCount = 0,
+    readyCount = 0,
+    openedCount = 0;
+  const reminderCalls: any[] = [],
+    tabCalls: any[] = [],
+    legacyRoutes: any[] = [];
+  const native = {
+    DEFAULT_ACTION_IDENTIFIER: "default",
+    addNotificationResponseReceivedListener(fn: any) {
+      listener = fn;
+      if (listenerOnSubscribe) {
+        const value = listenerOnSubscribe;
+        listenerOnSubscribe = null;
+        fn(value);
+      }
+      return {
+        remove: () => {
+          listener = null;
+        },
+      };
+    },
+    getLastNotificationResponse: () => retained,
+    clearLastNotificationResponse() {
+      retained = null;
+      clearCount++;
+    },
+  };
+  const dependencies: Record<string, any> = {
+    "expo-notifications": native,
+    "../lib/open-customer-reminder": {
+      openCustomerReminder: async (...args: any[]) => reminderCalls.push(args),
+    },
+    "../lib/tabs/open-notification": {
+      openTabNotification: async (...args: any[]) => tabCalls.push(args),
+    },
+  };
+  const code = ts.transpileModule(
+    `${globals}\n exports.mount = () => { ${effect.getText(source)} };`,
+    {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    },
+  ).outputText;
+  const exported: any = {};
+  new Function(
+    "require",
+    "exports",
+    "useEffect",
+    "appReady",
+    "isRunningInExpoGo",
+    "setLaunchNotificationOpened",
+    "setLaunchNotificationsReady",
+    "router",
+    "__DEV__",
+    code,
+  )(
+    (name: string) => {
+      assert.ok(name in dependencies, name);
+      return dependencies[name];
+    },
+    exported,
+    (run: () => () => void) => {
+      cleanup = run();
+    },
+    true,
+    () => false,
+    () => {
+      openedCount++;
+    },
+    () => {
+      readyCount++;
+    },
+    { push: (route: any) => legacyRoutes.push(route) },
+    false,
+  );
+  return {
+    reminderCalls,
+    tabCalls,
+    legacyRoutes,
+    get retained() {
+      return retained;
+    },
+    get clearCount() {
+      return clearCount;
+    },
+    get readyCount() {
+      return readyCount;
+    },
+    get openedCount() {
+      return openedCount;
+    },
+    mount: () => exported.mount(),
+    unmount: () => cleanup?.(),
+    tap: (response: any) => {
+      retained = response;
+      listener?.(response);
+    },
+    duplicate: (response: any) => listener?.(response),
+  };
+}
+
+async function notificationTapTests() {
+  const id = "12345678-1234-1234-1234-123456789abc";
+  const reminderData = {
+    kind: "customer_reminder",
+    reminder_id: id,
+    owner_scope: "account:a",
+    reminder_fingerprint: "private-state-fingerprint",
+  };
+  const notice = (
+    data: any,
+    date = 1000,
+    actionIdentifier = "default",
+    identifier = "same-request",
+  ) => ({
+    actionIdentifier,
+    notification: { date, request: { identifier, content: { data } } },
+  });
+  const launch = notice(reminderData);
+  const cold = notificationTapFixture(launch);
+  cold.mount();
+  await settleUI();
+  assert.deepEqual(cold.reminderCalls, [
+    [id, "account:a", JSON.stringify(["same-request", 1000]), "private-state-fingerprint"],
+  ]);
+  assert.equal(cold.clearCount, 1, "cold launch consumes native retained tap");
+  assert.equal(cold.retained, null);
+  cold.duplicate(launch);
+  await settleUI();
+  assert.equal(cold.reminderCalls.length, 1, "launch and listener copies route once");
+  cold.unmount();
+  cold.mount();
+  await settleUI();
+  assert.equal(cold.reminderCalls.length, 1, "layout remount cannot replay a launch draft");
+  const nextOccurrence = notice(reminderData, 2000);
+  cold.tap(nextOccurrence);
+  await settleUI();
+  assert.equal(
+    cold.reminderCalls.length,
+    2,
+    "later recurrence of the same request gets a fresh intent",
+  );
+  assert.notEqual(cold.reminderCalls[1][2], cold.reminderCalls[0][2]);
+  assert.equal(cold.clearCount, 2);
+  cold.unmount();
+  const ordinaryRestart = notificationTapFixture(cold.retained);
+  ordinaryRestart.mount();
+  await settleUI();
+  assert.equal(
+    ordinaryRestart.reminderCalls.length,
+    0,
+    "a new process on ordinary launch has no retained draft",
+  );
+  ordinaryRestart.unmount();
+
+  // A native listener delivery that arrives while the cold lookup is being
+  // installed uses exactly the same claim/clear path.
+  const simultaneous = notificationTapFixture(launch, launch);
+  simultaneous.mount();
+  await settleUI();
+  assert.equal(simultaneous.reminderCalls.length, 1);
+  assert.equal(simultaneous.openedCount, 1);
+  assert.equal(simultaneous.readyCount, 1);
+  simultaneous.tap(notice(reminderData, 3000, "tab-accept"));
+  await settleUI();
+  assert.equal(
+    simultaneous.reminderCalls.length,
+    1,
+    "custom tab actions remain with their own handler",
+  );
+  const tab = notice({ tab_id: TAB, entry_id: ENTRY, rev: "4" }, 4000, "default", "tab-notice");
+  simultaneous.tap(tab);
+  await settleUI();
+  assert.deepEqual(
+    simultaneous.tabCalls,
+    [[TAB, ENTRY, { rev: 4 }]],
+    "tab routing and revision remain intact",
+  );
+  simultaneous.tap(notice({ url: "kaata://person/customer" }, 5000, "default", "legacy-notice"));
+  await settleUI();
+  assert.deepEqual(simultaneous.legacyRoutes, [
+    { pathname: "/person/[id]", params: { id: "customer" } },
+  ]);
+  simultaneous.tap(notice({ ...reminderData, reminder_id: 5 }, 6000));
+  simultaneous.tap(notice(reminderData, Number.NaN));
+  simultaneous.tap(notice(reminderData, 7000, "default", ""));
+  await settleUI();
+  assert.equal(
+    simultaneous.reminderCalls.length,
+    1,
+    "malformed native/payload identifiers never authorize a draft",
+  );
+  const { reminder_fingerprint, ...legacyReminderData } = reminderData;
+  simultaneous.tap(notice(legacyReminderData, 7500));
+  await settleUI();
+  assert.equal(
+    simultaneous.reminderCalls.at(-1)[3],
+    undefined,
+    "older alerts keep compatibility without a fingerprint",
+  );
+  simultaneous.tap(notice({ ...reminderData, reminder_fingerprint: 7 }, 7600));
+  await settleUI();
+  assert.equal(
+    simultaneous.reminderCalls.at(-1)[3],
+    "",
+    "malformed fingerprints cannot masquerade as absent legacy metadata",
+  );
+  const beforeUnmount = simultaneous.reminderCalls.length;
+  const lateListener = notice(reminderData, 8000);
+  simultaneous.unmount();
+  simultaneous.tap(lateListener);
+  await settleUI();
+  assert.equal(simultaneous.reminderCalls.length, beforeUnmount, "removed listener cannot route");
+}
 async function main() {
+  await notificationTapTests();
   await out.openTabNotification(TAB, ENTRY);
   assert.deepEqual(calls, ["sync", "correct-vault", "currency", "route"]);
   assert.equal(routes[0].params.entryId, ENTRY);

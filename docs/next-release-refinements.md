@@ -562,6 +562,35 @@ handle responder transfer, keyboard dismissal and scrolling still need checks
 on iOS/Android. This source batch follows testing 37/57 and awaits the next
 native testing build; no version bump or store upload is included.
 
+## October 14 reminder notification starts the reminder flow — next testing build
+
+Tapping a customer reminder notification now resolves its kaata/customer, waits
+for the full ledger to load in the foreground and starts the existing WhatsApp
+reminder flow automatically. A saved message language prepares the draft directly;
+**Ask** opens the language chooser first. The normal preparation spinner, complete
+statement and offline text fallback are reused. The manual nudge does not flash
+before the automatic flow. Sending stays in WhatsApp, and opening a draft does
+not mark the private reminder Done.
+
+Only a native tap creates the one-use, in-memory handoff; a deep-link flag or the
+in-app reminder **View** action cannot authorize automatic statement preparation.
+Account, kaata, customer/access and reminder version are revalidated. Duplicate
+listener/launch responses are claimed once and the retained matching native
+response is cleared with SDK 57's synchronous API. Later recurring occurrences
+remain distinct. Edited/completed/deleted notices, account changes (including
+switch-away-and-back), navigation away, background preparation and delayed reads
+cannot start or replay old work. Language-picker cancellation and WhatsApp failures
+leave the normal header button available for an explicit retry.
+
+TypeScript, person-detail (executing the actual handoff hook), reminders-ui,
+notification-navigation, notifications and share regressions pass. They cover
+cold/warm duplicate taps, recurrence, ordinary launch, invalid/deep-link flags,
+foreground/loading, language choice, reminder edits/removal, account ABA and
+legacy tab/accept/reject routing. Native notification delivery/cold launch and
+the actual WhatsApp handoff still require iOS/Android checks in the next build.
+Production Metro/Hermes exports also pass for both iOS and Android.
+This is source work after testing 37/57, with no native version/store change.
+
 ## Deferred by the user
 
 The household/shopkeeper ledger needs two parties: the user and Dad on one

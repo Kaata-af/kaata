@@ -602,12 +602,28 @@ async function openTests() {
     gate: Promise<void> | null = null;
   const routes: any[] = [],
     vaults: string[] = [],
+    queued: any[] = [],
     listeners = new Set<() => void>();
+  let queueResult: string | null = "trusted-action",
+    duringCurrency: (() => void) | null = null;
   const id = "12345678-1234-1234-1234-123456789abc";
-  const row = { id, vault_id: "house", person_id: "customer" };
+  const row = {
+    id,
+    vault_id: "house",
+    person_id: "customer",
+    updated_at: 1,
+    schedule_json: JSON.stringify({ kind: "once", at: 500 }),
+  };
+  const fingerprint = `${row.updated_at}:${row.schedule_json}:Asia/Kabul`;
   const { openCustomerReminder } = compileUI("../open-customer-reminder", {
     "expo-router": { router: { push: (r: any) => routes.push(r) } },
-    "./currency": { applyVaultCurrency: async () => {} },
+    "./currency": { applyVaultCurrency: async () => duringCurrency?.() },
+    "./reminder-ping-intent": {
+      queueReminderPing: (intent: any) => {
+        queued.push(intent);
+        return queueResult;
+      },
+    },
     "./db-tx": {
       onAccountIdentityChanged: (fn: any) => {
         listeners.add(fn);
@@ -621,6 +637,7 @@ async function openTests() {
     "./customer-reminders": {
       listCustomerReminders: async () => listed,
       reminderOwnerScope: () => owner,
+      reminderTimezone: () => "Asia/Kabul",
     },
   });
   listed = [row];
@@ -636,28 +653,107 @@ async function openTests() {
     pathname: "/person/[id]",
     params: { id: "customer", reminderId: id },
   });
+  assert.equal(queued.length, 0, "in-app View never queues a reminder draft");
+  await openCustomerReminder(id, owner, "native-request:delivered-at");
+  assert.deepEqual(queued, [
+    {
+      reminderId: id,
+      personId: "customer",
+      vaultId: "house",
+      ownerScope: owner,
+      notificationKey: "native-request:delivered-at",
+      fingerprint,
+    },
+  ]);
+  assert.equal(routes.at(-1).params.reminderActionKey, "trusted-action");
+  queueResult = null;
+  const beforeRefused = routes.length;
+  await openCustomerReminder(id, owner, "duplicate-native-request");
+  assert.equal(
+    routes.length,
+    beforeRefused,
+    "a duplicate/refused native intent cannot cause duplicate navigation",
+  );
+  const beforeStale = queued.length;
+  await openCustomerReminder(id, owner, "stale-native-request", "old-fingerprint");
+  assert.equal(queued.length, beforeStale, "an edited/completed occurrence never queues a draft");
+  assert.equal(routes.length, beforeRefused + 1, "a stale alert still opens its customer normally");
+  assert.equal(routes.at(-1).params.reminderActionKey, undefined);
+  queueResult = "fresh-action";
+  await openCustomerReminder(id, owner, "fresh-native-request", fingerprint);
+  assert.equal(routes.at(-1).params.reminderActionKey, "fresh-action");
+  assert.equal(
+    queued.at(-1)!.fingerprint,
+    fingerprint,
+    "current alert passes a fresh private-state fingerprint",
+  );
+  const editedRow = { ...row, updated_at: 2 };
+  duringCurrency = () => {
+    listed = [editedRow];
+  };
+  const beforeEdit = queued.length;
+  await openCustomerReminder(id, owner, "edited-during-vault-switch", fingerprint);
+  assert.equal(
+    queued.length,
+    beforeEdit,
+    "the final row, not its pre-switch snapshot, validates a tray alert",
+  );
+  assert.equal(routes.at(-1).params.reminderActionKey, undefined);
+  duringCurrency = null;
+  await openCustomerReminder(id, owner, "legacy-alert-after-edit");
+  assert.equal(
+    queued.at(-1)!.fingerprint,
+    `2:${row.schedule_json}:Asia/Kabul`,
+    "even a legacy alert's queued intent snapshots the current reminder",
+  );
+  listed = [row];
+  const goodRoutes = routes.length,
+    goodQueues = queued.length;
+  await openCustomerReminder("not-an-id", owner, "native-invalid");
+  await openCustomerReminder(id, "account:other", "native-owner-stale");
+  assert.equal(queued.length, goodQueues, "invalid IDs or stale owner never queue");
   const removed = deferred<void>();
   gate = removed.promise;
-  const removal = openCustomerReminder(id, owner);
+  const removal = openCustomerReminder(id, owner, "native-removed-customer");
   await settleUI();
   listed = [];
   removed.resolve();
   await removal;
   assert.equal(
     routes.length,
-    1,
+    goodRoutes,
     "customer/membership removal while switching vault prevents navigation",
   );
+  assert.equal(queued.length, goodQueues, "membership/customer removal never queues");
   listed = [row];
   const switched = deferred<void>();
   gate = switched.promise;
-  const switching = openCustomerReminder(id, owner);
+  const switching = openCustomerReminder(id, owner, "native-switch-account");
   await settleUI();
   owner = "account:b";
   listeners.forEach((fn) => fn());
   switched.resolve();
   await switching;
-  assert.equal(routes.length, 1);
+  assert.equal(routes.length, goodRoutes);
+  assert.equal(queued.length, goodQueues);
+  // A -> B -> A identity churn must not revive an old tap simply because the
+  // owner string matches again after awaiting the vault or currency switch.
+  owner = "account:a";
+  gate = null;
+  duringCurrency = () => {
+    owner = "account:b";
+    listeners.forEach((fn) => fn());
+    owner = "account:a";
+    listeners.forEach((fn) => fn());
+  };
+  await openCustomerReminder(id, owner, "native-aba-account");
+  assert.equal(routes.length, goodRoutes);
+  assert.equal(queued.length, goodQueues, "account ABA during currency switch never queues");
+  duringCurrency = null;
+  listed = [];
+  await openCustomerReminder(id, owner, "native-disabled-reminder");
+  assert.equal(routes.length, goodRoutes);
+  assert.equal(queued.length, goodQueues);
   assert.equal(listeners.size, 0);
 }
 

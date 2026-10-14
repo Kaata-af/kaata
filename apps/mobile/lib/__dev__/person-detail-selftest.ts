@@ -19,6 +19,7 @@ import { sumAmounts } from "../money";
 import { tallyScrollTarget } from "../tally-viewport";
 import { compareTallyReviews } from "../tally-review-feedback";
 import { entryTypeFor } from "../tabs/direction";
+import { compileUI } from "./ui-fixture";
 
 type Node = { type: string; props: Record<string, any> };
 type Effect = { deps?: unknown[]; cleanup?: () => void };
@@ -101,6 +102,14 @@ let priorPeriods: any[] = [],
   historyReadGate: Promise<any[]> | null = null;
 let accountId = "account",
   vaultId = "vault";
+const identityListeners = new Set<() => void>();
+let reminderRows: any[] = [],
+  reminderReadGate: Promise<any[]> | null = null;
+let intentSequence = 0;
+const intents = compileUI("../reminder-ping-intent", {
+  "expo-crypto": { randomUUID: () => `trusted-reminder-${++intentSequence}` },
+});
+const reminderOwner = () => `account:${accountId}`;
 let settlement: any, markers: any[], boundaries: number[];
 let preference = "en",
   preferenceReads = 0;
@@ -272,6 +281,10 @@ const mocks: Record<string, any> = {
   "../../lib/db-tx": {
     getAccountIdSync: () => accountId,
     getActiveVaultIdSyncMaybe: () => vaultId,
+    onAccountIdentityChanged: (fn: () => void) => {
+      identityListeners.add(fn);
+      return () => identityListeners.delete(fn);
+    },
   },
   "../../lib/effective-account": { resolveAccountIdCandidates: async () => ["account"] },
   "../../lib/event-log": {
@@ -398,7 +411,21 @@ const mocks: Record<string, any> = {
   "../../lib/use-vault-summary": { useMembersCount: () => 1 },
   "../../lib/tally-viewport": { tallyScrollTarget },
   "../../lib/tally-review-feedback": { compareTallyReviews },
+  "../../lib/customer-reminders": { reminderOwnerScope: reminderOwner },
 };
+// Execute the real automatic handoff hook inside the actual person screen.
+mocks["../../lib/use-reminder-ping"] = compileUI("../use-reminder-ping", {
+  react,
+  "react-native": native,
+  "expo-router": mocks["expo-router"],
+  "./db-tx": mocks["../../lib/db-tx"],
+  "./customer-reminders": {
+    reminderOwnerScope: reminderOwner,
+    reminderTimezone: () => "Asia/Kabul",
+    listCustomerReminders: async () => reminderReadGate ?? reminderRows,
+  },
+  "./reminder-ping-intent": intents,
+});
 const out: any = {};
 new Function(
   "require",
@@ -470,6 +497,8 @@ const tally = (
 });
 function fixture(shared = false) {
   unmount();
+  reminderRows = [];
+  reminderReadGate = null;
   reducedMotion = false;
   scheduledKeyboardLayouts.length = 0;
   params = { id: "person" };
@@ -544,7 +573,159 @@ function fixture(shared = false) {
   dirty = true;
 }
 
+async function notificationReminderFlowTests() {
+  const reminderId = "12345678-1234-1234-1234-123456789abc";
+  const action = (notificationKey: string) => {
+    const row = { id: reminderId, updated_at: 1, schedule_json: "{}" };
+    reminderRows = [row];
+    const key = intents.queueReminderPing({
+      reminderId,
+      personId: "person",
+      vaultId,
+      ownerScope: reminderOwner(),
+      notificationKey,
+      fingerprint: `${row.updated_at}:${row.schedule_json}:Asia/Kabul`,
+    });
+    params = { id: "person", reminderId, reminderActionKey: key };
+    return key;
+  };
+  for (const os of ["ios", "android"])
+    for (const locale of [false, true]) {
+      accountId = "account";
+      vaultId = "vault";
+      fixture();
+      platform = os;
+      rtl = locale;
+      action(`native:${os}:${locale}`);
+      assert.equal(shares.length, 0, "notification can't share before the ledger loads");
+      await flush();
+      await flush();
+      assert.equal(
+        shares.length,
+        1,
+        "native reminder intent automatically starts the real WhatsApp flow",
+      );
+      assert.deepEqual(
+        shares[0].args[3].map((e: any) => e.id),
+        entries.map((e) => e.id),
+      );
+      assert.ok(nodes(pingButton()).some((n) => n.type === "Spinner"));
+      shares[0].resolve(true);
+      await flush();
+      blur();
+      refocus();
+      await flush();
+      assert.equal(shares.length, 1, "returning to the customer doesn't prepare another draft");
+    }
+  fixture();
+  params = { id: "person", reminderId, reminderActionKey: "made-up-url-flag" };
+  await flush();
+  await flush();
+  assert.equal(shares.length, 0, "an arbitrary deep link can't automatically upload a statement");
+  fixture();
+  params = { id: "person", reminderId };
+  await flush();
+  await flush();
+  assert.equal(shares.length, 0, "in-app reminder View keeps its normal manual flow");
+
+  fixture();
+  preference = "ask";
+  action("native:ask");
+  await flush();
+  await flush();
+  assert.equal(shares.length, 0);
+  assert.equal(find("OptionSheet")?.props.visible, true, "Ask language opens automatically");
+  find("OptionSheet")!.props.onSelect("fa");
+  advance(220);
+  await flush();
+  assert.equal(shares.length, 1);
+  assert.equal(shares[0].args[4], "fa");
+  shares[0].resolve(true);
+  await flush();
+
+  fixture();
+  appState = "background";
+  action("native:foreground");
+  await flush();
+  await flush();
+  assert.equal(shares.length, 0);
+  appState = "active";
+  appListeners.forEach((fn) => fn(appState));
+  await flush();
+  await flush();
+  assert.equal(shares.length, 1, "cold launch waits for foreground");
+  appState = "background";
+  appListeners.forEach((fn) => fn(appState));
+  assert.equal(shares[0].args[7].aborted, true, "leaving during automatic preparation aborts it");
+  shares[0].resolve(false);
+  await flush();
+  appState = "active";
+  appListeners.forEach((fn) => fn(appState));
+  await flush();
+  assert.equal(shares.length, 1, "aborted work doesn't replay on resume");
+
+  fixture();
+  action("native:changed-reminder");
+  reminderRows[0].updated_at = 2;
+  await flush();
+  await flush();
+  assert.equal(shares.length, 0, "edited/marked-done reminders don't auto-run stale notices");
+  fixture();
+  action("native:deleted-reminder");
+  reminderRows = [];
+  await flush();
+  await flush();
+  assert.equal(shares.length, 0);
+  fixture();
+  action("native:no-tallies");
+  entries = [];
+  await flush();
+  await flush();
+  assert.equal(shares.length, 0, "an empty ledger doesn't prepare a bogus statement");
+
+  fixture();
+  action("native:account-aba");
+  let release!: (rows: any[]) => void;
+  reminderReadGate = new Promise((resolve) => {
+    release = resolve;
+  });
+  await flush();
+  accountId = "other";
+  identityListeners.forEach((fn) => fn());
+  accountId = "account";
+  identityListeners.forEach((fn) => fn());
+  reminderReadGate = null;
+  release(reminderRows);
+  await flush();
+  await flush();
+  assert.equal(shares.length, 0, "account ABA invalidates an in-flight handoff");
+
+  fixture();
+  const key = action("native:leave-before-ready");
+  await flush(); // if preparation starts, the normal blur abort still protects it
+  blur();
+  await flush();
+  refocus();
+  await flush();
+  assert.equal(
+    intents.hasReminderPing(key, {
+      reminderId,
+      personId: "person",
+      vaultId,
+      ownerScope: reminderOwner(),
+    }),
+    false,
+  );
+  assert.ok(shares.length <= 1, "leaving/revisiting can never prepare twice");
+  unmount();
+  assert.equal(identityListeners.size, 0, "all handoff identity listeners are removed");
+  console.log(
+    "PASS: real notification handoff auto-prepares once, respects Ask language, loading/foreground, deep-link isolation, reminder versions and account ABA",
+  );
+}
+
 async function main() {
+  await notificationReminderFlowTests();
   for (const p of ["android", "ios"])
     for (const r of [false, true]) {
       platform = p;
