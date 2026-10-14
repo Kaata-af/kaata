@@ -8,9 +8,14 @@
 // non-2xx and the screen catches+surfaces a toast.
 
 import { getBackendUrl } from "./api";
-import { getSessionJWT } from "./auth";
+import {
+  applyForCurrentSession,
+  captureCurrentSession,
+  getSessionJWT,
+  type SessionSnapshot,
+} from "./auth";
 import { getAppMeta, setAppMeta } from "./db";
-import { getDb, getInstallIdSync } from "./db-tx";
+import { getAppMetaInTx, getDb, getInstallIdSync, setAppMetaInTx } from "./db-tx";
 import type { VaultRole } from "./events";
 
 const TIMEOUT_MS = 15_000;
@@ -40,28 +45,45 @@ async function requireJwt(): Promise<string> {
   return jwt;
 }
 
-async function http(method: string, path: string, body?: unknown): Promise<Response> {
-  const jwt = await requireJwt();
+async function httpThrowing(
+  method: string,
+  path: string,
+  body?: unknown,
+  session?: SessionSnapshot,
+): Promise<unknown> {
+  if (session) await applyForCurrentSession(session, async () => {});
+  const jwt = session?.jwt ?? (await requireJwt());
   const baseUrl = await getBackendUrl();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error("vault request timed out"));
+    }, TIMEOUT_MS);
+  });
   try {
-    return await fetch(`${baseUrl}${path}`, {
-      method,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${jwt}`,
-      },
-      body: body == null ? undefined : JSON.stringify(body),
-      signal: controller.signal,
-    });
+    return await Promise.race([
+      timeout,
+      (async () => {
+        const res = await fetch(`${baseUrl}${path}`, {
+          method,
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${jwt}`,
+          },
+          body: body == null ? undefined : JSON.stringify(body),
+          signal: controller.signal,
+        });
+        return await readHttpResponse(res, method, path);
+      })(),
+    ]);
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function httpThrowing(method: string, path: string, body?: unknown): Promise<unknown> {
-  const res = await http(method, path, body);
+async function readHttpResponse(res: Response, method: string, path: string): Promise<unknown> {
   if (!res.ok) {
     let code = "";
     let serverMsg = "";
@@ -438,21 +460,112 @@ export type AcceptInviteResult = {
   role: VaultRole;
 };
 
-export async function acceptVaultInvite(token: string): Promise<AcceptInviteResult> {
-  const raw = (await httpThrowing("POST", `/v1/vaults/invites/accept`, {
-    token,
-    install_id: getInstallIdSync(),
-  })) as AcceptInviteResult;
-  // Stamp accepted_at in the local cache so the badge no longer fires.
-  try {
-    const db = await getDb();
-    await db.runAsync(
-      `UPDATE pending_invitations SET accepted_at = ? WHERE token = ?`,
-      Date.now(),
+export async function acceptVaultInvite(
+  token: string,
+  expectedSession?: SessionSnapshot,
+): Promise<AcceptInviteResult> {
+  const session = expectedSession ?? (await captureCurrentSession());
+  // Write intent BEFORE the consuming POST. Its same-account replay is
+  // idempotent even if the response body is lost after the server commits.
+  await applyForCurrentSession(session, async () => {
+    const pending = await loadInviteAcceptJournal(session.accountId!);
+    if (!pending.some((item) => item.token === token)) {
+      pending.push({ token, result: null });
+      await setAppMeta(inviteAcceptJournalKey(session.accountId!), JSON.stringify(pending));
+    }
+  });
+  const raw = (await httpThrowing(
+    "POST",
+    `/v1/vaults/invites/accept`,
+    {
       token,
+      install_id: getInstallIdSync(),
+    },
+    session,
+  )) as AcceptInviteResult;
+  if (
+    !raw ||
+    typeof raw.vault_id !== "string" ||
+    !raw.vault_id ||
+    typeof raw.vault_name !== "string" ||
+    typeof raw.role !== "string"
+  ) {
+    throw new Error("invalid invite acceptance response");
+  }
+  // Acceptance consumes a link. Persist BOTH unfinished obligations before any
+  // listing/snapshot/navigation work can fail or the app can be backgrounded.
+  // A single transaction prevents a half-recorded join; the original session
+  // guards the response so a delayed accept cannot write into another account.
+  await applyForCurrentSession(session, async () => {
+    const db = await getDb();
+    const { applyEventMutex } = await import("./projection");
+    await applyEventMutex.runExclusive(() =>
+      db.withTransactionAsync(async () => {
+        const pending = new Set(
+          parsePendingSet(await getAppMetaInTx(db, VAULT_MATERIALIZE_PENDING_KEY)),
+        );
+        pending.add(raw.vault_id);
+        await setAppMetaInTx(db, VAULT_MATERIALIZE_PENDING_KEY, [...pending].join(","));
+        await setAppMetaInTx(db, `witness_emit_pending:${raw.vault_id}`, "1");
+        const journal = await loadInviteAcceptJournal(session.accountId!);
+        const item = journal.find((entry) => entry.token === token);
+        if (item) item.result = raw;
+        await setAppMetaInTx(
+          db,
+          inviteAcceptJournalKey(session.accountId!),
+          JSON.stringify(journal),
+        );
+        await db.runAsync(
+          `UPDATE pending_invitations SET accepted_at = ? WHERE token = ?`,
+          Date.now(),
+          token,
+        );
+      }),
     );
-  } catch {}
+  });
   return raw;
+}
+
+type PendingInviteAccept = { token: string; result: AcceptInviteResult | null };
+function inviteAcceptJournalKey(accountId: string): string {
+  return `invite_accept_pending:${accountId}`;
+}
+async function loadInviteAcceptJournal(accountId: string): Promise<PendingInviteAccept[]> {
+  const raw = await getAppMeta(inviteAcceptJournalKey(accountId));
+  if (!raw) return [];
+  try {
+    const value: unknown = JSON.parse(raw);
+    return Array.isArray(value)
+      ? value.filter((item) => item && typeof item.token === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Resume a previously confirmed join, including a consumed link's remount. */
+export async function resumePendingVaultInvite(
+  token: string,
+  session: SessionSnapshot,
+): Promise<AcceptInviteResult | null> {
+  const item = await applyForCurrentSession(session, async () =>
+    (await loadInviteAcceptJournal(session.accountId!)).find((entry) => entry.token === token),
+  );
+  if (!item) return null;
+  return item.result ?? acceptVaultInvite(token, session);
+}
+
+export async function clearPendingVaultInvite(
+  token: string,
+  session: SessionSnapshot,
+): Promise<void> {
+  await applyForCurrentSession(session, async () => {
+    const pending = await loadInviteAcceptJournal(session.accountId!);
+    await setAppMeta(
+      inviteAcceptJournalKey(session.accountId!),
+      JSON.stringify(pending.filter((item) => item.token !== token)),
+    );
+  });
 }
 
 export async function declineVaultInviteLocally(token: string): Promise<void> {
@@ -508,27 +621,54 @@ export async function clearVaultMaterializePending(vaultId: string): Promise<voi
 }
 
 export async function retryPendingVaultMaterialize(): Promise<void> {
-  const pending = parsePendingSet(await getAppMeta(VAULT_MATERIALIZE_PENDING_KEY));
-  if (pending.length === 0) return;
   // recoverJoinedVault lists GET /v1/vaults, which needs the account JWT; a
   // signed-out user keeps the set for after their next sign-in.
-  if (!(await getSessionJWT())) return;
+  const session = await captureCurrentSession();
+  if (!session.jwt || !session.accountId) return;
+  const journal = await applyForCurrentSession(session, () =>
+    loadInviteAcceptJournal(session.accountId!),
+  );
+  for (const item of journal) {
+    if (item.result) {
+      const pending = await applyForCurrentSession(
+        session,
+        async () =>
+          (await getAppMeta(`witness_emit_pending:${item.result!.vault_id}`)) === "1" ||
+          parsePendingSet(await getAppMeta(VAULT_MATERIALIZE_PENDING_KEY)).includes(
+            item.result!.vault_id,
+          ),
+      );
+      if (!pending) await clearPendingVaultInvite(item.token, session);
+      continue;
+    }
+    try {
+      await acceptVaultInvite(item.token, session);
+    } catch (err) {
+      if (
+        err instanceof ApiError &&
+        (err.status === 403 || err.status === 404 || err.status === 410)
+      ) {
+        await clearPendingVaultInvite(item.token, session);
+      }
+    }
+  }
+  const pending = parsePendingSet(await getAppMeta(VAULT_MATERIALIZE_PENDING_KEY));
+  if (pending.length === 0) return;
   // Dynamic import: lib/recovery statically imports this module.
   const { recoverJoinedVault } = await import("./recovery");
-  const stillPending: string[] = [];
   for (const vaultId of pending) {
+    await applyForCurrentSession(session, async () => {});
     let healed = false;
     try {
-      healed = await recoverJoinedVault(vaultId);
+      healed = await recoverJoinedVault(vaultId, session);
     } catch (err) {
       // Transient (offline / 5xx) — keep it for the next sweep. A vault that
       // is genuinely gone (invitee removed, vault archived) returns false and
       // stays in the set; the retry is a cheap idempotent GET, never harmful.
       if (__DEV__) console.warn("[vault-api] materialize retry threw", err);
     }
-    if (!healed) stillPending.push(vaultId);
+    if (healed) await applyForCurrentSession(session, () => clearVaultMaterializePending(vaultId));
   }
-  await setAppMeta(VAULT_MATERIALIZE_PENDING_KEY, stillPending.join(","));
 }
 
 // ---------------------------------------------------------------------------
@@ -643,10 +783,15 @@ export type MembershipWitnessResponse = {
   } | null;
 };
 
-export async function fetchMembershipWitness(vaultId: string): Promise<MembershipWitnessResponse> {
+export async function fetchMembershipWitness(
+  vaultId: string,
+  session?: SessionSnapshot,
+): Promise<MembershipWitnessResponse> {
   return (await httpThrowing(
     "POST",
     `/v1/vaults/${encodeURIComponent(vaultId)}/witness`,
+    undefined,
+    session,
   )) as MembershipWitnessResponse;
 }
 

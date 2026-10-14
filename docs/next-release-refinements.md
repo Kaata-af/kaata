@@ -644,6 +644,66 @@ Source-only changes after testing 37/57; no native version/store upload or backe
 deployment is included. Device join, interrupted restore and two-phone convergence
 still require testing with the next build.
 
+### Follow-up: interrupted online joins and misleading success
+
+A subsequent read-only VPS check still found acceptance without the affected
+joiner's signed admission in the newer kaata. No later join/proof request from
+that device was present. Its precise interruption remains unknown because the
+joiner's diagnostics were unavailable. A server-only edit cannot provide the
+phone-held signature required by the installed clients; no membership, device
+revocation, anchor, account or ledger data was manually changed.
+
+The follow-up audit found independent failure paths in the shipped app:
+
+- It saved the witness retry flag after snapshot/materialization and navigation
+  work. A failure or shutdown before then could leave an accepted join unqueued.
+- The once-per-process backfill guard could be consumed before the retry flag
+  existed, preventing another attempt while the app remained open.
+- An accepted local mirror could be mistaken for verified membership, and local
+  event creation could be mistaken for publication to the shared event log.
+- Request deadlines ended at response headers, allowing a stalled response body
+  to hold up the rest of the join indefinitely.
+- A failed first check-in could leave the server verification keys unpinned;
+  waiting for join success to trigger another check-in then blocked both steps.
+- The invite screen could announce success despite incomplete admission.
+
+The mobile follow-up adds a durable account-scoped acceptance journal before the
+consuming request, persists materialization/admission obligations together, and
+replays lost responses idempotently. Foreground/periodic repair no longer shares
+the one-shot genesis guard. Existing local joined kaatas are checked against the
+authorized listing to recover missing retry flags. Completion checks use real
+signed account/device proof and server publication, with incomplete or refused
+setup shown explicitly. Network deadlines include body reads. Existing trust
+pins, revocations and captured-session guards remain enforced.
+Missing verification keys and device registration are retried as prerequisites
+with the existing key-pinning and rotation rules.
+
+The separate backend defect was reproduced with a real isolated PostgreSQL
+database: a consumed invitation returned success after owner removal or
+self-leave. Commit `3c1233d` now rejects that retry, while preserving legitimate
+same-account retries after a lost response or token expiry. The entire vaults
+package passed. This commit was pushed to `main`; Dokploy checked out that exact
+commit and rolled out a new healthy backend container. The public health route
+still reports `commit: unknown`, so checkout/rollout evidence establishes the
+deployed version. This safeguard does not supply the missing phone signature.
+
+Validation: TypeScript and the 18-scenario invite-join regression suite passed,
+including real Ed25519 signing, SQLite journal/proof loading, lost replies,
+consumed-link remounts, publication acknowledgement, missing prerequisites,
+revocation/refusal, account changes and reused-route races. Snapshot deadline
+tests (6), upgrade anchor/admission repair, recovery-session, invite-dialog,
+membership-chain, diagnostics, device-key, sync-push, sync-reconcile and ingest
+checks also passed. Production Metro/Hermes bundle exports passed for iOS and
+Android. These automated checks do not replace a two-phone test; bundle exports
+are not native builds or store uploads.
+
+The mobile changes require a new installed build. Testing 37/57 and the users'
+current builds do not contain them. The older recovered kaata's missing genesis
+and owner-authorized re-admission after removal remain separate recovery cases;
+this change does not bypass either requirement. Do not claim the affected phones
+are repaired until their signed admission reaches the server and both phones
+converge.
+
 ## Deferred by the user
 
 The household/shopkeeper ledger needs two parties: the user and Dad on one

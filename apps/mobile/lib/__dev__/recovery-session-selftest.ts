@@ -348,15 +348,23 @@ const page = (events: any[] = []) => ({
 });
 
 function witnessFixture(f: ReturnType<typeof fixture>, response: Promise<any>) {
+  let bound = false;
   return compileUI("../trust/backfill", {
     "../db-tx": f.dbTx,
     "../auth": f.auth,
-    "../db": f.dbModule,
+    "../db": {
+      ...f.dbModule,
+      getAppMeta: async (key: string) =>
+        key === "mesh_server_pubkey_primary" ? "pinned-key" : f.dbModule.getAppMeta(key),
+    },
     "../i18n": { isPlaceholderSelfName: () => false },
     "../event-log": {
       RoleGateRejectionError: class extends Error {},
       appendVaultMemberAdded: async () => f.write("member-append"),
-      appendVaultDeviceAdded: async () => f.write("device-append"),
+      appendVaultDeviceAdded: async () => {
+        f.write("device-append");
+        bound = true;
+      },
     },
     "../vault-roles": { parseVaultRole: (role: string) => role },
     "../mesh/device-key": {
@@ -378,11 +386,18 @@ function witnessFixture(f: ReturnType<typeof fixture>, response: Promise<any>) {
       },
     },
     "./proof": {
+      PROOF_BUNDLE_CAP: 500,
       getLocalMembershipState: async () => ({
+        hasGenesis: true,
         members: new Map([["account-a", { removed: false }]]),
-        devices: new Map(),
+        devices: new Map(
+          bound
+            ? [["pubkey", { removed: false, account_id: "account-a", device_id: "install" }]]
+            : [],
+        ),
       }),
     },
+    "./chain": { MEMBERSHIP_EVENT_TYPES: new Set(["vault_member_added", "vault_device_added"]) },
   });
 }
 const witness = { server_key_id: "key", device_witness: { sig_b64: "sig", issued_at_ms: 1 } };
@@ -498,7 +513,7 @@ async function main() {
     "vault-a",
     { session: changed.session() },
   );
-  await settleUI();
+  for (let pass = 0; pass < 5 && !changed.calls.includes("witness"); pass++) await settleUI();
   assert.ok(changed.calls.includes("witness"));
   changed.switchAccount();
   witnessGate.resolve(witness);

@@ -219,10 +219,16 @@ export async function healMissingServerAnchors(): Promise<void> {
         // from the same authorized listing, even after their cursor caught up.
         // Only local work runs under the captured-session mutex; the standard
         // witness retry below performs its HTTP request outside it.
-        const { pinMissingVaultAnchorFromListing, retryPinnedVaultAdmission } =
-          await import("../recovery");
+        const {
+          pinMissingVaultAnchorFromListing,
+          retryPinnedVaultAdmission,
+          queueIncompleteJoinedVault,
+        } = await import("../recovery");
         const changed = await applyForCurrentSession(session, () =>
           pinMissingVaultAnchorFromListing(listing, session.accountId!),
+        );
+        await applyForCurrentSession(session, () =>
+          queueIncompleteJoinedVault(listing, session.accountId!),
         );
         if (changed) await retryPinnedVaultAdmission(listing.vault_id, session);
         continue;

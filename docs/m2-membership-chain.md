@@ -83,6 +83,34 @@ about wins regardless of what the presenter omits.
 | New device of existing member (online)        | the new device                                                                                     | witnessed `vault_device_added` (self).                                                                                                                                                                                                               |
 | Role change / member removal / device removal | owner device (UI: vault/members)                                                                   | `vault_member_role_changed` / `vault_member_removed` / `vault_device_removed` — same events on local-CA and server vaults; **this is what gives local-only vaults revocation**.                                                                      |
 
+### Online acceptance is not completed admission
+
+The server's accepted `vault_members` row grants access to download the kaata;
+it does not replace the signed member and device events. The app must not report
+a completed join merely because the accept request succeeded or a local member
+mirror exists. Completion requires the original pinned owner genesis, verified
+admission of the current account and device, and publication of that admission
+to the shared event log.
+
+Before sending acceptance, persist an account-scoped retry intent. A lost reply
+or process exit must be recoverable by the same account through the server's
+idempotent accept operation. Persist the returned vault and its materialization
+and admission obligations before snapshot loading or navigation. Keep network
+deadlines active through response-body consumption, not just receipt of headers.
+
+Retry unfinished admission on foreground and periodic sync, with coalescing and
+backoff independent of the one-shot owner genesis backfill. A local accepted
+mirror must never suppress the real admission event. Reconcile already-present
+joined kaatas against the current account's authorized server listing so older
+clients' missing retry flags can also be recovered. Delayed responses must not
+cross account/session changes. Pending setup is visible as pending, not joined.
+
+These retries do not override member/device removals, replace an existing trust
+anchor, or manufacture a missing original genesis. A consumed invitation for a
+revoked member is not an idempotent success. Owner-authorized re-admission and
+recovery of a lost genesis require valid signed authority; editing server access
+rows or counters cannot supply the phone-held private-key signatures.
+
 ## 5. Backfill: giving existing vaults a chain
 
 Existing vaults have members with no chain (server-invite members, pre-M2 pairs).

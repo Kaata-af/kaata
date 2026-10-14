@@ -21,13 +21,11 @@
 //   - lib/sync/scheduler.ts startSyncScheduler (fire-and-forget at start)
 //   - app/index.tsx load() (covers local-only installs that never start
 //     the sync scheduler)
-// Both call freely: the in-session Set below makes everything after the
-// first call per (session, vault) a synchronous no-op, so focus-driven
-// re-loads cost nothing. A failed attempt is NOT retried until the next
-// app session — deliberate, per §5's "one-shot, next-launch retry" shape.
+// Genesis backfill remains one-shot. Unfinished joins retry during the same
+// session, with per-vault cooldowns and a shared account request budget.
 
 import { getAccountIdSync, getDb, getInstallIdSync } from "../db-tx";
-import { applyForCurrentSession, type SessionSnapshot } from "../auth";
+import { applyForCurrentSession, captureCurrentSession, type SessionSnapshot } from "../auth";
 import { getAppMeta, getLocalSelf, setAppMeta } from "../db";
 import { isPlaceholderSelfName } from "../i18n";
 import {
@@ -46,11 +44,23 @@ import {
 } from "../mesh/device-key";
 import { buildLocalAccountId } from "./account-id";
 import { ApiError, fetchMembershipWitness } from "../vault-api";
-import { getLocalMembershipState } from "./proof";
+import { getLocalMembershipState, PROOF_BUNDLE_CAP } from "./proof";
+import { MEMBERSHIP_EVENT_TYPES } from "./chain";
 
 // Once per app session per vault — guards against useFocusEffect-driven
 // re-entry from app/index.tsx's load().
 const attemptedThisSession = new Set<string>();
+// Genesis is one-shot; joining is an unfinished operation and must recover
+// while this process is still open. Coalesce focus/scheduler callers and pace
+// transient failures so a bad connection never burns the witness rate limit.
+const witnessRetries = new Map<string, { at: number; running: boolean }>();
+const WITNESS_RETRY_MS = 60_000;
+const witnessRequestAfter = new Map<string, number>();
+const refusedWitnesses = new Set<string>();
+const witnessRequestTimes = new Map<string, number[]>();
+const keyPinAttempts = new Map<string, { at: number; done: Promise<void> }>();
+
+export class JoinAdmissionBlockedError extends Error {}
 
 // A device-key rotation (lib/mesh/device-key.ts) raises ONE app_meta flag;
 // this expands it into a witnessed re-bind request per vault, once per
@@ -91,18 +101,14 @@ async function ensureKeyRegisteredForWitness(): Promise<"ok" | "no_session" | "d
   return outcome === "no_session" ? "no_session" : "deferred";
 }
 
-// Server answers that will never change for this (vault, install): the
-// device was chain-removed, the account is not a member, or the vault is not
-// on the server. Retrying every session only burns the witness rate limit and
-// logs a warning per launch forever.
-function isTerminalWitnessRefusal(err: unknown): boolean {
+// Permission/not-found answers require an explicit pending/blocked state;
+// they must never clear the join obligation as if it completed.
+function isTerminalWitnessRefusal(err: unknown): err is ApiError {
   return err instanceof ApiError && (err.status === 403 || err.status === 404);
 }
 
 export async function ensureChainBackfill(vaultId: string): Promise<void> {
   await expandRebindPendingOnce();
-  if (attemptedThisSession.has(vaultId)) return;
-  attemptedThisSession.add(vaultId);
 
   // Part 1 — pending witnessed self-admission retry (any device, not just
   // the anchor). Independent of the owner-side backfill below: a failure
@@ -120,27 +126,39 @@ export async function ensureChainBackfill(vaultId: string): Promise<void> {
   // the session that has a JWT.
   try {
     if ((await getAppMeta(witnessEmitPendingKey(vaultId))) === "1") {
-      const registered = await ensureKeyRegisteredForWitness();
-      if (registered === "no_session") return;
-      if (registered === "deferred") {
-        throw new Error("device key not re-registered yet; witnessed bind deferred");
+      const session = await captureCurrentSession();
+      if (session.jwt && session.accountId) {
+        const key = `${session.bindingVersion}:${session.accountId}:${vaultId}`;
+        const previous = witnessRetries.get(key);
+        if (!previous?.running && (!previous || Date.now() - previous.at >= WITNESS_RETRY_MS)) {
+          const attempt = { at: Date.now(), running: true };
+          witnessRetries.set(key, attempt);
+          try {
+            await emitWitnessedSelfAdmission(vaultId, { session });
+            await applyForCurrentSession(session, () =>
+              setAppMeta(witnessEmitPendingKey(vaultId), ""),
+            );
+          } catch (err) {
+            if (!isTerminalWitnessRefusal(err)) throw err;
+            // Keep a visible unfinished obligation. A removed device must not
+            // re-admit itself, but a temporary server ACL/listing mismatch is
+            // not evidence that the join succeeded either. Back off for this
+            // session instead of silently deleting its repair marker.
+            attempt.at = Date.now() + 5 * 60_000;
+            console.warn("[trust/backfill] witness refused; join remains pending", err);
+          } finally {
+            attempt.running = false;
+          }
+        }
       }
-      try {
-        await emitWitnessedSelfAdmission(vaultId);
-      } catch (err) {
-        if (!isTerminalWitnessRefusal(err)) throw err;
-        console.warn(
-          `[trust/backfill] witness refused permanently for ${vaultId.slice(0, 8)}; dropping the pending re-bind`,
-          err,
-        );
-      }
-      await setAppMeta(witnessEmitPendingKey(vaultId), "");
     }
   } catch (err) {
     console.warn("[trust/backfill] pending witness emission retry failed", err);
   }
 
   // Part 2 — owner-side one-shot genesis backfill.
+  if (attemptedThisSession.has(vaultId)) return;
+  attemptedThisSession.add(vaultId);
   try {
     await runGenesisBackfill(vaultId);
   } catch (err) {
@@ -154,7 +172,7 @@ export async function ensureChainBackfill(vaultId: string): Promise<void> {
 // one: a multi-vault owner's non-active vaults must get their chain too, or
 // their members stay handshake-refused; and a pending witness emission for a
 // vault the user switched away from must still retry. Fire-and-forget,
-// self-guarded per vault by attemptedThisSession.
+// genesis is one-shot; witnessed retries are independently paced.
 export async function ensureChainBackfillAllVaults(): Promise<void> {
   const db = await getDb();
   const ids = new Set<string>();
@@ -349,10 +367,9 @@ async function runGenesisBackfill(vaultId: string): Promise<void> {
 // append path; the witness rides in the payload for the chain fold to
 // verify against the pinned server pubkeys.
 //
-// Throws on any failure (network, missing pubkey) — callers own the
+// Throws on any failure (network, missing proof, unpublished admission) — callers own the
 // witness_emit_pending flag lifecycle: set it before calling, clear it
-// after success, leave it set on throw so ensureChainBackfill retries next
-// session.
+// after published proof, leave it set on throw so periodic/foreground sweeps retry.
 //
 // IDEMPOTENT (M2 review FIX C): the accept-time emission can crash between
 // the member_added and the device_added (network/process death). The retry
@@ -387,11 +404,45 @@ export async function emitWitnessedSelfAdmission(
     session?: SessionSnapshot;
   },
 ): Promise<void> {
-  if (opts?.session) await applyForCurrentSession(opts.session, async () => {});
+  const session = opts?.session ?? (await captureCurrentSession());
+  await applyForCurrentSession(session, async () => {});
   await ensureDeviceKey();
   const devicePubkey = getDevicePubkey();
   if (!devicePubkey) {
     throw new Error("device pubkey unavailable — cannot emit witnessed self-admission");
+  }
+  // A first-launch check-in can fail before witness keys were ever pinned.
+  // Waiting for join success to trigger the next check-in creates a cycle:
+  // proof cannot verify, so success/check-in never happens. Repair that
+  // prerequisite independently, using the existing TOFU/rotation rules.
+  if (!(await getAppMeta("mesh_server_pubkey_primary"))) {
+    const key = `${session.bindingVersion}:${session.accountId}`;
+    let attempt = keyPinAttempts.get(key);
+    if (!attempt || Date.now() - attempt.at >= WITNESS_RETRY_MS) {
+      const done = (async () => {
+        const { pinServerWitnessKeys } = await import("../recovery");
+        await pinServerWitnessKeys(session);
+      })();
+      attempt = { at: Date.now(), done };
+      keyPinAttempts.set(key, attempt);
+    }
+    await attempt.done;
+    await applyForCurrentSession(session, async () => {
+      if (!(await getAppMeta("mesh_server_pubkey_primary")))
+        throw new Error("join is waiting for server verification keys");
+      const { sweepVaultNow } = await import("../projection/sweep");
+      await sweepVaultNow(vaultId);
+    });
+  }
+  // Already-published proof needs no network call. This also makes queued
+  // retries after a crash between the server acknowledgement and flag clear
+  // complete while offline, without asking for another witness.
+  const alreadyBound = await applyForCurrentSession(session, () =>
+    hasVerifiedSelfAdmission(vaultId, session.accountId, devicePubkey),
+  );
+  if (alreadyBound) {
+    await publishSelfAdmission(vaultId, session, devicePubkey);
+    return;
   }
   // Rotation gate, enforced for EVERY caller (recovery, invite accept, the
   // backfill retry): the witness signs over the pubkey the server has
@@ -402,7 +453,37 @@ export async function emitWitnessedSelfAdmission(
     throw new Error("device key not re-registered with the server yet; witnessed bind deferred");
   }
 
-  const res = await fetchMembershipWitness(vaultId);
+  const requestKey = `${session.bindingVersion}:${session.accountId}:${vaultId}`;
+  if (refusedWitnesses.has(requestKey))
+    throw new JoinAdmissionBlockedError("join permission requires the owner's help");
+  if (Date.now() < (witnessRequestAfter.get(requestKey) ?? 0)) {
+    throw new Error("join witness retry is waiting for its next attempt");
+  }
+  const recent = (witnessRequestTimes.get(session.accountId!) ?? []).filter(
+    (at) => at > Date.now() - 60 * 60_000,
+  );
+  if (recent.length >= 40)
+    throw new Error("join retries are waiting for the account request budget");
+  recent.push(Date.now());
+  witnessRequestTimes.set(session.accountId!, recent);
+  witnessRequestAfter.set(requestKey, Date.now() + WITNESS_RETRY_MS);
+  let res;
+  try {
+    res = await fetchMembershipWitness(vaultId, session);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 412) {
+      // The first registration can fail before a rotation flag ever exists.
+      // Persist the prerequisite so the next bounded retry registers the key
+      // before asking for another witness.
+      await applyForCurrentSession(session, () => setAppMeta(META_REREGISTER_PENDING_KEY, "1"));
+    }
+    if (isTerminalWitnessRefusal(err)) {
+      if (err.status === 403) refusedWitnesses.add(requestKey);
+      witnessRequestAfter.set(requestKey, Date.now() + 5 * 60_000);
+      throw new JoinAdmissionBlockedError("join permission requires the owner's help");
+    }
+    throw err;
+  }
 
   // The witness request is outside the session mutex. Everything below is a
   // local mirror/chain append and must still belong to the requesting account.
@@ -439,37 +520,22 @@ export async function emitWitnessedSelfAdmission(
 
     // Invite acceptance requires sign-in, so account_id is normally set;
     // the local sentinel is a defensive fallback only.
-    const accountId = getAccountIdSync() ?? buildLocalAccountId(devicePubkey);
+    const accountId = session.accountId;
+    if (!accountId || getDevicePubkey() !== devicePubkey) throw new Error("join identity changed");
 
-    // Diff against what is ALREADY chained. Prefer the folded chain state
-    // (what the handshake verifies); fall back to the materialized mirror /
-    // device registry when the vault has no local trust anchor yet (the
-    // folded state is null then).
+    // Diff only against verified chain state. Visibility mirrors carry no
+    // admission authority, including when the local anchor is still missing.
     const state = await getLocalMembershipState(vaultId);
-    let selfIsActiveMember: boolean;
-    let selfDeviceBound: boolean;
-    if (state) {
-      const m = state.members.get(accountId);
-      selfIsActiveMember = !!m && !m.removed;
-      const d = state.devices.get(devicePubkey);
-      selfDeviceBound = !!d && !d.removed;
-    } else {
-      const db = await getDb();
-      const memberRow = await db.getFirstAsync<{ one: number }>(
-        `SELECT 1 AS one FROM vault_members_mirror
-        WHERE vault_id = ? AND account_id = ? AND revoked_at IS NULL LIMIT 1`,
-        vaultId,
-        accountId,
-      );
-      selfIsActiveMember = !!memberRow;
-      const deviceRow = await db.getFirstAsync<{ one: number }>(
-        `SELECT 1 AS one FROM vault_device_registry
-        WHERE vault_id = ? AND device_pubkey = ? AND removed_at_ms IS NULL LIMIT 1`,
-        vaultId,
-        devicePubkey,
-      );
-      selfDeviceBound = !!deviceRow;
-    }
+    // A REST mirror row only means the invitation was accepted. It does not
+    // replace the signed chain (and previously made us skip member_added).
+    if (!state?.hasGenesis) throw new Error("join is waiting for its verified owner proof");
+    const m = state.members.get(accountId);
+    const d = state.devices.get(devicePubkey);
+    if (m?.removed || d?.removed)
+      throw new JoinAdmissionBlockedError("removed membership requires owner re-admission");
+    const selfIsActiveMember = !!m && !m.removed;
+    const selfDeviceBound =
+      !!d && !d.removed && d.account_id === accountId && d.device_id === getInstallIdSync();
 
     // Emit member_added ONLY when not already an active member AND the server
     // brokered an invite (member_witness proves owner intent). Swallow a
@@ -501,9 +567,9 @@ export async function emitWitnessedSelfAdmission(
         });
       } catch (err) {
         if (err instanceof RoleGateRejectionError) {
-          console.warn(
-            "[trust/backfill] witnessed member_added declined by role-gate (already a member) — proceeding to device binding",
-          );
+          const current = await getLocalMembershipState(vaultId);
+          const admitted = current?.members.get(accountId);
+          if (!current?.hasGenesis || !admitted || admitted.removed) throw err;
         } else {
           throw err;
         }
@@ -527,7 +593,104 @@ export async function emitWitnessedSelfAdmission(
       devicePubkeyB64: devicePubkey,
       witness: deviceWitness,
     });
+    const verified = await getLocalMembershipState(vaultId);
+    const member = verified?.members.get(accountId);
+    const device = verified?.devices.get(devicePubkey);
+    if (
+      !verified?.hasGenesis ||
+      !member ||
+      member.removed ||
+      !device ||
+      device.removed ||
+      device.account_id !== accountId ||
+      device.device_id !== getInstallIdSync()
+    ) {
+      throw new Error("join proof has not verified; keep it queued for retry");
+    }
   };
-  if (opts?.session) await applyForCurrentSession(opts.session, applyAdmission);
-  else await applyAdmission();
+  await applyForCurrentSession(session, applyAdmission);
+  // Local proof is only half of joining: the host reads the shared event log.
+  // Keep the durable obligation until the admission reached that log. HTTP
+  // is performed by ordinary sync; an unfinished publication preserves the
+  // marker and retries the same signed rows without duplicate admission.
+  await publishSelfAdmission(vaultId, session, devicePubkey);
+}
+
+async function hasVerifiedSelfAdmission(
+  vaultId: string,
+  accountId: string | null,
+  pubkey: string,
+  publishedOnly = false,
+): Promise<boolean> {
+  if (!accountId) return false;
+  const db = await getDb();
+  const types = [...MEMBERSHIP_EVENT_TYPES];
+  const count = await db.getFirstAsync<{ count: number }>(
+    `SELECT COUNT(*) AS count FROM event_log WHERE vault_id = ? AND tombstone_reason IS NULL
+      AND event_type IN (${types.map(() => "?").join(",")})`,
+    vaultId,
+    ...types,
+  );
+  if ((count?.count ?? 0) > PROOF_BUNDLE_CAP)
+    throw new JoinAdmissionBlockedError("membership proof exceeds the supported limit");
+  const state = await getLocalMembershipState(vaultId, publishedOnly);
+  const member = state?.members.get(accountId);
+  const device = state?.devices.get(pubkey);
+  return (
+    !!state?.hasGenesis &&
+    !!member &&
+    !member.removed &&
+    !!device &&
+    !device.removed &&
+    device.account_id === accountId &&
+    device.device_id === getInstallIdSync()
+  );
+}
+
+async function publishSelfAdmission(
+  vaultId: string,
+  session: SessionSnapshot,
+  pubkey: string,
+): Promise<void> {
+  const unpublished = async () => {
+    if (
+      getDevicePubkey() !== pubkey ||
+      !(await hasVerifiedSelfAdmission(vaultId, session.accountId, pubkey))
+    ) {
+      throw new Error("join proof is incomplete");
+    }
+    const db = await getDb();
+    if (await hasVerifiedSelfAdmission(vaultId, session.accountId, pubkey, true)) return false;
+    const refused = await db.getFirstAsync<{ one: number }>(
+      `SELECT 1 AS one FROM event_log
+       WHERE vault_id = ? AND signer_device_pubkey = ?
+         AND event_type IN ('vault_member_added', 'vault_device_added')
+         AND json_extract(payload_json, '$.account_id') = ?
+         AND rejected_at IS NOT NULL AND server_acked_at IS NULL
+         AND tombstone_reason IS NULL LIMIT 1`,
+      vaultId,
+      pubkey,
+      session.accountId,
+    );
+    if (refused) throw new JoinAdmissionBlockedError("server refused the membership proof");
+    return true;
+  };
+  if (await applyForCurrentSession(session, unpublished)) {
+    // The regular outbox scheduler publishes these immutable signed events.
+    // Do not open a second account-unguarded push from inside admission repair.
+    throw new Error("join proof is waiting for server confirmation");
+  }
+}
+
+/** Local-only readiness probe for the joining screen; never requests witnesses. */
+export async function isSelfAdmissionPublished(
+  vaultId: string,
+  session: SessionSnapshot,
+): Promise<boolean> {
+  return applyForCurrentSession(session, async () => {
+    const pubkey = getDevicePubkey();
+    if (!pubkey || !(await hasVerifiedSelfAdmission(vaultId, session.accountId, pubkey)))
+      return false;
+    return hasVerifiedSelfAdmission(vaultId, session.accountId, pubkey, true);
+  });
 }

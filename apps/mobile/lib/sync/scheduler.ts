@@ -283,6 +283,13 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
     sweepInFlight = true;
     void (async () => {
       try {
+        // Joined vaults have two independent obligations: load the owner proof,
+        // then publish this phone's admission. Retry both on foreground/periodic
+        // sweeps; a failed first attempt must not require killing the app.
+        const { retryPendingVaultMaterialize } = await import("../vault-api");
+        await retryPendingVaultMaterialize();
+        const { ensureChainBackfillAllVaults } = await import("../trust/backfill");
+        await ensureChainBackfillAllVaults();
         await fullBackupSweep();
       } catch (err) {
         console.warn("[sync] backup sweep failed (non-fatal)", err);

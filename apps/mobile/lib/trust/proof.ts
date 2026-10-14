@@ -72,6 +72,7 @@ type MembershipRow = {
 export async function loadLocalMembershipEvents(
   vaultId: string,
   cap: number = PROOF_BUNDLE_CAP,
+  publishedOnly = false,
 ): Promise<MembershipEventLike[]> {
   const db = await getDb();
   const types = [...MEMBERSHIP_EVENT_TYPES];
@@ -85,6 +86,17 @@ export async function loadLocalMembershipEvents(
       WHERE vault_id = ?
         AND event_type IN (${placeholders})
         AND tombstone_reason IS NULL
+        ${
+          publishedOnly
+            ? `AND server_acked_at IS NOT NULL
+          AND NOT COALESCE(CASE WHEN json_valid(payload_json) THEN
+            (event_type = 'vault_member_added' AND target_id = actor_account_id
+            AND COALESCE(json_extract(payload_json, '$.backfill_synthetic'), 0) = 1
+            AND json_extract(payload_json, '$.role') = 'owner'
+            AND json_extract(payload_json, '$.witness') IS NULL)
+            ELSE 0 END, 0)`
+            : ""
+        }
       ORDER BY hlc_physical_ms ASC, hlc_logical ASC, hlc_device_id ASC, event_id ASC
       LIMIT ?`,
     vaultId,
@@ -225,14 +237,17 @@ export async function verifyPeerMembership(args: {
  * admission still needs `vault_member_added` / `vault_device_added`
  * emissions. Returns null for vaults with no trust anchor.
  */
-export async function getLocalMembershipState(vaultId: string): Promise<MembershipState | null> {
+export async function getLocalMembershipState(
+  vaultId: string,
+  publishedOnly = false,
+): Promise<MembershipState | null> {
   const anchorPubkeyB64 = await loadVaultAnchorPubkeyB64(vaultId);
   if (!anchorPubkeyB64) return null;
   return foldMembership({
     vaultId,
     anchorPubkeyB64,
     serverWitnessPubkeysB64: await loadPinnedWitnessPubkeysB64(),
-    events: await loadLocalMembershipEvents(vaultId),
+    events: await loadLocalMembershipEvents(vaultId, PROOF_BUNDLE_CAP, publishedOnly),
     crypto: runtimeChainCrypto,
   });
 }

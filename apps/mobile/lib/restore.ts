@@ -196,18 +196,36 @@ export async function fetchSnapshot(args: { defaultVaultId: string }): Promise<S
   const url = `${baseUrl}/v1/sync/snapshot?vault_id=${encodeURIComponent(args.defaultVaultId)}`;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), SNAPSHOT_TIMEOUT_MS);
-  let res: Response;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // The deadline includes reading the response body. Headers can arrive while
+  // a broken connection leaves JSON unfinished; invite acceptance must still
+  // reach its durable retry path. Race as well as abort so a native body reader
+  // that delays its abort rejection cannot leave the caller waiting forever.
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new RestoreTimeoutError());
+    }, SNAPSHOT_TIMEOUT_MS);
+  });
   try {
-    res = await fetch(url, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${jwt}`,
-        // Gzip both directions — Phase 3 transport contract.
-        "Accept-Encoding": "gzip",
-      },
-      signal: controller.signal,
-    });
+    return await Promise.race([
+      (async () => {
+        const res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${jwt}`,
+            // Gzip both directions — Phase 3 transport contract.
+            "Accept-Encoding": "gzip",
+          },
+          signal: controller.signal,
+        });
+        if (res.status === 404) return null;
+        if (res.status === 401) throw new RestoreSessionExpiredError();
+        if (!res.ok) throw new Error(`restore_fetch_failed:${res.status}`);
+        return (await res.json()) as Snapshot;
+      })(),
+      timeout,
+    ]);
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
       throw new RestoreTimeoutError();
@@ -216,13 +234,6 @@ export async function fetchSnapshot(args: { defaultVaultId: string }): Promise<S
   } finally {
     clearTimeout(timer);
   }
-
-  if (res.status === 404) return null;
-  if (res.status === 401) throw new RestoreSessionExpiredError();
-  if (!res.ok) {
-    throw new Error(`restore_fetch_failed:${res.status}`);
-  }
-  return (await res.json()) as Snapshot;
 }
 
 // ---------- restore: snapshot + tail-of-events ----------

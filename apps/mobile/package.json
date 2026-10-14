@@ -51,6 +51,8 @@
     "selftest:share": "tsx lib/__dev__/share-selftest.ts",
     "selftest:sync-reconcile": "tsx lib/__dev__/sync-reconcile-selftest.ts",
     "selftest:invite-anchor-repair": "tsx lib/__dev__/invite-anchor-repair-selftest.ts",
+    "selftest:invite-join": "tsx lib/__dev__/invite-join-selftest.ts",
+    "selftest:snapshot-timeout": "tsx lib/__dev__/snapshot-timeout-selftest.ts",
     "selftest:diagnostics": "tsx lib/__dev__/diagnostics-report-selftest.ts",
     "selftest:sync-live": "tsx lib/__dev__/sync-live-selftest.ts",
     "selftest:person-detail": "tsx lib/__dev__/person-detail-selftest.ts",

@@ -37,6 +37,7 @@ import {
   ACTIVE_VAULT_META_KEY,
   getAccountIdSync,
   getDb,
+  getInstallIdSync,
   refreshAccountIdCache,
   setActiveVaultIdCache,
   setAppMetaInTx,
@@ -513,8 +514,11 @@ export async function seedJoinedVaultMinimal(
   );
 }
 
-export async function recoverJoinedVault(vaultId: string): Promise<boolean> {
-  const session = await captureCurrentSession();
+export async function recoverJoinedVault(
+  vaultId: string,
+  expectedSession?: SessionSnapshot,
+): Promise<boolean> {
+  const session = expectedSession ?? (await captureCurrentSession());
   function apply<T>(work: () => Promise<T>): Promise<T> {
     return applyForCurrentSession(session, work);
   }
@@ -665,7 +669,7 @@ export async function healMemberNamesFromListing(v: VaultListing): Promise<void>
  * check-in + sweep (the per-vault retry flag + the end-of-recovery sweep cover
  * that case).
  */
-async function pinServerWitnessKeys(session?: SessionSnapshot): Promise<void> {
+export async function pinServerWitnessKeys(session?: SessionSnapshot): Promise<void> {
   try {
     const installId = await ensureInstallId();
     const resp = await checkIn({
@@ -824,6 +828,62 @@ export async function retryPinnedVaultAdmission(
     // it never bypasses a server refusal or a removed member/device.
     console.warn("[recovery] changed-anchor admission retry deferred", err);
   }
+}
+
+/** Repair pre-journal joins already visible on this phone, even with a valid
+ * immutable anchor. An accepted REST row is not proof that this device ever
+ * published its admission. Call only under the listing's captured session. */
+export async function queueIncompleteJoinedVault(
+  v: VaultListing,
+  accountId: string,
+): Promise<boolean> {
+  if (v.role === "owner" || v.archived_at_ms != null || !v.vault_trust_anchor_pubkey) return false;
+  const db = await getDb();
+  const local = await db.getFirstAsync<{ id: string }>(
+    `SELECT v.id FROM vaults v JOIN vault_members_mirror m ON m.vault_id = v.id
+      WHERE v.id = ? AND v.archived_at IS NULL AND m.account_id = ?
+        AND m.accepted_at IS NOT NULL AND m.revoked_at IS NULL LIMIT 1`,
+    v.vault_id,
+    accountId,
+  );
+  if (!local) return false; // no implicit cloud restore or access to private rows
+  const { getDevicePubkey } = await import("./mesh/device-key");
+  const { getLocalMembershipState, PROOF_BUNDLE_CAP } = await import("./trust/proof");
+  const { MEMBERSHIP_EVENT_TYPES } = await import("./trust/chain");
+  const types = [...MEMBERSHIP_EVENT_TYPES];
+  const count = await db.getFirstAsync<{ count: number }>(
+    `SELECT COUNT(*) AS count FROM event_log WHERE vault_id = ? AND tombstone_reason IS NULL
+      AND event_type IN (${types.map(() => "?").join(",")})`,
+    v.vault_id,
+    ...types,
+  );
+  if ((count?.count ?? 0) > PROOF_BUNDLE_CAP) return false;
+  const state = await getLocalMembershipState(v.vault_id);
+  const pubkey = getDevicePubkey();
+  const member = state?.members.get(accountId);
+  const device = pubkey ? state?.devices.get(pubkey) : null;
+  if (member?.removed || device?.removed) return false;
+  const published = await getLocalMembershipState(v.vault_id, true);
+  const publishedMember = published?.members.get(accountId);
+  const publishedDevice = pubkey ? published?.devices.get(pubkey) : null;
+  if (
+    published?.hasGenesis &&
+    publishedMember &&
+    !publishedMember.removed &&
+    publishedDevice &&
+    !publishedDevice.removed &&
+    publishedDevice.account_id === accountId &&
+    publishedDevice.device_id === getInstallIdSync()
+  )
+    return false;
+  await setAppMeta(witnessEmitPendingKey(v.vault_id), "1");
+  // Missing genesis may be beyond a caught-up cursor after an interrupted
+  // restore. Re-run the existing safe snapshot/pull path as well.
+  if (!state?.hasGenesis) {
+    const { markVaultMaterializePending } = await import("./vault-api");
+    await markVaultMaterializePending(v.vault_id);
+  }
+  return true;
 }
 
 async function preserveListingArchive(v: VaultListing): Promise<void> {

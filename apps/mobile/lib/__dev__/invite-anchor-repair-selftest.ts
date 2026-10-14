@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
 import { compileUI, deferred } from "./ui-fixture";
+import { MEMBERSHIP_EVENT_TYPES } from "../trust/chain";
 
 function fixture() {
   const storage = new Database(":memory:");
@@ -17,9 +18,10 @@ function fixture() {
     CREATE TABLE users(id TEXT PRIMARY KEY,is_local_self INTEGER);
     CREATE TABLE app_meta(key TEXT PRIMARY KEY,value TEXT);
     CREATE TABLE event_log(event_id TEXT PRIMARY KEY,vault_id TEXT,applied_at INTEGER,
-      quarantine_reason TEXT);
+      quarantine_reason TEXT,tombstone_reason TEXT,event_type TEXT DEFAULT 'vault_member_added');
     INSERT INTO users VALUES('self',1);
-    INSERT INTO event_log VALUES('genesis','joined',NULL,'unknown_actor');
+    INSERT INTO event_log(event_id,vault_id,applied_at,quarantine_reason)
+      VALUES('genesis','joined',NULL,'unknown_actor');
     INSERT INTO app_meta VALUES('test-pull-cursor','20');
   `);
   let accountId = "joiner",
@@ -103,7 +105,11 @@ function fixture() {
   let listingGate: Promise<any> | null = null,
     emissionGate: Promise<void> | null = null;
   let emissionFailure = false,
-    removedDevice = false;
+    removedDevice = false,
+    removedMember = false,
+    selfAdmitted = false,
+    selfPublished = false,
+    hasGenesis = true;
   const sweeps: string[] = [],
     emissions: string[] = [],
     registrations: string[] = [];
@@ -113,6 +119,7 @@ function fixture() {
     getDb: async () => db,
     getAccountIdSync: () => accountId,
     refreshAccountIdCache: async () => accountId,
+    getInstallIdSync: () => "install",
     setAppMetaInTx: async (_: unknown, key: string, value: string) => setMeta(key, value),
     ACTIVE_VAULT_META_KEY: "active_vault_id",
     setActiveVaultIdCache: () => {},
@@ -127,6 +134,9 @@ function fixture() {
     createVaultOnServer: async (value: any) => {
       network();
       registrations.push(value.vault_id);
+    },
+    markVaultMaterializePending: async (vaultId: string) => {
+      await setMeta(`materialize:${vaultId}`, "1");
     },
   };
   const pull = {
@@ -211,14 +221,31 @@ function fixture() {
         if (emissionGate) await emissionGate;
         if (emissionFailure) throw new Error("synthetic witness failure");
         await auth.applyForCurrentSession(opts.session, async () => {});
+        selfAdmitted = selfPublished = true;
       },
     },
     "./trust/proof": {
-      getLocalMembershipState: async () => ({
-        members: new Map(),
-        devices: removedDevice ? new Map([["own-key", { removed: true }]]) : new Map(),
-      }),
+      PROOF_BUNDLE_CAP: 500,
+      getLocalMembershipState: async (_: string, publishedOnly = false) => {
+        const admitted = publishedOnly ? selfPublished : selfAdmitted;
+        return {
+          hasGenesis,
+          members: removedMember
+            ? new Map([[accountId, { removed: true }]])
+            : admitted
+              ? new Map([[accountId, { removed: false }]])
+              : new Map(),
+          devices: removedDevice
+            ? new Map([["own-key", { removed: true }]])
+            : admitted
+              ? new Map([
+                  ["own-key", { removed: false, account_id: accountId, device_id: "install" }],
+                ])
+              : new Map(),
+        };
+      },
     },
+    "./trust/chain": { MEMBERSHIP_EVENT_TYPES },
     "./vault-api": vaultApi,
     "./use-vault-role": { invalidateVaultRoleCache: () => {} },
   });
@@ -276,6 +303,18 @@ function fixture() {
     removeDevice: () => {
       removedDevice = true;
     },
+    removeMember: () => {
+      removedMember = true;
+    },
+    admitLocally: () => {
+      selfAdmitted = true;
+    },
+    publishAdmission: () => {
+      selfAdmitted = selfPublished = true;
+    },
+    loseGenesis: () => {
+      hasGenesis = false;
+    },
     goOffline: () => {
       online = false;
     },
@@ -331,7 +370,91 @@ async function main() {
   assert.equal(pinned.pin(), "original-pin", "an existing pin is never overwritten");
   assert.deepEqual(pinned.sweeps, []);
   assert.deepEqual(pinned.emissions, []);
+  assert.equal(
+    pinned.meta("witness:joined"),
+    "1",
+    "an upgrade discovers a visible joined vault whose old client never wrote its witness flag",
+  );
   pinned.storage.close();
+
+  const alreadyPublished = fixture();
+  await alreadyPublished.seed();
+  alreadyPublished.storage
+    .prepare("UPDATE vaults SET vault_trust_anchor_pubkey='original-pin'")
+    .run();
+  alreadyPublished.publishAdmission();
+  await alreadyPublished.reconcile.healMissingServerAnchors();
+  assert.equal(
+    alreadyPublished.meta("witness:joined"),
+    null,
+    "a complete join needs no new marker",
+  );
+  alreadyPublished.storage.close();
+
+  const locallyAdmitted = fixture();
+  await locallyAdmitted.seed();
+  locallyAdmitted.storage
+    .prepare("UPDATE vaults SET vault_trust_anchor_pubkey='original-pin'")
+    .run();
+  locallyAdmitted.admitLocally();
+  await locallyAdmitted.reconcile.healMissingServerAnchors();
+  assert.equal(
+    locallyAdmitted.meta("witness:joined"),
+    "1",
+    "a pre-fix client may have cleared its marker before the host received its local proof",
+  );
+  locallyAdmitted.storage.close();
+
+  const genesisMissing = fixture();
+  await genesisMissing.seed();
+  genesisMissing.storage
+    .prepare("UPDATE vaults SET vault_trust_anchor_pubkey='original-pin'")
+    .run();
+  genesisMissing.loseGenesis();
+  await genesisMissing.reconcile.healMissingServerAnchors();
+  assert.equal(genesisMissing.meta("witness:joined"), "1");
+  assert.equal(
+    genesisMissing.meta("materialize:joined"),
+    "1",
+    "a caught-up cursor missing owner proof also queues snapshot materialization",
+  );
+  genesisMissing.storage.close();
+
+  for (const removedKind of ["member", "device"] as const) {
+    const blockedUpgrade = fixture();
+    await blockedUpgrade.seed();
+    blockedUpgrade.storage
+      .prepare("UPDATE vaults SET vault_trust_anchor_pubkey='original-pin'")
+      .run();
+    if (removedKind === "member") blockedUpgrade.removeMember();
+    else blockedUpgrade.removeDevice();
+    await blockedUpgrade.reconcile.healMissingServerAnchors();
+    assert.equal(
+      blockedUpgrade.meta("witness:joined"),
+      null,
+      `unchanged-anchor upgrade must not retry a removed ${removedKind}`,
+    );
+    assert.deepEqual(blockedUpgrade.emissions, []);
+    blockedUpgrade.storage.close();
+  }
+
+  const oversizedProof = fixture();
+  await oversizedProof.seed();
+  oversizedProof.storage
+    .prepare("UPDATE vaults SET vault_trust_anchor_pubkey='original-pin'")
+    .run();
+  const insertProof = oversizedProof.storage.prepare(
+    "INSERT INTO event_log(event_id,vault_id) VALUES(?,'joined')",
+  );
+  for (let i = 0; i < 500; i++) insertProof.run(`proof-${i}`);
+  await oversizedProof.reconcile.healMissingServerAnchors();
+  assert.equal(
+    oversizedProof.meta("witness:joined"),
+    null,
+    "a capped proof prefix cannot authorize automatic re-admission",
+  );
+  assert.deepEqual(oversizedProof.emissions, []);
+  oversizedProof.storage.close();
 
   const remoteMissing = fixture();
   await remoteMissing.seed();

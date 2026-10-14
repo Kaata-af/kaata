@@ -1546,6 +1546,11 @@ const en = {
   "inviteAccept.confirm.decline": "Decline",
   "inviteAccept.joining": "Joining vault…",
   "inviteAccept.joinedToast": "Joined {name}",
+  "inviteAccept.pending.title": "Finishing your connection",
+  "inviteAccept.pending.body":
+    "Your invitation was accepted. Keep Kaata online to finish setup. We’ll retry automatically.",
+  "inviteAccept.blocked.title": "Setup needs help",
+  "inviteAccept.blocked.body": "Setup could not finish. Ask the kaata owner for help.",
   "inviteAccept.error.title": "Something went wrong",
   "inviteAccept.error.notVisible":
     "This invitation isn't visible on your account. The invite is anchored to a specific email — try signing in with the account that uses the email that received it.",
@@ -3316,6 +3321,11 @@ const fa: Partial<Record<Key, string>> = {
   "inviteAccept.confirm.decline": "رد کردن",
   "inviteAccept.joining": "در حال پیوستن به کاتا…",
   "inviteAccept.joinedToast": "به {name} پیوستید",
+  "inviteAccept.pending.title": "در حال تکمیل اتصال",
+  "inviteAccept.pending.body":
+    "دعوت شما پذیرفته شد. کاتا را به اینترنت وصل نگه دارید تا راه‌اندازی تکمیل شود. دوباره خودکار تلاش می‌کنیم.",
+  "inviteAccept.blocked.title": "راه‌اندازی به کمک نیاز دارد",
+  "inviteAccept.blocked.body": "راه‌اندازی تکمیل نشد. از صاحب کاتا کمک بخواهید.",
   "inviteAccept.error.title": "مشکلی پیش آمد",
   "inviteAccept.error.notVisible":
     "این دعوت در حساب شما دیده نمی‌شود. دعوت به یک ایمیل مشخص گره خورده است — با حسابی وارد شوید که همان ایمیلِ دریافت‌کنندهٔ دعوت را دارد.",

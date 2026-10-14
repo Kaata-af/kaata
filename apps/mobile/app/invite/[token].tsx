@@ -33,7 +33,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { ScreenHeader } from "../../components/SettingsScreen";
 import { useToast } from "../../components/Toast";
-import { getSessionJWT } from "../../lib/auth";
+import {
+  applyForCurrentSession,
+  captureCurrentSession,
+  getSessionJWT,
+  SessionChangedError,
+  type SessionSnapshot,
+} from "../../lib/auth";
 import { requestImmediateCheckIn } from "../../lib/checkin-trigger";
 import { colors } from "../../lib/colors";
 import { setActiveVaultId } from "../../lib/db-tx";
@@ -42,21 +48,33 @@ import { textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { gutter, icon, typography } from "../../lib/tokens";
+import { isSelfAdmissionPublished, JoinAdmissionBlockedError } from "../../lib/trust/backfill";
 import {
   acceptVaultInvite,
   ApiError,
   clearVaultMaterializePending,
+  clearPendingVaultInvite,
   declineVaultInviteLocally,
   fetchInviteInfo,
   lookupPendingInvite,
-  markVaultMaterializePending,
   retryPendingVaultMaterialize,
+  resumePendingVaultInvite,
   type PendingInvite,
+  type AcceptInviteResult,
 } from "../../lib/vault-api";
 
-type Stage = "loading" | "needs_signin" | "confirm" | "accepting" | "error" | "done";
+type Stage =
+  | "loading"
+  | "needs_signin"
+  | "confirm"
+  | "accepting"
+  | "pending"
+  | "blocked"
+  | "error"
+  | "done";
 
 const PENDING_TOKEN_KEY = "pending_invite_token";
+class InviteRouteChangedError extends Error {}
 
 // Confirm-card view model — the common subset of a local pending_invitations
 // row (email invites mirrored by fetchPendingInvitations) and the public
@@ -83,6 +101,9 @@ export default function InviteAcceptScreen() {
   const [retryable, setRetryable] = useState(false);
   // L15: synchronous re-entry guard for onAccept (single-use token).
   const acceptingRef = useRef(false);
+  // A consumed link must never be posted again just to finish its local setup.
+  const acceptedRef = useRef<{ result: AcceptInviteResult; session: SessionSnapshot } | null>(null);
+  const routeGeneration = useRef(0);
   // Bumped by the Retry button to re-run the lookup effect after a network
   // failure (the /info fallback is the only throwing step in it).
   const [attempt, setAttempt] = useState(0);
@@ -98,6 +119,11 @@ export default function InviteAcceptScreen() {
   }, []);
 
   useEffect(() => {
+    const generation = ++routeGeneration.current;
+    const current = () => generation === routeGeneration.current;
+    acceptedRef.current = null;
+    acceptingRef.current = false;
+    setStage("loading");
     (async () => {
       if (!token) {
         toast.push(t("inviteAccept.invalidLink"), "error");
@@ -110,19 +136,38 @@ export default function InviteAcceptScreen() {
         // authed /info fallback below). Stash the token so the auth flow
         // returns here after sign-in.
         const jwt = await getSessionJWT();
+        if (!current()) return;
         if (!jwt) {
           await setAppMeta(PENDING_TOKEN_KEY, token);
           setStage("needs_signin");
           return;
         }
 
+        const session = await captureCurrentSession();
+        const resumed = await resumePendingVaultInvite(token, session);
+        if (!current()) return;
+        if (resumed) {
+          acceptedRef.current = { result: resumed, session };
+          setInvite({
+            vault_name: resumed.vault_name,
+            role: resumed.role,
+            inviter_name: null,
+            inviter_email: null,
+            expires_at: 0,
+          });
+          setStage("pending");
+          return;
+        }
+
         let found: InviteDetails | null = await lookupPendingInvite(token);
+        if (!current()) return;
         if (!found) {
           // No local row — the normal case for a link invitee (see the
           // lifecycle comment above). Ask the public /info endpoint; null
           // means 404 (expired / revoked / already used), network failures
           // throw into the retryable catch below.
           const info = await fetchInviteInfo(token);
+          if (!current()) return;
           if (info) {
             found = {
               vault_name: info.vault_name,
@@ -146,6 +191,7 @@ export default function InviteAcceptScreen() {
         setInvite(found);
         setStage("confirm");
       } catch (err) {
+        if (!current()) return;
         // Raw err.message stays in the console for debugging; the user
         // sees the localized fallback only.
         console.warn("[invite] lookup failed", err);
@@ -154,6 +200,9 @@ export default function InviteAcceptScreen() {
         setStage("error");
       }
     })();
+    return () => {
+      routeGeneration.current++;
+    };
   }, [token, router, toast, attempt]);
 
   async function onAccept() {
@@ -163,38 +212,63 @@ export default function InviteAcceptScreen() {
     // succeeded, plus races two recoverJoinedVault materializations.
     if (!invite || !token || acceptingRef.current) return;
     acceptingRef.current = true;
+    const generation = routeGeneration.current;
+    const assertRoute = () => {
+      if (generation !== routeGeneration.current) throw new InviteRouteChangedError();
+    };
     setStage("accepting");
     try {
-      const result = await acceptVaultInvite(token);
-      // FIRST: the offline-proof minimal seed straight from the accept
-      // response (vault row + our membership mirror, no network). This is
-      // what guarantees the kaata is visible and switchable from the first
-      // frame even if every enrichment step below fails — the fix for the
-      // "joined kaata flashed then vanished from the switcher" bug, where a
-      // failed recoverJoinedVault left NO local row and healActiveVaultId
-      // promptly moved the active pointer off the void.
-      try {
-        const { seedJoinedVaultMinimal } = await import("../../lib/recovery");
-        await seedJoinedVaultMinimal(result.vault_id, result.vault_name, result.role);
-      } catch (err) {
-        console.warn("[invite] minimal seed failed (materialize retry still covers it)", err);
-      }
-      // THEN the full materialization (anchor, history, other members) —
-      // best-effort with the pending-flag heal: flag BEFORE the attempt,
-      // clear only on confirmed success. retryPendingVaultMaterialize sweeps
-      // the flag from the sync scheduler's session start, the home screen's
-      // load, and this screen's next mount.
-      try {
-        await markVaultMaterializePending(result.vault_id);
-        const { recoverJoinedVault } = await import("../../lib/recovery");
-        if (await recoverJoinedVault(result.vault_id)) {
-          await clearVaultMaterializePending(result.vault_id);
+      const session = acceptedRef.current?.session ?? (await captureCurrentSession());
+      const result = acceptedRef.current?.result ?? (await acceptVaultInvite(token, session));
+      assertRoute();
+      acceptedRef.current = { result, session };
+      const publishedBeforeSetup = await isSelfAdmissionPublished(result.vault_id, session);
+      assertRoute();
+      if (!publishedBeforeSetup) {
+        // FIRST: the offline-proof minimal seed straight from the accept
+        // response (vault row + our membership mirror, no network). This is
+        // what guarantees the kaata is visible and switchable from the first
+        // frame even if every enrichment step below fails — the fix for the
+        // "joined kaata flashed then vanished from the switcher" bug, where a
+        // failed recoverJoinedVault left NO local row and healActiveVaultId
+        // promptly moved the active pointer off the void.
+        try {
+          const { seedJoinedVaultMinimal } = await import("../../lib/recovery");
+          await applyForCurrentSession(session, () =>
+            seedJoinedVaultMinimal(result.vault_id, result.vault_name, result.role),
+          );
+          assertRoute();
+        } catch (err) {
+          assertRoute();
+          if (err instanceof SessionChangedError || err instanceof InviteRouteChangedError)
+            throw err;
+          console.warn("[invite] minimal seed failed (materialize retry still covers it)", err);
         }
-      } catch (err) {
-        console.warn("[invite] joined-vault materialization failed (flagged for retry)", err);
+        // THEN the full materialization (anchor, history, other members) —
+        // best-effort with the pending-flag heal: flag BEFORE the attempt,
+        // clear only on confirmed success. retryPendingVaultMaterialize sweeps
+        // the flag from the sync scheduler's session start, the home screen's
+        // load, and this screen's next mount.
+        try {
+          const { recoverJoinedVault } = await import("../../lib/recovery");
+          if (await recoverJoinedVault(result.vault_id, session)) {
+            await applyForCurrentSession(session, () =>
+              clearVaultMaterializePending(result.vault_id),
+            );
+          }
+          assertRoute();
+        } catch (err) {
+          assertRoute();
+          if (err instanceof SessionChangedError || err instanceof InviteRouteChangedError)
+            throw err;
+          console.warn("[invite] joined-vault materialization failed (flagged for retry)", err);
+        }
       }
-      await setActiveVaultId(result.vault_id);
-      await setAppMeta(PENDING_TOKEN_KEY, "");
+      await applyForCurrentSession(session, async () => {
+        assertRoute();
+        await setActiveVaultId(result.vault_id);
+        await setAppMeta(PENDING_TOKEN_KEY, "");
+      });
 
       // M2 membership chain (docs/m2-membership-chain.md §4): after a
       // successful online acceptance, this device fetches the server
@@ -205,19 +279,36 @@ export default function InviteAcceptScreen() {
       // ensureChainBackfill retries on the next app session (duplicate
       // admissions are no-ops in the chain fold, so a partial first
       // attempt re-running is safe).
+      let proofPublished = false;
       try {
         const { emitWitnessedSelfAdmission, witnessEmitPendingKey } =
           await import("../../lib/trust/backfill");
-        await setAppMeta(witnessEmitPendingKey(result.vault_id), "1");
         // inviterName: the invite-info card's inviter (an owner — CreateInvite
         // is owner-only) gets their real name stamped on the joiner's Members
         // tab instead of the "Owner" role label.
         await emitWitnessedSelfAdmission(result.vault_id, {
           inviterName: invite.inviter_name ?? null,
+          session,
         });
-        await setAppMeta(witnessEmitPendingKey(result.vault_id), "");
+        assertRoute();
+        await applyForCurrentSession(session, () =>
+          setAppMeta(witnessEmitPendingKey(result.vault_id), ""),
+        );
+        proofPublished = true;
       } catch (err) {
+        assertRoute();
+        if (err instanceof SessionChangedError || err instanceof InviteRouteChangedError) throw err;
+        if (err instanceof JoinAdmissionBlockedError) {
+          acceptingRef.current = false;
+          setStage("blocked");
+          return;
+        }
         console.warn("[invite] witness emission failed (backfill path will retry)", err);
+      }
+      if (!proofPublished) {
+        acceptingRef.current = false;
+        setStage("pending");
+        return;
       }
       // The joined kaata's shared accounts must be known before the first
       // tally, or that tally lands in the private book and never reaches the
@@ -231,7 +322,13 @@ export default function InviteAcceptScreen() {
       } catch (err) {
         console.warn("[invite] shared-account discovery after join failed", err);
       }
-      setStage("done");
+      assertRoute();
+      await clearPendingVaultInvite(token, session);
+      assertRoute();
+      await applyForCurrentSession(session, async () => {
+        assertRoute();
+        setStage("done");
+      });
       // Push the joined-vault membership + onboarded state to the backend now.
       // recoverJoinedVault created the local-self; without an immediate check-in
       // this signed-in user could still read as "not onboarded" on the admin
@@ -241,6 +338,7 @@ export default function InviteAcceptScreen() {
       toast.push(t("inviteAccept.joinedToast", { name: invite.vault_name }), "success");
       router.replace("/");
     } catch (err) {
+      if (generation !== routeGeneration.current || err instanceof InviteRouteChangedError) return;
       // Reset the guard so the user can retry after a transient failure (on
       // success we've already navigated home, so it stays locked).
       acceptingRef.current = false;
@@ -259,6 +357,37 @@ export default function InviteAcceptScreen() {
       setStage("error");
     }
   }
+
+  // Ordinary sync uploads the proof and retries interrupted setup. Re-check
+  // while this screen is visible, without consuming the invite a second time.
+  useEffect(() => {
+    if (stage !== "pending") return;
+    const timer = setTimeout(() => {
+      void onAccept();
+    }, 60_000);
+    let cancelled = false,
+      checking = false;
+    // Upload normally finishes within seconds. Observe its local ack without
+    // another witness request or snapshot download while the user waits.
+    const poll = setInterval(() => {
+      const accepted = acceptedRef.current;
+      if (checking || !accepted) return;
+      checking = true;
+      void isSelfAdmissionPublished(accepted.result.vault_id, accepted.session)
+        .then((ready) => {
+          if (!cancelled && ready) void onAccept();
+        })
+        .catch(() => {})
+        .finally(() => {
+          checking = false;
+        });
+    }, 1500);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      clearInterval(poll);
+    };
+  }, [stage]);
 
   async function onDecline() {
     if (!token) return;
@@ -369,6 +498,27 @@ export default function InviteAcceptScreen() {
             <ActivityIndicator color={colors.textDefault} />
             <View style={{ height: 12 }} />
             <Text style={[styles.body2, textDir(isRTL)]}>{t("inviteAccept.joining")}</Text>
+          </View>
+        ) : null}
+
+        {stage === "pending" || stage === "blocked" ? (
+          <View style={styles.fillCenter}>
+            <Ionicons name="time-outline" size={icon.hero} color={colors.textMuted} />
+            <View style={{ height: 12 }} />
+            <Text style={[styles.heading, textDir(isRTL)]}>
+              {t(stage === "blocked" ? "inviteAccept.blocked.title" : "inviteAccept.pending.title")}
+            </Text>
+            <Text style={[styles.body2, textDir(isRTL)]}>
+              {t(stage === "blocked" ? "inviteAccept.blocked.body" : "inviteAccept.pending.body")}
+            </Text>
+            <View style={{ height: 20 }} />
+            {stage === "pending" ? <Button label={t("common.retry")} onPress={onAccept} /> : null}
+            <View style={{ height: 12 }} />
+            <Button
+              label={t("common.backToKaata")}
+              variant="secondary"
+              onPress={() => router.replace("/")}
+            />
           </View>
         ) : null}
 
