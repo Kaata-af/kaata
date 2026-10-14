@@ -4,10 +4,16 @@ import { useState } from "react";
 import { useGrowth, useStats, type Growth, type Stats } from "./api";
 import { C, Card, ErrorCard, PageHeader, SkeletonCard, fmtInt, fmtPct } from "./ui";
 import { WeeklyGrowthCard } from "./WeeklyGrowthCard";
+import { ActivityInsights, RecentInstalls, type ActivityView } from "./ActivityInsights";
 
 export function Overview() {
   const [days, setDays] = useState(30);
-  const stats = useStats(days);
+  const [hours, setHours] = useState(168);
+  const [activityView, setActivityView] = useState<ActivityView>("hour");
+  const stats = useStats(
+    activityView === "day" ? days : hours,
+    activityView === "day" ? "day" : "hour",
+  );
   const growth = useGrowth();
   return (
     <div className="min-w-0 max-w-full">
@@ -42,48 +48,27 @@ export function Overview() {
         )}
       </div>
       <div className="mt-4 min-w-0 sm:mt-5">
-        <Card
-          title="Daily activity"
-          sub={`Active devices and new installs · last ${stats.data?.points ?? days} days, including today`}
-          action={
-            <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:gap-3">
-              {stats.isFetching && !stats.isPending ? (
-                <span role="status" className="text-xs text-brand-sub">
-                  Updating…
-                </span>
-              ) : null}
-              <div
-                className="inline-flex max-w-full rounded-lg border border-brand-border bg-brand-ivory p-1"
-                role="group"
-                aria-label="Activity date range"
-              >
-                {[7, 30, 90].map((range) => (
-                  <button
-                    key={range}
-                    type="button"
-                    aria-pressed={days === range}
-                    onClick={() => setDays(range)}
-                    className={`min-h-10 rounded-md px-3 py-2 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand-primary ${days === range ? "bg-brand-primary text-white shadow-sm" : "text-brand-sub hover:text-brand-ink"}`}
-                  >
-                    {range} days
-                  </button>
-                ))}
-              </div>
-            </div>
-          }
-        >
-          {stats.isPending ? (
-            <div className="h-56 min-w-0 animate-pulse rounded-lg bg-brand-faint sm:h-64" />
-          ) : stats.isError ? (
-            <ErrorCard
-              message="The activity chart couldn't be loaded."
-              onRetry={() => void stats.refetch()}
-            />
-          ) : (
-            <ActivityChart stats={stats.data} />
-          )}
-        </Card>
+        <ActivityInsights
+          stats={stats.data}
+          view={activityView}
+          range={activityView === "day" ? days : hours}
+          pending={stats.isPending}
+          error={stats.isError}
+          fetching={stats.isFetching}
+          onView={(view) => {
+            if (view === "profile" && hours === 24) setHours(168);
+            setActivityView(view);
+          }}
+          onRange={(points) => (activityView === "day" ? setDays(points) : setHours(points))}
+          onRetry={() => void stats.refetch()}
+          dailyChart={stats.data ? <ActivityChart stats={stats.data} /> : null}
+        />
       </div>
+      {stats.data ? (
+        <div className="mt-4 min-w-0 sm:mt-5">
+          <RecentInstalls stats={stats.data} />
+        </div>
+      ) : null}
       <div className="mt-4 grid min-w-0 grid-cols-1 gap-4 sm:mt-5 sm:gap-5 xl:grid-cols-2">
         {growth.isPending ? (
           <SkeletonCard lines={6} />
@@ -190,6 +175,9 @@ function ActivityChart({ stats: s }: { stats: Stats }) {
       <p className="mt-3 text-xs leading-relaxed text-brand-sub">
         Today is still in progress. Its active-device count matches Active today above; daily counts
         do not add up to unique weekly or monthly devices.
+        {s.activity_timezone_since
+          ? ` Dates before ${s.activity_timezone_since} keep their original UTC history; later days use Kabul.`
+          : " Earlier date-only history may use UTC boundaries."}
       </p>
     </div>
   );

@@ -56,6 +56,10 @@ tracks as they are. The working checkout returns to `main` after the merge.
 - **Admin times:** operational timestamps show date and 24-hour Kabul time,
   regardless of browser timezone. Relative recency remains visible; records
   with only a calendar date do not acquire a fictional time.
+  The October 15 follow-up adds visible hourly install/activity charts,
+  Busy hours with completed-hour averages and peak times, and the ten latest
+  installs with second-resolution timestamps. Earlier work only exposed times
+  on individual records. See [admin-analytics.md](admin-analytics.md#clock-times-and-busy-hours).
 - **Product and marketing colors:** app/web controls, onboarding and PDF/email
   chrome use black, white and neutral grays, with the original black identity
   assets restored from Git. Android adaptive and notification accents are black;

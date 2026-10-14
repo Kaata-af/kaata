@@ -42,6 +42,47 @@ reconstruct earlier hourly activity; hourly history before
 `analytics_calendar.started_at` is incomplete. Existing ledger events are not
 used to fabricate missing check-ins.
 
+## Clock times and busy hours
+
+Overview's **Activity & installs** card opens on **Hourly**, with 24-hour,
+7-day and 30-day ranges. Each point is one Kabul-aligned clock hour. Its tooltip
+shows the complete date and hour interval, and identifies the current hour as
+in progress. **Daily** preserves the existing 7/30/90-day chart and calendar
+cutover disclosure. Switching granularity cannot temporarily label cached daily
+points as hourly points; query keys and placeholder data include the bucket.
+
+**Busy hours** shows a typical day's 24 clock hours over the last 7 or 30 days.
+Each value is the mean of the recorded completed hours for that hour of day,
+including genuine zero counts. Activity uses only hours whose starts are at or
+after `hourly_tracking_since` (the exact migration 036 instant, including its
+fractional seconds). The incomplete migration hour, current hour and missing
+coverage do not enter its denominator. Installs have their own coverage counts.
+The tooltips show the sample counts. Positive tied peaks are displayed together;
+an all-zero or unknown series has no busiest-hour claim. Counts represent
+check-ins, including background check-ins, not session opens or time spent.
+
+The **Latest installs** list shows ten eligible devices, newest effective install
+time first, with a visible date and `HH:mm:ss` clock in Kabul. The effective
+timestamp is `LEAST(installed_at, first_seen_at)`, matching Users; hourly install
+bins use the same timestamp. First server contact is retained as a separate
+tooltip because an offline install may arrive later. Daily/cohort history keeps
+the existing calendar contract. Names are display labels from the verified
+account link or the device's reported self-name, not identity evidence. All
+install and activity views reuse the operator/manual test exclusion rules.
+
+The existing `/v1/admin/stats?bucket=hour&points=…` report supplies the hourly
+series, `hourly_tracking_since` and `latest_installs`. No new mobile telemetry or
+schema migration is required. An older backend without coverage metadata shows
+unknown activity instead of invented zeroes; its exact-install list directs the
+operator to Users. Existing live invalidation and polling refresh these views.
+
+Verification for the October 15, 2026 follow-up: 26 focused frontend date/hour
+and weekly-calendar tests passed, including a browser timezone outside Kabul;
+the production web build passed. The complete admin and check-in packages plus
+the fractional-second hourly-cutover regression passed against isolated
+PostgreSQL 18, without skips or production data access. No mobile version or
+store-distribution change accompanies this dashboard update.
+
 ## Users directory
 
 The people directory combines one row per signed-in account with one row per

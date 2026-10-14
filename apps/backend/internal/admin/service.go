@@ -74,6 +74,17 @@ type SeriesPoint struct {
 	Active   int64  `json:"active"`
 }
 
+// RecentInstall exposes the known install instant as well as the server's
+// first observation. Device-reported clocks can be wrong; the effective
+// install time is the earlier of installed_at and first_seen_at, like Users.
+type RecentInstall struct {
+	InstallID   string `json:"install_id"`
+	Name        string `json:"name"`
+	Platform    string `json:"platform"`
+	InstalledAt string `json:"installed_at"`
+	FirstSeenAt string `json:"first_seen_at"`
+}
+
 type Stats struct {
 	// Funnel (installs): total → onboarded → made an entry → shared → active.
 	InstallsTotal int64 `json:"installs_total"`
@@ -122,16 +133,20 @@ type Stats struct {
 	Languages []LocaleCount `json:"languages"`
 	// Bucketed activity series — installs + active devices per time bucket. The
 	// bucket width is the caller's granularity choice (hour/day/week/month).
-	Series []SeriesPoint `json:"series"`
-	Bucket string        `json:"bucket"`
-	Points int           `json:"points"`
+	Series         []SeriesPoint   `json:"series"`
+	Bucket         string          `json:"bucket"`
+	Points         int             `json:"points"`
+	LatestInstalls []RecentInstall `json:"latest_installs"`
 	// Attribution.
 	BySource []SourceRow `json:"by_source"`
 	// Server "as of" timestamp (RFC3339) so the dashboard can show freshness.
 	GeneratedAt string `json:"generated_at"`
 	// Earlier date-only history used UTC and cannot be exactly re-bucketed.
 	ActivityTimezoneSince string `json:"activity_timezone_since"`
-	WeekStartsOn          int    `json:"week_starts_on"` // 6 = Saturday; rolling WAU remains seven days
+	// Hourly activity before this instant is incomplete: migration 036 only
+	// seeded the latest known check-in, not every earlier hour of that day.
+	HourlyTrackingSince string `json:"hourly_tracking_since"`
+	WeekStartsOn        int    `json:"week_starts_on"` // 6 = Saturday; rolling WAU remains seven days
 }
 
 // bucketSpec maps a granularity to the date_trunc field, generate_series step
@@ -240,11 +255,13 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		),
 		ins AS (
 		  SELECT admin_bucket_start($2, CASE WHEN $2 = 'hour'
-		    THEN COALESCE(i.installed_at, i.first_seen_at) AT TIME ZONE 'Asia/Kabul'
+		    THEN LEAST(i.installed_at, i.first_seen_at) AT TIME ZONE 'Asia/Kabul'
 		    ELSE d.installed_date::timestamp END) AS b, COUNT(*) AS n
 		  FROM installs i JOIN admin_install_dates d USING (install_id)
 		  WHERE i.install_id NOT IN (SELECT install_id FROM report_excluded_installs)
-		    AND COALESCE(i.installed_at, i.first_seen_at) <= $6
+		    AND CASE WHEN $2 = 'hour' THEN LEAST(i.installed_at, i.first_seen_at)
+		      ELSE COALESCE(i.installed_at, i.first_seen_at) END <= $6
+		    AND i.first_seen_at <= $6
 		  GROUP BY 1
 		),
 		days AS (
@@ -274,7 +291,7 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		)
 		SELECT to_char(buckets.b, $5), COALESCE(ins.n, 0), COALESCE(act.n, 0),
 		       engagement.dau, engagement.wau, engagement.mau,
-		       to_char(calendar.kabul_since, 'YYYY-MM-DD')
+		       to_char(calendar.kabul_since, 'YYYY-MM-DD'), calendar.started_at
 		FROM buckets
 		CROSS JOIN engagement CROSS JOIN analytics_calendar calendar
 		LEFT JOIN ins ON ins.b = buckets.b
@@ -286,14 +303,51 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 	}
 	for rows.Next() {
 		var p SeriesPoint
-		if err := rows.Scan(&p.T, &p.Installs, &p.Active, &st.DAU, &st.WAU, &st.MAU, &st.ActivityTimezoneSince); err != nil {
+		var hourlyTrackingSince time.Time
+		if err := rows.Scan(&p.T, &p.Installs, &p.Active, &st.DAU, &st.WAU, &st.MAU, &st.ActivityTimezoneSince, &hourlyTrackingSince); err != nil {
 			rows.Close()
 			return st, err
 		}
+		st.HourlyTrackingSince = hourlyTrackingSince.UTC().Format(time.RFC3339Nano)
 		st.Series = append(st.Series, p)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
+		return st, err
+	}
+
+	// A small exact-time feed makes new installs visible without loading the
+	// whole Users directory. Apply the same exclusion rules as the charts and
+	// do not show installations first observed after this report's clock.
+	irrows, err := s.pool.Query(ctx, `
+		WITH `+reportExclusionCTEs+`
+		SELECT i.install_id::text,
+		       COALESCE(NULLIF(a.name, ''), i.self_name, ''),
+		       COALESCE(i.platform, ''),
+		       LEAST(i.installed_at, i.first_seen_at), i.first_seen_at
+		FROM installs i LEFT JOIN accounts a ON a.id = i.account_id
+		WHERE i.install_id NOT IN (SELECT install_id FROM report_excluded_installs)
+		  AND LEAST(i.installed_at, i.first_seen_at) <= $2
+		  AND i.first_seen_at <= $2
+		ORDER BY LEAST(i.installed_at, i.first_seen_at) DESC, i.install_id ASC
+		LIMIT 10
+	`, s.operatorAccountIDs, now)
+	if err != nil {
+		return st, err
+	}
+	for irrows.Next() {
+		var r RecentInstall
+		var installedAt, firstSeenAt time.Time
+		if err := irrows.Scan(&r.InstallID, &r.Name, &r.Platform, &installedAt, &firstSeenAt); err != nil {
+			irrows.Close()
+			return st, err
+		}
+		r.InstalledAt = installedAt.UTC().Format(time.RFC3339)
+		r.FirstSeenAt = firstSeenAt.UTC().Format(time.RFC3339)
+		st.LatestInstalls = append(st.LatestInstalls, r)
+	}
+	irrows.Close()
+	if err := irrows.Err(); err != nil {
 		return st, err
 	}
 
@@ -412,6 +466,9 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 	}
 	if st.Languages == nil {
 		st.Languages = []LocaleCount{}
+	}
+	if st.LatestInstalls == nil {
+		st.LatestInstalls = []RecentInstall{}
 	}
 	st.GeneratedAt = now.UTC().Format(time.RFC3339)
 	return st, nil

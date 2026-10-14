@@ -50,6 +50,13 @@ export type SourceRow = {
 };
 export type LocaleCount = { locale: string; count: number };
 export type SeriesPoint = { t: string; installs: number; active: number };
+export type LatestInstall = {
+  install_id: string;
+  name: string;
+  platform: string;
+  installed_at: string;
+  first_seen_at: string;
+};
 
 export type Stats = {
   installs_total: number;
@@ -87,6 +94,9 @@ export type Stats = {
   // Older activity was stored as UTC dates without times and cannot be
   // accurately reassigned to Kabul days. Optional during backend rollout.
   activity_timezone_since?: string;
+  // Exact start of hourly check-in coverage, separate from legacy daily tracking.
+  hourly_tracking_since?: string;
+  latest_installs?: LatestInstall[];
   // 6 = Saturday. Missing on older Monday-start backends during rollout.
   week_starts_on?: number;
   generated_at: string;
@@ -241,15 +251,17 @@ async function fetchAdmin<T>(path: string, token: string): Promise<T> {
 export const AdminTokenContext = createContext("");
 export const useAdminToken = () => useContext(AdminTokenContext);
 
-export function useStats(points = 30) {
+export function useStats(points = 30, bucket: "day" | "hour" = "day") {
   const token = useAdminToken();
   return useQuery({
-    queryKey: ["admin", "stats", token, points],
+    queryKey: ["admin", "stats", token, points, bucket],
     // Only the chart range changes; DAU/WAU/MAU retain their fixed windows.
-    queryFn: () => fetchAdmin<Stats>(`/v1/admin/stats?bucket=day&points=${points}`, token),
+    queryFn: () => fetchAdmin<Stats>(`/v1/admin/stats?bucket=${bucket}&points=${points}`, token),
     // Keep the chart visible while changing its range, never across keys.
     placeholderData: (previousData, previousQuery) =>
-      previousQuery?.queryKey[2] === token ? previousData : undefined,
+      previousQuery?.queryKey[2] === token && previousQuery.queryKey[4] === bucket
+        ? previousData
+        : undefined,
     enabled: !!token,
   });
 }

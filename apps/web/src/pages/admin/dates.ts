@@ -50,6 +50,12 @@ export function fmtDateTime(value: string | number): string {
   return time ? `${date}, ${time}` : date;
 }
 
+// Recent install events expose the full recorded clock, including seconds.
+export function fmtExactDateTime(value: string | number): string {
+  const { date, time } = fmtDateTimeParts(value);
+  return time ? `${date}, ${clockFormatter.format(new Date(value))}` : date;
+}
+
 export function reportingDay(value: string | number): string {
   if (value === "") return "";
   const date = new Date(value);

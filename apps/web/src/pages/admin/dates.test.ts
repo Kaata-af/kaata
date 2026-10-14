@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { fmtDateTime, fmtDateTimeParts, msUntilReportingMidnight, reportingDay } from "./dates.ts";
+import {
+  fmtDateTime,
+  fmtDateTimeParts,
+  fmtExactDateTime,
+  msUntilReportingMidnight,
+  reportingDay,
+} from "./dates.ts";
+
+test("recent installs expose recorded seconds in Kabul and do not fabricate historical times", () => {
+  assert.equal(fmtExactDateTime("2026-10-15T08:05:37Z"), "Oct 15, 2026, 12:35:37");
+  assert.equal(fmtExactDateTime("2026-09-13T19:30:00Z"), "Sep 14, 2026, 00:00:00");
+  assert.equal(fmtExactDateTime("2026-09-13"), "Sep 13, 2026");
+  assert.equal(fmtExactDateTime("not a timestamp"), "—");
+});
 
 test("date and time tokens match the one-line Kabul timestamp and never invent a time", () => {
   for (const value of [
