@@ -39,6 +39,7 @@ import {
   getDb,
   refreshAccountIdCache,
   setActiveVaultIdCache,
+  setAppMetaInTx,
   setLocalSelfUserIdCache,
 } from "./db-tx";
 import { ensureInstallId } from "./install-id";
@@ -46,7 +47,7 @@ import { fetchSnapshot, restoreFromSnapshot } from "./restore";
 import { parseVaultRole } from "./vault-roles";
 import { pullEvents } from "./sync/pull";
 import { ensureDeviceKey, registerDeviceKey } from "./mesh/device-key";
-import { scheduleSweep } from "./projection/sweep";
+import { scheduleSweep, sweepVaultNow } from "./projection/sweep";
 import { syncAllTabs } from "./tabs/sync";
 import { fetchMine } from "./tabs/api";
 import { getTabLink } from "./tabs/db";
@@ -274,6 +275,7 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
       // server read/write works via account ACL without it.
       try {
         await emitWitnessedSelfAdmission(v.vault_id, { session });
+        await apply(() => setAppMeta(witnessEmitPendingKey(v.vault_id), ""));
       } catch (err) {
         if (err instanceof SessionChangedError) throw err;
         // M5 (review fix — MED): leave the pending flag set so ensureChainBackfill
@@ -522,6 +524,7 @@ export async function recoverJoinedVault(vaultId: string): Promise<boolean> {
   const { id: localSelfId } = await apply(() => ensureLocalSelfForRestore());
 
   let listings: VaultListing[];
+  let pinnedMissingAnchor = false;
   try {
     listings = await listVaults();
   } catch (err) {
@@ -545,7 +548,7 @@ export async function recoverJoinedVault(vaultId: string): Promise<boolean> {
     if (snapshot) {
       await restoreFromSnapshot(snapshot, { setActiveDefault: false, localSelfId, session });
     } else {
-      await apply(() => seedVaultFromListing(v));
+      pinnedMissingAnchor = await apply(() => seedVaultFromListing(v));
     }
   } catch (err) {
     if (err instanceof SessionChangedError) throw err;
@@ -553,7 +556,7 @@ export async function recoverJoinedVault(vaultId: string): Promise<boolean> {
     // exists and the vault is at least visible + sync-targeted.
     console.warn("[recovery] joined vault seed failed; falling back to bare seed", err);
     try {
-      await apply(() => seedVaultFromListing(v));
+      pinnedMissingAnchor = await apply(() => seedVaultFromListing(v));
     } catch (seedErr) {
       if (seedErr instanceof SessionChangedError) throw seedErr;
       console.warn("[recovery] joined vault bare seed failed", seedErr);
@@ -581,6 +584,7 @@ export async function recoverJoinedVault(vaultId: string): Promise<boolean> {
     if (err instanceof SessionChangedError) throw err;
     console.warn("[recovery] joined vault membership heal failed", err);
   }
+  if (pinnedMissingAnchor) await retryPinnedVaultAdmission(v.vault_id, session);
   await apply(async () => {});
 
   return true;
@@ -691,7 +695,7 @@ async function pinServerWitnessKeys(session?: SessionSnapshot): Promise<void> {
  * set, so the next pull fetches every event (incl. the membership chain) from
  * server_seq 0.
  */
-async function seedVaultFromListing(v: VaultListing): Promise<void> {
+async function seedVaultFromListing(v: VaultListing): Promise<boolean> {
   // NEVER seed with a null account_id — a vault row with account_id NULL is
   // invisible to account-scoped local queries (a real data-loss path). The
   // cache can be cold here if the launch check-in raced this restore, so
@@ -702,7 +706,7 @@ async function seedVaultFromListing(v: VaultListing): Promise<void> {
   if (!accountId) accountId = await refreshAccountIdCache();
   if (!accountId) {
     console.warn("[recovery] skip seed — no account_id resolved", v.vault_id.slice(0, 8));
-    return;
+    return false;
   }
   // registered_with_server_at is set (the server already knows this vault — it
   // came back from GET /v1/vaults), so the reconcile loop won't re-POST it.
@@ -724,6 +728,102 @@ async function seedVaultFromListing(v: VaultListing): Promise<void> {
     v.vault_epoch,
     v.vault_trust_anchor_pubkey ?? null,
   );
+  // Invite acceptance already seeded this id with a NULL anchor. INSERT OR
+  // IGNORE leaves that minimal row intact, so enrich it explicitly; otherwise
+  // the downloaded genesis remains quarantined even after the pull cursor
+  // reaches the end of the server log.
+  return pinMissingVaultAnchorFromListing(v, accountId);
+}
+
+/**
+ * One-way enrichment from an authoritative signed-in vault listing. Callers
+ * must hold applyForCurrentSession for the session that fetched the listing.
+ * An existing pin, another account's private row, and revoked memberships are
+ * never changed. Sweep already-downloaded proofs when the pin becomes usable:
+ * an empty incremental pull would not otherwise retry them.
+ */
+export async function pinMissingVaultAnchorFromListing(
+  v: VaultListing,
+  accountId: string,
+): Promise<boolean> {
+  const anchor = v.vault_trust_anchor_pubkey;
+  if (!accountId || !anchor || (v.archived_at_ms != null && v.role !== "owner")) return false;
+  const db = await getDb();
+  const { applyEventMutex } = await import("./projection");
+  let changed = false;
+  await applyEventMutex.runExclusive(() =>
+    db.withTransactionAsync(async () => {
+      const result = await db.runAsync(
+        `UPDATE vaults SET vault_trust_anchor_pubkey = ?
+      WHERE id = ? AND vault_trust_anchor_pubkey IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM vault_members_mirror removed
+           WHERE removed.vault_id = vaults.id AND removed.account_id = ?
+             AND removed.revoked_at IS NOT NULL
+        )
+        AND (
+          account_id = ? OR EXISTS (
+            SELECT 1 FROM vault_members_mirror m
+             WHERE m.vault_id = vaults.id AND m.account_id = ?
+               AND m.accepted_at IS NOT NULL AND m.revoked_at IS NULL
+          )
+        )`,
+        anchor,
+        v.vault_id,
+        accountId,
+        accountId,
+        accountId,
+      );
+      changed = result.changes > 0;
+      if (changed) {
+        // The NULL-anchor fallback may have skipped the member's own admission
+        // because their minimal mirror row was already present. Persist its
+        // existing retry marker atomically with the pin, before any sweep or
+        // network attempt; a crash cannot leave this repair half recorded.
+        await setAppMetaInTx(db, witnessEmitPendingKey(v.vault_id), "1");
+      }
+    }),
+  );
+  if (!changed) return false;
+  await sweepVaultNow(v.vault_id);
+  return true;
+}
+
+/** Finish a changed-pin repair outside the session mutex (the witness is HTTP). */
+export async function retryPinnedVaultAdmission(
+  vaultId: string,
+  session: SessionSnapshot,
+): Promise<void> {
+  try {
+    await ensureDeviceKey();
+    const { getDevicePubkey } = await import("./mesh/device-key");
+    const { getLocalMembershipState } = await import("./trust/proof");
+    const allowed = await applyForCurrentSession(session, async () => {
+      if (!session.accountId) return false;
+      const db = await getDb();
+      const removed = await db.getFirstAsync<{ one: number }>(
+        `SELECT 1 AS one FROM vault_members_mirror
+          WHERE vault_id = ? AND account_id = ? AND revoked_at IS NOT NULL`,
+        vaultId,
+        session.accountId,
+      );
+      if (removed) return false;
+      const state = await getLocalMembershipState(vaultId);
+      const pubkey = getDevicePubkey();
+      return (
+        !state?.members.get(session.accountId)?.removed &&
+        !(pubkey && state?.devices.get(pubkey)?.removed)
+      );
+    });
+    if (!allowed) return;
+    await emitWitnessedSelfAdmission(vaultId, { session });
+    await applyForCurrentSession(session, () => setAppMeta(witnessEmitPendingKey(vaultId), ""));
+  } catch (err) {
+    if (err instanceof SessionChangedError) throw err;
+    // Retain the durable marker. Existing backfill retries the same protocol;
+    // it never bypasses a server refusal or a removed member/device.
+    console.warn("[recovery] changed-anchor admission retry deferred", err);
+  }
 }
 
 async function preserveListingArchive(v: VaultListing): Promise<void> {

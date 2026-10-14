@@ -591,6 +591,59 @@ the actual WhatsApp handoff still require iOS/Android checks in the next build.
 Production Metro/Hermes exports also pass for both iOS and Android.
 This is source work after testing 37/57, with no native version/store change.
 
+## October 14 invite sync investigation and local anchor repair — next testing build
+
+An accepted invitation in the admin dashboard represents the server's access
+list. Phones learn the other member through signed membership/device events;
+these are separate states. The reported case was investigated using read-only
+VPS membership, event, device, audit, snapshot and request-log queries, the
+host's supplied App health report/screenshots, and an offline replay of public
+membership envelopes through the actual app signature verifier and chain fold.
+Backend/web containers are healthy at deployed source `0424b02`. No live ledger,
+membership, device revocation, trust key or account was changed.
+
+The older recovered kaata lacks its original anchor-signed owner/genesis event.
+Its persisted membership signatures verify, but cannot establish a usable chain.
+A later remove/re-invite restores server access while the existing device-removal
+rule still refuses a self-service witness. An update or a counter refresh cannot
+manufacture the missing owner signature or override that removal. Do not re-anchor
+the existing ledger, mark rejected proofs accepted, or clear removed device rows
+as a repair. Original valid ownership proof or a separately designed recovery
+path is required for that state.
+
+The newer kaata has a valid genesis but no admission events or witness request
+from the affected joiner. The host's report shows a successful server sync with
+no unsent/rejected events. The joiner's own diagnostics are still needed to
+locate that interruption; do not claim this specific live join is resolved.
+
+A separate contributing app defect was reproduced against real SQLite:
+`seedJoinedVaultMinimal` creates a NULL local anchor; the later listing seed's
+`INSERT OR IGNORE` could leave it NULL after snapshot failure or absence. The
+repair fills only a missing pin from the original session's authorized listing,
+records the standard admission retry atomically and sweeps already downloaded
+proofs even after the pull cursor has caught up. The periodic reconciliation pass
+also repairs affected installed copies. Witness requests run outside the session
+mutex, failures retain the retry marker, and existing pins/removals, other-account
+private rows, archived nonowner access and account-switch guards stay enforced.
+
+App health now separates verified membership proof from server sync: active
+kaata anchor/genesis, current account/device admission, aggregate proof conflicts,
+pending witness and un-applied/quarantined/rejected/tombstoned membership event
+counts. It includes no event payloads, names or keys; identity/kaata/key changes
+discard the probe and any probe failure leaves the rest of the report usable.
+Proofs beyond the verifier's event limit report incomplete/current admission
+unknown, rather than treating an older partial fold as healthy.
+
+Validation: mobile TypeScript, invite-anchor-repair, diagnostics (10 cases),
+recovery-session, sync-reconcile, sync-push, device-key, ingest and the real
+membership-chain suite pass. Explicit final iOS/Android production Metro/Hermes
+exports pass. Independent review checked lock/session order, immutable pins,
+revocation and archived-member gates, crash retry markers and report privacy.
+
+Source-only changes after testing 37/57; no native version/store upload or backend
+deployment is included. Device join, interrupted restore and two-phone convergence
+still require testing with the next build.
+
 ## Deferred by the user
 
 The household/shopkeeper ledger needs two parties: the user and Dad on one

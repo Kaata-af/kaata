@@ -29,7 +29,12 @@
 
 import * as Network from "expo-network";
 
-import { getSessionJWT } from "../auth";
+import {
+  applyForCurrentSession,
+  captureCurrentSession,
+  getSessionJWT,
+  SessionChangedError,
+} from "../auth";
 import { resolveAccountIdCandidates } from "../effective-account";
 import {
   getAccountIdSync,
@@ -189,37 +194,55 @@ export async function reconcileVaultRegistrations(): Promise<void> {
 // the current key is a different one. Sending that would enshrine an anchor
 // no chain event was ever signed by.
 //
+// The same listing repairs NULL LOCAL anchors left by invite minimal seeds.
+// Existing local pins are immutable; an actual change re-sweeps downloaded
+// proof and retries the ordinary witnessed admission for this session.
 // Costs one GET /v1/vaults per call, so it rides the periodic sweep rather
-// than the per-tick path. Best-effort throughout: never throws.
+// than the per-tick path. Best-effort throughout.
 export async function healMissingServerAnchors(): Promise<void> {
-  const jwt = await getSessionJWT();
-  if (!jwt) return;
+  const session = await captureCurrentSession();
+  if (!session.jwt || !session.accountId) return;
+  const net = await Network.getNetworkStateAsync();
+  if (!net.isConnected) return;
   let listings: Awaited<ReturnType<typeof listVaults>>;
   try {
     listings = await listVaults();
   } catch {
     return; // offline / transient — the next sweep retries
   }
-  const anchorless = listings.filter((v) => !v.vault_trust_anchor_pubkey);
-  if (anchorless.length === 0) return;
-
   const db = await getDb();
-  for (const listing of anchorless) {
+  for (const listing of listings) {
     try {
+      if (listing.vault_trust_anchor_pubkey) {
+        // A link-join's minimal local row used to keep its NULL anchor forever
+        // when the server had no snapshot. Repair affected installed copies
+        // from the same authorized listing, even after their cursor caught up.
+        // Only local work runs under the captured-session mutex; the standard
+        // witness retry below performs its HTTP request outside it.
+        const { pinMissingVaultAnchorFromListing, retryPinnedVaultAdmission } =
+          await import("../recovery");
+        const changed = await applyForCurrentSession(session, () =>
+          pinMissingVaultAnchorFromListing(listing, session.accountId!),
+        );
+        if (changed) await retryPinnedVaultAdmission(listing.vault_id, session);
+        continue;
+      }
       // Only OUR vaults, and only ones we hold an anchor for. `role` comes
       // from the server's own membership row, so a joined vault (where the
       // anchor is someone else's to publish) is skipped.
       if (listing.role !== "owner") continue;
-      const row = await db.getFirstAsync<{
-        id: string;
-        name: string;
-        currency: string;
-        created_at: number;
-        vault_trust_anchor_pubkey: string | null;
-      }>(
-        `SELECT id, name, currency, created_at, vault_trust_anchor_pubkey
+      const row = await applyForCurrentSession(session, () =>
+        db.getFirstAsync<{
+          id: string;
+          name: string;
+          currency: string;
+          created_at: number;
+          vault_trust_anchor_pubkey: string | null;
+        }>(
+          `SELECT id, name, currency, created_at, vault_trust_anchor_pubkey
            FROM vaults WHERE id = ? LIMIT 1`,
-        listing.vault_id,
+          listing.vault_id,
+        ),
       );
       if (!row?.vault_trust_anchor_pubkey) continue;
       await createVaultOnServer({
@@ -229,8 +252,10 @@ export async function healMissingServerAnchors(): Promise<void> {
         created_at_ms: row.created_at,
         vault_trust_anchor_pubkey: row.vault_trust_anchor_pubkey,
       });
+      await applyForCurrentSession(session, async () => {});
       console.warn(`[reconcile] filled missing server anchor for ${row.id.slice(0, 8)}`);
     } catch (err) {
+      if (err instanceof SessionChangedError) return;
       console.warn("[reconcile] anchor heal failed for", listing.vault_id.slice(0, 8), err);
     }
   }

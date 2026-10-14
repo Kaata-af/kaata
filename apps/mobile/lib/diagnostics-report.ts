@@ -20,7 +20,7 @@ import { Platform } from "react-native";
 
 import { MESH_PARKED } from "../constants/env";
 import { getBackendUrl } from "./api";
-import { isSignedIn } from "./auth";
+import { applyForUnchangedLocalSession, captureCurrentSession, isSignedIn } from "./auth";
 import { getAppMeta } from "./db";
 import { getActiveVaultIdSyncMaybe, getDb } from "./db-tx";
 import { getCalendarPref, getEffectiveCalendar } from "./calendar";
@@ -74,6 +74,89 @@ export function nativeVersionLabel(): { version: string; build: string } {
     version: Application.nativeApplicationVersion ?? "?",
     build: Application.nativeBuildVersion ?? "?",
   };
+}
+
+// A successful server mirror sync does not imply this phone has a usable
+// membership proof. Keep these separate, active-kaata-only, and content-free.
+// Reuse the real chain fold rather than inferring trust from mirror row counts.
+async function membershipDiagnostics(vaultId: string): Promise<string[]> {
+  const session = await captureCurrentSession();
+  if (getActiveVaultIdSyncMaybe() !== vaultId) throw new Error("diagnostic_scope_changed");
+  const [proof, identity, deviceKey, chain] = await Promise.all([
+    import("./trust/proof"),
+    import("./effective-account"),
+    import("./mesh/device-key"),
+    import("./trust/chain"),
+  ]);
+  // getDeviceKeyStatus above already probes readiness; do not repair or rotate
+  // a key here, or treat a mirrored/retired public key as the current signer.
+  const currentKey = deviceKey.getDevicePubkey();
+  const db = await getDb();
+  const types = [...chain.MEMBERSHIP_EVENT_TYPES];
+  const [state, myIds, pending, events] = await Promise.all([
+    proof.getLocalMembershipState(vaultId),
+    identity.resolveAccountIdCandidates(session.accountId),
+    getAppMeta(`witness_emit_pending:${vaultId}`),
+    db.getFirstAsync<{
+      total: number;
+      unapplied: number;
+      quarantined: number;
+      rejected: number;
+      tombstoned: number;
+    }>(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN applied_at IS NULL THEN 1 ELSE 0 END) AS unapplied,
+              SUM(CASE WHEN quarantine_reason IS NOT NULL THEN 1 ELSE 0 END) AS quarantined,
+              SUM(CASE WHEN rejected_at IS NOT NULL THEN 1 ELSE 0 END) AS rejected,
+              SUM(CASE WHEN tombstone_reason IS NOT NULL THEN 1 ELSE 0 END) AS tombstoned
+         FROM event_log
+        WHERE vault_id = ? AND event_type IN (${types.map(() => "?").join(", ")})`,
+      vaultId,
+      ...types,
+    ),
+  ]);
+  // The session guard catches account A→B→A changes too. Do not publish a
+  // partly collected proof for another kaata or a key rotated during the probe.
+  return applyForUnchangedLocalSession(session, async () => {
+    if (getActiveVaultIdSyncMaybe() !== vaultId || deviceKey.getDevicePubkey() !== currentKey) {
+      throw new Error("diagnostic_scope_changed");
+    }
+    const mine = new Set(myIds);
+    const currentMember = myIds.some((id) => {
+      const member = state?.members.get(id);
+      return !!member && !member.removed;
+    });
+    const device = currentKey ? state?.devices.get(currentKey) : null;
+    const deviceMember = device ? state?.members.get(device.account_id) : null;
+    const currentDevice =
+      !!device &&
+      !device.removed &&
+      mine.has(device.account_id) &&
+      !!deviceMember &&
+      !deviceMember.removed;
+    const activeMembers = state
+      ? [...state.members.values()].filter((member) => !member.removed).length
+      : 0;
+    const yn = (value: boolean) => (value ? "yes" : "no");
+    // The real proof loader reads the earliest bounded set. Later removals
+    // may be outside it, so a capped fold must never report healthy membership.
+    // The raw count is conservative (it includes tombstones); event/witness
+    // diagnostics remain useful even when proof completeness is unknown.
+    const incomplete = (events?.total ?? 0) > proof.PROOF_BUNDLE_CAP;
+    const proofLine = incomplete
+      ? `Membership proof: incomplete (event limit=${proof.PROOF_BUNDLE_CAP}); ` +
+        "currentMember=unknown currentDevice=unknown"
+      : `Membership proof: anchor=${yn(!!state)} genesis=${yn(!!state?.hasGenesis)} ` +
+        `currentMember=${yn(currentMember)} currentDevice=${currentKey ? yn(currentDevice) : "not ready"} ` +
+        `activeMembers=${activeMembers} conflicts=${state?.conflicts.length ?? 0}`;
+    return [
+      proofLine,
+      `Pending membership witness: ${yn(pending === "1")}`,
+      `Membership events: total=${events?.total ?? 0} unapplied=${events?.unapplied ?? 0} ` +
+        `quarantined=${events?.quarantined ?? 0} rejected=${events?.rejected ?? 0} ` +
+        `tombstoned=${events?.tombstoned ?? 0}`,
+    ];
+  });
 }
 
 export async function buildDiagnosticsReport(): Promise<string> {
@@ -265,6 +348,13 @@ export async function buildDiagnosticsReport(): Promise<string> {
     /* omit */
   }
   if (vaultId) {
+    try {
+      for (const line of await membershipDiagnostics(vaultId)) push(line);
+    } catch {
+      // An old schema, locked store, unavailable verifier, or identity switch
+      // must not prevent copying the rest of App health. Never include errors.
+      push("Membership proof: —");
+    }
     try {
       const ind = await getSyncIndicator(vaultId);
       push(

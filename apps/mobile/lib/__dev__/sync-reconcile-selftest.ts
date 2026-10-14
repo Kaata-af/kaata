@@ -40,7 +40,12 @@ const currentPubkey = Buffer.alloc(32, 1).toString("base64");
 const retiredPubkey = Buffer.alloc(32, 2).toString("base64");
 const foreignPubkey = Buffer.alloc(32, 3).toString("base64");
 stub("expo-network", { getNetworkStateAsync: async () => ({ isConnected: online }) });
-stub("../auth", { getSessionJWT: async () => jwt });
+stub("../auth", {
+  getSessionJWT: async () => jwt,
+  captureCurrentSession: async () => ({ jwt, accountId: "synthetic-account" }),
+  applyForCurrentSession: async (_: unknown, work: () => Promise<unknown>) => work(),
+  SessionChangedError: class extends Error {},
+});
 stub("../db-tx", {
   getDb: async () => sqlite,
   getAccountIdSync: () => "synthetic-account",
